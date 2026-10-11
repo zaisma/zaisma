@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 822" role="img" aria-label="Zaisma">
+  <defs>
+    <radialGradient id="g"><stop offset="0" stop-color="#FCFC90"/><stop offset="0.55" stop-color="#F7FA5C"/><stop offset="1" stop-color="#EAFB14"/></radialGradient>
+  </defs>
+  <g fill="url(#g)">
+    <path d="M264 0 H1110 L716 153 H244 Z"/>
+    <path d="M702 188 L1038 58 Q840 300 545 575 L118 740 Q420 480 702 188 Z"/>
+    <path d="M528 618 H1166 L1200 822 H0 Z"/>
+  </g>
+</svg>
