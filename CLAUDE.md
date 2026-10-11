@@ -2,7 +2,7 @@
 
 Open-source, browser-first game platform: a Roblox alternative for every kind of game, including games made with AI tools. Tap a link and you're playing, as a guest, in any browser.
 
-Founder: Julius (julius@ivsan.com). Side project, built in public. MIT licensed.
+Founder: Julius. Side project, built in public. MIT licensed.
 
 ## Read first
 
