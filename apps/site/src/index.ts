@@ -2,6 +2,7 @@ import type { ScanJob } from "@zaisma/core";
 import { handleAccount } from "./account.ts";
 import { dailyCleanup, publishDue } from "./cleanup.ts";
 import { handleAdmin } from "./admin.ts";
+import { handleDashboard } from "./dashboard.ts";
 import { handleDeveloper } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { message } from "./html.ts";
@@ -29,6 +30,9 @@ export default {
 
     const save = path.match(/^\/api\/saves\/([a-z0-9-]+)$/);
     if (save) return handleSaves(request, env, save[1]!);
+
+    const dashboard = await handleDashboard(request, env, path);
+    if (dashboard) return dashboard;
 
     const account = await handleAccount(request, env, path);
     if (account) return account;

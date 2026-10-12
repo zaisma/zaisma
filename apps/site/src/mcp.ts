@@ -1,5 +1,5 @@
 import { CONTROLS, DEVICES, SCREENS, VISIBILITIES } from "@zaisma/core";
-import { ApiError, authenticate, route, type Caller } from "./developer.ts";
+import { ApiError, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 
 /**
@@ -243,19 +243,7 @@ export async function handleMcp(request: Request, env: Env): Promise<Response> {
     return Response.json(rpcError(null, -32700, "Send JSON-RPC as JSON."), { status: 400 });
   }
 
-  const origin = new URL(request.url).origin;
-  const call: ApiCall = async (method, path, payload) => {
-    const raw = payload instanceof Uint8Array;
-    const data = raw ? payload : payload === undefined ? undefined : new TextEncoder().encode(JSON.stringify(payload));
-    const req = new Request(`${origin}/api/dev${path}`, {
-      method,
-      headers: { ...(data ? { "content-length": String(data.byteLength) } : {}), ...(data && !raw ? { "content-type": "application/json" } : {}) },
-      body: data,
-    });
-    // Errors come back as ApiError, which tools/call turns into a tool error the AI can read.
-    const res = await route(req, env, path.split("?")[0]!, caller);
-    return (await res.json()) as Record<string, unknown>;
-  };
+  const call: ApiCall = (method, path, payload) => apiCall(env, caller, method, path, payload);
 
   const answer = async (msg: RpcMessage): Promise<unknown | null> => {
     if (!msg || typeof msg !== "object" || msg.jsonrpc !== "2.0" || typeof msg.method !== "string") return rpcError(msg?.id, -32600, "Not a JSON-RPC 2.0 request.");

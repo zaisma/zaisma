@@ -1,6 +1,7 @@
 import { env, SELF } from "cloudflare:test";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { accountById, ageBand, ageOn, canonicalSave, checkName, gameById, gameOwner, saveKey } from "@zaisma/core";
+import { accountById, ageBand, ageOn, canonicalSave, checkName, gameById, gameBySlug, gameOwner, saveKey, sha256Hex, versionById } from "@zaisma/core";
+import { scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
 
 const SITE = "https://zaisma.test";
 const SUPABASE = "https://supabase.test";
@@ -430,5 +431,80 @@ describe("API keys on the account page", () => {
     const body = JSON.stringify({ title: "Cookie Game" });
     expect((await b.go("/api/dev/games", undefined, { method: "POST", body, origin: "https://evil.example" })).status).toBe(403);
     expect((await b.go("/api/dev/games", undefined, { method: "POST", body })).status).toBe(201);
+  });
+});
+
+describe("the dashboard", () => {
+  const pass: ScanDeps = {
+    images: { check: async (imgs) => ({ provider: "test", connected: true, checked: imgs.length, findings: [] }) },
+    ai: async () => ({ report: { model: "test", verdict: "pass", summary: "fine", inputTokens: 1, outputTokens: 1 }, findings: [], childSafety: false }),
+  };
+
+  /** Upload a one-file game through the API with the browser's session, then pass its scan. */
+  async function uploadAndPass(b: Browser, slug: string, text: string): Promise<string> {
+    const sha256 = await sha256Hex(new TextEncoder().encode(text));
+    const files = [{ path: "index.html", sha256, bytes: new TextEncoder().encode(text).byteLength }];
+    await b.go(`/api/dev/games/${slug}/uploads`, undefined, { method: "POST", body: JSON.stringify({ files }) });
+    expect((await b.go(`/api/dev/files/${sha256}`, undefined, { method: "PUT", body: text })).status).toBe(200);
+    const { version } = (await (await b.go(`/api/dev/games/${slug}/versions`, undefined, { method: "POST", body: JSON.stringify({ files }) })).json()) as { version: { id: string } };
+    for (let i = 0; i < 60 && (await versionById(env.DB, version.id))?.scan_status === "scanning"; i++) await new Promise((r) => setTimeout(r, 50));
+    await scanVersion({ ...env, ANTHROPIC_API_KEY: "test-key" }, version.id, pass);
+    return version.id;
+  }
+
+  it("sends signed-out visitors to sign in", async () => {
+    const res = await new Browser().go("/dashboard");
+    expect(res.status).toBe(303);
+    expect(res.headers.get("location")).toBe("/signin?next=%2Fdashboard");
+  });
+
+  it("makes a game, publishes it and asks before hiding it", async () => {
+    const b = new Browser();
+    await join(b);
+    expect(await (await b.go("/dashboard")).text()).toContain("No games yet");
+
+    const made = await b.go("/dashboard/new", { title: "Sky Hopper" });
+    expect(made.headers.get("location")).toBe("/dashboard/sky-hopper?done=made");
+    expect(await (await b.go("/dashboard")).text()).toContain("Sky Hopper");
+
+    const id = await uploadAndPass(b, "sky-hopper", "<p>hop</p>");
+    const page = await (await b.go("/dashboard/sky-hopper")).text();
+    expect(page).toContain(`/dashboard/sky-hopper/versions/${id}/publish`);
+    expect(page).toContain("Preview");
+
+    expect((await b.go(`/dashboard/sky-hopper/versions/${id}/publish`, {})).headers.get("location")).toContain("done=published");
+    await b.go("/dashboard/sky-hopper/visibility", { visibility: "listed" });
+    expect((await gameBySlug(env.DB, "sky-hopper"))!.visibility).toBe("listed");
+
+    const asked = await b.go("/dashboard/sky-hopper/visibility", { visibility: "private" });
+    expect(await asked.text()).toContain("Hide it from players");
+    expect((await gameBySlug(env.DB, "sky-hopper"))!.visibility).toBe("listed");
+    await b.go("/dashboard/sky-hopper/visibility", { visibility: "private", confirm: "yes" });
+    expect((await gameBySlug(env.DB, "sky-hopper"))!.visibility).toBe("private");
+  });
+
+  it("saves details and shows API refusals on the page", async () => {
+    const b = new Browser();
+    await join(b);
+    await b.go("/dashboard/new", { title: "Hop" });
+    const saved = await b.go("/dashboard/hop/details", { title: "Hop Hop", description: "Jump.", devices: "phone", screen: "portrait" });
+    expect(saved.headers.get("location")).toContain("done=details");
+    expect(await gameBySlug(env.DB, "hop-hop")).toBeNull();
+    expect((await gameBySlug(env.DB, "hop"))!).toMatchObject({ title: "Hop Hop", devices: "phone", screen: "portrait" });
+
+    const refused = await b.go("/dashboard/hop/details", { title: "" });
+    expect(refused.status).toBe(400);
+    expect(await refused.text()).toContain("The title needs 1 to 80 characters.");
+  });
+
+  it("keeps other people's games and other sites out", async () => {
+    const owner = new Browser();
+    await join(owner);
+    await owner.go("/dashboard/new", { title: "Mine" });
+    const other = new Browser();
+    await join(other, "other@example.com", "Other Owl");
+    expect((await other.go("/dashboard/mine")).status).toBe(404);
+    expect((await other.go("/dashboard/mine/visibility", { visibility: "draft" })).status).toBe(404);
+    expect((await owner.go("/dashboard/mine/visibility", { visibility: "listed" }, { origin: "https://evil.example" })).status).toBe(403);
   });
 });
