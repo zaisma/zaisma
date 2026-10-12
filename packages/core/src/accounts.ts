@@ -89,6 +89,7 @@ export async function deleteAccount(db: D1Database, id: string): Promise<void> {
       ? [db.prepare("UPDATE games SET owner_id = NULL WHERE owner_id = ?").bind(owner.id), db.prepare("DELETE FROM owners WHERE id = ?").bind(owner.id)]
       : []),
     db.prepare("DELETE FROM saves WHERE account_id = ?").bind(id),
+    db.prepare("DELETE FROM played WHERE account_id = ?").bind(id),
     db.prepare("DELETE FROM api_keys WHERE account_id = ?").bind(id),
     db.prepare("DELETE FROM accounts WHERE id = ?").bind(id),
   ]);
@@ -124,5 +125,27 @@ export async function gamesOwnedBy(db: D1Database, accountId: string): Promise<{
     .prepare("SELECT games.id, games.slug, games.title, games.status FROM games JOIN owners ON owners.id = games.owner_id WHERE owners.account_id = ? ORDER BY games.updated_at DESC")
     .bind(accountId)
     .all<{ id: string; slug: string; title: string; status: string }>();
+  return results;
+}
+
+/** How many games Continue playing remembers. */
+export const PLAYED_KEEP = 20;
+
+/** Remember that this account just played this game, keeping only the newest few. */
+export async function recordPlayed(db: D1Database, accountId: string, gameId: string, at = Date.now()): Promise<void> {
+  await db.batch([
+    db.prepare("INSERT INTO played (account_id, game_id, at) VALUES (?, ?, ?) ON CONFLICT (account_id, game_id) DO UPDATE SET at = excluded.at").bind(accountId, gameId, at),
+    db
+      .prepare("DELETE FROM played WHERE account_id = ? AND game_id NOT IN (SELECT game_id FROM played WHERE account_id = ? ORDER BY at DESC LIMIT ?)")
+      .bind(accountId, accountId, PLAYED_KEEP),
+  ]);
+}
+
+/** The games this account played, newest first, by link name. */
+export async function recentlyPlayed(db: D1Database, accountId: string): Promise<{ slug: string; at: number }[]> {
+  const { results } = await db
+    .prepare("SELECT games.slug, played.at FROM played JOIN games ON games.id = played.game_id WHERE played.account_id = ? ORDER BY played.at DESC LIMIT ?")
+    .bind(accountId, PLAYED_KEEP)
+    .all<{ slug: string; at: number }>();
   return results;
 }

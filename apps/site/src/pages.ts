@@ -1,22 +1,9 @@
-import { AUTO_HOLD_REASONS, REPORT_REASONS, audit, createReport, gameBySlug, liveGames, setGameStatus, type ReportReason } from "@zaisma/core";
+import { AUTO_HOLD_REASONS, REPORT_REASONS, audit, createReport, gameBySlug, setGameStatus, type ReportReason } from "@zaisma/core";
 import { gameUrl, type Env } from "./env.ts";
-import { html, layout, message, metalButton, raw } from "./html.ts";
+import { html, layout, message, metalButton, raw, siteFooter, siteHeader } from "./html.ts";
+import { showcase, tile } from "./home.ts";
 import { SAVES_CLIENT } from "./saves-client.ts";
 import { sendAlert } from "./email.ts";
-
-export async function home(env: Env): Promise<Response> {
-  const games = await liveGames(env.DB);
-  return layout(env, {
-    title: "Zaisma: every kind of game, one link away",
-    body: html`<h1>Every kind of game. One link away.</h1>
-<p class="lead">Pick a game, tap Play and you're in. No account, no download.</p>
-${games.length === 0
-      ? html`<p class="empty">The first games are on their way.</p>`
-      : html`<div class="grid">${games.map(
-          (g) => html`<a class="card" href="/g/${g.slug}"><h3>${g.title}</h3><p>${g.description}</p>${g.game_server || g.connect_hosts ? html`<span class="pill">Multiplayer</span>` : ""}</a>`,
-        )}</div>`}`,
-  });
-}
 
 const ROOM_CODE = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/;
 
@@ -33,6 +20,19 @@ export async function gamePage(env: Env, slug: string, url: URL): Promise<Respon
   const saves = Boolean(game.cloud_saves && env.SUPABASE_URL);
   const multiplayer = Boolean(game.game_server || game.connect_hosts);
   const ownServers = game.connect_hosts.split("\n").filter(Boolean).map((o) => o.replace(/^[a-z]+:\/\//, ""));
+  const autoplay = inRoom || url.searchParams.has("play");
+  const [developer, pictures, updates, others] = await Promise.all([
+    game.owner_id
+      ? env.DB.prepare("SELECT accounts.name, (SELECT COUNT(*) FROM games WHERE owner_id = ? AND status = 'live' AND visibility = 'listed') AS games FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE owners.id = ?").bind(game.owner_id, game.owner_id).first<{ name: string; games: number }>()
+      : null,
+    env.DB.prepare("SELECT id, kind FROM game_images WHERE game_id = ? AND status = 'approved' ORDER BY kind = 'cover' DESC, created_at").bind(game.id).all<{ id: string; kind: string }>(),
+    env.DB.prepare("SELECT id, notes, published_at FROM versions WHERE game_id = ? AND published_at IS NOT NULL AND notes != '' ORDER BY published_at DESC LIMIT 10").bind(game.id).all<{ id: string; notes: string; published_at: number }>(),
+    showcase(env, 60),
+  ]);
+  const shots = pictures.results.map((p) => `/img/${p.id}`);
+  const more = [...others.filter((g) => g.slug !== game.slug && g.owner_id && g.owner_id === game.owner_id), ...others.filter((g) => g.slug !== game.slug && (!g.owner_id || g.owner_id !== game.owner_id))].slice(0, 4);
+  const devices = game.devices ? game.devices.split(",") : [];
+  const day = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
   const res = layout(env, {
     title: `${game.title} on Zaisma`,
     bare: true,
@@ -40,15 +40,40 @@ export async function gamePage(env: Env, slug: string, url: URL): Promise<Respon
 /* Two states on one page: details with a Play button, then the game filling the screen. */
 body.playing{display:flex;flex-direction:column;height:100vh;height:100dvh;overflow:hidden}
 body:not(.playing) #full{display:none}
-body.playing .details{display:none}
+body.playing>header.top,body.playing>main.gp,body.playing>footer{display:none}
+body:not(.playing) .bar{display:none}
 .bar{display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--line);flex:none}
-.details{max-width:860px;margin:0 auto;padding:16px 16px 48px}
-.hero{position:relative;aspect-ratio:16/9;max-height:56vh;width:100%;overflow:hidden;clip-path:polygon(0 0,calc(100% - 36px) 0,100% 36px,100% 100%,0 100%);display:grid;place-items:center;
-  background:radial-gradient(120% 90% at 20% 10%,#2a2d33 0%,#16171a 55%,#0d0e10 100%)}
-.hero .name{position:absolute;left:20px;bottom:16px;font-family:var(--display);font-size:clamp(22px,5vw,40px);font-weight:600;letter-spacing:-.01em;text-shadow:0 2px 12px rgba(0,0,0,.6)}
-.meta{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:16px 0 8px;color:var(--muted);font-size:14px}
-.details .desc{font-size:17px;margin:8px 0 18px;white-space:pre-line}
-.details .row a,.details .row button{font-size:14px}
+main.gp{max-width:1240px;margin:0 auto;padding:28px 24px 64px}
+.gp-top{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:32px;align-items:start}
+.viewer .shot{aspect-ratio:16/9;background:var(--pic);overflow:hidden}
+.viewer .shot img{width:100%;height:100%;object-fit:cover;display:block}
+.viewer .thumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:10px;margin-top:10px}
+.viewer .thumbs button{padding:0;border:0;background:var(--pic);aspect-ratio:16/9;cursor:pointer;overflow:hidden;opacity:.6}
+.viewer .thumbs button[aria-pressed=true]{opacity:1;box-shadow:0 0 0 2px #000,-2px -2px 0 2px #fff}
+.viewer .thumbs img{width:100%;height:100%;object-fit:cover;display:block}
+.side{display:flex;flex-direction:column;gap:16px}
+.side h1{margin:0}
+.side .by{margin:-8px 0 0;color:var(--muted);font-size:15px}
+.side .by a{color:var(--text-2)}
+.devices{display:flex;align-items:center;gap:14px;color:var(--muted);font-size:14px}
+.devices svg{width:20px;height:20px;color:var(--text)}
+.devices span{display:inline-flex;gap:6px;align-items:center}
+.side .row .btn{flex:1}
+.side .note{margin:0;font-size:14px}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:40px 0 24px}
+.tabs button{min-height:48px;padding:0 18px;border:0;background:none;color:var(--muted);font:inherit;font-weight:600;font-size:15px;cursor:pointer;box-shadow:inset 0 -2px 0 transparent}
+.tabs button[aria-selected=true]{color:var(--text);box-shadow:inset 0 -2px 0 var(--text)}
+.about{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:32px;align-items:start}
+.about .desc{font-size:17px;color:var(--text-2);white-space:pre-line;margin:0 0 16px}
+.dev-card{display:flex;align-items:center;gap:12px;background:var(--panel);padding:14px;text-decoration:none}
+.dev-card .av{flex:none;width:44px;height:44px;background:var(--raised);display:grid;place-items:center;font-weight:700;font-family:var(--display);font-size:20px}
+.dev-card small{display:block;color:var(--muted);font-size:13px}
+.updates{list-style:none;padding:0;margin:0;display:grid;gap:14px;max-width:760px}
+.updates li{background:var(--panel-2);padding:16px 18px}
+.updates h3{margin:0 0 6px;font-size:17px}
+.updates p{margin:0;color:var(--text-2);white-space:pre-line}
+.more h2{margin-top:48px}
+@media (max-width:900px){.gp-top,.about{grid-template-columns:1fr}main.gp{padding:16px 16px 48px}}
 .bar .home img{height:22px;display:block}
 .bar h1{font-size:15px;margin:0 0 0 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
 .ctl{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 10px;border:1px solid var(--line);border-radius:8px;background:transparent;color:var(--text);font:inherit;font-size:13px;cursor:pointer;text-decoration:none}
@@ -82,6 +107,7 @@ dialog nav{display:grid;gap:6px;padding:0 16px 16px}
 dialog nav a{display:block;padding:10px 12px;border:1px solid var(--line);border-radius:8px;text-decoration:none}
 dialog nav a:hover{border-color:#55585f}
 </style>
+${siteHeader(env)}
 <div class="bar">
   <a class="home" href="/" title="All games"><img src="/zaisma-mark-metal.svg" alt="Zaisma"></a>
   <h1>${game.title}</h1>
@@ -90,22 +116,39 @@ dialog nav a:hover{border-color:#55585f}
   <button class="ctl" id="full" type="button" title="Full screen">${raw(ICON_FULL)}<span class="label">Full screen</span></button>
   <button class="ctl" id="menu" type="button" title="More" aria-haspopup="dialog">${raw(ICON_MORE)}<span class="label">More</span></button>
 </div>
-<main class="details">
-  <div class="hero">
-    ${metalButton("Play", { id: "play", big: true, play: true })}
-    <div class="name">${game.title}</div>
+<main class="gp">
+<section class="gp-top" aria-labelledby="title">
+  <div class="viewer">
+    <div class="shot bevel-l">${shots[0] ? html`<img id="shot" src="${shots[0]}" alt="${game.title}">` : ""}</div>
+    ${shots.length > 1 ? html`<div class="thumbs">${shots.map((src, i) => html`<button type="button" data-src="${src}" aria-label="Picture ${i + 1} of ${shots.length}" aria-pressed="${i === 0}"><img src="${src}" alt="" loading="lazy"></button>`)}</div>` : ""}
   </div>
-  <div class="meta">
-    ${multiplayer ? html`<span class="pill">Multiplayer</span>` : html`<span class="pill">Single-player</span>`}
-    <span>Plays in your browser, no download</span>
+  <div class="side">
+    <h1 id="title">${game.title}</h1>
+    <p class="by">${developer ? html`by ${developer.name} · ` : ""}${multiplayer ? "Multiplayer" : "Single-player"}</p>
+    ${metalButton("Play", { id: "play", big: true, block: true, play: true })}
+    <p class="note" id="device-note" hidden></p>
+    ${devices.length ? html`<div class="devices">${devices.map((d) => html`<span title="Plays on ${d}s">${raw(DEVICE_ICONS[d] ?? "")}${d[0]!.toUpperCase() + d.slice(1)}</span>`)}</div>` : ""}
+    <div class="row"><button class="btn ghost" id="share-page" type="button">${raw(ICON_SHARE)}<span class="label">Share</span></button><a class="btn ghost" href="/g/${game.slug}/report">Report</a></div>
   </div>
-  ${game.description ? html`<p class="desc">${game.description}</p>` : ""}
-  ${ownServers.length ? html`<p class="note">This game also connects to its own servers: ${ownServers.join(", ")}.</p>` : ""}
-  <div class="row">
-    <a class="btn ghost" href="/g/${game.slug}/report">Report</a>
-    <a class="btn ghost" href="/">All games</a>
+</section>
+${updates.results.length
+      ? html`<div class="tabs" role="tablist" aria-label="About this game"><button type="button" role="tab" id="tab-about" aria-controls="about" aria-selected="true">About</button><button type="button" role="tab" id="tab-updates" aria-controls="updates" aria-selected="false">Updates</button></div>`
+      : html`<div class="tabs"></div>`}
+<section class="about" id="about" role="tabpanel" aria-label="About">
+  <div>
+    ${game.description ? html`<p class="desc">${game.description}</p>` : html`<p class="desc muted">The developer hasn't written about this game yet.</p>`}
+    ${ownServers.length ? html`<p class="note">This game also connects to its own servers: ${ownServers.join(", ")}.</p>` : ""}
   </div>
+  ${developer ? html`<div class="dev-card"><span class="av bevel-s" aria-hidden="true">${developer.name[0]!.toUpperCase()}</span><span><strong>${developer.name}</strong><small>${developer.games === 1 ? "1 game on Zaisma" : `${developer.games} games on Zaisma`}</small></span></div>` : ""}
+</section>
+${updates.results.length
+      ? html`<section id="updates" role="tabpanel" aria-label="Updates" hidden><ol class="updates">${updates.results.map(
+          (u) => html`<li><h3>${day(u.published_at)}</h3><p>${u.notes}</p></li>`,
+        )}</ol></section>`
+      : ""}
+${more.length ? html`<section class="more" aria-labelledby="more-title"><h2 id="more-title">More games</h2><div class="grid">${more.map((g) => tile(g))}</div></section>` : ""}
 </main>
+${siteFooter()}
 <template id="game-frame"><iframe id="game" src="${src}" title="${game.title}"
   sandbox="allow-scripts allow-same-origin allow-pointer-lock"
   allow="fullscreen; gamepad; autoplay; web-share; clipboard-write" allowfullscreen referrerpolicy="no-referrer"></iframe></template>
@@ -141,6 +184,7 @@ full.onclick = () => frame && frame.requestFullscreen();
 // The game only loads when the player taps Play. That tap also lets the game play sound straight away.
 function play() {
   if (frame) return;
+  remember();
   frame = document.getElementById("game-frame").content.firstElementChild.cloneNode(true);
   if (window.startSaves) startSaves(frame);
   document.body.appendChild(frame);
@@ -149,6 +193,36 @@ function play() {
   frame.focus();
 }
 document.getElementById("play").onclick = play;
+document.getElementById("share-page").onclick = () => share.click();
+// Remember the game for Continue playing: on this device, and with the account when signed in.
+function remember() {
+  try {
+    const list = JSON.parse(localStorage.getItem("zaisma:played") || "[]").filter((p) => p.slug !== ${raw(JSON.stringify(game.slug))});
+    list.unshift({ slug: ${raw(JSON.stringify(game.slug))}, at: Date.now() });
+    localStorage.setItem("zaisma:played", JSON.stringify(list.slice(0, 20)));
+  } catch {}
+  if (/(^|; )(__Host-)?zaisma_in=1/.test(document.cookie)) fetch("/api/me/played/${raw(game.slug)}", { method: "POST", keepalive: true }).catch(() => {});
+}
+// Pictures: the big one shows whichever thumbnail was picked.
+document.querySelectorAll(".thumbs button").forEach((b) => b.onclick = () => {
+  document.getElementById("shot").src = b.dataset.src;
+  document.querySelectorAll(".thumbs button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+});
+// About and Updates.
+const tabs = [...document.querySelectorAll(".tabs [role=tab]")];
+const showTab = (id) => tabs.forEach((t) => { const on = t.getAttribute("aria-controls") === id; t.setAttribute("aria-selected", String(on)); document.getElementById(t.getAttribute("aria-controls")).hidden = !on; });
+tabs.forEach((t) => t.onclick = () => showTab(t.getAttribute("aria-controls")));
+if (location.hash === "#updates" && tabs.length) showTab("updates");
+// Games for other devices still open, with a word of warning.
+const DEVICES = ${raw(JSON.stringify(devices))};
+const coarse = matchMedia("(pointer: coarse)").matches;
+const mine = coarse ? (Math.min(screen.width, screen.height) < 600 ? "phone" : "tablet") : "computer";
+if (DEVICES.length && !DEVICES.includes(mine)) {
+  const note = document.getElementById("device-note");
+  note.textContent = "Made for " + DEVICES.map((d) => d + "s").join(" and ") + ". It may not work well on this " + mine + ".";
+  note.hidden = false;
+  document.querySelector("#play span").textContent = "Play anyway";
+}
 document.getElementById("menu").onclick = () => dialog.showModal();
 document.getElementById("menu-close").onclick = () => dialog.close();
 dialog.addEventListener("click", (e) => { if (e.target === dialog) dialog.close(); });
@@ -176,8 +250,8 @@ addEventListener("message", (e) => {
   }
 });
 ${raw(saves ? `const SAVES = ${JSON.stringify({ api: `/api/saves/${game.slug}`, root: gameUrl(env, game.slug), query: inRoom ? `?room=${code}` : "", frameOrigin: new URL(src).origin }).replace(/</g, "\\u003c")};\n${SAVES_CLIENT}` : "")}
-// A room link is an invitation into a match already underway, so it skips the details.
-${raw(inRoom ? "play();" : "")}
+// A room link is an invitation into a match already underway, and ?play comes from a Play button elsewhere: both skip the details.
+${raw(autoplay ? "play();" : "")}
 </script>`,
   });
   // Unlisted games are for people with the link, never search engines.
@@ -188,6 +262,11 @@ ${raw(inRoom ? "play();" : "")}
 const svg = (paths: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
 const ICON_SHARE = svg('<path d="M12 3v12"/><path d="M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/>');
 const ICON_FULL = svg('<path d="M4 9V4h5"/><path d="M20 9V4h-5"/><path d="M4 15v5h5"/><path d="M20 15v5h-5"/>');
+const DEVICE_ICONS: Record<string, string> = {
+  phone: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="6" y="2" width="8" height="16" rx="1.5"/><path d="M9 15h2"/></svg>',
+  tablet: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="2" width="14" height="16" rx="1.5"/><path d="M9 15h2"/></svg>',
+  computer: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="2" y="3" width="16" height="11" rx="1"/><path d="M7 17h6M10 14v3"/></svg>',
+};
 const ICON_MORE = svg('<circle cx="5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="19" cy="12" r="1.3" fill="currentColor"/>');
 
 export async function reportForm(env: Env, slug: string, error = ""): Promise<Response> {
@@ -298,12 +377,14 @@ const PRIVACY = `
 <p class="lead">Zaisma keeps as little about you as it can. Playing needs no account, and guests leave nothing behind.</p>
 <h2>Playing as a guest</h2>
 <p>Guests get a temporary ID and a made-up name like "Swift Fox 42", used only to run the game session. They're kept in your browser tab and forgotten when it closes. We don't keep a profile, and we don't know who you are.</p>
+<p>Your browser also remembers which games you played recently, so the home page can show them first. That list stays on your device; we never see it.</p>
 <h2>If you make an account</h2>
 <ul>
 <li><strong>Your email</strong>, only to sign you in. It's never shown to anyone, and we don't send marketing.</li>
 <li><strong>Your name</strong>, the one you pick. Other players can see it.</li>
 <li><strong>Your age group</strong>: 13 to 17, or 18 and over. We ask your birth date once to work it out and never keep it.</li>
 <li><strong>Your game saves.</strong> If you're signed in, your game saves are stored with your account, so your progress follows you to any device.</li>
+<li><strong>The games you played recently</strong> (the last 20), so Continue playing follows you to any device too.</li>
 </ul>
 <p>Accounts are for people 13 and up. If you're younger, you can't make one, and we keep nothing you typed. If we find out we have an account for someone under 13, we delete it.</p>
 <h2>Cookies</h2>
@@ -320,7 +401,7 @@ const PRIVACY = `
 </ul>
 <p>We never sell your data, and there are no ads on Zaisma.</p>
 <h2>Deleting your account</h2>
-<p>Go to your account page and choose Delete account. Your email, name, game saves and everything else on your account are deleted straight away.</p>
+<p>Go to your account page and choose Delete account. Your email, name, game saves, recently played games and everything else on your account are deleted straight away.</p>
 <h2>Questions</h2>
 <p>Email <a href="mailto:privacy@zaisma.com">privacy@zaisma.com</a>.</p>
 `;

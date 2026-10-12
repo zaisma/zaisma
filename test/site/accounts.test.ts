@@ -81,7 +81,7 @@ beforeEach(async () => {
     const url = new URL(input instanceof Request ? input.url : String(input));
     return url.origin === SUPABASE ? fakeSupabase(url, init) : realFetch(input, init);
   });
-  await env.DB.exec("DELETE FROM api_keys; DELETE FROM saves; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
+  await env.DB.exec("DELETE FROM played; DELETE FROM game_images; DELETE FROM api_keys; DELETE FROM saves; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -506,5 +506,44 @@ describe("the dashboard", () => {
     expect((await other.go("/dashboard/mine")).status).toBe(404);
     expect((await other.go("/dashboard/mine/visibility", { visibility: "draft" })).status).toBe(404);
     expect((await owner.go("/dashboard/mine/visibility", { visibility: "listed" }, { origin: "https://evil.example" })).status).toBe(403);
+  });
+});
+
+describe("recently played", () => {
+  async function liveGame(slug: string, title: string) {
+    const id = `g-${slug}`;
+    await env.DB.prepare("INSERT INTO games (id, slug, title, description, status, visibility, created_at, updated_at) VALUES (?, ?, ?, '', 'live', 'listed', 1, 1)").bind(id, slug, title).run();
+    await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, bytes, scan_status, created_at, published_at, notes) VALUES (?, ?, 'x', 1, 1, 'approved', 1, ?, ?)").bind(`v-${slug}`, id, Date.now(), "New levels.").run();
+    await env.DB.prepare("UPDATE games SET current_version_id = ? WHERE id = ?").bind(`v-${slug}`, id).run();
+  }
+
+  it("remembers games for signed-in players, newest first, and forgets them with the account", async () => {
+    await liveGame("hop", "Hop");
+    await liveGame("dash", "Dash");
+    const b = new Browser();
+    await join(b);
+    expect((await b.go("/api/me/played/hop", undefined, { method: "POST", body: "{}" })).status).toBe(200);
+    await new Promise((r) => setTimeout(r, 5));
+    await b.go("/api/me/played/dash", undefined, { method: "POST", body: "{}" });
+    const { played } = (await (await b.go("/api/me/played")).json()) as { played: { slug: string }[] };
+    expect(played.map((p) => p.slug)).toEqual(["dash", "hop"]);
+
+    expect((await b.go("/api/me/played/hop", undefined, { method: "POST", body: "{}", origin: "https://evil.example" })).status).toBe(403);
+    expect((await b.go("/api/me/played/nope", undefined, { method: "POST", body: "{}" })).status).toBe(404);
+    expect((await new Browser().go("/api/me/played")).status).toBe(401);
+
+    await b.go("/account/delete", { confirm: "delete" });
+    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM played").first<{ n: number }>())!.n).toBe(0);
+  });
+
+  it("shows games on the home page and patch notes on the game page", async () => {
+    await liveGame("hop", "Hop");
+    const home = await (await SELF.fetch(`${SITE}/`)).text();
+    expect(home).toContain('id="stage"');
+    expect(home).toContain('href="/g/hop?play"');
+    const page = await (await SELF.fetch(`${SITE}/g/hop`)).text();
+    expect(page).toContain("New levels.");
+    expect(page).toContain('id="tab-updates"');
+    expect(await (await SELF.fetch(`${SITE}/g/hop?play`)).text()).toContain("play();");
   });
 });

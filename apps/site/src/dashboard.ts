@@ -389,7 +389,6 @@ const STYLES = `
 .make input{width:260px;max-width:100%}
 .done{color:var(--ok-text);margin:0 0 14px}
 .first{max-width:640px}
-.tile .name{text-decoration:none}
 .tile .badge{flex:none}
 .ways{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-bottom:12px}
 .way{background:var(--panel-2);padding:16px}
