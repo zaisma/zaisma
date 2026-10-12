@@ -1,12 +1,20 @@
 // A stand-in for Supabase Auth, for local previews only: any email, code 123456.
 // Each email always gets the same user ID, so a preview account survives restarts.
 import { createHash } from "node:crypto";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import http from "node:http";
 
-export async function startFakeAuth(port) {
+/** keyFile keeps the signing key between runs, so sign-ins survive a restart. */
+export async function startFakeAuth(port, keyFile) {
   const origin = `http://localhost:${port}`;
-  const keys = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
-  const jwk = await crypto.subtle.exportKey("jwk", keys.publicKey);
+  const ec = { name: "ECDSA", namedCurve: "P-256" };
+  let privateJwk = keyFile && existsSync(keyFile) ? JSON.parse(readFileSync(keyFile, "utf8")) : null;
+  if (!privateJwk) {
+    privateJwk = await crypto.subtle.exportKey("jwk", (await crypto.subtle.generateKey(ec, true, ["sign", "verify"])).privateKey);
+    if (keyFile) writeFileSync(keyFile, JSON.stringify(privateJwk));
+  }
+  const keys = { privateKey: await crypto.subtle.importKey("jwk", privateJwk, ec, false, ["sign"]) };
+  const { d: _, key_ops: __, ...jwk } = privateJwk;
   const b64 = (b) => Buffer.from(b).toString("base64url");
   const idFor = (email) => {
     const h = createHash("sha256").update(`preview:${email}`).digest("hex");

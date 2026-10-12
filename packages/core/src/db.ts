@@ -49,7 +49,7 @@ export async function createGame(
   const { ownerId, visibility, ...info } = g;
   const game: Game = {
     id: newId(), ...info, status: "pending", current_version_id: null, game_server: null, connect_hosts: "", owner_id: ownerId ?? null, cloud_saves: 1,
-    visibility: visibility ?? "listed", devices: "", controls: "", screen: "", details_draft: null, created_at: now(), updated_at: now(),
+    visibility: visibility ?? "listed", devices: "", controls: "", screen: "", players: "", details_draft: null, created_at: now(), updated_at: now(),
   };
   await db
     .prepare("INSERT INTO games (id, slug, title, description, status, current_version_id, owner_id, visibility, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")

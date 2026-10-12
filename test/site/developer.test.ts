@@ -1,6 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { accountForApiKey, createAccount, createApiKey, createGame, gameBySlug, imageKey, personOwner, sniffImage } from "@zaisma/core";
+import { accountForApiKey, createAccount, createApiKey, createGame, describePlayers, gameBySlug, imageKey, personOwner, sniffImage } from "@zaisma/core";
 
 const SITE = "https://zaisma.test";
 
@@ -192,5 +192,27 @@ describe("covers and screenshots", () => {
     await api("/games", { body: { title: "Shots" } });
     for (let i = 0; i < 8; i++) expect((await api("/games/shots/images?kind=screenshot", { raw: webp(1280, 720) })).status).toBe(201);
     expect((await api("/games/shots/images?kind=screenshot", { raw: webp(1280, 720) })).status).toBe(400);
+  });
+});
+
+describe("players", () => {
+  it("stores how a game is played and refuses nonsense", async () => {
+    await api("/games", { body: { title: "Cave Crew", players: { single: true, local: { min: 2, max: 4, style: "co-op" }, online: { min: 2, max: null, style: "co-op" } } } });
+    const { game } = (await (await api("/games/cave-crew")).json()) as { game: { players: unknown } };
+    expect(game.players).toEqual({ single: true, local: { min: 2, max: 4, style: "co-op" }, online: { min: 2, max: null, style: "co-op" } });
+
+    for (const bad of [{ single: false }, { single: true, local: { min: 1, max: 4, style: "co-op" } }, { single: true, online: { min: 4, max: 2, style: "versus" } }, { single: true, online: { min: 2, max: 8, style: "party" } }]) {
+      expect((await api("/games/cave-crew", { method: "PATCH", body: { players: bad } })).status).toBe(400);
+    }
+    expect(((await (await api("/games/cave-crew", { method: "PATCH", body: { players: null } })).json()) as { game: { players: unknown } }).game.players).toBeNull();
+  });
+
+  it("describes each way to play in plain words", () => {
+    expect(describePlayers({ single: true, local: { min: 2, max: 4, style: "co-op" }, online: { min: 8, max: null, style: "both" } })).toEqual([
+      { mode: "single", label: "Single-player", count: null },
+      { mode: "local", label: "Local co-op", count: "2–4 players" },
+      { mode: "online", label: "Online co-op and versus", count: "8+ players" },
+    ]);
+    expect(describePlayers({ single: false, local: null, online: { min: 2, max: 2, style: "versus" } })[0]!.count).toBe("2 players");
   });
 });

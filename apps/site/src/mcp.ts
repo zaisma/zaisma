@@ -1,4 +1,4 @@
-import { CONTROLS, DEVICES, SCREENS, VISIBILITIES } from "@zaisma/core";
+import { CONTROLS, DEVICES, PLAY_STYLES, SCREENS, VISIBILITIES } from "@zaisma/core";
 import { ApiError, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 
@@ -42,7 +42,16 @@ const details = {
   devices: { type: "array", items: { enum: DEVICES }, description: "Devices the game works on" },
   controls: { type: "array", items: { enum: CONTROLS }, description: "Controls the game supports" },
   screen: { enum: [...SCREENS, ""], description: "Screen orientation; empty for not set" },
+  players: {
+    type: ["object", "null"],
+    description: 'How it\'s played. Like { "single": true, "local": { "min": 2, "max": 4, "style": "co-op" }, "online": null }. local means together on one device. max null means no limit. null clears it.',
+    properties: { single: { type: "boolean" }, local: count("Together on one device or screen"), online: count("Over the internet") },
+    required: ["single"],
+  },
 };
+function count(description: string) {
+  return { type: ["object", "null"], description, properties: { min: { type: "integer", minimum: 2 }, max: { type: ["integer", "null"] }, style: { enum: PLAY_STYLES } }, required: ["min", "style"] };
+}
 const read = { readOnlyHint: true, openWorldHint: false } as const;
 const object = (properties: Record<string, unknown>, required: string[] = []) => ({ type: "object", properties, required, additionalProperties: false });
 const pick = (args: Record<string, unknown>, keys: string[]) => Object.fromEntries(keys.filter((k) => args[k] !== undefined).map((k) => [k, args[k]]));
@@ -63,7 +72,7 @@ const TOOLS: Tool[] = [
     description: "Make a new game. It starts as a draft only you can see. The link name comes from the title unless you give one.",
     inputSchema: object({ ...details, slug: { type: "string", description: "Link name: lowercase letters, numbers and single hyphens" } }, ["title"]),
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
-    run: (args, call) => call("POST", "/games", pick(args, ["title", "slug", "description", "devices", "controls", "screen"])),
+    run: (args, call) => call("POST", "/games", pick(args, ["title", "slug", "description", "devices", "controls", "screen", "players"])),
   },
   {
     name: "get_game",
@@ -77,11 +86,11 @@ const TOOLS: Tool[] = [
     name: "update_game",
     title: "Change a game's details",
     description:
-      'Change the title, description, device labels or visibility. listed: on Zaisma for everyone. unlisted: only people with the link. private and draft: only you. A new title or description on a game players can see waits for review. Making a public game private or a draft takes it away from players, so it needs "confirm": true after asking the developer.',
+      'Change the title, description, device labels, players (single-player, local and online multiplayer with player counts) or visibility. listed: on Zaisma for everyone. unlisted: only people with the link. private and draft: only you. A new title or description on a game players can see waits for review. Making a public game private or a draft takes it away from players, so it needs "confirm": true after asking the developer.',
     inputSchema: object({ slug, ...details, visibility: { enum: VISIBILITIES }, confirm: { type: "boolean", description: "The developer agreed to hide a public game" } }, ["slug"]),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     run: async (args, call) => {
-      const change = pick(args, ["title", "description", "devices", "controls", "screen", "visibility"]);
+      const change = pick(args, ["title", "description", "devices", "controls", "screen", "players", "visibility"]);
       if (change.visibility === "draft" || change.visibility === "private") {
         const { game } = (await call("GET", `/games/${str(args.slug)}`)) as { game: { visibility: string; review: string } };
         if ((game.visibility === "listed" || game.visibility === "unlisted") && game.review === "live" && args.confirm !== true) {

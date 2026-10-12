@@ -1,3 +1,4 @@
+import { describePlayers, type Players } from "@zaisma/core";
 import { gameFrameSource, type Env } from "./env.ts";
 
 /** Escape text for HTML. Every value from a user or a game goes through this. */
@@ -100,6 +101,11 @@ main{max-width:1240px;margin:0 auto;padding:32px 24px 64px}
 .tile .go{flex:none;display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;background:var(--raised)}
 .tile .go:hover{background:#35373d}
 .tile .go svg{width:12px;height:14px}
+.modes{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.modes li{display:flex;align-items:center;gap:10px;font-size:15px;color:var(--text)}
+.modes svg{width:20px;height:20px;flex:none}
+.modes small{color:var(--muted);font-size:14px}
+.modes small::before{content:"· ";}
 .badge{display:inline-flex;align-items:center;gap:6px;color:var(--ok-text);font-size:12px;font-weight:600}
 .badge::before{content:"";width:6px;height:6px;background:var(--ok)}
 .pill{display:inline-block;padding:1px 9px;font-size:12px;box-shadow:inset 0 0 0 1px var(--line-2)}
@@ -142,7 +148,13 @@ details[open] summary{margin-bottom:10px}
 pre{white-space:pre-wrap;word-break:break-word;background:var(--panel);padding:12px;font-size:13px}
 dialog{background:var(--panel);color:var(--text);border:0;padding:0}
 dialog::backdrop{background:rgba(0,0,0,.6)}
-@media (prefers-reduced-motion:reduce){.metal,.tile{transition:none}}
+/* Working: a small square turning, only after the player presses something. */
+.spin{width:12px;height:12px;flex:none;border:2px solid currentColor;border-right-color:transparent;animation:spin .8s linear infinite}
+.metal .spin{display:inline-block;margin-right:10px;vertical-align:-1px}
+[aria-busy=true]{cursor:progress}
+[aria-busy=true] svg{display:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.metal,.tile{transition:none}.spin{animation-duration:2.4s}}
 `;
 
 // Runs the metal hover on every page: one listener for all .hit areas, at most one update per frame.
@@ -155,6 +167,14 @@ el.style.setProperty("--ry",(still?0:nx*2*max).toFixed(2)+"deg");el.style.setPro
 el.style.setProperty("--gx",(r.width/2+sweep*r.width*.75).toFixed(1)+"px");el.style.setProperty("--gf",Math.max(.25,1-Math.abs(sweep)*.55).toFixed(2));el.classList.add("lit")};
 addEventListener("pointermove",e=>{const h=e.target.closest?e.target.closest(".hit"):null;if(h!==cur){if(cur)off(cur);cur=h}if(!cur)return;x=e.clientX;y=e.clientY;if(!raf)raf=requestAnimationFrame(paint)},{passive:true});
 document.documentElement.addEventListener("pointerleave",()=>{if(cur)off(cur);cur=null})})();`;
+
+// A button that sends a form or opens a page shows it's working and can't be pressed twice.
+// Pages that handle a form themselves (preventDefault) are left alone.
+const BUSY_SCRIPT = `(()=>{const busy=b=>{if(!b||b.getAttribute("aria-busy")==="true")return;b.setAttribute("aria-busy","true");const s=document.createElement("span");s.className="spin";s.setAttribute("aria-hidden","true");(b.matches(".metal")?b.lastElementChild||b:b).prepend(s);
+setTimeout(()=>{if(b.tagName==="BUTTON")b.disabled=true},0)};
+addEventListener("submit",e=>{if(!e.defaultPrevented&&e.target.method!=="dialog")busy(e.submitter||e.target.querySelector("button[type=submit],button:not([type])"))});
+addEventListener("click",e=>{const a=e.target.closest&&e.target.closest("a.btn,a.metal,a.go");if(!a||e.defaultPrevented||e.button||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||a.target==="_blank")return;const u=new URL(a.href,location.href);if(u.origin!==location.origin||(u.pathname===location.pathname&&u.search===location.search))return;busy(a)});
+addEventListener("pageshow",e=>{if(e.persisted)document.querySelectorAll("[aria-busy=true]").forEach(b=>{b.removeAttribute("aria-busy");b.disabled=false;b.querySelectorAll(".spin").forEach(s=>s.remove())})})})();`;
 
 const PLAY_ICON = '<svg viewBox="0 0 14 16" aria-hidden="true"><path d="M1 1v14l12-7z" fill="currentColor"/></svg>';
 
@@ -212,7 +232,7 @@ ${opts.bare
     : html`${siteHeader(env, opts)}
 <main>${opts.body}</main>
 ${siteFooter()}`}
-<script>${raw(METAL_SCRIPT)}</script>
+<script>${raw(METAL_SCRIPT)}${raw(BUSY_SCRIPT)}</script>
 </body>
 </html>`;
   return new Response(doc.html, { headers: securityHeaders(env, opts.admin || opts.private ? { "Cache-Control": "no-store" } : {}) });
@@ -234,4 +254,26 @@ export function siteFooter(): Raw {
 export function message(env: Env, title: string, text: string, status = 200): Response {
   const res = layout(env, { title, body: html`<h1>${title}</h1><p class="lead">${text}</p><a class="btn ghost" href="/">Back to games</a>` });
   return new Response(res.body, { status, headers: res.headers });
+}
+
+const stroke = (paths: string) => `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
+const MODE_ICONS = {
+  single: stroke('<circle cx="10" cy="6.5" r="3"/><path d="M4.5 17c0-3 2.5-5.5 5.5-5.5s5.5 2.5 5.5 5.5"/>'),
+  local: stroke('<circle cx="6.5" cy="7" r="2.5"/><circle cx="13.5" cy="7" r="2.5"/><path d="M2 16.5c0-2.5 2-4.5 4.5-4.5 1.3 0 2.5.5 3.3 1.4M18 16.5c0-2.5-2-4.5-4.5-4.5-1.3 0-2.5.5-3.3 1.4"/>'),
+  online: stroke('<circle cx="10" cy="10" r="7.5"/><path d="M2.5 10h15M10 2.5c2.3 2.2 2.3 12.8 0 15M10 2.5c-2.3 2.2-2.3 12.8 0 15"/>'),
+};
+
+/**
+ * How a game is played, as icons with words: "Single-player", "Local co-op · 2–4 players".
+ * Games that haven't said but run on our servers show "Online multiplayer".
+ */
+export function playerModes(players: Players | null, onlineServer: boolean): Raw {
+  const modes = players ? describePlayers(players) : onlineServer ? [{ mode: "online" as const, label: "Online multiplayer", count: null }] : [];
+  if (!modes.length) return html``;
+  return html`<ul class="modes">${modes.map((m) => html`<li>${raw(MODE_ICONS[m.mode])}<span>${m.label}</span>${m.count ? html`<small>${m.count}</small>` : ""}</li>`)}</ul>`;
+}
+
+/** The same, as one short line for cards: "Single-player · Online co-op". */
+export function playerLine(players: Players | null, onlineServer: boolean): string {
+  return players ? describePlayers(players).map((m) => m.label).join(" · ") : onlineServer ? "Online multiplayer" : "";
 }
