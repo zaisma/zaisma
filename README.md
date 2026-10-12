@@ -17,7 +17,7 @@ Pre-beta. Building in public.
 | Phase | What ships |
 | --- | --- |
 | 0. Safe hosting (live) | Scan before publish, sandboxed game domain, directory, reporting |
-| 1. Beta | Guest multiplayer and invite links, accounts and cloud saves, the creator MCP for publishing from any AI tool. **Public beta.** |
+| 1. Beta | Guest multiplayer and invite links, accounts and cloud saves, the developer MCP for publishing from any AI tool. **Public beta.** |
 | 2. Earn | The Zaisma buy sheet, purchases that follow players, hosting billing, Zaisma Pro, promoted games |
 | 3. Play together | Friends, Zaisma in Discord |
 | 4. Discover | Quality-ranked front page, real ratings, player lists, follows |
