@@ -14,14 +14,24 @@
  * says the account's save is in place, so a device that couldn't take it never sends its own.
  * Whichever progress the player didn't pick is kept as an earlier version (see /account/saves).
  *
- * `SAVES` is set by the page: { api, root, query, frameOrigin }.
+ * Guests: the game opens directly and its progress stays in this browser; nothing is sent
+ * anywhere. Once a guest has progress and has played a while, a card offers to keep it with
+ * an account. Making one opens in a new tab, so the game keeps running; when this tab sees
+ * the player signed in, the game's save goes to the new account without a reload.
+ *
+ * `SAVES` is set by the page: { api, root, query, frameOrigin, slug, offerAfter }.
  */
 export const SAVES_CLIENT = `
 (function () {
-  if (!/(^|; )(__Host-)?zaisma_in=1/.test(document.cookie)) return;
+  const signedIn = () => /(^|; )(__Host-)?zaisma_in=1/.test(document.cookie);
+  let guest = !signedIn();
   const status = document.getElementById("save-status");
   const history = document.getElementById("save-history");
-  if (history) history.hidden = false;
+  const offer = document.getElementById("keep");
+  const offerBar = document.getElementById("keep-bar");
+  const offerLink = document.getElementById("keep-link");
+  const toast = document.getElementById("save-toast");
+  if (history) history.hidden = guest;
   const choose = document.getElementById("save-choice");
   let cloud = null;       // the account's save as last seen: { tag, version, hash, at, data }
   let synced = null;      // the save text the game and the account both have
@@ -32,6 +42,7 @@ export const SAVES_CLIENT = `
   let frame = null;
   let restoring = null;   // the account's save while the game domain puts it in place
   let replacing = false;  // the player picked this device's progress over the account's
+  let welcome = false;    // a guest just signed in: say so when their progress first reaches the account
 
   const canonical = (data) => { const out = {}; Object.keys(data).sort().forEach((k) => (out[k] = data[k])); return JSON.stringify(out); };
   const sha = async (text) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))), (b) => b.toString(16).padStart(2, "0")).join("");
@@ -46,6 +57,14 @@ export const SAVES_CLIENT = `
     return m < 1 ? "just now" : m < 60 ? m + " min ago" : m < 1440 ? Math.round(m / 60) + " h ago" : Math.round(m / 1440) + " days ago";
   };
   const say = (text) => { if (status) { status.textContent = text; status.hidden = false; } };
+  let toastTimer = null;
+  const pop = (text) => {
+    if (!toast) return;
+    toast.textContent = text;
+    toast.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => (toast.hidden = true), 8000);
+  };
   // The player picked the account's progress: keep this device's as an earlier version on the account.
   const keepDevice = (text) => {
     if (text && text !== "{}") fetch(SAVES.api, { method: "PUT", body: JSON.stringify({ keep: true, data: text }), credentials: "same-origin" }).catch(() => {});
@@ -101,8 +120,89 @@ export const SAVES_CLIENT = `
   // Called by play(): start the game through the restore page instead of directly.
   window.startSaves = function (f) {
     frame = f;
-    openThroughRestore();
+    if (!guest) openThroughRestore();
   };
+
+  // --- Guests ---
+
+  const OFFER_QUIET = 3 * 24 * 3600000;   // after "Not now", the card stays away this long
+  const quietKey = "zaisma:keep:" + SAVES.slug;
+  let guestText = null;
+  let playedMs = 0;
+  let offered = false;
+
+  function guestSave(text) {
+    guestText = text;
+    maybeOffer();
+  }
+  setInterval(() => {
+    if (!guest || !frame || document.visibilityState !== "visible") return;
+    playedMs += 5000;
+    maybeOffer();
+  }, 5000);
+
+  function maybeOffer() {
+    if (!guest || !guestText || guestText === "{}") return;
+    if (offerBar) offerBar.hidden = false;
+    if (offerLink) offerLink.hidden = false;
+    say("Your progress is only saved in this browser.");
+    if (offered || playedMs < SAVES.offerAfter || !offer) return;
+    offered = true;
+    let quietSince = 0;
+    try { quietSince = Number(localStorage.getItem(quietKey)) || 0; } catch {}
+    if (Date.now() - quietSince >= OFFER_QUIET) offer.hidden = false;
+  }
+
+  // Make an account (or sign in) in a new tab, so the game keeps running here. If the browser
+  // won't open one, the link itself goes there in this tab and comes back to the game.
+  document.querySelectorAll("[data-keep]").forEach((a) => {
+    a.addEventListener("click", (e) => {
+      const next = "/account/kept?game=" + SAVES.slug;
+      const opened = window.open(a.dataset.keep + "?next=" + encodeURIComponent(next), "_blank");
+      if (opened) e.preventDefault();
+      if (offer) offer.hidden = true;
+      if (dialog && dialog.open) dialog.close();
+    });
+  });
+  const later = document.getElementById("keep-later");
+  if (later) later.onclick = () => {
+    offer.hidden = true;
+    try { localStorage.setItem(quietKey, String(Date.now())); } catch {}
+  };
+
+  // Signed in from another tab: the progress on this device goes to the account from now on.
+  async function joined() {
+    if (!guest || !signedIn()) return;
+    guest = false;
+    for (const el of [offer, offerBar, offerLink]) if (el) el.hidden = true;
+    if (history) history.hidden = false;
+    if (!frame) return; // Not playing yet: Play opens the game through the restore page as usual.
+    const c = await load();
+    if (!c) return say("Couldn't reach your saved progress, so this visit won't save to your account.");
+    cloud = c;
+    if (!c.version) {
+      // A new account: whatever this device has becomes the account's save.
+      paused = false;
+      synced = null;
+      welcome = true;
+      tell({ step: "sync", text: null });
+    } else if (guestText && (await sha(guestText)) === c.hash) {
+      // The account already has exactly this progress: carry on saving from it.
+      marker(c.tag, { version: c.version, hash: c.hash });
+      paused = false;
+      synced = guestText;
+      tell({ step: "sync", text: guestText });
+      say("Progress saves to your account.");
+      pop("Your progress now saves to your account.");
+    } else {
+      const text = "You're signed in. Your account already has progress in this game, so you'll choose which to keep next time you open it.";
+      say(text);
+      pop(text);
+    }
+  }
+  addEventListener("focus", joined);
+  document.addEventListener("visibilitychange", joined);
+  try { new BroadcastChannel("zaisma").onmessage = (e) => e.data === "signed-in" && joined(); } catch {}
 
   async function restore(text, broken) {
     clearTimeout(fallback);
@@ -173,6 +273,8 @@ export const SAVES_CLIENT = `
       synced = text;
       marker(cloud.tag, { version: out.version, hash: out.hash });
       say("Progress saves to your account. Last saved just now.");
+      if (welcome) pop("Your progress now saves to your account.");
+      welcome = false;
     } else if (res && res.status === 409) {
       paused = true;
       tell({ step: "pause" });
@@ -210,6 +312,12 @@ export const SAVES_CLIENT = `
     if (!frame || e.origin !== SAVES.frameOrigin || e.source !== frame.contentWindow) return;
     const m = e.data;
     if (!m || m.type !== "zaisma:saves" || typeof m.step !== "string") return;
+    if (guest) {
+      // Watch for progress only: the save stays in this browser.
+      if (m.step === "hello" && m.phase === "game") tell({ step: "sync", text: null });
+      else if (m.step === "save" && typeof m.text === "string") guestSave(m.text);
+      return;
+    }
     if (m.step === "hello" && m.phase === "restore" && typeof m.text === "string") restore(m.text, m.broken === true);
     else if (m.step === "blocked" && restoring) say("This game is open in another tab. Close it there to load your saved progress.");
     else if (m.step === "restored" && restoring) restored(m.ok === true);

@@ -9,6 +9,7 @@ import {
   createAccount,
   createApiKey,
   deleteAccount,
+  gameBySlug,
   gamesOwnedBy,
   revokeApiKey,
   updateAccount,
@@ -28,7 +29,7 @@ import {
   type Session,
 } from "./auth.ts";
 import type { Env } from "./env.ts";
-import { html, layout, message, type Raw } from "./html.ts";
+import { html, layout, message, metalButton, raw, type Raw } from "./html.ts";
 import { deleteSaveFiles } from "./saves.ts";
 
 /**
@@ -46,7 +47,7 @@ const JOIN_SECONDS = 3600;
 
 export async function handleAccount(request: Request, env: Env, path: string): Promise<Response | null> {
   if (
-    !["/signin", "/signin/code", "/join", "/join/age", "/join/email", "/join/name", "/account", "/account/name", "/account/age", "/account/delete", "/account/keys", "/signout"].includes(path) &&
+    !["/signin", "/signin/code", "/join", "/join/age", "/join/email", "/join/name", "/account", "/account/kept", "/account/name", "/account/age", "/account/delete", "/account/keys", "/signout"].includes(path) &&
     !/^\/account\/keys\/[a-z0-9]+\/revoke$/.test(path)
   ) return null;
   if (!authConfigured(env)) return message(env, "Accounts aren't on yet", "You can play every game as a guest.", 404);
@@ -137,7 +138,7 @@ export async function handleAccount(request: Request, env: Env, path: string): P
   }
 
   // --- Signed in from here on ---
-  if (!session) return redirect(`/signin${nextQuery(path === "/account" ? null : next)}`);
+  if (!session) return redirect(`/signin${nextQuery(path === "/account" ? null : path === "/account/kept" ? safeNext(path + new URL(request.url).search) : next)}`);
   const account = await accountById(env.DB, session.userId);
 
   if (path === "/signout" && post) {
@@ -147,6 +148,7 @@ export async function handleAccount(request: Request, env: Env, path: string): P
   if (!account) return done(redirect("/join"));
 
   if (path === "/account" && !post) return done(await accountPage(env, session, new URL(request.url).searchParams.has("welcome")));
+  if (path === "/account/kept" && !post) return done(await keptPage(env, account.name, new URL(request.url).searchParams.get("game")));
 
   if (path === "/account/name" && post) {
     const checked = checkName(field("name", 60));
@@ -335,6 +337,38 @@ function tooYoungPage(env: Env): Response {
   );
 }
 
+// Just signed in or joined: tell the game tab that opened this one, and bring this device's
+// recently played games over to the account.
+const JOINED_SCRIPT = `<script>(()=>{try{new BroadcastChannel("zaisma").postMessage("signed-in")}catch{}
+let p=[];try{p=JSON.parse(localStorage.getItem("zaisma:played")||"[]")}catch{}
+if(p.length)fetch("/api/me/played",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({played:p.slice(0,20)})}).catch(()=>{})})()</script>`;
+
+/** Where "Keep your progress" lands once the guest has an account (or signed in), in the tab it opened. */
+async function keptPage(env: Env, name: string, slug: string | null): Promise<Response> {
+  const game = slug && /^[a-z0-9-]+$/.test(slug) ? await gameBySlug(env.DB, slug) : null;
+  const back = game ? `/g/${game.slug}?play` : "/";
+  return page(
+    env,
+    "You're in",
+    html`<h1>You're in, ${name}</h1>
+<p class="lead">${game ? `Go back to ${game.title} to keep playing. From now on, your progress saves to your account, so it's safe and follows you to any device.` : "From now on, games you play save your progress to your account."}</p>
+${metalButton(game ? `Back to ${game.title}` : "Find a game", { href: back, data: { back: "" } })}
+${raw(JOINED_SCRIPT)}
+<script>
+// This tab was opened by the game: go back to it, so it keeps running where the player left off.
+document.querySelector("[data-back]").addEventListener("click", (e) => {
+  if (!window.opener || window.opener.closed) return;
+  e.preventDefault();
+  const href = e.currentTarget.href;
+  try { window.opener.focus(); } catch {}
+  window.close();
+  // Some browsers won't close it: then just go to the game here.
+  setTimeout(() => (location.href = href), 300);
+});
+</script>`,
+  );
+}
+
 const BAND_TEXT: Record<AgeBand, string> = { "13-17": "13 to 17", "18+": "18 or over" };
 
 const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
@@ -345,7 +379,7 @@ async function accountPage(env: Env, session: Session, welcome: boolean, error?:
   return page(
     env,
     "Your account",
-    html`${welcome ? html`<p class="note">Welcome to Zaisma, ${account.name}.</p>` : ""}
+    html`${welcome ? html`<p class="note">Welcome to Zaisma, ${account.name}.</p>${raw(JOINED_SCRIPT)}` : ""}
 <h1>${account.name}</h1>
 <p class="lead">${session.email}</p>
 ${err(error)}

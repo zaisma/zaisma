@@ -28,6 +28,8 @@ export interface Env {
   ANTHROPIC_API_KEY?: string;
   VT_API_KEY?: string;
   DEV_ADMIN?: string;
+  /** Seconds a guest plays with progress before "Keep your progress" shows. Default 300; the local preview uses less. */
+  KEEP_OFFER_SECONDS?: string;
   /** Supabase Auth. Without these, accounts are off and everything else still works. */
   SUPABASE_URL?: string;
   SUPABASE_PUBLISHABLE_KEY?: string;

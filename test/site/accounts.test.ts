@@ -514,6 +514,35 @@ describe("cloud saves", () => {
     });
   });
 
+  it("offers guests to keep their progress, opening the account steps so they come back to the game", async () => {
+    await liveGame();
+    await liveGame("own-saves", 0);
+    const page = await (await SELF.fetch(`${SITE}/g/owl-game`)).text();
+    expect(page).toContain('<aside class="keep plate bevel" id="keep"');
+    expect(page).toContain("Your Owl Game progress is only saved in this browser.");
+    expect(page).toContain('href="/join?next=%2Fg%2Fowl-game%3Fplay" data-keep="/join"');
+    expect(page).toContain('href="/signin?next=%2Fg%2Fowl-game%3Fplay" data-keep="/signin"');
+    expect(page).toContain('"slug":"owl-game"');
+    expect(await (await SELF.fetch(`${SITE}/g/own-saves`)).text()).not.toContain('id="keep"');
+  });
+
+  it("lands the new account back at the game, and tells the game tab", async () => {
+    await liveGame();
+    expect((await new Browser().go("/account/kept?game=owl-game")).headers.get("location")).toBe("/signin?next=%2Faccount%2Fkept%3Fgame%3Dowl-game");
+    const b = new Browser();
+    const joined = await (async () => {
+      await b.go("/join/age", BIRTH_ADULT);
+      await b.go("/join/email", { email: "fox@example.com", name: "Night Owl", next: "/account/kept?game=owl-game" });
+      return b.go("/signin/code", { email: "fox@example.com", code: "123456", next: "/account/kept?game=owl-game" });
+    })();
+    expect(joined.headers.get("location")).toBe("/account/kept?game=owl-game");
+    const page = await (await b.go("/account/kept?game=owl-game")).text();
+    expect(page).toContain("You're in, Night Owl");
+    expect(page).toContain('href="/g/owl-game?play" data-back=""');
+    expect(page).toContain('BroadcastChannel("zaisma").postMessage("signed-in")');
+    expect(await (await b.go("/account/kept?game=nope")).text()).toContain("Find a game");
+  });
+
   it("game pages offer saves only for games that use them", async () => {
     await liveGame();
     await liveGame("own-saves", 0);
@@ -661,6 +690,22 @@ describe("recently played", () => {
 
     await b.go("/account/delete", { confirm: "delete" });
     expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM played").first<{ n: number }>())!.n).toBe(0);
+  });
+
+  it("brings a guest's games from this device to their new account, keeping the newer time", async () => {
+    await liveGame("hop", "Hop");
+    await liveGame("dash", "Dash");
+    const b = new Browser();
+    await join(b);
+    await b.go("/api/me/played/hop", undefined, { method: "POST", body: "{}" });
+    const list = { played: [{ slug: "hop", at: 5 }, { slug: "dash", at: 10 }, { slug: "nope", at: 20 }, { slug: "dash", at: "soon" }] };
+    expect((await b.go("/api/me/played", undefined, { method: "POST", body: JSON.stringify(list) })).status).toBe(200);
+    const { played } = (await (await b.go("/api/me/played")).json()) as { played: { slug: string; at: number }[] };
+    expect(played.map((p) => p.slug)).toEqual(["hop", "dash"]);
+    expect(played[0]!.at).toBeGreaterThan(5);
+    expect(played[1]!.at).toBe(10);
+    expect((await b.go("/api/me/played", undefined, { method: "POST", body: "{}", origin: "https://evil.example" })).status).toBe(403);
+    expect((await b.go("/api/me/played", undefined, { method: "POST", body: "nope" })).status).toBe(400);
   });
 
   it("shows games on the home page and patch notes on the game page", async () => {

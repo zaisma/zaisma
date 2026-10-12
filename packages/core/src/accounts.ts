@@ -142,6 +142,19 @@ export async function recordPlayed(db: D1Database, accountId: string, gameId: st
   ]);
 }
 
+/** Add the games a guest played on this device to their new account, keeping the newer time for each. */
+export async function mergePlayed(db: D1Database, accountId: string, played: { gameId: string; at: number }[]): Promise<void> {
+  if (!played.length) return;
+  await db.batch([
+    ...played.map((p) =>
+      db.prepare("INSERT INTO played (account_id, game_id, at) VALUES (?, ?, ?) ON CONFLICT (account_id, game_id) DO UPDATE SET at = MAX(at, excluded.at)").bind(accountId, p.gameId, p.at),
+    ),
+    db
+      .prepare("DELETE FROM played WHERE account_id = ? AND game_id NOT IN (SELECT game_id FROM played WHERE account_id = ? ORDER BY at DESC LIMIT ?)")
+      .bind(accountId, accountId, PLAYED_KEEP),
+  ]);
+}
+
 /** The games this account played, newest first, by link name. */
 export async function recentlyPlayed(db: D1Database, accountId: string): Promise<{ slug: string; at: number }[]> {
   const { results } = await db

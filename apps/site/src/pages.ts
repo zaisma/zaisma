@@ -18,6 +18,9 @@ export async function gamePage(env: Env, slug: string, url: URL): Promise<Respon
   const inRoom = ROOM_CODE.test(code);
   const src = gameUrl(env, game.slug) + (inRoom ? `?room=${code}` : "");
   const saves = Boolean(game.cloud_saves && env.SUPABASE_URL);
+  // Without a new tab, making an account or signing in comes back to the game.
+  const joinHere = `/join?next=${encodeURIComponent(`/g/${game.slug}?play`)}`;
+  const signinHere = `/signin?next=${encodeURIComponent(`/g/${game.slug}?play`)}`;
   const multiplayer = Boolean(game.game_server || game.connect_hosts);
   const ownServers = game.connect_hosts.split("\n").filter(Boolean).map((o) => o.replace(/^[a-z]+:\/\//, ""));
   const autoplay = inRoom || url.searchParams.has("play");
@@ -136,12 +139,25 @@ dialog nav{display:grid;gap:8px;padding:0 16px 16px}
 dialog nav a[hidden]{display:none}
 dialog nav a{display:block;padding:11px 12px;text-decoration:none;font-family:var(--display);background:var(--face-hi);box-shadow:inset 1px 1px 0 rgba(255,255,255,.1),inset -1px -1px 0 #000}
 dialog nav a:hover{background:linear-gradient(180deg,#3a3f48,#2a2e35)}
+/* Keep your progress: a card over the game's top corner for guests, and a note once it's saved. */
+.keep,.keep-toast{position:fixed;z-index:20;top:58px;right:14px;width:min(360px,calc(100vw - 28px));margin:0;filter:drop-shadow(0 18px 36px rgba(0,0,0,.6));animation:keep-in 260ms cubic-bezier(.2,.8,.2,1)}
+.keep{display:grid;gap:10px;padding:18px 18px 16px}
+.keep[hidden],.keep-toast[hidden]{display:none}
+.keep strong{font-family:var(--display);font-size:18px}
+.keep p{margin:0;font-size:14px;color:var(--text-2)}
+.keep .row{margin-top:4px}
+.keep .small{color:var(--muted)}
+.keep-toast{padding:12px 16px;font-size:14px}
+@keyframes keep-in{from{opacity:0;transform:translateY(-8px)}}
+@media (prefers-reduced-motion:reduce){.keep,.keep-toast{animation:none}}
+@media (orientation:landscape) and (max-height:500px){.keep,.keep-toast{top:10px}}
 </style>
 ${siteHeader(env)}
 <div class="bar">
   <a class="home" href="/" title="All games"><img src="/zaisma-mark-metal.svg" alt="Zaisma"></a>
   <h1>${game.title}</h1>
   <span class="spacer"></span>
+  ${saves ? html`<a class="ctl" id="keep-bar" href="${joinHere}" data-keep="/join" title="Keep your progress" hidden>${raw(ICON_KEEP)}<span class="label">Keep progress</span></a>` : ""}
   <button class="ctl" id="share" type="button" title="Share">${raw(ICON_SHARE)}<span class="label">Share</span></button>
   <button class="ctl" id="full" type="button" title="Full screen">${raw(ICON_FULL)}<span class="label">Full screen</span></button>
   <button class="ctl" id="menu" type="button" title="More" aria-haspopup="dialog">${raw(ICON_MORE)}<span class="label">More</span></button>
@@ -192,14 +208,21 @@ ${siteFooter()}
   </div>
   ${saves ? html`<p id="save-status" class="muted" hidden></p>` : ""}
   <nav>
-    ${saves ? html`<a id="save-history" href="/account/saves/${game.slug}" hidden>Earlier progress</a>` : ""}
+    ${saves ? html`<a id="keep-link" href="${joinHere}" data-keep="/join" hidden>Keep your progress</a><a id="save-history" href="/account/saves/${game.slug}" hidden>Earlier progress</a>` : ""}
     <a href="/g/${game.slug}/report">Report this game</a>
     <a href="/legal/content-rules">Content rules</a>
     <a href="/">All games</a>
   </nav>
 </dialog>
 ${saves
-      ? html`<dialog id="save-choice" aria-labelledby="save-choice-title"><form method="dialog">
+      ? html`<aside class="keep plate bevel" id="keep" aria-labelledby="keep-title" hidden>
+  <strong id="keep-title">Keep your progress</strong>
+  <p>Your ${game.title} progress is only saved in this browser. Make a free account to keep it safe and play on any device.</p>
+  <div class="row">${metalButton("Make an account", { href: joinHere, data: { keep: "/join" } })}<button class="btn ghost" type="button" id="keep-later">Not now</button></div>
+  <p class="small">Have an account? <a href="${signinHere}" data-keep="/signin">Sign in</a></p>
+</aside>
+<p class="keep-toast plate" id="save-toast" role="status" hidden></p>
+<dialog id="save-choice" aria-labelledby="save-choice-title"><form method="dialog">
   <div class="head"><strong id="save-choice-title"></strong></div>
   <div class="body"><p></p></div>
   <nav><button class="btn" value="cloud"></button><button class="btn ghost" value="local"></button></nav>
@@ -299,7 +322,7 @@ addEventListener("message", (e) => {
     history.replaceState(null, "", location.pathname + "?room=" + d.code);
   }
 });
-${raw(saves ? `const SAVES = ${JSON.stringify({ api: `/api/saves/${game.slug}`, root: gameUrl(env, game.slug), query: inRoom ? `?room=${code}` : "", frameOrigin: new URL(src).origin }).replace(/</g, "\\u003c")};\n${SAVES_CLIENT}` : "")}
+${raw(saves ? `const SAVES = ${JSON.stringify({ api: `/api/saves/${game.slug}`, root: gameUrl(env, game.slug), query: inRoom ? `?room=${code}` : "", frameOrigin: new URL(src).origin, slug: game.slug, offerAfter: (Number(env.KEEP_OFFER_SECONDS) || 300) * 1000 }).replace(/</g, "\\u003c")};\n${SAVES_CLIENT}` : "")}
 // A room link is an invitation into a match already underway, and ?play comes from a Play button elsewhere: both skip the details.
 ${raw(autoplay ? "play();" : "")}
 </script>`,
@@ -311,6 +334,7 @@ ${raw(autoplay ? "play();" : "")}
 
 const svg = (paths: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
 const ICON_SHARE = svg('<path d="M12 3v12"/><path d="M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/>');
+const ICON_KEEP = svg('<path d="M5 3h11l3 3v15H5z"/><path d="M8 3v6h8V3"/><path d="M8 21v-7h8v7"/>');
 const ICON_FULL = svg('<path d="M4 9V4h5"/><path d="M20 9V4h-5"/><path d="M4 15v5h5"/><path d="M20 15v5h-5"/>');
 const DEVICE_ICONS: Record<string, string> = {
   phone: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="6" y="2" width="8" height="16" rx="1.5"/><path d="M9 15h2"/></svg>',
