@@ -127,7 +127,7 @@ main.gp{max-width:1240px;margin:0 auto;padding:30px 24px 72px}
 .rooms-empty{max-width:900px;margin:0}
 .rooms-more{margin:14px 0 0}
 @media (max-width:640px){
-  .room{grid-template-columns:auto minmax(0,1fr) 92px;gap:6px 14px;padding:12px 10px 12px 16px}
+  .room{grid-template-columns:112px minmax(0,1fr) 92px;gap:6px 10px;padding:12px 10px 12px 16px}
   .room .code{grid-column:1;grid-row:1}
   .room .where{grid-column:2;grid-row:1}
   .room .fill{grid-column:1/3;grid-row:2}
