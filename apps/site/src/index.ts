@@ -1,4 +1,5 @@
 import type { ScanJob } from "@zaisma/core";
+import { handleAccount } from "./account.ts";
 import { handleAdmin } from "./admin.ts";
 import type { Env } from "./env.ts";
 import { message } from "./html.ts";
@@ -16,6 +17,9 @@ export default {
 
     if (path === "/" && method !== "POST") return home(env);
 
+    const account = await handleAccount(request, env, path);
+    if (account) return account;
+
     const game = path.match(/^\/g\/([a-z0-9-]+)(\/report)?$/);
     if (game) {
       const [, slug, report] = game as unknown as [string, string, string | undefined];
@@ -30,7 +34,7 @@ export default {
       if (res) return res;
     }
 
-    if (path === "/robots.txt") return new Response("User-agent: *\nDisallow: /admin\n", { headers: { "Content-Type": "text/plain" } });
+    if (path === "/robots.txt") return new Response("User-agent: *\nDisallow: /admin\nDisallow: /account\nDisallow: /join\nDisallow: /signin\n", { headers: { "Content-Type": "text/plain" } });
     return message(env, "Page not found", "There's nothing at this address.", 404);
   },
 

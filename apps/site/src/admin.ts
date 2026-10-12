@@ -16,6 +16,10 @@ import {
   saveScan,
   setGameStatus,
   setMultiplayer,
+  accountById,
+  gameOwner,
+  personOwner,
+  setGameOwner,
   versionById,
   versionsForGame,
   type ReportReason,
@@ -105,6 +109,24 @@ async function adminAction(request: Request, env: Env, path: string, actor: stri
     return redirect(`/admin/games/${game.id}`);
   }
 
+  m = path.match(/^\/admin\/games\/([a-z0-9]+)\/owner$/);
+  if (m) {
+    const game = await gameById(env.DB, m[1]!);
+    if (!game) return new Response("Not found", { status: 404 });
+    const accountId = String(form.get("account_id") ?? "").trim();
+    if (!accountId) {
+      await setGameOwner(env.DB, game.id, null);
+      await audit(env.DB, game.id, "owner", "No owner", actor);
+      return redirect(`/admin/games/${game.id}`);
+    }
+    const account = await accountById(env.DB, accountId);
+    if (!account) return gameDetail(env, game.id, "No account with that ID. It's shown at the bottom of the account page.");
+    const owner = await personOwner(env.DB, account.id);
+    await setGameOwner(env.DB, game.id, owner.id);
+    await audit(env.DB, game.id, "owner", `Owner: ${account.name} (account ${account.id})`, actor);
+    return redirect(`/admin/games/${game.id}`);
+  }
+
   m = path.match(/^\/admin\/games\/([a-z0-9]+)\/(takedown|restore|dismiss)$/);
   if (m) {
     const game = await gameById(env.DB, m[1]!);
@@ -170,7 +192,7 @@ ${error ? html`<p class="note" style="color:var(--danger)">${error}</p>` : ""}
 async function gameDetail(env: Env, id: string, error = ""): Promise<Response> {
   const game = await gameById(env.DB, id);
   if (!game) return new Response("Not found", { status: 404 });
-  const [versions, reports, log] = await Promise.all([versionsForGame(env.DB, id), openReports(env.DB), auditLog(env.DB, id)]);
+  const [versions, reports, log, owner] = await Promise.all([versionsForGame(env.DB, id), openReports(env.DB), auditLog(env.DB, id), gameOwner(env.DB, game.owner_id)]);
   const mine = reports.filter((r) => r.game_id === id);
 
   return page(
@@ -188,6 +210,13 @@ ${error ? html`<p class="note" style="color:var(--danger)">${error}</p>` : ""}
 ${game.status === "removed" || game.status === "held"
       ? html`<form method="post" action="/admin/games/${game.id}/restore" class="row"><input name="reason" placeholder="Why (optional)"><button class="btn" type="submit">${game.status === "held" ? "Clear and show again" : "Restore"}</button></form>`
       : html`<form method="post" action="/admin/games/${game.id}/takedown" class="row"><input name="reason" placeholder="Reason (required, goes in the audit log)" required size="40"><button class="btn danger" type="submit">Take down now</button></form>`}
+
+<h2>Owner</h2>
+<p>${owner ? html`${owner.name} <span class="muted">(${owner.owner.kind}${owner.owner.account_id ? `, account ${owner.owner.account_id}` : ""})</span>` : "No owner yet."}</p>
+<form method="post" action="/admin/games/${game.id}/owner" class="row">
+  <input name="account_id" placeholder="Account ID (blank for no owner)" size="40" value="${owner?.owner.account_id ?? ""}">
+  <button class="btn ghost" type="submit">Set owner</button>
+</form>
 
 <h2>Multiplayer</h2>
 <form method="post" action="/admin/games/${game.id}/multiplayer" class="stack">

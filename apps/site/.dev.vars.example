@@ -7,3 +7,8 @@ GAME_DOMAIN=
 DEV_ADMIN=1
 # Optional locally: without it, AI review is skipped and games are held for you to approve.
 ANTHROPIC_API_KEY=
+# Accounts. Copy from wrangler.jsonc to use the real project, or leave empty to turn accounts off.
+SUPABASE_URL=
+SUPABASE_PUBLISHABLE_KEY=
+# Only needed to delete accounts locally. Never commit it.
+SUPABASE_SECRET_KEY=
