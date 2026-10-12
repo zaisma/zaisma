@@ -23,10 +23,11 @@ Make an API key on your account page (zaisma.com/account, under Game developers)
 | `GET /games` | Your games. |
 | `POST /games` | Make a game: `{"title", "slug"?, "description"?, "devices"?, "controls"?, "screen"?}`. It starts as a draft that only you can see. Up to 50 games. |
 | `GET /games/:slug` | One game with its images and versions. |
-| `PATCH /games/:slug` | Change any of `title`, `description`, `visibility`, `devices`, `controls`, `screen`. |
+| `PATCH /games/:slug` | Change any of `title`, `description`, `visibility`, `devices`, `controls`, `screen`, `players`. |
 
 - **visibility:** `draft`, `listed` (home page and search), `unlisted` (anyone with the link, never in lists or search engines) or `private`. Draft and private games open only through preview and tester links (coming next).
 - **review** is ours and separate: `pending` (no version has passed review yet), `live`, `held` or `removed`. Changing visibility never undoes a takedown.
+- **players:** how it's played, shown on the game page with icons: `{"single": true, "local": {"min": 2, "max": 4, "style": "co-op"}, "online": {"min": 2, "max": null, "style": "versus"}}`. `local` is together on one device or screen, `online` is each on their own device; either can be `null`. `style` is `co-op`, `versus` or `both`; `max: null` means no limit ("2+ players"). `null` clears it.
 - **devices:** any of `phone`, `tablet`, `computer`. **controls:** any of `touch`, `keyboard-mouse`, `gamepad`. **screen:** `portrait`, `landscape`, `either` or `""`.
 - Once players can see a game, a new title or description waits for review (`waiting_for_review`) before it shows.
 

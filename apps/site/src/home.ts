@@ -1,7 +1,7 @@
-import { gameBySlug, recentlyPlayed, recordPlayed, type Game } from "@zaisma/core";
+import { gameBySlug, readPlayers, recentlyPlayed, recordPlayed, type Game } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
-import { html, layout, metalButton, raw, type Raw } from "./html.ts";
+import { html, layout, metalButton, playerLine, raw, type Raw } from "./html.ts";
 
 /**
  * The home page and what it needs. The page is the same for everyone (so it caches); the player's own
@@ -18,7 +18,8 @@ export interface ShowGame {
   cover: string | null;
   /** When the version players get now went live. */
   updated: number | null;
-  multiplayer: boolean;
+  /** How it's played, in a few words: "Single-player · Online co-op". */
+  modes: string;
   devices: string[];
 }
 
@@ -26,7 +27,7 @@ export interface ShowGame {
 export async function showcase(env: Env, limit = 200): Promise<ShowGame[]> {
   const { results } = await env.DB
     .prepare(
-      `SELECT games.slug, games.title, games.description, games.owner_id, games.devices, games.game_server, games.connect_hosts,
+      `SELECT games.slug, games.title, games.description, games.owner_id, games.devices, games.players, games.game_server, games.connect_hosts,
          accounts.name AS developer, versions.published_at,
          (SELECT id FROM game_images WHERE game_id = games.id AND kind = 'cover' AND status = 'approved' ORDER BY created_at DESC LIMIT 1) AS cover
        FROM games
@@ -37,7 +38,7 @@ export async function showcase(env: Env, limit = 200): Promise<ShowGame[]> {
        ORDER BY COALESCE(versions.published_at, games.updated_at) DESC LIMIT ?`,
     )
     .bind(limit)
-    .all<{ slug: string; title: string; description: string; owner_id: string | null; devices: string; game_server: string | null; connect_hosts: string; developer: string | null; published_at: number | null; cover: string | null }>();
+    .all<{ slug: string; title: string; description: string; owner_id: string | null; devices: string; players: string; game_server: string | null; connect_hosts: string; developer: string | null; published_at: number | null; cover: string | null }>();
   return results.map((r) => ({
     slug: r.slug,
     title: r.title,
@@ -46,7 +47,7 @@ export async function showcase(env: Env, limit = 200): Promise<ShowGame[]> {
     owner_id: r.owner_id,
     cover: r.cover ? `/img/${r.cover}` : null,
     updated: r.published_at,
-    multiplayer: Boolean(r.game_server || r.connect_hosts),
+    modes: playerLine(readPlayers(r.players), Boolean(r.game_server)),
     devices: r.devices ? r.devices.split(",") : [],
   }));
 }
@@ -78,7 +79,7 @@ ${featured
 <a class="pic" id="stage-pic" href="/g/${featured.slug}" tabindex="-1" aria-hidden="true">${featured.cover ? html`<img src="${featured.cover}" alt="">` : ""}</a>
 <div class="info">
 <h1 id="stage-title">${featured.title}</h1>
-<p class="by" id="stage-by">${[featured.developer, featured.multiplayer ? "Multiplayer" : ""].filter(Boolean).join(" · ")}</p>
+<p class="by" id="stage-by">${[featured.developer, featured.modes].filter(Boolean).join(" · ")}</p>
 <a class="updated" id="stage-updated" hidden></a>
 <p class="desc" id="stage-desc">${featured.description}</p>
 <div class="go-row">${metalButton("Play", { href: `/g/${featured.slug}?play`, big: true, play: true })}</div>

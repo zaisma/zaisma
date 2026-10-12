@@ -23,6 +23,8 @@ export interface Game {
   devices: string;
   controls: string;
   screen: string;
+  /** How it's played (Players as JSON), or '' when the developer hasn't said. */
+  players: string;
   /** A new title or description waiting for review, as JSON, for games players can already see. */
   details_draft: string | null;
   created_at: number;

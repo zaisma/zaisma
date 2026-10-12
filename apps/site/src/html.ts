@@ -1,3 +1,4 @@
+import { describePlayers, type Players } from "@zaisma/core";
 import { gameFrameSource, type Env } from "./env.ts";
 
 /** Escape text for HTML. Every value from a user or a game goes through this. */
@@ -100,6 +101,11 @@ main{max-width:1240px;margin:0 auto;padding:32px 24px 64px}
 .tile .go{flex:none;display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;background:var(--raised)}
 .tile .go:hover{background:#35373d}
 .tile .go svg{width:12px;height:14px}
+.modes{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.modes li{display:flex;align-items:center;gap:10px;font-size:15px;color:var(--text)}
+.modes svg{width:20px;height:20px;flex:none}
+.modes small{color:var(--muted);font-size:14px}
+.modes small::before{content:"· ";}
 .badge{display:inline-flex;align-items:center;gap:6px;color:var(--ok-text);font-size:12px;font-weight:600}
 .badge::before{content:"";width:6px;height:6px;background:var(--ok)}
 .pill{display:inline-block;padding:1px 9px;font-size:12px;box-shadow:inset 0 0 0 1px var(--line-2)}
@@ -234,4 +240,26 @@ export function siteFooter(): Raw {
 export function message(env: Env, title: string, text: string, status = 200): Response {
   const res = layout(env, { title, body: html`<h1>${title}</h1><p class="lead">${text}</p><a class="btn ghost" href="/">Back to games</a>` });
   return new Response(res.body, { status, headers: res.headers });
+}
+
+const stroke = (paths: string) => `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
+const MODE_ICONS = {
+  single: stroke('<circle cx="10" cy="6.5" r="3"/><path d="M4.5 17c0-3 2.5-5.5 5.5-5.5s5.5 2.5 5.5 5.5"/>'),
+  local: stroke('<circle cx="6.5" cy="7" r="2.5"/><circle cx="13.5" cy="7" r="2.5"/><path d="M2 16.5c0-2.5 2-4.5 4.5-4.5 1.3 0 2.5.5 3.3 1.4M18 16.5c0-2.5-2-4.5-4.5-4.5-1.3 0-2.5.5-3.3 1.4"/>'),
+  online: stroke('<circle cx="10" cy="10" r="7.5"/><path d="M2.5 10h15M10 2.5c2.3 2.2 2.3 12.8 0 15M10 2.5c-2.3 2.2-2.3 12.8 0 15"/>'),
+};
+
+/**
+ * How a game is played, as icons with words: "Single-player", "Local co-op · 2–4 players".
+ * Games that haven't said but run on our servers show "Online multiplayer".
+ */
+export function playerModes(players: Players | null, onlineServer: boolean): Raw {
+  const modes = players ? describePlayers(players) : onlineServer ? [{ mode: "online" as const, label: "Online multiplayer", count: null }] : [];
+  if (!modes.length) return html``;
+  return html`<ul class="modes">${modes.map((m) => html`<li>${raw(MODE_ICONS[m.mode])}<span>${m.label}</span>${m.count ? html`<small>${m.count}</small>` : ""}</li>`)}</ul>`;
+}
+
+/** The same, as one short line for cards: "Single-player · Online co-op". */
+export function playerLine(players: Players | null, onlineServer: boolean): string {
+  return players ? describePlayers(players).map((m) => m.label).join(" · ") : onlineServer ? "Online multiplayer" : "";
 }

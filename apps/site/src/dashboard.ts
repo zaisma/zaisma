@@ -1,4 +1,4 @@
-import { CONTROLS, DEVICES, SCREENS } from "@zaisma/core";
+import { CONTROLS, DEVICES, PLAY_STYLES, SCREENS, type PlayerCount, type Players } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import { ApiError, apiCall, callerFor, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
@@ -20,6 +20,7 @@ interface GameJson {
   devices: string[];
   controls: string[];
   screen: string;
+  players: Players | null;
   waiting_for_review: { title?: string; description?: string } | null;
   updated_at: number;
 }
@@ -110,6 +111,7 @@ export async function handleDashboard(request: Request, env: Env, path: string):
         devices: form.getAll("devices").map(String),
         controls: form.getAll("controls").map(String),
         screen: field("screen"),
+        players: playersFrom(form),
       })) as { review: string | null };
       return back(res.review ? "details-review" : "details", "#details");
     }
@@ -146,6 +148,17 @@ export async function handleDashboard(request: Request, env: Env, path: string):
     throw err;
   }
   return done(redirect(`/dashboard/${slug}`));
+}
+
+/** The Players fields of the details form, as the API takes them. Nothing ticked clears it. */
+function playersFrom(form: FormData): Players | null {
+  const count = (mode: "local" | "online") => {
+    if (form.get(mode) !== "on") return null;
+    const max = String(form.get(`${mode}_max`) ?? "").trim();
+    return { min: Number(form.get(`${mode}_min`) || 2), max: max ? Number(max) : null, style: String(form.get(`${mode}_style`) ?? "co-op") } as PlayerCount;
+  };
+  const players = { single: form.get("single") === "on", local: count("local"), online: count("online") };
+  return players.single || players.local || players.online ? players : null;
 }
 
 type Call = (method: string, path: string, body?: unknown) => Promise<Record<string, unknown>>;
@@ -346,9 +359,23 @@ ${waiting ? html`<p class="note small">Waiting for review: ${[waiting.title ? `t
 <label>Description<textarea name="description" maxlength="500">${waiting?.description ?? g.description}</textarea></label>
 <fieldset><legend>Works on</legend><div class="row">${DEVICES.map((d) => html`<label class="check"><input type="checkbox" name="devices" value="${d}"${g.devices.includes(d) ? raw(" checked") : ""}> ${DEVICE_LABELS[d]}</label>`)}</div></fieldset>
 <fieldset><legend>Controls</legend><div class="row">${CONTROLS.map((c) => html`<label class="check"><input type="checkbox" name="controls" value="${c}"${g.controls.includes(c) ? raw(" checked") : ""}> ${CONTROL_LABELS[c]}</label>`)}</div></fieldset>
+${playersFields(g.players)}
 <label>Screen<select name="screen">${["", ...SCREENS].map((s) => html`<option value="${s}"${g.screen === s ? raw(" selected") : ""}>${SCREEN_LABELS[s]}</option>`)}</select></label>
 <button class="btn" type="submit">Save details</button>
 </form>`;
+}
+
+function playersFields(p: Players | null): Raw {
+  const mode = (name: "local" | "online", label: string, hint: string, c: PlayerCount | null) => html`<div class="mode">
+<label class="check"><input type="checkbox" name="${name}"${c ? raw(" checked") : ""}> ${label}</label>
+<div class="mode-detail"><select name="${name}_style" aria-label="${label}: how">${PLAY_STYLES.map((st) => html`<option value="${st}"${c?.style === st ? raw(" selected") : ""}>${st === "both" ? "Both" : st === "co-op" ? "Co-op" : "Versus"}</option>`)}</select>
+<input type="number" name="${name}_min" min="2" max="1000" value="${c?.min ?? 2}" aria-label="${label}: fewest players"><span class="muted">to</span><input type="number" name="${name}_max" min="2" max="1000" value="${c?.max ?? ""}" placeholder="any" aria-label="${label}: most players (empty for no limit)"><span class="muted">players</span></div>
+<p class="hint">${hint}</p></div>`;
+  return html`<fieldset class="players"><legend>Players</legend>
+<label class="check"><input type="checkbox" name="single"${p?.single ? raw(" checked") : ""}> Single-player</label>
+${mode("local", "Local multiplayer", "Together on one device or screen.", p?.local ?? null)}
+${mode("online", "Online multiplayer", "Each on their own device. Leave the most empty for no limit.", p?.online ?? null)}
+</fieldset>`;
 }
 
 function imagesPanel(slug: string, images: ImageJson[]): Raw {
@@ -444,6 +471,12 @@ button.link:hover{color:var(--text)}
 .said{padding-left:18px;color:var(--text-2)}
 .bar{display:inline-block;height:8px;background:var(--line-2);margin-right:8px;vertical-align:middle;max-width:60%}
 .nowrap{white-space:nowrap}
+.players{display:grid;gap:4px}
+.mode-detail{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding-left:26px}
+.mode-detail select{width:auto;flex:none}
+.mode-detail input{width:64px;flex:none}
+.mode .hint{margin:4px 0 6px 26px}
+.mode:not(:has(input[type=checkbox]:checked)) .mode-detail,.mode:not(:has(input[type=checkbox]:checked)) .hint{display:none}
 input[type=file]{flex:1;min-width:0;padding:9px 12px;color:var(--muted);font-size:14px}
 input[type=file]::file-selector-button{background:var(--raised);color:var(--text);border:0;padding:6px 12px;margin-right:10px;font:inherit;font-weight:600;cursor:pointer}
 @media (max-width:900px){.manage{grid-template-columns:1fr}.game-head{grid-template-columns:96px 1fr}.vis{grid-column:1/-1}.vis .hint{text-align:left}}

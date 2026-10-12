@@ -73,6 +73,55 @@ export const DEVICES = ["phone", "tablet", "computer"] as const;
 export const CONTROLS = ["touch", "keyboard-mouse", "gamepad"] as const;
 export const SCREENS = ["portrait", "landscape", "either"] as const;
 export const MAX_GAMES_PER_OWNER = 50;
+export const PLAY_STYLES = ["co-op", "versus", "both"] as const;
+/** The most players we name; more than that shows as "<n>+". */
+export const MAX_PLAYERS = 1000;
+
+export interface PlayerCount {
+  min: number;
+  /** null: no upper limit, shown as "<min>+ players". */
+  max: number | null;
+  style: (typeof PLAY_STYLES)[number];
+}
+
+/** How a game is played. Any mix: a game can be single-player and online co-op. */
+export interface Players {
+  single: boolean;
+  /** Together on one device or screen. */
+  local: PlayerCount | null;
+  online: PlayerCount | null;
+}
+
+export function readPlayers(json: string): Players | null {
+  if (!json) return null;
+  try {
+    return JSON.parse(json) as Players;
+  } catch {
+    return null;
+  }
+}
+
+/** Plain words for each way to play, like "Local co-op" and "2–4 players". */
+export function describePlayers(p: Players): { mode: "single" | "local" | "online"; label: string; count: string | null }[] {
+  const out: { mode: "single" | "local" | "online"; label: string; count: string | null }[] = [];
+  if (p.single) out.push({ mode: "single", label: "Single-player", count: null });
+  const style = (s: PlayerCount["style"]) => (s === "both" ? "co-op and versus" : s);
+  const count = (c: PlayerCount) => (c.max === null ? `${c.min}+ players` : c.min === c.max ? `${c.min} players` : `${c.min}–${c.max} players`);
+  if (p.local) out.push({ mode: "local", label: `Local ${style(p.local.style)}`, count: count(p.local) });
+  if (p.online) out.push({ mode: "online", label: `Online ${style(p.online.style)}`, count: count(p.online) });
+  return out;
+}
+
+function checkCount(name: "local" | "online", v: unknown): PlayerCount | null | string {
+  if (v === null || v === undefined || v === false) return null;
+  const c = v as Partial<PlayerCount>;
+  const max = c.max === null || c.max === undefined ? null : c.max;
+  if (typeof c !== "object" || !Number.isInteger(c.min) || c.min! < 2 || c.min! > MAX_PLAYERS || (max !== null && (!Number.isInteger(max) || max < c.min! || max > MAX_PLAYERS))) {
+    return `players.${name} needs "min" (2 or more) and "max" (at least min, or null for no limit).`;
+  }
+  if (!PLAY_STYLES.includes(c.style as PlayerCount["style"])) return `players.${name}.style is one of: ${PLAY_STYLES.join(", ")}.`;
+  return { min: c.min!, max, style: c.style as PlayerCount["style"] };
+}
 
 export interface DetailsChange {
   title?: string;
@@ -81,6 +130,8 @@ export interface DetailsChange {
   devices?: string[];
   controls?: string[];
   screen?: string;
+  /** null clears it. */
+  players?: Players | null;
 }
 
 /** Check a change from the API. Returns the tidied change or a plain error. */
@@ -111,6 +162,19 @@ export function checkDetails(input: Record<string, unknown>): { change: DetailsC
   if ("screen" in input) {
     if (input.screen !== "" && !SCREENS.includes(input.screen as (typeof SCREENS)[number])) return { error: `screen is one of: ${SCREENS.join(", ")} (or "" for not set).` };
     change.screen = input.screen as string;
+  }
+  if ("players" in input) {
+    const p = input.players as Partial<Players> | null;
+    if (p === null) change.players = null;
+    else {
+      if (typeof p !== "object" || typeof p.single !== "boolean") return { error: 'players needs "single" (true or false), plus "local" and "online" ({ "min", "max", "style" } or null).' };
+      const local = checkCount("local", p.local);
+      if (typeof local === "string") return { error: local };
+      const online = checkCount("online", p.online);
+      if (typeof online === "string") return { error: online };
+      if (!p.single && !local && !online) return { error: "players needs at least one way to play: single, local or online." };
+      change.players = { single: p.single, local, online };
+    }
   }
   return { change };
 }
@@ -149,6 +213,7 @@ export async function applyDetails(db: D1Database, game: Game, change: DetailsCh
   if (change.devices) set("devices", change.devices.join(","));
   if (change.controls) set("controls", change.controls.join(","));
   if (change.screen !== undefined) set("screen", change.screen);
+  if (change.players !== undefined) set("players", change.players ? JSON.stringify(change.players) : "");
   if (sets.length) {
     set("updated_at", now());
     await db.prepare(`UPDATE games SET ${sets.join(", ")} WHERE id = ?`).bind(...binds, game.id).run();

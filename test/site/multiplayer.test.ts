@@ -33,11 +33,11 @@ describe("multiplayer on the site", () => {
     expect(bad).toContain('src="https://games.zaisma.test/arena/"');
   });
 
-  it("marks multiplayer games in the directory", async () => {
+  it("marks games on our servers as online multiplayer until the developer says more", async () => {
     await addGame("arena", "relay");
     await addGame("solo");
-    const home = await (await SELF.fetch("https://zaisma.test/")).text();
-    expect(home.match(/Multiplayer/g)).toHaveLength(1);
+    expect(await (await SELF.fetch("https://zaisma.test/g/arena")).text()).toContain("Online multiplayer");
+    expect(await (await SELF.fetch("https://zaisma.test/g/solo")).text()).not.toContain("Online multiplayer");
   });
 
   it("saves the game server and own servers, lists them and logs the change", async () => {

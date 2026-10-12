@@ -1,6 +1,6 @@
-import { AUTO_HOLD_REASONS, REPORT_REASONS, audit, createReport, gameBySlug, setGameStatus, type ReportReason } from "@zaisma/core";
+import { AUTO_HOLD_REASONS, REPORT_REASONS, audit, createReport, gameBySlug, readPlayers, setGameStatus, type ReportReason } from "@zaisma/core";
 import { gameUrl, type Env } from "./env.ts";
-import { html, layout, message, metalButton, raw, siteFooter, siteHeader } from "./html.ts";
+import { html, layout, message, metalButton, playerModes, raw, siteFooter, siteHeader } from "./html.ts";
 import { showcase, tile } from "./home.ts";
 import { SAVES_CLIENT } from "./saves-client.ts";
 import { sendAlert } from "./email.ts";
@@ -124,7 +124,8 @@ ${siteHeader(env)}
   </div>
   <div class="side">
     <h1 id="title">${game.title}</h1>
-    <p class="by">${developer ? html`by ${developer.name} · ` : ""}${multiplayer ? "Multiplayer" : "Single-player"}</p>
+    ${developer ? html`<p class="by">by ${developer.name}</p>` : ""}
+    ${playerModes(readPlayers(game.players), Boolean(game.game_server))}
     ${metalButton("Play", { id: "play", big: true, block: true, play: true })}
     <p class="note" id="device-note" hidden></p>
     ${devices.length ? html`<div class="devices">${devices.map((d) => html`<span title="Plays on ${d}s">${raw(DEVICE_ICONS[d] ?? "")}${d[0]!.toUpperCase() + d.slice(1)}</span>`)}</div>` : ""}
