@@ -1,6 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { accountById, ageBand, ageOn, checkName, gameById, gameOwner } from "@zaisma/core";
+import { accountById, ageBand, ageOn, canonicalSave, checkName, gameById, gameOwner, saveKey } from "@zaisma/core";
 
 const SITE = "https://zaisma.test";
 const SUPABASE = "https://supabase.test";
@@ -80,7 +80,7 @@ beforeEach(async () => {
     const url = new URL(input instanceof Request ? input.url : String(input));
     return url.origin === SUPABASE ? fakeSupabase(url, init) : realFetch(input, init);
   });
-  await env.DB.exec("DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
+  await env.DB.exec("DELETE FROM saves; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -91,11 +91,15 @@ class Browser {
   jar = new Map<string, string>();
   // Each browser gets its own address, so the sign-in rate limit doesn't spill between tests.
   ip = `10.0.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`;
-  async go(path: string, form?: Record<string, string>): Promise<Response> {
+  async go(path: string, form?: Record<string, string>, init: { method?: string; body?: string; origin?: string } = {}): Promise<Response> {
     const res = await SELF.fetch(`${SITE}${path}`, {
-      method: form ? "POST" : "GET",
-      body: form ? new URLSearchParams(form) : undefined,
-      headers: { cookie: [...this.jar].map(([k, v]) => `${k}=${v}`).join("; "), "cf-connecting-ip": this.ip, ...(form ? { origin: SITE } : {}) },
+      method: init.method ?? (form ? "POST" : "GET"),
+      body: init.body ?? (form ? new URLSearchParams(form) : undefined),
+      headers: {
+        cookie: [...this.jar].map(([k, v]) => `${k}=${v}`).join("; "),
+        "cf-connecting-ip": this.ip,
+        ...(form || init.body ? { origin: init.origin ?? SITE } : {}),
+      },
       redirect: "manual",
     });
     for (const c of res.headers.getSetCookie()) {
@@ -317,5 +321,86 @@ describe("pages", () => {
     expect(await (await SELF.fetch(`${SITE}/legal/privacy`)).text()).toContain("never keep it");
     expect((await SELF.fetch(`${SITE}/signin`)).headers.get("cache-control")).toBe("no-store");
     expect(await (await SELF.fetch(`${SITE}/robots.txt`)).text()).toContain("Disallow: /account");
+  });
+});
+
+describe("cloud saves", () => {
+  async function liveGame(slug = "owl-game", cloudSaves = 1) {
+    const now = Date.now();
+    await env.DB.prepare("INSERT INTO games (id, slug, title, status, cloud_saves, created_at, updated_at) VALUES (?, ?, 'Owl Game', 'live', ?, ?, ?)")
+      .bind(`g-${slug}`, slug, cloudSaves, now, now)
+      .run();
+    return `g-${slug}`;
+  }
+  const put = (b: Browser, base: number, data: Record<string, string>, slug = "owl-game") =>
+    b.go(`/api/saves/${slug}`, undefined, { method: "PUT", body: JSON.stringify({ base, data: JSON.stringify(data) }) });
+
+  it("stores a save, hands it back, and refuses an out-of-date one", async () => {
+    const gameId = await liveGame();
+    const b = new Browser();
+    await join(b);
+    const empty = (await (await b.go("/api/saves/owl-game")).json()) as { tag: string; version: number };
+    expect(empty.version).toBe(0);
+    expect(empty.tag).toMatch(/^[0-9a-f]{16}$/);
+
+    const first = await put(b, 0, { level: "3", coins: "120" });
+    expect(first.status).toBe(200);
+    expect(await first.json()).toMatchObject({ version: 1 });
+    const got = (await (await b.go("/api/saves/owl-game")).json()) as { version: number; data: Record<string, string>; hash: string };
+    expect(got).toMatchObject({ version: 1, data: { coins: "120", level: "3" } });
+    expect(await env.SAVES.get(saveKey(users.get("fox@example.com")!, gameId)).then((o) => o?.text())).toBe(canonicalSave({ level: "3", coins: "120" }));
+
+    // A second device that loaded version 0 can't overwrite version 1.
+    const stale = await put(b, 0, { level: "1" });
+    expect(stale.status).toBe(409);
+    expect(await stale.json()).toMatchObject({ version: 1 });
+    expect((await put(b, 1, { level: "4" })).status).toBe(200);
+    expect((await put(b, 1, { level: "5" })).status).toBe(409);
+  });
+
+  it("keeps saves apart per player", async () => {
+    await liveGame();
+    const a = new Browser();
+    await join(a, "a@example.com", "Player One");
+    const b = new Browser();
+    await join(b, "b@example.com", "Player Two");
+    await put(a, 0, { secret: "a" });
+    expect(((await (await b.go("/api/saves/owl-game")).json()) as { version: number }).version).toBe(0);
+  });
+
+  it("refuses guests, other sites, bad saves, big saves and games that keep their own", async () => {
+    await liveGame();
+    await liveGame("own-saves", 0);
+    expect((await new Browser().go("/api/saves/owl-game")).status).toBe(401);
+    const b = new Browser();
+    await join(b);
+    expect((await b.go("/api/saves/owl-game", undefined, { method: "PUT", body: JSON.stringify({ base: 0, data: "{}" }), origin: "https://owl-game.games.example" })).status).toBe(403);
+    expect((await b.go("/api/saves/owl-game", undefined, { method: "PUT", body: JSON.stringify({ base: 0, data: '{"a":1}' }) })).status).toBe(400);
+    expect((await put(b, 0, { big: "x".repeat(5 * 1024 * 1024) })).status).toBe(413);
+    expect((await b.go("/api/saves/own-saves")).status).toBe(404);
+  });
+
+  it("deletes saves with the account", async () => {
+    const gameId = await liveGame();
+    const b = new Browser();
+    await join(b);
+    const id = users.get("fox@example.com")!;
+    await put(b, 0, { level: "9" });
+    await b.go("/account/delete", { confirm: "delete" });
+    expect(await env.SAVES.get(saveKey(id, gameId))).toBeNull();
+    expect(await env.DB.prepare("SELECT * FROM saves").first()).toBeNull();
+  });
+
+  it("game pages offer saves only for games that use them", async () => {
+    await liveGame();
+    await liveGame("own-saves", 0);
+    const page = await (await SELF.fetch(`${SITE}/g/owl-game`)).text();
+    expect(page).toContain("window.startSaves = function");
+    expect(page).toContain('id="save-choice"');
+    expect(page).toContain('"api":"/api/saves/owl-game"');
+    expect(page).toContain("progress saves to your account");
+    const own = await (await SELF.fetch(`${SITE}/g/own-saves`)).text();
+    expect(own).not.toContain("window.startSaves = function");
+    expect(own).not.toContain("save-choice");
   });
 });

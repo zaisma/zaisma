@@ -81,13 +81,14 @@ export async function updateAccount(db: D1Database, id: string, a: { name?: stri
     .run();
 }
 
-/** Remove an account. Its games stay up with no owner until someone takes them over. */
+/** Remove an account and its save records (the caller deletes the save files). Its games stay up with no owner. */
 export async function deleteAccount(db: D1Database, id: string): Promise<void> {
   const owner = await db.prepare("SELECT id FROM owners WHERE account_id = ?").bind(id).first<{ id: string }>();
   await db.batch([
     ...(owner
       ? [db.prepare("UPDATE games SET owner_id = NULL WHERE owner_id = ?").bind(owner.id), db.prepare("DELETE FROM owners WHERE id = ?").bind(owner.id)]
       : []),
+    db.prepare("DELETE FROM saves WHERE account_id = ?").bind(id),
     db.prepare("DELETE FROM accounts WHERE id = ?").bind(id),
   ]);
 }

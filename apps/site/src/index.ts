@@ -4,6 +4,7 @@ import { handleAdmin } from "./admin.ts";
 import type { Env } from "./env.ts";
 import { message } from "./html.ts";
 import { gamePage, home, legal, reportForm, submitReport } from "./pages.ts";
+import { handleSaves } from "./saves.ts";
 import { handleScanBatch } from "./scan.ts";
 
 export default {
@@ -13,9 +14,12 @@ export default {
     const method = request.method;
 
     if (path === "/admin" || path.startsWith("/admin/")) return handleAdmin(request, env, path);
-    if (method !== "GET" && method !== "HEAD" && method !== "POST") return new Response("Method not allowed", { status: 405 });
+    if (method !== "GET" && method !== "HEAD" && method !== "POST" && !(method === "PUT" && path.startsWith("/api/saves/"))) return new Response("Method not allowed", { status: 405 });
 
     if (path === "/" && method !== "POST") return home(env);
+
+    const save = path.match(/^\/api\/saves\/([a-z0-9-]+)$/);
+    if (save) return handleSaves(request, env, save[1]!);
 
     const account = await handleAccount(request, env, path);
     if (account) return account;
@@ -34,7 +38,7 @@ export default {
       if (res) return res;
     }
 
-    if (path === "/robots.txt") return new Response("User-agent: *\nDisallow: /admin\nDisallow: /account\nDisallow: /join\nDisallow: /signin\n", { headers: { "Content-Type": "text/plain" } });
+    if (path === "/robots.txt") return new Response("User-agent: *\nDisallow: /admin\nDisallow: /account\nDisallow: /join\nDisallow: /signin\nDisallow: /api/\n", { headers: { "Content-Type": "text/plain" } });
     return message(env, "Page not found", "There's nothing at this address.", 404);
   },
 

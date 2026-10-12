@@ -16,6 +16,7 @@ import {
   saveScan,
   setGameStatus,
   setMultiplayer,
+  setCloudSaves,
   accountById,
   gameOwner,
   personOwner,
@@ -106,6 +107,16 @@ async function adminAction(request: Request, env: Env, path: string, actor: stri
     }
     await setMultiplayer(env.DB, game.id, { gameServer: server || null, connectHosts: hosts });
     await audit(env.DB, game.id, "multiplayer", `Game server: ${server || "none"}. Own servers: ${hosts.join(", ") || "none"}`, actor);
+    return redirect(`/admin/games/${game.id}`);
+  }
+
+  m = path.match(/^\/admin\/games\/([a-z0-9]+)\/saves$/);
+  if (m) {
+    const game = await gameById(env.DB, m[1]!);
+    if (!game) return new Response("Not found", { status: 404 });
+    const on = form.get("cloud_saves") === "on";
+    await setCloudSaves(env.DB, game.id, on);
+    await audit(env.DB, game.id, "cloud-saves", on ? "On" : "Off", actor);
     return redirect(`/admin/games/${game.id}`);
   }
 
@@ -216,6 +227,12 @@ ${game.status === "removed" || game.status === "held"
 <form method="post" action="/admin/games/${game.id}/owner" class="row">
   <input name="account_id" placeholder="Account ID (blank for no owner)" size="40" value="${owner?.owner.account_id ?? ""}">
   <button class="btn ghost" type="submit">Set owner</button>
+</form>
+
+<h2>Cloud saves</h2>
+<form method="post" action="/admin/games/${game.id}/saves" class="row">
+  <label class="row"><input type="checkbox" name="cloud_saves" ${game.cloud_saves ? "checked" : ""}> Copy signed-in players' browser saves to their account. Turn off for games that keep their own saves.</label>
+  <button class="btn ghost" type="submit">Save</button>
 </form>
 
 <h2>Multiplayer</h2>
