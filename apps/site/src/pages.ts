@@ -22,7 +22,7 @@ const ROOM_CODE = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/;
 
 export async function gamePage(env: Env, slug: string, url: URL): Promise<Response> {
   const game = await gameBySlug(env.DB, slug);
-  if (!game || game.status === "pending") return message(env, "Game not found", "Check the link and try again.", 404);
+  if (!game || game.status === "pending" || game.visibility === "draft" || game.visibility === "private") return message(env, "Game not found", "Check the link and try again.", 404);
   if (game.status === "removed") return message(env, "This game was removed", "It broke Zaisma's content rules or was taken down on request.", 410);
   if (game.status === "held") return message(env, "This game is being reviewed", "Someone reported it and we're taking a look. Try again later.", 404);
 
@@ -33,7 +33,7 @@ export async function gamePage(env: Env, slug: string, url: URL): Promise<Respon
   const saves = Boolean(game.cloud_saves && env.SUPABASE_URL);
   const multiplayer = Boolean(game.game_server || game.connect_hosts);
   const ownServers = game.connect_hosts.split("\n").filter(Boolean).map((o) => o.replace(/^[a-z]+:\/\//, ""));
-  return layout(env, {
+  const res = layout(env, {
     title: `${game.title} on Zaisma`,
     bare: true,
     body: html`<style>
@@ -180,6 +180,9 @@ ${raw(saves ? `const SAVES = ${JSON.stringify({ api: `/api/saves/${game.slug}`, 
 ${raw(inRoom ? "play();" : "")}
 </script>`,
   });
+  // Unlisted games are for people with the link, never search engines.
+  if (game.visibility === "unlisted") res.headers.set("X-Robots-Tag", "noindex");
+  return res;
 }
 
 const svg = (paths: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
@@ -189,7 +192,7 @@ const ICON_MORE = svg('<circle cx="5" cy="12" r="1.3" fill="currentColor"/><circ
 
 export async function reportForm(env: Env, slug: string, error = ""): Promise<Response> {
   const game = await gameBySlug(env.DB, slug);
-  if (!game || game.status === "pending") return message(env, "Game not found", "Check the link and try again.", 404);
+  if (!game || game.status === "pending" || game.visibility === "draft" || game.visibility === "private") return message(env, "Game not found", "Check the link and try again.", 404);
   return layout(env, {
     title: `Report ${game.title}`,
     body: html`<h1>Report “${game.title}”</h1>
@@ -213,7 +216,7 @@ ${error ? html`<p class="note">${error}</p>` : ""}
 
 export async function submitReport(env: Env, request: Request, slug: string, ctx: ExecutionContext): Promise<Response> {
   const game = await gameBySlug(env.DB, slug);
-  if (!game || game.status === "pending") return message(env, "Game not found", "Check the link and try again.", 404);
+  if (!game || game.status === "pending" || game.visibility === "draft" || game.visibility === "private") return message(env, "Game not found", "Check the link and try again.", 404);
 
   // Rate limit by connection address. It's checked by Cloudflare and never stored.
   const ip = request.headers.get("cf-connecting-ip") ?? "local";

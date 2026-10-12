@@ -10,6 +10,8 @@ export interface Env {
   REPORT_LIMIT?: RateLimit;
   SIGNIN_LIMIT?: RateLimit;
   SAVE_LIMIT?: RateLimit;
+  /** Developer API requests, per account. */
+  DEV_LIMIT?: RateLimit;
   ALERTS?: SendEmail;
   SITE_ORIGIN: string;
   GAME_HOST_MODE: "path" | "subdomain";

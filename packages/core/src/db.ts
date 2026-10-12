@@ -1,4 +1,4 @@
-import type { Game, GameStatus, ScanReport, ScanStatus, Version } from "./types.ts";
+import type { Game, GameStatus, ScanReport, ScanStatus, Version, Visibility } from "./types.ts";
 import { newId } from "./ids.ts";
 
 const now = () => Date.now();
@@ -32,7 +32,7 @@ export async function servableGame(
 
 export async function liveGames(db: D1Database): Promise<Game[]> {
   const { results } = await db
-    .prepare("SELECT * FROM games WHERE status = 'live' AND current_version_id IS NOT NULL ORDER BY updated_at DESC LIMIT 200")
+    .prepare("SELECT * FROM games WHERE status = 'live' AND visibility = 'listed' AND current_version_id IS NOT NULL ORDER BY updated_at DESC LIMIT 200")
     .all<Game>();
   return results;
 }
@@ -42,11 +42,18 @@ export async function allGames(db: D1Database): Promise<Game[]> {
   return results;
 }
 
-export async function createGame(db: D1Database, g: { slug: string; title: string; description: string }): Promise<Game> {
-  const game: Game = { id: newId(), ...g, status: "pending", current_version_id: null, game_server: null, connect_hosts: "", owner_id: null, cloud_saves: 1, created_at: now(), updated_at: now() };
+export async function createGame(
+  db: D1Database,
+  g: { slug: string; title: string; description: string; ownerId?: string; visibility?: Visibility },
+): Promise<Game> {
+  const { ownerId, visibility, ...info } = g;
+  const game: Game = {
+    id: newId(), ...info, status: "pending", current_version_id: null, game_server: null, connect_hosts: "", owner_id: ownerId ?? null, cloud_saves: 1,
+    visibility: visibility ?? "listed", devices: "", controls: "", screen: "", details_draft: null, created_at: now(), updated_at: now(),
+  };
   await db
-    .prepare("INSERT INTO games (id, slug, title, description, status, current_version_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-    .bind(game.id, game.slug, game.title, game.description, game.status, null, game.created_at, game.updated_at)
+    .prepare("INSERT INTO games (id, slug, title, description, status, current_version_id, owner_id, visibility, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .bind(game.id, game.slug, game.title, game.description, game.status, null, game.owner_id, game.visibility, game.created_at, game.updated_at)
     .run();
   return game;
 }

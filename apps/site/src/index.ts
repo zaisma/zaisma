@@ -1,6 +1,7 @@
 import type { ScanJob } from "@zaisma/core";
 import { handleAccount } from "./account.ts";
 import { handleAdmin } from "./admin.ts";
+import { handleDeveloper } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { message } from "./html.ts";
 import { gamePage, home, legal, reportForm, submitReport } from "./pages.ts";
@@ -14,6 +15,8 @@ export default {
     const method = request.method;
 
     if (path === "/admin" || path.startsWith("/admin/")) return handleAdmin(request, env, path);
+    const developer = await handleDeveloper(request, env, path);
+    if (developer) return developer;
     if (method !== "GET" && method !== "HEAD" && method !== "POST" && !(method === "PUT" && path.startsWith("/api/saves/"))) return new Response("Method not allowed", { status: 405 });
 
     if (path === "/" && method !== "POST") return home(env);

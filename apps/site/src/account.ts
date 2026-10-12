@@ -1,4 +1,19 @@
-import { NAME_RULES, accountById, ageBand, ageOn, checkName, createAccount, deleteAccount, gamesOwnedBy, updateAccount, type AgeBand } from "@zaisma/core";
+import {
+  MAX_API_KEYS,
+  NAME_RULES,
+  accountById,
+  ageBand,
+  ageOn,
+  apiKeysFor,
+  checkName,
+  createAccount,
+  createApiKey,
+  deleteAccount,
+  gamesOwnedBy,
+  revokeApiKey,
+  updateAccount,
+  type AgeBand,
+} from "@zaisma/core";
 import {
   authConfigured,
   clearSessionCookies,
@@ -30,7 +45,10 @@ const BLOCK_SECONDS = 24 * 3600;
 const JOIN_SECONDS = 3600;
 
 export async function handleAccount(request: Request, env: Env, path: string): Promise<Response | null> {
-  if (!["/signin", "/signin/code", "/join", "/join/age", "/join/email", "/join/name", "/account", "/account/name", "/account/age", "/account/delete", "/signout"].includes(path)) return null;
+  if (
+    !["/signin", "/signin/code", "/join", "/join/age", "/join/email", "/join/name", "/account", "/account/name", "/account/age", "/account/delete", "/account/keys", "/signout"].includes(path) &&
+    !/^\/account\/keys\/[a-z0-9]+\/revoke$/.test(path)
+  ) return null;
   if (!authConfigured(env)) return message(env, "Accounts aren't on yet", "You can play every game as a guest.", 404);
 
   const post = request.method === "POST";
@@ -143,6 +161,19 @@ export async function handleAccount(request: Request, env: Env, path: string): P
     if (age === null || age < 18) return done(await accountPage(env, session, false, "That birth date isn't 18 or over yet."));
     await updateAccount(env.DB, account.id, { ageBand: "18+" });
     return done(redirect("/account"));
+  }
+
+  // API keys for the developer MCP and upload command. The key is shown once, here.
+  if (path === "/account/keys" && post) {
+    const name = field("name", 40) || "My key";
+    if ((await apiKeysFor(env.DB, account.id)).length >= MAX_API_KEYS) return done(await accountPage(env, session, false, `You can have up to ${MAX_API_KEYS} keys. Remove one first.`));
+    const { token } = await createApiKey(env.DB, account.id, name);
+    return done(await accountPage(env, session, false, undefined, { name, token }));
+  }
+  const revoke = path.match(/^\/account\/keys\/([a-z0-9]+)\/revoke$/);
+  if (revoke && post) {
+    await revokeApiKey(env.DB, account.id, revoke[1]!);
+    return done(redirect("/account#developer"));
   }
 
   if (path === "/account/delete" && post) {
@@ -306,9 +337,11 @@ function tooYoungPage(env: Env): Response {
 
 const BAND_TEXT: Record<AgeBand, string> = { "13-17": "13 to 17", "18+": "18 or over" };
 
-async function accountPage(env: Env, session: Session, welcome: boolean, error?: string): Promise<Response> {
+const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+
+async function accountPage(env: Env, session: Session, welcome: boolean, error?: string, made?: { name: string; token: string }): Promise<Response> {
   const account = (await accountById(env.DB, session.userId))!;
-  const games = await gamesOwnedBy(env.DB, account.id);
+  const [games, keys] = await Promise.all([gamesOwnedBy(env.DB, account.id), apiKeysFor(env.DB, account.id)]);
   return page(
     env,
     "Your account",
@@ -329,6 +362,21 @@ ${account.age_band === "13-17"
 ${games.length
       ? html`<h2>Your games</h2><ul>${games.map((g) => html`<li><a href="/g/${g.slug}">${g.title}</a> <span class="pill ${g.status}">${g.status}</span></li>`)}</ul>`
       : ""}
+<h2 id="developer">Game developers</h2>
+<p>Publish and manage your games from any AI tool or the command line with an API key. Treat it like a password: anyone with it can change your games.</p>
+${made
+      ? html`<div class="note" role="status"><p><strong>Your new key, "${made.name}".</strong> Copy it now. It won't be shown again.</p><p><code class="key">${made.token}</code></p></div>`
+      : ""}
+${keys.length
+      ? html`<ul class="keys">${keys.map(
+          (k) => html`<li><span>${k.name} <span class="muted small">made ${day(k.created_at)}, ${k.last_used_at ? `last used ${day(k.last_used_at)}` : "not used yet"}</span></span>
+<form method="post" action="/account/keys/${k.id}/revoke"><button class="btn ghost" type="submit">Remove</button></form></li>`,
+        )}</ul>`
+      : ""}
+<form class="row" method="post" action="/account/keys">
+<input name="name" maxlength="40" placeholder="Key name, like My laptop" aria-label="Key name">
+<button class="btn ghost" type="submit">Make an API key</button>
+</form>
 <h2>Sign out</h2>
 <form method="post" action="/signout"><button class="btn ghost" type="submit">Sign out on every device</button></form>
 <h2>Delete account</h2>

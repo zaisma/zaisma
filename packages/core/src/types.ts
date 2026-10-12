@@ -1,4 +1,5 @@
 export type GameStatus = "pending" | "live" | "held" | "removed";
+export type Visibility = "draft" | "listed" | "unlisted" | "private";
 export type ScanStatus = "scanning" | "held" | "approved" | "rejected";
 
 export interface Game {
@@ -16,6 +17,14 @@ export interface Game {
   owner_id: string | null;
   /** 1 when signed-in players' browser saves are copied to their account. */
   cloud_saves: number;
+  /** The developer's choice; separate from status, which is ours. */
+  visibility: Visibility;
+  /** Device labels, comma-separated (see DEVICES, CONTROLS, SCREENS). */
+  devices: string;
+  controls: string;
+  screen: string;
+  /** A new title or description waiting for review, as JSON, for games players can already see. */
+  details_draft: string | null;
   created_at: number;
   updated_at: number;
 }

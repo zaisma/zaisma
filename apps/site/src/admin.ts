@@ -23,6 +23,14 @@ import {
   setGameOwner,
   versionById,
   versionsForGame,
+  gamesWithDetailsDrafts,
+  imageById,
+  imageKey,
+  imagesForGame,
+  pendingImages,
+  settleDetailsDraft,
+  settleImage,
+  type GameImage,
   type ReportReason,
   type ScanReport,
 } from "@zaisma/core";
@@ -57,6 +65,8 @@ export async function handleAdmin(request: Request, env: Env, path: string): Pro
   if (path === "/admin/audit") return auditPage(env);
   const m = path.match(/^\/admin\/games\/([a-z0-9]+)$/);
   if (m) return gameDetail(env, m[1]!);
+  const img = path.match(/^\/admin\/images\/([a-z0-9]+)$/);
+  if (img) return adminImage(env, img[1]!);
   return new Response("Not found", { status: 404 });
 }
 
@@ -91,6 +101,25 @@ async function adminAction(request: Request, env: Env, path: string, actor: stri
       await audit(env.DB, version.game_id, "rejected", reason || `Version ${version.id}`, actor);
     }
     return redirect(`/admin/games/${version.game_id}`);
+  }
+
+  m = path.match(/^\/admin\/images\/([a-z0-9]+)\/(approve|reject)$/);
+  if (m) {
+    const img = await imageById(env.DB, m[1]!);
+    if (!img) return new Response("Not found", { status: 404 });
+    const replaced = await settleImage(env.DB, img, m[2] === "approve");
+    await Promise.all(replaced.map((r) => env.GAMES.delete(imageKey(r))));
+    await audit(env.DB, img.game_id, m[2] === "approve" ? "image-approved" : "image-rejected", reason || `${img.kind} ${img.id}`, actor);
+    return redirect(String(form.get("back") ?? "") === "game" ? `/admin/games/${img.game_id}` : "/admin");
+  }
+
+  m = path.match(/^\/admin\/games\/([a-z0-9]+)\/details\/(approve|reject)$/);
+  if (m) {
+    const game = await gameById(env.DB, m[1]!);
+    if (!game) return new Response("Not found", { status: 404 });
+    await settleDetailsDraft(env.DB, game, m[2] === "approve");
+    await audit(env.DB, game.id, m[2] === "approve" ? "details-approved" : "details-rejected", reason || game.details_draft || "", actor);
+    return redirect("/admin");
   }
 
   m = path.match(/^\/admin\/games\/([a-z0-9]+)\/multiplayer$/);
@@ -161,7 +190,14 @@ async function adminAction(request: Request, env: Env, path: string, actor: stri
 }
 
 async function dashboard(env: Env, error = ""): Promise<Response> {
-  const [queue, reports, games, usage] = await Promise.all([heldVersions(env.DB), openReports(env.DB), allGames(env.DB), aiUsage(env.DB)]);
+  const [queue, reports, games, usage, images, words] = await Promise.all([
+    heldVersions(env.DB),
+    openReports(env.DB),
+    allGames(env.DB),
+    aiUsage(env.DB),
+    pendingImages(env.DB),
+    gamesWithDetailsDrafts(env.DB),
+  ]);
   return page(
     env,
     "Admin",
@@ -173,6 +209,21 @@ ${queue.length
       ? html`<table><tr><th>Game</th><th>Version</th><th>Status</th><th>Uploaded</th></tr>${queue.map(
           (v) => html`<tr><td><a href="/admin/games/${v.game_id}">${v.title}</a></td><td>${v.id}</td><td>${pill(v.scan_status)}</td><td>${when(v.created_at)}</td></tr>`,
         )}</table>`
+      : html`<p class="note">Nothing waiting.</p>`}
+
+<h2>Covers and screenshots (${images.length})</h2>
+${images.length
+      ? html`<p class="muted">Image matching isn't connected yet, so every picture waits here. Check it shows the game and follows the content rules.</p>
+<div class="shots">${images.map((i) => html`<div>${imageReview(i)}<p><a href="/admin/games/${i.game_id}">${i.title}</a></p></div>`)}</div>`
+      : html`<p class="note">Nothing waiting.</p>`}
+
+<h2>New titles and descriptions (${words.length})</h2>
+${words.length
+      ? html`<table><tr><th>Game</th><th>Now</th><th>New</th><th></th></tr>${words.map((g) => {
+          const d = JSON.parse(g.details_draft!) as { title?: string; description?: string };
+          return html`<tr><td><a href="/admin/games/${g.id}">${g.slug}</a></td><td><strong>${g.title}</strong><br>${g.description}</td><td><strong>${d.title ?? g.title}</strong><br>${d.description ?? g.description}</td>
+<td><div class="row"><form method="post" action="/admin/games/${g.id}/details/approve"><button class="btn" type="submit">Approve</button></form><form method="post" action="/admin/games/${g.id}/details/reject"><button class="btn ghost" type="submit">Reject</button></form></div></td></tr>`;
+        })}</table>`
       : html`<p class="note">Nothing waiting.</p>`}
 
 <h2>Open reports (${reports.length})</h2>
@@ -203,7 +254,13 @@ ${error ? html`<p class="note" style="color:var(--danger)">${error}</p>` : ""}
 async function gameDetail(env: Env, id: string, error = ""): Promise<Response> {
   const game = await gameById(env.DB, id);
   if (!game) return new Response("Not found", { status: 404 });
-  const [versions, reports, log, owner] = await Promise.all([versionsForGame(env.DB, id), openReports(env.DB), auditLog(env.DB, id), gameOwner(env.DB, game.owner_id)]);
+  const [versions, reports, log, owner, images] = await Promise.all([
+    versionsForGame(env.DB, id),
+    openReports(env.DB),
+    auditLog(env.DB, id),
+    gameOwner(env.DB, game.owner_id),
+    imagesForGame(env.DB, id),
+  ]);
   const mine = reports.filter((r) => r.game_id === id);
 
   return page(
@@ -221,6 +278,10 @@ ${error ? html`<p class="note" style="color:var(--danger)">${error}</p>` : ""}
 ${game.status === "removed" || game.status === "held"
       ? html`<form method="post" action="/admin/games/${game.id}/restore" class="row"><input name="reason" placeholder="Why (optional)"><button class="btn" type="submit">${game.status === "held" ? "Clear and show again" : "Restore"}</button></form>`
       : html`<form method="post" action="/admin/games/${game.id}/takedown" class="row"><input name="reason" placeholder="Reason (required, goes in the audit log)" required size="40"><button class="btn danger" type="submit">Take down now</button></form>`}
+
+<h2>Details</h2>
+<p>Visibility: ${pill(game.visibility)} · Devices: ${game.devices || "not set"} · Controls: ${game.controls || "not set"} · Screen: ${game.screen || "not set"}</p>
+${images.length ? html`<div class="shots">${images.map((i) => html`<div>${imageReview(i, true)}</div>`)}</div>` : html`<p class="note">No cover or screenshots yet.</p>`}
 
 <h2>Owner</h2>
 <p>${owner ? html`${owner.name} <span class="muted">(${owner.owner.kind}${owner.owner.account_id ? `, account ${owner.owner.account_id}` : ""})</span>` : "No owner yet."}</p>
@@ -298,4 +359,22 @@ function auditTable(log: Awaited<ReturnType<typeof auditLog>>): Raw {
 
 async function auditPage(env: Env): Promise<Response> {
   return page(env, "Audit log", html`<h1>Audit log</h1>${auditTable(await auditLog(env.DB))}`);
+}
+
+function imageReview(i: GameImage, fromGame = false): Raw {
+  return html`<a href="/admin/images/${i.id}"><img src="/admin/images/${i.id}" alt="${i.kind}" loading="lazy"></a>
+<p>${i.kind} ${pill(i.status)} <span class="muted">${i.width}×${i.height}</span></p>
+${i.status === "pending"
+    ? html`<div class="row"><form method="post" action="/admin/images/${i.id}/approve"><input type="hidden" name="back" value="${fromGame ? "game" : ""}"><button class="btn" type="submit">Approve</button></form>
+<form method="post" action="/admin/images/${i.id}/reject"><input type="hidden" name="back" value="${fromGame ? "game" : ""}"><button class="btn ghost" type="submit">Reject</button></form></div>`
+    : ""}`;
+}
+
+async function adminImage(env: Env, id: string): Promise<Response> {
+  const img = await imageById(env.DB, id);
+  const object = img ? await env.GAMES.get(imageKey(img)) : null;
+  if (!img || !object) return new Response("Not found", { status: 404 });
+  return new Response(object.body, {
+    headers: { "Content-Type": img.content_type, "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; sandbox" },
+  });
 }
