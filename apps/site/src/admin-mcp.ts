@@ -57,7 +57,8 @@ async function choices(env: Env, g: ReportGroup): Promise<{ options: string[]; p
   const paused = await env.DB.prepare("SELECT id FROM versions WHERE game_id = ? AND report_held_at IS NOT NULL AND scan_status = 'held' LIMIT 1").bind(g.lead.game_id).first<{ id: string }>();
   if (paused) return { options: ["put_update_back", "keep_update_off", "take_down"], pausedUpdate: paused.id };
   // Never passed to the developer: telling them could warn someone abusing a child.
-  return { options: childSafety(g) ? ["dismiss", "take_down"] : ["dismiss", "bug", "take_down"], pausedUpdate: null };
+  const named = g.rows.some((r) => r.room_name) ? ["hide_name"] : [];
+  return { options: childSafety(g) ? ["dismiss", ...named, "take_down"] : ["dismiss", ...named, "bug", "take_down"], pausedUpdate: null };
 }
 
 function summary(g: ReportGroup) {
@@ -150,6 +151,8 @@ function tools(env: Env, actor: string): McpTool[] {
             player_wrote: r.details,
             about_player: r.player_id ? { name: r.player_name, temporary_id: r.player_id } : null,
             room: r.room_code || null,
+            // Room names can be typed by players: untrusted, like everything players send.
+            room_name: r.room_name || null,
             version: r.version_id,
             picture: r.picture ? (childSafety(g) ? "kept for the admin page only" : true) : false,
             sorted: triageOf(r.triage)?.summary ?? null,
@@ -176,11 +179,11 @@ function tools(env: Env, actor: string): McpTool[] {
       name: "decide_report",
       title: "Decide a report group",
       description:
-        "Decide a group of reports, exactly like its button in the queue: dismiss, bug (pass to the developer), take_down, restore (put a paused game back), put_update_back or keep_update_off (for a paused update). get_report lists what's possible. Optionally also set a precedent for cases like it. Ask the admin first.",
+        "Decide a group of reports, exactly like its button in the queue: dismiss, hide_name (hide a reported room's name and labels from room lists), bug (pass to the developer), take_down, restore (put a paused game back), put_update_back or keep_update_off (for a paused update). get_report lists what's possible. Optionally also set a precedent for cases like it. Ask the admin first.",
       inputSchema: object(
         {
           group: { type: "string" },
-          decision: { enum: ["dismiss", "bug", "take_down", "restore", "put_update_back", "keep_update_off"] },
+          decision: { enum: ["dismiss", "hide_name", "bug", "take_down", "restore", "put_update_back", "keep_update_off"] },
           reason: { type: "string", maxLength: 500, description: "Why, in a sentence. Goes in the audit log." },
           precedent: {
             type: "object",
@@ -209,6 +212,7 @@ function tools(env: Env, actor: string): McpTool[] {
         const path = {
           dismiss: `/admin/report-groups/${g.id}/dismiss`,
           bug: `/admin/report-groups/${g.id}/bug`,
+          hide_name: `/admin/report-groups/${g.id}/hide-name`,
           take_down: `/admin/games/${g.lead.game_id}/takedown`,
           restore: `/admin/games/${g.lead.game_id}/restore`,
           put_update_back: `/admin/versions/${pausedUpdate}/approve`,

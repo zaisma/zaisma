@@ -10,7 +10,7 @@
 import { WebSocketServer } from "ws";
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
-import { CLOSE_REFUSED, PassError, RoomCore, defineGameServer, errorMessage, isRoomCode, relay, verifyPass } from "../src/index.ts";
+import { CLOSE_REFUSED, PassError, RoomCore, defineGameServer, errorMessage, isRoomCode, relay, roomInfo, verifyPass } from "../src/index.ts";
 
 const HELLO_MS = 5000;
 
@@ -83,12 +83,12 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
         return;
       }
       let pass;
-      let listed;
+      let made = {};
       try {
         const msg = JSON.parse(text ?? "");
         if (msg.t !== "hello" || typeof msg.pass !== "string") return refuse("no-hello");
         pass = msg.pass;
-        if (msg.room?.listed === false) listed = false;
+        if (msg.room && typeof msg.room === "object") made = { ...(msg.room.listed === false ? { listed: false } : {}), ...roomInfo(msg.room) };
       } catch {
         return refuse("no-hello");
       }
@@ -108,7 +108,7 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
       room.sockets.get(claims.sub)?.close(CLOSE_REFUSED, "Joined from somewhere else");
       room.sockets.set(claims.sub, ws);
       // Rooms here aren't in Zaisma's room lists, but listed, open and closed work the same for the game.
-      const result = room.core.join({ id: claims.sub, name: claims.name }, { listed });
+      const result = room.core.join({ id: claims.sub, name: claims.name }, made);
       if (!result.ok) {
         room.sockets.delete(claims.sub);
         closeIfEmpty(code, room);

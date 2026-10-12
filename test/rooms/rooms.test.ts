@@ -280,7 +280,7 @@ describe("room browsing", () => {
     b.ws.send(JSON.stringify({ t: "room", open: false }));
     expect(await next(b, "error")).toMatchObject({ code: "not-allowed" });
     a.ws.send(JSON.stringify({ t: "room", open: false }));
-    expect(await next(a, "room")).toEqual({ t: "room", room: { listed: true, open: false } });
+    expect(await next(a, "room")).toEqual({ t: "room", room: { listed: true, open: false, name: null, labels: {} } });
     expect((await rows(id, (r) => r[0]?.open === 0))[0]).toMatchObject({ players: 2, open: 0 });
 
     const { pass } = await getPass("party");
@@ -316,7 +316,7 @@ describe("room browsing", () => {
     expect(res.headers.get("access-control-allow-origin")).toBe(ORIGIN);
     const body = await res.json<{ rooms: any[]; playing: unknown }>();
     expect(body.rooms.map((r) => r.code)).toEqual(["GGGGGG", "DDDDDD", "CCCCCC", "BBBBBB", "HHHHHH", "AAAAAA", "EEEEEE"]);
-    expect(body.rooms[0]).toEqual({ code: "GGGGGG", players: 1, max: 8, open: true, location: { country: "DE", name: "Germany", continent: "EU" }, near: true, link: "https://zaisma.test/g/lister?room=GGGGGG" });
+    expect(body.rooms[0]).toEqual({ code: "GGGGGG", players: 1, max: 8, open: true, location: { country: "DE", name: "Germany", continent: "EU" }, near: true, name: null, labels: {}, link: "https://zaisma.test/g/lister?room=GGGGGG" });
     expect(body.rooms.find((r) => r.code === "HHHHHH").location).toBeNull();
     expect(body.playing).toEqual({ players: 23, rooms: 7, closed: 1 });
     expect(body).toMatchObject({ joinable: 5, region: null, more: 0 });
@@ -329,6 +329,39 @@ describe("room browsing", () => {
     expect(na.rooms.map((r: any) => r.code)).toEqual(["CCCCCC", "BBBBBB"]);
     expect(na).toMatchObject({ region: "NA", playing: { rooms: 7 }, joinable: 5 });
     expect((await SELF.fetch(`${R}/v1/rooms/lister`, { headers: { Origin: "https://evil.example" } })).status).toBe(403);
+  });
+
+  it("keeps a room's name and labels, filters by labels, and drops a name a person hid", async () => {
+    const id = await addGame("named");
+    const { pass } = await getPass("named");
+    const c = await connect("named", "NMDRM2");
+    c.ws.send(JSON.stringify({ t: "hello", pass, room: { name: "Ana's castle", labels: { Mode: "Classic", Map: "Docks" } } }));
+    expect((await c.next()).room).toMatchObject({ name: "Ana's castle", labels: { Mode: "Classic", Map: "Docks" } });
+    expect((await rows(id, (r) => r.length === 1))[0]).toMatchObject({ name: "Ana's castle", labels: '{"Mode":"Classic","Map":"Docks"}' });
+    const add = (code: string, labels: string) =>
+      e.DB.prepare("INSERT INTO live_rooms (game_id, code, players, max_players, open, labels, created_at, updated_at) VALUES (?, ?, 1, 8, 1, ?, ?, ?)").bind(id, code, labels, Date.now(), Date.now()).run();
+    await add("NMDRM3", '{"Mode":"Hardcore"}');
+    await add("NMDRM4", '{"Mode":"classic"}');
+    const list = (q = "") => SELF.fetch(`${R}/v1/rooms/named${q}`, { headers: { Origin: ORIGIN } }).then((r) => r.json<any>());
+    const all = await list();
+    expect(all.rooms.find((r: any) => r.code === "NMDRM2")).toMatchObject({ name: "Ana's castle", labels: { Mode: "Classic", Map: "Docks" } });
+    // "Classic" and "classic" are one choice.
+    expect(all.filters.map((f: any) => [f.label, f.values.map((v: string) => v.toLowerCase())])).toEqual([["Mode", ["classic", "hardcore"]]]);
+    const classic = await list(`?labels=${encodeURIComponent(JSON.stringify({ Mode: "Classic" }))}`);
+    expect(classic.rooms.map((r: any) => r.code).sort()).toEqual(["NMDRM2", "NMDRM4"]);
+    await e.DB.prepare("UPDATE live_rooms SET name_hidden = 1 WHERE code = 'NMDRM2'").run();
+    expect((await list()).rooms.find((r: any) => r.code === "NMDRM2")).toMatchObject({ name: null, labels: {} });
+    // A room renaming itself doesn't bring back a name a person hid.
+    c.ws.send(JSON.stringify({ t: "room", name: "Ana's castle 2" }));
+    await rows(id, (r) => r.find((x) => x.code === "NMDRM2")?.name === "Ana's castle 2");
+    expect((await list()).rooms.find((r: any) => r.code === "NMDRM2").name).toBeNull();
+  });
+
+  it("offers games Zaisma's text filter", async () => {
+    await addGame("named");
+    const check = (text: string) => SELF.fetch(`${R}/v1/filter`, { method: "POST", headers: { Origin: ORIGIN, "Content-Type": "text/plain" }, body: JSON.stringify({ game: "named", text }) }).then((r) => r.json<any>());
+    expect(await check(" Ana's\u200b castle ")).toEqual({ text: "Ana's castle", ok: true });
+    expect(await check("add me on snap")).toMatchObject({ ok: false, reason: "contact" });
   });
 
   it("checks in every hour, and a room that stopped without hearing its players go drops off", async () => {

@@ -121,11 +121,21 @@ a.live-now:hover{text-decoration:underline;text-underline-offset:3px}
 .rooms-head{display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px;margin:0 0 16px}
 .rooms-head .badge{font-size:14px}
 .rooms{list-style:none;padding:0;margin:0;display:grid;gap:10px;max-width:900px}
-.room{--cut:12px;display:grid;grid-template-columns:minmax(0,1fr) auto 104px;align-items:center;gap:8px 24px;padding:10px 10px 10px 20px;clip-path:polygon(0 0,calc(100% - 12px) 0,100% 12px,100% 100%,0 100%)}
+.room{--cut:12px;display:grid;grid-template-columns:minmax(0,1fr) 250px auto 104px 36px;align-items:center;gap:8px 20px;padding:10px 6px 10px 20px;clip-path:polygon(0 0,calc(100% - 12px) 0,100% 12px,100% 100%,0 100%)}
+.room .main{min-width:0}
+/* A named room leads with its name and labels; they're words players may have typed, shown only past the filter. */
+.room .title{display:flex;flex-direction:column;gap:2px;min-width:0}
+.room .name{font-family:var(--display);font-size:17px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.room .labels{font-size:13px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.room .small-count{font-size:13px;color:var(--text-2);white-space:nowrap}
+.room .act{display:flex;justify-content:center}
+.report-room{display:grid;place-items:center;width:36px;height:36px;padding:0;border:0;background:none;color:var(--muted);cursor:pointer}
+.report-room:hover,.report-room:focus-visible{color:var(--text)}
+.report-room svg{width:16px;height:16px}
 .room.later{display:none}
 #rooms.all .room.later{display:grid}
-.room .fill{display:flex;align-items:center;flex-wrap:wrap;gap:6px 16px;min-width:0}
-.room .count{font-family:var(--display);font-size:17px;font-weight:600;color:var(--text);white-space:nowrap;min-width:9.5em}
+.room .fill{display:flex;align-items:center;gap:6px 12px;min-width:0}
+.room .count{font-family:var(--display);font-size:17px;font-weight:600;color:var(--text);white-space:nowrap}
 .room .where{display:flex;align-items:center;gap:8px;min-width:52px}
 /* Where the room runs: the country's flag, set into the metal, and its two-letter code. */
 .room .flag{width:20px;height:15px;flex:none;box-shadow:0 0 0 1px rgba(0,0,0,.85),0 1px 0 1px rgba(255,255,255,.07)}
@@ -140,7 +150,12 @@ a.live-now:hover{text-decoration:underline;text-underline-offset:3px}
 .code-join input::placeholder{color:#5d626b;letter-spacing:.16em}
 .room .btn{min-height:44px}
 .room .full{display:grid;place-items:center;min-height:44px;color:var(--muted);font-family:var(--display);font-size:15px;font-weight:500}
-.regions{display:flex;width:fit-content;max-width:100%;overflow-x:auto;scrollbar-width:none;margin:0 0 14px}
+.rooms-pick{display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;margin:0 0 14px;max-width:900px}
+.regions{display:flex;width:fit-content;max-width:100%;overflow-x:auto;scrollbar-width:none}
+/* Labels worth filtering by, each a small dropdown cut into the metal. */
+.filters{display:flex;flex-wrap:wrap;gap:8px 16px}
+.filter{display:flex;align-items:center;gap:8px;font-family:var(--display);font-size:14px;font-weight:500;color:var(--text-2)}
+.filter select{width:auto;min-height:40px;max-width:180px}
 .regions button{min-height:38px;padding:0 13px;gap:7px}
 .regions small{font-size:12px;font-weight:500;color:var(--muted)}
 .rooms-empty{max-width:900px;margin:0}
@@ -150,8 +165,12 @@ a.live-now:hover{text-decoration:underline;text-underline-offset:3px}
 /* Phones: how full the room is on the left, its flag and Join on the right. */
 @media (max-width:640px){
   .room{grid-template-columns:minmax(0,1fr) auto auto;gap:8px 12px;padding:12px 10px 12px 16px}
-  .room .count{min-width:0;font-size:16px}
-  .room .btn,.room .full{min-width:76px}
+  .room .main{grid-column:1;grid-row:1}
+  .room .where{grid-column:2;grid-row:1}
+  .room .btn,.room .full{grid-column:3;grid-row:1;min-width:76px}
+  .room .fill{grid-column:1/3;grid-row:2}
+  .room .act{grid-column:3;grid-row:2;justify-content:flex-end}
+  .room .count,.room .name{font-size:16px}
 }
 /* The narrowest phones keep just the flag; the country is in the Join button's label. */
 @media (max-width:370px){.room .where{min-width:0}.room .where abbr{display:none}}
@@ -367,15 +386,21 @@ tabs.forEach((t) => t.onclick = () => showTab(t.getAttribute("aria-controls")));
 const roomsPanel = document.getElementById("rooms");
 let roomsAt = Date.now();
 let roomsRegion = "";
+let roomsLabels = {};
+const roomsKey = () => roomsRegion + "|" + JSON.stringify(Object.entries(roomsLabels).sort());
 try { roomsRegion = localStorage.getItem("zaisma:rooms-region") || ""; } catch {}
 async function refreshRooms(force) {
-  if (!roomsPanel || roomsPanel.hidden || document.hidden || frame) return;
+  // The automatic refresh waits while nobody's looking; a pick the player just made always loads.
+  if (!roomsPanel || roomsPanel.hidden || frame || (document.hidden && !force)) return;
   const list = document.getElementById("rooms-list");
-  const shown = list.firstElementChild?.dataset.shown || "";
-  if (!force && shown === roomsRegion && Date.now() - roomsAt < 19000) return;
+  const shown = list.firstElementChild?.dataset.shown || "|[]";
+  if (!force && shown === roomsKey() && Date.now() - roomsAt < 19000) return;
   roomsAt = Date.now();
   try {
-    const res = await fetch(location.pathname + "/rooms" + (roomsRegion ? "?region=" + roomsRegion : ""));
+    const query = new URLSearchParams();
+    if (roomsRegion) query.set("region", roomsRegion);
+    if (Object.keys(roomsLabels).length) query.set("labels", JSON.stringify(roomsLabels));
+    const res = await fetch(location.pathname + "/rooms" + (query.size ? "?" + query : ""));
     if (!res.ok) return;
     list.innerHTML = await res.text();
     const n = list.firstElementChild?.dataset.joinable || "0";
@@ -400,6 +425,14 @@ if (roomsPanel) {
     } else if (e.target.closest(".rooms-all")) {
       roomsPanel.classList.add("all");
     }
+  });
+  roomsPanel.addEventListener("change", (e) => {
+    const pick = e.target.closest("select[data-label]");
+    if (!pick) return;
+    if (pick.value) roomsLabels[pick.dataset.label] = pick.value;
+    else delete roomsLabels[pick.dataset.label];
+    roomsPanel.classList.remove("all");
+    refreshRooms(true);
   });
 }
 const codeInput = document.getElementById("room-code");
@@ -547,6 +580,7 @@ const CONTENT_RULES = `
 <li>Collecting players' personal data.</li>
 <li>Free-text chat between players. Preset phrases and emotes are fine.</li>
 </ul>
+<p>Names players give to things in a game (sessions, worlds, maps) are allowed. The game is responsible for keeping them within these rules.</p>
 <h2>How we check</h2>
 <p>Every game is scanned before it's published: automatic malware checks, matching against known illegal images, and an AI review. Games that need a closer look wait for a person.</p>
 <h2>Reports and takedowns</h2>

@@ -18,13 +18,18 @@
  *   Zaisma.rooms.linked;                      // the room code the player's link points to, or null
  *   const { rooms, playing, regions } = await Zaisma.rooms.list();  // rooms: [{ code, players, max, open, location, near, link }]
  *                                             // location: { country: "DE", name: "Germany", continent: "EU" } or null
- *   Zaisma.rooms.list({ region: "EU" });      // only rooms in one region (a continent code from regions)
+ *   Zaisma.rooms.list({ region: "EU", labels: { Mode: "Classic" } });  // one region, or rooms with these labels
  *   const room = await Zaisma.rooms.quickJoin();           // the linked room, else a busy one with space, else a new one
- *   Zaisma.rooms.quickJoin({ region: "EU" }); // a room with space in that region, else a new one
+ *   Zaisma.rooms.quickJoin({ region: "EU", labels: { Mode: "Classic" } });  // a room like that with space, else a new one with those labels
  *   Zaisma.joinRoom({ listed: false });       // a new room that's never listed (a private match)
- *   room.listed; room.open; room.on("room", ({ listed, open }) => {});
- *   room.setListed(false); room.setOpen(false);  // with the relay, from the room's first player;
- *                                                // otherwise the game server decides (room.setListed)
+ *   Zaisma.joinRoom({ name: "Ana's castle", labels: { Mode: "Classic", Map: "Docks" } });  // name and label a new room
+ *   room.listed; room.open; room.name; room.labels; room.on("room", ({ listed, open, name, labels }) => {});
+ *   room.setListed(false); room.setOpen(false); room.setInfo({ name, labels });
+ *                                             // with the relay, from the room's first player;
+ *                                             // otherwise the game server decides (room.setInfo)
+ *   await Zaisma.filterText("what a player typed");  // { ok, reason, text }: Zaisma's text filter
+ * Names and labels players type show on Zaisma's pages only if they pass the filter. Inside your game
+ * they're yours to look after: filterText is there if you want it.
  * A closed room takes no new players; players who were in it can still come back.
  *
  * Player safety. Games where players interact must offer mute, block and report:
@@ -117,9 +122,11 @@
     this.inviteLink = config.site && config.game ? config.site + "/g/" + config.game + "?room=" + this.code : null;
     this.listed = opts.listed !== false;
     this.open = true;
+    this.name = null;
+    this.labels = {};
     this._url = opts.url;
     this._pass = opts.pass;
-    this._listed = opts.listed;
+    this._made = { listed: opts.listed === false ? false : undefined, name: opts.name, labels: opts.labels };
     this._tries = 0;
     this._done = false;
     this._ready = null;
@@ -131,7 +138,7 @@
     var ws = new WebSocket(this._url);
     this._ws = ws;
     ws.onopen = function () {
-      ws.send(JSON.stringify({ t: "hello", pass: room._pass, room: room._listed === false ? { listed: false } : undefined }));
+      ws.send(JSON.stringify({ t: "hello", pass: room._pass, room: room._made }));
     };
     ws.onmessage = function (ev) {
       var m;
@@ -140,7 +147,7 @@
         room._tries = 0;
         room.me = m.me;
         room.players = m.players;
-        if (m.room) { room.listed = m.room.listed; room.open = m.room.open; }
+        if (m.room) room._settle(m.room);
         room._setStatus("open");
         if (room._ready) { room._ready.resolve(room); room._ready = null; }
       } else if (m.t === "players") {
@@ -149,8 +156,7 @@
       } else if (m.t === "msg") {
         room._emit("message", m.d);
       } else if (m.t === "room") {
-        room.listed = m.room.listed;
-        room.open = m.room.open;
+        room._settle(m.room);
         room._emit("room", m.room);
       } else if (m.t === "ended") {
         room._done = true;
@@ -202,6 +208,17 @@
   Room.prototype.setOpen = function (open) {
     if (this._ws && this._ws.readyState === 1) this._ws.send(JSON.stringify({ t: "room", open: Boolean(open) }));
   };
+  /** Name and label the room: { name, labels }. Leave a field out to keep it; null clears it. */
+  Room.prototype.setInfo = function (info) {
+    info = info || {};
+    if (this._ws && this._ws.readyState === 1) this._ws.send(JSON.stringify({ t: "room", name: info.name, labels: info.labels }));
+  };
+  Room.prototype._settle = function (r) {
+    this.listed = r.listed;
+    this.open = r.open;
+    this.name = r.name || null;
+    this.labels = r.labels || {};
+  };
 
   // Mute lasts for this room; block lasts for every room this tab joins.
   var blockKey = "zaisma:blocked:" + config.game;
@@ -247,6 +264,7 @@
    *   code   - a room code; defaults to ?room= in the page address, else a new room
    *   server - your own game server's address (wss://...) instead of Zaisma rooms
    *   listed - false: a new room that never shows in room lists, like a private match
+   *   name, labels - a new room's name and labels, like "Ana's castle" and { Mode: "Classic" }
    * If the room is full, closed or over, it fails with an error whose code says which.
    */
   function joinRoom(opts) {
@@ -262,7 +280,7 @@
     var codeReady = code ? Promise.resolve(code) : server ? Promise.resolve(randomCode()) : post("/v1/rooms", { game: config.game }).then(function (d) { return d.code; });
     return Promise.all([codeReady, player()]).then(function (got) {
       var base = (server || config.rooms).replace(/^http/, "ws");
-      var room = new Room({ code: got[0], pass: got[1].pass, url: base + "/v1/rooms/" + config.game + "/" + got[0], listed: opts.listed });
+      var room = new Room({ code: got[0], pass: got[1].pass, url: base + "/v1/rooms/" + config.game + "/" + got[0], listed: opts.listed, name: opts.name, labels: opts.labels });
       joined.push(room);
       // Tell the Zaisma page the room code, so its Invite button and address bar point here.
       if (config.site && window.parent !== window) window.parent.postMessage({ type: "zaisma:room", code: room.code }, config.site);
@@ -288,8 +306,11 @@
    */
   function listRooms(opts) {
     if (!config.rooms) return Promise.reject(new Error("Room lists only cover Zaisma rooms"));
-    var region = opts && opts.region ? "?region=" + encodeURIComponent(opts.region) : "";
-    return fetch(config.rooms + "/v1/rooms/" + config.game + region).then(function (res) {
+    opts = opts || {};
+    var query = [];
+    if (opts.region) query.push("region=" + encodeURIComponent(opts.region));
+    if (opts.labels) query.push("labels=" + encodeURIComponent(JSON.stringify(opts.labels)));
+    return fetch(config.rooms + "/v1/rooms/" + config.game + (query.length ? "?" + query.join("&") : "")).then(function (res) {
       return res.json().then(function (data) {
         if (!res.ok) throw new Error(data.error || "Couldn't load the rooms");
         return data;
@@ -309,7 +330,7 @@
     var linked = codeFromPage();
     function fresh() { return connect(null, opts); }
     function busiest() {
-      return listRooms({ region: opts.region }).then(function (found) {
+      return listRooms({ region: opts.region, labels: opts.labels }).then(function (found) {
         var tries = found.rooms.filter(function (r) { return r.open && r.players < r.max && r.code !== linked; }).slice(0, 3);
         function next() {
           var r = tries.shift();
@@ -321,6 +342,16 @@
     }
     if (!linked) return busiest();
     return connect(linked, opts).catch(function (err) { if (RETRY[err.code]) return busiest(); throw err; });
+  }
+
+  /**
+   * Zaisma's text filter: whether what a player typed can be shown to other players, as on Zaisma's
+   * own pages. Resolves to { ok, reason, text }: reason is "contact" (a link, handle, email, phone
+   * number or contact app) or "words" (slurs or sexual words); text is tidied (hidden characters
+   * and extra spaces gone).
+   */
+  function filterText(text) {
+    return post("/v1/filter", { game: config.game, text: String(text == null ? "" : text) });
   }
 
   /**
@@ -471,5 +502,5 @@
   }
 
   var rooms = { join: joinRoom, list: listRooms, quickJoin: quickJoin, linked: codeFromPage() };
-  window.Zaisma = { version: 1, game: config.game || null, player: player, joinRoom: joinRoom, rooms: rooms, invite: invite, openSafetyPanel: openSafetyPanel };
+  window.Zaisma = { version: 1, game: config.game || null, player: player, joinRoom: joinRoom, rooms: rooms, invite: invite, filterText: filterText, openSafetyPanel: openSafetyPanel };
 })();

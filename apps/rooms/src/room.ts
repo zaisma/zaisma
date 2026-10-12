@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { CLOSE_REFUSED, PassError, RoomCore, errorMessage, verifyPass, type Player, type RoomErrorCode, type SavedRoom } from "@zaisma/game-server";
+import { CLOSE_REFUSED, PassError, RoomCore, errorMessage, roomInfo, verifyPass, type Player, type RoomErrorCode, type RoomInfo, type SavedRoom } from "@zaisma/game-server";
 import { gameServer } from "./registry.ts";
 import { signingKey, type Env } from "./index.ts";
 
@@ -150,12 +150,14 @@ export class Room extends DurableObject<Env> {
 
   private async hello(ws: WebSocket, text: string): Promise<void> {
     let pass: unknown;
-    let listed: boolean | undefined;
+    let made: { listed?: boolean } & RoomInfo = {};
     try {
-      const msg = JSON.parse(text) as { t?: unknown; pass?: unknown; room?: { listed?: unknown } };
+      const msg = JSON.parse(text) as { t?: unknown; pass?: unknown; room?: { listed?: unknown; name?: unknown; labels?: unknown } };
       if (msg.t !== "hello") return this.refuse(ws, "no-hello");
       pass = msg.pass;
-      if (msg.room?.listed === false) listed = false;
+      // How the player who makes the room sets it up; the room takes it only from them.
+      const room = msg.room && typeof msg.room === "object" ? msg.room : {};
+      made = { ...(room.listed === false ? { listed: false } : {}), ...roomInfo(room as RoomInfo) };
     } catch {
       return this.refuse(ws, "no-hello");
     }
@@ -180,7 +182,7 @@ export class Room extends DurableObject<Env> {
       other.close(CLOSE_REFUSED, "Joined from somewhere else");
     }
     ws.serializeAttachment({ stage: "in", id: player.id, name: player.name, joinedAt: Date.now() } satisfies Attachment);
-    const result = core.join(player, { listed });
+    const result = core.join(player, made);
     if (!result.ok) return this.refuse(ws, result.code);
     if (core.players.size === 1) await this.ctx.storage.delete("emptySince");
     this.startTicking(core);
@@ -245,15 +247,17 @@ export class Room extends DurableObject<Env> {
     await this.ctx.storage.put("room", this.savedRoom);
     const live = !this.ended && !core.ended && core.players.size > 0;
     const listed = core.listed && this.browsing !== "off" ? 1 : 0;
-    const as = live ? `${core.players.size}/${core.maxPlayers}/${core.open ? 1 : 0}/${listed}` : "";
+    const labels = JSON.stringify(core.labels);
+    const as = live ? JSON.stringify([core.players.size, core.maxPlayers, core.open, listed, core.name, labels]) : "";
     if (as === this.listedAs && !touch) return;
     if (!live) return this.unlist();
     this.listedAs = as;
     const now = Date.now();
     await this.env.DB.prepare(
-      "INSERT INTO live_rooms (game_id, code, players, max_players, listed, open, country, continent, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(game_id, code) DO UPDATE SET players = excluded.players, max_players = excluded.max_players, listed = excluded.listed, open = excluded.open, updated_at = excluded.updated_at",
+      // A name a person hid stays hidden while the room lives (name_hidden is never overwritten here).
+      "INSERT INTO live_rooms (game_id, code, players, max_players, listed, open, name, labels, country, continent, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(game_id, code) DO UPDATE SET players = excluded.players, max_players = excluded.max_players, listed = excluded.listed, open = excluded.open, name = excluded.name, labels = excluded.labels, updated_at = excluded.updated_at",
     )
-      .bind(meta.gameId, meta.code, core.players.size, core.maxPlayers, listed, core.open ? 1 : 0, meta.country ?? null, meta.continent ?? null, now, now)
+      .bind(meta.gameId, meta.code, core.players.size, core.maxPlayers, listed, core.open ? 1 : 0, core.name, labels, meta.country ?? null, meta.continent ?? null, now, now)
       .run();
     await this.ctx.storage.setAlarm(now + CHECK_IN_MS);
   }

@@ -227,14 +227,20 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
   }
 
   // One group of reports about the same problem, from the queue.
-  m = path.match(/^\/admin\/report-groups\/([a-z0-9]+)\/(dismiss|bug)$/);
+  m = path.match(/^\/admin\/report-groups\/([a-z0-9]+)\/(dismiss|bug|hide-name)$/);
   if (m) {
     const { results: group } = await env.DB.prepare("SELECT * FROM reports WHERE (id = ? OR group_id = ?) AND status = 'open'").bind(m[1]!, m[1]!).all<Report>();
     if (!group.length) return back("/admin/reports");
     const gameId = group[0]!.game_id;
     // Never passed to the developer: telling them could warn someone abusing a child.
     if (m[2] === "bug" && group.some((r) => r.severity === 0 || r.reason === "child_safety")) return back("/admin/reports");
-    if (m[2] === "bug") {
+    if (m[2] === "hide-name") {
+      // The room's name and labels leave the game page and the game's own list while the room lives.
+      const rooms = [...new Set(group.map((r) => r.room_code).filter(Boolean))];
+      for (const code of rooms) await env.DB.prepare("UPDATE live_rooms SET name_hidden = 1 WHERE game_id = ? AND code = ?").bind(gameId, code).run();
+      await closeReportGroup(env.DB, m[1]!, "actioned");
+      await audit(env.DB, gameId, "room-name-hidden", reason || `Room ${rooms.join(", ")}: ${group[0]!.room_name ?? "its name"}`, actor);
+    } else if (m[2] === "bug") {
       await env.DB.prepare("UPDATE reports SET bug = 1, bug_at = COALESCE(bug_at, ?) WHERE (id = ? OR group_id = ?) AND status = 'open'").bind(Date.now(), m[1]!, m[1]!).run();
       await closeReportGroup(env.DB, m[1]!, "actioned");
       await audit(env.DB, gameId, "reports-to-developer", reason || `${group.length} report(s) passed to the developer as bugs`, actor);
@@ -567,7 +573,7 @@ function groupCard(g: ReportGroup, pausedUpdate: string | undefined): Raw {
         ? html`${button("Put the game back", `/admin/games/${game.game_id}/restore`, rec === "restore" || rec === "dismiss")}${button("Take down", `/admin/games/${game.game_id}/takedown`, rec === "take_down", true)}`
         : pausedUpdate
           ? html`${button("Put the update back", `/admin/versions/${pausedUpdate}/approve`, rec === "restore" || rec === "dismiss")}${button("Keep the update off", `/admin/versions/${pausedUpdate}/reject`, false)}${button("Take down", `/admin/games/${game.game_id}/takedown`, rec === "take_down", true)}`
-          : html`${button("Dismiss", `/admin/report-groups/${g.id}/dismiss`, rec === "dismiss")}${g.severity === 0 ? "" : button("Tell the developer", `/admin/report-groups/${g.id}/bug`, rec === "bug")}${button("Take down", `/admin/games/${game.game_id}/takedown`, rec === "take_down", true)}`}
+          : html`${button("Dismiss", `/admin/report-groups/${g.id}/dismiss`, rec === "dismiss")}${g.rows.some((r) => r.room_name) ? button("Hide the room's name", `/admin/report-groups/${g.id}/hide-name`, false) : ""}${g.severity === 0 ? "" : button("Tell the developer", `/admin/report-groups/${g.id}/bug`, rec === "bug")}${button("Take down", `/admin/games/${game.game_id}/takedown`, rec === "take_down", true)}`}
     </div>
   </form>
 </article>`;

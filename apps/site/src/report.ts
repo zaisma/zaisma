@@ -148,7 +148,8 @@ dialog.sheet::backdrop{background:linear-gradient(90deg,rgba(4,5,7,0) 35%,rgba(4
   const form = sheet.querySelector("form");
   const send = document.getElementById("report-send");
   const $ = (id) => document.getElementById(id);
-  let about = null, reason = "", label = "";
+  // about: a player a game handed over; aboutRoom: a room from the Rooms list ({ code, name }).
+  let about = null, aboutRoom = null, reason = "", label = "";
   // A picture of the game, taken when the player opens the menu or Report; sent only if they keep it ticked.
   let picture = null, asked = 0;
   function takePicture() {
@@ -174,16 +175,18 @@ dialog.sheet::backdrop{background:linear-gradient(90deg,rgba(4,5,7,0) 35%,rgba(4
     const first = name === "why" ? sheet.querySelector("[data-step=why] .whys:not([hidden]) .why") : name === "tell" ? form.details : sheet.querySelector("[data-step=sent] .btn");
     if (first) first.focus();
   }
-  // Open for the game, or for a player a game handed over: { id, name, code }.
-  function open(player) {
+  // Open for the game, for a player a game handed over ({ id, name, code }), or for a room's name.
+  function open(player, room) {
     about = player || null;
-    // From the menu, keep the picture taken when it opened; otherwise take one now.
-    if (about || Date.now() - asked > 30000) takePicture();
+    aboutRoom = room || null;
+    // From the menu, keep the picture taken when it opened; otherwise take one now. A room's name needs none.
+    if (aboutRoom) picture = null;
+    else if (about || Date.now() - asked > 30000) takePicture();
     const menu = document.getElementById("menu-dialog");
     if (menu && menu.open) menu.close();
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-    $("report-title").textContent = "Report " + (about ? about.name : C.title);
-    $("report-sub").textContent = (about && about.code ? "In room " + about.code + ". " : "") + "We don't record who you are.";
+    $("report-title").textContent = aboutRoom ? "Report this room" : "Report " + (about ? about.name : C.title);
+    $("report-sub").textContent = (aboutRoom ? "“" + aboutRoom.name + "”. " : about && about.code ? "In room " + about.code + ". " : "") + "We don't record who you are.";
     sheet.querySelectorAll("[data-for]").forEach((el) => (el.hidden = (el.dataset.for === "player") !== Boolean(about)));
     form.reset();
     $("report-error").hidden = true;
@@ -203,9 +206,9 @@ dialog.sheet::backdrop{background:linear-gradient(90deg,rgba(4,5,7,0) 35%,rgba(4
       label = b.dataset.label;
       $("report-picked").textContent = label;
       form.details.placeholder = about ? "What did they do?" : reason === "player" ? "Who was it, and what did they do?" : reason === "broken" ? "What happened, and where in the game?" : "What did you see, and where in the game?";
-      $("report-hold").hidden = Boolean(about) || !C.hold.includes(reason);
+      $("report-hold").hidden = Boolean(about) || Boolean(aboutRoom) || !C.hold.includes(reason);
       const code = about ? about.code : roomCode();
-      $("report-context").textContent = about ? "We'll include their temporary player ID and the room code." : "We'll include the version you're playing" + (code ? " and the room code." : ".");
+      $("report-context").textContent = aboutRoom ? "We'll include the room's name and code." : about ? "We'll include their temporary player ID and the room code." : "We'll include the version you're playing" + (code ? " and the room code." : ".");
       showPicture();
       step("tell");
     }
@@ -215,7 +218,8 @@ dialog.sheet::backdrop{background:linear-gradient(90deg,rgba(4,5,7,0) 35%,rgba(4
     if (send.getAttribute("aria-busy") === "true") return;
     send.setAttribute("aria-busy", "true");
     $("report-error").hidden = true;
-    const body = { reason, details: form.details.value, room: about ? about.code : roomCode() };
+    const body = { reason, details: form.details.value, room: aboutRoom ? aboutRoom.code : about ? about.code : roomCode() };
+    if (aboutRoom) body.about = "room";
     if (about) body.player = { id: about.id, name: about.name };
     if (picture && form.picture.checked && !$("report-pic").hidden) body.picture = picture;
     let res = null, data = {};
@@ -237,6 +241,12 @@ dialog.sheet::backdrop{background:linear-gradient(90deg,rgba(4,5,7,0) 35%,rgba(4
   });
   // Report links open the plate; without JavaScript they lead to the form page.
   document.querySelectorAll("a[data-report]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); open(null); }));
+  // A room in the Rooms list, reported for its name or labels (the list refreshes, so listen on the page).
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest && e.target.closest("[data-report-room]");
+    if (!b || !/^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/.test(b.dataset.reportRoom)) return;
+    open(null, { code: b.dataset.reportRoom, name: (b.dataset.roomName || "").slice(0, 80) });
+  });
   // A game's safety panel hands a player over.
   addEventListener("message", (e) => {
     const f = frame();
@@ -325,7 +335,13 @@ export async function submitReport(env: Env, request: Request, slug: string, ctx
   const game = await gameBySlug(env.DB, slug);
   if (!game) return reply(200, { ok: true, hidden: false, paused: false });
 
-  const report = { gameId: game.id, reason, details, versionId: game.current_version_id, roomCode: ROOM_CODE.test(room) ? room : "", ...(player ? { player } : {}) };
+  const roomCode = ROOM_CODE.test(room) ? room : "";
+  // The room's name and labels as they are now, from the room itself: a room can rename itself later.
+  const named = roomCode ? await env.DB.prepare("SELECT name, labels FROM live_rooms WHERE game_id = ? AND code = ?").bind(game.id, roomCode).first<{ name: string | null; labels: string }>() : null;
+  const roomName = named ? describeRoom(named.name, named.labels) : null;
+  const report = { gameId: game.id, reason, details, versionId: game.current_version_id, roomCode, roomName, ...(player ? { player } : {}) };
+  // A report about what a room is called is about players' words, not the game: it never pauses the game.
+  const aboutRoom = input.about === "room" && Boolean(roomCode);
   const id = await createReport(env.DB, report);
   // Never a picture with a child-safety or illegal-content report: we don't want to receive or pass on images like that.
   const picture = AUTO_HOLD_REASONS.includes(reason) ? null : pictureBytes(input.picture);
@@ -333,12 +349,12 @@ export async function submitReport(env: Env, request: Request, slug: string, ctx
     await env.GAMES.put(reportPictureKey(id), picture, { httpMetadata: { contentType: "image/jpeg" } });
     await env.DB.prepare("UPDATE reports SET picture = 1 WHERE id = ?").bind(id).run();
   }
-  const paused = !player && AUTO_HOLD_REASONS.includes(reason) ? await pauseForReport(env, game, REPORT_REASONS[reason]) : null;
+  const paused = !player && !aboutRoom && AUTO_HOLD_REASONS.includes(reason) ? await pauseForReport(env, game, REPORT_REASONS[reason]) : null;
   const hidden = paused === "game";
   // Child-safety and illegal-content reports go to a person straight away. Report triage (triage.ts)
   // sorts the rest within minutes and alerts the serious ones.
   if (!player && AUTO_HOLD_REASONS.includes(reason)) {
-    const what = reportLabel({ reason, room_code: report.roomCode, player_name: "", player_reason: "" });
+    const what = reportLabel({ reason, room_code: report.roomCode, room_name: roomName, player_name: "", player_reason: "" });
     ctx.waitUntil(
       sendAlert(
         env,
@@ -406,4 +422,14 @@ async function readJson(request: Request): Promise<Record<string, unknown>> {
   } catch {
     return {};
   }
+}
+
+/** A room's name and labels in a line, like "Ana's castle (Mode: Classic, Map: Docks)". */
+export function describeRoom(name: string | null, labelsJson: string): string | null {
+  let labels: [string, unknown][] = [];
+  try {
+    labels = Object.entries(JSON.parse(labelsJson) as Record<string, unknown>);
+  } catch {}
+  const tags = labels.map(([k, v]) => `${k}: ${String(v)}`).join(", ");
+  return [name, tags && `(${tags})`].filter(Boolean).join(" ") || null;
 }

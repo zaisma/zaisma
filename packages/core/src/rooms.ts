@@ -11,6 +11,12 @@ export interface ListedRoom {
   location: { country: string; name: string; continent: string | null } | null;
   /** On the same continent as the player asking. */
   near: boolean;
+  /**
+   * The room's name and labels as the game set them (gone if a person hid them after a report). Some
+   * may be typed by players: zaisma.com shows them only if they pass checkText.
+   */
+  name: string | null;
+  labels: Record<string, string>;
 }
 
 export interface RoomList {
@@ -26,6 +32,8 @@ export interface RoomList {
   region: string | null;
   /** Open rooms in that region past the ones listed. */
   more: number;
+  /** Labels worth filtering by: ones that several rooms have, with a handful of values. */
+  filters: { label: string; values: string[] }[];
 }
 
 const MAX_SHOWN = 50;
@@ -55,13 +63,16 @@ export const hasSpace = (r: ListedRoom) => r.open && r.players < r.max;
 export async function listRooms(
   db: D1Database,
   gameId: string,
-  opts: { country?: string | null; continent?: string | null; region?: string | null; cacheSeconds?: number; now?: number } = {},
+  opts: { country?: string | null; continent?: string | null; region?: string | null; labels?: Record<string, string> | null; cacheSeconds?: number; now?: number } = {},
 ): Promise<RoomList> {
   const near = opts.continent && CONTINENTS[opts.continent] ? opts.continent : null;
   const here = isCountry(opts.country ?? null) ? opts.country! : null;
   const region = opts.region && CONTINENTS[opts.region] ? opts.region : null;
+  const wanted = Object.entries(opts.labels ?? {}).filter(([k, v]) => typeof k === "string" && typeof v === "string" && k && v).slice(0, 4);
   const seconds = opts.cacheSeconds ?? 0;
-  const key = new Request(`https://rooms-list.zaisma.internal/${encodeURIComponent(gameId)}/${here ?? "any"}/${near ?? "any"}/${region ?? "all"}`);
+  const key = new Request(
+    `https://rooms-list.zaisma.internal/${encodeURIComponent(gameId)}/${here ?? "any"}/${near ?? "any"}/${region ?? "all"}?labels=${encodeURIComponent(JSON.stringify(wanted))}`,
+  );
   const cache = seconds > 0 ? (caches as unknown as { default: Cache }).default : null;
   const hit = await cache?.match(key);
   if (hit) return hit.json();
@@ -80,6 +91,8 @@ export async function listRooms(
       open: r.open === 1,
       location: isCountry(r.country) ? { country: r.country, name: countryName(r.country), continent: continent(r) } : null,
       near: near !== null && r.continent === near,
+      name: r.name_hidden ? null : r.name,
+      labels: r.name_hidden ? {} : readLabels(r.labels),
     }),
   );
   const created = new Map(results.map((r) => [r.code, r.created_at]));
@@ -96,7 +109,9 @@ export async function listRooms(
     entry.players += r.players;
     regions.set(code, entry);
   }
-  const inRegion = region ? all.filter((r) => where.get(r.code) === region) : all;
+  const same = (a: string, b: string) => a.localeCompare(b, "en", { sensitivity: "base" }) === 0;
+  const fits = (r: ListedRoom) => wanted.every(([k, v]) => Object.entries(r.labels).some(([rk, rv]) => same(rk, k) && same(rv, v)));
+  const inRegion = all.filter((r) => (!region || where.get(r.code) === region) && fits(r));
   const shown = inRegion.slice(0, MAX_SHOWN);
   const list: RoomList = {
     rooms: shown,
@@ -105,7 +120,52 @@ export async function listRooms(
     regions: [...regions.values()].sort((a, b) => b.players - a.players || b.rooms - a.rooms),
     region,
     more: inRegion.filter((r) => r.open).length - shown.filter((r) => r.open).length,
+    filters: labelFilters(all),
   };
   if (cache) await cache.put(key, Response.json(list, { headers: { "Cache-Control": `max-age=${seconds}` } }));
   return list;
+}
+
+function readLabels(json: string): Record<string, string> {
+  try {
+    const v = JSON.parse(json) as unknown;
+    return v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).filter(([, x]) => typeof x === "string")) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Labels at least two rooms have, with 2 to 12 values: the ones worth a filter. Up to 3, most used first. */
+function labelFilters(rooms: ListedRoom[]): { label: string; values: string[] }[] {
+  // Values that differ only in capitals are one choice (filtering ignores them), spelled as first seen.
+  const seen = new Map<string, Map<string, { value: string; rooms: number }>>();
+  for (const r of rooms) {
+    for (const [k, v] of Object.entries(r.labels)) {
+      const values = seen.get(k) ?? new Map<string, { value: string; rooms: number }>();
+      const entry = values.get(v.toLowerCase()) ?? { value: v, rooms: 0 };
+      entry.rooms++;
+      values.set(v.toLowerCase(), entry);
+      seen.set(k, values);
+    }
+  }
+  return [...seen.entries()]
+    .map(([label, byValue]) => {
+      const values = [...byValue.values()].sort((a, b) => b.rooms - a.rooms || a.value.localeCompare(b.value));
+      return { label, values: values.map((v) => v.value), rooms: values.reduce((n, v) => n + v.rooms, 0) };
+    })
+    .filter((f) => f.rooms >= 2 && f.values.length >= 2 && f.values.length <= 12)
+    .sort((a, b) => b.rooms - a.rooms)
+    .slice(0, 3)
+    .map(({ label, values }) => ({ label, values }));
+}
+
+/** Labels to filter by, as sent in a list request: JSON like {"Mode": "Classic"}. */
+export function readLabelParam(v: string | null): Record<string, string> | null {
+  if (!v || v.length > 500) return null;
+  try {
+    const parsed = JSON.parse(v) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? Object.fromEntries(Object.entries(parsed).filter(([, x]) => typeof x === "string")) : null;
+  } catch {
+    return null;
+  }
 }

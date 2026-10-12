@@ -1,4 +1,4 @@
-import { PLAYER_REPORT_REASONS, createReport, listRooms, type PlayerReportReason } from "@zaisma/core";
+import { PLAYER_REPORT_REASONS, checkText, createReport, listRooms, readLabelParam, tidyText, type PlayerReportReason } from "@zaisma/core";
 import { guestName, isRoomCode, jwks, loadSigningKey, roomCode, signPass, type SigningKey } from "@zaisma/game-server";
 import { gameServer } from "./registry.ts";
 
@@ -10,6 +10,7 @@ export interface Env {
   PASS_LIMIT?: RateLimit;
   ROOM_LIMIT?: RateLimit;
   REPORT_LIMIT?: RateLimit;
+  FILTER_LIMIT?: RateLimit;
   ISSUER: string;
   SITE_ORIGIN: string;
   GAME_HOST_MODE: "path" | "subdomain";
@@ -91,12 +92,19 @@ export default {
       return Response.json(jwks([key.publicKey]), { headers: { "Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=3600" } });
     }
 
-    if (request.method === "POST" && (url.pathname === "/v1/pass" || url.pathname === "/v1/rooms" || url.pathname === "/v1/report")) {
+    if (request.method === "POST" && (url.pathname === "/v1/pass" || url.pathname === "/v1/rooms" || url.pathname === "/v1/report" || url.pathname === "/v1/filter")) {
       const { slug, body } = await readBody(request);
       if (!slug || !(await isGameOrigin(env, slug, origin))) return json({ error: "Not allowed from here." }, 403);
       const cors = origin!;
       const game = await playableGame(env.DB, slug);
       if (!game) return json({ error: "This game isn't available right now." }, 404, cors);
+
+      // Zaisma's text filter, for games that want to check what players type (Zaisma.filterText).
+      if (url.pathname === "/v1/filter") {
+        if (await limited(env.FILTER_LIMIT, request)) return json({ error: "Too many requests. Try again in a minute." }, 429, cors);
+        const text = tidyText(body.text, 500);
+        return json({ text, ...checkText(text) }, 200, cors);
+      }
 
       if (url.pathname === "/v1/pass") {
         if (await limited(env.PASS_LIMIT, request)) return json({ error: "Too many requests. Try again in a minute." }, 429, cors);
@@ -136,11 +144,12 @@ export default {
       if (!(await isGameOrigin(env, slug, origin))) return json({ error: "Not allowed from here." }, 403);
       const game = await playableGame(env.DB, slug);
       if (!game || !gameServer(game.game_server)) return json({ error: "This game doesn't use Zaisma rooms." }, 404, origin!);
-      if (game.room_browsing === "off") return json({ rooms: [], playing: { players: 0, rooms: 0, closed: 0 }, joinable: 0, regions: [], region: null, more: 0 }, 200, origin!);
+      if (game.room_browsing === "off") return json({ rooms: [], playing: { players: 0, rooms: 0, closed: 0 }, joinable: 0, regions: [], region: null, more: 0, filters: [] }, 200, origin!);
       const found = await listRooms(env.DB, game.id, {
         country: request.cf?.country as string | undefined,
         continent: request.cf?.continent as string | undefined,
         region: url.searchParams.get("region"),
+        labels: readLabelParam(url.searchParams.get("labels")),
         cacheSeconds: Number(env.ROOM_LIST_CACHE_SECONDS ?? 10),
       });
       const link = (code: string) => `${env.SITE_ORIGIN}/g/${slug}?room=${code}`;

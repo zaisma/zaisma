@@ -16,7 +16,7 @@ async function guestPass(rooms, origin, game) {
 
 function stayIn(rooms, origin, game, code, pass, first) {
   const ws = new WebSocket(`${rooms.replace(/^http/, "ws")}/v1/rooms/${game}/${code}`, { origin });
-  ws.on("open", () => ws.send(JSON.stringify({ t: "hello", pass, room: first.listed === false ? { listed: false } : undefined })));
+  ws.on("open", () => ws.send(JSON.stringify({ t: "hello", pass, room: { listed: first.listed, name: first.name, labels: first.labels } })));
   ws.on("message", (data) => {
     const m = JSON.parse(String(data));
     // Once everyone's in, the room's first player closes it, as a game's host does when the match starts.
@@ -30,8 +30,8 @@ function stayIn(rooms, origin, game, code, pass, first) {
 /** Rooms of each kind: some with space, a full one, a closed one and a hidden one (never listed). */
 export async function openTestRooms(rooms, origin) {
   const plan = [
-    ["arena", 3],
-    ["arena", 1],
+    ["arena", 3, { name: "Bumper cars", labels: { Map: "Classic" } }],
+    ["arena", 1, { labels: { Map: "Ice" } }],
     ["arena", 8],
     ["four-in-a-row", 1],
     ["cave-crew", 2],
@@ -49,17 +49,35 @@ export async function openTestRooms(rooms, origin) {
 }
 
 /**
- * Pretend rooms for Cave Crew, as if a busy game had players around the world: they show the region
- * filter, "Show more" and the gauge for big rooms (bigger than our rooms allow yet). They're only rows
- * in the list, so joining one starts an empty room. Run again to keep them from going stale.
+ * Pretend rooms for Cave Crew, as if a busy game had players around the world: they show names and
+ * labels (and a name the text filter keeps off the page), label and region filters, "Show more" and a
+ * room bigger than ours allow yet. They're only rows in the list, so joining one starts an empty room.
+ * Run again to keep them from going stale.
  */
 export function pretendRoomsSql(now = Date.now()) {
+  // Names and labels as players might type them; one name fails Zaisma's text filter, so the page leaves it out.
   const rooms = [
-    ["DEFR44", 9, 16, "DE", "EU"], ["FRPAR2", 4, 16, "FR", "EU"], ["GBLDN3", 12, 16, "GB", "EU"], ["PLWAW5", 2, 16, "PL", "EU"],
-    ["ESMAD6", 15, 16, "ES", "EU"], ["SEST07", 6, 16, "SE", "EU"], ["BRSAO8", 7, 16, "BR", "SA"], ["ARBUE9", 3, 16, "AR", "SA"],
-    ["JPTKY2", 11, 16, "JP", "AS"], ["KRSEL3", 16, 16, "KR", "AS"], ["INDEL4", 5, 16, "IN", "AS"], ["AUSYD5", 8, 16, "AU", "OC"],
-    ["CATOR6", 10, 16, "CA", "NA"], ["MXMEX7", 1, 16, "MX", "NA"], ["ZAJNB8", 4, 16, "ZA", "AF"], ["USBIG9", 31, 40, "US", "NA"],
+    ["DEFR44", 9, 16, "DE", "EU", "Ana's castle", { Mode: "Survival", World: "Desert" }],
+    ["FRPAR2", 4, 16, "FR", "EU", null, { Mode: "Creative" }],
+    ["GBLDN3", 12, 16, "GB", "EU", "Friday night crew", { Mode: "Survival", World: "Islands" }],
+    ["PLWAW5", 2, 16, "PL", "EU", null, {}],
+    ["ESMAD6", 15, 16, "ES", "EU", "Mina los túneles", { Mode: "Survival", World: "Caves" }],
+    ["SEST27", 6, 16, "SE", "EU", null, { Mode: "Creative" }],
+    ["BRSAW8", 7, 16, "BR", "SA", "Base dos amigos", { Mode: "Survival" }],
+    ["ARBUE9", 3, 16, "AR", "SA", null, {}],
+    ["JPTKY2", 11, 16, "JP", "AS", "Sakura village", { Mode: "Creative", World: "Islands" }],
+    ["KRSEL3", 16, 16, "KR", "AS", null, { Mode: "Survival" }],
+    ["JNDEL4", 5, 16, "IN", "AS", "add me on snap: digger99", { Mode: "Survival" }],
+    ["AUSYD5", 8, 16, "AU", "OC", "Outback diggers", { Mode: "Survival", World: "Desert" }],
+    ["CATQR6", 10, 16, "CA", "NA", null, { Mode: "Survival" }],
+    ["MXMEX7", 1, 16, "MX", "NA", null, {}],
+    ["ZAJNB8", 4, 16, "ZA", "AF", null, { Mode: "Creative" }],
+    ["USBHG9", 31, 40, "US", "NA", "Community server #1", { Mode: "Survival", World: "Desert" }],
   ];
-  const values = rooms.map(([code, players, max, country, continent]) => `((SELECT id FROM games WHERE slug = 'cave-crew'), '${code}', ${players}, ${max}, 1, '${country}', '${continent}', ${now}, ${now})`);
-  return `INSERT OR REPLACE INTO live_rooms (game_id, code, players, max_players, open, country, continent, created_at, updated_at) VALUES ${values.join(", ")}`;
+  const sql = (v) => (v === null ? "NULL" : `'${String(v).replace(/'/g, "''")}'`);
+  const values = rooms.map(
+    ([code, players, max, country, continent, name, labels]) =>
+      `((SELECT id FROM games WHERE slug = 'cave-crew'), '${code}', ${players}, ${max}, 1, ${sql(name)}, ${sql(JSON.stringify(labels))}, '${country}', '${continent}', ${now}, ${now})`,
+  );
+  return `INSERT OR REPLACE INTO live_rooms (game_id, code, players, max_players, open, name, labels, country, continent, created_at, updated_at) VALUES ${values.join(", ")}`;
 }

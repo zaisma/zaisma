@@ -511,6 +511,7 @@ const HISTORY: Record<string, string | null> = {
   restored: "Zaisma restored the game",
   "reports-dismissed": null,
   "reports-to-developer": null,
+  "room-name-hidden": "Zaisma hid a room's name from room lists after a report",
   multiplayer: "Multiplayer settings changed",
   "cloud-saves": "Cloud saves switched",
   owner: null,
