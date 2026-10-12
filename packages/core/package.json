@@ -1,0 +1,11 @@
+{
+  "name": "@zaisma/core",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "fflate": "^0.8.3"
+  }
+}

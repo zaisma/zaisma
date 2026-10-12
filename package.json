@@ -1,0 +1,23 @@
+{
+  "name": "zaisma",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "dev:site": "npm run dev -w apps/site",
+    "dev:games": "npm run dev -w apps/games",
+    "db:migrate:local": "npm run db:migrate:local -w apps/site"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.4.0",
+    "@cloudflare/workers-types": "^5.20261011.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.11",
+    "wrangler": "^4.149.0"
+  }
+}
