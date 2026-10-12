@@ -8,6 +8,7 @@ Founder: Julius. Side project, built in public. MIT licensed.
 
 - [`docs/PLAN.md`](docs/PLAN.md): what we're building, for whom, the money model, the stack, costs, 13+ rules, the build order, targets and competitors.
 - [`docs/ROADMAP.md`](docs/ROADMAP.md): the live roadmap: phases, must/nice items and where each one stands.
+- [`docs/IDEAS.md`](docs/IDEAS.md): ideas waiting for a decision. Not plans; never build from it without Julius deciding.
 - [`docs/DECISIONS.md`](docs/DECISIONS.md): settled calls. Don't contradict them in code, copy or docs. If a task seems to need a change, stop and ask Julius with a short summary of exactly what would change.
 - [`brand/README.md`](brand/README.md): logo files and usage rules.
 
