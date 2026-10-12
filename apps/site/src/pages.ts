@@ -282,7 +282,7 @@ const DMCA = `
 <p>If your game was removed and you believe it was a mistake or you have permission, email the same address with a counter-notice. We'll forward it to the person who filed the claim.</p>
 `;
 
-// DRAFT: Julius approves this wording before it's deployed.
+// Approved by Julius on Oct 12, 2026.
 const PRIVACY = `
 <p class="lead">Zaisma keeps as little about you as it can. Playing needs no account, and guests leave nothing behind.</p>
 <h2>Playing as a guest</h2>
