@@ -47,6 +47,13 @@ Settled calls. Don't reopen these in code or docs without Julius approving the c
 ## Product scope
 
 - **Browser first, desktop downloads too.** Desktop builds use the same toolkit.
+- **Fit any game; never make creators rebuild for Zaisma.** Integration comes in optional layers, and a game can stop at any of them:
+  - *Layer 0, no changes:* any web game that runs from an `index.html` uploads as is (Phaser, Three.js, Unity and Godot web exports, single-file AI games), with its own saves working. The upload command fixes common blockers itself: it downloads scripts loaded from outside sites into the game (so they're scanned) and unpacks pre-compressed engine builds. `zaisma check` (also an MCP tool) lists anything else that won't work and how to fix it.
+  - *Layer 1, one script tag:* clips, cloud saves that mirror the game's own browser saves for signed-in players, and the right name and invite link in the Z menu, with no code.
+  - *Layer 2, a few calls:* rooms, invite links and player names. Drop-in replacements for Socket.IO and PeerJS route existing multiplayer prototypes through our rooms with little code change.
+  - *Layer 3, built around Zaisma:* game servers, accounts, friends, purchases, mods.
+
+  No required engine, framework, avatar or world; the toolkit is small plain JavaScript. We provide data and the game draws its own screens (ready-made screens are optional). The skill and MCP do the adapting. Nothing locks creators in: passes are standard signed tokens, game servers are plain JavaScript over WebSockets, and off Zaisma the toolkit points at the creator's own server or falls back to solo. The fixed limits, stated upfront: the sandbox, no ads, no free-text chat for guests, and the Z button.
 - **Custom game domains after beta.** Developers can point their own domain at their game (Cloudflare for SaaS: first 100 domains free, then about $0.10 each a month). Same scanning, sandbox and takedown rules.
 - **Multiplayer rooms use WebSocket hibernation from day one** (Cloudflare Durable Objects). Without it, costs are 10x+.
 - **Multiplayer is server-client by default.** The game server holds the official state and checks every move; a messages-only relay is there for simple games. While only Julius uploads, game servers are built into our rooms Worker. Once outside developers upload, they run in Cloudflare Dynamic Workers (needs Workers Paid, $5/month).
