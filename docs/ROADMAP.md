@@ -72,7 +72,7 @@ Detailed plan approved: guest passes, game server API, rooms, SDK, demos.
 | --- | --- | --- | --- | --- |
 | done | Must | Sign-in | | Emailed code, no passwords. Supabase holds only the email; names and age bands live with the games. Delete account is instant |
 | done | Must | Age question | Sign-in | Asked before the email, so we collect nothing from under-13s. Keep only the age band; no ID checks |
-| doing | Must | Games have owners | Sign-in | A person now, a team later; set in admin until creator accounts |
+| done | Must | Games have owners | Sign-in | A person now, a team later; set in admin until creator accounts |
 | planned | Must | Cloud saves | Sign-in, Client SDK | Mirrors the game's own browser saves, no code needed |
 | planned | Must | "Keep your progress" | Cloud saves | Turns a guest into an account |
 | planned | Nice | Passkeys | Sign-in | Face ID or fingerprint to sign back in; the email code stays for new accounts and lost devices |
