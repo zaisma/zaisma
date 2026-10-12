@@ -7,22 +7,23 @@ Founder: Julius. Side project, built in public. MIT licensed.
 ## Read first
 
 - [`docs/PLAN.md`](docs/PLAN.md): what we're building, for whom, the money model, the stack, costs, 13+ rules, the build order, targets and competitors.
+- [`docs/ROADMAP.md`](docs/ROADMAP.md): the live roadmap: phases, must/nice items and where each one stands.
 - [`docs/DECISIONS.md`](docs/DECISIONS.md): settled calls. Don't contradict them in code, copy or docs. If a task seems to need a change, stop and ask Julius with a short summary of exactly what would change.
 - [`brand/README.md`](brand/README.md): logo files and usage rules.
 
 ## Current phase
 
-**Weekend 1: safe game hosting.** Upload a web game, scan it before publishing (malware, illegal-image matching, AI review), serve it sandboxed on a separate game domain, list it on a simple directory page, report button and takedown flow.
+**Phase 1: Beta.** Phase 0 (safe hosting) is live. Next up is multiplayer; see [`docs/ROADMAP.md`](docs/ROADMAP.md) for every item and its status.
 
-Next: Weekend 2 (guest multiplayer rooms + invite links), Weekend 3 (accounts, saves, creator MCP and publishing, public beta). See the build order in `docs/PLAN.md`.
+Keep the roadmap current: when work starts, lands or moves, update its status in `docs/ROADMAP.md` in the same change, and republish the roadmap page (the Artifact titled "Zaisma Roadmap") from it.
 
 ## Stack
 
 - **Cloudflare Workers** for the API and site.
 - **Cloudflare R2** for game files. Bandwidth is free; keep it that way (no egress-billed storage).
 - **Cloudflare Durable Objects** for multiplayer rooms. Always use the WebSocket Hibernation API.
-- **Supabase** for accounts, friends and saves (from Weekend 3).
-- **Stripe Connect Standard** for the optional buy sheet (Week 4). Never take a platform fee.
+- **Supabase** for accounts, friends and saves (from the beta).
+- **Stripe Connect Standard** for the optional buy sheet (Phase 2). Never take a platform fee.
 - TypeScript everywhere. Keep dependencies few.
 
 ## Rules for code

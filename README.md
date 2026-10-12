@@ -14,12 +14,16 @@ Zaisma (ZAI-zmuh, from the Lithuanian *žaismas*, "play") is an open-source game
 
 Pre-beta. Building in public.
 
-| Stage | What ships |
+| Phase | What ships |
 | --- | --- |
-| Weekend 1 | Safe game hosting: scan before publish, sandboxed game domain, directory, reporting |
-| Weekend 2 | Guest multiplayer rooms, invite links, clip sharing, demo games |
-| Weekend 3 | Accounts, cloud saves, the open toolkit and the creator MCP for publishing from any AI tool. **Public beta.** |
-| Weeks 4–6 | Friends, discovery and trust, payments and at-cost hosting |
+| 0. Safe hosting (live) | Scan before publish, sandboxed game domain, directory, reporting |
+| 1. Beta | Guest multiplayer and invite links, accounts and cloud saves, the creator MCP for publishing from any AI tool. **Public beta.** |
+| 2. Earn | The Zaisma buy sheet, purchases that follow players, at-cost multiplayer billing |
+| 3. Play together | Friends, Zaisma in Discord |
+| 4. Discover | Quality-ranked front page, real ratings, player lists, follows |
+| 5. Create together | Remixes, teams, mods, the Tools tab |
+
+The full, live roadmap is in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## License
 
