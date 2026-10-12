@@ -1,6 +1,7 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { auditLog, gameById } from "@zaisma/core";
+import { lit } from "../../apps/site/src/rooms.ts";
 
 const LOCAL = "http://localhost";
 
@@ -146,14 +147,16 @@ describe("room browsing on the game page", () => {
     expect(await fragment.text()).toContain('data-joinable="1"');
   });
 
-  it("filters by region once rooms run in more than one, shows big rooms as a gauge, and the best ten first", async () => {
+  it("filters by region once rooms run in more than one, shows big rooms as shares of 16 seats, and the best ten first", async () => {
     const id = await addGame("arena", "relay");
     const codes = "BCDFGHJKLMNPQRSTVWXYZ".split("");
     for (const [i, c] of codes.slice(0, 12).entries()) await room(id, c.repeat(6), 1 + (i % 3));
     await room(id, "ABC234", 31, 1, Date.now(), ["US", "NA"], 40);
     const page = await (await SELF.fetch("https://zaisma.test/g/arena")).text();
     expect(page).toContain('<button type="button" data-region="EU" title="Europe" aria-pressed="false">EU<small>12</small></button>');
-    expect(page).toContain('<span class="count">31 of 40 players</span><span class="gauge" aria-hidden="true"><i style="width:78%"></i></span>');
+    // A big room keeps 16 seats, each a share of its places: 31 of 40 lights 12.
+    const big = page.match(/<span class="count">31 of 40 players<\/span><span class="seats" aria-hidden="true">(.*?)<\/span>/)![1]!;
+    expect([big.match(/<i class="on">/g)!.length, big.match(/<i/g)!.length]).toEqual([12, 16]);
     expect(page.match(/class="room plate later"/g)).toHaveLength(3);
     expect(page).toContain("Show 3 more rooms");
     expect(page).toContain('id="rooms-count">13</span>');
@@ -163,6 +166,10 @@ describe("room browsing on the game page", () => {
     expect(na.match(/class="room plate/g)).toHaveLength(1);
     const none = await (await SELF.fetch("https://zaisma.test/g/arena/rooms?region=AF")).text();
     expect(none).toContain("No open rooms in that region right now.");
+  });
+
+  it("lights a seat for anyone in a big room, and every seat only when it's full", () => {
+    expect([lit({ players: 3, max: 8 }), lit({ players: 1, max: 100 }), lit({ players: 99, max: 100 }), lit({ players: 100, max: 100 }), lit({ players: 0, max: 40 })]).toEqual([3, 1, 15, 16, 0]);
   });
 
   it("says when there's no room to join", async () => {

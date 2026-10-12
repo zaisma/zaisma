@@ -64,11 +64,7 @@ ${closed && open.length ? html`<p class="muted rooms-more">Plus ${plural(closed,
 function roomRow(slug: string, r: ListedRoom, later: boolean): Raw {
   const space = hasSpace(r);
   const filled = `${r.players} of ${r.max} ${r.max === 1 ? "player" : "players"}`;
-  // A seat for each place in the room, lit for each player in it. Bigger rooms get a gauge.
-  const meter =
-    r.max <= 16
-      ? html`<span class="seats" aria-hidden="true">${Array.from({ length: r.max }, (_, i) => raw(i < r.players ? '<i class="on"></i>' : "<i></i>"))}</span>`
-      : html`<span class="gauge" aria-hidden="true"><i style="width:${Math.min(100, Math.round((r.players / r.max) * 100))}%"></i></span>`;
+  const meter = html`<span class="seats" aria-hidden="true">${Array.from({ length: Math.min(r.max, SEATS) }, (_, i) => raw(i < lit(r) ? '<i class="on"></i>' : "<i></i>"))}</span>`;
   // The code stays in the link; players with a code type it into the box above the list.
   const label = `Join a room with ${filled}${r.location ? ` in ${r.location.name}` : ""}`;
   return html`<li class="room plate${later ? " later" : ""}">
@@ -76,6 +72,16 @@ function roomRow(slug: string, r: ListedRoom, later: boolean): Raw {
 <span class="where">${r.location ? html`<img class="flag" src="/flags/${r.location.country.toLowerCase()}.png" alt="" width="20" height="15" loading="lazy"><abbr title="${r.location.name}">${r.location.country}</abbr>` : ""}</span>
 ${space ? html`<a class="btn" href="/g/${slug}?room=${r.code}" aria-label="${label}">Join</a>` : html`<span class="full">Full</span>`}
 </li>`;
+}
+
+/** Most seats the meter draws. A bigger room's seats each stand for a share of its places. */
+const SEATS = 16;
+
+/** Seats lit: one per player, or the share that's full in a bigger room (one if anyone's in, all only when full). */
+export function lit(r: { players: number; max: number }): number {
+  if (r.max <= SEATS) return r.players;
+  if (r.players >= r.max) return SEATS;
+  return Math.min(SEATS - 1, Math.max(r.players > 0 ? 1 : 0, Math.round((r.players / r.max) * SEATS)));
 }
 
 /** A box for a room code a friend shared. It opens the same room link an invite does. */

@@ -108,7 +108,7 @@ main.gp{max-width:1240px;margin:0 auto;padding:30px 24px 72px}
 .dev-card small{display:block;color:var(--muted);font-size:13px}
 .tab-count{display:inline-block;margin-left:9px;padding:1px 7px;vertical-align:2px;font-size:13px;font-weight:600;color:var(--text);background:rgba(0,0,0,.4);box-shadow:inset 0 1px 2px rgba(0,0,0,.7),0 1px 0 rgba(255,255,255,.06)}
 .tab-count[hidden]{display:none}
-/* Rooms: a machined slot per room, with a seat for each place in it, lit for each player. */
+/* Rooms: a machined slot per room, with a seat for each place in it (up to 16), lit for each player. */
 .rooms-head{display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px;margin:0 0 16px}
 .rooms-head .badge{font-size:14px}
 .rooms{list-style:none;padding:0;margin:0;display:grid;gap:10px;max-width:900px}
@@ -124,9 +124,6 @@ main.gp{max-width:1240px;margin:0 auto;padding:30px 24px 72px}
 .seats{display:flex;gap:3px;min-width:0}
 .seats i{flex:0 1 7px;min-width:3px;height:18px;background:rgba(0,0,0,.5);box-shadow:inset 0 1px 2px rgba(0,0,0,.85),0 1px 0 rgba(255,255,255,.06)}
 .seats i.on{background:linear-gradient(180deg,#f2f4f6,#aeb2b8 55%,#71757c);box-shadow:inset 0 1px 0 #fff,0 0 7px rgba(225,230,240,.28)}
-/* Rooms past 16 places: a gauge cut into the metal, filled with chrome. */
-.gauge{position:relative;width:120px;height:10px;flex:0 1 120px;min-width:48px;background:rgba(0,0,0,.5);box-shadow:inset 0 1px 3px rgba(0,0,0,.85),0 1px 0 rgba(255,255,255,.06)}
-.gauge i{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(180deg,#f2f4f6,#aeb2b8 55%,#71757c);box-shadow:0 0 7px rgba(225,230,240,.28)}
 /* A code from a friend: typed into the metal, joined in one press. */
 .code-join{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;margin:0 0 22px;max-width:900px}
 .code-join label{font-family:var(--display);font-size:15px;font-weight:500;color:var(--text-2)}
