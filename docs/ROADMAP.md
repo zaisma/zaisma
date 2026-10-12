@@ -60,7 +60,7 @@ Detailed plan approved: guest passes, game server API, rooms, SDK, demos.
 | done | Must | Games can reach our rooms and their own servers | Rooms on rooms.zaisma.com | Own servers set per game and listed on the game page |
 | done | Must | Client SDK | Rooms on rooms.zaisma.com | `joinRoom`, invite links, reconnecting |
 | done | Must | Room invite links | Client SDK | Tap a link, land in the match as a guest |
-| next | Must | Game page controls | | Invite, Clip, Full screen, More games, Report beside the game; nothing over it |
+| done | Must | Game page controls | | Invite, More games, Full screen, Report beside the game; nothing over it. Clip joins with clips |
 | done | Must | Player safety in rooms | Client SDK | Mute, block and report a player; ready-made panel games put in their own menu |
 | done | Must | Run a game server yourself | Game server API and relay, Player passes | Node runner; same code as our rooms |
 | done | Must | Two demo games | Room invite links | Real-time arena, turn-based four in a row |

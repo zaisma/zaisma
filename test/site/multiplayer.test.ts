@@ -56,3 +56,21 @@ describe("multiplayer on the site", () => {
     expect((await gameById(env.DB, id))?.game_server).toBeNull();
   });
 });
+
+describe("game page controls", () => {
+  beforeEach(async () => {
+    await env.DB.exec("DELETE FROM games;");
+  });
+
+  it("lists other live games beside the game, not this one or hidden ones", async () => {
+    await addGame("arena", "relay");
+    await addGame("solo");
+    await env.DB.prepare("INSERT INTO games (id, slug, title, status, current_version_id, created_at, updated_at) VALUES ('gheld', 'held-game', 'Held Game', 'held', 'v1', 0, 0)").run();
+    const page = await (await SELF.fetch("https://zaisma.test/g/arena")).text();
+    const panel = page.slice(page.indexOf('<aside class="more"'), page.indexOf("</aside>"));
+    expect(panel).toContain('href="/g/solo"');
+    expect(panel).not.toContain('href="/g/arena"');
+    expect(panel).not.toContain("held-game");
+    expect(page).toContain("Report");
+  });
+});
