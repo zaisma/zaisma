@@ -104,6 +104,19 @@ Detailed plan approved: guest passes, game server API, rooms, SDK, demos.
 | planned | Must | Creators' own game servers run safely | Upload command, Rooms on rooms.zaisma.com, Julius: Workers Paid plan | Dynamic Workers; the biggest technical unknown in Phase 1, so prototype it early |
 | planned | Nice | Drop-in Socket.IO and PeerJS | Client SDK | So existing multiplayer prototypes work with few changes |
 
+### Polish before outreach (build track 5)
+
+The platform works but looks and feels rough. No outreach, no listings for other creators' games and no inviting creators until this is done: first impressions are hard to undo.
+
+| Status | Must/Nice | Item | Needs | Notes |
+| --- | --- | --- | --- | --- |
+| planned | Must | Design system | | Type, colors, spacing and components from the brand, used by every page |
+| planned | Must | Home page | Design system | A real front door: what Zaisma is, featured and new games, Play in one tap |
+| planned | Must | Browse games | Design system | A proper games page with covers and genres until Phase 4 discovery |
+| planned | Must | Account pages | Design system | Sign-in, account, saves and sign-in methods, all polished |
+| planned | Must | Game management | Design system, Creator dashboard | Upload, details, versions, visibility and stats that feel good to use |
+| planned | Must | Ready for outreach | Design system, Home page, Browse games, Account pages, Game management | Julius decides; outreach and link-out listings start here |
+
 ### Launch content and reach (build track 4)
 
 | Status | Must/Nice | Item | Needs | Notes |
@@ -113,7 +126,7 @@ Detailed plan approved: guest passes, game server API, rooms, SDK, demos.
 | planned | Must | Creator links on game pages | Creator accounts | Steam, itch.io, Discord, website, socials |
 | planned | Must | At least 5 seed games | Claude Code skill, Two demo games | Made with Claude Code through our own publishing flow, different genres, multiplayer |
 | planned | Nice | 10 seed games | At least 5 seed games | The target in `docs/PLAN.md` |
-| planned | Must | Link-out listings | | Games hosted elsewhere, added from admin with the creator's OK: credited and linked, marked "Plays on example.com", never embedded. Original games only. Checked at listing and re-checked automatically. Creators can claim them once creator accounts exist |
+| planned | Must | Link-out listings | Ready for outreach | Games hosted elsewhere, added from admin with the creator's OK: credited and linked, marked "Plays on example.com", never embedded. Original games only. Checked at listing and re-checked automatically. Creators can claim them once creator accounts exist |
 | planned | Nice | QR codes | | |
 | planned | Must | Open the public beta | Connect image matching, Julius: register the DMCA agent, Julius: form an LLC, Alert and DMCA email delivery, Julius: Supabase Pro, At least 5 seed games | And every other must item above. Weekly releases and the weekly game jam start here |
 
