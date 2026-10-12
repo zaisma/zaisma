@@ -70,6 +70,13 @@ Settled calls. Don't reopen these in code or docs without Julius approving the c
 - **Mods, in months 2–3.** The game creator opts in and decides what mods can change through a mod API in the toolkit. Mods are uploaded, scanned and versioned like games, listed on the game's page, and switched on by players. Creators can remove mods from their game; we can take down a mod without touching the game. Mods run inside the game's sandbox. In multiplayer, everyone in a room runs the same mods, and the invite link carries them. Remixes and mods are free at first, with tips for their makers.
 - **Tools tab in months 2–3.** Free, open-source developer tools (asset pipelines, engines, editors, Claude Code skills). Same rules as games; a tool must be open source to list.
 
+## Marketing for creators
+
+- **Every tool we can give creators to market their games, free.** We take no cut, so helping creators find players is how we compete. All of it works within the no-ads, no-tracking rules.
+  - *Weekend 3:* links on the game page (Steam, itch.io, Discord, website, socials, "Wishlist on Steam"); proper share cards (cover, title, "Play now") for every game link and room invite; search-friendly game pages; QR codes.
+  - *Week 5, with discovery:* "Play on Zaisma" embeds for creators' own sites, with the Z button inside; tracked share links that count plays per link and never record anything about players; update notes on the game page, followers told about new versions, and updates posted to the creator's Discord; an automatic press kit; MCP tools that draft launch posts, store descriptions and tags and take screenshots, with the creator approving anything before it's posted.
+  - Trailers are YouTube links, not uploads; video is costly to check and YouTube is where trailers get seen anyway.
+
 ## Release plan
 
 - **Public beta after 3 weekends, then weekly releases**, plus a weekly game jam. Being first matters more than being complete.
