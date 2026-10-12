@@ -15,6 +15,7 @@ Settled calls. Don't reopen these in code or docs without Julius approving the c
 - **Developer's choice of payments.** Our Stripe Connect Standard checkout is an optional free convenience. Developers can use their own Stripe, Bitcoin or anything else. The platform never holds player money.
 - **Multiplayer on our servers is billed at cost.** About $1 per 1,000 player-hours (what Cloudflare charges us). Bills under $5 roll over to the next month.
 - **Bring your own servers, any time.** Our rooms are a default, never a requirement. Moving off them is a config change, not a rewrite.
+- **No ads in games, at least through beta.** Ad scripts change after we scan them, track teens and are the main source of scams on web game sites, and ad-funded design drifts toward clickbait. Creators earn through purchases, our free checkout, and tips. (Idea parked for later, not decided: if donations and sponsors ever exceed costs, share the surplus with creators by playtime.)
 - **Platform costs are covered by donations, sponsors and promoted slots.** GitHub Sponsors / Open Collective, company sponsors, paid front-page slots (about $50/week), supporter badge. Break-even is the goal, not profit.
 
 ## Open source and name
@@ -34,6 +35,8 @@ Settled calls. Don't reopen these in code or docs without Julius approving the c
 - **Game domain: zaisma.gg** long term. Until it's bought, games are served from the free `workers.dev` address. A real game domain (one subdomain per game) is required before outside developers can upload, because only separate subdomains stop games reading each other's storage.
 - **Games can't load outside scripts or call outside servers.** The code that runs is the code we scanned, so developers bundle their libraries. Our room host gets allowed when multiplayer ships.
 - **Weekend 1 uploads are admin-only** (Julius). Developer uploads open with accounts in Weekend 3.
+- **We only list games we host.** Every listed game's files are served by Zaisma, because our promise is that the code that runs is the code we scanned. Self-hosting means the multiplayer game server, never the game files. (Clearly marked outbound links to games hosted elsewhere could come after beta if creators ask.)
+- **A Zaisma button on every game.** A small floating Z button in a corner, on our page above the game, opens Invite, Clip, Full screen, More games and Report. It fades while playing, stays in full screen, and the creator picks the corner; creators can't remove it. On custom domains our server adds it to the game page, and hiding or covering it breaks the content rules.
 - **Same rules at every visibility.** Draft and unlisted games are scanned, reportable and bound by the content rules exactly like listed ones.
 
 ## Discovery
@@ -53,6 +56,8 @@ Settled calls. Don't reopen these in code or docs without Julius approving the c
 - **Creators own many games; visibility and review are separate.** Visibility is the creator's: draft, listed (directory and search) or unlisted (anyone with the link). Review status is ours: live, under review or removed. Changing visibility never undoes a takedown. Co-owners and teams come after beta.
 - **Big games are welcome.** From Weekend 3 the upload command sends files one by one straight to storage (no zip through a Worker), stored by fingerprint so versions share unchanged files and updates only upload what changed. Limits: 2 GB per game (more on request), 500 MB per file, 20,000 files. Until then the Weekend 1 limits stay (25 MB zip, 100 MB unpacked). The toolkit and skill teach loading in pieces so big games start fast, and the game page shows the download size and warns phone players before big downloads.
 - **Device labels.** Creators state devices (phone, tablet, computer), controls (touch, keyboard and mouse, gamepad) and screen (portrait, landscape, either). Games for the player's device come first; others show a note and "Play anyway", never a block.
+- **Creator play stats built in.** Plays, session length and retention in the dashboard and MCP, so games don't need outside analytics (which the sandbox blocks anyway).
+- **Bigger game servers at cost, after beta.** For games that outgrow rooms (more players, heavy physics, Godot or Unity server builds): Cloudflare Containers, each sealed in its own virtual machine, billed to the developer at what it costs us (about $3 per 1,000 player-hours for a 1-core server shared by 32 players; check outbound data charges first). Developers' own servers stay free for us and allowed from Weekend 2.
 - **Tools tab in months 2–3.** Free, open-source developer tools (asset pipelines, engines, editors, Claude Code skills). Same rules as games; a tool must be open source to list.
 
 ## Release plan

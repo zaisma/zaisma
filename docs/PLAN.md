@@ -123,7 +123,7 @@ The closest competitor is Wavedash: browser games by link, accounts, friends and
 | Open source | Toolkits only | Not stated | Everything, MIT license |
 | Scale | $4.3M seed; beta since Dec 2025 | 10M monthly players; $56M raised | Beta in three weekends |
 
-One-command switch from Wavedash goes on the roadmap right after beta, along with custom game domains: developers can point their own domain at their game (Cloudflare for SaaS; the first 100 domains cost us nothing).
+One-command switch from Wavedash goes on the roadmap right after beta, along with bigger game servers at cost (Cloudflare Containers) and custom game domains: developers can point their own domain at their game (Cloudflare for SaaS; the first 100 domains cost us nothing).
 
 ## License and name
 
