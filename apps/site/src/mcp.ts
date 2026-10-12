@@ -249,6 +249,39 @@ export async function handleMcp(request: Request, env: Env): Promise<Response> {
     if (!(err instanceof ApiError)) throw err;
     return Response.json(rpcError(null, -32001, err.message), { status: err.status, headers: err.status === 401 ? { "WWW-Authenticate": 'Bearer realm="zaisma"' } : {} });
   }
+  const call: ApiCall = (method, path, payload) => apiCall(env, caller, method, path, payload);
+  return serveMcp(
+    request,
+    { name: "zaisma", title: "Zaisma", instructions: INSTRUCTIONS },
+    TOOLS.map((t) => ({ ...t, run: (args: Record<string, unknown>) => t.run(args, call) })),
+    (err) => (err instanceof ApiError ? `${err.message} (${err.code})` : null),
+  );
+}
+
+export interface McpTool {
+  name: string;
+  title: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+  annotations: Tool["annotations"];
+  run: (args: Record<string, unknown>) => Promise<unknown>;
+}
+
+/** A tool result that also shows pictures. */
+export class WithImages {
+  constructor(
+    readonly data: unknown,
+    readonly images: { data: string; mimeType: string }[],
+  ) {}
+}
+
+/**
+ * Answers MCP messages for a set of tools: Streamable HTTP without sessions or streaming, each POST
+ * one JSON-RPC message (or a batch). `userError` turns a tool's refusal into words for the AI, or
+ * returns null for a real failure.
+ */
+export async function serveMcp(request: Request, server: { name: string; title: string; instructions: string }, tools: McpTool[], userError: (err: unknown) => string | null): Promise<Response> {
+  if (request.method !== "POST") return new Response("Send MCP messages as POST requests.", { status: 405, headers: { Allow: "POST" } });
   if (Number(request.headers.get("content-length") ?? 0) > MAX_BODY) return Response.json(rpcError(null, -32600, "That message is too big."), { status: 413 });
   let body: unknown;
   try {
@@ -256,8 +289,6 @@ export async function handleMcp(request: Request, env: Env): Promise<Response> {
   } catch {
     return Response.json(rpcError(null, -32700, "Send JSON-RPC as JSON."), { status: 400 });
   }
-
-  const call: ApiCall = (method, path, payload) => apiCall(env, caller, method, path, payload);
 
   const answer = async (msg: RpcMessage): Promise<unknown | null> => {
     if (!msg || typeof msg !== "object" || msg.jsonrpc !== "2.0" || typeof msg.method !== "string") return rpcError(msg?.id, -32600, "Not a JSON-RPC 2.0 request.");
@@ -269,24 +300,27 @@ export async function handleMcp(request: Request, env: Env): Promise<Response> {
         return ok({
           protocolVersion: PROTOCOLS.includes(asked) ? asked : PROTOCOLS[0],
           capabilities: { tools: { listChanged: false } },
-          serverInfo: { name: "zaisma", title: "Zaisma", version: "0.1.0", websiteUrl: "https://zaisma.com" },
-          instructions: INSTRUCTIONS,
+          serverInfo: { name: server.name, title: server.title, version: "0.1.0", websiteUrl: "https://zaisma.com" },
+          instructions: server.instructions,
         });
       }
       case "ping":
         return ok({});
       case "tools/list":
-        return ok({ tools: TOOLS.map(({ run: _, ...t }) => t) });
+        return ok({ tools: tools.map(({ run: _, ...t }) => t) });
       case "tools/call": {
-        const tool = TOOLS.find((t) => t.name === msg.params?.name);
+        const tool = tools.find((t) => t.name === msg.params?.name);
         if (!tool) return rpcError(msg.id, -32602, `No tool called ${String(msg.params?.name)}.`);
         const args = msg.params?.arguments && typeof msg.params.arguments === "object" ? (msg.params.arguments as Record<string, unknown>) : {};
         try {
-          const result = await tool.run(args, call);
-          return ok({ content: [{ type: "text", text: JSON.stringify(result, null, 2) }], structuredContent: result });
+          const result = await tool.run(args);
+          const data = result instanceof WithImages ? result.data : result;
+          const images = result instanceof WithImages ? result.images.map((i) => ({ type: "image", ...i })) : [];
+          return ok({ content: [{ type: "text", text: JSON.stringify(data, null, 2) }, ...images], structuredContent: data });
         } catch (err) {
-          if (!(err instanceof ApiError)) throw err;
-          return ok({ content: [{ type: "text", text: `${err.message} (${err.code})` }], isError: true });
+          const said = userError(err);
+          if (said === null) throw err;
+          return ok({ content: [{ type: "text", text: said }], isError: true });
         }
       }
       default:
