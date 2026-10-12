@@ -60,7 +60,7 @@ The whole platform runs on rented services for about $5/month while building and
 
 **Bring your own servers, any time.** Our rooms are a convenient default, billed at cost, never a requirement. A game can run its own servers from day one or move off ours when it takes off, for performance or customization. Accounts, guest IDs, friends and room links keep working: the toolkit hands each player a signed pass that the developer's own server can check, and a room link can point at any server. Moving takes a config change, not a rewrite.
 
-Supabase's free plan pauses after a week without traffic, so we move to Pro ($25) at public launch. Cloudflare Workers Paid ($5/month) is needed by Weekend 3, because running developers' game servers safely uses Dynamic Workers.
+Supabase's free plan pauses after a week without traffic, so we move to Pro ($25) at public launch. Cloudflare Workers Paid ($5/month) is needed before the beta, because running developers' game servers safely uses Dynamic Workers.
 
 ## Rules for a 13+ launch
 
@@ -75,17 +75,17 @@ Launching at 13+ keeps us outside the strictest child-privacy law, as long as we
 
 **Guest play rules.** Guests get a temporary ID used only to run the game session, no chat, no purchases and no profile. The age gate appears when a guest makes an account, so guest play stays instant without collecting personal data.
 
-## Build order, one weekend at a time
+## Build order
 
-Public beta after three weekends, then weekly releases. Being first matters more than being complete, so the beta ships what players and developers need to start, and everything else lands while people are playing.
+The live roadmap, with every item and its status, is [`docs/ROADMAP.md`](ROADMAP.md). In short, the beta comes as soon as Phase 1's must-have items are done, then weekly releases. Being first matters more than being complete, but the beta has to meet what creators and players expect out of the box.
 
-1. **Weekend 1: safe game hosting.** Upload a web game, scan it before publishing (malware, illegal-image matching, AI review), serve it sandboxed on a separate game domain (zaisma.gg; the free workers.dev address until it's bought), list it on a simple directory page. Report button and takedown process.
-2. **Weekend 2: guest multiplayer.** Room server that runs on Cloudflare or any normal server; room links that drop guests straight into a match; one-tap clip-and-share with the link built in; mute, block and report-a-player in rooms. Ship the first demo games built with Claude Code.
-3. **Weekend 3: accounts and the publish skill.** Sign-in, age gate, "keep your progress" from guest, cloud saves; the creator MCP, upload command and Claude Code skill that publish a game in one prompt; creator dashboard with drafts, versions and listed/unlisted games; file-by-file uploads for games up to 2 GB; creator links, share cards, search-friendly pages and QR codes; `zaisma check` and automatic fixes so existing web games upload unchanged; drop-in Socket.IO and PeerJS replacements. **Open the public beta.**
-4. **Week 4: money.** The Zaisma buy sheet (cards, Apple Pay, Google Pay, local methods, optional Bitcoin), owned items and receipts, opt-in family controls and "Ask a parent to buy", honest purchase labels and refund policies, registered payment links, at-cost multiplayer billing (starting the month payments go live), $5 deposits, donation page. Right after beta, so creators can earn within a week of joining.
-5. **Week 5: friends.** Friend list, invites, see what friends are playing.
-6. **Week 6: discovery and trust.** Progress bar, "New and rising" shelf, Scout badge, front page for games that clear the bar. Player lists, ratings from people who played, the no-slop cover rules. Creator marketing: embeds, tracked share links, update notes and followers, press kits, AI-drafted launch posts.
-7. **Then weekly releases**, plus a weekly game jam. Remixes and teams come soon after beta; mods and the Tools tab follow in months two to three. Every remix and mod is a new thing to play and share, pointing back to the original.
+0. **Safe hosting** (done): upload, scan, sandboxed game domain, directory, reports and takedowns.
+1. **Beta:** launch prerequisites (zaisma.gg, image matching, DMCA agent, paid plans), guest multiplayer and invite links, accounts and cloud saves, the creator MCP and one-prompt publishing, launch content and share cards. **Open the public beta.**
+2. **Earn:** the Zaisma buy sheet, owned items, purchase rules, at-cost multiplayer billing, deposits, donations.
+3. **Play together:** friends, Zaisma in Discord.
+4. **Discover:** the progress bar, real ratings, player lists, follows and the rest of the creator marketing kit.
+5. **Create together:** remixes, teams, mods, the Tools tab.
+6. **Grow:** bigger game servers, custom game domains, the Wavedash switch, subscriptions.
 
 ## First 100 games and targets
 
@@ -104,7 +104,7 @@ The goal for the first 90 days after beta: 100 listed games and 10,000 monthly p
 
 ## Tools tab (after launch)
 
-About one to two months after the game beta, Zaisma adds a Tools tab for free, open-source developer tools: asset pipelines, engines, level editors, Claude Code skills and plugins. Games lead the launch so the player crowd forms first; tools then make more and better games.
+After the beta (Phase 5), Zaisma adds a Tools tab for free, open-source developer tools: asset pipelines, engines, level editors, Claude Code skills and plugins. Games lead the launch so the player crowd forms first; tools then make more and better games.
 
 - **Rules:** the same as games. Free to list, no cut, scanned before going live, same progress bar for the front page.
 - **Requirement:** a tool must be open source to be listed.
@@ -121,9 +121,9 @@ The closest competitor is Wavedash: browser games by link, accounts, friends and
 | Payments | Their checkout only; crypto banned | Platform-run | Any method, including Bitcoin |
 | Multiplayer | Direct player-to-player only | Not stated | Real servers at cost, or bring your own |
 | Open source | Toolkits only | Not stated | Everything, MIT license |
-| Scale | $4.3M seed; beta since Dec 2025 | 10M monthly players; $56M raised | Beta in three weekends |
+| Scale | $4.3M seed; beta since Dec 2025 | 10M monthly players; $56M raised | Pre-beta, building in public |
 
-One-command switch from Wavedash goes on the roadmap right after beta, along with bigger game servers at cost (Cloudflare Containers), playing inside Discord and custom game domains: developers can point their own domain at their game (Cloudflare for SaaS; the first 100 domains cost us nothing).
+One-command switch from Wavedash goes on the roadmap after the beta, along with bigger game servers at cost (Cloudflare Containers), playing inside Discord and custom game domains: developers can point their own domain at their game (Cloudflare for SaaS; the first 100 domains cost us nothing).
 
 ## License and name
 
