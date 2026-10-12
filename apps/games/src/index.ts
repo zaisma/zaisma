@@ -105,8 +105,9 @@ export default {
 
     const headers = gameHeaders(contentTypeFor(path), env.SITE_ORIGIN, connect);
     headers.set("ETag", object.httpEtag);
-    // HTML is re-checked so takedowns and updates show up; other files are tied to one version.
-    headers.set("Cache-Control", path.endsWith(".html") ? "no-cache" : "public, max-age=3600");
+    // HTML is re-checked so takedowns and updates show up. Other files keep the same address
+    // across versions, so they're only cached briefly: an update reaches players within a minute.
+    headers.set("Cache-Control", path.endsWith(".html") ? "no-cache" : "public, max-age=60");
     headers.set("Accept-Ranges", "bytes");
 
     if (!("body" in object) || !object.body) return new Response(null, { status: 304, headers });

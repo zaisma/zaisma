@@ -197,3 +197,29 @@ describe("turn-based rooms", () => {
     expect(board[39]).toBe(2);
   });
 });
+
+describe("reporting a player", () => {
+  beforeEach(async () => {
+    await e.DB.exec("DELETE FROM reports; DELETE FROM games;");
+  });
+
+  const report = (body: Record<string, unknown>, origin = ORIGIN) =>
+    SELF.fetch(`${R}/v1/report`, { method: "POST", headers: { Origin: origin, "Content-Type": "text/plain" }, body: JSON.stringify({ game: "arena", ...body }) });
+
+  it("files a report with the room and the player's temporary ID, nothing about the reporter", async () => {
+    const id = await addGame("arena");
+    const res = await report({ code: "ABCDEF", player: "g_123", name: "Swift Fox 42", reason: "harassment", details: "kept spamming" });
+    expect(res.status).toBe(200);
+    const row = await e.DB.prepare("SELECT * FROM reports WHERE game_id = ?").bind(id).first<{ reason: string; details: string }>();
+    expect(row?.reason).toBe("player");
+    expect(row?.details).toContain("Harassing or bullying: Swift Fox 42 (temporary ID g_123) in room ABCDEF.");
+    expect(row?.details).toContain("kept spamming");
+  });
+
+  it("refuses bad reasons, codes and other sites", async () => {
+    await addGame("arena");
+    expect((await report({ code: "ABCDEF", player: "g_1", reason: "spam" })).status).toBe(400);
+    expect((await report({ code: "nope", player: "g_1", reason: "other" })).status).toBe(400);
+    expect((await report({ code: "ABCDEF", player: "g_1", reason: "other" }, "https://evil.example")).status).toBe(403);
+  });
+});
