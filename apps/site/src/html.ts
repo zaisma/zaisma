@@ -227,6 +227,11 @@ code.key{display:block;word-break:break-all;user-select:all;color:var(--text);fo
 .keys li{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0;background:linear-gradient(#000,#000) bottom/100% 1px no-repeat}
 .keys .btn{white-space:nowrap;flex:none}
 .keys .why{display:block}
+.passkey-in{display:grid;gap:12px;max-width:560px;margin-bottom:14px}
+.passkey-in[hidden]{display:none}
+.passkey-in>.btn{justify-self:start}
+.or{display:flex;align-items:center;gap:12px;margin:4px 0 0;color:var(--muted);font-size:13px}
+.or::before,.or::after{content:"";flex:1;height:1px;background:#000;box-shadow:0 1px 0 rgba(255,255,255,.055)}
 .hint{font-size:12px;color:var(--muted)}
 fieldset{border:0;padding:0;margin:0}
 legend{font-size:14px;color:var(--muted);margin-bottom:8px}

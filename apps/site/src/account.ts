@@ -11,6 +11,7 @@ import {
   deleteAccount,
   gameBySlug,
   gamesOwnedBy,
+  passkeysFor,
   revokeApiKey,
   updateAccount,
   type AgeBand,
@@ -30,6 +31,7 @@ import {
 } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { html, layout, message, metalButton, raw, type Raw } from "./html.ts";
+import { PASSKEY_SCRIPT, RECENT_SIGNIN_MS } from "./passkeys.ts";
 import { deleteSaveFiles } from "./saves.ts";
 
 /**
@@ -147,7 +149,10 @@ export async function handleAccount(request: Request, env: Env, path: string): P
   }
   if (!account) return done(redirect("/join"));
 
-  if (path === "/account" && !post) return done(await accountPage(env, session, new URL(request.url).searchParams.has("welcome")));
+  if (path === "/account" && !post) {
+    const query = new URL(request.url).searchParams;
+    return done(await accountPage(env, session, query.has("welcome"), undefined, undefined, query));
+  }
   if (path === "/account/kept" && !post) return done(await keptPage(env, account.name, new URL(request.url).searchParams.get("game")));
 
   if (path === "/account/name" && post) {
@@ -242,21 +247,39 @@ function signinPage(env: Env, next: string | null, error?: string): Response {
     html`<h1>Sign in</h1>
 <p class="lead">We'll email you a code. No password needed.</p>
 ${err(error)}
+<div class="passkey-in" id="passkey-in" hidden>
+<button class="btn" type="button" id="passkey-go">${raw(ICON_PASSKEY)}Sign in with a passkey</button>
+<p class="error" role="alert" id="passkey-error" hidden></p>
+<p class="or"><span>or get a code</span></p>
+</div>
 <form class="stack" method="post" action="/signin">
 ${nextField(next)}
-<label>Email<input type="email" name="email" autocomplete="email" required autofocus></label>
-<button class="btn" type="submit">Email me a code</button>
+<label>Email<input type="email" name="email" autocomplete="email webauthn" required autofocus></label>
+<button class="btn" type="submit" id="code-go">Email me a code</button>
 </form>
-<p class="muted">New here? <a href="/join${nextQuery(next)}">Make an account</a>. You don't need one to play.</p>`,
+<p class="muted">New here? <a href="/join${nextQuery(next)}">Make an account</a>. You don't need one to play.</p>
+<script>${raw(PASSKEY_SCRIPT)}
+(() => {
+  if (!window.PublicKeyCredential) return;
+  // Passkeys first, the email code as the way in for new devices.
+  document.getElementById("passkey-in").hidden = false;
+  document.getElementById("code-go").classList.add("ghost");
+  const next = ${raw(JSON.stringify(next ?? "/").replace(/</g, "\u003c"))};
+  const show = (e) => { const p = document.getElementById("passkey-error"); p.textContent = e || ""; p.hidden = !e; };
+  document.getElementById("passkey-go").onclick = async () => show(await zaismaPasskeySignIn(next, false));
+  // Browsers that can also offer passkeys in the email box's autofill.
+  if (PublicKeyCredential.isConditionalMediationAvailable) PublicKeyCredential.isConditionalMediationAvailable().then((ok) => ok && zaismaPasskeySignIn(next, true).then(show));
+})();
+</script>`,
   );
 }
 
-function codePage(env: Env, email: string, next: string | null, error?: string): Response {
+export function codePage(env: Env, email: string, next: string | null, error?: string, confirm = false): Response {
   return page(
     env,
     "Check your email",
     html`<h1>Check your email</h1>
-<p class="lead">If <strong>${email}</strong> has a Zaisma account or you're making one, a code is on its way.</p>
+<p class="lead">${confirm ? html`We sent a code to <strong>${email}</strong>. Enter it to confirm it's you.` : html`If <strong>${email}</strong> has a Zaisma account or you're making one, a code is on its way.`}</p>
 ${err(error)}
 <form class="stack" method="post" action="/signin/code">
 ${nextField(next)}
@@ -264,7 +287,7 @@ ${nextField(next)}
 <label>Code<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,12}" maxlength="12" required autofocus></label>
 <button class="btn" type="submit">Continue</button>
 </form>
-<p class="muted">No email after a minute? Check spam, or <a href="/signin${nextQuery(next)}">try again</a>.</p>`,
+<p class="muted">No email after a minute? Check spam, or ${confirm ? html`<a href="/account#passkeys">go back</a> and try again` : html`<a href="/signin${nextQuery(next)}">try again</a>`}.</p>`,
     error ? 400 : 200,
   );
 }
@@ -369,13 +392,17 @@ document.querySelector("[data-back]").addEventListener("click", (e) => {
   );
 }
 
+const ICON_PASSKEY = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="4"/><path d="M2 21c0-3.9 3.1-7 7-7 1.2 0 2.4.3 3.4.9"/><circle cx="18" cy="13" r="2.5"/><path d="M18 15.5V21l1.5-1.2M18 18.5h1.5"/></svg>';
+
 const BAND_TEXT: Record<AgeBand, string> = { "13-17": "13 to 17", "18+": "18 or over" };
 
 const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
-async function accountPage(env: Env, session: Session, welcome: boolean, error?: string, made?: { name: string; token: string }): Promise<Response> {
+async function accountPage(env: Env, session: Session, welcome: boolean, error?: string, made?: { name: string; token: string }, query = new URLSearchParams()): Promise<Response> {
   const account = (await accountById(env.DB, session.userId))!;
-  const [games, keys] = await Promise.all([gamesOwnedBy(env.DB, account.id), apiKeysFor(env.DB, account.id)]);
+  const [games, keys, passkeys] = await Promise.all([gamesOwnedBy(env.DB, account.id), apiKeysFor(env.DB, account.id), passkeysFor(env.DB, account.id)]);
+  // Adding a passkey needs a recent sign-in; otherwise an email code first.
+  const recent = Date.now() - session.authAt < RECENT_SIGNIN_MS;
   return page(
     env,
     "Your account",
@@ -393,6 +420,43 @@ ${err(error)}
 ${account.age_band === "13-17"
       ? html`<details><summary>Turned 18?</summary><form class="stack" method="post" action="/account/age">${birthFields()}<button class="btn ghost" type="submit">Update</button></form></details>`
       : ""}
+<h2 id="passkeys">Passkeys</h2>
+<p>Sign in with Face ID, a fingerprint or your device's PIN instead of an email code. Your email still works if you lose a device.</p>
+${query.has("passkey-added") ? html`<p class="note" role="status"><strong>Passkey added.</strong> Next time, choose Sign in with a passkey.</p>` : ""}
+${query.has("passkey") && recent ? html`<p class="note" role="status">Thanks, that's you. Now add your passkey.</p>` : ""}
+${query.has("passkey-failed") ? html`<p class="error" role="alert">Couldn't send a code. Wait a minute and try again.</p>` : ""}
+${passkeys.length
+      ? html`<ul class="keys">${passkeys.map(
+          (k) => html`<li><span>Added on ${k.name} <span class="why muted small">${day(k.created_at)}, ${k.last_used_at ? `last used ${day(k.last_used_at)}` : "not used yet"}</span></span>
+<form method="post" action="/account/passkeys/${k.id}/remove"><button class="btn ghost" type="submit">Remove</button></form></li>`,
+        )}</ul>`
+      : ""}
+<div class="row" id="passkey-add-row">
+${recent
+      ? html`<button class="btn${passkeys.length ? " ghost" : ""}" type="button" id="passkey-add"${query.has("passkey") ? raw(" autofocus") : ""}>Add a passkey</button>`
+      : html`<form method="post" action="/account/passkeys/confirm"><button class="btn${passkeys.length ? " ghost" : ""}" type="submit" id="passkey-confirm">Add a passkey</button></form><span class="hint">We'll email you a code first, to check it's you.</span>`}
+</div>
+<p class="error" role="alert" id="passkey-error" hidden></p>
+<script>${raw(PASSKEY_SCRIPT)}
+(() => {
+  const row = document.getElementById("passkey-add-row");
+  if (!window.PublicKeyCredential) {
+    row.innerHTML = "<p class=muted>This browser can't use passkeys.</p>";
+    return;
+  }
+  const add = document.getElementById("passkey-add");
+  if (!add) return;
+  add.onclick = async () => {
+    const error = await zaismaAddPasskey();
+    if (!error) return (location.href = "/account?passkey-added#passkeys");
+    // The recent sign-in ran out while the page was open: confirm with a code first.
+    if (error === "confirm") return location.reload();
+    const p = document.getElementById("passkey-error");
+    p.textContent = error;
+    p.hidden = false;
+  };
+})();
+</script>
 <h2>Game saves</h2>
 <p>Games you play while signed in save your progress to your account. <a href="/account/saves">See your saves</a>, and go back to an earlier version if progress goes missing.</p>
 ${games.length

@@ -12,6 +12,8 @@ export interface Session {
   email: string;
   access: string;
   refresh: string;
+  /** When they last proved it's them (email code or passkey), in ms; 0 if unknown. */
+  authAt: number;
 }
 
 export function authConfigured(env: Env): boolean {
@@ -44,7 +46,7 @@ interface TokenResponse {
   user: { id: string; email?: string };
 }
 
-const toSession = (t: TokenResponse): Session => ({ userId: t.user.id, email: t.user.email ?? "", access: t.access_token, refresh: t.refresh_token });
+const toSession = (t: TokenResponse): Session => ({ userId: t.user.id, email: t.user.email ?? "", access: t.access_token, refresh: t.refresh_token, authAt: authTime(t.access_token) });
 
 export async function verifyCode(env: Env, email: string, code: string): Promise<Session | null> {
   const res = await auth(env, "/verify", { body: { type: "email", email, token: code } });
@@ -58,6 +60,28 @@ async function refreshSession(env: Env, refresh: string): Promise<Session | null
 
 export async function signOutEverywhere(env: Env, access: string): Promise<void> {
   await auth(env, "/logout?scope=global", { token: access }).catch(() => {});
+}
+
+/**
+ * A session for someone who just signed in with a passkey (checked by us, see passkeys.ts).
+ * Supabase makes it: a one-time sign-in link for their email, used straight away, never sent.
+ */
+export async function sessionForUser(env: Env, userId: string): Promise<Session | null> {
+  if (!env.SUPABASE_SECRET_KEY) return null;
+  const user = await auth(env, `/admin/users/${encodeURIComponent(userId)}`, { method: "GET", secret: true });
+  const email = user.ok ? ((await user.json()) as { email?: string }).email : undefined;
+  if (!email) return null;
+  const link = await auth(env, "/admin/generate_link", { body: { type: "magiclink", email }, secret: true });
+  if (!link.ok) {
+    console.error("Making a passkey session failed:", link.status, await link.text());
+    return null;
+  }
+  const l = (await link.json()) as { hashed_token?: string; properties?: { hashed_token?: string } };
+  const tokenHash = l.hashed_token ?? l.properties?.hashed_token;
+  if (!tokenHash) return null;
+  const res = await auth(env, "/verify", { body: { type: "magiclink", token_hash: tokenHash } });
+  const session = res.ok ? toSession((await res.json()) as TokenResponse) : null;
+  return session?.userId === userId ? session : null;
 }
 
 /** Remove the sign-in record (and email) from Supabase. Needs the secret key. */
@@ -89,7 +113,7 @@ const ALGS: Record<string, { import: Parameters<typeof crypto.subtle.importKey>[
 };
 
 /** The user ID and email in a valid access token, "expired" if it was valid but is old, or null. */
-export async function checkAccessToken(env: Env, token: string): Promise<{ userId: string; email: string } | "expired" | null> {
+export async function checkAccessToken(env: Env, token: string): Promise<{ userId: string; email: string; authAt: number } | "expired" | null> {
   const parts = token.split(".");
   if (parts.length !== 3) return null;
   const [h, p, s] = parts as [string, string, string];
@@ -113,7 +137,17 @@ export async function checkAccessToken(env: Env, token: string): Promise<{ userI
   const auds = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
   if (claims.iss !== `${env.SUPABASE_URL}/auth/v1` || !auds.includes("authenticated") || !claims.sub) return null;
   if (!(typeof claims.exp === "number" && claims.exp > Date.now() / 1000 + 10)) return "expired";
-  return { userId: claims.sub, email: claims.email ?? "" };
+  return { userId: claims.sub, email: claims.email ?? "", authAt: authTime(token) };
+}
+
+/** When the person behind a token last signed in: Supabase lists each way they proved it (amr). */
+function authTime(token: string): number {
+  try {
+    const claims = JSON.parse(b64urlText(token.split(".")[1] ?? "")) as { amr?: { timestamp?: number }[] };
+    return Math.max(0, ...(claims.amr ?? []).map((a) => (typeof a.timestamp === "number" ? a.timestamp * 1000 : 0)));
+  } catch {
+    return 0;
+  }
 }
 
 function b64urlBytes(s: string): Uint8Array {

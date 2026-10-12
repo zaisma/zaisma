@@ -9,6 +9,7 @@ import { message } from "./html.ts";
 import { handleMcp } from "./mcp.ts";
 import { handlePlayed, home } from "./home.ts";
 import { gamePage, legal, reportForm, submitReport } from "./pages.ts";
+import { handlePasskeys } from "./passkeys.ts";
 import { handleSaveHistory, handleSaves } from "./saves.ts";
 import { handleScanBatch } from "./scan.ts";
 
@@ -37,6 +38,9 @@ export default {
 
     const dashboard = await handleDashboard(request, env, path);
     if (dashboard) return dashboard;
+
+    const passkeys = await handlePasskeys(request, env, path);
+    if (passkeys) return passkeys;
 
     const history = await handleSaveHistory(request, env, path);
     if (history) return history;
