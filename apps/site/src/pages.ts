@@ -91,8 +91,10 @@ a.live-now:hover{text-decoration:underline;text-underline-offset:3px}
 .icons{display:flex;flex-wrap:wrap;gap:8px 14px;font-size:14px;color:var(--text)}
 .icons span{display:inline-flex;align-items:center;gap:7px}
 .icons svg,.spec .modes svg{width:20px;height:20px;flex:none;color:var(--text-2)}
-.spec .modes li{font-size:14px}
-.spec .modes small{font-size:13px}
+.spec .modes li{display:grid;grid-template-columns:20px minmax(0,1fr);gap:1px 10px;font-size:14px}
+/* The player count goes under its way to play, so narrow plates never break "Online versus" apart. */
+.spec .modes small{grid-column:2;font-size:13px}
+.spec .modes small::before{content:none}
 .side .row{margin-top:4px}
 .side .row .btn{flex:1}
 .share-link[hidden]{display:none}
@@ -158,6 +160,20 @@ a.live-now:hover{text-decoration:underline;text-underline-offset:3px}
 .updates h3{margin:0 0 6px;font-size:18px}
 .updates p{margin:0;color:var(--text-2);white-space:pre-line}
 @media (max-width:960px){.gp-top,.about{grid-template-columns:1fr}main.gp{padding:16px 16px 56px}.side{padding:22px 20px}}
+/* Stacked (phones and tablets): the picture, a slim strip of the other pictures and the details plate
+   make one machined piece, so Play sits near the top. The picture takes the cut corner, lit like a plate's. */
+@media (max-width:960px){
+  .gp-top{gap:0}
+  .viewer .bezel{--cut:28px;clip-path:polygon(0 0,calc(100% - 28px) 0,100% 28px,100% 100%,0 100%);
+    background:linear-gradient(to top right,transparent calc(50% - 1.5px),rgba(255,255,255,.34) calc(50% - 1.5px),rgba(255,255,255,.34) 50%,transparent 50%) top right/28px 28px no-repeat,linear-gradient(135deg,#60656f 0%,#1c1e22 36%,#121417 70%,#40444c 100%)}
+  .viewer .shot{clip-path:polygon(0 0,calc(100% - 26px) 0,100% 26px,100% 100%,0 100%)}
+  .viewer .thumbs{display:flex;gap:6px;margin:0;padding:6px;overflow-x:auto;scrollbar-width:none;background:#0a0b0d;box-shadow:inset 0 2px 5px rgba(0,0,0,.8),inset 0 -1px 0 rgba(255,255,255,.05)}
+  .viewer .thumbs::-webkit-scrollbar{display:none}
+  .viewer .thumbs button{flex:0 0 76px;clip-path:none}
+  .side{--cut:0px;clip-path:none;padding:16px 18px 20px;gap:12px;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),var(--rim),var(--drop)}
+  .side h1{font-size:clamp(28px,8vw,40px)}
+  .side .by{margin-top:-6px;font-size:14px}
+}
 /* Playing: a slim brushed bar above the game. */
 .bar{display:flex;align-items:center;gap:8px;padding:6px 10px;flex:none;background:var(--brush) 0 0/320px 320px,linear-gradient(180deg,#24282e,#16181c);box-shadow:inset 0 1px 0 rgba(255,255,255,.07),0 1px 0 #000}
 .bar .home img{height:22px;display:block}
