@@ -1,5 +1,7 @@
 // Four in a row game server: turn-based, two players, everyone else watches.
 // It has no tickRate, so the room sleeps between moves and costs almost nothing.
+// A room labelled Room: Lobby is where players find an opponent: each pair gets a match
+// room of their own (room.reserve), which starts with both seats taken.
 import type { GameServer, Player, Room } from "@zaisma/game-server";
 
 const COLS = 7;
@@ -13,6 +15,16 @@ interface State {
   winner: 0 | 1 | 2 | 3; // 3 = draw
   line: number[];
   firstNext: 1 | 2;
+  /** In the lobby: players already sent to a match. */
+  paired: string[];
+}
+
+const LOBBY = "Lobby";
+
+/** Who a lobby made a match for: room.reserve's data. */
+interface Match {
+  seats: [string, string];
+  names: [string, string];
 }
 
 function fresh(first: 1 | 2): Pick<State, "board" | "turn" | "winner" | "line"> {
@@ -52,12 +64,27 @@ function share(state: State, room: Room): void {
   });
 }
 
+/** The two players who've waited longest get a match room of their own, and move there. */
+function pair(state: State, room: Room): void {
+  const waiting = room.players.filter((p) => !state.paired.includes(p.id));
+  while (waiting.length >= 2) {
+    const [a, b] = waiting.splice(0, 2) as [Player, Player];
+    room.reserve({ players: [a.id, b.id], data: { seats: [a.id, b.id], names: [a.name, b.name] } satisfies Match });
+    state.paired.push(a.id, b.id);
+  }
+  room.broadcast({ lobby: waiting.length });
+}
+
 const fourInARow: GameServer<State> = {
   maxPlayers: 8,
 
-  setup: () => ({ ...fresh(1), seats: [null, null], names: ["", ""], firstNext: 2 }),
+  setup(data) {
+    const match = data as Match | undefined;
+    return { ...fresh(1), seats: match ? match.seats : [null, null], names: match ? match.names : ["", ""], firstNext: 2, paired: [] };
+  },
 
   onJoin(state, player: Player, room) {
+    if (room.labels.Room === LOBBY) return pair(state, room);
     // Someone coming back keeps their seat. Otherwise take a free seat, or one whose player has gone.
     if (!state.seats.includes(player.id)) {
       const here = new Set(room.players.map((p) => p.id));
@@ -70,12 +97,17 @@ const fourInARow: GameServer<State> = {
     share(state, room);
   },
 
-  onLeave(state, _player, room) {
+  onLeave(state, player, room) {
+    if (room.labels.Room === LOBBY) {
+      state.paired = state.paired.filter((id) => id !== player.id);
+      return pair(state, room);
+    }
     share(state, room);
   },
 
   onMessage(state, player, msg, room) {
     const m = (msg ?? {}) as { col?: unknown; again?: unknown };
+    if (room.labels.Room === LOBBY) return;
     const seat = state.seats.indexOf(player.id);
     if (seat === -1) return;
     const me = (seat + 1) as 1 | 2;

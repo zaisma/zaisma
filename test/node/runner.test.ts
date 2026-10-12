@@ -2,7 +2,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 // @ts-expect-error plain JavaScript runner without type declarations
 import { startServer } from "../../packages/game-server/bin/node.js";
-import { generateSigningKey, loadSigningKey, relay, signPass } from "../../packages/game-server/src/index.ts";
+import { defineGameServer, generateSigningKey, loadSigningKey, relay, signPass } from "../../packages/game-server/src/index.ts";
 
 const ISS = "https://rooms.zaisma.test";
 const ORIGIN = "https://arena.zaismausercontent.com";
@@ -17,8 +17,8 @@ async function pass(sub: string, aud = "arena") {
   return signPass(signing, { sub, name: sub.toUpperCase(), aud, iss: ISS, kind: "guest", iat: now, exp: now + 60 });
 }
 
-function connect(origin = ORIGIN, path = "/v1/rooms/arena/ABCDEF") {
-  const ws = new WebSocket(`ws://localhost:${port}${path}`, { origin });
+function connect(origin = ORIGIN, path = "/v1/rooms/arena/ABCDEF", on = port) {
+  const ws = new WebSocket(`ws://localhost:${on}${path}`, { origin });
   const inbox: any[] = [];
   const waiters: ((m: any) => void)[] = [];
   ws.on("message", (d) => {
@@ -57,5 +57,45 @@ describe("Node runner", () => {
     c.ws.send(JSON.stringify({ t: "hello", pass: await pass("c", "other-game") }));
     expect(await c.next()).toMatchObject({ t: "error", code: "bad-pass" });
     expect(await c.closed).toBe(4001);
+  });
+
+  it("reserves a room for some players, with its data and nobody else", async () => {
+    // A lobby that sends the first two players to a match of their own; the match keeps what each brought.
+    const lobby = defineGameServer({
+      setup: (data?: unknown) => ({ data: data ?? null, brought: {} as Record<string, unknown> }),
+      onJoin(s, p, room, data) {
+        s.brought[p.id] = data;
+        if (!s.data && room.players.length === 2) room.reserve({ players: room.players.map((x) => x.id), data: { map: "Docks" } });
+        if (s.data) room.send(p.id, s);
+      },
+    });
+    const own = startServer({ server: lobby, game: "arena", port: 0, origins: [ORIGIN], issuer: ISS, keys: async () => [signing.publicKey] });
+    await new Promise((r) => own.wss.once("listening", r));
+    const at = (own.wss.address() as { port: number }).port;
+    const until = async (c: { next: () => Promise<any> }, t: string) => {
+      for (;;) {
+        const m = await c.next();
+        if (m.t === t) return m;
+      }
+    };
+    const a = connect(ORIGIN, "/v1/rooms/arena/LBBYAA", at);
+    const b = connect(ORIGIN, "/v1/rooms/arena/LBBYAA", at);
+    await Promise.all([a.open, b.open]);
+    a.ws.send(JSON.stringify({ t: "hello", pass: await pass("a") }));
+    await until(a, "welcome");
+    b.ws.send(JSON.stringify({ t: "hello", pass: await pass("b") }));
+    const { code } = await until(a, "move");
+    expect((await until(b, "move")).code).toBe(code);
+
+    const stranger = connect(ORIGIN, `/v1/rooms/arena/${code}`, at);
+    await stranger.open;
+    stranger.ws.send(JSON.stringify({ t: "hello", pass: await pass("c") }));
+    expect(await stranger.next()).toMatchObject({ t: "error", code: "closed" });
+    const m = connect(ORIGIN, `/v1/rooms/arena/${code}`, at);
+    await m.open;
+    m.ws.send(JSON.stringify({ t: "hello", pass: await pass("a"), data: { character: "knight" } }));
+    expect(await until(m, "msg")).toEqual({ t: "msg", d: { data: { map: "Docks" }, brought: { a: { character: "knight" } } } });
+    for (const c of [a, b, m]) c.ws.close();
+    await own.close();
   });
 });

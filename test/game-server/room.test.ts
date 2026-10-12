@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RoomCore, defineGameServer, relay, ROOM_LIMITS, type Transport } from "../../packages/game-server/src/index.ts";
+import { RoomCore, defineGameServer, isRoomCode, relay, ROOM_LIMITS, type RoomStart, type Transport } from "../../packages/game-server/src/index.ts";
 
 function transport() {
   const sent: Record<string, any[]> = {};
@@ -175,6 +175,61 @@ describe("RoomCore", () => {
     expect(relayed.receive("b", JSON.stringify({ t: "room", name: "Hijack" }))).toBe("not-allowed");
     expect(relayed.receive("a", JSON.stringify({ t: "room", name: "Friday night", labels: { Mode: "Co-op" } }))).toBeNull();
     expect([relayed.name, relayed.labels]).toEqual(["Friday night", { Mode: "Co-op" }]);
+  });
+
+  it("hands a player's join data to onJoin, once", () => {
+    const got: unknown[] = [];
+    const server = defineGameServer({ setup: () => ({}), onJoin: (_s, _p, _r, data) => void got.push(data) });
+    const room = new RoomCore(server, transport().t);
+    room.join({ id: "a", name: "A" }, { data: { character: "knight" } });
+    room.join({ id: "b", name: "B" });
+    room.join({ id: "a", name: "A" }, { data: { character: "again" } });
+    expect(got).toEqual([{ character: "knight" }, undefined]);
+  });
+
+  it("reserves a room for some of its players, which starts with the data and lets only them in", () => {
+    const reserved: [string, RoomStart][] = [];
+    const { t } = transport();
+    t.reserve = (code, start) => void reserved.push([code, start]);
+    const lobby = defineGameServer({
+      setup: (data?: unknown) => ({ data: data ?? null, code: "" }),
+      onMessage(s, _p, msg, room) {
+        if (msg === "big") room.reserve({ players: ["a"], data: "x".repeat(ROOM_LIMITS.dataBytes) });
+        if (msg === "nobody") room.reserve({ players: ["zed"] });
+        if (msg === "go") s.code = room.reserve({ players: ["a", "b", "zed", "a"], data: { map: "Docks" }, name: "Final", labels: { Mode: "Ranked" } });
+      },
+    });
+    const room = new RoomCore(lobby, t);
+    room.join({ id: "a", name: "A" });
+    room.join({ id: "b", name: "B" });
+    room.receive("a", msg("big"));
+    room.receive("a", msg("nobody"));
+    expect(reserved).toEqual([]);
+    room.receive("a", msg("go"));
+    expect(reserved).toHaveLength(1);
+    const [code, start] = reserved[0]!;
+    expect(isRoomCode(code) && room.state.code === code).toBe(true);
+    // Only players in the room, once each; hidden unless the game lists it.
+    expect(start).toEqual({ players: ["a", "b"], data: { map: "Docks" }, listed: false, name: "Final", labels: { Mode: "Ranked" } });
+
+    const match = new RoomCore(lobby, transport().t, { start });
+    expect(match.state.data).toEqual({ map: "Docks" });
+    expect([match.open, match.listed, match.name]).toEqual([false, false, "Final"]);
+    expect(match.join({ id: "c", name: "C" })).toEqual({ ok: false, code: "closed" });
+    expect(match.join({ id: "a", name: "A" }, { name: "Not yours", listed: true })).toMatchObject({ ok: true });
+    expect([match.name, match.listed]).toEqual(["Final", false]);
+    // A room that starts over (a restart) starts with the same data.
+    expect(new RoomCore(lobby, transport().t, { room: match.saved }).state.data).toEqual({ map: "Docks" });
+    // A bug that reserves over and over is stopped.
+    for (let i = 0; i < 30; i++) room.receive("a", msg("go"));
+    expect(reserved).toHaveLength(ROOM_LIMITS.reservesPerMinute);
+  });
+
+  it("can't reserve rooms where the host doesn't make them", () => {
+    const server = defineGameServer({ setup: () => ({ error: "" }), onJoin(s, p, room) { try { room.reserve({ players: [p.id] }); } catch (err) { s.error = (err as Error).message; } } });
+    const room = new RoomCore(server, transport().t);
+    room.join({ id: "a", name: "A" });
+    expect(room.state.error).toBe("Reserved rooms aren't available here");
   });
 
   it("checks game server settings", () => {

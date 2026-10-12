@@ -10,9 +10,11 @@
 import { WebSocketServer } from "ws";
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
-import { CLOSE_REFUSED, PassError, RoomCore, defineGameServer, errorMessage, isRoomCode, relay, roomInfo, verifyPass } from "../src/index.ts";
+import { CLOSE_REFUSED, PassError, RoomCore, defineGameServer, errorMessage, isRoomCode, relay, roomData, roomInfo, verifyPass } from "../src/index.ts";
 
 const HELLO_MS = 5000;
+/** A reserved room nobody comes to is dropped after this. */
+const RESERVED_MS = 10 * 60 * 1000;
 
 /** Fetch Zaisma's published pass keys, caching them for an hour. */
 export function keysFrom(jwksUrl) {
@@ -35,15 +37,31 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
   const rooms = new Map(); // code -> { core, sockets: Map<playerId, ws>, timer }
   const wss = new WebSocketServer({ port, maxPayload: 64 * 1024 });
 
-  function roomFor(code) {
+  // start: how a reserved room begins (room.reserve). It's made before its players hear the code,
+  // closed to everyone but them.
+  function roomFor(code, start) {
     let room = rooms.get(code);
     if (room) return room;
     const sockets = new Map();
-    const core = new RoomCore(definition, {
-      send: (id, text) => sockets.get(id)?.send(text),
-      close: (id, code, reason) => sockets.get(id)?.close(code, reason),
-    });
-    room = { core, sockets, timer: null };
+    const core = new RoomCore(
+      definition,
+      {
+        send: (id, text) => sockets.get(id)?.send(text),
+        close: (id, code, reason) => sockets.get(id)?.close(code, reason),
+        reserve: (next, how) => {
+          const made = roomFor(next, how);
+          // It waits for its players, then goes like any room once it's empty.
+          made.waiting = true;
+          setTimeout(() => {
+            made.waiting = false;
+            closeIfEmpty(next, made);
+          }, RESERVED_MS).unref?.();
+          for (const id of how.players) sockets.get(id)?.send(JSON.stringify({ t: "move", code: next }));
+        },
+      },
+      { start },
+    );
+    room = { core, sockets, timer: null, waiting: false };
     if (definition.tickRate) {
       let last = Date.now();
       room.timer = setInterval(() => {
@@ -57,7 +75,7 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
   }
 
   function closeIfEmpty(code, room) {
-    if (room.sockets.size > 0 && !room.core.ended) return;
+    if (rooms.get(code) !== room || room.waiting || (room.sockets.size > 0 && !room.core.ended)) return;
     if (room.timer) clearInterval(room.timer);
     rooms.delete(code);
   }
@@ -89,6 +107,9 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
         if (msg.t !== "hello" || typeof msg.pass !== "string") return refuse("no-hello");
         pass = msg.pass;
         if (msg.room && typeof msg.room === "object") made = { ...(msg.room.listed === false ? { listed: false } : {}), ...roomInfo(msg.room) };
+        const data = roomData(msg.data);
+        if (!data.ok) return refuse("too-big");
+        made.data = data.data;
       } catch {
         return refuse("no-hello");
       }
@@ -115,6 +136,7 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
         return refuse(result.code);
       }
       playerId = claims.sub;
+      room.waiting = false;
     });
 
     ws.on("close", () => {

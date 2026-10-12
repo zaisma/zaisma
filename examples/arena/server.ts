@@ -46,8 +46,8 @@ function spawn(b: Body): void {
   b.lastHit = null;
 }
 
-function newBody(state: State, name: string, bot: boolean): Body {
-  const b: Body = { name, color: COLORS[state.colorIndex++ % COLORS.length]!, x: 0, y: 0, vx: 0, vy: 0, ix: 0, iy: 0, dash: 0, dashing: 0, out: 0, score: 0, lastHit: null, bot };
+function newBody(state: State, name: string, bot: boolean, color?: string): Body {
+  const b: Body = { name, color: color ?? COLORS[state.colorIndex++ % COLORS.length]!, x: 0, y: 0, vx: 0, vy: 0, ix: 0, iy: 0, dash: 0, dashing: 0, out: 0, score: 0, lastHit: null, bot };
   spawn(b);
   return b;
 }
@@ -100,8 +100,10 @@ const arena: GameServer<State> = {
 
   setup: () => ({ bodies: {}, colorIndex: 0, botCount: 0 }),
 
-  onJoin(state, player: Player, room) {
-    state.bodies[player.id] = newBody(state, player.name, false);
+  // The player's game sends the color they picked last time as join data.
+  onJoin(state, player: Player, room, data) {
+    const color = (data as { color?: unknown } | undefined)?.color;
+    state.bodies[player.id] = newBody(state, player.name, false, typeof color === "string" && COLORS.includes(color) ? color : undefined);
     fillBots(state, room);
   },
 
@@ -113,7 +115,8 @@ const arena: GameServer<State> = {
   onMessage(state, player, msg) {
     const b = state.bodies[player.id];
     if (!b || !msg || typeof msg !== "object") return;
-    const m = msg as { i?: unknown; d?: unknown };
+    const m = msg as { i?: unknown; d?: unknown; c?: unknown };
+    if (typeof m.c === "string" && COLORS.includes(m.c)) b.color = m.c;
     if (Array.isArray(m.i) && m.i.length === 2) {
       let [x, y] = m.i.map(Number) as [number, number];
       if (!Number.isFinite(x) || !Number.isFinite(y)) return;
