@@ -85,7 +85,7 @@ Public beta after three weekends, then weekly releases. Being first matters more
 4. **Week 4: friends.** Friend list, invites, see what friends are playing.
 5. **Week 5: discovery and trust.** Progress bar, "New and rising" shelf, Scout badge, front page for games that clear the bar.
 6. **Week 6: money.** Optional free Stripe checkout, teen spend cap, at-cost multiplayer billing, $5 deposits, donation page.
-7. **Then weekly releases**, plus a weekly game jam. The Tools tab follows in months two to three.
+7. **Then weekly releases**, plus a weekly game jam. Remixes come soon after beta; mods and the Tools tab follow in months two to three. Every remix and mod is a new thing to play and share, pointing back to the original.
 
 ## First 100 games and targets
 
