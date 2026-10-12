@@ -18,7 +18,8 @@ const worker = (name: string, configPath: string, extraBindings: Record<string, 
       },
     }),
   ],
-  test: { name, include: [`test/${name}/**/*.test.ts`], setupFiles: ["test/apply-migrations.ts"] },
+  // Files share one database, so they run one after another: one file's clean-up can't wipe another's data mid-test.
+  test: { name, include: [`test/${name}/**/*.test.ts`], setupFiles: ["test/apply-migrations.ts"], fileParallelism: false },
 });
 
 export default defineConfig({

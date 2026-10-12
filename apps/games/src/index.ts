@@ -61,7 +61,7 @@ function page(status: number, title: string, text: string, env: Env): Response {
 }
 
 /** Bump when our scripts or the injected tags change, so browsers fetch the new ones. */
-const SCRIPTS_VERSION = 3;
+const SCRIPTS_VERSION = 4;
 
 const RESTORE_PAGE = `<!doctype html><meta charset="utf-8"><title>Loading</title><body style="margin:0;background:#000"><script src="saves.js?v=${SCRIPTS_VERSION}"></script>`;
 

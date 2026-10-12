@@ -2,7 +2,7 @@
  * Report pictures. Zaisma adds this to every game page. When a player opens Report on the Zaisma
  * game page, the page asks for one picture of the game as it is right now: the game's biggest
  * canvas, copied straight after the game draws a frame (so WebGL games work too), shrunk and
- * handed back. Nothing is taken unless the Zaisma page asks, and nothing leaves the player's
+ * handed back (unless it's all one color). Nothing is taken unless the Zaisma page asks, and nothing leaves the player's
  * browser unless they send the report with the picture. Games that don't draw on a canvas give
  * no picture. Plain JavaScript, no dependencies, MIT licensed.
  */
@@ -27,6 +27,23 @@
     return best;
   }
 
+  // A canvas that's all one color (a title screen drawn in HTML over it, a game still loading) shows nothing worth sending.
+  function blank(canvas) {
+    var small = document.createElement("canvas");
+    small.width = 32;
+    small.height = 18;
+    var ctx = small.getContext("2d");
+    ctx.drawImage(canvas, 0, 0, 32, 18);
+    var px = ctx.getImageData(0, 0, 32, 18).data;
+    var low = 255, high = 0;
+    for (var i = 0; i < px.length; i += 4) {
+      var light = (px[i] * 3 + px[i + 1] * 6 + px[i + 2]) / 10;
+      if (light < low) low = light;
+      if (light > high) high = light;
+    }
+    return high - low < 10;
+  }
+
   function picture() {
     try {
       var from = biggestCanvas();
@@ -39,7 +56,7 @@
       ctx.fillStyle = "#000";
       ctx.fillRect(0, 0, to.width, to.height);
       ctx.drawImage(from, 0, 0, to.width, to.height);
-      return to.toDataURL("image/jpeg", 0.8);
+      return blank(to) ? null : to.toDataURL("image/jpeg", 0.8);
     } catch (e) {
       return null; // A canvas showing pictures from another site can't be copied.
     }
