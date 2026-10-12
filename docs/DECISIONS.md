@@ -7,6 +7,7 @@ Settled calls. Don't reopen these in code or docs without Julius approving the c
 - **Developers first.** Players come through developers' games and shared links.
 - **13+ at launch.** Age gate at signup (birth date; block and don't store under-13s). Under-13 support later, as its own project with verified parental consent.
 - **Guests play with no account.** A temporary guest ID used only to run the session: no chat, no purchases, no profile, no personal data. The age gate appears when a guest makes an account.
+- **Players can mute, block and report other players** in rooms, so one person can't ruin a match or follow someone between games. Blocks follow the account (or the session, for guests).
 - **Teen-safe defaults for 13–17.** Friend requests only from people they've played with, chat off or preset phrases, private profiles, monthly spend cap.
 
 ## Money
@@ -16,6 +17,7 @@ Settled calls. Don't reopen these in code or docs without Julius approving the c
 - **Multiplayer on our servers is billed at cost.** About $1 per 1,000 player-hours (what Cloudflare charges us). Bills under $5 roll over to the next month.
 - **Bring your own servers, any time.** Our rooms are a default, never a requirement. Moving off them is a config change, not a rewrite.
 - **No ads in games, at least through beta.** Ad scripts change after we scan them, track teens and are the main source of scams on web game sites, and ad-funded design drifts toward clickbait. Creators earn through purchases, our free checkout, and tips. (Idea parked for later, not decided: if donations and sponsors ever exceed costs, share the surplus with creators by playtime.)
+- **Honest purchase labels.** Every game page says what a game sells ("Has purchases: cosmetics only"). Open question for Week 6: ban paid random rewards (loot boxes) for under-18s, which several countries already restrict.
 - **Platform costs are covered by donations, sponsors and promoted slots.** GitHub Sponsors / Open Collective, company sponsors, paid front-page slots (about $50/week), supporter badge. Break-even is the goal, not profit.
 
 ## Open source and name
@@ -41,8 +43,12 @@ Settled calls. Don't reopen these in code or docs without Julius approving the c
 
 ## Discovery
 
-- **Progress bar to the front page.** Games earn front-page placement by clearing a visible bar (plays, retention, reports).
-- **"New and rising" shelf** so new games get seen before they clear the bar.
+- **Progress bar to the front page.** Games earn front-page placement by clearing a visible bar built on quality: how many players come back, how long they play, ratings from people who actually played, and reports. Raw play counts never decide placement on their own, and there's no "Most played" shelf.
+- **"New and rising" shelf** so new games get seen before they clear the bar, with a quality bar of its own.
+- **No slop.** Zaisma never looks like a wall of clickbait. Cover images and titles can't use fake rewards or currency bait ("Free Robux"), famous characters or brands the creator doesn't own, or art that doesn't show the actual game; the AI review checks covers and holds games that break this. Every game page shows real screenshots or gameplay next to the cover. No swipe feed: it amplifies clickbait.
+- **Discovery through people.** Player-made lists, creator picks, game jam winners and "New and rising", plus search by genre and tags.
+- **Ratings only from people who played** for a few minutes, so there are no drive-by or fake reviews.
+- **Copycats made visible.** Remixes show what they're based on, and the same template reposted with new skins counts as one game for discovery.
 
 ## Product scope
 
@@ -64,6 +70,7 @@ Settled calls. Don't reopen these in code or docs without Julius approving the c
 - **Big games are welcome.** From Weekend 3 the upload command sends files one by one straight to storage (no zip through a Worker), stored by fingerprint so versions share unchanged files and updates only upload what changed. Limits: 2 GB per game (more on request), 500 MB per file, 20,000 files. Until then the Weekend 1 limits stay (25 MB zip, 100 MB unpacked). The toolkit and skill teach loading in pieces so big games start fast, and the game page shows the download size and warns phone players before big downloads.
 - **Device labels.** Creators state devices (phone, tablet, computer), controls (touch, keyboard and mouse, gamepad) and screen (portrait, landscape, either). Games for the player's device come first; others show a note and "Play anyway", never a block.
 - **Creator play stats built in.** Plays, session length and retention in the dashboard and MCP, so games don't need outside analytics (which the sandbox blocks anyway).
+- **Play inside Discord, after beta.** Zaisma games as Discord Activities, so friends already in a voice call can play together without us running chat, and every game played there is advertising.
 - **Bigger game servers at cost, after beta.** For games that outgrow rooms (more players, heavy physics, Godot or Unity server builds): Cloudflare Containers, each sealed in its own virtual machine, billed to the developer at what it costs us (about $3 per 1,000 player-hours for a 1-core server shared by 32 players; check outbound data charges first). Developers' own servers stay free for us and allowed from Weekend 2.
 - **Remixes, soon after beta.** Creators can switch on "Allow remixes" (off by default). A **Remix** button (also an MCP tool) copies the game into a new draft for the remixer. The credit line "Based on <game> by <creator>" is automatic and can't be removed, and the game page shows the remix chain. Remixes share the original's stored files and only changed files are scanned, so a remix starts almost free. Remixing a game that doesn't allow it is handled as a copyright issue. Creators can also choose "If I stop updating this game for 12 months, allow remixes", so the community can keep abandoned games alive; credit still goes to them.
 - **Teams, after beta.** A team owns games instead of a person, like GitHub organizations or Roblox groups. Roles: owner (members, payouts, transfer or delete games), publisher (publish, schedule, roll back) and developer (upload drafts, preview links). Games move between a person and a team without losing their link, players or history. The MCP acts as the member with their role, and the audit log records who did what. Review budgets and deposits belong to the team. The game page credits the team; members choose whether they're named. One payout account per team; splitting money is the team's business, since we never hold player money. Teams with 13–17 members follow the teen-safe defaults (invite links only, no private messages through Zaisma), and a teen's payout account must be parent-owned. Every team keeps at least one owner; if the last one leaves, the next publisher takes over.

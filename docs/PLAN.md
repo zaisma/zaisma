@@ -80,11 +80,11 @@ Launching at 13+ keeps us outside the strictest child-privacy law, as long as we
 Public beta after three weekends, then weekly releases. Being first matters more than being complete, so the beta ships what players and developers need to start, and everything else lands while people are playing.
 
 1. **Weekend 1: safe game hosting.** Upload a web game, scan it before publishing (malware, illegal-image matching, AI review), serve it sandboxed on a separate game domain (zaisma.gg; the free workers.dev address until it's bought), list it on a simple directory page. Report button and takedown process.
-2. **Weekend 2: guest multiplayer.** Room server that runs on Cloudflare or any normal server; room links that drop guests straight into a match; one-tap clip-and-share with the link built in. Ship the first demo games built with Claude Code.
+2. **Weekend 2: guest multiplayer.** Room server that runs on Cloudflare or any normal server; room links that drop guests straight into a match; one-tap clip-and-share with the link built in; mute, block and report-a-player in rooms. Ship the first demo games built with Claude Code.
 3. **Weekend 3: accounts and the publish skill.** Sign-in, age gate, "keep your progress" from guest, cloud saves; the creator MCP, upload command and Claude Code skill that publish a game in one prompt; creator dashboard with drafts, versions and listed/unlisted games; file-by-file uploads for games up to 2 GB; creator links, share cards, search-friendly pages and QR codes; `zaisma check` and automatic fixes so existing web games upload unchanged; drop-in Socket.IO and PeerJS replacements. **Open the public beta.**
 4. **Week 4: friends.** Friend list, invites, see what friends are playing.
-5. **Week 5: discovery and trust.** Progress bar, "New and rising" shelf, Scout badge, front page for games that clear the bar. Creator marketing: embeds, tracked share links, update notes and followers, press kits, AI-drafted launch posts.
-6. **Week 6: money.** Optional free Stripe checkout, teen spend cap, at-cost multiplayer billing, $5 deposits, donation page.
+5. **Week 5: discovery and trust.** Progress bar, "New and rising" shelf, Scout badge, front page for games that clear the bar. Player lists, ratings from people who played, the no-slop cover rules. Creator marketing: embeds, tracked share links, update notes and followers, press kits, AI-drafted launch posts.
+6. **Week 6: money.** Optional free Stripe checkout, teen spend cap, at-cost multiplayer billing, $5 deposits, donation page, honest purchase labels; decide on loot boxes for under-18s.
 7. **Then weekly releases**, plus a weekly game jam. Remixes and teams come soon after beta; mods and the Tools tab follow in months two to three. Every remix and mod is a new thing to play and share, pointing back to the original.
 
 ## First 100 games and targets
@@ -123,7 +123,7 @@ The closest competitor is Wavedash: browser games by link, accounts, friends and
 | Open source | Toolkits only | Not stated | Everything, MIT license |
 | Scale | $4.3M seed; beta since Dec 2025 | 10M monthly players; $56M raised | Beta in three weekends |
 
-One-command switch from Wavedash goes on the roadmap right after beta, along with bigger game servers at cost (Cloudflare Containers) and custom game domains: developers can point their own domain at their game (Cloudflare for SaaS; the first 100 domains cost us nothing).
+One-command switch from Wavedash goes on the roadmap right after beta, along with bigger game servers at cost (Cloudflare Containers), playing inside Discord and custom game domains: developers can point their own domain at their game (Cloudflare for SaaS; the first 100 domains cost us nothing).
 
 ## License and name
 
