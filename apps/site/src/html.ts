@@ -155,6 +155,51 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
 [aria-busy=true] svg{display:none}
 @keyframes spin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){.metal,.tile{transition:none}.spin{animation-duration:2.4s}}
+/* ---- Theme: forged steel. Depth, brushed metal and the game's own art, like a console's big-screen mode. ---- */
+:root{--bg:#0c0e11;--gun-1:#262a31;--gun-2:#1a1d22;--gun-3:#14161a;--rim:rgba(255,255,255,.08);--rim-dark:rgba(0,0,0,.65)}
+html{background:#0c0e11}
+body{position:relative;isolation:isolate;background:
+  radial-gradient(1100px 520px at 18% -8%,rgba(150,165,190,.10),transparent 70%),
+  repeating-linear-gradient(90deg,rgba(255,255,255,.012) 0 1px,transparent 1px 3px),
+  linear-gradient(180deg,#101317 0%,#0c0e11 60%);background-attachment:fixed}
+/* The featured game's art, blurred behind the top of the page. */
+.ambient{position:absolute;inset:0 0 auto 0;height:min(900px,95vh);z-index:-1;pointer-events:none;overflow:hidden;
+  -webkit-mask-image:linear-gradient(180deg,#000 0%,rgba(0,0,0,.6) 45%,transparent 100%);mask-image:linear-gradient(180deg,#000 0%,rgba(0,0,0,.6) 45%,transparent 100%)}
+.ambient::before{content:"";position:absolute;inset:-80px;background:var(--art) center/cover no-repeat;filter:blur(60px) saturate(1.4) brightness(.8);opacity:1}
+header.top{position:sticky;top:0;z-index:20;border-bottom:0;background:linear-gradient(180deg,rgba(38,42,49,.92),rgba(22,24,29,.92)),repeating-linear-gradient(90deg,rgba(255,255,255,.02) 0 1px,transparent 1px 3px);
+  -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);box-shadow:inset 0 1px 0 rgba(255,255,255,.07),0 1px 0 #000,0 2px 0 rgba(255,255,255,.04),0 10px 30px rgba(0,0,0,.35)}
+header.top nav a{position:relative;padding:8px 2px}
+header.top nav a[aria-current]::after{content:"";position:absolute;left:0;right:0;bottom:-13px;height:3px;background:linear-gradient(180deg,#f2f2f2,#8d8f94);box-shadow:0 0 12px rgba(220,225,235,.35)}
+h1,h2{text-shadow:0 2px 0 rgba(0,0,0,.55),0 -1px 0 rgba(255,255,255,.06)}
+.sec-head h2,section>h2,.more h2{display:flex;align-items:center;gap:16px}
+.sec-head h2::after,.more h2::after{content:"";flex:1;min-width:40px;height:2px;background:linear-gradient(90deg,rgba(220,224,230,.35),rgba(220,224,230,0));box-shadow:0 1px 0 rgba(0,0,0,.6)}
+.sec-head{flex-wrap:wrap}
+.sec-head h2{flex:1 1 auto}
+/* Gunmetal: cards, panels and notes have a face, a lit edge and a shadow. */
+.card,.note,.way,.dev-card,.track>li,.updates li,.tile,.stage,.drop,.confirm{background:linear-gradient(180deg,var(--gun-1),var(--gun-2));
+  box-shadow:inset 1px 1px 0 var(--rim),inset -1px -1px 0 var(--rim-dark),0 12px 28px rgba(0,0,0,.35)}
+.tile .body{background:linear-gradient(180deg,#22252b,#17191d);box-shadow:inset 0 1px 0 rgba(255,255,255,.06)}
+.tile .name span{font-family:var(--display);font-weight:600;font-size:16px;letter-spacing:.005em}
+/* Big-screen focus: the card under the cursor (or keyboard) lifts into a bright metal frame. */
+.hit.block{transition:transform 180ms ease-out}
+.hit.block:hover,.hit.block:focus-within{transform:translateY(-4px);z-index:2}
+.hit.block:hover .tile,.hit.block:focus-within .tile{box-shadow:0 0 0 2px #d9dce0,0 0 0 3px #000,0 0 28px rgba(205,215,230,.28),0 18px 40px rgba(0,0,0,.5)}
+.tile .go{background:linear-gradient(180deg,#3a3e46,#272a30);box-shadow:inset 1px 1px 0 rgba(255,255,255,.12),inset -1px -1px 0 #000}
+.tile .go:hover{background:linear-gradient(180deg,#e6e6e6,#9fa1a5);color:#0b0b0c}
+/* Buttons are gunmetal plates; fields are cut into the metal. */
+.btn:not(.metal):not(.light):not(.danger){background:linear-gradient(180deg,#3a3e46,#262930);box-shadow:inset 1px 1px 0 rgba(255,255,255,.12),inset -1px -1px 0 #000,0 4px 10px rgba(0,0,0,.3)}
+.btn:not(.metal):not(.light):not(.danger):hover{background:linear-gradient(180deg,#454a53,#2d3037)}
+.btn.ghost{background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,0))!important;box-shadow:inset 0 0 0 1px #4a4e56,inset 1px 1px 0 1px rgba(255,255,255,.05),0 4px 10px rgba(0,0,0,.25)!important}
+.btn.ghost:hover{box-shadow:inset 0 0 0 1px #7a7e86,0 4px 10px rgba(0,0,0,.25)!important}
+.metal{box-shadow:inset 2px 2px 0 #fff,inset -2px -2px 0 #000,0 8px 22px rgba(0,0,0,.45),0 0 0 1px #000}
+input,textarea,select{background:#0f1114;border-color:#2a2d33;box-shadow:inset 0 2px 6px rgba(0,0,0,.6),0 1px 0 rgba(255,255,255,.05)}
+.seg{background:#0f1114;box-shadow:inset 0 2px 6px rgba(0,0,0,.6),0 1px 0 rgba(255,255,255,.05)}
+.seg [aria-pressed=true],.seg [aria-current]{background:linear-gradient(180deg,#4a4e57,#30333a);box-shadow:inset 1px 1px 0 rgba(255,255,255,.15),inset -1px -1px 0 #000}
+.badge{color:#c8f0b4}
+.pill{box-shadow:inset 0 0 0 1px #3d4148;background:rgba(0,0,0,.25)}
+footer{border-top:0;background:linear-gradient(180deg,#121418,#0b0c0e);box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 -1px 0 #000}
+@media (prefers-reduced-motion:reduce){.hit.block{transition:none}.hit.block:hover,.hit.block:focus-within{transform:none}}
+
 `;
 
 // Runs the metal hover on every page: one listener for all .hit areas, at most one update per frame.
@@ -213,7 +258,7 @@ export function securityHeaders(env: Env, extra: Record<string, string> = {}): H
 // Pages stay cacheable for everyone, so the header learns about sign-in from a readable hint cookie.
 const ACCOUNT_LINK = `<a id="account-link" class="btn ghost" href="/signin">Sign in</a><script>if(/(^|; )(__Host-)?zaisma_in=1/.test(document.cookie)){var a=document.getElementById("account-link");a.href="/account";a.textContent="Account"}</script>`;
 
-export function layout(env: Env, opts: { title: string; body: Raw; bare?: boolean; admin?: boolean; private?: boolean; nav?: "dashboard" }): Response {
+export function layout(env: Env, opts: { title: string; body: Raw; bare?: boolean; admin?: boolean; private?: boolean; nav?: "dashboard"; art?: string | null }): Response {
   const doc = html`<!doctype html>
 <html lang="en">
 <head>
@@ -227,6 +272,7 @@ export function layout(env: Env, opts: { title: string; body: Raw; bare?: boolea
 <style>${raw(STYLES)}</style>
 </head>
 <body>
+${ambient(opts.art)}
 ${opts.bare
     ? opts.body
     : html`${siteHeader(env, opts)}
@@ -236,6 +282,11 @@ ${siteFooter()}`}
 </body>
 </html>`;
   return new Response(doc.html, { headers: securityHeaders(env, opts.admin || opts.private ? { "Cache-Control": "no-store" } : {}) });
+}
+
+/** A game's art, blurred behind the top of the page. Pages change it with --art on .ambient. */
+export function ambient(art: string | null | undefined): Raw {
+  return html`<div class="ambient" id="ambient" aria-hidden="true"${art ? raw(` style="--art:url('${esc(art)}')"`) : ""}></div>`;
 }
 
 /** The site's header, also used on its own by pages that lay themselves out (the game page). */

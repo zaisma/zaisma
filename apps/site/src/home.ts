@@ -70,6 +70,7 @@ export async function home(env: Env): Promise<Response> {
   const data = games.map(({ owner_id: _, ...g }) => g);
   return layout(env, {
     title: "Zaisma: every kind of game, one link away",
+    art: featured?.cover ?? null,
     body: html`<style>${raw(HOME_STYLES)}</style>
 ${env.SUPABASE_URL
       ? html`<section class="guest note" id="guest" hidden><span><strong>You're playing as a guest.</strong> Your progress stays on this device. Make an account to keep it everywhere.</span><a class="btn" href="/join">Make an account</a></section>`
@@ -136,10 +137,13 @@ const HOME_STYLES = `
 .guest{display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px;margin-bottom:24px}
 .guest[hidden]{display:none}
 .guest span{flex:1 1 420px;min-width:0;font-size:15px}
-.stage{background:var(--panel);display:flex;flex-wrap:wrap}
-.stage .pic{flex:999 1 620px;min-width:0;aspect-ratio:16/9;background:var(--pic);display:block;overflow:hidden}
+.stage{position:relative;display:flex;justify-content:flex-end;min-height:clamp(380px,40vw,520px);overflow:hidden;background:#111317}
+.stage .pic{position:absolute;inset:0;display:block;background:var(--pic)}
 .stage .pic img{width:100%;height:100%;object-fit:cover;display:block}
-.stage .info{flex:1 1 320px;min-width:0;padding:28px;display:flex;flex-direction:column;gap:10px}
+.stage .info{position:relative;width:min(440px,100%);padding:36px 32px 32px 56px;display:flex;flex-direction:column;gap:10px;
+  background:linear-gradient(90deg,rgba(13,15,18,0) 0%,rgba(13,15,18,.78) 22%,rgba(13,15,18,.92) 100%);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px)}
+.stage h1{font-size:clamp(32px,4vw,52px)}
+.stage [hidden]{display:none!important}
 .stage h1{margin:0}
 .stage .by{margin:0;color:var(--muted);font-size:15px}
 .stage .desc{margin:6px 0 0;color:var(--text-2);display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden}
@@ -152,7 +156,8 @@ const HOME_STYLES = `
 .row-tiles{display:flex;gap:18px;overflow-x:auto;padding:4px 2px 8px;scroll-snap-type:x proximity}
 .row-tiles>.hit{flex:0 0 240px;scroll-snap-align:start}
 .continue[hidden]{display:none}
-@media (max-width:640px){.stage .info{padding:18px}.row-tiles>.hit{flex-basis:200px}.grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.tile .name small{display:none}}
+@media (max-width:760px){.stage{flex-direction:column;min-height:0}.stage .pic{position:relative;aspect-ratio:16/9}.stage .info{width:100%;padding:20px;background:linear-gradient(180deg,#1d2025,#15171b);backdrop-filter:none}}
+@media (max-width:640px){.row-tiles>.hit{flex-basis:200px}.grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.tile .name small{display:none}}
 `;
 
 // Fills in the player's own part: the game they played last on the stage, then Continue playing.
@@ -166,7 +171,7 @@ let sort="played";
 function render(){const list=played.filter(p=>bySlug[p.slug]).sort((a,b)=>b.at-a.at);if(!list.length)return;
 const last=list[0],g=bySlug[last.slug],fresh=g.updated&&g.updated>last.at;
 const stage=document.getElementById("stage");if(stage){
-stage.querySelector("#stage-pic").href="/g/"+g.slug;stage.querySelector("#stage-pic").innerHTML=g.cover?'<img src="'+esc(g.cover)+'" alt="">':"";
+stage.querySelector("#stage-pic").href="/g/"+g.slug;const amb=document.getElementById("ambient");if(amb&&g.cover)amb.style.setProperty("--art","url('"+g.cover+"')");stage.querySelector("#stage-pic").innerHTML=g.cover?'<img src="'+esc(g.cover)+'" alt="">':"";
 stage.querySelector("#stage-title").textContent=g.title;
 stage.querySelector("#stage-by").textContent=[g.developer,"played "+ago(last.at)].filter(Boolean).join(" · ");
 const up=stage.querySelector("#stage-updated");up.hidden=!fresh;if(fresh){up.href="/g/"+g.slug+"#updates";up.textContent="Updated "+ago(g.updated)}

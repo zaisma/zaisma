@@ -145,17 +145,26 @@ async function seed() {
   await api("POST", `/games/shard-dodge/versions/${await approveNewest("shard-dodge")}/publish`);
 }
 
-/** A plain 16:9 test picture in one color, with a different pattern for each n. */
+/** A 16:9 test picture that reads like game art: a sky, a sun and two ranges of hills, in the game's colors. */
 function picture([r, g, b], n) {
   const w = 640, h = 360;
   const rows = [];
+  const sun = { x: 140 + n * 150, y: 110 + n * 20, r: 46 };
   for (let y = 0; y < h; y++) {
     const row = Buffer.alloc(1 + w * 3);
     for (let x = 0; x < w; x++) {
-      const shade = n === 0 ? (x + y) / (w + h) : ((Math.floor(x / (40 * n)) + Math.floor(y / (40 * n))) % 2) * 0.4 + 0.3;
-      row[1 + x * 3] = Math.round(r * (0.5 + shade));
-      row[2 + x * 3] = Math.round(g * (0.5 + shade));
-      row[3 + x * 3] = Math.round(b * (0.5 + shade));
+      const t = y / h;
+      let c = [r * (0.35 + t * 0.9), g * (0.35 + t * 0.9), b * (0.6 + t * 0.6)];
+      const d = Math.hypot(x - sun.x, y - sun.y);
+      if (d < sun.r) c = [255, 235, 190];
+      else if (d < sun.r * 2.4) c = c.map((v, i) => v + ([255, 220, 160][i] - v) * 0.35 * (1 - (d - sun.r) / (sun.r * 1.4)));
+      const far = h * 0.62 + Math.sin(x / 47 + n) * 22 + Math.sin(x / 13 + n * 2) * 6;
+      const near = h * 0.78 + Math.sin(x / 71 + n * 3) * 30 + Math.sin(x / 19) * 8;
+      if (y > near) c = [r * 0.18, g * 0.18, b * 0.22];
+      else if (y > far) c = [r * 0.42, g * 0.42, b * 0.5];
+      row[1 + x * 3] = Math.max(0, Math.min(255, Math.round(c[0])));
+      row[2 + x * 3] = Math.max(0, Math.min(255, Math.round(c[1])));
+      row[3 + x * 3] = Math.max(0, Math.min(255, Math.round(c[2])));
     }
     rows.push(row);
   }

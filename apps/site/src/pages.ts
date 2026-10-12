@@ -36,11 +36,15 @@ export async function gamePage(env: Env, slug: string, url: URL): Promise<Respon
   const res = layout(env, {
     title: `${game.title} on Zaisma`,
     bare: true,
+    art: shots[0] ?? null,
     body: html`<style>
 /* Two states on one page: details with a Play button, then the game filling the screen. */
 body.playing{display:flex;flex-direction:column;height:100vh;height:100dvh;overflow:hidden}
 body:not(.playing) #full{display:none}
-body.playing>header.top,body.playing>main.gp,body.playing>footer{display:none}
+body.playing>header.top,body.playing>main.gp,body.playing>footer,body.playing>.ambient{display:none}
+.viewer .shot{box-shadow:0 0 0 1px #000,inset 1px 1px 0 rgba(255,255,255,.08),0 20px 50px rgba(0,0,0,.5)}
+.tabs{border-bottom:0;box-shadow:0 1px 0 #000,0 2px 0 rgba(255,255,255,.05)}
+.tabs button[aria-selected=true]{box-shadow:inset 0 -3px 0 #d9dce0}
 body:not(.playing) .bar{display:none}
 .bar{display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--line);flex:none}
 main.gp{max-width:1240px;margin:0 auto;padding:28px 24px 64px}
