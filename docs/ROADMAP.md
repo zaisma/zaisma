@@ -112,7 +112,7 @@ The platform works but looks and feels rough. No outreach, no listings for other
 
 | Status | Must/Nice | Item | Needs | Notes |
 | --- | --- | --- | --- | --- |
-| doing | Must | Design system | | Steel, from the brand: type, colors, spacing, the bevel and metal highlights, used by every page. Mockups approved; Steel styles, Jost and the metal hover are in the site (docs/DESIGN.md); pages move over as they are rebuilt |
+| doing | Must | Design system | | Steel, from the brand, now a full theme like a console's big-screen mode: the ground, gunmetal plates and chrome, lit by the game on screen (its art blurred behind every page, changing as you point at games). Live on the home, game, dashboard and account pages (docs/DESIGN.md); remaining pages move over as they are rebuilt |
 | planned | Must | Friends | Sign-in | Friend list, invites, see what friends are playing and join them; requests only from people you've played with; teen-safe defaults. Moved up from Phase 3 to land with the home page |
 | doing | Must | Home page | Design system, Friends, Continue playing, Game updates | Friends first, then last played, Continue playing, For you (once it exists), then Games for everyone: popular, trending, new. Play in one tap. Live: the last-played stage, Continue playing and Games with covers; Friends and For you land with their own items, popular and trending with play stats |
 | done | Must | Continue playing | | The games you played most recently, on the home page; sort by recently played or recently updated, with an "Updated" badge. On this device for guests, on your account when signed in |
