@@ -1,0 +1,2 @@
+# Copy to .dev.vars for local runs (npm run dev:games).
+SITE_ORIGIN=http://localhost:8787

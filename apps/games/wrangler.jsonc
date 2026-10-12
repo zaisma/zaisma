@@ -1,0 +1,17 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "zaisma-games",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  // Free workers.dev address until the game domain (zaisma.gg) is bought.
+  "workers_dev": true,
+  "observability": { "enabled": true },
+  "vars": {
+    // "path": games at /<slug>/ (workers.dev). "subdomain": games at <slug>.<GAME_DOMAIN>.
+    "GAME_HOST_MODE": "path",
+    "GAME_DOMAIN": "",
+    "SITE_ORIGIN": "https://zaisma.com"
+  },
+  "d1_databases": [{ "binding": "DB", "database_name": "zaisma", "database_id": "local", "migrations_dir": "../../migrations" }],
+  "r2_buckets": [{ "binding": "GAMES", "bucket_name": "zaisma-games" }]
+}
