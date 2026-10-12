@@ -93,7 +93,7 @@ Detailed plan approved: guest passes, game server API, rooms, SDK, demos.
 | planned | Must | Tester links | Game visibility | Secret, named, revocable links that open a private game; guests can use them |
 | doing | Must | Game details and device labels | Developer accounts | Covers and screenshots, scanned; games for your device first, "Play anyway" for the rest |
 | planned | Must | No-slop cover and title checks | Game details and device labels | AI review checks covers; real screenshots on every game page |
-| planned | Must | No free-text chat rule | | In the content rules and the AI review |
+| planned | Must | No live chat or DMs between strangers rule | | In the content rules and the AI review; games may offer preset phrases and emotes |
 | planned | Must | Developer MCP | Drafts and publishing | Create, edit, upload, publish, roll back, scans, reports, stats |
 | planned | Must | Support tools in the MCP | Developer MCP | "Why is my game held?", scan reports, logs, bills: developers' own AI answers their questions |
 | planned | Must | Errors that explain themselves | | Every hold, takedown, bill and failed upload has a plain reason, a rule, a fix and an error code that links to docs |
