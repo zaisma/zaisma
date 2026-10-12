@@ -44,6 +44,7 @@ Settled calls. Don't reopen these in code or docs without Julius approving the c
 - **Browser first, desktop downloads too.** Desktop builds use the same toolkit.
 - **Custom game domains after beta.** Developers can point their own domain at their game (Cloudflare for SaaS: first 100 domains free, then about $0.10 each a month). Same scanning, sandbox and takedown rules.
 - **Multiplayer rooms use WebSocket hibernation from day one** (Cloudflare Durable Objects). Without it, costs are 10x+.
+- **Multiplayer words: client, game server, room.** The *client* is the game in the player's browser. The *game server* is the developer's server-side code that holds the official game state. A *room* is one live match, running one copy of the game server. Use these game-dev terms in code, docs and copy (not "room script" or "backend").
 - **Tools tab in months 2–3.** Free, open-source developer tools (asset pipelines, engines, editors, Claude Code skills). Same rules as games; a tool must be open source to list.
 
 ## Release plan
