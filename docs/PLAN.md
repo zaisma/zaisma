@@ -51,9 +51,9 @@ The whole platform runs on rented services for about $5/month while building and
 
 | Piece | Service | Free allowance | Cost when we outgrow it |
 | --- | --- | --- | --- |
-| Game files | [Cloudflare R2](https://developers.cloudflare.com/r2/pricing/) | 10 GB storage, 10M reads/month, bandwidth always free | $0.015/GB-month; $0.36 per million reads |
+| Game files and cloud saves | [Cloudflare R2](https://developers.cloudflare.com/r2/pricing/) | 10 GB storage, 10M reads/month, bandwidth always free | $0.015/GB-month; $0.36 per million reads |
 | Multiplayer rooms | [Cloudflare Durable Objects](https://developers.cloudflare.com/durable-objects/platform/pricing/) | 100,000 requests/day on the free plan | Workers Paid: $5/month minimum, includes 1M requests + 400,000 GB-s |
-| Accounts, friends, saves | [Supabase](https://supabase.com/pricing) | 50,000 monthly active users, 500 MB database | Pro: $25/month for 100,000 users, then $0.00325 per user |
+| Sign-in | [Supabase](https://supabase.com/pricing) | 50,000 monthly active users, 500 MB database | Pro: $25/month for 100,000 users, then $0.00325 per user |
 | Payments | [Stripe Connect](https://stripe.com/connect/pricing) | No platform fees when Stripe bills developers directly | Developers pay 2.9% + 30¢ per card charge |
 
 **Multiplayer at scale is cheap if built right.** Cloudflare's own example of 100 rooms with 100 players each, all month, costs about $21/month when rooms use WebSocket hibernation. The same load without hibernation costs hundreds, so the SDK must use it from day one.

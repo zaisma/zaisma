@@ -45,7 +45,7 @@ npm run dev:site    # http://localhost:8787, admin at /admin
 npm test
 ```
 
-To run your own Zaisma, create a D1 database, an R2 bucket and a queue (names in the two `wrangler.jsonc` files), put the database ID in the three files, set your site, game and rooms addresses, protect `/admin` with Cloudflare Access, set the rooms Worker's `PASS_SIGNING_KEY` secret, point `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` at your Supabase project for accounts (and set the site's `SUPABASE_SECRET_KEY` secret so accounts can be deleted), and deploy `apps/rooms`, `apps/games` and `apps/site`.
+To run your own Zaisma, create a D1 database, two R2 buckets (game files and cloud saves) and a queue (names in the two `wrangler.jsonc` files), put the database ID in the three files, set your site, game and rooms addresses, protect `/admin` with Cloudflare Access, set the rooms Worker's `PASS_SIGNING_KEY` secret, point `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` at your Supabase project for accounts (and set the site's `SUPABASE_SECRET_KEY` secret so accounts can be deleted), and deploy `apps/rooms`, `apps/games` and `apps/site`.
 
 ### Multiplayer
 
@@ -77,6 +77,10 @@ node packages/game-server/bin/node.js ./server.ts --game <your-game> --port 8080
 ```
 
 Put it behind HTTPS, add its address (like `wss://play.example.com`) to the game's own servers on Zaisma, and join with `Zaisma.joinRoom({ server: "wss://play.example.com" })`. Players still arrive with Zaisma player passes: standard EdDSA JWTs your server checks against the keys at `https://rooms.zaisma.com/.well-known/jwks.json`, so any language's JWT library can check them too.
+
+### Cloud saves
+
+Signed-in players' progress follows them to any device, with no code in the game. The games server adds a small script (`packages/sdk/saves.js`) to each page of a game; it hands the game's localStorage to the Zaisma game page around it, which stores it with the player's account. Before the game starts, the account's save is put back in place. Games that keep their own saves can turn this off in admin.
 
 ### How games are kept safe
 

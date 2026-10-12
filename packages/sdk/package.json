@@ -5,6 +5,7 @@
   "license": "MIT",
   "type": "module",
   "exports": {
-    "./zaisma.js": "./zaisma.js"
+    "./zaisma.js": "./zaisma.js",
+    "./saves.js": "./saves.js"
   }
 }

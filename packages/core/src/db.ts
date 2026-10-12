@@ -43,7 +43,7 @@ export async function allGames(db: D1Database): Promise<Game[]> {
 }
 
 export async function createGame(db: D1Database, g: { slug: string; title: string; description: string }): Promise<Game> {
-  const game: Game = { id: newId(), ...g, status: "pending", current_version_id: null, game_server: null, connect_hosts: "", owner_id: null, created_at: now(), updated_at: now() };
+  const game: Game = { id: newId(), ...g, status: "pending", current_version_id: null, game_server: null, connect_hosts: "", owner_id: null, cloud_saves: 1, created_at: now(), updated_at: now() };
   await db
     .prepare("INSERT INTO games (id, slug, title, description, status, current_version_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
     .bind(game.id, game.slug, game.title, game.description, game.status, null, game.created_at, game.updated_at)
@@ -53,6 +53,10 @@ export async function createGame(db: D1Database, g: { slug: string; title: strin
 
 export async function updateGameInfo(db: D1Database, id: string, g: { title: string; description: string }): Promise<void> {
   await db.prepare("UPDATE games SET title = ?, description = ?, updated_at = ? WHERE id = ?").bind(g.title, g.description, now(), id).run();
+}
+
+export async function setCloudSaves(db: D1Database, id: string, on: boolean): Promise<void> {
+  await db.prepare("UPDATE games SET cloud_saves = ?, updated_at = ? WHERE id = ?").bind(on ? 1 : 0, now(), id).run();
 }
 
 export async function setMultiplayer(db: D1Database, id: string, m: { gameServer: string | null; connectHosts: string[] }): Promise<void> {

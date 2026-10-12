@@ -1,4 +1,5 @@
 import { connectSources, contentTypeFor, gameHeaders, servableGame } from "@zaisma/core";
+import savesScript from "@zaisma/sdk/saves.js";
 import sdk from "@zaisma/sdk/zaisma.js";
 
 export interface Env {
@@ -58,6 +59,22 @@ function page(status: number, title: string, text: string, env: Env): Response {
   return new Response(html, { status, headers });
 }
 
+const RESTORE_PAGE = `<!doctype html><meta charset="utf-8"><title>Loading</title><body style="margin:0;background:#000"><script src="saves.js"></script>`;
+
+/** Bump when the injected tag changes, so browsers fetch the new page. */
+const SAVES_SCRIPT_VERSION = 1;
+
+/** Put the saves script first in <head>, before any game script can read its saves. */
+export function withSavesScript(page: string, src: string): string {
+  const tag = `<script src="${src}"></script>`;
+  const head = page.match(/<head(\s[^>]*)?>/i);
+  if (head) return page.slice(0, head.index! + head[0].length) + tag + page.slice(head.index! + head[0].length);
+  const html = page.match(/<html(\s[^>]*)?>/i);
+  if (html) return page.slice(0, html.index! + html[0].length) + tag + page.slice(html.index! + html[0].length);
+  const doctype = page.match(/^\s*<!doctype[^>]*>/i);
+  return doctype ? doctype[0] + tag + page.slice(doctype[0].length) : tag + page;
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     if (request.method !== "GET" && request.method !== "HEAD") {
@@ -99,16 +116,40 @@ export default {
       return new Response(request.method === "HEAD" ? null : `var __ZAISMA__ = ${JSON.stringify(config)};\n${sdk}`, { headers });
     }
 
+    // Cloud saves: the script that hands the game's browser save to the Zaisma game page,
+    // and the page that puts an account's save in place before the game starts.
+    if (game.cloud_saves && target.path === "_zaisma/saves.js") {
+      const headers = gameHeaders("text/javascript; charset=utf-8", env.SITE_ORIGIN, connect);
+      headers.set("Cache-Control", "public, max-age=300");
+      return new Response(request.method === "HEAD" ? null : `var __ZAISMA_SAVES__ = ${JSON.stringify({ site: env.SITE_ORIGIN })};\n${savesScript}`, { headers });
+    }
+    if (game.cloud_saves && target.path === "_zaisma/restore") {
+      const headers = gameHeaders("text/html; charset=utf-8", env.SITE_ORIGIN, connect);
+      headers.set("Cache-Control", "no-cache");
+      return new Response(request.method === "HEAD" ? null : RESTORE_PAGE, { headers });
+    }
+
     const path = target.path === "" || target.path.endsWith("/") ? `${target.path}index.html` : target.path;
-    const object = await env.GAMES.get(`${game.r2_prefix}/${path}`, { range: request.headers, onlyIf: request.headers });
+    const html = path.endsWith(".html");
+    const inject = Boolean(game.cloud_saves) && html;
+    // Pages that get the saves script are changed on the way out, so they skip ranges and R2's own ETag checks.
+    const object = await env.GAMES.get(`${game.r2_prefix}/${path}`, inject ? {} : { range: request.headers, onlyIf: request.headers });
     if (!object) return page(404, "File not found", "This game is missing a file.", env);
 
     const headers = gameHeaders(contentTypeFor(path), env.SITE_ORIGIN, connect);
     headers.set("ETag", object.httpEtag);
     // HTML is re-checked so takedowns and updates show up. Other files keep the same address
     // across versions, so they're only cached briefly: an update reaches players within a minute.
-    headers.set("Cache-Control", path.endsWith(".html") ? "no-cache" : "public, max-age=60");
+    headers.set("Cache-Control", html ? "no-cache" : "public, max-age=60");
     headers.set("Accept-Ranges", "bytes");
+
+    if (inject && "body" in object && object.body) {
+      headers.delete("Accept-Ranges");
+      headers.set("ETag", `W/"${object.etag}-s${SAVES_SCRIPT_VERSION}"`);
+      if (request.headers.get("if-none-match") === headers.get("ETag")) return new Response(null, { status: 304, headers });
+      const page = withSavesScript(await object.text(), `${target.base}_zaisma/saves.js`);
+      return new Response(request.method === "HEAD" ? null : page, { headers });
+    }
 
     if (!("body" in object) || !object.body) return new Response(null, { status: 304, headers });
     let status = 200;

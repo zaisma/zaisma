@@ -1,6 +1,7 @@
 import { AUTO_HOLD_REASONS, REPORT_REASONS, audit, createReport, gameBySlug, liveGames, setGameStatus, type ReportReason } from "@zaisma/core";
 import { gameUrl, type Env } from "./env.ts";
 import { html, layout, message, raw } from "./html.ts";
+import { SAVES_CLIENT } from "./saves-client.ts";
 import { sendAlert } from "./email.ts";
 
 export async function home(env: Env): Promise<Response> {
@@ -29,6 +30,7 @@ export async function gamePage(env: Env, slug: string, url: URL): Promise<Respon
   const code = url.searchParams.get("room")?.toUpperCase() ?? "";
   const inRoom = ROOM_CODE.test(code);
   const src = gameUrl(env, game.slug) + (inRoom ? `?room=${code}` : "");
+  const saves = Boolean(game.cloud_saves && env.SUPABASE_URL);
   const multiplayer = Boolean(game.game_server || game.connect_hosts);
   const ownServers = game.connect_hosts.split("\n").filter(Boolean).map((o) => o.replace(/^[a-z]+:\/\//, ""));
   return layout(env, {
@@ -98,7 +100,7 @@ dialog nav a:hover{border-color:#55585f}
   </div>
   <div class="meta">
     ${multiplayer ? html`<span class="pill">Multiplayer</span>` : html`<span class="pill">Single-player</span>`}
-    <span>Plays in your browser · no download</span>
+    <span>Plays in your browser · no download${saves ? " · progress saves to your account when you're signed in" : ""}</span>
   </div>
   ${game.description ? html`<p class="desc">${game.description}</p>` : ""}
   ${ownServers.length ? html`<p class="note">This game also connects to its own servers: ${ownServers.join(", ")}.</p>` : ""}
@@ -117,12 +119,20 @@ dialog nav a:hover{border-color:#55585f}
     ${multiplayer ? html`<p>Multiplayer. Share the link while you're in a match to bring friends into it.</p>` : ""}
     ${ownServers.length ? html`<p>This game also connects to its own servers: ${ownServers.join(", ")}.</p>` : ""}
   </div>
+  ${saves ? html`<p id="save-status" class="muted" hidden></p>` : ""}
   <nav>
     <a href="/g/${game.slug}/report">Report this game</a>
     <a href="/legal/content-rules">Content rules</a>
     <a href="/">All games</a>
   </nav>
 </dialog>
+${saves
+      ? html`<dialog id="save-choice" aria-labelledby="save-choice-title"><form method="dialog">
+  <div class="head"><strong id="save-choice-title"></strong></div>
+  <div class="body"><p></p></div>
+  <nav><button class="btn" value="cloud"></button><button class="btn ghost" value="local"></button></nav>
+</form></dialog>`
+      : ""}
 <script>
 let frame = null;
 const share = document.getElementById("share");
@@ -135,6 +145,7 @@ full.onclick = () => frame && frame.requestFullscreen();
 function play() {
   if (frame) return;
   frame = document.getElementById("game-frame").content.firstElementChild.cloneNode(true);
+  if (window.startSaves) startSaves(frame);
   document.body.appendChild(frame);
   document.body.classList.add("playing");
   scrollTo(0, 0);
@@ -167,6 +178,7 @@ addEventListener("message", (e) => {
     history.replaceState(null, "", location.pathname + "?room=" + d.code);
   }
 });
+${raw(saves ? `const SAVES = ${JSON.stringify({ api: `/api/saves/${game.slug}`, root: gameUrl(env, game.slug), query: inRoom ? `?room=${code}` : "", frameOrigin: new URL(src).origin }).replace(/</g, "\\u003c")};\n${SAVES_CLIENT}` : "")}
 // A room link is an invitation into a match already underway, so it skips the details.
 ${raw(inRoom ? "play();" : "")}
 </script>`,
@@ -292,6 +304,7 @@ const PRIVACY = `
 <li><strong>Your email</strong>, only to sign you in. It's never shown to anyone, and we don't send marketing.</li>
 <li><strong>Your name</strong>, the one you pick. Other players can see it.</li>
 <li><strong>Your age group</strong>: 13 to 17, or 18 and over. We ask your birth date once to work it out and never keep it.</li>
+<li><strong>Your game saves.</strong> If you're signed in, your game saves are stored with your account, so your progress follows you to any device.</li>
 </ul>
 <p>Accounts are for people 13 and up. If you're younger, you can't make one, and we keep nothing you typed. If we find out we have an account for someone under 13, we delete it.</p>
 <h2>Cookies</h2>
@@ -308,7 +321,7 @@ const PRIVACY = `
 </ul>
 <p>We never sell your data, and there are no ads on Zaisma.</p>
 <h2>Deleting your account</h2>
-<p>Go to your account page and choose Delete account. Your email, name and everything else on your account are deleted straight away.</p>
+<p>Go to your account page and choose Delete account. Your email, name, game saves and everything else on your account are deleted straight away.</p>
 <h2>Questions</h2>
 <p>Email <a href="mailto:privacy@zaisma.com">privacy@zaisma.com</a>.</p>
 `;

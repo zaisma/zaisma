@@ -14,6 +14,7 @@ import {
 } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { html, layout, message, type Raw } from "./html.ts";
+import { deleteSaveFiles } from "./saves.ts";
 
 /**
  * Sign-in, account creation and the account page.
@@ -147,8 +148,9 @@ export async function handleAccount(request: Request, env: Env, path: string): P
   if (path === "/account/delete" && post) {
     if (field("confirm").toLowerCase() !== "delete") return done(await accountPage(env, session, false, 'Type "delete" to confirm.'));
     if (!(await deleteAuthUser(env, session.userId))) return done(message(env, "Couldn't delete your account", "Something went wrong on our side. Try again later.", 502));
+    await deleteSaveFiles(env, account.id);
     await deleteAccount(env.DB, account.id);
-    return withCookies(message(env, "Your account is deleted", "Your email, name and everything else on your account are gone. You can still play as a guest."), clearSessionCookies(env));
+    return withCookies(message(env, "Your account is deleted", "Your email, name, game saves and everything else on your account are gone. You can still play as a guest."), clearSessionCookies(env));
   }
 
   return done(redirect("/account"));
@@ -331,7 +333,7 @@ ${games.length
 <form method="post" action="/signout"><button class="btn ghost" type="submit">Sign out on every device</button></form>
 <h2>Delete account</h2>
 <details><summary>Delete your account</summary>
-<p>This deletes your email, name and everything else on your account straight away. It can't be undone.</p>
+<p>This deletes your email, name, game saves and everything else on your account straight away. It can't be undone.</p>
 <form class="row" method="post" action="/account/delete">
 <input name="confirm" placeholder='Type "delete"' aria-label='Type "delete" to confirm' autocomplete="off" required>
 <button class="btn danger" type="submit">Delete my account</button>

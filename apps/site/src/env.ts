@@ -3,10 +3,13 @@ import type { ScanJob } from "@zaisma/core";
 export interface Env {
   DB: D1Database;
   GAMES: R2Bucket;
+  /** Players' cloud saves, kept apart from game files. */
+  SAVES: R2Bucket;
   ASSETS: Fetcher;
   SCAN_QUEUE: Queue<ScanJob>;
   REPORT_LIMIT?: RateLimit;
   SIGNIN_LIMIT?: RateLimit;
+  SAVE_LIMIT?: RateLimit;
   ALERTS?: SendEmail;
   SITE_ORIGIN: string;
   GAME_HOST_MODE: "path" | "subdomain";

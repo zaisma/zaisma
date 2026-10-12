@@ -14,6 +14,8 @@ export interface Game {
   connect_hosts: string;
   /** Who owns the game: a person now, a team later. NULL until it's assigned. */
   owner_id: string | null;
+  /** 1 when signed-in players' browser saves are copied to their account. */
+  cloud_saves: number;
   created_at: number;
   updated_at: number;
 }

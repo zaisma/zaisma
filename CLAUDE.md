@@ -23,7 +23,7 @@ Keep the roadmap current: when work starts, lands or moves, update its status in
 - **Cloudflare Workers** for the API and site.
 - **Cloudflare R2** for game files. Bandwidth is free; keep it that way (no egress-billed storage).
 - **Cloudflare Durable Objects** for multiplayer rooms. Always use the WebSocket Hibernation API.
-- **Supabase** for accounts, friends and saves (from the beta).
+- **Supabase** for sign-in only (it holds the email). Account details live in D1; cloud saves live in R2 (`zaisma-saves`).
 - **Stripe Connect Standard** for the optional buy sheet (Phase 2). Never take a platform fee.
 - TypeScript everywhere. Keep dependencies few.
 
