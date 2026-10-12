@@ -111,11 +111,11 @@ The platform works but looks and feels rough. No outreach, no listings for other
 
 | Status | Must/Nice | Item | Needs | Notes |
 | --- | --- | --- | --- | --- |
-| doing | Must | Design system | | Steel, from the brand: type, colors, spacing, the bevel and metal highlights, used by every page. Home page mockups approved (returning, first visit, phone, queue); game page next |
+| doing | Must | Design system | | Steel, from the brand: type, colors, spacing, the bevel and metal highlights, used by every page. Home page mockups approved (returning, first visit, phone, queue); game page and update page mocked up |
 | planned | Must | Friends | Sign-in | Friend list, invites, see what friends are playing and join them; requests only from people you've played with; teen-safe defaults. Moved up from Phase 3 to land with the home page |
 | planned | Must | Home page | Design system, Friends, Continue playing, Game updates | Friends first, then last played, Continue playing, For you (once it exists), then Games for everyone: popular, trending, new. Play in one tap |
 | planned | Must | Continue playing | | The games you played most recently, on the home page; sort by recently played or recently updated, with an "Updated" badge. On this device for guests, on your account when signed in |
-| planned | Must | Game updates | | Developers post a title, a short text and an optional image (checked like covers); version notes become patch notes in an expanded view |
+| planned | Must | Game updates | | Developers post a title, a short text and an optional image (checked like covers); version notes become patch notes on the update's details page |
 | planned | Must | Developer page | Design system | Publishing, the dashboard and docs in one place for game developers, off the home page |
 | planned | Nice | Last-played picture | Continue playing | A snapshot of the game when you left, shown in Continue playing; only you see it |
 | planned | Must | Browse games | Design system | A proper games page with covers and genres until Phase 4 discovery |
