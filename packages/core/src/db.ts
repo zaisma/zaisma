@@ -55,6 +55,10 @@ export async function updateGameInfo(db: D1Database, id: string, g: { title: str
   await db.prepare("UPDATE games SET title = ?, description = ?, updated_at = ? WHERE id = ?").bind(g.title, g.description, now(), id).run();
 }
 
+export async function setMultiplayer(db: D1Database, id: string, m: { gameServer: string | null; connectHosts: string[] }): Promise<void> {
+  await db.prepare("UPDATE games SET game_server = ?, connect_hosts = ?, updated_at = ? WHERE id = ?").bind(m.gameServer, m.connectHosts.join("\n"), now(), id).run();
+}
+
 export async function setGameStatus(db: D1Database, id: string, status: GameStatus): Promise<void> {
   await db.prepare("UPDATE games SET status = ?, updated_at = ? WHERE id = ?").bind(status, now(), id).run();
 }

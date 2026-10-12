@@ -33,7 +33,7 @@ export default defineConfig({
         ACCESS_AUD: "test-aud",
         DEV_ADMIN: "1",
       }),
-      worker("games", "apps/games/wrangler.jsonc", { SITE_ORIGIN: "https://zaisma.test", GAME_HOST_MODE: "path", GAME_DOMAIN: "" }),
+      worker("games", "apps/games/wrangler.jsonc", { SITE_ORIGIN: "https://zaisma.test", ROOMS_ORIGIN: "https://rooms.zaisma.test", GAME_HOST_MODE: "path", GAME_DOMAIN: "" }),
       worker("core", "apps/games/wrangler.jsonc"),
       worker("game-server", "apps/games/wrangler.jsonc"),
       worker("rooms", "apps/rooms/wrangler.jsonc", {

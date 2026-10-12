@@ -1,4 +1,5 @@
-import { contentTypeFor, gameHeaders, servableGame } from "@zaisma/core";
+import { connectSources, contentTypeFor, gameHeaders, servableGame } from "@zaisma/core";
+import sdk from "@zaisma/sdk/zaisma.js";
 
 export interface Env {
   DB: D1Database;
@@ -6,6 +7,7 @@ export interface Env {
   GAME_HOST_MODE: "path" | "subdomain";
   GAME_DOMAIN: string;
   SITE_ORIGIN: string;
+  ROOMS_ORIGIN: string;
 }
 
 interface Target {
@@ -82,11 +84,26 @@ export default {
       return Response.redirect(`${url.origin}${target.base}${url.search}`, 301);
     }
 
+    let connect: string[];
+    try {
+      connect = connectSources(env.ROOMS_ORIGIN, game.connect_hosts);
+    } catch {
+      connect = connectSources(env.ROOMS_ORIGIN, "");
+    }
+
+    // The SDK, served from the game's own site so its sandbox allows it, set up for this game.
+    if (target.path === "_zaisma/v1.js") {
+      const config = { rooms: env.ROOMS_ORIGIN, game: game.slug, site: env.SITE_ORIGIN };
+      const headers = gameHeaders("text/javascript; charset=utf-8", env.SITE_ORIGIN, connect);
+      headers.set("Cache-Control", "public, max-age=300");
+      return new Response(request.method === "HEAD" ? null : `var __ZAISMA__ = ${JSON.stringify(config)};\n${sdk}`, { headers });
+    }
+
     const path = target.path === "" || target.path.endsWith("/") ? `${target.path}index.html` : target.path;
     const object = await env.GAMES.get(`${game.r2_prefix}/${path}`, { range: request.headers, onlyIf: request.headers });
     if (!object) return page(404, "File not found", "This game is missing a file.", env);
 
-    const headers = gameHeaders(contentTypeFor(path), env.SITE_ORIGIN);
+    const headers = gameHeaders(contentTypeFor(path), env.SITE_ORIGIN, connect);
     headers.set("ETag", object.httpEtag);
     // HTML is re-checked so takedowns and updates show up; other files are tied to one version.
     headers.set("Cache-Control", path.endsWith(".html") ? "no-cache" : "public, max-age=3600");

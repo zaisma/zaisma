@@ -154,3 +154,11 @@ describe("rooms", () => {
     expect(Object.keys(row).sort()).toEqual(["day", "game_id", "messages", "player_seconds", "rooms"]);
   });
 });
+
+describe("game server registry", () => {
+  it("matches the list admins pick from", async () => {
+    const { GAME_SERVERS } = await import("../../apps/rooms/src/registry.ts");
+    const { BUILT_IN_GAME_SERVERS } = await import("@zaisma/core");
+    expect(Object.keys(GAME_SERVERS).sort()).toEqual([...BUILT_IN_GAME_SERVERS].sort());
+  });
+});

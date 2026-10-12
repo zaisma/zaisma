@@ -19,7 +19,7 @@ export default {
     const game = path.match(/^\/g\/([a-z0-9-]+)(\/report)?$/);
     if (game) {
       const [, slug, report] = game as unknown as [string, string, string | undefined];
-      if (!report && method !== "POST") return gamePage(env, slug);
+      if (!report && method !== "POST") return gamePage(env, slug, url);
       if (report && method === "POST") return submitReport(env, request, slug, ctx);
       if (report) return reportForm(env, slug);
     }

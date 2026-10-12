@@ -12,5 +12,5 @@
     "allowImportingTsExtensions": true,
     "isolatedModules": true
   },
-  "include": ["apps/*/src", "packages/*/src", "test"]
+  "include": ["apps/*/src", "packages/*/src", "test", "types"]
 }
