@@ -1,0 +1,273 @@
+<title>Zaisma Roadmap</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jost:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* Layout: a roadmap ledger. Ordered phase rail on top, then one section per phase with its items as rows. Dark first (the metal logo lives on dark). */
+:root {
+  --bg: #16161a; --surface: #1e1e23; --line: #2d2d34; --fg: #ececef; --muted: #9b9ba6;
+  --steel: #b9c6d8; --julius: #e2b45e;
+  --done: #74c393; --doing: #e2b45e; --next: #86aef0; --planned: #8a8a96;
+  --display: "Jost", "Futura", "Century Gothic", system-ui, sans-serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --logo-metal: block; --logo-black: none;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #f3f4f6; --surface: #ffffff; --line: #dcdde2; --fg: #17171b; --muted: #5d5e68;
+    --steel: #3d4f6b; --julius: #9a6a10;
+    --done: #1f8a4c; --doing: #9a6a10; --next: #2f5fb3; --planned: #6c6c78;
+    --logo-metal: none; --logo-black: block; color-scheme: light;
+  }
+}
+:root[data-theme="light"] {
+  --bg: #f3f4f6; --surface: #ffffff; --line: #dcdde2; --fg: #17171b; --muted: #5d5e68;
+  --steel: #3d4f6b; --julius: #9a6a10;
+  --done: #1f8a4c; --doing: #9a6a10; --next: #2f5fb3; --planned: #6c6c78;
+  --logo-metal: none; --logo-black: block; color-scheme: light;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font: 15px/1.55 var(--body); }
+.wrap { max-width: 1080px; margin: 0 auto; padding-inline: 20px; padding-block: 28px 64px; display: grid; gap: 32px; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; letter-spacing: 0.01em; }
+a { color: var(--steel); }
+:focus-visible { outline: 2px solid var(--steel); outline-offset: 2px; border-radius: 4px; }
+
+header { display: grid; gap: 14px; }
+.brand { display: flex; align-items: center; gap: 12px; }
+.brand img { height: 26px; width: auto; }
+.logo-metal { display: var(--logo-metal); }
+.logo-black { display: var(--logo-black); }
+.brand span { font: 600 13px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.12em; padding-left: 12px; border-left: 1px solid var(--line); }
+h1 { font-size: clamp(30px, 5vw, 44px); font-weight: 600; }
+.now { font-size: 17px; max-width: 62ch; margin: 0; }
+.now b { color: var(--steel); font-weight: 600; }
+
+.beta { display: grid; gap: 8px; max-width: 560px; }
+.beta-label { display: flex; justify-content: space-between; gap: 12px; font: 500 13px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.meter { height: 8px; background: var(--line); border-radius: 99px; overflow: hidden; }
+.meter i { display: block; height: 100%; background: var(--steel); border-radius: 99px; }
+
+.rail { overflow-x: auto; padding-bottom: 4px; }
+.rail ol { list-style: none; margin: 0; padding: 0; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(118px, 1fr); gap: 8px; min-width: min-content; }
+.rail a { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; text-decoration: none; color: var(--fg); background: var(--surface); height: 100%; }
+.rail a:hover { border-color: var(--steel); }
+.rail .n { font: 500 12px var(--mono); color: var(--muted); }
+.rail .t { font: 600 15px var(--display); line-height: 1.2; }
+.rail .c { font: 500 12px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.rail .bar { height: 3px; background: var(--line); border-radius: 9px; overflow: hidden; }
+.rail .bar i { display: block; height: 100%; background: var(--done); }
+.rail a.current { border-color: var(--steel); box-shadow: inset 0 0 0 1px var(--steel); }
+
+.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.controls .lbl { font: 500 12px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; margin-right: 4px; }
+.chip { font: 500 13px var(--body); padding: 6px 12px; border-radius: 99px; border: 1px solid var(--line); background: transparent; color: var(--fg); cursor: pointer; }
+.chip[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+
+.phase { display: grid; gap: 14px; scroll-margin-top: 16px; }
+.phase-head { display: grid; gap: 6px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.phase-head .k { font: 500 12px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.12em; }
+.phase-head h2 { font-size: 26px; font-weight: 600; }
+.phase-head p { margin: 0; max-width: 70ch; color: var(--muted); }
+.phase-head p strong { color: var(--fg); font-weight: 600; }
+.group { display: grid; gap: 6px; }
+.group h3 { font: 600 13px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; margin-top: 6px; }
+.group > p { margin: 0; color: var(--muted); font-size: 14px; }
+
+ul.items { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); overflow: hidden; }
+ul.items li { display: grid; grid-template-columns: 84px minmax(0, 1fr) auto; gap: 14px; align-items: start; padding: 11px 14px; border-top: 1px solid var(--line); }
+ul.items li:first-child { border-top: 0; }
+.status { font: 500 12px var(--mono); text-transform: uppercase; letter-spacing: 0.06em; padding-top: 2px; display: flex; align-items: center; gap: 7px; color: var(--muted); }
+.status::before { content: ""; width: 9px; height: 9px; border-radius: 50%; flex: none; border: 2px solid var(--planned); }
+.s-done .status { color: var(--done); } .s-done .status::before { background: var(--done); border-color: var(--done); }
+.s-doing .status { color: var(--doing); } .s-doing .status::before { border-color: var(--doing); background: linear-gradient(90deg, var(--doing) 50%, transparent 50%); }
+.s-next .status { color: var(--next); } .s-next .status::before { border-color: var(--next); }
+.s-idea .status::before { border-style: dashed; }
+.s-done .name { color: var(--muted); }
+.name { font-weight: 500; }
+.note { color: var(--muted); font-size: 14px; }
+.tags { display: flex; gap: 6px; padding-top: 1px; }
+.tag { font: 500 11px var(--mono); text-transform: uppercase; letter-spacing: 0.08em; padding: 2px 7px; border-radius: 5px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.tag.must { color: var(--fg); border-color: var(--fg); }
+.tag.julius { color: var(--julius); border-color: var(--julius); }
+.empty { padding: 14px; color: var(--muted); font-size: 14px; }
+
+.legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 13px; color: var(--muted); }
+.legend span { display: inline-flex; gap: 6px; align-items: center; }
+footer { color: var(--muted); font-size: 13px; border-top: 1px solid var(--line); padding-top: 16px; }
+.error { padding: 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+
+@media (max-width: 560px) {
+  ul.items li { grid-template-columns: minmax(0, 1fr) auto; }
+  .status { grid-column: 1 / -1; }
+}
+@media (prefers-reduced-motion: no-preference) { .meter i, .rail .bar i { transition: width .4s ease; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <img class="logo-metal" src="zaisma-wordmark-metal.svg" alt="Zaisma">
+      <img class="logo-black" src="zaisma-wordmark-black.svg" alt="Zaisma">
+      <span>Roadmap</span>
+    </div>
+    <h1>From safe hosting to a full game platform</h1>
+    <p class="now" id="now">Loading the roadmap…</p>
+    <div class="beta" id="beta" hidden>
+      <div class="beta-label"><span>Beta progress: must items in Phase 1</span><span id="beta-count"></span></div>
+      <div class="meter"><i id="beta-bar" style="width:0"></i></div>
+    </div>
+  </header>
+
+  <nav class="rail" aria-label="Phases"><ol id="rail"></ol></nav>
+
+  <div class="controls" role="group" aria-label="Filter items">
+    <span class="lbl">Show</span>
+    <button class="chip" id="f-all" type="button" aria-pressed="true">Everything</button>
+    <button class="chip" id="f-must" type="button" aria-pressed="false">Must items only</button>
+    <button class="chip" id="f-julius" type="button" aria-pressed="false">Julius's to-dos</button>
+    <button class="chip" id="f-open" type="button" aria-pressed="false">Hide done</button>
+  </div>
+
+  <main id="phases" style="display:grid;gap:40px"></main>
+
+  <div class="legend" aria-label="Status key">
+    <span class="s-done"><span class="status">done</span></span>
+    <span class="s-doing"><span class="status">doing</span></span>
+    <span class="s-next"><span class="status">next</span></span>
+    <span class="s-planned"><span class="status">planned</span></span>
+    <span class="s-idea"><span class="status">idea</span></span>
+  </div>
+  <footer>Built from <code>docs/ROADMAP.md</code> in <a href="https://github.com/zaisma/zaisma/blob/main/docs/ROADMAP.md" target="_blank" rel="noopener">github.com/zaisma/zaisma</a>, the one source of truth. The how behind each item is in <a href="https://github.com/zaisma/zaisma/blob/main/docs/DECISIONS.md" target="_blank" rel="noopener">DECISIONS.md</a>.</footer>
+</div>
+
+<script>
+const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+// Inline markdown: **bold**, `code`, [text](url).
+const md = (s) => esc(s)
+  .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+  .replace(/`(.+?)`/g, "<code>$1</code>")
+  .replace(/\[(.+?)\]\((.+?)\)/g, (m, t, u) => /^https?:/.test(u) ? `<a href="${u}" target="_blank" rel="noopener">${t}</a>` : t);
+
+function parse(text) {
+  const phases = []; let now = ""; let phase = null; let group = null; let header = null;
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (line.startsWith("**Now:**")) { now = line.slice(8).trim(); continue; }
+    const h2 = line.match(/^## (.+)$/);
+    if (h2) {
+      const m = h2[1].match(/^Phase (\d+): (.+?)(?: \((.+)\))?$/);
+      if (m) phase = { num: m[1], title: m[2], tagline: m[3] || "", intro: [], groups: [] };
+      else if (/parked/i.test(h2[1])) phase = { num: "", title: h2[1], intro: [], groups: [] };
+      else { phase = null; continue; }
+      phases.push(phase); group = { title: "", intro: [], items: [] }; phase.groups.push(group); header = null; continue;
+    }
+    if (!phase) continue;
+    const h3 = line.match(/^### (.+)$/);
+    if (h3) { group = { title: h3[1], intro: [], items: [] }; phase.groups.push(group); header = null; continue; }
+    if (line.startsWith("|")) {
+      const cells = line.slice(1, -1).split("|").map((c) => c.trim());
+      if (cells.every((c) => /^-+$/.test(c))) continue;
+      if (!header) { header = cells.map((c) => c.toLowerCase()); continue; }
+      const get = (k) => cells[header.indexOf(k)] ?? "";
+      let name = get("item");
+      const julius = /^Julius:\s*/.test(name);
+      name = name.replace(/^Julius:\s*/, ""); name = name.charAt(0).toUpperCase() + name.slice(1);
+      group.items.push({ status: get("status") || "planned", must: /must/i.test(get("must/nice")), nice: /nice/i.test(get("must/nice")), name, note: get("notes"), julius });
+      continue;
+    }
+    header = null;
+    if (line) (group.items.length || group.title ? group.intro : phase.intro).push(line);
+  }
+  for (const p of phases) p.groups = p.groups.filter((g) => g.items.length || g.intro.length);
+  return { now, phases };
+}
+
+let data = null;
+let filter = "all"; let hideDone = false;
+
+function visible(item) {
+  if (hideDone && item.status === "done") return false;
+  if (filter === "must") return item.must;
+  if (filter === "julius") return item.julius;
+  return true;
+}
+
+function render() {
+  const { now, phases } = data;
+  document.getElementById("now").innerHTML = now ? `<b>Now:</b> ${md(now)}` : "";
+
+  const p1 = phases.find((p) => p.num === "1");
+  if (p1) {
+    const must = p1.groups.flatMap((g) => g.items).filter((i) => i.must);
+    const done = must.filter((i) => i.status === "done").length;
+    document.getElementById("beta").hidden = false;
+    document.getElementById("beta-count").textContent = `${done} of ${must.length}`;
+    document.getElementById("beta-bar").style.width = `${must.length ? (done / must.length) * 100 : 0}%`;
+  }
+
+  const current = phases.find((p) => p.num !== "" && p.groups.flatMap((g) => g.items).some((i) => i.status !== "done"));
+  document.getElementById("rail").innerHTML = phases.map((p) => {
+    const items = p.groups.flatMap((g) => g.items);
+    const done = items.filter((i) => i.status === "done").length;
+    const id = p.num !== "" ? `phase-${p.num}` : "parked";
+    return `<li><a href="#${id}" class="${p === current ? "current" : ""}">
+      <span class="n">${p.num !== "" ? `Phase ${p.num}` : "Later"}</span>
+      <span class="t">${esc(p.title)}</span>
+      <span class="bar"><i style="width:${items.length ? (done / items.length) * 100 : 0}%"></i></span>
+      <span class="c">${p.num !== "" ? `${done}/${items.length} done` : `${items.length} ideas`}</span></a></li>`;
+  }).join("");
+
+  document.getElementById("phases").innerHTML = phases.map((p) => {
+    const id = p.num !== "" ? `phase-${p.num}` : "parked";
+    const groups = p.groups.map((g) => {
+      const items = g.items.filter(visible);
+      if (g.items.length && !items.length) return "";
+      const rows = items.map((i) => `<li class="s-${esc(i.status)}">
+        <span class="status">${esc(i.status)}</span>
+        <div><div class="name">${md(i.name)}</div>${i.note ? `<div class="note">${md(i.note)}</div>` : ""}</div>
+        <div class="tags">${i.julius ? '<span class="tag julius">Julius</span>' : ""}${i.must ? '<span class="tag must">Must</span>' : i.nice ? '<span class="tag">Nice</span>' : ""}</div>
+      </li>`).join("");
+      return `<div class="group">${g.title ? `<h3>${esc(g.title)}</h3>` : ""}${g.intro.map((t) => `<p>${md(t)}</p>`).join("")}${rows ? `<ul class="items">${rows}</ul>` : ""}</div>`;
+    }).join("");
+    const shown = groups.trim() ? groups : `<div class="empty">Nothing here matches this filter.</div>`;
+    return `<section class="phase" id="${id}">
+      <div class="phase-head"><span class="k">${p.num !== "" ? `Phase ${p.num}` : "Not planned"}</span><h2>${esc(p.title)}</h2>${p.intro.map((t) => `<p>${md(t)}</p>`).join("")}</div>
+      ${shown}</section>`;
+  }).join("");
+}
+
+function setFilter(next) {
+  filter = next;
+  for (const [id, f] of [["f-all", "all"], ["f-must", "must"], ["f-julius", "julius"]]) document.getElementById(id).setAttribute("aria-pressed", String(f === filter));
+  try { localStorage.setItem("roadmap-filter", filter); } catch {}
+  render();
+}
+document.getElementById("f-all").onclick = () => setFilter("all");
+document.getElementById("f-must").onclick = () => setFilter("must");
+document.getElementById("f-julius").onclick = () => setFilter("julius");
+document.getElementById("f-open").onclick = (e) => {
+  hideDone = !hideDone; e.currentTarget.setAttribute("aria-pressed", String(hideDone));
+  try { localStorage.setItem("roadmap-hide-done", hideDone ? "1" : ""); } catch {}
+  render();
+};
+
+fetch("ROADMAP.md", { cache: "no-store" })
+  .then((r) => { if (!r.ok) throw new Error(r.status); return r.text(); })
+  .then((text) => {
+    data = parse(text);
+    try {
+      const f = localStorage.getItem("roadmap-filter"); if (f && ["all", "must", "julius"].includes(f)) filter = f;
+      hideDone = localStorage.getItem("roadmap-hide-done") === "1";
+    } catch {}
+    for (const [id, f] of [["f-all", "all"], ["f-must", "must"], ["f-julius", "julius"]]) document.getElementById(id).setAttribute("aria-pressed", String(f === filter));
+    document.getElementById("f-open").setAttribute("aria-pressed", String(hideDone));
+    render();
+    if (location.hash) document.getElementById(location.hash.slice(1))?.scrollIntoView();
+  })
+  .catch(() => {
+    document.getElementById("now").textContent = "";
+    document.getElementById("phases").innerHTML = '<div class="error">The roadmap file didn\'t load. Reload the page, or read it on GitHub: <a href="https://github.com/zaisma/zaisma/blob/main/docs/ROADMAP.md" target="_blank" rel="noopener">docs/ROADMAP.md</a>.</div>';
+  });
+</script>
