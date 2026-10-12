@@ -37,10 +37,14 @@ Hit every front at once at launch.
 - A voice players and creators actually relate to, like early Discord's proud gamer attitude. Never "powering imagination" style corporate copy.
 - Open questions: what the personality is in one line; any new public tagline or claim needs Julius's approval. Keep the 3D scene cheap on phones (a pre-rendered image or short loop rather than live 3D).
 
-## Automatic weekly game jams judged by players (Oct 12, 2026)
+## Automatic game jams judged by players (Oct 12, 2026)
 
-- A jam every week, run automatically: the theme is revealed on entry day, anyone can join for free.
-- Players vote. Jam entries get their own shelf, and only people who actually played long enough can vote. Longer play could count for more.
-- Games have to win the click and then keep players engaged to win the vote.
-- Last week's winner is shown at the top of the shelf. Monthly, quarterly and yearly competitions on top.
-- Open questions: stopping vote rigging (alt accounts, bots); measuring playtime on our page rather than trusting the game; capping how much playtime counts so long grindy games don't win by default; rules for what counts as made during the jam; prizes (featuring and badges first; money prizes bring contest law and minors' rules).
+- Jams run automatically: weekly, monthly, quarterly and yearly. The theme is revealed when entries open; anyone can join for free.
+- **The brief scales with the length,** so the time goes into quality and polish instead of scrambling to meet the theme:
+  - *Weekly:* a small, clear goal plus a twist (for example "a one-button game", theme "gravity"), easy to meet on day one.
+  - *Monthly:* a harder technical goal plus a theme (for example "a 3D game set in one room" or "HD-2D, theme: tides").
+  - *Quarterly and yearly:* the ambitious showcase events.
+- **Players vote.** Jam entries get their own shelf, and only people who actually played long enough can vote; longer play could count for more. Games have to win the click and then keep players engaged.
+- Last jam's winner is shown at the top of the shelf. Optional ladder: weekly winners earn a spot or badge going into the monthly.
+- Entries must be created after the theme is revealed, checked from when the game and its first version were made.
+- Open questions: stopping vote rigging (alt accounts, bots); measuring playtime on our page rather than trusting the game; capping how much playtime counts so long grindy games don't win by default; prizes (featuring and badges first; money prizes bring contest law and minors' rules).
