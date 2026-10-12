@@ -1,7 +1,8 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { KEEP_VERSIONS, blobKey, createAccount, createApiKey, gameBySlug, manifestKey, notConnected, sha256Hex, versionById, type ImageMatcher } from "@zaisma/core";
+import { KEEP_VERSIONS, ownedBlobKey, personOwner, blobKey, createAccount, createApiKey, gameBySlug, manifestKey, notConnected, sha256Hex, versionById, type ImageMatcher } from "@zaisma/core";
 import { scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
+import { dailyCleanup, publishDue } from "../../apps/site/src/cleanup.ts";
 
 const SITE = "https://zaisma.test";
 const testEnv = { ...env, ANTHROPIC_API_KEY: "test-key" };
@@ -53,7 +54,7 @@ async function push(files: Record<string, string>, extra: Record<string, unknown
 
 beforeEach(async () => {
   await env.DB.exec(
-    "DELETE FROM blobs; DELETE FROM game_images; DELETE FROM api_keys; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;",
+    "DELETE FROM blobs; DELETE FROM owned_blobs; DELETE FROM game_images; DELETE FROM api_keys; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;",
   );
   const all = await env.GAMES.list();
   if (all.objects.length) await env.GAMES.delete(all.objects.map((o) => o.key));
@@ -149,5 +150,95 @@ describe("file-by-file uploads", () => {
     const files = (await describeFiles(GAME)).map(({ text: _, ...f }) => f);
     expect((await api("/games/hop/uploads", { body: { files }, key: other })).status).toBe(404);
     expect((await api("/games/hop/versions", { body: { files }, key: other })).status).toBe(404);
+  });
+});
+
+describe("publish later", () => {
+  it("publishes a draft at its time, and can be called off", async () => {
+    const { version } = await push(GAME);
+    await scan(version.id, pass);
+    const at = Date.now() + 3600_000;
+    const res = await api(`/games/hop/versions/${version.id}/publish`, { body: { at } });
+    expect(((await res.json()) as { version: { publish_at: number } }).version.publish_at).toBe(at);
+    expect(await publishDue(env, Date.now())).toBe(0);
+    expect((await gameBySlug(env.DB, "hop"))!.current_version_id).toBeNull();
+
+    await api(`/games/hop/versions/${version.id}/publish`, { method: "DELETE" });
+    expect(await publishDue(env, at + 1)).toBe(0);
+    await api(`/games/hop/versions/${version.id}/publish`, { body: { at } });
+    expect(await publishDue(env, at + 1)).toBe(1);
+    expect((await gameBySlug(env.DB, "hop"))!.current_version_id).toBe(version.id);
+    expect((await versionById(env.DB, version.id))!.publish_at).toBeNull();
+  });
+
+  it("refuses times in the past, and drops versions that don't pass", async () => {
+    const { version } = await push(GAME);
+    expect((await api(`/games/hop/versions/${version.id}/publish`, { body: { at: Date.now() - 1000 } })).status).toBe(400);
+    expect((await api(`/games/hop/versions/${version.id}/publish`, { body: { at: "soon" } })).status).toBe(400);
+    await scan(version.id, hold);
+    await env.DB.prepare("UPDATE versions SET publish_at = ? WHERE id = ?").bind(Date.now() - 1, version.id).run();
+    expect(await publishDue(env)).toBe(0);
+    expect((await versionById(env.DB, version.id))!.publish_at).toBeNull();
+  });
+});
+
+describe("big files", () => {
+  it("are sent in parts and kept for their owner's versions only", async () => {
+    const big = enc("x".repeat(3000));
+    const sha = await sha256Hex(big);
+    const start = (await (await api(`/files/${sha}/parts`, { body: { bytes: big.byteLength } })).json()) as { upload: string; parts: number };
+    expect(start.parts).toBe(1);
+    const part = (await (await api(`/files/${sha}/parts/1?upload=${encodeURIComponent(start.upload)}`, { method: "PUT", raw: big })).json()) as { part: number; etag: string };
+    const done = await api(`/files/${sha}/parts/done`, { body: { upload: start.upload, parts: [part] } });
+    expect(done.status).toBe(200);
+    const owner = await personOwner(env.DB, "dev-1");
+    expect(await env.GAMES.head(ownedBlobKey(owner.id, sha))).not.toBeNull();
+    expect(await env.GAMES.head(blobKey(sha))).toBeNull();
+
+    const files = [...(await describeFiles({ "index.html": "<p>big</p>" })), { path: "data.bin", sha256: sha, bytes: big.byteLength, text: "" }];
+    const plan = (await (await api("/games/hop/uploads", { body: { files: files.map(({ text: _, ...f }) => f) } })).json()) as { missing: string[] };
+    expect(plan.missing).not.toContain(sha);
+
+    // Another developer listing the same hash still has to send the file themselves.
+    await createAccount(env.DB, { id: "dev-2", name: "Other Dev", ageBand: "18+" });
+    const other = (await createApiKey(env.DB, "dev-2", "x")).token;
+    await api("/games", { body: { title: "Copy", slug: "copy" }, key: other });
+    const theirs = (await (await api("/games/copy/uploads", { body: { files: files.map(({ text: _, ...f }) => f) }, key: other })).json()) as { missing: string[] };
+    expect(theirs.missing).toContain(sha);
+  });
+
+  it("refuses programs sent in parts", async () => {
+    const exe = new Uint8Array(64);
+    exe.set([0x4d, 0x5a]);
+    const sha = await sha256Hex(exe);
+    const start = (await (await api(`/files/${sha}/parts`, { body: { bytes: 64 } })).json()) as { upload: string };
+    const part = await (await api(`/files/${sha}/parts/1?upload=${encodeURIComponent(start.upload)}`, { method: "PUT", raw: exe })).json();
+    const done = await api(`/files/${sha}/parts/done`, { body: { upload: start.upload, parts: [part] } });
+    expect(done.status).toBe(400);
+  });
+});
+
+describe("daily cleanup", () => {
+  it("deletes month-old drafts and files nothing uses, and keeps the rest", async () => {
+    const live = await push(GAME, { publish: "when-approved" });
+    await scan(live.version.id, pass);
+    const draft = await push({ ...GAME, "game.js": "let draft = 1;" });
+    await scan(draft.version.id, pass);
+    const held = await push({ ...GAME, "game.js": "let held = 1;" });
+    await scan(held.version.id, hold);
+    const lonely = enc("never used");
+    await api(`/files/${await sha256Hex(lonely)}`, { method: "PUT", raw: lonely });
+
+    // A month and a day later.
+    const later = Date.now() + 31 * 86400_000;
+    const result = await dailyCleanup(env, later);
+    expect(result.drafts).toBe(1);
+    expect(await versionById(env.DB, draft.version.id)).toBeNull();
+    expect(await versionById(env.DB, live.version.id)).not.toBeNull();
+    expect(await versionById(env.DB, held.version.id)).not.toBeNull();
+    expect(await env.GAMES.head(blobKey(await sha256Hex(enc("let draft = 1;"))))).toBeNull();
+    expect(await env.GAMES.head(blobKey(await sha256Hex(enc("never used"))))).toBeNull();
+    expect(await env.GAMES.head(blobKey(await sha256Hex(enc(GAME["index.html"]))))).not.toBeNull();
+    expect(await env.GAMES.head(blobKey(await sha256Hex(enc("let held = 1;"))))).not.toBeNull();
   });
 });

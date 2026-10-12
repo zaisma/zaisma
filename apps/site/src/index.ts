@@ -1,5 +1,6 @@
 import type { ScanJob } from "@zaisma/core";
 import { handleAccount } from "./account.ts";
+import { dailyCleanup, publishDue } from "./cleanup.ts";
 import { handleAdmin } from "./admin.ts";
 import { handleDeveloper } from "./developer.ts";
 import type { Env } from "./env.ts";
@@ -7,6 +8,9 @@ import { message } from "./html.ts";
 import { gamePage, home, legal, reportForm, submitReport } from "./pages.ts";
 import { handleSaves } from "./saves.ts";
 import { handleScanBatch } from "./scan.ts";
+
+/** Must match the daily cron in wrangler.jsonc. */
+const DAILY = "17 3 * * *";
 
 export default {
   async fetch(request, env, ctx): Promise<Response> {
@@ -47,5 +51,10 @@ export default {
 
   async queue(batch, env): Promise<void> {
     await handleScanBatch(batch, env);
+  },
+
+  async scheduled(event, env): Promise<void> {
+    await publishDue(env);
+    if (event.cron === DAILY) await dailyCleanup(env);
   },
 } satisfies ExportedHandler<Env, ScanJob>;

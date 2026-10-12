@@ -31,6 +31,9 @@ import {
   forbiddenContent,
   manifestKey,
   missingBlobs,
+  locateBlobs,
+  addOwnedBlob,
+  ownedBlobKey,
   publishVersion,
   toManifest,
   versionById,
@@ -56,7 +59,9 @@ import { pruneVersions } from "./scan.ts";
  *   PUT    /api/dev/files/:sha256              send one file
  *   POST   /api/dev/games/:slug/versions       make a version from stored files (scanned, then a draft)
  *   GET    /api/dev/games/:slug/versions/:id   scan result, findings and preview link
- *   POST   /api/dev/games/:slug/versions/:id/publish   publish a draft or roll back
+ *   POST   /api/dev/games/:slug/versions/:id/publish   publish a draft or roll back; { "at" } publishes later
+ *   DELETE /api/dev/games/:slug/versions/:id/publish   cancel a publish-later
+ *   POST   /api/dev/files/:sha256/parts        send a big file in parts (see bigFile)
  *
  * Images are served from /img/:id once approved; owners can see their own before that.
  */
@@ -149,6 +154,8 @@ async function route(request: Request, env: Env, path: string, caller: Caller): 
   // One file of a game, by its SHA-256. Storage checks the hash, so a file can't claim to be another.
   const blob = path.match(/^\/files\/([0-9a-f]{64})$/);
   if (blob && method === "PUT") return ok(await putBlob(request, env, blob[1]!));
+  const parts = path.match(/^\/files\/([0-9a-f]{64})\/parts(?:\/(\d{1,5}|done))?$/);
+  if (parts) return ok(await bigFile(request, env, parts[1]!, parts[2], caller));
 
   const v = path.match(/^\/games\/([a-z0-9-]+)\/(uploads|versions)(?:\/([a-z0-9]+)(\/publish)?)?$/);
   if (v) return ok(...(await versionRoute(request, env, await ownGame(env, v[1]!, caller), v[2]!, v[3], Boolean(v[4]), caller)));
@@ -223,7 +230,7 @@ async function route(request: Request, env: Env, path: string, caller: Caller): 
 async function putBlob(request: Request, env: Env, sha256: string): Promise<unknown> {
   const length = Number(request.headers.get("content-length") ?? -1);
   if (!Number.isSafeInteger(length) || length < 0) throw new ApiError(411, "no_length", "Send the file with a Content-Length header.");
-  if (length > FILE_LIMITS.fileBytes) throw new ApiError(413, "file_too_big", `Files can be up to ${FILE_LIMITS.fileBytes / 1048576} MB for now.`);
+  if (length > FILE_LIMITS.directBytes) throw new ApiError(413, "file_too_big", `Send files over ${FILE_LIMITS.directBytes / 1048576} MB in parts: POST /api/dev/files/<sha256>/parts.`);
   if ((await missingBlobs(env.DB, [sha256])).length === 0) {
     await request.body?.cancel();
     return { sha256, stored: "already" };
@@ -245,6 +252,65 @@ async function putBlob(request: Request, env: Env, sha256: string): Promise<unkn
   return { sha256, stored: "now" };
 }
 
+/**
+ * Big files, sent in parts: start, send each part, then finish. Storage can't check the hash
+ * of a file sent in parts, so the file is kept for this owner's own versions only.
+ *
+ *   POST /files/:sha256/parts                { "bytes" }                    -> { upload, part_bytes, parts }
+ *   PUT  /files/:sha256/parts/:n?upload=…    one part (all but the last are part_bytes long)
+ *   POST /files/:sha256/parts/done           { "upload", "parts": [{ "part", "etag" }] }
+ */
+async function bigFile(request: Request, env: Env, sha256: string, step: string | undefined, caller: Caller): Promise<unknown> {
+  const key = ownedBlobKey(caller.ownerId, sha256);
+  if (!step && request.method === "POST") {
+    const bytes = (await readJson(request)).bytes;
+    if (!Number.isSafeInteger(bytes) || (bytes as number) <= 0) throw new ApiError(400, "bad_size", 'Send { "bytes": <file size> }.');
+    if ((bytes as number) > FILE_LIMITS.fileBytes) throw new ApiError(413, "file_too_big", `Files can be up to ${FILE_LIMITS.fileBytes / 1048576} MB.`);
+    if ((await missingBlobs(env.DB, [sha256], caller.ownerId)).length === 0) return { sha256, stored: "already" };
+    const upload = await env.GAMES.createMultipartUpload(key);
+    return { sha256, upload: upload.uploadId, part_bytes: FILE_LIMITS.partBytes, parts: Math.ceil((bytes as number) / FILE_LIMITS.partBytes) };
+  }
+  if (step && step !== "done" && request.method === "PUT") {
+    const n = Number(step);
+    const uploadId = new URL(request.url).searchParams.get("upload") ?? "";
+    const length = Number(request.headers.get("content-length") ?? -1);
+    if (n < 1 || n > 10_000 || !uploadId) throw new ApiError(400, "bad_part", "Send parts numbered from 1, with ?upload=<the upload ID>.");
+    if (!(length > 0 && length <= FILE_LIMITS.partBytes) || !request.body) throw new ApiError(400, "bad_part", `Each part is up to ${FILE_LIMITS.partBytes / 1048576} MB, with a Content-Length header.`);
+    try {
+      const part = await env.GAMES.resumeMultipartUpload(key, uploadId).uploadPart(n, request.body);
+      return { part: part.partNumber, etag: part.etag };
+    } catch {
+      throw new ApiError(400, "bad_upload", "That upload isn't open any more. Start again.");
+    }
+  }
+  if (step === "done" && request.method === "POST") {
+    const body = await readJson(request, 1024 * 1024);
+    const list = Array.isArray(body.parts) ? (body.parts as { part?: unknown; etag?: unknown }[]) : [];
+    if (typeof body.upload !== "string" || !list.length || !list.every((p) => Number.isInteger(p.part) && typeof p.etag === "string")) {
+      throw new ApiError(400, "bad_parts", 'Send { "upload", "parts": [{ "part", "etag" }] }.');
+    }
+    let object: R2Object;
+    try {
+      object = await env.GAMES.resumeMultipartUpload(key, body.upload).complete(list.map((p) => ({ partNumber: p.part as number, etag: p.etag as string })));
+    } catch {
+      throw new ApiError(400, "bad_parts", "Those parts don't make a whole file. Check every part was sent, then try again.");
+    }
+    if (object.size > FILE_LIMITS.fileBytes) {
+      await env.GAMES.delete(key);
+      throw new ApiError(413, "file_too_big", `Files can be up to ${FILE_LIMITS.fileBytes / 1048576} MB.`);
+    }
+    const head = await env.GAMES.get(key, { range: { offset: 0, length: 16 } });
+    const bad = head ? forbiddenContent(new Uint8Array(await head.arrayBuffer())) : null;
+    if (bad) {
+      await env.GAMES.delete(key);
+      throw new ApiError(400, "forbidden_file", `That file looks like ${bad}, which isn't allowed in games.`);
+    }
+    await addOwnedBlob(env.DB, caller.ownerId, sha256, object.size);
+    return { sha256, stored: "now", bytes: object.size };
+  }
+  throw new ApiError(405, "bad_method", `${request.method} isn't used here.`);
+}
+
 async function versionRoute(request: Request, env: Env, game: Game, what: string, id: string | undefined, publish: boolean, caller: Caller): Promise<[unknown, number?]> {
   const method = request.method;
   if (game.status === "removed" && method !== "GET") throw new ApiError(403, "removed", "This game was taken down, so it can't get new versions.");
@@ -252,7 +318,7 @@ async function versionRoute(request: Request, env: Env, game: Game, what: string
   // Step 1: which of these files do you still need to send?
   if (what === "uploads" && !id && method === "POST") {
     const files = listOrThrow((await readJson(request, 4 * 1024 * 1024)).files);
-    const missing = await missingBlobs(env.DB, files.map((f) => f.sha256));
+    const missing = await missingBlobs(env.DB, files.map((f) => f.sha256), caller.ownerId);
     return [{ files: files.length, bytes: files.reduce((n, f) => n + f.bytes, 0), missing }];
   }
 
@@ -262,12 +328,13 @@ async function versionRoute(request: Request, env: Env, game: Game, what: string
     const files = listOrThrow(body.files);
     const notes = typeof body.notes === "string" ? body.notes.trim() : "";
     if (notes.length > FILE_LIMITS.notes) throw new ApiError(400, "notes_too_long", `Patch notes can be up to ${FILE_LIMITS.notes} characters.`);
-    const missing = await missingBlobs(env.DB, files.map((f) => f.sha256));
-    if (missing.length) throw new ApiError(409, "files_missing", `${missing.length} file(s) haven't been sent yet. Send them to PUT /api/dev/files/<sha256> first.`);
+    const found = await locateBlobs(env.DB, files.map((f) => f.sha256), caller.ownerId);
+    const missing = files.filter((f) => !found.has(f.sha256)).length;
+    if (missing) throw new ApiError(409, "files_missing", `${missing} file(s) haven't been sent yet. Send them to PUT /api/dev/files/<sha256> first.`);
     const today = await env.DB.prepare("SELECT COUNT(*) AS n FROM versions WHERE game_id = ? AND created_at > ?").bind(game.id, Date.now() - 86400_000).first<{ n: number }>();
     if ((today?.n ?? 0) >= FILE_LIMITS.versionsPerDay) throw new ApiError(429, "too_many_versions", `A game can get ${FILE_LIMITS.versionsPerDay} versions a day. Try again tomorrow.`);
     const versionId = newId();
-    await env.GAMES.put(manifestKey(versionId), JSON.stringify(toManifest(files)), { httpMetadata: { contentType: "application/json" } });
+    await env.GAMES.put(manifestKey(versionId), JSON.stringify(toManifest(files, found, caller.ownerId)), { httpMetadata: { contentType: "application/json" } });
     await createVersion(env.DB, {
       id: versionId,
       gameId: game.id,
@@ -288,7 +355,25 @@ async function versionRoute(request: Request, env: Env, game: Game, what: string
 
   if (version && !publish && method === "GET") return [{ version: versionJson(env, game, version, true) }];
 
-  // Publish a draft, or roll back to any version we've kept.
+  // Publish later: { "at": "2026-11-01T17:00:00Z" }. It goes live then if it has passed review.
+  const body = version && publish && method === "POST" ? await readJson(request).catch(() => ({}) as Record<string, unknown>) : {};
+  if (version && publish && method === "POST" && body.at !== undefined) {
+    const at = typeof body.at === "number" ? body.at : Date.parse(String(body.at));
+    if (!Number.isFinite(at) || at <= Date.now() + 60_000 || at > Date.now() + 90 * 86400_000) {
+      throw new ApiError(400, "bad_time", 'Give "at" as a date and time from a few minutes to 90 days from now, like "2026-11-01T17:00:00Z".');
+    }
+    if (version.scan_status !== "approved" && version.scan_status !== "scanning") throw new ApiError(409, "not_approved", "Only versions that passed review can be published.");
+    await env.DB.prepare("UPDATE versions SET publish_at = ? WHERE id = ?").bind(at, version.id).run();
+    await audit(env.DB, game.id, "publish-scheduled", `Version ${version.id} at ${new Date(at).toISOString()}`, caller.actor);
+    return [{ version: versionJson(env, game, (await versionById(env.DB, version.id))!) }];
+  }
+  if (version && publish && method === "DELETE") {
+    await env.DB.prepare("UPDATE versions SET publish_at = NULL WHERE id = ?").bind(version.id).run();
+    await audit(env.DB, game.id, "publish-unscheduled", `Version ${version.id}`, caller.actor);
+    return [{ version: versionJson(env, game, (await versionById(env.DB, version.id))!) }];
+  }
+
+  // Publish a draft now, or roll back to any version we've kept.
   if (version && publish && method === "POST") {
     if (version.scan_status !== "approved") throw new ApiError(409, "not_approved", version.scan_status === "scanning" ? "This version is still being scanned." : "Only versions that passed review can be published.");
     await publishVersion(env.DB, version);
@@ -326,6 +411,7 @@ function versionJson(env: Env, game: Game, v: Version, detail = false) {
     notes: v.notes,
     preview_url: v.preview_token && v.scan_status === "approved" ? previewUrl(env, game.slug, v.preview_token) : null,
     published_at: v.published_at,
+    publish_at: v.publish_at,
     created_at: v.created_at,
     // Why a version was held or rejected. Child-safety findings are never described.
     ...(detail && report

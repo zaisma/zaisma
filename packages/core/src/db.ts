@@ -118,7 +118,7 @@ export async function saveScan(db: D1Database, versionId: string, status: ScanSt
 /** Make a version the one players get. A removed or held game stays hidden. */
 export async function publishVersion(db: D1Database, version: Version): Promise<void> {
   await db.batch([
-    db.prepare("UPDATE versions SET scan_status = 'approved', published_at = ? WHERE id = ?").bind(now(), version.id),
+    db.prepare("UPDATE versions SET scan_status = 'approved', published_at = ?, publish_at = NULL WHERE id = ?").bind(now(), version.id),
     db
       .prepare("UPDATE games SET current_version_id = ?, status = CASE WHEN status IN ('removed', 'held') THEN status ELSE 'live' END, updated_at = ? WHERE id = ?")
       .bind(version.id, now(), version.game_id),

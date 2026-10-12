@@ -4,11 +4,13 @@
 
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { readdir, readFile, stat } from "node:fs/promises";
+import { open, readdir, readFile, stat } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
 
 const API = (process.env.ZAISMA_API || "https://zaisma.com").replace(/\/+$/, "");
 const KEY = process.env.ZAISMA_KEY || "";
+/** Files bigger than this go in parts; the server says how big each part is. */
+const DIRECT_BYTES = 95 * 1024 * 1024;
 const JUNK = new Set([".DS_Store", "Thumbs.db", "desktop.ini", "__MACOSX", ".git", "node_modules"]);
 
 const HELP = `Usage:
@@ -19,6 +21,8 @@ const HELP = `Usage:
         [--publish]                         Go live as soon as it passes review
   zaisma versions <slug>                    List versions and preview links
   zaisma publish <slug> <version>           Publish a draft, or roll back to an older version
+        [--at "2026-11-01 17:00"]           Publish later, at this time (your computer's time zone)
+  zaisma unschedule <slug> <version>        Cancel a publish-later
   zaisma show <slug> [--visibility listed|unlisted|private|draft]
 
 Set ZAISMA_KEY to an API key from https://zaisma.com/account (under Game developers).`;
@@ -80,6 +84,25 @@ function sha256(file) {
   });
 }
 
+async function sendInParts(f, progress) {
+  const start = await api("POST", `/files/${f.sha256}/parts`, { bytes: f.bytes });
+  if (start.stored === "already") return;
+  const file = await open(f.full);
+  const parts = [];
+  try {
+    for (let n = 1, offset = 0; offset < f.bytes; n++, offset += start.part_bytes) {
+      const chunk = new Uint8Array(Math.min(start.part_bytes, f.bytes - offset));
+      await file.read(chunk, 0, chunk.length, offset);
+      const part = await api("PUT", `/files/${f.sha256}/parts/${n}?upload=${encodeURIComponent(start.upload)}`, chunk);
+      parts.push({ part: part.part, etag: part.etag });
+      progress(offset + chunk.length);
+    }
+  } finally {
+    await file.close();
+  }
+  await api("POST", `/files/${f.sha256}/parts/done`, { upload: start.upload, parts });
+}
+
 const size = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.ceil(n / 1024)} KB`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -105,7 +128,8 @@ async function upload(folder, opts) {
   await Promise.all(
     Array.from({ length: 4 }, async () => {
       for (let f = queue.shift(); f; f = queue.shift()) {
-        await api("PUT", `/files/${f.sha256}`, new Uint8Array(await readFile(f.full)));
+        if (f.bytes > DIRECT_BYTES) await sendInParts(f, (n) => process.stdout.write(`\r  ${size(sent + n)} of ${size(total)}   `));
+        else await api("PUT", `/files/${f.sha256}`, new Uint8Array(await readFile(f.full)));
         sent += f.bytes;
         process.stdout.write(`\r  ${size(sent)} of ${size(total)}   `);
       }
@@ -158,16 +182,29 @@ async function main() {
     const slug = opts._[0];
     if (!slug) fail("usage: zaisma versions <slug>");
     const { versions } = await api("GET", `/games/${slug}`);
-    for (const v of versions) console.log(`${v.id}  ${new Date(v.created_at).toISOString().slice(0, 16).replace("T", " ")}  ${(v.live ? "live" : v.scan).padEnd(9)} ${v.preview_url ?? ""}`);
+    for (const v of versions) console.log(`${v.id}  ${new Date(v.created_at).toISOString().slice(0, 16).replace("T", " ")}  ${(v.live ? "live" : v.scan).padEnd(9)} ${v.preview_url ?? ""}${v.publish_at ? `  goes live ${new Date(v.publish_at).toLocaleString()}` : ""}`);
     return;
   }
   if (command === "publish") {
     const [slug, id] = opts._;
     if (!slug || !id) fail("usage: zaisma publish <slug> <version>");
+    if (typeof opts.at === "string") {
+      const at = new Date(opts.at.includes("T") || /z$|[+-]\d\d:?\d\d$/i.test(opts.at) ? opts.at : opts.at.replace(" ", "T"));
+      if (Number.isNaN(at.getTime())) fail('give --at as a date and time, like "2026-11-01 17:00".');
+      const { version } = await api("POST", `/games/${slug}/versions/${id}/publish`, { at: at.getTime() });
+      console.log(`Version ${id} will go live at ${new Date(version.publish_at).toLocaleString()}${version.scan === "scanning" ? ", if it has passed the scan by then" : ""}.`);
+      return;
+    }
     const { game } = await api("POST", `/games/${slug}/versions/${id}/publish`);
     console.log(`Version ${id} is live at ${game.url}`);
     if (game.visibility === "draft") console.log(`The game is still a draft, so only you can see it. Show it with: zaisma show ${slug} --visibility listed`);
     return;
+  }
+  if (command === "unschedule") {
+    const [slug, id] = opts._;
+    if (!slug || !id) fail("usage: zaisma unschedule <slug> <version>");
+    await api("DELETE", `/games/${slug}/versions/${id}/publish`);
+    return console.log(`Version ${id} won't be published by itself.`);
   }
   if (command === "show") {
     const slug = opts._[0];

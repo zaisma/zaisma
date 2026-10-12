@@ -22,6 +22,7 @@ import {
   KEEP_VERSIONS,
   approveDraft,
   blobKey,
+  ownedBlobKey,
   manifestKey,
 } from "@zaisma/core";
 import { deletePrefix } from "./upload.ts";
@@ -231,7 +232,7 @@ export async function versionFiles(env: Env, version: Version): Promise<FileRef[
     const manifest = await env.GAMES.get(manifestKey(version.id));
     if (!manifest) throw new Error(`No manifest for version ${version.id}`);
     const { files } = (await manifest.json()) as Manifest;
-    return Object.entries(files).map(([path, f]) => ({ path, key: blobKey(f.sha256), size: f.bytes }));
+    return Object.entries(files).map(([path, f]) => ({ path, key: f.owner ? ownedBlobKey(f.owner, f.sha256) : blobKey(f.sha256), size: f.bytes }));
   }
   const out: FileRef[] = [];
   let cursor: string | undefined;
@@ -263,9 +264,12 @@ export async function pruneVersions(env: Env, gameId: string): Promise<void> {
   const game = await gameById(env.DB, gameId);
   const { results } = await env.DB.prepare("SELECT * FROM versions WHERE game_id = ? AND scan_status = 'approved' ORDER BY created_at DESC").bind(gameId).all<Version>();
   const old = results.filter((v) => v.id !== game?.current_version_id).slice(KEEP_VERSIONS);
-  for (const v of old) {
-    if (v.kind === "files") await env.GAMES.delete(manifestKey(v.id));
-    else await deletePrefix(env.GAMES, v.r2_prefix);
-    await env.DB.prepare("DELETE FROM versions WHERE id = ?").bind(v.id).run();
-  }
+  for (const v of old) await deleteVersion(env, v);
+}
+
+/** Delete a version and its own files. Shared files are left for the daily cleanup. */
+export async function deleteVersion(env: Env, v: Version): Promise<void> {
+  if (v.kind === "files") await env.GAMES.delete(manifestKey(v.id));
+  else await deletePrefix(env.GAMES, v.r2_prefix);
+  await env.DB.prepare("DELETE FROM versions WHERE id = ?").bind(v.id).run();
 }
