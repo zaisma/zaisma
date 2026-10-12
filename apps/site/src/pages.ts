@@ -30,6 +30,7 @@ export async function gamePage(env: Env, slug: string, url: URL): Promise<Respon
   const src = gameUrl(env, game.slug) + (ROOM_CODE.test(code) ? `?room=${code}` : "");
   const multiplayer = Boolean(game.game_server || game.connect_hosts);
   const ownServers = game.connect_hosts.split("\n").filter(Boolean).map((o) => o.replace(/^[a-z]+:\/\//, ""));
+  const more = (await liveGames(env.DB)).filter((g) => g.id !== game.id).slice(0, 12);
   return layout(env, {
     title: `${game.title} on Zaisma`,
     bare: true,
@@ -40,24 +41,56 @@ body{display:flex;flex-direction:column;height:100vh;height:100dvh;overflow:hidd
 .bar h1{font-size:15px;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
 .bar .btn{padding:6px 10px;font-size:13px}
 .bar .servers{font-size:12px;color:var(--muted);white-space:nowrap}
-@media (max-width:600px){.bar .servers{display:none}}
-iframe{flex:1;border:0;width:100%;background:#000}
+.bar .btn[aria-pressed="true"]{background:var(--panel);border-color:#55585f}
+.short{display:none}
+@media (max-width:600px){.bar .servers{display:none}.bar{gap:6px;padding:8px}.long{display:none}.short{display:inline}}
+/* Our controls sit beside or below the game, never over it: opening More games makes the game smaller. */
+.stage{flex:1;display:flex;min-height:0}
+iframe{flex:1;border:0;width:100%;min-width:0;background:#000}
+.more{width:300px;flex:none;border-left:1px solid var(--line);overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px}
+.more[hidden]{display:none}
+.more h2{font-size:14px;margin:0;color:var(--muted);font-weight:500}
+.more .card{min-height:0;padding:12px}
+.more .card h3{font-size:15px;margin:0 0 4px}
+.more .card p{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.more .card .pill{margin-top:6px}
+@media (max-width:700px){.stage{flex-direction:column}.more{order:-1;width:auto;max-height:42%;border-left:0;border-bottom:1px solid var(--line)}}
 </style>
 <div class="bar">
   <a href="/"><img src="/zaisma-mark-metal.svg" alt="Zaisma"></a>
   <h1>${game.title}</h1>
   ${ownServers.length ? html`<span class="servers" title="This game also connects to its own servers">Connects to ${ownServers.join(", ")}</span>` : ""}
-  <button class="btn ghost" id="share" type="button">${multiplayer ? "Invite" : "Copy link"}</button>
-  <button class="btn ghost" id="full" type="button">Full screen</button>
+  <button class="btn ghost" id="share" type="button">${multiplayer ? "Invite" : html`<span class="long">Copy link</span><span class="short">Share</span>`}</button>
+  <button class="btn ghost" id="more" type="button" aria-controls="more-games" aria-pressed="false"><span class="long">More games</span><span class="short">More</span></button>
+  <button class="btn ghost" id="full" type="button"><span class="long">Full screen</span><span class="short">Full</span></button>
   <a class="btn ghost" href="/g/${game.slug}/report">Report</a>
 </div>
+<div class="stage">
 <iframe id="game" src="${src}" title="${game.title}"
   sandbox="allow-scripts allow-same-origin allow-pointer-lock"
   allow="fullscreen; gamepad; autoplay" allowfullscreen referrerpolicy="no-referrer"></iframe>
+<aside class="more" id="more-games" hidden aria-label="More games">
+  <h2>More games</h2>
+  ${more.length
+      ? more.map((g) => html`<a class="card" href="/g/${g.slug}"><h3>${g.title}</h3>${g.description ? html`<p>${g.description}</p>` : ""}${g.game_server || g.connect_hosts ? html`<span class="pill">Multiplayer</span>` : ""}</a>`)
+      : html`<p class="empty" style="padding:0">More games are on their way.</p>`}
+  <a class="btn ghost" href="/">All games</a>
+</aside>
+</div>
 <script>
 const frame = document.getElementById("game");
 const share = document.getElementById("share");
-document.getElementById("full").onclick = () => frame.requestFullscreen?.();
+const full = document.getElementById("full");
+const moreBtn = document.getElementById("more");
+const morePanel = document.querySelector("aside.more");
+// iPhones can't put a frame in full screen, so don't offer it there.
+if (!document.fullscreenEnabled || !frame.requestFullscreen) full.hidden = true;
+full.onclick = () => frame.requestFullscreen();
+moreBtn.onclick = () => {
+  morePanel.hidden = !morePanel.hidden;
+  moreBtn.setAttribute("aria-pressed", String(!morePanel.hidden));
+  if (morePanel.hidden) frame.focus();
+};
 share.onclick = async () => {
   const label = share.textContent;
   // Phones get the share sheet; computers copy the link.
