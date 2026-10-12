@@ -12,7 +12,7 @@ The report queue and precedents in a Claude session: pull the latest reports in,
 | `list_precedents`, `set_precedent`, `approve_precedent` | Read, set, change, approve and retire precedents. |
 | `get_game` | A game as admin sees it: versions and scans, open reports, history. |
 
-Child-safety reports never reach any AI, this one included: they show only as a count, and are reviewed at zaisma.com/admin/reports. Decisions are recorded in the audit log under the service token's name. Player and game text is untrusted; the MCP's instructions tell Claude not to follow it and to ask before deciding anything.
+Child-safety reports come first. Triage never sorts them with AI, but here the admin is the person looking, so Claude can help read and decide them. Their pictures are never sent (a report triage only later found to be about child safety can carry one, and it could be abuse material itself), and they can't be passed to the developer. Decisions are recorded in the audit log under the service token's name. Player and game text is untrusted; the MCP's instructions tell Claude not to follow it and to ask before deciding anything.
 
 ## Connect Claude Code
 

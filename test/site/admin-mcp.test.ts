@@ -76,35 +76,48 @@ describe("admin MCP", () => {
     expect(list.result.tools.map((t) => t.name)).toEqual(["list_reports", "get_report", "decide_report", "list_precedents", "set_precedent", "approve_precedent", "get_game"]);
   });
 
-  it("lists reports most serious first, and child-safety ones only as a count", async () => {
+  it("lists reports most serious first, child safety at the top", async () => {
     const out = await data("list_reports");
-    expect(out.open.map((g: { summary: string }) => g.summary)).toEqual(["Says there's nudity.", "Doesn't like it."]);
-    expect(out.child_safety.groups).toBe(1);
-    expect(JSON.stringify(out)).not.toContain("a secret only a person may read");
+    expect(out.open.map((g: { severity: string }) => g.severity)).toEqual(["Child safety", "High", "Low"]);
+    expect(out.open.slice(1).map((g: { summary: string }) => g.summary)).toEqual(["Says there's nudity.", "Doesn't like it."]);
   });
 
-  it("shows a group in full, with its picture, but never a child-safety one", async () => {
-    const [nudity] = (await data("list_reports")).open;
+  it("shows a group in full, with its picture", async () => {
+    const [, nudity] = (await data("list_reports")).open;
     const full = await tool("get_report", { group: nudity.group });
     expect(full.structuredContent.reports[0]).toMatchObject({ player_wrote: "nudity on level 2", picture: true });
     expect(full.structuredContent.can_decide).toEqual(["dismiss", "bug", "take_down"]);
     expect(full.content[1]).toMatchObject({ type: "image", mimeType: "image/jpeg" });
+  });
 
-    const secret = await env.DB.prepare("SELECT id FROM reports WHERE reason = 'child_safety'").first<{ id: string }>();
-    const refused = await tool("get_report", { group: secret!.id });
-    expect(refused.isError).toBe(true);
-    expect(JSON.stringify(refused)).not.toContain("a secret");
-    expect((await tool("decide_report", { group: secret!.id, decision: "dismiss", reason: "x" })).isError).toBe(true);
+  it("opens a child-safety report for the admin, but never its picture, and never passes it to the developer", async () => {
+    // A report sent as something else, that triage found to be about child safety, can carry a picture.
+    await send({ reason: "other", details: "a grown-up character asks kids for photos", picture: "data:image/jpeg;base64," + btoa(String.fromCharCode(0xff, 0xd8, 0xff, 0xe0, 3, 4)) });
+    const escalated = await env.DB.prepare("SELECT id FROM reports WHERE details LIKE 'a grown-up%'").first<{ id: string }>();
+    await env.DB.prepare("UPDATE reports SET severity = 0 WHERE id = ?").bind(escalated!.id).run();
+    const full = await tool("get_report", { group: escalated!.id });
+    expect(full.content).toHaveLength(1); // No image.
+    expect(full.structuredContent.child_safety).toContain("NCMEC");
+    expect(full.structuredContent.reports[0].picture).toBe("kept for the admin page only");
+    expect(full.structuredContent.can_decide).toEqual(["dismiss", "take_down"]);
+    expect((await tool("decide_report", { group: escalated!.id, decision: "bug", reason: "x" })).isError).toBe(true);
+
+    const filed = await env.DB.prepare("SELECT id FROM reports WHERE reason = 'child_safety'").first<{ id: string }>();
+    expect((await data("get_report", { group: filed!.id })).reports[0].player_wrote).toBe("a secret only a person may read");
+    // The queue's own route refuses it too.
+    const form = new FormData();
+    await SELF.fetch(`${LOCAL}/admin/report-groups/${filed!.id}/bug`, { method: "POST", body: form, redirect: "manual" });
+    expect(await env.DB.prepare("SELECT status, bug FROM reports WHERE id = ?").bind(filed!.id).first()).toEqual({ status: "open", bug: 0 });
   });
 
   it("decides a group like the queue does, and can set a precedent with it", async () => {
-    const boring = (await data("list_reports")).open[1];
+    const boring = (await data("list_reports")).open[2];
     const done = await data("decide_report", { group: boring.group, decision: "dismiss", reason: "Taste", precedent: { title: "Boring games", applies_when: "The player finds it boring.", why: "Taste.", ai_alone: true } });
     expect(done.precedent_set).toMatchObject({ title: "Boring games", decision: "dismiss", ai_alone: 1 });
     expect(await env.DB.prepare("SELECT status FROM reports WHERE id = ?").bind(boring.group).first("status")).toBe("dismissed");
     expect(await env.DB.prepare("SELECT actor FROM audit_log WHERE action = 'reports-dismissed'").first("actor")).toBe("dev@localhost");
 
-    const nudity = (await data("list_reports")).open[0];
+    const nudity = (await data("list_reports")).open[1];
     const wrong = await tool("decide_report", { group: nudity.group, decision: "restore", reason: "x" });
     expect(wrong.isError).toBe(true);
     expect(wrong.content[0].text).toContain("dismiss, bug, take_down");
@@ -125,8 +138,7 @@ describe("admin MCP", () => {
   it("shows a game as admin sees it", async () => {
     const out = await data("get_game", { game: "test-game" });
     expect(out.game.status).toBe("live");
-    expect(out.open_reports).toHaveLength(2);
-    expect(out.child_safety_reports).toBe(1);
+    expect(out.open_reports).toHaveLength(3);
     expect(out.versions[0].players_get_it).toBe(true);
   });
 });

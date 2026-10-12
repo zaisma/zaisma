@@ -232,6 +232,8 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     const { results: group } = await env.DB.prepare("SELECT * FROM reports WHERE (id = ? OR group_id = ?) AND status = 'open'").bind(m[1]!, m[1]!).all<Report>();
     if (!group.length) return back("/admin/reports");
     const gameId = group[0]!.game_id;
+    // Never passed to the developer: telling them could warn someone abusing a child.
+    if (m[2] === "bug" && group.some((r) => r.severity === 0 || r.reason === "child_safety")) return back("/admin/reports");
     if (m[2] === "bug") {
       await env.DB.prepare("UPDATE reports SET bug = 1, bug_at = COALESCE(bug_at, ?) WHERE (id = ? OR group_id = ?) AND status = 'open'").bind(Date.now(), m[1]!, m[1]!).run();
       await closeReportGroup(env.DB, m[1]!, "actioned");
@@ -565,7 +567,7 @@ function groupCard(g: ReportGroup, pausedUpdate: string | undefined): Raw {
         ? html`${button("Put the game back", `/admin/games/${game.game_id}/restore`, rec === "restore" || rec === "dismiss")}${button("Take down", `/admin/games/${game.game_id}/takedown`, rec === "take_down", true)}`
         : pausedUpdate
           ? html`${button("Put the update back", `/admin/versions/${pausedUpdate}/approve`, rec === "restore" || rec === "dismiss")}${button("Keep the update off", `/admin/versions/${pausedUpdate}/reject`, false)}${button("Take down", `/admin/games/${game.game_id}/takedown`, rec === "take_down", true)}`
-          : html`${button("Dismiss", `/admin/report-groups/${g.id}/dismiss`, rec === "dismiss")}${button("Tell the developer", `/admin/report-groups/${g.id}/bug`, rec === "bug")}${button("Take down", `/admin/games/${game.game_id}/takedown`, rec === "take_down", true)}`}
+          : html`${button("Dismiss", `/admin/report-groups/${g.id}/dismiss`, rec === "dismiss")}${g.severity === 0 ? "" : button("Tell the developer", `/admin/report-groups/${g.id}/bug`, rec === "bug")}${button("Take down", `/admin/games/${game.game_id}/takedown`, rec === "take_down", true)}`}
     </div>
   </form>
 </article>`;
