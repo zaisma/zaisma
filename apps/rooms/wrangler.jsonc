@@ -1,0 +1,26 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "zaisma-rooms",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  // Multiplayer rooms. It sets no cookies, and zaisma.com sets no domain-wide cookies.
+  "routes": [{ "pattern": "rooms.zaisma.com", "custom_domain": true }],
+  "workers_dev": false,
+  "observability": { "enabled": true },
+  "vars": {
+    "ISSUER": "https://rooms.zaisma.com",
+    "SITE_ORIGIN": "https://zaisma.com",
+    "GAME_HOST_MODE": "subdomain",
+    "GAME_ORIGIN": "https://zaismausercontent.com",
+    "GAME_DOMAIN": "zaismausercontent.com"
+    // Secret (wrangler secret put): PASS_SIGNING_KEY, an Ed25519 private JWK.
+  },
+  // One Durable Object per room, SQLite-backed (required on the free plan), always with WebSocket hibernation.
+  "durable_objects": { "bindings": [{ "name": "ROOMS", "class_name": "Room" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }],
+  "d1_databases": [{ "binding": "DB", "database_name": "zaisma", "database_id": "bffea7a7-f905-4eaf-84f2-97b1fb6bf932", "migrations_dir": "../../migrations" }],
+  "ratelimits": [
+    { "name": "PASS_LIMIT", "namespace_id": "1002", "simple": { "limit": 20, "period": 60 } },
+    { "name": "ROOM_LIMIT", "namespace_id": "1003", "simple": { "limit": 10, "period": 60 } }
+  ]
+}

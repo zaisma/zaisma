@@ -1,7 +1,10 @@
 import { cloudflareTest, readD1Migrations } from "@cloudflare/vitest-plugin";
 import { defineConfig } from "vitest/config";
+import { generateSigningKey } from "./packages/game-server/src/pass.ts";
 
 const migrations = await readD1Migrations("migrations");
+// A throwaway pass signing key for tests. The real one is a Worker secret.
+const passKey = await generateSigningKey();
 
 const worker = (name: string, configPath: string, extraBindings: Record<string, string> = {}) => ({
   extends: true as const,
@@ -32,6 +35,15 @@ export default defineConfig({
       }),
       worker("games", "apps/games/wrangler.jsonc", { SITE_ORIGIN: "https://zaisma.test", GAME_HOST_MODE: "path", GAME_DOMAIN: "" }),
       worker("core", "apps/games/wrangler.jsonc"),
+      worker("game-server", "apps/games/wrangler.jsonc"),
+      worker("rooms", "apps/rooms/wrangler.jsonc", {
+        ISSUER: "https://rooms.zaisma.test",
+        SITE_ORIGIN: "https://zaisma.test",
+        GAME_HOST_MODE: "path",
+        GAME_ORIGIN: "https://games.zaisma.test",
+        GAME_DOMAIN: "",
+        PASS_SIGNING_KEY: passKey,
+      }),
     ],
   },
 });

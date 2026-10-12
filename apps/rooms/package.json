@@ -1,0 +1,13 @@
+{
+  "name": "@zaisma/rooms",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --port 8789 --persist-to ../../.wrangler/state",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@zaisma/core": "*",
+    "@zaisma/game-server": "*"
+  }
+}

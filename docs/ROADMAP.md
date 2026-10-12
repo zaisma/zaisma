@@ -54,9 +54,9 @@ Detailed plan approved: guest passes, game server API, rooms, SDK, demos.
 
 | Status | Must/Nice | Item | Needs | Notes |
 | --- | --- | --- | --- | --- |
-| next | Must | Player passes | | Signed guest passes any server can check, published keys |
-| next | Must | Game server API and relay | | Server-client by default; messages-only relay for simple games |
-| next | Must | Rooms on rooms.zaisma.com | Player passes, Game server API and relay | Durable Objects with hibernation; limits, takedowns end rooms |
+| doing | Must | Player passes | | Signed guest passes any server can check, published keys |
+| doing | Must | Game server API and relay | | Server-client by default; messages-only relay for simple games |
+| doing | Must | Rooms on rooms.zaisma.com | Player passes, Game server API and relay | Durable Objects with hibernation; limits, takedowns end rooms |
 | next | Must | Games can reach our rooms and their own servers | Rooms on rooms.zaisma.com | Own servers set per game and listed on the game page |
 | next | Must | Client SDK | Rooms on rooms.zaisma.com | `joinRoom`, invite links, reconnecting |
 | next | Must | Room invite links | Client SDK | Tap a link, land in the match as a guest |

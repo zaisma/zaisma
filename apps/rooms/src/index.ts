@@ -1,0 +1,131 @@
+import { guestName, isRoomCode, jwks, loadSigningKey, roomCode, signPass, type SigningKey } from "@zaisma/game-server";
+import { gameServer } from "./registry.ts";
+
+export { Room } from "./room.ts";
+
+export interface Env {
+  DB: D1Database;
+  ROOMS: DurableObjectNamespace;
+  PASS_LIMIT?: RateLimit;
+  ROOM_LIMIT?: RateLimit;
+  ISSUER: string;
+  SITE_ORIGIN: string;
+  GAME_HOST_MODE: "path" | "subdomain";
+  GAME_ORIGIN: string;
+  GAME_DOMAIN: string;
+  PASS_SIGNING_KEY: string;
+}
+
+/** Guest passes last a day; the SDK keeps them only for the browser tab. */
+const PASS_SECONDS = 24 * 3600;
+
+export interface RoomGame {
+  id: string;
+  slug: string;
+  status: string;
+  current_version_id: string | null;
+  game_server: string | null;
+}
+
+export async function playableGame(db: D1Database, slug: string): Promise<RoomGame | null> {
+  const game = await db.prepare("SELECT id, slug, status, current_version_id, game_server FROM games WHERE slug = ?").bind(slug).first<RoomGame>();
+  return game && game.status === "live" && game.current_version_id ? game : null;
+}
+
+/** The origin a game is served from. Only that origin may get passes or join its rooms. */
+export async function isGameOrigin(env: Env, slug: string, origin: string | null): Promise<boolean> {
+  if (!origin) return false;
+  if (env.GAME_HOST_MODE === "subdomain" && env.GAME_DOMAIN) {
+    if (origin === `https://${slug}.${env.GAME_DOMAIN}`) return true;
+    const host = URL.canParse(origin) ? new URL(origin).hostname : "";
+    const custom = await env.DB.prepare("SELECT 1 FROM domains JOIN games ON games.id = domains.game_id WHERE domains.hostname = ? AND games.slug = ?").bind(host, slug).first();
+    return custom !== null && origin === `https://${host}`;
+  }
+  return origin === new URL(env.GAME_ORIGIN).origin;
+}
+
+let signing: { secret: string; key: Promise<SigningKey> } | null = null;
+export function signingKey(env: Env): Promise<SigningKey> {
+  if (signing?.secret !== env.PASS_SIGNING_KEY) signing = { secret: env.PASS_SIGNING_KEY, key: loadSigningKey(env.PASS_SIGNING_KEY) };
+  return signing.key;
+}
+
+function json(body: unknown, status = 200, origin?: string): Response {
+  const headers: Record<string, string> = { "Cache-Control": "no-store" };
+  if (origin) {
+    headers["Access-Control-Allow-Origin"] = origin;
+    headers["Vary"] = "Origin";
+  }
+  return Response.json(body, { status, headers });
+}
+
+/** Body is sent as text/plain JSON so the browser doesn't need a preflight request. */
+async function readGame(request: Request): Promise<string | null> {
+  try {
+    const body = JSON.parse(await request.text()) as { game?: unknown };
+    return typeof body.game === "string" && /^[a-z0-9-]{1,40}$/.test(body.game) ? body.game : null;
+  } catch {
+    return null;
+  }
+}
+
+async function limited(limit: RateLimit | undefined, request: Request): Promise<boolean> {
+  // Keyed by connection address, checked by Cloudflare and never stored.
+  return limit ? !(await limit.limit({ key: request.headers.get("cf-connecting-ip") ?? "local" })).success : false;
+}
+
+export default {
+  async fetch(request, env): Promise<Response> {
+    const url = new URL(request.url);
+    const origin = request.headers.get("origin");
+
+    if (url.pathname === "/.well-known/jwks.json") {
+      const key = await signingKey(env);
+      return Response.json(jwks([key.publicKey]), { headers: { "Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=3600" } });
+    }
+
+    if (request.method === "POST" && (url.pathname === "/v1/pass" || url.pathname === "/v1/rooms")) {
+      const slug = await readGame(request);
+      if (!slug || !(await isGameOrigin(env, slug, origin))) return json({ error: "Not allowed from here." }, 403);
+      const cors = origin!;
+      const game = await playableGame(env.DB, slug);
+      if (!game) return json({ error: "This game isn't available right now." }, 404, cors);
+
+      if (url.pathname === "/v1/pass") {
+        if (await limited(env.PASS_LIMIT, request)) return json({ error: "Too many requests. Try again in a minute." }, 429, cors);
+        const now = Math.floor(Date.now() / 1000);
+        const player = { id: `g_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`, name: guestName() };
+        const pass = await signPass(await signingKey(env), { sub: player.id, name: player.name, aud: slug, iss: env.ISSUER, kind: "guest", iat: now, exp: now + PASS_SECONDS });
+        return json({ pass, player, expiresAt: (now + PASS_SECONDS) * 1000 }, 200, cors);
+      }
+
+      if (!gameServer(game.game_server)) return json({ error: "This game doesn't use Zaisma rooms." }, 404, cors);
+      if (await limited(env.ROOM_LIMIT, request)) return json({ error: "Too many requests. Try again in a minute." }, 429, cors);
+      return json({ code: roomCode() }, 200, cors);
+    }
+
+    const m = url.pathname.match(/^\/v1\/rooms\/([a-z0-9-]{1,40})\/([A-Z0-9]{6})$/);
+    if (m && request.method === "GET") {
+      const [, slug, code] = m as unknown as [string, string, string];
+      if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") return new Response("Expected a WebSocket", { status: 426 });
+      if (!isRoomCode(code) || !(await isGameOrigin(env, slug, origin))) return new Response("Not allowed from here", { status: 403 });
+      const game = await playableGame(env.DB, slug);
+      if (!game || !gameServer(game.game_server)) return new Response("This game isn't available right now", { status: 404 });
+
+      const headers = new Headers(request.headers);
+      headers.set("x-game-id", game.id);
+      headers.set("x-game-slug", game.slug);
+      headers.set("x-game-server", game.game_server!);
+      try {
+        return await env.ROOMS.get(env.ROOMS.idFromName(`${slug}:${code}`)).fetch(new Request(request, { headers }));
+      } catch (err) {
+        // Past the free plan's daily Durable Object limit, say so instead of failing silently.
+        console.error("Room unavailable:", err);
+        return new Response("Rooms are busy. Try again soon.", { status: 503 });
+      }
+    }
+
+    if (url.pathname === "/") return Response.redirect(env.SITE_ORIGIN, 302);
+    return new Response("Not found", { status: 404 });
+  },
+} satisfies ExportedHandler<Env>;
