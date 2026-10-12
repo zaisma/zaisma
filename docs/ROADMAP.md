@@ -77,7 +77,7 @@ Detailed plan approved: guest passes, game server API, rooms, SDK, demos.
 | doing | Must | Cloud saves | Sign-in, Client SDK | Mirrors the game's own browser saves, no code needed. Stored in R2; the player chooses when two devices disagree. localStorage first, then IndexedDB |
 | planned | Must | "Keep your progress" | Cloud saves | Turns a guest into an account |
 | planned | Must | Save history | Cloud saves | Keep the last few versions of every cloud save, so "my progress is gone" fixes itself |
-| planned | Nice | Passkeys | Sign-in | Face ID or fingerprint to sign back in; the email code stays for new accounts and lost devices |
+| planned | Must | Passkeys | Sign-in | Face ID or fingerprint to sign back in; the email code stays for new accounts and lost devices |
 | planned | Nice | Google and Discord sign-in | Sign-in, Age question | The age question still comes first for new accounts |
 
 ### Creator publishing (build track 3)
@@ -113,7 +113,7 @@ The platform works but looks and feels rough. No outreach, no listings for other
 | planned | Must | Design system | | Type, colors, spacing and components from the brand, used by every page |
 | planned | Must | Home page | Design system | A real front door: what Zaisma is, featured and new games, Play in one tap |
 | planned | Must | Browse games | Design system | A proper games page with covers and genres until Phase 4 discovery |
-| planned | Must | Account pages | Design system | Sign-in, account, saves and sign-in methods, all polished |
+| planned | Must | Account pages | Design system, Passkeys | Sign-in, account, saves and sign-in methods (passkeys), all polished |
 | planned | Must | Game management | Design system, Creator dashboard | Upload, details, versions, visibility and stats that feel good to use |
 | planned | Must | Ready for outreach | Design system, Home page, Browse games, Account pages, Game management | Julius decides; outreach and link-out listings start here |
 
