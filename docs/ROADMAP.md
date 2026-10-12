@@ -110,7 +110,7 @@ The platform works but looks and feels rough. No outreach, no listings for other
 
 | Status | Must/Nice | Item | Needs | Notes |
 | --- | --- | --- | --- | --- |
-| planned | Must | Design system | | Type, colors, spacing and components from the brand, used by every page |
+| doing | Must | Design system | | Type, colors, spacing and components from the brand, used by every page. Three home page directions mocked up; Julius picks one |
 | planned | Must | Home page | Design system | A real front door: what Zaisma is, featured and new games, Play in one tap |
 | planned | Must | Browse games | Design system | A proper games page with covers and genres until Phase 4 discovery |
 | planned | Must | Account pages | Design system, Passkeys | Sign-in, account, saves and sign-in methods (passkeys), all polished |
