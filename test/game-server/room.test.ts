@@ -32,7 +32,7 @@ describe("RoomCore", () => {
     const room = new RoomCore(counter, t);
     room.join({ id: "a", name: "A" });
     room.join({ id: "b", name: "B" });
-    expect(sent.a![0]).toEqual({ t: "welcome", me: { id: "a", name: "A" }, players: [{ id: "a", name: "A" }] });
+    expect(sent.a![0]).toEqual({ t: "welcome", me: { id: "a", name: "A" }, players: [{ id: "a", name: "A" }], room: { listed: true, open: true } });
     expect(sent.a!.at(-1)).toEqual({ t: "players", players: [{ id: "a", name: "A" }, { id: "b", name: "B" }] });
 
     expect(room.receive("a", msg("hit"))).toBeNull();
@@ -102,6 +102,55 @@ describe("RoomCore", () => {
     room.receive("a", msg({ x: 1 }));
     expect(sent.b!.at(-1)).toEqual({ t: "msg", d: { from: "a", data: { x: 1 } } });
     expect(sent.a!.length).toBe(before);
+  });
+
+  it("a closed room takes no new players, but lets back players who were in it", () => {
+    const lobby = defineGameServer({
+      maxPlayers: 4,
+      setup: () => ({}),
+      onMessage: (_s, _p, msg, room) => room.setOpen(msg !== "start"),
+    });
+    const { t, sent } = transport();
+    const room = new RoomCore(lobby, t);
+    room.join({ id: "a", name: "A" });
+    room.join({ id: "b", name: "B" });
+    room.listingChanged = false;
+    room.receive("a", msg("start"));
+    expect(room.open).toBe(false);
+    expect(room.listingChanged).toBe(true);
+    expect(sent.b!.at(-1)).toEqual({ t: "room", room: { listed: true, open: false } });
+    expect(room.join({ id: "c", name: "C" })).toEqual({ ok: false, code: "closed" });
+    room.leave("b");
+    expect(room.join({ id: "b", name: "B" })).toEqual({ ok: true, rejoined: false });
+    // A sleeping room wakes as it was.
+    const woken = new RoomCore(lobby, t, { state: room.state, room: room.saved });
+    expect(woken.join({ id: "c", name: "C" })).toEqual({ ok: false, code: "closed" });
+    expect(woken.join({ id: "a", name: "A" }).ok).toBe(true);
+  });
+
+  it("only the player who makes a room can hide it from the start", () => {
+    const hidden = new RoomCore(counter, transport().t);
+    hidden.join({ id: "a", name: "A" }, { listed: false });
+    expect(hidden.listed).toBe(false);
+    const shown = new RoomCore(counter, transport().t);
+    shown.join({ id: "a", name: "A" });
+    shown.join({ id: "b", name: "B" }, { listed: false });
+    expect(shown.listed).toBe(true);
+  });
+
+  it("with host controls, the first player can hide and close the room, and nobody else can", () => {
+    const { t, sent } = transport();
+    const room = new RoomCore(relay, t);
+    room.join({ id: "a", name: "A" });
+    room.join({ id: "b", name: "B" });
+    expect(room.receive("b", JSON.stringify({ t: "room", open: false }))).toBe("not-allowed");
+    expect(room.open).toBe(true);
+    expect(room.receive("a", JSON.stringify({ t: "room", listed: false, open: false }))).toBeNull();
+    expect(sent.b!.at(-1)).toEqual({ t: "room", room: { listed: false, open: false } });
+    // Without host controls, only the game server decides.
+    const plain = new RoomCore(counter, transport().t);
+    plain.join({ id: "a", name: "A" });
+    expect(plain.receive("a", JSON.stringify({ t: "room", listed: false }))).toBe("not-allowed");
   });
 
   it("checks game server settings", () => {

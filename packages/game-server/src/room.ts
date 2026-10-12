@@ -21,6 +21,12 @@ export interface Room {
   send(playerId: string, msg: unknown): void;
   /** End the match: everyone is disconnected and the room closes. */
   end(reason?: string): void;
+  /** Shown in room lists (the game page and Zaisma.rooms.list). A hidden room still works by code and link. */
+  readonly listed: boolean;
+  setListed(listed: boolean): void;
+  /** Taking new players. A closed room lets back only players who were already in it. */
+  readonly open: boolean;
+  setOpen(open: boolean): void;
 }
 
 type Result<S> = void | S;
@@ -30,6 +36,8 @@ export interface GameServer<S = any> {
   maxPlayers?: number;
   /** Ticks per second, up to 30. Leave out for turn-based games so the room can sleep between moves. */
   tickRate?: number;
+  /** The room's first player may hide, show, open and close it from the game. The relay has this on. */
+  hostControls?: boolean;
   /** The starting state. It must be plain JSON so a sleeping room can be saved and woken. */
   setup(): S;
   onJoin?(state: S, player: Player, room: Room): Result<S>;
@@ -60,27 +68,44 @@ export function defineGameServer<S>(server: GameServer<S>): GameServer<S> {
   return server;
 }
 
-/** Messages from the room to a client. Clients send {t:"hello", pass} first, then {t:"msg", d}. */
+/** Whether a room shows in room lists and takes new players. */
+export interface RoomSettings {
+  listed: boolean;
+  open: boolean;
+}
+
+/**
+ * Messages from the room to a client. Clients send {t:"hello", pass, room?: {listed}} first, then
+ * {t:"msg", d}; with hostControls, the first player may also send {t:"room", listed?, open?}.
+ */
 export type ServerMessage =
-  | { t: "welcome"; me: Player; players: Player[] }
+  | { t: "welcome"; me: Player; players: Player[]; room: RoomSettings }
   | { t: "players"; players: Player[] }
+  | { t: "room"; room: RoomSettings }
   | { t: "msg"; d: unknown }
   | { t: "error"; code: RoomErrorCode; message: string }
   | { t: "ended"; reason: string };
 
-export type RoomErrorCode = "full" | "ended" | "too-big" | "too-fast" | "bad-message" | "bad-pass" | "no-hello" | "game-unavailable" | "busy";
+export type RoomErrorCode = "full" | "closed" | "ended" | "too-big" | "too-fast" | "bad-message" | "bad-pass" | "no-hello" | "not-allowed" | "game-unavailable" | "busy";
 
 export const ERROR_TEXT: Record<RoomErrorCode, string> = {
   full: "This room is full.",
+  closed: "This room isn't taking new players.",
   ended: "This match has ended.",
   "too-big": "Message too big.",
   "too-fast": "Too many messages. Slow down.",
   "bad-message": "Messages must be JSON.",
   "bad-pass": "Your player pass isn't valid for this game.",
   "no-hello": "Send your player pass first.",
+  "not-allowed": "Only the game server or the room's first player can change that.",
   "game-unavailable": "This game isn't available right now.",
   busy: "Rooms are busy. Try again soon.",
 };
+
+/** Listed, open and the players who have been in the room, saved with a sleeping room's state. */
+export interface SavedRoom extends RoomSettings {
+  known: string[];
+}
 
 /** How the room reaches players: a Durable Object's sockets, or a Node server's. */
 export interface Transport {
@@ -97,6 +122,9 @@ export const CLOSE_ENDED = 4000;
 /** Close code for a player refused or removed by the room. */
 export const CLOSE_REFUSED = 4001;
 
+/** How many past players a room remembers, so they can come back to a closed room. */
+const REMEMBERED = 64;
+
 export class RoomCore<S = any> {
   state: S;
   readonly players = new Map<string, Player>();
@@ -105,6 +133,12 @@ export class RoomCore<S = any> {
   messages = 0;
   /** Set when the state changed and a sleeping room should save it. */
   dirty = false;
+  listed = true;
+  open = true;
+  /** Set when the player count, listed or open changed, so the room list can be brought up to date. */
+  listingChanged = false;
+  /** Players who have been in this room, newest last: they may come back after it closes. */
+  readonly known = new Set<string>();
   private buckets = new Map<string, { tokens: number; at: number }>();
   private readonly now: () => number;
   readonly maxPlayers: number;
@@ -112,12 +146,18 @@ export class RoomCore<S = any> {
   readonly server: GameServer<S>;
   private readonly transport: Transport;
 
-  constructor(server: GameServer<S>, transport: Transport, opts: { state?: S; players?: Player[]; now?: () => number } = {}) {
+  constructor(server: GameServer<S>, transport: Transport, opts: { state?: S; players?: Player[]; room?: SavedRoom; now?: () => number } = {}) {
     this.server = server;
     this.transport = transport;
     this.now = opts.now ?? Date.now;
     this.maxPlayers = server.maxPlayers ?? ROOM_LIMITS.defaultPlayers;
     for (const p of opts.players ?? []) this.players.set(p.id, p);
+    if (opts.room) {
+      this.listed = opts.room.listed;
+      this.open = opts.room.open;
+      for (const id of opts.room.known) this.known.add(id);
+    }
+    for (const p of this.players.values()) this.remember(p.id);
     this.state = opts.state !== undefined ? opts.state : server.setup();
     const core = this;
     this.api = {
@@ -129,21 +169,41 @@ export class RoomCore<S = any> {
         if (this.players.has(id)) this.transport.send(id, JSON.stringify({ t: "msg", d: msg } satisfies ServerMessage));
       },
       end: (reason) => this.end(reason ?? "The match is over."),
+      get listed() {
+        return core.listed;
+      },
+      setListed: (listed) => this.settle({ listed: Boolean(listed) }),
+      get open() {
+        return core.open;
+      },
+      setOpen: (open) => this.settle({ open: Boolean(open) }),
     };
+  }
+
+  /** What a sleeping room saves besides the game's state. */
+  get saved(): SavedRoom {
+    return { listed: this.listed, open: this.open, known: [...this.known] };
   }
 
   get ticking(): boolean {
     return this.server.tickRate !== undefined;
   }
 
-  /** A player arrives. Joining again with the same ID (a reconnect) keeps their place. */
-  join(player: Player): { ok: true; rejoined: boolean } | { ok: false; code: RoomErrorCode } {
+  /**
+   * A player arrives. Joining again with the same ID (a reconnect) keeps their place. The player who
+   * makes the room can make it hidden from the start, for a private match.
+   */
+  join(player: Player, opts: { listed?: boolean } = {}): { ok: true; rejoined: boolean } | { ok: false; code: RoomErrorCode } {
     if (this.ended) return { ok: false, code: "ended" };
     const rejoined = this.players.has(player.id);
+    if (!rejoined && !this.open && !this.known.has(player.id)) return { ok: false, code: "closed" };
     if (!rejoined && this.players.size >= this.maxPlayers) return { ok: false, code: "full" };
+    if (this.known.size === 0 && opts.listed === false) this.listed = false;
     this.players.set(player.id, player);
-    this.transport.send(player.id, JSON.stringify({ t: "welcome", me: player, players: this.list() } satisfies ServerMessage));
+    this.remember(player.id);
+    this.transport.send(player.id, JSON.stringify({ t: "welcome", me: player, players: this.list(), room: this.settings() } satisfies ServerMessage));
     if (!rejoined) {
+      this.listingChanged = true;
       this.run(() => this.server.onJoin?.(this.state, player, this.api));
       this.broadcastPlayers();
     }
@@ -155,6 +215,7 @@ export class RoomCore<S = any> {
     if (!player) return;
     this.players.delete(playerId);
     this.buckets.delete(playerId);
+    this.listingChanged = true;
     if (this.ended) return;
     this.run(() => this.server.onLeave?.(this.state, player, this.api));
     this.broadcastPlayers();
@@ -173,9 +234,42 @@ export class RoomCore<S = any> {
     } catch {
       return "bad-message";
     }
+    if (msg && typeof msg === "object" && (msg as { t?: unknown }).t === "room") return this.hostChange(playerId, msg as Partial<RoomSettings>);
     if (!msg || typeof msg !== "object" || (msg as { t?: unknown }).t !== "msg") return "bad-message";
     this.run(() => this.server.onMessage?.(this.state, player, (msg as { d?: unknown }).d, this.api));
     return null;
+  }
+
+  /** The first player hides, shows, opens or closes the room, when the game server allows it. */
+  private hostChange(playerId: string, msg: Partial<RoomSettings>): RoomErrorCode | null {
+    if (!this.server.hostControls || this.players.keys().next().value !== playerId) return "not-allowed";
+    const change: Partial<RoomSettings> = {};
+    if (typeof msg.listed === "boolean") change.listed = msg.listed;
+    if (typeof msg.open === "boolean") change.open = msg.open;
+    this.settle(change);
+    this.dirty = true;
+    return null;
+  }
+
+  private settings(): RoomSettings {
+    return { listed: this.listed, open: this.open };
+  }
+
+  /** Change listed or open, and tell everyone in the room. */
+  private settle(change: Partial<RoomSettings>): void {
+    const next = { ...this.settings(), ...change };
+    if (next.listed === this.listed && next.open === this.open) return;
+    this.listed = next.listed;
+    this.open = next.open;
+    this.listingChanged = true;
+    const text = JSON.stringify({ t: "room", room: next } satisfies ServerMessage);
+    for (const id of this.players.keys()) this.transport.send(id, text);
+  }
+
+  private remember(id: string): void {
+    this.known.delete(id);
+    this.known.add(id);
+    if (this.known.size > REMEMBERED) this.known.delete(this.known.values().next().value!);
   }
 
   tick(dt: number): void {
@@ -186,6 +280,7 @@ export class RoomCore<S = any> {
   end(reason: string): void {
     if (this.ended) return;
     this.ended = true;
+    this.listingChanged = true;
     const text = JSON.stringify({ t: "ended", reason } satisfies ServerMessage);
     for (const id of [...this.players.keys()]) {
       this.transport.send(id, text);

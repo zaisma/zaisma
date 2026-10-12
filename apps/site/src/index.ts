@@ -10,6 +10,7 @@ import { handleMcp } from "./mcp.ts";
 import { handlePlayed, home } from "./home.ts";
 import { gamePage, legal } from "./pages.ts";
 import { reportForm, submitReport } from "./report.ts";
+import { roomsFragment } from "./rooms.ts";
 import { handlePasskeys } from "./passkeys.ts";
 import { handleSaveHistory, handleSaves } from "./saves.ts";
 import { handleScanBatch } from "./scan.ts";
@@ -50,10 +51,12 @@ export default {
     const account = await handleAccount(request, env, path);
     if (account) return account;
 
-    const game = path.match(/^\/g\/([a-z0-9-]+)(\/report)?$/);
+    const game = path.match(/^\/g\/([a-z0-9-]+)(\/report|\/rooms)?$/);
     if (game) {
-      const [, slug, report] = game as unknown as [string, string, string | undefined];
-      if (!report && method !== "POST") return gamePage(env, slug, url);
+      const [, slug, sub] = game as unknown as [string, string, string | undefined];
+      if (sub === "/rooms" && method === "GET") return roomsFragment(env, slug, request);
+      const report = sub === "/report";
+      if (!sub && method !== "POST") return gamePage(env, slug, request);
       if (report && method === "POST") return submitReport(env, request, slug, ctx);
       if (report) return reportForm(env, slug);
     }

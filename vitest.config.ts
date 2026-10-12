@@ -37,6 +37,8 @@ export default defineConfig({
         SUPABASE_URL: "https://supabase.test",
         SUPABASE_PUBLISHABLE_KEY: "sb_publishable_test",
         SUPABASE_SECRET_KEY: "sb_secret_test",
+        // Room lists answer from the database every time, so tests see each change at once.
+        ROOM_LIST_CACHE_SECONDS: "0",
       }, {
         // Tests run scans themselves. Wrangler's options are merged one level deep, so the queue's
         // consumer can't be removed; instead uploads send their scan jobs to a queue nothing reads.
@@ -52,6 +54,7 @@ export default defineConfig({
         GAME_ORIGIN: "https://games.zaisma.test",
         GAME_DOMAIN: "",
         PASS_SIGNING_KEY: passKey,
+        ROOM_LIST_CACHE_SECONDS: "0",
       }),
     ],
   },

@@ -70,7 +70,9 @@ Detailed plan approved: guest passes, game server API, rooms, SDK, demos.
 | done | Must | Admin MCP | AI report triage | Live Oct 12, 2026 at zaisma.com/admin/mcp: reports, games and precedents in a Claude session, decided there. Signed in through Cloudflare Access with a service token (Julius: set one up, see docs/ADMIN-MCP.md). Child-safety reports can be read and decided, never with their pictures |
 | done | Must | Run a game server yourself | Game server API and relay, Player passes | Node runner; same code as our rooms |
 | done | Must | Two demo games | Room invite links | Real-time arena, turn-based four in a row |
-| next | Must | Room browsing | Room invite links | Open rooms on each game's page with player counts; games can hide all or some rooms from browsing (matchmaking, invite-only, rejoin-only) |
+| doing | Must | Room browsing | Room invite links | In the preview: a Rooms tab on each game's page (code, where it runs, how full, never who's in it) and the same list for the game itself (`Zaisma.rooms.list`, `quickJoin`, `linked`). Developers list rooms on the page and in the game, only in the game, or nowhere; games hide single rooms and close a room once a match starts (players who were in it can come back) |
+| next | Must | Room names and labels | Room browsing | Labels like mode and map, and names from the game or its players (a session name, a community map); players filter by them. Names typed by players show on zaisma.com only after Zaisma's text filter, and every listed room can be reported; `Zaisma.filterText` for games that want it. Waiting for Julius to approve the wording for DECISIONS and the content rules |
+| planned | Nice | Own servers list their rooms | Room browsing | Rooms on a developer's own servers show in the same list: their server checks in with Zaisma every minute. For games that outgrow our rooms (more players, bigger servers), so moving off doesn't empty their Rooms tab |
 
 ### Accounts (build track 2)
 

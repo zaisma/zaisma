@@ -1,4 +1,4 @@
-import { CONTROLS, DEVICES, PLAY_STYLES, SCREENS, type PlayerCount, type Players } from "@zaisma/core";
+import { CONTROLS, DEVICES, PLAY_STYLES, ROOM_BROWSING, SCREENS, type PlayerCount, type Players, type RoomBrowsing } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import { ApiError, apiCall, callerFor, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
@@ -22,6 +22,8 @@ interface GameJson {
   screen: string;
   players: Players | null;
   cloud_saves: boolean;
+  zaisma_rooms: boolean;
+  room_browsing: RoomBrowsing;
   waiting_for_review: { title?: string; description?: string } | null;
   updated_at: number;
 }
@@ -55,6 +57,11 @@ const REVIEW: Record<GameJson["review"], string> = { pending: "Not live yet", li
 const DEVICE_LABELS: Record<string, string> = { phone: "Phone", tablet: "Tablet", computer: "Computer" };
 const CONTROL_LABELS: Record<string, string> = { touch: "Touch", "keyboard-mouse": "Keyboard and mouse", gamepad: "Gamepad" };
 const SCREEN_LABELS: Record<string, string> = { "": "Not set", portrait: "Portrait", landscape: "Landscape", either: "Either way" };
+const ROOM_BROWSING_LABELS: Record<RoomBrowsing, { label: string; hint: string }> = {
+  page: { label: "On the game page and in the game", hint: "Players see open rooms on your game's page and can jump in. Your game can list them too, with Zaisma.rooms.list()." },
+  game: { label: "Only in the game", hint: "For games with their own lobby or server browser: your game lists rooms with Zaisma.rooms.list(), and the game page doesn't." },
+  off: { label: "Off", hint: "No room is listed anywhere. Room codes and invite links still work." },
+};
 const DONE: Record<string, string> = {
   made: "Your game is made. Upload a version below.",
   uploaded: "Uploaded. The scan usually takes under a minute; refresh to see the result.",
@@ -114,6 +121,7 @@ export async function handleDashboard(request: Request, env: Env, path: string):
         screen: field("screen"),
         players: playersFrom(form),
         cloud_saves: form.get("cloud_saves") === "on",
+        ...(form.has("room_browsing") ? { room_browsing: field("room_browsing") } : {}),
       })) as { review: string | null };
       return back(res.review ? "details-review" : "details", "#details");
     }
@@ -364,12 +372,23 @@ ${waiting ? html`<p class="note small">Waiting for review: ${[waiting.title ? `t
 <fieldset><legend>Controls</legend><div class="row">${CONTROLS.map((c) => html`<label class="check"><input type="checkbox" name="controls" value="${c}"${g.controls.includes(c) ? raw(" checked") : ""}> ${CONTROL_LABELS[c]}</label>`)}</div></fieldset>
 ${playersFields(g.players)}
 <label>Screen<select name="screen">${["", ...SCREENS].map((s) => html`<option value="${s}"${g.screen === s ? raw(" selected") : ""}>${SCREEN_LABELS[s]}</option>`)}</select></label>
+${g.zaisma_rooms ? roomBrowsingFields(g.room_browsing) : ""}
 <fieldset><legend>Saves</legend>
 <label class="check"><input type="checkbox" name="cloud_saves"${g.cloud_saves ? raw(" checked") : ""}> Cloud saves</label>
 <p class="hint">Signed-in players' progress follows them to any device. It copies the game's own browser saves, so there's nothing to add to your game. Turn it off if your game keeps its own saves on a server.</p>
 </fieldset>
 <button class="btn" type="submit">Save details</button>
 </form>`;
+}
+
+/** Where open rooms on Zaisma are listed. Single rooms can still hide themselves from the game. */
+function roomBrowsingFields(current: RoomBrowsing): Raw {
+  return html`<fieldset class="choices"><legend>Room browsing</legend>
+${ROOM_BROWSING.map(
+    (b) => html`<label class="check"><input type="radio" name="room_browsing" value="${b}"${current === b ? raw(" checked") : ""}> <span>${ROOM_BROWSING_LABELS[b].label}<small class="hint">${ROOM_BROWSING_LABELS[b].hint}</small></span></label>`,
+  )}
+<p class="hint">Your game can also hide single rooms, like private matches: <code>Zaisma.joinRoom({ listed: false })</code>, or <code>room.setListed(false)</code> from your game server.</p>
+</fieldset>`;
 }
 
 function playersFields(p: Players | null): Raw {
@@ -484,6 +503,11 @@ button.link:hover{color:var(--text)}
 .mode-detail input{width:64px;flex:none}
 .mode .hint{margin:4px 0 6px 26px}
 .mode:not(:has(input[type=checkbox]:checked)) .mode-detail,.mode:not(:has(input[type=checkbox]:checked)) .hint{display:none}
+.choices{display:grid;gap:2px}
+.choices .check{align-items:flex-start;min-height:0;padding:8px 0}
+.choices .check input{margin-top:2px}
+.choices .check small{display:block;margin-top:3px;font-size:13px}
+.choices>.hint{margin:6px 0 0}
 input[type=file]{flex:1;min-width:0;padding:9px 12px;color:var(--muted);font-size:14px}
 input[type=file]::file-selector-button{background:var(--raised);color:var(--text);border:0;padding:6px 12px;margin-right:10px;font:inherit;font-weight:600;cursor:pointer}
 @media (max-width:900px){.manage{grid-template-columns:1fr}.game-head{grid-template-columns:96px 1fr}.vis{grid-column:1/-1}.vis .hint{text-align:left}}

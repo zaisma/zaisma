@@ -1,4 +1,4 @@
-import { audit, blobKey, manifestKey, ownedBlobKey, publishVersion, reportPictureKey, type Manifest, type Version } from "@zaisma/core";
+import { OPEN_ROOM_STALE_MS, audit, blobKey, manifestKey, ownedBlobKey, publishVersion, reportPictureKey, type Manifest, type Version } from "@zaisma/core";
 import type { Env } from "./env.ts";
 import { deleteVersion, pruneVersions } from "./scan.ts";
 
@@ -25,7 +25,7 @@ const DAY = 86400_000;
 
 /**
  * Once a day: delete drafts nobody published within 30 days, then files no version uses, then
- * pictures from reports closed more than 30 days ago.
+ * pictures from reports closed more than 30 days ago, then rooms-list rows of rooms that stopped.
  * Held and rejected versions are kept: they may need a person, or a report to the authorities.
  */
 export async function dailyCleanup(env: Env, now = Date.now()): Promise<{ drafts: number; files: number; pictures: number }> {
@@ -68,5 +68,7 @@ export async function dailyCleanup(env: Env, now = Date.now()): Promise<{ drafts
     await env.GAMES.delete(pictures.map((p) => reportPictureKey(p.id)));
     await env.DB.batch(pictures.map((p) => env.DB.prepare("UPDATE reports SET picture = 0 WHERE id = ?").bind(p.id)));
   }
+  // Lists already skip these; a room that stopped without saying so (a restart) leaves one behind.
+  await env.DB.prepare("DELETE FROM open_rooms WHERE updated_at < ?").bind(now - OPEN_ROOM_STALE_MS).run();
   return { drafts: drafts.length, files: keys.length, pictures: pictures.length };
 }

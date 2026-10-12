@@ -83,10 +83,12 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
         return;
       }
       let pass;
+      let listed;
       try {
         const msg = JSON.parse(text ?? "");
         if (msg.t !== "hello" || typeof msg.pass !== "string") return refuse("no-hello");
         pass = msg.pass;
+        if (msg.room?.listed === false) listed = false;
       } catch {
         return refuse("no-hello");
       }
@@ -105,7 +107,8 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
       const room = roomFor(code);
       room.sockets.get(claims.sub)?.close(CLOSE_REFUSED, "Joined from somewhere else");
       room.sockets.set(claims.sub, ws);
-      const result = room.core.join({ id: claims.sub, name: claims.name });
+      // Rooms here aren't in Zaisma's room lists, but listed, open and closed work the same for the game.
+      const result = room.core.join({ id: claims.sub, name: claims.name }, { listed });
       if (!result.ok) {
         room.sockets.delete(claims.sub);
         closeIfEmpty(code, room);

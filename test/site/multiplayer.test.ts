@@ -107,3 +107,53 @@ describe("game details", () => {
     expect(page).toContain("\nplay();");
   });
 });
+
+describe("room browsing on the game page", () => {
+  beforeEach(async () => {
+    await env.DB.exec("DELETE FROM open_rooms; DELETE FROM games;");
+  });
+
+  const room = (gameId: string, code: string, players: number, open = 1, at = Date.now()) =>
+    env.DB.prepare("INSERT INTO open_rooms (game_id, code, players, max_players, open, location, created_at, updated_at) VALUES (?, ?, ?, 8, ?, 'EU', ?, ?)").bind(gameId, code, players, open, at, at).run();
+
+  it("lists open rooms with how full they are and where they run, never who's in them", async () => {
+    const id = await addGame("arena", "relay");
+    await room(id, "BCDFGH", 3);
+    await room(id, "JKLMNP", 8);
+    await room(id, "QRSTVW", 2, 0);
+    await room(id, "XYZ234", 5, 1, Date.now() - 3 * 3600_000);
+    const page = await (await SELF.fetch("https://zaisma.test/g/arena")).text();
+    expect(page).toContain('aria-controls="rooms"');
+    expect(page).toContain('id="rooms-count">1</span>');
+    expect(page).toContain("13 players on now");
+    expect(page).toContain('<a class="btn" href="/g/arena?room=BCDFGH" aria-label="Join room BCDFGH">Join</a>');
+    expect(page).toContain("3 of 8 players");
+    expect(page).toContain("Europe");
+    expect(page).toMatch(/JKLMNP[\s\S]*?<span class="full">Full<\/span>/);
+    // Closed rooms are only counted; rooms that stopped checking in aren't shown at all.
+    expect(page).not.toContain("QRSTVW");
+    expect(page).toContain("Plus 1 match in progress that isn&#39;t taking new players.");
+    expect(page).not.toContain("XYZ234");
+
+    const fragment = await SELF.fetch("https://zaisma.test/g/arena/rooms");
+    expect(fragment.headers.get("content-type")).toContain("text/html");
+    expect(await fragment.text()).toContain('data-joinable="1"');
+  });
+
+  it("says when there's no room to join", async () => {
+    await addGame("arena", "relay");
+    expect(await (await SELF.fetch("https://zaisma.test/g/arena")).text()).toContain("Nobody&#39;s in an open room right now. Press Play to start.");
+  });
+
+  it("leaves rooms off the page for games that list them only in the game, or not at all, and for games without our rooms", async () => {
+    const id = await addGame("lobby", "relay");
+    await room(id, "BCDFGH", 3);
+    for (const browsing of ["game", "off"]) {
+      await env.DB.prepare("UPDATE games SET room_browsing = ? WHERE id = ?").bind(browsing, id).run();
+      expect(await (await SELF.fetch("https://zaisma.test/g/lobby")).text()).not.toContain('aria-controls="rooms"');
+      expect((await SELF.fetch("https://zaisma.test/g/lobby/rooms")).status).toBe(404);
+    }
+    await addGame("solo");
+    expect(await (await SELF.fetch("https://zaisma.test/g/solo")).text()).not.toContain('aria-controls="rooms"');
+  });
+});

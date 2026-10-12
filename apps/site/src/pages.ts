@@ -4,10 +4,12 @@ import { html, layout, message, metalButton, playerModes, raw, siteFooter, siteH
 import { showcase, tile } from "./home.ts";
 import { SAVES_CLIENT } from "./saves-client.ts";
 import { reportSheet } from "./report.ts";
+import { joinable, pageRooms, roomsOnPage, roomsPanel } from "./rooms.ts";
 
 const ROOM_CODE = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/;
 
-export async function gamePage(env: Env, slug: string, url: URL): Promise<Response> {
+export async function gamePage(env: Env, slug: string, request: Request): Promise<Response> {
+  const url = new URL(request.url);
   const game = await gameBySlug(env.DB, slug);
   if (!game || game.status === "pending" || game.visibility === "draft" || game.visibility === "private") return message(env, "Game not found", "Check the link and try again.", 404);
   if (game.status === "removed") return message(env, "This game was removed", "It broke Zaisma's content rules or was taken down on request.", 410);
@@ -24,13 +26,14 @@ export async function gamePage(env: Env, slug: string, url: URL): Promise<Respon
   const multiplayer = Boolean(game.game_server || game.connect_hosts);
   const ownServers = game.connect_hosts.split("\n").filter(Boolean).map((o) => o.replace(/^[a-z]+:\/\//, ""));
   const autoplay = inRoom || url.searchParams.has("play");
-  const [developer, pictures, updates, others] = await Promise.all([
+  const [developer, pictures, updates, others, rooms] = await Promise.all([
     game.owner_id
       ? env.DB.prepare("SELECT accounts.name, (SELECT COUNT(*) FROM games WHERE owner_id = ? AND status = 'live' AND visibility = 'listed') AS games FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE owners.id = ?").bind(game.owner_id, game.owner_id).first<{ name: string; games: number }>()
       : null,
     env.DB.prepare("SELECT id, kind FROM game_images WHERE game_id = ? AND status = 'approved' ORDER BY kind = 'cover' DESC, created_at").bind(game.id).all<{ id: string; kind: string }>(),
     env.DB.prepare("SELECT id, notes, published_at FROM versions WHERE game_id = ? AND published_at IS NOT NULL AND notes != '' ORDER BY published_at DESC LIMIT 10").bind(game.id).all<{ id: string; notes: string; published_at: number }>(),
     showcase(env, 60),
+    roomsOnPage(game) ? pageRooms(env, game, request) : null,
   ]);
   const shots = pictures.results.map((p) => `/img/${p.id}`);
   const more = [...others.filter((g) => g.slug !== game.slug && g.owner_id && g.owner_id === game.owner_id), ...others.filter((g) => g.slug !== game.slug && (!g.owner_id || g.owner_id !== game.owner_id))].slice(0, 4);
@@ -43,6 +46,7 @@ export async function gamePage(env: Env, slug: string, url: URL): Promise<Respon
     controls.length ? html`<div><dt>Controls</dt><dd class="icons">${controls.map((c) => html`<span>${raw(CONTROL_ICONS[c] ?? "")}${CONTROL_LABELS[c] ?? c}</span>`)}</dd></div>` : "",
   ];
   const spec = specRows.some(Boolean) ? html`<dl class="spec">${specRows}</dl>` : "";
+  const tabs = [{ id: "about", label: "About" }, ...(rooms ? [{ id: "rooms", label: "Rooms" }] : []), ...(updates.results.length ? [{ id: "updates", label: "Updates" }] : [])];
   const day = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
   const res = layout(env, {
     title: `${game.title} on Zaisma`,
@@ -94,11 +98,41 @@ main.gp{max-width:1240px;margin:0 auto;padding:30px 24px 72px}
 .tabs button[aria-selected=true]{color:var(--text)}
 .tabs button[aria-selected=true]::after{content:"";position:absolute;left:-4px;right:-4px;bottom:0;height:3px;background:var(--chrome);box-shadow:0 0 14px rgba(225,230,240,.35)}
 .about{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:36px;align-items:start}
+[role=tabpanel][hidden]{display:none}
+/* A link to a tab (#rooms, #updates) lands with the tabs in view, below the header. */
+[role=tabpanel]{scroll-margin-top:150px}
 .about .desc{font-size:18px;line-height:1.6;color:var(--text-2);white-space:pre-line;margin:0 0 16px;max-width:68ch}
 .dev-card{display:flex;align-items:center;gap:14px;padding:16px;text-decoration:none}
 .dev-card .av{flex:none;width:48px;height:48px;display:grid;place-items:center;font-weight:700;font-family:var(--display);font-size:22px;color:#0b0b0c;background:var(--chrome);box-shadow:inset 1px 1px 0 #fff,inset -1px -1px 0 #000}
 .dev-card strong{font-family:var(--display);font-weight:600;font-size:17px}
 .dev-card small{display:block;color:var(--muted);font-size:13px}
+.tab-count{display:inline-block;margin-left:9px;padding:1px 7px;vertical-align:2px;font-size:13px;font-weight:600;color:var(--text);background:rgba(0,0,0,.4);box-shadow:inset 0 1px 2px rgba(0,0,0,.7),0 1px 0 rgba(255,255,255,.06)}
+.tab-count[hidden]{display:none}
+/* Rooms: a machined slot per room, with a seat for each place in it, lit for each player. */
+.rooms-head{display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px;margin:0 0 16px}
+.rooms-head .badge{font-size:14px}
+.rooms{list-style:none;padding:0;margin:0;display:grid;gap:10px;max-width:900px}
+.room{--cut:12px;display:grid;grid-template-columns:118px minmax(0,1fr) auto 104px;align-items:center;gap:8px 24px;padding:10px 10px 10px 20px;clip-path:polygon(0 0,calc(100% - 12px) 0,100% 12px,100% 100%,0 100%)}
+.room .code{font-family:var(--display);font-weight:600;font-size:20px;letter-spacing:.14em;color:var(--text);text-shadow:0 -1px 0 rgba(0,0,0,.8),0 1px 0 rgba(255,255,255,.06)}
+.room .where{display:flex;align-items:center;gap:8px;min-width:0;color:var(--muted);font-size:14px}
+.room .where svg{width:16px;height:16px;flex:none}
+.room .where>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.room .near{color:var(--text-2)}
+.room .fill{display:flex;align-items:center;gap:12px;font-size:14px;color:var(--text-2);white-space:nowrap}
+.seats{display:flex;gap:3px}
+.seats i{width:7px;height:18px;background:rgba(0,0,0,.5);box-shadow:inset 0 1px 2px rgba(0,0,0,.85),0 1px 0 rgba(255,255,255,.06)}
+.seats i.on{background:linear-gradient(180deg,#f2f4f6,#aeb2b8 55%,#71757c);box-shadow:inset 0 1px 0 #fff,0 0 7px rgba(225,230,240,.28)}
+.room .btn{min-height:44px}
+.room .full{display:grid;place-items:center;min-height:44px;color:var(--muted);font-family:var(--display);font-size:15px;font-weight:500}
+.rooms-empty{max-width:900px;margin:0}
+.rooms-more{margin:14px 0 0}
+@media (max-width:640px){
+  .room{grid-template-columns:minmax(0,1fr) 92px;gap:6px 14px;padding:12px 10px 12px 16px}
+  .room .code{grid-column:1;grid-row:1}
+  .room .where{grid-column:1;grid-row:2}
+  .room .fill{grid-column:1;grid-row:3}
+  .room .btn,.room .full{grid-column:2;grid-row:1/span 3}
+}
 .updates{list-style:none;padding:0;margin:0;display:grid;gap:16px;max-width:780px}
 .updates li{padding:18px 20px}
 .updates h3{margin:0 0 6px;font-size:18px}
@@ -198,8 +232,10 @@ ${siteHeader(env)}
     <label class="share-link" id="share-link" hidden>Copy this link<input readonly aria-label="Link to this game"></label>
   </div>
 </section>
-${updates.results.length
-      ? html`<div class="tabs" role="tablist" aria-label="About this game"><button type="button" role="tab" id="tab-about" aria-controls="about" aria-selected="true">About</button><button type="button" role="tab" id="tab-updates" aria-controls="updates" aria-selected="false">Updates</button></div>`
+${tabs.length > 1
+      ? html`<div class="tabs" role="tablist" aria-label="About this game">${tabs.map(
+          (t, i) => html`<button type="button" role="tab" id="tab-${t.id}" aria-controls="${t.id}" aria-selected="${i === 0}">${t.label}${t.id === "rooms" ? html`<span class="tab-count" id="rooms-count"${rooms && joinable(rooms) ? "" : raw(" hidden")}>${rooms ? joinable(rooms) : 0}</span>` : ""}</button>`,
+        )}</div>`
       : html`<div class="tabs"></div>`}
 <section class="about" id="about" role="tabpanel" aria-label="About">
   <div>
@@ -208,6 +244,7 @@ ${updates.results.length
   </div>
   ${developer ? html`<div class="dev-card bevel"><span class="av bevel-s" aria-hidden="true">${developer.name[0]!.toUpperCase()}</span><span><strong>${developer.name}</strong><small>${developer.games === 1 ? "1 game on Zaisma" : `${developer.games} games on Zaisma`}</small></span></div>` : ""}
 </section>
+${rooms ? html`<section id="rooms" role="tabpanel" aria-label="Rooms" hidden>${roomsPanel(game.slug, rooms)}</section>` : ""}
 ${updates.results.length
       ? html`<section id="updates" role="tabpanel" aria-label="Updates" hidden><ol class="updates">${updates.results.map(
           (u) => html`<li><h3>${day(u.published_at)}</h3><p>${u.notes}</p></li>`,
@@ -284,11 +321,32 @@ document.querySelectorAll(".thumbs button").forEach((b) => b.onclick = () => {
   document.getElementById("shot").src = b.dataset.src;
   document.querySelectorAll(".thumbs button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
 });
-// About and Updates.
+// About, Rooms and Updates.
 const tabs = [...document.querySelectorAll(".tabs [role=tab]")];
-const showTab = (id) => tabs.forEach((t) => { const on = t.getAttribute("aria-controls") === id; t.setAttribute("aria-selected", String(on)); document.getElementById(t.getAttribute("aria-controls")).hidden = !on; });
+const showTab = (id) => { tabs.forEach((t) => { const on = t.getAttribute("aria-controls") === id; t.setAttribute("aria-selected", String(on)); document.getElementById(t.getAttribute("aria-controls")).hidden = !on; }); refreshRooms(); };
 tabs.forEach((t) => t.onclick = () => showTab(t.getAttribute("aria-controls")));
-if (location.hash === "#updates" && tabs.length) showTab("updates");
+// Rooms come and go: while the list is on screen, it's brought up to date every 20 seconds.
+const roomsPanel = document.getElementById("rooms");
+let roomsAt = Date.now();
+async function refreshRooms() {
+  if (!roomsPanel || roomsPanel.hidden || document.hidden || frame || Date.now() - roomsAt < 19000) return;
+  roomsAt = Date.now();
+  try {
+    const res = await fetch(location.pathname + "/rooms");
+    if (!res.ok) return;
+    roomsPanel.innerHTML = await res.text();
+    const n = Number(roomsPanel.firstElementChild?.dataset.joinable || 0);
+    const count = document.getElementById("rooms-count");
+    count.textContent = n;
+    count.hidden = !n;
+  } catch {}
+}
+if (roomsPanel) {
+  setInterval(refreshRooms, 5000);
+  document.addEventListener("visibilitychange", refreshRooms);
+}
+const linkedTab = tabs.find((t) => "#" + t.getAttribute("aria-controls") === location.hash);
+if (linkedTab) showTab(linkedTab.getAttribute("aria-controls"));
 // Games for other devices still open, with a word of warning.
 const DEVICES = ${raw(JSON.stringify(devices))};
 const coarse = matchMedia("(pointer: coarse)").matches;

@@ -1,5 +1,8 @@
 export type GameStatus = "pending" | "live" | "held" | "removed";
 export type Visibility = "draft" | "listed" | "unlisted" | "private";
+/** Where a game's rooms are listed: the game page and inside the game, only inside the game, or nowhere. */
+export const ROOM_BROWSING = ["page", "game", "off"] as const;
+export type RoomBrowsing = (typeof ROOM_BROWSING)[number];
 export type ScanStatus = "scanning" | "held" | "approved" | "rejected";
 
 export interface Game {
@@ -25,6 +28,8 @@ export interface Game {
   screen: string;
   /** How it's played (Players as JSON), or '' when the developer hasn't said. */
   players: string;
+  /** Where its rooms on Zaisma are listed. */
+  room_browsing: RoomBrowsing;
   /** A new title or description waiting for review, as JSON, for games players can already see. */
   details_draft: string | null;
   created_at: number;
@@ -94,6 +99,24 @@ export const PLAYER_REPORT_REASONS = {
   other: "Something else",
 } as const;
 export type PlayerReportReason = keyof typeof PLAYER_REPORT_REASONS;
+
+/** A row of the rooms list (migrations/0015_open_rooms.sql). */
+export interface OpenRoom {
+  game_id: string;
+  code: string;
+  players: number;
+  max_players: number;
+  open: number;
+  location: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+/** Listed rooms check in every hour, so a row older than this belongs to a room that stopped. */
+export const OPEN_ROOM_STALE_MS = 2 * 3600 * 1000;
+
+/** The continents a room can run in, by Cloudflare's codes. */
+export const CONTINENTS: Record<string, string> = { AF: "Africa", AN: "Antarctica", AS: "Asia", EU: "Europe", NA: "North America", OC: "Oceania", SA: "South America" };
 
 /** Game servers built into the rooms Worker, by the name set on a game in admin. */
 export const BUILT_IN_GAME_SERVERS = ["relay", "arena", "four-in-a-row"] as const;

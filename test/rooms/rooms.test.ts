@@ -1,4 +1,4 @@
-import { env, runInDurableObject, SELF } from "cloudflare:test";
+import { env, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Env } from "../../apps/rooms/src/index.ts";
 import type { Room } from "../../apps/rooms/src/room.ts";
@@ -7,10 +7,10 @@ const R = "https://rooms.zaisma.test";
 const ORIGIN = "https://games.zaisma.test";
 const e = env as unknown as Env;
 
-async function addGame(slug: string, opts: { status?: string; server?: string | null } = {}) {
+async function addGame(slug: string, opts: { status?: string; server?: string | null; browsing?: string } = {}) {
   const id = `g${slug.replace(/-/g, "")}`;
-  await e.DB.prepare("INSERT INTO games (id, slug, title, status, current_version_id, game_server, created_at, updated_at) VALUES (?, ?, ?, ?, 'v1', ?, 0, 0)")
-    .bind(id, slug, slug, opts.status ?? "live", opts.server === undefined ? "relay" : opts.server)
+  await e.DB.prepare("INSERT INTO games (id, slug, title, status, current_version_id, game_server, room_browsing, created_at, updated_at) VALUES (?, ?, ?, ?, 'v1', ?, ?, 0, 0)")
+    .bind(id, slug, slug, opts.status ?? "live", opts.server === undefined ? "relay" : opts.server, opts.browsing ?? "page")
     .run();
   return id;
 }
@@ -26,8 +26,8 @@ async function getPass(game: string): Promise<{ pass: string; player: { id: stri
 }
 
 /** A connected test client that collects what the room sends. */
-async function connect(game: string, code: string, origin = ORIGIN) {
-  const res = await SELF.fetch(`${R}/v1/rooms/${game}/${code}`, { headers: { Upgrade: "websocket", Origin: origin } });
+async function connect(game: string, code: string, origin = ORIGIN, continent?: string) {
+  const res = await SELF.fetch(`${R}/v1/rooms/${game}/${code}`, { headers: { Upgrade: "websocket", Origin: origin }, ...(continent ? { cf: { continent } } : {}) });
   if (!res.webSocket) return { res, ws: null as never, inbox: [] as any[], next: async () => null as any, closed: Promise.resolve(0) };
   const ws = res.webSocket;
   ws.accept();
@@ -45,10 +45,10 @@ async function connect(game: string, code: string, origin = ORIGIN) {
   return { res, ws, inbox, next, closed };
 }
 
-async function join(game: string, code: string) {
+async function join(game: string, code: string, opts: { listed?: false; continent?: string } = {}) {
   const { pass, player } = await getPass(game);
-  const c = await connect(game, code);
-  c.ws.send(JSON.stringify({ t: "hello", pass }));
+  const c = await connect(game, code, ORIGIN, opts.continent);
+  c.ws.send(JSON.stringify({ t: "hello", pass, room: opts.listed === false ? { listed: false } : undefined }));
   const welcome = await c.next();
   expect(welcome.t).toBe("welcome");
   return { ...c, player, pass };
@@ -219,5 +219,117 @@ describe("reporting a player", () => {
     expect((await report({ code: "ABCDEF", player: "g_1", reason: "spam" })).status).toBe(400);
     expect((await report({ code: "nope", player: "g_1", reason: "other" })).status).toBe(400);
     expect((await report({ code: "ABCDEF", player: "g_1", reason: "other" }, "https://evil.example")).status).toBe(403);
+  });
+});
+
+describe("room browsing", () => {
+  beforeEach(async () => {
+    await e.DB.exec("DELETE FROM open_rooms; DELETE FROM room_usage; DELETE FROM games;");
+  });
+
+  /** A room writes its row just after welcoming the player, so wait for it to settle. */
+  async function rows(gameId: string, want: (r: any[]) => boolean = () => true): Promise<any[]> {
+    let found: any[] = [];
+    for (let i = 0; i < 40; i++) {
+      found = (await e.DB.prepare("SELECT * FROM open_rooms WHERE game_id = ? ORDER BY code").bind(gameId).all()).results;
+      if (want(found)) return found;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    return found;
+  }
+
+  it("lists a room while players are in it, and drops it when they've all gone", async () => {
+    const id = await addGame("party");
+    const a = await join("party", "BCDFGH", { continent: "EU" });
+    expect(await rows(id, (r) => r.length === 1)).toMatchObject([{ code: "BCDFGH", players: 1, max_players: 16, open: 1, location: "EU" }]);
+    const b = await join("party", "BCDFGH", { continent: "NA" });
+    expect((await rows(id, (r) => r[0]?.players === 2))[0]).toMatchObject({ players: 2, location: "EU" });
+    b.ws.close(1000);
+    expect((await rows(id, (r) => r[0]?.players === 1))[0].players).toBe(1);
+    a.ws.close(1000);
+    expect(await rows(id, (r) => r.length === 0)).toEqual([]);
+  });
+
+  it("never lists a room its maker hid, or any room of a game that turned browsing off", async () => {
+    const id = await addGame("party");
+    const a = await join("party", "JKLMNP", { listed: false });
+    await join("party", "JKLMNP");
+    a.ws.send(JSON.stringify({ t: "msg", d: 1 }));
+    expect(await rows(id, () => false)).toEqual([]);
+
+    const off = await addGame("quiet", { browsing: "off" });
+    await join("quiet", "QRSTVW");
+    expect(await rows(off, () => false)).toEqual([]);
+    const list = await SELF.fetch(`${R}/v1/rooms/quiet`, { headers: { Origin: ORIGIN } });
+    expect(await list.json()).toEqual({ rooms: [], playing: { players: 0, rooms: 0, closed: 0 } });
+  });
+
+  it("lets the first player close a relay room: it's listed as closed, and newcomers are refused", async () => {
+    const id = await addGame("party");
+    const a = await join("party", "XYZ234");
+    const b = await join("party", "XYZ234");
+    const next = async (c: { next: () => Promise<any> }, t: string) => {
+      for (;;) {
+        const m = await c.next();
+        if (m.t === t) return m;
+      }
+    };
+    b.ws.send(JSON.stringify({ t: "room", open: false }));
+    expect(await next(b, "error")).toMatchObject({ code: "not-allowed" });
+    a.ws.send(JSON.stringify({ t: "room", open: false }));
+    expect(await next(a, "room")).toEqual({ t: "room", room: { listed: true, open: false } });
+    expect((await rows(id, (r) => r[0]?.open === 0))[0]).toMatchObject({ players: 2, open: 0 });
+
+    const { pass } = await getPass("party");
+    const c = await connect("party", "XYZ234");
+    c.ws.send(JSON.stringify({ t: "hello", pass }));
+    expect(await c.next()).toMatchObject({ t: "error", code: "closed" });
+    // b drops out and comes back: they were in the match.
+    b.ws.close(1000);
+    await b.closed;
+    const again = await connect("party", "XYZ234");
+    again.ws.send(JSON.stringify({ t: "hello", pass: b.pass }));
+    expect((await again.next()).t).toBe("welcome");
+  });
+
+  it("lists rooms to the game itself: with space first, nearby first, then the busiest, never who's in them", async () => {
+    // Its own game: rooms from the tests before can still be settling.
+    const id = await addGame("lister");
+    const now = Date.now();
+    const add = (code: string, players: number, max: number, open: number, location: string | null, at = now) =>
+      e.DB.prepare("INSERT INTO open_rooms (game_id, code, players, max_players, open, location, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").bind(id, code, players, max, open, location, at, at).run();
+    await add("AAAAAA", 8, 8, 1, "EU"); // full
+    await add("BBBBBB", 2, 8, 1, "NA");
+    await add("CCCCCC", 5, 8, 1, "NA");
+    await add("DDDDDD", 1, 8, 1, "EU");
+    await add("EEEEEE", 4, 8, 0, "EU"); // closed
+    await add("FFFFFF", 3, 8, 1, "EU", now - 3 * 3600_000); // stopped checking in
+
+    const res = await SELF.fetch(`${R}/v1/rooms/lister`, { headers: { Origin: ORIGIN }, cf: { continent: "EU" } } as RequestInit);
+    expect(res.headers.get("access-control-allow-origin")).toBe(ORIGIN);
+    const body = await res.json<{ rooms: any[]; playing: unknown }>();
+    expect(body.rooms.map((r) => r.code)).toEqual(["DDDDDD", "CCCCCC", "BBBBBB", "AAAAAA", "EEEEEE"]);
+    expect(body.rooms[0]).toEqual({ code: "DDDDDD", players: 1, max: 8, open: true, location: { code: "EU", name: "Europe" }, near: true, link: "https://zaisma.test/g/lister?room=DDDDDD" });
+    expect(body.playing).toEqual({ players: 20, rooms: 5, closed: 1 });
+    expect((await SELF.fetch(`${R}/v1/rooms/lister`, { headers: { Origin: "https://evil.example" } })).status).toBe(403);
+  });
+
+  it("checks in every hour, and a room that stopped without hearing its players go drops off", async () => {
+    const id = await addGame("checker");
+    const a = await join("checker", "GHJKMN");
+    await rows(id, (r) => r.length === 1);
+    await e.DB.prepare("UPDATE open_rooms SET updated_at = 1").run();
+    const stub = e.ROOMS.get(e.ROOMS.idFromName("checker:GHJKMN"));
+    expect(await runDurableObjectAlarm(stub)).toBe(true);
+    expect((await rows(id))[0].updated_at).toBeGreaterThan(1);
+
+    // A room that lost its players without hearing them go (as after a restart) leaves its row on the next check.
+    await runInDurableObject(stub, async (_room: Room, state) => {
+      for (const ws of state.getWebSockets()) ws.serializeAttachment({ stage: "gone" });
+      await state.storage.setAlarm(Date.now());
+    });
+    await runDurableObjectAlarm(stub); // Due now, so it may already have run by itself.
+    expect(await rows(id, (r) => r.length === 0)).toEqual([]);
+    a.ws.close(1000);
   });
 });

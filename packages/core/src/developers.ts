@@ -1,5 +1,5 @@
 import { newId, sha256Hex } from "./ids.ts";
-import type { Game, Visibility } from "./types.ts";
+import { ROOM_BROWSING, type Game, type RoomBrowsing, type Visibility } from "./types.ts";
 
 /**
  * Developer accounts: API keys, game details, device labels and images.
@@ -134,6 +134,7 @@ export interface DetailsChange {
   players?: Players | null;
   /** Copy signed-in players' browser saves to their account. Off for games that keep their own saves. */
   cloud_saves?: boolean;
+  room_browsing?: RoomBrowsing;
 }
 
 /** Check a change from the API. Returns the tidied change or a plain error. */
@@ -182,6 +183,10 @@ export function checkDetails(input: Record<string, unknown>): { change: DetailsC
     if (typeof input.cloud_saves !== "boolean") return { error: "cloud_saves is true or false." };
     change.cloud_saves = input.cloud_saves;
   }
+  if ("room_browsing" in input) {
+    if (!ROOM_BROWSING.includes(input.room_browsing as RoomBrowsing)) return { error: `room_browsing is one of: ${ROOM_BROWSING.join(", ")}.` };
+    change.room_browsing = input.room_browsing as RoomBrowsing;
+  }
   return { change };
 }
 
@@ -221,10 +226,13 @@ export async function applyDetails(db: D1Database, game: Game, change: DetailsCh
   if (change.screen !== undefined) set("screen", change.screen);
   if (change.players !== undefined) set("players", change.players ? JSON.stringify(change.players) : "");
   if (change.cloud_saves !== undefined) set("cloud_saves", change.cloud_saves ? 1 : 0);
+  if (change.room_browsing !== undefined) set("room_browsing", change.room_browsing);
   if (sets.length) {
     set("updated_at", now());
     await db.prepare(`UPDATE games SET ${sets.join(", ")} WHERE id = ?`).bind(...binds, game.id).run();
   }
+  // Rooms drop their own rows when they next check in; turning listing off clears them at once.
+  if (change.room_browsing === "off") await db.prepare("DELETE FROM open_rooms WHERE game_id = ?").bind(game.id).run();
   return { waiting };
 }
 

@@ -144,7 +144,8 @@ inviteBtn.onclick = async () => {
 
 async function start() {
   try {
-    room = await Zaisma.joinRoom();
+    // A drop-in game: the room the player's link points to, else a busy arena with space, else a new one.
+    room = await Zaisma.rooms.quickJoin();
   } catch (err) {
     statusEl.textContent = err.message;
     return;

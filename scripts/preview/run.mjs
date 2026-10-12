@@ -8,6 +8,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deflateSync } from "node:zlib";
 import { startFakeAuth } from "./fake-auth.mjs";
+import { openTestRooms } from "./test-rooms.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const STATE = join(ROOT, ".wrangler/preview");
@@ -85,11 +86,15 @@ if (fresh) {
   writeFileSync(join(STATE, "seeded"), new Date().toISOString());
 }
 // The two multiplayer demos run on our rooms (also for preview data made before rooms were in the preview).
-spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", "UPDATE games SET game_server = slug WHERE slug IN ('arena', 'four-in-a-row') AND game_server IS NULL"], {
-  cwd: join(ROOT, "apps/site"),
-  stdio: "ignore",
-  env: { ...process.env, CI: "1" },
-});
+// Cave Crew uses the relay, to show closed and hidden rooms. Rooms from the last run are gone.
+spawnSync(
+  "npx",
+  ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command",
+    "UPDATE games SET game_server = slug WHERE slug IN ('arena', 'four-in-a-row') AND game_server IS NULL; UPDATE games SET game_server = 'relay' WHERE slug = 'cave-crew' AND game_server IS NULL; DELETE FROM open_rooms"],
+  { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } },
+);
+// Test players keep a few rooms open, so the Rooms tab has something in it.
+await openTestRooms(ROOMS, GAMES).catch((err) => console.log(`Couldn't open the test rooms: ${err.message}`));
 
 // The site's every-5-minutes job (scheduled publishing, report triage), run every 20 seconds here.
 const tick = () => fetch(`${SITE}/__scheduled?cron=${encodeURIComponent("*/5 * * * *")}`).catch(() => {});
@@ -102,6 +107,7 @@ Zaisma preview is running. Nothing here touches the live site.
   Home            ${SITE}/
   A game page     ${SITE}/g/shard-dodge
   Multiplayer     ${SITE}/g/arena  (open it in two windows to play together)
+  Rooms           ${SITE}/g/arena#rooms  and  ${SITE}/g/cave-crew#rooms
   Your games      ${SITE}/dashboard
   Admin           ${SITE}/admin
   Report queue    ${SITE}/admin/reports
