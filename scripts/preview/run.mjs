@@ -23,7 +23,7 @@ mkdirSync(STATE, { recursive: true });
 // Settings for the preview only. --env-file replaces .dev.vars, so your own settings stay out of it.
 writeFileSync(
   join(STATE, "site.env"),
-  [`SITE_ORIGIN=${SITE}`, `GAME_ORIGIN=${GAMES}`, "GAME_HOST_MODE=path", "GAME_DOMAIN=", "DEV_ADMIN=1", `SUPABASE_URL=http://localhost:${PORTS.auth}`, "SUPABASE_PUBLISHABLE_KEY=preview", ""].join("\n"),
+  [`SITE_ORIGIN=${SITE}`, `GAME_ORIGIN=${GAMES}`, "GAME_HOST_MODE=path", "GAME_DOMAIN=", "DEV_ADMIN=1", `SUPABASE_URL=http://localhost:${PORTS.auth}`, "SUPABASE_PUBLISHABLE_KEY=preview", "KEEP_OFFER_SECONDS=20", ""].join("\n"),
 );
 writeFileSync(join(STATE, "games.env"), [`SITE_ORIGIN=${SITE}`, "GAME_HOST_MODE=path", "GAME_DOMAIN=", "ROOMS_ORIGIN=http://localhost:8802", ""].join("\n"));
 

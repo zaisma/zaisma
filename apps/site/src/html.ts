@@ -276,11 +276,12 @@ addEventListener("pageshow",e=>{if(e.persisted)document.querySelectorAll("[aria-
 const PLAY_ICON = '<svg viewBox="0 0 14 16" aria-hidden="true"><path d="M1 1v14l12-7z" fill="currentColor"/></svg>';
 
 /** The metal primary button. `href` makes a link, otherwise a button with the given id. */
-export function metalButton(label: string, opts: { href?: string; id?: string; big?: boolean; block?: boolean; play?: boolean; type?: string }): Raw {
+export function metalButton(label: string, opts: { href?: string; id?: string; big?: boolean; block?: boolean; play?: boolean; type?: string; data?: Record<string, string> }): Raw {
   const cls = `btn metal bevel${opts.big ? " big" : ""}`;
   const inner = html`${opts.play ? raw(PLAY_ICON) : ""}<span>${label}</span>`;
+  const data = Object.entries(opts.data ?? {}).map(([k, v]) => html` data-${k}="${v}"`);
   const el = opts.href
-    ? html`<a class="${cls}" href="${opts.href}">${inner}</a>`
+    ? html`<a class="${cls}" href="${opts.href}"${data}>${inner}</a>`
     : html`<button class="${cls}" type="${opts.type ?? "button"}"${opts.id ? raw(` id="${opts.id}"`) : ""}>${inner}</button>`;
   return html`<span class="hit${opts.block ? " block" : ""}">${el}</span>`;
 }

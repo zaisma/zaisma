@@ -1,4 +1,4 @@
-import { gameBySlug, readPlayers, recentlyPlayed, recordPlayed, type Game } from "@zaisma/core";
+import { PLAYED_KEEP, gameBySlug, mergePlayed, readPlayers, recentlyPlayed, recordPlayed, type Game } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { esc, html, layout, metalButton, playerLine, raw, type Raw } from "./html.ts";
@@ -105,6 +105,7 @@ ${games.length
  * Recently played, for signed-in players.
  *   GET  /api/me/played          [{ slug, at }], newest first
  *   POST /api/me/played/:slug    remember that they just pressed Play
+ *   POST /api/me/played          { played: [{ slug, at }] } from this device's list, when a guest makes an account
  */
 export async function handlePlayed(request: Request, env: Env, path: string): Promise<Response | null> {
   const m = path.match(/^\/api\/me\/played(?:\/([a-z0-9-]+))?$/);
@@ -120,6 +121,24 @@ export async function handlePlayed(request: Request, env: Env, path: string): Pr
   const account = await env.DB.prepare("SELECT id FROM accounts WHERE id = ?").bind(session.userId).first<{ id: string }>();
   if (!account) return json({ error: "No account" }, 401, session.cookies);
   if (!m[1] && request.method === "GET") return json({ played: await recentlyPlayed(env.DB, account.id) }, 200, session.cookies);
+  if (!m[1] && request.method === "POST") {
+    let body: { played?: unknown };
+    try {
+      body = await request.json();
+    } catch {
+      return json({ error: "Bad list" }, 400, session.cookies);
+    }
+    const list = Array.isArray(body.played) ? body.played.slice(0, PLAYED_KEEP) : [];
+    const now = Date.now();
+    const played: { gameId: string; at: number }[] = [];
+    for (const p of list as { slug?: unknown; at?: unknown }[]) {
+      const game = typeof p?.slug === "string" ? await gameBySlug(env.DB, p.slug) : null;
+      const at = Number(p?.at);
+      if (game && playable(game) && Number.isFinite(at) && at > 0) played.push({ gameId: game.id, at: Math.min(at, now) });
+    }
+    await mergePlayed(env.DB, account.id, played);
+    return json({ ok: true }, 200, session.cookies);
+  }
   if (m[1] && request.method === "POST") {
     const game = await gameBySlug(env.DB, m[1]);
     if (!game || !playable(game)) return json({ error: "No such game" }, 404, session.cookies);
