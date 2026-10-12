@@ -83,8 +83,6 @@ main{max-width:1240px;margin:0 auto;padding:32px 24px 64px}
 .metal::before{content:"";position:absolute;top:-60%;left:0;width:72px;height:220%;pointer-events:none;background:linear-gradient(90deg,rgba(255,255,255,0) 0%,rgba(255,255,255,.12) 22%,rgba(255,255,255,.55) 42%,rgba(255,255,255,.85) 50%,rgba(255,255,255,.55) 58%,rgba(255,255,255,.12) 78%,rgba(255,255,255,0) 100%);transform:translateX(calc(var(--gx,0px) - 36px)) rotate(15deg);opacity:0;transition:transform 160ms ease-out,opacity 220ms}
 .metal>*{position:relative;z-index:1}
 .metal.lit::before{opacity:calc(.9 * var(--gf,1))}
-.metal.lit{text-shadow:0 1px 0 rgba(255,255,255,.8)}
-.metal.lit svg{filter:drop-shadow(0 1px 0 rgba(255,255,255,.8))}
 .tile{position:relative;overflow:hidden;display:flex;flex-direction:column;background:var(--panel);transform:perspective(800px) rotateX(var(--rx,0deg)) rotateY(var(--ry,0deg));transition:transform 160ms ease-out}
 .tile::before,.tile .pic::before,.tile .pic::after{content:"";position:absolute;top:-60%;left:0;height:220%;pointer-events:none;opacity:0;transition:transform 160ms ease-out,opacity 220ms}
 .tile::before{width:200px;background:linear-gradient(90deg,rgba(255,255,255,0),rgba(255,255,255,.04) 35%,rgba(255,255,255,.07) 50%,rgba(255,255,255,.04) 65%,rgba(255,255,255,0));transform:translateX(calc(var(--gx,0px) - 100px)) rotate(15deg)}
