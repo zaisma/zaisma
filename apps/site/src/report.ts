@@ -335,14 +335,18 @@ export async function submitReport(env: Env, request: Request, slug: string, ctx
   }
   const paused = !player && AUTO_HOLD_REASONS.includes(reason) ? await pauseForReport(env, game, REPORT_REASONS[reason]) : null;
   const hidden = paused === "game";
-  const what = reportLabel({ reason, room_code: report.roomCode, player_name: player?.name ?? "", player_reason: player?.reason ?? "" });
-  ctx.waitUntil(
-    sendAlert(
-      env,
-      `${reason === "child_safety" ? "URGENT child-safety report" : AUTO_HOLD_REASONS.includes(reason) && !player ? "URGENT report" : "Report"} on ${game.slug}: ${what}${hidden ? " (game hidden)" : paused ? " (update paused)" : ""}`,
-      `${what}\n\n${details || "(no details)"}\n\n${picture ? "With a picture of the game.\n\n" : ""}${reason === "child_safety" ? "Don't delete anything; review it and report to NCMEC if confirmed.\n\n" : ""}${hidden ? "The game is hidden until you review it.\n\n" : paused ? "Players are back on the version before the latest update until you review it.\n\n" : ""}Review: ${env.SITE_ORIGIN}/admin/games/${game.id}`,
-    ),
-  );
+  // Child-safety and illegal-content reports go to a person straight away. Report triage (triage.ts)
+  // sorts the rest within minutes and alerts the serious ones.
+  if (!player && AUTO_HOLD_REASONS.includes(reason)) {
+    const what = reportLabel({ reason, room_code: report.roomCode, player_name: "", player_reason: "" });
+    ctx.waitUntil(
+      sendAlert(
+        env,
+        `${reason === "child_safety" ? "URGENT child-safety report" : "URGENT report"} on ${game.slug}: ${what}${hidden ? " (game hidden)" : paused ? " (update paused)" : ""}`,
+        `${what}\n\n${details || "(no details)"}\n\n${reason === "child_safety" ? "Don't delete anything; review it and report to NCMEC if confirmed.\n\n" : ""}${hidden ? "The game is hidden until you review it.\n\n" : paused ? "Players are back on the version before the latest update until you review it.\n\n" : ""}Review: ${env.SITE_ORIGIN}/admin/reports`,
+      ),
+    );
+  }
   return reply(200, { ok: true, hidden, paused: paused === "update" });
 }
 
@@ -370,7 +374,7 @@ const RECENT_MS = 7 * 86400_000;
  * - a brand-new game (its only version went live in the last 7 days): hidden until a person looks;
  * - anything else stays up. The alert goes out either way, marked URGENT.
  */
-async function pauseForReport(env: Env, game: Game, label: string): Promise<"game" | "update" | null> {
+export async function pauseForReport(env: Env, game: Game, label: string): Promise<"game" | "update" | null> {
   if (game.status !== "live" || !game.current_version_id) return null;
   const live = await versionById(env.DB, game.current_version_id);
   const now = Date.now();

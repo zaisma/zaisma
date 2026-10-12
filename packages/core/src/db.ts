@@ -1,4 +1,4 @@
-import { PLAYER_REPORT_REASONS, REPORT_REASONS, type Game, type GameStatus, type PlayerReportReason, type ReportReason, type ScanReport, type ScanStatus, type Version, type Visibility } from "./types.ts";
+import { AUTO_HOLD_REASONS, PLAYER_REPORT_REASONS, REPORT_REASONS, SEVERITY, type Game, type GameStatus, type PlayerReportReason, type ReportReason, type ScanReport, type ScanStatus, type Version, type Visibility } from "./types.ts";
 import { newId } from "./ids.ts";
 
 const now = () => Date.now();
@@ -167,6 +167,16 @@ export interface Report {
   /** 1 when the player included a picture of the game (reportPictureKey). */
   picture: number;
   closed_at: number | null;
+  /** 0 child safety, 1 urgent, 2 high, 3 normal, 4 low (SEVERITIES). */
+  severity: number;
+  /** The first open report about the same problem, or null when this report starts its group. */
+  group_id: string | null;
+  /** JSON Triage, once AI report triage has looked at it. */
+  triage: string | null;
+  triaged_at: number | null;
+  triage_tries: number;
+  /** 1 when the developer sees it as a bug report. */
+  bug: number;
 }
 
 /** Where a report's picture is kept, in the games bucket. Never served on the game domain. */
@@ -181,12 +191,21 @@ export interface NewReport {
   player?: { id: string; name: string; reason: string };
 }
 
+/** How serious a report is from its reason alone, before triage looks at it. */
+export function reportSeverity(reason: string, playerReason = ""): number {
+  if (reason === "child_safety") return SEVERITY.child_safety;
+  if ((AUTO_HOLD_REASONS as string[]).includes(reason)) return SEVERITY.urgent;
+  if (["malware", "sexual", "hate"].includes(reason) || ["sexual", "hate"].includes(playerReason)) return SEVERITY.high;
+  if (reason === "copyright") return SEVERITY.low;
+  return SEVERITY.normal;
+}
+
 /** Nothing about the person reporting is ever passed in or stored. */
 export async function createReport(db: D1Database, r: NewReport): Promise<string> {
   const id = newId();
   await db
-    .prepare("INSERT INTO reports (id, game_id, reason, details, created_at, version_id, room_code, player_id, player_name, player_reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    .bind(id, r.gameId, r.reason, r.details, now(), r.versionId ?? null, r.roomCode ?? "", r.player?.id ?? "", r.player?.name ?? "", r.player?.reason ?? "")
+    .prepare("INSERT INTO reports (id, game_id, reason, details, created_at, version_id, room_code, player_id, player_name, player_reason, severity) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .bind(id, r.gameId, r.reason, r.details, now(), r.versionId ?? null, r.roomCode ?? "", r.player?.id ?? "", r.player?.name ?? "", r.player?.reason ?? "", reportSeverity(r.reason, r.player?.reason))
     .run();
   return id;
 }
@@ -210,17 +229,26 @@ export async function closeReports(db: D1Database, gameId: string, status: "dism
   await db.prepare("UPDATE reports SET status = ?, closed_at = ? WHERE game_id = ? AND status = 'open'").bind(status, now(), gameId).run();
 }
 
+/** Close one group of reports about the same problem: the first report and every one merged into it. */
+export async function closeReportGroup(db: D1Database, groupId: string, status: "dismissed" | "actioned"): Promise<void> {
+  await db.prepare("UPDATE reports SET status = ?, closed_at = ? WHERE (id = ? OR group_id = ?) AND status = 'open'").bind(status, now(), groupId, groupId).run();
+}
+
 export function currentMonth(at = new Date()): string {
   return at.toISOString().slice(0, 7);
 }
 
-export async function aiUsage(db: D1Database, month = currentMonth()): Promise<{ input_tokens: number; output_tokens: number; scans: number }> {
-  return (await db.prepare("SELECT input_tokens, output_tokens, scans FROM ai_usage WHERE month = ?").bind(month).first()) ?? { input_tokens: 0, output_tokens: 0, scans: 0 };
+export async function aiUsage(db: D1Database, month = currentMonth()): Promise<{ input_tokens: number; output_tokens: number; scans: number; reports: number }> {
+  return (await db.prepare("SELECT input_tokens, output_tokens, scans, reports FROM ai_usage WHERE month = ?").bind(month).first()) ?? { input_tokens: 0, output_tokens: 0, scans: 0, reports: 0 };
 }
 
-export async function addAiUsage(db: D1Database, input: number, output: number, month = currentMonth()): Promise<void> {
+/** Scans and report triage share one monthly budget. */
+export async function addAiUsage(db: D1Database, input: number, output: number, what: "scans" | "reports" = "scans", month = currentMonth()): Promise<void> {
+  const [scans, reports] = what === "scans" ? [1, 0] : [0, 1];
   await db
-    .prepare("INSERT INTO ai_usage (month, input_tokens, output_tokens, scans) VALUES (?, ?, ?, 1) ON CONFLICT(month) DO UPDATE SET input_tokens = input_tokens + excluded.input_tokens, output_tokens = output_tokens + excluded.output_tokens, scans = scans + 1")
-    .bind(month, input, output)
+    .prepare(
+      "INSERT INTO ai_usage (month, input_tokens, output_tokens, scans, reports) VALUES (?, ?, ?, ?, ?) ON CONFLICT(month) DO UPDATE SET input_tokens = input_tokens + excluded.input_tokens, output_tokens = output_tokens + excluded.output_tokens, scans = scans + excluded.scans, reports = reports + excluded.reports",
+    )
+    .bind(month, input, output, scans, reports)
     .run();
 }

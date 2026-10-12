@@ -13,6 +13,7 @@ import { reportForm, submitReport } from "./report.ts";
 import { handlePasskeys } from "./passkeys.ts";
 import { handleSaveHistory, handleSaves } from "./saves.ts";
 import { handleScanBatch } from "./scan.ts";
+import { triageReports } from "./triage.ts";
 
 /** Must match the daily cron in wrangler.jsonc. */
 const DAILY = "17 3 * * *";
@@ -72,7 +73,8 @@ export default {
   },
 
   async scheduled(event, env): Promise<void> {
-    await publishDue(env);
-    if (event.cron === DAILY) await dailyCleanup(env);
+    // One failing job mustn't stop the others.
+    const jobs = await Promise.allSettled([publishDue(env), triageReports(env), ...(event.cron === DAILY ? [dailyCleanup(env)] : [])]);
+    for (const job of jobs) if (job.status === "rejected") console.error("scheduled job failed", job.reason);
   },
 } satisfies ExportedHandler<Env, ScanJob>;

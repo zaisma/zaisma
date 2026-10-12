@@ -132,6 +132,9 @@ describe("reports, stats and history", () => {
     await createReport(env.DB, { gameId: game.id, reason: "broken", details: "Stuck on level 2" });
     await createReport(env.DB, { gameId: game.id, reason: "hate", details: "slur in the chat" });
     await createReport(env.DB, { gameId: game.id, reason: "child_safety", details: "secret" });
+    // Bug reports reach the developer once report triage sorts them as bugs. One sorted as child safety never does.
+    await createReport(env.DB, { gameId: game.id, reason: "other", details: "a secret found by triage" });
+    await env.DB.exec("UPDATE reports SET bug = 1 WHERE reason = 'broken'; UPDATE reports SET severity = 0, bug = 1 WHERE reason = 'other'");
     const out = await tool("get_reports", { slug: "hop" });
     expect(out.reasons.broken).toMatchObject({ open: 1, closed: 0 });
     expect(out.reasons.hate.open).toBe(1);

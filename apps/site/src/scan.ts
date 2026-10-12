@@ -19,6 +19,7 @@ import {
   type ScanReport,
   type Manifest,
   type Version,
+  type Game,
   KEEP_VERSIONS,
   approveDraft,
   blobKey,
@@ -29,6 +30,7 @@ import { deletePrefix } from "./upload.ts";
 import { TEXT_BUDGET_CHARS, aiReview, type AiInput, type AiResult } from "./ai.ts";
 import { sendAlert } from "./email.ts";
 import type { Env } from "./env.ts";
+import { recheckFailed, recheckVersion } from "./triage.ts";
 
 /** Most text we read for the static checks. Bigger games are held for a person. */
 const STATIC_TEXT_LIMIT = 40 * 1024 * 1024;
@@ -44,12 +46,17 @@ const defaultDeps: ScanDeps = { images: notConnected, ai: aiReview };
 
 export async function handleScanBatch(batch: MessageBatch<ScanJob>, env: Env, deps = defaultDeps): Promise<void> {
   for (const msg of batch.messages) {
+    const { recheck } = msg.body;
     try {
-      await scanVersion(env, msg.body.versionId, deps);
+      if (recheck) await recheckVersion(env, msg.body.versionId, recheck.reportId, deps);
+      else await scanVersion(env, msg.body.versionId, deps);
       msg.ack();
     } catch (err) {
-      console.error("scan failed", msg.body.versionId, err);
-      if (msg.attempts >= 3) {
+      console.error(recheck ? "re-check failed" : "scan failed", msg.body.versionId, err);
+      if (recheck && msg.attempts >= 3) {
+        await recheckFailed(env, recheck.reportId, String(err));
+        msg.ack();
+      } else if (msg.attempts >= 3) {
         await saveScan(env.DB, msg.body.versionId, "held", null);
         await sendAlert(env, "A scan failed", `Version ${msg.body.versionId} couldn't be scanned and is held: ${String(err)}`);
         msg.ack();
@@ -66,6 +73,30 @@ export async function scanVersion(env: Env, versionId: string, deps: ScanDeps = 
   const game = await gameById(env.DB, version.game_id);
   if (!game) throw new Error(`No game for version ${versionId}`);
 
+  const report = await inspectVersion(env, version, game, deps);
+  const { decision, findings, childSafety } = report;
+  await saveScan(env.DB, version.id, decision, report);
+  if (decision === "approved") {
+    await passVersion(env, version, "Passed the scan");
+  } else {
+    await audit(env.DB, game.id, decision === "held" ? "scan-held" : "scan-rejected", `Version ${version.id}\n${summarize(findings)}`);
+    if (decision === "held" || childSafety) {
+      await sendAlert(
+        env,
+        childSafety ? `URGENT child-safety flag on ${game.slug}` : `${game.slug} needs review`,
+        `${childSafety ? "The scan flagged possible child sexual abuse material. Don't delete anything; review it and report to NCMEC if confirmed.\n\n" : ""}${summarize(findings)}\n\nReview: ${env.SITE_ORIGIN}/admin/games/${game.id}`,
+      );
+    }
+  }
+  return report;
+}
+
+/**
+ * Every check on a version's files, deciding but changing nothing: the scan saves and acts on the
+ * result, and a re-check after a report (triage.ts) only compares it. `reported` is what a player
+ * reported, passed to the AI reviewer as something to look into.
+ */
+export async function inspectVersion(env: Env, version: Version, game: Game, deps: ScanDeps = defaultDeps, reported?: string): Promise<ScanReport> {
   // 1. Collect the files: under the version's prefix (zip uploads) or from its manifest (file-by-file uploads).
   const objects = await versionFiles(env, version);
   const findings: Finding[] = [];
@@ -123,6 +154,7 @@ export async function scanVersion(env: Env, versionId: string, deps: ScanDeps = 
       images: aiImages,
       staticFindings: stat.findings,
       outsideHosts: stat.outsideHosts,
+      ...(reported ? { reported } : {}),
     });
     await addAiUsage(env.DB, result.report.inputTokens, result.report.outputTokens);
     ai = result.report;
@@ -133,7 +165,7 @@ export async function scanVersion(env: Env, versionId: string, deps: ScanDeps = 
   // 5. Decide. Child-safety signals are held (never deleted) so they can be reported.
   let decision = decide(findings);
   if (childSafety) decision = "held";
-  const report: ScanReport = {
+  return {
     finishedAt: Date.now(),
     decision,
     findings,
@@ -142,24 +174,9 @@ export async function scanVersion(env: Env, versionId: string, deps: ScanDeps = 
     ai,
     childSafety,
   };
-
-  await saveScan(env.DB, version.id, decision, report);
-  if (decision === "approved") {
-    await passVersion(env, version, "Passed the scan");
-  } else {
-    await audit(env.DB, game.id, decision === "held" ? "scan-held" : "scan-rejected", `Version ${version.id}\n${summarize(findings)}`);
-    if (decision === "held" || childSafety) {
-      await sendAlert(
-        env,
-        childSafety ? `URGENT child-safety flag on ${game.slug}` : `${game.slug} needs review`,
-        `${childSafety ? "The scan flagged possible child sexual abuse material. Don't delete anything; review it and report to NCMEC if confirmed.\n\n" : ""}${summarize(findings)}\n\nReview: ${env.SITE_ORIGIN}/admin/games/${game.id}`,
-      );
-    }
-  }
-  return report;
 }
 
-function summarize(findings: Finding[]): string {
+export function summarize(findings: Finding[]): string {
   const important = findings.filter((f) => f.severity !== "info");
   return important.length ? important.map((f) => `${f.rule}: ${f.detail}`).join("\n") : "No problems found.";
 }

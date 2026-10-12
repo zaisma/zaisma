@@ -428,13 +428,14 @@ async function versionRoute(request: Request, env: Env, game: Game, what: string
 const DAY = 86400_000;
 
 /**
- * Player reports, counted by reason over the last 90 days. Bug reports come with what the player wrote.
- * Child-safety reports are never shown or counted here: telling the developer could warn someone abusing a child.
+ * Player reports, counted by reason over the last 90 days. Bug reports (as report triage sorted
+ * them) come with what the player wrote. Child-safety reports, including ones triage found under
+ * another reason, are never shown or counted here: telling the developer could warn someone abusing a child.
  */
 async function reportsFor(env: Env, game: Game) {
   const since = Date.now() - 90 * DAY;
   const { results: counts } = await env.DB
-    .prepare("SELECT reason, status, COUNT(*) AS n FROM reports WHERE game_id = ? AND created_at > ? AND reason != 'child_safety' GROUP BY reason, status")
+    .prepare("SELECT reason, status, COUNT(*) AS n FROM reports WHERE game_id = ? AND created_at > ? AND reason != 'child_safety' AND severity > 0 GROUP BY reason, status")
     .bind(game.id, since)
     .all<{ reason: string; status: string; n: number }>();
   const byReason: Record<string, { label: string; open: number; closed: number }> = {};
@@ -444,7 +445,7 @@ async function reportsFor(env: Env, game: Game) {
     else r.closed += c.n;
   }
   const { results: bugs } = await env.DB
-    .prepare("SELECT details, created_at FROM reports WHERE game_id = ? AND reason = 'broken' AND created_at > ? AND details != '' ORDER BY created_at DESC LIMIT 20")
+    .prepare("SELECT details, created_at FROM reports WHERE game_id = ? AND bug = 1 AND severity > 0 AND created_at > ? AND details != '' ORDER BY created_at DESC LIMIT 20")
     .bind(game.id, since)
     .all<{ details: string; created_at: number }>();
   return {
@@ -499,6 +500,7 @@ const HISTORY: Record<string, string | null> = {
   takedown: "Zaisma took the game down",
   restored: "Zaisma restored the game",
   "reports-dismissed": null,
+  "reports-to-developer": null,
   multiplayer: "Multiplayer settings changed",
   "cloud-saves": "Cloud saves switched",
   owner: null,

@@ -52,6 +52,8 @@ export interface Version {
   report_held_at: number | null;
   /** When reports stopped pausing this version: a person checked it, or a report already went back to it. */
   cleared_at: number | null;
+  /** When report triage had this version's files checked again. Once per version. */
+  rechecked_at: number | null;
 }
 
 export type Severity = "reject" | "hold" | "info";
@@ -77,6 +79,8 @@ export interface ScanReport {
 
 export interface ScanJob {
   versionId: string;
+  /** Look at a live version's files again after a report (AI report triage). Never publishes or changes the version. */
+  recheck?: { reportId: string };
 }
 
 /** Why a player reports another player in a room. */
@@ -104,6 +108,28 @@ export const REPORT_REASONS = {
   other: "Something else",
 } as const;
 export type ReportReason = keyof typeof REPORT_REASONS;
+
+/** How serious a report is, most serious first: reports.severity is the index. */
+export const SEVERITIES = ["Child safety", "Urgent", "High", "Normal", "Low"] as const;
+export const SEVERITY = { child_safety: 0, urgent: 1, high: 2, normal: 3, low: 4 } as const;
+export type ReportSeverity = keyof typeof SEVERITY;
+
+/** What AI report triage found and did about a report (reports.triage). */
+export interface Triage {
+  /** False when no AI read it: a child-safety report, or AI review isn't available. */
+  ai: boolean;
+  /** What the report is really about, whatever reason the player picked. */
+  category: ReportReason;
+  /** For the person reviewing it, in a sentence or two. */
+  summary: string;
+  /** What a person should do; "recheck" is done automatically. */
+  recommendation: "dismiss" | "bug" | "recheck" | "person" | "take_down" | "restore";
+  why: string;
+  /** What triage did by itself, in plain words. */
+  actions: string[];
+  /** A fresh look at the reported version's files, asked for by triage. */
+  recheck?: { status: "waiting" | "done" | "failed"; decision?: ScanStatus; summary?: string; findings?: string[] };
+}
 
 /** Reports for these reasons hide the game until it's reviewed. */
 export const AUTO_HOLD_REASONS: ReportReason[] = ["child_safety", "illegal"];
