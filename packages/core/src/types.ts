@@ -37,6 +37,12 @@ export interface Version {
   bytes: number;
   scan_status: ScanStatus;
   scan_report: string | null;
+  /** "zip": files under r2_prefix. "files": uploaded file by file, listed in a manifest. */
+  kind: "zip" | "files";
+  notes: string;
+  publish_when_approved: number;
+  preview_token: string | null;
+  published_at: number | null;
   created_at: number;
 }
 

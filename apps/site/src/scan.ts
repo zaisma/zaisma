@@ -17,7 +17,14 @@ import {
   type ImageMatcher,
   type ScanJob,
   type ScanReport,
+  type Manifest,
+  type Version,
+  KEEP_VERSIONS,
+  approveDraft,
+  blobKey,
+  manifestKey,
 } from "@zaisma/core";
+import { deletePrefix } from "./upload.ts";
 import { TEXT_BUDGET_CHARS, aiReview, type AiInput, type AiResult } from "./ai.ts";
 import { sendAlert } from "./email.ts";
 import type { Env } from "./env.ts";
@@ -58,45 +65,37 @@ export async function scanVersion(env: Env, versionId: string, deps: ScanDeps = 
   const game = await gameById(env.DB, version.game_id);
   if (!game) throw new Error(`No game for version ${versionId}`);
 
-  // 1. Collect the files.
-  const objects: R2Object[] = [];
-  let cursor: string | undefined;
-  do {
-    const list = await env.GAMES.list({ prefix: `${version.r2_prefix}/`, cursor });
-    objects.push(...list.objects);
-    cursor = list.truncated ? list.cursor : undefined;
-  } while (cursor);
-  const rel = (key: string) => key.slice(version.r2_prefix.length + 1);
-
+  // 1. Collect the files: under the version's prefix (zip uploads) or from its manifest (file-by-file uploads).
+  const objects = await versionFiles(env, version);
   const findings: Finding[] = [];
   const texts: { path: string; text: string }[] = [];
   let textBytes = 0;
   for (const o of objects) {
-    if (!TEXT_EXTENSIONS.has(extensionOf(o.key))) continue;
+    if (!TEXT_EXTENSIONS.has(extensionOf(o.path))) continue;
     if (textBytes + o.size > STATIC_TEXT_LIMIT) {
       findings.push({ stage: "static", severity: "hold", rule: "too-much-code", detail: "More code than the automatic checks read. A person should look." });
       break;
     }
     const body = await env.GAMES.get(o.key);
     if (!body) continue;
-    texts.push({ path: rel(o.key), text: await body.text() });
+    texts.push({ path: o.path, text: await body.text() });
     textBytes += o.size;
   }
 
   // 2. Static checks.
   const stat = staticScan(texts);
   findings.push(...stat.findings);
-  if (env.VT_API_KEY) findings.push(...(await virusTotal(env, objects, rel)));
+  if (env.VT_API_KEY) findings.push(...(await virusTotal(env, objects)));
 
   // 3. Known-illegal-image matching.
-  const imageObjects = objects.filter((o) => extensionOf(o.key) in IMAGE_TYPES);
+  const imageObjects = objects.filter((o) => extensionOf(o.path) in IMAGE_TYPES);
   const toMatch =
     deps.images === notConnected
       ? []
       : await Promise.all(
           imageObjects.map(async (o) => {
             const bytes = new Uint8Array(await (await env.GAMES.get(o.key))!.arrayBuffer());
-            return { path: rel(o.key), bytes, sha256: await sha256Hex(bytes) };
+            return { path: o.path, bytes, sha256: await sha256Hex(bytes) };
           }),
         );
   const images = await deps.images.check(toMatch);
@@ -114,11 +113,11 @@ export async function scanVersion(env: Env, versionId: string, deps: ScanDeps = 
     ai = { model: env.AI_MODEL, verdict: "skipped", summary: "Monthly AI review budget used up.", inputTokens: 0, outputTokens: 0 };
     findings.push({ stage: "ai", severity: "hold", rule: "ai-budget", detail: "This month's AI review budget is used up, so a person has to approve this game." });
   } else {
-    const aiImages = await pickImages(env, imageObjects, rel);
+    const aiImages = await pickImages(env, imageObjects);
     const result = await deps.ai(env.ANTHROPIC_API_KEY, env.AI_MODEL, {
       title: game.title,
       description: game.description,
-      fileList: objects.map((o) => ({ path: rel(o.key), size: o.size })),
+      fileList: objects.map((o) => ({ path: o.path, size: o.size })),
       texts: trimTexts(texts),
       images: aiImages,
       staticFindings: stat.findings,
@@ -145,8 +144,7 @@ export async function scanVersion(env: Env, versionId: string, deps: ScanDeps = 
 
   await saveScan(env.DB, version.id, decision, report);
   if (decision === "approved") {
-    await publishVersion(env.DB, version);
-    await audit(env.DB, game.id, "published", `Version ${version.id} passed the scan`);
+    await passVersion(env, version, "Passed the scan");
   } else {
     await audit(env.DB, game.id, decision === "held" ? "scan-held" : "scan-rejected", summarize(findings));
     if (decision === "held" || childSafety) {
@@ -180,7 +178,7 @@ export function trimTexts(texts: { path: string; text: string }[]): { path: stri
   return out;
 }
 
-async function pickImages(env: Env, objects: R2Object[], rel: (k: string) => string): Promise<AiInput["images"]> {
+async function pickImages(env: Env, objects: FileRef[]): Promise<AiInput["images"]> {
   const chosen = objects
     .filter((o) => o.size > 2048 && o.size <= AI_IMAGE_MAX_BYTES)
     .sort((a, b) => b.size - a.size)
@@ -188,7 +186,7 @@ async function pickImages(env: Env, objects: R2Object[], rel: (k: string) => str
   return Promise.all(
     chosen.map(async (o) => {
       const bytes = new Uint8Array(await (await env.GAMES.get(o.key))!.arrayBuffer());
-      return { path: rel(o.key), mediaType: IMAGE_TYPES[extensionOf(o.key)] as AiInput["images"][number]["mediaType"], base64: toBase64(bytes) };
+      return { path: o.path, mediaType: IMAGE_TYPES[extensionOf(o.path)] as AiInput["images"][number]["mediaType"], base64: toBase64(bytes) };
     }),
   );
 }
@@ -200,22 +198,74 @@ function toBase64(bytes: Uint8Array): string {
 }
 
 /** Optional VirusTotal hash lookup for the four largest scripts (free API: 4 lookups a minute). */
-async function virusTotal(env: Env, objects: R2Object[], rel: (k: string) => string): Promise<Finding[]> {
+async function virusTotal(env: Env, objects: FileRef[]): Promise<Finding[]> {
   const findings: Finding[] = [];
-  const scripts = objects.filter((o) => ["js", "mjs", "wasm", "html"].includes(extensionOf(o.key))).sort((a, b) => b.size - a.size).slice(0, 4);
+  const scripts = objects.filter((o) => ["js", "mjs", "wasm", "html"].includes(extensionOf(o.path))).sort((a, b) => b.size - a.size).slice(0, 4);
   for (const o of scripts) {
     const bytes = await (await env.GAMES.get(o.key))!.arrayBuffer();
     const hash = await sha256Hex(bytes);
     const res = await fetch(`https://www.virustotal.com/api/v3/files/${hash}`, { headers: { "x-apikey": env.VT_API_KEY! } });
     if (res.status === 404) continue;
     if (!res.ok) {
-      findings.push({ stage: "static", severity: "info", rule: "virustotal-unavailable", detail: `VirusTotal lookup failed (${res.status}).`, path: rel(o.key) });
+      findings.push({ stage: "static", severity: "info", rule: "virustotal-unavailable", detail: `VirusTotal lookup failed (${res.status}).`, path: o.path });
       continue;
     }
     const data = (await res.json()) as { data?: { attributes?: { last_analysis_stats?: { malicious?: number } } } };
     const malicious = data.data?.attributes?.last_analysis_stats?.malicious ?? 0;
-    if (malicious >= 3) findings.push({ stage: "static", severity: "reject", rule: "virustotal", detail: `${malicious} antivirus engines flag this file.`, path: rel(o.key) });
-    else if (malicious > 0) findings.push({ stage: "static", severity: "hold", rule: "virustotal", detail: `${malicious} antivirus engine(s) flag this file.`, path: rel(o.key) });
+    if (malicious >= 3) findings.push({ stage: "static", severity: "reject", rule: "virustotal", detail: `${malicious} antivirus engines flag this file.`, path: o.path });
+    else if (malicious > 0) findings.push({ stage: "static", severity: "hold", rule: "virustotal", detail: `${malicious} antivirus engine(s) flag this file.`, path: o.path });
   }
   return findings;
+}
+
+export interface FileRef {
+  /** Path inside the game. */
+  path: string;
+  /** Where the file is in the games bucket. */
+  key: string;
+  size: number;
+}
+
+export async function versionFiles(env: Env, version: Version): Promise<FileRef[]> {
+  if (version.kind === "files") {
+    const manifest = await env.GAMES.get(manifestKey(version.id));
+    if (!manifest) throw new Error(`No manifest for version ${version.id}`);
+    const { files } = (await manifest.json()) as Manifest;
+    return Object.entries(files).map(([path, f]) => ({ path, key: blobKey(f.sha256), size: f.bytes }));
+  }
+  const out: FileRef[] = [];
+  let cursor: string | undefined;
+  do {
+    const list = await env.GAMES.list({ prefix: `${version.r2_prefix}/`, cursor });
+    for (const o of list.objects) out.push({ path: o.key.slice(version.r2_prefix.length + 1), key: o.key, size: o.size });
+    cursor = list.truncated ? list.cursor : undefined;
+  } while (cursor);
+  return out;
+}
+
+/**
+ * A version passed review (the scan or a person). Admin uploads and versions sent with
+ * "publish when approved" go live; developers' drafts get a private preview link and wait.
+ */
+export async function passVersion(env: Env, version: Version, why: string, actor = "system"): Promise<void> {
+  if (version.publish_when_approved) {
+    await publishVersion(env.DB, version);
+    await audit(env.DB, version.game_id, "published", `${why}: version ${version.id}`, actor);
+    await pruneVersions(env, version.game_id);
+  } else {
+    await approveDraft(env.DB, version.id);
+    await audit(env.DB, version.game_id, "draft-ready", `${why}: version ${version.id} is ready to preview and publish`, actor);
+  }
+}
+
+/** Keep the live version plus the last few approved ones for rolling back; delete older approved versions. */
+export async function pruneVersions(env: Env, gameId: string): Promise<void> {
+  const game = await gameById(env.DB, gameId);
+  const { results } = await env.DB.prepare("SELECT * FROM versions WHERE game_id = ? AND scan_status = 'approved' ORDER BY created_at DESC").bind(gameId).all<Version>();
+  const old = results.filter((v) => v.id !== game?.current_version_id).slice(KEEP_VERSIONS);
+  for (const v of old) {
+    if (v.kind === "files") await env.GAMES.delete(manifestKey(v.id));
+    else await deletePrefix(env.GAMES, v.r2_prefix);
+    await env.DB.prepare("DELETE FROM versions WHERE id = ?").bind(v.id).run();
+  }
 }

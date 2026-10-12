@@ -1,6 +1,6 @@
 # Developer API
 
-One API behind the developer MCP, the upload command and the dashboard, so they always agree. Base: `https://zaisma.com/api/dev`. Every answer is JSON; errors look like `{"error": {"code": "slug_taken", "message": "…"}}`.
+One API behind the developer MCP, the upload command (`packages/cli`) and the dashboard, so they always agree. Base: `https://zaisma.com/api/dev`. Every answer is JSON; errors look like `{"error": {"code": "slug_taken", "message": "…"}}`.
 
 ## Signing in
 
@@ -33,3 +33,22 @@ PNG, JPEG or WebP, checked from the file itself; SVG and other types are refused
 curl -X POST "https://zaisma.com/api/dev/games/sky-hopper/images?kind=cover" \
   -H "Authorization: Bearer $ZAISMA_KEY" --data-binary @cover.png
 ```
+
+## Uploading versions
+
+The `zaisma` command (`packages/cli`) does all of this for you: `zaisma upload ./build --game sky-hopper`.
+
+Files are stored once, by their SHA-256, and shared by every version that has them, so an update only sends what changed.
+
+| Call | What it does |
+| --- | --- |
+| `POST /games/:slug/uploads` | Send the file list, `{"files": [{"path", "sha256", "bytes"}]}`. Answers with the hashes we don't have yet (`missing`). |
+| `PUT /files/:sha256` | Send one missing file as the request body. Storage checks the hash; programs and archives are refused. |
+| `POST /games/:slug/versions` | Make the version from the same list, plus `notes` (patch notes, up to 2,000 characters) and optionally `"publish": "when-approved"`. |
+| `GET /games/:slug/versions/:id` | `scan` (`scanning`, `held`, `approved` or `rejected`), what the scan found, and `preview_url` once it passes. |
+| `POST /games/:slug/versions/:id/publish` | Publish a draft that passed, or roll back to an older version. |
+
+- Same rules as zips: `index.html` at the top, no hidden files, no pre-compressed `.gz` or `.br` files, only the file types games use. Up to 20,000 files and 2 GB per game, and 95 MB per file for now (bigger files come with multipart uploads). Up to 20 versions per game a day.
+- Each version is scanned. One that passes waits as a draft with a private preview link (`https://<slug>--<secret>.zaismausercontent.com/`) that works even while the game is a draft or private. Preview saves stay in that link's own browser storage.
+- Publishing makes it the version players get. We keep the live version plus the last 5 that passed, for rolling back.
+- Publishing doesn't change visibility: a draft game stays hidden until you set it to `listed` or `unlisted`.

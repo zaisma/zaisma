@@ -22,9 +22,25 @@ import {
   type Game,
   type GameImage,
   type ImageKind,
+  FILE_LIMITS,
+  UploadError,
+  addBlob,
+  blobKey,
+  checkUploadList,
+  createVersion,
+  forbiddenContent,
+  manifestKey,
+  missingBlobs,
+  publishVersion,
+  toManifest,
+  versionById,
+  type ScanReport,
+  type UploadFile,
+  type Version,
 } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
-import type { Env } from "./env.ts";
+import { gameUrl, type Env } from "./env.ts";
+import { pruneVersions } from "./scan.ts";
 
 /**
  * The developer API: one API for the MCP, the upload command and the dashboard, so they always agree.
@@ -36,6 +52,11 @@ import type { Env } from "./env.ts";
  *   PATCH  /api/dev/games/:slug                title, description, visibility, devices, controls, screen
  *   POST   /api/dev/games/:slug/images?kind=   add a cover or screenshot (the image bytes as the body)
  *   DELETE /api/dev/games/:slug/images/:id     remove one
+ *   POST   /api/dev/games/:slug/uploads        which of these files still need sending
+ *   PUT    /api/dev/files/:sha256              send one file
+ *   POST   /api/dev/games/:slug/versions       make a version from stored files (scanned, then a draft)
+ *   GET    /api/dev/games/:slug/versions/:id   scan result, findings and preview link
+ *   POST   /api/dev/games/:slug/versions/:id/publish   publish a draft or roll back
  *
  * Images are served from /img/:id once approved; owners can see their own before that.
  */
@@ -125,6 +146,13 @@ async function route(request: Request, env: Env, path: string, caller: Caller): 
     return ok({ game: gameJson(env, game) }, 201);
   }
 
+  // One file of a game, by its SHA-256. Storage checks the hash, so a file can't claim to be another.
+  const blob = path.match(/^\/files\/([0-9a-f]{64})$/);
+  if (blob && method === "PUT") return ok(await putBlob(request, env, blob[1]!));
+
+  const v = path.match(/^\/games\/([a-z0-9-]+)\/(uploads|versions)(?:\/([a-z0-9]+)(\/publish)?)?$/);
+  if (v) return ok(...(await versionRoute(request, env, await ownGame(env, v[1]!, caller), v[2]!, v[3], Boolean(v[4]), caller)));
+
   const m = path.match(/^\/games\/([a-z0-9-]+)(?:\/images(?:\/([a-z0-9]+))?)?$/);
   if (!m) throw new ApiError(404, "not_found", "No such API path.");
   const game = await ownGame(env, m[1]!, caller);
@@ -135,7 +163,7 @@ async function route(request: Request, env: Env, path: string, caller: Caller): 
     return ok({
       game: gameJson(env, game),
       images: imgs.map((i) => imageJson(env, i)),
-      versions: versions.map((v) => ({ id: v.id, files: v.file_count, bytes: v.bytes, scan: v.scan_status, live: v.id === game.current_version_id, created_at: v.created_at })),
+      versions: versions.map((v) => versionJson(env, game, v)),
     });
   }
 
@@ -192,6 +220,124 @@ async function route(request: Request, env: Env, path: string, caller: Caller): 
   throw new ApiError(405, "bad_method", `${method} isn't used here.`);
 }
 
+async function putBlob(request: Request, env: Env, sha256: string): Promise<unknown> {
+  const length = Number(request.headers.get("content-length") ?? -1);
+  if (!Number.isSafeInteger(length) || length < 0) throw new ApiError(411, "no_length", "Send the file with a Content-Length header.");
+  if (length > FILE_LIMITS.fileBytes) throw new ApiError(413, "file_too_big", `Files can be up to ${FILE_LIMITS.fileBytes / 1048576} MB for now.`);
+  if ((await missingBlobs(env.DB, [sha256])).length === 0) {
+    await request.body?.cancel();
+    return { sha256, stored: "already" };
+  }
+  if (!request.body) throw new ApiError(400, "no_body", "Send the file as the request body.");
+  try {
+    await env.GAMES.put(blobKey(sha256), request.body, { sha256 });
+  } catch {
+    throw new ApiError(400, "hash_mismatch", "The file doesn't match its SHA-256. Hash the file again and resend it.");
+  }
+  // Programs and archives aren't allowed in games, whatever they're called.
+  const head = await env.GAMES.get(blobKey(sha256), { range: { offset: 0, length: 16 } });
+  const bad = head ? forbiddenContent(new Uint8Array(await head.arrayBuffer())) : null;
+  if (bad) {
+    await env.GAMES.delete(blobKey(sha256));
+    throw new ApiError(400, "forbidden_file", `That file looks like ${bad}, which isn't allowed in games.`);
+  }
+  await addBlob(env.DB, sha256, length);
+  return { sha256, stored: "now" };
+}
+
+async function versionRoute(request: Request, env: Env, game: Game, what: string, id: string | undefined, publish: boolean, caller: Caller): Promise<[unknown, number?]> {
+  const method = request.method;
+  if (game.status === "removed" && method !== "GET") throw new ApiError(403, "removed", "This game was taken down, so it can't get new versions.");
+
+  // Step 1: which of these files do you still need to send?
+  if (what === "uploads" && !id && method === "POST") {
+    const files = listOrThrow((await readJson(request, 4 * 1024 * 1024)).files);
+    const missing = await missingBlobs(env.DB, files.map((f) => f.sha256));
+    return [{ files: files.length, bytes: files.reduce((n, f) => n + f.bytes, 0), missing }];
+  }
+
+  // Step 2: make the version once every file is stored. It's scanned, then waits as a draft.
+  if (what === "versions" && !id && method === "POST") {
+    const body = await readJson(request, 4 * 1024 * 1024);
+    const files = listOrThrow(body.files);
+    const notes = typeof body.notes === "string" ? body.notes.trim() : "";
+    if (notes.length > FILE_LIMITS.notes) throw new ApiError(400, "notes_too_long", `Patch notes can be up to ${FILE_LIMITS.notes} characters.`);
+    const missing = await missingBlobs(env.DB, files.map((f) => f.sha256));
+    if (missing.length) throw new ApiError(409, "files_missing", `${missing.length} file(s) haven't been sent yet. Send them to PUT /api/dev/files/<sha256> first.`);
+    const today = await env.DB.prepare("SELECT COUNT(*) AS n FROM versions WHERE game_id = ? AND created_at > ?").bind(game.id, Date.now() - 86400_000).first<{ n: number }>();
+    if ((today?.n ?? 0) >= FILE_LIMITS.versionsPerDay) throw new ApiError(429, "too_many_versions", `A game can get ${FILE_LIMITS.versionsPerDay} versions a day. Try again tomorrow.`);
+    const versionId = newId();
+    await env.GAMES.put(manifestKey(versionId), JSON.stringify(toManifest(files)), { httpMetadata: { contentType: "application/json" } });
+    await createVersion(env.DB, {
+      id: versionId,
+      gameId: game.id,
+      prefix: `manifests/${versionId}`,
+      files: files.length,
+      bytes: files.reduce((n, f) => n + f.bytes, 0),
+      kind: "files",
+      notes,
+      publishWhenApproved: body.publish === "when-approved",
+    });
+    await audit(env.DB, game.id, "upload", `Version ${versionId}, ${files.length} files`, caller.actor);
+    await env.SCAN_QUEUE.send({ versionId });
+    return [{ version: versionJson(env, game, (await versionById(env.DB, versionId))!) }, 201];
+  }
+
+  const version = id ? await versionById(env.DB, id) : null;
+  if (id && (!version || version.game_id !== game.id)) throw new ApiError(404, "no_version", "This game has no version with that ID.");
+
+  if (version && !publish && method === "GET") return [{ version: versionJson(env, game, version, true) }];
+
+  // Publish a draft, or roll back to any version we've kept.
+  if (version && publish && method === "POST") {
+    if (version.scan_status !== "approved") throw new ApiError(409, "not_approved", version.scan_status === "scanning" ? "This version is still being scanned." : "Only versions that passed review can be published.");
+    await publishVersion(env.DB, version);
+    await audit(env.DB, game.id, version.published_at ? "rolled-back" : "published", `Version ${version.id}`, caller.actor);
+    await pruneVersions(env, game.id);
+    const fresh = (await gameBySlug(env.DB, game.slug))!;
+    return [{ game: gameJson(env, fresh), version: versionJson(env, fresh, (await versionById(env.DB, version.id))!) }];
+  }
+
+  throw new ApiError(405, "bad_method", `${method} isn't used here.`);
+}
+
+function listOrThrow(files: unknown): UploadFile[] {
+  try {
+    return checkUploadList(files);
+  } catch (err) {
+    if (err instanceof UploadError) throw new ApiError(400, "bad_files", err.message);
+    throw err;
+  }
+}
+
+function previewUrl(env: Env, slug: string, token: string): string {
+  return gameUrl(env, `${slug}--${token}`);
+}
+
+function versionJson(env: Env, game: Game, v: Version, detail = false) {
+  const report: ScanReport | null = v.scan_report ? JSON.parse(v.scan_report) : null;
+  return {
+    id: v.id,
+    files: v.file_count,
+    bytes: v.bytes,
+    // scanning, held (a person will look), approved or rejected.
+    scan: v.scan_status,
+    live: v.id === game.current_version_id,
+    notes: v.notes,
+    preview_url: v.preview_token && v.scan_status === "approved" ? previewUrl(env, game.slug, v.preview_token) : null,
+    published_at: v.published_at,
+    created_at: v.created_at,
+    // Why a version was held or rejected. Child-safety findings are never described.
+    ...(detail && report
+      ? {
+          findings: report.childSafety
+            ? [{ rule: "review", detail: "A person needs to look at this version." }]
+            : report.findings.filter((f) => f.severity !== "info").map((f) => ({ severity: f.severity, rule: f.rule, detail: f.detail, path: f.path ?? null })),
+        }
+      : {}),
+  };
+}
+
 /** A game this caller owns. Someone else's game looks the same as no game. */
 async function ownGame(env: Env, slug: string, caller: Caller): Promise<Game> {
   const game = await gameBySlug(env.DB, slug);
@@ -199,8 +345,8 @@ async function ownGame(env: Env, slug: string, caller: Caller): Promise<Game> {
   return game;
 }
 
-async function readJson(request: Request): Promise<Record<string, unknown>> {
-  if (Number(request.headers.get("content-length") ?? 0) > 64 * 1024) throw new ApiError(413, "too_big", "Send less than 64 KB of JSON.");
+async function readJson(request: Request, max = 64 * 1024): Promise<Record<string, unknown>> {
+  if (Number(request.headers.get("content-length") ?? 0) > max) throw new ApiError(413, "too_big", `Send less than ${max / 1024} KB of JSON.`);
   try {
     const body = await request.json();
     if (body && typeof body === "object" && !Array.isArray(body)) return body as Record<string, unknown>;

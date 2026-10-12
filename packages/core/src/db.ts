@@ -22,10 +22,10 @@ export async function gameByDomain(db: D1Database, hostname: string): Promise<Ga
 export async function servableGame(
   db: D1Database,
   by: { slug: string } | { hostname: string },
-): Promise<(Game & { r2_prefix: string | null }) | null> {
+): Promise<(Game & { r2_prefix: string | null; version_kind: "zip" | "files" | null }) | null> {
   const where = "slug" in by ? "games.slug = ?" : "games.id = (SELECT game_id FROM domains WHERE hostname = ?)";
   return db
-    .prepare(`SELECT games.*, versions.r2_prefix FROM games LEFT JOIN versions ON versions.id = games.current_version_id WHERE ${where}`)
+    .prepare(`SELECT games.*, versions.r2_prefix, versions.kind AS version_kind FROM games LEFT JOIN versions ON versions.id = games.current_version_id WHERE ${where}`)
     .bind("slug" in by ? by.slug : by.hostname)
     .first();
 }
@@ -74,11 +74,25 @@ export async function setGameStatus(db: D1Database, id: string, status: GameStat
   await db.prepare("UPDATE games SET status = ?, updated_at = ? WHERE id = ?").bind(status, now(), id).run();
 }
 
-export async function createVersion(db: D1Database, v: { id: string; gameId: string; prefix: string; files: number; bytes: number }): Promise<void> {
+export async function createVersion(
+  db: D1Database,
+  v: { id: string; gameId: string; prefix: string; files: number; bytes: number; kind?: "zip" | "files"; notes?: string; publishWhenApproved?: boolean },
+): Promise<void> {
   await db
-    .prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, bytes, scan_status, created_at) VALUES (?, ?, ?, ?, ?, 'scanning', ?)")
-    .bind(v.id, v.gameId, v.prefix, v.files, v.bytes, now())
+    .prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, bytes, scan_status, kind, notes, publish_when_approved, created_at) VALUES (?, ?, ?, ?, ?, 'scanning', ?, ?, ?, ?)")
+    .bind(v.id, v.gameId, v.prefix, v.files, v.bytes, v.kind ?? "zip", v.notes ?? "", v.publishWhenApproved === false ? 0 : 1, now())
     .run();
+}
+
+/** A passed version that isn't published yet gets a private preview link. */
+export async function approveDraft(db: D1Database, versionId: string): Promise<string> {
+  const token = Array.from(crypto.getRandomValues(new Uint8Array(20)), (b) => "abcdefghijklmnopqrstuvwxyz0123456789"[b % 36]).join("");
+  await db.prepare("UPDATE versions SET scan_status = 'approved', preview_token = COALESCE(preview_token, ?) WHERE id = ?").bind(token, versionId).run();
+  return (await db.prepare("SELECT preview_token FROM versions WHERE id = ?").bind(versionId).first<{ preview_token: string }>())!.preview_token;
+}
+
+export async function versionByPreview(db: D1Database, gameId: string, token: string): Promise<Version | null> {
+  return db.prepare("SELECT * FROM versions WHERE preview_token = ? AND game_id = ? AND scan_status = 'approved'").bind(token, gameId).first<Version>();
 }
 
 export async function versionById(db: D1Database, id: string): Promise<Version | null> {
@@ -104,7 +118,7 @@ export async function saveScan(db: D1Database, versionId: string, status: ScanSt
 /** Make a version the one players get. A removed or held game stays hidden. */
 export async function publishVersion(db: D1Database, version: Version): Promise<void> {
   await db.batch([
-    db.prepare("UPDATE versions SET scan_status = 'approved' WHERE id = ?").bind(version.id),
+    db.prepare("UPDATE versions SET scan_status = 'approved', published_at = ? WHERE id = ?").bind(now(), version.id),
     db
       .prepare("UPDATE games SET current_version_id = ?, status = CASE WHEN status IN ('removed', 'held') THEN status ELSE 'live' END, updated_at = ? WHERE id = ?")
       .bind(version.id, now(), version.game_id),

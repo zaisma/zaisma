@@ -37,6 +37,7 @@ import {
 import { adminIdentity } from "./access.ts";
 import { gameUrl, type Env } from "./env.ts";
 import { html, layout, type Raw } from "./html.ts";
+import { passVersion } from "./scan.ts";
 import { uploadGame } from "./upload.ts";
 
 const when = (ms: number) => new Date(ms).toISOString().slice(0, 16).replace("T", " ");
@@ -94,8 +95,7 @@ async function adminAction(request: Request, env: Env, path: string, actor: stri
     const version = await versionById(env.DB, m[1]!);
     if (!version) return new Response("Not found", { status: 404 });
     if (m[2] === "approve") {
-      await publishVersion(env.DB, version);
-      await audit(env.DB, version.game_id, "approved", reason || `Version ${version.id}`, actor);
+      await passVersion(env, version, reason || "Approved by a person", actor);
     } else {
       await saveScan(env.DB, version.id, "rejected", null);
       await audit(env.DB, version.game_id, "rejected", reason || `Version ${version.id}`, actor);
@@ -324,7 +324,7 @@ ${versions.map((v) => {
   ${report ? scanReport(report) : html`<p>Scan in progress…</p>`}
   ${v.scan_status !== "approved" || !current
         ? html`<div class="row">
-    ${v.scan_status !== "approved" ? html`<form method="post" action="/admin/versions/${v.id}/approve"><button class="btn" type="submit">Approve and publish</button></form>` : ""}
+    ${v.scan_status !== "approved" ? html`<form method="post" action="/admin/versions/${v.id}/approve"><button class="btn" type="submit">${v.publish_when_approved ? "Approve and publish" : "Approve as a draft"}</button></form>` : ""}
     ${v.scan_status !== "rejected" ? html`<form method="post" action="/admin/versions/${v.id}/reject"><button class="btn ghost" type="submit">Reject</button></form>` : ""}
   </div>`
         : ""}
