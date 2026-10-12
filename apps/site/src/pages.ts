@@ -171,6 +171,7 @@ a.live-now:hover{text-decoration:underline;text-underline-offset:3px}
   .room .fill{grid-column:1/3;grid-row:2}
   .room .act{grid-column:3;grid-row:2;justify-content:flex-end}
   .room .count,.room .name{font-size:16px}
+  .code-join label{flex-basis:100%}
 }
 /* The narrowest phones keep just the flag; the country is in the Join button's label. */
 @media (max-width:370px){.room .where{min-width:0}.room .where abbr{display:none}}

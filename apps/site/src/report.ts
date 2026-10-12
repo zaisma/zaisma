@@ -60,6 +60,7 @@ dialog.sheet::backdrop{background:linear-gradient(90deg,rgba(4,5,7,0) 35%,rgba(4
 .sheet-head .x{flex:none;width:40px;height:40px;margin-right:24px;padding:0;justify-content:center}
 .sheet-body{flex:1;min-height:0;overflow:auto;padding:16px 16px 20px}
 .whys{display:grid;gap:8px}
+.why[hidden]{display:none}
 /* Each reason is a plate you press; the chevron says it leads on. */
 .why,.picked{position:relative;display:flex;align-items:center;gap:12px;width:100%;min-height:58px;padding:10px 14px 10px 16px;border:0;text-align:left;color:var(--text);font:inherit;cursor:pointer;
   background:var(--brush) 0 0/320px 320px,var(--face-hi);box-shadow:inset 1px 1px 0 rgba(255,255,255,.1),inset -1px -1px 0 #000;clip-path:polygon(0 0,calc(100% - 10px) 0,100% 10px,100% 100%,0 100%)}
@@ -148,6 +149,7 @@ dialog.sheet::backdrop{background:linear-gradient(90deg,rgba(4,5,7,0) 35%,rgba(4
   const form = sheet.querySelector("form");
   const send = document.getElementById("report-send");
   const $ = (id) => document.getElementById(id);
+  const ROOM_REASONS = ["child_safety", "sexual", "hate", "illegal", "other"];
   // about: a player a game handed over; aboutRoom: a room from the Rooms list ({ code, name }).
   let about = null, aboutRoom = null, reason = "", label = "";
   // A picture of the game, taken when the player opens the menu or Report; sent only if they keep it ticked.
@@ -188,6 +190,9 @@ dialog.sheet::backdrop{background:linear-gradient(90deg,rgba(4,5,7,0) 35%,rgba(4
     $("report-title").textContent = aboutRoom ? "Report this room" : "Report " + (about ? about.name : C.title);
     $("report-sub").textContent = (aboutRoom ? "“" + aboutRoom.name + "”. " : about && about.code ? "In room " + about.code + ". " : "") + "We don't record who you are.";
     sheet.querySelectorAll("[data-for]").forEach((el) => (el.hidden = (el.dataset.for === "player") !== Boolean(about)));
+    // A room's name is words: only the reasons words can break, and no copyright note.
+    sheet.querySelectorAll("[data-for=game] .why").forEach((b) => (b.hidden = Boolean(aboutRoom) && !ROOM_REASONS.includes(b.dataset.reason)));
+    sheet.querySelectorAll(".sheet-foot[data-for=game]").forEach((el) => (el.hidden = el.hidden || Boolean(aboutRoom)));
     form.reset();
     $("report-error").hidden = true;
     if (!sheet.open) sheet.showModal();
