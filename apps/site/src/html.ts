@@ -185,6 +185,17 @@ body>main.gp{flex:1 0 auto;width:100%}
 .pill.live,.pill.approved,.pill.info{color:var(--ok)}
 .pill.held,.pill.scanning,.pill.pending,.pill.hold{color:var(--warn)}
 .pill.removed,.pill.rejected,.pill.reject{color:var(--danger)}
+/* The report queue: how serious, and a red edge on the cases that can't wait. */
+.pill.sev0,.pill.sev1{color:var(--danger)}
+.pill.sev2{color:var(--warn)}
+.pill.sev4{color:var(--muted)}
+.case{display:grid;gap:10px;margin-bottom:12px}
+.case p{margin:0}
+.case .said{color:var(--text);font-size:16px}
+.case.sev0,.case.sev1{box-shadow:inset 3px 0 0 var(--danger),var(--rim),var(--drop)}
+.case .decide input[name=reason]{flex:1 1 280px}
+.handled summary h2{display:inline;font-size:inherit}
+.nowrap{white-space:nowrap}
 .note{padding:14px 16px;color:var(--muted)}
 .note strong{color:var(--text)}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
@@ -355,7 +366,7 @@ export function ambient(art: string | null | undefined): Raw {
 export function siteHeader(env: Env, opts: { admin?: boolean; nav?: "dashboard" | "home" } = {}): Raw {
   return html`<header class="top"><div class="in">
   <a class="logo" href="/" aria-label="Zaisma home"><img src="/zaisma-wordmark-metal.svg" alt="Zaisma"></a>
-  <nav>${opts.admin ? html`<a href="/admin">Admin</a><a href="/admin/audit">Audit log</a>` : opts.nav === "dashboard" ? html`<a href="/">Home</a><a href="/dashboard" aria-current="page">Your games</a>` : html`<a href="/"${opts.nav === "home" ? raw(' aria-current="page"') : ""}>Home</a>`}</nav>
+  <nav>${opts.admin ? html`<a href="/admin">Admin</a><a href="/admin/reports">Reports</a><a href="/admin/audit">Audit log</a>` : opts.nav === "dashboard" ? html`<a href="/">Home</a><a href="/dashboard" aria-current="page">Your games</a>` : html`<a href="/"${opts.nav === "home" ? raw(' aria-current="page"') : ""}>Home</a>`}</nav>
   <div class="end">${env.SUPABASE_URL ? raw(ACCOUNT_LINK) : ""}</div>
 </div></header>`;
 }

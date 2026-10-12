@@ -194,7 +194,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
   const facts = path.match(/^\/games\/([a-z0-9-]+)\/(reports|stats|history)$/);
   if (facts && method === "GET") {
     const game = await ownGame(env, facts[1]!, caller);
-    if (facts[2] === "reports") return ok(await reportsFor(env, game));
+    if (facts[2] === "reports") return ok(await reportsFor(env, game, Number(new URL(request.url).searchParams.get("since") ?? 0)));
     if (facts[2] === "stats") return ok(await statsFor(env, game, Number(new URL(request.url).searchParams.get("days") ?? 30)));
     return ok(await historyFor(env, game, caller));
   }
@@ -428,14 +428,17 @@ async function versionRoute(request: Request, env: Env, game: Game, what: string
 const DAY = 86400_000;
 
 /**
- * Player reports, counted by reason over the last 90 days. Bug reports come with what the player wrote.
- * Child-safety reports are never shown or counted here: telling the developer could warn someone abusing a child.
+ * Player reports, counted by reason over the last 90 days. Bug reports (as report triage sorted
+ * them) come with what the player wrote and the version they played; `since` (from next_since)
+ * gives only the ones that arrived after it, so a developer's AI can check for new ones.
+ * Child-safety reports, including ones triage found under another reason, are never shown or
+ * counted here: telling the developer could warn someone abusing a child.
  */
-async function reportsFor(env: Env, game: Game) {
-  const since = Date.now() - 90 * DAY;
+async function reportsFor(env: Env, game: Game, since = 0) {
+  const from = Date.now() - 90 * DAY;
   const { results: counts } = await env.DB
-    .prepare("SELECT reason, status, COUNT(*) AS n FROM reports WHERE game_id = ? AND created_at > ? AND reason != 'child_safety' GROUP BY reason, status")
-    .bind(game.id, since)
+    .prepare("SELECT reason, status, COUNT(*) AS n FROM reports WHERE game_id = ? AND created_at > ? AND reason != 'child_safety' AND severity > 0 GROUP BY reason, status")
+    .bind(game.id, from)
     .all<{ reason: string; status: string; n: number }>();
   const byReason: Record<string, { label: string; open: number; closed: number }> = {};
   for (const c of counts) {
@@ -444,14 +447,22 @@ async function reportsFor(env: Env, game: Game) {
     else r.closed += c.n;
   }
   const { results: bugs } = await env.DB
-    .prepare("SELECT details, created_at FROM reports WHERE game_id = ? AND reason = 'broken' AND created_at > ? AND details != '' ORDER BY created_at DESC LIMIT 20")
-    .bind(game.id, since)
-    .all<{ details: string; created_at: number }>();
+    .prepare("SELECT id, details, triage, version_id, created_at, bug_at FROM reports WHERE game_id = ? AND bug = 1 AND severity > 0 AND bug_at > ? AND details != '' ORDER BY bug_at DESC LIMIT 50")
+    .bind(game.id, Math.max(Number.isFinite(since) ? since : 0, from))
+    .all<{ id: string; details: string; triage: string | null; version_id: string | null; created_at: number; bug_at: number }>();
   return {
     days: 90,
     // Open: waiting for us. Closed: we looked and either dismissed it or acted on it.
     reasons: byReason,
-    bug_reports: bugs.map((b) => ({ said: b.details, at: b.created_at })),
+    bug_reports: bugs.map((b) => ({
+      id: b.id,
+      said: b.details,
+      summary: b.triage ? (JSON.parse(b.triage) as { summary: string }).summary : null,
+      version: b.version_id,
+      at: b.created_at,
+    })),
+    // Pass this as `since` next time to get only bug reports that arrived after this call.
+    next_since: Math.max(Number.isFinite(since) ? since : 0, ...bugs.map((b) => b.bug_at)),
   };
 }
 
@@ -499,6 +510,7 @@ const HISTORY: Record<string, string | null> = {
   takedown: "Zaisma took the game down",
   restored: "Zaisma restored the game",
   "reports-dismissed": null,
+  "reports-to-developer": null,
   multiplayer: "Multiplayer settings changed",
   "cloud-saves": "Cloud saves switched",
   owner: null,

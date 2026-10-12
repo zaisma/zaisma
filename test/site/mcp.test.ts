@@ -132,6 +132,9 @@ describe("reports, stats and history", () => {
     await createReport(env.DB, { gameId: game.id, reason: "broken", details: "Stuck on level 2" });
     await createReport(env.DB, { gameId: game.id, reason: "hate", details: "slur in the chat" });
     await createReport(env.DB, { gameId: game.id, reason: "child_safety", details: "secret" });
+    // Bug reports reach the developer once report triage sorts them as bugs. One sorted as child safety never does.
+    await createReport(env.DB, { gameId: game.id, reason: "other", details: "a secret found by triage" });
+    await env.DB.exec(`UPDATE reports SET bug = 1, bug_at = ${Date.now()} WHERE reason = 'broken'; UPDATE reports SET severity = 0, bug = 1, bug_at = ${Date.now()} WHERE reason = 'other'`);
     const out = await tool("get_reports", { slug: "hop" });
     expect(out.reasons.broken).toMatchObject({ open: 1, closed: 0 });
     expect(out.reasons.hate.open).toBe(1);
@@ -139,6 +142,8 @@ describe("reports, stats and history", () => {
     expect(out.bug_reports).toEqual([expect.objectContaining({ said: "Stuck on level 2" })]);
     expect(JSON.stringify(out)).not.toContain("secret");
     expect(JSON.stringify(out)).not.toContain("slur");
+    // Asking again with next_since gives only bug reports that arrived since.
+    expect((await tool("get_reports", { slug: "hop", since: out.next_since })).bug_reports).toEqual([]);
   });
 
   it("shows room use per day", async () => {

@@ -11,7 +11,7 @@ import { startFakeAuth } from "./fake-auth.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const STATE = join(ROOT, ".wrangler/preview");
-const PORTS = { site: 8800, games: 8801, rooms: 8802, auth: 8790 };
+const PORTS = { site: 8800, games: 8801, rooms: 8802, auth: 8790, ai: 8791 };
 const SITE = `http://localhost:${PORTS.site}`;
 const GAMES = `http://localhost:${PORTS.games}`;
 const ROOMS = `http://localhost:${PORTS.rooms}`;
@@ -24,7 +24,9 @@ mkdirSync(STATE, { recursive: true });
 // Settings for the preview only. --env-file replaces .dev.vars, so your own settings stay out of it.
 writeFileSync(
   join(STATE, "site.env"),
-  [`SITE_ORIGIN=${SITE}`, `GAME_ORIGIN=${GAMES}`, "GAME_HOST_MODE=path", "GAME_DOMAIN=", "DEV_ADMIN=1", `SUPABASE_URL=http://localhost:${PORTS.auth}`, "SUPABASE_PUBLISHABLE_KEY=preview", "SUPABASE_SECRET_KEY=preview", "KEEP_OFFER_SECONDS=20", ""].join("\n"),
+  [`SITE_ORIGIN=${SITE}`, `GAME_ORIGIN=${GAMES}`, "GAME_HOST_MODE=path", "GAME_DOMAIN=", "DEV_ADMIN=1", `SUPABASE_URL=http://localhost:${PORTS.auth}`, "SUPABASE_PUBLISHABLE_KEY=preview", "SUPABASE_SECRET_KEY=preview", "KEEP_OFFER_SECONDS=20",
+    // Scans and report triage ask a stand-in AI (fake-ai.mjs): no real key, no cost.
+    "ANTHROPIC_API_KEY=preview", `ANTHROPIC_BASE_URL=http://localhost:${PORTS.ai}`, ""].join("\n"),
 );
 writeFileSync(join(STATE, "games.env"), [`SITE_ORIGIN=${SITE}`, "GAME_HOST_MODE=path", "GAME_DOMAIN=", `ROOMS_ORIGIN=${ROOMS}`, ""].join("\n"));
 // Multiplayer rooms, with their own pass signing key kept between runs so passes stay valid.
@@ -63,10 +65,11 @@ async function waitFor(url) {
 }
 
 await startFakeAuth(PORTS.auth, join(STATE, "auth-key.json")).catch(() => console.log(`Sign-in stand-in already running on ${PORTS.auth}.`));
+children.push(spawn("node", [join(ROOT, "scripts/preview/fake-ai.mjs"), String(PORTS.ai)], { stdio: "ignore" }));
 console.log("Applying database updates…");
 spawnSync("npx", ["wrangler", "d1", "migrations", "apply", "zaisma", "--local", "--persist-to", STATE], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
 children.push(wrangler("games", ["dev", "--port", String(PORTS.games), "--inspector-port", "9341", "--persist-to", STATE, "--env-file", join(STATE, "games.env")], { quiet: true }));
-children.push(wrangler("site", ["dev", "--port", String(PORTS.site), "--inspector-port", "9340", "--local-upstream", `localhost:${PORTS.site}`, "--persist-to", STATE, "--env-file", join(STATE, "site.env")], { quiet: true }));
+children.push(wrangler("site", ["dev", "--port", String(PORTS.site), "--inspector-port", "9340", "--local-upstream", `localhost:${PORTS.site}`, "--persist-to", STATE, "--env-file", join(STATE, "site.env"), "--test-scheduled"], { quiet: true }));
 children.push(wrangler("rooms", ["dev", "--port", String(PORTS.rooms), "--inspector-port", "9342", "--persist-to", STATE, "--env-file", join(STATE, "rooms.env")], { quiet: true }));
 await Promise.all([waitFor(SITE), waitFor(GAMES), waitFor(ROOMS)]);
 if (fresh) {
@@ -81,6 +84,11 @@ spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-t
   env: { ...process.env, CI: "1" },
 });
 
+// The site's every-5-minutes job (scheduled publishing, report triage), run every 20 seconds here.
+const tick = () => fetch(`${SITE}/__scheduled?cron=${encodeURIComponent("*/5 * * * *")}`).catch(() => {});
+setInterval(tick, 20_000);
+tick();
+
 console.log(`
 Zaisma preview is running. Nothing here touches the live site.
 
@@ -89,6 +97,7 @@ Zaisma preview is running. Nothing here touches the live site.
   Multiplayer     ${SITE}/g/arena  (open it in two windows to play together)
   Your games      ${SITE}/dashboard
   Admin           ${SITE}/admin
+  Report queue    ${SITE}/admin/reports
 
 Sign in with any email and the code 123456. ${EMAIL} owns the test games.
 Stop with Ctrl+C. Fresh data: npm run preview -- --reset
@@ -164,6 +173,20 @@ async function seed() {
   }
   upload("examples/hello-game", "shard-dodge", "New night level, faster hops and a fix for the double-jump bug.");
   await api("POST", `/games/shard-dodge/versions/${await approveNewest("shard-dodge")}/publish`);
+
+  // Reports for the report queue, sent like the plate beside a game sends them. The stand-in AI sorts them within half a minute.
+  const reports = [
+    ["shard-dodge", { reason: "broken", details: "Freezes when I double jump on the night level" }],
+    ["shard-dodge", { reason: "other", details: "stuck after a double jump on the night level, can't move" }],
+    ["night-drive", { reason: "other", details: "it asks for my steam login to unlock level 2" }],
+    ["cave-crew", { reason: "sexual", details: "naked characters in the second cave" }],
+    ["arena", { reason: "harassment", room: "ABCDEF", player: { id: "g_preview000000001", name: "Swift Fox 42" }, details: "keeps following me and spamming insults" }],
+    ["arena", { reason: "harassment", room: "ABCDEF", player: { id: "g_preview000000001", name: "Swift Fox 42" }, details: "same player again, won't leave me alone" }],
+    ["four-in-a-row", { reason: "other", details: "boring, my friend always wins" }],
+  ];
+  for (const [i, [slug, body]] of reports.entries()) {
+    await fetch(`${SITE}/g/${slug}/report`, { method: "POST", headers: { "content-type": "application/json", origin: SITE, "cf-connecting-ip": `192.0.2.${i + 1}` }, body: JSON.stringify(body) });
+  }
 }
 
 /** A 16:9 test picture that reads like game art: a sky, a sun and two ranges of hills, in the game's colors. */

@@ -1,9 +1,13 @@
 import {
   BUILT_IN_GAME_SERVERS,
   LIMITS,
+  AUTO_HOLD_REASONS,
+  SEVERITIES,
+  SEVERITY,
   reportLabel,
   reportPictureKey,
   clearVersion,
+  closeReportGroup,
   UploadError,
   aiUsage,
   allGames,
@@ -33,7 +37,10 @@ import {
   settleDetailsDraft,
   settleImage,
   type GameImage,
+  type GameStatus,
+  type Report,
   type ScanReport,
+  type Triage,
 } from "@zaisma/core";
 import { adminIdentity } from "./access.ts";
 import { gameUrl, type Env } from "./env.ts";
@@ -65,6 +72,7 @@ export async function handleAdmin(request: Request, env: Env, path: string): Pro
 
   if (path === "/admin") return dashboard(env);
   if (path === "/admin/audit") return auditPage(env);
+  if (path === "/admin/reports") return reportQueue(env);
   const m = path.match(/^\/admin\/games\/([a-z0-9]+)$/);
   if (m) return gameDetail(env, m[1]!);
   const img = path.match(/^\/admin\/images\/([a-z0-9]+)$/);
@@ -92,6 +100,7 @@ async function adminAction(request: Request, env: Env, path: string, actor: stri
 
   const form = await request.formData();
   const reason = String(form.get("reason") ?? "").trim().slice(0, 500);
+  const back = (fallback: string) => redirect(form.get("back") === "queue" ? "/admin/reports" : fallback);
 
   let m = path.match(/^\/admin\/versions\/([a-z0-9]+)\/(approve|reject)$/);
   if (m) {
@@ -110,7 +119,7 @@ async function adminAction(request: Request, env: Env, path: string, actor: stri
       if (version.report_held_at) await closeReports(env.DB, version.game_id, "actioned");
       await audit(env.DB, version.game_id, "rejected", reason || `Version ${version.id}`, actor);
     }
-    return redirect(`/admin/games/${version.game_id}`);
+    return back(`/admin/games/${version.game_id}`);
   }
 
   m = path.match(/^\/admin\/images\/([a-z0-9]+)\/(approve|reject)$/);
@@ -197,7 +206,26 @@ async function adminAction(request: Request, env: Env, path: string, actor: stri
       await closeReports(env.DB, game.id, "dismissed");
       await audit(env.DB, game.id, "reports-dismissed", reason, actor);
     }
-    return redirect(`/admin/games/${game.id}`);
+    return back(`/admin/games/${game.id}`);
+  }
+
+  // One group of reports about the same problem, from the queue.
+  m = path.match(/^\/admin\/report-groups\/([a-z0-9]+)\/(dismiss|bug)$/);
+  if (m) {
+    const { results: group } = await env.DB.prepare("SELECT * FROM reports WHERE (id = ? OR group_id = ?) AND status = 'open'").bind(m[1]!, m[1]!).all<Report>();
+    if (!group.length) return back("/admin/reports");
+    const gameId = group[0]!.game_id;
+    if (m[2] === "bug") {
+      await env.DB.prepare("UPDATE reports SET bug = 1, bug_at = COALESCE(bug_at, ?) WHERE (id = ? OR group_id = ?) AND status = 'open'").bind(Date.now(), m[1]!, m[1]!).run();
+      await closeReportGroup(env.DB, m[1]!, "actioned");
+      await audit(env.DB, gameId, "reports-to-developer", reason || `${group.length} report(s) passed to the developer as bugs`, actor);
+    } else {
+      // A person looked at a serious report and found nothing: reports can't pause that version again.
+      for (const r of group) if (r.version_id && (r.severity <= SEVERITY.urgent || (AUTO_HOLD_REASONS as string[]).includes(r.reason))) await clearVersion(env.DB, r.version_id);
+      await closeReportGroup(env.DB, m[1]!, "dismissed");
+      await audit(env.DB, gameId, "reports-dismissed", reason || `${group.length} report(s): ${reportLabel(group[0]!)}`, actor);
+    }
+    return back("/admin/reports");
   }
   return new Response("Not found", { status: 404 });
 }
@@ -211,11 +239,12 @@ async function dashboard(env: Env, error = ""): Promise<Response> {
     pendingImages(env.DB),
     gamesWithDetailsDrafts(env.DB),
   ]);
+  const groups = groupReports(reports);
   return page(
     env,
     "Admin",
     html`<h1>Admin</h1>
-<p class="lead">AI review this month: ${usage.scans} scans, ${usage.input_tokens.toLocaleString("en-US")} of ${Number(env.AI_MONTHLY_INPUT_TOKENS).toLocaleString("en-US")} input tokens.</p>
+<p class="lead">AI this month: ${usage.scans} scans and ${usage.reports} reports sorted, ${usage.input_tokens.toLocaleString("en-US")} of ${Number(env.AI_MONTHLY_INPUT_TOKENS).toLocaleString("en-US")} input tokens.</p>
 
 <h2>Waiting for review (${queue.length})</h2>
 ${queue.length
@@ -239,11 +268,12 @@ ${words.length
         })}</table>`
       : html`<p class="note">Nothing waiting.</p>`}
 
-<h2>Open reports (${reports.length})</h2>
-${reports.length
-      ? html`<table><tr><th>Game</th><th>Reason</th><th>Details</th><th>When</th></tr>${reports.map(
-          (r) => html`<tr><td><a href="/admin/games/${r.game_id}">${r.title}</a> ${pill(r.game_status)}</td><td>${reportLabel(r)}</td><td>${r.details}${pictureLink(r)}</td><td>${when(r.created_at)}</td></tr>`,
-        )}</table>`
+<h2>Reports (${groups.length})</h2>
+${groups.length
+      ? html`<table><tr><th>How serious</th><th>Game</th><th>What</th><th>Reports</th></tr>${groups.slice(0, 5).map(
+          (g) => html`<tr><td>${severityPill(g.severity)}</td><td><a href="/admin/games/${g.lead.game_id}">${g.lead.title}</a></td><td>${g.triage?.summary ?? reportLabel(g.lead)}</td><td>${g.rows.length}</td></tr>`,
+        )}</table>
+<p><a class="btn ghost" href="/admin/reports">Open the report queue</a></p>`
       : html`<p class="note">No open reports.</p>`}
 
 <h2>Upload a game</h2>
@@ -323,7 +353,7 @@ ${images.length ? html`<div class="shots">${images.map((i) => html`<div>${imageR
 
 <h2>Open reports (${mine.length})</h2>
 ${mine.length
-      ? html`<table>${mine.map((r) => html`<tr><td>${reportLabel(r)}${r.player_id ? html`<br><small class="muted">Player ID ${r.player_id}</small>` : ""}</td><td>${r.details}${pictureLink(r)}</td><td>${when(r.created_at)}</td></tr>`)}</table>
+      ? html`<table>${mine.map((r) => html`<tr><td>${severityPill(r.severity)}</td><td>${reportLabel(r)}${r.player_id ? html`<br><small class="muted">Player ID ${r.player_id}</small>` : ""}</td><td>${r.details}${pictureLink(r)}${r.triage ? html`<br><small class="muted">${(JSON.parse(r.triage) as Triage).summary}</small>` : ""}</td><td>${when(r.created_at)}</td></tr>`)}</table>
 <form method="post" action="/admin/games/${game.id}/dismiss" class="row" style="margin-top:10px"><input name="reason" placeholder="Why (optional)"><button class="btn ghost" type="submit">Dismiss reports</button></form>`
       : html`<p class="note">None.</p>`}
 
@@ -382,6 +412,123 @@ ${i.status === "pending"
     ? html`<div class="row"><form method="post" action="/admin/images/${i.id}/approve"><input type="hidden" name="back" value="${fromGame ? "game" : ""}"><button class="btn" type="submit">Approve</button></form>
 <form method="post" action="/admin/images/${i.id}/reject"><input type="hidden" name="back" value="${fromGame ? "game" : ""}"><button class="btn ghost" type="submit">Reject</button></form></div>`
     : ""}`;
+}
+
+type QueueRow = Report & { slug: string; title: string; game_status: GameStatus };
+
+interface ReportGroup {
+  /** The first report's id: group actions close it and every report merged into it. */
+  id: string;
+  rows: QueueRow[];
+  /** The most serious report, latest first: its triage leads the card. */
+  lead: QueueRow;
+  severity: number;
+  triage: Triage | null;
+  rechecks: NonNullable<Triage["recheck"]>[];
+}
+
+/** Open reports as groups about the same problem, most serious first, then the longest waiting. */
+function groupReports(rows: QueueRow[]): ReportGroup[] {
+  const groups = new Map<string, QueueRow[]>();
+  for (const r of [...rows].sort((a, b) => a.created_at - b.created_at)) {
+    const key = r.group_id ?? r.id;
+    groups.set(key, [...(groups.get(key) ?? []), r]);
+  }
+  const parse = (r: QueueRow): Triage | null => (r.triage ? JSON.parse(r.triage) : null);
+  return [...groups]
+    .map(([id, rows]) => {
+      const lead = rows.reduce((a, b) => (b.severity < a.severity || (b.severity === a.severity && b.created_at > a.created_at) ? b : a));
+      const triages = rows.map(parse);
+      return { id, rows, lead, severity: lead.severity, triage: parse(lead) ?? [...triages].reverse().find(Boolean) ?? null, rechecks: triages.flatMap((t) => (t?.recheck ? [t.recheck] : [])) };
+    })
+    .sort((a, b) => a.severity - b.severity || a.rows[0]!.created_at - b.rows[0]!.created_at);
+}
+
+const severityPill = (n: number) => html`<span class="pill sev${n}">${SEVERITIES[n] ?? "Normal"}</span>`;
+
+function ago(ms: number): string {
+  const min = Math.round((Date.now() - ms) / 60000);
+  if (min < 1) return "just now";
+  if (min < 60) return `${min} min ago`;
+  if (min < 48 * 60) return `${Math.round(min / 60)} h ago`;
+  return `${Math.round(min / 1440)} days ago`;
+}
+
+const RECOMMENDED: Record<Triage["recommendation"], string> = {
+  dismiss: "Dismiss",
+  bug: "Tell the developer",
+  recheck: "Wait for the re-check",
+  person: "Your call",
+  take_down: "Take the game down",
+  restore: "Put the game back",
+};
+
+/** Every open report, sorted and merged by AI triage (triage.ts), each group decided in one click. */
+async function reportQueue(env: Env): Promise<Response> {
+  const week = Date.now() - 7 * 86400_000;
+  const [{ results: open }, { results: handled }, { results: paused }] = await Promise.all([
+    env.DB
+      .prepare("SELECT reports.*, games.slug, games.title, games.status AS game_status FROM reports JOIN games ON games.id = reports.game_id WHERE reports.status = 'open' ORDER BY reports.created_at LIMIT 500")
+      .all<QueueRow>(),
+    // Closed by triage itself (bugs passed to the developer), to spot-check.
+    env.DB
+      .prepare("SELECT reports.*, games.slug, games.title, games.status AS game_status FROM reports JOIN games ON games.id = reports.game_id WHERE reports.status = 'actioned' AND reports.closed_at = reports.triaged_at AND reports.closed_at > ? ORDER BY reports.closed_at DESC LIMIT 50")
+      .bind(week)
+      .all<QueueRow>(),
+    env.DB.prepare("SELECT id, game_id FROM versions WHERE report_held_at IS NOT NULL AND scan_status = 'held'").all<{ id: string; game_id: string }>(),
+  ]);
+  const groups = groupReports(open);
+  const pausedUpdate = new Map(paused.map((v) => [v.game_id, v.id]));
+  const waiting = open.filter((r) => !r.triaged_at).length;
+  return page(
+    env,
+    "Reports",
+    html`<h1>Reports</h1>
+<p class="lead">${groups.length ? `${open.length} open ${open.length === 1 ? "report" : "reports"} about ${groups.length} ${groups.length === 1 ? "problem" : "problems"}, most serious first.` : "No open reports."}${waiting ? ` ${waiting} still being sorted.` : ""}</p>
+${groups.map((g) => groupCard(g, pausedUpdate.get(g.lead.game_id)))}
+${handled.length
+      ? html`<details class="handled"><summary><h2>Passed to developers by triage this week (${handled.length})</h2></summary>
+<table><tr><th>Game</th><th>What</th><th>Player wrote</th><th>When</th></tr>${handled.map(
+          (r) => html`<tr><td><a href="/admin/games/${r.game_id}">${r.title}</a></td><td>${r.triage ? (JSON.parse(r.triage) as Triage).summary : reportLabel(r)}</td><td>${r.details}</td><td>${ago(r.created_at)}</td></tr>`,
+        )}</table></details>`
+      : ""}`,
+  );
+}
+
+function groupCard(g: ReportGroup, pausedUpdate: string | undefined): Raw {
+  const t = g.triage;
+  const game = g.lead;
+  const rec = t?.recommendation;
+  const button = (label: string, action: string, recommended: boolean, danger = false) =>
+    html`<button class="btn${recommended ? (danger ? " danger" : "") : " ghost"}" type="submit" formaction="${action}">${label}</button>`;
+  const gameHeld = game.game_status === "held";
+  const gameRemoved = game.game_status === "removed";
+  const prefill = t?.summary && t.ai ? t.summary : reportLabel(game);
+  return html`<article class="note case sev${g.severity}">
+  <div class="row">${severityPill(g.severity)} <a href="/admin/games/${game.game_id}"><strong>${game.title}</strong></a> ${game.game_status !== "live" ? pill(game.game_status) : ""}
+    <span class="muted">${g.rows.length > 1 ? `${g.rows.length} reports · first ${ago(g.rows[0]!.created_at)}` : ago(game.created_at)}</span></div>
+  ${t ? html`<p class="said">${t.summary}</p>` : html`<p class="said">${reportLabel(game)}${game.details ? html`: “${game.details}”` : ""}</p><p class="muted">Waiting to be sorted.</p>`}
+  ${t ? html`<p class="muted">Recommended: <strong>${RECOMMENDED[t.recommendation]}</strong>. ${t.why}${t.ai ? "" : " (Not sorted by AI.)"}</p>` : ""}
+  ${t?.actions.length ? html`<p class="muted">Done already: ${t.actions.join("; ")}.</p>` : ""}
+  ${g.rechecks.map(
+    (c) =>
+      html`<p class="muted">Re-check of the game's files: ${c.status === "waiting" ? "running…" : c.status === "failed" ? `didn't finish (${c.summary ?? ""})` : c.findings?.length ? html`${c.decision === "rejected" ? pill("rejected") : ""} found ${c.findings.join("; ")}. ${c.summary ?? ""}` : `nothing new. ${c.summary ?? ""}`}</p>`,
+  )}
+  <details><summary>What players sent (${g.rows.length})</summary><table>${g.rows.map(
+    (r) => html`<tr><td class="nowrap">${ago(r.created_at)}</td><td>${reportLabel(r)}${r.player_id ? html`<br><small class="muted">Player ID ${r.player_id}</small>` : ""}</td><td>${r.details || html`<span class="muted">No details</span>`}${pictureLink(r)}</td></tr>`,
+  )}</table></details>
+  <form method="post" class="row decide">
+    <input type="hidden" name="back" value="queue">
+    <input name="reason" value="${prefill}" aria-label="Reason, for the audit log" maxlength="500">
+    ${gameRemoved
+      ? button("Close", `/admin/report-groups/${g.id}/dismiss`, true)
+      : gameHeld
+        ? html`${button("Put the game back", `/admin/games/${game.game_id}/restore`, rec === "restore" || rec === "dismiss")}${button("Take down", `/admin/games/${game.game_id}/takedown`, rec === "take_down", true)}`
+        : pausedUpdate
+          ? html`${button("Put the update back", `/admin/versions/${pausedUpdate}/approve`, rec === "restore" || rec === "dismiss")}${button("Keep the update off", `/admin/versions/${pausedUpdate}/reject`, false)}${button("Take down", `/admin/games/${game.game_id}/takedown`, rec === "take_down", true)}`
+          : html`${button("Dismiss", `/admin/report-groups/${g.id}/dismiss`, rec === "dismiss")}${game.player_id ? "" : button("Tell the developer", `/admin/report-groups/${g.id}/bug`, rec === "bug")}${button("Take down", `/admin/games/${game.game_id}/takedown`, rec === "take_down", true)}`}
+  </form>
+</article>`;
 }
 
 const pictureLink = (r: { id: string; picture: number }) => (r.picture ? html` <a href="/admin/reports/${r.id}/picture" target="_blank">Picture</a>` : "");
