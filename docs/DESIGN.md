@@ -38,7 +38,7 @@ The primary action on a page is a metal plate: `metalButton(label, { href | id, 
 
 - On hover it tilts toward the cursor, less the bigger it is (up to about 13° for a small button).
 - The glint is the reflection of a fixed light above and to the left. It slides across the tilted plate, the opposite way to the cursor and faster, and dims as the plate turns away; at steep angles it slides off the edge.
-- The label and icon are stamped in: they take no light and get a bright lip below.
+- The label and icon take no light: they look exactly the same on hover, so only the plate moves.
 - Game cards (`.tile`) tilt a little; their picture (`.pic`) reflects like glass, a sharp line plus a soft haze, and the card body is matte.
 - The hover area is a wrapper that never tilts (`.hit`), so tilting can't push the cursor out and back in.
 - Phones (no hover) get the still plate. Reduced motion keeps the glint and drops the tilt.
