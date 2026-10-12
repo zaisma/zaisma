@@ -8,7 +8,7 @@ export async function home(env: Env): Promise<Response> {
   return layout(env, {
     title: "Zaisma: every kind of game, one link away",
     body: html`<h1>Every kind of game. One link away.</h1>
-<p class="lead">Tap a game and you're playing. No account, no download.</p>
+<p class="lead">Pick a game, tap Play and you're in. No account, no download.</p>
 ${games.length === 0
       ? html`<p class="empty">The first games are on their way.</p>`
       : html`<div class="grid">${games.map(
@@ -27,15 +27,29 @@ export async function gamePage(env: Env, slug: string, url: URL): Promise<Respon
 
   // A room link (zaisma.com/g/<slug>?room=CODE) drops the player straight into that match.
   const code = url.searchParams.get("room")?.toUpperCase() ?? "";
-  const src = gameUrl(env, game.slug) + (ROOM_CODE.test(code) ? `?room=${code}` : "");
+  const inRoom = ROOM_CODE.test(code);
+  const src = gameUrl(env, game.slug) + (inRoom ? `?room=${code}` : "");
   const multiplayer = Boolean(game.game_server || game.connect_hosts);
   const ownServers = game.connect_hosts.split("\n").filter(Boolean).map((o) => o.replace(/^[a-z]+:\/\//, ""));
   return layout(env, {
     title: `${game.title} on Zaisma`,
     bare: true,
     body: html`<style>
-body{display:flex;flex-direction:column;height:100vh;height:100dvh;overflow:hidden}
+/* Two states on one page: details with a Play button, then the game filling the screen. */
+body.playing{display:flex;flex-direction:column;height:100vh;height:100dvh;overflow:hidden}
+body:not(.playing) #full{display:none}
+body.playing .details{display:none}
 .bar{display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--line);flex:none}
+.details{max-width:860px;margin:0 auto;padding:16px 16px 48px}
+.hero{position:relative;aspect-ratio:16/9;max-height:56vh;width:100%;border-radius:14px;overflow:hidden;border:1px solid var(--line);display:grid;place-items:center;
+  background:radial-gradient(120% 90% at 20% 10%,#2a2d33 0%,#16171a 55%,#0d0e10 100%)}
+.hero .name{position:absolute;left:20px;bottom:16px;font-size:clamp(22px,5vw,40px);font-weight:700;letter-spacing:-.01em;text-shadow:0 2px 12px rgba(0,0,0,.6)}
+.play{display:inline-flex;align-items:center;gap:10px;font:inherit;font-size:20px;font-weight:700;padding:14px 34px;border:0;border-radius:999px;background:var(--accent);color:#111;cursor:pointer;box-shadow:0 6px 30px rgba(0,0,0,.45)}
+.play:hover{transform:scale(1.03)}
+.play svg{width:22px;height:22px}
+.meta{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:16px 0 8px;color:var(--muted);font-size:14px}
+.details .desc{font-size:17px;margin:8px 0 18px;white-space:pre-line}
+.details .row a,.details .row button{font-size:14px}
 .bar .home img{height:22px;display:block}
 .bar h1{font-size:15px;margin:0 0 0 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
 .ctl{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 10px;border:1px solid var(--line);border-radius:8px;background:transparent;color:var(--text);font:inherit;font-size:13px;cursor:pointer;text-decoration:none}
@@ -43,11 +57,15 @@ body{display:flex;flex-direction:column;height:100vh;height:100dvh;overflow:hidd
 .ctl svg{width:18px;height:18px;flex:none}
 .ctl[hidden]{display:none}
 iframe{flex:1;border:0;width:100%;min-height:0;min-width:0;background:#000}
+body:not(.playing) iframe{display:none}
 /* Phones: icons only, big enough to tap. */
 @media (max-width:640px){.ctl{width:40px;height:40px;padding:0;justify-content:center}.ctl .label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}}
 /* Landscape phones: the bar becomes a slim strip down the left edge, so the game keeps its full height. */
 @media (orientation:landscape) and (max-height:500px){
-  body{flex-direction:row}
+  body.playing{flex-direction:row}
+  body:not(.playing) .bar{flex-direction:row}
+  body:not(.playing) .bar h1{display:block}
+  body:not(.playing) .bar .ctl{width:40px}
   .bar{flex-direction:column;border-bottom:0;border-right:1px solid var(--line);padding:8px 5px;gap:10px}
   .bar h1{display:none}
   .bar .spacer{flex:1}
@@ -73,9 +91,25 @@ dialog nav a:hover{border-color:#55585f}
   <button class="ctl" id="full" type="button" title="Full screen">${raw(ICON_FULL)}<span class="label">Full screen</span></button>
   <button class="ctl" id="menu" type="button" title="More" aria-haspopup="dialog">${raw(ICON_MORE)}<span class="label">More</span></button>
 </div>
-<iframe id="game" src="${src}" title="${game.title}"
+<main class="details">
+  <div class="hero">
+    <button class="play" id="play" type="button">${raw(ICON_PLAY)}Play</button>
+    <div class="name">${game.title}</div>
+  </div>
+  <div class="meta">
+    ${multiplayer ? html`<span class="pill">Multiplayer</span>` : html`<span class="pill">Single-player</span>`}
+    <span>Plays in your browser · no download</span>
+  </div>
+  ${game.description ? html`<p class="desc">${game.description}</p>` : ""}
+  ${ownServers.length ? html`<p class="note">This game also connects to its own servers: ${ownServers.join(", ")}.</p>` : ""}
+  <div class="row">
+    <a class="btn ghost" href="/g/${game.slug}/report">Report</a>
+    <a class="btn ghost" href="/">All games</a>
+  </div>
+</main>
+<template id="game-frame"><iframe id="game" src="${src}" title="${game.title}"
   sandbox="allow-scripts allow-same-origin allow-pointer-lock"
-  allow="fullscreen; gamepad; autoplay; web-share; clipboard-write" allowfullscreen referrerpolicy="no-referrer"></iframe>
+  allow="fullscreen; gamepad; autoplay; web-share; clipboard-write" allowfullscreen referrerpolicy="no-referrer"></iframe></template>
 <dialog id="menu-dialog" aria-label="${game.title}">
   <div class="head"><strong>${game.title}</strong><button class="ctl" type="button" id="menu-close">Close</button></div>
   <div class="body">
@@ -90,17 +124,27 @@ dialog nav a:hover{border-color:#55585f}
   </nav>
 </dialog>
 <script>
-const frame = document.getElementById("game");
+let frame = null;
 const share = document.getElementById("share");
 const full = document.getElementById("full");
 const dialog = document.getElementById("menu-dialog");
 // iPhones can't put a frame in full screen, so don't offer it there.
-if (!document.fullscreenEnabled || !frame.requestFullscreen) full.hidden = true;
-full.onclick = () => frame.requestFullscreen();
+if (!document.fullscreenEnabled) full.hidden = true;
+full.onclick = () => frame && frame.requestFullscreen();
+// The game only loads when the player taps Play. That tap also lets the game play sound straight away.
+function play() {
+  if (frame) return;
+  frame = document.getElementById("game-frame").content.firstElementChild.cloneNode(true);
+  document.body.appendChild(frame);
+  document.body.classList.add("playing");
+  scrollTo(0, 0);
+  frame.focus();
+}
+document.getElementById("play").onclick = play;
 document.getElementById("menu").onclick = () => dialog.showModal();
 document.getElementById("menu-close").onclick = () => dialog.close();
 dialog.addEventListener("click", (e) => { if (e.target === dialog) dialog.close(); });
-dialog.addEventListener("close", () => frame.focus());
+dialog.addEventListener("close", () => frame && frame.focus());
 // Shares the address bar, which includes the room code while the player is in a match.
 share.onclick = async () => {
   if (navigator.share && matchMedia("(pointer: coarse)").matches) {
@@ -115,15 +159,16 @@ share.onclick = async () => {
   } catch { prompt("Copy this link", location.href); }
 };
 // The game says which room it's in, so the address bar (and so Share) points to that match.
-const gameOrigin = new URL(frame.src).origin;
+const gameOrigin = new URL(${raw(JSON.stringify(src))}).origin;
 addEventListener("message", (e) => {
-  if (e.origin !== gameOrigin || e.source !== frame.contentWindow) return;
+  if (!frame || e.origin !== gameOrigin || e.source !== frame.contentWindow) return;
   const d = e.data;
   if (d && d.type === "zaisma:room" && typeof d.code === "string" && /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/.test(d.code)) {
     history.replaceState(null, "", location.pathname + "?room=" + d.code);
   }
 });
-frame.focus();
+// A room link is an invitation into a match already underway, so it skips the details.
+${raw(inRoom ? "play();" : "")}
 </script>`,
   });
 }
@@ -131,6 +176,7 @@ frame.focus();
 const svg = (paths: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
 const ICON_SHARE = svg('<path d="M12 3v12"/><path d="M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/>');
 const ICON_FULL = svg('<path d="M4 9V4h5"/><path d="M20 9V4h-5"/><path d="M4 15v5h5"/><path d="M20 15v5h-5"/>');
+const ICON_PLAY = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12-7.5a1 1 0 0 0 0-1.72l-12-7.5A1 1 0 0 0 7 4.5z"/></svg>';
 const ICON_MORE = svg('<circle cx="5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="19" cy="12" r="1.3" fill="currentColor"/>');
 
 export async function reportForm(env: Env, slug: string, error = ""): Promise<Response> {

@@ -85,7 +85,7 @@ Detailed plan approved: guest passes, game server API, rooms, SDK, demos.
 | planned | Must | Drafts and publishing | Upload command | Preview links, publish now or later, roll back; keep the live version plus the last 5 |
 | planned | Must | Game visibility | Creator accounts | Draft, listed, unlisted or private; separate from review status. Unlisted is noindex and never in any shelf |
 | planned | Must | Tester links | Game visibility | Secret, named, revocable links that open a private game; guests can use them |
-| planned | Must | Game details and device labels | Creator accounts | Covers and screenshots, scanned; games for your device first, "Play anyway" for the rest |
+| doing | Must | Game details and device labels | Creator accounts | Covers and screenshots, scanned; games for your device first, "Play anyway" for the rest |
 | planned | Must | No-slop cover and title checks | Game details and device labels | AI review checks covers; real screenshots on every game page |
 | planned | Must | No free-text chat rule | | In the content rules and the AI review |
 | planned | Must | Creator MCP | Drafts and publishing | Create, edit, upload, publish, roll back, scans, reports, stats |
