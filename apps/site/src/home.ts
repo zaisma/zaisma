@@ -174,11 +174,23 @@ const HOME_STYLES = `
 .row-tiles{display:flex;gap:22px;overflow-x:auto;padding:8px 6px 18px;margin:-8px -6px 0;scroll-snap-type:x proximity}
 .row-tiles>.hit{flex:0 0 300px;scroll-snap-align:start}
 .continue[hidden]{display:none}
-@media (max-width:860px){.stage{grid-template-columns:1fr}.stage .info{padding:22px}}
+/* Phones and tablets: one machined piece, like a big game card. The art takes the Z's cut corner
+   (its bezel running along the cut), and the nameplate sits flush underneath it. */
+@media (max-width:860px){
+  .stage{grid-template-columns:1fr}
+  .stage .art{clip-path:polygon(0 0,calc(100% - 28px) 0,100% 28px,100% 100%,0 100%);
+    background:linear-gradient(to top right,transparent calc(50% - 1.5px),rgba(255,255,255,.34) calc(50% - 1.5px),rgba(255,255,255,.34) 50%,transparent 50%) top right/28px 28px no-repeat,linear-gradient(135deg,#5a5f69 0%,#1a1c20 38%,#121417 70%,#3a3e46 100%)}
+  .stage .art img{clip-path:polygon(0 0,calc(100% - 26px) 0,100% 26px,100% 100%,0 100%)}
+  .stage .info{--cut:0px;clip-path:none;padding:16px 18px 18px;gap:6px;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),var(--rim)}
+  .stage h1{font-size:clamp(28px,8vw,40px)}
+  .stage .by{font-size:14px}
+  .stage .desc{-webkit-line-clamp:3;font-size:15px}
+  .stage .go-row{padding-top:12px}
+}
 @media (max-width:640px){.row-tiles{gap:14px}.row-tiles>.hit{flex-basis:230px}}
 `;
 
-// Fills in the player's own part: the game they played last on the stage, then Continue playing.
+// Fills in the player's own part: the game they played last on the stage, then the others in Continue playing.
 const HOME_SCRIPT = `
 (()=>{const bySlug=Object.fromEntries(GAMES.map(g=>[g.slug,g]));const KEY="zaisma:played";
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]);
@@ -195,7 +207,9 @@ stage.querySelector("#stage-by").textContent=[g.developer,"played "+ago(last.at)
 const up=stage.querySelector("#stage-updated");up.hidden=!fresh;if(fresh){up.href="/g/"+g.slug+"#updates";up.textContent="Updated "+ago(g.updated)}
 stage.querySelector("#stage-desc").hidden=true;
 const btn=stage.querySelector(".metal");btn.href="/g/"+g.slug+"?play";btn.querySelector("span").textContent="Continue"}
-const rest=sort==="played"?list:list.slice().sort((a,b)=>(bySlug[b.slug].updated||0)-(bySlug[a.slug].updated||0));
+// The game on the stage isn't repeated underneath.
+const others=stage?list.slice(1):list;if(!others.length)return;
+const rest=sort==="played"?others:others.slice().sort((a,b)=>(bySlug[b.slug].updated||0)-(bySlug[a.slug].updated||0));
 document.getElementById("continue-tiles").innerHTML=rest.map(p=>{const t=bySlug[p.slug],up=t.updated&&t.updated>p.at,h="/g/"+esc(t.slug);
 return '<div class="hit block"'+(t.cover?' data-art="'+esc(t.cover)+'"':"")+'><div class="tile"><a class="pic" href="'+h+'" tabindex="-1" aria-hidden="true">'+(t.cover?'<img src="'+esc(t.cover)+'" alt="" loading="lazy">':"")+'</a><div class="body"><a class="name" href="'+h+'"><span>'+esc(t.title)+'</span>'+(up?'<span class="badge">Updated</span>':'<small>Played '+ago(p.at)+'</small>')+'</a><a class="go bevel-s" href="'+h+'?play" aria-label="Continue '+esc(t.title)+'"><svg viewBox="0 0 14 16" aria-hidden="true"><path d="M1 1v14l12-7z" fill="currentColor"/></svg></a></div></div></div>'}).join("");
 document.getElementById("continue").hidden=false}
