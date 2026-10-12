@@ -148,7 +148,13 @@ details[open] summary{margin-bottom:10px}
 pre{white-space:pre-wrap;word-break:break-word;background:var(--panel);padding:12px;font-size:13px}
 dialog{background:var(--panel);color:var(--text);border:0;padding:0}
 dialog::backdrop{background:rgba(0,0,0,.6)}
-@media (prefers-reduced-motion:reduce){.metal,.tile{transition:none}}
+/* Working: a small square turning, only after the player presses something. */
+.spin{width:12px;height:12px;flex:none;border:2px solid currentColor;border-right-color:transparent;animation:spin .8s linear infinite}
+.metal .spin{display:inline-block;margin-right:10px;vertical-align:-1px}
+[aria-busy=true]{cursor:progress}
+[aria-busy=true] svg{display:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.metal,.tile{transition:none}.spin{animation-duration:2.4s}}
 `;
 
 // Runs the metal hover on every page: one listener for all .hit areas, at most one update per frame.
@@ -161,6 +167,14 @@ el.style.setProperty("--ry",(still?0:nx*2*max).toFixed(2)+"deg");el.style.setPro
 el.style.setProperty("--gx",(r.width/2+sweep*r.width*.75).toFixed(1)+"px");el.style.setProperty("--gf",Math.max(.25,1-Math.abs(sweep)*.55).toFixed(2));el.classList.add("lit")};
 addEventListener("pointermove",e=>{const h=e.target.closest?e.target.closest(".hit"):null;if(h!==cur){if(cur)off(cur);cur=h}if(!cur)return;x=e.clientX;y=e.clientY;if(!raf)raf=requestAnimationFrame(paint)},{passive:true});
 document.documentElement.addEventListener("pointerleave",()=>{if(cur)off(cur);cur=null})})();`;
+
+// A button that sends a form or opens a page shows it's working and can't be pressed twice.
+// Pages that handle a form themselves (preventDefault) are left alone.
+const BUSY_SCRIPT = `(()=>{const busy=b=>{if(!b||b.getAttribute("aria-busy")==="true")return;b.setAttribute("aria-busy","true");const s=document.createElement("span");s.className="spin";s.setAttribute("aria-hidden","true");(b.matches(".metal")?b.lastElementChild||b:b).prepend(s);
+setTimeout(()=>{if(b.tagName==="BUTTON")b.disabled=true},0)};
+addEventListener("submit",e=>{if(!e.defaultPrevented&&e.target.method!=="dialog")busy(e.submitter||e.target.querySelector("button[type=submit],button:not([type])"))});
+addEventListener("click",e=>{const a=e.target.closest&&e.target.closest("a.btn,a.metal,a.go");if(!a||e.defaultPrevented||e.button||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||a.target==="_blank")return;const u=new URL(a.href,location.href);if(u.origin!==location.origin||(u.pathname===location.pathname&&u.search===location.search))return;busy(a)});
+addEventListener("pageshow",e=>{if(e.persisted)document.querySelectorAll("[aria-busy=true]").forEach(b=>{b.removeAttribute("aria-busy");b.disabled=false;b.querySelectorAll(".spin").forEach(s=>s.remove())})})})();`;
 
 const PLAY_ICON = '<svg viewBox="0 0 14 16" aria-hidden="true"><path d="M1 1v14l12-7z" fill="currentColor"/></svg>';
 
@@ -218,7 +232,7 @@ ${opts.bare
     : html`${siteHeader(env, opts)}
 <main>${opts.body}</main>
 ${siteFooter()}`}
-<script>${raw(METAL_SCRIPT)}</script>
+<script>${raw(METAL_SCRIPT)}${raw(BUSY_SCRIPT)}</script>
 </body>
 </html>`;
   return new Response(doc.html, { headers: securityHeaders(env, opts.admin || opts.private ? { "Cache-Control": "no-store" } : {}) });

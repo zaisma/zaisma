@@ -60,6 +60,8 @@ main.gp{max-width:1240px;margin:0 auto;padding:28px 24px 64px}
 .devices span{display:inline-flex;gap:6px;align-items:center}
 .side .row .btn{flex:1}
 .side .note{margin:0;font-size:14px}
+.share-link[hidden]{display:none}
+.share-link input{width:100%}
 .tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:40px 0 24px}
 .tabs button{min-height:48px;padding:0 18px;border:0;background:none;color:var(--muted);font:inherit;font-weight:600;font-size:15px;cursor:pointer;box-shadow:inset 0 -2px 0 transparent}
 .tabs button[aria-selected=true]{color:var(--text);box-shadow:inset 0 -2px 0 var(--text)}
@@ -130,6 +132,7 @@ ${siteHeader(env)}
     <p class="note" id="device-note" hidden></p>
     ${devices.length ? html`<div class="devices">${devices.map((d) => html`<span title="Plays on ${d}s">${raw(DEVICE_ICONS[d] ?? "")}${d[0]!.toUpperCase() + d.slice(1)}</span>`)}</div>` : ""}
     <div class="row"><button class="btn ghost" id="share-page" type="button">${raw(ICON_SHARE)}<span class="label">Share</span></button><a class="btn ghost" href="/g/${game.slug}/report">Report</a></div>
+    <label class="share-link" id="share-link" hidden>Copy this link<input readonly aria-label="Link to this game"></label>
   </div>
 </section>
 ${updates.results.length
@@ -194,7 +197,7 @@ function play() {
   frame.focus();
 }
 document.getElementById("play").onclick = play;
-document.getElementById("share-page").onclick = () => share.click();
+document.getElementById("share-page").onclick = (e) => shareFrom(e.currentTarget);
 // Remember the game for Continue playing: on this device, and with the account when signed in.
 function remember() {
   try {
@@ -229,18 +232,36 @@ document.getElementById("menu-close").onclick = () => dialog.close();
 dialog.addEventListener("click", (e) => { if (e.target === dialog) dialog.close(); });
 dialog.addEventListener("close", () => frame && frame.focus());
 // Shares the address bar, which includes the room code while the player is in a match.
-share.onclick = async () => {
-  if (navigator.share && matchMedia("(pointer: coarse)").matches) {
-    try { await navigator.share({ title: document.title, url: location.href }); } catch {}
+// The system's share sheet where there is one; otherwise the link is copied and the button says so.
+async function shareFrom(button) {
+  const url = location.origin + location.pathname + location.search.replace(/[?&]play\b[^&]*/, "").replace(/^&/, "?");
+  if (navigator.share) {
+    try { await navigator.share({ title: document.title, url }); return; } catch (e) { if (e.name === "AbortError") return; }
+  }
+  const label = button.querySelector(".label");
+  let copied = false;
+  try { await navigator.clipboard.writeText(url); copied = true; } catch {
+    // Some browsers block the clipboard; the older way often still works.
+    const t = Object.assign(document.createElement("textarea"), { value: url });
+    document.body.appendChild(t);
+    t.select();
+    try { copied = document.execCommand("copy"); } catch {}
+    t.remove();
+  }
+  if (copied) {
+    button.title = "Link copied";
+    label.textContent = "Link copied";
+    setTimeout(() => { button.title = "Share"; label.textContent = "Share"; }, 2000);
     return;
   }
-  try {
-    await navigator.clipboard.writeText(location.href);
-    share.title = "Link copied";
-    share.querySelector(".label").textContent = "Copied";
-    setTimeout(() => { share.title = "Share"; share.querySelector(".label").textContent = "Share"; }, 1500);
-  } catch { prompt("Copy this link", location.href); }
-};
+  // Couldn't copy: show the link, selected, so the player can copy it themselves.
+  const box = document.getElementById("share-link");
+  if (frame || !box) return prompt("Copy this link", url);
+  box.hidden = false;
+  box.querySelector("input").value = url;
+  box.querySelector("input").select();
+}
+share.onclick = () => shareFrom(share);
 // The game says which room it's in, so the address bar (and so Share) points to that match.
 const gameOrigin = new URL(${raw(JSON.stringify(src))}).origin;
 addEventListener("message", (e) => {
