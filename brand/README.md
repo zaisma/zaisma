@@ -16,6 +16,10 @@ The Z is the brand. Designed by Julius in Affinity Designer 2, based on Futura.
 
 PNG copies of the main files are included at 2048 px (mark) and 2400 px (wordmark).
 
+## Typeface
+
+Headings use **Jost** (`fonts/jost.woff2`, variable weight), a free geometric typeface close to Futura. It's under the SIL Open Font License (`fonts/OFL.txt`). Body text uses the system font.
+
 ## Rules
 
 - Metal only on dark backgrounds. Its white edges disappear on white.
