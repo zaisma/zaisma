@@ -20,6 +20,10 @@ PNG copies of the main files are included at 2048 px (mark) and 2400 px (wordmar
 
 Headings use **Jost** (`fonts/jost.woff2`, variable weight), a free geometric typeface close to Futura. It's under the SIL Open Font License (`fonts/OFL.txt`). Body text uses the system font.
 
+## Flags
+
+`flags/` holds a 60×45 PNG of each country's flag, shown beside rooms on game pages (where the room runs). They're rendered from [flag-icons](https://github.com/lipis/flag-icons) 7.5.0, under the MIT License (`flags/LICENSE`). They aren't part of the brand; they live here because this folder is what zaisma.com serves as files.
+
 ## Rules
 
 - Metal only on dark backgrounds. Its white edges disappear on white.

@@ -12,8 +12,9 @@ interface Meta {
   server: string;
   /** Rooms made before room browsing don't know their code, and aren't listed. */
   code?: string;
-  /** The continent the room's first player connected from, which is roughly where the room runs. */
-  location?: string | null;
+  /** The country and continent the room's first player connected from, which is roughly where the room runs. */
+  country?: string | null;
+  continent?: string | null;
 }
 
 interface Saved {
@@ -78,7 +79,8 @@ export class Room extends DurableObject<Env> {
         server: request.headers.get("x-game-server")!,
         ...this.meta,
         code: request.headers.get("x-room-code") ?? undefined,
-        location: this.meta?.location ?? (request.headers.get("x-room-location") || null),
+        country: this.meta?.country ?? (request.headers.get("x-room-country") || null),
+        continent: this.meta?.continent ?? (request.headers.get("x-room-continent") || null),
       };
       await this.ctx.storage.put("meta", this.meta);
     }
@@ -248,9 +250,9 @@ export class Room extends DurableObject<Env> {
     this.listedAs = as;
     const now = Date.now();
     await this.env.DB.prepare(
-      "INSERT INTO open_rooms (game_id, code, players, max_players, open, location, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(game_id, code) DO UPDATE SET players = excluded.players, max_players = excluded.max_players, open = excluded.open, updated_at = excluded.updated_at",
+      "INSERT INTO open_rooms (game_id, code, players, max_players, open, country, continent, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(game_id, code) DO UPDATE SET players = excluded.players, max_players = excluded.max_players, open = excluded.open, updated_at = excluded.updated_at",
     )
-      .bind(meta.gameId, meta.code, core.players.size, core.maxPlayers, core.open ? 1 : 0, meta.location ?? null, now, now)
+      .bind(meta.gameId, meta.code, core.players.size, core.maxPlayers, core.open ? 1 : 0, meta.country ?? null, meta.continent ?? null, now, now)
       .run();
     await this.ctx.storage.setAlarm(now + CHECK_IN_MS);
   }

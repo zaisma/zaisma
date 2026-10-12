@@ -114,10 +114,10 @@ main.gp{max-width:1240px;margin:0 auto;padding:30px 24px 72px}
 .rooms{list-style:none;padding:0;margin:0;display:grid;gap:10px;max-width:900px}
 .room{--cut:12px;display:grid;grid-template-columns:118px minmax(0,1fr) auto 104px;align-items:center;gap:8px 24px;padding:10px 10px 10px 20px;clip-path:polygon(0 0,calc(100% - 12px) 0,100% 12px,100% 100%,0 100%)}
 .room .code{font-family:var(--display);font-weight:600;font-size:20px;letter-spacing:.14em;color:var(--text);text-shadow:0 -1px 0 rgba(0,0,0,.8),0 1px 0 rgba(255,255,255,.06)}
-.room .where{display:flex;align-items:center;gap:8px;min-width:0;color:var(--muted);font-size:14px}
-.room .where svg{width:16px;height:16px;flex:none}
-.room .where>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.room .near{color:var(--text-2)}
+.room .where{display:flex;align-items:center;gap:8px;min-width:0}
+/* Where the room runs: the country's flag, set into the metal, and its two-letter code. */
+.room .flag{width:20px;height:15px;flex:none;box-shadow:0 0 0 1px rgba(0,0,0,.85),0 1px 0 1px rgba(255,255,255,.07)}
+.room .where abbr{text-decoration:none;font-family:var(--display);font-size:14px;font-weight:500;letter-spacing:.06em;color:var(--text-2)}
 .room .fill{display:flex;align-items:center;gap:12px;font-size:14px;color:var(--text-2);white-space:nowrap}
 .seats{display:flex;gap:3px}
 .seats i{width:7px;height:18px;background:rgba(0,0,0,.5);box-shadow:inset 0 1px 2px rgba(0,0,0,.85),0 1px 0 rgba(255,255,255,.06)}
@@ -127,11 +127,11 @@ main.gp{max-width:1240px;margin:0 auto;padding:30px 24px 72px}
 .rooms-empty{max-width:900px;margin:0}
 .rooms-more{margin:14px 0 0}
 @media (max-width:640px){
-  .room{grid-template-columns:minmax(0,1fr) 92px;gap:6px 14px;padding:12px 10px 12px 16px}
+  .room{grid-template-columns:auto minmax(0,1fr) 92px;gap:6px 14px;padding:12px 10px 12px 16px}
   .room .code{grid-column:1;grid-row:1}
-  .room .where{grid-column:1;grid-row:2}
-  .room .fill{grid-column:1;grid-row:3}
-  .room .btn,.room .full{grid-column:2;grid-row:1/span 3}
+  .room .where{grid-column:2;grid-row:1}
+  .room .fill{grid-column:1/3;grid-row:2}
+  .room .btn,.room .full{grid-column:3;grid-row:1/span 2}
 }
 .updates{list-style:none;padding:0;margin:0;display:grid;gap:16px;max-width:780px}
 .updates li{padding:18px 20px}

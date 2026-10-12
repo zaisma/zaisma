@@ -26,8 +26,8 @@ async function getPass(game: string): Promise<{ pass: string; player: { id: stri
 }
 
 /** A connected test client that collects what the room sends. */
-async function connect(game: string, code: string, origin = ORIGIN, continent?: string) {
-  const res = await SELF.fetch(`${R}/v1/rooms/${game}/${code}`, { headers: { Upgrade: "websocket", Origin: origin }, ...(continent ? { cf: { continent } } : {}) });
+async function connect(game: string, code: string, origin = ORIGIN, from?: { country: string; continent: string }) {
+  const res = await SELF.fetch(`${R}/v1/rooms/${game}/${code}`, { headers: { Upgrade: "websocket", Origin: origin }, ...(from ? { cf: from } : {}) });
   if (!res.webSocket) return { res, ws: null as never, inbox: [] as any[], next: async () => null as any, closed: Promise.resolve(0) };
   const ws = res.webSocket;
   ws.accept();
@@ -45,9 +45,9 @@ async function connect(game: string, code: string, origin = ORIGIN, continent?: 
   return { res, ws, inbox, next, closed };
 }
 
-async function join(game: string, code: string, opts: { listed?: false; continent?: string } = {}) {
+async function join(game: string, code: string, opts: { listed?: false; from?: { country: string; continent: string } } = {}) {
   const { pass, player } = await getPass(game);
-  const c = await connect(game, code, ORIGIN, opts.continent);
+  const c = await connect(game, code, ORIGIN, opts.from);
   c.ws.send(JSON.stringify({ t: "hello", pass, room: opts.listed === false ? { listed: false } : undefined }));
   const welcome = await c.next();
   expect(welcome.t).toBe("welcome");
@@ -240,10 +240,11 @@ describe("room browsing", () => {
 
   it("lists a room while players are in it, and drops it when they've all gone", async () => {
     const id = await addGame("party");
-    const a = await join("party", "BCDFGH", { continent: "EU" });
-    expect(await rows(id, (r) => r.length === 1)).toMatchObject([{ code: "BCDFGH", players: 1, max_players: 16, open: 1, location: "EU" }]);
-    const b = await join("party", "BCDFGH", { continent: "NA" });
-    expect((await rows(id, (r) => r[0]?.players === 2))[0]).toMatchObject({ players: 2, location: "EU" });
+    const a = await join("party", "BCDFGH", { from: { country: "DE", continent: "EU" } });
+    expect(await rows(id, (r) => r.length === 1)).toMatchObject([{ code: "BCDFGH", players: 1, max_players: 16, open: 1, country: "DE", continent: "EU" }]);
+    // The room stays where its first player was.
+    const b = await join("party", "BCDFGH", { from: { country: "US", continent: "NA" } });
+    expect((await rows(id, (r) => r[0]?.players === 2))[0]).toMatchObject({ players: 2, country: "DE" });
     b.ws.close(1000);
     expect((await rows(id, (r) => r[0]?.players === 1))[0].players).toBe(1);
     a.ws.close(1000);
@@ -292,25 +293,30 @@ describe("room browsing", () => {
     expect((await again.next()).t).toBe("welcome");
   });
 
-  it("lists rooms to the game itself: with space first, nearby first, then the busiest, never who's in them", async () => {
+  it("lists rooms to the game itself: with space first, the player's country and continent first, then the busiest, never who's in them", async () => {
     // Its own game: rooms from the tests before can still be settling.
     const id = await addGame("lister");
     const now = Date.now();
-    const add = (code: string, players: number, max: number, open: number, location: string | null, at = now) =>
-      e.DB.prepare("INSERT INTO open_rooms (game_id, code, players, max_players, open, location, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").bind(id, code, players, max, open, location, at, at).run();
-    await add("AAAAAA", 8, 8, 1, "EU"); // full
-    await add("BBBBBB", 2, 8, 1, "NA");
-    await add("CCCCCC", 5, 8, 1, "NA");
-    await add("DDDDDD", 1, 8, 1, "EU");
-    await add("EEEEEE", 4, 8, 0, "EU"); // closed
-    await add("FFFFFF", 3, 8, 1, "EU", now - 3 * 3600_000); // stopped checking in
+    const add = (code: string, players: number, max: number, open: number, country: string | null, continent: string | null, at = now) =>
+      e.DB.prepare("INSERT INTO open_rooms (game_id, code, players, max_players, open, country, continent, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .bind(id, code, players, max, open, country, continent, at, at)
+        .run();
+    await add("AAAAAA", 8, 8, 1, "DE", "EU"); // full
+    await add("BBBBBB", 2, 8, 1, "US", "NA");
+    await add("CCCCCC", 5, 8, 1, "US", "NA");
+    await add("DDDDDD", 1, 8, 1, "FR", "EU");
+    await add("GGGGGG", 1, 8, 1, "DE", "EU");
+    await add("HHHHHH", 2, 8, 1, "XX", null); // unknown
+    await add("EEEEEE", 4, 8, 0, "DE", "EU"); // closed
+    await add("FFFFFF", 3, 8, 1, "DE", "EU", now - 3 * 3600_000); // stopped checking in
 
-    const res = await SELF.fetch(`${R}/v1/rooms/lister`, { headers: { Origin: ORIGIN }, cf: { continent: "EU" } } as RequestInit);
+    const res = await SELF.fetch(`${R}/v1/rooms/lister`, { headers: { Origin: ORIGIN }, cf: { country: "DE", continent: "EU" } } as RequestInit);
     expect(res.headers.get("access-control-allow-origin")).toBe(ORIGIN);
     const body = await res.json<{ rooms: any[]; playing: unknown }>();
-    expect(body.rooms.map((r) => r.code)).toEqual(["DDDDDD", "CCCCCC", "BBBBBB", "AAAAAA", "EEEEEE"]);
-    expect(body.rooms[0]).toEqual({ code: "DDDDDD", players: 1, max: 8, open: true, location: { code: "EU", name: "Europe" }, near: true, link: "https://zaisma.test/g/lister?room=DDDDDD" });
-    expect(body.playing).toEqual({ players: 20, rooms: 5, closed: 1 });
+    expect(body.rooms.map((r) => r.code)).toEqual(["GGGGGG", "DDDDDD", "CCCCCC", "BBBBBB", "HHHHHH", "AAAAAA", "EEEEEE"]);
+    expect(body.rooms[0]).toEqual({ code: "GGGGGG", players: 1, max: 8, open: true, location: { country: "DE", name: "Germany", continent: "EU" }, near: true, link: "https://zaisma.test/g/lister?room=GGGGGG" });
+    expect(body.rooms.find((r) => r.code === "HHHHHH").location).toBeNull();
+    expect(body.playing).toEqual({ players: 23, rooms: 7, closed: 1 });
     expect((await SELF.fetch(`${R}/v1/rooms/lister`, { headers: { Origin: "https://evil.example" } })).status).toBe(403);
   });
 

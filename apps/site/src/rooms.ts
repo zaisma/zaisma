@@ -5,7 +5,8 @@ import { html, raw, type Raw } from "./html.ts";
 /**
  * Room browsing on the game page (docs/DECISIONS.md): the game's listed rooms, so players can jump
  * into a match. Rooms keep their own rows up to date (apps/rooms/src/room.ts); the page shows the code,
- * where the room runs and how full it is, never who's in it. Join is an ordinary room link, so the
+ * where the room runs (a country flag and code) and how full it is, never who's in it. Flags are
+ * flag-icons (MIT), rendered small into brand/flags. Join is an ordinary room link, so the
  * game decides what happens next, as with invites.
  */
 
@@ -13,7 +14,11 @@ import { html, raw, type Raw } from "./html.ts";
 export const roomsOnPage = (game: Game) => Boolean(game.game_server) && game.room_browsing === "page";
 
 export function pageRooms(env: Env, game: Game, request: Request): Promise<RoomList> {
-  return listRooms(env.DB, game.id, { near: request.cf?.continent as string | undefined, cacheSeconds: Number(env.ROOM_LIST_CACHE_SECONDS ?? 10) });
+  return listRooms(env.DB, game.id, {
+    country: request.cf?.country as string | undefined,
+    continent: request.cf?.continent as string | undefined,
+    cacheSeconds: Number(env.ROOM_LIST_CACHE_SECONDS ?? 10),
+  });
 }
 
 /** Most rows the page shows; the list is sorted, so these are the best ones to join. */
@@ -48,7 +53,7 @@ function roomRow(slug: string, r: ListedRoom): Raw {
   const seats = r.max <= 16 ? html`<span class="seats" aria-hidden="true">${Array.from({ length: r.max }, (_, i) => raw(i < r.players ? '<i class="on"></i>' : "<i></i>"))}</span>` : "";
   return html`<li class="room plate">
 <span class="code" title="Room code">${r.code}</span>
-<span class="where">${r.location ? html`${raw(ICON_GLOBE)}<span>${r.location.name}${r.near ? html`<span class="near">, near you</span>` : ""}</span>` : ""}</span>
+<span class="where">${r.location ? html`<img class="flag" src="/flags/${r.location.country.toLowerCase()}.png" alt="" width="20" height="15" loading="lazy"><abbr title="${r.location.name}">${r.location.country}</abbr>` : ""}</span>
 <span class="fill">${seats}<span>${filled}</span></span>
 ${space ? html`<a class="btn" href="/g/${slug}?room=${r.code}" aria-label="Join room ${r.code}">Join</a>` : html`<span class="full">Full</span>`}
 </li>`;
@@ -62,5 +67,3 @@ export async function roomsFragment(env: Env, slug: string, request: Request): P
   const body = roomsPanel(game.slug, await pageRooms(env, game, request));
   return new Response(String(body), { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "private, max-age=10" } });
 }
-
-const ICON_GLOBE = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></svg>`;

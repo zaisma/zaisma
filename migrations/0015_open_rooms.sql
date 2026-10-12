@@ -8,8 +8,9 @@ CREATE TABLE open_rooms (
   max_players INTEGER NOT NULL,
   -- 0: closed, only players who were already in it can come back.
   open INTEGER NOT NULL DEFAULT 1,
-  -- The continent the room runs in (where its first player connected from), like EU.
-  location TEXT,
+  -- Where the room runs: the country and continent its first player connected from, like DE and EU.
+  country TEXT,
+  continent TEXT,
   created_at INTEGER NOT NULL,
   -- A listed room checks in every hour; rows older than two hours belong to rooms that stopped.
   updated_at INTEGER NOT NULL,

@@ -17,6 +17,7 @@
  * Room browsing. Listed rooms show on the game's Zaisma page and to the game itself:
  *   Zaisma.rooms.linked;                      // the room code the player's link points to, or null
  *   const { rooms, playing } = await Zaisma.rooms.list();  // [{ code, players, max, open, location, near, link }]
+ *                                             // location: { country: "DE", name: "Germany", continent: "EU" } or null
  *   const room = await Zaisma.rooms.quickJoin();           // the linked room, else a busy one with space, else a new one
  *   Zaisma.joinRoom({ listed: false });       // a new room that's never listed (a private match)
  *   room.listed; room.open; room.on("room", ({ listed, open }) => {});
@@ -277,8 +278,9 @@
 
   /**
    * The game's listed rooms on Zaisma: { rooms: [{ code, players, max, open, location, near, link }],
-   * playing: { players, rooms } }. Rooms with space come first, nearby ones before far ones, then the
-   * busiest. Never who's in them. For a game's own lobby or server browser.
+   * playing: { players, rooms, closed } }. location is where the room runs: { country, name,
+   * continent }, like DE, Germany and EU. Rooms with space come first (the player's country, then
+   * continent, then the busiest). Never who's in them. For a game's own lobby or server browser.
    */
   function listRooms() {
     if (!config.rooms) return Promise.reject(new Error("Room lists only cover Zaisma rooms"));

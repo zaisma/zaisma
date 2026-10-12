@@ -114,7 +114,7 @@ describe("room browsing on the game page", () => {
   });
 
   const room = (gameId: string, code: string, players: number, open = 1, at = Date.now()) =>
-    env.DB.prepare("INSERT INTO open_rooms (game_id, code, players, max_players, open, location, created_at, updated_at) VALUES (?, ?, ?, 8, ?, 'EU', ?, ?)").bind(gameId, code, players, open, at, at).run();
+    env.DB.prepare("INSERT INTO open_rooms (game_id, code, players, max_players, open, country, continent, created_at, updated_at) VALUES (?, ?, ?, 8, ?, 'DE', 'EU', ?, ?)").bind(gameId, code, players, open, at, at).run();
 
   it("lists open rooms with how full they are and where they run, never who's in them", async () => {
     const id = await addGame("arena", "relay");
@@ -128,7 +128,7 @@ describe("room browsing on the game page", () => {
     expect(page).toContain("13 players on now");
     expect(page).toContain('<a class="btn" href="/g/arena?room=BCDFGH" aria-label="Join room BCDFGH">Join</a>');
     expect(page).toContain("3 of 8 players");
-    expect(page).toContain("Europe");
+    expect(page).toContain('<img class="flag" src="/flags/de.png" alt="" width="20" height="15" loading="lazy"><abbr title="Germany">DE</abbr>');
     expect(page).toMatch(/JKLMNP[\s\S]*?<span class="full">Full<\/span>/);
     // Closed rooms are only counted; rooms that stopped checking in aren't shown at all.
     expect(page).not.toContain("QRSTVW");

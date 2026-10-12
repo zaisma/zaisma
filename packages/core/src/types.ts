@@ -107,7 +107,8 @@ export interface OpenRoom {
   players: number;
   max_players: number;
   open: number;
-  location: string | null;
+  country: string | null;
+  continent: string | null;
   created_at: number;
   updated_at: number;
 }

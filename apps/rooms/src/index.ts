@@ -137,7 +137,7 @@ export default {
       const game = await playableGame(env.DB, slug);
       if (!game || !gameServer(game.game_server)) return json({ error: "This game doesn't use Zaisma rooms." }, 404, origin!);
       if (game.room_browsing === "off") return json({ rooms: [], playing: { players: 0, rooms: 0, closed: 0 } }, 200, origin!);
-      const found = await listRooms(env.DB, game.id, { near: request.cf?.continent as string | undefined, cacheSeconds: Number(env.ROOM_LIST_CACHE_SECONDS ?? 10) });
+      const found = await listRooms(env.DB, game.id, { country: request.cf?.country as string | undefined, continent: request.cf?.continent as string | undefined, cacheSeconds: Number(env.ROOM_LIST_CACHE_SECONDS ?? 10) });
       const link = (code: string) => `${env.SITE_ORIGIN}/g/${slug}?room=${code}`;
       return json({ ...found, rooms: found.rooms.map((r) => ({ ...r, link: link(r.code) })) }, 200, origin!);
     }
@@ -155,8 +155,9 @@ export default {
       headers.set("x-game-slug", game.slug);
       headers.set("x-game-server", game.game_server!);
       headers.set("x-room-code", code);
-      // Where the room's first player is, by continent, so room lists can say where it runs.
-      headers.set("x-room-location", String(request.cf?.continent ?? ""));
+      // Where the room's first player is (country and continent), so room lists can say where it runs.
+      headers.set("x-room-country", String(request.cf?.country ?? ""));
+      headers.set("x-room-continent", String(request.cf?.continent ?? ""));
       try {
         return await env.ROOMS.get(env.ROOMS.idFromName(`${slug}:${code}`)).fetch(new Request(request, { headers }));
       } catch (err) {
