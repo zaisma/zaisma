@@ -91,6 +91,10 @@ ul.items li:first-child { border-top: 0; }
 .tag { font: 500 11px var(--mono); text-transform: uppercase; letter-spacing: 0.08em; padding: 2px 7px; border-radius: 5px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
 .tag.must { color: var(--fg); border-color: var(--fg); }
 .tag.julius { color: var(--julius); border-color: var(--julius); }
+.needs { font-size: 13px; color: var(--muted); margin-top: 3px; }
+.needs .lbl { font: 500 11px var(--mono); text-transform: uppercase; letter-spacing: 0.08em; margin-right: 4px; }
+.needs .open { color: var(--fg); }
+.needs .met { text-decoration: line-through; }
 .empty { padding: 14px; color: var(--muted); font-size: 14px; }
 
 .legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 13px; color: var(--muted); }
@@ -174,7 +178,7 @@ function parse(text) {
       let name = get("item");
       const julius = /^Julius:\s*/.test(name);
       name = name.replace(/^Julius:\s*/, ""); name = name.charAt(0).toUpperCase() + name.slice(1);
-      group.items.push({ status: get("status") || "planned", must: /must/i.test(get("must/nice")), nice: /nice/i.test(get("must/nice")), name, note: get("notes"), julius });
+      group.items.push({ status: get("status") || "planned", must: /must/i.test(get("must/nice")), nice: /nice/i.test(get("must/nice")), name, note: get("notes"), julius, needs: get("needs").split(",").map((n) => n.trim()).filter(Boolean) });
       continue;
     }
     header = null;
@@ -219,6 +223,12 @@ function render() {
       <span class="c">${p.num !== "" ? `${done}/${items.length} done` : `${items.length} ideas`}</span></a></li>`;
   }).join("");
 
+  const statusOf = new Map(phases.flatMap((p) => p.groups.flatMap((g) => g.items)).map((i) => [i.name.toLowerCase(), i.status]));
+  const needsHtml = (i) => i.needs.length ? `<div class="needs"><span class="lbl">Needs</span>${i.needs.map((n) => {
+    const shown = n.replace(/^Julius:\s*/, "");
+    const met = statusOf.get(shown.toLowerCase()) === "done";
+    return `<span class="${met ? "met" : "open"}">${md(shown.charAt(0).toUpperCase() + shown.slice(1))}</span>`;
+  }).join(", ")}</div>` : "";
   document.getElementById("phases").innerHTML = phases.map((p) => {
     const id = p.num !== "" ? `phase-${p.num}` : "parked";
     const groups = p.groups.map((g) => {
@@ -226,7 +236,7 @@ function render() {
       if (g.items.length && !items.length) return "";
       const rows = items.map((i) => `<li class="s-${esc(i.status)}">
         <span class="status">${esc(i.status)}</span>
-        <div><div class="name">${md(i.name)}</div>${i.note ? `<div class="note">${md(i.note)}</div>` : ""}</div>
+        <div><div class="name">${md(i.name)}</div>${i.note ? `<div class="note">${md(i.note)}</div>` : ""}${needsHtml(i)}</div>
         <div class="tags">${i.julius ? '<span class="tag julius">Julius</span>' : ""}${i.must ? '<span class="tag must">Must</span>' : i.nice ? '<span class="tag">Nice</span>' : ""}</div>
       </li>`).join("");
       return `<div class="group">${g.title ? `<h3>${esc(g.title)}</h3>` : ""}${g.intro.map((t) => `<p>${md(t)}</p>`).join("")}${rows ? `<ul class="items">${rows}</ul>` : ""}</div>`;

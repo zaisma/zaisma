@@ -10,6 +10,7 @@ The live plan of what gets built, in what order. `docs/DECISIONS.md` says *how* 
 - **Must** items finish the phase. **Nice** items ship if they're ready and otherwise move to a later phase without holding anything up.
 - **Status:** `done`, `doing`, `next`, `planned`, `idea`.
 - **Julius** marks things only Julius can do (money, accounts, sign-ups).
+- **Needs** lists the items that must land first, by name, separated by commas (so item names never contain commas). Items without needs can start any time.
 - **Weekly releases** start with the beta. Every phase after it ships in small pieces as each one is ready.
 
 ## Phase 0: Safe hosting (done)
@@ -29,78 +30,81 @@ Live on zaisma.com since Oct 11, 2026.
 
 Goal: open Zaisma to outside creators and players, with what both expect out of the box. **The beta bar:** a creator can publish any web game from their AI tool in one prompt, add multiplayer and saves, and see who plays; a player can tap a link, play on phone or computer, invite friends, keep progress and stay safe.
 
-### Launch prerequisites
+**Order of work.** Four tracks run side by side; within a track, the **Needs** column says what has to land first. The longest waits are outside our control (PhotoDNA approval takes weeks), so Julius's track starts first. The build tracks meet at the end: creators' own game servers need multiplayer and publishing, and the seed games use everything.
 
-| Status | Must/Nice | Item | Notes |
-| --- | --- | --- | --- |
-| done | Must | Julius: buy the game domain | zaismausercontent.com, bought Oct 11, 2026 |
-| done | Must | Serve each game on its own subdomain | Live Oct 11, 2026: <slug>.zaismausercontent.com; workers.dev turned off |
-| next | Must | Julius: Public Suffix List entry | Needs 2+ years left on the domain's registration and a `_psl` TXT record; may wait until we have players |
-| next | Must | Julius: apply for PhotoDNA | Free, takes weeks. Also check whether Cloudflare's CSAM tool covers files our Worker serves |
-| next | Must | Connect image matching | Until then every game waits for manual approval |
-| next | Must | Julius: register the DMCA agent | $6 at copyright.gov, then fill in the DMCA page |
-| doing | Must | Alert and DMCA email delivery | Waiting on Fastmail's reply; fallback is a second inbox |
-| planned | Must | Julius: Workers Paid plan | $5/month; needed to run creators' game servers |
-| planned | Must | Julius: Supabase Pro | $25/month at launch; the free plan pauses |
+### Launch prerequisites (Julius's track, start first)
 
-### Multiplayer
+| Status | Must/Nice | Item | Needs | Notes |
+| --- | --- | --- | --- | --- |
+| done | Must | Julius: buy the game domain | | zaismausercontent.com, bought Oct 11, 2026 |
+| done | Must | Serve each game on its own subdomain | Julius: buy the game domain | Live Oct 11, 2026: <slug>.zaismausercontent.com; workers.dev turned off |
+| next | Must | Julius: apply for PhotoDNA | | The longest wait in Phase 1: free, but approval takes weeks. Also check whether Cloudflare's CSAM tool covers files our Worker serves |
+| next | Must | Julius: register the DMCA agent | | $6 at copyright.gov, then fill in the DMCA page |
+| doing | Must | Alert and DMCA email delivery | | Waiting on Fastmail's reply; fallback is a second inbox |
+| planned | Must | Connect image matching | Julius: apply for PhotoDNA | Until then every game waits for manual approval, so outside uploads can't open |
+| planned | Must | Julius: Workers Paid plan | | $5/month; needed to run creators' game servers |
+| planned | Must | Julius: Supabase Pro | | $25/month, switched on at launch; the free plan pauses |
+| planned | Nice | Julius: Public Suffix List entry | | Needs 2+ years left on the registration and a `_psl` TXT record; the list may turn down projects without players, so apply after launch |
+
+### Multiplayer (build track 1)
 
 Detailed plan approved: guest passes, game server API, rooms, SDK, demos.
 
-| Status | Must/Nice | Item | Notes |
-| --- | --- | --- | --- |
-| next | Must | Player passes | Signed guest passes any server can check, published keys |
-| next | Must | Game server API and relay | Server-client by default; messages-only relay for simple games |
-| next | Must | Rooms on rooms.zaisma.com | Durable Objects with hibernation; limits, takedowns end rooms |
-| next | Must | Client SDK | `joinRoom`, invite links, reconnecting |
-| next | Must | Room invite links | Tap a link, land in the match as a guest |
-| next | Must | Floating Z button | Replaces the top bar: Invite, Clip, Full screen, More games, Report |
-| next | Must | Mute, block and report-a-player | |
-| next | Must | Games can reach our rooms and their own servers | Own servers set per game and listed on the game page |
-| next | Must | Run a game server yourself | Node runner; same code as our rooms |
-| next | Must | Two demo games | Real-time arena, turn-based four in a row |
-| next | Nice | Clips | Recorded in the game, shared from the player's device, never uploaded |
+| Status | Must/Nice | Item | Needs | Notes |
+| --- | --- | --- | --- | --- |
+| next | Must | Player passes | | Signed guest passes any server can check, published keys |
+| next | Must | Game server API and relay | | Server-client by default; messages-only relay for simple games |
+| next | Must | Rooms on rooms.zaisma.com | Player passes, Game server API and relay | Durable Objects with hibernation; limits, takedowns end rooms |
+| next | Must | Games can reach our rooms and their own servers | Rooms on rooms.zaisma.com | Own servers set per game and listed on the game page |
+| next | Must | Client SDK | Rooms on rooms.zaisma.com | `joinRoom`, invite links, reconnecting |
+| next | Must | Room invite links | Client SDK | Tap a link, land in the match as a guest |
+| next | Must | Floating Z button | | Replaces the top bar: Invite, Clip, Full screen, More games, Report |
+| next | Must | Player safety in rooms | Rooms on rooms.zaisma.com, Floating Z button | Mute, block and report a player |
+| next | Must | Run a game server yourself | Game server API and relay, Player passes | Node runner; same code as our rooms |
+| next | Must | Two demo games | Room invite links | Real-time arena, turn-based four in a row |
+| next | Nice | Clips | Client SDK, Floating Z button | Recorded in the game, shared from the player's device, never uploaded |
 
-### Accounts
+### Accounts (build track 2)
 
-| Status | Must/Nice | Item | Notes |
-| --- | --- | --- | --- |
-| planned | Must | Sign-in | Supabase |
-| planned | Must | Age question | Keep only the age band; no ID checks |
-| planned | Must | "Keep your progress" | Turns a guest into an account |
-| planned | Must | Cloud saves | Mirrors the game's own browser saves, no code needed |
-| planned | Must | Games have owners | Ready for teams later |
+| Status | Must/Nice | Item | Needs | Notes |
+| --- | --- | --- | --- | --- |
+| planned | Must | Sign-in | | Supabase |
+| planned | Must | Age question | Sign-in | Keep only the age band; no ID checks |
+| planned | Must | Games have owners | Sign-in | Ready for teams later |
+| planned | Must | Cloud saves | Sign-in, Client SDK | Mirrors the game's own browser saves, no code needed |
+| planned | Must | "Keep your progress" | Cloud saves | Turns a guest into an account |
 
-### Creator publishing
+### Creator publishing (build track 3)
 
-| Status | Must/Nice | Item | Notes |
-| --- | --- | --- | --- |
-| planned | Must | Creator accounts and dashboard | Every game, its visibility, review status, versions |
-| planned | Must | Creator MCP | Create, edit, upload, publish, roll back, scans, reports, stats |
-| planned | Must | Upload command | File by file, up to 2 GB per game, only changed files |
-| planned | Must | `zaisma check` and automatic fixes | Pulls in outside scripts, unpacks compressed builds |
-| planned | Must | Claude Code skill | Teaches the whole workflow |
-| planned | Must | Drafts, preview links, publish, roll back | Keep the live version plus the last 5 |
-| planned | Must | Draft, listed and unlisted games | Separate from review status |
-| planned | Must | Creators' own game servers run safely | Dynamic Workers (needs Workers Paid) |
-| planned | Must | Scan only what changed; per-creator budgets | Plus about 20 updates per game per day |
-| planned | Must | No-slop cover and title checks | AI review checks covers; real screenshots on every game page |
-| planned | Must | No free-text chat rule | In the content rules and the AI review |
-| planned | Must | Device labels | Games for your device first; "Play anyway" for the rest |
-| planned | Must | Basic play stats | Plays, session length, players coming back |
-| planned | Nice | Drop-in Socket.IO and PeerJS | So existing multiplayer prototypes work with few changes |
+| Status | Must/Nice | Item | Needs | Notes |
+| --- | --- | --- | --- | --- |
+| planned | Must | Creator accounts | Sign-in, Games have owners | |
+| planned | Must | Upload command | Creator accounts | File by file, up to 2 GB per game, only changed files |
+| planned | Must | Scan only what changed; per-creator budgets | Upload command | Plus about 20 updates per game per day |
+| planned | Must | Drafts and publishing | Upload command | Preview links, publish now or later, roll back; keep the live version plus the last 5 |
+| planned | Must | Game visibility | Creator accounts | Draft, listed or unlisted; separate from review status |
+| planned | Must | Game details and device labels | Creator accounts | Covers and screenshots, scanned; games for your device first, "Play anyway" for the rest |
+| planned | Must | No-slop cover and title checks | Game details and device labels | AI review checks covers; real screenshots on every game page |
+| planned | Must | No free-text chat rule | | In the content rules and the AI review |
+| planned | Must | Creator MCP | Drafts and publishing | Create, edit, upload, publish, roll back, scans, reports, stats |
+| planned | Must | Creator dashboard | Drafts and publishing | The same API as the MCP; keep it simple for the beta |
+| planned | Must | `zaisma check` and automatic fixes | Upload command | Pulls in outside scripts, unpacks compressed builds |
+| planned | Must | Claude Code skill | Creator MCP, `zaisma check` and automatic fixes | Teaches the whole workflow |
+| planned | Must | Basic play stats | Client SDK | Plays, session length, players coming back |
+| planned | Must | Creators' own game servers run safely | Upload command, Rooms on rooms.zaisma.com, Julius: Workers Paid plan | Dynamic Workers; the biggest technical unknown in Phase 1, so prototype it early |
+| planned | Nice | Drop-in Socket.IO and PeerJS | Client SDK | So existing multiplayer prototypes work with few changes |
 
-### Launch content and reach
+### Launch content and reach (build track 4)
 
-| Status | Must/Nice | Item | Notes |
-| --- | --- | --- | --- |
-| planned | Must | Share cards for every game and room link | Cover, title, "Play now" |
-| planned | Must | Creator links on game pages | Steam, itch.io, Discord, website, socials |
-| planned | Must | Search-friendly game pages | |
-| planned | Must | At least 5 seed games | Made with Claude Code, different genres, multiplayer |
-| planned | Nice | 10 seed games | The target in `docs/PLAN.md` |
-| planned | Nice | QR codes | |
-| planned | Must | Open the public beta | Weekly releases and the weekly game jam start here |
+| Status | Must/Nice | Item | Needs | Notes |
+| --- | --- | --- | --- | --- |
+| planned | Must | Search-friendly game pages | | |
+| planned | Must | Share cards for every game and room link | Game details and device labels | Cover, title, "Play now" |
+| planned | Must | Creator links on game pages | Creator accounts | Steam, itch.io, Discord, website, socials |
+| planned | Must | At least 5 seed games | Claude Code skill, Two demo games | Made with Claude Code through our own publishing flow, different genres, multiplayer |
+| planned | Nice | 10 seed games | At least 5 seed games | The target in `docs/PLAN.md` |
+| planned | Nice | QR codes | | |
+| planned | Must | Open the public beta | Connect image matching, Julius: register the DMCA agent, Alert and DMCA email delivery, Julius: Supabase Pro, At least 5 seed games | And every other must item above. Weekly releases and the weekly game jam start here |
 
 ## Phase 2: Earn
 
