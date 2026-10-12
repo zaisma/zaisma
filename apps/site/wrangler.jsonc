@@ -1,0 +1,35 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "zaisma-site",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "routes": [{ "pattern": "zaisma.com", "custom_domain": true }],
+  "workers_dev": false,
+  "observability": { "enabled": true },
+  // Logos and favicons straight from the brand folder (see brand/.assetsignore).
+  "assets": { "directory": "../../brand" },
+  "vars": {
+    "SITE_ORIGIN": "https://zaisma.com",
+    // Game server address. Path mode until zaisma.gg is bought.
+    "GAME_HOST_MODE": "path",
+    "GAME_ORIGIN": "https://zaisma-games.REPLACE.workers.dev",
+    "GAME_DOMAIN": "",
+    // Cloudflare Access protects /admin. Team domain like "zaisma.cloudflareaccess.com".
+    "ACCESS_TEAM_DOMAIN": "",
+    "ACCESS_AUD": "",
+    "AI_MODEL": "claude-haiku-5-5",
+    // Monthly cap on AI review input tokens (~$0.10 per million). Past it, games wait for manual review.
+    "AI_MONTHLY_INPUT_TOKENS": "20000000",
+    "ALERT_FROM": "alerts@zaisma.com"
+    // Secrets (wrangler secret put): ANTHROPIC_API_KEY, ALERT_EMAIL, optional VT_API_KEY
+  },
+  "d1_databases": [{ "binding": "DB", "database_name": "zaisma", "database_id": "local", "migrations_dir": "../../migrations" }],
+  "r2_buckets": [{ "binding": "GAMES", "bucket_name": "zaisma-games" }],
+  "queues": {
+    "producers": [{ "binding": "SCAN_QUEUE", "queue": "zaisma-scan" }],
+    "consumers": [{ "queue": "zaisma-scan", "max_batch_size": 1, "max_retries": 3 }]
+  },
+  "ratelimits": [{ "name": "REPORT_LIMIT", "namespace_id": "1001", "simple": { "limit": 5, "period": 60 } }],
+  "send_email": [{ "name": "ALERTS" }]
+}
