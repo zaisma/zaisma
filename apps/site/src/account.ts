@@ -365,7 +365,9 @@ ${games.length
 <h2 id="developer">Game developers</h2>
 <p>Publish and manage your games from any AI tool or the command line with an API key. Treat it like a password: anyone with it can change your games.</p>
 ${made
-      ? html`<div class="note" role="status"><p><strong>Your new key, "${made.name}".</strong> Copy it now. It won't be shown again.</p><p><code class="key">${made.token}</code></p></div>`
+      ? html`<div class="note" role="status"><p><strong>Your new key, "${made.name}".</strong> Copy it now. It won't be shown again.</p><p><code class="key">${made.token}</code></p>
+<p class="small">Connect Claude Code to Zaisma with it:</p><p><code class="key">claude mcp add --transport http zaisma ${env.SITE_ORIGIN}/mcp --header "Authorization: Bearer ${made.token}"</code></p>
+<p class="small">Other AI tools: add the MCP server ${env.SITE_ORIGIN}/mcp with that header. For the upload command, set it as ZAISMA_KEY.</p></div>`
       : ""}
 ${keys.length
       ? html`<ul class="keys">${keys.map(

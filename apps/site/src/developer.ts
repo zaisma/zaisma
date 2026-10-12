@@ -40,6 +40,8 @@ import {
   type ScanReport,
   type UploadFile,
   type Version,
+  REPORT_REASONS,
+  type ReportReason,
 } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import { gameUrl, type Env } from "./env.ts";
@@ -62,18 +64,21 @@ import { pruneVersions } from "./scan.ts";
  *   POST   /api/dev/games/:slug/versions/:id/publish   publish a draft or roll back; { "at" } publishes later
  *   DELETE /api/dev/games/:slug/versions/:id/publish   cancel a publish-later
  *   POST   /api/dev/files/:sha256/parts        send a big file in parts (see bigFile)
+ *   GET    /api/dev/games/:slug/reports        what players reported, by reason
+ *   GET    /api/dev/games/:slug/stats          multiplayer room use per day
+ *   GET    /api/dev/games/:slug/history        what happened to the game, and who did it
  *
  * Images are served from /img/:id once approved; owners can see their own before that.
  */
 
-interface Caller {
+export interface Caller {
   accountId: string;
   ownerId: string;
   actor: string;
   cookies: string[];
 }
 
-class ApiError extends Error {
+export class ApiError extends Error {
   constructor(
     readonly status: number,
     readonly code: string,
@@ -101,7 +106,7 @@ export async function handleDeveloper(request: Request, env: Env, path: string):
   }
 }
 
-async function authenticate(request: Request, env: Env): Promise<Caller> {
+export async function authenticate(request: Request, env: Env): Promise<Caller> {
   const header = request.headers.get("authorization");
   let accountId: string | null = null;
   let cookies: string[] = [];
@@ -123,7 +128,7 @@ async function authenticate(request: Request, env: Env): Promise<Caller> {
   return { accountId, ownerId: owner.id, actor: `account:${accountId}`, cookies };
 }
 
-async function route(request: Request, env: Env, path: string, caller: Caller): Promise<Response> {
+export async function route(request: Request, env: Env, path: string, caller: Caller): Promise<Response> {
   const method = request.method;
   const ok = (data: unknown, status = 200) => json(data, status, caller.cookies);
 
@@ -159,6 +164,14 @@ async function route(request: Request, env: Env, path: string, caller: Caller): 
 
   const v = path.match(/^\/games\/([a-z0-9-]+)\/(uploads|versions)(?:\/([a-z0-9]+)(\/publish)?)?$/);
   if (v) return ok(...(await versionRoute(request, env, await ownGame(env, v[1]!, caller), v[2]!, v[3], Boolean(v[4]), caller)));
+
+  const facts = path.match(/^\/games\/([a-z0-9-]+)\/(reports|stats|history)$/);
+  if (facts && method === "GET") {
+    const game = await ownGame(env, facts[1]!, caller);
+    if (facts[2] === "reports") return ok(await reportsFor(env, game));
+    if (facts[2] === "stats") return ok(await statsFor(env, game, Number(new URL(request.url).searchParams.get("days") ?? 30)));
+    return ok(await historyFor(env, game, caller));
+  }
 
   const m = path.match(/^\/games\/([a-z0-9-]+)(?:\/images(?:\/([a-z0-9]+))?)?$/);
   if (!m) throw new ApiError(404, "not_found", "No such API path.");
@@ -384,6 +397,96 @@ async function versionRoute(request: Request, env: Env, game: Game, what: string
   }
 
   throw new ApiError(405, "bad_method", `${method} isn't used here.`);
+}
+
+const DAY = 86400_000;
+
+/**
+ * Player reports, counted by reason over the last 90 days. Bug reports come with what the player wrote.
+ * Child-safety reports are never shown or counted here: telling the developer could warn someone abusing a child.
+ */
+async function reportsFor(env: Env, game: Game) {
+  const since = Date.now() - 90 * DAY;
+  const { results: counts } = await env.DB
+    .prepare("SELECT reason, status, COUNT(*) AS n FROM reports WHERE game_id = ? AND created_at > ? AND reason != 'child_safety' GROUP BY reason, status")
+    .bind(game.id, since)
+    .all<{ reason: string; status: string; n: number }>();
+  const byReason: Record<string, { label: string; open: number; closed: number }> = {};
+  for (const c of counts) {
+    const r = (byReason[c.reason] ??= { label: REPORT_REASONS[c.reason as ReportReason] ?? c.reason, open: 0, closed: 0 });
+    if (c.status === "open") r.open += c.n;
+    else r.closed += c.n;
+  }
+  const { results: bugs } = await env.DB
+    .prepare("SELECT details, created_at FROM reports WHERE game_id = ? AND reason = 'broken' AND created_at > ? AND details != '' ORDER BY created_at DESC LIMIT 20")
+    .bind(game.id, since)
+    .all<{ details: string; created_at: number }>();
+  return {
+    days: 90,
+    // Open: waiting for us. Closed: we looked and either dismissed it or acted on it.
+    reasons: byReason,
+    bug_reports: bugs.map((b) => ({ said: b.details, at: b.created_at })),
+  };
+}
+
+/** Multiplayer room use per day. Nothing about players. Plays, session length and players coming back arrive with the client SDK. */
+async function statsFor(env: Env, game: Game, days: number) {
+  const n = Number.isInteger(days) && days > 0 ? Math.min(days, 90) : 30;
+  const from = new Date(Date.now() - (n - 1) * DAY).toISOString().slice(0, 10);
+  const { results } = await env.DB
+    .prepare("SELECT day, rooms, player_seconds, messages FROM room_usage WHERE game_id = ? AND day >= ? ORDER BY day")
+    .bind(game.id, from)
+    .all<{ day: string; rooms: number; player_seconds: number; messages: number }>();
+  return {
+    days: n,
+    multiplayer: results.map((r) => ({ day: r.day, rooms: r.rooms, player_minutes: Math.round(r.player_seconds / 60), messages: r.messages })),
+    plays: null,
+    note: "Plays, session length and players coming back aren't counted yet; they arrive with the Zaisma SDK.",
+  };
+}
+
+/** What happened to a game, newest first, in words safe to show its developer. */
+const HISTORY: Record<string, string | null> = {
+  created: "Made the game",
+  details: "Changed the details",
+  "details-approved": "New title or description approved",
+  "details-rejected": "New title or description not approved",
+  "image-added": "Added an image",
+  "image-removed": "Removed an image",
+  "image-approved": "Image approved",
+  "image-rejected": "Image not approved",
+  upload: "Uploaded a version",
+  "scan-held": "A version was held for a person to look at; see the version's findings",
+  "scan-rejected": "A version was rejected; see the version's findings",
+  rejected: "A version was rejected after review",
+  "draft-ready": "A version passed review and is ready to preview and publish",
+  published: "Published a version",
+  "rolled-back": "Rolled back to an earlier version",
+  "publish-scheduled": "Scheduled a version to publish later",
+  "publish-unscheduled": "Cancelled a scheduled publish",
+  "publish-dropped": "A scheduled version didn't pass review, so it wasn't published",
+  "draft-deleted": "An unpublished version was deleted after 30 days",
+  "auto-hold": "A player report hid the game until it's reviewed",
+  takedown: "Zaisma took the game down",
+  restored: "Zaisma restored the game",
+  "reports-dismissed": null,
+  multiplayer: "Multiplayer settings changed",
+  "cloud-saves": "Cloud saves switched",
+  owner: null,
+};
+
+async function historyFor(env: Env, game: Game, caller: Caller) {
+  const { results } = await env.DB
+    .prepare("SELECT action, reason, actor, at FROM audit_log WHERE game_id = ? ORDER BY at DESC, id DESC LIMIT 100")
+    .bind(game.id)
+    .all<{ action: string; reason: string; actor: string; at: number }>();
+  const out: { what: string; version: string | null; by: string; at: number }[] = [];
+  for (const r of results) {
+    const what = HISTORY[r.action];
+    if (!what) continue;
+    out.push({ what, version: r.reason.match(/[Vv]ersion ([a-z0-9]+)/)?.[1] ?? null, by: r.actor === caller.actor ? "you" : "Zaisma", at: r.at });
+  }
+  return { history: out };
 }
 
 function listOrThrow(files: unknown): UploadFile[] {

@@ -94,8 +94,9 @@ Detailed plan approved: guest passes, game server API, rooms, SDK, demos.
 | doing | Must | Game details and device labels | Developer accounts | Covers and screenshots, scanned; games for your device first, "Play anyway" for the rest. The API stores labels, covers and screenshots (checked by their bytes, approved by a person until image matching is connected); they show on the new game page |
 | planned | Must | No-slop cover and title checks | Game details and device labels | AI review checks covers; real screenshots on every game page |
 | planned | Must | No live chat or DMs between strangers rule | | In the content rules and the AI review; games may offer preset phrases and emotes |
-| planned | Must | Developer MCP | Drafts and publishing | Create, edit, upload, publish, roll back, scans, reports, stats |
-| planned | Must | Support tools in the MCP | Developer MCP | "Why is my game held?", scan reports, logs, bills: developers' own AI answers their questions |
+| done | Must | Developer MCP | Drafts and publishing | Create, edit, upload, publish, roll back, scans, reports, stats at zaisma.com/mcp, signed in with an API key; small games upload through the MCP, bigger builds through the upload command |
+| planned | Must | MCP sign-in without a key | Developer MCP | OAuth, so claude.ai and other apps that can't send a key can connect after the developer signs in |
+| doing | Must | Support tools in the MCP | Developer MCP | "Why is my game held?", scan reports, logs, bills: developers' own AI answers their questions. Game history and scan findings are in; bills and logs next |
 | planned | Must | Errors that explain themselves | | Every hold, takedown, bill and failed upload has a plain reason, a rule, a fix and an error code that links to docs |
 | planned | Must | Docs for AI tools | | `llms.txt` and troubleshooting pages by error code, so any AI can answer questions about Zaisma |
 | planned | Must | Developer dashboard | Drafts and publishing | The same API as the MCP; keep it simple for the beta |

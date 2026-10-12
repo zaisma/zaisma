@@ -5,6 +5,7 @@ import { handleAdmin } from "./admin.ts";
 import { handleDeveloper } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { message } from "./html.ts";
+import { handleMcp } from "./mcp.ts";
 import { gamePage, home, legal, reportForm, submitReport } from "./pages.ts";
 import { handleSaves } from "./saves.ts";
 import { handleScanBatch } from "./scan.ts";
@@ -19,6 +20,7 @@ export default {
     const method = request.method;
 
     if (path === "/admin" || path.startsWith("/admin/")) return handleAdmin(request, env, path);
+    if (path === "/mcp") return handleMcp(request, env);
     const developer = await handleDeveloper(request, env, path);
     if (developer) return developer;
     if (method !== "GET" && method !== "HEAD" && method !== "POST" && !(method === "PUT" && path.startsWith("/api/saves/"))) return new Response("Method not allowed", { status: 405 });

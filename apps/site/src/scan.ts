@@ -147,7 +147,7 @@ export async function scanVersion(env: Env, versionId: string, deps: ScanDeps = 
   if (decision === "approved") {
     await passVersion(env, version, "Passed the scan");
   } else {
-    await audit(env.DB, game.id, decision === "held" ? "scan-held" : "scan-rejected", summarize(findings));
+    await audit(env.DB, game.id, decision === "held" ? "scan-held" : "scan-rejected", `Version ${version.id}\n${summarize(findings)}`);
     if (decision === "held" || childSafety) {
       await sendAlert(
         env,
