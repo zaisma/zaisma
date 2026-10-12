@@ -346,9 +346,10 @@ describe("Google and Discord", () => {
     expect(res.headers.get("location")).toBe("/join?with=discord");
     expect(deleted).toEqual([expect.any(String)]);
     expect(b.jar.has("__Host-zaisma")).toBe(false);
-    expect(await (await b.go("/join?with=discord")).text()).toContain("then continue with Discord again");
+    expect(await (await b.go("/join?with=discord")).text()).toContain("back to Discord to finish");
 
-    expect(await (await b.go("/join/age", BIRTH_ADULT)).text()).toContain("Continue with Discord");
+    // The age answer goes straight back to Discord, then to picking a name.
+    expect((await b.go("/join/age", { ...BIRTH_ADULT, with: "discord" })).headers.get("location")).toBe("/signin/with/discord");
     expect((await viaProvider(b, "/signin/with/discord", "new@example.com")).headers.get("location")).toBe("/join/name");
     expect(await (await b.go("/join/name")).text()).toContain("Pick a name");
     expect((await b.go("/join/name", { name: "Lucky Star" })).headers.get("location")).toBe("/account?welcome");

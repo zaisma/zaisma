@@ -173,6 +173,9 @@ export async function handleAccount(request: Request, env: Env, path: string): P
         return withCookies(tooYoungPage(env), cookies);
       }
       const cookie = setCookie(env, "zaisma_join", encodeURIComponent(JSON.stringify({ band })), { maxAge: JOIN_SECONDS });
+      // They came from Google or Discord: go straight back there (it won't ask again), then pick a name.
+      const via = field("with");
+      if (!session && isProvider(via) && (await providersOn(env)).includes(via)) return withCookies(redirect(`/signin/with/${via}${nextQuery(next)}`), [cookie]);
       // Already signed in (they verified an email but never finished): skip straight to the name.
       return withCookies(session ? joinNamePage(env, next) : await joinEmailPage(env, next), [...(session?.cookies ?? []), cookie]);
     }
@@ -372,10 +375,11 @@ function agePage(env: Env, next: string | null, error?: string, via?: Provider):
     env,
     "Make an account",
     html`<h1>Make an account</h1>
-<p class="lead">${via ? `You're new to Zaisma. Answer this first, then continue with ${PROVIDERS[via]} again.` : "Keep your progress, play with friends and get your own name. Guests can still play everything."}</p>
+<p class="lead">${via ? `You're new to Zaisma. Answer this first, then we'll take you back to ${PROVIDERS[via]} to finish.` : "Keep your progress, play with friends and get your own name. Guests can still play everything."}</p>
 ${err(error)}
 <form class="stack" method="post" action="/join/age">
 ${nextField(next)}
+${via ? html`<input type="hidden" name="with" value="${via}">` : ""}
 <fieldset><legend>When's your birthday?</legend>${birthFields()}</fieldset>
 <p class="muted">We only keep your age group, never your birth date.</p>
 <button class="btn" type="submit">Next</button>
