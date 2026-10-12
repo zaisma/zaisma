@@ -7,17 +7,17 @@ Ideas waiting for a decision. Nothing here is decided or scheduled. When Julius 
 Zaisma as the place for playable demos of upcoming or existing games, especially Steam releases. AI makes a web demo quick to build, and a link-to-play demo beats a download.
 
 - A **Demo** label on listings, plus "Coming to Steam" or similar.
-- An end-of-demo screen (SDK call) and the game page both point to the wishlist, Steam page or wherever the creator wants. Tracked links show how many wishlists came from Zaisma.
-- Fits the planned creator links and "Wishlist on Steam" button. Timing idea: Steam Next Fest.
+- An end-of-demo screen (SDK call) and the game page both point to the wishlist, Steam page or wherever the developer wants. Tracked links show how many wishlists came from Zaisma.
+- Fits the planned developer links and "Wishlist on Steam" button. Timing idea: Steam Next Fest.
 - Open questions: the demo must show the real game (no-slop rules); demos of engine games need a web build.
 
 ## Launch marketing blitz (Oct 12, 2026)
 
 Hit every front at once at launch.
 
-- Personal messages to creators posting clips of their games: Claude drafts each one from the creator's own posts, Julius reads and sends it himself at a human pace, as the founder. No automated or bulk messaging.
+- Personal messages to developers posting clips of their games: Claude drafts each one from the developer's own posts, Julius reads and sends it himself at a human pace, as the founder. No automated or bulk messaging.
 - Aevon's AI receptionist answers inbound calls and messages for Zaisma (inbound only, as it works today), taking support load off our shoulders.
-- Posts on Reddit, forums and social media; our own accounts posting clips and resharing creators.
+- Posts on Reddit, forums and social media; our own accounts posting clips and resharing developers.
 - The pitch writes itself: AI-friendly, fully open source, 0% cut.
 - **AI-readable docs:** a developer asks their AI "tell me about Zaisma" and gets every selling point, how hard integration is, the strings attached (none) and an FAQ. An `llms.txt`, a clear docs site, and an "about Zaisma" answer in the MCP.
 - Open questions: many subreddits and the Roblox forums ban self-promotion, so check each community's rules before posting.
@@ -34,7 +34,7 @@ Hit every front at once at launch.
 
 - The UI should be as creative as the logo. The home screen is the games.
 - Sign-up opens full screen: a monochrome gray 3D cube-mesh city, like a Mirror's Edge loading screen, with a simple sign-up form beside it.
-- A voice players and creators actually relate to, like early Discord's proud gamer attitude. Never "powering imagination" style corporate copy.
+- A voice players and developers actually relate to, like early Discord's proud gamer attitude. Never "powering imagination" style corporate copy.
 - Open questions: what the personality is in one line; any new public tagline or claim needs Julius's approval. Keep the 3D scene cheap on phones (a pre-rendered image or short loop rather than live 3D).
 
 ## Automatic game jams judged by players (Oct 12, 2026)
@@ -54,4 +54,4 @@ Hit every front at once at launch.
 Parked: the game page doesn't need a Clip button. Phones and computers already record the screen; the only thing we'd add is "save the last 30 seconds", which means recording in the background all the time (battery and frame rate on cheap devices) for a feature most players never use, and it mainly serves short-video marketing.
 
 - If it comes back: an opt-in SDK call games choose to use, recorded and shared on the player's device, never uploaded.
-- Open questions: is there real demand from creators; can it run without hurting frame rate on low-end phones.
+- Open questions: is there real demand from developers; can it run without hurting frame rate on low-end phones.
