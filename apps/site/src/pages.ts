@@ -345,7 +345,7 @@ let roomsRegion = "";
 try { roomsRegion = localStorage.getItem("zaisma:rooms-region") || ""; } catch {}
 async function refreshRooms(force) {
   if (!roomsPanel || roomsPanel.hidden || document.hidden || frame) return;
-  const shown = roomsPanel.firstElementChild?.dataset.region || "";
+  const shown = roomsPanel.firstElementChild?.dataset.shown || "";
   if (!force && shown === roomsRegion && Date.now() - roomsAt < 19000) return;
   roomsAt = Date.now();
   try {
@@ -362,7 +362,7 @@ if (roomsPanel) {
   setInterval(refreshRooms, 5000);
   document.addEventListener("visibilitychange", () => refreshRooms());
   roomsPanel.addEventListener("click", (e) => {
-    const pick = e.target.closest("[data-region]");
+    const pick = e.target.closest("button[data-region]");
     if (pick) {
       roomsRegion = pick.dataset.region;
       try { roomsRegion ? localStorage.setItem("zaisma:rooms-region", roomsRegion) : localStorage.removeItem("zaisma:rooms-region"); } catch {}

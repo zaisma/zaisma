@@ -51,7 +51,7 @@ export function roomsPanel(slug: string, list: RoomList): Raw {
     : closed
       ? "Every room is in a match that isn't taking new players. Press Play to start a new one."
       : "Nobody's in an open room right now. Press Play to start.";
-  return html`<div class="rooms-in" data-joinable="${tabCount(list)}" data-region="${list.region ?? ""}">
+  return html`<div class="rooms-in" data-joinable="${tabCount(list)}" data-shown="${list.region ?? ""}">
 ${head}
 ${regions}
 ${open.length ? html`<ol class="rooms">${open.map((r, i) => roomRow(slug, r, i >= FIRST))}</ol>` : html`<p class="note rooms-empty">${empty}</p>`}
