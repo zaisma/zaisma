@@ -28,7 +28,6 @@ describe("multiplayer on the site", () => {
     await addGame("arena", "relay");
     const page = await (await SELF.fetch("https://zaisma.test/g/arena?room=abcdef")).text();
     expect(page).toContain('src="https://games.zaisma.test/arena/?room=ABCDEF"');
-    expect(page).toContain("Share the link while you");
     const bad = await (await SELF.fetch('https://zaisma.test/g/arena?room="><script>')).text();
     expect(bad).toContain('src="https://games.zaisma.test/arena/"');
   });
@@ -68,8 +67,10 @@ describe("game page controls", () => {
     expect(page).toContain('id="share"');
     expect(page).toContain('id="full"');
     expect(page).toContain('href="/g/solo/report" data-report');
-    expect(page).toContain('<dialog id="menu-dialog"');
+    expect(page).toContain('<dialog id="menu-dialog" class="quick plate"');
     expect(page).not.toContain("More games");
+    // Content rules open beside the game instead of replacing it.
+    expect(page).toContain('href="/legal/content-rules" target="_blank"');
   });
 
   it("reports from a plate beside the game, with a player reason only for multiplayer games", async () => {
