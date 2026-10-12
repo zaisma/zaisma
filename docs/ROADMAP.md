@@ -62,6 +62,7 @@ Detailed plan approved: guest passes, game server API, rooms, SDK, demos.
 | done | Must | Room invite links | Client SDK | Tap a link, land in the match as a guest |
 | done | Must | Game page controls | | Share, Full screen and a menu (about, Report) beside the game; icons on phones, a side strip in landscape. Invites live in the game via `Zaisma.invite` |
 | done | Must | Player safety in rooms | Client SDK | Mute, block and report a player; ready-made panel games put in their own menu |
+| next | Must | Report redesign | | Opens over the game, never leaves it; designed for Zaisma, not a generic form; quick enough that players actually use it. Design with Julius first |
 | done | Must | Run a game server yourself | Game server API and relay, Player passes | Node runner; same code as our rooms |
 | done | Must | Two demo games | Room invite links | Real-time arena, turn-based four in a row |
 
