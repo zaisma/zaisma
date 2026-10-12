@@ -12,7 +12,8 @@
     "dev:site": "npm run dev -w apps/site",
     "dev:games": "npm run dev -w apps/games",
     "db:migrate:local": "npm run db:migrate:local -w apps/site",
-    "dev:rooms": "npm run dev -w apps/rooms"
+    "dev:rooms": "npm run dev -w apps/rooms",
+    "preview": "node scripts/preview/run.mjs"
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "^1.4.0",
