@@ -38,7 +38,7 @@ Settled calls. Don't reopen these in code or docs without Julius approving the c
 
 ## Open source and name
 
-- **Everything is MIT licensed.** Every line of the platform, including the backend.
+- **Everything is MIT licensed.** Every line of the platform, including the backend. One exception: connectors to services whose license requires confidentiality (the PhotoDNA connector) live in a small private module. The public code only knows a generic image-matcher interface, so self-hosters plug in their own.
 - **Name: Zaisma** (from Lithuanian *žaismas*, play). Domain zaisma.com (Cloudflare). GitHub org: zaisma.
 - **Trademark later, defensive only.** Show "Zaisma™" now; file a US trademark (about $350) once donations cover it, only to stop someone else claiming the name.
 - **No IP lawfare.** We lead by being best, not by licensing tricks.

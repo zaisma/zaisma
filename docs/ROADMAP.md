@@ -38,10 +38,12 @@ Goal: open Zaisma to outside creators and players, with what both expect out of 
 | --- | --- | --- | --- | --- |
 | done | Must | Julius: buy the game domain | | zaismausercontent.com, bought Oct 11, 2026 |
 | done | Must | Serve each game on its own subdomain | Julius: buy the game domain | Live Oct 11, 2026: <slug>.zaismausercontent.com; workers.dev turned off |
-| next | Must | Julius: apply for PhotoDNA | | The longest wait in Phase 1: free, but approval takes weeks. Also check whether Cloudflare's CSAM tool covers files our Worker serves |
+| doing | Must | Julius: apply for PhotoDNA | | Applied Oct 12, 2026 as a sole proprietor; in review. Free, approval takes weeks. Check whether the 30-day subscription renews by itself |
+| next | Must | Julius: register with NCMEC | | Free; how platforms report child sexual abuse material, which US law requires |
+| next | Must | Julius: form an LLC | | Liability protection before outside uploads (we host their files and indemnify Microsoft); a registered agent keeps your home address off public records. Moving PhotoDNA to the LLC needs Microsoft's consent or a new application |
 | next | Must | Julius: register the DMCA agent | | $6 at copyright.gov, then fill in the DMCA page |
 | doing | Must | Alert and DMCA email delivery | | Waiting on Fastmail's reply; fallback is a second inbox |
-| planned | Must | Connect image matching | Julius: apply for PhotoDNA | Until then every game waits for manual approval, so outside uploads can't open |
+| planned | Must | Connect image matching | Julius: apply for PhotoDNA, Julius: register with NCMEC | Matches are held and reported to NCMEC automatically through the PhotoDNA API within minutes (the terms require 72 hours), with an alert to Julius. Connector kept private, per its license. Until then every game waits for manual approval |
 | planned | Must | Julius: Workers Paid plan | | $5/month; needed to run creators' game servers |
 | planned | Must | Julius: Supabase Pro | | $25/month, switched on at launch; the free plan pauses |
 | planned | Nice | Julius: Public Suffix List entry | | Needs 2+ years left on the registration and a `_psl` TXT record; the list may turn down projects without players, so apply after launch |
@@ -104,7 +106,7 @@ Detailed plan approved: guest passes, game server API, rooms, SDK, demos.
 | planned | Must | At least 5 seed games | Claude Code skill, Two demo games | Made with Claude Code through our own publishing flow, different genres, multiplayer |
 | planned | Nice | 10 seed games | At least 5 seed games | The target in `docs/PLAN.md` |
 | planned | Nice | QR codes | | |
-| planned | Must | Open the public beta | Connect image matching, Julius: register the DMCA agent, Alert and DMCA email delivery, Julius: Supabase Pro, At least 5 seed games | And every other must item above. Weekly releases and the weekly game jam start here |
+| planned | Must | Open the public beta | Connect image matching, Julius: register the DMCA agent, Julius: form an LLC, Alert and DMCA email delivery, Julius: Supabase Pro, At least 5 seed games | And every other must item above. Weekly releases and the weekly game jam start here |
 
 ## Phase 2: Earn
 
