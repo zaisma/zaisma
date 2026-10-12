@@ -3,7 +3,7 @@
 // tried and iterated on before anything goes live. Run: npm run preview (add --reset for fresh data).
 // Uses its own data folder and ports, so it never touches your dev data or the live site.
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deflateSync } from "node:zlib";
@@ -52,28 +52,33 @@ process.on("SIGTERM", stop);
 process.on("exit", () => children.forEach((c) => c.kill()));
 
 function wrangler(app, args, opts = {}) {
-  return spawn("npx", ["wrangler", ...args], { cwd: join(ROOT, "apps", app), stdio: opts.quiet ? "ignore" : ["ignore", "inherit", "inherit"], env: { ...process.env, FORCE_COLOR: "0" } });
+  // Quiet servers write to <app>.log in the preview folder, for when something doesn't start.
+  const log = opts.quiet ? openSync(join(STATE, `${app}.log`), "w") : "inherit";
+  return spawn("npx", ["wrangler", ...args], { cwd: join(ROOT, "apps", app), stdio: ["ignore", log, log], env: { ...process.env, FORCE_COLOR: "0" } });
 }
 
 async function waitFor(url) {
   for (let i = 0; i < 240; i++) {
     try {
-      await fetch(url);
+      await fetch(url, { redirect: "manual" });
       return;
     } catch {}
     await new Promise((r) => setTimeout(r, 500));
   }
-  throw new Error(`${url} didn't start. Is something else using its port?`);
+  throw new Error(`${url} didn't start. Is something else using its port? Its output is in ${STATE}.`);
 }
 
 await startFakeAuth(PORTS.auth, join(STATE, "auth-key.json")).catch(() => console.log(`Sign-in stand-in already running on ${PORTS.auth}.`));
 children.push(spawn("node", [join(ROOT, "scripts/preview/fake-ai.mjs"), String(PORTS.ai)], { stdio: "ignore" }));
 console.log("Applying database updates…");
 spawnSync("npx", ["wrangler", "d1", "migrations", "apply", "zaisma", "--local", "--persist-to", STATE], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
+// One at a time: they share the preview's database, and starting together can find it locked.
 children.push(wrangler("games", ["dev", "--port", String(PORTS.games), "--inspector-port", "9341", "--persist-to", STATE, "--env-file", join(STATE, "games.env")], { quiet: true }));
+await waitFor(GAMES);
 children.push(wrangler("site", ["dev", "--port", String(PORTS.site), "--inspector-port", "9340", "--local-upstream", `localhost:${PORTS.site}`, "--persist-to", STATE, "--env-file", join(STATE, "site.env"), "--test-scheduled"], { quiet: true }));
+await waitFor(SITE);
 children.push(wrangler("rooms", ["dev", "--port", String(PORTS.rooms), "--inspector-port", "9342", "--persist-to", STATE, "--env-file", join(STATE, "rooms.env")], { quiet: true }));
-await Promise.all([waitFor(SITE), waitFor(GAMES), waitFor(ROOMS)]);
+await waitFor(ROOMS);
 if (fresh) {
   console.log("Adding test games…");
   await seed();
