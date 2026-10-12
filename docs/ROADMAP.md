@@ -62,7 +62,8 @@ Detailed plan approved: guest passes, game server API, rooms, SDK, demos.
 | done | Must | Room invite links | Client SDK | Tap a link, land in the match as a guest |
 | done | Must | Game page controls | | Share, Full screen and a menu (about, Report) beside the game; icons on phones, a side strip in landscape. Invites live in the game via `Zaisma.invite` |
 | done | Must | Player safety in rooms | Client SDK | Mute, block and report a player; ready-made panel games put in their own menu |
-| next | Must | Report redesign | | Opens over the game, never leaves it; designed for Zaisma, not a generic form; quick enough that players actually use it. Design with Julius first |
+| next | Must | Report redesign | | Opens over the game, never leaves it; designed for Zaisma, not a generic form; quick enough that players actually use it. Every report is triaged by AI (see "AI report triage") Design with Julius first |
+| planned | Must | AI report triage | Report redesign | AI sorts every report by severity, merges duplicates, gathers the evidence (game version, scan report, room and player IDs) and handles the safe outcomes itself: re-checks the game, tells the creator about bugs, holds clear rule breaks. Bans, takedowns and appeals get a summary and a recommendation for a one-click human decision; child-safety reports always go to a person first |
 | done | Must | Run a game server yourself | Game server API and relay, Player passes | Node runner; same code as our rooms |
 | done | Must | Two demo games | Room invite links | Real-time arena, turn-based four in a row |
 
@@ -75,6 +76,7 @@ Detailed plan approved: guest passes, game server API, rooms, SDK, demos.
 | done | Must | Games have owners | Sign-in | A person now, a team later; set in admin until creator accounts |
 | doing | Must | Cloud saves | Sign-in, Client SDK | Mirrors the game's own browser saves, no code needed. Stored in R2; the player chooses when two devices disagree. localStorage first, then IndexedDB |
 | planned | Must | "Keep your progress" | Cloud saves | Turns a guest into an account |
+| planned | Must | Save history | Cloud saves | Keep the last few versions of every cloud save, so "my progress is gone" fixes itself |
 | planned | Nice | Passkeys | Sign-in | Face ID or fingerprint to sign back in; the email code stays for new accounts and lost devices |
 | planned | Nice | Google and Discord sign-in | Sign-in, Age question | The age question still comes first for new accounts |
 
@@ -92,6 +94,9 @@ Detailed plan approved: guest passes, game server API, rooms, SDK, demos.
 | planned | Must | No-slop cover and title checks | Game details and device labels | AI review checks covers; real screenshots on every game page |
 | planned | Must | No free-text chat rule | | In the content rules and the AI review |
 | planned | Must | Creator MCP | Drafts and publishing | Create, edit, upload, publish, roll back, scans, reports, stats |
+| planned | Must | Support tools in the MCP | Creator MCP | "Why is my game held?", scan reports, logs, bills: creators' own AI answers their questions |
+| planned | Must | Errors that explain themselves | | Every hold, takedown, bill and failed upload has a plain reason, a rule, a fix and an error code that links to docs |
+| planned | Must | Docs for AI tools | | `llms.txt` and troubleshooting pages by error code, so any AI can answer questions about Zaisma |
 | planned | Must | Creator dashboard | Drafts and publishing | The same API as the MCP; keep it simple for the beta |
 | planned | Must | `zaisma check` and automatic fixes | Upload command | Pulls in outside scripts, unpacks compressed builds |
 | planned | Must | Claude Code skill | Creator MCP, `zaisma check` and automatic fixes | Teaches the whole workflow |
@@ -125,6 +130,8 @@ Goal: creators can make money within days of the beta.
 | planned | Must | Registered links | Creators' own payments and stores, with a leaving-Zaisma notice |
 | planned | Must | Purchase rules | Honest labels, real prices, refund policies, no loot boxes |
 | planned | Must | Hosting billing | About 2x our Cloudflare cost; first 1,000 player-hours a month free per creator or team; starts the month payments go live |
+| planned | Must | AI support assistant | Errors that explain themselves | On zaisma.com for players and creators. Reads the same records (account, game status, scan report, receipts, saves, bills), answers from facts and takes safe actions (resend a code, re-run a scan, restore a save); hands judgment calls to a person |
+| planned | Must | Appeals queue | AI report triage | Takedown and ban appeals with AI summaries and a recommendation; one-click decisions |
 | planned | Must | Zaisma Pro | About $10/month: deeper stats, custom domains, more storage and seats, priority review, higher upload limit, scheduled releases |
 | planned | Must | Promoted games | Labeled front-page slots, no tracking, priced by traffic |
 | planned | Must | Review deposits | $5 / $25, refundable |
