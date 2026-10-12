@@ -24,6 +24,8 @@ const worker = (name: string, configPath: string, extraBindings: Record<string, 
 export default defineConfig({
   test: {
     projects: [
+      // The self-hosting runner runs on plain Node, outside the Workers runtime.
+      { extends: true as const, test: { name: "node", environment: "node", include: ["test/node/**/*.test.ts"] } },
       worker("site", "apps/site/wrangler.jsonc", {
         SITE_ORIGIN: "https://zaisma.test",
         GAME_ORIGIN: "https://games.zaisma.test",
