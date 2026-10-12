@@ -29,3 +29,18 @@ Hit every front at once at launch.
 - Friends see each other's profiles: games played, achievements.
 - Games show names and profile pictures on leaderboards through the SDK.
 - Open questions: teen profiles are private by default; uploaded pictures need scanning; achievements that unlock rewards need to be hard to fake.
+
+## A personality, not corporate slop (Oct 12, 2026)
+
+- The UI should be as creative as the logo. The home screen is the games.
+- Sign-up opens full screen: a monochrome gray 3D cube-mesh city, like a Mirror's Edge loading screen, with a simple sign-up form beside it.
+- A voice players and creators actually relate to, like early Discord's proud gamer attitude. Never "powering imagination" style corporate copy.
+- Open questions: what the personality is in one line; any new public tagline or claim needs Julius's approval. Keep the 3D scene cheap on phones (a pre-rendered image or short loop rather than live 3D).
+
+## Automatic weekly game jams judged by players (Oct 12, 2026)
+
+- A jam every week, run automatically: the theme is revealed on entry day, anyone can join for free.
+- Players vote. Jam entries get their own shelf, and only people who actually played long enough can vote. Longer play could count for more.
+- Games have to win the click and then keep players engaged to win the vote.
+- Last week's winner is shown at the top of the shelf. Monthly, quarterly and yearly competitions on top.
+- Open questions: stopping vote rigging (alt accounts, bots); measuring playtime on our page rather than trusting the game; capping how much playtime counts so long grindy games don't win by default; rules for what counts as made during the jam; prizes (featuring and badges first; money prizes bring contest law and minors' rules).
