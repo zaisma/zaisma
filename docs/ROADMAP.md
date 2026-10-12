@@ -30,7 +30,7 @@ Live on zaisma.com since Oct 11, 2026.
 
 Goal: open Zaisma to outside developers and players, with what both expect out of the box. **The beta bar:** a developer can publish any web game from their AI tool in one prompt, add multiplayer and saves, and see who plays; a player can tap a link, play on phone or computer, invite friends, keep progress and stay safe.
 
-**Order of work.** Four tracks run side by side; within a track, the **Needs** column says what has to land first. The longest waits are outside our control (PhotoDNA approval takes weeks), so Julius's track starts first. The build tracks meet at the end: developers' own game servers need multiplayer and publishing, and the seed games use everything.
+**Order of work.** Four tracks run side by side; within a track, the **Needs** column says what has to land first. The longest waits are outside our control (sign-ups and reviews by other organizations), so Julius's track starts first. The build tracks meet at the end: developers' own game servers need multiplayer and publishing, and the seed games use everything.
 
 ### Launch prerequisites (Julius's track, start first)
 
@@ -38,12 +38,14 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | --- | --- | --- | --- | --- |
 | done | Must | Julius: buy the game domain | | zaismausercontent.com, bought Oct 11, 2026 |
 | done | Must | Serve each game on its own subdomain | Julius: buy the game domain | Live Oct 11, 2026: <slug>.zaismausercontent.com; workers.dev turned off |
-| doing | Must | Julius: apply for PhotoDNA | | Applied Oct 12, 2026 as a sole proprietor; in review. Free, approval takes weeks. Check whether the 30-day subscription renews by itself |
+| done | Must | Julius: apply for PhotoDNA | | Turned down Oct 12, 2026: Microsoft only serves organizations it considers qualified. Replaced by Arachnid Shield |
+| next | Must | Julius: sign up for Arachnid Shield | | Free known-abuse-image matching from the Canadian Centre for Child Protection (Project Arachnid): sign up at projectarachnid.ca for an API key. Check at sign-up that a sole proprietor qualifies. Paid fallbacks: Thorn's Safer, directly or through Hive (quote only) |
+| next | Nice | Julius: turn on Cloudflare's CSAM Scanning Tool | | Free, one switch per domain (zaisma.com and zaismausercontent.com) plus an alert email. Only sees content served through Cloudflare's cache, after it's live, so it's a backstop, not the check before publishing |
 | next | Must | Julius: register with NCMEC | | Free; how platforms report child sexual abuse material, which US law requires |
-| next | Must | Julius: form an LLC | | Liability protection before outside uploads (we host their files and indemnify Microsoft); a registered agent keeps your home address off public records. Moving PhotoDNA to the LLC needs Microsoft's consent or a new application |
+| next | Must | Julius: form an LLC | | Liability protection before outside uploads (we host their files); a registered agent keeps your home address off public records |
 | next | Must | Julius: register the DMCA agent | | $6 at copyright.gov, then fill in the DMCA page |
-| doing | Must | Alert and DMCA email delivery | | Waiting on Fastmail's reply; fallback is a second inbox |
-| planned | Must | Connect image matching | Julius: apply for PhotoDNA, Julius: register with NCMEC | Matches are held and reported to NCMEC automatically through the PhotoDNA API within minutes (the terms require 72 hours), with an alert to Julius. Connector public unless Microsoft's materials turn out to be confidential. Until then every game waits for manual approval |
+| doing | Must | Alert and DMCA email delivery | | Fastmail blocks mail from zaisma.com, so support@ forwards to iCloud instead; dmca@ and privacy@ next |
+| planned | Must | Connect image matching | Julius: sign up for Arachnid Shield, Julius: register with NCMEC | Every image in an upload is checked against Arachnid Shield before publishing; matches are held, reported to NCMEC within minutes and alerted to Julius. Until then every game waits for manual approval |
 | planned | Must | Julius: Workers Paid plan | | $5/month; needed to run developers' game servers |
 | planned | Must | Julius: Supabase Pro | | $25/month, switched on at launch; the free plan pauses |
 | planned | Nice | Julius: Public Suffix List entry | | Needs 2+ years left on the registration and a `_psl` TXT record; the list may turn down projects without players, so apply after launch |
@@ -62,7 +64,7 @@ Detailed plan approved: guest passes, game server API, rooms, SDK, demos.
 | done | Must | Room invite links | Client SDK | Tap a link, land in the match as a guest |
 | done | Must | Game page controls | | Share, Full screen and a menu (about, Report) beside the game; icons on phones, a side strip in landscape. Invites live in the game via `Zaisma.invite` |
 | done | Must | Player safety in rooms | Client SDK | Mute, block and report a player; ready-made panel games put in their own menu |
-| next | Must | Report redesign | | Opens over the game, never leaves it; designed for Zaisma, not a generic form; quick enough that players actually use it. Every report is triaged by AI (see "AI report triage") Design with Julius first |
+| doing | Must | Report redesign | | Opens over the game, never leaves it; designed for Zaisma, not a generic form; quick enough that players actually use it. Every report is triaged by AI (see "AI report triage") Design with Julius first |
 | planned | Must | AI report triage | Report redesign | AI sorts every report by severity, merges duplicates, gathers the evidence (game version, scan report, room and player IDs) and handles the safe outcomes itself: re-checks the game, tells the developer about bugs, holds clear rule breaks. Bans, takedowns and appeals get a summary and a recommendation for a one-click human decision; child-safety reports always go to a person first |
 | done | Must | Run a game server yourself | Game server API and relay, Player passes | Node runner; same code as our rooms |
 | done | Must | Two demo games | Room invite links | Real-time arena, turn-based four in a row |
