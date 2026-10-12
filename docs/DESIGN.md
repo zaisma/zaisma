@@ -1,6 +1,12 @@
 # Design: Steel
 
-How Zaisma looks and behaves. The styles live in `apps/site/src/html.ts` (`STYLES`, `METAL_SCRIPT`, `metalButton`). The approved mockups (home for returning players, first visit, phone, the queue, the game page and an update page) are on the design canvas: https://claude.ai/artifact/CWDh8huHJ5A3CaMBBrtTYV
+How Zaisma looks and behaves. The styles live in `apps/site/src/html.ts` (`STYLES`, `METAL_SCRIPT`, `AMBIENT_SCRIPT`, `metalButton`, `ambient`).
+
+Steel is a theme, not a flat UI: like a console's big-screen mode, every page is made of materials and lit by the game on it. Three materials, and nothing else:
+
+- **The ground:** deep steel with a fine grain, lit from the top left. The current game's art, heavily blurred, fills the screen behind everything (`ambient`), and pointing at any game card fades the screen to that game's colors.
+- **Gunmetal plates:** every surface (cards, panels, notes, the header, buttons). A brushed face (`--brush`), a lit top-left rim and a dark bottom-right rim (`--rim`), a drop shadow, and the Z's cut corner with its edge catching the light (`.bevel`, `.bevel-l`, `.bevel-s`).
+- **Chrome:** only what matters most: the main action (`metalButton`, `.btn.light`), the focus frame on a game card, and the rail under the current page or tab. The approved mockups (home for returning players, first visit, phone, the queue, the game page and an update page) are on the design canvas: https://claude.ai/artifact/CWDh8huHJ5A3CaMBBrtTYV
 
 ## Rules
 
@@ -9,23 +15,24 @@ How Zaisma looks and behaves. The styles live in `apps/site/src/html.ts` (`STYLE
 - **Game pictures are only the developer's image.** No text, badges or gradients on covers, screenshots or update images. Titles and buttons sit on the card below.
 - **Say game developers**, never creators.
 - **Nothing animates on its own.** Motion only answers the player (hover, press, a state change).
+- **Not flat.** Every surface is one of the three materials; no plain grey boxes, no hairline-only cards.
+- **Cover-less games get the engraved Z**, never an empty box.
 - **Layouts only Zaisma would have.** No hero + call-to-action + feature grid + banner. The home page is the player's own: friends, the game they played last, Continue playing, then games for everyone.
 
 ## Tokens
 
 | Token | Value | Use |
 | --- | --- | --- |
-| `--bg` | `#111214` | Page |
-| `--panel` | `#1b1c1f` | Cards, tiles, inputs |
-| `--panel-2` | `#16171a` | Quiet panels (notes, lists) |
-| `--raised` | `#2c2e33` | Secondary buttons, avatars |
-| `--pic` | `#2a2b30` | Where a picture loads |
-| `--line` / `--line-2` | `#2c2e33` / `#3a3c42` | Dividers / outlines |
-| `--text` / `--text-2` / `--muted` | `#ececec` / `#c9cace` / `#9b9da3` | Text, body copy, secondary |
-| `--ok` / `--ok-text` / `--ok-bg` | `#5fd38d` / `#b9e7a6` / `#24301f` | Live, playing now, Updated |
-| `--danger` / `--warn` | `#ff6b6b` / `#f2c14e` | Errors / held |
+| `--bg` | `#0b0d10` | The ground under everything |
+| `--face` / `--face-hi` | gunmetal gradients | Plates / buttons and raised plates |
+| `--chrome` | light-to-dark steel gradient | Main action, focus frame, current rail |
+| `--brush` / `--grain` | generated textures | Brushed plates / the ground and empty pictures |
+| `--rim` / `--drop` | inset light and dark edges / shadow | Every plate |
+| `--text` / `--text-2` / `--muted` | `#eceef0` / `#c6c9ce` / `#969ba4` | Text, body copy, secondary |
+| `--ok` / `--ok-text` / `--ok-bg` | `#5fd38d` / `#b9e7a6` / `#1f2b1c` | Live, playing now, Updated (with a soft glow) |
+| `--danger` / `--warn` | `#ff6b6b` / `#f2c14e` | Errors / held and warnings |
 
-Type: **Jost** (headings, `--display`; self-hosted from `brand/fonts/`, close to the Futura the Z is drawn from) and the system font for everything else. Touch targets are at least 44 px.
+Type: **Jost** (`--display`; self-hosted, close to the Futura the Z is drawn from) for headings and every label you press or read at a glance: buttons, tabs, nav, chips, game titles. Headings are engraved (a dark shadow below, a faint light above). The system font is for body copy. Touch targets are at least 44 px.
 
 ## Shapes
 
@@ -45,10 +52,15 @@ The primary action on a page is a metal plate: `metalButton(label, { href | id, 
 
 ## Components
 
-- **Buttons:** `.btn` (secondary), `.btn.light`, `.btn.ghost` (outline), `.btn.danger`, `.btn.big`; metal for the main action.
-- **Game card:** `.tile` with `.pic` (the developer's image), `.body` with `.name` (title, optional `small` line or `.badge`) and `.go` (the Play or Continue button).
+- **Buttons:** `.btn` (gunmetal plate with the cut corner), `.btn.light` (chrome), `.btn.ghost` (outline), `.btn.danger`, `.btn.big`; the tilting metal plate for the main action. Any button that sends a form or opens a page shows the turning square (`.spin`) and can't be pressed twice.
+- **Game card:** `.tile` with `.pic` (the developer's image), a brushed nameplate `.body` with `.name` (title in Jost, optional `small` line or `.badge`) and `.go` (Play or Continue). Wrapped in `.hit.block` with `data-art` (the cover): pointing at it or tabbing to it lifts the card into a chrome frame, turns `.go` chrome and fades the screen to its art.
+- **Stage:** the home page's game in a machined bezel, its details on a plate beside it (never on top of the art).
+- **Spec plate:** on the game page, `dl.spec` rows (Players, Works on, Controls) with icons and words, divided by engraved lines.
+- **Section heading:** `.sec-head h2` or `h2.rule-h`, engraved, with a metal rule running to the edge.
+- **Tabs and nav:** text on an engraved line; the current one gets the chrome rail.
 - **Updated badge:** `.badge`, a green square and the word "Updated". Updates never get their own cards on the home page.
-- **Segmented toggle:** `.seg` with `aria-pressed` or `aria-current` (Recently played / Recently updated; Popular / Trending / New).
+- **Segmented toggle:** `.seg`, a track cut into the metal; the chosen option is a raised plate on a chrome rail (`aria-pressed` or `aria-current`).
+- **Fields:** cut into the metal (recessed, dark), with a light ring on focus.
 - **Notes:** `.note` for plain information, like the guest note on a first visit.
 - **Brand links** on game pages carry their own logo and colors (Discord, Steam, itch.io, YouTube); a plain website link is an outline with a globe.
 - **Scrollbars:** thin and dark, no track.

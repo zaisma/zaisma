@@ -32,6 +32,14 @@ export async function gamePage(env: Env, slug: string, url: URL): Promise<Respon
   const shots = pictures.results.map((p) => `/img/${p.id}`);
   const more = [...others.filter((g) => g.slug !== game.slug && g.owner_id && g.owner_id === game.owner_id), ...others.filter((g) => g.slug !== game.slug && (!g.owner_id || g.owner_id !== game.owner_id))].slice(0, 4);
   const devices = game.devices ? game.devices.split(",") : [];
+  const controls = game.controls ? game.controls.split(",") : [];
+  const modes = playerModes(readPlayers(game.players), Boolean(game.game_server));
+  const specRows = [
+    modes.html ? html`<div><dt>Players</dt><dd>${modes}</dd></div>` : "",
+    devices.length ? html`<div><dt>Works on</dt><dd class="icons">${devices.map((d) => html`<span>${raw(DEVICE_ICONS[d] ?? "")}${DEVICE_LABELS[d] ?? d}</span>`)}</dd></div>` : "",
+    controls.length ? html`<div><dt>Controls</dt><dd class="icons">${controls.map((c) => html`<span>${raw(CONTROL_ICONS[c] ?? "")}${CONTROL_LABELS[c] ?? c}</span>`)}</dd></div>` : "",
+  ];
+  const spec = specRows.some(Boolean) ? html`<dl class="spec">${specRows}</dl>` : "";
   const day = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
   const res = layout(env, {
     title: `${game.title} on Zaisma`,
@@ -39,51 +47,67 @@ export async function gamePage(env: Env, slug: string, url: URL): Promise<Respon
     art: shots[0] ?? null,
     body: html`<style>
 /* Two states on one page: details with a Play button, then the game filling the screen. */
-body.playing{display:flex;flex-direction:column;height:100vh;height:100dvh;overflow:hidden}
+body.playing{display:flex;flex-direction:column;height:100vh;height:100dvh;overflow:hidden;background:#000}
 body:not(.playing) #full{display:none}
 body.playing>header.top,body.playing>main.gp,body.playing>footer,body.playing>.ambient{display:none}
-.viewer .shot{box-shadow:0 0 0 1px #000,inset 1px 1px 0 rgba(255,255,255,.08),0 20px 50px rgba(0,0,0,.5)}
-.tabs{border-bottom:0;box-shadow:0 1px 0 #000,0 2px 0 rgba(255,255,255,.05)}
-.tabs button[aria-selected=true]{box-shadow:inset 0 -3px 0 #d9dce0}
 body:not(.playing) .bar{display:none}
-.bar{display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--line);flex:none}
-main.gp{max-width:1240px;margin:0 auto;padding:28px 24px 64px}
-.gp-top{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:32px;align-items:start}
-.viewer .shot{aspect-ratio:16/9;background:var(--pic);overflow:hidden}
+main.gp{max-width:1240px;margin:0 auto;padding:30px 24px 72px}
+.gp-top{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:28px;align-items:start}
+/* The picture sits in a machined bezel. */
+.viewer .frame{filter:drop-shadow(0 26px 50px rgba(0,0,0,.6))}
+.viewer .bezel{padding:3px;background:linear-gradient(135deg,#60656f 0%,#1c1e22 36%,#121417 70%,#40444c 100%)}
+.viewer .shot{position:relative;aspect-ratio:16/9;background:var(--grain) 0 0/200px 200px,linear-gradient(135deg,#23272e,#14161a);overflow:hidden;clip-path:polygon(0 0,calc(100% - 34px) 0,100% 34px,100% 100%,0 100%)}
 .viewer .shot img{width:100%;height:100%;object-fit:cover;display:block}
-.viewer .thumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:10px;margin-top:10px}
-.viewer .thumbs button{padding:0;border:0;background:var(--pic);aspect-ratio:16/9;cursor:pointer;overflow:hidden;opacity:.6}
-.viewer .thumbs button[aria-pressed=true]{opacity:1;box-shadow:0 0 0 2px #000,-2px -2px 0 2px #fff}
+.viewer .shot:empty::after{content:"";position:absolute;inset:0;background:url(/zaisma-mark-metal.svg) center/22% no-repeat;opacity:.2}
+.viewer .thumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:12px;margin-top:14px}
+.viewer .thumbs button{position:relative;padding:0;border:0;background:#101215;aspect-ratio:16/9;cursor:pointer;opacity:.55;transition:opacity 140ms;box-shadow:0 0 0 1px #000}
+.viewer .thumbs button:hover{opacity:.9}
+.viewer .thumbs button[aria-pressed=true]{opacity:1;box-shadow:0 0 0 2px #e9ebee,0 0 0 4px #000,0 0 18px rgba(215,224,238,.25)}
 .viewer .thumbs img{width:100%;height:100%;object-fit:cover;display:block}
-.side{display:flex;flex-direction:column;gap:16px}
-.side h1{margin:0}
+/* The side plate: title, Play, and an engraved spec plate. */
+.side{padding:28px 26px 24px;display:flex;flex-direction:column;gap:16px}
+.side h1{margin:0;font-size:clamp(32px,3.4vw,46px)}
 .side .by{margin:-8px 0 0;color:var(--muted);font-size:15px}
-.side .by a{color:var(--text-2)}
-.devices{display:flex;align-items:center;gap:14px;color:var(--muted);font-size:14px}
-.devices svg{width:20px;height:20px;color:var(--text)}
-.devices span{display:inline-flex;gap:6px;align-items:center}
+.side .note{margin:0;font-size:14px;background:none;box-shadow:none;padding:0;color:var(--warn)}
+.spec{margin:4px 0 0;display:grid}
+.spec>div{display:grid;grid-template-columns:96px minmax(0,1fr);gap:12px;align-items:start;padding:12px 0;
+  background:linear-gradient(#000,#000) top/100% 1px no-repeat,linear-gradient(rgba(255,255,255,.055),rgba(255,255,255,.055)) 0 1px/100% 1px no-repeat}
+.spec dt{font-family:var(--display);font-size:13px;font-weight:500;color:var(--muted);padding-top:2px}
+.spec dd{margin:0}
+.icons{display:flex;flex-wrap:wrap;gap:8px 14px;font-size:14px;color:var(--text)}
+.icons span{display:inline-flex;align-items:center;gap:7px}
+.icons svg,.spec .modes svg{width:20px;height:20px;flex:none;color:var(--text-2)}
+.spec .modes li{font-size:14px}
+.spec .modes small{font-size:13px}
+.side .row{margin-top:4px}
 .side .row .btn{flex:1}
-.side .note{margin:0;font-size:14px}
 .share-link[hidden]{display:none}
 .share-link input{width:100%}
-.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:40px 0 24px}
-.tabs button{min-height:48px;padding:0 18px;border:0;background:none;color:var(--muted);font:inherit;font-weight:600;font-size:15px;cursor:pointer;box-shadow:inset 0 -2px 0 transparent}
-.tabs button[aria-selected=true]{color:var(--text);box-shadow:inset 0 -2px 0 var(--text)}
-.about{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:32px;align-items:start}
-.about .desc{font-size:17px;color:var(--text-2);white-space:pre-line;margin:0 0 16px}
-.dev-card{display:flex;align-items:center;gap:12px;background:var(--panel);padding:14px;text-decoration:none}
-.dev-card .av{flex:none;width:44px;height:44px;background:var(--raised);display:grid;place-items:center;font-weight:700;font-family:var(--display);font-size:20px}
+/* Tabs ride on an engraved line; the open one gets the chrome rail, like the header. */
+.tabs{display:flex;gap:30px;margin:52px 0 26px;background:linear-gradient(#000,#000) bottom 1px left/100% 1px no-repeat,linear-gradient(rgba(255,255,255,.055),rgba(255,255,255,.055)) bottom/100% 1px no-repeat}
+.tabs:empty{margin:40px 0 24px}
+.tabs button{position:relative;min-height:50px;padding:0 2px;border:0;background:none;color:var(--muted);font:inherit;font-family:var(--display);font-weight:500;font-size:18px;cursor:pointer}
+.tabs button:hover{color:var(--text)}
+.tabs button[aria-selected=true]{color:var(--text)}
+.tabs button[aria-selected=true]::after{content:"";position:absolute;left:-4px;right:-4px;bottom:0;height:3px;background:var(--chrome);box-shadow:0 0 14px rgba(225,230,240,.35)}
+.about{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:36px;align-items:start}
+.about .desc{font-size:18px;line-height:1.6;color:var(--text-2);white-space:pre-line;margin:0 0 16px;max-width:68ch}
+.dev-card{display:flex;align-items:center;gap:14px;padding:16px;text-decoration:none}
+.dev-card .av{flex:none;width:48px;height:48px;display:grid;place-items:center;font-weight:700;font-family:var(--display);font-size:22px;color:#0b0b0c;background:var(--chrome);box-shadow:inset 1px 1px 0 #fff,inset -1px -1px 0 #000}
+.dev-card strong{font-family:var(--display);font-weight:600;font-size:17px}
 .dev-card small{display:block;color:var(--muted);font-size:13px}
-.updates{list-style:none;padding:0;margin:0;display:grid;gap:14px;max-width:760px}
-.updates li{background:var(--panel-2);padding:16px 18px}
-.updates h3{margin:0 0 6px;font-size:17px}
+.updates{list-style:none;padding:0;margin:0;display:grid;gap:16px;max-width:780px}
+.updates li{padding:18px 20px}
+.updates h3{margin:0 0 6px;font-size:18px}
 .updates p{margin:0;color:var(--text-2);white-space:pre-line}
-.more h2{margin-top:48px}
-@media (max-width:900px){.gp-top,.about{grid-template-columns:1fr}main.gp{padding:16px 16px 48px}}
+@media (max-width:960px){.gp-top,.about{grid-template-columns:1fr}main.gp{padding:16px 16px 56px}.side{padding:22px 20px}}
+/* Playing: a slim brushed bar above the game. */
+.bar{display:flex;align-items:center;gap:8px;padding:6px 10px;flex:none;background:var(--brush) 0 0/320px 320px,linear-gradient(180deg,#24282e,#16181c);box-shadow:inset 0 1px 0 rgba(255,255,255,.07),0 1px 0 #000}
 .bar .home img{height:22px;display:block}
-.bar h1{font-size:15px;margin:0 0 0 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
-.ctl{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 10px;border:1px solid var(--line);border-radius:8px;background:transparent;color:var(--text);font:inherit;font-size:13px;cursor:pointer;text-decoration:none}
-.ctl:hover{border-color:#55585f}
+.bar h1{font-size:15px;margin:0 0 0 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0;text-shadow:none}
+.ctl{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 11px;border:0;color:var(--text);font:inherit;font-family:var(--display);font-size:13px;font-weight:500;cursor:pointer;text-decoration:none;
+  background:var(--face-hi);box-shadow:inset 1px 1px 0 rgba(255,255,255,.12),inset -1px -1px 0 #000;clip-path:polygon(0 0,calc(100% - 7px) 0,100% 7px,100% 100%,0 100%)}
+.ctl:hover{background:linear-gradient(180deg,#3a3f48,#2a2e35)}
 .ctl svg{width:18px;height:18px;flex:none}
 .ctl[hidden]{display:none}
 iframe{flex:1;border:0;width:100%;min-height:0;min-width:0;background:#000}
@@ -96,22 +120,21 @@ body:not(.playing) iframe{display:none}
   body:not(.playing) .bar{flex-direction:row}
   body:not(.playing) .bar h1{display:block}
   body:not(.playing) .bar .ctl{width:40px}
-  .bar{flex-direction:column;border-bottom:0;border-right:1px solid var(--line);padding:8px 5px;gap:10px}
+  .bar{flex-direction:column;padding:8px 5px;gap:10px;box-shadow:inset -1px 0 0 rgba(255,255,255,.06),1px 0 0 #000}
   .bar h1{display:none}
   .bar .spacer{flex:1}
   .ctl{width:40px;height:40px;padding:0;justify-content:center}
   .ctl .label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 }
 /* The menu only appears when the player opens it, so it may cover the game. */
-dialog{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:12px;padding:0;width:min(420px,calc(100vw - 32px));max-height:calc(100dvh - 32px)}
-dialog::backdrop{background:rgba(0,0,0,.55)}
-dialog .head{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--line)}
-dialog .head strong{font-size:16px}
+dialog{width:min(420px,calc(100vw - 32px));max-height:calc(100dvh - 32px)}
+dialog .head{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:linear-gradient(#000,#000) bottom/100% 1px no-repeat}
+dialog .head strong{font-family:var(--display);font-size:17px}
 dialog .body{padding:14px 16px;display:grid;gap:12px;font-size:14px}
 dialog .body p{margin:0;color:var(--muted)}
-dialog nav{display:grid;gap:6px;padding:0 16px 16px}
-dialog nav a{display:block;padding:10px 12px;border:1px solid var(--line);border-radius:8px;text-decoration:none}
-dialog nav a:hover{border-color:#55585f}
+dialog nav{display:grid;gap:8px;padding:0 16px 16px}
+dialog nav a{display:block;padding:11px 12px;text-decoration:none;font-family:var(--display);background:var(--face-hi);box-shadow:inset 1px 1px 0 rgba(255,255,255,.1),inset -1px -1px 0 #000}
+dialog nav a:hover{background:linear-gradient(180deg,#3a3f48,#2a2e35)}
 </style>
 ${siteHeader(env)}
 <div class="bar">
@@ -125,16 +148,15 @@ ${siteHeader(env)}
 <main class="gp">
 <section class="gp-top" aria-labelledby="title">
   <div class="viewer">
-    <div class="shot bevel-l">${shots[0] ? html`<img id="shot" src="${shots[0]}" alt="${game.title}">` : ""}</div>
-    ${shots.length > 1 ? html`<div class="thumbs">${shots.map((src, i) => html`<button type="button" data-src="${src}" aria-label="Picture ${i + 1} of ${shots.length}" aria-pressed="${i === 0}"><img src="${src}" alt="" loading="lazy"></button>`)}</div>` : ""}
+    <div class="frame"><div class="bezel bevel-l"><div class="shot">${shots[0] ? html`<img id="shot" src="${shots[0]}" alt="${game.title}">` : ""}</div></div></div>
+    ${shots.length > 1 ? html`<div class="thumbs">${shots.map((src, i) => html`<button type="button" class="bevel-s" data-src="${src}" aria-label="Picture ${i + 1} of ${shots.length}" aria-pressed="${i === 0}"><img src="${src}" alt="" loading="lazy"></button>`)}</div>` : ""}
   </div>
-  <div class="side">
+  <div class="side plate bevel-l">
     <h1 id="title">${game.title}</h1>
     ${developer ? html`<p class="by">by ${developer.name}</p>` : ""}
-    ${playerModes(readPlayers(game.players), Boolean(game.game_server))}
     ${metalButton("Play", { id: "play", big: true, block: true, play: true })}
     <p class="note" id="device-note" hidden></p>
-    ${devices.length ? html`<div class="devices">${devices.map((d) => html`<span title="Plays on ${d}s">${raw(DEVICE_ICONS[d] ?? "")}${d[0]!.toUpperCase() + d.slice(1)}</span>`)}</div>` : ""}
+    ${spec}
     <div class="row"><button class="btn ghost" id="share-page" type="button">${raw(ICON_SHARE)}<span class="label">Share</span></button><a class="btn ghost" href="/g/${game.slug}/report">Report</a></div>
     <label class="share-link" id="share-link" hidden>Copy this link<input readonly aria-label="Link to this game"></label>
   </div>
@@ -147,14 +169,14 @@ ${updates.results.length
     ${game.description ? html`<p class="desc">${game.description}</p>` : html`<p class="desc muted">The developer hasn't written about this game yet.</p>`}
     ${ownServers.length ? html`<p class="note">This game also connects to its own servers: ${ownServers.join(", ")}.</p>` : ""}
   </div>
-  ${developer ? html`<div class="dev-card"><span class="av bevel-s" aria-hidden="true">${developer.name[0]!.toUpperCase()}</span><span><strong>${developer.name}</strong><small>${developer.games === 1 ? "1 game on Zaisma" : `${developer.games} games on Zaisma`}</small></span></div>` : ""}
+  ${developer ? html`<div class="dev-card bevel"><span class="av bevel-s" aria-hidden="true">${developer.name[0]!.toUpperCase()}</span><span><strong>${developer.name}</strong><small>${developer.games === 1 ? "1 game on Zaisma" : `${developer.games} games on Zaisma`}</small></span></div>` : ""}
 </section>
 ${updates.results.length
       ? html`<section id="updates" role="tabpanel" aria-label="Updates" hidden><ol class="updates">${updates.results.map(
           (u) => html`<li><h3>${day(u.published_at)}</h3><p>${u.notes}</p></li>`,
         )}</ol></section>`
       : ""}
-${more.length ? html`<section class="more" aria-labelledby="more-title"><h2 id="more-title">More games</h2><div class="grid">${more.map((g) => tile(g))}</div></section>` : ""}
+${more.length ? html`<section class="more" aria-labelledby="more-title"><h2 class="rule-h" id="more-title">More games</h2><div class="grid">${more.map((g) => tile(g))}</div></section>` : ""}
 </main>
 ${siteFooter()}
 <template id="game-frame"><iframe id="game" src="${src}" title="${game.title}"
@@ -292,6 +314,13 @@ const DEVICE_ICONS: Record<string, string> = {
   phone: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="6" y="2" width="8" height="16" rx="1.5"/><path d="M9 15h2"/></svg>',
   tablet: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="2" width="14" height="16" rx="1.5"/><path d="M9 15h2"/></svg>',
   computer: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="2" y="3" width="16" height="11" rx="1"/><path d="M7 17h6M10 14v3"/></svg>',
+};
+const DEVICE_LABELS: Record<string, string> = { phone: "Phone", tablet: "Tablet", computer: "Computer" };
+const CONTROL_LABELS: Record<string, string> = { touch: "Touch", "keyboard-mouse": "Keyboard and mouse", gamepad: "Gamepad" };
+const CONTROL_ICONS: Record<string, string> = {
+  touch: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 11V4.2a1.5 1.5 0 0 1 3 0V9l3.4.7a2 2 0 0 1 1.6 2.2l-.5 3.6A2.6 2.6 0 0 1 12.9 18H10a2.6 2.6 0 0 1-2-1l-3.4-4.3a1.4 1.4 0 0 1 2.1-1.8z"/></svg>',
+  "keyboard-mouse": '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1.5" y="5" width="17" height="10" rx="1"/><path d="M4.5 8h.01M7.5 8h.01M10.5 8h.01M13.5 8h.01M15.5 8h.01M4.5 11h.01M15.5 11h.01M7.5 11.5h5"/></svg>',
+  gamepad: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.4 5.5h7.2a4 4 0 0 1 3.9 3.3l.8 4.4a2 2 0 0 1-3.4 1.7L13 13H7l-1.9 1.9a2 2 0 0 1-3.4-1.7l.8-4.4a4 4 0 0 1 3.9-3.3z"/><path d="M6.2 8.3v3M4.7 9.8h3"/><path d="M13.6 9h.01M15.2 10.6h.01"/></svg>',
 };
 const ICON_MORE = svg('<circle cx="5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="19" cy="12" r="1.3" fill="currentColor"/>');
 

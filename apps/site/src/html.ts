@@ -33,103 +33,189 @@ function render(v: unknown): string {
 // Steel: the design system. Rules and reasons in docs/DESIGN.md.
 const STYLES = `
 @font-face{font-family:Jost;src:url(/fonts/jost.woff2) format("woff2");font-weight:100 900;font-display:swap}
-:root{color-scheme:dark;--bg:#111214;--panel:#1b1c1f;--panel-2:#16171a;--raised:#2c2e33;--pic:#2a2b30;--line:#2c2e33;--line-2:#3a3c42;--text:#ececec;--text-2:#c9cace;--muted:#9b9da3;--accent:#ececec;--danger:#ff6b6b;--ok:#5fd38d;--ok-text:#b9e7a6;--ok-bg:#24301f;--warn:#f2c14e;--display:Jost,system-ui,sans-serif}
+/* Steel, forged. Three materials: the ground (deep brushed steel, lit from the top left, with the
+   game's own art bleeding in from above), gunmetal plates (every surface: brushed face, lit rim,
+   the Z's chamfered corner) and chrome (only the main action, focus and selection). */
+:root{color-scheme:dark;
+  --bg:#0b0d10;--panel:#1d2026;--panel-2:#16181c;--raised:#2a2e35;--pic:#1c1f25;--line:#23262c;--line-2:#363a42;
+  --text:#eceef0;--text-2:#c6c9ce;--muted:#969ba4;--accent:#eceef0;
+  --danger:#ff6b6b;--ok:#5fd38d;--ok-text:#b9e7a6;--ok-bg:#1f2b1c;--warn:#f2c14e;
+  --display:Jost,system-ui,sans-serif;
+  --face:linear-gradient(180deg,#262a31,#1b1e23);
+  --face-hi:linear-gradient(180deg,#30353d,#22262c);
+  --chrome:linear-gradient(180deg,#eef0f2 0%,#b9bcc1 46%,#7d8086 100%);
+  --rim:inset 1px 1px 0 rgba(255,255,255,.09),inset -1px -1px 0 rgba(0,0,0,.7);
+  --drop:0 14px 32px rgba(0,0,0,.42);
+  --brush:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='320'%3E%3Cfilter id='b'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.0035 0.9' numOctaves='3' seed='7' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0.16 0 0 0 -0.045'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23b)'/%3E%3C/svg%3E");
+  --grain:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' seed='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0.09 0 0 0 -0.025'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E")}
 *{box-sizing:border-box}
-*{scrollbar-width:thin;scrollbar-color:#3a3c42 transparent}
+*{scrollbar-width:thin;scrollbar-color:#3a3e46 transparent}
 ::-webkit-scrollbar{width:10px;height:10px}
 ::-webkit-scrollbar-track,::-webkit-scrollbar-corner{background:transparent}
-::-webkit-scrollbar-thumb{background:#2c2e33;border:3px solid transparent;background-clip:padding-box}
-::-webkit-scrollbar-thumb:hover{background-color:#4a4c53}
-html,body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+::-webkit-scrollbar-thumb{background:#30343b;border:3px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-thumb:hover{background-color:#4a4f58}
+html{background:var(--bg)}
+html,body{margin:0;color:var(--text);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+body{position:relative;isolation:isolate;min-height:100vh;display:flex;flex-direction:column;background:
+  radial-gradient(1200px 560px at 14% -6%,rgba(160,175,200,.09),transparent 70%),
+  var(--grain) 0 0/200px 200px,
+  linear-gradient(180deg,#12151a 0%,#0b0d10 52%)}
 a{color:inherit}
-:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-h1,h2,h3{font-family:var(--display);font-weight:600;letter-spacing:-.005em}
-h1{font-size:clamp(30px,5vw,44px);line-height:1.05;margin:0 0 10px}
-h2{font-size:26px;line-height:1.15;margin:40px 0 16px}
+:focus-visible{outline:2px solid #e6e8eb;outline-offset:3px}
+h1,h2,h3{font-family:var(--display);font-weight:600;letter-spacing:-.005em;text-shadow:0 2px 0 rgba(0,0,0,.6),0 -1px 0 rgba(255,255,255,.05)}
+h1{font-size:clamp(32px,5vw,48px);line-height:1.04;margin:0 0 10px}
+h2{font-size:26px;line-height:1.15;margin:44px 0 18px}
 h3{font-size:19px;margin:0 0 6px}
 p.lead{color:var(--muted);margin:0 0 28px;font-size:18px}
-header.top{border-bottom:1px solid var(--line)}
-header.top .in{max-width:1240px;margin:0 auto;padding:12px 24px;display:flex;flex-wrap:wrap;align-items:center;gap:12px 24px}
-header.top .logo{display:flex;padding:6px 0}
-header.top .logo img{height:28px;display:block}
-header.top nav{display:flex;gap:20px;font-size:15px;font-weight:600}
-header.top nav a{text-decoration:none;color:var(--muted)}
-header.top nav a:hover,header.top nav a[aria-current]{color:var(--text)}
-header.top .end{margin-left:auto;display:flex;gap:12px;align-items:center}
-main{max-width:1240px;margin:0 auto;padding:32px 24px 64px}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:18px}
-.card{display:block;background:var(--panel);padding:18px;text-decoration:none}
-.card:hover{background:#202125}
+
+/* The game's art, blurred behind the whole screen, like a console's big-screen mode. Two layers so a
+   new game fades in over the last. */
+.ambient{position:fixed;inset:0;z-index:-1;pointer-events:none;overflow:hidden;
+  -webkit-mask-image:linear-gradient(180deg,#000 0%,rgba(0,0,0,.62) 55%,rgba(0,0,0,.3) 100%);mask-image:linear-gradient(180deg,#000 0%,rgba(0,0,0,.62) 55%,rgba(0,0,0,.3) 100%)}
+.ambient i{position:absolute;inset:-90px;background:var(--art,none) center/cover no-repeat;filter:blur(72px) saturate(1.15) brightness(.5);opacity:0;transition:opacity 650ms ease}
+.ambient i.on{opacity:1}
+.ambient::after{content:"";position:absolute;inset:0;background:radial-gradient(ellipse 120% 90% at 50% 30%,transparent 35%,rgba(5,6,8,.6) 100%)}
+
+/* The chamfer: the Z's cut corner on a plate, with its edge catching the light. Plates set --cut. */
+.bevel-s{--cut:8px;clip-path:polygon(0 0,calc(100% - 8px) 0,100% 8px,100% 100%,0 100%)}
+.bevel{--cut:14px;clip-path:polygon(0 0,calc(100% - 14px) 0,100% 14px,100% 100%,0 100%)}
+.bevel-l{--cut:36px;clip-path:polygon(0 0,calc(100% - 36px) 0,100% 36px,100% 100%,0 100%)}
+.edge{box-shadow:0 0 0 2px #000,-2px -2px 0 2px #fff}
+
+/* Gunmetal: every surface is a plate. */
+.card,.note,.way,.dev-card,.track>li,.updates li,.drop,.plate,dialog,.tile .body{
+  background:linear-gradient(to top right,transparent calc(50% - 1.5px),rgba(255,255,255,.3) calc(50% - 1.5px),rgba(255,255,255,.3) 50%,transparent 50%) top right/var(--cut,0px) var(--cut,0px) no-repeat,
+    var(--brush) 0 0/320px 320px,var(--face);
+  box-shadow:var(--rim),var(--drop)}
+
+/* Header: a brushed bar across the top, the current page marked by a chrome rail. */
+header.top{position:sticky;top:0;z-index:30;
+  background:var(--brush) 0 0/320px 320px,linear-gradient(180deg,rgba(40,44,51,.94),rgba(24,26,31,.94));
+  -webkit-backdrop-filter:blur(14px) saturate(1.2);backdrop-filter:blur(14px) saturate(1.2);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 1px 0 #000,0 2px 0 rgba(255,255,255,.035),0 12px 30px rgba(0,0,0,.38)}
+header.top .in{max-width:1240px;min-height:64px;margin:0 auto;padding:0 24px;display:flex;flex-wrap:wrap;align-items:center;gap:0 28px}
+header.top .logo{display:flex;padding:8px 0}
+header.top .logo img{height:28px;display:block;filter:drop-shadow(0 2px 0 rgba(0,0,0,.6))}
+header.top nav{display:flex;gap:26px;align-self:stretch;font-family:var(--display);font-size:16px;font-weight:500}
+header.top nav a{position:relative;display:flex;align-items:center;text-decoration:none;color:var(--muted)}
+header.top nav a:hover{color:var(--text)}
+header.top nav a[aria-current]{color:var(--text)}
+header.top nav a[aria-current]::after{content:"";position:absolute;left:-4px;right:-4px;bottom:0;height:3px;background:var(--chrome);box-shadow:0 0 14px rgba(225,230,240,.35)}
+header.top .end{margin-left:auto;display:flex;gap:12px;align-items:center;padding:10px 0}
+main{flex:1 0 auto;width:100%;max-width:1240px;margin:0 auto;padding:32px 24px 72px}
+body>main.gp{flex:1 0 auto;width:100%}
+
+/* A section heading is engraved, with a machined rule running out to the edge. */
+.sec-head{display:flex;flex-wrap:wrap;align-items:center;gap:12px 18px;margin:48px 0 18px}
+.sec-head h2,.rule-h{display:flex;align-items:center;gap:18px;flex:1 1 auto;margin:0}
+.rule-h{margin:48px 0 18px}
+.sec-head h2::after,.rule-h::after{content:"";flex:1;min-width:40px;height:1px;background:linear-gradient(90deg,rgba(230,233,238,.32),rgba(230,233,238,0));box-shadow:0 1px 0 rgba(0,0,0,.7)}
+.engraved{height:2px;border:0;margin:0;background:linear-gradient(#000,#000) top/100% 1px no-repeat,linear-gradient(rgba(255,255,255,.06),rgba(255,255,255,.06)) bottom/100% 1px no-repeat}
+
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:22px}
+.card{display:block;padding:18px;text-decoration:none}
 .card h3{margin:0 0 6px;font-size:18px}
 .card p{margin:0;color:var(--muted);font-size:14px}
 .empty{color:var(--muted);padding:40px 0}
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 18px;background:var(--raised);color:var(--text);border:0;font:inherit;font-size:15px;font-weight:700;cursor:pointer;text-decoration:none}
-.btn:hover{background:#35373d}
-.btn.light{background:var(--accent);color:#111214}
-.btn.ghost{background:transparent;color:var(--text);box-shadow:inset 0 0 0 1px var(--line-2)}
-.btn.ghost:hover{box-shadow:inset 0 0 0 1px #55585f}
-.btn.danger{background:var(--danger);color:#111}
-.btn.big{min-height:56px;padding:0 32px;font-size:18px;font-weight:800}
+
+/* Buttons: gunmetal plates with the cut corner; chrome for the one main action. */
+.btn{--cut:10px;position:relative;display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 20px;border:0;
+  font:inherit;font-family:var(--display);font-size:15px;font-weight:600;letter-spacing:.01em;color:var(--text);cursor:pointer;text-decoration:none;
+  clip-path:polygon(0 0,calc(100% - 10px) 0,100% 10px,100% 100%,0 100%);
+  background:linear-gradient(to top right,transparent calc(50% - 1.5px),rgba(255,255,255,.34) calc(50% - 1.5px),rgba(255,255,255,.34) 50%,transparent 50%) top right/10px 10px no-repeat,var(--brush) 0 0/320px 320px,var(--face-hi);
+  box-shadow:inset 1px 1px 0 rgba(255,255,255,.13),inset -1px -1px 0 #000}
+.btn:hover{background:linear-gradient(to top right,transparent calc(50% - 1.5px),rgba(255,255,255,.45) calc(50% - 1.5px),rgba(255,255,255,.45) 50%,transparent 50%) top right/10px 10px no-repeat,var(--brush) 0 0/320px 320px,linear-gradient(180deg,#3a3f48,#2a2e35)}
+.btn:active{box-shadow:inset 1px 1px 0 rgba(0,0,0,.6),inset -1px -1px 0 rgba(255,255,255,.06)}
+.btn.ghost{background:linear-gradient(to top right,transparent calc(50% - 1.5px),#5a5f68 calc(50% - 1.5px),#5a5f68 50%,transparent 50%) top right/10px 10px no-repeat,linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,0));box-shadow:inset 0 0 0 1px #4a4f58}
+.btn.ghost:hover{background:linear-gradient(to top right,transparent calc(50% - 1.5px),#8a8f98 calc(50% - 1.5px),#8a8f98 50%,transparent 50%) top right/10px 10px no-repeat,linear-gradient(180deg,rgba(255,255,255,.07),rgba(255,255,255,.01));box-shadow:inset 0 0 0 1px #7d828b}
+.btn.light{color:#0b0b0c;background:var(--chrome);box-shadow:inset 1px 1px 0 #fff,inset -1px -1px 0 #000}
+.btn.light:hover{background:linear-gradient(180deg,#fff 0%,#c8cbd0 46%,#8a8d93 100%)}
+.btn.danger{color:#fff;background:linear-gradient(180deg,#e2605f,#a33b3b);box-shadow:inset 1px 1px 0 rgba(255,255,255,.35),inset -1px -1px 0 #3d0f0f}
+.btn.big{min-height:58px;padding:0 34px;font-size:19px;font-weight:700}
 .btn svg{width:16px;height:16px;flex:none}
-.bevel-s{clip-path:polygon(0 0,calc(100% - 8px) 0,100% 8px,100% 100%,0 100%)}
-.bevel{clip-path:polygon(0 0,calc(100% - 14px) 0,100% 14px,100% 100%,0 100%)}
-.bevel-l{clip-path:polygon(0 0,calc(100% - 36px) 0,100% 36px,100% 100%,0 100%)}
-.edge{box-shadow:0 0 0 2px #000,-2px -2px 0 2px #fff}
-/* Metal: the Z's plate. It tilts toward the cursor (less the bigger it is) and a fixed light's
+
+/* Chrome: the Z's plate. It tilts toward the cursor (less the bigger it is) and a fixed light's
    reflection slides across it. The hover area (.hit) never tilts, so edges can't flicker. */
 .hit{display:inline-flex}
 .hit.block{display:flex;flex-direction:column}
-.metal{position:relative;overflow:hidden;background:linear-gradient(180deg,#e2e2e2 0%,#a9aaad 55%,#6d6e72 100%);color:#0b0b0c;box-shadow:inset 2px 2px 0 #fff,inset -2px -2px 0 #000;transform:perspective(800px) rotateX(var(--rx,0deg)) rotateY(var(--ry,0deg));transition:transform 160ms ease-out}
-.metal:hover{background:linear-gradient(180deg,#e2e2e2 0%,#a9aaad 55%,#6d6e72 100%)}
+.metal,.metal:hover{position:relative;overflow:hidden;color:#0b0b0c;
+  background:linear-gradient(to top right,transparent calc(50% - 2px),rgba(255,255,255,.95) calc(50% - 2px),rgba(255,255,255,.95) 50%,transparent 50%) top right/var(--cut,14px) var(--cut,14px) no-repeat,var(--chrome);
+  box-shadow:inset 2px 2px 0 #fff,inset -2px -2px 0 #000;transform:perspective(800px) rotateX(var(--rx,0deg)) rotateY(var(--ry,0deg));transition:transform 160ms ease-out}
+.hit:has(>.metal){filter:drop-shadow(0 10px 18px rgba(0,0,0,.5))}
 .metal::before{content:"";position:absolute;top:-60%;left:0;width:72px;height:220%;pointer-events:none;background:linear-gradient(90deg,rgba(255,255,255,0) 0%,rgba(255,255,255,.12) 22%,rgba(255,255,255,.55) 42%,rgba(255,255,255,.85) 50%,rgba(255,255,255,.55) 58%,rgba(255,255,255,.12) 78%,rgba(255,255,255,0) 100%);transform:translateX(calc(var(--gx,0px) - 36px)) rotate(15deg);opacity:0;transition:transform 160ms ease-out,opacity 220ms}
 .metal>*{position:relative;z-index:1}
 .metal.lit::before{opacity:calc(.9 * var(--gf,1))}
-.tile{position:relative;overflow:hidden;display:flex;flex-direction:column;background:var(--panel);transform:perspective(800px) rotateX(var(--rx,0deg)) rotateY(var(--ry,0deg));transition:transform 160ms ease-out}
+
+/* Game cards. The picture is only the developer's image; the nameplate below holds the rest.
+   Pointing at a card (or tabbing to it) lifts it into a chrome frame, and the page takes its colors. */
+.tile{position:relative;overflow:hidden;display:flex;flex-direction:column;background:#101215;box-shadow:0 0 0 1px #000,var(--drop);
+  transform:perspective(800px) rotateX(var(--rx,0deg)) rotateY(var(--ry,0deg)) scale(var(--s,1));transition:transform 180ms ease-out,box-shadow 180ms ease-out}
+.hit.block:hover,.hit.block:focus-within{position:relative;z-index:2}
+.hit.block:hover .tile,.hit.block:focus-within .tile{--s:1.035;box-shadow:0 0 0 2px #e9ebee,0 0 0 4px #000,0 0 34px rgba(215,224,238,.3),0 24px 48px rgba(0,0,0,.6)}
 .tile::before,.tile .pic::before,.tile .pic::after{content:"";position:absolute;top:-60%;left:0;height:220%;pointer-events:none;opacity:0;transition:transform 160ms ease-out,opacity 220ms}
-.tile::before{width:200px;background:linear-gradient(90deg,rgba(255,255,255,0),rgba(255,255,255,.04) 35%,rgba(255,255,255,.07) 50%,rgba(255,255,255,.04) 65%,rgba(255,255,255,0));transform:translateX(calc(var(--gx,0px) - 100px)) rotate(15deg)}
-.tile .pic{position:relative;overflow:hidden;display:block;aspect-ratio:16/9;background:var(--pic)}
+.tile::before{width:200px;z-index:2;background:linear-gradient(90deg,rgba(255,255,255,0),rgba(255,255,255,.04) 35%,rgba(255,255,255,.07) 50%,rgba(255,255,255,.04) 65%,rgba(255,255,255,0));transform:translateX(calc(var(--gx,0px) - 100px)) rotate(15deg)}
+.tile .pic{position:relative;overflow:hidden;display:block;aspect-ratio:16/9;background:var(--grain) 0 0/200px 200px,linear-gradient(135deg,#23272e,#15171b)}
 .tile .pic img{width:100%;height:100%;object-fit:cover;display:block}
+.tile .pic:empty::after{content:"";position:absolute;inset:0;opacity:.18;background:url(/zaisma-mark-metal.svg) center/38% no-repeat;transform:none;top:0;height:auto;width:auto}
 .tile .pic::after{width:160px;background:linear-gradient(90deg,rgba(255,255,255,0),rgba(255,255,255,.08) 35%,rgba(255,255,255,.12) 50%,rgba(255,255,255,.08) 65%,rgba(255,255,255,0));transform:translateX(calc(var(--gx,0px) - 80px)) rotate(15deg)}
 .tile .pic::before{width:18px;z-index:1;background:linear-gradient(90deg,rgba(255,255,255,0),rgba(255,255,255,.35) 30%,rgba(255,255,255,.55) 50%,rgba(255,255,255,.35) 70%,rgba(255,255,255,0));transform:translateX(calc(var(--gx,0px) - 9px)) rotate(15deg)}
 .tile.lit::before,.tile.lit .pic::after{opacity:calc(.5 * var(--gf,1))}
 .tile.lit .pic::before{opacity:calc(.8 * var(--gf,1))}
-.tile .body{padding:12px;display:flex;align-items:center;gap:10px}
-.tile .name{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;font-weight:600;font-size:15px;text-decoration:none}
-.tile .name:hover span{text-decoration:underline}
-.tile .name span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.tile .name small{color:var(--muted);font-size:12px;font-weight:500}
-.tile .go{flex:none;display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;background:var(--raised)}
-.tile .go:hover{background:#35373d}
+.tile .pic:empty.lit::after,.tile.lit .pic:empty::after{opacity:.18}
+.tile .body{padding:12px 12px 12px 14px;display:flex;align-items:center;gap:10px;box-shadow:inset 0 1px 0 rgba(255,255,255,.07),inset 0 -1px 0 rgba(0,0,0,.6)}
+.tile .name{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;text-decoration:none}
+.tile .name span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--display);font-weight:600;font-size:16px;letter-spacing:.005em}
+.tile .name:hover span{text-decoration:underline;text-underline-offset:3px}
+.tile .name small{color:var(--muted);font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tile .go{--cut:8px;flex:none;display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;color:var(--text);
+  background:var(--brush) 0 0/320px 320px,var(--face-hi);box-shadow:inset 1px 1px 0 rgba(255,255,255,.13),inset -1px -1px 0 #000;transition:color 120ms}
+.hit.block:hover .go,.hit.block:focus-within .go{color:#0b0b0c;background:var(--chrome);box-shadow:inset 1px 1px 0 #fff,inset -1px -1px 0 #000}
 .tile .go svg{width:12px;height:14px}
+
+/* How a game is played, devices and controls: icons with words. */
 .modes{list-style:none;margin:0;padding:0;display:grid;gap:8px}
 .modes li{display:flex;align-items:center;gap:10px;font-size:15px;color:var(--text)}
-.modes svg{width:20px;height:20px;flex:none}
+.modes svg{width:20px;height:20px;flex:none;color:var(--text-2)}
 .modes small{color:var(--muted);font-size:14px}
 .modes small::before{content:"· ";}
-.badge{display:inline-flex;align-items:center;gap:6px;color:var(--ok-text);font-size:12px;font-weight:600}
-.badge::before{content:"";width:6px;height:6px;background:var(--ok)}
-.pill{display:inline-block;padding:1px 9px;font-size:12px;box-shadow:inset 0 0 0 1px var(--line-2)}
+
+.badge{display:inline-flex;align-items:center;gap:6px;color:var(--ok-text);font-family:var(--display);font-size:12px;font-weight:600;letter-spacing:.01em}
+.badge::before{content:"";width:6px;height:6px;background:var(--ok);box-shadow:0 0 8px rgba(95,211,141,.6)}
+.pill{display:inline-block;padding:2px 9px;font-family:var(--display);font-size:12px;font-weight:600;letter-spacing:.01em;background:rgba(0,0,0,.35);box-shadow:inset 0 1px 2px rgba(0,0,0,.6),0 1px 0 rgba(255,255,255,.05)}
 .pill.live,.pill.approved,.pill.info{color:var(--ok)}
 .pill.held,.pill.scanning,.pill.pending,.pill.hold{color:var(--warn)}
 .pill.removed,.pill.rejected,.pill.reject{color:var(--danger)}
-.note{background:var(--panel-2);padding:14px 16px;color:var(--muted)}
+.note{padding:14px 16px;color:var(--muted)}
 .note strong{color:var(--text)}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-.seg{display:inline-flex;background:var(--panel);padding:3px}
-.seg button,.seg a{min-height:40px;padding:0 16px;border:0;background:transparent;color:var(--muted);font:inherit;font-size:14px;font-weight:600;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center}
-.seg [aria-pressed=true],.seg [aria-current]{background:var(--line-2);color:#fff}
+
+/* Toggles and fields are cut into the metal; the chosen one is a raised plate on a chrome rail. */
+.seg{display:inline-flex;gap:2px;padding:3px;background:#0c0e11;box-shadow:inset 0 2px 6px rgba(0,0,0,.7),0 1px 0 rgba(255,255,255,.05)}
+.seg button,.seg a{position:relative;min-height:40px;padding:0 16px;border:0;background:transparent;color:var(--muted);font:inherit;font-family:var(--display);font-size:14px;font-weight:600;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
+.seg button:hover,.seg a:hover{color:var(--text)}
+.seg [aria-pressed=true],.seg [aria-current]{color:#fff;background:var(--brush) 0 0/320px 320px,var(--face-hi);box-shadow:inset 1px 1px 0 rgba(255,255,255,.13),inset -1px -1px 0 #000}
+.seg [aria-pressed=true]::after,.seg [aria-current]::after{content:"";position:absolute;left:8px;right:8px;bottom:3px;height:2px;background:var(--chrome)}
 form.stack{display:grid;gap:14px;max-width:560px}
 form.stack>.btn,form.stack>.hit{justify-self:start}
 label{display:grid;gap:6px;font-size:14px;color:var(--muted)}
-input,textarea,select{background:var(--panel);color:var(--text);border:1px solid var(--line);padding:0 12px;min-height:44px;font:inherit}
+input,textarea,select{background:#0d0f12;color:var(--text);border:1px solid #000;padding:0 12px;min-height:44px;font:inherit;
+  box-shadow:inset 0 2px 5px rgba(0,0,0,.65),0 1px 0 rgba(255,255,255,.06)}
 textarea{min-height:100px;padding:10px 12px}
-input:focus,textarea:focus,select:focus{border-color:#55585f;outline:none}
+input:focus,textarea:focus,select:focus{outline:none;border-color:#000;box-shadow:inset 0 2px 5px rgba(0,0,0,.65),0 0 0 2px rgba(230,233,238,.55)}
+input[type=checkbox]{box-shadow:none}
 table{width:100%;border-collapse:collapse;font-size:14px}
-th,td{text-align:left;padding:8px;border-bottom:1px solid var(--line);vertical-align:top}
-th{color:var(--muted);font-weight:500}
-footer{border-top:1px solid var(--line)}
-footer .in{max-width:1240px;margin:0 auto;padding:22px 24px;color:var(--muted);font-size:14px;display:flex;gap:20px;flex-wrap:wrap}
-.narrow{max-width:520px}
+th,td{text-align:left;padding:9px 8px;vertical-align:top;background:linear-gradient(#000,#000) bottom/100% 1px no-repeat}
+tr:not(:last-child) td{box-shadow:0 1px 0 rgba(255,255,255,.04)}
+th{color:var(--muted);font-weight:500;font-family:var(--display)}
+
+footer{background:var(--brush) 0 0/320px 320px,linear-gradient(180deg,#121418,#0a0b0d);box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 -1px 0 #000}
+footer .in{max-width:1240px;margin:0 auto;padding:24px;color:var(--muted);font-size:14px;display:flex;gap:10px 22px;flex-wrap:wrap;align-items:center}
+footer .mark{height:20px;width:auto;margin-right:2px;filter:drop-shadow(0 1px 0 #000)}
+footer a{text-decoration:none}
+footer a:hover{color:var(--text);text-decoration:underline;text-underline-offset:3px}
+.narrow{--cut:36px;max-width:560px;margin:12px 0 0;padding:30px 30px 26px;clip-path:polygon(0 0,calc(100% - 36px) 0,100% 36px,100% 100%,0 100%);
+  background:linear-gradient(to top right,transparent calc(50% - 1.5px),rgba(255,255,255,.3) calc(50% - 1.5px),rgba(255,255,255,.3) 50%,transparent 50%) top right/36px 36px no-repeat,var(--brush) 0 0/320px 320px,var(--face);box-shadow:var(--rim)}
+.narrow>h1:first-child{margin-top:0}
 .error{color:var(--danger);margin:0 0 14px}
 .muted{color:var(--muted);font-size:14px}
 .small{font-size:12px}
@@ -138,68 +224,25 @@ footer .in{max-width:1240px;margin:0 auto;padding:22px 24px;color:var(--muted);f
 .shots p{margin:6px 0}
 code.key{display:block;word-break:break-all;user-select:all;color:var(--text);font-size:13px}
 .keys{list-style:none;padding:0;margin:0 0 12px}
-.keys li{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}
+.keys li{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0;background:linear-gradient(#000,#000) bottom/100% 1px no-repeat}
 .hint{font-size:12px;color:var(--muted)}
 fieldset{border:0;padding:0;margin:0}
 legend{font-size:14px;color:var(--muted);margin-bottom:8px}
 .birth label{flex:1;min-width:90px}
 details summary{cursor:pointer;color:var(--muted)}
 details[open] summary{margin-bottom:10px}
-pre{white-space:pre-wrap;word-break:break-word;background:var(--panel);padding:12px;font-size:13px}
-dialog{background:var(--panel);color:var(--text);border:0;padding:0}
-dialog::backdrop{background:rgba(0,0,0,.6)}
+pre{white-space:pre-wrap;word-break:break-word;background:#0d0f12;padding:12px;font-size:13px;box-shadow:inset 0 2px 5px rgba(0,0,0,.65),0 1px 0 rgba(255,255,255,.06)}
+dialog{color:var(--text);border:0;padding:0}
+dialog::backdrop{background:rgba(0,0,0,.65);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)}
+
 /* Working: a small square turning, only after the player presses something. */
 .spin{width:12px;height:12px;flex:none;border:2px solid currentColor;border-right-color:transparent;animation:spin .8s linear infinite}
 .metal .spin{display:inline-block;margin-right:10px;vertical-align:-1px}
 [aria-busy=true]{cursor:progress}
 [aria-busy=true] svg{display:none}
 @keyframes spin{to{transform:rotate(360deg)}}
-@media (prefers-reduced-motion:reduce){.metal,.tile{transition:none}.spin{animation-duration:2.4s}}
-/* ---- Theme: forged steel. Depth, brushed metal and the game's own art, like a console's big-screen mode. ---- */
-:root{--bg:#0c0e11;--gun-1:#262a31;--gun-2:#1a1d22;--gun-3:#14161a;--rim:rgba(255,255,255,.08);--rim-dark:rgba(0,0,0,.65)}
-html{background:#0c0e11}
-body{position:relative;isolation:isolate;background:
-  radial-gradient(1100px 520px at 18% -8%,rgba(150,165,190,.10),transparent 70%),
-  repeating-linear-gradient(90deg,rgba(255,255,255,.012) 0 1px,transparent 1px 3px),
-  linear-gradient(180deg,#101317 0%,#0c0e11 60%);background-attachment:fixed}
-/* The featured game's art, blurred behind the top of the page. */
-.ambient{position:absolute;inset:0 0 auto 0;height:min(900px,95vh);z-index:-1;pointer-events:none;overflow:hidden;
-  -webkit-mask-image:linear-gradient(180deg,#000 0%,rgba(0,0,0,.6) 45%,transparent 100%);mask-image:linear-gradient(180deg,#000 0%,rgba(0,0,0,.6) 45%,transparent 100%)}
-.ambient::before{content:"";position:absolute;inset:-80px;background:var(--art) center/cover no-repeat;filter:blur(60px) saturate(1.4) brightness(.8);opacity:1}
-header.top{position:sticky;top:0;z-index:20;border-bottom:0;background:linear-gradient(180deg,rgba(38,42,49,.92),rgba(22,24,29,.92)),repeating-linear-gradient(90deg,rgba(255,255,255,.02) 0 1px,transparent 1px 3px);
-  -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);box-shadow:inset 0 1px 0 rgba(255,255,255,.07),0 1px 0 #000,0 2px 0 rgba(255,255,255,.04),0 10px 30px rgba(0,0,0,.35)}
-header.top nav a{position:relative;padding:8px 2px}
-header.top nav a[aria-current]::after{content:"";position:absolute;left:0;right:0;bottom:-13px;height:3px;background:linear-gradient(180deg,#f2f2f2,#8d8f94);box-shadow:0 0 12px rgba(220,225,235,.35)}
-h1,h2{text-shadow:0 2px 0 rgba(0,0,0,.55),0 -1px 0 rgba(255,255,255,.06)}
-.sec-head h2,section>h2,.more h2{display:flex;align-items:center;gap:16px}
-.sec-head h2::after,.more h2::after{content:"";flex:1;min-width:40px;height:2px;background:linear-gradient(90deg,rgba(220,224,230,.35),rgba(220,224,230,0));box-shadow:0 1px 0 rgba(0,0,0,.6)}
-.sec-head{flex-wrap:wrap}
-.sec-head h2{flex:1 1 auto}
-/* Gunmetal: cards, panels and notes have a face, a lit edge and a shadow. */
-.card,.note,.way,.dev-card,.track>li,.updates li,.tile,.stage,.drop,.confirm{background:linear-gradient(180deg,var(--gun-1),var(--gun-2));
-  box-shadow:inset 1px 1px 0 var(--rim),inset -1px -1px 0 var(--rim-dark),0 12px 28px rgba(0,0,0,.35)}
-.tile .body{background:linear-gradient(180deg,#22252b,#17191d);box-shadow:inset 0 1px 0 rgba(255,255,255,.06)}
-.tile .name span{font-family:var(--display);font-weight:600;font-size:16px;letter-spacing:.005em}
-/* Big-screen focus: the card under the cursor (or keyboard) lifts into a bright metal frame. */
-.hit.block{transition:transform 180ms ease-out}
-.hit.block:hover,.hit.block:focus-within{transform:translateY(-4px);z-index:2}
-.hit.block:hover .tile,.hit.block:focus-within .tile{box-shadow:0 0 0 2px #d9dce0,0 0 0 3px #000,0 0 28px rgba(205,215,230,.28),0 18px 40px rgba(0,0,0,.5)}
-.tile .go{background:linear-gradient(180deg,#3a3e46,#272a30);box-shadow:inset 1px 1px 0 rgba(255,255,255,.12),inset -1px -1px 0 #000}
-.tile .go:hover{background:linear-gradient(180deg,#e6e6e6,#9fa1a5);color:#0b0b0c}
-/* Buttons are gunmetal plates; fields are cut into the metal. */
-.btn:not(.metal):not(.light):not(.danger){background:linear-gradient(180deg,#3a3e46,#262930);box-shadow:inset 1px 1px 0 rgba(255,255,255,.12),inset -1px -1px 0 #000,0 4px 10px rgba(0,0,0,.3)}
-.btn:not(.metal):not(.light):not(.danger):hover{background:linear-gradient(180deg,#454a53,#2d3037)}
-.btn.ghost{background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,0))!important;box-shadow:inset 0 0 0 1px #4a4e56,inset 1px 1px 0 1px rgba(255,255,255,.05),0 4px 10px rgba(0,0,0,.25)!important}
-.btn.ghost:hover{box-shadow:inset 0 0 0 1px #7a7e86,0 4px 10px rgba(0,0,0,.25)!important}
-.metal{box-shadow:inset 2px 2px 0 #fff,inset -2px -2px 0 #000,0 8px 22px rgba(0,0,0,.45),0 0 0 1px #000}
-input,textarea,select{background:#0f1114;border-color:#2a2d33;box-shadow:inset 0 2px 6px rgba(0,0,0,.6),0 1px 0 rgba(255,255,255,.05)}
-.seg{background:#0f1114;box-shadow:inset 0 2px 6px rgba(0,0,0,.6),0 1px 0 rgba(255,255,255,.05)}
-.seg [aria-pressed=true],.seg [aria-current]{background:linear-gradient(180deg,#4a4e57,#30333a);box-shadow:inset 1px 1px 0 rgba(255,255,255,.15),inset -1px -1px 0 #000}
-.badge{color:#c8f0b4}
-.pill{box-shadow:inset 0 0 0 1px #3d4148;background:rgba(0,0,0,.25)}
-footer{border-top:0;background:linear-gradient(180deg,#121418,#0b0c0e);box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 -1px 0 #000}
-@media (prefers-reduced-motion:reduce){.hit.block{transition:none}.hit.block:hover,.hit.block:focus-within{transform:none}}
-
+@media (max-width:640px){main{padding:20px 16px 56px}header.top .in{padding:0 16px;gap:0 18px}.grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.tile .name small{display:none}.tile .body{padding:8px 8px 8px 10px}.tile .name span{font-size:15px}}
+@media (prefers-reduced-motion:reduce){.metal,.tile{transition:none}.hit.block:hover .tile,.hit.block:focus-within .tile{--s:1}.ambient i{transition:none}.spin{animation-duration:2.4s}}
 `;
 
 // Runs the metal hover on every page: one listener for all .hit areas, at most one update per frame.
@@ -212,6 +255,13 @@ el.style.setProperty("--ry",(still?0:nx*2*max).toFixed(2)+"deg");el.style.setPro
 el.style.setProperty("--gx",(r.width/2+sweep*r.width*.75).toFixed(1)+"px");el.style.setProperty("--gf",Math.max(.25,1-Math.abs(sweep)*.55).toFixed(2));el.classList.add("lit")};
 addEventListener("pointermove",e=>{const h=e.target.closest?e.target.closest(".hit"):null;if(h!==cur){if(cur)off(cur);cur=h}if(!cur)return;x=e.clientX;y=e.clientY;if(!raf)raf=requestAnimationFrame(paint)},{passive:true});
 document.documentElement.addEventListener("pointerleave",()=>{if(cur)off(cur);cur=null})})();`;
+
+// The page's colors follow the game being pointed at. Images load before they fade in.
+const AMBIENT_SCRIPT = `(()=>{const a=document.getElementById("ambient");if(!a)return;const L=[...a.children];let home=a.dataset.art||"",shown=(L.find(l=>l.classList.contains("on"))||{dataset:{}}).dataset.u||"",t=0,want="";
+const show=u=>{want=u;if(u===shown)return;if(!u){shown="";L.forEach(l=>l.classList.remove("on"));return}const img=new Image();img.onload=()=>{if(want!==u)return;shown=u;const off=L.find(l=>!l.classList.contains("on"))||L[0];off.dataset.u=u;off.style.setProperty("--art","url('"+u+"')");requestAnimationFrame(()=>L.forEach(l=>l.classList.toggle("on",l===off)))};img.src=u};
+window.zaismaArt=u=>{home=u||"";show(home)};if(home!==shown)show(home);
+const pick=e=>{const h=e.target.closest&&e.target.closest("[data-art]");clearTimeout(t);t=setTimeout(()=>show(h?h.dataset.art:home),h?80:500)};
+addEventListener("pointerover",pick,{passive:true});addEventListener("focusin",pick)})();`;
 
 // A button that sends a form or opens a page shows it's working and can't be pressed twice.
 // Pages that handle a form themselves (preventDefault) are left alone.
@@ -258,7 +308,7 @@ export function securityHeaders(env: Env, extra: Record<string, string> = {}): H
 // Pages stay cacheable for everyone, so the header learns about sign-in from a readable hint cookie.
 const ACCOUNT_LINK = `<a id="account-link" class="btn ghost" href="/signin">Sign in</a><script>if(/(^|; )(__Host-)?zaisma_in=1/.test(document.cookie)){var a=document.getElementById("account-link");a.href="/account";a.textContent="Account"}</script>`;
 
-export function layout(env: Env, opts: { title: string; body: Raw; bare?: boolean; admin?: boolean; private?: boolean; nav?: "dashboard"; art?: string | null }): Response {
+export function layout(env: Env, opts: { title: string; body: Raw; bare?: boolean; admin?: boolean; private?: boolean; nav?: "dashboard" | "home"; art?: string | null }): Response {
   const doc = html`<!doctype html>
 <html lang="en">
 <head>
@@ -278,28 +328,31 @@ ${opts.bare
     : html`${siteHeader(env, opts)}
 <main>${opts.body}</main>
 ${siteFooter()}`}
-<script>${raw(METAL_SCRIPT)}${raw(BUSY_SCRIPT)}</script>
+<script>${raw(METAL_SCRIPT)}${raw(AMBIENT_SCRIPT)}${raw(BUSY_SCRIPT)}</script>
 </body>
 </html>`;
   return new Response(doc.html, { headers: securityHeaders(env, opts.admin || opts.private ? { "Cache-Control": "no-store" } : {}) });
 }
 
-/** A game's art, blurred behind the top of the page. Pages change it with --art on .ambient. */
+/**
+ * A game's art, blurred behind the top of the page. Pointing at a game card fades the page to that
+ * game's art (cards carry data-art), and back to the page's own when the pointer moves on.
+ */
 export function ambient(art: string | null | undefined): Raw {
-  return html`<div class="ambient" id="ambient" aria-hidden="true"${art ? raw(` style="--art:url('${esc(art)}')"`) : ""}></div>`;
+  return html`<div class="ambient" id="ambient" aria-hidden="true" data-art="${art ?? ""}"><i${art ? raw(` class="on" data-u="${esc(art)}" style="--art:url('${esc(art)}')"`) : ""}></i><i></i></div>`;
 }
 
 /** The site's header, also used on its own by pages that lay themselves out (the game page). */
-export function siteHeader(env: Env, opts: { admin?: boolean; nav?: "dashboard" } = {}): Raw {
+export function siteHeader(env: Env, opts: { admin?: boolean; nav?: "dashboard" | "home" } = {}): Raw {
   return html`<header class="top"><div class="in">
   <a class="logo" href="/" aria-label="Zaisma home"><img src="/zaisma-wordmark-metal.svg" alt="Zaisma"></a>
-  <nav>${opts.admin ? html`<a href="/admin">Admin</a><a href="/admin/audit">Audit log</a>` : opts.nav === "dashboard" ? html`<a href="/">Home</a><a href="/dashboard" aria-current="page">Your games</a>` : html`<a href="/">Home</a>`}</nav>
+  <nav>${opts.admin ? html`<a href="/admin">Admin</a><a href="/admin/audit">Audit log</a>` : opts.nav === "dashboard" ? html`<a href="/">Home</a><a href="/dashboard" aria-current="page">Your games</a>` : html`<a href="/"${opts.nav === "home" ? raw(' aria-current="page"') : ""}>Home</a>`}</nav>
   <div class="end">${env.SUPABASE_URL ? raw(ACCOUNT_LINK) : ""}</div>
 </div></header>`;
 }
 
 export function siteFooter(): Raw {
-  return html`<footer><div class="in"><span>Zaisma™, open source</span><a href="/legal/content-rules">Content rules</a><a href="/legal/privacy">Privacy</a><a href="/legal/dmca">Copyright (DMCA)</a><a href="/dashboard">For game developers</a><a href="https://github.com/zaisma/zaisma">GitHub</a></div></footer>`;
+  return html`<footer><div class="in"><img class="mark" src="/zaisma-mark-metal.svg" alt=""><span>Zaisma™, open source</span><a href="/legal/content-rules">Content rules</a><a href="/legal/privacy">Privacy</a><a href="/legal/dmca">Copyright (DMCA)</a><a href="/dashboard">For game developers</a><a href="https://github.com/zaisma/zaisma">GitHub</a></div></footer>`;
 }
 
 export function message(env: Env, title: string, text: string, status = 200): Response {
