@@ -6,15 +6,14 @@ const migrations = await readD1Migrations("migrations");
 // A throwaway pass signing key for tests. The real one is a Worker secret.
 const passKey = await generateSigningKey();
 
-const worker = (name: string, configPath: string, extraBindings: Record<string, string> = {}) => ({
+const worker = (name: string, configPath: string, extraBindings: Record<string, string> = {}, extra: Record<string, unknown> = {}) => ({
   extends: true as const,
   plugins: [
     cloudflareTest({
       wrangler: { configPath },
       miniflare: {
         bindings: { TEST_MIGRATIONS: migrations as unknown as string, ...extraBindings },
-        // Tests run scans themselves, so turn off the automatic queue consumer.
-        queueConsumers: {},
+        ...extra,
       },
     }),
   ],
@@ -38,6 +37,10 @@ export default defineConfig({
         SUPABASE_URL: "https://supabase.test",
         SUPABASE_PUBLISHABLE_KEY: "sb_publishable_test",
         SUPABASE_SECRET_KEY: "sb_secret_test",
+      }, {
+        // Tests run scans themselves. Wrangler's options are merged one level deep, so the queue's
+        // consumer can't be removed; instead uploads send their scan jobs to a queue nothing reads.
+        queueProducers: { SCAN_QUEUE: { queueName: "zaisma-scan-in-tests" } },
       }),
       worker("games", "apps/games/wrangler.jsonc", { SITE_ORIGIN: "https://zaisma.test", ROOMS_ORIGIN: "https://rooms.zaisma.test", GAME_HOST_MODE: "path", GAME_DOMAIN: "" }),
       worker("core", "apps/games/wrangler.jsonc"),

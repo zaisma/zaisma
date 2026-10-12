@@ -4,7 +4,6 @@ import type { ImageMatcher } from "@zaisma/core";
 import { scanVersion } from "../../apps/site/src/scan.ts";
 import { triageReports, type TriageDeps } from "../../apps/site/src/triage.ts";
 import { CLEAN_GAME, makeZip } from "../helpers.ts";
-import { queueScanDone } from "./queue.ts";
 
 const LOCAL = "http://localhost";
 const testEnv = { ...env, DEV_ADMIN: "1", ANTHROPIC_API_KEY: "test-key" };
@@ -17,7 +16,6 @@ async function liveGame() {
   form.set("description", "A test.");
   form.set("zip", new File([makeZip(CLEAN_GAME)], "game.zip", { type: "application/zip" }));
   const { versionId } = (await (await SELF.fetch(`${LOCAL}/admin/api/games`, { method: "POST", body: form })).json()) as { versionId: string };
-  await queueScanDone(versionId);
   await scanVersion(testEnv, versionId, { images: connected, ai: async () => ({ report: { model: "t", verdict: "pass", summary: "fine", inputTokens: 1, outputTokens: 1 }, findings: [], childSafety: false }) });
   await env.DB.prepare("UPDATE versions SET published_at = ?").bind(Date.now() - 30 * 86400_000).run();
 }
