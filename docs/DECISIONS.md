@@ -123,4 +123,4 @@ Settled calls. Don't reopen these in code or docs without Julius approving the c
 - **Logo: Julius's metal Z** (based on Futura) plus custom shard letters "aisma", lowercase z. Files and usage rules in [`brand/`](../brand/README.md).
 - **Metal only on dark.** One-color black/white elsewhere; a small-size Z for 32 px and below; tri-color for special editions.
 - **They're game developers, not creators.** "Creator" is overused and corporate. In copy, docs and the product we say game developers (or developers, devs), and players.
-- **Steel is the look.** Today's dark greys with the metal wordmark. Highlights take the Z's metal: white and black edge lines on the bevel and an animated shine (still when the player asks for reduced motion).
+- **Steel is the look.** Today's dark greys with the metal wordmark. Highlights take the Z's metal: white and black edge lines on the bevel, and a glint that only moves on hover: it follows the cursor and the element tilts toward it, like turning a metal plate in the light (no tilt when the player asks for reduced motion). Nothing animates on its own.
