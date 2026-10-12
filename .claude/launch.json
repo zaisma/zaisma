@@ -27,6 +27,15 @@
         "dev:rooms"
       ],
       "port": 8789
+    },
+    {
+      "name": "preview",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "preview"
+      ],
+      "port": 8800
     }
   ]
 }

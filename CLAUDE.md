@@ -45,3 +45,4 @@ Keep the roadmap current: when work starts, lands or moves, update its status in
 - Flag only hard blockers in one line (illegal, would get accounts or the domain banned, clearly loses money), then keep going.
 - Replies: concise, little jargon, no recap. End with the next step and anything you need from him.
 - Commit messages: plain English, say what changed and why.
+- **Preview before live.** Large or important UI changes and features run in the local preview first (`npm run preview`: site, games and a stand-in sign-in on localhost:8800, filled with test games; `-- --reset` for fresh data). Give Julius direct links to the pages and states to look at, iterate with him there, and only then merge and ask to deploy. Small fixes he asks for directly can ship as before.
