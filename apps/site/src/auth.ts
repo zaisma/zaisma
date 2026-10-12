@@ -62,6 +62,42 @@ export async function signOutEverywhere(env: Env, access: string): Promise<void>
   await auth(env, "/logout?scope=global", { token: access }).catch(() => {});
 }
 
+// --- Google and Discord, through Supabase (PKCE, so the code only works with this browser's cookie) ---
+
+export const PROVIDERS = { google: "Google", discord: "Discord" } as const;
+export type Provider = keyof typeof PROVIDERS;
+export const isProvider = (p: string): p is Provider => Object.hasOwn(PROVIDERS, p);
+
+let providerCache: { url: string; at: number; on: Provider[] } | null = null;
+
+/** The providers switched on in Supabase, so a button only shows once it works. */
+export async function providersOn(env: Env): Promise<Provider[]> {
+  const url = `${env.SUPABASE_URL}/auth/v1/settings`;
+  if (providerCache?.url === url && Date.now() - providerCache.at < 5 * 60_000) return providerCache.on;
+  try {
+    const res = await fetch(url, { headers: { apikey: env.SUPABASE_PUBLISHABLE_KEY! } });
+    if (!res.ok) return providerCache?.url === url ? providerCache.on : [];
+    const { external = {} } = (await res.json()) as { external?: Record<string, boolean> };
+    providerCache = { url, at: Date.now(), on: (Object.keys(PROVIDERS) as Provider[]).filter((p) => external[p] === true) };
+    return providerCache.on;
+  } catch {
+    return [];
+  }
+}
+
+/** Where to send the browser to sign in with a provider. Supabase sends it back to /signin/callback?code=… */
+export function providerUrl(env: Env, provider: Provider, challenge: string): string {
+  const q = new URLSearchParams({ provider, redirect_to: `${env.SITE_ORIGIN}/signin/callback`, code_challenge: challenge, code_challenge_method: "s256" });
+  return `${env.SUPABASE_URL}/auth/v1/authorize?${q}`;
+}
+
+export async function exchangeCode(env: Env, code: string, verifier: string): Promise<Session | null> {
+  const res = await auth(env, "/token?grant_type=pkce", { body: { auth_code: code, code_verifier: verifier } });
+  if (!res.ok) return null;
+  const session = toSession((await res.json()) as TokenResponse);
+  return session.email ? session : null;
+}
+
 /**
  * A session for someone who just signed in with a passkey (checked by us, see passkeys.ts).
  * Supabase makes it: a one-time sign-in link for their email, used straight away, never sent.

@@ -1,4 +1,5 @@
 // A stand-in for Supabase Auth, for local previews only: any email, code 123456.
+// "Continue with Google/Discord" opens a stand-in page that asks which email to sign in as.
 // Each email always gets the same user ID, so a preview account survives restarts.
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -29,10 +30,10 @@ export async function startFakeAuth(port, keyFile) {
     return id;
   };
   // signedInAt (seconds) is when they last proved who they are, like Supabase's amr claim.
-  async function tokens(id, email, signedInAt = Math.floor(Date.now() / 1000)) {
+  async function tokens(id, email, signedInAt = Math.floor(Date.now() / 1000), method = "otp") {
     const now = Math.floor(Date.now() / 1000);
     const head = b64(JSON.stringify({ alg: "ES256", kid: "preview", typ: "JWT" }));
-    const body = b64(JSON.stringify({ sub: id, email, aud: "authenticated", iss: `${origin}/auth/v1`, exp: now + 3600, iat: now, amr: [{ method: "otp", timestamp: signedInAt }] }));
+    const body = b64(JSON.stringify({ sub: id, email, aud: "authenticated", iss: `${origin}/auth/v1`, exp: now + 3600, iat: now, amr: [{ method, timestamp: signedInAt }] }));
     const sig = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, keys.privateKey, new TextEncoder().encode(`${head}.${body}`));
     // The refresh token carries the email and sign-in time, so sessions survive a restart of this stand-in.
     return { access_token: `${head}.${body}.${b64(sig)}`, refresh_token: `r-${b64(email)}.${signedInAt}`, user: { id, email } };
@@ -40,12 +41,43 @@ export async function startFakeAuth(port, keyFile) {
   const server = http.createServer(async (req, res) => {
     let raw = "";
     for await (const chunk of req) raw += chunk;
-    const b = raw ? JSON.parse(raw) : {};
+    const url = new URL(req.url, origin);
+    const b = raw && req.headers["content-type"]?.includes("json") ? JSON.parse(raw) : Object.fromEntries(new URLSearchParams(raw));
     const send = (status, obj) => {
       res.writeHead(status, { "content-type": "application/json" });
       res.end(JSON.stringify(obj));
     };
-    const path = new URL(req.url, origin).pathname.replace("/auth/v1", "");
+    const path = url.pathname.replace("/auth/v1", "");
+    const page = (body) => {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end(`<!doctype html><meta name="viewport" content="width=device-width"><title>Stand-in sign-in</title><body style="font:16px system-ui;max-width:420px;margin:60px auto;padding:0 16px">${body}</body>`);
+    };
+    const esc = (v) => String(v ?? "").replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
+    if (path === "/settings") return send(200, { external: { email: true, google: true, discord: true } });
+    if (path === "/authorize") {
+      const q = url.searchParams;
+      const name = q.get("provider") === "discord" ? "Discord" : "Google";
+      const back = new URL(q.get("redirect_to"));
+      back.searchParams.set("error", "access_denied");
+      return page(`<h1>${name} (preview stand-in)</h1><p>On the live site this is ${name}'s own page. Pick the email ${name} would give us:</p>
+<form method="post" action="/auth/v1/authorize/done"><input type="hidden" name="redirect_to" value="${esc(q.get("redirect_to"))}"><input type="hidden" name="challenge" value="${esc(q.get("code_challenge"))}">
+<input name="email" type="email" value="player@gmail.test" required style="font:inherit;padding:8px;width:100%;box-sizing:border-box"><p><button style="font:inherit;padding:8px 16px">Continue</button> <a href="${esc(back)}">Cancel</a></p></form>`);
+    }
+    if (path === "/authorize/done") {
+      const back = new URL(b.redirect_to);
+      back.searchParams.set("code", `c-${b64(JSON.stringify({ email: b.email, challenge: b.challenge }))}`);
+      res.writeHead(303, { location: back.href });
+      return res.end();
+    }
+    if (path === "/token" && url.searchParams.get("grant_type") === "pkce") {
+      try {
+        const { email, challenge } = JSON.parse(Buffer.from(String(b.auth_code).replace(/^c-/, ""), "base64url").toString());
+        if (createHash("sha256").update(String(b.code_verifier)).digest("base64url") !== challenge) throw new Error();
+        return send(200, await tokens(idFor(email), email, undefined, "oauth"));
+      } catch {
+        return send(400, { code: "flow_state_not_found" });
+      }
+    }
     if (path === "/.well-known/jwks.json") return send(200, { keys: [{ ...jwk, kid: "preview", alg: "ES256" }] });
     if (path === "/otp") return send(200, {});
     if (path === "/verify" && b.token_hash) {

@@ -5,28 +5,36 @@ import {
   ageBand,
   ageOn,
   apiKeysFor,
+  b64url,
   checkName,
   createAccount,
   createApiKey,
   deleteAccount,
   gameBySlug,
   gamesOwnedBy,
+  newChallenge,
   passkeysFor,
   revokeApiKey,
   updateAccount,
   type AgeBand,
 } from "@zaisma/core";
 import {
+  PROVIDERS,
   authConfigured,
   clearSessionCookies,
   currentSession,
   deleteAuthUser,
+  exchangeCode,
+  isProvider,
+  providerUrl,
+  providersOn,
   readCookie,
   sendCode,
   sessionCookies,
   setCookie,
   signOutEverywhere,
   verifyCode,
+  type Provider,
   type Session,
 } from "./auth.ts";
 import type { Env } from "./env.ts";
@@ -40,17 +48,21 @@ import { deleteSaveFiles } from "./saves.ts";
  * New accounts answer the age question before they type an email, so we collect
  * nothing from under-13s. The birth date is used once and never stored; we keep
  * the band (13–17 or 18+). "Sign in" never creates accounts, so it can't skip the question.
+ * Google and Discord work the same way: someone new who comes back from them without having
+ * answered the age question is forgotten straight away and sent to answer it first.
  */
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,255}\.[^\s@]{2,}$/;
 const BLOCK_SECONDS = 24 * 3600;
 const JOIN_SECONDS = 3600;
+const OAUTH_SECONDS = 600;
 
 export async function handleAccount(request: Request, env: Env, path: string): Promise<Response | null> {
   if (
     !["/signin", "/signin/code", "/join", "/join/age", "/join/email", "/join/name", "/account", "/account/kept", "/account/name", "/account/age", "/account/delete", "/account/keys", "/signout"].includes(path) &&
-    !/^\/account\/keys\/[a-z0-9]+\/revoke$/.test(path)
+    !/^\/account\/keys\/[a-z0-9]+\/revoke$/.test(path) &&
+    !/^\/signin\/(with\/[a-z]{1,20}|callback)$/.test(path)
   ) return null;
   if (!authConfigured(env)) return message(env, "Accounts aren't on yet", "You can play every game as a guest.", 404);
 
@@ -66,19 +78,53 @@ export async function handleAccount(request: Request, env: Env, path: string): P
   const session = await currentSession(request, env);
   const done = (res: Response) => withCookies(res, session?.cookies ?? []);
 
-  if (path === "/signin" && !post) return done(session ? redirect(next ?? "/account") : signinPage(env, next));
+  if (path === "/signin" && !post) return done(session ? redirect(next ?? "/account") : await signinPage(env, next));
+
+  // --- Google and Discord ---
+  const withProvider = path.match(/^\/signin\/with\/([a-z]+)$/)?.[1];
+  if (withProvider !== undefined) {
+    if (!isProvider(withProvider) || !(await providersOn(env)).includes(withProvider)) return message(env, "Not available", "That way of signing in isn't on. Use an email code instead.", 404);
+    // PKCE: the code Supabase sends back only works with this verifier, kept in this browser.
+    const verifier = newChallenge();
+    const challenge = b64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)));
+    const cookie = setCookie(env, "zaisma_oauth", `${withProvider}.${verifier}.${encodeURIComponent(next ?? "")}`, { maxAge: OAUTH_SECONDS });
+    return withCookies(redirect(providerUrl(env, withProvider, challenge)), [cookie]);
+  }
+
+  if (path === "/signin/callback") {
+    const [provider = "", verifier = "", ...rest] = (readCookie(request, env, "zaisma_oauth") ?? "").split(".");
+    let back: string | null = null;
+    try {
+      back = safeNext(decodeURIComponent(rest.join(".")));
+    } catch {}
+    const cookies = [setCookie(env, "zaisma_oauth", "", { maxAge: 0 })];
+    const query = new URL(request.url).searchParams;
+    const code = query.get("code");
+    const signedIn = code && verifier && isProvider(provider) ? await exchangeCode(env, code.slice(0, 500), verifier) : null;
+    if (!signedIn) {
+      const by = isProvider(provider) ? PROVIDERS[provider] : "That";
+      const why = query.get("error") === "access_denied" ? `${by} sign-in was cancelled.` : `${by} sign-in didn't work. Try again, or use an email code.`;
+      return withCookies(await signinPage(env, back, why, 400), cookies);
+    }
+    if (await accountById(env.DB, signedIn.userId)) return withCookies(redirect(back ?? "/"), [...cookies, ...sessionCookies(env, signedIn)]);
+    // New here, and they answered the age question first: pick a name to finish.
+    if (joinBand(request, env)) return withCookies(redirect(`/join/name${nextQuery(back)}`), [...cookies, ...sessionCookies(env, signedIn)]);
+    // New here without the age question: keep nothing, and ask it now.
+    await deleteAuthUser(env, signedIn.userId);
+    return withCookies(redirect(`/join?with=${provider}${back ? `&next=${encodeURIComponent(back)}` : ""}`), cookies);
+  }
   if (path.startsWith("/join") && readCookie(request, env, "zaisma_age") === "no") return done(tooYoungPage(env));
 
   if (path === "/signin" || path === "/join/email") {
     if (await limited(env, request)) return message(env, "Slow down", "Too many tries. Wait a minute and try again.", 429);
     const email = field("email", 320).toLowerCase();
-    if (!EMAIL.test(email)) return path === "/signin" ? signinPage(env, next, "Enter your email address.") : joinEmailPage(env, next, field("name"), "Enter your email address.");
+    if (!EMAIL.test(email)) return path === "/signin" ? await signinPage(env, next, "Enter your email address.") : await joinEmailPage(env, next, field("name"), "Enter your email address.");
     const cookies: string[] = [];
     if (path === "/join/email") {
       const band = joinBand(request, env);
       if (!band) return redirect("/join");
       const checked = checkName(field("name", 60));
-      if ("error" in checked) return joinEmailPage(env, next, field("name"), checked.error, email);
+      if ("error" in checked) return await joinEmailPage(env, next, field("name"), checked.error, email);
       cookies.push(setCookie(env, "zaisma_join", encodeURIComponent(JSON.stringify({ band, name: checked.name })), { maxAge: JOIN_SECONDS }));
     }
     const sent = await sendCode(env, email, path === "/join/email");
@@ -108,7 +154,10 @@ export async function handleAccount(request: Request, env: Env, path: string): P
     const account = session ? await accountById(env.DB, session.userId) : null;
     if (account) return done(redirect(next ?? "/account"));
 
-    if (path === "/join" && !post) return done(agePage(env, next));
+    if (path === "/join" && !post) {
+      const via = new URL(request.url).searchParams.get("with") ?? "";
+      return done(agePage(env, next, undefined, isProvider(via) ? via : undefined));
+    }
 
     if (path === "/join/age" && post) {
       const age = ageOn({ year: Number(field("year")), month: Number(field("month")), day: Number(field("day")) }, new Date());
@@ -125,8 +174,10 @@ export async function handleAccount(request: Request, env: Env, path: string): P
       }
       const cookie = setCookie(env, "zaisma_join", encodeURIComponent(JSON.stringify({ band })), { maxAge: JOIN_SECONDS });
       // Already signed in (they verified an email but never finished): skip straight to the name.
-      return withCookies(session ? joinNamePage(env, next) : joinEmailPage(env, next), [...(session?.cookies ?? []), cookie]);
+      return withCookies(session ? joinNamePage(env, next) : await joinEmailPage(env, next), [...(session?.cookies ?? []), cookie]);
     }
+
+    if (path === "/join/name" && !post) return done(session && joinBand(request, env) ? joinNamePage(env, next) : redirect(`/join${nextQuery(next)}`));
 
     if (path === "/join/name" && post && session) {
       const band = joinBand(request, env);
@@ -240,17 +291,19 @@ function page(env: Env, title: string, body: Raw, status = 200): Response {
 const err = (text?: string) => (text ? html`<p class="error" role="alert">${text}</p>` : "");
 const nextField = (next: string | null) => (next ? html`<input type="hidden" name="next" value="${next}">` : "");
 
-function signinPage(env: Env, next: string | null, error?: string): Response {
+async function signinPage(env: Env, next: string | null, error?: string, status = 200): Promise<Response> {
+  const providers = await providersOn(env);
   return page(
     env,
     "Sign in",
     html`<h1>Sign in</h1>
-<p class="lead">We'll email you a code. No password needed.</p>
+<p class="lead">No password needed.</p>
 ${err(error)}
-<div class="passkey-in" id="passkey-in" hidden>
-<button class="btn" type="button" id="passkey-go">${raw(ICON_PASSKEY)}Sign in with a passkey</button>
+<div class="ways" id="ways"${providers.length ? "" : raw(" hidden")}>
+<button class="btn" type="button" id="passkey-go" hidden>${raw(ICON_PASSKEY)}Sign in with a passkey</button>
+${providerLinks(providers, next)}
 <p class="error" role="alert" id="passkey-error" hidden></p>
-<p class="or"><span>or get a code</span></p>
+<p class="or"><span>or get a code by email</span></p>
 </div>
 <form class="stack" method="post" action="/signin">
 ${nextField(next)}
@@ -262,7 +315,8 @@ ${nextField(next)}
 (() => {
   if (!window.PublicKeyCredential) return;
   // Passkeys first, the email code as the way in for new devices.
-  document.getElementById("passkey-in").hidden = false;
+  document.getElementById("ways").hidden = false;
+  document.getElementById("passkey-go").hidden = false;
   document.getElementById("code-go").classList.add("ghost");
   const next = ${raw(JSON.stringify(next ?? "/").replace(/</g, "\u003c"))};
   const show = (e) => { const p = document.getElementById("passkey-error"); p.textContent = e || ""; p.hidden = !e; };
@@ -271,7 +325,19 @@ ${nextField(next)}
   if (PublicKeyCredential.isConditionalMediationAvailable) PublicKeyCredential.isConditionalMediationAvailable().then((ok) => ok && zaismaPasskeySignIn(next, true).then(show));
 })();
 </script>`,
+    status,
   );
+}
+
+const ICON_PROVIDER: Record<Provider, string> = {
+  google:
+    '<svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 8 3l5.7-5.7C34 6.1 29.3 4 24 4 13 4 4 13 4 24s9 20 20 20 20-9 20-20c0-1.3-.1-2.6-.4-3.9z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 8 3l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2A11.9 11.9 0 0 1 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3a12 12 0 0 1-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.6-.4-3.9z"/></svg>',
+  discord:
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#5865F2" d="M20.32 4.37a19.8 19.8 0 0 0-4.89-1.52.07.07 0 0 0-.08.04c-.21.38-.44.87-.6 1.25a18.27 18.27 0 0 0-5.49 0 12.64 12.64 0 0 0-.62-1.25.08.08 0 0 0-.08-.04 19.74 19.74 0 0 0-4.88 1.52.07.07 0 0 0-.03.03C.53 9.05-.32 13.58.1 18.06a.08.08 0 0 0 .03.06 19.9 19.9 0 0 0 5.99 3.03.08.08 0 0 0 .08-.03c.46-.63.87-1.3 1.23-1.99a.08.08 0 0 0-.04-.1 13.1 13.1 0 0 1-1.87-.9.08.08 0 0 1-.01-.12l.37-.29a.07.07 0 0 1 .08-.01c3.93 1.79 8.18 1.79 12.06 0a.07.07 0 0 1 .08.01l.37.29a.08.08 0 0 1 0 .12c-.6.35-1.22.65-1.87.9a.08.08 0 0 0-.04.1c.36.7.77 1.36 1.22 1.99a.08.08 0 0 0 .09.03 19.84 19.84 0 0 0 6-3.03.08.08 0 0 0 .03-.05c.5-5.18-.84-9.68-3.55-13.66a.06.06 0 0 0-.03-.03zM8.02 15.33c-1.18 0-2.16-1.09-2.16-2.42 0-1.33.96-2.42 2.16-2.42 1.21 0 2.18 1.1 2.16 2.42 0 1.33-.96 2.42-2.16 2.42zm7.97 0c-1.18 0-2.15-1.09-2.15-2.42 0-1.33.95-2.42 2.15-2.42 1.21 0 2.18 1.1 2.16 2.42 0 1.33-.95 2.42-2.16 2.42z"/></svg>',
+};
+
+function providerLinks(providers: Provider[], next: string | null): Raw {
+  return html`${providers.map((p) => html`<a class="btn ghost" href="/signin/with/${p}${nextQuery(next)}">${raw(ICON_PROVIDER[p])}Continue with ${PROVIDERS[p]}</a>`)}`;
 }
 
 export function codePage(env: Env, email: string, next: string | null, error?: string, confirm = false): Response {
@@ -301,12 +367,12 @@ function birthFields(): Raw {
 </div>`;
 }
 
-function agePage(env: Env, next: string | null, error?: string): Response {
+function agePage(env: Env, next: string | null, error?: string, via?: Provider): Response {
   return page(
     env,
     "Make an account",
     html`<h1>Make an account</h1>
-<p class="lead">Keep your progress, play with friends and get your own name. Guests can still play everything.</p>
+<p class="lead">${via ? `You're new to Zaisma. Answer this first, then continue with ${PROVIDERS[via]} again.` : "Keep your progress, play with friends and get your own name. Guests can still play everything."}</p>
 ${err(error)}
 <form class="stack" method="post" action="/join/age">
 ${nextField(next)}
@@ -318,12 +384,14 @@ ${nextField(next)}
   );
 }
 
-function joinEmailPage(env: Env, next: string | null, name = "", error?: string, email = ""): Response {
+async function joinEmailPage(env: Env, next: string | null, name = "", error?: string, email = ""): Promise<Response> {
+  const providers = await providersOn(env);
   return page(
     env,
     "Make an account",
     html`<h1>Make an account</h1>
 ${err(error)}
+${providers.length ? html`<div class="ways">${providerLinks(providers, next)}<p class="or"><span>or use your email</span></p></div>` : ""}
 <form class="stack" method="post" action="/join/email">
 ${nextField(next)}
 <label>Your name<input name="name" value="${name}" minlength="3" maxlength="20" autocomplete="nickname" required autofocus><span class="hint">What other players see. ${NAME_RULES} Don't use your real name.</span></label>
