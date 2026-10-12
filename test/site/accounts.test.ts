@@ -17,6 +17,7 @@ const links = new Map<string, string>(); // one-time sign-in link hash -> email
 let tokenSeconds = 3600;
 let signinAge = 0; // seconds since the last sign-in, as Supabase's amr claim says
 const signedInAt = new Map<string, number>(); // user id -> seconds
+const codes = new Map<string, { email: string; challenge: string }>(); // Google/Discord one-time code -> who
 let realFetch: typeof fetch;
 
 const b64url = (b: ArrayBuffer | Uint8Array | string) =>
@@ -62,6 +63,16 @@ async function fakeSupabase(url: URL, init: RequestInit = {}): Promise<Response>
     signedInAt.set(users.get(body.email)!, Math.floor(Date.now() / 1000) - signinAge);
     return tokens(users.get(body.email)!, body.email);
   }
+  if (path === "/settings") return Response.json({ external: { email: true, google: true, discord: true, github: false } });
+  if (path === "/token" && url.searchParams.get("grant_type") === "pkce") {
+    const c = codes.get(body.auth_code);
+    codes.delete(body.auth_code);
+    const challenge = b64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(body.code_verifier))));
+    if (!c || c.challenge !== challenge) return Response.json({ code: "flow_state_not_found" }, { status: 404 });
+    if (!users.has(c.email)) users.set(c.email, crypto.randomUUID());
+    signedInAt.set(users.get(c.email)!, Math.floor(Date.now() / 1000));
+    return tokens(users.get(c.email)!, c.email);
+  }
   if (path === "/token") {
     const id = String(body.refresh_token).replace(/^r-/, "");
     const email = [...users].find(([, v]) => v === id)?.[0];
@@ -98,6 +109,7 @@ beforeEach(async () => {
   users.clear();
   signedInAt.clear();
   links.clear();
+  codes.clear();
   signinAge = 0;
   sent.length = 0;
   deleted.length = 0;
@@ -292,6 +304,79 @@ describe("signing in", () => {
     await join(b);
     await b.go("/signout", {});
     expect(b.jar.size).toBe(0);
+  });
+});
+
+// Supabase sends the person to Google or Discord and back with a one-time code for this browser.
+async function viaProvider(b: Browser, start: string, email: string): Promise<Response> {
+  const to = new URL((await b.go(start)).headers.get("location")!);
+  const code = `code-${crypto.randomUUID()}`;
+  codes.set(code, { email, challenge: to.searchParams.get("code_challenge")! });
+  return b.go(`/signin/callback?code=${code}`);
+}
+
+describe("Google and Discord", () => {
+  it("shows the buttons and sends the browser to Supabase with a one-time challenge", async () => {
+    const page = await (await new Browser().go("/signin?next=/g/arena")).text();
+    expect(page).toContain('href="/signin/with/google?next=%2Fg%2Farena"');
+    expect(page).toContain("Continue with Discord");
+    expect(page).not.toContain("/signin/with/github");
+
+    const b = new Browser();
+    const res = await b.go("/signin/with/google?next=/g/arena");
+    const to = new URL(res.headers.get("location")!);
+    expect(to.origin + to.pathname).toBe(`${SUPABASE}/auth/v1/authorize`);
+    expect(Object.fromEntries(to.searchParams)).toMatchObject({ provider: "google", redirect_to: `${SITE}/signin/callback`, code_challenge_method: "s256" });
+    expect(b.jar.get("__Host-zaisma_oauth")).toMatch(/^google\.[\w-]{43}\./);
+    expect((await b.go("/signin/with/github")).status).toBe(404);
+  });
+
+  it("signs in an existing account with the same email", async () => {
+    await join(new Browser());
+    const b = new Browser();
+    const res = await viaProvider(b, "/signin/with/google?next=/g/arena", "fox@example.com");
+    expect(res.headers.get("location")).toBe("/g/arena");
+    expect(b.jar.get("__Host-zaisma")).toMatch(/~r-/);
+    expect(b.jar.has("__Host-zaisma_oauth")).toBe(false);
+  });
+
+  it("keeps nothing from someone new until they've answered the age question", async () => {
+    const b = new Browser();
+    const res = await viaProvider(b, "/signin/with/discord", "new@example.com");
+    expect(res.headers.get("location")).toBe("/join?with=discord");
+    expect(deleted).toEqual([expect.any(String)]);
+    expect(b.jar.has("__Host-zaisma")).toBe(false);
+    expect(await (await b.go("/join?with=discord")).text()).toContain("then continue with Discord again");
+
+    expect(await (await b.go("/join/age", BIRTH_ADULT)).text()).toContain("Continue with Discord");
+    expect((await viaProvider(b, "/signin/with/discord", "new@example.com")).headers.get("location")).toBe("/join/name");
+    expect(await (await b.go("/join/name")).text()).toContain("Pick a name");
+    expect((await b.go("/join/name", { name: "Lucky Star" })).headers.get("location")).toBe("/account?welcome");
+    expect(await accountById(env.DB, users.get("new@example.com")!)).toMatchObject({ name: "Lucky Star", age_band: "18+" });
+  });
+
+  it("under-13s still get no account", async () => {
+    const b = new Browser();
+    await b.go("/join/age", { year: String(thisYear - 10), month: "1", day: "1" });
+    const res = await viaProvider(b, "/signin/with/google", "kid@example.com");
+    expect(res.headers.get("location")).toBe("/join?with=google");
+    expect(deleted).toHaveLength(1);
+    expect(await (await b.go("/join")).text()).toContain("Accounts are for 13 and up");
+    expect(b.jar.has("__Host-zaisma")).toBe(false);
+  });
+
+  it("a code only works in the browser that asked for it, and cancelling says so", async () => {
+    const a = new Browser();
+    const to = new URL((await a.go("/signin/with/google")).headers.get("location")!);
+    codes.set("stolen", { email: "fox@example.com", challenge: to.searchParams.get("code_challenge")! });
+    const other = new Browser();
+    await other.go("/signin/with/google");
+    const res = await other.go("/signin/callback?code=stolen");
+    expect(res.status).toBe(400);
+    expect(other.jar.has("__Host-zaisma")).toBe(false);
+
+    await a.go("/signin/with/google");
+    expect(await (await a.go("/signin/callback?error=access_denied")).text()).toContain("Google sign-in was cancelled");
   });
 });
 

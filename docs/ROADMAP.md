@@ -79,7 +79,7 @@ Detailed plan approved: guest passes, game server API, rooms, SDK, demos.
 | done | Must | "Keep your progress" | Cloud saves | Turns a guest into an account. After 5 minutes of play with progress, a card offers an account; it opens in a new tab so the game keeps running, and the game's save goes to the new account without a reload. Recently played games come along too |
 | done | Must | Save history | Cloud saves | Up to 5 earlier versions per game: one an hour while playing, plus one whenever progress is about to be replaced (the progress the player didn't pick, a save that shrinks to under half). Players go back from their account (Your saves) or the game menu |
 | done | Must | Passkeys | Sign-in | Face ID or fingerprint to sign back in; the email code stays for new accounts and lost devices. Checked on our server (Supabase's own passkeys are still experimental); adding one needs a sign-in in the last 10 minutes |
-| next | Nice | Google and Discord sign-in | Sign-in, Age question | The age question still comes first for new accounts |
+| doing | Nice | Google and Discord sign-in | Sign-in, Age question | Through Supabase. The age question still comes first for new accounts: someone new who skips it is forgotten and asked it before continuing. Buttons only show once a provider is switched on in Supabase |
 
 ### Developer publishing (build track 3)
 
