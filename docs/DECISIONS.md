@@ -31,7 +31,7 @@ Settled calls. Don't reopen these in code or docs without Julius approving the c
 - **Hosting is priced with a margin, with a free tier.** Multiplayer on our rooms costs about twice what Cloudflare charges us (roughly $2 per 1,000 player-hours). Every developer or team gets the first 1,000 player-hours a month free, so family games and prototypes never pay. Running your own servers is always free. Set before the beta, so no developer ever sees an "at cost" promise taken back.
 - **Bring your own servers, any time.** Our rooms are a default, never a requirement. Moving off them is a config change, not a rewrite.
 - **No ads in games, at least through beta.** Ad scripts change after we scan them, track teens and are the main source of scams on web game sites, and ad-funded design drifts toward clickbait. Developers earn through purchases, our free checkout, and tips. Promoted games are our own labeled listings, not ad networks.
-- **Honest purchase labels.** Every game page says in plain words what a game sells ("Free. Nothing to buy." or "Free. Sells cosmetic items.").
+- **Honest purchase labels.** Every game page says in plain words what a game sells: "No in-game purchases" or "In-game purchases: cosmetic items".
 - **No paid random rewards (loot boxes) for anyone.** Players always know what they're buying. Simpler than age checks, fits the no-slop stance, and avoids the countries that restrict them.
 - **Real-money prices always shown.** If a game has its own coins or gems, the real cost appears next to them.
 - **Every game that sells something states its refund policy.** The developer is the seller, so refunds and chargebacks are theirs.
