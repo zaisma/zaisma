@@ -7,7 +7,8 @@ import { handleDeveloper } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { message } from "./html.ts";
 import { handleMcp } from "./mcp.ts";
-import { gamePage, home, legal, reportForm, submitReport } from "./pages.ts";
+import { handlePlayed, home } from "./home.ts";
+import { gamePage, legal, reportForm, submitReport } from "./pages.ts";
 import { handleSaves } from "./saves.ts";
 import { handleScanBatch } from "./scan.ts";
 
@@ -27,6 +28,9 @@ export default {
     if (method !== "GET" && method !== "HEAD" && method !== "POST" && !(method === "PUT" && path.startsWith("/api/saves/"))) return new Response("Method not allowed", { status: 405 });
 
     if (path === "/" && method !== "POST") return home(env);
+
+    const played = await handlePlayed(request, env, path);
+    if (played) return played;
 
     const save = path.match(/^\/api\/saves\/([a-z0-9-]+)$/);
     if (save) return handleSaves(request, env, save[1]!);

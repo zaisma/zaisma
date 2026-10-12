@@ -93,7 +93,8 @@ main{max-width:1240px;margin:0 auto;padding:32px 24px 64px}
 .tile.lit::before,.tile.lit .pic::after{opacity:calc(.5 * var(--gf,1))}
 .tile.lit .pic::before{opacity:calc(.8 * var(--gf,1))}
 .tile .body{padding:12px;display:flex;align-items:center;gap:10px}
-.tile .name{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;font-weight:600;font-size:15px}
+.tile .name{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;font-weight:600;font-size:15px;text-decoration:none}
+.tile .name:hover span{text-decoration:underline}
 .tile .name span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tile .name small{color:var(--muted);font-size:12px;font-weight:500}
 .tile .go{flex:none;display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;background:var(--raised)}
@@ -208,17 +209,26 @@ export function layout(env: Env, opts: { title: string; body: Raw; bare?: boolea
 <body>
 ${opts.bare
     ? opts.body
-    : html`<header class="top"><div class="in">
-  <a class="logo" href="/" aria-label="Zaisma home"><img src="/zaisma-wordmark-metal.svg" alt="Zaisma"></a>
-  <nav>${opts.admin ? html`<a href="/admin">Admin</a><a href="/admin/audit">Audit log</a>` : opts.nav === "dashboard" ? html`<a href="/">Home</a><a href="/dashboard" aria-current="page">Your games</a>` : html`<a href="/">Home</a>`}</nav>
-  <div class="end">${env.SUPABASE_URL ? raw(ACCOUNT_LINK) : ""}</div>
-</div></header>
+    : html`${siteHeader(env, opts)}
 <main>${opts.body}</main>
-<footer><div class="in"><span>Zaisma™, open source</span><a href="/legal/content-rules">Content rules</a><a href="/legal/privacy">Privacy</a><a href="/legal/dmca">Copyright (DMCA)</a><a href="/dashboard">For game developers</a><a href="https://github.com/zaisma/zaisma">GitHub</a></div></footer>`}
+${siteFooter()}`}
 <script>${raw(METAL_SCRIPT)}</script>
 </body>
 </html>`;
   return new Response(doc.html, { headers: securityHeaders(env, opts.admin || opts.private ? { "Cache-Control": "no-store" } : {}) });
+}
+
+/** The site's header, also used on its own by pages that lay themselves out (the game page). */
+export function siteHeader(env: Env, opts: { admin?: boolean; nav?: "dashboard" } = {}): Raw {
+  return html`<header class="top"><div class="in">
+  <a class="logo" href="/" aria-label="Zaisma home"><img src="/zaisma-wordmark-metal.svg" alt="Zaisma"></a>
+  <nav>${opts.admin ? html`<a href="/admin">Admin</a><a href="/admin/audit">Audit log</a>` : opts.nav === "dashboard" ? html`<a href="/">Home</a><a href="/dashboard" aria-current="page">Your games</a>` : html`<a href="/">Home</a>`}</nav>
+  <div class="end">${env.SUPABASE_URL ? raw(ACCOUNT_LINK) : ""}</div>
+</div></header>`;
+}
+
+export function siteFooter(): Raw {
+  return html`<footer><div class="in"><span>Zaisma™, open source</span><a href="/legal/content-rules">Content rules</a><a href="/legal/privacy">Privacy</a><a href="/legal/dmca">Copyright (DMCA)</a><a href="/dashboard">For game developers</a><a href="https://github.com/zaisma/zaisma">GitHub</a></div></footer>`;
 }
 
 export function message(env: Env, title: string, text: string, status = 200): Response {
