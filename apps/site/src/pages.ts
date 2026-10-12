@@ -147,6 +147,8 @@ main.gp{max-width:1240px;margin:0 auto;padding:30px 24px 72px}
   .room .count{min-width:0;font-size:16px}
   .room .btn,.room .full{min-width:76px}
 }
+/* The narrowest phones keep just the flag; the country is in the Join button's label. */
+@media (max-width:370px){.room .where{min-width:0}.room .where abbr{display:none}}
 .updates{list-style:none;padding:0;margin:0;display:grid;gap:16px;max-width:780px}
 .updates li{padding:18px 20px}
 .updates h3{margin:0 0 6px;font-size:18px}
