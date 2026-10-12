@@ -81,7 +81,7 @@ beforeEach(async () => {
     const url = new URL(input instanceof Request ? input.url : String(input));
     return url.origin === SUPABASE ? fakeSupabase(url, init) : realFetch(input, init);
   });
-  await env.DB.exec("DELETE FROM played; DELETE FROM game_images; DELETE FROM api_keys; DELETE FROM saves; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
+  await env.DB.exec("DELETE FROM played; DELETE FROM game_images; DELETE FROM api_keys; DELETE FROM save_history; DELETE FROM saves; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -408,6 +408,112 @@ describe("cloud saves", () => {
     expect(await env.DB.prepare("SELECT * FROM saves").first()).toBeNull();
   });
 
+  describe("earlier versions", () => {
+    const id = () => users.get("fox@example.com")!;
+    const copies = async () => (await env.DB.prepare("SELECT * FROM save_history ORDER BY at DESC, rowid DESC").all<{ id: string; reason: string; at: number; hash: string }>()).results;
+    // Pretend the history was made earlier, so the next save is due an hourly copy.
+    const age = (ms: number) => env.DB.prepare("UPDATE save_history SET at = at - ?").bind(ms).run();
+    const putWith = (b: Browser, body: Record<string, unknown>) => b.go("/api/saves/owl-game", undefined, { method: "PUT", body: JSON.stringify(body) });
+
+    it("keeps a copy about once an hour, not on every save", async () => {
+      const gameId = await liveGame();
+      const b = new Browser();
+      await join(b);
+      await put(b, 0, { level: "1" });
+      await put(b, 1, { level: "2" });
+      // The first overwrite keeps a copy: there's nothing in the history yet.
+      expect((await copies()).map((c) => c.reason)).toEqual(["hourly"]);
+      await put(b, 2, { level: "3" });
+      expect(await copies()).toHaveLength(1);
+      await age(2 * 3600_000);
+      await put(b, 3, { level: "4" });
+      const list = await copies();
+      expect(list).toHaveLength(2);
+      expect(await env.SAVES.get(`${id()}/${gameId}/${list[0]!.id}.json`).then((o) => o?.text())).toBe(canonicalSave({ level: "3" }));
+    });
+
+    it("keeps what's about to be lost: replaced progress, a shrunken save and the device's progress", async () => {
+      await liveGame();
+      const b = new Browser();
+      await join(b);
+      await put(b, 0, { level: "9", coins: "5000", items: "sword,shield,bow" });
+      await put(b, 1, { level: "10", coins: "5100", items: "sword,shield,bow" });
+      await putWith(b, { base: 2, data: JSON.stringify({ level: "11", coins: "5200", items: "sword,shield,bow" }), replace: true });
+      await put(b, 3, { level: "1" });
+      expect((await putWith(b, { keep: true, data: JSON.stringify({ phone: "progress" }) })).status).toBe(200);
+      expect((await copies()).map((c) => c.reason)).toEqual(["device", "smaller", "replaced", "hourly"]);
+      // Keeping the device's progress doesn't touch the account's save.
+      expect(((await (await b.go("/api/saves/owl-game")).json()) as { version: number }).version).toBe(4);
+    });
+
+    it("keeps five, dropping routine copies before ones from right before progress was lost", async () => {
+      await liveGame();
+      const b = new Browser();
+      await join(b);
+      await put(b, 0, { level: "0" });
+      await putWith(b, { base: 1, data: JSON.stringify({ level: "1" }), replace: true });
+      for (let v = 2; v <= 8; v++) {
+        await age(2 * 3600_000);
+        await put(b, v, { level: String(v) });
+      }
+      const list = await copies();
+      expect(list).toHaveLength(5);
+      expect(list.at(-1)!.reason).toBe("replaced");
+      const files = await env.SAVES.list({ prefix: `${id()}/g-owl-game/` });
+      expect(files.objects).toHaveLength(5);
+    });
+
+    it("goes back to an earlier version, and keeps the progress it replaced", async () => {
+      const gameId = await liveGame();
+      const b = new Browser();
+      await join(b);
+      await put(b, 0, { level: "7" });
+      await put(b, 1, { level: "1" });
+      const [copy] = await copies();
+      const page = await (await b.go("/account/saves/owl-game")).text();
+      expect(page).toContain("Earlier versions");
+      expect(page).toContain(`value="${copy!.id}"`);
+      const res = await b.go("/account/saves/owl-game/restore", { id: copy!.id });
+      expect(res.headers.get("location")).toBe("/account/saves/owl-game?restored");
+      const got = (await (await b.go("/api/saves/owl-game")).json()) as { version: number; data: unknown };
+      expect(got).toMatchObject({ version: 3, data: { level: "7" } });
+      expect((await copies()).map((c) => c.reason)).toEqual(["restore", "hourly"]);
+      expect(await env.SAVES.get(saveKey(id(), gameId)).then((o) => o?.text())).toBe(canonicalSave({ level: "7" }));
+      expect(await (await b.go("/account/saves/owl-game?restored")).text()).toContain("starts from that progress");
+      // A device still on the old version has to choose instead of overwriting.
+      expect((await put(b, 2, { level: "2" })).status).toBe(409);
+    });
+
+    it("lists saves on the account, only for the player, and refuses other people's copies", async () => {
+      await liveGame();
+      const a = new Browser();
+      await join(a);
+      await put(a, 0, { level: "1" });
+      await put(a, 1, { level: "2" });
+      expect(await (await a.go("/account/saves")).text()).toContain('href="/account/saves/owl-game"');
+      expect(await (await a.go("/account")).text()).toContain('href="/account/saves"');
+      const [copy] = await copies();
+      const other = new Browser();
+      await join(other, "b@example.com", "Player Two");
+      expect(await (await other.go("/account/saves")).text()).toContain("No saves yet");
+      expect((await other.go("/account/saves/owl-game/restore", { id: copy!.id })).headers.get("location")).toBe("/account/saves/owl-game?failed");
+      expect((await new Browser().go("/account/saves")).headers.get("location")).toBe("/signin?next=%2Faccount%2Fsaves");
+      expect((await a.go("/account/saves/owl-game/restore", { id: copy!.id }, { origin: "https://evil.example" })).status).toBe(403);
+    });
+
+    it("deletes earlier versions with the account", async () => {
+      const gameId = await liveGame();
+      const b = new Browser();
+      await join(b);
+      const account = id();
+      await put(b, 0, { level: "1" });
+      await put(b, 1, { level: "2" });
+      await b.go("/account/delete", { confirm: "delete" });
+      expect((await env.SAVES.list({ prefix: `${account}/${gameId}/` })).objects).toHaveLength(0);
+      expect(await copies()).toHaveLength(0);
+    });
+  });
+
   it("game pages offer saves only for games that use them", async () => {
     await liveGame();
     await liveGame("own-saves", 0);
@@ -415,6 +521,7 @@ describe("cloud saves", () => {
     expect(page).toContain("window.startSaves = function");
     expect(page).toContain('id="save-choice"');
     expect(page).toContain('"api":"/api/saves/owl-game"');
+    expect(page).toContain('<a id="save-history" href="/account/saves/owl-game" hidden>');
     const own = await (await SELF.fetch(`${SITE}/g/own-saves`)).text();
     expect(own).not.toContain("window.startSaves = function");
     expect(own).not.toContain("save-choice");

@@ -9,7 +9,7 @@ import { message } from "./html.ts";
 import { handleMcp } from "./mcp.ts";
 import { handlePlayed, home } from "./home.ts";
 import { gamePage, legal, reportForm, submitReport } from "./pages.ts";
-import { handleSaves } from "./saves.ts";
+import { handleSaveHistory, handleSaves } from "./saves.ts";
 import { handleScanBatch } from "./scan.ts";
 
 /** Must match the daily cron in wrangler.jsonc. */
@@ -37,6 +37,9 @@ export default {
 
     const dashboard = await handleDashboard(request, env, path);
     if (dashboard) return dashboard;
+
+    const history = await handleSaveHistory(request, env, path);
+    if (history) return history;
 
     const account = await handleAccount(request, env, path);
     if (account) return account;

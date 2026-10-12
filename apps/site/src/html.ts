@@ -225,6 +225,8 @@ footer a:hover{color:var(--text);text-decoration:underline;text-underline-offset
 code.key{display:block;word-break:break-all;user-select:all;color:var(--text);font-size:13px}
 .keys{list-style:none;padding:0;margin:0 0 12px}
 .keys li{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0;background:linear-gradient(#000,#000) bottom/100% 1px no-repeat}
+.keys .btn{white-space:nowrap;flex:none}
+.keys .why{display:block}
 .hint{font-size:12px;color:var(--muted)}
 fieldset{border:0;padding:0;margin:0}
 legend{font-size:14px;color:var(--muted);margin-bottom:8px}

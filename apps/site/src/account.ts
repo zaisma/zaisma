@@ -359,6 +359,8 @@ ${err(error)}
 ${account.age_band === "13-17"
       ? html`<details><summary>Turned 18?</summary><form class="stack" method="post" action="/account/age">${birthFields()}<button class="btn ghost" type="submit">Update</button></form></details>`
       : ""}
+<h2>Game saves</h2>
+<p>Games you play while signed in save your progress to your account. <a href="/account/saves">See your saves</a>, and go back to an earlier version if progress goes missing.</p>
 ${games.length
       ? html`<h2>Your games</h2><ul>${games.map((g) => html`<li><a href="/dashboard/${g.slug}">${g.title}</a> <span class="pill ${g.status}">${g.status}</span></li>`)}</ul>`
       : ""}

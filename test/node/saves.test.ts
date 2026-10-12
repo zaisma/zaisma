@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { canonicalSave, parseSave } from "../../packages/core/src/saves.ts";
+import { canonicalSave, copiesToDrop, copyReason, parseSave, type SaveCopy, type SaveCopyReason } from "../../packages/core/src/saves.ts";
 
 interface Format {
   encode: (v: unknown, pending: Promise<void>[], seen: unknown[]) => unknown;
@@ -80,5 +80,32 @@ describe("cloud save format", () => {
     expect(parseSave('{"idb":[],"local":{"a":1}}')).toBeNull();
     expect(parseSave('{"idb":[],"local":{},"more":{}}')).toBeNull();
     expect(parseSave('{"a":1}')).toBeNull();
+  });
+});
+
+describe("save history", () => {
+  const H = 3600_000;
+  const copy = (hoursAgo: number, reason: SaveCopyReason = "hourly"): SaveCopy => ({ id: `c${hoursAgo}`, account_id: "a", game_id: "g", at: 1e12 - hoursAgo * H, reason, hash: `h${hoursAgo}`, bytes: 10 });
+
+  it("copies when progress is about to be lost, and otherwise once an hour", () => {
+    const current = { bytes: 1000, updated_at: 1e12 };
+    expect(copyReason(current, { bytes: 1000, replace: true }, 1e12)).toBe("replaced");
+    expect(copyReason(current, { bytes: 400, replace: false }, 1e12)).toBe("smaller");
+    expect(copyReason(current, { bytes: 900, replace: false }, null)).toBe("hourly");
+    expect(copyReason(current, { bytes: 900, replace: false }, 1e12 - H)).toBe("hourly");
+    expect(copyReason(current, { bytes: 900, replace: false }, 1e12 - H / 2)).toBeNull();
+  });
+
+  it("keeps five: the newest always, then routine copies go first, oldest first", () => {
+    const list = [copy(0), copy(1), copy(2, "replaced"), copy(3), copy(4), copy(5, "smaller"), copy(6)];
+    expect(copiesToDrop(list, 1e12).map((c) => c.id)).toEqual(["c6", "c4"]);
+    expect(copiesToDrop(list.slice(0, 5), 1e12)).toEqual([]);
+  });
+
+  it("drops the oldest when every older copy is protected, and stops protecting after 30 days", () => {
+    const protectedOnly = [copy(0), copy(1, "device"), copy(2, "replaced"), copy(3, "smaller"), copy(4, "restore"), copy(5, "replaced")];
+    expect(copiesToDrop(protectedOnly, 1e12).map((c) => c.id)).toEqual(["c5"]);
+    const old = [copy(0), copy(1), copy(2), copy(3), copy(4), copy(31 * 24, "replaced")];
+    expect(copiesToDrop(old, 1e12).map((c) => c.id)).toEqual([`c${31 * 24}`]);
   });
 });

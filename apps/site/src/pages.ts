@@ -133,6 +133,7 @@ dialog .head strong{font-family:var(--display);font-size:17px}
 dialog .body{padding:14px 16px;display:grid;gap:12px;font-size:14px}
 dialog .body p{margin:0;color:var(--muted)}
 dialog nav{display:grid;gap:8px;padding:0 16px 16px}
+dialog nav a[hidden]{display:none}
 dialog nav a{display:block;padding:11px 12px;text-decoration:none;font-family:var(--display);background:var(--face-hi);box-shadow:inset 1px 1px 0 rgba(255,255,255,.1),inset -1px -1px 0 #000}
 dialog nav a:hover{background:linear-gradient(180deg,#3a3f48,#2a2e35)}
 </style>
@@ -191,6 +192,7 @@ ${siteFooter()}
   </div>
   ${saves ? html`<p id="save-status" class="muted" hidden></p>` : ""}
   <nav>
+    ${saves ? html`<a id="save-history" href="/account/saves/${game.slug}" hidden>Earlier progress</a>` : ""}
     <a href="/g/${game.slug}/report">Report this game</a>
     <a href="/legal/content-rules">Content rules</a>
     <a href="/">All games</a>
