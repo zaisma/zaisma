@@ -84,7 +84,8 @@ Detailed plan approved: guest passes, game server API, rooms, SDK, demos.
 | planned | Must | Upload command | Creator accounts | File by file, up to 2 GB per game, only changed files |
 | planned | Must | Scan only what changed; per-creator budgets | Upload command | Plus about 20 updates per game per day |
 | planned | Must | Drafts and publishing | Upload command | Preview links, publish now or later, roll back; keep the live version plus the last 5 |
-| planned | Must | Game visibility | Creator accounts | Draft, listed or unlisted; separate from review status |
+| planned | Must | Game visibility | Creator accounts | Draft, listed, unlisted or private; separate from review status. Unlisted is noindex and never in any shelf |
+| planned | Must | Tester links | Game visibility | Secret, named, revocable links that open a private game; guests can use them |
 | planned | Must | Game details and device labels | Creator accounts | Covers and screenshots, scanned; games for your device first, "Play anyway" for the rest |
 | planned | Must | No-slop cover and title checks | Game details and device labels | AI review checks covers; real screenshots on every game page |
 | planned | Must | No free-text chat rule | | In the content rules and the AI review |
