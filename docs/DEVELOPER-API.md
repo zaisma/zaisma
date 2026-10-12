@@ -34,7 +34,7 @@ Make an API key on your account page (zaisma.com/account, under Game developers)
 
 | Call | What it does |
 | --- | --- |
-| `GET /games/:slug/reports` | Player reports from the last 90 days, counted by reason (`open` or `closed`), with what players wrote in reports that report triage sorted as bugs. Child-safety reports are never counted or shown. |
+| `GET /games/:slug/reports?since=` | Player reports from the last 90 days, counted by reason (`open` or `closed`), and the bug reports: reports that report triage sorted as bugs, each with what the player wrote, a one-line summary and the version they played. Pass the `next_since` from your last call as `since` to get only the bug reports that arrived after it. Child-safety reports are never counted or shown. |
 | `GET /games/:slug/stats?days=30` | Multiplayer use per day: rooms, player minutes and messages. Plays and players coming back arrive with the Zaisma SDK. |
 | `GET /games/:slug/history` | What happened to the game, newest first, and whether you or Zaisma did it. |
 

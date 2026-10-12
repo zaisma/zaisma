@@ -6,11 +6,9 @@ import {
   SEVERITY,
   addAiUsage,
   aiUsage,
-  audit,
   gameById,
   reportLabel,
   reportPictureKey,
-  setGameStatus,
   versionById,
   type Game,
   type Report,
@@ -31,7 +29,10 @@ import { inspectVersion, summarize, type ScanDeps } from "./scan.ts";
  * - a bug: the developer sees it in their bug reports, and the report is closed;
  * - a claim the game's files could show (sexual content, malware, a scam…): the live version's
  *   files are checked again, once per version. Only something new that check finds in the files
- *   can hide the game, never what a report says;
+ *   can pause the game, never what a report says, and then under the same rule as a report: a
+ *   brand-new game is hidden and a recent update goes back a version; an established game stays up
+ *   for a person to decide. The files haven't changed since its scan, so a second AI opinion on the
+ *   same files isn't enough to take it down;
  * - child safety: no AI reads child-safety reports. If the AI finds child safety in any other
  *   report, it's treated as one: top of the queue, an URGENT alert and the same pause rule.
  * Takedowns, restores and dismissals stay a person's one click, in /admin/reports.
@@ -132,8 +133,8 @@ async function triageOne(env: Env, report: Report, deps: TriageDeps, lastTry: bo
   }
 
   const now = Date.now();
-  await env.DB.prepare("UPDATE reports SET severity = ?, group_id = ?, triage = ?, triaged_at = ?, bug = ?, status = ?, closed_at = ? WHERE id = ?")
-    .bind(outcome.severity, outcome.groupId, JSON.stringify(outcome.triage), now, outcome.bug ? 1 : 0, outcome.close ? "actioned" : "open", outcome.close ? now : null, report.id)
+  await env.DB.prepare("UPDATE reports SET severity = ?, group_id = ?, triage = ?, triaged_at = ?, bug = ?, bug_at = ?, status = ?, closed_at = ? WHERE id = ?")
+    .bind(outcome.severity, outcome.groupId, JSON.stringify(outcome.triage), now, outcome.bug ? 1 : 0, outcome.bug ? now : null, outcome.close ? "actioned" : "open", outcome.close ? now : null, report.id)
     .run();
   if (outcome.recheck) await env.SCAN_QUEUE.send({ versionId: outcome.recheck, recheck: { reportId: report.id } });
   await alertAfterTriage(env, report, game, outcome);
@@ -365,20 +366,20 @@ export async function recheckVersion(env: Env, versionId: string, reportId: stri
   triage.actions = triage.actions.map((a) => (a === CHECKING ? "Checked the game's files again" : a));
   let severity = report.severity;
 
-  // Only something new in the files hides the game: a child-safety flag, or a rejection the first scan didn't make.
+  // Only something new in the files counts: a child-safety flag, or a rejection the first scan didn't make.
   if (result.childSafety || (result.decision === "rejected" && first?.decision !== "rejected")) {
     severity = Math.min(severity, result.childSafety ? SEVERITY.child_safety : SEVERITY.urgent);
-    if (game.status === "live" && game.current_version_id === version.id) {
-      await setGameStatus(env.DB, game.id, "held");
-      await audit(env.DB, game.id, "auto-hold", `Re-check after a report, version ${version.id}\n${summarize(result.findings)}`);
-      triage.actions.push("Hid the game: the re-check found a problem in its files");
-    }
+    // The same rule as a child-safety or illegal-content report: no single report takes an established game offline.
+    const paused = game.current_version_id === version.id ? await pauseForReport(env, game, `Re-check after a report found: ${summarize(news)}`) : null;
+    triage.actions.push(
+      paused === "game" ? "Hid the new game until a person looks" : paused === "update" ? "Put players back on the version before the latest update" : "Left the game up: it's established, so a person decides",
+    );
     triage.recommendation = "take_down";
     triage.why = "The re-check of the game's files found a clear problem.";
     await sendAlert(
       env,
-      `URGENT ${result.childSafety ? "child-safety flag" : "re-check"} on ${game.slug}: the game is hidden`,
-      `A report asked for the game's files to be checked again, and the check found:\n\n${summarize(result.findings)}\n\n${result.childSafety ? "Don't delete anything; review it and report to NCMEC if confirmed.\n\n" : ""}Review: ${env.SITE_ORIGIN}/admin/reports`,
+      `URGENT ${result.childSafety ? "child-safety flag" : "re-check"} on ${game.slug}: ${paused === "game" ? "the game is hidden" : paused === "update" ? "the update is paused" : "the game is still up"}`,
+      `A report asked for the game's files to be checked again, and the check found:\n\n${summarize(news)}\n\n${result.childSafety ? "Don't delete anything; review it and report to NCMEC if confirmed.\n\n" : ""}Review: ${env.SITE_ORIGIN}/admin/reports`,
     );
   } else if (news.length) {
     severity = Math.min(severity, SEVERITY.high);

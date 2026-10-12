@@ -108,7 +108,7 @@ describe("report triage", () => {
     expect((await gameBySlug(env.DB, "test-game"))?.status).toBe("held");
   });
 
-  it("checks the game's files again once, and only what they show can hide it", async () => {
+  it("checks the game's files again once, and never takes an established game offline over it", async () => {
     const { versionId } = await liveGame();
     await send({ reason: "malware", details: "it asks for my steam password" });
     await triageReports(testEnv, ai({ severity: "high", category: "malware", recommendation: "recheck" }).deps);
@@ -122,7 +122,9 @@ describe("report triage", () => {
     [r] = await reports();
     expect(r!.severity).toBe(1);
     expect(triageOf(r!)).toMatchObject({ recommendation: "take_down", recheck: { status: "done", decision: "rejected" } });
-    expect((await gameBySlug(env.DB, "test-game"))?.status).toBe("held");
+    // The files haven't changed since its scan: a person decides.
+    expect(triageOf(r!).actions).toContain("Left the game up: it's established, so a person decides");
+    expect((await gameBySlug(env.DB, "test-game"))?.status).toBe("live");
     // The version's own scan stays as it was.
     expect((await versionById(env.DB, versionId))?.scan_status).toBe("approved");
 
@@ -132,6 +134,15 @@ describe("report triage", () => {
     const second = (await reports())[1]!;
     expect(triageOf(second)).toMatchObject({ recommendation: "person" });
     expect(triageOf(second).recheck).toBeUndefined();
+  });
+
+  it("hides a brand-new game when the check finds a clear problem", async () => {
+    const { versionId } = await liveGame(1);
+    await send({ reason: "malware", details: "fake login page" });
+    await triageReports(testEnv, ai({ severity: "high", category: "malware", recommendation: "recheck" }).deps);
+    await recheckVersion(testEnv, versionId, (await reports())[0]!.id, scanSays("reject"));
+    expect(triageOf((await reports())[0]!).actions).toContain("Hid the new game until a person looks");
+    expect((await gameBySlug(env.DB, "test-game"))?.status).toBe("held");
   });
 
   it("leaves the game up when the check finds nothing, and recommends dismissing", async () => {

@@ -9,10 +9,12 @@ ALTER TABLE reports ADD COLUMN group_id TEXT;
 ALTER TABLE reports ADD COLUMN triage TEXT;
 ALTER TABLE reports ADD COLUMN triaged_at INTEGER;
 ALTER TABLE reports ADD COLUMN triage_tries INTEGER NOT NULL DEFAULT 0;
--- 1 when the developer sees it as a bug report (in the dashboard and the MCP).
+-- 1 when the developer sees it as a bug report (in the dashboard and the MCP), and since when, so their
+-- AI can ask for the ones that arrived since it last looked.
 ALTER TABLE reports ADD COLUMN bug INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE reports ADD COLUMN bug_at INTEGER;
 
-UPDATE reports SET bug = 1 WHERE reason = 'broken';
+UPDATE reports SET bug = 1, bug_at = created_at WHERE reason = 'broken';
 UPDATE reports SET severity = CASE
   WHEN reason = 'child_safety' THEN 0
   WHEN reason = 'illegal' THEN 1

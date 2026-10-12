@@ -167,10 +167,11 @@ const TOOLS: Tool[] = [
   {
     name: "get_reports",
     title: "Player reports",
-    description: "What players reported about the game in the last 90 days, counted by reason, with what players wrote in bug reports.",
-    inputSchema: object({ slug }, ["slug"]),
+    description:
+      "What players reported about the game in the last 90 days, counted by reason, with the bug reports: what the player wrote, a one-line summary and the version they played. To check for new bug reports, pass the next_since from your last call as since.",
+    inputSchema: object({ slug, since: { type: "integer", minimum: 0, description: "next_since from an earlier call: only bug reports that arrived after it." } }, ["slug"]),
     annotations: read,
-    run: (args, call) => call("GET", `/games/${str(args.slug)}/reports`),
+    run: (args, call) => call("GET", `/games/${str(args.slug)}/reports${args.since ? `?since=${str(args.since)}` : ""}`),
   },
   {
     name: "get_stats",

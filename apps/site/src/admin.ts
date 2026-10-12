@@ -216,7 +216,7 @@ async function adminAction(request: Request, env: Env, path: string, actor: stri
     if (!group.length) return back("/admin/reports");
     const gameId = group[0]!.game_id;
     if (m[2] === "bug") {
-      await env.DB.prepare("UPDATE reports SET bug = 1 WHERE (id = ? OR group_id = ?) AND status = 'open'").bind(m[1]!, m[1]!).run();
+      await env.DB.prepare("UPDATE reports SET bug = 1, bug_at = COALESCE(bug_at, ?) WHERE (id = ? OR group_id = ?) AND status = 'open'").bind(Date.now(), m[1]!, m[1]!).run();
       await closeReportGroup(env.DB, m[1]!, "actioned");
       await audit(env.DB, gameId, "reports-to-developer", reason || `${group.length} report(s) passed to the developer as bugs`, actor);
     } else {
