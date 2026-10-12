@@ -112,7 +112,7 @@ main.gp{max-width:1240px;margin:0 auto;padding:30px 24px 72px}
 .rooms-head{display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px;margin:0 0 16px}
 .rooms-head .badge{font-size:14px}
 .rooms{list-style:none;padding:0;margin:0;display:grid;gap:10px;max-width:900px}
-.room{--cut:12px;display:grid;grid-template-columns:minmax(0,1fr) auto 104px;align-items:center;gap:8px 24px;padding:10px 10px 10px 20px;clip-path:polygon(0 0,calc(100% - 12px) 0,100% 12px,100% 100%,0 100%)}
+.room{--cut:12px;display:grid;grid-template-columns:minmax(0,1fr) 280px 104px;align-items:center;gap:8px 24px;padding:10px 10px 10px 20px;clip-path:polygon(0 0,calc(100% - 12px) 0,100% 12px,100% 100%,0 100%)}
 .room.later{display:none}
 #rooms.all .room.later{display:grid}
 .room .id{display:flex;align-items:center;flex-wrap:wrap;gap:4px 18px;min-width:0}
@@ -130,7 +130,7 @@ main.gp{max-width:1240px;margin:0 auto;padding:30px 24px 72px}
 .gauge i{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(180deg,#f2f4f6,#aeb2b8 55%,#71757c);box-shadow:0 0 7px rgba(225,230,240,.28)}
 .room .btn{min-height:44px}
 .room .full{display:grid;place-items:center;min-height:44px;color:var(--muted);font-family:var(--display);font-size:15px;font-weight:500}
-.regions{display:flex;max-width:100%;overflow-x:auto;scrollbar-width:none;margin:0 0 14px}
+.regions{display:flex;width:fit-content;max-width:100%;overflow-x:auto;scrollbar-width:none;margin:0 0 14px}
 .regions button{min-height:38px;padding:0 13px;gap:7px}
 .regions small{font-size:12px;font-weight:500;color:var(--muted)}
 .rooms-empty{max-width:900px;margin:0}
