@@ -80,7 +80,7 @@ beforeEach(async () => {
     const url = new URL(input instanceof Request ? input.url : String(input));
     return url.origin === SUPABASE ? fakeSupabase(url, init) : realFetch(input, init);
   });
-  await env.DB.exec("DELETE FROM saves; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
+  await env.DB.exec("DELETE FROM api_keys; DELETE FROM saves; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -401,5 +401,34 @@ describe("cloud saves", () => {
     const own = await (await SELF.fetch(`${SITE}/g/own-saves`)).text();
     expect(own).not.toContain("window.startSaves = function");
     expect(own).not.toContain("save-choice");
+  });
+});
+
+describe("API keys on the account page", () => {
+  it("shows a new key once, lists it and removes it", async () => {
+    const b = new Browser();
+    await join(b);
+    const made = await (await b.go("/account/keys", { name: "My laptop" })).text();
+    const token = made.match(/zsk_[a-z0-9]{20}_[A-Za-z0-9_-]{43}/)?.[0];
+    expect(token).toBeTruthy();
+    const api = await SELF.fetch(`${SITE}/api/dev/games`, { headers: { authorization: `Bearer ${token}` } });
+    expect(await api.json()).toEqual({ games: [] });
+
+    const page = await (await b.go("/account")).text();
+    expect(page).toContain("My laptop");
+    expect(page).not.toContain(token!);
+
+    const id = page.match(/\/account\/keys\/([a-z0-9]+)\/revoke/)![1];
+    await b.go(`/account/keys/${id}/revoke`, {});
+    expect((await SELF.fetch(`${SITE}/api/dev/games`, { headers: { authorization: `Bearer ${token}` } })).status).toBe(401);
+  });
+
+  it("lets the dashboard use the session, but only from zaisma.com", async () => {
+    const b = new Browser();
+    await join(b);
+    expect((await b.go("/api/dev/games")).status).toBe(200);
+    const body = JSON.stringify({ title: "Cookie Game" });
+    expect((await b.go("/api/dev/games", undefined, { method: "POST", body, origin: "https://evil.example" })).status).toBe(403);
+    expect((await b.go("/api/dev/games", undefined, { method: "POST", body })).status).toBe(201);
   });
 });

@@ -85,13 +85,13 @@ Detailed plan approved: guest passes, game server API, rooms, SDK, demos.
 
 | Status | Must/Nice | Item | Needs | Notes |
 | --- | --- | --- | --- | --- |
-| planned | Must | Developer accounts | Sign-in, Games have owners | |
+| done | Must | Developer accounts | Sign-in, Games have owners | Any account owns games; API keys on the account page; one developer API for the MCP, upload command and dashboard (docs/DEVELOPER-API.md) |
 | planned | Must | Upload command | Developer accounts | File by file, up to 2 GB per game, only changed files |
 | planned | Must | Scan only what changed; per-developer budgets | Upload command | A daily limit on AI-reviewed uploads per free account (higher with Pro), about 20 updates per game per day |
 | planned | Must | Drafts and publishing | Upload command | Preview links, publish now or later, roll back; keep the live version plus the last 5 |
-| planned | Must | Game visibility | Developer accounts | Draft, listed, unlisted or private; separate from review status. Unlisted is noindex and never in any shelf |
+| doing | Must | Game visibility | Developer accounts | Draft, listed, unlisted or private; separate from review status. Unlisted is noindex and never in any shelf. In the API; draft and private games open through preview and tester links next |
 | planned | Must | Tester links | Game visibility | Secret, named, revocable links that open a private game; guests can use them |
-| doing | Must | Game details and device labels | Developer accounts | Covers and screenshots, scanned; games for your device first, "Play anyway" for the rest |
+| doing | Must | Game details and device labels | Developer accounts | Covers and screenshots, scanned; games for your device first, "Play anyway" for the rest. The API stores labels, covers and screenshots (checked by their bytes, approved by a person until image matching is connected); they show on the new game page |
 | planned | Must | No-slop cover and title checks | Game details and device labels | AI review checks covers; real screenshots on every game page |
 | planned | Must | No live chat or DMs between strangers rule | | In the content rules and the AI review; games may offer preset phrases and emotes |
 | planned | Must | Developer MCP | Drafts and publishing | Create, edit, upload, publish, roll back, scans, reports, stats |

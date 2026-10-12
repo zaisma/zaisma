@@ -94,7 +94,10 @@ export default {
     const game = await servableGame(env.DB, target.by);
     if (game?.status === "removed") return page(410, "This game was removed", "It broke Zaisma's rules or was taken down on request.", env);
     if (game?.status === "held") return page(404, "This game is being reviewed", "Try again later.", env);
-    if (!game || game.status !== "live" || !game.r2_prefix) return page(404, "Game not found", "Check the link and try again.", env);
+    // Drafts and private games open only through preview and tester links, which come next.
+    if (!game || game.status !== "live" || !game.r2_prefix || game.visibility === "draft" || game.visibility === "private") {
+      return page(404, "Game not found", "Check the link and try again.", env);
+    }
 
     // /<slug> -> /<slug>/ so the game's relative links work.
     if (env.GAME_HOST_MODE === "path" && !url.pathname.endsWith("/") && target.path === "") {

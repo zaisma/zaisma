@@ -128,6 +128,12 @@ footer .in{max-width:1240px;margin:0 auto;padding:22px 24px;color:var(--muted);f
 .error{color:var(--danger);margin:0 0 14px}
 .muted{color:var(--muted);font-size:14px}
 .small{font-size:12px}
+.shots{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px;margin-bottom:12px}
+.shots img{width:100%;aspect-ratio:16/9;object-fit:cover;background:var(--pic);display:block}
+.shots p{margin:6px 0}
+code.key{display:block;word-break:break-all;user-select:all;color:var(--text);font-size:13px}
+.keys{list-style:none;padding:0;margin:0 0 12px}
+.keys li{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}
 .hint{font-size:12px;color:var(--muted)}
 fieldset{border:0;padding:0;margin:0}
 legend{font-size:14px;color:var(--muted);margin-bottom:8px}
