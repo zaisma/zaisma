@@ -80,7 +80,7 @@ Launching at 13+ keeps us outside the strictest child-privacy law, as long as we
 The live roadmap, with every item and its status, is [`docs/ROADMAP.md`](ROADMAP.md). In short, the beta comes as soon as Phase 1's must-have items are done, then weekly releases. Being first matters more than being complete, but the beta has to meet what creators and players expect out of the box.
 
 0. **Safe hosting** (done): upload, scan, sandboxed game domain, directory, reports and takedowns.
-1. **Beta:** launch prerequisites (zaisma.gg, image matching, DMCA agent, paid plans), guest multiplayer and invite links, accounts and cloud saves, the creator MCP and one-prompt publishing, launch content and share cards. **Open the public beta.**
+1. **Beta:** launch prerequisites (the game domain, image matching, DMCA agent, paid plans), guest multiplayer and invite links, accounts and cloud saves, the creator MCP and one-prompt publishing, launch content and share cards. **Open the public beta.**
 2. **Earn:** the Zaisma buy sheet, owned items, purchase rules, at-cost multiplayer billing, deposits, donations.
 3. **Play together:** friends, Zaisma in Discord.
 4. **Discover:** the progress bar, real ratings, player lists, follows and the rest of the creator marketing kit.

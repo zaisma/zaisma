@@ -3,13 +3,18 @@
   "name": "zaisma-games",
   "main": "src/index.ts",
   "compatibility_date": "2026-10-01",
-  // Free workers.dev address until the game domain (zaisma.gg) is bought.
-  "workers_dev": true,
+  // Each game gets its own subdomain of the game domain, so games can't read each other's saves.
+  // The bare domain redirects to zaisma.com. Subdomains need a proxied wildcard DNS record (* AAAA 100::).
+  "routes": [
+    { "pattern": "zaismausercontent.com", "custom_domain": true },
+    { "pattern": "*.zaismausercontent.com/*", "zone_name": "zaismausercontent.com" }
+  ],
+  "workers_dev": false,
   "observability": { "enabled": true },
   "vars": {
-    // "path": games at /<slug>/ (workers.dev). "subdomain": games at <slug>.<GAME_DOMAIN>.
-    "GAME_HOST_MODE": "path",
-    "GAME_DOMAIN": "",
+    // "path": games at /<slug>/ (local dev only). "subdomain": games at <slug>.<GAME_DOMAIN>.
+    "GAME_HOST_MODE": "subdomain",
+    "GAME_DOMAIN": "zaismausercontent.com",
     "SITE_ORIGIN": "https://zaisma.com"
   },
   "d1_databases": [{ "binding": "DB", "database_name": "zaisma", "database_id": "bffea7a7-f905-4eaf-84f2-97b1fb6bf932", "migrations_dir": "../../migrations" }],

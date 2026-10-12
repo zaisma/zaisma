@@ -83,13 +83,16 @@ describe("game server", () => {
 });
 
 describe("resolveGame", () => {
-  const sub = { GAME_HOST_MODE: "subdomain" as const, GAME_DOMAIN: "zaisma.gg" };
+  const sub = { GAME_HOST_MODE: "subdomain" as const, GAME_DOMAIN: "zaismausercontent.com" };
   it("reads the slug from the path on workers.dev", () => {
     expect(resolveGame(new URL("https://x.workers.dev/shard-dodge/js/a.js"), { GAME_HOST_MODE: "path", GAME_DOMAIN: "" })).toEqual({ by: { slug: "shard-dodge" }, path: "js/a.js", base: "/shard-dodge/" });
   });
   it("reads the slug from the subdomain on the game domain", () => {
-    expect(resolveGame(new URL("https://shard-dodge.zaisma.gg/js/a.js"), sub)).toEqual({ by: { slug: "shard-dodge" }, path: "js/a.js", base: "/" });
-    expect(resolveGame(new URL("https://a.b.zaisma.gg/"), sub)).toBeNull();
+    expect(resolveGame(new URL("https://shard-dodge.zaismausercontent.com/js/a.js"), sub)).toEqual({ by: { slug: "shard-dodge" }, path: "js/a.js", base: "/" });
+    expect(resolveGame(new URL("https://a.b.zaismausercontent.com/"), sub)).toBeNull();
+  });
+  it("never serves games from the bare game domain", () => {
+    expect(resolveGame(new URL("https://zaismausercontent.com/shard-dodge/"), sub)).toBeNull();
   });
   it("treats any other host as a developer's own domain", () => {
     expect(resolveGame(new URL("https://play.mygame.com/"), sub)).toEqual({ by: { hostname: "play.mygame.com" }, path: "", base: "/" });

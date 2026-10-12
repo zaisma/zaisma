@@ -1,6 +1,8 @@
 # Copy to .dev.vars for local runs (npm run dev:site).
 SITE_ORIGIN=http://localhost:8787
 GAME_ORIGIN=http://localhost:8788
+GAME_HOST_MODE=path
+GAME_DOMAIN=
 # Lets you use /admin on localhost without Cloudflare Access. Ignored on any other host.
 DEV_ADMIN=1
 # Optional locally: without it, AI review is skipped and games are held for you to approve.
