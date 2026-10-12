@@ -30,6 +30,8 @@ export interface Env {
   DEV_ADMIN?: string;
   /** Seconds a guest plays with progress before "Keep your progress" shows. Default 300; the local preview uses less. */
   KEEP_OFFER_SECONDS?: string;
+  /** How long each place keeps a copy of a game's room list. 10 unless set (tests set 0). */
+  ROOM_LIST_CACHE_SECONDS?: string;
   /** Supabase Auth. Without these, accounts are off and everything else still works. */
   SUPABASE_URL?: string;
   SUPABASE_PUBLISHABLE_KEY?: string;

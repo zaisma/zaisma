@@ -1,4 +1,4 @@
-import { PLAYER_REPORT_REASONS, createReport, type PlayerReportReason } from "@zaisma/core";
+import { PLAYER_REPORT_REASONS, createReport, listRooms, type PlayerReportReason } from "@zaisma/core";
 import { guestName, isRoomCode, jwks, loadSigningKey, roomCode, signPass, type SigningKey } from "@zaisma/game-server";
 import { gameServer } from "./registry.ts";
 
@@ -16,6 +16,8 @@ export interface Env {
   GAME_ORIGIN: string;
   GAME_DOMAIN: string;
   PASS_SIGNING_KEY: string;
+  /** How long each place keeps a copy of a game's room list. 10 unless set (tests set 0). */
+  ROOM_LIST_CACHE_SECONDS?: string;
 }
 
 /** Guest passes last a day; the SDK keeps them only for the browser tab. */
@@ -27,10 +29,11 @@ export interface RoomGame {
   status: string;
   current_version_id: string | null;
   game_server: string | null;
+  room_browsing: string;
 }
 
 export async function playableGame(db: D1Database, slug: string): Promise<RoomGame | null> {
-  const game = await db.prepare("SELECT id, slug, status, current_version_id, game_server FROM games WHERE slug = ?").bind(slug).first<RoomGame>();
+  const game = await db.prepare("SELECT id, slug, status, current_version_id, game_server, room_browsing FROM games WHERE slug = ?").bind(slug).first<RoomGame>();
   return game && game.status === "live" && game.current_version_id ? game : null;
 }
 
@@ -126,6 +129,24 @@ export default {
       return json({ code: roomCode() }, 200, cors);
     }
 
+    // The game's listed rooms, for games that show them themselves (Zaisma.rooms.list).
+    const list = url.pathname.match(/^\/v1\/rooms\/([a-z0-9-]{1,40})$/);
+    if (list && request.method === "GET") {
+      const slug = list[1]!;
+      if (!(await isGameOrigin(env, slug, origin))) return json({ error: "Not allowed from here." }, 403);
+      const game = await playableGame(env.DB, slug);
+      if (!game || !gameServer(game.game_server)) return json({ error: "This game doesn't use Zaisma rooms." }, 404, origin!);
+      if (game.room_browsing === "off") return json({ rooms: [], playing: { players: 0, rooms: 0, closed: 0 }, joinable: 0, regions: [], region: null, more: 0 }, 200, origin!);
+      const found = await listRooms(env.DB, game.id, {
+        country: request.cf?.country as string | undefined,
+        continent: request.cf?.continent as string | undefined,
+        region: url.searchParams.get("region"),
+        cacheSeconds: Number(env.ROOM_LIST_CACHE_SECONDS ?? 10),
+      });
+      const link = (code: string) => `${env.SITE_ORIGIN}/g/${slug}?room=${code}`;
+      return json({ ...found, rooms: found.rooms.map((r) => ({ ...r, link: link(r.code) })) }, 200, origin!);
+    }
+
     const m = url.pathname.match(/^\/v1\/rooms\/([a-z0-9-]{1,40})\/([A-Z0-9]{6})$/);
     if (m && request.method === "GET") {
       const [, slug, code] = m as unknown as [string, string, string];
@@ -138,6 +159,10 @@ export default {
       headers.set("x-game-id", game.id);
       headers.set("x-game-slug", game.slug);
       headers.set("x-game-server", game.game_server!);
+      headers.set("x-room-code", code);
+      // Where the room's first player is (country and continent), so room lists can say where it runs.
+      headers.set("x-room-country", String(request.cf?.country ?? ""));
+      headers.set("x-room-continent", String(request.cf?.continent ?? ""));
       try {
         return await env.ROOMS.get(env.ROOMS.idFromName(`${slug}:${code}`)).fetch(new Request(request, { headers }));
       } catch (err) {

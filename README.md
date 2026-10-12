@@ -63,10 +63,33 @@ export default {
   onMessage(state, player, msg, room) {},
   onTick(state, dt, room) {},
 };
-// room.broadcast(msg), room.send(playerId, msg), room.players, room.end()
+// room.broadcast(msg), room.send(playerId, msg), room.players, room.end(),
+// room.setListed(false), room.setOpen(false)
 ```
 
 Games without server code can use the built-in `relay`, which passes each message to everyone else. See `examples/arena` (real-time) and `examples/four-in-a-row` (turn-based).
+
+#### Room browsing
+
+Open rooms are listed on the game's page (how full each is and where it runs, never who's in it), with "playing now" under the title (every room counts, hidden ones too), and the game gets the same list to show its own way:
+
+```js
+Zaisma.rooms.linked;                          // the room code the player's link points to, or null
+const { rooms, playing, regions } = await Zaisma.rooms.list();  // rooms: [{ code, players, max, open, location, near, link }]
+Zaisma.rooms.list({ region: "EU" });          // one region (continent codes, as in regions)
+const room = await Zaisma.rooms.quickJoin();  // the linked room, else a busy room with space nearby, else a new one
+Zaisma.joinRoom({ listed: false });           // a new room that's never listed: a private match
+```
+
+On the game server, `room.setListed(false)` hides a room (its code and links still work) and `room.setOpen(false)` closes it to new players once a match starts; players who were in it can still come back. With the relay, the room's first player can do the same from the game (`room.setListed`, `room.setOpen`). In the dashboard, a game lists its rooms on the page and in the game, only in the game, or nowhere.
+
+Join on the game page is an ordinary room link, so the game decides what comes first:
+
+- **Straight in:** call `joinRoom()` or `quickJoin()` when the game starts; both follow the link.
+- **A menu or character customizer first:** check `Zaisma.rooms.linked`, show your screen, then join. If the room filled up meanwhile, `joinRoom` fails with `err.code === "full"` and `quickJoin` finds another.
+- **Your own lobby:** list rooms only in the game and draw them yourself from `Zaisma.rooms.list()`.
+
+Playing alone needs no room, so don't make one until others can join: time in a room counts toward hosting even with one player.
 
 #### Run your game server yourself
 

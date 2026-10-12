@@ -14,6 +14,19 @@
  *   Zaisma.joinRoom({ server: "wss://my-server.example" });  // your own game server
  *   await Zaisma.invite(room);                // share sheet on phones, copies the link elsewhere
  *
+ * Room browsing. Listed rooms show on the game's Zaisma page and to the game itself:
+ *   Zaisma.rooms.linked;                      // the room code the player's link points to, or null
+ *   const { rooms, playing, regions } = await Zaisma.rooms.list();  // rooms: [{ code, players, max, open, location, near, link }]
+ *                                             // location: { country: "DE", name: "Germany", continent: "EU" } or null
+ *   Zaisma.rooms.list({ region: "EU" });      // only rooms in one region (a continent code from regions)
+ *   const room = await Zaisma.rooms.quickJoin();           // the linked room, else a busy one with space, else a new one
+ *   Zaisma.rooms.quickJoin({ region: "EU" }); // a room with space in that region, else a new one
+ *   Zaisma.joinRoom({ listed: false });       // a new room that's never listed (a private match)
+ *   room.listed; room.open; room.on("room", ({ listed, open }) => {});
+ *   room.setListed(false); room.setOpen(false);  // with the relay, from the room's first player;
+ *                                                // otherwise the game server decides (room.setListed)
+ * A closed room takes no new players; players who were in it can still come back.
+ *
  * Player safety. Games where players interact must offer mute, block and report:
  *   Zaisma.openSafetyPanel(room);           // ready-made panel; call it from your menu
  *   room.isMuted(playerId);                 // true if muted or blocked: hide their emotes/phrases
@@ -102,8 +115,11 @@
     this.players = [];
     this.status = "connecting";
     this.inviteLink = config.site && config.game ? config.site + "/g/" + config.game + "?room=" + this.code : null;
+    this.listed = opts.listed !== false;
+    this.open = true;
     this._url = opts.url;
     this._pass = opts.pass;
+    this._listed = opts.listed;
     this._tries = 0;
     this._done = false;
     this._ready = null;
@@ -115,7 +131,7 @@
     var ws = new WebSocket(this._url);
     this._ws = ws;
     ws.onopen = function () {
-      ws.send(JSON.stringify({ t: "hello", pass: room._pass }));
+      ws.send(JSON.stringify({ t: "hello", pass: room._pass, room: room._listed === false ? { listed: false } : undefined }));
     };
     ws.onmessage = function (ev) {
       var m;
@@ -124,6 +140,7 @@
         room._tries = 0;
         room.me = m.me;
         room.players = m.players;
+        if (m.room) { room.listed = m.room.listed; room.open = m.room.open; }
         room._setStatus("open");
         if (room._ready) { room._ready.resolve(room); room._ready = null; }
       } else if (m.t === "players") {
@@ -131,14 +148,20 @@
         room._emit("players", m.players);
       } else if (m.t === "msg") {
         room._emit("message", m.d);
+      } else if (m.t === "room") {
+        room.listed = m.room.listed;
+        room.open = m.room.open;
+        room._emit("room", m.room);
       } else if (m.t === "ended") {
         room._done = true;
         room._emit("ended", m.reason);
       } else if (m.t === "error") {
         room._emit("error", m);
-        if (room._ready && (m.code === "full" || m.code === "ended" || m.code === "bad-pass" || m.code === "game-unavailable")) {
+        if (room._ready && (m.code === "full" || m.code === "closed" || m.code === "ended" || m.code === "bad-pass" || m.code === "game-unavailable")) {
           room._done = true;
-          room._ready.reject(new Error(m.message));
+          var err = new Error(m.message);
+          err.code = m.code;
+          room._ready.reject(err);
           room._ready = null;
         }
       }
@@ -166,6 +189,18 @@
   /** Send a message to the game server. Plain JSON, up to 16 KB. Send input when it changes, not every frame. */
   Room.prototype.send = function (data) {
     if (this._ws && this._ws.readyState === 1) this._ws.send(JSON.stringify({ t: "msg", d: data }));
+  };
+
+  /**
+   * Show or hide the room in room lists, and open or close it to new players. Works from the room's
+   * first player when the game uses the relay; with a game server, the server decides. The "room"
+   * event says when it changed.
+   */
+  Room.prototype.setListed = function (listed) {
+    if (this._ws && this._ws.readyState === 1) this._ws.send(JSON.stringify({ t: "room", listed: Boolean(listed) }));
+  };
+  Room.prototype.setOpen = function (open) {
+    if (this._ws && this._ws.readyState === 1) this._ws.send(JSON.stringify({ t: "room", open: Boolean(open) }));
   };
 
   // Mute lasts for this room; block lasts for every room this tab joins.
@@ -211,26 +246,81 @@
    * Join a room. Options:
    *   code   - a room code; defaults to ?room= in the page address, else a new room
    *   server - your own game server's address (wss://...) instead of Zaisma rooms
+   *   listed - false: a new room that never shows in room lists, like a private match
+   * If the room is full, closed or over, it fails with an error whose code says which.
    */
   function joinRoom(opts) {
     opts = opts || {};
+    return connect(opts.code ? String(opts.code).toUpperCase() : codeFromPage(), opts);
+  }
+
+  function connect(code, opts, retried) {
     var server = opts.server ? String(opts.server).replace(/\/+$/, "") : null;
     if (!server && !config.rooms) return Promise.reject(new Error("Pass { server } to join a room outside Zaisma"));
-    var code = opts.code ? String(opts.code).toUpperCase() : codeFromPage();
     if (code && !CODE.test(code)) return Promise.reject(new Error("That room code isn't valid"));
 
     var codeReady = code ? Promise.resolve(code) : server ? Promise.resolve(randomCode()) : post("/v1/rooms", { game: config.game }).then(function (d) { return d.code; });
     return Promise.all([codeReady, player()]).then(function (got) {
       var base = (server || config.rooms).replace(/^http/, "ws");
-      var room = new Room({ code: got[0], pass: got[1].pass, url: base + "/v1/rooms/" + config.game + "/" + got[0] });
+      var room = new Room({ code: got[0], pass: got[1].pass, url: base + "/v1/rooms/" + config.game + "/" + got[0], listed: opts.listed });
       joined.push(room);
       // Tell the Zaisma page the room code, so its Invite button and address bar point here.
       if (config.site && window.parent !== window) window.parent.postMessage({ type: "zaisma:room", code: room.code }, config.site);
       return new Promise(function (resolve, reject) {
         room._ready = { resolve: resolve, reject: reject };
         room._connect();
+      }).catch(function (err) {
+        // A pass this tab kept from before Zaisma changed its keys: get a new one and try once more.
+        if (err.code !== "bad-pass" || retried) throw err;
+        try { sessionStorage.removeItem(passKey); } catch (e) { /* fine */ }
+        return connect(room.code, opts, true);
       });
     });
+  }
+
+  /**
+   * The game's listed rooms on Zaisma: { rooms: [{ code, players, max, open, location, near, link }],
+   * playing: { players, rooms, closed }, joinable, regions: [{ code, name, rooms, players }], region,
+   * more }. playing counts everyone in the game's rooms, hidden ones too. location is where the room runs: { country, name, continent }, like DE, Germany and EU.
+   * Rooms with space come first (the player's country, then continent, then the busiest), up to 50;
+   * more says how many open rooms are past those. Pass { region } (a continent code, like EU) for
+   * one region. Never who's in them. For a game's own lobby or server browser.
+   */
+  function listRooms(opts) {
+    if (!config.rooms) return Promise.reject(new Error("Room lists only cover Zaisma rooms"));
+    var region = opts && opts.region ? "?region=" + encodeURIComponent(opts.region) : "";
+    return fetch(config.rooms + "/v1/rooms/" + config.game + region).then(function (res) {
+      return res.json().then(function (data) {
+        if (!res.ok) throw new Error(data.error || "Couldn't load the rooms");
+        return data;
+      });
+    });
+  }
+
+  var RETRY = { full: true, closed: true, ended: true };
+
+  /**
+   * Drop the player into a match: the room their link points to if it has space, otherwise a
+   * listed room with space (nearby and busy first, in opts.region if given), otherwise a new room.
+   * Takes joinRoom's options for the new room.
+   */
+  function quickJoin(opts) {
+    opts = opts || {};
+    var linked = codeFromPage();
+    function fresh() { return connect(null, opts); }
+    function busiest() {
+      return listRooms({ region: opts.region }).then(function (found) {
+        var tries = found.rooms.filter(function (r) { return r.open && r.players < r.max && r.code !== linked; }).slice(0, 3);
+        function next() {
+          var r = tries.shift();
+          if (!r) return fresh();
+          return connect(r.code, opts).catch(function (err) { if (RETRY[err.code]) return next(); throw err; });
+        }
+        return next();
+      }, fresh);
+    }
+    if (!linked) return busiest();
+    return connect(linked, opts).catch(function (err) { if (RETRY[err.code]) return busiest(); throw err; });
   }
 
   /**
@@ -380,5 +470,6 @@
     wrap.focus();
   }
 
-  window.Zaisma = { version: 1, game: config.game || null, player: player, joinRoom: joinRoom, invite: invite, openSafetyPanel: openSafetyPanel };
+  var rooms = { join: joinRoom, list: listRooms, quickJoin: quickJoin, linked: codeFromPage() };
+  window.Zaisma = { version: 1, game: config.game || null, player: player, joinRoom: joinRoom, rooms: rooms, invite: invite, openSafetyPanel: openSafetyPanel };
 })();
