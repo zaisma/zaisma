@@ -167,6 +167,10 @@ Goal: playing with friends is effortless, wherever friends already hang out.
 | Status | Must/Nice | Item | Notes |
 | --- | --- | --- | --- |
 | planned | Must | Zaisma in Discord | One Discord Activity for every game; our voice chat for now |
+| planned | Must | Game communities | A Community tab per game: developer updates, player posts (screenshots, clips, guides, questions) with comments, every post checked by AI before it shows |
+| planned | Must | Mods and remixes shelf | On each game's Community tab, with the credit chain |
+| planned | Must | Profiles | Games you play, mods and remixes you've made, your posts; private to friends for teens by default |
+| planned | Must | Julius: online safety risk assessment | Written risk assessment and takedown process for public posts (UK Online Safety Act) before communities open |
 | planned | Nice | Sign in with Zaisma | For games with their own accounts |
 | planned | Nice | Install button | Installable web app per game: icon, own window, offline |
 
