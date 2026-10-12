@@ -176,8 +176,8 @@ function withCookies(res: Response, cookies: string[]): Response {
   return out;
 }
 
-function page(env: Env, title: string, body: Raw, status = 200): Response {
-  const res = layout(env, { title: `${title} · Zaisma`, body: html`<style>${raw(STYLES)}</style>${body}<script>${raw(LOCAL_TIMES)}</script>`, private: true, nav: "dashboard" });
+function page(env: Env, title: string, body: Raw, status = 200, art: string | null = null): Response {
+  const res = layout(env, { title: `${title} · Zaisma`, body: html`<style>${raw(STYLES)}</style>${body}<script>${raw(LOCAL_TIMES)}</script>`, private: true, nav: "dashboard", art });
   return new Response(res.body, { status, headers: res.headers });
 }
 
@@ -212,14 +212,14 @@ ${games.length
           const cover = coverOf(details[i]!.images);
           const live = details[i]!.versions.find((v) => v.live);
           const waiting = details[i]!.versions.filter((v) => !v.live && v.scan === "approved" && !v.published_at).length;
-          return html`<div class="hit block"><div class="tile">
+          return html`<div class="hit block"${cover ? raw(` data-art="${cover.url.replace(/"/g, "")}"`) : ""}><div class="tile">
 <a class="pic" href="/dashboard/${g.slug}" tabindex="-1" aria-hidden="true">${cover ? html`<img src="${cover.url}" alt="" loading="lazy">` : ""}</a>
 <div class="body"><a class="name" href="/dashboard/${g.slug}"><span>${g.title}</span><small>${VISIBILITY[g.visibility].label} · ${REVIEW[g.review]}${live ? "" : " · no live version"}</small></a>
 ${waiting ? html`<span class="badge">${waiting === 1 ? "Draft ready" : `${waiting} drafts ready`}</span>` : ""}</div>
 </div></div>`;
         })}</div>`
       : html`<div class="first note"><p><strong>No games yet.</strong> Give your game a name above, then upload its folder. A game is any folder with an index.html at the top: an HTML game, or a web export from Godot, Unity, Phaser or any other engine.</p></div>`}
-<h2>Work from your AI or terminal</h2>
+<h2 class="rule-h">Work from your AI or terminal</h2>
 <div class="ways">
 <div class="way"><h3>Your AI</h3><p class="muted">Claude Code, Cursor or any tool that takes MCP servers can make, upload and publish games for you.</p>
 <pre>claude mcp add --transport http -s user zaisma ${env.SITE_ORIGIN}/mcp --header "Authorization: Bearer $ZAISMA_KEY"</pre></div>
@@ -295,7 +295,7 @@ ${notice(opts)}
 <div class="manage">
 <section class="main">
 ${removed ? "" : uploadPanel(slug)}
-<h2 id="versions">Versions</h2>
+<h2 class="rule-h" id="versions">Versions</h2>
 ${versions.length ? html`<ol class="track">${versions.map((v) => versionRow(slug, v, findings.get(v.id)))}</ol>` : html`<p class="muted">No versions yet.</p>`}
 <p class="hint">Zaisma keeps the live version and the last 5 that passed, for rolling back. Drafts nobody publishes are deleted after 30 days.</p>
 </section>
@@ -312,6 +312,7 @@ ${imagesPanel(slug, images)}
 <details><summary><h2>History</h2></summary>${history.history.length ? html`<table><tbody>${history.history.map((h) => html`<tr><td class="nowrap">${when(h.at)}</td><td>${h.what}${h.version ? html` <span class="muted">(${h.version.slice(0, 8)})</span>` : ""}</td><td class="muted">${h.by}</td></tr>`)}</tbody></table>` : html`<p class="muted">Nothing yet.</p>`}</details>
 </div>`,
     status,
+    cover?.url ?? null,
   );
 }
 
@@ -418,7 +419,7 @@ const STYLES = `
 .first{max-width:640px}
 .tile .badge{flex:none}
 .ways{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-bottom:12px}
-.way{background:var(--panel-2);padding:16px}
+.way{padding:18px}
 .way p{margin:0 0 10px}
 .way pre{margin:0;user-select:all}
 .crumbs{margin:0 0 12px;font-size:14px}
@@ -435,8 +436,8 @@ const STYLES = `
 .manage{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:40px;align-items:start}
 .manage h2:first-child{margin-top:0}
 .manage aside h2:first-child{margin-top:0}
-.drop{background:var(--panel);padding:18px;outline:2px dashed var(--line-2);outline-offset:-8px}
-.drop.over{background:#202125;outline-color:var(--muted)}
+.drop{padding:20px;outline:1px dashed #4a4f58;outline-offset:-9px}
+.drop.over{outline:2px dashed #e9ebee;outline-offset:-9px}
 .drop p{margin:0 0 12px}
 .drop .row input[name=notes]{flex:1;min-width:200px}
 .drop .hint{margin:12px 0 0}
@@ -444,8 +445,8 @@ const STYLES = `
 .check{display:inline-flex;flex-direction:row;align-items:center;gap:8px;min-height:44px;color:var(--text-2);font-size:15px}
 .check input{min-height:0;width:18px;height:18px;accent-color:#c9cace}
 .track{list-style:none;padding:0;margin:0 0 12px;display:grid;gap:12px}
-.track>li{background:var(--panel-2);padding:14px 16px;display:grid;gap:10px}
-.track>li.live{background:var(--panel)}
+.track>li{padding:14px 16px;display:grid;gap:10px}
+.track>li.live{box-shadow:0 0 0 2px #000,-2px -2px 0 2px #fff,var(--drop)}
 .v-head{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
 .v-head .pill{margin-left:auto}
 .v-notes{margin:0;color:var(--text-2);white-space:pre-wrap}
