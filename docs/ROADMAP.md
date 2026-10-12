@@ -77,7 +77,7 @@ Detailed plan approved: guest passes, game server API, rooms, SDK, demos.
 | done | Must | Games have owners | Sign-in | A person now, a team later; set in admin until developer accounts |
 | done | Must | Cloud saves | Sign-in, Client SDK | Mirrors the game's own browser saves, no code needed: localStorage and IndexedDB, so Unity, Godot and localForage saves work. Stored in R2; the player chooses when two devices disagree. Developers can turn it off in the dashboard or MCP |
 | planned | Must | "Keep your progress" | Cloud saves | Turns a guest into an account |
-| next | Must | Save history | Cloud saves | Keep the last few versions of every cloud save, so "my progress is gone" fixes itself |
+| doing | Must | Save history | Cloud saves | Up to 5 earlier versions per game: one an hour while playing, plus one whenever progress is about to be replaced (the progress the player didn't pick, a save that shrinks to under half). Players go back from their account (Your saves) or the game menu. In preview |
 | planned | Must | Passkeys | Sign-in | Face ID or fingerprint to sign back in; the email code stays for new accounts and lost devices |
 | planned | Nice | Google and Discord sign-in | Sign-in, Age question | The age question still comes first for new accounts |
 

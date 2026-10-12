@@ -79,5 +79,90 @@ export async function bumpSave(db: D1Database, s: { accountId: string; gameId: s
   return result.meta.changes === 1 ? s.base + 1 : null;
 }
 
+/** The games a player has cloud saves for, most recently saved first. */
+export async function savedGames(db: D1Database, accountId: string): Promise<{ slug: string; title: string; updated_at: number; copies: number }[]> {
+  const { results } = await db
+    .prepare(
+      "SELECT g.slug, g.title, s.updated_at, (SELECT COUNT(*) FROM save_history h WHERE h.account_id = s.account_id AND h.game_id = s.game_id) AS copies FROM saves s JOIN games g ON g.id = s.game_id WHERE s.account_id = ? AND g.status = 'live' AND g.cloud_saves = 1 ORDER BY s.updated_at DESC",
+    )
+    .bind(accountId)
+    .all<{ slug: string; title: string; updated_at: number; copies: number }>();
+  return results;
+}
+
 /** Where a save's data lives in the saves bucket. Listing <account>/ finds all of a player's saves. */
 export const saveKey = (accountId: string, gameId: string) => `${accountId}/${gameId}.json`;
+
+// --- Save history: earlier versions, so "my progress is gone" can be undone ---
+
+/** Earlier versions kept per player per game. */
+export const SAVE_HISTORY_MAX = 5;
+/** While playing, at most one routine copy an hour. */
+export const SAVE_HISTORY_EVERY = 3600_000;
+/** Copies made because progress was about to be lost are kept over routine ones for this long. */
+export const SAVE_HISTORY_PROTECT = 30 * 24 * 3600_000;
+
+/**
+ * Why a copy was kept: a routine hourly copy, or because progress was about to be lost:
+ * the player picked another device's progress over it (replaced), the game's save shrank to
+ * under half (smaller, usually a reset), the player went back to an earlier version (restore),
+ * or the player picked the account's progress over this device's (device).
+ */
+export type SaveCopyReason = "hourly" | "replaced" | "smaller" | "restore" | "device";
+
+export interface SaveCopy {
+  id: string;
+  account_id: string;
+  game_id: string;
+  at: number;
+  reason: SaveCopyReason;
+  hash: string;
+  bytes: number;
+}
+
+export const saveCopyKey = (accountId: string, gameId: string, id: string) => `${accountId}/${gameId}/${id}.json`;
+
+/** A game's earlier versions, newest first. */
+export async function saveHistory(db: D1Database, accountId: string, gameId: string): Promise<SaveCopy[]> {
+  const { results } = await db.prepare("SELECT * FROM save_history WHERE account_id = ? AND game_id = ? ORDER BY at DESC, id").bind(accountId, gameId).all<SaveCopy>();
+  return results;
+}
+
+/**
+ * Whether to keep a copy of the current save before it's replaced, and why.
+ * `replace` is set when the player chose this device's progress over the account's.
+ */
+export function copyReason(current: { bytes: number; updated_at: number }, next: { bytes: number; replace: boolean }, newestCopyAt: number | null): SaveCopyReason | null {
+  if (next.replace) return "replaced";
+  if (next.bytes * 2 < current.bytes) return "smaller";
+  if (newestCopyAt === null || current.updated_at - newestCopyAt >= SAVE_HISTORY_EVERY) return "hourly";
+  return null;
+}
+
+/**
+ * Which copies to drop to stay at SAVE_HISTORY_MAX. The newest always stays. Past that, the
+ * oldest routine copy goes first, so a copy from right before progress was lost outlives a day
+ * of hourly copies; after 30 days it counts as routine.
+ */
+export function copiesToDrop(copies: SaveCopy[], now: number): SaveCopy[] {
+  const keep = [...copies].sort((a, b) => b.at - a.at);
+  const drop: SaveCopy[] = [];
+  while (keep.length > SAVE_HISTORY_MAX) {
+    const routine = (c: SaveCopy) => c.reason === "hourly" || now - c.at > SAVE_HISTORY_PROTECT;
+    let i = keep.length - 1;
+    while (i > 0 && !routine(keep[i]!)) i--;
+    if (i === 0) i = keep.length - 1;
+    drop.push(...keep.splice(i, 1));
+  }
+  return drop;
+}
+
+/** Record a copy (its data is already in R2) next to the game's `copies`, and return the ones to delete to make room. */
+export async function addSaveCopy(db: D1Database, copy: SaveCopy, copies: SaveCopy[], now = Date.now()): Promise<SaveCopy[]> {
+  const dropped = copiesToDrop([copy, ...copies], now);
+  await db.batch([
+    db.prepare("INSERT INTO save_history (id, account_id, game_id, at, reason, hash, bytes) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(copy.id, copy.account_id, copy.game_id, copy.at, copy.reason, copy.hash, copy.bytes),
+    ...dropped.map((c) => db.prepare("DELETE FROM save_history WHERE id = ?").bind(c.id)),
+  ]);
+  return dropped;
+}

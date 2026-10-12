@@ -12,6 +12,7 @@
  * While playing, every save names the version it started from; if another device saved
  * in between, saving pauses and the player chooses. Saving only starts once the game domain
  * says the account's save is in place, so a device that couldn't take it never sends its own.
+ * Whichever progress the player didn't pick is kept as an earlier version (see /account/saves).
  *
  * `SAVES` is set by the page: { api, root, query, frameOrigin }.
  */
@@ -19,6 +20,8 @@ export const SAVES_CLIENT = `
 (function () {
   if (!/(^|; )(__Host-)?zaisma_in=1/.test(document.cookie)) return;
   const status = document.getElementById("save-status");
+  const history = document.getElementById("save-history");
+  if (history) history.hidden = false;
   const choose = document.getElementById("save-choice");
   let cloud = null;       // the account's save as last seen: { tag, version, hash, at, data }
   let synced = null;      // the save text the game and the account both have
@@ -28,6 +31,7 @@ export const SAVES_CLIENT = `
   let queued = null;      // the newest save waiting behind it
   let frame = null;
   let restoring = null;   // the account's save while the game domain puts it in place
+  let replacing = false;  // the player picked this device's progress over the account's
 
   const canonical = (data) => { const out = {}; Object.keys(data).sort().forEach((k) => (out[k] = data[k])); return JSON.stringify(out); };
   const sha = async (text) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))), (b) => b.toString(16).padStart(2, "0")).join("");
@@ -42,6 +46,10 @@ export const SAVES_CLIENT = `
     return m < 1 ? "just now" : m < 60 ? m + " min ago" : m < 1440 ? Math.round(m / 60) + " h ago" : Math.round(m / 1440) + " days ago";
   };
   const say = (text) => { if (status) { status.textContent = text; status.hidden = false; } };
+  // The player picked the account's progress: keep this device's as an earlier version on the account.
+  const keepDevice = (text) => {
+    if (text && text !== "{}") fetch(SAVES.api, { method: "PUT", body: JSON.stringify({ keep: true, data: text }), credentials: "same-origin" }).catch(() => {});
+  };
   const tell = (msg) => frame && frame.contentWindow && frame.contentWindow.postMessage({ type: "zaisma:saves", ...msg }, SAVES.frameOrigin);
 
   // One retry for a passing hiccup; a signed-out player or a game without saves just plays.
@@ -119,7 +127,9 @@ export const SAVES_CLIENT = `
     else if (mark && mark.version === c.version) use = "local";
     else if (mark && mark.hash === localHash) use = "cloud";
     else {
-      use = await ask("Which progress do you want?", "This game has progress saved to your account and different progress on this device. The one you don't pick is replaced.", "Your account's (saved " + ago(c.at) + ")", "This device's");
+      use = await ask("Which progress do you want?", "This game has progress saved to your account and different progress on this device. The one you don't pick is kept on your account as an earlier version.", "Your account's (saved " + ago(c.at) + ")", "This device's");
+      if (use === "cloud") keepDevice(text);
+      else replacing = true;
     }
     forceCloud = false;
     if (use === "cloud" && c.version) {
@@ -151,12 +161,13 @@ export const SAVES_CLIENT = `
   async function store(text) {
     if (paused) return;
     if (saving) { queued = text; return; }
-    const body = JSON.stringify({ base: cloud.version, data: text });
+    const body = JSON.stringify({ base: cloud.version, data: text, ...(replacing ? { replace: true } : {}) });
     saving = fetch(SAVES.api, { method: "PUT", body, credentials: "same-origin", keepalive: body.length < 60000 }).catch(() => null);
     const res = await saving;
     saving = null;
     const out = res ? await res.json().catch(() => ({})) : {};
     if (res && res.ok) {
+      replacing = false;
       cloud.version = out.version;
       cloud.hash = out.hash;
       synced = text;
@@ -165,12 +176,14 @@ export const SAVES_CLIENT = `
     } else if (res && res.status === 409) {
       paused = true;
       tell({ step: "pause" });
-      const use = await ask("You played this game on another device", "Its progress is newer than this device's. The one you don't pick is replaced.", "Load the newer progress", "Keep this device's");
+      const use = await ask("You played this game on another device", "Its progress is newer than this device's. The one you don't pick is kept on your account as an earlier version.", "Load the newer progress", "Keep this device's");
       if (use === "cloud") {
+        keepDevice(text);
         forceCloud = true;
         openThroughRestore();
       } else {
         cloud.version = out.version;
+        replacing = true;
         paused = false;
         tell({ step: "sync", text: null });
       }
