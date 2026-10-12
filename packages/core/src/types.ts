@@ -48,6 +48,10 @@ export interface Version {
   preview_token: string | null;
   published_at: number | null;
   created_at: number;
+  /** When a child-safety or illegal-content report paused this version, until a person looks. */
+  report_held_at: number | null;
+  /** When reports stopped pausing this version: a person checked it, or a report already went back to it. */
+  cleared_at: number | null;
 }
 
 export type Severity = "reject" | "hold" | "info";

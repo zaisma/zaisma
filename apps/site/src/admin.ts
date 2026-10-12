@@ -1,7 +1,9 @@
 import {
   BUILT_IN_GAME_SERVERS,
   LIMITS,
-  REPORT_REASONS,
+  reportLabel,
+  reportPictureKey,
+  clearVersion,
   UploadError,
   aiUsage,
   allGames,
@@ -31,7 +33,6 @@ import {
   settleDetailsDraft,
   settleImage,
   type GameImage,
-  type ReportReason,
   type ScanReport,
 } from "@zaisma/core";
 import { adminIdentity } from "./access.ts";
@@ -68,6 +69,8 @@ export async function handleAdmin(request: Request, env: Env, path: string): Pro
   if (m) return gameDetail(env, m[1]!);
   const img = path.match(/^\/admin\/images\/([a-z0-9]+)$/);
   if (img) return adminImage(env, img[1]!);
+  const pic = path.match(/^\/admin\/reports\/([a-z0-9]+)\/picture$/);
+  if (pic) return reportPicture(env, pic[1]!);
   return new Response("Not found", { status: 404 });
 }
 
@@ -94,10 +97,17 @@ async function adminAction(request: Request, env: Env, path: string, actor: stri
   if (m) {
     const version = await versionById(env.DB, m[1]!);
     if (!version) return new Response("Not found", { status: 404 });
-    if (m[2] === "approve") {
+    if (version.report_held_at && m[2] === "approve") {
+      // A report paused this update: put it back, and later reports can't pause it again.
+      await publishVersion(env.DB, version);
+      await clearVersion(env.DB, version.id);
+      await closeReports(env.DB, version.game_id, "dismissed");
+      await audit(env.DB, version.game_id, "report-cleared", reason || `Version ${version.id} is back`, actor);
+    } else if (m[2] === "approve") {
       await passVersion(env, version, reason || "Approved by a person", actor);
     } else {
       await saveScan(env.DB, version.id, "rejected", null);
+      if (version.report_held_at) await closeReports(env.DB, version.game_id, "actioned");
       await audit(env.DB, version.game_id, "rejected", reason || `Version ${version.id}`, actor);
     }
     return redirect(`/admin/games/${version.game_id}`);
@@ -178,9 +188,12 @@ async function adminAction(request: Request, env: Env, path: string, actor: stri
       await audit(env.DB, game.id, "takedown", reason, actor);
     } else if (m[2] === "restore") {
       await setGameStatus(env.DB, game.id, game.current_version_id ? "live" : "pending");
+      // A person checked it: reports can't hide this version again.
+      if (game.current_version_id) await clearVersion(env.DB, game.current_version_id);
       await closeReports(env.DB, game.id, "dismissed");
       await audit(env.DB, game.id, "restored", reason, actor);
     } else {
+      if (game.current_version_id) await clearVersion(env.DB, game.current_version_id);
       await closeReports(env.DB, game.id, "dismissed");
       await audit(env.DB, game.id, "reports-dismissed", reason, actor);
     }
@@ -207,7 +220,7 @@ async function dashboard(env: Env, error = ""): Promise<Response> {
 <h2>Waiting for review (${queue.length})</h2>
 ${queue.length
       ? html`<table><tr><th>Game</th><th>Version</th><th>Status</th><th>Uploaded</th></tr>${queue.map(
-          (v) => html`<tr><td><a href="/admin/games/${v.game_id}">${v.title}</a></td><td>${v.id}</td><td>${pill(v.scan_status)}</td><td>${when(v.created_at)}</td></tr>`,
+          (v) => html`<tr><td><a href="/admin/games/${v.game_id}">${v.title}</a></td><td>${v.id}</td><td>${pill(v.scan_status)}${v.report_held_at ? " paused by a report" : ""}</td><td>${when(v.created_at)}</td></tr>`,
         )}</table>`
       : html`<p class="note">Nothing waiting.</p>`}
 
@@ -229,7 +242,7 @@ ${words.length
 <h2>Open reports (${reports.length})</h2>
 ${reports.length
       ? html`<table><tr><th>Game</th><th>Reason</th><th>Details</th><th>When</th></tr>${reports.map(
-          (r) => html`<tr><td><a href="/admin/games/${r.game_id}">${r.title}</a> ${pill(r.game_status)}</td><td>${REPORT_REASONS[r.reason as ReportReason] ?? r.reason}</td><td>${r.details}</td><td>${when(r.created_at)}</td></tr>`,
+          (r) => html`<tr><td><a href="/admin/games/${r.game_id}">${r.title}</a> ${pill(r.game_status)}</td><td>${reportLabel(r)}</td><td>${r.details}${pictureLink(r)}</td><td>${when(r.created_at)}</td></tr>`,
         )}</table>`
       : html`<p class="note">No open reports.</p>`}
 
@@ -310,7 +323,7 @@ ${images.length ? html`<div class="shots">${images.map((i) => html`<div>${imageR
 
 <h2>Open reports (${mine.length})</h2>
 ${mine.length
-      ? html`<table>${mine.map((r) => html`<tr><td>${REPORT_REASONS[r.reason as ReportReason] ?? r.reason}</td><td>${r.details}</td><td>${when(r.created_at)}</td></tr>`)}</table>
+      ? html`<table>${mine.map((r) => html`<tr><td>${reportLabel(r)}${r.player_id ? html`<br><small class="muted">Player ID ${r.player_id}</small>` : ""}</td><td>${r.details}${pictureLink(r)}</td><td>${when(r.created_at)}</td></tr>`)}</table>
 <form method="post" action="/admin/games/${game.id}/dismiss" class="row" style="margin-top:10px"><input name="reason" placeholder="Why (optional)"><button class="btn ghost" type="submit">Dismiss reports</button></form>`
       : html`<p class="note">None.</p>`}
 
@@ -321,11 +334,12 @@ ${versions.map((v) => {
       return html`<div class="note" style="margin-bottom:12px">
   <div class="row"><strong>${v.id}</strong> ${pill(v.scan_status)} ${current ? html`<span class="pill live">players get this one</span>` : ""}
     <span>${v.file_count} files · ${(v.bytes / 1048576).toFixed(1)} MB · ${when(v.created_at)}</span></div>
+  ${v.report_held_at && v.scan_status === "held" ? html`<p><strong>A report paused this update.</strong> Players are on the version before it. Put it back if the report was wrong.</p>` : ""}
   ${report ? scanReport(report) : html`<p>Scan in progress…</p>`}
   ${v.scan_status !== "approved" || !current
         ? html`<div class="row">
-    ${v.scan_status !== "approved" ? html`<form method="post" action="/admin/versions/${v.id}/approve"><button class="btn" type="submit">${v.publish_when_approved ? "Approve and publish" : "Approve as a draft"}</button></form>` : ""}
-    ${v.scan_status !== "rejected" ? html`<form method="post" action="/admin/versions/${v.id}/reject"><button class="btn ghost" type="submit">Reject</button></form>` : ""}
+    ${v.scan_status !== "approved" ? html`<form method="post" action="/admin/versions/${v.id}/approve"><button class="btn" type="submit">${v.report_held_at ? "Put the update back" : v.publish_when_approved ? "Approve and publish" : "Approve as a draft"}</button></form>` : ""}
+    ${v.scan_status !== "rejected" ? html`<form method="post" action="/admin/versions/${v.id}/reject"><button class="btn ghost" type="submit">${v.report_held_at ? "Keep it off" : "Reject"}</button></form>` : ""}
   </div>`
         : ""}
 </div>`;
@@ -368,6 +382,17 @@ ${i.status === "pending"
     ? html`<div class="row"><form method="post" action="/admin/images/${i.id}/approve"><input type="hidden" name="back" value="${fromGame ? "game" : ""}"><button class="btn" type="submit">Approve</button></form>
 <form method="post" action="/admin/images/${i.id}/reject"><input type="hidden" name="back" value="${fromGame ? "game" : ""}"><button class="btn ghost" type="submit">Reject</button></form></div>`
     : ""}`;
+}
+
+const pictureLink = (r: { id: string; picture: number }) => (r.picture ? html` <a href="/admin/reports/${r.id}/picture" target="_blank">Picture</a>` : "");
+
+/** The picture of the game a player included with a report. */
+async function reportPicture(env: Env, id: string): Promise<Response> {
+  const object = await env.GAMES.get(reportPictureKey(id));
+  if (!object) return new Response("Not found", { status: 404 });
+  return new Response(object.body, {
+    headers: { "Content-Type": "image/jpeg", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; sandbox" },
+  });
 }
 
 async function adminImage(env: Env, id: string): Promise<Response> {

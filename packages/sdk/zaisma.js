@@ -19,6 +19,8 @@
  *   room.isMuted(playerId);                 // true if muted or blocked: hide their emotes/phrases
  *   room.on("muted", (ids) => {});          // the muted list changed
  *   room.mute(id); room.unmute(id); room.block(id); room.report(id, reason)
+ * On Zaisma, the panel's Report opens Zaisma's own report plate beside the game, and the
+ * player is muted once the report is sent.
  *
  * On Zaisma, the games Worker defines __ZAISMA__ before this file with the rooms
  * address, the game and the site. Anywhere else, pass { server } yourself.
@@ -221,6 +223,7 @@
     return Promise.all([codeReady, player()]).then(function (got) {
       var base = (server || config.rooms).replace(/^http/, "ws");
       var room = new Room({ code: got[0], pass: got[1].pass, url: base + "/v1/rooms/" + config.game + "/" + got[0] });
+      joined.push(room);
       // Tell the Zaisma page the room code, so its Invite button and address bar point here.
       if (config.site && window.parent !== window) window.parent.postMessage({ type: "zaisma:room", code: room.code }, config.site);
       return new Promise(function (resolve, reject) {
@@ -249,6 +252,35 @@
     return copy();
   }
 
+  var joined = [];
+  // The Zaisma page says when a player report was sent from its plate: mute them, as the panel's own form does.
+  window.addEventListener("message", function (e) {
+    if (!config.site || e.origin !== config.site || e.source !== window.parent || !e.data || e.data.type !== "zaisma:reported") return;
+    var id = e.data.player;
+    joined.forEach(function (room) {
+      if (room.players.some(function (p) { return p.id === id; })) room.mute(id);
+    });
+  });
+
+  /** Hand a player report to the Zaisma page. If no Zaisma page answers (the game runs somewhere else), use our own form. */
+  function handOff(room, p, opened, fallback) {
+    if (!config.site || window.parent === window) return fallback();
+    var answered = false;
+    function listen(e) {
+      if (e.origin === config.site && e.source === window.parent && e.data && e.data.type === "zaisma:report-open") {
+        answered = true;
+        window.removeEventListener("message", listen);
+        opened();
+      }
+    }
+    window.addEventListener("message", listen);
+    window.parent.postMessage({ type: "zaisma:report", code: room.code, player: { id: p.id, name: p.name } }, config.site);
+    setTimeout(function () {
+      window.removeEventListener("message", listen);
+      if (!answered) fallback();
+    }, 800);
+  }
+
   var REASONS = [["harassment", "Harassing or bullying"], ["hate", "Hate or threats"], ["sexual", "Sexual behavior"], ["cheating", "Cheating"], ["other", "Something else"]];
 
   /** A ready-made mute, block and report panel. Games open it from their own menu. */
@@ -259,11 +291,12 @@
     wrap.id = "zaisma-safety";
     wrap.setAttribute("role", "dialog");
     wrap.setAttribute("aria-label", "Players");
-    wrap.style.cssText = "position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,.6);display:grid;place-items:center;font:15px system-ui,sans-serif;color:#eee";
+    // Zaisma's Steel look: gunmetal plates with the cut corner. Games can restyle #zaisma-safety.
+    wrap.style.cssText = "position:fixed;inset:0;z-index:2147483647;background:rgba(4,5,7,.6);display:grid;place-items:center;font:15px/1.4 system-ui,-apple-system,sans-serif;color:#eceef0";
     var box = document.createElement("div");
-    box.style.cssText = "background:#1b1c1f;border:1px solid #2c2e33;border-radius:12px;padding:16px;width:min(420px,92vw);max-height:80vh;overflow:auto";
+    box.style.cssText = "background:linear-gradient(180deg,#262a31,#1b1e23);box-shadow:inset 1px 1px 0 rgba(255,255,255,.09),inset -1px -1px 0 rgba(0,0,0,.7),0 14px 32px rgba(0,0,0,.42);clip-path:polygon(0 0,calc(100% - 18px) 0,100% 18px,100% 100%,0 100%);padding:18px;width:min(420px,92vw);max-height:80vh;overflow:auto";
     wrap.appendChild(box);
-    var btn = "font:inherit;font-size:13px;padding:5px 10px;border-radius:7px;border:1px solid #444;background:#26282c;color:#eee;cursor:pointer";
+    var btn = "font:inherit;font-size:13px;font-weight:600;min-height:36px;padding:0 12px;border:0;background:linear-gradient(180deg,#30353d,#22262c);box-shadow:inset 1px 1px 0 rgba(255,255,255,.13),inset -1px -1px 0 #000;clip-path:polygon(0 0,calc(100% - 7px) 0,100% 7px,100% 100%,0 100%);color:#eceef0;cursor:pointer";
     function close() { wrap.remove(); }
     wrap.addEventListener("click", function (e) { if (e.target === wrap) close(); });
     wrap.addEventListener("keydown", function (e) { if (e.key === "Escape") close(); });
@@ -283,19 +316,19 @@
       if (note) {
         var n = document.createElement("p");
         n.textContent = note;
-        n.style.cssText = "margin:0 0 10px;color:#5fd38d";
+        n.style.cssText = "margin:0 0 10px;color:#b9e7a6";
         box.appendChild(n);
       }
       var others = room.players.filter(function (p) { return !room.me || p.id !== room.me.id; });
       if (!others.length) {
         var none = document.createElement("p");
         none.textContent = "Nobody else is here.";
-        none.style.color = "#9b9da3";
+        none.style.color = "#969ba4";
         box.appendChild(none);
       }
       others.forEach(function (p) {
         var row = document.createElement("div");
-        row.style.cssText = "display:flex;gap:6px;align-items:center;padding:8px 0;border-top:1px solid #2c2e33";
+        row.style.cssText = "display:flex;gap:6px;align-items:center;padding:10px 0;box-shadow:inset 0 1px 0 #000,inset 0 2px 0 rgba(255,255,255,.05)";
         var name = document.createElement("span");
         name.textContent = p.name + (room.isMuted(p.id) ? " (muted)" : "");
         name.style.flex = "1";
@@ -310,7 +343,7 @@
         var report = document.createElement("button");
         report.textContent = "Report";
         report.style.cssText = btn;
-        report.onclick = function () { reportForm(p); };
+        report.onclick = function () { handOff(room, p, close, function () { reportForm(p); }); };
         row.append(name, mute, block, report);
         box.appendChild(row);
       });
@@ -321,14 +354,14 @@
       var h = document.createElement("strong");
       h.textContent = "Report " + p.name;
       var sel = document.createElement("select");
-      sel.style.cssText = "display:block;width:100%;margin:12px 0;padding:8px;background:#26282c;color:#eee;border:1px solid #444;border-radius:7px;font:inherit";
+      sel.style.cssText = "display:block;width:100%;margin:12px 0;min-height:40px;padding:0 10px;background:#0d0f12;color:#eceef0;border:1px solid #000;box-shadow:inset 0 2px 5px rgba(0,0,0,.65),0 1px 0 rgba(255,255,255,.06);font:inherit";
       REASONS.forEach(function (r) { var o = document.createElement("option"); o.value = r[0]; o.textContent = r[1]; sel.appendChild(o); });
       var note = document.createElement("p");
       note.textContent = "Zaisma reviews reports. Nothing about you is sent. They'll also be muted for you.";
-      note.style.cssText = "margin:0 0 12px;color:#9b9da3;font-size:13px";
+      note.style.cssText = "margin:0 0 12px;color:#969ba4;font-size:13px";
       var send = document.createElement("button");
       send.textContent = "Send report";
-      send.style.cssText = btn + ";background:#ececec;color:#111;border-color:#ececec;font-weight:600";
+      send.style.cssText = btn + ";background:linear-gradient(180deg,#eef0f2 0%,#b9bcc1 46%,#7d8086 100%);box-shadow:inset 1px 1px 0 #fff,inset -1px -1px 0 #000;color:#0b0b0c";
       var back = document.createElement("button");
       back.textContent = "Back";
       back.style.cssText = btn + ";margin-left:6px";

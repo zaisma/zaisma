@@ -1,9 +1,9 @@
-import { AUTO_HOLD_REASONS, REPORT_REASONS, audit, createReport, gameBySlug, readPlayers, setGameStatus, type ReportReason } from "@zaisma/core";
+import { gameBySlug, readPlayers } from "@zaisma/core";
 import { gameUrl, type Env } from "./env.ts";
 import { html, layout, message, metalButton, playerModes, raw, siteFooter, siteHeader } from "./html.ts";
 import { showcase, tile } from "./home.ts";
 import { SAVES_CLIENT } from "./saves-client.ts";
-import { sendAlert } from "./email.ts";
+import { reportSheet } from "./report.ts";
 
 const ROOM_CODE = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/;
 
@@ -129,16 +129,36 @@ body:not(.playing) iframe{display:none}
   .ctl{width:40px;height:40px;padding:0;justify-content:center}
   .ctl .label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 }
-/* The menu only appears when the player opens it, so it may cover the game. */
+/* The menu: a small plate that drops from the ⋯ button, so the game stays in view and nothing dims it.
+   One row per thing to do, each with an icon; the save line says at a glance whether progress is safe. */
+dialog.quick{position:fixed;z-index:40;inset:auto;margin:0;width:min(320px,calc(100vw - 16px));max-height:calc(100dvh - 70px);overflow:auto;padding:0;
+  --cut:14px;clip-path:polygon(0 0,calc(100% - 14px) 0,100% 14px,100% 100%,0 100%);filter:drop-shadow(0 18px 36px rgba(0,0,0,.65));animation:quick-in 140ms cubic-bezier(.2,.8,.2,1)}
+.quick .q-head{padding:14px 16px 12px;display:grid;gap:4px;background:linear-gradient(#000,#000) bottom left/100% 1px no-repeat,linear-gradient(rgba(255,255,255,.055),rgba(255,255,255,.055)) bottom 1px left/100% 1px no-repeat}
+.quick .q-head strong{font-family:var(--display);font-size:18px;font-weight:600;padding-right:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.quick .q-about{margin:0;color:var(--muted);font-size:13px;line-height:1.4;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden}
+.save-line{display:flex;gap:8px;margin:6px 0 0;font-size:13px;line-height:1.4;color:var(--text-2)}
+.save-line[hidden]{display:none}
+.save-line::before{content:"";flex:none;width:7px;height:7px;margin-top:6px;background:var(--warn)}
+.save-line.ok::before{background:var(--ok);box-shadow:0 0 8px rgba(95,211,141,.6)}
+.quick nav{display:grid;gap:2px;padding:6px}
+.quick nav a{position:relative;display:flex;background:none;box-shadow:none;align-items:center;gap:12px;min-height:46px;padding:0 12px;text-decoration:none;font-family:var(--display);font-size:16px;font-weight:500;color:var(--text)}
+.quick nav a[hidden]{display:none}
+.quick nav a>svg{width:20px;height:20px;flex:none;color:var(--muted)}
+.quick nav a .ext{width:14px;height:14px;margin-left:auto}
+.quick nav a:hover,.quick nav a:focus-visible{outline:none;background:var(--brush) 0 0/320px 320px,var(--face-hi);box-shadow:inset 1px 1px 0 rgba(255,255,255,.1),inset -1px -1px 0 #000}
+.quick nav a:hover>svg,.quick nav a:focus-visible>svg{color:var(--text)}
+.quick nav a:focus-visible::before{content:"";position:absolute;left:0;top:6px;bottom:6px;width:3px;background:var(--chrome)}
+.quick .sep{height:2px;margin:6px 8px;background:linear-gradient(#000,#000) top/100% 1px no-repeat,linear-gradient(rgba(255,255,255,.055),rgba(255,255,255,.055)) bottom/100% 1px no-repeat}
+@media (orientation:landscape) and (max-height:500px){dialog.quick{max-height:calc(100dvh - 16px)}.quick .q-about{-webkit-line-clamp:2}.quick nav a{min-height:42px}}
+@keyframes quick-in{from{opacity:0;transform:translateY(-6px)}}
+@media (prefers-reduced-motion:reduce){dialog.quick{animation:none}}
+/* The saves choice still takes the middle of the screen: the player has to answer it. */
 dialog{width:min(420px,calc(100vw - 32px));max-height:calc(100dvh - 32px)}
 dialog .head{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:linear-gradient(#000,#000) bottom/100% 1px no-repeat}
 dialog .head strong{font-family:var(--display);font-size:17px}
 dialog .body{padding:14px 16px;display:grid;gap:12px;font-size:14px}
 dialog .body p{margin:0;color:var(--muted)}
 dialog nav{display:grid;gap:8px;padding:0 16px 16px}
-dialog nav a[hidden]{display:none}
-dialog nav a{display:block;padding:11px 12px;text-decoration:none;font-family:var(--display);background:var(--face-hi);box-shadow:inset 1px 1px 0 rgba(255,255,255,.1),inset -1px -1px 0 #000}
-dialog nav a:hover{background:linear-gradient(180deg,#3a3f48,#2a2e35)}
 /* Keep your progress: a card over the game's top corner for guests, and a note once it's saved. */
 .keep,.keep-toast{position:fixed;z-index:20;top:58px;right:14px;width:min(360px,calc(100vw - 28px));margin:0;filter:drop-shadow(0 18px 36px rgba(0,0,0,.6));animation:keep-in 260ms cubic-bezier(.2,.8,.2,1)}
 .keep{display:grid;gap:10px;padding:18px 18px 16px}
@@ -160,7 +180,7 @@ ${siteHeader(env)}
   ${saves ? html`<a class="ctl" id="keep-bar" href="${joinHere}" data-keep="/join" title="Keep your progress" hidden>${raw(ICON_KEEP)}<span class="label">Keep progress</span></a>` : ""}
   <button class="ctl" id="share" type="button" title="Share">${raw(ICON_SHARE)}<span class="label">Share</span></button>
   <button class="ctl" id="full" type="button" title="Full screen">${raw(ICON_FULL)}<span class="label">Full screen</span></button>
-  <button class="ctl" id="menu" type="button" title="More" aria-haspopup="dialog">${raw(ICON_MORE)}<span class="label">More</span></button>
+  <button class="ctl" id="menu" type="button" title="More" aria-haspopup="dialog" aria-expanded="false" aria-controls="menu-dialog">${raw(ICON_MORE)}<span class="label">More</span></button>
 </div>
 <main class="gp">
 <section class="gp-top" aria-labelledby="title">
@@ -174,7 +194,7 @@ ${siteHeader(env)}
     ${metalButton("Play", { id: "play", big: true, block: true, play: true })}
     <p class="note" id="device-note" hidden></p>
     ${spec}
-    <div class="row"><button class="btn ghost" id="share-page" type="button">${raw(ICON_SHARE)}<span class="label">Share</span></button><a class="btn ghost" href="/g/${game.slug}/report">Report</a></div>
+    <div class="row"><button class="btn ghost" id="share-page" type="button">${raw(ICON_SHARE)}<span class="label">Share</span></button><a class="btn ghost" href="/g/${game.slug}/report" data-report>Report</a></div>
     <label class="share-link" id="share-link" hidden>Copy this link<input readonly aria-label="Link to this game"></label>
   </div>
 </section>
@@ -199,21 +219,22 @@ ${siteFooter()}
 <template id="game-frame"><iframe id="game" src="${src}" title="${game.title}"
   sandbox="allow-scripts allow-same-origin allow-pointer-lock"
   allow="fullscreen; gamepad; autoplay; web-share; clipboard-write" allowfullscreen referrerpolicy="no-referrer"></iframe></template>
-<dialog id="menu-dialog" aria-label="${game.title}">
-  <div class="head"><strong>${game.title}</strong><button class="ctl" type="button" id="menu-close">Close</button></div>
-  <div class="body">
-    ${game.description ? html`<p>${game.description}</p>` : ""}
-    ${multiplayer ? html`<p>Multiplayer. Share the link while you're in a match to bring friends into it.</p>` : ""}
-    ${ownServers.length ? html`<p>This game also connects to its own servers: ${ownServers.join(", ")}.</p>` : ""}
+<dialog id="menu-dialog" class="quick plate" aria-label="${game.title}">
+  <div class="q-head">
+    <strong>${game.title}</strong>
+    ${game.description ? html`<p class="q-about">${game.description}</p>` : ""}
+    ${ownServers.length ? html`<p class="q-about">Also connects to its own servers: ${ownServers.join(", ")}</p>` : ""}
+    ${saves ? html`<p id="save-status" class="save-line" role="status" hidden></p>` : ""}
   </div>
-  ${saves ? html`<p id="save-status" class="muted" hidden></p>` : ""}
   <nav>
-    ${saves ? html`<a id="keep-link" href="${joinHere}" data-keep="/join" hidden>Keep your progress</a><a id="save-history" href="/account/saves/${game.slug}" hidden>Earlier progress</a>` : ""}
-    <a href="/g/${game.slug}/report">Report this game</a>
-    <a href="/legal/content-rules">Content rules</a>
-    <a href="/">All games</a>
+    ${saves ? html`<a id="keep-link" href="${joinHere}" data-keep="/join" hidden>${raw(ICON_KEEP)}Keep your progress</a><a id="save-history" href="/account/saves/${game.slug}" hidden>${raw(ICON_HISTORY)}Earlier progress</a>` : ""}
+    <a href="/g/${game.slug}/report" data-report>${raw(ICON_REPORT)}Report this game</a>
+    <span class="sep" aria-hidden="true"></span>
+    <a href="/legal/content-rules" target="_blank" rel="noopener">${raw(ICON_RULES)}Content rules${raw(ICON_OUT)}</a>
+    <a href="/">${raw(ICON_GAMES)}All games</a>
   </nav>
 </dialog>
+${reportSheet(game, { multiplayer, gameOrigin: new URL(src).origin })}
 ${saves
       ? html`<aside class="keep plate bevel" id="keep" aria-labelledby="keep-title" hidden>
   <strong id="keep-title">Keep your progress</strong>
@@ -278,10 +299,29 @@ if (DEVICES.length && !DEVICES.includes(mine)) {
   note.hidden = false;
   document.querySelector("#play span").textContent = "Play anyway";
 }
-document.getElementById("menu").onclick = () => dialog.showModal();
-document.getElementById("menu-close").onclick = () => dialog.close();
-dialog.addEventListener("click", (e) => { if (e.target === dialog) dialog.close(); });
-dialog.addEventListener("close", () => frame && frame.focus());
+// The menu drops from the ⋯ button (from the side strip on landscape phones) and closes when the
+// player taps anywhere else, goes back to the game, or presses Escape.
+const menuButton = document.getElementById("menu");
+function placeMenu() {
+  const b = menuButton.getBoundingClientRect();
+  const strip = matchMedia("(orientation: landscape) and (max-height: 500px)").matches;
+  Object.assign(dialog.style, strip
+    ? { left: b.right + 8 + "px", right: "auto", top: "auto", bottom: Math.max(8, innerHeight - b.bottom) + "px" }
+    : { left: "auto", right: Math.max(8, innerWidth - b.right) + "px", top: b.bottom + 8 + "px", bottom: "auto" });
+}
+menuButton.onclick = () => {
+  if (dialog.open) return dialog.close();
+  placeMenu();
+  dialog.show();
+  menuButton.setAttribute("aria-expanded", "true");
+  const first = dialog.querySelector("nav a:not([hidden])");
+  if (first) first.focus({ focusVisible: false });
+};
+dialog.addEventListener("close", () => { menuButton.setAttribute("aria-expanded", "false"); if (frame && !document.getElementById("report").open) frame.focus(); });
+addEventListener("pointerdown", (e) => { if (dialog.open && !dialog.contains(e.target) && !menuButton.contains(e.target)) dialog.close(); });
+addEventListener("keydown", (e) => { if (e.key === "Escape" && dialog.open) dialog.close(); });
+addEventListener("blur", () => { if (dialog.open) dialog.close(); });
+addEventListener("resize", () => dialog.open && placeMenu());
 // Shares the address bar, which includes the room code while the player is in a match.
 // The system's share sheet where there is one; otherwise the link is copied and the button says so.
 async function shareFrom(button) {
@@ -348,62 +388,12 @@ const CONTROL_ICONS: Record<string, string> = {
   "keyboard-mouse": '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1.5" y="5" width="17" height="10" rx="1"/><path d="M4.5 8h.01M7.5 8h.01M10.5 8h.01M13.5 8h.01M15.5 8h.01M4.5 11h.01M15.5 11h.01M7.5 11.5h5"/></svg>',
   gamepad: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.4 5.5h7.2a4 4 0 0 1 3.9 3.3l.8 4.4a2 2 0 0 1-3.4 1.7L13 13H7l-1.9 1.9a2 2 0 0 1-3.4-1.7l.8-4.4a4 4 0 0 1 3.9-3.3z"/><path d="M6.2 8.3v3M4.7 9.8h3"/><path d="M13.6 9h.01M15.2 10.6h.01"/></svg>',
 };
+const ICON_HISTORY = svg('<path d="M3.5 12a8.5 8.5 0 1 0 2.5-6l-2.5 2.5"/><path d="M3.5 4v4.5H8"/><path d="M12 7.5V12l3 2"/>');
+const ICON_REPORT = svg('<path d="M5 21V4"/><path d="M5 4h12l-2.5 4.5L17 13H5"/>');
+const ICON_RULES = svg('<path d="M12 3l8 3v6c0 4.4-3.4 8.2-8 9-4.6-.8-8-4.6-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/>');
+const ICON_GAMES = svg('<rect x="4" y="4" width="7" height="7"/><rect x="13" y="4" width="7" height="7"/><rect x="4" y="13" width="7" height="7"/><rect x="13" y="13" width="7" height="7"/>');
+const ICON_OUT = svg('<path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v6H4V6h6"/>').replace("<svg ", '<svg class="ext" ');
 const ICON_MORE = svg('<circle cx="5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="19" cy="12" r="1.3" fill="currentColor"/>');
-
-export async function reportForm(env: Env, slug: string, error = ""): Promise<Response> {
-  const game = await gameBySlug(env.DB, slug);
-  if (!game || game.status === "pending" || game.visibility === "draft" || game.visibility === "private") return message(env, "Game not found", "Check the link and try again.", 404);
-  return layout(env, {
-    title: `Report ${game.title}`,
-    body: html`<h1>Report “${game.title}”</h1>
-<p class="lead">Tell us what's wrong. We don't record who you are.</p>
-${error ? html`<p class="note">${error}</p>` : ""}
-<form class="stack" method="post">
-  <label>What's the problem?
-    <select name="reason" required>
-      <option value="">Choose one</option>
-      ${Object.entries(REPORT_REASONS).map(([value, label]) => html`<option value="${value}">${label}</option>`)}
-    </select>
-  </label>
-  <label>Details (optional)
-    <textarea name="details" maxlength="2000" placeholder="What did you see, and where in the game?"></textarea>
-  </label>
-  <p class="note">Copyright claims need a formal notice: see the <a href="/legal/dmca">DMCA page</a>.</p>
-  <div class="row"><button class="btn" type="submit">Send report</button><a class="btn ghost" href="/g/${game.slug}">Cancel</a></div>
-</form>`,
-  });
-}
-
-export async function submitReport(env: Env, request: Request, slug: string, ctx: ExecutionContext): Promise<Response> {
-  const game = await gameBySlug(env.DB, slug);
-  if (!game || game.status === "pending" || game.visibility === "draft" || game.visibility === "private") return message(env, "Game not found", "Check the link and try again.", 404);
-
-  // Rate limit by connection address. It's checked by Cloudflare and never stored.
-  const ip = request.headers.get("cf-connecting-ip") ?? "local";
-  if (env.REPORT_LIMIT && !(await env.REPORT_LIMIT.limit({ key: ip })).success) {
-    return message(env, "Too many reports", "Please wait a minute and try again.", 429);
-  }
-
-  const form = await request.formData();
-  const reason = String(form.get("reason") ?? "") as ReportReason;
-  const details = String(form.get("details") ?? "").slice(0, 2000).trim();
-  if (!(reason in REPORT_REASONS)) return reportForm(env, slug, "Choose what the problem is.");
-
-  await createReport(env.DB, { gameId: game.id, reason, details });
-  const autoHold = AUTO_HOLD_REASONS.includes(reason) && game.status === "live";
-  if (autoHold) {
-    await setGameStatus(env.DB, game.id, "held");
-    await audit(env.DB, game.id, "auto-hold", `Report: ${REPORT_REASONS[reason]}`);
-  }
-  ctx.waitUntil(
-    sendAlert(
-      env,
-      `Report on ${game.slug}: ${REPORT_REASONS[reason]}${autoHold ? " (game hidden)" : ""}`,
-      `${REPORT_REASONS[reason]}\n\n${details || "(no details)"}\n\n${autoHold ? "The game is hidden until you review it.\n\n" : ""}Review: ${env.SITE_ORIGIN}/admin/games/${game.id}`,
-    ),
-  );
-  return message(env, "Thanks for the report", "We'll look at it soon.");
-}
 
 export function legal(env: Env, page: string): Response | null {
   const pages: Record<string, { title: string; body: string }> = {
@@ -433,7 +423,7 @@ const CONTENT_RULES = `
 <h2>How we check</h2>
 <p>Every game is scanned before it's published: automatic malware checks, matching against known illegal images, and an AI review. Games that need a closer look wait for a person.</p>
 <h2>Reports and takedowns</h2>
-<p>Every game page has a Report button. We remove games that break these rules. Reports about child safety or illegal content hide the game straight away until we've reviewed it.</p>
+<p>Every game page has a Report button. We remove games that break these rules. Reports about child safety or illegal content go straight to a person. Until we've checked, a brand-new game is hidden and a recent update goes back to the version before it.</p>
 `;
 
 const DMCA = `
@@ -473,7 +463,7 @@ const PRIVACY = `
 <h2>Cookies</h2>
 <p>We only use cookies to keep you signed in and to remember where you are while you make an account. No ads, no tracking, no analytics cookies.</p>
 <h2>Reports</h2>
-<p>When you report a game or a player, we keep what you wrote and nothing about you. Reports about a player include their temporary ID or name so we can act on it.</p>
+<p>When you report a game or a player, we keep what you wrote and nothing about you. Reports about a player include their temporary ID or name so we can act on it. If you include a picture of the game with your report, we keep it until the report is dealt with and delete it within 30 days.</p>
 <h2>Games</h2>
 <p>Games run on a separate domain and can't see your account, email or cookies. Our content rules don't allow games to collect players' personal data.</p>
 <h2>Who helps us run Zaisma</h2>

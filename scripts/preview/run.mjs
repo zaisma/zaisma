@@ -3,7 +3,7 @@
 // tried and iterated on before anything goes live. Run: npm run preview (add --reset for fresh data).
 // Uses its own data folder and ports, so it never touches your dev data or the live site.
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deflateSync } from "node:zlib";
@@ -11,9 +11,10 @@ import { startFakeAuth } from "./fake-auth.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const STATE = join(ROOT, ".wrangler/preview");
-const PORTS = { site: 8800, games: 8801, auth: 8790 };
+const PORTS = { site: 8800, games: 8801, rooms: 8802, auth: 8790 };
 const SITE = `http://localhost:${PORTS.site}`;
 const GAMES = `http://localhost:${PORTS.games}`;
+const ROOMS = `http://localhost:${PORTS.rooms}`;
 const EMAIL = "preview@zaisma.test";
 
 if (process.argv.includes("--reset")) rmSync(STATE, { recursive: true, force: true });
@@ -25,7 +26,18 @@ writeFileSync(
   join(STATE, "site.env"),
   [`SITE_ORIGIN=${SITE}`, `GAME_ORIGIN=${GAMES}`, "GAME_HOST_MODE=path", "GAME_DOMAIN=", "DEV_ADMIN=1", `SUPABASE_URL=http://localhost:${PORTS.auth}`, "SUPABASE_PUBLISHABLE_KEY=preview", "SUPABASE_SECRET_KEY=preview", "KEEP_OFFER_SECONDS=20", ""].join("\n"),
 );
-writeFileSync(join(STATE, "games.env"), [`SITE_ORIGIN=${SITE}`, "GAME_HOST_MODE=path", "GAME_DOMAIN=", "ROOMS_ORIGIN=http://localhost:8802", ""].join("\n"));
+writeFileSync(join(STATE, "games.env"), [`SITE_ORIGIN=${SITE}`, "GAME_HOST_MODE=path", "GAME_DOMAIN=", `ROOMS_ORIGIN=${ROOMS}`, ""].join("\n"));
+// Multiplayer rooms, with their own pass signing key kept between runs so passes stay valid.
+const passKeyFile = join(STATE, "rooms-key.json");
+if (!existsSync(passKeyFile)) {
+  const pair = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
+  const { kty, crv, x, d } = await crypto.subtle.exportKey("jwk", pair.privateKey);
+  writeFileSync(passKeyFile, JSON.stringify({ kty, crv, x, d }));
+}
+writeFileSync(
+  join(STATE, "rooms.env"),
+  [`ISSUER=${ROOMS}`, `SITE_ORIGIN=${SITE}`, "GAME_HOST_MODE=path", `GAME_ORIGIN=${GAMES}`, "GAME_DOMAIN=", `PASS_SIGNING_KEY='${readFileSync(passKeyFile, "utf8")}'`, ""].join("\n"),
+);
 
 const children = [];
 const stop = () => {
@@ -55,18 +67,26 @@ console.log("Applying database updates…");
 spawnSync("npx", ["wrangler", "d1", "migrations", "apply", "zaisma", "--local", "--persist-to", STATE], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
 children.push(wrangler("games", ["dev", "--port", String(PORTS.games), "--inspector-port", "9341", "--persist-to", STATE, "--env-file", join(STATE, "games.env")], { quiet: true }));
 children.push(wrangler("site", ["dev", "--port", String(PORTS.site), "--inspector-port", "9340", "--local-upstream", `localhost:${PORTS.site}`, "--persist-to", STATE, "--env-file", join(STATE, "site.env")], { quiet: true }));
-await Promise.all([waitFor(SITE), waitFor(GAMES)]);
+children.push(wrangler("rooms", ["dev", "--port", String(PORTS.rooms), "--inspector-port", "9342", "--persist-to", STATE, "--env-file", join(STATE, "rooms.env")], { quiet: true }));
+await Promise.all([waitFor(SITE), waitFor(GAMES), waitFor(ROOMS)]);
 if (fresh) {
   console.log("Adding test games…");
   await seed();
   writeFileSync(join(STATE, "seeded"), new Date().toISOString());
 }
+// The two multiplayer demos run on our rooms (also for preview data made before rooms were in the preview).
+spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", "UPDATE games SET game_server = slug WHERE slug IN ('arena', 'four-in-a-row') AND game_server IS NULL"], {
+  cwd: join(ROOT, "apps/site"),
+  stdio: "ignore",
+  env: { ...process.env, CI: "1" },
+});
 
 console.log(`
 Zaisma preview is running. Nothing here touches the live site.
 
   Home            ${SITE}/
   A game page     ${SITE}/g/shard-dodge
+  Multiplayer     ${SITE}/g/arena  (open it in two windows to play together)
   Your games      ${SITE}/dashboard
   Admin           ${SITE}/admin
 

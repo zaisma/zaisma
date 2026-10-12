@@ -56,7 +56,8 @@ export const SAVES_CLIENT = `
     const m = Math.round((Date.now() - ms) / 60000);
     return m < 1 ? "just now" : m < 60 ? m + " min ago" : m < 1440 ? Math.round(m / 60) + " h ago" : Math.round(m / 1440) + " days ago";
   };
-  const say = (text) => { if (status) { status.textContent = text; status.hidden = false; } };
+  // Green when progress is reaching the account, amber when it isn't.
+  const say = (text) => { if (status) { status.textContent = text; status.hidden = false; status.classList.toggle("ok", text.startsWith("Progress saves to your account")); } };
   let toastTimer = null;
   const pop = (text) => {
     if (!toast) return;

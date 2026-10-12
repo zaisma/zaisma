@@ -1,4 +1,4 @@
-import type { Game, GameStatus, ScanReport, ScanStatus, Version, Visibility } from "./types.ts";
+import { PLAYER_REPORT_REASONS, REPORT_REASONS, type Game, type GameStatus, type PlayerReportReason, type ReportReason, type ScanReport, type ScanStatus, type Version, type Visibility } from "./types.ts";
 import { newId } from "./ids.ts";
 
 const now = () => Date.now();
@@ -125,6 +125,11 @@ export async function publishVersion(db: D1Database, version: Version): Promise<
   ]);
 }
 
+/** A person checked this version after a report: later reports can't pause it. */
+export async function clearVersion(db: D1Database, versionId: string): Promise<void> {
+  await db.prepare("UPDATE versions SET cleared_at = ?, report_held_at = NULL WHERE id = ?").bind(now(), versionId).run();
+}
+
 export async function audit(db: D1Database, gameId: string | null, action: string, reason = "", actor = "system"): Promise<void> {
   await db.prepare("INSERT INTO audit_log (game_id, action, reason, actor, at) VALUES (?, ?, ?, ?, ?)").bind(gameId, action, reason, actor, now()).run();
 }
@@ -152,12 +157,46 @@ export interface Report {
   details: string;
   status: "open" | "dismissed" | "actioned";
   created_at: number;
+  /** The version that was live when it was reported. */
+  version_id: string | null;
+  room_code: string;
+  /** A report about a player: their temporary ID and name, and what they did (a PLAYER_REPORT_REASONS key). */
+  player_id: string;
+  player_name: string;
+  player_reason: string;
+  /** 1 when the player included a picture of the game (reportPictureKey). */
+  picture: number;
+  closed_at: number | null;
 }
 
-export async function createReport(db: D1Database, r: { gameId: string; reason: string; details: string }): Promise<string> {
+/** Where a report's picture is kept, in the games bucket. Never served on the game domain. */
+export const reportPictureKey = (reportId: string) => `report-pictures/${reportId}.jpg`;
+
+export interface NewReport {
+  gameId: string;
+  reason: string;
+  details: string;
+  versionId?: string | null;
+  roomCode?: string;
+  player?: { id: string; name: string; reason: string };
+}
+
+/** Nothing about the person reporting is ever passed in or stored. */
+export async function createReport(db: D1Database, r: NewReport): Promise<string> {
   const id = newId();
-  await db.prepare("INSERT INTO reports (id, game_id, reason, details, created_at) VALUES (?, ?, ?, ?, ?)").bind(id, r.gameId, r.reason, r.details, now()).run();
+  await db
+    .prepare("INSERT INTO reports (id, game_id, reason, details, created_at, version_id, room_code, player_id, player_name, player_reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .bind(id, r.gameId, r.reason, r.details, now(), r.versionId ?? null, r.roomCode ?? "", r.player?.id ?? "", r.player?.name ?? "", r.player?.reason ?? "")
+    .run();
   return id;
+}
+
+/** What a report is about, in a line: "Another player's behavior: Cheating (Swift Fox 42, room ABCDEF)". */
+export function reportLabel(r: Pick<Report, "reason" | "room_code" | "player_name" | "player_reason">): string {
+  let label: string = REPORT_REASONS[r.reason as ReportReason] ?? r.reason;
+  if (r.player_reason) label += `: ${PLAYER_REPORT_REASONS[r.player_reason as PlayerReportReason] ?? r.player_reason}`;
+  const where = [r.player_name, r.room_code && `room ${r.room_code}`].filter(Boolean).join(", ");
+  return where ? `${label} (${where})` : label;
 }
 
 export async function openReports(db: D1Database): Promise<(Report & { slug: string; title: string; game_status: GameStatus })[]> {
@@ -168,7 +207,7 @@ export async function openReports(db: D1Database): Promise<(Report & { slug: str
 }
 
 export async function closeReports(db: D1Database, gameId: string, status: "dismissed" | "actioned"): Promise<void> {
-  await db.prepare("UPDATE reports SET status = ? WHERE game_id = ? AND status = 'open'").bind(status, gameId).run();
+  await db.prepare("UPDATE reports SET status = ?, closed_at = ? WHERE game_id = ? AND status = 'open'").bind(status, now(), gameId).run();
 }
 
 export function currentMonth(at = new Date()): string {
