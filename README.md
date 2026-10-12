@@ -18,7 +18,7 @@ Pre-beta. Building in public.
 | --- | --- |
 | Weekend 1 | Safe game hosting: scan before publish, sandboxed game domain, directory, reporting |
 | Weekend 2 | Guest multiplayer rooms, invite links, clip sharing, demo games |
-| Weekend 3 | Accounts, cloud saves, the open toolkit and Claude Code publish skill. **Public beta.** |
+| Weekend 3 | Accounts, cloud saves, the open toolkit and the creator MCP for publishing from any AI tool. **Public beta.** |
 | Weeks 4–6 | Friends, discovery and trust, payments and at-cost hosting |
 
 ## License
