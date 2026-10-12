@@ -121,17 +121,21 @@ describe("room browsing on the game page", () => {
   it("lists open rooms with how full they are and where they run, never who's in them", async () => {
     const id = await addGame("arena", "relay");
     await room(id, "BCDFGH", 3);
-    await room(id, "JKLMNP", 8);
+    await room(id, "JKMN3P", 8);
     await room(id, "QRSTVW", 2, 0);
     await room(id, "XYZ234", 5, 1, Date.now() - 3 * 3600_000);
     const page = await (await SELF.fetch("https://zaisma.test/g/arena")).text();
     expect(page).toContain('aria-controls="rooms"');
     expect(page).toContain('id="rooms-count">1</span>');
     expect(page).toContain("13 players on now");
-    expect(page).toContain('<a class="btn" href="/g/arena?room=BCDFGH" aria-label="Join room BCDFGH">Join</a>');
+    expect(page).toContain('<a class="btn" href="/g/arena?room=BCDFGH" aria-label="Join a room with 3 of 8 players in Germany">Join</a>');
+    // Codes stay in the links; a player with a code types it into the box.
+    expect(page).toContain('<form class="code-join" method="get" action="/g/arena">');
+    expect(page).not.toContain(">BCDFGH<");
     expect(page).toContain("3 of 8 players");
     expect(page).toContain('<img class="flag" src="/flags/de.png" alt="" width="20" height="15" loading="lazy"><abbr title="Germany">DE</abbr>');
-    expect(page).toMatch(/JKLMNP[\s\S]*?<span class="full">Full<\/span>/);
+    expect(page).toMatch(/8 of 8 players[\s\S]*?<span class="full">Full<\/span>/);
+    expect(page).not.toContain("JKMN3P");
     // Closed rooms are only counted; rooms that stopped checking in aren't shown at all.
     expect(page).not.toContain("QRSTVW");
     expect(page).toContain("Plus 1 match in progress that isn&#39;t taking new players.");
@@ -149,7 +153,7 @@ describe("room browsing on the game page", () => {
     await room(id, "ABC234", 31, 1, Date.now(), ["US", "NA"], 40);
     const page = await (await SELF.fetch("https://zaisma.test/g/arena")).text();
     expect(page).toContain('<button type="button" data-region="EU" title="Europe" aria-pressed="false">EU<small>12</small></button>');
-    expect(page).toContain('<span class="gauge" aria-hidden="true"><i style="width:78%"></i></span><span>31 of 40 players</span>');
+    expect(page).toContain('<span class="count">31 of 40 players</span><span class="gauge" aria-hidden="true"><i style="width:78%"></i></span>');
     expect(page.match(/class="room plate later"/g)).toHaveLength(3);
     expect(page).toContain("Show 3 more rooms");
     expect(page).toContain('id="rooms-count">13</span>');

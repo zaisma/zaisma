@@ -4,7 +4,7 @@ import { html, layout, message, metalButton, playerModes, raw, siteFooter, siteH
 import { showcase, tile } from "./home.ts";
 import { SAVES_CLIENT } from "./saves-client.ts";
 import { reportSheet } from "./report.ts";
-import { pageRooms, roomsOnPage, roomsPanel, tabCount } from "./rooms.ts";
+import { codeBox, pageRooms, roomsOnPage, roomsPanel, tabCount } from "./rooms.ts";
 
 const ROOM_CODE = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/;
 
@@ -112,22 +112,26 @@ main.gp{max-width:1240px;margin:0 auto;padding:30px 24px 72px}
 .rooms-head{display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px;margin:0 0 16px}
 .rooms-head .badge{font-size:14px}
 .rooms{list-style:none;padding:0;margin:0;display:grid;gap:10px;max-width:900px}
-.room{--cut:12px;display:grid;grid-template-columns:minmax(0,1fr) 280px 104px;align-items:center;gap:8px 24px;padding:10px 10px 10px 20px;clip-path:polygon(0 0,calc(100% - 12px) 0,100% 12px,100% 100%,0 100%)}
+.room{--cut:12px;display:grid;grid-template-columns:minmax(0,1fr) auto 104px;align-items:center;gap:8px 24px;padding:10px 10px 10px 20px;clip-path:polygon(0 0,calc(100% - 12px) 0,100% 12px,100% 100%,0 100%)}
 .room.later{display:none}
 #rooms.all .room.later{display:grid}
-.room .id{display:flex;align-items:center;flex-wrap:wrap;gap:4px 18px;min-width:0}
-.room .code{flex:0 0 118px;font-family:var(--display);font-weight:600;font-size:20px;letter-spacing:.14em;color:var(--text);text-shadow:0 -1px 0 rgba(0,0,0,.8),0 1px 0 rgba(255,255,255,.06)}
-.room .where{display:flex;align-items:center;gap:8px}
+.room .fill{display:flex;align-items:center;flex-wrap:wrap;gap:6px 16px;min-width:0}
+.room .count{font-family:var(--display);font-size:17px;font-weight:600;color:var(--text);white-space:nowrap;min-width:9.5em}
+.room .where{display:flex;align-items:center;gap:8px;min-width:52px}
 /* Where the room runs: the country's flag, set into the metal, and its two-letter code. */
 .room .flag{width:20px;height:15px;flex:none;box-shadow:0 0 0 1px rgba(0,0,0,.85),0 1px 0 1px rgba(255,255,255,.07)}
 .room .where abbr{text-decoration:none;font-family:var(--display);font-size:14px;font-weight:500;letter-spacing:.06em;color:var(--text-2)}
-.room .fill{display:flex;align-items:center;gap:12px;min-width:0;font-size:14px;color:var(--text-2);white-space:nowrap}
 .seats{display:flex;gap:3px;min-width:0}
 .seats i{flex:0 1 7px;min-width:3px;height:18px;background:rgba(0,0,0,.5);box-shadow:inset 0 1px 2px rgba(0,0,0,.85),0 1px 0 rgba(255,255,255,.06)}
 .seats i.on{background:linear-gradient(180deg,#f2f4f6,#aeb2b8 55%,#71757c);box-shadow:inset 0 1px 0 #fff,0 0 7px rgba(225,230,240,.28)}
 /* Rooms past 16 places: a gauge cut into the metal, filled with chrome. */
-.gauge{position:relative;width:96px;height:10px;flex:0 1 96px;min-width:40px;background:rgba(0,0,0,.5);box-shadow:inset 0 1px 3px rgba(0,0,0,.85),0 1px 0 rgba(255,255,255,.06)}
+.gauge{position:relative;width:120px;height:10px;flex:0 1 120px;min-width:48px;background:rgba(0,0,0,.5);box-shadow:inset 0 1px 3px rgba(0,0,0,.85),0 1px 0 rgba(255,255,255,.06)}
 .gauge i{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(180deg,#f2f4f6,#aeb2b8 55%,#71757c);box-shadow:0 0 7px rgba(225,230,240,.28)}
+/* A code from a friend: typed into the metal, joined in one press. */
+.code-join{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;margin:0 0 22px;max-width:900px}
+.code-join label{font-family:var(--display);font-size:15px;font-weight:500;color:var(--text-2)}
+.code-join input{width:8.5em;min-height:44px;padding:0 12px;font-family:var(--display);font-size:18px;font-weight:600;letter-spacing:.16em;text-transform:uppercase}
+.code-join input::placeholder{color:#5d626b;letter-spacing:.16em}
 .room .btn{min-height:44px}
 .room .full{display:grid;place-items:center;min-height:44px;color:var(--muted);font-family:var(--display);font-size:15px;font-weight:500}
 .regions{display:flex;width:fit-content;max-width:100%;overflow-x:auto;scrollbar-width:none;margin:0 0 14px}
@@ -137,13 +141,11 @@ main.gp{max-width:1240px;margin:0 auto;padding:30px 24px 72px}
 .rooms-all{margin:12px 0 0}
 #rooms.all .rooms-all{display:none}
 .rooms-more{margin:14px 0 0}
-/* Phones: the code, flag and Join on top, how full it is across the whole row underneath. */
+/* Phones: how full the room is on the left, its flag and Join on the right. */
 @media (max-width:640px){
-  .room{grid-template-columns:minmax(0,1fr) auto;gap:8px 12px;padding:12px 10px 12px 16px}
-  .room .id{grid-column:1;grid-row:1;gap:4px 12px}
-  .room .code{flex-basis:104px;font-size:19px}
-  .room .fill{grid-column:1/-1;grid-row:2}
-  .room .btn,.room .full{grid-column:2;grid-row:1;min-width:84px}
+  .room{grid-template-columns:minmax(0,1fr) auto auto;gap:8px 12px;padding:12px 10px 12px 16px}
+  .room .count{min-width:0;font-size:16px}
+  .room .btn,.room .full{min-width:76px}
 }
 .updates{list-style:none;padding:0;margin:0;display:grid;gap:16px;max-width:780px}
 .updates li{padding:18px 20px}
@@ -256,7 +258,7 @@ ${tabs.length > 1
   </div>
   ${developer ? html`<div class="dev-card bevel"><span class="av bevel-s" aria-hidden="true">${developer.name[0]!.toUpperCase()}</span><span><strong>${developer.name}</strong><small>${developer.games === 1 ? "1 game on Zaisma" : `${developer.games} games on Zaisma`}</small></span></div>` : ""}
 </section>
-${rooms ? html`<section id="rooms" role="tabpanel" aria-label="Rooms" hidden>${roomsPanel(game.slug, rooms)}</section>` : ""}
+${rooms ? html`<section id="rooms" role="tabpanel" aria-label="Rooms" hidden>${codeBox(game.slug)}<div id="rooms-list">${roomsPanel(game.slug, rooms)}</div></section>` : ""}
 ${updates.results.length
       ? html`<section id="updates" role="tabpanel" aria-label="Updates" hidden><ol class="updates">${updates.results.map(
           (u) => html`<li><h3>${day(u.published_at)}</h3><p>${u.notes}</p></li>`,
@@ -345,14 +347,15 @@ let roomsRegion = "";
 try { roomsRegion = localStorage.getItem("zaisma:rooms-region") || ""; } catch {}
 async function refreshRooms(force) {
   if (!roomsPanel || roomsPanel.hidden || document.hidden || frame) return;
-  const shown = roomsPanel.firstElementChild?.dataset.shown || "";
+  const list = document.getElementById("rooms-list");
+  const shown = list.firstElementChild?.dataset.shown || "";
   if (!force && shown === roomsRegion && Date.now() - roomsAt < 19000) return;
   roomsAt = Date.now();
   try {
     const res = await fetch(location.pathname + "/rooms" + (roomsRegion ? "?region=" + roomsRegion : ""));
     if (!res.ok) return;
-    roomsPanel.innerHTML = await res.text();
-    const n = roomsPanel.firstElementChild?.dataset.joinable || "0";
+    list.innerHTML = await res.text();
+    const n = list.firstElementChild?.dataset.joinable || "0";
     const count = document.getElementById("rooms-count");
     count.textContent = n;
     count.hidden = n === "0";
@@ -372,6 +375,11 @@ if (roomsPanel) {
       roomsPanel.classList.add("all");
     }
   });
+}
+const codeInput = document.getElementById("room-code");
+if (codeInput) {
+  codeInput.addEventListener("input", () => { codeInput.value = codeInput.value.toUpperCase().replace(/\s/g, ""); codeInput.setCustomValidity(""); });
+  codeInput.addEventListener("invalid", () => codeInput.setCustomValidity("Room codes are 6 letters and numbers, like ABC234."));
 }
 const linkedTab = tabs.find((t) => "#" + t.getAttribute("aria-controls") === location.hash);
 if (linkedTab) showTab(linkedTab.getAttribute("aria-controls"));

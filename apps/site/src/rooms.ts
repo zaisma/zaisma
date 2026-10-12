@@ -69,11 +69,22 @@ function roomRow(slug: string, r: ListedRoom, later: boolean): Raw {
     r.max <= 16
       ? html`<span class="seats" aria-hidden="true">${Array.from({ length: r.max }, (_, i) => raw(i < r.players ? '<i class="on"></i>' : "<i></i>"))}</span>`
       : html`<span class="gauge" aria-hidden="true"><i style="width:${Math.min(100, Math.round((r.players / r.max) * 100))}%"></i></span>`;
+  // The code stays in the link; players with a code type it into the box above the list.
+  const label = `Join a room with ${filled}${r.location ? ` in ${r.location.name}` : ""}`;
   return html`<li class="room plate${later ? " later" : ""}">
-<span class="id"><span class="code" title="Room code">${r.code}</span>${r.location ? html`<span class="where"><img class="flag" src="/flags/${r.location.country.toLowerCase()}.png" alt="" width="20" height="15" loading="lazy"><abbr title="${r.location.name}">${r.location.country}</abbr></span>` : ""}</span>
-<span class="fill">${meter}<span>${filled}</span></span>
-${space ? html`<a class="btn" href="/g/${slug}?room=${r.code}" aria-label="Join room ${r.code}">Join</a>` : html`<span class="full">Full</span>`}
+<span class="fill"><span class="count">${filled}</span>${meter}</span>
+<span class="where">${r.location ? html`<img class="flag" src="/flags/${r.location.country.toLowerCase()}.png" alt="" width="20" height="15" loading="lazy"><abbr title="${r.location.name}">${r.location.country}</abbr>` : ""}</span>
+${space ? html`<a class="btn" href="/g/${slug}?room=${r.code}" aria-label="${label}">Join</a>` : html`<span class="full">Full</span>`}
 </li>`;
+}
+
+/** A box for a room code a friend shared. It opens the same room link an invite does. */
+export function codeBox(slug: string): Raw {
+  return html`<form class="code-join" method="get" action="/g/${slug}">
+<label for="room-code">Have a room code?</label>
+<input id="room-code" name="room" required maxlength="6" minlength="6" autocomplete="off" autocapitalize="characters" spellcheck="false" pattern="[2-9A-HJ-NP-Za-hj-np-z]{6}" placeholder="ABC234" title="6 letters and numbers, like ABC234">
+<button class="btn" type="submit">Join</button>
+</form>`;
 }
 
 /** GET /g/:slug/rooms: the Rooms panel on its own, for the page to refresh while it's on screen. */
