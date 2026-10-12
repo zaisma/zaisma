@@ -133,6 +133,9 @@ function onSnapshot(list) {
   }
 }
 
+// Mute, block and report, from the game's own menu.
+document.getElementById("players").onclick = () => room && Zaisma.openSafetyPanel(room);
+
 async function start() {
   try {
     room = await Zaisma.joinRoom();

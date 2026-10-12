@@ -52,6 +52,16 @@ export interface ScanJob {
   versionId: string;
 }
 
+/** Why a player reports another player in a room. */
+export const PLAYER_REPORT_REASONS = {
+  harassment: "Harassing or bullying",
+  hate: "Hate or threats",
+  sexual: "Sexual behavior",
+  cheating: "Cheating",
+  other: "Something else",
+} as const;
+export type PlayerReportReason = keyof typeof PLAYER_REPORT_REASONS;
+
 /** Game servers built into the rooms Worker, by the name set on a game in admin. */
 export const BUILT_IN_GAME_SERVERS = ["relay", "arena", "four-in-a-row"] as const;
 
@@ -63,6 +73,7 @@ export const REPORT_REASONS = {
   hate: "Hate or harassment",
   copyright: "Copyright (use the DMCA page)",
   broken: "Broken or not a game",
+  player: "Another player's behavior",
   other: "Something else",
 } as const;
 export type ReportReason = keyof typeof REPORT_REASONS;
