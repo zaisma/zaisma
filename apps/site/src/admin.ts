@@ -1,7 +1,7 @@
 import {
   BUILT_IN_GAME_SERVERS,
   LIMITS,
-  REPORT_REASONS,
+  reportLabel,
   UploadError,
   aiUsage,
   allGames,
@@ -31,7 +31,6 @@ import {
   settleDetailsDraft,
   settleImage,
   type GameImage,
-  type ReportReason,
   type ScanReport,
 } from "@zaisma/core";
 import { adminIdentity } from "./access.ts";
@@ -229,7 +228,7 @@ ${words.length
 <h2>Open reports (${reports.length})</h2>
 ${reports.length
       ? html`<table><tr><th>Game</th><th>Reason</th><th>Details</th><th>When</th></tr>${reports.map(
-          (r) => html`<tr><td><a href="/admin/games/${r.game_id}">${r.title}</a> ${pill(r.game_status)}</td><td>${REPORT_REASONS[r.reason as ReportReason] ?? r.reason}</td><td>${r.details}</td><td>${when(r.created_at)}</td></tr>`,
+          (r) => html`<tr><td><a href="/admin/games/${r.game_id}">${r.title}</a> ${pill(r.game_status)}</td><td>${reportLabel(r)}</td><td>${r.details}</td><td>${when(r.created_at)}</td></tr>`,
         )}</table>`
       : html`<p class="note">No open reports.</p>`}
 
@@ -310,7 +309,7 @@ ${images.length ? html`<div class="shots">${images.map((i) => html`<div>${imageR
 
 <h2>Open reports (${mine.length})</h2>
 ${mine.length
-      ? html`<table>${mine.map((r) => html`<tr><td>${REPORT_REASONS[r.reason as ReportReason] ?? r.reason}</td><td>${r.details}</td><td>${when(r.created_at)}</td></tr>`)}</table>
+      ? html`<table>${mine.map((r) => html`<tr><td>${reportLabel(r)}${r.player_id ? html`<br><small class="muted">Player ID ${r.player_id}</small>` : ""}</td><td>${r.details}</td><td>${when(r.created_at)}</td></tr>`)}</table>
 <form method="post" action="/admin/games/${game.id}/dismiss" class="row" style="margin-top:10px"><input name="reason" placeholder="Why (optional)"><button class="btn ghost" type="submit">Dismiss reports</button></form>`
       : html`<p class="note">None.</p>`}
 

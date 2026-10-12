@@ -67,9 +67,22 @@ describe("game page controls", () => {
     const page = await (await SELF.fetch("https://zaisma.test/g/solo")).text();
     expect(page).toContain('id="share"');
     expect(page).toContain('id="full"');
-    expect(page).toContain('href="/g/solo/report"');
+    expect(page).toContain('href="/g/solo/report" data-report');
     expect(page).toContain('<dialog id="menu-dialog"');
     expect(page).not.toContain("More games");
+  });
+
+  it("reports from a plate beside the game, with a player reason only for multiplayer games", async () => {
+    await addGame("solo");
+    await addGame("arena", "relay");
+    const solo = await (await SELF.fetch("https://zaisma.test/g/solo")).text();
+    expect(solo).toContain('<dialog id="report" class="sheet"');
+    expect(solo).not.toContain('data-reason="player"');
+    expect(solo).toContain('href="/legal/dmca" target="_blank"');
+    const arena = await (await SELF.fetch("https://zaisma.test/g/arena")).text();
+    expect(arena).toContain('data-reason="player"');
+    // A game hands a player report to the plate, and only from its own origin.
+    expect(arena).toContain('"gameOrigin":"https://games.zaisma.test"');
   });
 });
 

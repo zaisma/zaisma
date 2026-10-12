@@ -110,11 +110,14 @@ export default {
         const code = str(body.code, 6);
         const player = str(body.player, 40);
         if (!(reason in PLAYER_REPORT_REASONS) || !isRoomCode(code) || !player) return json({ error: "Choose what happened." }, 400, cors);
-        const details = [
-          `${PLAYER_REPORT_REASONS[reason]}: ${str(body.name, 40) || "a player"} (temporary ID ${player}) in room ${code}.`,
-          str(body.details, 500),
-        ].filter(Boolean).join("\n");
-        await createReport(env.DB, { gameId: game.id, reason: "player", details });
+        await createReport(env.DB, {
+          gameId: game.id,
+          reason: "player",
+          details: str(body.details, 500),
+          versionId: game.current_version_id,
+          roomCode: code,
+          player: { id: player, name: str(body.name, 40), reason },
+        });
         return json({ ok: true }, 200, cors);
       }
 

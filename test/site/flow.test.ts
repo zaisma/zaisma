@@ -167,7 +167,7 @@ describe("reports and takedowns", () => {
     expect(row?.details).toBe("won't load");
     expect(JSON.stringify(row)).not.toContain("203.0.113.9");
     const cols = (await env.DB.prepare("PRAGMA table_info(reports)").all<{ name: string }>()).results.map((c) => c.name);
-    expect(cols.sort()).toEqual(["created_at", "details", "game_id", "id", "reason", "status"]);
+    expect(cols.sort()).toEqual(["created_at", "details", "game_id", "id", "player_id", "player_name", "player_reason", "reason", "room_code", "status", "version_id"]);
     expect((await gameBySlug(env.DB, "test-game"))?.status).toBe("live");
   });
 
@@ -176,6 +176,54 @@ describe("reports and takedowns", () => {
     await report("child_safety");
     expect((await gameBySlug(env.DB, "test-game"))?.status).toBe("held");
     expect((await SELF.fetch(`${LOCAL}/g/test-game`)).status).toBe(404);
+  });
+
+  // The plate beside the game sends JSON from zaisma.com itself.
+  // Each report comes from its own address, so the rate limit stays out of the way.
+  let address = 10;
+  const fromPlate = (body: Record<string, unknown>, slug = "test-game", origin = LOCAL) =>
+    SELF.fetch(`${LOCAL}/g/${slug}/report`, { method: "POST", headers: { "Content-Type": "application/json", Origin: origin, "CF-Connecting-IP": `203.0.113.${address++}` }, body: JSON.stringify(body) });
+
+  it("takes a report from the plate with the version and room, and nothing about the reporter", async () => {
+    const { versionId } = await liveGame();
+    const res = await fromPlate({ reason: "broken", details: "stuck on level 2", room: "abcdef" });
+    expect(await res.json()).toEqual({ ok: true, hidden: false });
+    const row = await env.DB.prepare("SELECT * FROM reports").first<Record<string, unknown>>();
+    expect(row).toMatchObject({ reason: "broken", details: "stuck on level 2", version_id: versionId, room_code: "ABCDEF", player_id: "" });
+    expect(JSON.stringify(row)).not.toContain("203.0.113.");
+  });
+
+  it("takes a report about a player, with their temporary ID, and leaves the game up", async () => {
+    await liveGame();
+    const res = await fromPlate({ reason: "sexual", details: "", room: "ABCDEF", player: { id: "g_0123456789abcdef", name: "Swift Fox 42" } });
+    expect(await res.json()).toEqual({ ok: true, hidden: false });
+    const row = await env.DB.prepare("SELECT * FROM reports").first<Record<string, unknown>>();
+    expect(row).toMatchObject({ reason: "player", player_reason: "sexual", player_id: "g_0123456789abcdef", player_name: "Swift Fox 42", room_code: "ABCDEF" });
+    expect((await gameBySlug(env.DB, "test-game"))?.status).toBe("live");
+    expect((await fromPlate({ reason: "cheating", player: { id: "<script>", name: "x" } })).status).toBe(400);
+  });
+
+  it("says when a report hid the game", async () => {
+    await liveGame();
+    expect(await (await fromPlate({ reason: "child_safety" })).json()).toEqual({ ok: true, hidden: true });
+    expect((await gameBySlug(env.DB, "test-game"))?.status).toBe("held");
+  });
+
+  it("refuses plate reports sent from other sites", async () => {
+    await liveGame();
+    expect((await fromPlate({ reason: "broken" }, "test-game", "https://evil.example")).status).toBe(403);
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM reports").first("n")).toBe(0);
+  });
+
+  it("takes reports on private games, and answers the same for games that don't exist", async () => {
+    await liveGame();
+    await env.DB.exec("UPDATE games SET visibility = 'private'");
+    expect(await (await fromPlate({ reason: "broken" })).json()).toEqual({ ok: true, hidden: false });
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM reports").first("n")).toBe(1);
+    expect(await (await fromPlate({ reason: "broken" }, "no-such-game")).json()).toEqual({ ok: true, hidden: false });
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM reports").first("n")).toBe(1);
+    // The plain form never shows a private game's name.
+    expect(await (await SELF.fetch(`${LOCAL}/g/test-game/report`)).text()).not.toContain("Test Game");
   });
 
   it("refuses an unknown reason", async () => {

@@ -1,9 +1,9 @@
-import { AUTO_HOLD_REASONS, REPORT_REASONS, audit, createReport, gameBySlug, readPlayers, setGameStatus, type ReportReason } from "@zaisma/core";
+import { gameBySlug, readPlayers } from "@zaisma/core";
 import { gameUrl, type Env } from "./env.ts";
 import { html, layout, message, metalButton, playerModes, raw, siteFooter, siteHeader } from "./html.ts";
 import { showcase, tile } from "./home.ts";
 import { SAVES_CLIENT } from "./saves-client.ts";
-import { sendAlert } from "./email.ts";
+import { reportSheet } from "./report.ts";
 
 const ROOM_CODE = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/;
 
@@ -174,7 +174,7 @@ ${siteHeader(env)}
     ${metalButton("Play", { id: "play", big: true, block: true, play: true })}
     <p class="note" id="device-note" hidden></p>
     ${spec}
-    <div class="row"><button class="btn ghost" id="share-page" type="button">${raw(ICON_SHARE)}<span class="label">Share</span></button><a class="btn ghost" href="/g/${game.slug}/report">Report</a></div>
+    <div class="row"><button class="btn ghost" id="share-page" type="button">${raw(ICON_SHARE)}<span class="label">Share</span></button><a class="btn ghost" href="/g/${game.slug}/report" data-report>Report</a></div>
     <label class="share-link" id="share-link" hidden>Copy this link<input readonly aria-label="Link to this game"></label>
   </div>
 </section>
@@ -209,11 +209,12 @@ ${siteFooter()}
   ${saves ? html`<p id="save-status" class="muted" hidden></p>` : ""}
   <nav>
     ${saves ? html`<a id="keep-link" href="${joinHere}" data-keep="/join" hidden>Keep your progress</a><a id="save-history" href="/account/saves/${game.slug}" hidden>Earlier progress</a>` : ""}
-    <a href="/g/${game.slug}/report">Report this game</a>
+    <a href="/g/${game.slug}/report" data-report>Report this game</a>
     <a href="/legal/content-rules">Content rules</a>
     <a href="/">All games</a>
   </nav>
 </dialog>
+${reportSheet(game, { multiplayer, gameOrigin: new URL(src).origin })}
 ${saves
       ? html`<aside class="keep plate bevel" id="keep" aria-labelledby="keep-title" hidden>
   <strong id="keep-title">Keep your progress</strong>
@@ -349,61 +350,6 @@ const CONTROL_ICONS: Record<string, string> = {
   gamepad: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.4 5.5h7.2a4 4 0 0 1 3.9 3.3l.8 4.4a2 2 0 0 1-3.4 1.7L13 13H7l-1.9 1.9a2 2 0 0 1-3.4-1.7l.8-4.4a4 4 0 0 1 3.9-3.3z"/><path d="M6.2 8.3v3M4.7 9.8h3"/><path d="M13.6 9h.01M15.2 10.6h.01"/></svg>',
 };
 const ICON_MORE = svg('<circle cx="5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="19" cy="12" r="1.3" fill="currentColor"/>');
-
-export async function reportForm(env: Env, slug: string, error = ""): Promise<Response> {
-  const game = await gameBySlug(env.DB, slug);
-  if (!game || game.status === "pending" || game.visibility === "draft" || game.visibility === "private") return message(env, "Game not found", "Check the link and try again.", 404);
-  return layout(env, {
-    title: `Report ${game.title}`,
-    body: html`<h1>Report “${game.title}”</h1>
-<p class="lead">Tell us what's wrong. We don't record who you are.</p>
-${error ? html`<p class="note">${error}</p>` : ""}
-<form class="stack" method="post">
-  <label>What's the problem?
-    <select name="reason" required>
-      <option value="">Choose one</option>
-      ${Object.entries(REPORT_REASONS).map(([value, label]) => html`<option value="${value}">${label}</option>`)}
-    </select>
-  </label>
-  <label>Details (optional)
-    <textarea name="details" maxlength="2000" placeholder="What did you see, and where in the game?"></textarea>
-  </label>
-  <p class="note">Copyright claims need a formal notice: see the <a href="/legal/dmca">DMCA page</a>.</p>
-  <div class="row"><button class="btn" type="submit">Send report</button><a class="btn ghost" href="/g/${game.slug}">Cancel</a></div>
-</form>`,
-  });
-}
-
-export async function submitReport(env: Env, request: Request, slug: string, ctx: ExecutionContext): Promise<Response> {
-  const game = await gameBySlug(env.DB, slug);
-  if (!game || game.status === "pending" || game.visibility === "draft" || game.visibility === "private") return message(env, "Game not found", "Check the link and try again.", 404);
-
-  // Rate limit by connection address. It's checked by Cloudflare and never stored.
-  const ip = request.headers.get("cf-connecting-ip") ?? "local";
-  if (env.REPORT_LIMIT && !(await env.REPORT_LIMIT.limit({ key: ip })).success) {
-    return message(env, "Too many reports", "Please wait a minute and try again.", 429);
-  }
-
-  const form = await request.formData();
-  const reason = String(form.get("reason") ?? "") as ReportReason;
-  const details = String(form.get("details") ?? "").slice(0, 2000).trim();
-  if (!(reason in REPORT_REASONS)) return reportForm(env, slug, "Choose what the problem is.");
-
-  await createReport(env.DB, { gameId: game.id, reason, details });
-  const autoHold = AUTO_HOLD_REASONS.includes(reason) && game.status === "live";
-  if (autoHold) {
-    await setGameStatus(env.DB, game.id, "held");
-    await audit(env.DB, game.id, "auto-hold", `Report: ${REPORT_REASONS[reason]}`);
-  }
-  ctx.waitUntil(
-    sendAlert(
-      env,
-      `Report on ${game.slug}: ${REPORT_REASONS[reason]}${autoHold ? " (game hidden)" : ""}`,
-      `${REPORT_REASONS[reason]}\n\n${details || "(no details)"}\n\n${autoHold ? "The game is hidden until you review it.\n\n" : ""}Review: ${env.SITE_ORIGIN}/admin/games/${game.id}`,
-    ),
-  );
-  return message(env, "Thanks for the report", "We'll look at it soon.");
-}
 
 export function legal(env: Env, page: string): Response | null {
   const pages: Record<string, { title: string; body: string }> = {
