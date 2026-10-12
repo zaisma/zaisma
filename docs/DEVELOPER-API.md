@@ -46,9 +46,21 @@ Files are stored once, by their SHA-256, and shared by every version that has th
 | `PUT /files/:sha256` | Send one missing file as the request body. Storage checks the hash; programs and archives are refused. |
 | `POST /games/:slug/versions` | Make the version from the same list, plus `notes` (patch notes, up to 2,000 characters) and optionally `"publish": "when-approved"`. |
 | `GET /games/:slug/versions/:id` | `scan` (`scanning`, `held`, `approved` or `rejected`), what the scan found, and `preview_url` once it passes. |
-| `POST /games/:slug/versions/:id/publish` | Publish a draft that passed, or roll back to an older version. |
+| `POST /games/:slug/versions/:id/publish` | Publish a draft that passed, or roll back to an older version. With `{"at": "2026-11-01T17:00:00Z"}` it publishes later instead (a few minutes to 90 days ahead; checked every 5 minutes). A version still being scanned goes live at that time if it has passed by then. |
+| `DELETE /games/:slug/versions/:id/publish` | Cancel a publish-later. |
 
-- Same rules as zips: `index.html` at the top, no hidden files, no pre-compressed `.gz` or `.br` files, only the file types games use. Up to 20,000 files and 2 GB per game, and 95 MB per file for now (bigger files come with multipart uploads). Up to 20 versions per game a day.
+- Same rules as zips: `index.html` at the top, no hidden files, no pre-compressed `.gz` or `.br` files, only the file types games use. Up to 20,000 files, 2 GB per game and 500 MB per file. Up to 20 versions per game a day.
 - Each version is scanned. One that passes waits as a draft with a private preview link (`https://<slug>--<secret>.zaismausercontent.com/`) that works even while the game is a draft or private. Preview saves stay in that link's own browser storage.
 - Publishing makes it the version players get. We keep the live version plus the last 5 that passed, for rolling back.
+- Drafts nobody publishes are deleted after 30 days, and files no version uses after a day. Held and rejected versions are kept.
 - Publishing doesn't change visibility: a draft game stays hidden until you set it to `listed` or `unlisted`.
+
+### Big files
+
+Files over 95 MB are sent in parts, 50 MB each (the last can be smaller):
+
+1. `POST /files/:sha256/parts` with `{"bytes"}` answers `{"upload", "part_bytes", "parts"}`.
+2. `PUT /files/:sha256/parts/:n?upload=…` for each part, numbered from 1. Each answers `{"part", "etag"}`.
+3. `POST /files/:sha256/parts/done` with `{"upload", "parts": [{"part", "etag"}]}`.
+
+Storage can't check the hash of a file sent in parts, so it's kept for your own games only: another developer with the same file sends their own copy. The scan reads it like any other file.

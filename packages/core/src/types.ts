@@ -41,6 +41,8 @@ export interface Version {
   kind: "zip" | "files";
   notes: string;
   publish_when_approved: number;
+  /** Publish later: when this draft goes live by itself. */
+  publish_at: number | null;
   preview_token: string | null;
   published_at: number | null;
   created_at: number;
