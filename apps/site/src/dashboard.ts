@@ -21,6 +21,7 @@ interface GameJson {
   controls: string[];
   screen: string;
   players: Players | null;
+  cloud_saves: boolean;
   waiting_for_review: { title?: string; description?: string } | null;
   updated_at: number;
 }
@@ -112,6 +113,7 @@ export async function handleDashboard(request: Request, env: Env, path: string):
         controls: form.getAll("controls").map(String),
         screen: field("screen"),
         players: playersFrom(form),
+        cloud_saves: form.get("cloud_saves") === "on",
       })) as { review: string | null };
       return back(res.review ? "details-review" : "details", "#details");
     }
@@ -362,6 +364,10 @@ ${waiting ? html`<p class="note small">Waiting for review: ${[waiting.title ? `t
 <fieldset><legend>Controls</legend><div class="row">${CONTROLS.map((c) => html`<label class="check"><input type="checkbox" name="controls" value="${c}"${g.controls.includes(c) ? raw(" checked") : ""}> ${CONTROL_LABELS[c]}</label>`)}</div></fieldset>
 ${playersFields(g.players)}
 <label>Screen<select name="screen">${["", ...SCREENS].map((s) => html`<option value="${s}"${g.screen === s ? raw(" selected") : ""}>${SCREEN_LABELS[s]}</option>`)}</select></label>
+<fieldset><legend>Saves</legend>
+<label class="check"><input type="checkbox" name="cloud_saves"${g.cloud_saves ? raw(" checked") : ""}> Cloud saves</label>
+<p class="hint">Signed-in players' progress follows them to any device. It copies the game's own browser saves, so there's nothing to add to your game. Turn it off if your game keeps its own saves on a server.</p>
+</fieldset>
 <button class="btn" type="submit">Save details</button>
 </form>`;
 }

@@ -2,27 +2,44 @@
 export const SAVE_LIMIT_BYTES = 5 * 1024 * 1024;
 
 /**
- * A browser save (the game's localStorage) as one stable string: keys sorted, so the
- * same save always gives the same text and hash. The game page and the game domain
- * script do the same, so all three agree on what "the same save" means.
+ * A browser save: the game's localStorage as { key: value }, or { idb, local } when the game
+ * also keeps IndexedDB databases. idb is the databases as the game domain script writes them
+ * (packages/sdk/saves.js); we only store it.
  */
-export function canonicalSave(data: Record<string, string>): string {
-  const out: Record<string, string> = {};
-  for (const k of Object.keys(data).sort()) out[k] = data[k]!;
-  return JSON.stringify(out);
+export type SaveData = Record<string, string> | { idb: unknown[]; local: Record<string, string> };
+
+const withIdb = (data: SaveData): data is { idb: unknown[]; local: Record<string, string> } => Array.isArray(data.idb);
+
+/**
+ * A save as one stable string: localStorage keys sorted, so the same save always gives the
+ * same text and hash. The game page and the game domain script do the same, so all three
+ * agree on what "the same save" means.
+ */
+export function canonicalSave(data: SaveData): string {
+  return withIdb(data) ? JSON.stringify({ idb: data.idb, local: sorted(data.local) }) : JSON.stringify(sorted(data));
 }
 
-/** A save from a client: an object of strings, or null if it isn't one. */
-export function parseSave(text: string): Record<string, string> | null {
+function sorted(data: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const k of Object.keys(data).sort()) Object.defineProperty(out, k, { value: data[k]!, enumerable: true, writable: true, configurable: true });
+  return out;
+}
+
+const strings = (v: unknown): v is Record<string, string> =>
+  Boolean(v) && typeof v === "object" && !Array.isArray(v) && Object.values(v as object).every((x) => typeof x === "string");
+
+/** A save from a client, or null if it isn't one. */
+export function parseSave(text: string): SaveData | null {
   let data: unknown;
   try {
     data = JSON.parse(text);
   } catch {
     return null;
   }
+  if (strings(data)) return data;
   if (!data || typeof data !== "object" || Array.isArray(data)) return null;
-  for (const v of Object.values(data)) if (typeof v !== "string") return null;
-  return data as Record<string, string>;
+  const { idb, local, ...rest } = data as Record<string, unknown>;
+  return Array.isArray(idb) && strings(local) && !Object.keys(rest).length ? { idb, local } : null;
 }
 
 export async function saveHash(text: string): Promise<string> {

@@ -207,6 +207,15 @@ describe("players", () => {
     expect(((await (await api("/games/cave-crew", { method: "PATCH", body: { players: null } })).json()) as { game: { players: unknown } }).game.players).toBeNull();
   });
 
+  it("turns cloud saves off and on for games that keep their own", async () => {
+    await api("/games", { body: { title: "Own Saves" } });
+    expect(((await (await api("/games/own-saves")).json()) as { game: { cloud_saves: boolean } }).game.cloud_saves).toBe(true);
+    const off = (await (await api("/games/own-saves", { method: "PATCH", body: { cloud_saves: false } })).json()) as { game: { cloud_saves: boolean } };
+    expect(off.game.cloud_saves).toBe(false);
+    expect((await gameBySlug(env.DB, "own-saves"))!.cloud_saves).toBe(0);
+    expect((await api("/games/own-saves", { method: "PATCH", body: { cloud_saves: "yes" } })).status).toBe(400);
+  });
+
   it("describes each way to play in plain words", () => {
     expect(describePlayers({ single: true, local: { min: 2, max: 4, style: "co-op" }, online: { min: 8, max: null, style: "both" } })).toEqual([
       { mode: "single", label: "Single-player", count: null },

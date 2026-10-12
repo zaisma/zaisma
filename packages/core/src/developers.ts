@@ -132,6 +132,8 @@ export interface DetailsChange {
   screen?: string;
   /** null clears it. */
   players?: Players | null;
+  /** Copy signed-in players' browser saves to their account. Off for games that keep their own saves. */
+  cloud_saves?: boolean;
 }
 
 /** Check a change from the API. Returns the tidied change or a plain error. */
@@ -176,6 +178,10 @@ export function checkDetails(input: Record<string, unknown>): { change: DetailsC
       change.players = { single: p.single, local, online };
     }
   }
+  if ("cloud_saves" in input) {
+    if (typeof input.cloud_saves !== "boolean") return { error: "cloud_saves is true or false." };
+    change.cloud_saves = input.cloud_saves;
+  }
   return { change };
 }
 
@@ -214,6 +220,7 @@ export async function applyDetails(db: D1Database, game: Game, change: DetailsCh
   if (change.controls) set("controls", change.controls.join(","));
   if (change.screen !== undefined) set("screen", change.screen);
   if (change.players !== undefined) set("players", change.players ? JSON.stringify(change.players) : "");
+  if (change.cloud_saves !== undefined) set("cloud_saves", change.cloud_saves ? 1 : 0);
   if (sets.length) {
     set("updated_at", now());
     await db.prepare(`UPDATE games SET ${sets.join(", ")} WHERE id = ?`).bind(...binds, game.id).run();

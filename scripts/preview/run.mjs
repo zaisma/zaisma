@@ -124,6 +124,7 @@ async function seed() {
     { title: "Arena", folder: "examples/arena/game", color: [150, 70, 160], description: "Bump your friends off the platform. Last one standing wins the round.", devices: ["computer"], controls: ["keyboard-mouse", "gamepad"], players: { single: false, local: { min: 2, max: 4, style: "versus" }, online: { min: 2, max: 8, style: "versus" } } },
     { title: "Four in a Row", folder: "examples/four-in-a-row/game", color: [200, 140, 50], description: "The classic: drop your pieces and line up four before your friend does.", devices: ["phone", "tablet", "computer"], controls: ["touch", "keyboard-mouse"], players: { single: false, local: { min: 2, max: 2, style: "versus" }, online: { min: 2, max: 2, style: "versus" } } },
     { title: "Night Drive", folder: "examples/hello-game", color: [40, 50, 90], description: "", devices: [], controls: [] },
+    { title: "Tiny Farm", folder: "scripts/preview/tiny-farm", color: [90, 140, 60], description: "Harvest carrots. It saves like a Unity game does (in IndexedDB), to try cloud saves.", devices: ["phone", "tablet", "computer"], controls: ["touch", "keyboard-mouse"], players: { single: true, local: null, online: null } },
     { title: "Cave Crew", folder: "examples/hello-game", color: [60, 120, 90], description: "Dig, build and explore together. Bring the whole crew.", devices: ["computer"], controls: ["keyboard-mouse", "gamepad"], players: { single: true, local: { min: 2, max: 4, style: "co-op" }, online: { min: 2, max: null, style: "co-op" } } },
   ];
   for (const g of games) {
