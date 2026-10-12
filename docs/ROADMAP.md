@@ -108,6 +108,7 @@ Detailed plan approved: guest passes, game server API, rooms, SDK, demos.
 | planned | Must | Creator links on game pages | Creator accounts | Steam, itch.io, Discord, website, socials |
 | planned | Must | At least 5 seed games | Claude Code skill, Two demo games | Made with Claude Code through our own publishing flow, different genres, multiplayer |
 | planned | Nice | 10 seed games | At least 5 seed games | The target in `docs/PLAN.md` |
+| planned | Must | Link-out listings | | Games hosted elsewhere, added from admin with the creator's OK: credited and linked, marked "Plays on example.com", never embedded. Original games only. Checked at listing and re-checked automatically. Creators can claim them once creator accounts exist |
 | planned | Nice | QR codes | | |
 | planned | Must | Open the public beta | Connect image matching, Julius: register the DMCA agent, Julius: form an LLC, Alert and DMCA email delivery, Julius: Supabase Pro, At least 5 seed games | And every other must item above. Weekly releases and the weekly game jam start here |
 
@@ -157,7 +158,6 @@ Goal: good games get found, ranked by quality rather than clicks, and creators g
 | planned | Must | Player lists and creator picks | |
 | planned | Must | Follow games and update notes | Followers hear about new versions; posts to the creator's Discord |
 | planned | Must | Zaisma Plus | About $5/month: badge, profile extras, new features first, early access to games whose creators opt in; half to creators by playtime |
-| planned | Nice | Link-out listings | Games hosted elsewhere, marked "Plays on example.com", never embedded; checked at submission and re-checked automatically |
 | planned | Nice | Scout badge | |
 | planned | Nice | Copycat grouping | Reposted templates count as one game |
 | planned | Nice | Embeds for creators' sites | |
