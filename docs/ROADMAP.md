@@ -45,14 +45,14 @@ Goal: open Zaisma to outside creators and players, with what both expect out of 
 
 ### Multiplayer
 
-Detailed plan approved: guest passes, game server API, rooms, toolkit, demos.
+Detailed plan approved: guest passes, game server API, rooms, SDK, demos.
 
 | Status | Must/Nice | Item | Notes |
 | --- | --- | --- | --- |
 | next | Must | Player passes | Signed guest passes any server can check, published keys |
 | next | Must | Game server API and relay | Server-client by default; messages-only relay for simple games |
 | next | Must | Rooms on rooms.zaisma.com | Durable Objects with hibernation; limits, takedowns end rooms |
-| next | Must | Client toolkit | `joinRoom`, invite links, reconnecting |
+| next | Must | Client SDK | `joinRoom`, invite links, reconnecting |
 | next | Must | Room invite links | Tap a link, land in the match as a guest |
 | next | Must | Floating Z button | Replaces the top bar: Invite, Clip, Full screen, More games, Report |
 | next | Must | Mute, block and report-a-player | |

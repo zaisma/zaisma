@@ -16,7 +16,7 @@ Click a link and you're in the game: no account, no app download, in any browser
 
 We win by being the default "publish" step for games made in Claude Code, then letting every shared game link recruit new players.
 
-1. **Creator MCP + toolkit.** An MCP server any AI tool can connect to after the creator signs in: create games, edit details, upload, publish, roll back, and check scans, reports and stats. A small upload command sends builds straight to us, and a Claude Code skill teaches the whole workflow. A small JavaScript toolkit adds login, friends, saves and multiplayer to any game.
+1. **Creator MCP + SDK.** An MCP server any AI tool can connect to after the creator signs in: create games, edit details, upload, publish, roll back, and check scans, reports and stats. A small upload command sends builds straight to us, and a Claude Code skill teaches the whole workflow. A small JavaScript SDK adds login, friends, saves and multiplayer to any game.
 2. **Instant play links.** Every game and every multiplayer room has a link. Anyone who taps it joins as a guest in seconds, in the browser, with no signup and no download. After a good session we offer "keep your progress" to turn the guest into an account.
 3. **Friends pull friends.** "Join my room" links put new players onto the platform; once they have an account, every other game is one tap away.
 4. **Developers pull players.** Developers already post their AI-made games on X, Reddit and Discord. Each post points at our link, not a zip file or a GitHub page.
@@ -38,7 +38,7 @@ Estimates assume 30% of players make accounts, 4 multiplayer hours per player a 
 
 **Where the money comes from**
 
-- **Donations and sponsors:** GitHub Sponsors and Open Collective from players and developers; company sponsors for the open-source toolkit.
+- **Donations and sponsors:** GitHub Sponsors and Open Collective from players and developers; company sponsors for the open-source SDK.
 - **Promoted games:** developers can pay for a front-page slot, like Roblox's old sponsored game ads. 25 slots at $50/week covers 1 million players.
 - **Supporter badge:** players who donate get a profile badge.
 - **Self-hosting:** any game can move to its own servers whenever it wants, so our biggest costs leave with the games that outgrow us.
@@ -58,7 +58,7 @@ The whole platform runs on rented services for about $5/month while building and
 
 **Multiplayer at scale is cheap if built right.** Cloudflare's own example of 100 rooms with 100 players each, all month, costs about $21/month when rooms use WebSocket hibernation. The same load without hibernation costs hundreds, so the SDK must use it from day one.
 
-**Bring your own servers, any time.** Our rooms are a convenient default, billed at cost, never a requirement. A game can run its own servers from day one or move off ours when it takes off, for performance or customization. Accounts, guest IDs, friends and room links keep working: the toolkit hands each player a signed pass that the developer's own server can check, and a room link can point at any server. Moving takes a config change, not a rewrite.
+**Bring your own servers, any time.** Our rooms are a convenient default, billed at cost, never a requirement. A game can run its own servers from day one or move off ours when it takes off, for performance or customization. Accounts, guest IDs, friends and room links keep working: the SDK hands each player a signed pass that the developer's own server can check, and a room link can point at any server. Moving takes a config change, not a rewrite.
 
 Supabase's free plan pauses after a week without traffic, so we move to Pro ($25) at public launch. Cloudflare Workers Paid ($5/month) is needed before the beta, because running developers' game servers safely uses Dynamic Workers.
 
