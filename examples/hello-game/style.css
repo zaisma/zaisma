@@ -1,0 +1,6 @@
+html,body{margin:0;height:100%;background:#111214;color:#ececec;font:600 18px system-ui,sans-serif;overflow:hidden;touch-action:none;user-select:none}
+canvas{display:block;width:100vw;height:100vh}
+#hud{position:fixed;top:12px;left:16px;right:16px;display:flex;justify-content:space-between;pointer-events:none}
+#best{color:#9b9da3}
+#msg{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:40px;text-align:center;pointer-events:none}
+#msg small{font-size:16px;color:#9b9da3;margin-top:10px;font-weight:500}

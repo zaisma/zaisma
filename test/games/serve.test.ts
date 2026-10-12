@@ -1,0 +1,97 @@
+import { env, SELF } from "cloudflare:test";
+import { beforeEach, describe, expect, it } from "vitest";
+import { resolveGame } from "../../apps/games/src/index.ts";
+
+const G = "https://games.example";
+
+async function addGame(slug: string, status: string, withVersion = true) {
+  const id = `g${slug.replace(/-/g, "")}`;
+  const versionId = `v${id}`;
+  const prefix = `games/${id}/${versionId}`;
+  await env.DB.prepare("INSERT INTO games (id, slug, title, status, current_version_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 0, 0)")
+    .bind(id, slug, slug, status, withVersion ? versionId : null)
+    .run();
+  if (withVersion) {
+    await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, bytes, scan_status, created_at) VALUES (?, ?, ?, 2, 0, 'approved', 0)").bind(versionId, id, prefix).run();
+    await env.GAMES.put(`${prefix}/index.html`, "<!doctype html><p>game</p>");
+    await env.GAMES.put(`${prefix}/sfx/beep.mp3`, new Uint8Array(1000).fill(7));
+  }
+  return id;
+}
+
+describe("game server", () => {
+  beforeEach(async () => {
+    await env.DB.exec("DELETE FROM versions; DELETE FROM domains; DELETE FROM games;");
+  });
+
+  it("serves a live game with the sandbox headers", async () => {
+    await addGame("live-one", "live");
+    const res = await SELF.fetch(`${G}/live-one/`);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("<p>game</p>");
+    const csp = res.headers.get("content-security-policy")!;
+    expect(csp).toContain("connect-src 'self'");
+    expect(csp).toContain("frame-ancestors https://zaisma.test");
+    expect(csp).toContain("form-action 'none'");
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(res.headers.get("permissions-policy")).toContain("camera=()");
+    expect(res.headers.get("set-cookie")).toBeNull();
+    expect(res.headers.get("content-type")).toContain("text/html");
+  });
+
+  it("adds the trailing slash so relative paths work", async () => {
+    await addGame("live-one", "live");
+    const res = await SELF.fetch(`${G}/live-one`, { redirect: "manual" });
+    expect(res.status).toBe(301);
+    expect(res.headers.get("location")).toBe(`${G}/live-one/`);
+  });
+
+  it("supports range requests for audio and video", async () => {
+    await addGame("live-one", "live");
+    const res = await SELF.fetch(`${G}/live-one/sfx/beep.mp3`, { headers: { Range: "bytes=0-99" } });
+    expect(res.status).toBe(206);
+    expect(res.headers.get("content-range")).toBe("bytes 0-99/1000");
+    expect((await res.arrayBuffer()).byteLength).toBe(100);
+    expect(res.headers.get("content-type")).toBe("audio/mpeg");
+  });
+
+  it("shows removed games as gone straight away", async () => {
+    await addGame("gone", "removed");
+    const res = await SELF.fetch(`${G}/gone/`);
+    expect(res.status).toBe(410);
+    expect(await res.text()).toContain("removed");
+    expect((await SELF.fetch(`${G}/gone/sfx/beep.mp3`)).status).toBe(410);
+  });
+
+  it("hides held, pending and unknown games", async () => {
+    await addGame("held-one", "held");
+    await addGame("pending-one", "pending", false);
+    expect((await SELF.fetch(`${G}/held-one/`)).status).toBe(404);
+    expect((await SELF.fetch(`${G}/pending-one/`)).status).toBe(404);
+    expect((await SELF.fetch(`${G}/nope/`)).status).toBe(404);
+  });
+
+  it("refuses path tricks", async () => {
+    await addGame("live-one", "live");
+    expect((await SELF.fetch(`${G}/live-one/%2e%2e/%2e%2e/x`)).status).toBe(404);
+    expect((await SELF.fetch(`${G}/live-one/missing.js`)).status).toBe(404);
+  });
+
+  it("only allows reading", async () => {
+    expect((await SELF.fetch(`${G}/live-one/`, { method: "POST" })).status).toBe(405);
+  });
+});
+
+describe("resolveGame", () => {
+  const sub = { GAME_HOST_MODE: "subdomain" as const, GAME_DOMAIN: "zaisma.gg" };
+  it("reads the slug from the path on workers.dev", () => {
+    expect(resolveGame(new URL("https://x.workers.dev/shard-dodge/js/a.js"), { GAME_HOST_MODE: "path", GAME_DOMAIN: "" })).toEqual({ by: { slug: "shard-dodge" }, path: "js/a.js", base: "/shard-dodge/" });
+  });
+  it("reads the slug from the subdomain on the game domain", () => {
+    expect(resolveGame(new URL("https://shard-dodge.zaisma.gg/js/a.js"), sub)).toEqual({ by: { slug: "shard-dodge" }, path: "js/a.js", base: "/" });
+    expect(resolveGame(new URL("https://a.b.zaisma.gg/"), sub)).toBeNull();
+  });
+  it("treats any other host as a developer's own domain", () => {
+    expect(resolveGame(new URL("https://play.mygame.com/"), sub)).toEqual({ by: { hostname: "play.mygame.com" }, path: "", base: "/" });
+  });
+});

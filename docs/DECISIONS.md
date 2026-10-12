@@ -30,6 +30,9 @@ Settled calls. Don't reopen these in code or docs without Julius approving the c
 - **Moderation pays for itself.** A capped free review budget per developer, then refundable $5 / $25 deposits, so floods from bad actors cost them, not us.
 - **Games are sandboxed** on a separate game domain, never on zaisma.com.
 - **Report button on every game page**, DMCA agent registered, takedown on notice.
+- **Game domain: zaisma.gg** long term. Until it's bought, games are served from the free `workers.dev` address. A real game domain (one subdomain per game) is required before outside developers can upload, because only separate subdomains stop games reading each other's storage.
+- **Games can't load outside scripts or call outside servers.** The code that runs is the code we scanned, so developers bundle their libraries. Our room host gets allowed when multiplayer ships.
+- **Weekend 1 uploads are admin-only** (Julius). Developer uploads open with accounts in Weekend 3.
 
 ## Discovery
 
@@ -39,6 +42,7 @@ Settled calls. Don't reopen these in code or docs without Julius approving the c
 ## Product scope
 
 - **Browser first, desktop downloads too.** Desktop builds use the same toolkit.
+- **Custom game domains after beta.** Developers can point their own domain at their game (Cloudflare for SaaS: first 100 domains free, then about $0.10 each a month). Same scanning, sandbox and takedown rules.
 - **Multiplayer rooms use WebSocket hibernation from day one** (Cloudflare Durable Objects). Without it, costs are 10x+.
 - **Tools tab in months 2–3.** Free, open-source developer tools (asset pipelines, engines, editors, Claude Code skills). Same rules as games; a tool must be open source to list.
 
