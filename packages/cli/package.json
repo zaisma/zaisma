@@ -1,0 +1,10 @@
+{
+  "name": "zaisma",
+  "version": "0.1.0",
+  "description": "Upload and publish browser games on Zaisma from the command line.",
+  "license": "MIT",
+  "type": "module",
+  "bin": { "zaisma": "./zaisma.mjs" },
+  "files": ["zaisma.mjs", "README.md"],
+  "engines": { "node": ">=18" }
+}

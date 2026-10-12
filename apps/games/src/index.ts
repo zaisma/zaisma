@@ -1,4 +1,4 @@
-import { connectSources, contentTypeFor, gameHeaders, servableGame } from "@zaisma/core";
+import { connectSources, contentTypeFor, fileKey, gameHeaders, manifestKey, servableGame, versionByPreview, type Manifest } from "@zaisma/core";
 import savesScript from "@zaisma/sdk/saves.js";
 import sdk from "@zaisma/sdk/zaisma.js";
 
@@ -75,6 +75,20 @@ export function withSavesScript(page: string, src: string): string {
   return doctype ? doctype[0] + tag + page.slice(doctype[0].length) : tag + page;
 }
 
+// Manifests never change once written, so each Worker keeps the latest few in memory.
+const manifests = new Map<string, Manifest>();
+
+async function manifestFor(env: Env, versionId: string): Promise<Manifest | null> {
+  const cached = manifests.get(versionId);
+  if (cached) return cached;
+  const object = await env.GAMES.get(manifestKey(versionId));
+  if (!object) return null;
+  const manifest = (await object.json()) as Manifest;
+  if (manifests.size >= 20) manifests.delete(manifests.keys().next().value!);
+  manifests.set(versionId, manifest);
+  return manifest;
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     if (request.method !== "GET" && request.method !== "HEAD") {
@@ -89,15 +103,30 @@ export default {
 
     const target = resolveGame(url, env);
     if (!target) return page(404, "Game not found", "Check the link and try again.", env);
+    // A draft's private preview: <slug>--<token>. Slugs never contain "--".
+    const preview = "slug" in target.by ? target.by.slug.match(/^([a-z0-9-]+?)--([a-z0-9]{20})$/) : null;
+    const by = preview ? { slug: preview[1]! } : target.by;
 
     // Read status on every request so a takedown applies straight away.
-    const game = await servableGame(env.DB, target.by);
+    const game = await servableGame(env.DB, by);
     if (game?.status === "removed") return page(410, "This game was removed", "It broke Zaisma's rules or was taken down on request.", env);
     if (game?.status === "held") return page(404, "This game is being reviewed", "Try again later.", env);
-    // Drafts and private games open only through preview and tester links, which come next.
-    if (!game || game.status !== "live" || !game.r2_prefix || game.visibility === "draft" || game.visibility === "private") {
-      return page(404, "Game not found", "Check the link and try again.", env);
+    if (!game) return page(404, "Game not found", "Check the link and try again.", env);
+
+    let version: { id: string; kind: "zip" | "files"; r2_prefix: string };
+    if (preview) {
+      const draft = await versionByPreview(env.DB, game.id, preview[2]!);
+      if (!draft) return page(404, "This preview link doesn't work", "It may be for a version that was deleted. Get a fresh link from the developer.", env);
+      version = draft;
+    } else {
+      // Drafts and private games open only through preview and tester links.
+      if (game.status !== "live" || !game.r2_prefix || !game.current_version_id || game.visibility === "draft" || game.visibility === "private") {
+        return page(404, "Game not found", "Check the link and try again.", env);
+      }
+      version = { id: game.current_version_id, kind: game.version_kind ?? "zip", r2_prefix: game.r2_prefix };
     }
+    // Previews keep their saves in their own browser storage, never the player's account.
+    const cloudSaves = Boolean(game.cloud_saves) && !preview;
 
     // /<slug> -> /<slug>/ so the game's relative links work.
     if (env.GAME_HOST_MODE === "path" && !url.pathname.endsWith("/") && target.path === "") {
@@ -121,12 +150,12 @@ export default {
 
     // Cloud saves: the script that hands the game's browser save to the Zaisma game page,
     // and the page that puts an account's save in place before the game starts.
-    if (game.cloud_saves && target.path === "_zaisma/saves.js") {
+    if (cloudSaves && target.path === "_zaisma/saves.js") {
       const headers = gameHeaders("text/javascript; charset=utf-8", env.SITE_ORIGIN, connect);
       headers.set("Cache-Control", "public, max-age=300");
       return new Response(request.method === "HEAD" ? null : `var __ZAISMA_SAVES__ = ${JSON.stringify({ site: env.SITE_ORIGIN })};\n${savesScript}`, { headers });
     }
-    if (game.cloud_saves && target.path === "_zaisma/restore") {
+    if (cloudSaves && target.path === "_zaisma/restore") {
       const headers = gameHeaders("text/html; charset=utf-8", env.SITE_ORIGIN, connect);
       headers.set("Cache-Control", "no-cache");
       return new Response(request.method === "HEAD" ? null : RESTORE_PAGE, { headers });
@@ -134,12 +163,14 @@ export default {
 
     const path = target.path === "" || target.path.endsWith("/") ? `${target.path}index.html` : target.path;
     const html = path.endsWith(".html");
-    const inject = Boolean(game.cloud_saves) && html;
+    const inject = cloudSaves && html;
     // Pages that get the saves script are changed on the way out, so they skip ranges and R2's own ETag checks.
-    const object = await env.GAMES.get(`${game.r2_prefix}/${path}`, inject ? {} : { range: request.headers, onlyIf: request.headers });
+    const key = fileKey(version, version.kind === "files" ? await manifestFor(env, version.id) : null, path);
+    const object = key ? await env.GAMES.get(key, inject ? {} : { range: request.headers, onlyIf: request.headers }) : null;
     if (!object) return page(404, "File not found", "This game is missing a file.", env);
 
     const headers = gameHeaders(contentTypeFor(path), env.SITE_ORIGIN, connect);
+    if (preview) headers.set("X-Robots-Tag", "noindex");
     headers.set("ETag", object.httpEtag);
     // HTML is re-checked so takedowns and updates show up. Other files keep the same address
     // across versions, so they're only cached briefly: an update reaches players within a minute.

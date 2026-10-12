@@ -122,7 +122,7 @@ export function* unpackGameFiles(zip: Uint8Array, entries: ZipEntry[], batchByte
   }
 }
 
-function cleanPath(name: string): string {
+export function cleanPath(name: string): string {
   const path = name.replace(/\\/g, "/");
   // eslint-disable-next-line no-control-regex
   if (/[\u0000-\u001f\u007f]/.test(path)) throw new UploadError("A file name contains control characters.");

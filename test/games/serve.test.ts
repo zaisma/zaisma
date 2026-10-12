@@ -1,5 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
+import { blobKey, manifestKey, sha256Hex } from "@zaisma/core";
 import { resolveGame } from "../../apps/games/src/index.ts";
 
 const G = "https://games.example";
@@ -75,6 +76,40 @@ describe("game server", () => {
     await addGame("live-one", "live");
     expect((await SELF.fetch(`${G}/live-one/%2e%2e/%2e%2e/x`)).status).toBe(404);
     expect((await SELF.fetch(`${G}/live-one/missing.js`)).status).toBe(404);
+  });
+
+  it("serves versions uploaded file by file from shared files", async () => {
+    const id = await addGame("hop", "live", false);
+    const enc = (t: string) => new TextEncoder().encode(t);
+    const files = { "index.html": "<!doctype html><p>hop v2</p>", "js/game.js": "let x = 2;" };
+    const manifest: Record<string, { sha256: string; bytes: number }> = {};
+    for (const [path, text] of Object.entries(files)) {
+      const sha = await sha256Hex(enc(text));
+      await env.GAMES.put(blobKey(sha), text);
+      manifest[path] = { sha256: sha, bytes: enc(text).byteLength };
+    }
+    await env.GAMES.put(manifestKey("vhop2"), JSON.stringify({ files: manifest }));
+    await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, bytes, scan_status, kind, created_at) VALUES ('vhop2', ?, 'manifests/vhop2', 2, 0, 'approved', 'files', 0)").bind(id).run();
+    await env.DB.prepare("UPDATE games SET current_version_id = 'vhop2' WHERE id = ?").bind(id).run();
+    expect(await (await SELF.fetch(`${G}/hop/`)).text()).toContain("hop v2");
+    expect(await (await SELF.fetch(`${G}/hop/js/game.js`)).text()).toBe("let x = 2;");
+    expect((await SELF.fetch(`${G}/hop/js/other.js`)).status).toBe(404);
+  });
+
+  it("opens a draft only through its preview link", async () => {
+    const id = await addGame("drafty", "pending", false);
+    await env.DB.prepare("UPDATE games SET visibility = 'draft' WHERE id = ?").bind(id).run();
+    await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, bytes, scan_status, preview_token, created_at) VALUES ('vd', ?, 'games/d/vd', 1, 0, 'approved', 'abcdefghij0123456789', 0)").bind(id).run();
+    await env.GAMES.put("games/d/vd/index.html", "<!doctype html><p>draft</p>");
+    expect((await SELF.fetch(`${G}/drafty/`)).status).toBe(404);
+    const res = await SELF.fetch(`${G}/drafty--abcdefghij0123456789/`);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("<p>draft</p>");
+    expect(res.headers.get("x-robots-tag")).toBe("noindex");
+    expect((await SELF.fetch(`${G}/drafty--abcdefghij0123456780/`)).status).toBe(404);
+    // A takedown closes previews too.
+    await env.DB.prepare("UPDATE games SET status = 'removed' WHERE id = ?").bind(id).run();
+    expect((await SELF.fetch(`${G}/drafty--abcdefghij0123456789/`)).status).toBe(410);
   });
 
   it("only allows reading", async () => {

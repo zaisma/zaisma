@@ -86,9 +86,9 @@ Detailed plan approved: guest passes, game server API, rooms, SDK, demos.
 | Status | Must/Nice | Item | Needs | Notes |
 | --- | --- | --- | --- | --- |
 | done | Must | Developer accounts | Sign-in, Games have owners | Any account owns games; API keys on the account page; one developer API for the MCP, upload command and dashboard (docs/DEVELOPER-API.md) |
-| planned | Must | Upload command | Developer accounts | File by file, up to 2 GB per game, only changed files |
+| doing | Must | Upload command | Developer accounts | File by file, up to 2 GB per game, only changed files. `zaisma` command in packages/cli; next: files over 95 MB (multipart) and publishing it to npm |
 | planned | Must | Scan only what changed; per-developer budgets | Upload command | A daily limit on AI-reviewed uploads per free account (higher with Pro), about 20 updates per game per day |
-| planned | Must | Drafts and publishing | Upload command | Preview links, publish now or later, roll back; keep the live version plus the last 5 |
+| doing | Must | Drafts and publishing | Upload command | Preview links, publish now or later, roll back; keep the live version plus the last 5. Preview links, publishing and rollback are in; next: publish later, and deleting old drafts and unused files |
 | doing | Must | Game visibility | Developer accounts | Draft, listed, unlisted or private; separate from review status. Unlisted is noindex and never in any shelf. In the API; draft and private games open through preview and tester links next |
 | planned | Must | Tester links | Game visibility | Secret, named, revocable links that open a private game; guests can use them |
 | doing | Must | Game details and device labels | Developer accounts | Covers and screenshots, scanned; games for your device first, "Play anyway" for the rest. The API stores labels, covers and screenshots (checked by their bytes, approved by a person until image matching is connected); they show on the new game page |
