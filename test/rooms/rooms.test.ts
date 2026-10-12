@@ -162,3 +162,38 @@ describe("game server registry", () => {
     expect(Object.keys(GAME_SERVERS).sort()).toEqual([...BUILT_IN_GAME_SERVERS].sort());
   });
 });
+
+describe("turn-based rooms", () => {
+  beforeEach(async () => {
+    await e.DB.exec("DELETE FROM room_usage; DELETE FROM games;");
+  });
+
+  it("save the game after each move and pick it up again after waking", async () => {
+    await addGame("four", { server: "four-in-a-row" });
+    const a = await join("four", "MNPQRS");
+    const b = await join("four", "MNPQRS");
+    const stub = e.ROOMS.get(e.ROOMS.idFromName("four:MNPQRS"));
+    a.ws.send(JSON.stringify({ t: "msg", d: { col: 3 } }));
+    let board: number[] = [];
+    for (let i = 0; i < 20 && board[38] !== 1; i++) {
+      const m = await b.next();
+      if (m.t === "msg") board = m.d.board;
+    }
+    expect(board[38]).toBe(1);
+
+    // Throw away the in-memory game, as hibernation does, and reload what was saved.
+    await runInDurableObject(stub, async (room: Room, state) => {
+      const saved = await state.storage.get<{ state: { board: number[] } }>("saved");
+      expect(saved?.state.board[38]).toBe(1);
+      (room as any).core = null;
+      (room as any).saved = saved!.state;
+    });
+    b.ws.send(JSON.stringify({ t: "msg", d: { col: 4 } }));
+    for (let i = 0; i < 20 && board[39] !== 2; i++) {
+      const m = await a.next();
+      if (m.t === "msg") board = m.d.board;
+    }
+    expect(board[38]).toBe(1);
+    expect(board[39]).toBe(2);
+  });
+});

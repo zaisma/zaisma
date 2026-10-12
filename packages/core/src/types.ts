@@ -53,7 +53,7 @@ export interface ScanJob {
 }
 
 /** Game servers built into the rooms Worker, by the name set on a game in admin. */
-export const BUILT_IN_GAME_SERVERS = ["relay"] as const;
+export const BUILT_IN_GAME_SERVERS = ["relay", "arena", "four-in-a-row"] as const;
 
 export const REPORT_REASONS = {
   child_safety: "Child safety",
