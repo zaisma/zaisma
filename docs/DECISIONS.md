@@ -8,7 +8,7 @@ Settled calls. Don't reopen these in code or docs without Julius approving the c
 - **13+ at launch.** Age gate at signup (birth date; block and don't store under-13s). Under-13 support later, as its own project with verified parental consent.
 - **Guests play with no account.** A temporary guest ID used only to run the session: no chat, no purchases, no profile, no personal data. The age gate appears when a guest makes an account.
 - **Players can mute, block and report other players** in rooms, so one person can't ruin a match or follow someone between games. Blocks follow the account (or the session, for guests).
-- **Teen-safe defaults for 13–17.** Friend requests only from people they've played with, chat off or preset phrases, private profiles, monthly spend cap.
+- **Teen-safe defaults for 13–17.** Friend requests only from people they've played with, chat off or preset phrases, private profiles, monthly spending cap ($50 to start).
 
 ## Money
 
@@ -26,7 +26,12 @@ Settled calls. Don't reopen these in code or docs without Julius approving the c
 - **Multiplayer on our servers is billed at cost.** About $1 per 1,000 player-hours (what Cloudflare charges us). Bills under $5 roll over to the next month.
 - **Bring your own servers, any time.** Our rooms are a default, never a requirement. Moving off them is a config change, not a rewrite.
 - **No ads in games, at least through beta.** Ad scripts change after we scan them, track teens and are the main source of scams on web game sites, and ad-funded design drifts toward clickbait. Creators earn through purchases, our free checkout, and tips. (Idea parked for later, not decided: if donations and sponsors ever exceed costs, share the surplus with creators by playtime.)
-- **Honest purchase labels.** Every game page says what a game sells ("Has purchases: cosmetics only"). Open question for Week 6: ban paid random rewards (loot boxes) for under-18s, which several countries already restrict.
+- **Honest purchase labels.** Every game page says what a game sells ("Has purchases: cosmetics only").
+- **No paid random rewards (loot boxes) for anyone.** Players always know what they're buying. Simpler than age checks, fits the no-slop stance, and avoids the countries that restrict them.
+- **Real-money prices always shown.** If a game has its own coins or gems, the real cost appears next to them.
+- **Every game that sells something states its refund policy.** The creator is the seller, so refunds and chargebacks are theirs.
+- **Under-18 accounts have a $50 monthly spending cap** across all games bought through Zaisma.
+- **Money ships in Week 4, right after beta.** Multiplayer billing starts only from the month payments go live, so nobody pays for servers before they can earn.
 - **Games open outside links only through Zaisma.** The sandbox blocks games from opening pages themselves. A game asks the toolkit to open a link, and our page opens it in a new tab with a short "You're leaving Zaisma" notice. Only links the creator registered for that game work (their store, Patreon, Bitcoin page, Steam, Discord), so games can't send players to random sites. This is how creators' own payment methods work from inside a game.
 - **Platform costs are covered by donations, sponsors and promoted slots.** GitHub Sponsors / Open Collective, company sponsors, paid front-page slots (about $50/week), supporter badge. Break-even is the goal, not profit.
 
@@ -91,7 +96,7 @@ Settled calls. Don't reopen these in code or docs without Julius approving the c
 
 - **Every tool we can give creators to market their games, free.** We take no cut, so helping creators find players is how we compete. All of it works within the no-ads, no-tracking rules.
   - *Weekend 3:* links on the game page (Steam, itch.io, Discord, website, socials, "Wishlist on Steam"); proper share cards (cover, title, "Play now") for every game link and room invite; search-friendly game pages; QR codes.
-  - *Week 5, with discovery:* "Play on Zaisma" embeds for creators' own sites, with the Z button inside; tracked share links that count plays per link and never record anything about players; update notes on the game page, followers told about new versions, and updates posted to the creator's Discord; an automatic press kit; MCP tools that draft launch posts, store descriptions and tags and take screenshots, with the creator approving anything before it's posted.
+  - *Week 6, with discovery:* "Play on Zaisma" embeds for creators' own sites, with the Z button inside; tracked share links that count plays per link and never record anything about players; update notes on the game page, followers told about new versions, and updates posted to the creator's Discord; an automatic press kit; MCP tools that draft launch posts, store descriptions and tags and take screenshots, with the creator approving anything before it's posted.
   - Trailers are YouTube links, not uploads; video is costly to check and YouTube is where trailers get seen anyway.
 
 ## Release plan
