@@ -8,6 +8,10 @@ export interface Game {
   description: string;
   status: GameStatus;
   current_version_id: string | null;
+  /** NULL for single-player, "relay", or a built-in game server name. */
+  game_server: string | null;
+  /** The game's own servers, one origin per line. */
+  connect_hosts: string;
   created_at: number;
   updated_at: number;
 }
