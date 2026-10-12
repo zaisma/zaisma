@@ -79,7 +79,7 @@ Launching at 13+ keeps us outside the strictest child-privacy law, as long as we
 
 Public beta after three weekends, then weekly releases. Being first matters more than being complete, so the beta ships what players and developers need to start, and everything else lands while people are playing.
 
-1. **Weekend 1: safe game hosting.** Upload a web game, scan it before publishing (malware, illegal-image matching, AI review), serve it sandboxed on a separate game domain, list it on a simple directory page. Report button and takedown process.
+1. **Weekend 1: safe game hosting.** Upload a web game, scan it before publishing (malware, illegal-image matching, AI review), serve it sandboxed on a separate game domain (zaisma.gg; the free workers.dev address until it's bought), list it on a simple directory page. Report button and takedown process.
 2. **Weekend 2: guest multiplayer.** Room server that runs on Cloudflare or any normal server; room links that drop guests straight into a match; one-tap clip-and-share with the link built in. Ship the first demo games built with Claude Code.
 3. **Weekend 3: accounts and the publish skill.** Sign-in, age gate, "keep your progress" from guest, cloud saves; the open-source Claude Code skill and toolkit that publish a game in one prompt. **Open the public beta.**
 4. **Week 4: friends.** Friend list, invites, see what friends are playing.
@@ -123,7 +123,7 @@ The closest competitor is Wavedash: browser games by link, accounts, friends and
 | Open source | Toolkits only | Not stated | Everything, MIT license |
 | Scale | $4.3M seed; beta since Dec 2025 | 10M monthly players; $56M raised | Beta in three weekends |
 
-One-command switch from Wavedash goes on the roadmap right after beta.
+One-command switch from Wavedash goes on the roadmap right after beta, along with custom game domains: developers can point their own domain at their game (Cloudflare for SaaS; the first 100 domains cost us nothing).
 
 ## License and name
 
