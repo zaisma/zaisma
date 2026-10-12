@@ -135,6 +135,12 @@ function onSnapshot(list) {
 
 // Mute, block and report, from the game's own menu.
 document.getElementById("players").onclick = () => room && Zaisma.openSafetyPanel(room);
+const inviteBtn = document.getElementById("invite");
+inviteBtn.onclick = async () => {
+  if (!room) return;
+  const result = await Zaisma.invite(room);
+  if (result === "copied") { inviteBtn.textContent = "Link copied"; setTimeout(() => (inviteBtn.textContent = "Invite"), 1500); }
+};
 
 async function start() {
   try {
@@ -143,7 +149,7 @@ async function start() {
     statusEl.textContent = err.message;
     return;
   }
-  statusEl.textContent = room.players.length < 2 ? "Practice with bots. Use Invite above to bring friends in." : "";
+  statusEl.textContent = room.players.length < 2 ? "Practice with bots. Tap Invite to bring friends in." : "";
   setTimeout(() => { if (statusEl.textContent.startsWith("Practice")) statusEl.textContent = ""; }, 4000);
   room.on("message", (m) => {
     if (m.s) onSnapshot(m.s);

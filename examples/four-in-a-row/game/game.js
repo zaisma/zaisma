@@ -31,12 +31,19 @@ function render() {
     playersEl.append(span);
   });
   const color = (n) => (n === 1 ? "Red" : "Yellow");
-  if (!state.seats[1]) infoEl.textContent = "Waiting for a second player. Use Invite above.";
+  if (!state.seats[1]) infoEl.textContent = "Waiting for a second player.";
   else if (state.winner === 3) infoEl.textContent = "It's a draw.";
   else if (state.winner) infoEl.textContent = state.winner === mySeat ? "You win!" : `${color(state.winner)} wins.`;
   else if (!mySeat) infoEl.textContent = `Watching. ${color(state.turn)} to play.`;
   else infoEl.textContent = state.turn === mySeat ? "Your turn" : `${state.names[state.turn - 1]} is thinking…`;
   afterEl.innerHTML = "";
+  if (!state.seats[1]) {
+    const inv = document.createElement("button");
+    inv.className = "again";
+    inv.textContent = "Invite a friend";
+    inv.onclick = async () => { if ((await Zaisma.invite(room)) === "copied") inv.textContent = "Link copied"; };
+    afterEl.append(inv);
+  }
   if (state.winner && mySeat) {
     const again = document.createElement("button");
     again.className = "again";

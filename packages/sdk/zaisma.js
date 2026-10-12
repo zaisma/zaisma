@@ -12,6 +12,7 @@
  *   room.send({ move: "left" });
  *   room.leave();
  *   Zaisma.joinRoom({ server: "wss://my-server.example" });  // your own game server
+ *   await Zaisma.invite(room);                // share sheet on phones, copies the link elsewhere
  *
  * Player safety. Games where players interact must offer mute, block and report:
  *   Zaisma.openSafetyPanel(room);           // ready-made panel; call it from your menu
@@ -229,6 +230,25 @@
     });
   }
 
+  /**
+   * Invite friends into a room: opens the share sheet where there is one, otherwise
+   * copies the room link. Resolves to "shared", "copied", "cancelled" or "failed".
+   * Call it from a button in your game, such as on a "waiting for players" screen.
+   */
+  function invite(room) {
+    var link = room && room.inviteLink ? room.inviteLink : config.site && config.game ? config.site + "/g/" + config.game : location.href;
+    function copy() {
+      if (!navigator.clipboard) return Promise.resolve("failed");
+      return navigator.clipboard.writeText(link).then(function () { return "copied"; }, function () { return "failed"; });
+    }
+    if (navigator.share && matchMedia("(pointer: coarse)").matches) {
+      return navigator.share({ title: document.title, url: link }).then(function () { return "shared"; }, function (err) {
+        return err && err.name === "AbortError" ? "cancelled" : copy();
+      });
+    }
+    return copy();
+  }
+
   var REASONS = [["harassment", "Harassing or bullying"], ["hate", "Hate or threats"], ["sexual", "Sexual behavior"], ["cheating", "Cheating"], ["other", "Something else"]];
 
   /** A ready-made mute, block and report panel. Games open it from their own menu. */
@@ -327,5 +347,5 @@
     wrap.focus();
   }
 
-  window.Zaisma = { version: 1, game: config.game || null, player: player, joinRoom: joinRoom, openSafetyPanel: openSafetyPanel };
+  window.Zaisma = { version: 1, game: config.game || null, player: player, joinRoom: joinRoom, invite: invite, openSafetyPanel: openSafetyPanel };
 })();
