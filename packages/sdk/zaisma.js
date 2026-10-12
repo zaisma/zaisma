@@ -1,6 +1,6 @@
 /*
  * The Zaisma SDK. On Zaisma, games include it with one tag:
- *   <script src="/_zaisma/v1.js"></script>
+ *   <script src="_zaisma/v1.js"></script>   (relative, from the game's top folder)
  * Plain JavaScript, no dependencies, MIT licensed. Every part is optional.
  *
  *   const room = await Zaisma.joinRoom();     // joins ?room=CODE if present, else makes a room

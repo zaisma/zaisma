@@ -1,4 +1,6 @@
-import { relay, type GameServer } from "@zaisma/game-server";
+import { defineGameServer, relay, type GameServer } from "@zaisma/game-server";
+import arena from "../../../examples/arena/server.ts";
+import fourInARow from "../../../examples/four-in-a-row/server.ts";
 
 /**
  * Built-in game servers, by the name set on a game in admin. While only Zaisma
@@ -7,6 +9,8 @@ import { relay, type GameServer } from "@zaisma/game-server";
  */
 export const GAME_SERVERS: Record<string, GameServer> = {
   relay,
+  arena: defineGameServer(arena),
+  "four-in-a-row": defineGameServer(fourInARow),
 };
 
 export function gameServer(name: string | null): GameServer | null {
