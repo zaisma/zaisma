@@ -112,8 +112,8 @@ The platform works but looks and feels rough. No outreach, no listings for other
 | Status | Must/Nice | Item | Needs | Notes |
 | --- | --- | --- | --- | --- |
 | doing | Must | Design system | | Steel, from the brand: type, colors, spacing, the bevel and metal highlights, used by every page. Home page layout being mocked up with Julius |
-| planned | Must | Home page | Design system, Continue playing, Game updates | For players: Continue playing and updates first, then new games. Play in one tap |
-| planned | Must | Continue playing | | The games you played most recently, on the home page; on this device for guests, on your account when signed in |
+| planned | Must | Home page | Design system, Continue playing, Game updates | Last played, Continue playing, For you (once it exists), then Games for everyone: popular, trending, new. Play in one tap |
+| planned | Must | Continue playing | | The games you played most recently, on the home page; sort by recently played or recently updated, with an "Updated" badge. On this device for guests, on your account when signed in |
 | planned | Must | Game updates | | Developers post a title, a short text and an optional image (checked like covers); version notes become patch notes in an expanded view |
 | planned | Must | Developer page | Design system | Publishing, the dashboard and docs in one place for game developers, off the home page |
 | planned | Nice | Last-played picture | Continue playing | A snapshot of the game when you left, shown in Continue playing; only you see it |
@@ -178,6 +178,7 @@ Goal: good games get found, ranked by quality rather than clicks, and developers
 | --- | --- | --- | --- |
 | planned | Must | Progress bar and front page | Ranked by players coming back, playtime, real ratings, reports |
 | planned | Must | "New and rising" shelf | With its own quality bar |
+| planned | Must | For you and today's queue | Ranked from what you play by plain rules, not AI; each pick says why. A full-screen daily queue of 8 games, refresh for more |
 | planned | Must | Ratings only from people who played | |
 | planned | Must | Search by genre and tags | |
 | planned | Must | Player lists and developer picks | |
