@@ -30,78 +30,91 @@ export async function gamePage(env: Env, slug: string, url: URL): Promise<Respon
   const src = gameUrl(env, game.slug) + (ROOM_CODE.test(code) ? `?room=${code}` : "");
   const multiplayer = Boolean(game.game_server || game.connect_hosts);
   const ownServers = game.connect_hosts.split("\n").filter(Boolean).map((o) => o.replace(/^[a-z]+:\/\//, ""));
-  const more = (await liveGames(env.DB)).filter((g) => g.id !== game.id).slice(0, 12);
   return layout(env, {
     title: `${game.title} on Zaisma`,
     bare: true,
     body: html`<style>
 body{display:flex;flex-direction:column;height:100vh;height:100dvh;overflow:hidden}
-.bar{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line);flex:none}
-.bar img{height:22px;display:block}
-.bar h1{font-size:15px;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
-.bar .btn{padding:6px 10px;font-size:13px}
-.bar .servers{font-size:12px;color:var(--muted);white-space:nowrap}
-.bar .btn[aria-pressed="true"]{background:var(--panel);border-color:#55585f}
-.short{display:none}
-@media (max-width:600px){.bar .servers{display:none}.bar{gap:6px;padding:8px}.long{display:none}.short{display:inline}}
-/* Our controls sit beside or below the game, never over it: opening More games makes the game smaller. */
-.stage{flex:1;display:flex;min-height:0}
-iframe{flex:1;border:0;width:100%;min-width:0;background:#000}
-.more{width:300px;flex:none;border-left:1px solid var(--line);overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px}
-.more[hidden]{display:none}
-.more h2{font-size:14px;margin:0;color:var(--muted);font-weight:500}
-.more .card{min-height:0;padding:12px}
-.more .card h3{font-size:15px;margin:0 0 4px}
-.more .card p{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.more .card .pill{margin-top:6px}
-@media (max-width:700px){.stage{flex-direction:column}.more{order:-1;width:auto;max-height:42%;border-left:0;border-bottom:1px solid var(--line)}}
+.bar{display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--line);flex:none}
+.bar .home img{height:22px;display:block}
+.bar h1{font-size:15px;margin:0 0 0 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
+.ctl{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 10px;border:1px solid var(--line);border-radius:8px;background:transparent;color:var(--text);font:inherit;font-size:13px;cursor:pointer;text-decoration:none}
+.ctl:hover{border-color:#55585f}
+.ctl svg{width:18px;height:18px;flex:none}
+.ctl[hidden]{display:none}
+iframe{flex:1;border:0;width:100%;min-height:0;min-width:0;background:#000}
+/* Phones: icons only, big enough to tap. */
+@media (max-width:640px){.ctl{width:40px;height:40px;padding:0;justify-content:center}.ctl .label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}}
+/* Landscape phones: the bar becomes a slim strip down the left edge, so the game keeps its full height. */
+@media (orientation:landscape) and (max-height:500px){
+  body{flex-direction:row}
+  .bar{flex-direction:column;border-bottom:0;border-right:1px solid var(--line);padding:8px 5px;gap:10px}
+  .bar h1{display:none}
+  .bar .spacer{flex:1}
+  .ctl{width:40px;height:40px;padding:0;justify-content:center}
+  .ctl .label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+}
+/* The menu only appears when the player opens it, so it may cover the game. */
+dialog{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:12px;padding:0;width:min(420px,calc(100vw - 32px));max-height:calc(100dvh - 32px)}
+dialog::backdrop{background:rgba(0,0,0,.55)}
+dialog .head{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--line)}
+dialog .head strong{font-size:16px}
+dialog .body{padding:14px 16px;display:grid;gap:12px;font-size:14px}
+dialog .body p{margin:0;color:var(--muted)}
+dialog nav{display:grid;gap:6px;padding:0 16px 16px}
+dialog nav a{display:block;padding:10px 12px;border:1px solid var(--line);border-radius:8px;text-decoration:none}
+dialog nav a:hover{border-color:#55585f}
 </style>
 <div class="bar">
-  <a href="/"><img src="/zaisma-mark-metal.svg" alt="Zaisma"></a>
+  <a class="home" href="/" title="All games"><img src="/zaisma-mark-metal.svg" alt="Zaisma"></a>
   <h1>${game.title}</h1>
-  ${ownServers.length ? html`<span class="servers" title="This game also connects to its own servers">Connects to ${ownServers.join(", ")}</span>` : ""}
-  <button class="btn ghost" id="share" type="button">${multiplayer ? "Invite" : html`<span class="long">Copy link</span><span class="short">Share</span>`}</button>
-  <button class="btn ghost" id="more" type="button" aria-controls="more-games" aria-pressed="false"><span class="long">More games</span><span class="short">More</span></button>
-  <button class="btn ghost" id="full" type="button"><span class="long">Full screen</span><span class="short">Full</span></button>
-  <a class="btn ghost" href="/g/${game.slug}/report">Report</a>
+  <span class="spacer"></span>
+  <button class="ctl" id="share" type="button" title="Share">${raw(ICON_SHARE)}<span class="label">Share</span></button>
+  <button class="ctl" id="full" type="button" title="Full screen">${raw(ICON_FULL)}<span class="label">Full screen</span></button>
+  <button class="ctl" id="menu" type="button" title="More" aria-haspopup="dialog">${raw(ICON_MORE)}<span class="label">More</span></button>
 </div>
-<div class="stage">
 <iframe id="game" src="${src}" title="${game.title}"
   sandbox="allow-scripts allow-same-origin allow-pointer-lock"
-  allow="fullscreen; gamepad; autoplay" allowfullscreen referrerpolicy="no-referrer"></iframe>
-<aside class="more" id="more-games" hidden aria-label="More games">
-  <h2>More games</h2>
-  ${more.length
-      ? more.map((g) => html`<a class="card" href="/g/${g.slug}"><h3>${g.title}</h3>${g.description ? html`<p>${g.description}</p>` : ""}${g.game_server || g.connect_hosts ? html`<span class="pill">Multiplayer</span>` : ""}</a>`)
-      : html`<p class="empty" style="padding:0">More games are on their way.</p>`}
-  <a class="btn ghost" href="/">All games</a>
-</aside>
-</div>
+  allow="fullscreen; gamepad; autoplay; web-share; clipboard-write" allowfullscreen referrerpolicy="no-referrer"></iframe>
+<dialog id="menu-dialog" aria-label="${game.title}">
+  <div class="head"><strong>${game.title}</strong><button class="ctl" type="button" id="menu-close">Close</button></div>
+  <div class="body">
+    ${game.description ? html`<p>${game.description}</p>` : ""}
+    ${multiplayer ? html`<p>Multiplayer. Share the link while you're in a match to bring friends into it.</p>` : ""}
+    ${ownServers.length ? html`<p>This game also connects to its own servers: ${ownServers.join(", ")}.</p>` : ""}
+  </div>
+  <nav>
+    <a href="/g/${game.slug}/report">Report this game</a>
+    <a href="/legal/content-rules">Content rules</a>
+    <a href="/">All games</a>
+  </nav>
+</dialog>
 <script>
 const frame = document.getElementById("game");
 const share = document.getElementById("share");
 const full = document.getElementById("full");
-const moreBtn = document.getElementById("more");
-const morePanel = document.querySelector("aside.more");
+const dialog = document.getElementById("menu-dialog");
 // iPhones can't put a frame in full screen, so don't offer it there.
 if (!document.fullscreenEnabled || !frame.requestFullscreen) full.hidden = true;
 full.onclick = () => frame.requestFullscreen();
-moreBtn.onclick = () => {
-  morePanel.hidden = !morePanel.hidden;
-  moreBtn.setAttribute("aria-pressed", String(!morePanel.hidden));
-  if (morePanel.hidden) frame.focus();
-};
+document.getElementById("menu").onclick = () => dialog.showModal();
+document.getElementById("menu-close").onclick = () => dialog.close();
+dialog.addEventListener("click", (e) => { if (e.target === dialog) dialog.close(); });
+dialog.addEventListener("close", () => frame.focus());
+// Shares the address bar, which includes the room code while the player is in a match.
 share.onclick = async () => {
-  const label = share.textContent;
-  // Phones get the share sheet; computers copy the link.
   if (navigator.share && matchMedia("(pointer: coarse)").matches) {
     try { await navigator.share({ title: document.title, url: location.href }); } catch {}
     return;
   }
-  try { await navigator.clipboard.writeText(location.href); share.textContent = "Copied"; setTimeout(() => (share.textContent = label), 1500); }
-  catch { prompt("Copy this link", location.href); }
+  try {
+    await navigator.clipboard.writeText(location.href);
+    share.title = "Link copied";
+    share.querySelector(".label").textContent = "Copied";
+    setTimeout(() => { share.title = "Share"; share.querySelector(".label").textContent = "Share"; }, 1500);
+  } catch { prompt("Copy this link", location.href); }
 };
-// The game says which room it's in, so the address bar and Invite point to that match.
+// The game says which room it's in, so the address bar (and so Share) points to that match.
 const gameOrigin = new URL(frame.src).origin;
 addEventListener("message", (e) => {
   if (e.origin !== gameOrigin || e.source !== frame.contentWindow) return;
@@ -110,9 +123,15 @@ addEventListener("message", (e) => {
     history.replaceState(null, "", location.pathname + "?room=" + d.code);
   }
 });
+frame.focus();
 </script>`,
   });
 }
+
+const svg = (paths: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
+const ICON_SHARE = svg('<path d="M12 3v12"/><path d="M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/>');
+const ICON_FULL = svg('<path d="M4 9V4h5"/><path d="M20 9V4h-5"/><path d="M4 15v5h5"/><path d="M20 15v5h-5"/>');
+const ICON_MORE = svg('<circle cx="5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="19" cy="12" r="1.3" fill="currentColor"/>');
 
 export async function reportForm(env: Env, slug: string, error = ""): Promise<Response> {
   const game = await gameBySlug(env.DB, slug);

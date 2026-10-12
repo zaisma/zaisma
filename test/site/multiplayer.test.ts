@@ -28,7 +28,7 @@ describe("multiplayer on the site", () => {
     await addGame("arena", "relay");
     const page = await (await SELF.fetch("https://zaisma.test/g/arena?room=abcdef")).text();
     expect(page).toContain('src="https://games.zaisma.test/arena/?room=ABCDEF"');
-    expect(page).toContain(">Invite<");
+    expect(page).toContain("Share the link while you");
     const bad = await (await SELF.fetch('https://zaisma.test/g/arena?room="><script>')).text();
     expect(bad).toContain('src="https://games.zaisma.test/arena/"');
   });
@@ -46,7 +46,7 @@ describe("multiplayer on the site", () => {
     const game = await gameById(env.DB, id);
     expect(game).toMatchObject({ game_server: "relay", connect_hosts: "wss://play.example.com" });
     expect((await auditLog(env.DB, id))[0]).toMatchObject({ action: "multiplayer", actor: "dev@localhost" });
-    expect(await (await SELF.fetch("https://zaisma.test/g/arena")).text()).toContain("Connects to play.example.com");
+    expect(await (await SELF.fetch("https://zaisma.test/g/arena")).text()).toContain("connects to its own servers: play.example.com");
   });
 
   it("refuses unknown game servers and bad server addresses", async () => {
@@ -62,15 +62,13 @@ describe("game page controls", () => {
     await env.DB.exec("DELETE FROM games;");
   });
 
-  it("lists other live games beside the game, not this one or hidden ones", async () => {
-    await addGame("arena", "relay");
+  it("offers Share, Full screen and a menu with Report, and nothing over the game by default", async () => {
     await addGame("solo");
-    await env.DB.prepare("INSERT INTO games (id, slug, title, status, current_version_id, created_at, updated_at) VALUES ('gheld', 'held-game', 'Held Game', 'held', 'v1', 0, 0)").run();
-    const page = await (await SELF.fetch("https://zaisma.test/g/arena")).text();
-    const panel = page.slice(page.indexOf('<aside class="more"'), page.indexOf("</aside>"));
-    expect(panel).toContain('href="/g/solo"');
-    expect(panel).not.toContain('href="/g/arena"');
-    expect(panel).not.toContain("held-game");
-    expect(page).toContain("Report");
+    const page = await (await SELF.fetch("https://zaisma.test/g/solo")).text();
+    expect(page).toContain('id="share"');
+    expect(page).toContain('id="full"');
+    expect(page).toContain('href="/g/solo/report"');
+    expect(page).toContain('<dialog id="menu-dialog"');
+    expect(page).not.toContain("More games");
   });
 });

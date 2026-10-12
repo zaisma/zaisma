@@ -48,3 +48,10 @@ Hit every front at once at launch.
 - Last jam's winner is shown at the top of the shelf. Optional ladder: weekly winners earn a spot or badge going into the monthly.
 - Entries must be created after the theme is revealed, checked from when the game and its first version were made.
 - Open questions: stopping vote rigging (alt accounts, bots); measuring playtime on our page rather than trusting the game; capping how much playtime counts so long grindy games don't win by default; prizes (featuring and badges first; money prizes bring contest law and minors' rules).
+
+## Clips (Oct 12, 2026)
+
+Parked: the game page doesn't need a Clip button. Phones and computers already record the screen; the only thing we'd add is "save the last 30 seconds", which means recording in the background all the time (battery and frame rate on cheap devices) for a feature most players never use, and it mainly serves short-video marketing.
+
+- If it comes back: an opt-in SDK call games choose to use, recorded and shared on the player's device, never uploaded.
+- Open questions: is there real demand from creators; can it run without hurting frame rate on low-end phones.
