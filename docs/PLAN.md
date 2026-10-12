@@ -6,7 +6,7 @@ Oct 11, 2026 · @Julius Ivsan
 
 ## What it is
 
-Click a link and you're in the game: no account, no app download, in any browser. That's the headline. Behind it is an open, low-fee home for radically creative games made with AI tools, with one optional account for friends, saves and purchases, and developers keeping their revenue. It launches as a 13+ side project on rented cloud services.
+Click a link and you're in the game: no account, no app download, in any browser. That's the headline. Behind it is an open, no-cut home for radically creative games made with AI tools, with one optional account for friends, saves and purchases, and developers keeping their revenue. It launches as a 13+ side project on rented cloud services.
 
 - **For players:** tap a friend's link and play as a guest in seconds, on phone or laptop. Make an account only to keep progress, add friends or buy something.
 - **For developers:** publish any web game in one prompt from Claude Code or any other AI tool, in any art style, world or genre. Accounts, friends, saves, multiplayer and payments come built in.
@@ -21,29 +21,28 @@ We win by being the default "publish" step for games made in Claude Code, then l
 3. **Friends pull friends.** "Join my room" links put new players onto the platform; once they have an account, every other game is one tap away.
 4. **Developers pull players.** Developers already post their AI-made games on X, Reddit and Discord. Each post points at our link, not a zip file or a GitHub page.
 
-## Money: free for developers, funded by supporters
+## Money: we sell services, never a cut of sales
 
-Listing and selling are free: no listing fee and no payment cut. Multiplayer on our servers is billed at cost; developers who run their own servers pay us nothing. The platform is fully open source and costs us about a tenth of a cent per player per month after multiplayer billing, covered by donations, sponsors and promoted game slots. Developers choose their own payment method; our Stripe checkout is an optional free convenience.
+Zaisma is a business run for profit. We make games available; creators make the games, and their sales are theirs. So we never take a cut of sales and never charge to list: we earn by selling services that cost us money or save creators time, and every one has a free path.
 
-| Monthly players | Total cost | Paid back by multiplayer billing | Our net cost | Covered by |
-| --- | --- | --- | --- | --- |
-| 1,000 | $65 | $1 | $65 | Julius or \~13 donors at $5 |
-| 10,000 | $100 | $35 | $65 | \~13 donors, or 1 promoted slot for 2 weeks |
-| 100,000 | $490 | $385 | $105 | \~21 donors, or 1 promoted slot |
-| 1,000,000 | $5,000 | $3,890 | $1,120 | \~225 donors, or 5 promoted slots |
-
-Estimates assume 30% of players make accounts, 4 multiplayer hours per player a month in 8-player real-time rooms, and 300 MB per game. Multiplayer is about 80% of the cost at scale.
-
-**Hosting on our servers, at cost.** Our rooms are for convenience, not to be the cheapest or fastest servers anywhere. Developers pay what Cloudflare charges us: about $1 per 1,000 player-hours of real-time multiplayer. Bills under $5 roll to the next month, so small games effectively pay nothing. Game files, accounts, friends and saves stay free.
+Playing, publishing, game files, accounts, friends and saves are free for everyone. Developers choose their own payment method; our Stripe checkout is an optional free convenience. Bitcoin and other payment methods are the developer's choice; the platform holds no player money.
 
 **Where the money comes from**
 
-- **Donations and sponsors:** GitHub Sponsors and Open Collective from players and developers; company sponsors for the open-source SDK.
-- **Promoted games:** developers can pay for a front-page slot, like Roblox's old sponsored game ads. 25 slots at $50/week covers 1 million players.
-- **Supporter badge:** players who donate get a profile badge.
-- **Self-hosting:** any game can move to its own servers whenever it wants, so our biggest costs leave with the games that outgrow us.
+- **Hosting, priced with a margin.** Multiplayer on our rooms costs about twice what Cloudflare charges us, roughly $2 per 1,000 player-hours of real-time play, still far below dedicated game-server services. Bigger game servers (Cloudflare Containers, after beta) are priced the same way. Every creator or team gets the first 1,000 player-hours a month free, enough for family and friends or a prototype (8 friends playing 2 hours a night for a month is about 500), so hobbyists never see a bill and only games that take off pay. Running your own servers is always free.
+- **Zaisma Pro for creators, about $10/month.** Publishing stays free; Pro adds what serious creators want and what costs us more: deeper stats, custom domains on our hosting, more storage and team seats, priority review, a higher daily upload limit and scheduled releases.
+- **Promoted games.** Clearly labeled front-page slots that creators buy, inside Zaisma only and with no tracking, priced by traffic (about $50/week at launch, rising with players).
+- **Zaisma Plus for players, about $5/month (later).** A supporter badge, profile extras, new Zaisma features first, and early access to games whose creators choose to open new releases to Plus members a few days early. Half of Plus money goes to creators by playtime, so creators earn even if they sell nothing.
+- **Donations** (GitHub Sponsors, Open Collective) are welcome, as a bonus, not the plan.
 
-Bitcoin and other payment methods are the developer's choice; the platform holds no player money.
+| Monthly players | Our cost | Revenue (rough guess) |
+| --- | --- | --- |
+| 1,000 | $65 | $0–50 |
+| 10,000 | $100 | $300–600 |
+| 100,000 | $490 | $3,000–4,000 |
+| 1,000,000 | $5,000 | $20,000–35,000 |
+
+Costs assume 30% of players make accounts, 4 multiplayer hours per player a month in 8-player real-time rooms, and 300 MB per game; multiplayer is about 80% of them. AI review is under a cent per upload (about $30–50/month at 1,000 active creators), capped monthly, with a daily upload limit on free accounts. The main cost isn't cash but founder time: building, the moderation calls AI can't make (appeals, child-safety reports, counter-notices) and the support questions docs and AI can't answer. Revenue pays for that time and a profit. Self-hosting means games that outgrow us can leave without trapping us in their costs.
 
 ## Stack and monthly cost
 
@@ -58,7 +57,7 @@ The whole platform runs on rented services for about $5/month while building and
 
 **Multiplayer at scale is cheap if built right.** Cloudflare's own example of 100 rooms with 100 players each, all month, costs about $21/month when rooms use WebSocket hibernation. The same load without hibernation costs hundreds, so the SDK must use it from day one.
 
-**Bring your own servers, any time.** Our rooms are a convenient default, billed at cost, never a requirement. A game can run its own servers from day one or move off ours when it takes off, for performance or customization. Accounts, guest IDs, friends and room links keep working: the SDK hands each player a signed pass that the developer's own server can check, and a room link can point at any server. Moving takes a config change, not a rewrite.
+**Bring your own servers, any time.** Our rooms are a convenient default, cheap and free for small games, never a requirement. A game can run its own servers from day one or move off ours when it takes off, for performance or customization. Accounts, guest IDs, friends and room links keep working: the SDK hands each player a signed pass that the developer's own server can check, and a room link can point at any server. Moving takes a config change, not a rewrite.
 
 Supabase's free plan pauses after a week without traffic, so we move to Pro ($25) at public launch. Cloudflare Workers Paid ($5/month) is needed before the beta, because running developers' game servers safely uses Dynamic Workers.
 
@@ -81,7 +80,7 @@ The live roadmap, with every item and its status, is [`docs/ROADMAP.md`](ROADMAP
 
 0. **Safe hosting** (done): upload, scan, sandboxed game domain, directory, reports and takedowns.
 1. **Beta:** launch prerequisites (the game domain, image matching, DMCA agent, paid plans), guest multiplayer and invite links, accounts and cloud saves, the creator MCP and one-prompt publishing, launch content and share cards. **Open the public beta.**
-2. **Earn:** the Zaisma buy sheet, owned items, purchase rules, at-cost multiplayer billing, deposits, donations.
+2. **Earn:** the Zaisma buy sheet, owned items, purchase rules, hosting billing, Zaisma Pro, promoted games, deposits, donations.
 3. **Play together:** friends, Zaisma in Discord.
 4. **Discover:** the progress bar, real ratings, player lists, follows and the rest of the creator marketing kit.
 5. **Create together:** remixes, teams, mods, the Tools tab.
@@ -119,15 +118,15 @@ The closest competitor is Wavedash: browser games by link, accounts, friends and
 | Focus | Polished indie games for the browser | AI-made casual games on its own creation tool | Every kind of game, any engine, including AI-made |
 | Fee | 10% + $0.50 per purchase | Creators paid by playtime | No cut |
 | Payments | Their checkout only; crypto banned | Platform-run | Any method, including Bitcoin |
-| Multiplayer | Direct player-to-player only | Not stated | Real servers at cost, or bring your own |
+| Multiplayer | Direct player-to-player only | Not stated | Real servers, free for small games, or bring your own |
 | Open source | Toolkits only | Not stated | Everything, MIT license |
 | Scale | $4.3M seed; beta since Dec 2025 | 10M monthly players; $56M raised | Pre-beta, building in public |
 
-One-command switch from Wavedash goes on the roadmap after the beta, along with bigger game servers at cost (Cloudflare Containers), playing inside Discord and custom game domains: developers can point their own domain at their game (Cloudflare for SaaS; the first 100 domains cost us nothing).
+One-command switch from Wavedash goes on the roadmap after the beta, along with bigger game servers (Cloudflare Containers), playing inside Discord and custom game domains: developers can point their own domain at their game (Cloudflare for SaaS; the first 100 domains cost us nothing).
 
 ## License and name
 
-Everything is MIT licensed: anyone can copy, fork or run their own Zaisma. The name is shown as Zaisma™ from day one, which costs nothing; a US trademark filing (about $350) follows once donations cover it, only to stop anyone else from claiming the name and forcing a rename.
+Everything is MIT licensed: anyone can copy, fork or run their own Zaisma. The name is shown as Zaisma™ from day one, which costs nothing; a US trademark filing (about $350) follows once revenue covers it, only to stop anyone else from claiming the name and forcing a rename.
 
 ## Sources
 

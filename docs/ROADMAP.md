@@ -84,7 +84,7 @@ Detailed plan approved: guest passes, game server API, rooms, SDK, demos.
 | --- | --- | --- | --- | --- |
 | planned | Must | Creator accounts | Sign-in, Games have owners | |
 | planned | Must | Upload command | Creator accounts | File by file, up to 2 GB per game, only changed files |
-| planned | Must | Scan only what changed; per-creator budgets | Upload command | Plus about 20 updates per game per day |
+| planned | Must | Scan only what changed; per-creator budgets | Upload command | A daily limit on AI-reviewed uploads per free account (higher with Pro), about 20 updates per game per day |
 | planned | Must | Drafts and publishing | Upload command | Preview links, publish now or later, roll back; keep the live version plus the last 5 |
 | planned | Must | Game visibility | Creator accounts | Draft, listed, unlisted or private; separate from review status. Unlisted is noindex and never in any shelf |
 | planned | Must | Tester links | Game visibility | Secret, named, revocable links that open a private game; guests can use them |
@@ -123,9 +123,11 @@ Goal: creators can make money within days of the beta.
 | planned | Must | Purchase notifications for creators' servers | Also links purchases to games' own accounts |
 | planned | Must | Registered links | Creators' own payments and stores, with a leaving-Zaisma notice |
 | planned | Must | Purchase rules | Honest labels, real prices, refund policies, no loot boxes |
-| planned | Must | At-cost multiplayer billing | Starts the month payments go live; bills under $5 roll over |
+| planned | Must | Hosting billing | About 2x our Cloudflare cost; first 1,000 player-hours a month free per creator or team; starts the month payments go live |
+| planned | Must | Zaisma Pro | About $10/month: deeper stats, custom domains, more storage and seats, priority review, higher upload limit, scheduled releases |
+| planned | Must | Promoted games | Labeled front-page slots, no tracking, priced by traffic |
 | planned | Must | Review deposits | $5 / $25, refundable |
-| planned | Must | Donation page | GitHub Sponsors / Open Collective |
+| planned | Nice | Donation page | GitHub Sponsors / Open Collective; a bonus, not the plan |
 | planned | Nice | Tips for creators | |
 | planned | Nice | Optional Bitcoin | Lightning and on-chain, paid straight to creators' wallets |
 | planned | Nice | Local payment methods | PayPal where available, Pix, iDEAL |
@@ -154,6 +156,8 @@ Goal: good games get found, ranked by quality rather than clicks, and creators g
 | planned | Must | Search by genre and tags | |
 | planned | Must | Player lists and creator picks | |
 | planned | Must | Follow games and update notes | Followers hear about new versions; posts to the creator's Discord |
+| planned | Must | Zaisma Plus | About $5/month: badge, profile extras, new features first, early access to games whose creators opt in; half to creators by playtime |
+| planned | Nice | Link-out listings | Games hosted elsewhere, marked "Plays on example.com", never embedded; checked at submission and re-checked automatically |
 | planned | Nice | Scout badge | |
 | planned | Nice | Copycat grouping | Reposted templates count as one game |
 | planned | Nice | Embeds for creators' sites | |
@@ -178,7 +182,7 @@ Goal: room for games that outgrow the defaults.
 
 | Status | Must/Nice | Item | Notes |
 | --- | --- | --- | --- |
-| planned | Nice | Bigger game servers at cost | Cloudflare Containers; check outbound data charges first |
+| planned | Nice | Bigger game servers | Cloudflare Containers; check outbound data charges first |
 | planned | Nice | Custom game domains | Cloudflare for SaaS |
 | planned | Nice | One-command switch from Wavedash | |
 | planned | Nice | Subscriptions in the buy sheet | |
@@ -189,6 +193,4 @@ Not planned; revisit only if there's a reason.
 
 | Status | Item | Notes |
 | --- | --- | --- |
-| idea | Share donation surplus with creators by playtime | Only if donations and sponsors exceed costs; Julius decides |
-| idea | Outbound links to games hosted elsewhere | Clearly marked, new tab; only if creators ask |
 | idea | Under-13 support | Its own project, with verified parental consent |
