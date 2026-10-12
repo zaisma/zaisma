@@ -18,6 +18,7 @@ Settled calls. Don't reopen these in code or docs without Julius approving the c
 - **Bring your own servers, any time.** Our rooms are a default, never a requirement. Moving off them is a config change, not a rewrite.
 - **No ads in games, at least through beta.** Ad scripts change after we scan them, track teens and are the main source of scams on web game sites, and ad-funded design drifts toward clickbait. Creators earn through purchases, our free checkout, and tips. (Idea parked for later, not decided: if donations and sponsors ever exceed costs, share the surplus with creators by playtime.)
 - **Honest purchase labels.** Every game page says what a game sells ("Has purchases: cosmetics only"). Open question for Week 6: ban paid random rewards (loot boxes) for under-18s, which several countries already restrict.
+- **Games open outside links only through Zaisma.** The sandbox blocks games from opening pages themselves. A game asks the toolkit to open a link, and our page opens it in a new tab with a short "You're leaving Zaisma" notice. Only links the creator registered for that game work (their store, Patreon, Bitcoin page, Steam, Discord), so games can't send players to random sites. This is how creators' own payment methods work from inside a game.
 - **Platform costs are covered by donations, sponsors and promoted slots.** GitHub Sponsors / Open Collective, company sponsors, paid front-page slots (about $50/week), supporter badge. Break-even is the goal, not profit.
 
 ## Open source and name
