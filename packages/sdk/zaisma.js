@@ -16,9 +16,11 @@
  *
  * Room browsing. Listed rooms show on the game's Zaisma page and to the game itself:
  *   Zaisma.rooms.linked;                      // the room code the player's link points to, or null
- *   const { rooms, playing } = await Zaisma.rooms.list();  // [{ code, players, max, open, location, near, link }]
+ *   const { rooms, playing, regions } = await Zaisma.rooms.list();  // rooms: [{ code, players, max, open, location, near, link }]
  *                                             // location: { country: "DE", name: "Germany", continent: "EU" } or null
+ *   Zaisma.rooms.list({ region: "EU" });      // only rooms in one region (a continent code from regions)
  *   const room = await Zaisma.rooms.quickJoin();           // the linked room, else a busy one with space, else a new one
+ *   Zaisma.rooms.quickJoin({ region: "EU" }); // a room with space in that region, else a new one
  *   Zaisma.joinRoom({ listed: false });       // a new room that's never listed (a private match)
  *   room.listed; room.open; room.on("room", ({ listed, open }) => {});
  *   room.setListed(false); room.setOpen(false);  // with the relay, from the room's first player;
@@ -278,13 +280,16 @@
 
   /**
    * The game's listed rooms on Zaisma: { rooms: [{ code, players, max, open, location, near, link }],
-   * playing: { players, rooms, closed } }. location is where the room runs: { country, name,
-   * continent }, like DE, Germany and EU. Rooms with space come first (the player's country, then
-   * continent, then the busiest). Never who's in them. For a game's own lobby or server browser.
+   * playing: { players, rooms, closed }, joinable, regions: [{ code, name, rooms, players }], region,
+   * more }. location is where the room runs: { country, name, continent }, like DE, Germany and EU.
+   * Rooms with space come first (the player's country, then continent, then the busiest), up to 50;
+   * more says how many open rooms are past those. Pass { region } (a continent code, like EU) for
+   * one region. Never who's in them. For a game's own lobby or server browser.
    */
-  function listRooms() {
+  function listRooms(opts) {
     if (!config.rooms) return Promise.reject(new Error("Room lists only cover Zaisma rooms"));
-    return fetch(config.rooms + "/v1/rooms/" + config.game).then(function (res) {
+    var region = opts && opts.region ? "?region=" + encodeURIComponent(opts.region) : "";
+    return fetch(config.rooms + "/v1/rooms/" + config.game + region).then(function (res) {
       return res.json().then(function (data) {
         if (!res.ok) throw new Error(data.error || "Couldn't load the rooms");
         return data;
@@ -296,15 +301,15 @@
 
   /**
    * Drop the player into a match: the room their link points to if it has space, otherwise a
-   * listed room with space (nearby and busy first), otherwise a new room. Takes joinRoom's options
-   * for the new room.
+   * listed room with space (nearby and busy first, in opts.region if given), otherwise a new room.
+   * Takes joinRoom's options for the new room.
    */
   function quickJoin(opts) {
     opts = opts || {};
     var linked = codeFromPage();
     function fresh() { return connect(null, opts); }
     function busiest() {
-      return listRooms().then(function (found) {
+      return listRooms({ region: opts.region }).then(function (found) {
         var tries = found.rooms.filter(function (r) { return r.open && r.players < r.max && r.code !== linked; }).slice(0, 3);
         function next() {
           var r = tries.shift();

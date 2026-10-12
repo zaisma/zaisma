@@ -136,8 +136,13 @@ export default {
       if (!(await isGameOrigin(env, slug, origin))) return json({ error: "Not allowed from here." }, 403);
       const game = await playableGame(env.DB, slug);
       if (!game || !gameServer(game.game_server)) return json({ error: "This game doesn't use Zaisma rooms." }, 404, origin!);
-      if (game.room_browsing === "off") return json({ rooms: [], playing: { players: 0, rooms: 0, closed: 0 } }, 200, origin!);
-      const found = await listRooms(env.DB, game.id, { country: request.cf?.country as string | undefined, continent: request.cf?.continent as string | undefined, cacheSeconds: Number(env.ROOM_LIST_CACHE_SECONDS ?? 10) });
+      if (game.room_browsing === "off") return json({ rooms: [], playing: { players: 0, rooms: 0, closed: 0 }, joinable: 0, regions: [], region: null, more: 0 }, 200, origin!);
+      const found = await listRooms(env.DB, game.id, {
+        country: request.cf?.country as string | undefined,
+        continent: request.cf?.continent as string | undefined,
+        region: url.searchParams.get("region"),
+        cacheSeconds: Number(env.ROOM_LIST_CACHE_SECONDS ?? 10),
+      });
       const link = (code: string) => `${env.SITE_ORIGIN}/g/${slug}?room=${code}`;
       return json({ ...found, rooms: found.rooms.map((r) => ({ ...r, link: link(r.code) })) }, 200, origin!);
     }

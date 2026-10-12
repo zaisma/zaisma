@@ -8,7 +8,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deflateSync } from "node:zlib";
 import { startFakeAuth } from "./fake-auth.mjs";
-import { openTestRooms } from "./test-rooms.mjs";
+import { openTestRooms, pretendRoomsSql } from "./test-rooms.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const STATE = join(ROOT, ".wrangler/preview");
@@ -93,8 +93,12 @@ spawnSync(
     "UPDATE games SET game_server = slug WHERE slug IN ('arena', 'four-in-a-row') AND game_server IS NULL; UPDATE games SET game_server = 'relay' WHERE slug = 'cave-crew' AND game_server IS NULL; DELETE FROM open_rooms"],
   { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } },
 );
-// Test players keep a few rooms open, so the Rooms tab has something in it.
+// Test players keep a few rooms open, so the Rooms tab has something in it. Cave Crew also lists
+// pretend rooms from around the world, kept fresh every half hour (without blocking the test players).
 await openTestRooms(ROOMS, GAMES).catch((err) => console.log(`Couldn't open the test rooms: ${err.message}`));
+const pretend = () => spawn("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", pretendRoomsSql()], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
+pretend();
+setInterval(pretend, 30 * 60_000);
 
 // The site's every-5-minutes job (scheduled publishing, report triage), run every 20 seconds here.
 const tick = () => fetch(`${SITE}/__scheduled?cron=${encodeURIComponent("*/5 * * * *")}`).catch(() => {});
@@ -107,7 +111,7 @@ Zaisma preview is running. Nothing here touches the live site.
   Home            ${SITE}/
   A game page     ${SITE}/g/shard-dodge
   Multiplayer     ${SITE}/g/arena  (open it in two windows to play together)
-  Rooms           ${SITE}/g/arena#rooms  and  ${SITE}/g/cave-crew#rooms
+  Rooms           ${SITE}/g/arena#rooms  and  ${SITE}/g/cave-crew#rooms  (Cave Crew's are mostly pretend, from around the world)
   Your games      ${SITE}/dashboard
   Admin           ${SITE}/admin
   Report queue    ${SITE}/admin/reports

@@ -113,8 +113,10 @@ describe("room browsing on the game page", () => {
     await env.DB.exec("DELETE FROM open_rooms; DELETE FROM games;");
   });
 
-  const room = (gameId: string, code: string, players: number, open = 1, at = Date.now()) =>
-    env.DB.prepare("INSERT INTO open_rooms (game_id, code, players, max_players, open, country, continent, created_at, updated_at) VALUES (?, ?, ?, 8, ?, 'DE', 'EU', ?, ?)").bind(gameId, code, players, open, at, at).run();
+  const room = (gameId: string, code: string, players: number, open = 1, at = Date.now(), where: [string, string] = ["DE", "EU"], max = 8) =>
+    env.DB.prepare("INSERT INTO open_rooms (game_id, code, players, max_players, open, country, continent, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .bind(gameId, code, players, max, open, where[0], where[1], at, at)
+      .run();
 
   it("lists open rooms with how full they are and where they run, never who's in them", async () => {
     const id = await addGame("arena", "relay");
@@ -138,6 +140,25 @@ describe("room browsing on the game page", () => {
     const fragment = await SELF.fetch("https://zaisma.test/g/arena/rooms");
     expect(fragment.headers.get("content-type")).toContain("text/html");
     expect(await fragment.text()).toContain('data-joinable="1"');
+  });
+
+  it("filters by region once rooms run in more than one, shows big rooms as a gauge, and the best ten first", async () => {
+    const id = await addGame("arena", "relay");
+    const codes = "BCDFGHJKLMNPQRSTVWXYZ".split("");
+    for (const [i, c] of codes.slice(0, 12).entries()) await room(id, c.repeat(6), 1 + (i % 3));
+    await room(id, "ABC234", 31, 1, Date.now(), ["US", "NA"], 40);
+    const page = await (await SELF.fetch("https://zaisma.test/g/arena")).text();
+    expect(page).toContain('<button type="button" data-region="EU" title="Europe" aria-pressed="false">EU<small>12</small></button>');
+    expect(page).toContain('<span class="gauge" aria-hidden="true"><i style="width:78%"></i></span><span>31 of 40 players</span>');
+    expect(page.match(/class="room plate later"/g)).toHaveLength(3);
+    expect(page).toContain("Show 3 more rooms");
+    expect(page).toContain('id="rooms-count">13</span>');
+
+    const na = await (await SELF.fetch("https://zaisma.test/g/arena/rooms?region=NA")).text();
+    expect(na).toContain('data-region="NA" title="North America" aria-pressed="true"');
+    expect(na.match(/class="room plate/g)).toHaveLength(1);
+    const none = await (await SELF.fetch("https://zaisma.test/g/arena/rooms?region=AF")).text();
+    expect(none).toContain("No open rooms in that region right now.");
   });
 
   it("says when there's no room to join", async () => {

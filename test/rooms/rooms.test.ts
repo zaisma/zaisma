@@ -262,7 +262,7 @@ describe("room browsing", () => {
     await join("quiet", "QRSTVW");
     expect(await rows(off, () => false)).toEqual([]);
     const list = await SELF.fetch(`${R}/v1/rooms/quiet`, { headers: { Origin: ORIGIN } });
-    expect(await list.json()).toEqual({ rooms: [], playing: { players: 0, rooms: 0, closed: 0 } });
+    expect(await list.json()).toMatchObject({ rooms: [], playing: { players: 0, rooms: 0, closed: 0 }, joinable: 0, regions: [] });
   });
 
   it("lets the first player close a relay room: it's listed as closed, and newcomers are refused", async () => {
@@ -317,6 +317,15 @@ describe("room browsing", () => {
     expect(body.rooms[0]).toEqual({ code: "GGGGGG", players: 1, max: 8, open: true, location: { country: "DE", name: "Germany", continent: "EU" }, near: true, link: "https://zaisma.test/g/lister?room=GGGGGG" });
     expect(body.rooms.find((r) => r.code === "HHHHHH").location).toBeNull();
     expect(body.playing).toEqual({ players: 23, rooms: 7, closed: 1 });
+    expect(body).toMatchObject({ joinable: 5, region: null, more: 0 });
+    // Regions to filter by, busiest first; a room whose region isn't known only counts in All.
+    expect((body as any).regions).toEqual([
+      { code: "EU", name: "Europe", rooms: 4, players: 14 },
+      { code: "NA", name: "North America", rooms: 2, players: 7 },
+    ]);
+    const na = await (await SELF.fetch(`${R}/v1/rooms/lister?region=NA`, { headers: { Origin: ORIGIN } })).json<any>();
+    expect(na.rooms.map((r: any) => r.code)).toEqual(["CCCCCC", "BBBBBB"]);
+    expect(na).toMatchObject({ region: "NA", playing: { rooms: 7 }, joinable: 5 });
     expect((await SELF.fetch(`${R}/v1/rooms/lister`, { headers: { Origin: "https://evil.example" } })).status).toBe(403);
   });
 

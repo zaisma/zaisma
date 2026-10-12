@@ -75,7 +75,8 @@ Open rooms are listed on the game's page (code, where the room runs, how full it
 
 ```js
 Zaisma.rooms.linked;                          // the room code the player's link points to, or null
-const { rooms, playing } = await Zaisma.rooms.list();   // [{ code, players, max, open, location, near, link }]
+const { rooms, playing, regions } = await Zaisma.rooms.list();  // rooms: [{ code, players, max, open, location, near, link }]
+Zaisma.rooms.list({ region: "EU" });          // one region (continent codes, as in regions)
 const room = await Zaisma.rooms.quickJoin();  // the linked room, else a busy room with space nearby, else a new one
 Zaisma.joinRoom({ listed: false });           // a new room that's never listed: a private match
 ```

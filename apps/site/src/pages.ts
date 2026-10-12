@@ -4,7 +4,7 @@ import { html, layout, message, metalButton, playerModes, raw, siteFooter, siteH
 import { showcase, tile } from "./home.ts";
 import { SAVES_CLIENT } from "./saves-client.ts";
 import { reportSheet } from "./report.ts";
-import { joinable, pageRooms, roomsOnPage, roomsPanel } from "./rooms.ts";
+import { pageRooms, roomsOnPage, roomsPanel, tabCount } from "./rooms.ts";
 
 const ROOM_CODE = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/;
 
@@ -112,26 +112,38 @@ main.gp{max-width:1240px;margin:0 auto;padding:30px 24px 72px}
 .rooms-head{display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px;margin:0 0 16px}
 .rooms-head .badge{font-size:14px}
 .rooms{list-style:none;padding:0;margin:0;display:grid;gap:10px;max-width:900px}
-.room{--cut:12px;display:grid;grid-template-columns:118px minmax(0,1fr) auto 104px;align-items:center;gap:8px 24px;padding:10px 10px 10px 20px;clip-path:polygon(0 0,calc(100% - 12px) 0,100% 12px,100% 100%,0 100%)}
-.room .code{font-family:var(--display);font-weight:600;font-size:20px;letter-spacing:.14em;color:var(--text);text-shadow:0 -1px 0 rgba(0,0,0,.8),0 1px 0 rgba(255,255,255,.06)}
-.room .where{display:flex;align-items:center;gap:8px;min-width:0}
+.room{--cut:12px;display:grid;grid-template-columns:minmax(0,1fr) auto 104px;align-items:center;gap:8px 24px;padding:10px 10px 10px 20px;clip-path:polygon(0 0,calc(100% - 12px) 0,100% 12px,100% 100%,0 100%)}
+.room.later{display:none}
+#rooms.all .room.later{display:grid}
+.room .id{display:flex;align-items:center;flex-wrap:wrap;gap:4px 18px;min-width:0}
+.room .code{flex:0 0 118px;font-family:var(--display);font-weight:600;font-size:20px;letter-spacing:.14em;color:var(--text);text-shadow:0 -1px 0 rgba(0,0,0,.8),0 1px 0 rgba(255,255,255,.06)}
+.room .where{display:flex;align-items:center;gap:8px}
 /* Where the room runs: the country's flag, set into the metal, and its two-letter code. */
 .room .flag{width:20px;height:15px;flex:none;box-shadow:0 0 0 1px rgba(0,0,0,.85),0 1px 0 1px rgba(255,255,255,.07)}
 .room .where abbr{text-decoration:none;font-family:var(--display);font-size:14px;font-weight:500;letter-spacing:.06em;color:var(--text-2)}
-.room .fill{display:flex;align-items:center;gap:12px;font-size:14px;color:var(--text-2);white-space:nowrap}
-.seats{display:flex;gap:3px}
-.seats i{width:7px;height:18px;background:rgba(0,0,0,.5);box-shadow:inset 0 1px 2px rgba(0,0,0,.85),0 1px 0 rgba(255,255,255,.06)}
+.room .fill{display:flex;align-items:center;gap:12px;min-width:0;font-size:14px;color:var(--text-2);white-space:nowrap}
+.seats{display:flex;gap:3px;min-width:0}
+.seats i{flex:0 1 7px;min-width:3px;height:18px;background:rgba(0,0,0,.5);box-shadow:inset 0 1px 2px rgba(0,0,0,.85),0 1px 0 rgba(255,255,255,.06)}
 .seats i.on{background:linear-gradient(180deg,#f2f4f6,#aeb2b8 55%,#71757c);box-shadow:inset 0 1px 0 #fff,0 0 7px rgba(225,230,240,.28)}
+/* Rooms past 16 places: a gauge cut into the metal, filled with chrome. */
+.gauge{position:relative;width:96px;height:10px;flex:0 1 96px;min-width:40px;background:rgba(0,0,0,.5);box-shadow:inset 0 1px 3px rgba(0,0,0,.85),0 1px 0 rgba(255,255,255,.06)}
+.gauge i{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(180deg,#f2f4f6,#aeb2b8 55%,#71757c);box-shadow:0 0 7px rgba(225,230,240,.28)}
 .room .btn{min-height:44px}
 .room .full{display:grid;place-items:center;min-height:44px;color:var(--muted);font-family:var(--display);font-size:15px;font-weight:500}
+.regions{display:flex;max-width:100%;overflow-x:auto;scrollbar-width:none;margin:0 0 14px}
+.regions button{min-height:38px;padding:0 13px;gap:7px}
+.regions small{font-size:12px;font-weight:500;color:var(--muted)}
 .rooms-empty{max-width:900px;margin:0}
+.rooms-all{margin:12px 0 0}
+#rooms.all .rooms-all{display:none}
 .rooms-more{margin:14px 0 0}
+/* Phones: the code, flag and Join on top, how full it is across the whole row underneath. */
 @media (max-width:640px){
-  .room{grid-template-columns:112px minmax(0,1fr) 92px;gap:6px 10px;padding:12px 10px 12px 16px}
-  .room .code{grid-column:1;grid-row:1}
-  .room .where{grid-column:2;grid-row:1}
-  .room .fill{grid-column:1/3;grid-row:2}
-  .room .btn,.room .full{grid-column:3;grid-row:1/span 2}
+  .room{grid-template-columns:minmax(0,1fr) auto;gap:8px 12px;padding:12px 10px 12px 16px}
+  .room .id{grid-column:1;grid-row:1;gap:4px 12px}
+  .room .code{flex-basis:104px;font-size:19px}
+  .room .fill{grid-column:1/-1;grid-row:2}
+  .room .btn,.room .full{grid-column:2;grid-row:1;min-width:84px}
 }
 .updates{list-style:none;padding:0;margin:0;display:grid;gap:16px;max-width:780px}
 .updates li{padding:18px 20px}
@@ -234,7 +246,7 @@ ${siteHeader(env)}
 </section>
 ${tabs.length > 1
       ? html`<div class="tabs" role="tablist" aria-label="About this game">${tabs.map(
-          (t, i) => html`<button type="button" role="tab" id="tab-${t.id}" aria-controls="${t.id}" aria-selected="${i === 0}">${t.label}${t.id === "rooms" ? html`<span class="tab-count" id="rooms-count"${rooms && joinable(rooms) ? "" : raw(" hidden")}>${rooms ? joinable(rooms) : 0}</span>` : ""}</button>`,
+          (t, i) => html`<button type="button" role="tab" id="tab-${t.id}" aria-controls="${t.id}" aria-selected="${String(i === 0)}">${t.label}${t.id === "rooms" ? html`<span class="tab-count" id="rooms-count"${rooms?.joinable ? "" : raw(" hidden")}>${rooms ? tabCount(rooms) : "0"}</span>` : ""}</button>`,
         )}</div>`
       : html`<div class="tabs"></div>`}
 <section class="about" id="about" role="tabpanel" aria-label="About">
@@ -325,25 +337,41 @@ document.querySelectorAll(".thumbs button").forEach((b) => b.onclick = () => {
 const tabs = [...document.querySelectorAll(".tabs [role=tab]")];
 const showTab = (id) => { tabs.forEach((t) => { const on = t.getAttribute("aria-controls") === id; t.setAttribute("aria-selected", String(on)); document.getElementById(t.getAttribute("aria-controls")).hidden = !on; }); refreshRooms(); };
 tabs.forEach((t) => t.onclick = () => showTab(t.getAttribute("aria-controls")));
-// Rooms come and go: while the list is on screen, it's brought up to date every 20 seconds.
+// Rooms come and go: while the list is on screen, it's brought up to date every 20 seconds. The
+// region the player picked is remembered on this device, and "Show more" stays open across updates.
 const roomsPanel = document.getElementById("rooms");
 let roomsAt = Date.now();
-async function refreshRooms() {
-  if (!roomsPanel || roomsPanel.hidden || document.hidden || frame || Date.now() - roomsAt < 19000) return;
+let roomsRegion = "";
+try { roomsRegion = localStorage.getItem("zaisma:rooms-region") || ""; } catch {}
+async function refreshRooms(force) {
+  if (!roomsPanel || roomsPanel.hidden || document.hidden || frame) return;
+  const shown = roomsPanel.firstElementChild?.dataset.region || "";
+  if (!force && shown === roomsRegion && Date.now() - roomsAt < 19000) return;
   roomsAt = Date.now();
   try {
-    const res = await fetch(location.pathname + "/rooms");
+    const res = await fetch(location.pathname + "/rooms" + (roomsRegion ? "?region=" + roomsRegion : ""));
     if (!res.ok) return;
     roomsPanel.innerHTML = await res.text();
-    const n = Number(roomsPanel.firstElementChild?.dataset.joinable || 0);
+    const n = roomsPanel.firstElementChild?.dataset.joinable || "0";
     const count = document.getElementById("rooms-count");
     count.textContent = n;
-    count.hidden = !n;
+    count.hidden = n === "0";
   } catch {}
 }
 if (roomsPanel) {
   setInterval(refreshRooms, 5000);
-  document.addEventListener("visibilitychange", refreshRooms);
+  document.addEventListener("visibilitychange", () => refreshRooms());
+  roomsPanel.addEventListener("click", (e) => {
+    const pick = e.target.closest("[data-region]");
+    if (pick) {
+      roomsRegion = pick.dataset.region;
+      try { roomsRegion ? localStorage.setItem("zaisma:rooms-region", roomsRegion) : localStorage.removeItem("zaisma:rooms-region"); } catch {}
+      roomsPanel.classList.remove("all");
+      refreshRooms(true);
+    } else if (e.target.closest(".rooms-all")) {
+      roomsPanel.classList.add("all");
+    }
+  });
 }
 const linkedTab = tabs.find((t) => "#" + t.getAttribute("aria-controls") === location.hash);
 if (linkedTab) showTab(linkedTab.getAttribute("aria-controls"));

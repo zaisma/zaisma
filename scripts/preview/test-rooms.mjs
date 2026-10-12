@@ -47,3 +47,19 @@ export async function openTestRooms(rooms, origin) {
     }
   }
 }
+
+/**
+ * Pretend rooms for Cave Crew, as if a busy game had players around the world: they show the region
+ * filter, "Show more" and the gauge for big rooms (bigger than our rooms allow yet). They're only rows
+ * in the list, so joining one starts an empty room. Run again to keep them from going stale.
+ */
+export function pretendRoomsSql(now = Date.now()) {
+  const rooms = [
+    ["DEFR44", 9, 16, "DE", "EU"], ["FRPAR2", 4, 16, "FR", "EU"], ["GBLDN3", 12, 16, "GB", "EU"], ["PLWAW5", 2, 16, "PL", "EU"],
+    ["ESMAD6", 15, 16, "ES", "EU"], ["SEST07", 6, 16, "SE", "EU"], ["BRSAO8", 7, 16, "BR", "SA"], ["ARBUE9", 3, 16, "AR", "SA"],
+    ["JPTKY2", 11, 16, "JP", "AS"], ["KRSEL3", 16, 16, "KR", "AS"], ["INDEL4", 5, 16, "IN", "AS"], ["AUSYD5", 8, 16, "AU", "OC"],
+    ["CATOR6", 10, 16, "CA", "NA"], ["MXMEX7", 1, 16, "MX", "NA"], ["ZAJNB8", 4, 16, "ZA", "AF"], ["USBIG9", 31, 40, "US", "NA"],
+  ];
+  const values = rooms.map(([code, players, max, country, continent]) => `((SELECT id FROM games WHERE slug = 'cave-crew'), '${code}', ${players}, ${max}, 1, '${country}', '${continent}', ${now}, ${now})`);
+  return `INSERT OR REPLACE INTO open_rooms (game_id, code, players, max_players, open, country, continent, created_at, updated_at) VALUES ${values.join(", ")}`;
+}
