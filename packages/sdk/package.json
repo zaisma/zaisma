@@ -6,6 +6,7 @@
   "type": "module",
   "exports": {
     "./zaisma.js": "./zaisma.js",
-    "./saves.js": "./saves.js"
+    "./saves.js": "./saves.js",
+    "./picture.js": "./picture.js"
   }
 }

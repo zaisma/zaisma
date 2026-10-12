@@ -2,6 +2,7 @@ import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { gameBySlug, notConnected, versionById, type ImageMatcher, type ScanReport } from "@zaisma/core";
 import { scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
+import { dailyCleanup } from "../../apps/site/src/cleanup.ts";
 import type { AiResult } from "../../apps/site/src/ai.ts";
 import { CLEAN_GAME, makeZip } from "../helpers.ts";
 
@@ -167,7 +168,7 @@ describe("reports and takedowns", () => {
     expect(row?.details).toBe("won't load");
     expect(JSON.stringify(row)).not.toContain("203.0.113.9");
     const cols = (await env.DB.prepare("PRAGMA table_info(reports)").all<{ name: string }>()).results.map((c) => c.name);
-    expect(cols.sort()).toEqual(["created_at", "details", "game_id", "id", "player_id", "player_name", "player_reason", "reason", "room_code", "status", "version_id"]);
+    expect(cols.sort()).toEqual(["closed_at", "created_at", "details", "game_id", "id", "picture", "player_id", "player_name", "player_reason", "reason", "room_code", "status", "version_id"]);
     expect((await gameBySlug(env.DB, "test-game"))?.status).toBe("live");
   });
 
@@ -224,6 +225,40 @@ describe("reports and takedowns", () => {
     expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM reports").first("n")).toBe(1);
     // The plain form never shows a private game's name.
     expect(await (await SELF.fetch(`${LOCAL}/g/test-game/report`)).text()).not.toContain("Test Game");
+  });
+
+  // The start of a JPEG is enough for the server's check.
+  const JPEG = "data:image/jpeg;base64," + btoa(String.fromCharCode(0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4));
+
+  it("keeps a picture of the game when the player includes one, and shows it only in admin", async () => {
+    const { gameId } = await liveGame();
+    await fromPlate({ reason: "sexual", details: "on level 5", picture: JPEG });
+    const row = await env.DB.prepare("SELECT id, picture FROM reports").first<{ id: string; picture: number }>();
+    expect(row?.picture).toBe(1);
+    expect(await env.GAMES.head(`report-pictures/${row!.id}.jpg`)).not.toBeNull();
+    const pic = await SELF.fetch(`${LOCAL}/admin/reports/${row!.id}/picture`);
+    expect(pic.headers.get("content-type")).toBe("image/jpeg");
+    expect(await (await SELF.fetch(`${LOCAL}/admin/games/${gameId}`)).text()).toContain(`/admin/reports/${row!.id}/picture`);
+  });
+
+  it("never keeps a picture with a child-safety report, or anything that isn't a JPEG", async () => {
+    await liveGame();
+    await fromPlate({ reason: "child_safety", picture: JPEG });
+    await fromPlate({ reason: "broken", picture: "data:image/png;base64,iVBORw0KGgo=" });
+    expect((await env.DB.prepare("SELECT picture FROM reports").all<{ picture: number }>()).results).toEqual([{ picture: 0 }, { picture: 0 }]);
+    expect((await env.GAMES.list({ prefix: "report-pictures/" })).objects).toHaveLength(0);
+  });
+
+  it("deletes pictures 30 days after the report is closed", async () => {
+    const { gameId } = await liveGame();
+    await fromPlate({ reason: "broken", picture: JPEG });
+    await dailyCleanup(env, Date.now() + 60 * 86400_000);
+    expect((await env.GAMES.list({ prefix: "report-pictures/" })).objects).toHaveLength(1); // Still open.
+    await SELF.fetch(`${LOCAL}/admin/games/${gameId}/dismiss`, { method: "POST", body: new FormData(), redirect: "manual" });
+    expect((await dailyCleanup(env, Date.now() + 29 * 86400_000)).pictures).toBe(0);
+    expect((await dailyCleanup(env, Date.now() + 31 * 86400_000)).pictures).toBe(1);
+    expect((await env.GAMES.list({ prefix: "report-pictures/" })).objects).toHaveLength(0);
+    expect(await env.DB.prepare("SELECT picture FROM reports").first("picture")).toBe(0);
   });
 
   it("refuses an unknown reason", async () => {

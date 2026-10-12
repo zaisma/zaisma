@@ -5,3 +5,7 @@ ALTER TABLE reports ADD COLUMN room_code TEXT NOT NULL DEFAULT '';
 ALTER TABLE reports ADD COLUMN player_id TEXT NOT NULL DEFAULT '';
 ALTER TABLE reports ADD COLUMN player_name TEXT NOT NULL DEFAULT '';
 ALTER TABLE reports ADD COLUMN player_reason TEXT NOT NULL DEFAULT '';
+-- A picture of the game the player chose to include (kept in R2 at report-pictures/<id>.jpg), and when
+-- the report was closed: pictures are deleted 30 days after that.
+ALTER TABLE reports ADD COLUMN picture INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE reports ADD COLUMN closed_at INTEGER;

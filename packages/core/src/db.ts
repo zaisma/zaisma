@@ -159,7 +159,13 @@ export interface Report {
   player_id: string;
   player_name: string;
   player_reason: string;
+  /** 1 when the player included a picture of the game (reportPictureKey). */
+  picture: number;
+  closed_at: number | null;
 }
+
+/** Where a report's picture is kept, in the games bucket. Never served on the game domain. */
+export const reportPictureKey = (reportId: string) => `report-pictures/${reportId}.jpg`;
 
 export interface NewReport {
   gameId: string;
@@ -196,7 +202,7 @@ export async function openReports(db: D1Database): Promise<(Report & { slug: str
 }
 
 export async function closeReports(db: D1Database, gameId: string, status: "dismissed" | "actioned"): Promise<void> {
-  await db.prepare("UPDATE reports SET status = ? WHERE game_id = ? AND status = 'open'").bind(status, gameId).run();
+  await db.prepare("UPDATE reports SET status = ?, closed_at = ? WHERE game_id = ? AND status = 'open'").bind(status, now(), gameId).run();
 }
 
 export function currentMonth(at = new Date()): string {

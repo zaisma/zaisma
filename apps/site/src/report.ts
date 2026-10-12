@@ -1,4 +1,4 @@
-import { AUTO_HOLD_REASONS, PLAYER_REPORT_REASONS, REPORT_REASONS, audit, createReport, gameBySlug, reportLabel, setGameStatus, type Game, type PlayerReportReason, type ReportReason } from "@zaisma/core";
+import { AUTO_HOLD_REASONS, PLAYER_REPORT_REASONS, REPORT_REASONS, audit, createReport, gameBySlug, reportLabel, reportPictureKey, setGameStatus, type Game, type PlayerReportReason, type ReportReason } from "@zaisma/core";
 import type { Env } from "./env.ts";
 import { sendAlert } from "./email.ts";
 import { html, layout, metalButton, raw } from "./html.ts";
@@ -77,6 +77,13 @@ dialog.sheet::backdrop{background:linear-gradient(90deg,rgba(4,5,7,0) 35%,rgba(4
 .picked:hover .change{color:var(--text)}
 .sheet form{display:grid;gap:14px}
 .sheet textarea{width:100%;min-height:120px;resize:vertical}
+/* The picture of the game sits in a machined bezel, like the game page's; unticked, it greys out. */
+.report-pic{margin:0;display:grid;gap:10px}
+.report-pic .frame{display:block;padding:3px;background:linear-gradient(135deg,#60656f 0%,#1c1e22 36%,#121417 70%,#40444c 100%);clip-path:polygon(0 0,calc(100% - 14px) 0,100% 14px,100% 100%,0 100%)}
+.report-pic img{display:block;width:100%;max-height:190px;object-fit:contain;background:#000;clip-path:polygon(0 0,calc(100% - 12px) 0,100% 12px,100% 100%,0 100%);transition:opacity 140ms,filter 140ms}
+.report-pic.off img{opacity:.3;filter:grayscale(1)}
+.sheet .tick{display:flex;align-items:center;gap:10px;color:var(--text-2);font-size:14px;cursor:pointer}
+.sheet .tick input{width:18px;height:18px;min-height:0;margin:0;padding:0;accent-color:#d7dbe0}
 .sheet .note{margin:0;font-size:14px;color:var(--warn)}
 .sheet-fine{margin:0;color:var(--muted);font-size:13px}
 .sheet .error{margin:0}
@@ -117,6 +124,10 @@ dialog.sheet::backdrop{background:linear-gradient(90deg,rgba(4,5,7,0) 35%,rgba(4
     <form data-step="tell" hidden>
       <button type="button" class="picked" data-back><span><strong id="report-picked"></strong></span><span class="change">Change</span></button>
       <label>Anything else we should know? (optional)<textarea name="details" maxlength="2000" rows="4"></textarea></label>
+      <figure class="report-pic" id="report-pic" hidden>
+        <span class="frame"><img id="report-pic-img" alt="The game when you opened Report"></span>
+        <label class="tick"><input type="checkbox" name="picture" checked>Include this picture of the game</label>
+      </figure>
       <p class="note plate" id="report-hold" hidden>We hide the game straight away while we check.</p>
       <p class="sheet-fine" id="report-context"></p>
       <p class="error" id="report-error" role="alert" hidden></p>
@@ -138,6 +149,24 @@ dialog.sheet::backdrop{background:linear-gradient(90deg,rgba(4,5,7,0) 35%,rgba(4
   const send = document.getElementById("report-send");
   const $ = (id) => document.getElementById(id);
   let about = null, reason = "", label = "";
+  // A picture of the game, taken when the player opens the menu or Report; sent only if they keep it ticked.
+  let picture = null, asked = 0;
+  function takePicture() {
+    const f = frame();
+    picture = null;
+    if (!f || !f.contentWindow) return;
+    asked = Date.now();
+    f.contentWindow.postMessage({ type: "zaisma:picture-request", id: String(asked) }, C.gameOrigin);
+  }
+  function showPicture() {
+    const fig = $("report-pic");
+    fig.hidden = !picture || (!about && C.hold.includes(reason));
+    if (!fig.hidden) $("report-pic-img").src = picture;
+    fig.classList.toggle("off", !form.picture.checked);
+  }
+  form.picture.addEventListener("change", showPicture);
+  const menuButton = document.getElementById("menu");
+  if (menuButton) menuButton.addEventListener("click", takePicture);
   const roomCode = () => { const c = (new URLSearchParams(location.search).get("room") || "").toUpperCase(); return /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/.test(c) ? c : ""; };
   const frame = () => document.getElementById("game");
   function step(name) {
@@ -148,6 +177,8 @@ dialog.sheet::backdrop{background:linear-gradient(90deg,rgba(4,5,7,0) 35%,rgba(4
   // Open for the game, or for a player a game handed over: { id, name, code }.
   function open(player) {
     about = player || null;
+    // From the menu, keep the picture taken when it opened; otherwise take one now.
+    if (about || Date.now() - asked > 30000) takePicture();
     const menu = document.getElementById("menu-dialog");
     if (menu && menu.open) menu.close();
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
@@ -175,6 +206,7 @@ dialog.sheet::backdrop{background:linear-gradient(90deg,rgba(4,5,7,0) 35%,rgba(4
       $("report-hold").hidden = Boolean(about) || !C.hold.includes(reason);
       const code = about ? about.code : roomCode();
       $("report-context").textContent = about ? "We'll include their temporary player ID and the room code." : "We'll include the version you're playing" + (code ? " and the room code." : ".");
+      showPicture();
       step("tell");
     }
   });
@@ -185,6 +217,7 @@ dialog.sheet::backdrop{background:linear-gradient(90deg,rgba(4,5,7,0) 35%,rgba(4
     $("report-error").hidden = true;
     const body = { reason, details: form.details.value, room: about ? about.code : roomCode() };
     if (about) body.player = { id: about.id, name: about.name };
+    if (picture && form.picture.checked && !$("report-pic").hidden) body.picture = picture;
     let res = null, data = {};
     try {
       res = await fetch("/g/" + C.slug + "/report", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -208,7 +241,15 @@ dialog.sheet::backdrop{background:linear-gradient(90deg,rgba(4,5,7,0) 35%,rgba(4
   addEventListener("message", (e) => {
     const f = frame();
     const d = e.data;
-    if (!f || e.source !== f.contentWindow || e.origin !== C.gameOrigin || !d || d.type !== "zaisma:report") return;
+    if (!f || e.source !== f.contentWindow || e.origin !== C.gameOrigin || !d) return;
+    if (d.type === "zaisma:picture") {
+      if (d.id === String(asked) && typeof d.picture === "string" && d.picture.startsWith("data:image/jpeg;base64,") && d.picture.length < 2000000) {
+        picture = d.picture;
+        if (sheet.open && !form.hidden) showPicture();
+      }
+      return;
+    }
+    if (d.type !== "zaisma:report") return;
     const p = d.player || {};
     if (typeof p.id !== "string" || !/^[A-Za-z0-9_-]{1,40}$/.test(p.id)) return;
     const code = typeof d.code === "string" && /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/.test(d.code) ? d.code : roomCode();
@@ -285,7 +326,13 @@ export async function submitReport(env: Env, request: Request, slug: string, ctx
   if (!game) return reply(200, { ok: true, hidden: false });
 
   const report = { gameId: game.id, reason, details, versionId: game.current_version_id, roomCode: ROOM_CODE.test(room) ? room : "", ...(player ? { player } : {}) };
-  await createReport(env.DB, report);
+  const id = await createReport(env.DB, report);
+  // Never a picture with a child-safety or illegal-content report: we don't want to receive or pass on images like that.
+  const picture = AUTO_HOLD_REASONS.includes(reason) ? null : pictureBytes(input.picture);
+  if (picture) {
+    await env.GAMES.put(reportPictureKey(id), picture, { httpMetadata: { contentType: "image/jpeg" } });
+    await env.DB.prepare("UPDATE reports SET picture = 1 WHERE id = ?").bind(id).run();
+  }
   const hidden = !player && AUTO_HOLD_REASONS.includes(reason) && game.status === "live";
   if (hidden) {
     await setGameStatus(env.DB, game.id, "held");
@@ -296,10 +343,23 @@ export async function submitReport(env: Env, request: Request, slug: string, ctx
     sendAlert(
       env,
       `${reason === "child_safety" ? "URGENT child-safety report" : "Report"} on ${game.slug}: ${what}${hidden ? " (game hidden)" : ""}`,
-      `${what}\n\n${details || "(no details)"}\n\n${reason === "child_safety" ? "Don't delete anything; review it and report to NCMEC if confirmed.\n\n" : ""}${hidden ? "The game is hidden until you review it.\n\n" : ""}Review: ${env.SITE_ORIGIN}/admin/games/${game.id}`,
+      `${what}\n\n${details || "(no details)"}\n\n${picture ? "With a picture of the game.\n\n" : ""}${reason === "child_safety" ? "Don't delete anything; review it and report to NCMEC if confirmed.\n\n" : ""}${hidden ? "The game is hidden until you review it.\n\n" : ""}Review: ${env.SITE_ORIGIN}/admin/games/${game.id}`,
     ),
   );
   return reply(200, { ok: true, hidden });
+}
+
+/** A picture of the game from the plate: a JPEG data URL, at most 1.5 MB. Anything else is dropped. */
+function pictureBytes(value: unknown): Uint8Array | null {
+  const prefix = "data:image/jpeg;base64,";
+  if (typeof value !== "string" || !value.startsWith(prefix) || value.length > 2_100_000) return null;
+  let bytes: Uint8Array;
+  try {
+    bytes = Uint8Array.from(atob(value.slice(prefix.length)), (c) => c.charCodeAt(0));
+  } catch {
+    return null;
+  }
+  return bytes.length <= 1_500_000 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff ? bytes : null;
 }
 
 async function readJson(request: Request): Promise<Record<string, unknown>> {

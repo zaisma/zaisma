@@ -1,5 +1,6 @@
 import { connectSources, contentTypeFor, fileKey, gameHeaders, manifestKey, servableGame, versionByPreview, type Manifest } from "@zaisma/core";
 import savesScript from "@zaisma/sdk/saves.js";
+import pictureScript from "@zaisma/sdk/picture.js";
 import sdk from "@zaisma/sdk/zaisma.js";
 
 export interface Env {
@@ -59,14 +60,17 @@ function page(status: number, title: string, text: string, env: Env): Response {
   return new Response(html, { status, headers });
 }
 
-/** Bump when the saves script or the injected tag changes, so browsers fetch the new ones. */
-const SAVES_SCRIPT_VERSION = 2;
+/** Bump when our scripts or the injected tags change, so browsers fetch the new ones. */
+const SCRIPTS_VERSION = 3;
 
-const RESTORE_PAGE = `<!doctype html><meta charset="utf-8"><title>Loading</title><body style="margin:0;background:#000"><script src="saves.js?v=${SAVES_SCRIPT_VERSION}"></script>`;
+const RESTORE_PAGE = `<!doctype html><meta charset="utf-8"><title>Loading</title><body style="margin:0;background:#000"><script src="saves.js?v=${SCRIPTS_VERSION}"></script>`;
 
-/** Put the saves script first in <head>, before any game script can read its saves. */
-export function withSavesScript(page: string, src: string): string {
-  const tag = `<script src="${src}"></script>`;
+/**
+ * Put our scripts first in <head>, before any game script runs: the saves script must be there
+ * before the game reads its saves, and the picture script before the game starts drawing.
+ */
+export function withScripts(page: string, srcs: string[]): string {
+  const tag = srcs.map((src) => `<script src="${src}"></script>`).join("");
   const head = page.match(/<head(\s[^>]*)?>/i);
   if (head) return page.slice(0, head.index! + head[0].length) + tag + page.slice(head.index! + head[0].length);
   const html = page.match(/<html(\s[^>]*)?>/i);
@@ -148,6 +152,13 @@ export default {
       return new Response(request.method === "HEAD" ? null : `var __ZAISMA__ = ${JSON.stringify(config)};\n${sdk}`, { headers });
     }
 
+    // Report pictures: every game page can hand the Zaisma page a picture of the game when a player reports it.
+    if (target.path === "_zaisma/picture.js") {
+      const headers = gameHeaders("text/javascript; charset=utf-8", env.SITE_ORIGIN, connect);
+      headers.set("Cache-Control", "public, max-age=300");
+      return new Response(request.method === "HEAD" ? null : `var __ZAISMA_PICTURE__ = ${JSON.stringify({ site: env.SITE_ORIGIN })};\n${pictureScript}`, { headers });
+    }
+
     // Cloud saves: the script that hands the game's browser save to the Zaisma game page,
     // and the page that puts an account's save in place before the game starts.
     if (cloudSaves && target.path === "_zaisma/saves.js") {
@@ -163,8 +174,8 @@ export default {
 
     const path = target.path === "" || target.path.endsWith("/") ? `${target.path}index.html` : target.path;
     const html = path.endsWith(".html");
-    const inject = cloudSaves && html;
-    // Pages that get the saves script are changed on the way out, so they skip ranges and R2's own ETag checks.
+    const inject = html;
+    // Pages get our scripts on the way out, so they skip ranges and R2's own ETag checks.
     const key = fileKey(version, version.kind === "files" ? await manifestFor(env, version.id) : null, path);
     const object = key ? await env.GAMES.get(key, inject ? {} : { range: request.headers, onlyIf: request.headers }) : null;
     if (!object) return page(404, "File not found", "This game is missing a file.", env);
@@ -179,9 +190,10 @@ export default {
 
     if (inject && "body" in object && object.body) {
       headers.delete("Accept-Ranges");
-      headers.set("ETag", `W/"${object.etag}-s${SAVES_SCRIPT_VERSION}"`);
+      headers.set("ETag", `W/"${object.etag}-z${SCRIPTS_VERSION}${cloudSaves ? "s" : ""}"`);
       if (request.headers.get("if-none-match") === headers.get("ETag")) return new Response(null, { status: 304, headers });
-      const page = withSavesScript(await object.text(), `${target.base}_zaisma/saves.js?v=${SAVES_SCRIPT_VERSION}`);
+      const scripts = [...(cloudSaves ? [`${target.base}_zaisma/saves.js?v=${SCRIPTS_VERSION}`] : []), `${target.base}_zaisma/picture.js?v=${SCRIPTS_VERSION}`];
+      const page = withScripts(await object.text(), scripts);
       return new Response(request.method === "HEAD" ? null : page, { headers });
     }
 

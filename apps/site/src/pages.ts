@@ -419,7 +419,7 @@ const PRIVACY = `
 <h2>Cookies</h2>
 <p>We only use cookies to keep you signed in and to remember where you are while you make an account. No ads, no tracking, no analytics cookies.</p>
 <h2>Reports</h2>
-<p>When you report a game or a player, we keep what you wrote and nothing about you. Reports about a player include their temporary ID or name so we can act on it.</p>
+<p>When you report a game or a player, we keep what you wrote and nothing about you. Reports about a player include their temporary ID or name so we can act on it. If you include a picture of the game with your report, we keep it until the report is dealt with and delete it within 30 days.</p>
 <h2>Games</h2>
 <p>Games run on a separate domain and can't see your account, email or cookies. Our content rules don't allow games to collect players' personal data.</p>
 <h2>Who helps us run Zaisma</h2>

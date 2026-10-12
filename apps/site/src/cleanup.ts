@@ -1,4 +1,4 @@
-import { audit, blobKey, manifestKey, ownedBlobKey, publishVersion, type Manifest, type Version } from "@zaisma/core";
+import { audit, blobKey, manifestKey, ownedBlobKey, publishVersion, reportPictureKey, type Manifest, type Version } from "@zaisma/core";
 import type { Env } from "./env.ts";
 import { deleteVersion, pruneVersions } from "./scan.ts";
 
@@ -24,10 +24,11 @@ export async function publishDue(env: Env, now = Date.now()): Promise<number> {
 const DAY = 86400_000;
 
 /**
- * Once a day: delete drafts nobody published within 30 days, then files no version uses.
+ * Once a day: delete drafts nobody published within 30 days, then files no version uses, then
+ * pictures from reports closed more than 30 days ago.
  * Held and rejected versions are kept: they may need a person, or a report to the authorities.
  */
-export async function dailyCleanup(env: Env, now = Date.now()): Promise<{ drafts: number; files: number }> {
+export async function dailyCleanup(env: Env, now = Date.now()): Promise<{ drafts: number; files: number; pictures: number }> {
   const { results: drafts } = await env.DB
     .prepare(
       `SELECT versions.* FROM versions JOIN games ON games.id = versions.game_id
@@ -61,5 +62,11 @@ export async function dailyCleanup(env: Env, now = Date.now()): Promise<{ drafts
     ...unusedOwned.map((b) => env.DB.prepare("DELETE FROM owned_blobs WHERE owner_id = ? AND sha256 = ?").bind(b.owner_id, b.sha256)),
   ];
   for (let i = 0; i < statements.length; i += 100) await env.DB.batch(statements.slice(i, i + 100));
-  return { drafts: drafts.length, files: keys.length };
+
+  const { results: pictures } = await env.DB.prepare("SELECT id FROM reports WHERE picture = 1 AND status != 'open' AND closed_at < ? LIMIT 1000").bind(now - 30 * DAY).all<{ id: string }>();
+  if (pictures.length) {
+    await env.GAMES.delete(pictures.map((p) => reportPictureKey(p.id)));
+    await env.DB.batch(pictures.map((p) => env.DB.prepare("UPDATE reports SET picture = 0 WHERE id = ?").bind(p.id)));
+  }
+  return { drafts: drafts.length, files: keys.length, pictures: pictures.length };
 }
