@@ -111,7 +111,7 @@ The platform works but looks and feels rough. No outreach, no listings for other
 
 | Status | Must/Nice | Item | Needs | Notes |
 | --- | --- | --- | --- | --- |
-| doing | Must | Design system | | Steel, from the brand: type, colors, spacing, the bevel and metal highlights, used by every page. Home page layout being mocked up with Julius |
+| doing | Must | Design system | | Steel, from the brand: type, colors, spacing, the bevel and metal highlights, used by every page. Home page mockups approved (returning, first visit, phone, queue); game page next |
 | planned | Must | Friends | Sign-in | Friend list, invites, see what friends are playing and join them; requests only from people you've played with; teen-safe defaults. Moved up from Phase 3 to land with the home page |
 | planned | Must | Home page | Design system, Friends, Continue playing, Game updates | Friends first, then last played, Continue playing, For you (once it exists), then Games for everyone: popular, trending, new. Play in one tap |
 | planned | Must | Continue playing | | The games you played most recently, on the home page; sort by recently played or recently updated, with an "Updated" badge. On this device for guests, on your account when signed in |
