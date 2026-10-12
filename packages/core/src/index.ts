@@ -8,3 +8,4 @@ export * from "./db.ts";
 export * from "./scan/static.ts";
 export * from "./scan/images.ts";
 export * from "./scan/decide.ts";
+export * from "./accounts.ts";

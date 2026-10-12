@@ -238,6 +238,7 @@ export function legal(env: Env, page: string): Response | null {
   const pages: Record<string, { title: string; body: string }> = {
     "content-rules": { title: "Content rules", body: CONTENT_RULES },
     dmca: { title: "Copyright and DMCA notices", body: DMCA },
+    privacy: { title: "Privacy", body: PRIVACY },
   };
   const p = pages[page];
   if (!p) return null;
@@ -279,4 +280,35 @@ const DMCA = `
 <p class="note">Designated agent details will be listed here once Zaisma's DMCA agent registration is complete.</p>
 <h2>Counter-notices</h2>
 <p>If your game was removed and you believe it was a mistake or you have permission, email the same address with a counter-notice. We'll forward it to the person who filed the claim.</p>
+`;
+
+// Approved by Julius on Oct 12, 2026.
+const PRIVACY = `
+<p class="lead">Zaisma keeps as little about you as it can. Playing needs no account, and guests leave nothing behind.</p>
+<h2>Playing as a guest</h2>
+<p>Guests get a temporary ID and a made-up name like "Swift Fox 42", used only to run the game session. They're kept in your browser tab and forgotten when it closes. We don't keep a profile, and we don't know who you are.</p>
+<h2>If you make an account</h2>
+<ul>
+<li><strong>Your email</strong>, only to sign you in. It's never shown to anyone, and we don't send marketing.</li>
+<li><strong>Your name</strong>, the one you pick. Other players can see it.</li>
+<li><strong>Your age group</strong>: 13 to 17, or 18 and over. We ask your birth date once to work it out and never keep it.</li>
+</ul>
+<p>Accounts are for people 13 and up. If you're younger, you can't make one, and we keep nothing you typed. If we find out we have an account for someone under 13, we delete it.</p>
+<h2>Cookies</h2>
+<p>We only use cookies to keep you signed in and to remember where you are while you make an account. No ads, no tracking, no analytics cookies.</p>
+<h2>Reports</h2>
+<p>When you report a game or a player, we keep what you wrote and nothing about you. Reports about a player include their temporary ID or name so we can act on it.</p>
+<h2>Games</h2>
+<p>Games run on a separate domain and can't see your account, email or cookies. Our content rules don't allow games to collect players' personal data.</p>
+<h2>Who helps us run Zaisma</h2>
+<ul>
+<li><strong>Cloudflare</strong> runs our servers and stores games. It sees your connection address to deliver pages and stop abuse; we don't store it.</li>
+<li><strong>Supabase</strong> handles sign-in and holds your email. Your browser never talks to it directly.</li>
+<li><strong>Anthropic</strong> reviews uploaded games for safety. It sees game files, never players.</li>
+</ul>
+<p>We never sell your data, and there are no ads on Zaisma.</p>
+<h2>Deleting your account</h2>
+<p>Go to your account page and choose Delete account. Your email, name and everything else on your account are deleted straight away.</p>
+<h2>Questions</h2>
+<p>Email <a href="mailto:privacy@zaisma.com">privacy@zaisma.com</a>.</p>
 `;

@@ -12,6 +12,8 @@ export interface Game {
   game_server: string | null;
   /** The game's own servers, one origin per line. */
   connect_hosts: string;
+  /** Who owns the game: a person now, a team later. NULL until it's assigned. */
+  owner_id: string | null;
   created_at: number;
   updated_at: number;
 }

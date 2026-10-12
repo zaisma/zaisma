@@ -52,6 +52,7 @@ p.lead{color:var(--muted);margin:0 0 28px;font-size:18px}
 .btn.ghost{background:transparent;color:var(--text);border:1px solid var(--line)}
 .btn.danger{background:var(--danger);color:#111}
 form.stack{display:grid;gap:14px;max-width:560px}
+form.stack>.btn{justify-self:start}
 label{display:grid;gap:6px;font-size:14px;color:var(--muted)}
 input,textarea,select{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:10px;font:inherit}
 textarea{min-height:100px}
@@ -65,6 +66,16 @@ th{color:var(--muted);font-weight:500}
 .note{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;color:var(--muted)}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 footer{border-top:1px solid var(--line);padding:20px;color:var(--muted);font-size:13px;display:flex;gap:16px;flex-wrap:wrap;justify-content:center}
+.narrow{max-width:520px}
+.error{color:var(--danger);margin:0 0 14px}
+.muted{color:var(--muted);font-size:14px}
+.small{font-size:12px}
+.hint{font-size:12px;color:var(--muted)}
+fieldset{border:0;padding:0;margin:0}
+legend{font-size:14px;color:var(--muted);margin-bottom:8px}
+.birth label{flex:1;min-width:90px}
+details summary{cursor:pointer;color:var(--muted)}
+details[open] summary{margin-bottom:10px}
 pre{white-space:pre-wrap;word-break:break-word;background:var(--panel);padding:12px;border-radius:8px;font-size:13px}
 `;
 
@@ -90,7 +101,10 @@ export function securityHeaders(env: Env, extra: Record<string, string> = {}): H
   return h;
 }
 
-export function layout(env: Env, opts: { title: string; body: Raw; bare?: boolean; admin?: boolean }): Response {
+// Pages stay cacheable for everyone, so the header learns about sign-in from a readable hint cookie.
+const ACCOUNT_LINK = `<a id="account-link" href="/signin">Sign in</a><script>if(/(^|; )(__Host-)?zaisma_in=1/.test(document.cookie)){var a=document.getElementById("account-link");a.href="/account";a.textContent="Account"}</script>`;
+
+export function layout(env: Env, opts: { title: string; body: Raw; bare?: boolean; admin?: boolean; private?: boolean }): Response {
   const doc = html`<!doctype html>
 <html lang="en">
 <head>
@@ -108,13 +122,13 @@ ${opts.bare
     ? opts.body
     : html`<header class="top">
   <a class="logo" href="/"><img src="/zaisma-wordmark-metal.svg" alt="Zaisma"></a>
-  <nav>${opts.admin ? html`<a href="/admin">Admin</a><a href="/admin/audit">Audit log</a>` : ""}<a href="/">Games</a></nav>
+  <nav>${opts.admin ? html`<a href="/admin">Admin</a><a href="/admin/audit">Audit log</a>` : ""}<a href="/">Games</a>${env.SUPABASE_URL ? raw(ACCOUNT_LINK) : ""}</nav>
 </header>
 <main>${opts.body}</main>
-<footer><span>Zaisma™ · open source, MIT</span><a href="/legal/content-rules">Content rules</a><a href="/legal/dmca">Copyright (DMCA)</a><a href="https://github.com/zaisma/zaisma">GitHub</a></footer>`}
+<footer><span>Zaisma™ · open source, MIT</span><a href="/legal/content-rules">Content rules</a><a href="/legal/privacy">Privacy</a><a href="/legal/dmca">Copyright (DMCA)</a><a href="https://github.com/zaisma/zaisma">GitHub</a></footer>`}
 </body>
 </html>`;
-  return new Response(doc.html, { headers: securityHeaders(env, opts.admin ? { "Cache-Control": "no-store" } : {}) });
+  return new Response(doc.html, { headers: securityHeaders(env, opts.admin || opts.private ? { "Cache-Control": "no-store" } : {}) });
 }
 
 export function message(env: Env, title: string, text: string, status = 200): Response {

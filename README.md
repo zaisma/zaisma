@@ -45,7 +45,7 @@ npm run dev:site    # http://localhost:8787, admin at /admin
 npm test
 ```
 
-To run your own Zaisma, create a D1 database, an R2 bucket and a queue (names in the two `wrangler.jsonc` files), put the database ID in the three files, set your site, game and rooms addresses, protect `/admin` with Cloudflare Access, set the rooms Worker's `PASS_SIGNING_KEY` secret, and deploy `apps/rooms`, `apps/games` and `apps/site`.
+To run your own Zaisma, create a D1 database, an R2 bucket and a queue (names in the two `wrangler.jsonc` files), put the database ID in the three files, set your site, game and rooms addresses, protect `/admin` with Cloudflare Access, set the rooms Worker's `PASS_SIGNING_KEY` secret, point `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` at your Supabase project for accounts (and set the site's `SUPABASE_SECRET_KEY` secret so accounts can be deleted), and deploy `apps/rooms`, `apps/games` and `apps/site`.
 
 ### Multiplayer
 
