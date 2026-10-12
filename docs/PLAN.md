@@ -32,9 +32,9 @@ Listing and selling are free: no listing fee and no payment cut. Multiplayer on 
 | 100,000 | $490 | $385 | $105 | \~21 donors, or 1 promoted slot |
 | 1,000,000 | $5,000 | $3,890 | $1,120 | \~225 donors, or 5 promoted slots |
 
-Estimates assume 30% of players make accounts, 4 multiplayer hours per player a month in 8-player real-time rooms, and 300 MB per game including desktop downloads. Multiplayer is about 80% of the cost at scale.
+Estimates assume 30% of players make accounts, 4 multiplayer hours per player a month in 8-player real-time rooms, and 300 MB per game. Multiplayer is about 80% of the cost at scale.
 
-**Hosting on our servers, at cost.** Our rooms are for convenience, not to be the cheapest or fastest servers anywhere. Developers pay what Cloudflare charges us: about $1 per 1,000 player-hours of real-time multiplayer. Bills under $5 roll to the next month, so small games effectively pay nothing. Game files, downloads, accounts, friends and saves stay free.
+**Hosting on our servers, at cost.** Our rooms are for convenience, not to be the cheapest or fastest servers anywhere. Developers pay what Cloudflare charges us: about $1 per 1,000 player-hours of real-time multiplayer. Bills under $5 roll to the next month, so small games effectively pay nothing. Game files, accounts, friends and saves stay free.
 
 **Where the money comes from**
 
