@@ -33,8 +33,10 @@ Goal: open Zaisma to outside creators and players, with what both expect out of 
 
 | Status | Must/Nice | Item | Notes |
 | --- | --- | --- | --- |
-| next | Must | Julius: buy zaisma.gg | Then switch the game server to one subdomain per game |
-| next | Must | Julius: apply for PhotoDNA | Free, takes weeks. Or Cloudflare's CSAM tool once zaisma.gg exists |
+| done | Must | Julius: buy the game domain | zaismausercontent.com, bought Oct 11, 2026 |
+| doing | Must | Serve each game on its own subdomain | Code ready; waiting on the wildcard DNS record |
+| next | Must | Julius: Public Suffix List entry | Needs 2+ years left on the domain's registration and a `_psl` TXT record; may wait until we have players |
+| next | Must | Julius: apply for PhotoDNA | Free, takes weeks. Also check whether Cloudflare's CSAM tool covers files our Worker serves |
 | next | Must | Connect image matching | Until then every game waits for manual approval |
 | next | Must | Julius: register the DMCA agent | $6 at copyright.gov, then fill in the DMCA page |
 | doing | Must | Alert and DMCA email delivery | Waiting on Fastmail's reply; fallback is a second inbox |

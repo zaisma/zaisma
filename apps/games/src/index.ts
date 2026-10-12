@@ -23,6 +23,8 @@ export function resolveGame(url: URL, env: Pick<Env, "GAME_HOST_MODE" | "GAME_DO
   const rest = decodePath(url.pathname.slice(1));
   if (rest === null) return null;
 
+  // The bare game domain never serves games: path mode there would put every game on one origin.
+  if (env.GAME_HOST_MODE === "subdomain" && host === domain) return null;
   if (env.GAME_HOST_MODE === "subdomain" && domain && host.endsWith(`.${domain}`)) {
     const slug = host.slice(0, -domain.length - 1);
     return slug.includes(".") ? null : { by: { slug }, path: rest, base: "/" };
@@ -61,6 +63,9 @@ export default {
     }
     const url = new URL(request.url);
     if (url.pathname === "/" && env.GAME_HOST_MODE === "path") return Response.redirect(env.SITE_ORIGIN, 302);
+    if (env.GAME_HOST_MODE === "subdomain" && url.hostname.toLowerCase() === env.GAME_DOMAIN.toLowerCase()) {
+      return Response.redirect(env.SITE_ORIGIN, 302);
+    }
     if (url.pathname === "/robots.txt") return new Response("User-agent: *\nDisallow: /\n", { headers: { "Content-Type": "text/plain" } });
 
     const target = resolveGame(url, env);
