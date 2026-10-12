@@ -194,7 +194,7 @@ export function securityHeaders(env: Env, extra: Record<string, string> = {}): H
 // Pages stay cacheable for everyone, so the header learns about sign-in from a readable hint cookie.
 const ACCOUNT_LINK = `<a id="account-link" class="btn ghost" href="/signin">Sign in</a><script>if(/(^|; )(__Host-)?zaisma_in=1/.test(document.cookie)){var a=document.getElementById("account-link");a.href="/account";a.textContent="Account"}</script>`;
 
-export function layout(env: Env, opts: { title: string; body: Raw; bare?: boolean; admin?: boolean; private?: boolean }): Response {
+export function layout(env: Env, opts: { title: string; body: Raw; bare?: boolean; admin?: boolean; private?: boolean; nav?: "dashboard" }): Response {
   const doc = html`<!doctype html>
 <html lang="en">
 <head>
@@ -212,11 +212,11 @@ ${opts.bare
     ? opts.body
     : html`<header class="top"><div class="in">
   <a class="logo" href="/" aria-label="Zaisma home"><img src="/zaisma-wordmark-metal.svg" alt="Zaisma"></a>
-  <nav>${opts.admin ? html`<a href="/admin">Admin</a><a href="/admin/audit">Audit log</a>` : html`<a href="/">Home</a>`}</nav>
+  <nav>${opts.admin ? html`<a href="/admin">Admin</a><a href="/admin/audit">Audit log</a>` : opts.nav === "dashboard" ? html`<a href="/">Home</a><a href="/dashboard" aria-current="page">Your games</a>` : html`<a href="/">Home</a>`}</nav>
   <div class="end">${env.SUPABASE_URL ? raw(ACCOUNT_LINK) : ""}</div>
 </div></header>
 <main>${opts.body}</main>
-<footer><div class="in"><span>Zaisma™, open source</span><a href="/legal/content-rules">Content rules</a><a href="/legal/privacy">Privacy</a><a href="/legal/dmca">Copyright (DMCA)</a><a href="https://github.com/zaisma/zaisma">GitHub</a></div></footer>`}
+<footer><div class="in"><span>Zaisma™, open source</span><a href="/legal/content-rules">Content rules</a><a href="/legal/privacy">Privacy</a><a href="/legal/dmca">Copyright (DMCA)</a><a href="/dashboard">For game developers</a><a href="https://github.com/zaisma/zaisma">GitHub</a></div></footer>`}
 <script>${raw(METAL_SCRIPT)}</script>
 </body>
 </html>`;

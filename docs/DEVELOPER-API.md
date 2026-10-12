@@ -1,6 +1,6 @@
 # Developer API
 
-One API behind the developer MCP, the upload command (`packages/cli`) and the dashboard, so they always agree. Base: `https://zaisma.com/api/dev`. Every answer is JSON; errors look like `{"error": {"code": "slug_taken", "message": "…"}}`.
+One API behind the developer MCP, the upload command (`packages/cli`) and the dashboard (zaisma.com/dashboard, `apps/site/src/dashboard.ts`), so they always agree. Base: `https://zaisma.com/api/dev`. Every answer is JSON; errors look like `{"error": {"code": "slug_taken", "message": "…"}}`.
 
 ## The MCP
 
@@ -14,7 +14,7 @@ Every tool is a call to this API (`apps/site/src/mcp.ts`): `list_games`, `create
 
 ## Signing in
 
-Make an API key on your account page (zaisma.com/account, under Game developers) and send it as `Authorization: Bearer zsk_…`. The key is shown once; we keep only a hash. Any account can make up to 10 keys and remove them at any time. Pages on zaisma.com can use the signed-in session instead. Up to 120 requests a minute per account.
+Make an API key on your account page (zaisma.com/account, under Game developers) and send it as `Authorization: Bearer zsk_…`. The key is shown once; we keep only a hash. Any account can make up to 10 keys and remove them at any time. Pages on zaisma.com can use the signed-in session instead. Up to 120 requests a minute per account, plus up to 1,000 a minute for sending files.
 
 ## Games
 

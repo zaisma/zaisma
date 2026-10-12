@@ -122,10 +122,35 @@ export async function authenticate(request: Request, env: Env): Promise<Caller> 
     accountId = session.userId;
     cookies = session.cookies;
   }
-  if (!(await accountById(env.DB, accountId))) throw new ApiError(401, "no_account", "Finish making your account first.");
-  if (env.DEV_LIMIT && !(await env.DEV_LIMIT.limit({ key: accountId })).success) throw new ApiError(429, "slow_down", "Too many requests. Wait a minute and try again.");
+  // Sending a game's files is many small requests, so it has its own, bigger allowance.
+  const limit = new URL(request.url).pathname.startsWith("/api/dev/files/") ? env.FILE_LIMIT : env.DEV_LIMIT;
+  if (limit && !(await limit.limit({ key: accountId })).success) throw new ApiError(429, "slow_down", "Too many requests. Wait a minute and try again.");
+  const caller = await callerFor(env, accountId, cookies);
+  if (!caller) throw new ApiError(401, "no_account", "Finish making your account first.");
+  return caller;
+}
+
+/** The caller for a signed-in account, or null when the account isn't finished. */
+export async function callerFor(env: Env, accountId: string, cookies: string[] = []): Promise<Caller | null> {
+  if (!(await accountById(env.DB, accountId))) return null;
   const owner = await personOwner(env.DB, accountId);
   return { accountId, ownerId: owner.id, actor: `account:${accountId}`, cookies };
+}
+
+/**
+ * Call the API from inside the site (the MCP and the dashboard), as this caller. Answers the JSON;
+ * refusals throw ApiError with the same codes and messages API callers get.
+ */
+export async function apiCall(env: Env, caller: Caller, method: string, path: string, payload?: unknown): Promise<Record<string, unknown>> {
+  const raw = payload instanceof Uint8Array;
+  const data = raw ? payload : payload === undefined ? undefined : new TextEncoder().encode(JSON.stringify(payload));
+  const req = new Request(`${env.SITE_ORIGIN}/api/dev${path}`, {
+    method,
+    headers: { ...(data ? { "content-length": String(data.byteLength) } : {}), ...(data && !raw ? { "content-type": "application/json" } : {}) },
+    body: data,
+  });
+  const res = await route(req, env, path.split("?")[0]!, caller);
+  return (await res.json()) as Record<string, unknown>;
 }
 
 export async function route(request: Request, env: Env, path: string, caller: Caller): Promise<Response> {

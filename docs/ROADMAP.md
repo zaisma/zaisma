@@ -99,7 +99,7 @@ Detailed plan approved: guest passes, game server API, rooms, SDK, demos.
 | doing | Must | Support tools in the MCP | Developer MCP | "Why is my game held?", scan reports, logs, bills: developers' own AI answers their questions. Game history and scan findings are in; bills and logs next |
 | planned | Must | Errors that explain themselves | | Every hold, takedown, bill and failed upload has a plain reason, a rule, a fix and an error code that links to docs |
 | planned | Must | Docs for AI tools | | `llms.txt` and troubleshooting pages by error code, so any AI can answer questions about Zaisma |
-| planned | Must | Developer dashboard | Drafts and publishing | The same API as the MCP; keep it simple for the beta |
+| done | Must | Developer dashboard | Drafts and publishing | The same API as the MCP; keep it simple for the beta. zaisma.com/dashboard: your games, folder upload in the browser, versions with preview, publish, publish later and roll back, details, visibility, images, reports, stats and history |
 | planned | Must | `zaisma check` and automatic fixes | Upload command | Pulls in outside scripts, unpacks compressed builds |
 | planned | Must | Claude Code skill | Developer MCP, `zaisma check` and automatic fixes | Teaches the whole workflow |
 | planned | Must | Basic play stats | Client SDK | Plays, session length, players coming back |

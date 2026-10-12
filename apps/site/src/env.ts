@@ -12,6 +12,8 @@ export interface Env {
   SAVE_LIMIT?: RateLimit;
   /** Developer API requests, per account. */
   DEV_LIMIT?: RateLimit;
+  /** Sending game files to the developer API, per account. */
+  FILE_LIMIT?: RateLimit;
   ALERTS?: SendEmail;
   SITE_ORIGIN: string;
   GAME_HOST_MODE: "path" | "subdomain";
