@@ -160,7 +160,7 @@ Goal: players and creators build on each other's games.
 | --- | --- | --- | --- |
 | planned | Must | Remixes | Opt-in, automatic credit, remix chains; optional 12-month unlock for abandoned games |
 | planned | Must | Teams | Owner, publisher and developer roles |
-| planned | Must | Mods | Toolkit mod API; scanned and versioned; invite links carry mods |
+| planned | Must | Mods | SDK mod API; scanned and versioned; invite links carry mods |
 | planned | Nice | Tools tab | Free, open-source developer tools |
 
 ## Phase 6: Grow
