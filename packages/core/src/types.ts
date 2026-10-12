@@ -64,6 +64,8 @@ export interface Finding {
   rule: string;
   detail: string;
   path?: string;
+  /** From the AI reviewer: a short exact quote from the file at path that shows the problem. */
+  quote?: string;
 }
 
 export interface ScanReport {
@@ -129,6 +131,38 @@ export interface Triage {
   actions: string[];
   /** A fresh look at the reported version's files, asked for by triage. */
   recheck?: { status: "waiting" | "done" | "failed"; decision?: ScanStatus; summary?: string; findings?: string[] };
+  /** The precedent the case fits, or challenges. */
+  precedent?: { id: string; title: string; fit: "fits" | "challenges" };
+  /** When no precedent fits, or the case challenges one: the ruling the AI proposes for a person. */
+  draft?: { title: string; applies_when: string; decision: PrecedentDecision; why: string };
+  /** The AI would have decided this alone under a precedent; kept for a person as a spot-check. */
+  spot_check?: boolean;
+}
+
+/** What a precedent decides. Bugs and re-checks always happen automatically; takedowns never do. */
+export const PRECEDENT_DECISIONS = {
+  dismiss: "Dismiss",
+  bug: "Tell the developer",
+  recheck: "Check the game's files again",
+  take_down: "Take the game down",
+} as const;
+export type PrecedentDecision = keyof typeof PRECEDENT_DECISIONS;
+
+/** A ruling a person made on a report, which report triage follows (migrations/0014_precedents.sql). */
+export interface Precedent {
+  id: string;
+  title: string;
+  applies_when: string;
+  decision: PrecedentDecision;
+  why: string;
+  /** 1: the AI may apply it by itself. Dismissals only. */
+  ai_alone: number;
+  status: "proposed" | "active" | "retired";
+  replaces: string | null;
+  from_report: string | null;
+  created_by: string;
+  created_at: number;
+  updated_at: number;
 }
 
 /** Reports for these reasons hide the game until it's reviewed. */

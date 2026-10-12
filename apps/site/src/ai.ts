@@ -49,11 +49,12 @@ const SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["category", "detail", "path"],
+        required: ["category", "detail", "path", "quote"],
         properties: {
           category: { type: "string", enum: [...CATEGORIES] },
           detail: { type: "string" },
           path: { type: "string", description: "File the concern is in, or empty." },
+          quote: { type: "string", description: "For a concern in a text file: a short exact quote from that file that shows it, copied character for character. Empty for images." },
         },
       },
     },
@@ -120,7 +121,7 @@ export async function aiReview(apiKey: string, model: string, input: AiInput): P
   }
 
   const text = response.content.find((b) => b.type === "text")?.text ?? "";
-  let parsed: { verdict: "pass" | "hold" | "reject"; summary: string; minors_sexualized: boolean; concerns: { category: string; detail: string; path: string }[] };
+  let parsed: { verdict: "pass" | "hold" | "reject"; summary: string; minors_sexualized: boolean; concerns: { category: string; detail: string; path: string; quote?: string }[] };
   try {
     parsed = JSON.parse(text);
   } catch {
@@ -138,6 +139,7 @@ export async function aiReview(apiKey: string, model: string, input: AiInput): P
     rule: `ai-${c.category}`,
     detail: c.detail,
     ...(c.path ? { path: c.path } : {}),
+    ...(c.quote ? { quote: c.quote.slice(0, 300) } : {}),
   }));
   if (parsed.verdict !== "pass" && findings.length === 0) {
     findings.push({ stage: "ai", severity, rule: "ai-verdict", detail: parsed.summary });

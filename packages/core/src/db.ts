@@ -178,6 +178,8 @@ export interface Report {
   /** 1 when the developer sees it as a bug report, since bug_at. */
   bug: number;
   bug_at: number | null;
+  /** The precedent it was decided by, or recommended under. */
+  precedent_id: string | null;
 }
 
 /** Where a report's picture is kept, in the games bucket. Never served on the game domain. */

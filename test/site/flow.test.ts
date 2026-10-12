@@ -168,7 +168,7 @@ describe("reports and takedowns", () => {
     expect(row?.details).toBe("won't load");
     expect(JSON.stringify(row)).not.toContain("203.0.113.9");
     const cols = (await env.DB.prepare("PRAGMA table_info(reports)").all<{ name: string }>()).results.map((c) => c.name);
-    expect(cols.sort()).toEqual(["bug", "bug_at", "closed_at", "created_at", "details", "game_id", "group_id", "id", "picture", "player_id", "player_name", "player_reason", "reason", "room_code", "severity", "status", "triage", "triage_tries", "triaged_at", "version_id"]);
+    expect(cols.sort()).toEqual(["bug", "bug_at", "closed_at", "created_at", "details", "game_id", "group_id", "id", "picture", "player_id", "player_name", "player_reason", "precedent_id", "reason", "room_code", "severity", "status", "triage", "triage_tries", "triaged_at", "version_id"]);
     expect((await gameBySlug(env.DB, "test-game"))?.status).toBe("live");
   });
 
