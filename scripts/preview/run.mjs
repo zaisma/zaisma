@@ -48,13 +48,15 @@ const stop = () => {
 };
 process.on("SIGINT", stop);
 process.on("SIGTERM", stop);
+// Also when set-up fails, so nothing is left running.
+process.on("exit", () => children.forEach((c) => c.kill()));
 
 function wrangler(app, args, opts = {}) {
   return spawn("npx", ["wrangler", ...args], { cwd: join(ROOT, "apps", app), stdio: opts.quiet ? "ignore" : ["ignore", "inherit", "inherit"], env: { ...process.env, FORCE_COLOR: "0" } });
 }
 
 async function waitFor(url) {
-  for (let i = 0; i < 120; i++) {
+  for (let i = 0; i < 240; i++) {
     try {
       await fetch(url);
       return;

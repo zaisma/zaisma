@@ -65,7 +65,7 @@ function ai(a: Partial<TriageAnswer> | ((input: TriageInput) => Partial<TriageAn
   return { deps, seen };
 }
 
-const reports = async () => (await env.DB.prepare("SELECT * FROM reports ORDER BY created_at").all<Report>()).results;
+const reports = async () => (await env.DB.prepare("SELECT * FROM reports ORDER BY created_at, rowid").all<Report>()).results;
 const triageOf = (r: Report) => JSON.parse(r.triage!) as Triage;
 
 beforeEach(async () => {

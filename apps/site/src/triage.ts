@@ -86,7 +86,7 @@ const SPOT_CHECK = 0.05;
 const MAX_TRIES = 3;
 
 export async function triageReports(env: Env, deps: TriageDeps = { ai: aiTriage }): Promise<number> {
-  const { results } = await env.DB.prepare("SELECT * FROM reports WHERE status = 'open' AND triaged_at IS NULL AND triage_tries < 5 ORDER BY created_at LIMIT ?").bind(BATCH).all<Report>();
+  const { results } = await env.DB.prepare("SELECT * FROM reports WHERE status = 'open' AND triaged_at IS NULL AND triage_tries < 5 ORDER BY created_at, rowid LIMIT ?").bind(BATCH).all<Report>();
   if (!results.length) return 0;
   const { results: precedents } = await env.DB.prepare("SELECT * FROM precedents WHERE status = 'active' ORDER BY created_at").all<Precedent>();
   let sorted = 0;

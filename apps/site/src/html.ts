@@ -195,9 +195,10 @@ body>main.gp{flex:1 0 auto;width:100%}
 .case.sev0,.case.sev1{box-shadow:inset 3px 0 0 var(--danger),var(--rim),var(--drop)}
 .case .decide{display:grid;gap:10px}
 .case .decide input[name=reason]{flex:1 1 280px}
-.case .precedent{display:grid;gap:10px;padding:10px 12px;background:rgba(0,0,0,.18);box-shadow:inset 0 1px 3px rgba(0,0,0,.5)}
-.case .precedent[open]{padding-bottom:14px}
-.case .precedent summary{color:var(--text)}
+.case .precedent{display:grid;gap:8px;padding:10px 12px;background:rgba(0,0,0,.18);box-shadow:inset 0 1px 3px rgba(0,0,0,.5)}
+.case .precedent details{display:grid;gap:10px}
+.case .precedent details[open]>summary{margin-bottom:6px}
+.case .precedent details>label{margin-top:8px}
 .case label.check,.precedent-card label.check{display:flex;gap:8px;align-items:center;color:var(--text)}
 .case textarea{min-height:56px}
 .precedent-card{display:grid;gap:10px;max-width:720px}

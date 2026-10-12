@@ -76,15 +76,21 @@ export async function precedentAction(env: Env, path: string, form: FormData, ac
 const redirect = () => new Response(null, { status: 303, headers: { Location: "/admin/precedents" } });
 
 /** The fields, shared by every precedent form. */
-function editor(p: Partial<Precedent>, chooseDecision: boolean): Raw {
+function editor(p: Partial<Precedent>, chooseDecision: boolean, withAlone = true): Raw {
   return html`<label>Name <input name="p_title" value="${p.title ?? ""}" maxlength="120" required></label>
 <label>Applies when <textarea name="p_when" rows="2" maxlength="500" required>${p.applies_when ?? ""}</textarea></label>
 ${chooseDecision
     ? html`<label>Decision <select name="p_decision">${Object.entries(PRECEDENT_DECISIONS).map(([k, v]) => html`<option value="${k}"${p.decision === k ? raw(" selected") : ""}>${v}</option>`)}</select></label>`
     : ""}
 <label>Why <textarea name="p_why" rows="2" maxlength="500">${p.why ?? ""}</textarea></label>
-<label class="check"><input type="checkbox" name="p_alone" value="1"${p.ai_alone ? raw(" checked") : ""}> For a dismissal: the AI may dismiss cases like this without you</label>`;
+${withAlone ? alone(p) : ""}`;
 }
+
+const alone = (p: Partial<Precedent>) =>
+  html`<label class="check"><input type="checkbox" name="p_alone" value="1"${p.ai_alone ? raw(" checked") : ""}> For a dismissal: the AI may dismiss cases like this without you</label>`;
+
+const decisionPill = (p: Precedent) =>
+  html`<span class="pill ${p.decision === "take_down" ? "reject" : p.decision === "dismiss" ? "info" : "hold"}">${p.decision === "dismiss" && p.ai_alone ? "Dismiss, by the AI alone" : PRECEDENT_DECISIONS[p.decision]}</span>`;
 
 export async function precedentsPage(env: Env): Promise<Raw> {
   const [{ results: all }, { results: uses }] = await Promise.all([
@@ -105,10 +111,14 @@ export async function precedentsPage(env: Env): Promise<Raw> {
 
 ${proposed.length
     ? html`<h2>Waiting for you (${proposed.length})</h2>
-<p class="muted">Drafted from the content rules. Change anything, then make it a precedent or drop it.</p>
+<p class="muted">Drafted from the content rules. Approve, change first, or drop each one.</p>
 ${proposed.map(
-      (p) => html`<form class="note case precedent-card" method="post" action="/admin/precedents/${p.id}/activate" id="p-${p.id}">
-${editor(p, true)}
+      (p) => html`<form class="note case" method="post" action="/admin/precedents/${p.id}/activate" id="p-${p.id}">
+<div class="row"><strong>${p.title}</strong> ${decisionPill({ ...p, ai_alone: 0 })}</div>
+<p>${p.applies_when}</p>
+${p.why ? html`<p class="muted">${p.why}</p>` : ""}
+<details class="precedent-card"><summary>Change it first</summary>${editor(p, true, false)}</details>
+${p.decision === "dismiss" ? alone(p) : ""}
 <div class="row"><button class="btn" type="submit">Make it a precedent</button><button class="btn ghost" type="submit" formaction="/admin/precedents/${p.id}/retire">Drop</button></div>
 </form>`,
     )}`
@@ -118,7 +128,7 @@ ${editor(p, true)}
 ${active.length
     ? active.map(
         (p) => html`<article class="note case" id="p-${p.id}">
-<div class="row"><strong>${p.title}</strong> <span class="pill ${p.decision === "take_down" ? "reject" : p.decision === "dismiss" ? "info" : "hold"}">${by(p)}</span> <span class="muted">${times(p.id)}</span></div>
+<div class="row"><strong>${p.title}</strong> ${decisionPill(p)} <span class="muted">${times(p.id)}</span></div>
 <p>${p.applies_when}</p>
 ${p.why ? html`<p class="muted">${p.why}</p>` : ""}
 <details><summary>Change it</summary>

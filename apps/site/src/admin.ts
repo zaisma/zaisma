@@ -540,14 +540,15 @@ function groupCard(g: ReportGroup, pausedUpdate: string | undefined): Raw {
     <input type="hidden" name="back" value="queue">
     <input type="hidden" name="group" value="${g.id}">
     ${challenged ? html`<input type="hidden" name="p_replaces" value="${challenged.id}">` : ""}
-    <details class="precedent"${draft || challenged ? raw(" open") : ""}>
-      <summary>${challenged ? html`Change the precedent “${challenged.title}”` : "Make this a precedent"}${draft ? html` <span class="muted">(suggested: ${PRECEDENT_LABEL[draft.decision]})</span>` : ""}</summary>
-      <label class="check"><input type="checkbox" name="precedent" value="1"${draft || challenged ? raw(" checked") : ""}> Decide future cases like this the way you decide this one</label>
-      <label>Name <input name="p_title" value="${draft?.title ?? ""}" maxlength="120"></label>
-      <label>Applies when <textarea name="p_when" rows="2" maxlength="500">${draft?.applies_when ?? ""}</textarea></label>
-      <label>Why <textarea name="p_why" rows="2" maxlength="500">${draft?.why ?? ""}</textarea></label>
-      <label class="check"><input type="checkbox" name="p_alone" value="1"> If you dismiss it: the AI may dismiss cases like this without you</label>
-    </details>
+    <div class="precedent">
+      <label class="check"><input type="checkbox" name="precedent" value="1"${draft || challenged ? raw(" checked") : ""}> ${challenged ? html`Change the precedent “${challenged.title}” to decide cases like this the way you decide this one` : draft ? html`Also make it a precedent: <strong>${draft.title}</strong>` : "Also make it a precedent for cases like this"}</label>
+      <details><summary>${draft ? html`Edit the precedent <span class="muted">· the AI suggests: ${PRECEDENT_LABEL[draft.decision]}</span>` : "Write the precedent"}</summary>
+        <label>Name <input name="p_title" value="${draft?.title ?? ""}" maxlength="120"></label>
+        <label>Applies when <textarea name="p_when" rows="2" maxlength="500">${draft?.applies_when ?? ""}</textarea></label>
+        <label>Why <textarea name="p_why" rows="2" maxlength="500">${draft?.why ?? ""}</textarea></label>
+        <label class="check"><input type="checkbox" name="p_alone" value="1"> If you dismiss it: the AI may dismiss cases like this without you</label>
+      </details>
+    </div>
     <div class="row">
     <input name="reason" value="${prefill}" aria-label="Reason, for the audit log" maxlength="500">
     ${gameRemoved
