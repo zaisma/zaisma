@@ -46,6 +46,7 @@ import {
 import { adminIdentity } from "./access.ts";
 import { gameUrl, type Env } from "./env.ts";
 import { html, layout, raw, type Raw } from "./html.ts";
+import { handleAdminMcp } from "./admin-mcp.ts";
 import { precedentAction, precedentsPage, savePrecedent } from "./precedents.ts";
 import { passVersion } from "./scan.ts";
 import { uploadGame } from "./upload.ts";
@@ -64,6 +65,9 @@ function redirect(to: string): Response {
 export async function handleAdmin(request: Request, env: Env, path: string): Promise<Response> {
   const actor = await adminIdentity(request, env);
   if (!actor) return new Response("Forbidden", { status: 403 });
+
+  // The admin MCP: Claude Code signs in through Cloudflare Access with a service token, so it sends no Origin of ours.
+  if (path === "/admin/mcp") return handleAdminMcp(request, env, actor);
 
   if (request.method === "POST") {
     // Admin forms only come from our own pages.
@@ -101,7 +105,11 @@ async function adminAction(request: Request, env: Env, path: string, actor: stri
     }
   }
 
-  const form = await request.formData();
+  return adminForm(env, path, await request.formData(), actor);
+}
+
+/** Every admin form action. The admin MCP calls this too, so a decision there is exactly a click here. */
+export async function adminForm(env: Env, path: string, form: FormData, actor: string): Promise<Response> {
   const reason = String(form.get("reason") ?? "").trim().slice(0, 500);
   const back = (fallback: string) => redirect(form.get("back") === "queue" ? "/admin/reports" : fallback);
 
@@ -224,6 +232,8 @@ async function adminAction(request: Request, env: Env, path: string, actor: stri
     const { results: group } = await env.DB.prepare("SELECT * FROM reports WHERE (id = ? OR group_id = ?) AND status = 'open'").bind(m[1]!, m[1]!).all<Report>();
     if (!group.length) return back("/admin/reports");
     const gameId = group[0]!.game_id;
+    // Never passed to the developer: telling them could warn someone abusing a child.
+    if (m[2] === "bug" && group.some((r) => r.severity === 0 || r.reason === "child_safety")) return back("/admin/reports");
     if (m[2] === "bug") {
       await env.DB.prepare("UPDATE reports SET bug = 1, bug_at = COALESCE(bug_at, ?) WHERE (id = ? OR group_id = ?) AND status = 'open'").bind(Date.now(), m[1]!, m[1]!).run();
       await closeReportGroup(env.DB, m[1]!, "actioned");
@@ -423,9 +433,9 @@ ${i.status === "pending"
     : ""}`;
 }
 
-type QueueRow = Report & { slug: string; title: string; game_status: GameStatus };
+export type QueueRow = Report & { slug: string; title: string; game_status: GameStatus };
 
-interface ReportGroup {
+export interface ReportGroup {
   /** The first report's id: group actions close it and every report merged into it. */
   id: string;
   rows: QueueRow[];
@@ -437,7 +447,7 @@ interface ReportGroup {
 }
 
 /** Open reports as groups about the same problem, most serious first, then the longest waiting. */
-function groupReports(rows: QueueRow[]): ReportGroup[] {
+export function groupReports(rows: QueueRow[]): ReportGroup[] {
   const groups = new Map<string, QueueRow[]>();
   for (const r of [...rows].sort((a, b) => a.created_at - b.created_at)) {
     const key = r.group_id ?? r.id;
@@ -557,7 +567,7 @@ function groupCard(g: ReportGroup, pausedUpdate: string | undefined): Raw {
         ? html`${button("Put the game back", `/admin/games/${game.game_id}/restore`, rec === "restore" || rec === "dismiss")}${button("Take down", `/admin/games/${game.game_id}/takedown`, rec === "take_down", true)}`
         : pausedUpdate
           ? html`${button("Put the update back", `/admin/versions/${pausedUpdate}/approve`, rec === "restore" || rec === "dismiss")}${button("Keep the update off", `/admin/versions/${pausedUpdate}/reject`, false)}${button("Take down", `/admin/games/${game.game_id}/takedown`, rec === "take_down", true)}`
-          : html`${button("Dismiss", `/admin/report-groups/${g.id}/dismiss`, rec === "dismiss")}${button("Tell the developer", `/admin/report-groups/${g.id}/bug`, rec === "bug")}${button("Take down", `/admin/games/${game.game_id}/takedown`, rec === "take_down", true)}`}
+          : html`${button("Dismiss", `/admin/report-groups/${g.id}/dismiss`, rec === "dismiss")}${g.severity === 0 ? "" : button("Tell the developer", `/admin/report-groups/${g.id}/bug`, rec === "bug")}${button("Take down", `/admin/games/${game.game_id}/takedown`, rec === "take_down", true)}`}
     </div>
   </form>
 </article>`;

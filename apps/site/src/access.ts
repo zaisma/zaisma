@@ -13,7 +13,9 @@ export async function adminIdentity(request: Request, env: Env): Promise<string 
   const token = request.headers.get("cf-access-jwt-assertion");
   if (!token) return null;
   const claims = await verifyJwt(token, env.ACCESS_TEAM_DOMAIN, env.ACCESS_AUD);
-  return claims ? (claims.email ?? "access-user") : null;
+  if (!claims) return null;
+  // A service token (the admin MCP) has no email; the token's client ID says which one it was.
+  return claims.email ?? (claims.common_name ? `service token ${claims.common_name}` : "access-user");
 }
 
 interface Claims {
@@ -22,6 +24,7 @@ interface Claims {
   exp: number;
   nbf?: number;
   email?: string;
+  common_name?: string;
 }
 
 let certCache: { team: string; at: number; keys: (JsonWebKey & { kid: string })[] } | null = null;
