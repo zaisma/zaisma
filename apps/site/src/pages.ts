@@ -391,7 +391,13 @@ if (codeInput) {
   codeInput.addEventListener("input", () => { codeInput.value = codeInput.value.toUpperCase().replace(/\s/g, ""); codeInput.setCustomValidity(""); });
   codeInput.addEventListener("invalid", () => codeInput.setCustomValidity("Room codes are 6 letters and numbers, like ABC234."));
 }
-addEventListener("hashchange", () => { const t = tabs.find((t) => "#" + t.getAttribute("aria-controls") === location.hash); if (t) showTab(t.getAttribute("aria-controls")); });
+// A link to a tab (like "playing now" to #rooms) opens it, then scrolls to it once it can be seen.
+addEventListener("hashchange", () => {
+  const t = tabs.find((t) => "#" + t.getAttribute("aria-controls") === location.hash);
+  if (!t) return;
+  showTab(t.getAttribute("aria-controls"));
+  document.getElementById(t.getAttribute("aria-controls")).scrollIntoView({ block: "start" });
+});
 const linkedTab = tabs.find((t) => "#" + t.getAttribute("aria-controls") === location.hash);
 if (linkedTab) showTab(linkedTab.getAttribute("aria-controls"));
 // Games for other devices still open, with a word of warning.
