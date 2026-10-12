@@ -20,7 +20,7 @@ describe("cloud saves on the game domain", () => {
     await env.DB.exec("DELETE FROM versions; DELETE FROM domains; DELETE FROM games;");
   });
 
-  const OURS = '<script src="/saver/_zaisma/saves.js?v=3"></script><script src="/saver/_zaisma/picture.js?v=3"></script>';
+  const OURS = '<script src="/saver/_zaisma/saves.js?v=4"></script><script src="/saver/_zaisma/picture.js?v=4"></script>';
 
   it("adds the saves and picture scripts first in every page's head", async () => {
     await addGame("saver");
@@ -34,7 +34,7 @@ describe("cloud saves on the game domain", () => {
     await addGame("saver");
     const first = await SELF.fetch(`${G}/saver/`);
     const etag = first.headers.get("etag")!;
-    expect(etag).toMatch(/^W\/".*-z3s"$/);
+    expect(etag).toMatch(/^W\/".*-z4s"$/);
     expect((await SELF.fetch(`${G}/saver/`, { headers: { "If-None-Match": etag } })).status).toBe(304);
   });
 
@@ -46,7 +46,7 @@ describe("cloud saves on the game domain", () => {
     expect(text).toContain('var __ZAISMA_SAVES__ = {"site":"https://zaisma.test"}');
     expect(text).toContain("_zaisma\\/restore");
     const restore = await SELF.fetch(`${G}/saver/_zaisma/restore`);
-    expect(await restore.text()).toContain('<script src="saves.js?v=3"></script>');
+    expect(await restore.text()).toContain('<script src="saves.js?v=4"></script>');
     expect(restore.headers.get("content-security-policy")).toContain("frame-ancestors https://zaisma.test");
   });
 
@@ -54,7 +54,7 @@ describe("cloud saves on the game domain", () => {
     await addGame("own-saves", 0);
     const page = await (await SELF.fetch(`${G}/own-saves/`)).text();
     expect(page).not.toContain("_zaisma/saves.js");
-    expect(page).toContain('<head><script src="/own-saves/_zaisma/picture.js?v=3"></script><title>');
+    expect(page).toContain('<head><script src="/own-saves/_zaisma/picture.js?v=4"></script><title>');
     const script = await (await SELF.fetch(`${G}/own-saves/_zaisma/picture.js`)).text();
     expect(script).toContain('var __ZAISMA_PICTURE__ = {"site":"https://zaisma.test"}');
     expect((await SELF.fetch(`${G}/own-saves/_zaisma/saves.js`)).status).toBe(404);
