@@ -48,6 +48,10 @@ const details = {
     properties: { single: { type: "boolean" }, local: count("Together on one device or screen"), online: count("Over the internet") },
     required: ["single"],
   },
+  cloud_saves: {
+    type: "boolean",
+    description: "Copy signed-in players' browser saves (localStorage and IndexedDB) to their account, so progress follows them to any device. On by default; turn off for games that keep their own saves on a server.",
+  },
 };
 function count(description: string) {
   return { type: ["object", "null"], description, properties: { min: { type: "integer", minimum: 2 }, max: { type: ["integer", "null"] }, style: { enum: PLAY_STYLES } }, required: ["min", "style"] };
@@ -72,7 +76,7 @@ const TOOLS: Tool[] = [
     description: "Make a new game. It starts as a draft only you can see. The link name comes from the title unless you give one.",
     inputSchema: object({ ...details, slug: { type: "string", description: "Link name: lowercase letters, numbers and single hyphens" } }, ["title"]),
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
-    run: (args, call) => call("POST", "/games", pick(args, ["title", "slug", "description", "devices", "controls", "screen", "players"])),
+    run: (args, call) => call("POST", "/games", pick(args, ["title", "slug", "description", "devices", "controls", "screen", "players", "cloud_saves"])),
   },
   {
     name: "get_game",
@@ -86,11 +90,11 @@ const TOOLS: Tool[] = [
     name: "update_game",
     title: "Change a game's details",
     description:
-      'Change the title, description, device labels, players (single-player, local and online multiplayer with player counts) or visibility. listed: on Zaisma for everyone. unlisted: only people with the link. private and draft: only you. A new title or description on a game players can see waits for review. Making a public game private or a draft takes it away from players, so it needs "confirm": true after asking the developer.',
+      'Change the title, description, device labels, players (single-player, local and online multiplayer with player counts), cloud saves or visibility. listed: on Zaisma for everyone. unlisted: only people with the link. private and draft: only you. A new title or description on a game players can see waits for review. Making a public game private or a draft takes it away from players, so it needs "confirm": true after asking the developer.',
     inputSchema: object({ slug, ...details, visibility: { enum: VISIBILITIES }, confirm: { type: "boolean", description: "The developer agreed to hide a public game" } }, ["slug"]),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     run: async (args, call) => {
-      const change = pick(args, ["title", "description", "devices", "controls", "screen", "players", "visibility"]);
+      const change = pick(args, ["title", "description", "devices", "controls", "screen", "players", "cloud_saves", "visibility"]);
       if (change.visibility === "draft" || change.visibility === "private") {
         const { game } = (await call("GET", `/games/${str(args.slug)}`)) as { game: { visibility: string; review: string } };
         if ((game.visibility === "listed" || game.visibility === "unlisted") && game.review === "live" && args.confirm !== true) {

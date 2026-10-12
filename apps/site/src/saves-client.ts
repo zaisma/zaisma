@@ -10,7 +10,8 @@
  *  - this device hasn't changed since it last synced, but the account has: the account's
  *  - anything else (two different saves): the player chooses
  * While playing, every save names the version it started from; if another device saved
- * in between, saving pauses and the player chooses.
+ * in between, saving pauses and the player chooses. Saving only starts once the game domain
+ * says the account's save is in place, so a device that couldn't take it never sends its own.
  *
  * `SAVES` is set by the page: { api, root, query, frameOrigin }.
  */
@@ -26,6 +27,7 @@ export const SAVES_CLIENT = `
   let saving = null;      // the request in flight
   let queued = null;      // the newest save waiting behind it
   let frame = null;
+  let restoring = null;   // the account's save while the game domain puts it in place
 
   const canonical = (data) => { const out = {}; Object.keys(data).sort().forEach((k) => (out[k] = data[k])); return JSON.stringify(out); };
   const sha = async (text) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))), (b) => b.toString(16).padStart(2, "0")).join("");
@@ -94,8 +96,12 @@ export const SAVES_CLIENT = `
     openThroughRestore();
   };
 
-  async function restore(text) {
+  async function restore(text, broken) {
     clearTimeout(fallback);
+    if (broken) {
+      say("Couldn't read this game's saves on this device, so this visit won't save to your account.");
+      return tell({ step: "restore", action: "keep" });
+    }
     // The restore page waits for this page from here on; give up on the account after 10 seconds.
     tell({ step: "wait" });
     const c = (cloud = await Promise.race([cloud, new Promise((r) => setTimeout(() => r(null), 10000))]));
@@ -116,18 +122,30 @@ export const SAVES_CLIENT = `
       use = await ask("Which progress do you want?", "This game has progress saved to your account and different progress on this device. The one you don't pick is replaced.", "Your account's (saved " + ago(c.at) + ")", "This device's");
     }
     forceCloud = false;
-    paused = false;
     if (use === "cloud" && c.version) {
-      synced = canonical(c.data);
-      marker(c.tag, { version: c.version, hash: c.hash });
+      restoring = c;
       tell({ step: "restore", action: "use-cloud", data: c.data });
-      say("Progress saves to your account. Last saved " + ago(c.at) + ".");
     } else {
+      paused = false;
       // Keep this device's save; the game sends it as soon as it starts.
       synced = empty && !c.version ? text : null;
       tell({ step: "restore", action: "keep" });
       say("Progress saves to your account.");
     }
+  }
+
+  // The game domain put the account's save in place (or couldn't). Only then does saving start.
+  function restored(ok) {
+    const c = restoring;
+    restoring = null;
+    if (!ok) {
+      say("Couldn't put your account's progress on this device, so this visit won't save to your account.");
+      return;
+    }
+    synced = canonical(c.data);
+    marker(c.tag, { version: c.version, hash: c.hash });
+    paused = false;
+    say("Progress saves to your account. Last saved " + ago(c.at) + ".");
   }
 
   async function store(text) {
@@ -179,8 +197,14 @@ export const SAVES_CLIENT = `
     if (!frame || e.origin !== SAVES.frameOrigin || e.source !== frame.contentWindow) return;
     const m = e.data;
     if (!m || m.type !== "zaisma:saves" || typeof m.step !== "string") return;
-    if (m.step === "hello" && m.phase === "restore" && typeof m.text === "string") restore(m.text);
-    else if (m.step === "hello" && m.phase === "game" && !paused && cloud && !(cloud instanceof Promise)) tell({ step: "sync", text: synced });
+    if (m.step === "hello" && m.phase === "restore" && typeof m.text === "string") restore(m.text, m.broken === true);
+    else if (m.step === "blocked" && restoring) say("This game is open in another tab. Close it there to load your saved progress.");
+    else if (m.step === "restored" && restoring) restored(m.ok === true);
+    else if (m.step === "hello" && m.phase === "game") {
+      // An older restore page doesn't say when it's done; the game starting means it is.
+      if (restoring) restored(true);
+      if (!paused && cloud && !(cloud instanceof Promise)) tell({ step: "sync", text: synced });
+    }
     else if (m.step === "save" && typeof m.text === "string" && m.text !== synced && cloud && !(cloud instanceof Promise)) store(m.text);
   });
 })();

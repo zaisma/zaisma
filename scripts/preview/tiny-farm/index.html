@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tiny Farm</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #1d2b1f; color: #f3ecd2; font: 18px/1.4 system-ui, sans-serif; }
+  main { height: 100%; display: grid; place-items: center; text-align: center; }
+  .count { font-size: 64px; font-weight: 800; margin: 8px 0; }
+  .row { display: flex; gap: 12px; justify-content: center; }
+  button { font: inherit; padding: 12px 22px; border-radius: 10px; border: 0; background: #e9b949; color: #1d2b1f; font-weight: 700; cursor: pointer; }
+  button.quiet { background: #34483a; color: #f3ecd2; }
+  .note { opacity: .7; font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <div>
+    <div class="note">Carrots harvested</div>
+    <div class="count" id="count">…</div>
+    <div class="row"><button id="harvest">Harvest</button><button class="quiet" id="reset">Start over</button></div>
+    <p class="note" id="saved">Loading your farm…</p>
+  </div>
+</main>
+<script>
+// A preview test game that saves like a Unity or Godot web build: a file in an
+// Emscripten-style "/idbfs" IndexedDB database, plus a download cache that isn't progress.
+const FILE = "/idbfs/farm/save.dat";
+let db, farm = { carrots: 0 };
+
+function openDb(name, version, upgrade) {
+  return new Promise((ok, fail) => {
+    const r = indexedDB.open(name, version);
+    r.onupgradeneeded = () => upgrade(r.result);
+    r.onsuccess = () => ok(r.result);
+    r.onerror = () => fail(r.error);
+  });
+}
+function show(text) {
+  document.getElementById("count").textContent = farm.carrots;
+  document.getElementById("saved").textContent = text;
+}
+function save() {
+  const tx = db.transaction("FILE_DATA", "readwrite");
+  tx.objectStore("FILE_DATA").put({ timestamp: new Date(), mode: 33206, contents: new TextEncoder().encode(JSON.stringify(farm)) }, FILE);
+  tx.oncomplete = () => show("Saved in IndexedDB at " + new Date().toLocaleTimeString());
+}
+
+(async () => {
+  // Kept open the whole time, like Emscripten's file system does.
+  db = await openDb("/idbfs", 21, (d) => d.createObjectStore("FILE_DATA").createIndex("timestamp", "timestamp"));
+  const cache = await openDb("UnityCache", 1, (d) => d.createObjectStore("files"));
+  cache.transaction("files", "readwrite").objectStore("files").put(new Uint8Array(2048), "level1.bundle");
+  const r = db.transaction("FILE_DATA").objectStore("FILE_DATA").get(FILE);
+  r.onsuccess = () => {
+    if (r.result) farm = JSON.parse(new TextDecoder().decode(r.result.contents));
+    show(r.result ? "Loaded from IndexedDB" : "A new farm");
+  };
+})();
+
+document.getElementById("harvest").onclick = () => { farm.carrots++; save(); };
+document.getElementById("reset").onclick = () => { farm = { carrots: 0 }; save(); };
+</script>
+</body>
+</html>

@@ -55,7 +55,7 @@ import { pruneVersions } from "./scan.ts";
  *   GET    /api/dev/games                      your games
  *   POST   /api/dev/games                      make a game (starts as a draft)
  *   GET    /api/dev/games/:slug                one game, with its images and versions
- *   PATCH  /api/dev/games/:slug                title, description, visibility, devices, controls, screen, players
+ *   PATCH  /api/dev/games/:slug                title, description, visibility, devices, controls, screen, players, cloud_saves
  *   POST   /api/dev/games/:slug/images?kind=   add a cover or screenshot (the image bytes as the body)
  *   DELETE /api/dev/games/:slug/images/:id     remove one
  *   POST   /api/dev/games/:slug/uploads        which of these files still need sending
@@ -586,6 +586,8 @@ function gameJson(env: Env, g: Game) {
     screen: g.screen,
     // How it's played, or null when not set: { single, local: { min, max, style } | null, online: … }.
     players: readPlayers(g.players),
+    // Signed-in players' browser saves are copied to their account.
+    cloud_saves: Boolean(g.cloud_saves),
     waiting_for_review: draft,
     updated_at: g.updated_at,
   };

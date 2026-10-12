@@ -359,6 +359,22 @@ describe("cloud saves", () => {
     expect((await put(b, 1, { level: "5" })).status).toBe(409);
   });
 
+  it("stores saves from games that also keep IndexedDB databases", async () => {
+    const gameId = await liveGame();
+    const b = new Browser();
+    await join(b);
+    const save = { idb: [{ name: "/idbfs", version: 21, stores: [{ name: "FILE_DATA", keyPath: null, autoIncrement: false, indexes: [], records: [["/idbfs/save", { contents: { $z: ["view", "Uint8Array", "Bw=="] } }]] }] }], local: { b: "2", a: "1" } };
+    const res = await b.go("/api/saves/owl-game", undefined, { method: "PUT", body: JSON.stringify({ base: 0, data: JSON.stringify(save) }) });
+    expect(res.status).toBe(200);
+    const text = canonicalSave(save);
+    expect(text.startsWith('{"idb":[{"name":"/idbfs"')).toBe(true);
+    expect(text).toContain('"local":{"a":"1","b":"2"}');
+    expect(await env.SAVES.get(saveKey(users.get("fox@example.com")!, gameId)).then((o) => o?.text())).toBe(text);
+    const got = (await (await b.go("/api/saves/owl-game")).json()) as { data: unknown; hash: string };
+    expect(got.data).toEqual(JSON.parse(text));
+    expect(got.hash).toBe(await sha256Hex(new TextEncoder().encode(text)));
+  });
+
   it("keeps saves apart per player", async () => {
     await liveGame();
     const a = new Browser();
@@ -490,7 +506,11 @@ describe("the dashboard", () => {
     const saved = await b.go("/dashboard/hop/details", { title: "Hop Hop", description: "Jump.", devices: "phone", screen: "portrait" });
     expect(saved.headers.get("location")).toContain("done=details");
     expect(await gameBySlug(env.DB, "hop-hop")).toBeNull();
-    expect((await gameBySlug(env.DB, "hop"))!).toMatchObject({ title: "Hop Hop", devices: "phone", screen: "portrait" });
+    // An unticked Cloud saves box turns them off; ticking it turns them back on.
+    expect((await gameBySlug(env.DB, "hop"))!).toMatchObject({ title: "Hop Hop", devices: "phone", screen: "portrait", cloud_saves: 0 });
+    await b.go("/dashboard/hop/details", { title: "Hop Hop", cloud_saves: "on" });
+    expect((await gameBySlug(env.DB, "hop"))!.cloud_saves).toBe(1);
+    expect(await (await b.go("/dashboard/hop")).text()).toContain('name="cloud_saves" checked');
 
     const refused = await b.go("/dashboard/hop/details", { title: "" });
     expect(refused.status).toBe(400);

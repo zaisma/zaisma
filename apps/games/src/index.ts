@@ -59,10 +59,10 @@ function page(status: number, title: string, text: string, env: Env): Response {
   return new Response(html, { status, headers });
 }
 
-const RESTORE_PAGE = `<!doctype html><meta charset="utf-8"><title>Loading</title><body style="margin:0;background:#000"><script src="saves.js"></script>`;
+/** Bump when the saves script or the injected tag changes, so browsers fetch the new ones. */
+const SAVES_SCRIPT_VERSION = 2;
 
-/** Bump when the injected tag changes, so browsers fetch the new page. */
-const SAVES_SCRIPT_VERSION = 1;
+const RESTORE_PAGE = `<!doctype html><meta charset="utf-8"><title>Loading</title><body style="margin:0;background:#000"><script src="saves.js?v=${SAVES_SCRIPT_VERSION}"></script>`;
 
 /** Put the saves script first in <head>, before any game script can read its saves. */
 export function withSavesScript(page: string, src: string): string {
@@ -181,7 +181,7 @@ export default {
       headers.delete("Accept-Ranges");
       headers.set("ETag", `W/"${object.etag}-s${SAVES_SCRIPT_VERSION}"`);
       if (request.headers.get("if-none-match") === headers.get("ETag")) return new Response(null, { status: 304, headers });
-      const page = withSavesScript(await object.text(), `${target.base}_zaisma/saves.js`);
+      const page = withSavesScript(await object.text(), `${target.base}_zaisma/saves.js?v=${SAVES_SCRIPT_VERSION}`);
       return new Response(request.method === "HEAD" ? null : page, { headers });
     }
 

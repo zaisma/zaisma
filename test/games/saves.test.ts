@@ -23,16 +23,16 @@ describe("cloud saves on the game domain", () => {
   it("adds the saves script first in every page's head", async () => {
     await addGame("saver");
     const page = await (await SELF.fetch(`${G}/saver/`)).text();
-    expect(page).toContain('<head><script src="/saver/_zaisma/saves.js"></script><title>');
+    expect(page).toContain('<head><script src="/saver/_zaisma/saves.js?v=2"></script><title>');
     expect(page.indexOf("_zaisma/saves.js")).toBeLessThan(page.indexOf("game.js"));
-    expect(await (await SELF.fetch(`${G}/saver/levels/two.html`)).text()).toBe('<script src="/saver/_zaisma/saves.js"></script><p>no head</p>');
+    expect(await (await SELF.fetch(`${G}/saver/levels/two.html`)).text()).toBe('<script src="/saver/_zaisma/saves.js?v=2"></script><p>no head</p>');
   });
 
   it("answers repeat visits with 304 using its own ETag", async () => {
     await addGame("saver");
     const first = await SELF.fetch(`${G}/saver/`);
     const etag = first.headers.get("etag")!;
-    expect(etag).toMatch(/^W\/".*-s1"$/);
+    expect(etag).toMatch(/^W\/".*-s2"$/);
     expect((await SELF.fetch(`${G}/saver/`, { headers: { "If-None-Match": etag } })).status).toBe(304);
   });
 
@@ -44,7 +44,7 @@ describe("cloud saves on the game domain", () => {
     expect(text).toContain('var __ZAISMA_SAVES__ = {"site":"https://zaisma.test"}');
     expect(text).toContain("_zaisma\\/restore");
     const restore = await SELF.fetch(`${G}/saver/_zaisma/restore`);
-    expect(await restore.text()).toContain('<script src="saves.js"></script>');
+    expect(await restore.text()).toContain('<script src="saves.js?v=2"></script>');
     expect(restore.headers.get("content-security-policy")).toContain("frame-ancestors https://zaisma.test");
   });
 
