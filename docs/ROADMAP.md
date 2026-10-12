@@ -122,6 +122,8 @@ Goal: creators can make money within days of the beta.
 
 ## Phase 3: Play together
 
+Goal: playing with friends is effortless, wherever friends already hang out.
+
 | Status | Must/Nice | Item | Notes |
 | --- | --- | --- | --- |
 | planned | Must | Friends | Friend list, invites, see what friends are playing; teen-safe defaults |
@@ -130,6 +132,8 @@ Goal: creators can make money within days of the beta.
 | planned | Nice | Install button | Installable web app per game: icon, own window, offline |
 
 ## Phase 4: Discover
+
+Goal: good games get found, ranked by quality rather than clicks, and creators get the rest of the marketing kit.
 
 | Status | Must/Nice | Item | Notes |
 | --- | --- | --- | --- |
@@ -148,6 +152,8 @@ Goal: creators can make money within days of the beta.
 
 ## Phase 5: Create together
 
+Goal: players and creators build on each other's games.
+
 | Status | Must/Nice | Item | Notes |
 | --- | --- | --- | --- |
 | planned | Must | Remixes | Opt-in, automatic credit, remix chains; optional 12-month unlock for abandoned games |
@@ -156,6 +162,8 @@ Goal: creators can make money within days of the beta.
 | planned | Nice | Tools tab | Free, open-source developer tools |
 
 ## Phase 6: Grow
+
+Goal: room for games that outgrow the defaults.
 
 | Status | Must/Nice | Item | Notes |
 | --- | --- | --- | --- |

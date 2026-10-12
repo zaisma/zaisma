@@ -15,7 +15,7 @@ Founder: Julius. Side project, built in public. MIT licensed.
 
 **Phase 1: Beta.** Phase 0 (safe hosting) is live. Next up is multiplayer; see [`docs/ROADMAP.md`](docs/ROADMAP.md) for every item and its status.
 
-Keep the roadmap current: when work starts, lands or moves, update its status in `docs/ROADMAP.md` in the same change, and republish the roadmap page (the Artifact titled "Zaisma Roadmap") from it.
+Keep the roadmap current: when work starts, lands or moves, update its status in `docs/ROADMAP.md` in the same change, and republish the roadmap page: publish `docs/roadmap.html` as an Artifact to https://claude.ai/artifact/5ES8sV8oDvQqzdg2aGXNzm with supporting files `ROADMAP.md` (from `docs/ROADMAP.md`, contentType `text/plain`), `zaisma-wordmark-metal.svg` and `zaisma-wordmark-black.svg` (from `brand/`). The page reads `ROADMAP.md` itself, so only the files need republishing.
 
 ## Stack
 
