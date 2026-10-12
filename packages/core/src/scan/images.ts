@@ -15,7 +15,7 @@ export interface ImageMatchResult {
 
 /**
  * Known-illegal-image matching (perceptual hashes against NCMEC/industry lists).
- * Planned provider: Arachnid Shield (Project Arachnid), with Cloudflare's CSAM Scanning Tool
+ * Planned providers: PhotoDNA, or Arachnid Shield (Project Arachnid) as a backup, with Cloudflare's CSAM Scanning Tool
  * as a backstop on served files. Until one is connected, every game is held for manual review.
  */
 export interface ImageMatcher {
