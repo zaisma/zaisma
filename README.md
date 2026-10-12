@@ -5,7 +5,7 @@
 Zaisma (ZAI-zmuh, from the Lithuanian *žaismas*, "play") is an open-source game platform for the browser.
 
 - **Play instantly.** Tap a link and you're in the game: no account, no download, any device.
-- **Publish anything.** Any web game, any engine, any style, including games made with AI tools like Claude Code. Desktop builds too.
+- **Publish anything.** Any web game, any engine, any style, including games made with AI tools like Claude Code. Players can install any game for offline play.
 - **Keep your revenue.** No cut of your sales. Use our free checkout, your own Stripe, or any payment method you like, including Bitcoin.
 - **Multiplayer your way.** Use our rooms at cost, or run your own servers. Accounts, friends and invite links keep working either way.
 - **Fully open.** Every line of the platform is MIT licensed. Read it, fork it, run your own.

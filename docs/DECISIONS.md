@@ -46,7 +46,7 @@ Settled calls. Don't reopen these in code or docs without Julius approving the c
 
 ## Product scope
 
-- **Browser first, desktop downloads too.** Desktop builds use the same toolkit.
+- **Browser only; no native desktop downloads.** Native downloads contradict "no app download", would make us a malware distributor the first time a scan misses something, and need code signing and per-OS builds. Instead every game gets an **Install** button: an installable web app (PWA) with its own icon, window and offline play, in the same sandbox. Developers with native builds link to their Steam or itch.io page from their game page.
 - **Fit any game; never make creators rebuild for Zaisma.** Integration comes in optional layers, and a game can stop at any of them:
   - *Layer 0, no changes:* any web game that runs from an `index.html` uploads as is (Phaser, Three.js, Unity and Godot web exports, single-file AI games), with its own saves working. The upload command fixes common blockers itself: it downloads scripts loaded from outside sites into the game (so they're scanned) and unpacks pre-compressed engine builds. `zaisma check` (also an MCP tool) lists anything else that won't work and how to fix it.
   - *Layer 1, one script tag:* clips, cloud saves that mirror the game's own browser saves for signed-in players, and the right name and invite link in the Z menu, with no code.
