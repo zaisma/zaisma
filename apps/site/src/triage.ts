@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import {
   AUTO_HOLD_REASONS,
+  PRECEDENT_DECISIONS,
   REPORT_REASONS,
   SEVERITIES,
   SEVERITY,
@@ -13,14 +14,18 @@ import {
   type Game,
   type Report,
   type ReportReason,
+  type Finding,
+  type Precedent,
+  type PrecedentDecision,
   type ReportSeverity,
   type ScanReport,
   type Triage,
+  type Version,
 } from "@zaisma/core";
 import { sendAlert } from "./email.ts";
 import type { Env } from "./env.ts";
 import { pauseForReport } from "./report.ts";
-import { inspectVersion, summarize, type ScanDeps } from "./scan.ts";
+import { inspectVersion, summarize, versionFiles, type ScanDeps } from "./scan.ts";
 
 /**
  * AI report triage (docs/DECISIONS.md). Every few minutes, new reports are sorted by severity,
@@ -35,7 +40,10 @@ import { inspectVersion, summarize, type ScanDeps } from "./scan.ts";
  *   same files isn't enough to take it down;
  * - child safety: no AI reads child-safety reports. If the AI finds child safety in any other
  *   report, it's treated as one: top of the queue, an URGENT alert and the same pause rule.
- * Takedowns, restores and dismissals stay a person's one click, in /admin/reports.
+ * Precedents are the rulings a person already made (migrations/0014_precedents.sql). A case that
+ * fits one is decided the same way; a dismissal precedent marked ai_alone is applied without a
+ * person, except for 1 in 20 kept as a spot-check. New cases and challenges come with a drafted
+ * ruling. Takedowns, restores and everything else stay a person's one click, in /admin/reports.
  */
 
 export interface TriageInput {
@@ -43,6 +51,8 @@ export interface TriageInput {
   text: string;
   /** The picture of the game the player included, base64 JPEG. */
   picture: string | null;
+  /** The active precedents, which the AI matches the case against. */
+  precedents: Precedent[];
 }
 
 export interface TriageAnswer {
@@ -52,29 +62,40 @@ export interface TriageAnswer {
   recommendation: "bug" | "recheck" | "dismiss" | "person";
   why: string;
   same_as: string;
+  /** The precedent the case fits or challenges, or "". */
+  precedent: string;
+  fit: "fits" | "challenges" | "none";
+  /** The ruling the AI proposes when no precedent fits; empty strings when one does. */
+  draft: { title: string; applies_when: string; decision: PrecedentDecision | ""; why: string };
   inputTokens: number;
   outputTokens: number;
 }
 
 export interface TriageDeps {
   ai: (apiKey: string, model: string, input: TriageInput) => Promise<TriageAnswer>;
+  /** Picks the spot-checks. */
+  random?: () => number;
 }
 
 /** Reports sorted per run. A run every 5 minutes covers far more than the beta gets. */
 const BATCH = 20;
 const CHECKING = "Checking the game's files again";
+/** Of the cases the AI would decide alone under a precedent, the share a person still sees. */
+const SPOT_CHECK = 0.05;
 /** After this many failed tries a report goes to a person unsorted. */
 const MAX_TRIES = 3;
 
 export async function triageReports(env: Env, deps: TriageDeps = { ai: aiTriage }): Promise<number> {
-  const { results } = await env.DB.prepare("SELECT * FROM reports WHERE status = 'open' AND triaged_at IS NULL AND triage_tries < 5 ORDER BY created_at LIMIT ?").bind(BATCH).all<Report>();
+  const { results } = await env.DB.prepare("SELECT * FROM reports WHERE status = 'open' AND triaged_at IS NULL AND triage_tries < 5 ORDER BY created_at, rowid LIMIT ?").bind(BATCH).all<Report>();
+  if (!results.length) return 0;
+  const { results: precedents } = await env.DB.prepare("SELECT * FROM precedents WHERE status = 'active' ORDER BY created_at").all<Precedent>();
   let sorted = 0;
   for (const report of results) {
     // Claim it, so an overlapping run never sorts it twice.
     const claim = await env.DB.prepare("UPDATE reports SET triage_tries = triage_tries + 1 WHERE id = ? AND triaged_at IS NULL AND triage_tries = ?").bind(report.id, report.triage_tries).run();
     if (!claim.meta.changes) continue;
     try {
-      await triageOne(env, report, deps, report.triage_tries + 1 >= MAX_TRIES);
+      await triageOne(env, report, { random: Math.random, ...deps }, precedents, report.triage_tries + 1 >= MAX_TRIES);
       sorted++;
     } catch (err) {
       // Tried again on the next run.
@@ -89,12 +110,14 @@ interface Outcome {
   severity: number;
   groupId: string | null;
   bug: boolean;
-  close: boolean;
+  /** Closed by triage itself: a bug passed to the developer, or a dismissal under a precedent. */
+  closeAs?: "actioned" | "dismissed";
+  precedentId?: string;
   /** A version to check again, queued once the triage is saved. */
   recheck?: string;
 }
 
-async function triageOne(env: Env, report: Report, deps: TriageDeps, lastTry: boolean): Promise<void> {
+async function triageOne(env: Env, report: Report, deps: Required<TriageDeps>, precedents: Precedent[], lastTry: boolean): Promise<void> {
   const game = await gameById(env.DB, report.game_id);
   if (!game) {
     await env.DB.prepare("UPDATE reports SET triaged_at = ? WHERE id = ?").bind(Date.now(), report.id).run();
@@ -113,17 +136,16 @@ async function triageOne(env: Env, report: Report, deps: TriageDeps, lastTry: bo
       severity: SEVERITY.child_safety,
       groupId: sameRule(report, others),
       bug: false,
-      close: false,
     };
   } else {
     let answer: TriageAnswer | string;
     try {
-      answer = await askAi(env, report, game, others, deps);
+      answer = await askAi(env, report, game, others, precedents, deps);
     } catch (err) {
       if (!lastTry) throw err;
       answer = "The AI couldn't sort this report, so it waits for a person.";
     }
-    outcome = typeof answer === "string" ? byRule(report, others, answer) : await act(env, report, game, others, answer, paused);
+    outcome = typeof answer === "string" ? byRule(report, others, answer) : await act(env, report, game, others, answer, paused, precedents, deps.random);
   }
   // A report that paused the game or an update shouldn't sit at the bottom of the queue.
   if (paused) outcome.severity = Math.min(outcome.severity, SEVERITY.high);
@@ -133,18 +155,18 @@ async function triageOne(env: Env, report: Report, deps: TriageDeps, lastTry: bo
   }
 
   const now = Date.now();
-  await env.DB.prepare("UPDATE reports SET severity = ?, group_id = ?, triage = ?, triaged_at = ?, bug = ?, bug_at = ?, status = ?, closed_at = ? WHERE id = ?")
-    .bind(outcome.severity, outcome.groupId, JSON.stringify(outcome.triage), now, outcome.bug ? 1 : 0, outcome.bug ? now : null, outcome.close ? "actioned" : "open", outcome.close ? now : null, report.id)
+  await env.DB.prepare("UPDATE reports SET severity = ?, group_id = ?, triage = ?, triaged_at = ?, bug = ?, bug_at = ?, status = ?, closed_at = ?, precedent_id = ? WHERE id = ?")
+    .bind(outcome.severity, outcome.groupId, JSON.stringify(outcome.triage), now, outcome.bug ? 1 : 0, outcome.bug ? now : null, outcome.closeAs ?? "open", outcome.closeAs ? now : null, outcome.precedentId ?? null, report.id)
     .run();
   if (outcome.recheck) await env.SCAN_QUEUE.send({ versionId: outcome.recheck, recheck: { reportId: report.id } });
   await alertAfterTriage(env, report, game, outcome);
 }
 
 /** What the AI said, and the safe outcomes handled straight away. */
-async function act(env: Env, report: Report, game: Game, others: Report[], answer: TriageAnswer, paused: string | null): Promise<Outcome> {
+async function act(env: Env, report: Report, game: Game, others: Report[], answer: TriageAnswer, paused: string | null, precedents: Precedent[], random: () => number): Promise<Outcome> {
   const same = others.find((o) => o.id === answer.same_as);
   const triage: Triage = { ai: true, category: answer.category, summary: answer.summary, recommendation: answer.recommendation, why: answer.why, actions: [] };
-  const outcome: Outcome = { triage, severity: SEVERITY[answer.severity], groupId: same ? (same.group_id ?? same.id) : null, bug: false, close: false };
+  const outcome: Outcome = { triage, severity: SEVERITY[answer.severity], groupId: same ? (same.group_id ?? same.id) : null, bug: false };
 
   // Found child safety in a report sent for another reason: treated exactly like a child-safety report.
   if (answer.severity === "child_safety" || answer.category === "child_safety") {
@@ -157,21 +179,43 @@ async function act(env: Env, report: Report, game: Game, others: Report[], answe
     }
     return outcome;
   }
-  if (answer.recommendation === "bug") {
+  // A precedent decides a case that fits it, whatever the AI would have recommended.
+  const precedent = answer.fit === "none" ? undefined : precedents.find((p) => p.id === answer.precedent);
+  if (precedent) triage.precedent = { id: precedent.id, title: precedent.title, fit: answer.fit === "fits" ? "fits" : "challenges" };
+  if (triage.precedent?.fit !== "fits" && answer.draft.title && answer.draft.decision) triage.draft = { ...answer.draft, decision: answer.draft.decision };
+  if (precedent && answer.fit === "fits") {
+    outcome.precedentId = precedent.id;
+    triage.recommendation = precedent.decision;
+    triage.why = `Precedent “${precedent.title}”: ${precedent.why}`;
+    // Never for urgent reports, or one that paused the game: those always reach a person.
+    if (precedent.decision === "dismiss" && precedent.ai_alone && outcome.severity >= SEVERITY.high && !paused) {
+      if (random() < SPOT_CHECK) {
+        triage.spot_check = true;
+        triage.why = `Spot-check: under precedent “${precedent.title}”, this was dismissed without you. ${precedent.why}`;
+      } else {
+        outcome.closeAs = "dismissed";
+        triage.actions.push(`Dismissed under precedent “${precedent.title}”`);
+      }
+    }
+  } else if (precedent) {
+    triage.recommendation = "person";
+  }
+
+  if (triage.recommendation === "bug") {
     outcome.bug = true;
     triage.actions.push("Told the developer: it's in their bug reports");
-    outcome.close = outcome.severity >= SEVERITY.normal;
+    if (outcome.severity >= SEVERITY.normal) outcome.closeAs = "actioned";
   }
-  if (answer.recommendation === "recheck") {
+  if (triage.recommendation === "recheck") {
     const version = report.version_id ? await versionById(env.DB, report.version_id) : null;
     if (report.player_id) {
       triage.recommendation = "person";
     } else if (!version || game.current_version_id !== version.id || game.status !== "live") {
       triage.recommendation = "person";
-      triage.why = `${answer.why} Players aren't on the reported version any more, so it wasn't checked again.`;
+      triage.why = `${triage.why} Players aren't on the reported version any more, so it wasn't checked again.`;
     } else if (version.cleared_at || version.rechecked_at) {
       triage.recommendation = "person";
-      triage.why = `${answer.why} This version was already ${version.cleared_at ? "checked by a person" : "checked again after a report"}, so it wasn't checked again.`;
+      triage.why = `${triage.why} This version was already ${version.cleared_at ? "checked by a person" : "checked again after a report"}, so it wasn't checked again.`;
     } else {
       await env.DB.prepare("UPDATE versions SET rechecked_at = ? WHERE id = ?").bind(Date.now(), version.id).run();
       outcome.recheck = version.id;
@@ -189,7 +233,6 @@ function byRule(report: Report, others: Report[], note: string): Outcome {
     severity: report.severity,
     groupId: sameRule(report, others),
     bug: report.reason === "broken",
-    close: false,
   };
 }
 
@@ -214,7 +257,7 @@ async function pausedBy(env: Env, game: Game, report: Report): Promise<string | 
 async function alertAfterTriage(env: Env, report: Report, game: Game, o: Outcome): Promise<void> {
   const alerted = !report.player_id && (AUTO_HOLD_REASONS as string[]).includes(report.reason);
   const found = o.severity === SEVERITY.child_safety && report.reason !== "child_safety";
-  if (!found && (alerted || (o.triage.ai && o.severity > SEVERITY.high))) return;
+  if (!found && (alerted || o.closeAs || (o.triage.ai && o.severity > SEVERITY.high))) return;
   const label = reportLabel(report);
   await sendAlert(
     env,
@@ -231,10 +274,10 @@ async function alertAfterTriage(env: Env, report: Report, game: Game, o: Outcome
 }
 
 /** The AI's answer, or why there isn't one (no key, or the month's budget is used up). Throws when the call fails. */
-async function askAi(env: Env, report: Report, game: Game, others: Report[], deps: TriageDeps): Promise<TriageAnswer | string> {
+async function askAi(env: Env, report: Report, game: Game, others: Report[], precedents: Precedent[], deps: TriageDeps): Promise<TriageAnswer | string> {
   if (!env.ANTHROPIC_API_KEY) return "AI sorting isn't set up, so this waits for a person.";
   if ((await aiUsage(env.DB)).input_tokens >= (Number(env.AI_MONTHLY_INPUT_TOKENS) || 0)) return "This month's AI budget is used up, so this waits for a person.";
-  const answer = await deps.ai(env.ANTHROPIC_API_KEY, env.AI_MODEL, await triageInput(env, report, game, others));
+  const answer = await deps.ai(env.ANTHROPIC_API_KEY, env.AI_MODEL, { ...(await triageInput(env, report, game, others)), precedents });
   await addAiUsage(env.DB, answer.inputTokens, answer.outputTokens, "reports");
   return answer;
 }
@@ -243,7 +286,7 @@ const day = (ms: number | null) => (ms ? new Date(ms).toISOString().slice(0, 10)
 /** Untrusted text can't close the blocks it sits in. */
 const untrusted = (s: string) => s.replace(/</g, "‹");
 
-async function triageInput(env: Env, report: Report, game: Game, others: Report[]): Promise<TriageInput> {
+async function triageInput(env: Env, report: Report, game: Game, others: Report[]): Promise<Omit<TriageInput, "precedents">> {
   const version = report.version_id ? await versionById(env.DB, report.version_id) : null;
   const scan: ScanReport | null = version?.scan_report ? JSON.parse(version.scan_report) : null;
   const findings = scan?.findings.filter((f) => f.severity !== "info").map((f) => `${f.rule}: ${f.detail}`) ?? [];
@@ -296,6 +339,20 @@ const SCHEMA = {
     recommendation: { type: "string", enum: ["bug", "recheck", "dismiss", "person"] },
     why: { type: "string", description: "One plain sentence: why this recommendation." },
     same_as: { type: "string", description: "The id of the other open report about the same problem, or empty." },
+    precedent: { type: "string", description: "The id of the precedent the case fits or challenges, or empty." },
+    fit: { type: "string", enum: ["fits", "challenges", "none"] },
+    draft: {
+      type: "object",
+      additionalProperties: false,
+      required: ["title", "applies_when", "decision", "why"],
+      description: "When no precedent fits, or the case challenges one: the ruling you'd propose for cases like this. Empty strings when one fits.",
+      properties: {
+        title: { type: "string", description: "A short name for this kind of case." },
+        applies_when: { type: "string", description: "What cases like this look like, in a sentence." },
+        decision: { type: "string", enum: [...Object.keys(PRECEDENT_DECISIONS), ""] },
+        why: { type: "string", description: "The reason, in a sentence." },
+      },
+    },
   },
 } as const;
 
@@ -322,7 +379,11 @@ recommendation:
 
 same_as: the id of the other open report about the same problem (the same player, for a report about a player), or "" if there isn't one.
 
+Precedents are rulings a person already made; they come after these instructions. If one fits the case, set fit "fits" and precedent to its id: its decision applies. If the case looks like one but something important is different, set fit "challenges", precedent to its id, and say what's different in why. Otherwise set fit "none". Unless a precedent fits, draft the ruling you'd propose for cases like this.
+
 Keep the summary and why short and plain.`;
+
+const NO_DRAFT: TriageAnswer["draft"] = { title: "", applies_when: "", decision: "", why: "" };
 
 export async function aiTriage(apiKey: string, model: string, input: TriageInput): Promise<TriageAnswer> {
   const client = new Anthropic({ apiKey, maxRetries: 2, timeout: 60_000 });
@@ -331,22 +392,33 @@ export async function aiTriage(apiKey: string, model: string, input: TriageInput
     ...(input.picture ? [{ type: "image", source: { type: "base64", media_type: "image/jpeg", data: input.picture } } satisfies Anthropic.ImageBlockParam] : []),
     { type: "text", text: "Sort this report." },
   ];
+  const rulings = input.precedents.length
+    ? input.precedents.map((p) => `[${p.id}] ${p.title}. Applies when: ${p.applies_when} Decision: ${p.decision}. Why: ${p.why}`).join("\n")
+    : "(none yet)";
   const response = await client.messages.create({
     model,
-    max_tokens: 1000,
-    system: SYSTEM,
+    max_tokens: 1500,
+    system: `${SYSTEM}\n\nPrecedents:\n${rulings}`,
     output_config: { effort: "low", format: { type: "json_schema", schema: SCHEMA } },
     messages: [{ role: "user", content }],
   });
   const usage = { inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens };
   // A refusal usually means the report or picture itself tripped a safeguard: a person must look, soon.
   if (response.stop_reason === "refusal") {
-    return { severity: "urgent", category: "other", summary: "The AI declined to read this report.", recommendation: "person", why: "A person should look at it.", same_as: "", ...usage };
+    return { severity: "urgent", category: "other", summary: "The AI declined to read this report.", recommendation: "person", why: "A person should look at it.", same_as: "", precedent: "", fit: "none", draft: NO_DRAFT, ...usage };
   }
   const text = response.content.find((b) => b.type === "text")?.text ?? "";
   const a = JSON.parse(text) as Omit<TriageAnswer, "inputTokens" | "outputTokens">;
   if (!(a.severity in SEVERITY) || !(a.category in REPORT_REASONS) || !["bug", "recheck", "dismiss", "person"].includes(a.recommendation)) throw new Error(`Unexpected triage answer: ${text.slice(0, 200)}`);
-  return { ...a, same_as: String(a.same_as ?? ""), ...usage };
+  const draft = a.draft && typeof a.draft === "object" ? a.draft : NO_DRAFT;
+  return {
+    ...a,
+    same_as: String(a.same_as ?? ""),
+    precedent: String(a.precedent ?? ""),
+    fit: ["fits", "challenges"].includes(a.fit) ? a.fit : "none",
+    draft: { title: String(draft.title ?? "").slice(0, 120), applies_when: String(draft.applies_when ?? "").slice(0, 500), decision: draft.decision in PRECEDENT_DECISIONS ? draft.decision : "", why: String(draft.why ?? "").slice(0, 500) },
+    ...usage,
+  };
 }
 
 /** A re-check after a report: the live version's files, looked at again with the report in mind. Changes nothing unless it finds something new. */
@@ -362,12 +434,19 @@ export async function recheckVersion(env: Env, versionId: string, reportId: stri
   const first: ScanReport | null = version.scan_report ? JSON.parse(version.scan_report) : null;
   const known = new Set(first?.findings.map((f) => f.rule));
   const news = result.findings.filter((f) => f.severity !== "info" && !known.has(f.rule));
-  triage.recheck = { status: "done", decision: result.decision, summary: result.ai?.summary ?? "", findings: news.map((f) => `${f.rule}: ${f.detail}`) };
+  const where = (f: Finding) => (f.path ? ` (${f.path}${f.quote ? `: “${f.quote}”` : ""})` : "");
+  triage.recheck = { status: "done", decision: result.decision, summary: result.ai?.summary ?? "", findings: news.map((f) => `${f.rule}: ${f.detail}${where(f)}`) };
   triage.actions = triage.actions.map((a) => (a === CHECKING ? "Checked the game's files again" : a));
   let severity = report.severity;
 
-  // Only something new in the files counts: a child-safety flag, or a rejection the first scan didn't make.
-  if (result.childSafety || (result.decision === "rejected" && first?.decision !== "rejected")) {
+  // Only something new in the files counts: a child-safety flag, or a rejection the first scan didn't
+  // make that the code can find in the files (the AI's quote, or a rule-based check), not just its word.
+  const clear = result.childSafety || (result.decision === "rejected" && first?.decision !== "rejected");
+  if (clear && !result.childSafety && !(await inTheFiles(env, version, news.filter((f) => f.severity === "reject")))) {
+    severity = Math.min(severity, SEVERITY.high);
+    triage.recommendation = "person";
+    triage.why = "The re-check called it a clear problem but couldn't point to it in the game's files, so nothing was paused.";
+  } else if (clear) {
     severity = Math.min(severity, result.childSafety ? SEVERITY.child_safety : SEVERITY.urgent);
     // The same rule as a child-safety or illegal-content report: no single report takes an established game offline.
     const paused = game.current_version_id === version.id ? await pauseForReport(env, game, `Re-check after a report found: ${summarize(news)}`) : null;
@@ -390,6 +469,21 @@ export async function recheckVersion(env: Env, versionId: string, reportId: stri
     triage.why = "The re-check found nothing new in the game's files.";
   }
   await env.DB.prepare("UPDATE reports SET severity = ?, triage = ? WHERE id = ?").bind(severity, JSON.stringify(triage), report.id).run();
+}
+
+/** Whether a rejection is backed by the files: a rule-based check, or an AI quote that really is in the file it names. */
+async function inTheFiles(env: Env, version: Version, findings: Finding[]): Promise<boolean> {
+  if (findings.some((f) => f.stage !== "ai")) return true;
+  const quoted = findings.filter((f) => f.path && f.quote && f.quote.trim().length >= 8);
+  if (!quoted.length) return false;
+  const files = await versionFiles(env, version);
+  const squash = (s: string) => s.replace(/\s+/g, " ").trim();
+  for (const f of quoted) {
+    const file = files.find((o) => o.path === f.path);
+    const body = file && (await env.GAMES.get(file.key));
+    if (body && squash(await body.text()).includes(squash(f.quote!))) return true;
+  }
+  return false;
 }
 
 /** The re-check didn't finish after its retries: a person decides. */

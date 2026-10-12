@@ -38,13 +38,15 @@ import {
   settleImage,
   type GameImage,
   type GameStatus,
+  type PrecedentDecision,
   type Report,
   type ScanReport,
   type Triage,
 } from "@zaisma/core";
 import { adminIdentity } from "./access.ts";
 import { gameUrl, type Env } from "./env.ts";
-import { html, layout, type Raw } from "./html.ts";
+import { html, layout, raw, type Raw } from "./html.ts";
+import { precedentAction, precedentsPage, savePrecedent } from "./precedents.ts";
 import { passVersion } from "./scan.ts";
 import { uploadGame } from "./upload.ts";
 
@@ -73,6 +75,7 @@ export async function handleAdmin(request: Request, env: Env, path: string): Pro
   if (path === "/admin") return dashboard(env);
   if (path === "/admin/audit") return auditPage(env);
   if (path === "/admin/reports") return reportQueue(env);
+  if (path === "/admin/precedents") return page(env, "Precedents", await precedentsPage(env));
   const m = path.match(/^\/admin\/games\/([a-z0-9]+)$/);
   if (m) return gameDetail(env, m[1]!);
   const img = path.match(/^\/admin\/images\/([a-z0-9]+)$/);
@@ -101,6 +104,12 @@ async function adminAction(request: Request, env: Env, path: string, actor: stri
   const form = await request.formData();
   const reason = String(form.get("reason") ?? "").trim().slice(0, 500);
   const back = (fallback: string) => redirect(form.get("back") === "queue" ? "/admin/reports" : fallback);
+
+  const precedents = await precedentAction(env, path, form, actor);
+  if (precedents) return precedents;
+  // Deciding a report in the queue can also set a precedent for cases like it.
+  const decided = precedentDecision(path);
+  if (decided && form.get("precedent") === "1") await savePrecedent(env, form, decided, actor);
 
   let m = path.match(/^\/admin\/versions\/([a-z0-9]+)\/(approve|reject)$/);
   if (m) {
@@ -454,6 +463,8 @@ function ago(ms: number): string {
   return `${Math.round(min / 1440)} days ago`;
 }
 
+const PRECEDENT_LABEL: Record<PrecedentDecision, string> = { dismiss: "dismiss", bug: "tell the developer", recheck: "check the files again", take_down: "take down" };
+
 const RECOMMENDED: Record<Triage["recommendation"], string> = {
   dismiss: "Dismiss",
   bug: "Tell the developer",
@@ -470,9 +481,9 @@ async function reportQueue(env: Env): Promise<Response> {
     env.DB
       .prepare("SELECT reports.*, games.slug, games.title, games.status AS game_status FROM reports JOIN games ON games.id = reports.game_id WHERE reports.status = 'open' ORDER BY reports.created_at LIMIT 500")
       .all<QueueRow>(),
-    // Closed by triage itself (bugs passed to the developer), to spot-check.
+    // Closed by triage itself (bugs passed to the developer, dismissals under a precedent), to look over.
     env.DB
-      .prepare("SELECT reports.*, games.slug, games.title, games.status AS game_status FROM reports JOIN games ON games.id = reports.game_id WHERE reports.status = 'actioned' AND reports.closed_at = reports.triaged_at AND reports.closed_at > ? ORDER BY reports.closed_at DESC LIMIT 50")
+      .prepare("SELECT reports.*, games.slug, games.title, games.status AS game_status FROM reports JOIN games ON games.id = reports.game_id WHERE reports.status != 'open' AND reports.closed_at = reports.triaged_at AND reports.closed_at > ? ORDER BY reports.closed_at DESC LIMIT 100")
       .bind(week)
       .all<QueueRow>(),
     env.DB.prepare("SELECT id, game_id FROM versions WHERE report_held_at IS NOT NULL AND scan_status = 'held'").all<{ id: string; game_id: string }>(),
@@ -487,10 +498,11 @@ async function reportQueue(env: Env): Promise<Response> {
 <p class="lead">${groups.length ? `${open.length} open ${open.length === 1 ? "report" : "reports"} about ${groups.length} ${groups.length === 1 ? "problem" : "problems"}, most serious first.` : "No open reports."}${waiting ? ` ${waiting} still being sorted.` : ""}</p>
 ${groups.map((g) => groupCard(g, pausedUpdate.get(g.lead.game_id)))}
 ${handled.length
-      ? html`<details class="handled"><summary><h2>Passed to developers by triage this week (${handled.length})</h2></summary>
-<table><tr><th>Game</th><th>What</th><th>Player wrote</th><th>When</th></tr>${handled.map(
-          (r) => html`<tr><td><a href="/admin/games/${r.game_id}">${r.title}</a></td><td>${r.triage ? (JSON.parse(r.triage) as Triage).summary : reportLabel(r)}</td><td>${r.details}</td><td>${ago(r.created_at)}</td></tr>`,
-        )}</table></details>`
+      ? html`<details class="handled"><summary><h2>Handled without you this week (${handled.length})</h2></summary>
+<table><tr><th>Game</th><th>What</th><th>Done</th><th>Player wrote</th><th>When</th></tr>${handled.map((r) => {
+          const t: Triage | null = r.triage ? JSON.parse(r.triage) : null;
+          return html`<tr><td><a href="/admin/games/${r.game_id}">${r.title}</a></td><td>${t?.summary ?? reportLabel(r)}</td><td>${t?.actions.join("; ") ?? ""}</td><td>${r.details}</td><td class="nowrap">${ago(r.created_at)}</td></tr>`;
+        })}</table></details>`
       : ""}`,
   );
 }
@@ -504,11 +516,18 @@ function groupCard(g: ReportGroup, pausedUpdate: string | undefined): Raw {
   const gameHeld = game.game_status === "held";
   const gameRemoved = game.game_status === "removed";
   const prefill = t?.summary && t.ai ? t.summary : reportLabel(game);
+  const challenged = t?.precedent?.fit === "challenges" ? t.precedent : null;
+  const draft = t?.draft;
   return html`<article class="note case sev${g.severity}">
-  <div class="row">${severityPill(g.severity)} <a href="/admin/games/${game.game_id}"><strong>${game.title}</strong></a> ${game.game_status !== "live" ? pill(game.game_status) : ""}
+  <div class="row">${severityPill(g.severity)}${t?.spot_check ? html` <span class="pill spot">Spot-check</span>` : ""} <a href="/admin/games/${game.game_id}"><strong>${game.title}</strong></a> ${game.game_status !== "live" ? pill(game.game_status) : ""}
     <span class="muted">${g.rows.length > 1 ? `${g.rows.length} reports · first ${ago(g.rows[0]!.created_at)}` : ago(game.created_at)}</span></div>
   ${t ? html`<p class="said">${t.summary}</p>` : html`<p class="said">${reportLabel(game)}${game.details ? html`: “${game.details}”` : ""}</p><p class="muted">Waiting to be sorted.</p>`}
   ${t ? html`<p class="muted">Recommended: <strong>${RECOMMENDED[t.recommendation]}</strong>. ${t.why}${t.ai ? "" : " (Not sorted by AI.)"}</p>` : ""}
+  ${t?.precedent
+    ? html`<p class="muted">${t.precedent.fit === "fits" ? "Fits" : "Challenges"} the precedent <a href="/admin/precedents#p-${t.precedent.id}">${t.precedent.title}</a>.</p>`
+    : t?.ai
+      ? html`<p class="muted">No precedent covers this yet.</p>`
+      : ""}
   ${t?.actions.length ? html`<p class="muted">Done already: ${t.actions.join("; ")}.</p>` : ""}
   ${g.rechecks.map(
     (c) =>
@@ -517,8 +536,20 @@ function groupCard(g: ReportGroup, pausedUpdate: string | undefined): Raw {
   <details><summary>What players sent (${g.rows.length})</summary><table>${g.rows.map(
     (r) => html`<tr><td class="nowrap">${ago(r.created_at)}</td><td>${reportLabel(r)}${r.player_id ? html`<br><small class="muted">Player ID ${r.player_id}</small>` : ""}</td><td>${r.details || html`<span class="muted">No details</span>`}${pictureLink(r)}</td></tr>`,
   )}</table></details>
-  <form method="post" class="row decide">
+  <form method="post" class="decide">
     <input type="hidden" name="back" value="queue">
+    <input type="hidden" name="group" value="${g.id}">
+    ${challenged ? html`<input type="hidden" name="p_replaces" value="${challenged.id}">` : ""}
+    <div class="precedent">
+      <label class="check"><input type="checkbox" name="precedent" value="1"${draft || challenged ? raw(" checked") : ""}> ${challenged ? html`Change the precedent “${challenged.title}” to decide cases like this the way you decide this one` : draft ? html`Also make it a precedent: <strong>${draft.title}</strong>` : "Also make it a precedent for cases like this"}</label>
+      <details><summary>${draft ? html`Edit the precedent <span class="muted">· the AI suggests: ${PRECEDENT_LABEL[draft.decision]}</span>` : "Write the precedent"}</summary>
+        <label>Name <input name="p_title" value="${draft?.title ?? ""}" maxlength="120"></label>
+        <label>Applies when <textarea name="p_when" rows="2" maxlength="500">${draft?.applies_when ?? ""}</textarea></label>
+        <label>Why <textarea name="p_why" rows="2" maxlength="500">${draft?.why ?? ""}</textarea></label>
+        <label class="check"><input type="checkbox" name="p_alone" value="1"> If you dismiss it: the AI may dismiss cases like this without you</label>
+      </details>
+    </div>
+    <div class="row">
     <input name="reason" value="${prefill}" aria-label="Reason, for the audit log" maxlength="500">
     ${gameRemoved
       ? button("Close", `/admin/report-groups/${g.id}/dismiss`, true)
@@ -526,9 +557,18 @@ function groupCard(g: ReportGroup, pausedUpdate: string | undefined): Raw {
         ? html`${button("Put the game back", `/admin/games/${game.game_id}/restore`, rec === "restore" || rec === "dismiss")}${button("Take down", `/admin/games/${game.game_id}/takedown`, rec === "take_down", true)}`
         : pausedUpdate
           ? html`${button("Put the update back", `/admin/versions/${pausedUpdate}/approve`, rec === "restore" || rec === "dismiss")}${button("Keep the update off", `/admin/versions/${pausedUpdate}/reject`, false)}${button("Take down", `/admin/games/${game.game_id}/takedown`, rec === "take_down", true)}`
-          : html`${button("Dismiss", `/admin/report-groups/${g.id}/dismiss`, rec === "dismiss")}${game.player_id ? "" : button("Tell the developer", `/admin/report-groups/${g.id}/bug`, rec === "bug")}${button("Take down", `/admin/games/${game.game_id}/takedown`, rec === "take_down", true)}`}
+          : html`${button("Dismiss", `/admin/report-groups/${g.id}/dismiss`, rec === "dismiss")}${button("Tell the developer", `/admin/report-groups/${g.id}/bug`, rec === "bug")}${button("Take down", `/admin/games/${game.game_id}/takedown`, rec === "take_down", true)}`}
+    </div>
   </form>
 </article>`;
+}
+
+/** What a decision in the queue means as a precedent: putting a game back means the report was wrong. */
+function precedentDecision(path: string): PrecedentDecision | null {
+  if (/^\/admin\/(report-groups\/[a-z0-9]+\/dismiss|games\/[a-z0-9]+\/restore|versions\/[a-z0-9]+\/approve)$/.test(path)) return "dismiss";
+  if (/^\/admin\/report-groups\/[a-z0-9]+\/bug$/.test(path)) return "bug";
+  if (/^\/admin\/(games\/[a-z0-9]+\/takedown|versions\/[a-z0-9]+\/reject)$/.test(path)) return "take_down";
+  return null;
 }
 
 const pictureLink = (r: { id: string; picture: number }) => (r.picture ? html` <a href="/admin/reports/${r.id}/picture" target="_blank">Picture</a>` : "");

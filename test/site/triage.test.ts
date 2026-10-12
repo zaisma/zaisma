@@ -11,13 +11,14 @@ const testEnv = { ...env, DEV_ADMIN: "1", ANTHROPIC_API_KEY: "test-key" };
 const DAY = 86400_000;
 
 const connected: ImageMatcher = { check: async (imgs) => ({ provider: "test", connected: true, checked: imgs.length, findings: [] }) };
-const scanSays = (verdict: "pass" | "hold" | "reject", childSafety = false): ScanDeps => ({
+/** `where` is the file and quote the AI points to as evidence. */
+const scanSays = (verdict: "pass" | "hold" | "reject", where: { path: string; quote: string } | null = null): ScanDeps => ({
   images: connected,
   ai: async () =>
     ({
       report: { model: "test", verdict, summary: `AI says ${verdict}`, inputTokens: 1000, outputTokens: 100 },
-      findings: verdict === "pass" ? [] : [{ stage: "ai", severity: verdict, rule: "ai-test", detail: "test concern" }],
-      childSafety,
+      findings: verdict === "pass" ? [] : [{ stage: "ai", severity: verdict, rule: "ai-test", detail: "test concern", ...(where ?? {}) }],
+      childSafety: false,
     }) satisfies AiResult,
 });
 
@@ -42,20 +43,37 @@ const send = (body: Record<string, unknown>) =>
 function ai(a: Partial<TriageAnswer> | ((input: TriageInput) => Partial<TriageAnswer>)) {
   const seen: TriageInput[] = [];
   const deps: TriageDeps = {
+    random: () => 0.5,
     ai: async (_key, _model, input) => {
       seen.push(input);
-      return { severity: "normal", category: "other", summary: "A summary.", recommendation: "person", why: "Because.", same_as: "", inputTokens: 500, outputTokens: 50, ...(typeof a === "function" ? a(input) : a) };
+      return {
+        severity: "normal",
+        category: "other",
+        summary: "A summary.",
+        recommendation: "person",
+        why: "Because.",
+        same_as: "",
+        precedent: "",
+        fit: "none",
+        draft: { title: "", applies_when: "", decision: "", why: "" },
+        inputTokens: 500,
+        outputTokens: 50,
+        ...(typeof a === "function" ? a(input) : a),
+      };
     },
   };
   return { deps, seen };
 }
 
-const reports = async () => (await env.DB.prepare("SELECT * FROM reports ORDER BY created_at").all<Report>()).results;
+const reports = async () => (await env.DB.prepare("SELECT * FROM reports ORDER BY created_at, rowid").all<Report>()).results;
 const triageOf = (r: Report) => JSON.parse(r.triage!) as Triage;
 
 beforeEach(async () => {
-  await env.DB.exec("DELETE FROM reports; DELETE FROM audit_log; DELETE FROM versions; DELETE FROM games; DELETE FROM ai_usage;");
+  await env.DB.exec("DELETE FROM reports; DELETE FROM audit_log; DELETE FROM versions; DELETE FROM games; DELETE FROM ai_usage; UPDATE precedents SET status = 'proposed', ai_alone = 0; DELETE FROM precedents WHERE created_at > 0;");
 });
+
+/** A seeded precedent, put in force. */
+const inForce = (id: string, aiAlone = false) => env.DB.prepare("UPDATE precedents SET status = 'active', ai_alone = ? WHERE id = ?").bind(aiAlone ? 1 : 0, id).run();
 
 describe("report triage", () => {
   it("sorts a report, keeps what it found, and merges a report about the same problem", async () => {
@@ -84,7 +102,7 @@ describe("report triage", () => {
     const [r] = await reports();
     expect(r).toMatchObject({ status: "actioned", bug: 1 });
     expect(triageOf(r!).actions[0]).toMatch(/developer/);
-    expect(await (await SELF.fetch(`${LOCAL}/admin/reports`)).text()).toContain("Passed to developers by triage this week (1)");
+    expect(await (await SELF.fetch(`${LOCAL}/admin/reports`)).text()).toContain("Handled without you this week (1)");
   });
 
   it("never lets the AI read a child-safety report", async () => {
@@ -118,7 +136,7 @@ describe("report triage", () => {
     // Nothing happens to the game until the files are checked.
     expect((await gameBySlug(env.DB, "test-game"))?.status).toBe("live");
 
-    await recheckVersion(testEnv, versionId, r!.id, scanSays("reject"));
+    await recheckVersion(testEnv, versionId, r!.id, scanSays("reject", { path: "game.js", quote: "let score = 0;" }));
     [r] = await reports();
     expect(r!.severity).toBe(1);
     expect(triageOf(r!)).toMatchObject({ recommendation: "take_down", recheck: { status: "done", decision: "rejected" } });
@@ -136,13 +154,27 @@ describe("report triage", () => {
     expect(triageOf(second).recheck).toBeUndefined();
   });
 
-  it("hides a brand-new game when the check finds a clear problem", async () => {
+  it("hides a brand-new game when the check finds a clear problem it can point to in the files", async () => {
     const { versionId } = await liveGame(1);
     await send({ reason: "malware", details: "fake login page" });
     await triageReports(testEnv, ai({ severity: "high", category: "malware", recommendation: "recheck" }).deps);
-    await recheckVersion(testEnv, versionId, (await reports())[0]!.id, scanSays("reject"));
-    expect(triageOf((await reports())[0]!).actions).toContain("Hid the new game until a person looks");
+    await recheckVersion(testEnv, versionId, (await reports())[0]!.id, scanSays("reject", { path: "game.js", quote: "requestAnimationFrame(function  loop(){" }));
+    const t = triageOf((await reports())[0]!);
+    expect(t.actions).toContain("Hid the new game until a person looks");
+    expect(t.recheck?.findings?.[0]).toContain("game.js");
     expect((await gameBySlug(env.DB, "test-game"))?.status).toBe("held");
+  });
+
+  it("pauses nothing when the check can't point to the problem in the files", async () => {
+    const { versionId } = await liveGame(1);
+    await send({ reason: "malware", details: "fake login page" });
+    await triageReports(testEnv, ai({ severity: "high", category: "malware", recommendation: "recheck" }).deps);
+    // An unquoted claim, then a quote that isn't in the file: the AI's word alone pauses nothing.
+    await recheckVersion(testEnv, versionId, (await reports())[0]!.id, scanSays("reject"));
+    expect(triageOf((await reports())[0]!)).toMatchObject({ recommendation: "person" });
+    await env.DB.exec("UPDATE versions SET rechecked_at = NULL");
+    await recheckVersion(testEnv, versionId, (await reports())[0]!.id, scanSays("reject", { path: "game.js", quote: "window.location = 'https://phish.example'" }));
+    expect((await gameBySlug(env.DB, "test-game"))?.status).toBe("live");
   });
 
   it("leaves the game up when the check finds nothing, and recommends dismissing", async () => {
@@ -200,6 +232,92 @@ describe("report triage", () => {
     const [r] = await reports();
     expect(r).toMatchObject({ severity: 2, triage_tries: 3 });
     expect(triageOf(r!)).toMatchObject({ ai: false, recommendation: "person" });
+  });
+});
+
+describe("precedents", () => {
+  it("dismisses a case that fits a precedent the AI may apply alone, and records it", async () => {
+    await liveGame();
+    await inForce("hard-or-boring", true);
+    await send({ reason: "other", details: "way too hard" });
+    const { deps, seen } = ai({ severity: "low", recommendation: "dismiss", precedent: "hard-or-boring", fit: "fits" });
+    await triageReports(testEnv, deps);
+    // The AI was given the precedents in force.
+    expect(seen[0]!.precedents.map((p) => p.id)).toEqual(["hard-or-boring"]);
+    const [r] = await reports();
+    expect(r).toMatchObject({ status: "dismissed", precedent_id: "hard-or-boring" });
+    expect(triageOf(r!).actions).toEqual(["Dismissed under precedent “Too hard, boring or not fun”"]);
+    expect(await (await SELF.fetch(`${LOCAL}/admin/reports`)).text()).toContain("Handled without you this week (1)");
+  });
+
+  it("keeps 1 in 20 for a person as a spot-check", async () => {
+    await liveGame();
+    await inForce("hard-or-boring", true);
+    await send({ reason: "other", details: "boring" });
+    const { deps } = ai({ severity: "low", precedent: "hard-or-boring", fit: "fits" });
+    await triageReports(testEnv, { ...deps, random: () => 0.01 });
+    const [r] = await reports();
+    expect(r).toMatchObject({ status: "open", precedent_id: "hard-or-boring" });
+    expect(triageOf(r!)).toMatchObject({ spot_check: true, recommendation: "dismiss" });
+  });
+
+  it("only recommends when the precedent isn't for the AI alone, or the report is urgent", async () => {
+    await liveGame();
+    await inForce("cartoon-violence");
+    await send({ reason: "other", details: "too much blood" });
+    await triageReports(testEnv, ai({ precedent: "cartoon-violence", fit: "fits", recommendation: "person" }).deps);
+    await inForce("cartoon-violence", true);
+    await send({ reason: "other", details: "someone gets shot" });
+    await triageReports(testEnv, ai({ severity: "urgent", precedent: "cartoon-violence", fit: "fits" }).deps);
+    const all = await reports();
+    expect(all.map((r) => r.status)).toEqual(["open", "open"]);
+    expect(all.map((r) => triageOf(r).recommendation)).toEqual(["dismiss", "dismiss"]);
+    expect(triageOf(all[0]!).why).toContain("Precedent “Cartoon and fantasy violence”");
+  });
+
+  it("sends a case that challenges a precedent to a person, with a drafted change", async () => {
+    await liveGame();
+    await inForce("cartoon-violence", true);
+    await send({ reason: "other", details: "realistic beheadings" });
+    const draft = { title: "Realistic gore", applies_when: "Realistic, detailed gore.", decision: "take_down" as const, why: "Extreme gore isn't fine for 13+." };
+    await triageReports(testEnv, ai({ severity: "high", precedent: "cartoon-violence", fit: "challenges", draft }).deps);
+    const [r] = await reports();
+    expect(r!.status).toBe("open");
+    expect(triageOf(r!)).toMatchObject({ recommendation: "person", precedent: { id: "cartoon-violence", fit: "challenges" }, draft });
+    const page = await (await SELF.fetch(`${LOCAL}/admin/reports`)).text();
+    expect(page).toContain("Challenges the precedent");
+    expect(page).toContain("Change the precedent “Cartoon and fantasy violence”");
+  });
+
+  it("sets a precedent while deciding, replacing the one it changes", async () => {
+    await liveGame();
+    await inForce("cartoon-violence", true);
+    await send({ reason: "other", details: "realistic beheadings" });
+    await triageReports(testEnv, ai({ fit: "challenges", precedent: "cartoon-violence" }).deps);
+    const form = new FormData();
+    for (const [k, v] of Object.entries({ back: "queue", group: (await reports())[0]!.id, precedent: "1", p_replaces: "cartoon-violence", p_title: "Violence", p_when: "Fighting or cartoon blood; realistic gore is different.", p_why: "Fine for 13+.", p_alone: "1", reason: "Fine" })) form.set(k, v);
+    await SELF.fetch(`${LOCAL}/admin/report-groups/${(await reports())[0]!.id}/dismiss`, { method: "POST", body: form, redirect: "manual" });
+    const made = await env.DB.prepare("SELECT * FROM precedents WHERE replaces = 'cartoon-violence'").first<Record<string, unknown>>();
+    expect(made).toMatchObject({ title: "Violence", decision: "dismiss", ai_alone: 1, status: "active", created_by: "dev@localhost" });
+    expect(await env.DB.prepare("SELECT status FROM precedents WHERE id = 'cartoon-violence'").first("status")).toBe("retired");
+    expect((await reports())[0]).toMatchObject({ status: "dismissed", precedent_id: made!.id });
+  });
+
+  it("never lets the AI take a game down alone, whatever the precedent says", async () => {
+    await liveGame();
+    const form = new FormData();
+    for (const [k, v] of Object.entries({ p_title: "Fake stores", p_when: "Copies a real store's login.", p_why: "Phishing.", p_decision: "take_down", p_alone: "1" })) form.set(k, v);
+    await SELF.fetch(`${LOCAL}/admin/precedents`, { method: "POST", body: form, redirect: "manual" });
+    expect(await env.DB.prepare("SELECT ai_alone FROM precedents WHERE title = 'Fake stores'").first("ai_alone")).toBe(0);
+  });
+
+  it("shows the drafted precedents for approval", async () => {
+    const page = await (await SELF.fetch(`${LOCAL}/admin/precedents`)).text();
+    expect(page).toContain("Waiting for you (10)");
+    const form = new FormData();
+    for (const [k, v] of Object.entries({ p_title: "Too hard or boring", p_when: "The player just doesn't like it.", p_why: "Taste.", p_decision: "dismiss", p_alone: "1" })) form.set(k, v);
+    await SELF.fetch(`${LOCAL}/admin/precedents/hard-or-boring/activate`, { method: "POST", body: form, redirect: "manual" });
+    expect(await env.DB.prepare("SELECT title, status, ai_alone FROM precedents WHERE id = 'hard-or-boring'").first()).toEqual({ title: "Too hard or boring", status: "active", ai_alone: 1 });
   });
 });
 

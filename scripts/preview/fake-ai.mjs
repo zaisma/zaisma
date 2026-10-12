@@ -2,18 +2,30 @@
 // real key or cost. It answers from keywords, nothing clever:
 // - scans pass, unless a re-check after a report mentions a password or login (then it's phishing);
 // - reports are sorted by what the player wrote: bugs go to the developer, claims about the game's
-//   content get its files checked again, players get a person, and the rest is dismissed.
+//   content get its files checked again, players get a person, and the rest is dismissed. A report
+//   fits the drafted precedent for its kind once that precedent is in force; until then it comes
+//   with a draft.
 import http from "node:http";
 import { fileURLToPath } from "node:url";
 
 const KINDS = [
-  { test: /freez|crash|stuck|won.?t load|black screen|lag|bug|broken/i, severity: "normal", category: "broken", recommendation: "bug", summary: (d) => `A bug: ${d}`, why: "It's a technical problem for the developer." },
-  { test: /password|login|card|steam|wallet|download/i, severity: "urgent", category: "malware", recommendation: "recheck", summary: (d) => `Says the game asks for something it shouldn't: ${d}`, why: "If the game is phishing, its files will show it." },
-  { test: /nud|naked|sex|porn/i, severity: "high", category: "sexual", recommendation: "recheck", summary: (d) => `Says the game shows sexual content: ${d}`, why: "Its files will show whether that's in the game." },
-  { test: /slur|racis|nazi|hate/i, severity: "high", category: "hate", recommendation: "recheck", summary: (d) => `Says the game has hateful content: ${d}`, why: "Its files will show whether that's in the game." },
+  { precedent: "hard-or-boring", title: "Too hard, boring or not fun", when: "The player doesn't like the game but names nothing against the content rules.", test: /boring|too hard|not fun|unfair/i, severity: "low", category: "other", recommendation: "dismiss", summary: (d) => `Doesn't like the game: ${d}`, why: "Not liking a game isn't a rule break." },
+  { precedent: "broken", title: "Crashes, freezes or won't load", when: "The game won't load, crashes or freezes, or its controls don't work.", test: /freez|crash|stuck|won.?t load|black screen|lag|bug|broken/i, severity: "normal", category: "broken", recommendation: "bug", summary: (d) => `A bug: ${d}`, why: "It's a technical problem for the developer." },
+  { precedent: "asks-for-login", title: "Asks for a password or login", when: "The game asks players for a password, a card or a login for another site.", test: /password|login|card|steam|wallet|download/i, severity: "urgent", category: "malware", recommendation: "recheck", summary: (d) => `Says the game asks for something it shouldn't: ${d}`, why: "If the game is phishing, its files will show it." },
+  { precedent: "sexual-in-game", title: "Nudity in the game", when: "The report says the game itself shows nudity or sexual content.", test: /nud|naked|sex|porn/i, severity: "high", category: "sexual", recommendation: "recheck", summary: (d) => `Says the game shows sexual content: ${d}`, why: "Its files will show whether that's in the game." },
+  { precedent: "hate-in-game", title: "Hate in the game", when: "The report says the game's own content attacks real people or groups.", test: /slur|racis|nazi|hate/i, severity: "high", category: "hate", recommendation: "recheck", summary: (d) => `Says the game has hateful content: ${d}`, why: "Its files will show whether that's in the game." },
 ];
 
-function sortReport(text) {
+/** Fits the precedent in force for this kind of report, or drafts one. */
+function precedentFor(system, kind) {
+  if (kind?.precedent && system.includes(`[${kind.precedent}]`)) return { precedent: kind.precedent, fit: "fits", draft: { title: "", applies_when: "", decision: "", why: "" } };
+  const draft = kind
+    ? { title: kind.title, applies_when: kind.when, decision: kind.recommendation, why: kind.why }
+    : { title: "Nothing specific", applies_when: "The report names nothing against the content rules.", decision: "dismiss", why: "Nothing to act on." };
+  return { precedent: "", fit: "none", draft };
+}
+
+function sortReport(text, system) {
   const report = text.match(/<report[^>]*>([\s\S]*?)<\/report>/)?.[1] ?? "";
   const details = report.match(/Details: "([\s\S]*)"/)?.[1] ?? "";
   const player = report.match(/About a player: "([^"]*)"/)?.[1];
@@ -25,16 +37,19 @@ function sortReport(text) {
   if (player) {
     const reason = report.match(/Reason picked: [^:]*: (.*)/)?.[1] ?? "Something else";
     const serious = !/Cheating|Something else/.test(reason);
-    return { severity: serious ? "high" : "normal", category: "player", summary: `${player} reported for ${reason.toLowerCase()}${details ? `: ${details}` : "."}`, recommendation: "person", why: "Reports about players need a person.", same_as: same?.[1] ?? "" };
+    const cheating = /Cheating/.test(reason);
+    const fit = cheating && system.includes("[cheating]") ? { precedent: "cheating", fit: "fits", draft: { title: "", applies_when: "", decision: "", why: "" } } : { precedent: "", fit: "none", draft: { title: cheating ? "A player cheating" : "A player harassing others", applies_when: cheating ? "A player is reported for cheating." : "A player is reported for following, insulting or spamming others.", decision: cheating ? "bug" : "dismiss", why: cheating ? "The developer can fix what makes cheating possible." : "Players can mute and block; there are no bans yet." } };
+    return { severity: serious ? "high" : "normal", category: "player", summary: `${player} reported for ${reason.toLowerCase()}${details ? `: ${details}` : "."}`, recommendation: "person", why: "Reports about players need a person.", same_as: same?.[1] ?? "", ...fit };
   }
-  if (!kind) return { severity: "low", category: "other", summary: details ? `A player wrote: ${details}` : "No details given.", recommendation: "dismiss", why: "Nothing in it breaks the rules.", same_as: "" };
-  return { severity: kind.severity, category: kind.category, summary: kind.summary(details), recommendation: kind.recommendation, why: kind.why, same_as: same?.[1] ?? "" };
+  if (!kind) return { severity: "low", category: "other", summary: details ? `A player wrote: ${details}` : "No details given.", recommendation: "dismiss", why: "Nothing in it breaks the rules.", same_as: "", ...precedentFor(system, null) };
+  return { severity: kind.severity, category: kind.category, summary: kind.summary(details), recommendation: kind.recommendation, why: kind.why, same_as: same?.[1] ?? "", ...precedentFor(system, kind) };
 }
 
 function scan(text) {
   const reported = text.match(/a player reported it[^:]*: (.*)/)?.[1] ?? "";
   if (/password|login|steam|card/i.test(reported)) {
-    return { verdict: "reject", summary: "A login form copied from a real store collects passwords and sends them away.", minors_sexualized: false, concerns: [{ category: "phishing_or_scam", detail: "Asks players for a store password.", path: "index.html" }] };
+    // Points at a line that's really in the demo game, so the re-check can confirm it.
+    return { verdict: "reject", summary: "A login form copied from a real store collects passwords and sends them away.", minors_sexualized: false, concerns: [{ category: "phishing_or_scam", detail: "Asks players for a store password.", path: "index.html", quote: '<canvas id="c"></canvas>' }] };
   }
   return { verdict: "pass", summary: "An ordinary game. (Preview stand-in AI.)", minors_sexualized: false, concerns: [] };
 }
@@ -47,7 +62,8 @@ export function startFakeAi(port) {
       req.on("end", () => {
         const request = JSON.parse(body || "{}");
         const text = (request.messages?.[0]?.content ?? []).map((b) => b.text ?? "").join("\n");
-        const answer = String(request.system ?? "").startsWith("You sort reports") ? sortReport(text) : scan(text);
+        const system = String(request.system ?? "");
+        const answer = system.startsWith("You sort reports") ? sortReport(text, system) : scan(text);
         res.writeHead(200, { "content-type": "application/json" });
         res.end(
           JSON.stringify({
