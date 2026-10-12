@@ -43,7 +43,7 @@ Goal: open Zaisma to outside creators and players, with what both expect out of 
 | next | Must | Julius: form an LLC | | Liability protection before outside uploads (we host their files and indemnify Microsoft); a registered agent keeps your home address off public records. Moving PhotoDNA to the LLC needs Microsoft's consent or a new application |
 | next | Must | Julius: register the DMCA agent | | $6 at copyright.gov, then fill in the DMCA page |
 | doing | Must | Alert and DMCA email delivery | | Waiting on Fastmail's reply; fallback is a second inbox |
-| planned | Must | Connect image matching | Julius: apply for PhotoDNA, Julius: register with NCMEC | Matches are held and reported to NCMEC automatically through the PhotoDNA API within minutes (the terms require 72 hours), with an alert to Julius. Connector kept private, per its license. Until then every game waits for manual approval |
+| planned | Must | Connect image matching | Julius: apply for PhotoDNA, Julius: register with NCMEC | Matches are held and reported to NCMEC automatically through the PhotoDNA API within minutes (the terms require 72 hours), with an alert to Julius. Connector public unless Microsoft's materials turn out to be confidential. Until then every game waits for manual approval |
 | planned | Must | Julius: Workers Paid plan | | $5/month; needed to run creators' game servers |
 | planned | Must | Julius: Supabase Pro | | $25/month, switched on at launch; the free plan pauses |
 | planned | Nice | Julius: Public Suffix List entry | | Needs 2+ years left on the registration and a `_psl` TXT record; the list may turn down projects without players, so apply after launch |
