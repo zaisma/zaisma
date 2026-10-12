@@ -2,6 +2,16 @@
 
 One API behind the developer MCP, the upload command (`packages/cli`) and the dashboard, so they always agree. Base: `https://zaisma.com/api/dev`. Every answer is JSON; errors look like `{"error": {"code": "slug_taken", "message": "…"}}`.
 
+## The MCP
+
+Any AI tool that supports remote MCP servers can manage your games at `https://zaisma.com/mcp`, signed in with the same API key. In Claude Code:
+
+```bash
+claude mcp add --transport http zaisma https://zaisma.com/mcp --header "Authorization: Bearer $ZAISMA_KEY"
+```
+
+Every tool is a call to this API (`apps/site/src/mcp.ts`): `list_games`, `create_game`, `get_game`, `update_game`, `upload_files` (small games up to 5 MB, sent as file contents), `get_version`, `publish_version` (also rolls back and publishes later), `cancel_scheduled_publish`, `add_image`, `remove_image`, `get_reports`, `get_stats` and `get_history`. Bigger builds go through the upload command. Making a game players can play private or a draft again needs `"confirm": true`, so the AI asks you first.
+
 ## Signing in
 
 Make an API key on your account page (zaisma.com/account, under Game developers) and send it as `Authorization: Bearer zsk_…`. The key is shown once; we keep only a hash. Any account can make up to 10 keys and remove them at any time. Pages on zaisma.com can use the signed-in session instead. Up to 120 requests a minute per account.
@@ -19,6 +29,12 @@ Make an API key on your account page (zaisma.com/account, under Game developers)
 - **review** is ours and separate: `pending` (no version has passed review yet), `live`, `held` or `removed`. Changing visibility never undoes a takedown.
 - **devices:** any of `phone`, `tablet`, `computer`. **controls:** any of `touch`, `keyboard-mouse`, `gamepad`. **screen:** `portrait`, `landscape`, `either` or `""`.
 - Once players can see a game, a new title or description waits for review (`waiting_for_review`) before it shows.
+
+| Call | What it does |
+| --- | --- |
+| `GET /games/:slug/reports` | Player reports from the last 90 days, counted by reason (`open` or `closed`), with what players wrote in bug reports. |
+| `GET /games/:slug/stats?days=30` | Multiplayer use per day: rooms, player minutes and messages. Plays and players coming back arrive with the Zaisma SDK. |
+| `GET /games/:slug/history` | What happened to the game, newest first, and whether you or Zaisma did it. |
 
 ## Covers and screenshots
 
