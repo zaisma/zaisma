@@ -89,6 +89,7 @@ export async function deleteAccount(db: D1Database, id: string): Promise<void> {
       ? [db.prepare("UPDATE games SET owner_id = NULL WHERE owner_id = ?").bind(owner.id), db.prepare("DELETE FROM owners WHERE id = ?").bind(owner.id)]
       : []),
     db.prepare("DELETE FROM save_history WHERE account_id = ?").bind(id),
+    db.prepare("DELETE FROM passkeys WHERE account_id = ?").bind(id),
     db.prepare("DELETE FROM saves WHERE account_id = ?").bind(id),
     db.prepare("DELETE FROM played WHERE account_id = ?").bind(id),
     db.prepare("DELETE FROM api_keys WHERE account_id = ?").bind(id),

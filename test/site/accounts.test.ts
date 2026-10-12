@@ -13,7 +13,10 @@ let jwk: JsonWebKey;
 const users = new Map<string, string>(); // email -> user id
 const sent: { email: string; create: boolean }[] = [];
 const deleted: string[] = [];
+const links = new Map<string, string>(); // one-time sign-in link hash -> email
 let tokenSeconds = 3600;
+let signinAge = 0; // seconds since the last sign-in, as Supabase's amr claim says
+const signedInAt = new Map<string, number>(); // user id -> seconds
 let realFetch: typeof fetch;
 
 const b64url = (b: ArrayBuffer | Uint8Array | string) =>
@@ -25,7 +28,8 @@ const b64url = (b: ArrayBuffer | Uint8Array | string) =>
 async function accessToken(id: string, email: string): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
   const h = b64url(JSON.stringify({ alg: "ES256", kid: "test-key", typ: "JWT" }));
-  const p = b64url(JSON.stringify({ sub: id, email, aud: "authenticated", iss: `${SUPABASE}/auth/v1`, exp: now + tokenSeconds, iat: now }));
+  const amr = [{ method: "otp", timestamp: signedInAt.get(id) ?? now }];
+  const p = b64url(JSON.stringify({ sub: id, email, aud: "authenticated", iss: `${SUPABASE}/auth/v1`, exp: now + tokenSeconds, iat: now, amr }));
   const sig = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, keys.privateKey, new TextEncoder().encode(`${h}.${p}`));
   return `${h}.${p}.${b64url(sig)}`;
 }
@@ -45,9 +49,17 @@ async function fakeSupabase(url: URL, init: RequestInit = {}): Promise<Response>
     if (!users.has(body.email) && !body.create_user) return Response.json({ code: "otp_disabled" }, { status: 422 });
     return Response.json({});
   }
+  if (path === "/verify" && body.token_hash) {
+    const email = links.get(body.token_hash);
+    links.delete(body.token_hash);
+    if (!email || body.type !== "magiclink") return Response.json({ code: "otp_expired" }, { status: 403 });
+    signedInAt.set(users.get(email)!, Math.floor(Date.now() / 1000));
+    return tokens(users.get(email)!, email);
+  }
   if (path === "/verify") {
     if (body.token !== "123456" || !sent.some((s) => s.email === body.email)) return Response.json({ code: "otp_expired" }, { status: 403 });
     if (!users.has(body.email)) users.set(body.email, crypto.randomUUID());
+    signedInAt.set(users.get(body.email)!, Math.floor(Date.now() / 1000) - signinAge);
     return tokens(users.get(body.email)!, body.email);
   }
   if (path === "/token") {
@@ -56,7 +68,17 @@ async function fakeSupabase(url: URL, init: RequestInit = {}): Promise<Response>
     return email ? tokens(id, email) : Response.json({ code: "refresh_token_not_found" }, { status: 400 });
   }
   if (path === "/logout") return new Response(null, { status: 204 });
+  if (path.startsWith("/admin/") && headers.get("apikey") !== "sb_secret_test") return new Response("forbidden", { status: 403 });
+  if (path === "/admin/generate_link") {
+    const hash = `hash-${crypto.randomUUID()}`;
+    links.set(hash, body.email);
+    return Response.json({ id: users.get(body.email), email: body.email, hashed_token: hash, verification_type: "magiclink" });
+  }
   const del = path.match(/^\/admin\/users\/(.+)$/);
+  if (del && (init.method ?? "GET") === "GET") {
+    const email = [...users].find(([, v]) => v === del[1])?.[0];
+    return email ? Response.json({ id: del[1], email }) : Response.json({}, { status: 404 });
+  }
   if (del && init.method === "DELETE") {
     if (headers.get("apikey") !== "sb_secret_test") return new Response("forbidden", { status: 403 });
     deleted.push(del[1]!);
@@ -74,6 +96,9 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   users.clear();
+  signedInAt.clear();
+  links.clear();
+  signinAge = 0;
   sent.length = 0;
   deleted.length = 0;
   tokenSeconds = 3600;
@@ -81,7 +106,7 @@ beforeEach(async () => {
     const url = new URL(input instanceof Request ? input.url : String(input));
     return url.origin === SUPABASE ? fakeSupabase(url, init) : realFetch(input, init);
   });
-  await env.DB.exec("DELETE FROM played; DELETE FROM game_images; DELETE FROM api_keys; DELETE FROM save_history; DELETE FROM saves; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
+  await env.DB.exec("DELETE FROM played; DELETE FROM game_images; DELETE FROM api_keys; DELETE FROM passkeys; DELETE FROM save_history; DELETE FROM saves; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -717,5 +742,143 @@ describe("recently played", () => {
     expect(page).toContain("New levels.");
     expect(page).toContain('id="tab-updates"');
     expect(await (await SELF.fetch(`${SITE}/g/hop?play`)).text()).toContain("play();");
+  });
+});
+
+describe("passkeys", () => {
+  // A software authenticator: what a phone or laptop does when it makes and uses a passkey.
+  const RP = "zaisma.test";
+  const sha = async (b: Uint8Array) => new Uint8Array(await crypto.subtle.digest("SHA-256", b));
+  const text = (s: string) => new TextEncoder().encode(s);
+  const cat = (...parts: Uint8Array[]) => {
+    const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+    let i = 0;
+    for (const p of parts) (out.set(p, i), (i += p.length));
+    return out;
+  };
+  const u32 = (n: number) => new Uint8Array([n >>> 24, (n >>> 16) & 255, (n >>> 8) & 255, n & 255]);
+  // WebCrypto signs as r||s; WebAuthn sends DER.
+  const der = (raw: Uint8Array) => {
+    const int = (x: Uint8Array) => {
+      let i = 0;
+      while (i < x.length - 1 && x[i] === 0) i++;
+      const v = x.slice(i);
+      return v[0]! & 0x80 ? cat(new Uint8Array([2, v.length + 1, 0]), v) : cat(new Uint8Array([2, v.length]), v);
+    };
+    const body = cat(int(raw.slice(0, 32)), int(raw.slice(32)));
+    return cat(new Uint8Array([0x30, body.length]), body);
+  };
+
+  class Device {
+    keys!: CryptoKeyPair;
+    id = crypto.getRandomValues(new Uint8Array(16));
+    count = 0;
+    async create(options: { challenge: string }, origin = SITE) {
+      this.keys = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair;
+      const auth = cat(await sha(text(RP)), new Uint8Array([0x45]), u32(0), new Uint8Array(16), new Uint8Array([0, this.id.length]), this.id);
+      return {
+        id: b64url(this.id),
+        clientDataJSON: b64url(JSON.stringify({ type: "webauthn.create", challenge: options.challenge, origin })),
+        authenticatorData: b64url(auth),
+        publicKey: b64url((await crypto.subtle.exportKey("spki", this.keys.publicKey)) as ArrayBuffer),
+        alg: -7,
+      };
+    }
+    async get(challenge: string, opts: { origin?: string; count?: number } = {}) {
+      this.count = opts.count ?? this.count + 1;
+      const auth = cat(await sha(text(RP)), new Uint8Array([0x05]), u32(this.count));
+      const client = text(JSON.stringify({ type: "webauthn.get", challenge, origin: opts.origin ?? SITE }));
+      const sig = new Uint8Array(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, this.keys.privateKey, cat(auth, await sha(client))));
+      return { id: b64url(this.id), clientDataJSON: b64url(client), authenticatorData: b64url(auth), signature: b64url(der(sig)) };
+    }
+  }
+
+  const api = async (b: Browser, path: string, body: unknown = {}) => {
+    const res = await b.go(path, undefined, { method: "POST", body: JSON.stringify(body) });
+    return { status: res.status, data: (await res.json()) as Record<string, unknown> };
+  };
+  async function addPasskey(b: Browser, device = new Device()) {
+    const options = await api(b, "/api/passkeys/add/options");
+    expect(options.status).toBe(200);
+    expect(options.data).toMatchObject({ rp: { id: RP, name: "Zaisma" }, algs: [-7, -257] });
+    const added = await api(b, "/api/passkeys/add", await device.create(options.data as { challenge: string }));
+    expect(added).toEqual({ status: 200, data: { ok: true } });
+    return device;
+  }
+  async function signInWith(device: Device, opts: { origin?: string; count?: number } = {}) {
+    const b = new Browser();
+    const { data } = await api(b, "/api/passkeys/signin/options");
+    const res = await api(b, "/api/passkeys/signin", { ...(await device.get(String(data.challenge), opts)), next: "/account" });
+    return { b, ...res };
+  }
+
+  it("adds a passkey after a recent sign-in, then signs back in with it", async () => {
+    const b = new Browser();
+    await join(b);
+    const device = await addPasskey(b);
+    expect(await (await b.go("/account")).text()).toContain("Added on");
+
+    const { b: other, status, data } = await signInWith(device);
+    expect(status).toBe(200);
+    expect(data.next).toBe("/account");
+    expect(await (await other.go("/account")).text()).toContain("fox@example.com");
+    const row = await env.DB.prepare("SELECT sign_count, last_used_at FROM passkeys").first<{ sign_count: number; last_used_at: number }>();
+    expect(row!.sign_count).toBe(1);
+    expect(row!.last_used_at).toBeGreaterThan(0);
+  });
+
+  it("refuses a wrong site, a reused challenge, a copied key and a removed passkey", async () => {
+    const b = new Browser();
+    await join(b);
+    const device = await addPasskey(b);
+    expect((await signInWith(device, { origin: "https://evil.example" })).status).toBe(400);
+
+    // A challenge works once.
+    const once = new Browser();
+    const { data } = await api(once, "/api/passkeys/signin/options");
+    const use = await device.get(String(data.challenge));
+    expect((await api(once, "/api/passkeys/signin", use)).status).toBe(200);
+    expect((await api(once, "/api/passkeys/signin", use)).status).toBe(400);
+
+    // A sign count that goes backwards means a copied key.
+    expect((await signInWith(device, { count: 1 })).status).toBe(400);
+
+    const id = (await env.DB.prepare("SELECT id FROM passkeys").first<{ id: string }>())!.id;
+    await b.go(`/account/passkeys/${id}/remove`, {});
+    expect((await signInWith(device)).status).toBe(400);
+  });
+
+  it("asks for an email code first when the last sign-in wasn't recent", async () => {
+    signinAge = 3600;
+    const b = new Browser();
+    await join(b);
+    const page = await (await b.go("/account")).text();
+    expect(page).toContain('action="/account/passkeys/confirm"');
+    expect((await api(b, "/api/passkeys/add/options")).data).toMatchObject({ confirm: true });
+
+    const sentBefore = sent.length;
+    const code = await (await b.go("/account/passkeys/confirm", {})).text();
+    expect(sent.length).toBe(sentBefore + 1);
+    expect(code).toContain('value="/account?passkey"');
+    signinAge = 0;
+    expect((await b.go("/signin/code", { email: "fox@example.com", code: "123456", next: "/account?passkey" })).headers.get("location")).toBe("/account?passkey");
+    expect(await (await b.go("/account?passkey")).text()).toContain("Thanks, that's you.");
+    await addPasskey(b);
+  });
+
+  it("only takes requests from our own pages, and deletes passkeys with the account", async () => {
+    const b = new Browser();
+    await join(b);
+    await addPasskey(b);
+    expect((await b.go("/api/passkeys/signin/options", undefined, { method: "POST", body: "{}", origin: "https://evil.example" })).status).toBe(403);
+    expect((await api(new Browser(), "/api/passkeys/add/options")).status).toBe(401);
+    await b.go("/account/delete", { confirm: "delete" });
+    expect(await env.DB.prepare("SELECT * FROM passkeys").first()).toBeNull();
+  });
+
+  it("offers passkeys on the sign-in page", async () => {
+    const page = await (await new Browser().go("/signin?next=/g/owl")).text();
+    expect(page).toContain("Sign in with a passkey");
+    expect(page).toContain('autocomplete="email webauthn"');
   });
 });

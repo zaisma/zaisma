@@ -10,5 +10,7 @@ export * from "./scan/images.ts";
 export * from "./scan/decide.ts";
 export * from "./accounts.ts";
 export * from "./saves.ts";
+export * from "./webauthn.ts";
+export * from "./passkeys.ts";
 export * from "./developers.ts";
 export * from "./uploads.ts";
