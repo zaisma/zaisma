@@ -14,7 +14,7 @@ Founder: Julius. Side project, built in public. MIT licensed.
 
 **Weekend 1: safe game hosting.** Upload a web game, scan it before publishing (malware, illegal-image matching, AI review), serve it sandboxed on a separate game domain, list it on a simple directory page, report button and takedown flow.
 
-Next: Weekend 2 (guest multiplayer rooms + invite links), Weekend 3 (accounts, saves, Claude Code publish skill, public beta). See the build order in `docs/PLAN.md`.
+Next: Weekend 2 (guest multiplayer rooms + invite links), Weekend 3 (accounts, saves, creator MCP and publishing, public beta). See the build order in `docs/PLAN.md`.
 
 ## Stack
 

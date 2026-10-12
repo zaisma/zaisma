@@ -26,13 +26,15 @@ Settled calls. Don't reopen these in code or docs without Julius approving the c
 
 ## Safety and moderation
 
-- **Scan before publish.** Malware scan, known-illegal-image matching, AI review. Games go live within minutes when clean.
-- **Moderation pays for itself.** A capped free review budget per developer, then refundable $5 / $25 deposits, so floods from bad actors cost them, not us.
+- **Scan before publish.** Malware scan, known-illegal-image matching, AI review. Every upload is scanned within minutes; the creator then publishes when ready.
+- **Scan only what changed.** Files are fingerprinted, and an update reuses earlier results for unchanged files. Updates are limited per game per day (about 20) so a broken script can't upload in a loop.
+- **Moderation pays for itself.** A capped free review budget per creator (not per game), then refundable $5 / $25 deposits, so floods from bad actors cost them, not us.
 - **Games are sandboxed** on a separate game domain, never on zaisma.com.
 - **Report button on every game page**, DMCA agent registered, takedown on notice.
 - **Game domain: zaisma.gg** long term. Until it's bought, games are served from the free `workers.dev` address. A real game domain (one subdomain per game) is required before outside developers can upload, because only separate subdomains stop games reading each other's storage.
 - **Games can't load outside scripts or call outside servers.** The code that runs is the code we scanned, so developers bundle their libraries. Our room host gets allowed when multiplayer ships.
 - **Weekend 1 uploads are admin-only** (Julius). Developer uploads open with accounts in Weekend 3.
+- **Same rules at every visibility.** Draft and unlisted games are scanned, reportable and bound by the content rules exactly like listed ones.
 
 ## Discovery
 
@@ -44,7 +46,12 @@ Settled calls. Don't reopen these in code or docs without Julius approving the c
 - **Browser first, desktop downloads too.** Desktop builds use the same toolkit.
 - **Custom game domains after beta.** Developers can point their own domain at their game (Cloudflare for SaaS: first 100 domains free, then about $0.10 each a month). Same scanning, sandbox and takedown rules.
 - **Multiplayer rooms use WebSocket hibernation from day one** (Cloudflare Durable Objects). Without it, costs are 10x+.
+- **Multiplayer is server-client by default.** The game server holds the official state and checks every move; a messages-only relay is there for simple games. While only Julius uploads, game servers are built into our rooms Worker. Once outside developers upload, they run in Cloudflare Dynamic Workers (needs Workers Paid, $5/month).
 - **Multiplayer words: client, game server, room.** The *client* is the game in the player's browser. The *game server* is the developer's server-side code that holds the official game state. A *room* is one live match, running one copy of the game server. Use these game-dev terms in code, docs and copy (not "room script" or "backend").
+- **Creator MCP first.** Creators manage everything from any AI tool through our MCP server, with a small upload command for builds (too big for MCP calls) and a Claude Code skill on top. The website dashboard and the MCP use the same API, so they always agree. Deleting or unpublishing a game needs confirmation.
+- **Uploads are drafts.** Each upload is a version. Once it passes the scan, the creator gets a private preview link; nothing unscanned is shown to anyone. Details (name, description, cover, screenshots) are drafted and scanned too. The creator publishes now or schedules it, and can roll back to any kept version in one click. We keep the live version plus the last 5 approved; unpublished drafts are deleted after 30 days. Code history belongs in the creator's own Git.
+- **Creators own many games; visibility and review are separate.** Visibility is the creator's: draft, listed (directory and search) or unlisted (anyone with the link). Review status is ours: live, under review or removed. Changing visibility never undoes a takedown. Co-owners and teams come after beta.
+- **Device labels.** Creators state devices (phone, tablet, computer), controls (touch, keyboard and mouse, gamepad) and screen (portrait, landscape, either). Games for the player's device come first; others show a note and "Play anyway", never a block.
 - **Tools tab in months 2–3.** Free, open-source developer tools (asset pipelines, engines, editors, Claude Code skills). Same rules as games; a tool must be open source to list.
 
 ## Release plan

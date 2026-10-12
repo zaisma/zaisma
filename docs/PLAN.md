@@ -9,14 +9,14 @@ Oct 11, 2026 · @Julius Ivsan
 Click a link and you're in the game: no account, no app download, in any browser. That's the headline. Behind it is an open, low-fee home for radically creative games made with AI tools, with one optional account for friends, saves and purchases, and developers keeping their revenue. It launches as a 13+ side project on rented cloud services.
 
 - **For players:** tap a friend's link and play as a guest in seconds, on phone or laptop. Make an account only to keep progress, add friends or buy something.
-- **For developers:** publish any web game in one command from Claude Code, in any art style, world or genre. Accounts, friends, saves, multiplayer and payments come built in.
+- **For developers:** publish any web game in one prompt from Claude Code or any other AI tool, in any art style, world or genre. Accounts, friends, saves, multiplayer and payments come built in.
 - **Versus Roblox:** no required app, no shared avatar or blocky world, no engine lock-in, and no cut of game revenue, and every line of the platform open source.
 
 ## Wedge and growth loop
 
 We win by being the default "publish" step for games made in Claude Code, then letting every shared game link recruit new players.
 
-1. **Publish skill + SDK.** A Claude Code skill (and MCP server) that adds login, friends, saves and multiplayer to a web game and publishes it in one prompt. A small JavaScript SDK any game can drop in.
+1. **Creator MCP + toolkit.** An MCP server any AI tool can connect to after the creator signs in: create games, edit details, upload, publish, roll back, and check scans, reports and stats. A small upload command sends builds straight to us, and a Claude Code skill teaches the whole workflow. A small JavaScript toolkit adds login, friends, saves and multiplayer to any game.
 2. **Instant play links.** Every game and every multiplayer room has a link. Anyone who taps it joins as a guest in seconds, in the browser, with no signup and no download. After a good session we offer "keep your progress" to turn the guest into an account.
 3. **Friends pull friends.** "Join my room" links put new players onto the platform; once they have an account, every other game is one tap away.
 4. **Developers pull players.** Developers already post their AI-made games on X, Reddit and Discord. Each post points at our link, not a zip file or a GitHub page.
@@ -60,7 +60,7 @@ The whole platform runs on rented services for about $5/month while building and
 
 **Bring your own servers, any time.** Our rooms are a convenient default, billed at cost, never a requirement. A game can run its own servers from day one or move off ours when it takes off, for performance or customization. Accounts, guest IDs, friends and room links keep working: the toolkit hands each player a signed pass that the developer's own server can check, and a room link can point at any server. Moving takes a config change, not a rewrite.
 
-Supabase's free plan pauses after a week without traffic, so we move to Pro ($25) at public launch.
+Supabase's free plan pauses after a week without traffic, so we move to Pro ($25) at public launch. Cloudflare Workers Paid ($5/month) is needed by Weekend 3, because running developers' game servers safely uses Dynamic Workers.
 
 ## Rules for a 13+ launch
 
@@ -81,7 +81,7 @@ Public beta after three weekends, then weekly releases. Being first matters more
 
 1. **Weekend 1: safe game hosting.** Upload a web game, scan it before publishing (malware, illegal-image matching, AI review), serve it sandboxed on a separate game domain (zaisma.gg; the free workers.dev address until it's bought), list it on a simple directory page. Report button and takedown process.
 2. **Weekend 2: guest multiplayer.** Room server that runs on Cloudflare or any normal server; room links that drop guests straight into a match; one-tap clip-and-share with the link built in. Ship the first demo games built with Claude Code.
-3. **Weekend 3: accounts and the publish skill.** Sign-in, age gate, "keep your progress" from guest, cloud saves; the open-source Claude Code skill and toolkit that publish a game in one prompt. **Open the public beta.**
+3. **Weekend 3: accounts and the publish skill.** Sign-in, age gate, "keep your progress" from guest, cloud saves; the creator MCP, upload command and Claude Code skill that publish a game in one prompt; creator dashboard with drafts, versions and listed/unlisted games. **Open the public beta.**
 4. **Week 4: friends.** Friend list, invites, see what friends are playing.
 5. **Week 5: discovery and trust.** Progress bar, "New and rising" shelf, Scout badge, front page for games that clear the bar.
 6. **Week 6: money.** Optional free Stripe checkout, teen spend cap, at-cost multiplayer billing, $5 deposits, donation page.
@@ -92,7 +92,7 @@ Public beta after three weekends, then weekly releases. Being first matters more
 The goal for the first 90 days after beta: 100 listed games and 10,000 monthly players, most arriving through guest links.
 
 - **Seed 10 games ourselves** with Claude Code, each a different style and genre, all multiplayer with guest links. They prove the "anything goes" pitch on day one.
-- **Recruit 90 developers** from people already posting AI-made games on X, Reddit (r/aigamedev, r/IndieDev), Discord and itch.io. Offer free hosting, a featured slot and the one-prompt publish skill.
+- **Recruit 90 developers** from people already posting AI-made games on X, Reddit (r/aigamedev, r/IndieDev), Discord and itch.io. Offer free hosting, a featured slot and one-prompt publishing.
 - **Weekly game jam** with a theme and a front-page feature for winners; each entry is a new listing and every share is a guest link.
 
 | Metric | 90-day target |
