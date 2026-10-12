@@ -492,7 +492,10 @@ const HISTORY: Record<string, string | null> = {
   "publish-unscheduled": "Cancelled a scheduled publish",
   "publish-dropped": "A scheduled version didn't pass review, so it wasn't published",
   "draft-deleted": "An unpublished version was deleted after 30 days",
-  "auto-hold": "A player report hid the game until it's reviewed",
+  // Neutral on purpose: the developer is never told which kind of report it was.
+  "auto-hold": "A report paused your game while we check it",
+  "report-paused-update": "A report paused your latest update while we check it; players get the version before it",
+  "report-cleared": "We checked a report and put your game back",
   takedown: "Zaisma took the game down",
   restored: "Zaisma restored the game",
   "reports-dismissed": null,

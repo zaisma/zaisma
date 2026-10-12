@@ -188,7 +188,7 @@ describe("reports and takedowns", () => {
   it("takes a report from the plate with the version and room, and nothing about the reporter", async () => {
     const { versionId } = await liveGame();
     const res = await fromPlate({ reason: "broken", details: "stuck on level 2", room: "abcdef" });
-    expect(await res.json()).toEqual({ ok: true, hidden: false });
+    expect(await res.json()).toEqual({ ok: true, hidden: false, paused: false });
     const row = await env.DB.prepare("SELECT * FROM reports").first<Record<string, unknown>>();
     expect(row).toMatchObject({ reason: "broken", details: "stuck on level 2", version_id: versionId, room_code: "ABCDEF", player_id: "" });
     expect(JSON.stringify(row)).not.toContain("203.0.113.");
@@ -197,7 +197,7 @@ describe("reports and takedowns", () => {
   it("takes a report about a player, with their temporary ID, and leaves the game up", async () => {
     await liveGame();
     const res = await fromPlate({ reason: "sexual", details: "", room: "ABCDEF", player: { id: "g_0123456789abcdef", name: "Swift Fox 42" } });
-    expect(await res.json()).toEqual({ ok: true, hidden: false });
+    expect(await res.json()).toEqual({ ok: true, hidden: false, paused: false });
     const row = await env.DB.prepare("SELECT * FROM reports").first<Record<string, unknown>>();
     expect(row).toMatchObject({ reason: "player", player_reason: "sexual", player_id: "g_0123456789abcdef", player_name: "Swift Fox 42", room_code: "ABCDEF" });
     expect((await gameBySlug(env.DB, "test-game"))?.status).toBe("live");
@@ -206,8 +206,50 @@ describe("reports and takedowns", () => {
 
   it("says when a report hid the game", async () => {
     await liveGame();
-    expect(await (await fromPlate({ reason: "child_safety" })).json()).toEqual({ ok: true, hidden: true });
+    expect(await (await fromPlate({ reason: "child_safety" })).json()).toEqual({ ok: true, hidden: true, paused: false });
     expect((await gameBySlug(env.DB, "test-game"))?.status).toBe("held");
+  });
+
+  const DAY = 86400_000;
+  const live = async () => (await gameBySlug(env.DB, "test-game"))!;
+
+  it("pauses a recent update instead of hiding an established game, once", async () => {
+    const first = await liveGame();
+    await env.DB.prepare("UPDATE versions SET published_at = ? WHERE id = ?").bind(Date.now() - 30 * DAY, first.versionId).run();
+    const update = await uploadAndScan({ ...CLEAN_GAME, "index.html": "<p>v2</p>" }, { images: connected, ai: aiSays("pass") });
+    expect((await live()).current_version_id).toBe(update.versionId);
+
+    expect(await (await fromPlate({ reason: "child_safety" })).json()).toEqual({ ok: true, hidden: false, paused: true });
+    expect(await live()).toMatchObject({ status: "live", current_version_id: first.versionId });
+    expect((await versionById(env.DB, update.versionId))?.scan_status).toBe("held");
+
+    // The version players went back to can't be paused again by reports.
+    expect(await (await fromPlate({ reason: "illegal" })).json()).toEqual({ ok: true, hidden: false, paused: false });
+    expect(await live()).toMatchObject({ status: "live", current_version_id: first.versionId });
+
+    // A person puts the update back in one click, and then reports can't pause it either.
+    await SELF.fetch(`${LOCAL}/admin/versions/${update.versionId}/approve`, { method: "POST", body: new FormData(), redirect: "manual" });
+    expect((await live()).current_version_id).toBe(update.versionId);
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM reports WHERE status = 'open'").first("n")).toBe(0);
+    expect(await (await fromPlate({ reason: "child_safety" })).json()).toEqual({ ok: true, hidden: false, paused: false });
+    expect((await live()).current_version_id).toBe(update.versionId);
+  });
+
+  it("leaves an established game up when its version is more than a week old", async () => {
+    const { versionId } = await liveGame();
+    await env.DB.prepare("UPDATE versions SET published_at = ? WHERE id = ?").bind(Date.now() - 8 * DAY, versionId).run();
+    expect(await (await fromPlate({ reason: "child_safety" })).json()).toEqual({ ok: true, hidden: false, paused: false });
+    expect((await live()).status).toBe("live");
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM reports").first("n")).toBe(1);
+  });
+
+  it("hides a brand-new game only until a person clears it", async () => {
+    const { gameId } = await liveGame();
+    expect(await (await fromPlate({ reason: "illegal" })).json()).toEqual({ ok: true, hidden: true, paused: false });
+    await SELF.fetch(`${LOCAL}/admin/games/${gameId}/restore`, { method: "POST", body: new FormData(), redirect: "manual" });
+    expect((await live()).status).toBe("live");
+    expect(await (await fromPlate({ reason: "child_safety" })).json()).toEqual({ ok: true, hidden: false, paused: false });
+    expect((await live()).status).toBe("live");
   });
 
   it("refuses plate reports sent from other sites", async () => {
@@ -219,9 +261,9 @@ describe("reports and takedowns", () => {
   it("takes reports on private games, and answers the same for games that don't exist", async () => {
     await liveGame();
     await env.DB.exec("UPDATE games SET visibility = 'private'");
-    expect(await (await fromPlate({ reason: "broken" })).json()).toEqual({ ok: true, hidden: false });
+    expect(await (await fromPlate({ reason: "broken" })).json()).toEqual({ ok: true, hidden: false, paused: false });
     expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM reports").first("n")).toBe(1);
-    expect(await (await fromPlate({ reason: "broken" }, "no-such-game")).json()).toEqual({ ok: true, hidden: false });
+    expect(await (await fromPlate({ reason: "broken" }, "no-such-game")).json()).toEqual({ ok: true, hidden: false, paused: false });
     expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM reports").first("n")).toBe(1);
     // The plain form never shows a private game's name.
     expect(await (await SELF.fetch(`${LOCAL}/g/test-game/report`)).text()).not.toContain("Test Game");

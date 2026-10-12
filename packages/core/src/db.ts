@@ -125,6 +125,11 @@ export async function publishVersion(db: D1Database, version: Version): Promise<
   ]);
 }
 
+/** A person checked this version after a report: later reports can't pause it. */
+export async function clearVersion(db: D1Database, versionId: string): Promise<void> {
+  await db.prepare("UPDATE versions SET cleared_at = ?, report_held_at = NULL WHERE id = ?").bind(now(), versionId).run();
+}
+
 export async function audit(db: D1Database, gameId: string | null, action: string, reason = "", actor = "system"): Promise<void> {
   await db.prepare("INSERT INTO audit_log (game_id, action, reason, actor, at) VALUES (?, ?, ?, ?, ?)").bind(gameId, action, reason, actor, now()).run();
 }

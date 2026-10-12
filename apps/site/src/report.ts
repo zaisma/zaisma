@@ -1,4 +1,4 @@
-import { AUTO_HOLD_REASONS, PLAYER_REPORT_REASONS, REPORT_REASONS, audit, createReport, gameBySlug, reportLabel, reportPictureKey, setGameStatus, type Game, type PlayerReportReason, type ReportReason } from "@zaisma/core";
+import { AUTO_HOLD_REASONS, PLAYER_REPORT_REASONS, REPORT_REASONS, audit, createReport, gameBySlug, reportLabel, reportPictureKey, setGameStatus, versionById, type Game, type PlayerReportReason, type ReportReason, type Version } from "@zaisma/core";
 import type { Env } from "./env.ts";
 import { sendAlert } from "./email.ts";
 import { html, layout, metalButton, raw } from "./html.ts";
@@ -128,7 +128,7 @@ dialog.sheet::backdrop{background:linear-gradient(90deg,rgba(4,5,7,0) 35%,rgba(4
         <span class="frame"><img id="report-pic-img" alt="The game when you opened Report"></span>
         <label class="tick"><input type="checkbox" name="picture" checked>Include this picture of the game</label>
       </figure>
-      <p class="note plate" id="report-hold" hidden>We hide the game straight away while we check.</p>
+      <p class="note plate" id="report-hold" hidden>These go straight to a person.</p>
       <p class="sheet-fine" id="report-context"></p>
       <p class="error" id="report-error" role="alert" hidden></p>
       <div class="row">${metalButton("Send report", { id: "report-send", type: "submit" })}<button class="btn ghost" type="button" data-back>Back</button></div>
@@ -229,7 +229,7 @@ dialog.sheet::backdrop{background:linear-gradient(90deg,rgba(4,5,7,0) 35%,rgba(4
       $("report-error").hidden = false;
       return;
     }
-    $("report-sent-text").textContent = data.hidden ? "The game is hidden while we check it." : about && about.fromGame ? about.name + " is muted for you. We'll look at it soon." : "We'll look at it soon.";
+    $("report-sent-text").textContent = data.hidden ? "The game is hidden while we check it." : data.paused ? "The latest update is paused while we check it." : about && about.fromGame ? about.name + " is muted for you. We'll look at it soon." : "We'll look at it soon.";
     // The game mutes a player once they're reported.
     const f = frame();
     if (about && f && f.contentWindow) f.contentWindow.postMessage({ type: "zaisma:reported", player: about.id }, C.gameOrigin);
@@ -296,12 +296,12 @@ ${error ? html`<p class="note">${error}</p>` : ""}
  */
 export async function submitReport(env: Env, request: Request, slug: string, ctx: ExecutionContext): Promise<Response> {
   const fromSheet = (request.headers.get("content-type") ?? "").startsWith("application/json");
-  const reply = (status: number, body: { ok?: true; hidden?: boolean; error?: string }) => {
+  const reply = (status: number, body: { ok?: true; hidden?: boolean; paused?: boolean; error?: string }) => {
     if (fromSheet) return Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
     if (body.error) return reportForm(env, slug, body.error, status);
     const res = layout(env, {
       title: "Thanks for the report",
-      body: html`<h1>Thanks for the report</h1><p class="lead">${body.hidden ? "The game is hidden while we check it." : "We'll look at it soon."}</p><a class="btn ghost" href="/">Back to games</a>`,
+      body: html`<h1>Thanks for the report</h1><p class="lead">${body.hidden ? "The game is hidden while we check it." : body.paused ? "The latest update is paused while we check it." : "We'll look at it soon."}</p><a class="btn ghost" href="/">Back to games</a>`,
     });
     return new Response(res.body, { status, headers: res.headers });
   };
@@ -323,7 +323,7 @@ export async function submitReport(env: Env, request: Request, slug: string, ctx
   if (player ? !(player.reason in PLAYER_REPORT_REASONS) : !(reason in REPORT_REASONS)) return reply(400, { error: "Choose what the problem is." });
 
   const game = await gameBySlug(env.DB, slug);
-  if (!game) return reply(200, { ok: true, hidden: false });
+  if (!game) return reply(200, { ok: true, hidden: false, paused: false });
 
   const report = { gameId: game.id, reason, details, versionId: game.current_version_id, roomCode: ROOM_CODE.test(room) ? room : "", ...(player ? { player } : {}) };
   const id = await createReport(env.DB, report);
@@ -333,20 +333,17 @@ export async function submitReport(env: Env, request: Request, slug: string, ctx
     await env.GAMES.put(reportPictureKey(id), picture, { httpMetadata: { contentType: "image/jpeg" } });
     await env.DB.prepare("UPDATE reports SET picture = 1 WHERE id = ?").bind(id).run();
   }
-  const hidden = !player && AUTO_HOLD_REASONS.includes(reason) && game.status === "live";
-  if (hidden) {
-    await setGameStatus(env.DB, game.id, "held");
-    await audit(env.DB, game.id, "auto-hold", `Report: ${REPORT_REASONS[reason]}`);
-  }
+  const paused = !player && AUTO_HOLD_REASONS.includes(reason) ? await pauseForReport(env, game, REPORT_REASONS[reason]) : null;
+  const hidden = paused === "game";
   const what = reportLabel({ reason, room_code: report.roomCode, player_name: player?.name ?? "", player_reason: player?.reason ?? "" });
   ctx.waitUntil(
     sendAlert(
       env,
-      `${reason === "child_safety" ? "URGENT child-safety report" : "Report"} on ${game.slug}: ${what}${hidden ? " (game hidden)" : ""}`,
-      `${what}\n\n${details || "(no details)"}\n\n${picture ? "With a picture of the game.\n\n" : ""}${reason === "child_safety" ? "Don't delete anything; review it and report to NCMEC if confirmed.\n\n" : ""}${hidden ? "The game is hidden until you review it.\n\n" : ""}Review: ${env.SITE_ORIGIN}/admin/games/${game.id}`,
+      `${reason === "child_safety" ? "URGENT child-safety report" : AUTO_HOLD_REASONS.includes(reason) && !player ? "URGENT report" : "Report"} on ${game.slug}: ${what}${hidden ? " (game hidden)" : paused ? " (update paused)" : ""}`,
+      `${what}\n\n${details || "(no details)"}\n\n${picture ? "With a picture of the game.\n\n" : ""}${reason === "child_safety" ? "Don't delete anything; review it and report to NCMEC if confirmed.\n\n" : ""}${hidden ? "The game is hidden until you review it.\n\n" : paused ? "Players are back on the version before the latest update until you review it.\n\n" : ""}Review: ${env.SITE_ORIGIN}/admin/games/${game.id}`,
     ),
   );
-  return reply(200, { ok: true, hidden });
+  return reply(200, { ok: true, hidden, paused: paused === "update" });
 }
 
 /** A picture of the game from the plate: a JPEG data URL, at most 1.5 MB. Anything else is dropped. */
@@ -360,6 +357,42 @@ function pictureBytes(value: unknown): Uint8Array | null {
     return null;
   }
   return bytes.length <= 1_500_000 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff ? bytes : null;
+}
+
+const RECENT_MS = 7 * 86400_000;
+
+/**
+ * A child-safety or illegal-content report, before a person has looked (docs/DECISIONS.md). No single
+ * report can take an established game offline, and a griefer gets at most one pause per version:
+ * - a version a person already cleared, or one a report already went back to: nothing automatic;
+ * - an update that went live in the last 7 days: players go back to the version before it, which is
+ *   then never undone again automatically, and the update is held for a person;
+ * - a brand-new game (its only version went live in the last 7 days): hidden until a person looks;
+ * - anything else stays up. The alert goes out either way, marked URGENT.
+ */
+async function pauseForReport(env: Env, game: Game, label: string): Promise<"game" | "update" | null> {
+  if (game.status !== "live" || !game.current_version_id) return null;
+  const live = await versionById(env.DB, game.current_version_id);
+  const now = Date.now();
+  if (!live || live.cleared_at || !live.published_at || live.published_at < now - RECENT_MS) return null;
+  const before = await env.DB
+    .prepare("SELECT * FROM versions WHERE game_id = ? AND id != ? AND scan_status = 'approved' AND published_at IS NOT NULL AND published_at < ? ORDER BY published_at DESC LIMIT 1")
+    .bind(game.id, live.id, live.published_at)
+    .first<Version>();
+  if (before) {
+    // Approving the held update (in admin) puts it straight back.
+    await env.DB.batch([
+      env.DB.prepare("UPDATE games SET current_version_id = ?, updated_at = ? WHERE id = ?").bind(before.id, now, game.id),
+      env.DB.prepare("UPDATE versions SET scan_status = 'held', publish_when_approved = 1, report_held_at = ? WHERE id = ?").bind(now, live.id),
+      env.DB.prepare("UPDATE versions SET cleared_at = ? WHERE id = ?").bind(now, before.id),
+    ]);
+    await audit(env.DB, game.id, "report-paused-update", `Report: ${label}. Version ${live.id} held; players are back on version ${before.id}`);
+    return "update";
+  }
+  await setGameStatus(env.DB, game.id, "held");
+  await env.DB.prepare("UPDATE versions SET report_held_at = ? WHERE id = ?").bind(now, live.id).run();
+  await audit(env.DB, game.id, "auto-hold", `Report: ${label}`);
+  return "game";
 }
 
 async function readJson(request: Request): Promise<Record<string, unknown>> {

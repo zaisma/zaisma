@@ -3,6 +3,7 @@ import {
   LIMITS,
   reportLabel,
   reportPictureKey,
+  clearVersion,
   UploadError,
   aiUsage,
   allGames,
@@ -96,10 +97,17 @@ async function adminAction(request: Request, env: Env, path: string, actor: stri
   if (m) {
     const version = await versionById(env.DB, m[1]!);
     if (!version) return new Response("Not found", { status: 404 });
-    if (m[2] === "approve") {
+    if (version.report_held_at && m[2] === "approve") {
+      // A report paused this update: put it back, and later reports can't pause it again.
+      await publishVersion(env.DB, version);
+      await clearVersion(env.DB, version.id);
+      await closeReports(env.DB, version.game_id, "dismissed");
+      await audit(env.DB, version.game_id, "report-cleared", reason || `Version ${version.id} is back`, actor);
+    } else if (m[2] === "approve") {
       await passVersion(env, version, reason || "Approved by a person", actor);
     } else {
       await saveScan(env.DB, version.id, "rejected", null);
+      if (version.report_held_at) await closeReports(env.DB, version.game_id, "actioned");
       await audit(env.DB, version.game_id, "rejected", reason || `Version ${version.id}`, actor);
     }
     return redirect(`/admin/games/${version.game_id}`);
@@ -180,9 +188,12 @@ async function adminAction(request: Request, env: Env, path: string, actor: stri
       await audit(env.DB, game.id, "takedown", reason, actor);
     } else if (m[2] === "restore") {
       await setGameStatus(env.DB, game.id, game.current_version_id ? "live" : "pending");
+      // A person checked it: reports can't hide this version again.
+      if (game.current_version_id) await clearVersion(env.DB, game.current_version_id);
       await closeReports(env.DB, game.id, "dismissed");
       await audit(env.DB, game.id, "restored", reason, actor);
     } else {
+      if (game.current_version_id) await clearVersion(env.DB, game.current_version_id);
       await closeReports(env.DB, game.id, "dismissed");
       await audit(env.DB, game.id, "reports-dismissed", reason, actor);
     }
@@ -209,7 +220,7 @@ async function dashboard(env: Env, error = ""): Promise<Response> {
 <h2>Waiting for review (${queue.length})</h2>
 ${queue.length
       ? html`<table><tr><th>Game</th><th>Version</th><th>Status</th><th>Uploaded</th></tr>${queue.map(
-          (v) => html`<tr><td><a href="/admin/games/${v.game_id}">${v.title}</a></td><td>${v.id}</td><td>${pill(v.scan_status)}</td><td>${when(v.created_at)}</td></tr>`,
+          (v) => html`<tr><td><a href="/admin/games/${v.game_id}">${v.title}</a></td><td>${v.id}</td><td>${pill(v.scan_status)}${v.report_held_at ? " paused by a report" : ""}</td><td>${when(v.created_at)}</td></tr>`,
         )}</table>`
       : html`<p class="note">Nothing waiting.</p>`}
 
@@ -323,11 +334,12 @@ ${versions.map((v) => {
       return html`<div class="note" style="margin-bottom:12px">
   <div class="row"><strong>${v.id}</strong> ${pill(v.scan_status)} ${current ? html`<span class="pill live">players get this one</span>` : ""}
     <span>${v.file_count} files · ${(v.bytes / 1048576).toFixed(1)} MB · ${when(v.created_at)}</span></div>
+  ${v.report_held_at && v.scan_status === "held" ? html`<p><strong>A report paused this update.</strong> Players are on the version before it. Put it back if the report was wrong.</p>` : ""}
   ${report ? scanReport(report) : html`<p>Scan in progress…</p>`}
   ${v.scan_status !== "approved" || !current
         ? html`<div class="row">
-    ${v.scan_status !== "approved" ? html`<form method="post" action="/admin/versions/${v.id}/approve"><button class="btn" type="submit">${v.publish_when_approved ? "Approve and publish" : "Approve as a draft"}</button></form>` : ""}
-    ${v.scan_status !== "rejected" ? html`<form method="post" action="/admin/versions/${v.id}/reject"><button class="btn ghost" type="submit">Reject</button></form>` : ""}
+    ${v.scan_status !== "approved" ? html`<form method="post" action="/admin/versions/${v.id}/approve"><button class="btn" type="submit">${v.report_held_at ? "Put the update back" : v.publish_when_approved ? "Approve and publish" : "Approve as a draft"}</button></form>` : ""}
+    ${v.scan_status !== "rejected" ? html`<form method="post" action="/admin/versions/${v.id}/reject"><button class="btn ghost" type="submit">${v.report_held_at ? "Keep it off" : "Reject"}</button></form>` : ""}
   </div>`
         : ""}
 </div>`;

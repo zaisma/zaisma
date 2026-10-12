@@ -423,7 +423,7 @@ const CONTENT_RULES = `
 <h2>How we check</h2>
 <p>Every game is scanned before it's published: automatic malware checks, matching against known illegal images, and an AI review. Games that need a closer look wait for a person.</p>
 <h2>Reports and takedowns</h2>
-<p>Every game page has a Report button. We remove games that break these rules. Reports about child safety or illegal content hide the game straight away until we've reviewed it.</p>
+<p>Every game page has a Report button. We remove games that break these rules. Reports about child safety or illegal content go straight to a person. Until we've checked, a brand-new game is hidden and a recent update goes back to the version before it.</p>
 `;
 
 const DMCA = `

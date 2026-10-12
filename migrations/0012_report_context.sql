@@ -9,3 +9,9 @@ ALTER TABLE reports ADD COLUMN player_reason TEXT NOT NULL DEFAULT '';
 -- the report was closed: pictures are deleted 30 days after that.
 ALTER TABLE reports ADD COLUMN picture INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE reports ADD COLUMN closed_at INTEGER;
+-- Child-safety and illegal-content reports, before a person looks (docs/DECISIONS.md): report_held_at is
+-- when a report paused this version (players went back to the version before it, or the new game was
+-- hidden); cleared_at is when it stopped being touched by reports: a person checked it, or a report
+-- already went back to it.
+ALTER TABLE versions ADD COLUMN report_held_at INTEGER;
+ALTER TABLE versions ADD COLUMN cleared_at INTEGER;
