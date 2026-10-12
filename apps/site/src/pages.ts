@@ -12,18 +12,24 @@ export async function home(env: Env): Promise<Response> {
 ${games.length === 0
       ? html`<p class="empty">The first games are on their way.</p>`
       : html`<div class="grid">${games.map(
-          (g) => html`<a class="card" href="/g/${g.slug}"><h3>${g.title}</h3><p>${g.description}</p></a>`,
+          (g) => html`<a class="card" href="/g/${g.slug}"><h3>${g.title}</h3><p>${g.description}</p>${g.game_server || g.connect_hosts ? html`<span class="pill">Multiplayer</span>` : ""}</a>`,
         )}</div>`}`,
   });
 }
 
-export async function gamePage(env: Env, slug: string): Promise<Response> {
+const ROOM_CODE = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/;
+
+export async function gamePage(env: Env, slug: string, url: URL): Promise<Response> {
   const game = await gameBySlug(env.DB, slug);
   if (!game || game.status === "pending") return message(env, "Game not found", "Check the link and try again.", 404);
   if (game.status === "removed") return message(env, "This game was removed", "It broke Zaisma's content rules or was taken down on request.", 410);
   if (game.status === "held") return message(env, "This game is being reviewed", "Someone reported it and we're taking a look. Try again later.", 404);
 
-  const src = gameUrl(env, game.slug);
+  // A room link (zaisma.com/g/<slug>?room=CODE) drops the player straight into that match.
+  const code = url.searchParams.get("room")?.toUpperCase() ?? "";
+  const src = gameUrl(env, game.slug) + (ROOM_CODE.test(code) ? `?room=${code}` : "");
+  const multiplayer = Boolean(game.game_server || game.connect_hosts);
+  const ownServers = game.connect_hosts.split("\n").filter(Boolean).map((o) => o.replace(/^[a-z]+:\/\//, ""));
   return layout(env, {
     title: `${game.title} on Zaisma`,
     bare: true,
@@ -33,12 +39,15 @@ body{display:flex;flex-direction:column;height:100vh;height:100dvh;overflow:hidd
 .bar img{height:22px;display:block}
 .bar h1{font-size:15px;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
 .bar .btn{padding:6px 10px;font-size:13px}
+.bar .servers{font-size:12px;color:var(--muted);white-space:nowrap}
+@media (max-width:600px){.bar .servers{display:none}}
 iframe{flex:1;border:0;width:100%;background:#000}
 </style>
 <div class="bar">
   <a href="/"><img src="/zaisma-mark-metal.svg" alt="Zaisma"></a>
   <h1>${game.title}</h1>
-  <button class="btn ghost" id="share" type="button">Copy link</button>
+  ${ownServers.length ? html`<span class="servers" title="This game also connects to its own servers">Connects to ${ownServers.join(", ")}</span>` : ""}
+  <button class="btn ghost" id="share" type="button">${multiplayer ? "Invite" : "Copy link"}</button>
   <button class="btn ghost" id="full" type="button">Full screen</button>
   <a class="btn ghost" href="/g/${game.slug}/report">Report</a>
 </div>
@@ -46,11 +55,28 @@ iframe{flex:1;border:0;width:100%;background:#000}
   sandbox="allow-scripts allow-same-origin allow-pointer-lock"
   allow="fullscreen; gamepad; autoplay" allowfullscreen referrerpolicy="no-referrer"></iframe>
 <script>
-document.getElementById("full").onclick = () => document.getElementById("game").requestFullscreen?.();
-document.getElementById("share").onclick = async (e) => {
-  try { await navigator.clipboard.writeText(location.href); e.target.textContent = "Copied"; }
+const frame = document.getElementById("game");
+const share = document.getElementById("share");
+document.getElementById("full").onclick = () => frame.requestFullscreen?.();
+share.onclick = async () => {
+  const label = share.textContent;
+  // Phones get the share sheet; computers copy the link.
+  if (navigator.share && matchMedia("(pointer: coarse)").matches) {
+    try { await navigator.share({ title: document.title, url: location.href }); } catch {}
+    return;
+  }
+  try { await navigator.clipboard.writeText(location.href); share.textContent = "Copied"; setTimeout(() => (share.textContent = label), 1500); }
   catch { prompt("Copy this link", location.href); }
 };
+// The game says which room it's in, so the address bar and Invite point to that match.
+const gameOrigin = new URL(frame.src).origin;
+addEventListener("message", (e) => {
+  if (e.origin !== gameOrigin || e.source !== frame.contentWindow) return;
+  const d = e.data;
+  if (d && d.type === "zaisma:room" && typeof d.code === "string" && /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/.test(d.code)) {
+    history.replaceState(null, "", location.pathname + "?room=" + d.code);
+  }
+});
 </script>`,
   });
 }
@@ -132,6 +158,7 @@ const CONTENT_RULES = `
 <li>Hate, harassment or threats against real people or groups.</li>
 <li>Other people's games, art, music or characters used without permission.</li>
 <li>Collecting players' personal data.</li>
+<li>Free-text chat between players. Preset phrases and emotes are fine.</li>
 </ul>
 <h2>How we check</h2>
 <p>Every game is scanned before it's published: automatic malware checks, matching against known illegal images, and an AI review. Games that need a closer look wait for a person.</p>

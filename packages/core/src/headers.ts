@@ -1,9 +1,39 @@
 /**
- * Headers for every file served from the game domain. Games are untrusted:
- * they run on their own site, can't load or call anything outside it, and
- * can only be framed by Zaisma.
+ * The servers a game may connect to besides its own site: Zaisma rooms and the
+ * game's own servers (set by an admin), each over both https and wss.
  */
-export function gameHeaders(contentType: string, siteOrigin: string): Headers {
+export function connectSources(roomsOrigin: string | null, connectHosts: string): string[] {
+  const out = new Set<string>();
+  for (const origin of [roomsOrigin ?? "", ...parseConnectHosts(connectHosts)]) {
+    if (!origin) continue;
+    // Local dev runs rooms over plain http/ws; everything real is https/wss.
+    const secure = !/^(http|ws):/.test(origin);
+    const host = origin.replace(/^[a-z]+:\/\//, "");
+    out.add(`${secure ? "https" : "http"}://${host}`);
+    out.add(`${secure ? "wss" : "ws"}://${host}`);
+  }
+  return [...out];
+}
+
+/** A game's own servers: one https:// or wss:// origin per line, at most 5. Throws on anything else. */
+export function parseConnectHosts(text: string): string[] {
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  if (lines.length > 5) throw new Error("At most 5 servers.");
+  return lines.map((line) => {
+    const url = URL.canParse(line) ? new URL(line) : null;
+    if (!url || (url.protocol !== "https:" && url.protocol !== "wss:") || url.username || url.password || (url.pathname !== "/" && url.pathname !== "") || url.search || url.hash) {
+      throw new Error(`"${line}" isn't a server address like wss://play.example.com`);
+    }
+    return `${url.protocol}//${url.host}`;
+  });
+}
+
+/**
+ * Headers for every file served from the game domain. Games are untrusted:
+ * they run on their own site, can't load anything from outside it, can only
+ * connect to Zaisma rooms and their own listed servers, and can only be framed by Zaisma.
+ */
+export function gameHeaders(contentType: string, siteOrigin: string, connect: string[] = []): Headers {
   const h = new Headers();
   h.set("Content-Type", contentType);
   h.set(
@@ -13,7 +43,7 @@ export function gameHeaders(contentType: string, siteOrigin: string): Headers {
       // Game engines (Unity, Godot, Emscripten) need eval and inline scripts.
       "script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob:",
       "style-src 'self' 'unsafe-inline'",
-      "connect-src 'self' data: blob:",
+      ["connect-src 'self' data: blob:", ...connect].join(" "),
       "worker-src 'self' blob:",
       "form-action 'none'",
       "base-uri 'self'",

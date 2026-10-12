@@ -109,12 +109,12 @@ export class RoomCore<S = any> {
   private readonly now: () => number;
   readonly maxPlayers: number;
   private readonly api: Room;
+  readonly server: GameServer<S>;
+  private readonly transport: Transport;
 
-  constructor(
-    readonly server: GameServer<S>,
-    private readonly transport: Transport,
-    opts: { state?: S; players?: Player[]; now?: () => number } = {},
-  ) {
+  constructor(server: GameServer<S>, transport: Transport, opts: { state?: S; players?: Player[]; now?: () => number } = {}) {
+    this.server = server;
+    this.transport = transport;
     this.now = opts.now ?? Date.now;
     this.maxPlayers = server.maxPlayers ?? ROOM_LIMITS.defaultPlayers;
     for (const p of opts.players ?? []) this.players.set(p.id, p);

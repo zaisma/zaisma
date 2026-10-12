@@ -1,7 +1,32 @@
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "site", "runtimeExecutable": "npm", "runtimeArgs": ["run", "dev:site"], "port": 8787 },
-    { "name": "games", "runtimeExecutable": "npm", "runtimeArgs": ["run", "dev:games"], "port": 8788 }
+    {
+      "name": "site",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev:site"
+      ],
+      "port": 8787
+    },
+    {
+      "name": "games",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev:games"
+      ],
+      "port": 8788
+    },
+    {
+      "name": "rooms",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev:rooms"
+      ],
+      "port": 8789
+    }
   ]
 }

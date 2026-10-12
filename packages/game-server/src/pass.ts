@@ -19,9 +19,14 @@ export interface PassClaims {
 
 export type PublicKey = JsonWebKey & { kid: string };
 
+export type PassErrorCode = "malformed" | "unknown-key" | "bad-signature" | "expired" | "wrong-game" | "wrong-issuer";
+
+// Plain class fields (no TypeScript-only syntax) so Node can run this file directly.
 export class PassError extends Error {
-  constructor(readonly code: "malformed" | "unknown-key" | "bad-signature" | "expired" | "wrong-game" | "wrong-issuer") {
+  readonly code: PassErrorCode;
+  constructor(code: PassErrorCode) {
     super(`Player pass rejected: ${code}`);
+    this.code = code;
   }
 }
 

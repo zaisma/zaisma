@@ -1,4 +1,5 @@
 import {
+  BUILT_IN_GAME_SERVERS,
   LIMITS,
   REPORT_REASONS,
   UploadError,
@@ -10,9 +11,11 @@ import {
   gameById,
   heldVersions,
   openReports,
+  parseConnectHosts,
   publishVersion,
   saveScan,
   setGameStatus,
+  setMultiplayer,
   versionById,
   versionsForGame,
   type ReportReason,
@@ -83,6 +86,23 @@ async function adminAction(request: Request, env: Env, path: string, actor: stri
       await audit(env.DB, version.game_id, "rejected", reason || `Version ${version.id}`, actor);
     }
     return redirect(`/admin/games/${version.game_id}`);
+  }
+
+  m = path.match(/^\/admin\/games\/([a-z0-9]+)\/multiplayer$/);
+  if (m) {
+    const game = await gameById(env.DB, m[1]!);
+    if (!game) return new Response("Not found", { status: 404 });
+    const server = String(form.get("game_server") ?? "");
+    if (server && !(BUILT_IN_GAME_SERVERS as readonly string[]).includes(server)) return gameDetail(env, game.id, "Pick a game server from the list.");
+    let hosts: string[];
+    try {
+      hosts = parseConnectHosts(String(form.get("connect_hosts") ?? ""));
+    } catch (err) {
+      return gameDetail(env, game.id, (err as Error).message);
+    }
+    await setMultiplayer(env.DB, game.id, { gameServer: server || null, connectHosts: hosts });
+    await audit(env.DB, game.id, "multiplayer", `Game server: ${server || "none"}. Own servers: ${hosts.join(", ") || "none"}`, actor);
+    return redirect(`/admin/games/${game.id}`);
   }
 
   m = path.match(/^\/admin\/games\/([a-z0-9]+)\/(takedown|restore|dismiss)$/);
@@ -168,6 +188,18 @@ ${error ? html`<p class="note" style="color:var(--danger)">${error}</p>` : ""}
 ${game.status === "removed" || game.status === "held"
       ? html`<form method="post" action="/admin/games/${game.id}/restore" class="row"><input name="reason" placeholder="Why (optional)"><button class="btn" type="submit">${game.status === "held" ? "Clear and show again" : "Restore"}</button></form>`
       : html`<form method="post" action="/admin/games/${game.id}/takedown" class="row"><input name="reason" placeholder="Reason (required, goes in the audit log)" required size="40"><button class="btn danger" type="submit">Take down now</button></form>`}
+
+<h2>Multiplayer</h2>
+<form method="post" action="/admin/games/${game.id}/multiplayer" class="stack">
+  <label>Game server
+    <select name="game_server">
+      <option value="">None (single-player)</option>
+      ${BUILT_IN_GAME_SERVERS.map((s) => html`<option value="${s}" ${game.game_server === s ? "selected" : ""}>${s}</option>`)}
+    </select></label>
+  <label>The game's own servers, one per line, like wss://play.example.com (at most 5). The game may connect to them, and they're listed on the game page.
+    <textarea name="connect_hosts" rows="3">${game.connect_hosts}</textarea></label>
+  <div><button class="btn" type="submit">Save</button></div>
+</form>
 
 <h2>Open reports (${mine.length})</h2>
 ${mine.length
