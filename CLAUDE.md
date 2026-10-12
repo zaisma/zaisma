@@ -22,7 +22,7 @@ Next: Weekend 2 (guest multiplayer rooms + invite links), Weekend 3 (accounts, s
 - **Cloudflare R2** for game files. Bandwidth is free; keep it that way (no egress-billed storage).
 - **Cloudflare Durable Objects** for multiplayer rooms. Always use the WebSocket Hibernation API.
 - **Supabase** for accounts, friends and saves (from Weekend 3).
-- **Stripe Connect Standard** for the optional checkout (Week 6). Never take a platform fee.
+- **Stripe Connect Standard** for the optional buy sheet (Week 4). Never take a platform fee.
 - TypeScript everywhere. Keep dependencies few.
 
 ## Rules for code
