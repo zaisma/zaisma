@@ -72,3 +72,24 @@ describe("game page controls", () => {
     expect(page).not.toContain("More games");
   });
 });
+
+describe("game details", () => {
+  beforeEach(async () => {
+    await env.DB.exec("DELETE FROM games;");
+  });
+
+  it("shows details with a Play button and loads the game only on Play", async () => {
+    await addGame("solo");
+    const page = await (await SELF.fetch("https://zaisma.test/g/solo")).text();
+    expect(page).toContain('id="play"');
+    expect(page).toContain('<template id="game-frame"><iframe');
+    expect(page).not.toMatch(/<\/template>[\s\S]*<iframe/);
+    expect(page).not.toContain("\nplay();");
+  });
+
+  it("drops a room link straight into the match", async () => {
+    await addGame("arena", "relay");
+    const page = await (await SELF.fetch("https://zaisma.test/g/arena?room=ABCDEF")).text();
+    expect(page).toContain("\nplay();");
+  });
+});
