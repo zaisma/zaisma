@@ -100,12 +100,13 @@ export const PLAYER_REPORT_REASONS = {
 } as const;
 export type PlayerReportReason = keyof typeof PLAYER_REPORT_REASONS;
 
-/** A row of the rooms list (migrations/0015_open_rooms.sql). */
-export interface OpenRoom {
+/** A room with players in it (migrations/0015_live_rooms.sql). */
+export interface LiveRoom {
   game_id: string;
   code: string;
   players: number;
   max_players: number;
+  listed: number;
   open: number;
   country: string | null;
   continent: string | null;
@@ -113,8 +114,8 @@ export interface OpenRoom {
   updated_at: number;
 }
 
-/** Listed rooms check in every hour, so a row older than this belongs to a room that stopped. */
-export const OPEN_ROOM_STALE_MS = 2 * 3600 * 1000;
+/** Rooms check in every hour, so a row older than this belongs to a room that stopped. */
+export const ROOM_STALE_MS = 2 * 3600 * 1000;
 
 /** The continents a room can run in, by Cloudflare's codes. */
 export const CONTINENTS: Record<string, string> = { AF: "Africa", AN: "Antarctica", AS: "Asia", EU: "Europe", NA: "North America", OC: "Oceania", SA: "South America" };

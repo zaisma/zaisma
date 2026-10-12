@@ -36,7 +36,7 @@ const SPARE_SOCKETS = 4;
 const CHECK_MS = 60_000;
 /** An empty room's saved state is deleted after this. */
 const KEEP_EMPTY_MS = 24 * 3600 * 1000;
-/** How often a listed room checks in, so rooms that stop without saying so drop off the list. */
+/** How often a room with players checks in, so rooms that stop without saying so drop off. */
 const CHECK_IN_MS = 3600 * 1000;
 
 /**
@@ -55,7 +55,7 @@ export class Room extends DurableObject<Env> {
   private timer: ReturnType<typeof setInterval> | null = null;
   /** The game's room browsing setting, read with its status; null until read since waking. */
   private browsing: string | null = null;
-  /** What this room last wrote to the rooms list ("" for no row), so unchanged rooms don't write again. */
+  /** What this room last wrote to live_rooms ("" for no row), so unchanged rooms don't write again. */
   private listedAs: string | undefined = undefined;
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -127,8 +127,8 @@ export class Room extends DurableObject<Env> {
   }
 
   /**
-   * A listed room checks in every hour. An empty room's leftovers are cleared a day after the last
-   * player left, including a room that stopped without hearing its players go (a restart).
+   * A room with players checks in every hour. An empty room's leftovers are cleared a day after the
+   * last player left, including a room that stopped without hearing its players go (a restart).
    */
   async alarm(): Promise<void> {
     if (this.sockets().length) {
@@ -207,7 +207,7 @@ export class Room extends DurableObject<Env> {
     return att;
   }
 
-  /** Everyone has gone: stop ticking, record usage, leave the rooms list, and clean up after a day. */
+  /** Everyone has gone: stop ticking, record usage, drop the room's row, and clean up after a day. */
   private async emptied(): Promise<void> {
     this.stopTicking();
     await this.recordUsage();
@@ -230,9 +230,9 @@ export class Room extends DurableObject<Env> {
   }
 
   /**
-   * Bring this room's row in the rooms list up to date: listed rooms with players in them have one,
-   * with the player count, the most players and whether new players can join. Writes only when
-   * something changed, or to check in (touch).
+   * Bring this room's row in live_rooms up to date: every room with players in it has one, for
+   * "playing now" on the game page, with the player count, the most players, whether new players
+   * can join and whether it may be listed. Writes only when something changed, or to check in (touch).
    */
   private async list(touch = false): Promise<void> {
     const core = this.core;
@@ -243,16 +243,17 @@ export class Room extends DurableObject<Env> {
     // What the room keeps for itself, so a hidden or closed room stays that way after a restart.
     this.savedRoom = core.saved;
     await this.ctx.storage.put("room", this.savedRoom);
-    const shown = !this.ended && !core.ended && core.listed && this.browsing !== "off" && core.players.size > 0;
-    const as = shown ? `${core.players.size}/${core.maxPlayers}/${core.open ? 1 : 0}` : "";
+    const live = !this.ended && !core.ended && core.players.size > 0;
+    const listed = core.listed && this.browsing !== "off" ? 1 : 0;
+    const as = live ? `${core.players.size}/${core.maxPlayers}/${core.open ? 1 : 0}/${listed}` : "";
     if (as === this.listedAs && !touch) return;
-    if (!shown) return this.unlist();
+    if (!live) return this.unlist();
     this.listedAs = as;
     const now = Date.now();
     await this.env.DB.prepare(
-      "INSERT INTO open_rooms (game_id, code, players, max_players, open, country, continent, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(game_id, code) DO UPDATE SET players = excluded.players, max_players = excluded.max_players, open = excluded.open, updated_at = excluded.updated_at",
+      "INSERT INTO live_rooms (game_id, code, players, max_players, listed, open, country, continent, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(game_id, code) DO UPDATE SET players = excluded.players, max_players = excluded.max_players, listed = excluded.listed, open = excluded.open, updated_at = excluded.updated_at",
     )
-      .bind(meta.gameId, meta.code, core.players.size, core.maxPlayers, core.open ? 1 : 0, meta.country ?? null, meta.continent ?? null, now, now)
+      .bind(meta.gameId, meta.code, core.players.size, core.maxPlayers, listed, core.open ? 1 : 0, meta.country ?? null, meta.continent ?? null, now, now)
       .run();
     await this.ctx.storage.setAlarm(now + CHECK_IN_MS);
   }
@@ -260,7 +261,7 @@ export class Room extends DurableObject<Env> {
   private async unlist(): Promise<void> {
     if (this.listedAs === "" || !this.meta?.code) return;
     this.listedAs = "";
-    await this.env.DB.prepare("DELETE FROM open_rooms WHERE game_id = ? AND code = ?").bind(this.meta.gameId, this.meta.code).run();
+    await this.env.DB.prepare("DELETE FROM live_rooms WHERE game_id = ? AND code = ?").bind(this.meta.gameId, this.meta.code).run();
   }
 
   private stopTicking(): void {

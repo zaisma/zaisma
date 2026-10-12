@@ -36,7 +36,7 @@ export function roomsPanel(slug: string, list: RoomList): Raw {
   const { players, rooms, closed } = list.playing;
   const region = list.region ? list.regions.find((r) => r.code === list.region) : null;
   const head = players
-    ? html`<p class="rooms-head"><span class="badge">${plural(players, "player", "players")} on now</span><span class="muted">in ${plural(rooms, "room", "rooms")}</span></p>`
+    ? html`<p class="rooms-head"><span class="badge">${players} playing now</span><span class="muted">in ${plural(rooms, "room", "rooms")}</span></p>`
     : "";
   // Regions to pick from, once rooms run in more than one: each with how many rooms it has.
   const regions =
@@ -51,7 +51,7 @@ export function roomsPanel(slug: string, list: RoomList): Raw {
     : closed
       ? "Every room is in a match that isn't taking new players. Press Play to start a new one."
       : "Nobody's in an open room right now. Press Play to start.";
-  return html`<div class="rooms-in" data-joinable="${tabCount(list)}" data-shown="${list.region ?? ""}">
+  return html`<div class="rooms-in" data-joinable="${tabCount(list)}" data-playing="${players}" data-shown="${list.region ?? ""}">
 ${head}
 ${regions}
 ${open.length ? html`<ol class="rooms">${open.map((r, i) => roomRow(slug, r, i >= FIRST))}</ol>` : html`<p class="note rooms-empty">${empty}</p>`}

@@ -71,7 +71,7 @@ Games without server code can use the built-in `relay`, which passes each messag
 
 #### Room browsing
 
-Open rooms are listed on the game's page (code, where the room runs, how full it is, never who's in it), and the game gets the same list to show its own way:
+Open rooms are listed on the game's page (how full each is and where it runs, never who's in it), with "playing now" under the title (every room counts, hidden ones too), and the game gets the same list to show its own way:
 
 ```js
 Zaisma.rooms.linked;                          // the room code the player's link points to, or null

@@ -224,14 +224,14 @@ describe("reporting a player", () => {
 
 describe("room browsing", () => {
   beforeEach(async () => {
-    await e.DB.exec("DELETE FROM open_rooms; DELETE FROM room_usage; DELETE FROM games;");
+    await e.DB.exec("DELETE FROM live_rooms; DELETE FROM room_usage; DELETE FROM games;");
   });
 
   /** A room writes its row just after welcoming the player, so wait for it to settle. */
   async function rows(gameId: string, want: (r: any[]) => boolean = () => true): Promise<any[]> {
     let found: any[] = [];
     for (let i = 0; i < 40; i++) {
-      found = (await e.DB.prepare("SELECT * FROM open_rooms WHERE game_id = ? ORDER BY code").bind(gameId).all()).results;
+      found = (await e.DB.prepare("SELECT * FROM live_rooms WHERE game_id = ? ORDER BY code").bind(gameId).all()).results;
       if (want(found)) return found;
       await new Promise((r) => setTimeout(r, 20));
     }
@@ -251,18 +251,20 @@ describe("room browsing", () => {
     expect(await rows(id, (r) => r.length === 0)).toEqual([]);
   });
 
-  it("never lists a room its maker hid, or any room of a game that turned browsing off", async () => {
+  it("never lists a room its maker hid, or any room of a game that turned browsing off, but counts their players", async () => {
     const id = await addGame("party");
-    const a = await join("party", "JKLMNP", { listed: false });
-    await join("party", "JKLMNP");
+    const a = await join("party", "JKMN3P", { listed: false });
+    await join("party", "JKMN3P");
     a.ws.send(JSON.stringify({ t: "msg", d: 1 }));
-    expect(await rows(id, () => false)).toEqual([]);
+    expect(await rows(id, (r) => r[0]?.players === 2)).toMatchObject([{ code: "JKMN3P", players: 2, listed: 0 }]);
+    const party = await (await SELF.fetch(`${R}/v1/rooms/party`, { headers: { Origin: ORIGIN } })).json<any>();
+    expect(party).toMatchObject({ rooms: [], playing: { players: 2, rooms: 1, closed: 0 }, joinable: 0, regions: [] });
 
     const off = await addGame("quiet", { browsing: "off" });
     await join("quiet", "QRSTVW");
-    expect(await rows(off, () => false)).toEqual([]);
+    expect(await rows(off, (r) => r.length === 1)).toMatchObject([{ listed: 0 }]);
     const list = await SELF.fetch(`${R}/v1/rooms/quiet`, { headers: { Origin: ORIGIN } });
-    expect(await list.json()).toMatchObject({ rooms: [], playing: { players: 0, rooms: 0, closed: 0 }, joinable: 0, regions: [] });
+    expect(await list.json()).toMatchObject({ rooms: [], joinable: 0, regions: [] });
   });
 
   it("lets the first player close a relay room: it's listed as closed, and newcomers are refused", async () => {
@@ -298,7 +300,7 @@ describe("room browsing", () => {
     const id = await addGame("lister");
     const now = Date.now();
     const add = (code: string, players: number, max: number, open: number, country: string | null, continent: string | null, at = now) =>
-      e.DB.prepare("INSERT INTO open_rooms (game_id, code, players, max_players, open, country, continent, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      e.DB.prepare("INSERT INTO live_rooms (game_id, code, players, max_players, open, country, continent, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
         .bind(id, code, players, max, open, country, continent, at, at)
         .run();
     await add("AAAAAA", 8, 8, 1, "DE", "EU"); // full
@@ -333,7 +335,7 @@ describe("room browsing", () => {
     const id = await addGame("checker");
     const a = await join("checker", "GHJKMN");
     await rows(id, (r) => r.length === 1);
-    await e.DB.prepare("UPDATE open_rooms SET updated_at = 1").run();
+    await e.DB.prepare("UPDATE live_rooms SET updated_at = 1").run();
     const stub = e.ROOMS.get(e.ROOMS.idFromName("checker:GHJKMN"));
     expect(await runDurableObjectAlarm(stub)).toBe(true);
     expect((await rows(id))[0].updated_at).toBeGreaterThan(1);

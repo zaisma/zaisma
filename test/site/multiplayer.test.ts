@@ -111,11 +111,11 @@ describe("game details", () => {
 
 describe("room browsing on the game page", () => {
   beforeEach(async () => {
-    await env.DB.exec("DELETE FROM open_rooms; DELETE FROM games;");
+    await env.DB.exec("DELETE FROM live_rooms; DELETE FROM games;");
   });
 
   const room = (gameId: string, code: string, players: number, open = 1, at = Date.now(), where: [string, string] = ["DE", "EU"], max = 8) =>
-    env.DB.prepare("INSERT INTO open_rooms (game_id, code, players, max_players, open, country, continent, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    env.DB.prepare("INSERT INTO live_rooms (game_id, code, players, max_players, open, country, continent, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
       .bind(gameId, code, players, max, open, where[0], where[1], at, at)
       .run();
 
@@ -128,7 +128,8 @@ describe("room browsing on the game page", () => {
     const page = await (await SELF.fetch("https://zaisma.test/g/arena")).text();
     expect(page).toContain('aria-controls="rooms"');
     expect(page).toContain('id="rooms-count">1</span>');
-    expect(page).toContain("13 players on now");
+    expect(page).toContain("13 playing now");
+    expect(page).toContain('<a class="badge live-now" id="playing-now" href="#rooms">13 playing now</a>');
     expect(page).toContain('<a class="btn" href="/g/arena?room=BCDFGH" aria-label="Join a room with 3 of 8 players in Germany">Join</a>');
     // Codes stay in the links; a player with a code types it into the box.
     expect(page).toContain('<form class="code-join" method="get" action="/g/arena">');
@@ -170,6 +171,26 @@ describe("room browsing on the game page", () => {
 
   it("lights a seat for anyone in a big room, and every seat only when it's full", () => {
     expect([lit({ players: 3, max: 8 }), lit({ players: 1, max: 100 }), lit({ players: 99, max: 100 }), lit({ players: 100, max: 100 }), lit({ players: 0, max: 40 })]).toEqual([3, 1, 15, 16, 0]);
+  });
+
+  it("shows who's playing now, hidden rooms included, once there are 3 or more", async () => {
+    const id = await addGame("arena", "relay");
+    const hidden = (code: string, players: number) =>
+      env.DB.prepare("INSERT INTO live_rooms (game_id, code, players, max_players, listed, open, created_at, updated_at) VALUES (?, ?, ?, 8, 0, 1, ?, ?)").bind(id, code, players, Date.now(), Date.now()).run();
+    await hidden("BCDFGH", 2);
+    const few = await (await SELF.fetch("https://zaisma.test/g/arena")).text();
+    expect(few).toContain('id="playing-now" href="#rooms" hidden>2 playing now</a>');
+    await hidden("CDFGHJ", 3);
+    const page = await (await SELF.fetch("https://zaisma.test/g/arena")).text();
+    expect(page).toContain('<a class="badge live-now" id="playing-now" href="#rooms">5 playing now</a>');
+    // Hidden rooms are counted, never listed.
+    expect(page).not.toContain("?room=BCDFGH");
+    // A game that lists no rooms on its page still says who's playing, without a link.
+    await env.DB.prepare("UPDATE games SET room_browsing = 'off' WHERE id = ?").bind(id).run();
+    expect(await (await SELF.fetch("https://zaisma.test/g/arena")).text()).toContain('<p class="badge live-now" id="playing-now">5 playing now</p>');
+    // Single-player games have no line at all.
+    await addGame("solo");
+    expect(await (await SELF.fetch("https://zaisma.test/g/solo")).text()).not.toContain('id="playing-now"');
   });
 
   it("says when there's no room to join", async () => {

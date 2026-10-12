@@ -61,5 +61,5 @@ export function pretendRoomsSql(now = Date.now()) {
     ["CATOR6", 10, 16, "CA", "NA"], ["MXMEX7", 1, 16, "MX", "NA"], ["ZAJNB8", 4, 16, "ZA", "AF"], ["USBIG9", 31, 40, "US", "NA"],
   ];
   const values = rooms.map(([code, players, max, country, continent]) => `((SELECT id FROM games WHERE slug = 'cave-crew'), '${code}', ${players}, ${max}, 1, '${country}', '${continent}', ${now}, ${now})`);
-  return `INSERT OR REPLACE INTO open_rooms (game_id, code, players, max_players, open, country, continent, created_at, updated_at) VALUES ${values.join(", ")}`;
+  return `INSERT OR REPLACE INTO live_rooms (game_id, code, players, max_players, open, country, continent, created_at, updated_at) VALUES ${values.join(", ")}`;
 }

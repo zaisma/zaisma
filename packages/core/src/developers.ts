@@ -231,8 +231,8 @@ export async function applyDetails(db: D1Database, game: Game, change: DetailsCh
     set("updated_at", now());
     await db.prepare(`UPDATE games SET ${sets.join(", ")} WHERE id = ?`).bind(...binds, game.id).run();
   }
-  // Rooms drop their own rows when they next check in; turning listing off clears them at once.
-  if (change.room_browsing === "off") await db.prepare("DELETE FROM open_rooms WHERE game_id = ?").bind(game.id).run();
+  // Rooms update their own rows when they next check in; turning listing off takes them off lists at once.
+  if (change.room_browsing === "off") await db.prepare("UPDATE live_rooms SET listed = 0 WHERE game_id = ?").bind(game.id).run();
   return { waiting };
 }
 

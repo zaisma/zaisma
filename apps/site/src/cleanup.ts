@@ -1,4 +1,4 @@
-import { OPEN_ROOM_STALE_MS, audit, blobKey, manifestKey, ownedBlobKey, publishVersion, reportPictureKey, type Manifest, type Version } from "@zaisma/core";
+import { ROOM_STALE_MS, audit, blobKey, manifestKey, ownedBlobKey, publishVersion, reportPictureKey, type Manifest, type Version } from "@zaisma/core";
 import type { Env } from "./env.ts";
 import { deleteVersion, pruneVersions } from "./scan.ts";
 
@@ -69,6 +69,6 @@ export async function dailyCleanup(env: Env, now = Date.now()): Promise<{ drafts
     await env.DB.batch(pictures.map((p) => env.DB.prepare("UPDATE reports SET picture = 0 WHERE id = ?").bind(p.id)));
   }
   // Lists already skip these; a room that stopped without saying so (a restart) leaves one behind.
-  await env.DB.prepare("DELETE FROM open_rooms WHERE updated_at < ?").bind(now - OPEN_ROOM_STALE_MS).run();
+  await env.DB.prepare("DELETE FROM live_rooms WHERE updated_at < ?").bind(now - ROOM_STALE_MS).run();
   return { drafts: drafts.length, files: keys.length, pictures: pictures.length };
 }

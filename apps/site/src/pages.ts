@@ -1,6 +1,6 @@
 import { gameBySlug, readPlayers } from "@zaisma/core";
 import { gameUrl, type Env } from "./env.ts";
-import { html, layout, message, metalButton, playerModes, raw, siteFooter, siteHeader } from "./html.ts";
+import { html, layout, message, metalButton, playerModes, raw, siteFooter, siteHeader, type Raw } from "./html.ts";
 import { showcase, tile } from "./home.ts";
 import { SAVES_CLIENT } from "./saves-client.ts";
 import { reportSheet } from "./report.ts";
@@ -26,15 +26,18 @@ export async function gamePage(env: Env, slug: string, request: Request): Promis
   const multiplayer = Boolean(game.game_server || game.connect_hosts);
   const ownServers = game.connect_hosts.split("\n").filter(Boolean).map((o) => o.replace(/^[a-z]+:\/\//, ""));
   const autoplay = inRoom || url.searchParams.has("play");
-  const [developer, pictures, updates, others, rooms] = await Promise.all([
+  const [developer, pictures, updates, others, live] = await Promise.all([
     game.owner_id
       ? env.DB.prepare("SELECT accounts.name, (SELECT COUNT(*) FROM games WHERE owner_id = ? AND status = 'live' AND visibility = 'listed') AS games FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE owners.id = ?").bind(game.owner_id, game.owner_id).first<{ name: string; games: number }>()
       : null,
     env.DB.prepare("SELECT id, kind FROM game_images WHERE game_id = ? AND status = 'approved' ORDER BY kind = 'cover' DESC, created_at").bind(game.id).all<{ id: string; kind: string }>(),
     env.DB.prepare("SELECT id, notes, published_at FROM versions WHERE game_id = ? AND published_at IS NOT NULL AND notes != '' ORDER BY published_at DESC LIMIT 10").bind(game.id).all<{ id: string; notes: string; published_at: number }>(),
     showcase(env, 60),
-    roomsOnPage(game) ? pageRooms(env, game, request) : null,
+    // Games on Zaisma rooms: who's playing now, and the rooms to list if the developer shows them here.
+    game.game_server ? pageRooms(env, game, request) : null,
   ]);
+  const rooms = live && roomsOnPage(game) ? live : null;
+  const playingNow = live ? live.playing.players : 0;
   const shots = pictures.results.map((p) => `/img/${p.id}`);
   const more = [...others.filter((g) => g.slug !== game.slug && g.owner_id && g.owner_id === game.owner_id), ...others.filter((g) => g.slug !== game.slug && (!g.owner_id || g.owner_id !== game.owner_id))].slice(0, 4);
   const devices = game.devices ? game.devices.split(",") : [];
@@ -75,6 +78,10 @@ main.gp{max-width:1240px;margin:0 auto;padding:30px 24px 72px}
 .side{padding:28px 26px 24px;display:flex;flex-direction:column;gap:16px}
 .side h1{margin:0;font-size:clamp(32px,3.4vw,46px)}
 .side .by{margin:-8px 0 0;color:var(--muted);font-size:15px}
+/* Playing now: the live green square, linking to the rooms when they're listed here. */
+.side .live-now{align-self:flex-start;margin:-6px 0 0;font-size:14px;text-decoration:none}
+.side .live-now[hidden]{display:none}
+a.live-now:hover{text-decoration:underline;text-underline-offset:3px}
 .side .note{margin:0;font-size:14px;background:none;box-shadow:none;padding:0;color:var(--warn)}
 .spec{margin:4px 0 0;display:grid}
 .spec>div{display:grid;grid-template-columns:96px minmax(0,1fr);gap:12px;align-items:start;padding:12px 0;
@@ -238,6 +245,7 @@ ${siteHeader(env)}
   <div class="side plate bevel-l">
     <h1 id="title">${game.title}</h1>
     ${developer ? html`<p class="by">by ${developer.name}</p>` : ""}
+    ${live ? playingLine(playingNow, Boolean(rooms)) : ""}
     ${metalButton("Play", { id: "play", big: true, block: true, play: true })}
     <p class="note" id="device-note" hidden></p>
     ${spec}
@@ -355,6 +363,9 @@ async function refreshRooms(force) {
     if (!res.ok) return;
     list.innerHTML = await res.text();
     const n = list.firstElementChild?.dataset.joinable || "0";
+    const playing = Number(list.firstElementChild?.dataset.playing || 0);
+    const line = document.getElementById("playing-now");
+    if (line) { line.hidden = playing < ${raw(String(PLAYING_NOW_MIN))}; line.textContent = playing + " playing now"; }
     const count = document.getElementById("rooms-count");
     count.textContent = n;
     count.hidden = n === "0";
@@ -380,6 +391,7 @@ if (codeInput) {
   codeInput.addEventListener("input", () => { codeInput.value = codeInput.value.toUpperCase().replace(/\s/g, ""); codeInput.setCustomValidity(""); });
   codeInput.addEventListener("invalid", () => codeInput.setCustomValidity("Room codes are 6 letters and numbers, like ABC234."));
 }
+addEventListener("hashchange", () => { const t = tabs.find((t) => "#" + t.getAttribute("aria-controls") === location.hash); if (t) showTab(t.getAttribute("aria-controls")); });
 const linkedTab = tabs.find((t) => "#" + t.getAttribute("aria-controls") === location.hash);
 if (linkedTab) showTab(linkedTab.getAttribute("aria-controls"));
 // Games for other devices still open, with a word of warning.
@@ -571,3 +583,14 @@ const PRIVACY = `
 <h2>Questions</h2>
 <p>Email <a href="mailto:privacy@zaisma.com">privacy@zaisma.com</a>.</p>
 `;
+
+/** Fewest players for "playing now" to show, so a new game never looks empty. */
+const PLAYING_NOW_MIN = 3;
+
+/** "151 playing now" under the title: everyone in the game's rooms, hidden ones too. */
+function playingLine(players: number, roomsHere: boolean): Raw {
+  const hidden = players < PLAYING_NOW_MIN ? raw(" hidden") : "";
+  return roomsHere
+    ? html`<a class="badge live-now" id="playing-now" href="#rooms"${hidden}>${players} playing now</a>`
+    : html`<p class="badge live-now" id="playing-now"${hidden}>${players} playing now</p>`;
+}

@@ -281,7 +281,7 @@
   /**
    * The game's listed rooms on Zaisma: { rooms: [{ code, players, max, open, location, near, link }],
    * playing: { players, rooms, closed }, joinable, regions: [{ code, name, rooms, players }], region,
-   * more }. location is where the room runs: { country, name, continent }, like DE, Germany and EU.
+   * more }. playing counts everyone in the game's rooms, hidden ones too. location is where the room runs: { country, name, continent }, like DE, Germany and EU.
    * Rooms with space come first (the player's country, then continent, then the busiest), up to 50;
    * more says how many open rooms are past those. Pass { region } (a continent code, like EU) for
    * one region. Never who's in them. For a game's own lobby or server browser.

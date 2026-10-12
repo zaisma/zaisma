@@ -110,15 +110,15 @@ describe("games", () => {
     expect(game).toMatchObject({ title: "Better Name", visibility: "unlisted", devices: ["computer"], controls: ["keyboard-mouse", "gamepad"] });
   });
 
-  it("sets where a game's rooms are listed, and turning it off clears them", async () => {
+  it("sets where a game's rooms are listed, and turning it off takes them off lists at once", async () => {
     await api("/games", { body: { title: "Party Game" } });
     const g = (await gameBySlug(env.DB, "party-game"))!;
     expect((await (await api("/games/party-game")).json<{ game: Record<string, unknown> }>()).game).toMatchObject({ zaisma_rooms: false, room_browsing: "page" });
     expect((await api("/games/party-game", { method: "PATCH", body: { room_browsing: "everywhere" } })).status).toBe(400);
-    await env.DB.prepare("INSERT INTO open_rooms (game_id, code, players, max_players, open, created_at, updated_at) VALUES (?, 'BCDFGH', 2, 8, 1, 0, 0)").bind(g.id).run();
+    await env.DB.prepare("INSERT INTO live_rooms (game_id, code, players, max_players, open, created_at, updated_at) VALUES (?, 'BCDFGH', 2, 8, 1, 0, 0)").bind(g.id).run();
     const res = await api("/games/party-game", { method: "PATCH", body: { room_browsing: "off" } });
     expect((await res.json<{ game: Record<string, unknown> }>()).game.room_browsing).toBe("off");
-    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM open_rooms WHERE game_id = ?").bind(g.id).first("n")).toBe(0);
+    expect(await env.DB.prepare("SELECT listed FROM live_rooms WHERE game_id = ?").bind(g.id).first("listed")).toBe(0);
   });
 
   it("holds new words on a game players can see until they're reviewed", async () => {

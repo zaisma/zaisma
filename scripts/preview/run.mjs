@@ -90,7 +90,7 @@ if (fresh) {
 spawnSync(
   "npx",
   ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command",
-    "UPDATE games SET game_server = slug WHERE slug IN ('arena', 'four-in-a-row') AND game_server IS NULL; UPDATE games SET game_server = 'relay' WHERE slug = 'cave-crew' AND game_server IS NULL; DELETE FROM open_rooms"],
+    "UPDATE games SET game_server = slug WHERE slug IN ('arena', 'four-in-a-row') AND game_server IS NULL; UPDATE games SET game_server = 'relay' WHERE slug = 'cave-crew' AND game_server IS NULL; DELETE FROM live_rooms"],
   { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } },
 );
 // Test players keep a few rooms open, so the Rooms tab has something in it. Cave Crew also lists

@@ -1,4 +1,4 @@
-import { CONTINENTS, OPEN_ROOM_STALE_MS, type OpenRoom } from "./types.ts";
+import { CONTINENTS, ROOM_STALE_MS, type LiveRoom } from "./types.ts";
 
 /** A room as players see it in a room list. Never who's in it. */
 export interface ListedRoom {
@@ -16,7 +16,7 @@ export interface ListedRoom {
 export interface RoomList {
   /** Rooms with space first (same country, then same continent, then the busiest), then full and closed ones. Up to 50, in the region asked for. */
   rooms: ListedRoom[];
-  /** Everyone in listed rooms everywhere, open or closed, and how many of those rooms are closed. */
+  /** Everyone playing in the game's rooms everywhere, listed or not (for "playing now"), and how many listed rooms are closed. */
   playing: { players: number; rooms: number; closed: number };
   /** Rooms a player could join right now, everywhere. */
   joinable: number;
@@ -46,7 +46,8 @@ const isCountry = (c: string | null): c is string => Boolean(c && /^[A-Z]{2}$/.t
 export const hasSpace = (r: ListedRoom) => r.open && r.players < r.max;
 
 /**
- * A game's listed rooms, optionally in one region (a continent code). Pass where the asking player
+ * A game's listed rooms, optionally in one region (a continent code), and how many are playing in
+ * all its rooms. Pass where the asking player
  * is to put rooms in their country, then their continent, first. With cacheSeconds, each place
  * answers from a short-lived copy, so a busy game page reads the database a few times a minute,
  * not once per visitor.
@@ -66,11 +67,12 @@ export async function listRooms(
   if (hit) return hit.json();
 
   const { results } = await db
-    .prepare("SELECT * FROM open_rooms WHERE game_id = ? AND updated_at > ?")
-    .bind(gameId, (opts.now ?? Date.now()) - OPEN_ROOM_STALE_MS)
-    .all<OpenRoom>();
-  const continent = (r: OpenRoom) => (r.continent && CONTINENTS[r.continent] ? r.continent : null);
-  const all = results.map(
+    .prepare("SELECT * FROM live_rooms WHERE game_id = ? AND updated_at > ?")
+    .bind(gameId, (opts.now ?? Date.now()) - ROOM_STALE_MS)
+    .all<LiveRoom>();
+  const continent = (r: LiveRoom) => (r.continent && CONTINENTS[r.continent] ? r.continent : null);
+  // Hidden rooms count toward "playing now"; only listed ones are ever shown.
+  const all = results.filter((r) => r.listed === 1).map(
     (r): ListedRoom => ({
       code: r.code,
       players: r.players,
@@ -98,7 +100,7 @@ export async function listRooms(
   const shown = inRegion.slice(0, MAX_SHOWN);
   const list: RoomList = {
     rooms: shown,
-    playing: { players: all.reduce((n, r) => n + r.players, 0), rooms: all.length, closed: all.filter((r) => !r.open).length },
+    playing: { players: results.reduce((n, r) => n + r.players, 0), rooms: results.length, closed: all.filter((r) => !r.open).length },
     joinable: all.filter(hasSpace).length,
     regions: [...regions.values()].sort((a, b) => b.players - a.players || b.rooms - a.rooms),
     region,
