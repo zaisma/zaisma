@@ -1,10 +1,34 @@
 {
-  "name": "zaisma",
+  "name": "@zaisma/cli",
   "version": "0.1.0",
   "description": "Upload and publish browser games on Zaisma from the command line.",
   "license": "MIT",
+  "homepage": "https://zaisma.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zaisma/zaisma.git",
+    "directory": "packages/cli"
+  },
+  "bugs": "https://github.com/zaisma/zaisma/issues",
+  "keywords": [
+    "zaisma",
+    "games",
+    "browser-games",
+    "web-games",
+    "publish",
+    "upload",
+    "cli"
+  ],
   "type": "module",
-  "bin": { "zaisma": "./zaisma.mjs" },
-  "files": ["zaisma.mjs", "README.md"],
-  "engines": { "node": ">=18" }
+  "bin": {
+    "zaisma": "zaisma.mjs"
+  },
+  "files": [
+    "zaisma.mjs",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
 }
