@@ -1,6 +1,6 @@
 import { AUTO_HOLD_REASONS, REPORT_REASONS, audit, createReport, gameBySlug, liveGames, setGameStatus, type ReportReason } from "@zaisma/core";
 import { gameUrl, type Env } from "./env.ts";
-import { html, layout, message, raw } from "./html.ts";
+import { html, layout, message, metalButton, raw } from "./html.ts";
 import { SAVES_CLIENT } from "./saves-client.ts";
 import { sendAlert } from "./email.ts";
 
@@ -43,12 +43,9 @@ body:not(.playing) #full{display:none}
 body.playing .details{display:none}
 .bar{display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--line);flex:none}
 .details{max-width:860px;margin:0 auto;padding:16px 16px 48px}
-.hero{position:relative;aspect-ratio:16/9;max-height:56vh;width:100%;border-radius:14px;overflow:hidden;border:1px solid var(--line);display:grid;place-items:center;
+.hero{position:relative;aspect-ratio:16/9;max-height:56vh;width:100%;overflow:hidden;clip-path:polygon(0 0,calc(100% - 36px) 0,100% 36px,100% 100%,0 100%);display:grid;place-items:center;
   background:radial-gradient(120% 90% at 20% 10%,#2a2d33 0%,#16171a 55%,#0d0e10 100%)}
-.hero .name{position:absolute;left:20px;bottom:16px;font-size:clamp(22px,5vw,40px);font-weight:700;letter-spacing:-.01em;text-shadow:0 2px 12px rgba(0,0,0,.6)}
-.play{display:inline-flex;align-items:center;gap:10px;font:inherit;font-size:20px;font-weight:700;padding:14px 34px;border:0;border-radius:999px;background:var(--accent);color:#111;cursor:pointer;box-shadow:0 6px 30px rgba(0,0,0,.45)}
-.play:hover{transform:scale(1.03)}
-.play svg{width:22px;height:22px}
+.hero .name{position:absolute;left:20px;bottom:16px;font-family:var(--display);font-size:clamp(22px,5vw,40px);font-weight:600;letter-spacing:-.01em;text-shadow:0 2px 12px rgba(0,0,0,.6)}
 .meta{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:16px 0 8px;color:var(--muted);font-size:14px}
 .details .desc{font-size:17px;margin:8px 0 18px;white-space:pre-line}
 .details .row a,.details .row button{font-size:14px}
@@ -95,12 +92,12 @@ dialog nav a:hover{border-color:#55585f}
 </div>
 <main class="details">
   <div class="hero">
-    <button class="play" id="play" type="button">${raw(ICON_PLAY)}Play</button>
+    ${metalButton("Play", { id: "play", big: true, play: true })}
     <div class="name">${game.title}</div>
   </div>
   <div class="meta">
     ${multiplayer ? html`<span class="pill">Multiplayer</span>` : html`<span class="pill">Single-player</span>`}
-    <span>Plays in your browser · no download${saves ? " · progress saves to your account when you're signed in" : ""}</span>
+    <span>Plays in your browser, no download</span>
   </div>
   ${game.description ? html`<p class="desc">${game.description}</p>` : ""}
   ${ownServers.length ? html`<p class="note">This game also connects to its own servers: ${ownServers.join(", ")}.</p>` : ""}
@@ -188,7 +185,6 @@ ${raw(inRoom ? "play();" : "")}
 const svg = (paths: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
 const ICON_SHARE = svg('<path d="M12 3v12"/><path d="M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/>');
 const ICON_FULL = svg('<path d="M4 9V4h5"/><path d="M20 9V4h-5"/><path d="M4 15v5h5"/><path d="M20 15v5h-5"/>');
-const ICON_PLAY = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12-7.5a1 1 0 0 0 0-1.72l-12-7.5A1 1 0 0 0 7 4.5z"/></svg>';
 const ICON_MORE = svg('<circle cx="5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="19" cy="12" r="1.3" fill="currentColor"/>');
 
 export async function reportForm(env: Env, slug: string, error = ""): Promise<Response> {

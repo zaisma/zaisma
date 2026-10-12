@@ -398,7 +398,6 @@ describe("cloud saves", () => {
     expect(page).toContain("window.startSaves = function");
     expect(page).toContain('id="save-choice"');
     expect(page).toContain('"api":"/api/saves/owl-game"');
-    expect(page).toContain("progress saves to your account");
     const own = await (await SELF.fetch(`${SITE}/g/own-saves`)).text();
     expect(own).not.toContain("window.startSaves = function");
     expect(own).not.toContain("save-choice");
