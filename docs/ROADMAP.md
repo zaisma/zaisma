@@ -86,7 +86,7 @@ Detailed plan approved: guest passes, game server API, rooms, SDK, demos.
 | Status | Must/Nice | Item | Needs | Notes |
 | --- | --- | --- | --- | --- |
 | done | Must | Developer accounts | Sign-in, Games have owners | Any account owns games; API keys on the account page; one developer API for the MCP, upload command and dashboard (docs/DEVELOPER-API.md) |
-| doing | Must | Upload command | Developer accounts | File by file, up to 2 GB per game, only changed files. `zaisma` command in packages/cli, files up to 500 MB; left: publishing it to npm |
+| done | Must | Upload command | Developer accounts | File by file, up to 2 GB per game, only changed files. `npx @zaisma/cli` (source in packages/cli), files up to 500 MB |
 | planned | Must | Scan only what changed; per-developer budgets | Upload command | A daily limit on AI-reviewed uploads per free account (higher with Pro), about 20 updates per game per day |
 | done | Must | Drafts and publishing | Upload command | Preview links, publish now or later, roll back; keep the live version plus the last 5. Unpublished drafts deleted after 30 days, unused files after a day |
 | doing | Must | Game visibility | Developer accounts | Draft, listed, unlisted or private; separate from review status. Unlisted is noindex and never in any shelf. In the API; draft and private games open through preview and tester links next |

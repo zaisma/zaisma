@@ -25,7 +25,8 @@ const HELP = `Usage:
   zaisma unschedule <slug> <version>        Cancel a publish-later
   zaisma show <slug> [--visibility listed|unlisted|private|draft]
 
-Set ZAISMA_KEY to an API key from https://zaisma.com/account (under Game developers).`;
+Set ZAISMA_KEY to an API key from https://zaisma.com/account (under Game developers).
+Without installing: npx @zaisma/cli <command>. Installed (npm i -g @zaisma/cli): zaisma <command>.`;
 
 function fail(message) {
   console.error(`zaisma: ${message}`);

@@ -36,7 +36,7 @@ curl -X POST "https://zaisma.com/api/dev/games/sky-hopper/images?kind=cover" \
 
 ## Uploading versions
 
-The `zaisma` command (`packages/cli`) does all of this for you: `zaisma upload ./build --game sky-hopper`.
+The `zaisma` command ([`@zaisma/cli` on npm](https://www.npmjs.com/package/@zaisma/cli), source in `packages/cli`) does all of this for you: `npx @zaisma/cli upload ./build --game sky-hopper`.
 
 Files are stored once, by their SHA-256, and shared by every version that has them, so an update only sends what changed.
 
