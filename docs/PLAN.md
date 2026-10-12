@@ -81,7 +81,7 @@ Public beta after three weekends, then weekly releases. Being first matters more
 
 1. **Weekend 1: safe game hosting.** Upload a web game, scan it before publishing (malware, illegal-image matching, AI review), serve it sandboxed on a separate game domain (zaisma.gg; the free workers.dev address until it's bought), list it on a simple directory page. Report button and takedown process.
 2. **Weekend 2: guest multiplayer.** Room server that runs on Cloudflare or any normal server; room links that drop guests straight into a match; one-tap clip-and-share with the link built in. Ship the first demo games built with Claude Code.
-3. **Weekend 3: accounts and the publish skill.** Sign-in, age gate, "keep your progress" from guest, cloud saves; the creator MCP, upload command and Claude Code skill that publish a game in one prompt; creator dashboard with drafts, versions and listed/unlisted games; file-by-file uploads for games up to 2 GB. **Open the public beta.**
+3. **Weekend 3: accounts and the publish skill.** Sign-in, age gate, "keep your progress" from guest, cloud saves; the creator MCP, upload command and Claude Code skill that publish a game in one prompt; creator dashboard with drafts, versions and listed/unlisted games; file-by-file uploads for games up to 2 GB; `zaisma check` and automatic fixes so existing web games upload unchanged; drop-in Socket.IO and PeerJS replacements. **Open the public beta.**
 4. **Week 4: friends.** Friend list, invites, see what friends are playing.
 5. **Week 5: discovery and trust.** Progress bar, "New and rising" shelf, Scout badge, front page for games that clear the bar.
 6. **Week 6: money.** Optional free Stripe checkout, teen spend cap, at-cost multiplayer billing, $5 deposits, donation page.
