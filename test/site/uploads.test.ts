@@ -28,15 +28,8 @@ async function describeFiles(files: Record<string, string>) {
   return Promise.all(Object.entries(files).map(async ([path, text]) => ({ path, sha256: await sha256Hex(enc(text)), bytes: enc(text).byteLength, text })));
 }
 
-/**
- * The test Worker's own queue consumer scans each new version straight away (and holds it,
- * with nothing connected). Wait for that, then scan again with the checks this test wants.
- */
+/** Scan with the checks this test wants. Tests run scans themselves; nothing reads the scan queue. */
 async function scan(id: string, deps: ScanDeps) {
-  for (let i = 0; i < 60; i++) {
-    if ((await versionById(env.DB, id))?.scan_status !== "scanning") break;
-    await new Promise((r) => setTimeout(r, 50));
-  }
   return scanVersion(testEnv, id, deps);
 }
 

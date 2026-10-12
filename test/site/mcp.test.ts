@@ -1,6 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { audit, createAccount, createApiKey, createReport, gameBySlug, versionById, type ImageMatcher } from "@zaisma/core";
+import { audit, createAccount, createApiKey, createReport, gameBySlug, notConnected, type ImageMatcher } from "@zaisma/core";
 import { scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
 
 const SITE = "https://zaisma.test";
@@ -31,12 +31,8 @@ async function tool(name: string, args: Record<string, unknown> = {}, key = toke
   return result.isError ? { error: result.content[0]!.text } : result.structuredContent;
 }
 
-/** Wait for the test Worker's own scan, then scan again with everything connected so it passes. */
+/** Scan with everything connected, so it passes. */
 async function passScan(id: string) {
-  for (let i = 0; i < 60; i++) {
-    if ((await versionById(env.DB, id))?.scan_status !== "scanning") break;
-    await new Promise((r) => setTimeout(r, 50));
-  }
   return scanVersion(testEnv, id, pass);
 }
 
@@ -84,6 +80,8 @@ describe("publishing a game through the MCP", () => {
 
     const first = await tool("upload_files", { slug: "tiny-jump", files: [{ path: "index.html", text: "<!doctype html><p>v1</p>" }, { path: "pic.png", base64: btoa("not really a png") }], notes: "First." });
     expect(first.sent).toBe(2);
+    // Held first (image matching isn't connected), so its history shows what Zaisma did; then it passes.
+    await scanVersion(testEnv, first.version.id, { ...pass, images: notConnected });
     await passScan(first.version.id);
     const checked = await tool("get_version", { slug: "tiny-jump", version_id: first.version.id });
     expect(checked.version.scan).toBe("approved");

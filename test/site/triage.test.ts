@@ -5,7 +5,6 @@ import { scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
 import { recheckVersion, triageReports, type TriageAnswer, type TriageDeps, type TriageInput } from "../../apps/site/src/triage.ts";
 import type { AiResult } from "../../apps/site/src/ai.ts";
 import { CLEAN_GAME, makeZip } from "../helpers.ts";
-import { queueScanDone } from "./queue.ts";
 
 const LOCAL = "http://localhost";
 const testEnv = { ...env, DEV_ADMIN: "1", ANTHROPIC_API_KEY: "test-key" };
@@ -31,7 +30,6 @@ async function liveGame(daysOld = 30) {
   form.set("description", "A test.");
   form.set("zip", new File([makeZip(CLEAN_GAME)], "game.zip", { type: "application/zip" }));
   const { versionId, gameId } = (await (await SELF.fetch(`${LOCAL}/admin/api/games`, { method: "POST", body: form })).json()) as { versionId: string; gameId: string };
-  await queueScanDone(versionId);
   await scanVersion(testEnv, versionId, scanSays("pass"));
   await env.DB.prepare("UPDATE versions SET published_at = ? WHERE id = ?").bind(Date.now() - daysOld * DAY, versionId).run();
   return { versionId, gameId };

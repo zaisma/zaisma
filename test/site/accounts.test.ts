@@ -1,6 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { accountById, ageBand, ageOn, canonicalSave, checkName, gameById, gameBySlug, gameOwner, saveKey, sha256Hex, versionById } from "@zaisma/core";
+import { accountById, ageBand, ageOn, canonicalSave, checkName, gameById, gameBySlug, gameOwner, saveKey, sha256Hex } from "@zaisma/core";
 import { scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
 
 const SITE = "https://zaisma.test";
@@ -710,7 +710,6 @@ describe("the dashboard", () => {
     await b.go(`/api/dev/games/${slug}/uploads`, undefined, { method: "POST", body: JSON.stringify({ files }) });
     expect((await b.go(`/api/dev/files/${sha256}`, undefined, { method: "PUT", body: text })).status).toBe(200);
     const { version } = (await (await b.go(`/api/dev/games/${slug}/versions`, undefined, { method: "POST", body: JSON.stringify({ files }) })).json()) as { version: { id: string } };
-    for (let i = 0; i < 60 && (await versionById(env.DB, version.id))?.scan_status === "scanning"; i++) await new Promise((r) => setTimeout(r, 50));
     await scanVersion({ ...env, ANTHROPIC_API_KEY: "test-key" }, version.id, pass);
     return version.id;
   }
