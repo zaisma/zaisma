@@ -2,7 +2,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jost:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap">
 <style>
-/* Layout: a roadmap ledger. Ordered phase rail on top, then one section per phase with its items as rows. Dark first (the metal logo lives on dark). */
+/* Layout: a roadmap ledger. A sticky bar says where you are and jumps between phases and tracks; phases fold, items are one line until tapped. Dark first (the metal logo lives on dark). */
 :root {
   --bg: #16161a; --surface: #1e1e23; --line: #2d2d34; --fg: #ececef; --muted: #9b9ba6;
   --steel: #b9c6d8; --julius: #e2b45e;
@@ -39,7 +39,7 @@ header { display: grid; gap: 14px; }
 .brand img { height: 26px; width: auto; }
 .logo-metal { display: var(--logo-metal); }
 .logo-black { display: var(--logo-black); }
-.brand span { font: 600 13px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.12em; padding-left: 12px; border-left: 1px solid var(--line); }
+.brand span { font: 600 14px var(--display); color: var(--muted); padding-left: 12px; border-left: 1px solid var(--line); }
 h1 { font-size: clamp(30px, 5vw, 44px); font-weight: 600; }
 .now { font-size: 17px; max-width: 62ch; margin: 0; }
 .now b { color: var(--steel); font-weight: 600; }
@@ -49,50 +49,69 @@ h1 { font-size: clamp(30px, 5vw, 44px); font-weight: 600; }
 .meter { height: 8px; background: var(--line); border-radius: 99px; overflow: hidden; }
 .meter i { display: block; height: 100%; background: var(--steel); border-radius: 99px; }
 
-.rail { overflow-x: auto; padding-bottom: 4px; }
-.rail ol { list-style: none; margin: 0; padding: 0; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(118px, 1fr); gap: 8px; min-width: min-content; }
-.rail a { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; text-decoration: none; color: var(--fg); background: var(--surface); height: 100%; }
-.rail a:hover { border-color: var(--steel); }
-.rail .n { font: 500 12px var(--mono); color: var(--muted); }
-.rail .t { font: 600 15px var(--display); line-height: 1.2; }
-.rail .c { font: 500 12px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
-.rail .bar { height: 3px; background: var(--line); border-radius: 9px; overflow: hidden; }
-.rail .bar i { display: block; height: 100%; background: var(--done); }
-.rail a.current { border-color: var(--steel); box-shadow: inset 0 0 0 1px var(--steel); }
+.bar { position: sticky; top: 0; z-index: 5; margin-inline: -20px; padding: 10px 20px; background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); display: grid; gap: 8px; }
+.where { font: 600 15px var(--display); display: flex; gap: 8px; align-items: baseline; min-width: 0; white-space: nowrap; overflow: hidden; }
+.where .p { color: var(--fg); }
+.where .g { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+.where .sep { color: var(--muted); }
+.pills { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin-inline: -20px; padding-inline: 20px; }
+.pills::-webkit-scrollbar { display: none; }
+.pill { flex: none; display: inline-flex; gap: 7px; align-items: center; font: 500 13px var(--body); padding: 4px 11px; border-radius: 99px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); text-decoration: none; white-space: nowrap; }
+.pill .c { font: 500 12px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.pill:hover { border-color: var(--steel); }
+.pill.here { border-color: var(--steel); box-shadow: inset 0 0 0 1px var(--steel); }
+/* The track row floats under the bar, so showing or hiding it never moves the page (moving it made the bar flip back and forth at phase edges). */
+.pills.tracks { position: absolute; top: 100%; left: 0; right: 0; margin: 0; padding: 8px 20px; background: inherit; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+.pills.tracks .pill { background: transparent; }
 
 .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.controls .lbl { font: 500 12px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; margin-right: 4px; }
+.controls .lbl { font: 500 13px var(--body); color: var(--muted); margin-right: 4px; }
 .chip { font: 500 13px var(--body); padding: 6px 12px; border-radius: 99px; border: 1px solid var(--line); background: transparent; color: var(--fg); cursor: pointer; }
 .chip[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
 
-.phase { display: grid; gap: 14px; scroll-margin-top: 16px; }
-.phase-head { display: grid; gap: 6px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
-.phase-head .k { font: 500 12px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.12em; }
-.phase-head h2 { font-size: 26px; font-weight: 600; }
-.phase-head p { margin: 0; max-width: 70ch; color: var(--muted); }
-.phase-head p strong { color: var(--fg); font-weight: 600; }
-.group { display: grid; gap: 6px; }
-.group h3 { font: 600 13px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; margin-top: 6px; }
-.group > p { margin: 0; color: var(--muted); font-size: 14px; }
+details.phase { border: 1px solid var(--line); border-radius: 12px; background: color-mix(in srgb, var(--surface) 40%, transparent); scroll-margin-top: 126px; }
+details.phase > summary { list-style: none; cursor: pointer; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 16px; align-items: center; padding: 16px 18px; }
+details.phase > summary::-webkit-details-marker { display: none; }
+summary .k { font: 500 13px var(--mono); color: var(--muted); }
+summary h2 { font-size: 24px; font-weight: 600; }
+summary .prog { display: grid; gap: 6px; justify-items: end; min-width: 120px; }
+summary .prog .c { font: 500 12px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+summary .track { width: 120px; height: 4px; background: var(--line); border-radius: 9px; overflow: hidden; }
+summary .track i { display: block; height: 100%; background: var(--done); }
+summary .chev { grid-column: 2; grid-row: 1; justify-self: end; color: var(--muted); transition: transform .2s; }
+details.phase[open] > summary .chev { transform: rotate(90deg); }
+summary .name-wrap { display: grid; gap: 2px; }
+.phase-body { display: grid; gap: 16px; padding: 0 18px 18px; }
+.phase-body > p { margin: 0; max-width: 70ch; color: var(--muted); }
+.phase-body > p strong { color: var(--fg); font-weight: 600; }
+.group { display: grid; gap: 8px; scroll-margin-top: 126px; }
+.group h3 { font: 600 17px var(--display); margin-top: 6px; display: flex; gap: 10px; align-items: baseline; }
+.group h3 .c { font: 500 12px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.group > p { margin: 0; color: var(--muted); font-size: 14px; max-width: 70ch; }
 
 ul.items { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); overflow: hidden; }
-ul.items li { display: grid; grid-template-columns: 84px minmax(0, 1fr) auto; gap: 14px; align-items: start; padding: 11px 14px; border-top: 1px solid var(--line); }
+ul.items li { display: grid; grid-template-columns: 84px minmax(0, 1fr) auto; gap: 14px; align-items: start; padding: 10px 14px; border-top: 1px solid var(--line); }
 ul.items li:first-child { border-top: 0; }
-.status { font: 500 12px var(--mono); text-transform: uppercase; letter-spacing: 0.06em; padding-top: 2px; display: flex; align-items: center; gap: 7px; color: var(--muted); }
+ul.items li.has-more { cursor: pointer; }
+ul.items li.has-more:hover { background: color-mix(in srgb, var(--steel) 6%, transparent); }
+.status { font: 500 12px var(--mono); padding-top: 2px; display: flex; align-items: center; gap: 7px; color: var(--muted); }
 .status::before { content: ""; width: 9px; height: 9px; border-radius: 50%; flex: none; border: 2px solid var(--planned); }
 .s-done .status { color: var(--done); } .s-done .status::before { background: var(--done); border-color: var(--done); }
 .s-doing .status { color: var(--doing); } .s-doing .status::before { border-color: var(--doing); background: linear-gradient(90deg, var(--doing) 50%, transparent 50%); }
 .s-next .status { color: var(--next); } .s-next .status::before { border-color: var(--next); }
 .s-idea .status::before { border-style: dashed; }
 .s-done .name { color: var(--muted); }
-.name { font-weight: 500; }
-.note { color: var(--muted); font-size: 14px; }
+.name { font-weight: 500; background: none; border: 0; padding: 0; color: inherit; font: inherit; font-weight: 500; text-align: left; cursor: inherit; }
+.note { color: var(--muted); font-size: 14px; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+li.open .note, body.full .note { -webkit-line-clamp: unset; display: block; }
+li .needs.later { display: none; }
+li.open .needs.later, body.full .needs.later { display: block; }
 .tags { display: flex; gap: 6px; padding-top: 1px; }
-.tag { font: 500 11px var(--mono); text-transform: uppercase; letter-spacing: 0.08em; padding: 2px 7px; border-radius: 5px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.tag { font: 500 12px var(--mono); padding: 1px 7px; border-radius: 5px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
 .tag.must { color: var(--fg); border-color: var(--fg); }
 .tag.julius { color: var(--julius); border-color: var(--julius); }
 .needs { font-size: 13px; color: var(--muted); margin-top: 3px; }
-.needs .lbl { font: 500 11px var(--mono); text-transform: uppercase; letter-spacing: 0.08em; margin-right: 4px; }
+.needs .lbl { font: 500 12px var(--mono); margin-right: 4px; }
 .needs .open { color: var(--fg); }
 .needs .met { text-decoration: line-through; }
 .empty { padding: 14px; color: var(--muted); font-size: 14px; }
@@ -103,10 +122,19 @@ footer { color: var(--muted); font-size: 13px; border-top: 1px solid var(--line)
 .error { padding: 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
 
 @media (max-width: 560px) {
-  ul.items li { grid-template-columns: minmax(0, 1fr) auto; }
-  .status { grid-column: 1 / -1; }
+  .wrap { padding-inline: 16px; }
+  .bar, .pills { margin-inline: -16px; padding-inline: 16px; }
+  .pills.tracks { margin: 0; }
+  ul.items li { grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; }
+  ul.items li > div:first-of-type { grid-column: 1 / -1; grid-row: 2; }
+  .phase-body { padding: 0 12px 14px; }
+  summary h2 { font-size: 20px; }
+  summary .prog { min-width: 0; }
+  summary .track { width: 72px; }
 }
-@media (prefers-reduced-motion: no-preference) { .meter i, .rail .bar i { transition: width .4s ease; } }
+@media (prefers-reduced-motion: no-preference) {
+  .meter i, summary .track i { transition: width .4s ease; }
+}
 </style>
 
 <div class="wrap">
@@ -124,7 +152,11 @@ footer { color: var(--muted); font-size: 13px; border-top: 1px solid var(--line)
     </div>
   </header>
 
-  <nav class="rail" aria-label="Phases"><ol id="rail"></ol></nav>
+  <div class="bar">
+    <div class="where" aria-live="polite"><span class="p" id="where-p">Roadmap</span><span class="sep" id="where-sep" hidden>›</span><span class="g" id="where-g"></span></div>
+    <nav class="pills" id="pills" aria-label="Phases"></nav>
+    <nav class="pills tracks" id="tracks" aria-label="Tracks in this phase" hidden></nav>
+  </div>
 
   <div class="controls" role="group" aria-label="Filter items">
     <span class="lbl">Show</span>
@@ -132,9 +164,10 @@ footer { color: var(--muted); font-size: 13px; border-top: 1px solid var(--line)
     <button class="chip" id="f-must" type="button" aria-pressed="false">Must items only</button>
     <button class="chip" id="f-julius" type="button" aria-pressed="false">Julius's to-dos</button>
     <button class="chip" id="f-open" type="button" aria-pressed="false">Hide done</button>
+    <button class="chip" id="f-full" type="button" aria-pressed="false">Full notes</button>
   </div>
 
-  <main id="phases" style="display:grid;gap:40px"></main>
+  <main id="phases" style="display:grid;gap:14px"></main>
 
   <div class="legend" aria-label="Status key">
     <span class="s-done"><span class="status">done</span></span>
@@ -189,7 +222,14 @@ function parse(text) {
 }
 
 let data = null;
-let filter = "all"; let hideDone = false;
+let filter = "all"; let hideDone = false; let full = false;
+const opened = new Set();
+const slug = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+const phaseId = (p) => p.num !== "" ? `phase-${p.num}` : "parked";
+const phaseLabel = (p) => p.num !== "" ? `Phase ${p.num}: ${p.title}` : p.title;
+const groupId = (p, g) => `${phaseId(p)}-${slug(g.title.replace(/\(.*?\)/g, ""))}`;
+const shortTitle = (t) => t.replace(/\s*\(.*?\)\s*/g, "").trim();
+const countDone = (items) => `${items.filter((i) => i.status === "done").length}/${items.length}`;
 
 function visible(item) {
   if (hideDone && item.status === "done") return false;
@@ -212,41 +252,136 @@ function render() {
   }
 
   const current = phases.find((p) => p.num !== "" && p.groups.flatMap((g) => g.items).some((i) => i.status !== "done"));
-  document.getElementById("rail").innerHTML = phases.map((p) => {
+  if (!opened.size && current) opened.add(phaseId(current));
+
+  document.getElementById("pills").innerHTML = phases.map((p) => {
     const items = p.groups.flatMap((g) => g.items);
-    const done = items.filter((i) => i.status === "done").length;
-    const id = p.num !== "" ? `phase-${p.num}` : "parked";
-    return `<li><a href="#${id}" class="${p === current ? "current" : ""}">
-      <span class="n">${p.num !== "" ? `Phase ${p.num}` : "Later"}</span>
-      <span class="t">${esc(p.title)}</span>
-      <span class="bar"><i style="width:${items.length ? (done / items.length) * 100 : 0}%"></i></span>
-      <span class="c">${p.num !== "" ? `${done}/${items.length} done` : `${items.length} ideas`}</span></a></li>`;
+    return `<a class="pill" href="#${phaseId(p)}" data-for="${phaseId(p)}">${p.num !== "" ? `${p.num} · ` : ""}${esc(p.title)}<span class="c">${p.num !== "" ? countDone(items) : items.length}</span></a>`;
   }).join("");
 
   const statusOf = new Map(phases.flatMap((p) => p.groups.flatMap((g) => g.items)).map((i) => [i.name.toLowerCase(), i.status]));
-  const needsHtml = (i) => i.needs.length ? `<div class="needs"><span class="lbl">Needs</span>${i.needs.map((n) => {
-    const shown = n.replace(/^Julius:\s*/, "");
-    const met = statusOf.get(shown.toLowerCase()) === "done";
-    return `<span class="${met ? "met" : "open"}">${md(shown.charAt(0).toUpperCase() + shown.slice(1))}</span>`;
-  }).join(", ")}</div>` : "";
+  const needsHtml = (i) => {
+    if (!i.needs.length) return "";
+    const parts = i.needs.map((n) => {
+      const shown = n.replace(/^Julius:\s*/, "");
+      const met = statusOf.get(shown.toLowerCase()) === "done";
+      return { met, html: `<span class="${met ? "met" : "open"}">${md(shown.charAt(0).toUpperCase() + shown.slice(1))}</span>` };
+    });
+    // Needs still waiting stay in view; needs already met show with the full note.
+    const waiting = i.status !== "done" && parts.some((x) => !x.met);
+    return `<div class="needs${waiting ? "" : " later"}"><span class="lbl">Needs</span>${parts.map((x) => x.html).join(", ")}</div>`;
+  };
+
   document.getElementById("phases").innerHTML = phases.map((p) => {
-    const id = p.num !== "" ? `phase-${p.num}` : "parked";
+    const id = phaseId(p);
+    const all = p.groups.flatMap((g) => g.items);
     const groups = p.groups.map((g) => {
       const items = g.items.filter(visible);
       if (g.items.length && !items.length) return "";
-      const rows = items.map((i) => `<li class="s-${esc(i.status)}">
+      const rows = items.map((i) => {
+        const more = i.note || i.needs.length;
+        return `<li class="s-${esc(i.status)}${more ? " has-more" : ""}">
         <span class="status">${esc(i.status)}</span>
-        <div><div class="name">${md(i.name)}</div>${i.note ? `<div class="note">${md(i.note)}</div>` : ""}${needsHtml(i)}</div>
+        <div>${more ? `<button class="name" type="button" aria-expanded="false">${md(i.name)}</button>` : `<div class="name">${md(i.name)}</div>`}${i.note ? `<div class="note">${md(i.note)}</div>` : ""}${needsHtml(i)}</div>
         <div class="tags">${i.julius ? '<span class="tag julius">Julius</span>' : ""}${i.must ? '<span class="tag must">Must</span>' : i.nice ? '<span class="tag">Nice</span>' : ""}</div>
-      </li>`).join("");
-      return `<div class="group">${g.title ? `<h3>${esc(g.title)}</h3>` : ""}${g.intro.map((t) => `<p>${md(t)}</p>`).join("")}${rows ? `<ul class="items">${rows}</ul>` : ""}</div>`;
+      </li>`;
+      }).join("");
+      const gid = g.title ? groupId(p, g) : "";
+      return `<div class="group"${gid ? ` id="${gid}" data-title="${esc(shortTitle(g.title))}"` : ""}>${g.title ? `<h3>${esc(shortTitle(g.title))}<span class="c">${countDone(g.items)} done</span></h3>` : ""}${g.intro.map((t) => `<p>${md(t)}</p>`).join("")}${rows ? `<ul class="items">${rows}</ul>` : ""}</div>`;
     }).join("");
     const shown = groups.trim() ? groups : `<div class="empty">Nothing here matches this filter.</div>`;
-    return `<section class="phase" id="${id}">
-      <div class="phase-head"><span class="k">${p.num !== "" ? `Phase ${p.num}` : "Not planned"}</span><h2>${esc(p.title)}</h2>${p.intro.map((t) => `<p>${md(t)}</p>`).join("")}</div>
-      ${shown}</section>`;
+    const done = all.filter((i) => i.status === "done").length;
+    return `<details class="phase" id="${id}" data-label="${esc(phaseLabel(p))}"${opened.has(id) ? " open" : ""}>
+      <summary>
+        <span class="name-wrap"><span class="k">${p.num !== "" ? `Phase ${p.num}` : "Not planned"}</span><h2>${esc(p.title)}</h2></span>
+        <span class="prog">${p.num !== "" ? `<span class="track"><i style="width:${all.length ? (done / all.length) * 100 : 0}%"></i></span><span class="c">${done}/${all.length} done</span>` : `<span class="c">${all.length} ideas</span>`}</span>
+      </summary>
+      <div class="phase-body">${p.intro.map((t) => `<p>${md(t)}</p>`).join("")}${shown}</div>
+    </details>`;
   }).join("");
+
+  for (const d of document.querySelectorAll("details.phase")) d.addEventListener("toggle", () => {
+    d.open ? opened.add(d.id) : opened.delete(d.id);
+    spy();
+  });
+  spy();
 }
+
+const smooth = () => !matchMedia("(prefers-reduced-motion: reduce)").matches;
+// A quick eased scroll (the browser's own smooth scroll is slow and can't be tuned): 250 to 450 ms by distance, easing out.
+// Scrolling with the wheel or a finger takes over at once.
+let gliding = 0;
+function glide(to) {
+  const from = scrollY, dist = to - from;
+  if (!smooth() || Math.abs(dist) < 2) { scrollTo(0, to); return; }
+  const ms = Math.min(450, 250 + Math.abs(dist) / 20), start = performance.now(), run = ++gliding;
+  const step = (now) => {
+    if (run !== gliding) return;
+    const t = Math.min(1, (now - start) / ms);
+    scrollTo(0, from + dist * (1 - Math.pow(1 - t, 3)));
+    if (t < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+for (const ev of ["wheel", "touchstart", "keydown"]) addEventListener(ev, () => { gliding++; }, { passive: true });
+// Slide a pill row sideways so the highlighted pill is in view, without touching the page's own scroll.
+function reveal(row, pill) {
+  const r = row.getBoundingClientRect(), b = pill.getBoundingClientRect();
+  if (b.left >= r.left && b.right <= r.right) return;
+  row.scrollTo({ left: row.scrollLeft + b.left - r.left - (r.width - b.width) / 2, behavior: smooth() ? "smooth" : "auto" });
+}
+
+// Open a phase (and scroll to a phase or track) from a link, the pills or the address.
+function go(id) {
+  const el = document.getElementById(id); if (!el) return;
+  const phase = el.closest("details.phase"); if (phase && !phase.open) phase.open = true;
+  // Land the phase or track just above the line the bar reads from, so the bar names what you jumped to.
+  const top = el.getBoundingClientRect().top + scrollY - document.querySelector(".bar").offsetHeight - LINE + 8;
+  glide(Math.max(0, top));
+}
+
+// Which phase and track sit under the sticky bar: shown in the bar, with that phase's tracks as jumps.
+/** How far below the bar the "you are here" line sits: room for the floating track row. */
+const LINE = 56;
+let lastPhase = null;
+function spy() {
+  const line = document.querySelector(".bar").getBoundingClientRect().bottom + LINE;
+  let phase = null, group = null;
+  for (const d of document.querySelectorAll("details.phase")) if (d.getBoundingClientRect().top <= line) phase = d;
+  if (phase?.open) for (const g of phase.querySelectorAll(".group[id]")) if (g.getBoundingClientRect().top <= line) group = g;
+  document.getElementById("where-p").textContent = phase ? phase.dataset.label : "Roadmap";
+  document.getElementById("where-sep").hidden = !group;
+  document.getElementById("where-g").textContent = group ? group.dataset.title : "";
+  for (const a of document.querySelectorAll("#pills .pill")) {
+    const here = a.dataset.for === phase?.id;
+    a.classList.toggle("here", here);
+    if (here && lastPhase !== phase.id) reveal(a.parentElement, a);
+  }
+  const tracks = document.getElementById("tracks");
+  const groups = phase?.open ? [...phase.querySelectorAll(".group[id]")] : [];
+  if ((phase?.id ?? null) !== lastPhase || tracks.childElementCount !== groups.length) {
+    tracks.innerHTML = groups.map((g) => `<a class="pill" href="#${g.id}" data-for="${g.id}">${esc(g.dataset.title)}<span class="c">${esc(g.querySelector("h3 .c").textContent.replace(" done", ""))}</span></a>`).join("");
+  }
+  tracks.hidden = !groups.length;
+  for (const a of tracks.querySelectorAll(".pill")) {
+    const here = a.dataset.for === group?.id;
+    if (here && !a.classList.contains("here")) reveal(tracks, a);
+    a.classList.toggle("here", here);
+  }
+  lastPhase = phase?.id ?? null;
+}
+let ticking = false;
+addEventListener("scroll", () => { if (!ticking) { ticking = true; requestAnimationFrame(() => { ticking = false; spy(); }); } }, { passive: true });
+
+document.addEventListener("click", (e) => {
+  const link = e.target.closest('.bar a[href^="#"]');
+  if (link) { e.preventDefault(); history.replaceState(null, "", link.getAttribute("href")); go(link.getAttribute("href").slice(1)); return; }
+  const row = e.target.closest("li.has-more");
+  if (row && !e.target.closest("a")) {
+    const open = row.classList.toggle("open");
+    row.querySelector("button.name")?.setAttribute("aria-expanded", String(open));
+  }
+});
 
 function setFilter(next) {
   filter = next;
@@ -262,6 +397,12 @@ document.getElementById("f-open").onclick = (e) => {
   try { localStorage.setItem("roadmap-hide-done", hideDone ? "1" : ""); } catch {}
   render();
 };
+document.getElementById("f-full").onclick = (e) => {
+  full = !full; e.currentTarget.setAttribute("aria-pressed", String(full));
+  document.body.classList.toggle("full", full);
+  try { localStorage.setItem("roadmap-full", full ? "1" : ""); } catch {}
+  spy();
+};
 
 fetch("ROADMAP.md", { cache: "no-store" })
   .then((r) => { if (!r.ok) throw new Error(r.status); return r.text(); })
@@ -270,11 +411,14 @@ fetch("ROADMAP.md", { cache: "no-store" })
     try {
       const f = localStorage.getItem("roadmap-filter"); if (f && ["all", "must", "julius"].includes(f)) filter = f;
       hideDone = localStorage.getItem("roadmap-hide-done") === "1";
+      full = localStorage.getItem("roadmap-full") === "1";
     } catch {}
     for (const [id, f] of [["f-all", "all"], ["f-must", "must"], ["f-julius", "julius"]]) document.getElementById(id).setAttribute("aria-pressed", String(f === filter));
     document.getElementById("f-open").setAttribute("aria-pressed", String(hideDone));
+    document.getElementById("f-full").setAttribute("aria-pressed", String(full));
+    document.body.classList.toggle("full", full);
     render();
-    if (location.hash) document.getElementById(location.hash.slice(1))?.scrollIntoView();
+    if (location.hash) go(location.hash.slice(1));
   })
   .catch(() => {
     document.getElementById("now").textContent = "";
