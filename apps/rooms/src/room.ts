@@ -7,6 +7,7 @@ import {
   roomData,
   roomInfo,
   verifyPass,
+  type GameServer,
   type Player,
   type RoomErrorCode,
   type RoomInfo,
@@ -15,6 +16,7 @@ import {
   type ServerMessage,
 } from "@zaisma/game-server";
 import { gameServer } from "./registry.ts";
+import { SANDBOX, sandboxServer } from "./sandbox.ts";
 import { signingKey, type Env } from "./index.ts";
 
 /** A socket's saved details, kept through hibernation. */
@@ -24,6 +26,8 @@ interface Meta {
   gameId: string;
   slug: string;
   server: string;
+  /** The game version a room started on: a sandboxed game server keeps running it until the room ends. */
+  version?: string;
   /** Rooms made before room browsing don't know their code, and aren't listed. */
   code?: string;
   /** The country and continent the room's first player connected from, which is roughly where the room runs. */
@@ -62,6 +66,8 @@ const CHECK_IN_MS = 3600 * 1000;
 export class Room extends DurableObject<Env> {
   private meta: Meta | null = null;
   private core: RoomCore | null = null;
+  /** The game server, loaded on first use since waking (a sandboxed one opens its session then). */
+  private server: GameServer | null = null;
   private ended = false;
   private usage: Usage = { playerSeconds: 0, messages: 0 };
   private saved: unknown = undefined;
@@ -96,6 +102,7 @@ export class Room extends DurableObject<Env> {
         gameId: request.headers.get("x-game-id")!,
         slug: request.headers.get("x-game-slug")!,
         server: request.headers.get("x-game-server")!,
+        version: request.headers.get("x-game-version") ?? undefined,
         ...this.meta,
         code: request.headers.get("x-room-code") ?? undefined,
         country: this.meta?.country ?? (request.headers.get("x-room-country") || null),
@@ -103,7 +110,7 @@ export class Room extends DurableObject<Env> {
       };
       await this.ctx.storage.put("meta", this.meta);
     }
-    const server = gameServer(this.meta.server);
+    const server = await this.load();
     if (!server) return new Response("This game isn't available right now", { status: 404 });
 
     this.dropStaleHellos();
@@ -123,11 +130,13 @@ export class Room extends DurableObject<Env> {
     if (att.stage === "hello") return this.hello(ws, data);
     if (att.stage !== "in") return;
 
+    await this.load();
     const core = this.room();
     if (!core) return;
     if (Date.now() - this.lastCheck > CHECK_MS && !(await this.gameStillLive())) return;
     const err = core.receive(att.id, data);
     if (err) ws.send(errorMessage(err));
+    await core.settled();
     await this.moved();
     await this.save();
     if (core.listingChanged) await this.list();
@@ -152,6 +161,7 @@ export class Room extends DurableObject<Env> {
    */
   async alarm(): Promise<void> {
     if (this.sockets().length) {
+      await this.load();
       this.room();
       if (await this.gameStillLive()) await this.list(true);
       return;
@@ -179,6 +189,7 @@ export class Room extends DurableObject<Env> {
       gameId: request.headers.get("x-game-id")!,
       slug: request.headers.get("x-game-slug")!,
       server: request.headers.get("x-game-server")!,
+      version: request.headers.get("x-game-version") ?? undefined,
       code: request.headers.get("x-room-code")!,
       country: request.headers.get("x-room-country") || null,
       continent: request.headers.get("x-room-continent") || null,
@@ -219,6 +230,7 @@ export class Room extends DurableObject<Env> {
     }
     if (this.ended) return this.refuse(ws, "ended");
     if (!(await this.gameStillLive())) return this.refuse(ws, "game-unavailable");
+    await this.load();
     const core = this.room();
     if (!core) return this.refuse(ws, "game-unavailable");
 
@@ -230,6 +242,7 @@ export class Room extends DurableObject<Env> {
     ws.serializeAttachment({ stage: "in", id: player.id, name: player.name, joinedAt: Date.now() } satisfies Attachment);
     const result = core.join(player, made);
     if (!result.ok) return this.refuse(ws, result.code);
+    await core.settled();
     if (core.players.size === 1) await this.ctx.storage.delete("emptySince");
     this.startTicking(core);
     await this.moved();
@@ -240,7 +253,12 @@ export class Room extends DurableObject<Env> {
   private async left(ws: WebSocket): Promise<void> {
     const att = this.retire(ws);
     if (att.stage !== "in") return;
-    if (this.sockets(att.id).length === 0) this.room()?.leave(att.id);
+    if (this.sockets(att.id).length === 0) {
+      await this.load();
+      const core = this.room();
+      core?.leave(att.id);
+      await core?.settled();
+    }
     if (this.sockets().length === 0) await this.emptied();
     else {
       await this.save();
@@ -322,6 +340,12 @@ export class Room extends DurableObject<Env> {
 
   /** Add this room's player time and message count to the game's daily usage. Nothing about players. */
   private async recordUsage(): Promise<void> {
+    // For now, how much a sandboxed game server is asked to do, to measure what it costs.
+    const stats = (this.server as { stats?: { calls: number; ms: number } } | null)?.stats;
+    if (stats?.calls) {
+      console.log(`Sandbox usage for ${this.meta?.slug}: ${stats.calls} calls, ${stats.ms} ms waiting on the game server`);
+      stats.calls = stats.ms = 0;
+    }
     if (this.core) {
       this.usage.messages += this.core.messages;
       this.core.messages = 0;
@@ -344,7 +368,7 @@ export class Room extends DurableObject<Env> {
   private reserve(code: string, start: RoomStart): void {
     const meta = this.meta!;
     const work = (async () => {
-      const headers = { "x-game-id": meta.gameId, "x-game-slug": meta.slug, "x-game-server": meta.server, "x-room-code": code, "x-room-country": meta.country ?? "", "x-room-continent": meta.continent ?? "" };
+      const headers = { "x-game-id": meta.gameId, "x-game-slug": meta.slug, "x-game-server": meta.server, "x-game-version": meta.version ?? "", "x-room-code": code, "x-room-country": meta.country ?? "", "x-room-continent": meta.continent ?? "" };
       const res = await this.env.ROOMS.get(this.env.ROOMS.idFromName(`${meta.slug}:${code}`)).fetch("https://room/reserve", { method: "POST", headers, body: JSON.stringify(start) });
       if (!res.ok) throw new Error(`room ${code} said ${res.status}`);
       const text = JSON.stringify({ t: "move", code } satisfies ServerMessage);
@@ -361,7 +385,7 @@ export class Room extends DurableObject<Env> {
   /** The room's game server, built on first use or after waking from hibernation. */
   private room(): RoomCore | null {
     if (this.core) return this.core;
-    const server = this.meta && gameServer(this.meta.server);
+    const server = this.server;
     if (!server) return null;
     const players = this.sockets().map((ws) => {
       const att = ws.deserializeAttachment() as Attachment & { stage: "in" };
@@ -387,6 +411,22 @@ export class Room extends DurableObject<Env> {
     }
     this.core.dirty = false;
     return this.core;
+  }
+
+  /**
+   * Load the game server: a built-in one, or the game's own in its sandbox. A sandbox that can't
+   * open (no game server file, or it fails to start) leaves the room unavailable, like a takedown.
+   */
+  private async load(): Promise<GameServer | null> {
+    if (this.server || !this.meta) return this.server;
+    if (this.meta.server !== SANDBOX) return (this.server = gameServer(this.meta.server));
+    if (!this.meta.version) return null;
+    try {
+      this.server = await sandboxServer(this.env, this.meta.gameId, this.meta.version);
+    } catch (err) {
+      console.error("Couldn't start the game server:", err);
+    }
+    return this.server;
   }
 
   private startTicking(core: RoomCore): void {

@@ -111,7 +111,7 @@ Detailed plan approved: guest passes, game server API, rooms, SDK, demos.
 | planned | Must | `zaisma check` and automatic fixes | Upload command | Pulls in outside scripts, unpacks compressed builds |
 | planned | Must | Claude Code skill | Developer MCP, `zaisma check` and automatic fixes | Teaches the whole workflow |
 | planned | Must | Basic play stats | Client SDK | Plays, session length, players coming back |
-| doing | Must | Developers' own game servers run safely | Upload command, Rooms on rooms.zaisma.com, Julius: Workers Paid plan | Dynamic Workers; the biggest technical unknown in Phase 1, so prototype it early |
+| doing | Must | Developers' own game servers run safely | Upload command, Rooms on rooms.zaisma.com, Julius: Workers Paid plan | Dynamic Workers. Prototype works in the preview: a game's `zaisma-server.js` runs in a sandbox with no internet, nothing of ours and a CPU limit, never served to players; the Arena demo runs this way. Next: try it on Cloudflare (the CPU limit only works there) and measure the real cost, then let developers turn it on |
 | planned | Nice | Drop-in Socket.IO and PeerJS | Client SDK | So existing multiplayer prototypes work with few changes |
 
 ### Polish before outreach (build track 5)

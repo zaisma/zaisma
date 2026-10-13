@@ -40,6 +40,12 @@ describe("game server", () => {
     expect(res.headers.get("content-type")).toContain("text/html");
   });
 
+  it("never serves a game's own game server to players", async () => {
+    await addGame("live-one", "live");
+    await env.GAMES.put("games/gliveone/vgliveone/zaisma-server.js", "export default {}");
+    expect((await SELF.fetch(`${G}/live-one/zaisma-server.js`)).status).toBe(404);
+  });
+
   it("adds the trailing slash so relative paths work", async () => {
     await addGame("live-one", "live");
     const res = await SELF.fetch(`${G}/live-one`, { redirect: "manual" });

@@ -173,6 +173,8 @@ export default {
     }
 
     const path = target.path === "" || target.path.endsWith("/") ? `${target.path}index.html` : target.path;
+    // A game's own game server runs in our rooms' sandbox; players never get its code.
+    if (path === "zaisma-server.js") return page(404, "File not found", "This game is missing a file.", env);
     const html = path.endsWith(".html");
     const inject = html;
     // Pages get our scripts on the way out, so they skip ranges and R2's own ETag checks.
