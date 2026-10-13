@@ -422,7 +422,7 @@ export class Room extends DurableObject<Env> {
     if (this.meta.server !== SANDBOX) return (this.server = gameServer(this.meta.server));
     if (!this.meta.version) return null;
     try {
-      this.server = await sandboxServer(this.env, this.meta.gameId, this.meta.version);
+      this.server = await sandboxServer(this.env, this.meta.gameId, this.meta.version, () => this.broken());
     } catch (err) {
       console.error("Couldn't start the game server:", err);
     }
@@ -462,6 +462,13 @@ export class Room extends DurableObject<Env> {
     }
     await this.finish();
     return false;
+  }
+
+  /** The game's own game server keeps failing (stuck in a loop, say): end the match rather than freeze it. */
+  private broken(): void {
+    console.error(`Game server for ${this.meta?.slug} stopped working; ending room ${this.meta?.code}`);
+    this.room()?.end("This game's server stopped working.");
+    void this.finish();
   }
 
   /** Save a turn-based room's state after each change, so it can sleep between moves. */
