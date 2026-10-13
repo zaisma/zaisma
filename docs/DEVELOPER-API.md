@@ -10,7 +10,7 @@ Any AI tool that supports remote MCP servers can manage your games at `https://z
 claude mcp add --transport http zaisma https://zaisma.com/mcp --header "Authorization: Bearer $ZAISMA_KEY"
 ```
 
-Every tool is a call to this API (`apps/site/src/mcp.ts`): `list_games`, `create_game`, `get_game`, `update_game`, `upload_files` (small games up to 5 MB, sent as file contents), `get_version`, `publish_version` (also rolls back and publishes later), `cancel_scheduled_publish`, `add_image`, `remove_image`, `get_reports`, `get_stats` and `get_history`. Bigger builds go through the upload command. Making a game players can play private or a draft again needs `"confirm": true`, so the AI asks you first.
+Every tool is a call to this API (`apps/site/src/mcp.ts`): `list_games`, `create_game`, `get_game`, `update_game`, `upload_files` (small games up to 5 MB, sent as file contents), `get_version`, `publish_version` (also rolls back and publishes later), `cancel_scheduled_publish`, `add_image`, `remove_image`, `add_tester_link`, `remove_tester_link`, `get_reports`, `get_stats` and `get_history`. Bigger builds go through the upload command. Making a game players can play private or a draft again needs `"confirm": true`, so the AI asks you first.
 
 ## Signing in
 
@@ -22,10 +22,10 @@ Make an API key on your account page (zaisma.com/account, under Game developers)
 | --- | --- |
 | `GET /games` | Your games. |
 | `POST /games` | Make a game: `{"title", "slug"?, "description"?, "devices"?, "controls"?, "screen"?}`. It starts as a draft that only you can see. Up to 50 games. |
-| `GET /games/:slug` | One game with its images and versions. |
+| `GET /games/:slug` | One game with its images, versions and tester links. |
 | `PATCH /games/:slug` | Change any of `title`, `description`, `visibility`, `devices`, `controls`, `screen`, `players`, `cloud_saves`, `room_browsing`, `multiplayer`. |
 
-- **visibility:** `draft`, `listed` (home page and search), `unlisted` (anyone with the link, never in lists or search engines) or `private`. Draft and private games open only through preview and tester links (coming next).
+- **visibility:** `draft`, `listed` (home page and search), `unlisted` (anyone with the link, never in lists or search engines) or `private`. Draft and private games open only through preview links and tester links (below).
 - **review** is ours and separate: `pending` (no version has passed review yet), `live`, `held` or `removed`. Changing visibility never undoes a takedown.
 - **players:** how it's played, shown on the game page with icons: `{"single": true, "local": {"min": 2, "max": 4, "style": "co-op"}, "online": {"min": 2, "max": null, "style": "versus"}}`. `local` is together on one device or screen, `online` is each on their own device; either can be `null`. `style` is `co-op`, `versus` or `both`; `max: null` means no limit ("2+ players"). `null` clears it.
 - **devices:** any of `phone`, `tablet`, `computer`. **controls:** any of `touch`, `keyboard-mouse`, `gamepad`. **screen:** `portrait`, `landscape`, `either` or `""`.
@@ -39,6 +39,21 @@ Make an API key on your account page (zaisma.com/account, under Game developers)
 | `GET /games/:slug/reports?since=` | Player reports from the last 90 days, counted by reason (`open` or `closed`), and the bug reports: reports that report triage sorted as bugs, each with what the player wrote, a one-line summary and the version they played. Pass the `next_since` from your last call as `since` to get only the bug reports that arrived after it. Child-safety reports are never counted or shown. |
 | `GET /games/:slug/stats?days=30` | Multiplayer use per day: rooms, player minutes and messages. For games running their own game server on our rooms, also per day `game_server`: calls, crashes (a handler threw; that call is lost), stopped (ran on too long, like an endless loop; the match froze about 2 seconds) and matches_ended (stopped twice), plus `game_server_errors`: the 20 most recent distinct errors with the file and line they came from, how often and when. Plays and players coming back arrive with the Zaisma SDK. |
 | `GET /games/:slug/history` | What happened to the game, newest first, and whether you or Zaisma did it. |
+
+## Tester links
+
+Secret links that open the game's live version for anyone who has them, whatever its visibility, so a private or draft game can be played before it's public. Testers need no account. Make one per group (your team, playtesters, a streamer) and name it for them, so you can turn one off without the others.
+
+| Call | What it does |
+| --- | --- |
+| `GET /games/:slug/testers` | The links that are on: `{"id", "name", "url", "created_at", "opened_at"}`. `opened_at` is when someone last opened it (to the hour), or `null`. |
+| `POST /games/:slug/testers` | Make one: `{"name"}`, 1 to 60 characters. Up to 50 per game. |
+| `DELETE /games/:slug/testers/:id` | Turn one off for good. It stops opening the game straight away; make a new one to let that group back in. |
+
+- A link looks like `https://zaisma.com/t/<secret>`: the game page with the game, marked as a test and kept out of search engines. The game itself runs at `https://<slug>--<secret>.zaismausercontent.com/`.
+- Multiplayer works through it: room invites and `Zaisma.rooms.list()` links point back to the tester link, not the public page. The game page's room list isn't shown on tester links.
+- Testers' progress stays in their browser (no cloud saves), and the game stays off their Continue playing.
+- With no published version yet, the link says there's nothing to play. A held or taken-down game is closed to testers too.
 
 ## Covers and screenshots
 

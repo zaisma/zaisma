@@ -84,9 +84,14 @@ export async function createVersion(
     .run();
 }
 
+/** A secret for a link on the game domain (<slug>--<token>): 20 lowercase letters and digits. */
+export function linkToken(): string {
+  return Array.from(crypto.getRandomValues(new Uint8Array(20)), (b) => "abcdefghijklmnopqrstuvwxyz0123456789"[b % 36]).join("");
+}
+
 /** A passed version that isn't published yet gets a private preview link. */
 export async function approveDraft(db: D1Database, versionId: string): Promise<string> {
-  const token = Array.from(crypto.getRandomValues(new Uint8Array(20)), (b) => "abcdefghijklmnopqrstuvwxyz0123456789"[b % 36]).join("");
+  const token = linkToken();
   await db.prepare("UPDATE versions SET scan_status = 'approved', preview_token = COALESCE(preview_token, ?) WHERE id = ?").bind(token, versionId).run();
   return (await db.prepare("SELECT preview_token FROM versions WHERE id = ?").bind(versionId).first<{ preview_token: string }>())!.preview_token;
 }
@@ -258,4 +263,49 @@ export async function addAiUsage(db: D1Database, input: number, output: number, 
     )
     .bind(month, input, output, scans, reports)
     .run();
+}
+
+/** Tester links a developer can have turned on per game. */
+export const MAX_TESTER_LINKS = 50;
+
+export interface TesterLink {
+  id: string;
+  game_id: string;
+  name: string;
+  token: string;
+  created_at: number;
+  opened_at: number | null;
+  revoked_at: number | null;
+}
+
+export async function testerLinks(db: D1Database, gameId: string): Promise<TesterLink[]> {
+  const { results } = await db.prepare("SELECT * FROM tester_links WHERE game_id = ? AND revoked_at IS NULL ORDER BY created_at DESC").bind(gameId).all<TesterLink>();
+  return results;
+}
+
+/** A tester link that's still on, with its game's slug. */
+export async function testerLinkByToken(db: D1Database, token: string): Promise<(TesterLink & { slug: string }) | null> {
+  if (!/^[a-z0-9]{20}$/.test(token)) return null;
+  return db
+    .prepare("SELECT tester_links.*, games.slug FROM tester_links JOIN games ON games.id = tester_links.game_id WHERE tester_links.token = ? AND tester_links.revoked_at IS NULL")
+    .bind(token)
+    .first();
+}
+
+export async function addTesterLink(db: D1Database, gameId: string, name: string): Promise<TesterLink> {
+  const link: TesterLink = { id: newId(), game_id: gameId, name, token: linkToken(), created_at: now(), opened_at: null, revoked_at: null };
+  await db.prepare("INSERT INTO tester_links (id, game_id, name, token, created_at) VALUES (?, ?, ?, ?, ?)").bind(link.id, gameId, name, link.token, link.created_at).run();
+  return link;
+}
+
+/** Turn a link off for good. False if it wasn't on. */
+export async function revokeTesterLink(db: D1Database, gameId: string, id: string): Promise<boolean> {
+  const res = await db.prepare("UPDATE tester_links SET revoked_at = ? WHERE id = ? AND game_id = ? AND revoked_at IS NULL").bind(now(), id, gameId).run();
+  return res.meta.changes > 0;
+}
+
+/** Note that a tester link was opened, at most once an hour so a busy link costs no extra writes. */
+export async function testerLinkOpened(db: D1Database, id: string): Promise<void> {
+  const at = now();
+  await db.prepare("UPDATE tester_links SET opened_at = ? WHERE id = ? AND (opened_at IS NULL OR opened_at < ?)").bind(at, id, at - 3600_000).run();
 }

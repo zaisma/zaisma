@@ -1,6 +1,7 @@
 import { env, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import type { Env } from "../../apps/rooms/src/index.ts";
+import { gameOrigin, type Env } from "../../apps/rooms/src/index.ts";
+import { addTesterLink, revokeTesterLink } from "@zaisma/core";
 import type { Room } from "../../apps/rooms/src/room.ts";
 
 const R = "https://rooms.zaisma.test";
@@ -58,7 +59,7 @@ async function join(game: string, code: string, opts: { listed?: false; from?: {
 
 describe("rooms", () => {
   beforeEach(async () => {
-    await e.DB.exec("DELETE FROM room_usage; DELETE FROM domains; DELETE FROM games;");
+    await e.DB.exec("DELETE FROM tester_links; DELETE FROM room_usage; DELETE FROM domains; DELETE FROM games;");
   });
 
   it("issues guest passes only to the game's own origin", async () => {
@@ -70,6 +71,21 @@ describe("rooms", () => {
     expect((await post("/v1/pass", "arena", "https://zaisma.test")).status).toBe(403);
     await addGame("held-one", { status: "held" });
     expect((await post("/v1/pass", "held-one")).status).toBe(404);
+  });
+
+  it("lets a tester link's origin in, with room links back through it", async () => {
+    const id = await addGame("hidden-arena");
+    const sub = { ...e, GAME_HOST_MODE: "subdomain", GAME_DOMAIN: "zaismausercontent.com" } as Env;
+    const link = await addTesterLink(e.DB, id, "Team");
+    const at = (host: string) => gameOrigin(sub, "hidden-arena", `https://${host}`);
+    expect(await at("hidden-arena.zaismausercontent.com")).toEqual({ page: "/g/hidden-arena" });
+    expect(await at(`hidden-arena--${link.token}.zaismausercontent.com`)).toEqual({ page: `/t/${link.token}` });
+    expect(await at(`other--${link.token}.zaismausercontent.com`)).toBeNull();
+    expect(await at(`hidden-arena--${link.token}.evil.example`)).toBeNull();
+    expect(await at(`hidden-arena--${"a".repeat(20)}.zaismausercontent.com`)).toBeNull();
+    await revokeTesterLink(e.DB, id, link.id);
+    expect(await at(`hidden-arena--${link.token}.zaismausercontent.com`)).toBeNull();
+    await e.DB.exec("DELETE FROM tester_links;");
   });
 
   it("publishes the pass key", async () => {

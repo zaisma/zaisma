@@ -42,14 +42,29 @@ export async function playableGame(db: D1Database, slug: string): Promise<RoomGa
 
 /** The origin a game is served from. Only that origin may get passes or join its rooms. */
 export async function isGameOrigin(env: Env, slug: string, origin: string | null): Promise<boolean> {
-  if (!origin) return false;
+  return (await gameOrigin(env, slug, origin)) !== null;
+}
+
+/**
+ * Whether origin serves this game, and the zaisma.com page its room links go to: the game page, or
+ * for a tester link (<slug>--<token>, which may open a private game) the tester link itself.
+ */
+export async function gameOrigin(env: Env, slug: string, origin: string | null): Promise<{ page: string } | null> {
+  if (!origin) return null;
+  const page = { page: `/g/${slug}` };
   if (env.GAME_HOST_MODE === "subdomain" && env.GAME_DOMAIN) {
-    if (origin === `https://${slug}.${env.GAME_DOMAIN}`) return true;
+    if (origin === `https://${slug}.${env.GAME_DOMAIN}`) return page;
     const host = URL.canParse(origin) ? new URL(origin).hostname : "";
+    const tester = origin === `https://${host}` ? host.match(/^([a-z0-9-]+?)--([a-z0-9]{20})\./) : null;
+    if (tester) {
+      if (tester[1] !== slug || host !== `${tester[1]}--${tester[2]}.${env.GAME_DOMAIN}`) return null;
+      const link = await env.DB.prepare("SELECT 1 FROM tester_links JOIN games ON games.id = tester_links.game_id WHERE tester_links.token = ? AND tester_links.revoked_at IS NULL AND games.slug = ?").bind(tester[2], slug).first();
+      return link ? { page: `/t/${tester[2]}` } : null;
+    }
     const custom = await env.DB.prepare("SELECT 1 FROM domains JOIN games ON games.id = domains.game_id WHERE domains.hostname = ? AND games.slug = ?").bind(host, slug).first();
-    return custom !== null && origin === `https://${host}`;
+    return custom !== null && origin === `https://${host}` ? page : null;
   }
-  return origin === new URL(env.GAME_ORIGIN).origin;
+  return origin === new URL(env.GAME_ORIGIN).origin ? page : null;
 }
 
 let signing: { secret: string; key: Promise<SigningKey> } | null = null;
@@ -143,7 +158,8 @@ export default {
     const list = url.pathname.match(/^\/v1\/rooms\/([a-z0-9-]{1,40})$/);
     if (list && request.method === "GET") {
       const slug = list[1]!;
-      if (!(await isGameOrigin(env, slug, origin))) return json({ error: "Not allowed from here." }, 403);
+      const from = await gameOrigin(env, slug, origin);
+      if (!from) return json({ error: "Not allowed from here." }, 403);
       const game = await playableGame(env.DB, slug);
       if (!game || !usesRooms(game.game_server)) return json({ error: "This game doesn't use Zaisma rooms." }, 404, origin!);
       if (game.room_browsing === "off") return json({ rooms: [], playing: { players: 0, rooms: 0, closed: 0 }, joinable: 0, regions: [], region: null, more: 0, filters: [] }, 200, origin!);
@@ -154,7 +170,7 @@ export default {
         labels: readLabelParam(url.searchParams.get("labels")),
         cacheSeconds: Number(env.ROOM_LIST_CACHE_SECONDS ?? 10),
       });
-      const link = (code: string) => `${env.SITE_ORIGIN}/g/${slug}?room=${code}`;
+      const link = (code: string) => `${env.SITE_ORIGIN}${from.page}?room=${code}`;
       return json({ ...found, rooms: found.rooms.map((r) => ({ ...r, link: link(r.code) })) }, 200, origin!);
     }
 
