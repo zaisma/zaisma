@@ -60,6 +60,8 @@ h1 { font-size: clamp(30px, 5vw, 44px); font-weight: 600; }
 .pill .c { font: 500 12px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
 .pill:hover { border-color: var(--steel); }
 .pill.here { border-color: var(--steel); box-shadow: inset 0 0 0 1px var(--steel); }
+/* The track row floats under the bar, so showing or hiding it never moves the page (moving it made the bar flip back and forth at phase edges). */
+.pills.tracks { position: absolute; top: 100%; left: 0; right: 0; margin: 0; padding: 8px 20px; background: inherit; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
 .pills.tracks .pill { background: transparent; }
 
 .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
@@ -67,7 +69,7 @@ h1 { font-size: clamp(30px, 5vw, 44px); font-weight: 600; }
 .chip { font: 500 13px var(--body); padding: 6px 12px; border-radius: 99px; border: 1px solid var(--line); background: transparent; color: var(--fg); cursor: pointer; }
 .chip[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
 
-details.phase { border: 1px solid var(--line); border-radius: 12px; background: color-mix(in srgb, var(--surface) 40%, transparent); scroll-margin-top: 110px; }
+details.phase { border: 1px solid var(--line); border-radius: 12px; background: color-mix(in srgb, var(--surface) 40%, transparent); scroll-margin-top: 126px; }
 details.phase > summary { list-style: none; cursor: pointer; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 16px; align-items: center; padding: 16px 18px; }
 details.phase > summary::-webkit-details-marker { display: none; }
 summary .k { font: 500 13px var(--mono); color: var(--muted); }
@@ -82,7 +84,7 @@ summary .name-wrap { display: grid; gap: 2px; }
 .phase-body { display: grid; gap: 16px; padding: 0 18px 18px; }
 .phase-body > p { margin: 0; max-width: 70ch; color: var(--muted); }
 .phase-body > p strong { color: var(--fg); font-weight: 600; }
-.group { display: grid; gap: 8px; scroll-margin-top: 110px; }
+.group { display: grid; gap: 8px; scroll-margin-top: 126px; }
 .group h3 { font: 600 17px var(--display); margin-top: 6px; display: flex; gap: 10px; align-items: baseline; }
 .group h3 .c { font: 500 12px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
 .group > p { margin: 0; color: var(--muted); font-size: 14px; max-width: 70ch; }
@@ -122,6 +124,7 @@ footer { color: var(--muted); font-size: 13px; border-top: 1px solid var(--line)
 @media (max-width: 560px) {
   .wrap { padding-inline: 16px; }
   .bar, .pills { margin-inline: -16px; padding-inline: 16px; }
+  .pills.tracks { margin: 0; }
   ul.items li { grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; }
   ul.items li > div:first-of-type { grid-column: 1 / -1; grid-row: 2; }
   .phase-body { padding: 0 12px 14px; }
@@ -129,7 +132,10 @@ footer { color: var(--muted); font-size: 13px; border-top: 1px solid var(--line)
   summary .prog { min-width: 0; }
   summary .track { width: 72px; }
 }
-@media (prefers-reduced-motion: no-preference) { .meter i, summary .track i { transition: width .4s ease; } }
+@media (prefers-reduced-motion: no-preference) {
+  html { scroll-behavior: smooth; }
+  .meter i, summary .track i { transition: width .4s ease; }
+}
 </style>
 
 <div class="wrap">
@@ -302,28 +308,39 @@ function render() {
   spy();
 }
 
+const smooth = () => !matchMedia("(prefers-reduced-motion: reduce)").matches;
+// Slide a pill row sideways so the highlighted pill is in view, without touching the page's own scroll.
+function reveal(row, pill) {
+  const r = row.getBoundingClientRect(), b = pill.getBoundingClientRect();
+  if (b.left >= r.left && b.right <= r.right) return;
+  row.scrollTo({ left: row.scrollLeft + b.left - r.left - (r.width - b.width) / 2, behavior: smooth() ? "smooth" : "auto" });
+}
+
 // Open a phase (and scroll to a phase or track) from a link, the pills or the address.
 function go(id) {
   const el = document.getElementById(id); if (!el) return;
   const phase = el.closest("details.phase"); if (phase && !phase.open) phase.open = true;
-  el.scrollIntoView({ block: "start" });
+  // Land the phase or track just above the line the bar reads from, so the bar names what you jumped to.
+  const top = el.getBoundingClientRect().top + scrollY - document.querySelector(".bar").offsetHeight - LINE + 8;
+  scrollTo({ top: Math.max(0, top), behavior: smooth() ? "smooth" : "auto" });
 }
 
 // Which phase and track sit under the sticky bar: shown in the bar, with that phase's tracks as jumps.
+/** How far below the bar the "you are here" line sits: room for the floating track row. */
+const LINE = 56;
 let lastPhase = null;
 function spy() {
-  const line = document.querySelector(".bar").getBoundingClientRect().bottom + 12;
+  const line = document.querySelector(".bar").getBoundingClientRect().bottom + LINE;
   let phase = null, group = null;
   for (const d of document.querySelectorAll("details.phase")) if (d.getBoundingClientRect().top <= line) phase = d;
   if (phase?.open) for (const g of phase.querySelectorAll(".group[id]")) if (g.getBoundingClientRect().top <= line) group = g;
-  if (phase && phase.getBoundingClientRect().bottom < line) { phase = null; group = null; }
   document.getElementById("where-p").textContent = phase ? phase.dataset.label : "Roadmap";
   document.getElementById("where-sep").hidden = !group;
   document.getElementById("where-g").textContent = group ? group.dataset.title : "";
   for (const a of document.querySelectorAll("#pills .pill")) {
     const here = a.dataset.for === phase?.id;
     a.classList.toggle("here", here);
-    if (here && lastPhase !== phase.id) a.scrollIntoView({ block: "nearest", inline: "nearest" });
+    if (here && lastPhase !== phase.id) reveal(a.parentElement, a);
   }
   const tracks = document.getElementById("tracks");
   const groups = phase?.open ? [...phase.querySelectorAll(".group[id]")] : [];
@@ -333,7 +350,7 @@ function spy() {
   tracks.hidden = !groups.length;
   for (const a of tracks.querySelectorAll(".pill")) {
     const here = a.dataset.for === group?.id;
-    if (here && !a.classList.contains("here")) a.scrollIntoView({ block: "nearest", inline: "nearest" });
+    if (here && !a.classList.contains("here")) reveal(tracks, a);
     a.classList.toggle("here", here);
   }
   lastPhase = phase?.id ?? null;
