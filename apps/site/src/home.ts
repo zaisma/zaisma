@@ -252,7 +252,9 @@ const HOME_STYLES = `
 /* Phones and tablets: one machined piece, like a big game card. The art takes the Z's cut corner
    (its bezel running along the cut), and the nameplate sits flush underneath it. */
 @media (max-width:860px){
-  .stage{grid-template-columns:1fr}
+  /* minmax(0,…) so Play and Details can't push the stage past the screen's edge. */
+  .stage{grid-template-columns:minmax(0,1fr)}
+  .stage .go-row .btn.big{padding:0 20px}
   .stage .art{clip-path:polygon(0 0,calc(100% - 28px) 0,100% 28px,100% 100%,0 100%);
     background:linear-gradient(to top right,transparent calc(50% - 1.5px),rgba(255,255,255,.34) calc(50% - 1.5px),rgba(255,255,255,.34) 50%,transparent 50%) top right/28px 28px no-repeat,linear-gradient(135deg,#5a5f69 0%,#1a1c20 38%,#121417 70%,#3a3e46 100%)}
   .stage .art img{clip-path:polygon(0 0,calc(100% - 26px) 0,100% 26px,100% 100%,0 100%)}
