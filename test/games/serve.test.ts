@@ -44,6 +44,8 @@ describe("game server", () => {
     await addGame("live-one", "live");
     await env.GAMES.put("games/gliveone/vgliveone/zaisma-server.js", "export default {}");
     expect((await SELF.fetch(`${G}/live-one/zaisma-server.js`)).status).toBe(404);
+    await env.GAMES.put("games/gliveone/vgliveone/zaisma-server/index.js", "export default {}");
+    expect((await SELF.fetch(`${G}/live-one/zaisma-server/index.js`)).status).toBe(404);
   });
 
   it("adds the trailing slash so relative paths work", async () => {

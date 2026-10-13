@@ -130,6 +130,15 @@ describe("sandboxed game servers", () => {
     expect(err!.message).toMatch(/^oops \(zaisma-server\.js:\d+:\d+\)$/);
   });
 
+  it("runs a game server split into files in a zaisma-server/ folder", async () => {
+    await addSandboxGame("split", COUNTER);
+    await e.GAMES.delete("games/vsplit/zaisma-server.js");
+    await e.GAMES.put("games/vsplit/zaisma-server/index.js", `import { greet } from "./lib/words.js";\nexport default { setup: () => ({}), onJoin(state, player, room) { room.send(player.id, greet(player.name)); } };`);
+    await e.GAMES.put("games/vsplit/zaisma-server/lib/words.js", `export const greet = (name) => "Hello " + name;`);
+    const a = await join("split", "ABCDEF");
+    expect((await a.next()).d).toBe(`Hello ${a.player.name}`);
+  });
+
   it("leaves a game without a game server file unavailable", async () => {
     await addSandboxGame("empty", COUNTER);
     await e.GAMES.delete("games/vempty/zaisma-server.js");

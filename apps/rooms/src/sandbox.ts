@@ -1,11 +1,12 @@
 import { defineGameServer, type GameServer, type Player, type Room } from "@zaisma/game-server";
-import { SANDBOX_GAME_SERVER, SERVER_FILE, fileKey, manifestKey, type Manifest } from "@zaisma/core";
+import { SANDBOX_GAME_SERVER, manifestKey, serverModules, type Manifest } from "@zaisma/core";
 import type { Env } from "./index.ts";
 
 /**
  * Developers' own game servers, run in a Dynamic Worker: a sealed sandbox with no internet, no
- * bindings and a CPU limit. A game opts in with game_server "sandbox" and a zaisma-server.js file
- * in its upload (an ES module whose default export is the game server, with no imports).
+ * bindings and a CPU limit. A game opts in with game_server "sandbox" and its game server in its
+ * upload: a zaisma-server/ folder (index.js, importing the folder's other .js files by relative
+ * path) or one zaisma-server.js. ES modules whose default export is the game server.
  *
  * The room (our Durable Object) still owns everything players touch: sockets, passes, limits,
  * mute, block and report. The sandbox only runs the game's handlers: each call gets the state and
@@ -16,9 +17,6 @@ import type { Env } from "./index.ts";
  */
 
 export const SANDBOX = SANDBOX_GAME_SERVER;
-export { SERVER_FILE };
-/** A game server file bigger than this isn't loaded. */
-const MAX_BYTES = 1024 * 1024;
 /**
  * CPU per call into the sandbox. Cloudflare stops a call that runs on, but in practice only after
  * about 2 seconds whatever this says (tested Oct 13, 2026), so the room also gives up on a game
@@ -59,9 +57,9 @@ export interface Session {
 
 // Runs inside the sandbox, beside the game's file. Plain JavaScript: nothing here is trusted by the
 // room, which checks everything it's handed back like any message from a player.
-const HARNESS = `
+const harness = (entry: string) => `
 import { WorkerEntrypoint, RpcTarget } from "cloudflare:workers";
-import server from "./${SERVER_FILE}";
+import server from "./${entry}";
 
 const ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 const code = () => Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => ALPHABET[b & 31]).join("");
@@ -114,21 +112,26 @@ class Session extends RpcTarget {
 
 export default class extends WorkerEntrypoint {
   open() {
-    if (!server || typeof server.setup !== "function") throw new Error("${SERVER_FILE} must export default a game server with a setup() function");
+    if (!server || typeof server.setup !== "function") throw new Error("${entry} must export default a game server with a setup() function");
     return new Session();
   }
 }
 `;
 
-/** Read the game server file from a version's upload, or null if it has none. */
-async function serverFile(env: Env, versionId: string): Promise<string | null> {
+/** A version's game server files and their code, or null if it has none (or too much). */
+async function serverCode(env: Env, versionId: string): Promise<{ entry: string; modules: Record<string, string> } | null> {
   const version = await env.DB.prepare("SELECT id, kind, r2_prefix FROM versions WHERE id = ?").bind(versionId).first<{ id: string; kind: "zip" | "files"; r2_prefix: string }>();
   if (!version) return null;
-  const manifest = version.kind === "files" ? await (await env.GAMES.get(manifestKey(version.id)))?.json<Manifest>() ?? null : null;
-  const key = fileKey(version as never, manifest, SERVER_FILE);
-  const object = key ? await env.GAMES.get(key) : null;
-  if (!object || object.size > MAX_BYTES) return null;
-  return object.text();
+  const manifest = version.kind === "files" ? ((await (await env.GAMES.get(manifestKey(version.id)))?.json<Manifest>()) ?? null) : null;
+  const found = await serverModules(env.GAMES, version, manifest);
+  if (!found || "error" in found) return null;
+  const modules: Record<string, string> = {};
+  for (const f of found.files) {
+    const object = await env.GAMES.get(f.key);
+    if (!object) return null;
+    modules[f.path] = await object.text();
+  }
+  return { entry: found.entry, modules };
 }
 
 /**
@@ -137,12 +140,13 @@ async function serverFile(env: Env, versionId: string): Promise<string | null> {
  * Null if the version has no game server file.
  */
 export async function sandboxServer(env: Env, gameId: string, versionId: string, onBroken: () => void): Promise<GameServer | null> {
-  const source = await serverFile(env, versionId);
-  if (source === null) return null;
+  const code = await serverCode(env, versionId);
+  if (code === null) return null;
   const worker = env.LOADER.get(`${gameId}:${versionId}`, () => ({
     compatibilityDate: "2026-10-01",
     mainModule: "harness.js",
-    modules: { "harness.js": HARNESS, [SERVER_FILE]: source },
+    // The game's files keep their paths, so its relative imports work: ./physics.js from zaisma-server/index.js.
+    modules: { ...code.modules, "harness.js": harness(code.entry) },
     // No internet and no bindings: the game server can only answer the room.
     globalOutbound: null,
     env: {},
@@ -230,7 +234,7 @@ const MAX_ERRORS = 5;
  */
 export function errorLine(text: string): string {
   const lines = text.split("\n").map((l) => l.trim());
-  const where = lines.find((l) => l.includes(SERVER_FILE))?.match(/zaisma-server\.js:\d+:\d+/)?.[0];
+  const where = lines.find((l) => /zaisma-server[^\s:()]*\.js:\d+:\d+/.test(l))?.match(/zaisma-server[^\s:()]*\.js:\d+:\d+/)?.[0];
   const message = lines[0]!.replace(/^Error: /, "");
   return (where ? `${message} (${where})` : message).slice(0, 300);
 }

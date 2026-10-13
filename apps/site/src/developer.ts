@@ -30,8 +30,8 @@ import {
   createVersion,
   forbiddenContent,
   manifestKey,
-  fileKey,
   multiplayerOf,
+  serverModules,
   type Manifest,
   missingBlobs,
   locateBlobs,
@@ -45,7 +45,6 @@ import {
   type Version,
   REPORT_REASONS,
   SANDBOX_GAME_SERVER,
-  SERVER_FILE,
   readPlayers,
   type ReportReason,
 } from "@zaisma/core";
@@ -230,11 +229,11 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     const { waiting } = await applyDetails(env.DB, game, { ...details, ...(changesMultiplayer ? { multiplayer } : {}) });
     if (Object.keys(details).length) await audit(env.DB, game.id, "details", Object.keys(details).join(", ") + (waiting ? " (words waiting for review)" : ""), caller.actor);
     if (changesMultiplayer) await audit(env.DB, game.id, "multiplayer", `Multiplayer: ${multiplayer}`, caller.actor);
-    const missing = multiplayer === "own" && (await liveServerFile(env, game)) === false;
+    const problem = multiplayer === "own" ? await liveServerProblem(env, game) : null;
     return ok({
       game: gameJson(env, (await gameBySlug(env.DB, game.slug))!),
       review: waiting ? "The new title or description shows once it's reviewed." : null,
-      ...(missing ? { note: "The live version has no zaisma-server.js, so its rooms can't open until a version with one is published." } : {}),
+      ...(problem ? { note: problem } : {}),
     });
   }
 
@@ -482,13 +481,15 @@ async function reportsFor(env: Env, game: Game, since = 0) {
   };
 }
 
-/** Whether the live version has a zaisma-server.js, or null when nothing is live. */
-async function liveServerFile(env: Env, game: Game): Promise<boolean | null> {
+/** Why the live version's game server can't run yet (none, or too big), or null when it can or nothing is live. */
+async function liveServerProblem(env: Env, game: Game): Promise<string | null> {
   const version = game.current_version_id ? await versionById(env.DB, game.current_version_id) : null;
   if (!version) return null;
   const manifest = version.kind === "files" ? ((await (await env.GAMES.get(manifestKey(version.id)))?.json()) as Manifest | null) : null;
-  const key = fileKey(version, manifest, SERVER_FILE);
-  return key !== null && (await env.GAMES.head(key)) !== null;
+  const found = await serverModules(env.GAMES, version, manifest);
+  if (!found) return "The live version has no game server (a zaisma-server/ folder with index.js, or zaisma-server.js), so its rooms can't open until a version with one is published.";
+  if ("error" in found) return `The live version's game server can't run: ${found.error}`;
+  return null;
 }
 
 /**
