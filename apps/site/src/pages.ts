@@ -4,6 +4,7 @@ import { html, layout, message, metalButton, playerModes, raw, siteFooter, siteH
 import { showcase, tile } from "./home.ts";
 import { SAVES_CLIENT } from "./saves-client.ts";
 import { reportSheet } from "./report.ts";
+import { playCounter } from "./plays.ts";
 import { codeBox, pageRooms, roomsOnPage, roomsPanel, tabCount } from "./rooms.ts";
 
 const ROOM_CODE = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/;
@@ -363,7 +364,7 @@ full.onclick = () => frame && frame.requestFullscreen();
 // The game only loads when the player taps Play. That tap also lets the game play sound straight away.
 function play() {
   if (frame) return;
-  ${raw(tester ? "// A tester link's game stays off Continue playing." : "remember();")}
+  ${raw(tester ? "// A tester link's game stays off Continue playing and out of the play stats." : "remember();\n  countPlay();")}
   frame = document.getElementById("game-frame").content.firstElementChild.cloneNode(true);
   if (window.startSaves) startSaves(frame);
   document.body.appendChild(frame);
@@ -373,6 +374,7 @@ function play() {
 }
 document.getElementById("play").onclick = play;
 document.getElementById("share-page").onclick = (e) => shareFrom(e.currentTarget);
+${raw(tester ? "" : playCounter(game.slug))}
 // Remember the game for Continue playing: on this device, and with the account when signed in.
 function remember() {
   try {
@@ -622,12 +624,13 @@ const DMCA = `
 <p>If your game was removed and you believe it was a mistake or you have permission, email the same address with a counter-notice. We'll forward it to the person who filed the claim.</p>
 `;
 
-// Approved by Julius on Oct 12, 2026.
+// Approved by Julius on Oct 12, 2026; the play stats line on Oct 13, 2026.
 const PRIVACY = `
 <p class="lead">Zaisma keeps as little about you as it can. Playing needs no account, and guests leave nothing behind.</p>
 <h2>Playing as a guest</h2>
 <p>Guests get a temporary ID and a made-up name like "Swift Fox 42", used only to run the game session. They're kept in your browser tab and forgotten when it closes. We don't keep a profile, and we don't know who you are.</p>
 <p>Your browser also remembers which games you played recently, so the home page can show them first. That list stays on your device; we never see it.</p>
+<p>When you press Play, we count it for the game's developer: that the game was played, how long it was on screen, and whether this browser played it before (and on which day it first did). We keep only totals for each game and day, never anything that says who played.</p>
 <h2>If you make an account</h2>
 <ul>
 <li><strong>Your email</strong>, only to sign you in. It's never shown to anyone, and we don't send marketing.</li>

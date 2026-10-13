@@ -96,6 +96,9 @@ spawnSync(
     "UPDATE games SET game_server = 'sandbox' WHERE slug = 'arena'; UPDATE games SET game_server = slug WHERE slug = 'four-in-a-row' AND game_server IS NULL; UPDATE games SET game_server = 'relay' WHERE slug = 'cave-crew' AND game_server IS NULL; DELETE FROM live_rooms"],
   { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } },
 );
+// Pretend play stats for two games, so the dashboard's Plays section has something to show. Real
+// presses of Play in the preview add to them.
+spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", pretendPlaysSql()], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
 // Test players keep a few rooms open, so the Rooms tab has something in it. Cave Crew also lists
 // pretend rooms from around the world, kept fresh every half hour (without blocking the test players).
 await openTestRooms(ROOMS, GAMES).catch((err) => console.log(`Couldn't open the test rooms: ${err.message}`));
@@ -279,4 +282,25 @@ function crc(buf) {
     for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xedb88320 & -(c & 1));
   }
   return ~c >>> 0;
+}
+
+/** Two months of made-up plays for Shard Dodge and Arena, growing over time; only fills days that are empty. */
+function pretendPlaysSql(now = Date.now()) {
+  const day = (ms) => new Date(ms).toISOString().slice(0, 10);
+  const rows = [];
+  for (const [slug, size] of [["shard-dodge", 40], ["arena", 15]]) {
+    for (let i = 60; i >= 0; i--) {
+      const grow = 1 + (60 - i) / 30;
+      const weekend = [0, 6].includes(new Date(now - i * 86_400_000).getUTCDay()) ? 1.4 : 1;
+      const fresh = Math.round(size * grow * weekend * (0.8 + 0.4 * Math.abs(Math.sin(i * 1.7))));
+      const players = Math.round(fresh * 1.6);
+      const plays = Math.round(players * 1.8);
+      const d = day(now - i * 86_400_000);
+      rows.push(`INSERT OR IGNORE INTO play_days (game_id, day, plays, players, new_players, play_seconds) SELECT id, '${d}', ${plays}, ${players}, ${fresh}, ${plays * (slug === "arena" ? 540 : 260)} FROM games WHERE slug = '${slug}'`);
+      for (const [after, share] of [[1, 0.32], [7, 0.14], [30, 0.06]]) {
+        if (i - after >= 0) rows.push(`INSERT OR IGNORE INTO play_returns (game_id, first_day, after, players) SELECT id, '${d}', ${after}, ${Math.round(fresh * share)} FROM games WHERE slug = '${slug}'`);
+      }
+    }
+  }
+  return rows.join("; ");
 }

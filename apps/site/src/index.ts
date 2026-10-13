@@ -8,6 +8,7 @@ import type { Env } from "./env.ts";
 import { message } from "./html.ts";
 import { handleMcp } from "./mcp.ts";
 import { handlePlayed, home } from "./home.ts";
+import { handlePlays } from "./plays.ts";
 import { gamePage, legal, testerPage } from "./pages.ts";
 import { reportForm, submitReport } from "./report.ts";
 import { roomsFragment } from "./rooms.ts";
@@ -35,6 +36,9 @@ export default {
 
     const played = await handlePlayed(request, env, path);
     if (played) return played;
+
+    const plays = await handlePlays(request, env, path);
+    if (plays) return plays;
 
     const save = path.match(/^\/api\/saves\/([a-z0-9-]+)$/);
     if (save) return handleSaves(request, env, save[1]!);
