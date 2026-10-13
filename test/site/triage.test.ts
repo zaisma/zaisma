@@ -327,19 +327,24 @@ describe("the report queue", () => {
     await send({ reason: "broken", details: "stuck on level 2" });
     await send({ reason: "broken", details: "level 2 never ends" });
     await send({ reason: "sexual", details: "nudity" });
-    await triageReports(testEnv, ai((input) => (input.text.includes("nudity") ? { severity: "high", summary: "Says there's nudity." } : { summary: "Stuck on level 2.", same_as: input.text.match(/id ([a-z0-9]+), sent/)?.[1] ?? "" })).deps);
+    // Reports sent in the same millisecond can list each other in any order, so the stand-in goes by words, never by position.
+    const sorter = ai((input) => {
+      const [own, others] = input.text.split("<other_reports>") as [string, string];
+      return own.includes("nudity") ? { severity: "high", summary: "Says there's nudity." } : { summary: "Stuck on level 2.", same_as: others.match(/id ([a-z0-9]+), sent [^\n]*level 2/)?.[1] ?? "" };
+    });
+    await triageReports(testEnv, sorter.deps);
 
     const page = await (await SELF.fetch(`${LOCAL}/admin/reports`)).text();
     expect(page).toContain("3 open reports about 2 problems");
     expect(page.indexOf("Says there's nudity.")).toBeLessThan(page.indexOf("Stuck on level 2."));
 
-    const head = (await reports())[0]!;
+    const level2 = (await reports()).find((r) => r.details === "stuck on level 2")!;
     const form = new FormData();
     form.set("back", "queue");
     form.set("reason", "Not a rule break");
-    const res = await SELF.fetch(`${LOCAL}/admin/report-groups/${head.id}/dismiss`, { method: "POST", body: form, redirect: "manual" });
+    const res = await SELF.fetch(`${LOCAL}/admin/report-groups/${level2.group_id ?? level2.id}/dismiss`, { method: "POST", body: form, redirect: "manual" });
     expect(res.headers.get("location")).toBe("/admin/reports");
-    expect((await reports()).map((r) => r.status)).toEqual(["dismissed", "dismissed", "open"]);
+    expect(Object.fromEntries((await reports()).map((r) => [r.details, r.status]))).toEqual({ "stuck on level 2": "dismissed", "level 2 never ends": "dismissed", nudity: "open" });
   });
 
   it("passes a group to the developer as bugs", async () => {
