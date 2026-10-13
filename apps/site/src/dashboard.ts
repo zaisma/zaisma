@@ -334,6 +334,7 @@ ${imagesPanel(slug, images)}
 </aside>
 </div>
 <div class="facts">
+<details open><summary><h2>Plays</h2><span class="muted">Last 30 days</span></summary>${playsPanel(stats.plays)}</details>
 <details${openReports ? raw(" open") : ""}><summary><h2>Player reports${openReports ? ` (${openReports} open)` : ""}</h2></summary>${reportsPanel(reports)}</details>
 <details><summary><h2>Multiplayer use</h2></summary>${statsPanel(stats)}</details>
 <details><summary><h2>History</h2></summary>${history.history.length ? html`<table><tbody>${history.history.map((h) => html`<tr><td class="nowrap">${when(h.at)}</td><td>${h.what}${h.version ? html` <span class="muted">(${h.version.slice(0, 8)})</span>` : ""}</td><td class="muted">${h.by}</td></tr>`)}</tbody></table>` : html`<p class="muted">Nothing yet.</p>`}</details>
@@ -485,21 +486,54 @@ ${r.bug_reports.length ? html`<h3>What players said about bugs</h3><ul class="sa
 }
 
 interface Stats {
+  plays: {
+    days: { day: string; plays: number; players: number; new_players: number; minutes_played: number }[];
+    plays: number;
+    new_players: number;
+    minutes_played: number;
+    minutes_per_play: number | null;
+    came_back: Record<"after_1_day" | "after_7_days" | "after_30_days", { percent: number | null; players: number; of: number }>;
+  };
   multiplayer: { day: string; rooms: number; player_minutes: number; messages: number; game_server?: { calls: number; crashes: number; stopped: number; matches_ended: number } }[];
   game_server_errors?: { kind: "crash" | "stopped"; error: string; times: number; version: string; last: number }[];
 }
 
+const n = (x: number) => x.toLocaleString("en-US");
+
+/** Plays, time played and players coming back, as the game page counts them. */
+function playsPanel(p: Stats["plays"]): Raw {
+  const how = html`<p class="hint">Counted when someone presses Play on the game page, not through tester or preview links. A player is a browser: one person on two devices counts twice. Time counts only while the game is on screen.</p>`;
+  if (!p.plays) return html`<p class="muted">No plays in the last 30 days.</p>${how}`;
+  const back = (label: string, b: Stats["plays"]["came_back"]["after_1_day"]) =>
+    html`<div class="num plate"><strong>${b.percent === null ? "–" : `${b.percent}%`}</strong><span>${label}</span><small>${b.of ? `${n(b.players)} of ${n(b.of)} new players` : "Not enough days yet"}</small></div>`;
+  const top = Math.max(...p.days.map((d) => d.plays), 1);
+  // Every one of the 30 days, including those with no plays.
+  const by = new Map(p.days.map((d) => [d.day, d.plays]));
+  const all = Array.from({ length: 30 }, (_, i) => new Date(Date.now() - (29 - i) * 86_400_000).toISOString().slice(0, 10));
+  return html`<div class="numbers">
+<div class="num plate"><strong>${n(p.plays)}</strong><span>Plays</span></div>
+<div class="num plate"><strong>${n(p.new_players)}</strong><span>New players</span></div>
+<div class="num plate"><strong>${p.minutes_per_play === null ? "–" : `${p.minutes_per_play} min`}</strong><span>Per play</span><small>${n(p.minutes_played)} minutes in all</small></div>
+${back("Back the next day", p.came_back.after_1_day)}
+${back("Back a week later", p.came_back.after_7_days)}
+</div>
+<figure class="chart"><div class="cols" role="img" aria-label="Plays per day">${all.map((d) => html`<span title="${d}: ${n(by.get(d) ?? 0)} plays" style="height:${Math.max(Math.round(((by.get(d) ?? 0) / top) * 100), 1)}%"></span>`)}</div>
+<figcaption><span>${all[0]}</span><span>Plays per day</span><span>Today</span></figcaption></figure>
+<details class="later"><summary>Day by day</summary><table><thead><tr><th>Day</th><th>Plays</th><th>Players</th><th>New</th><th>Minutes</th></tr></thead><tbody>${[...p.days].reverse().map(
+    (d) => html`<tr><td class="nowrap">${d.day}</td><td>${n(d.plays)}</td><td>${n(d.players)}</td><td>${n(d.new_players)}</td><td>${n(d.minutes_played)}</td></tr>`,
+  )}</tbody></table></details>${how}`;
+}
+
 function statsPanel(stats: Stats): Raw {
   const days = stats.multiplayer;
-  const note = html`<p class="hint">Plays and players coming back aren't counted yet; they arrive with the Zaisma SDK.</p>`;
-  if (!days.length) return html`<p class="muted">No multiplayer rooms in the last 30 days.</p>${note}`;
+  if (!days.length) return html`<p class="muted">No multiplayer rooms in the last 30 days.</p>`;
   const top = Math.max(...days.map((d) => d.player_minutes), 1);
   const own = stats.game_server_errors !== undefined;
   return html`<table><thead><tr><th>Day</th><th>Rooms</th><th>Player minutes</th>${own ? html`<th>Game server errors</th><th>Stopped</th><th>Matches ended</th>` : ""}</tr></thead><tbody>${days.map(
     (d) => html`<tr><td class="nowrap">${d.day}</td><td>${d.rooms}</td><td><span class="bar" style="width:${Math.round((d.player_minutes / top) * 100)}%"></span>${d.player_minutes}</td>${
       own ? html`<td>${d.game_server?.crashes ?? 0}</td><td>${d.game_server?.stopped ?? 0}</td><td>${d.game_server?.matches_ended ?? 0}</td>` : ""
     }</tr>`,
-  )}</tbody></table>${own ? serverErrors(stats.game_server_errors!) : ""}${note}`;
+  )}</tbody></table>${own ? serverErrors(stats.game_server_errors!) : ""}`;
 }
 
 /** A game server's recent errors, so its developer can fix what wastes their players' time and our work. */
@@ -577,6 +611,16 @@ button.link:hover{color:var(--text)}
 .facts summary h2{margin:0;font-size:20px}
 .facts details>:not(summary){margin-bottom:20px}
 .said{padding-left:18px;color:var(--text-2)}
+.facts summary .muted{font-size:14px}
+.numbers{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px}
+.num{padding:14px 16px;display:grid;gap:2px;align-content:start}
+.num strong{font-family:var(--display);font-size:30px;font-weight:500;line-height:1.1}
+.num span{color:var(--text-2);font-size:14px}
+.num small{color:var(--muted);font-size:12px}
+.chart{margin:0 0 8px}
+.chart .cols{display:flex;align-items:flex-end;gap:3px;height:120px;padding:0 0 1px;border-bottom:1px solid var(--line)}
+.chart .cols span{flex:1;background:linear-gradient(#d8dade,#8d9199);min-height:1px}
+.chart figcaption{display:flex;justify-content:space-between;color:var(--muted);font-size:12px;padding-top:6px}
 .bar{display:inline-block;height:8px;background:var(--line-2);margin-right:8px;vertical-align:middle;max-width:60%}
 .nowrap{white-space:nowrap}
 .players{display:grid;gap:4px}

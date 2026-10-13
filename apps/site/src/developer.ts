@@ -55,6 +55,7 @@ import {
 } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import { gameUrl, type Env } from "./env.ts";
+import { playStats } from "./plays.ts";
 import { pruneVersions } from "./scan.ts";
 
 /**
@@ -75,7 +76,7 @@ import { pruneVersions } from "./scan.ts";
  *   DELETE /api/dev/games/:slug/versions/:id/publish   cancel a publish-later
  *   POST   /api/dev/files/:sha256/parts        send a big file in parts (see bigFile)
  *   GET    /api/dev/games/:slug/reports        what players reported, by reason
- *   GET    /api/dev/games/:slug/stats          multiplayer room use per day
+ *   GET    /api/dev/games/:slug/stats          plays, play time, players coming back and multiplayer use
  *   GET    /api/dev/games/:slug/history        what happened to the game, and who did it
  *   GET    /api/dev/games/:slug/testers        tester links that are on
  *   POST   /api/dev/games/:slug/testers        make a tester link: { "name" }
@@ -505,14 +506,16 @@ async function liveServerProblem(env: Env, game: Game): Promise<string | null> {
 }
 
 /**
- * Multiplayer room use per day, and for games running their own game server on our rooms, how it's
- * doing: calls, errors, loops we stopped and matches that ended for it, plus its recent errors.
- * Nothing about players. Plays, session length and players coming back arrive with the client SDK.
+ * Plays, play time and players coming back (counted by the game page, see plays.ts), multiplayer
+ * room use per day, and for games running their own game server on our rooms, how it's doing:
+ * calls, errors, loops we stopped and matches that ended for it, plus its recent errors. Only
+ * counts: nothing about who played.
  */
 async function statsFor(env: Env, game: Game, days: number) {
   const n = Number.isInteger(days) && days > 0 ? Math.min(days, 90) : 30;
   const from = new Date(Date.now() - (n - 1) * DAY).toISOString().slice(0, 10);
-  const [{ results }, { results: errors }] = await Promise.all([
+  const [plays, { results }, { results: errors }] = await Promise.all([
+    playStats(env.DB, game.id, n),
     env.DB
       .prepare("SELECT day, rooms, player_seconds, messages, server_calls, server_crashes, server_stops, server_broken_rooms FROM room_usage WHERE game_id = ? AND day >= ? ORDER BY day")
       .bind(game.id, from)
@@ -540,8 +543,7 @@ async function statsFor(env: Env, game: Game, days: number) {
           game_server_errors: errors.map((e) => ({ kind: e.kind, error: e.message, times: e.count, version: e.version_id, first: e.first_at, last: e.last_at })),
         }
       : {}),
-    plays: null,
-    note: "Plays, session length and players coming back aren't counted yet; they arrive with the Zaisma SDK.",
+    plays,
   };
 }
 

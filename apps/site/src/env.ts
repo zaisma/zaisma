@@ -10,6 +10,8 @@ export interface Env {
   REPORT_LIMIT?: RateLimit;
   SIGNIN_LIMIT?: RateLimit;
   SAVE_LIMIT?: RateLimit;
+  /** Play counts from game pages, per connection address. */
+  PLAY_LIMIT?: RateLimit;
   /** Developer API requests, per account. */
   DEV_LIMIT?: RateLimit;
   /** Sending game files to the developer API, per account. */

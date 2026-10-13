@@ -43,7 +43,8 @@
     { "name": "SIGNIN_LIMIT", "namespace_id": "1005", "simple": { "limit": 10, "period": 60 } },
     { "name": "SAVE_LIMIT", "namespace_id": "1006", "simple": { "limit": 30, "period": 60 } },
     { "name": "DEV_LIMIT", "namespace_id": "1007", "simple": { "limit": 120, "period": 60 } },
-    { "name": "FILE_LIMIT", "namespace_id": "1008", "simple": { "limit": 1000, "period": 60 } }
+    { "name": "FILE_LIMIT", "namespace_id": "1008", "simple": { "limit": 1000, "period": 60 } },
+    { "name": "PLAY_LIMIT", "namespace_id": "1009", "simple": { "limit": 30, "period": 60 } }
   ],
   "send_email": [{ "name": "ALERTS" }]
 }

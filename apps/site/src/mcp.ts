@@ -203,7 +203,8 @@ const TOOLS: Tool[] = [
   {
     name: "get_stats",
     title: "Play stats",
-    description: "Multiplayer use per day: rooms, player minutes and messages. Plays and players coming back aren't counted yet.",
+    description:
+      "Play stats: plays, players and new players per day, minutes played and per play, and how many new players came back 1, 7 and 30 days later (percent is null until enough days have passed). Counted from the game page, so tester and preview links don't count; a player is a browser. Also multiplayer use per day (rooms, player minutes, messages) and, for games with their own game server, its errors.",
     inputSchema: object({ slug, days: { type: "integer", minimum: 1, maximum: 90 } }, ["slug"]),
     annotations: read,
     run: (args, call) => call("GET", `/games/${str(args.slug)}/stats${args.days ? `?days=${str(args.days)}` : ""}`),
