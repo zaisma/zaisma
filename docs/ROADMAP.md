@@ -157,7 +157,7 @@ Goal: developers can make money within days of the beta.
 | planned | Must | Purchase notifications for developers' servers | Also links purchases to games' own accounts |
 | planned | Must | Registered links | Developers' own payments and stores, with a leaving-Zaisma notice |
 | planned | Must | Purchase rules | Honest labels, real prices, refund policies, no loot boxes |
-| planned | Must | Hosting billing | About 2x our Cloudflare cost; first 1,000 player-hours a month free per developer or team; starts the month payments go live |
+| planned | Must | Hosting billing | About 2x our Cloudflare cost; first 1,000 player-hours a month free per developer or team, no card needed. Above that, prepaid credit (about $10 minimum, optional automatic top-up): when it runs out, running matches finish but no new rooms open beyond the free tier; warnings at 20% and empty. Credit pays only for Zaisma services and is never paid out. Starts the month payments go live |
 | planned | Must | AI support assistant | Errors that explain themselves | On zaisma.com for players and developers. Reads the same records (account, game status, scan report, receipts, saves, bills), answers from facts and takes safe actions (resend a code, re-run a scan, restore a save); hands judgment calls to a person |
 | planned | Must | Appeals queue | AI report triage | Takedown and ban appeals with AI summaries and a recommendation; one-click decisions |
 | planned | Must | Zaisma Pro | About $10/month: deeper stats, custom domains, more storage and seats, priority review, higher upload limit, scheduled releases |
