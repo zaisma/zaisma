@@ -659,7 +659,7 @@ const PRIVACY = `
 <p>Games run on a separate domain and can't see your account, email or cookies. Our content rules don't allow games to collect players' personal data.</p>
 <h2>Who helps us run Zaisma</h2>
 <ul>
-<li><strong>Cloudflare</strong> runs our servers, stores games and checks that a real browser pressed Play. It sees your connection address to deliver pages and stop abuse; we don't store it.</li>
+<li><strong>Cloudflare</strong> runs our servers, stores games and checks that a real browser pressed Play. It sees your connection address to deliver pages and stop abuse; we don't store it. The check on Play is Cloudflare Turnstile, covered by its <a href="https://www.cloudflare.com/turnstile-privacy-policy/" target="_blank" rel="noopener">Turnstile Privacy Addendum</a>.</li>
 <li><strong>Supabase</strong> handles sign-in and holds your email. Your browser never talks to it directly.</li>
 <li><strong>Anthropic</strong> reviews uploaded games for safety. It sees game files, never players.</li>
 </ul>
