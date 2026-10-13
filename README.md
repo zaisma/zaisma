@@ -69,6 +69,18 @@ export default {
 
 Games without server code can use the built-in `relay`, which passes each message to everyone else. See `examples/arena` (real-time) and `examples/four-in-a-row` (turn-based).
 
+#### Your game server on Zaisma
+
+Put your game server in `zaisma-server.js` at the top of your upload and set multiplayer to "Your game server" (dashboard), or `multiplayer: "own"` (MCP or API). Zaisma's rooms run it for you:
+
+- **One plain JavaScript file:** an ES module whose `export default` is the game server above, with no `import`s. Bundle your libraries in, and strip TypeScript types first (`npx esbuild server.ts --format=esm --bundle --outfile=zaisma-server.js`). Up to 1 MB.
+- **Sealed off:** no internet and nothing of Zaisma's, so it only talks to its players through `room`. State is plain JSON.
+- **Private:** players never get the file; the game domain refuses it.
+- **Kept in check:** an error in a handler loses that one message or tick and the match carries on. A handler that runs on too long (a loop that never ends) is stopped after about 2 seconds, freezing the match meanwhile, and a match stopped twice ends. Your dashboard and the MCP's `get_stats` show these errors with the line in `zaisma-server.js` they came from.
+- **Updates:** rooms keep the version they started with until they end; new rooms get the live version.
+
+The same file runs on your own machine too (below), so you can test it there or move off Zaisma any time.
+
 #### Room browsing
 
 Open rooms are listed on the game's page (how full each is and where it runs, never who's in it), with "playing now" under the title (every room counts, hidden ones too), and the game gets the same list to show its own way:

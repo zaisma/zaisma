@@ -52,6 +52,11 @@ const details = {
     type: "boolean",
     description: "Copy signed-in players' browser saves (localStorage and IndexedDB) to their account, so progress follows them to any device. On by default; turn off for games that keep their own saves on a server.",
   },
+  multiplayer: {
+    enum: ["none", "relay", "own"],
+    description:
+      "Multiplayer on Zaisma rooms. none: single-player or the game's own servers. relay: Zaisma passes each message to the others, no server code. own: your game server runs on Zaisma: put it in zaisma-server.js at the top of the upload (one plain JavaScript ES module, no imports, default export { setup, onJoin, onLeave, onMessage, onTick, maxPlayers, tickRate }). It runs sealed off: no internet, so it only talks to its players. Players never get the file. get_stats shows its errors.",
+  },
   room_browsing: {
     enum: ROOM_BROWSING,
     description:
@@ -81,7 +86,7 @@ const TOOLS: Tool[] = [
     description: "Make a new game. It starts as a draft only you can see. The link name comes from the title unless you give one.",
     inputSchema: object({ ...details, slug: { type: "string", description: "Link name: lowercase letters, numbers and single hyphens" } }, ["title"]),
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
-    run: (args, call) => call("POST", "/games", pick(args, ["title", "slug", "description", "devices", "controls", "screen", "players", "cloud_saves", "room_browsing"])),
+    run: (args, call) => call("POST", "/games", pick(args, ["title", "slug", "description", "devices", "controls", "screen", "players", "cloud_saves", "room_browsing", "multiplayer"])),
   },
   {
     name: "get_game",
@@ -99,7 +104,7 @@ const TOOLS: Tool[] = [
     inputSchema: object({ slug, ...details, visibility: { enum: VISIBILITIES }, confirm: { type: "boolean", description: "The developer agreed to hide a public game" } }, ["slug"]),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     run: async (args, call) => {
-      const change = pick(args, ["title", "description", "devices", "controls", "screen", "players", "cloud_saves", "room_browsing", "visibility"]);
+      const change = pick(args, ["title", "description", "devices", "controls", "screen", "players", "cloud_saves", "room_browsing", "multiplayer", "visibility"]);
       if (change.visibility === "draft" || change.visibility === "private") {
         const { game } = (await call("GET", `/games/${str(args.slug)}`)) as { game: { visibility: string; review: string } };
         if ((game.visibility === "listed" || game.visibility === "unlisted") && game.review === "live" && args.confirm !== true) {

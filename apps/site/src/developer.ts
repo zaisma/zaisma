@@ -30,6 +30,9 @@ import {
   createVersion,
   forbiddenContent,
   manifestKey,
+  fileKey,
+  multiplayerOf,
+  type Manifest,
   missingBlobs,
   locateBlobs,
   addOwnedBlob,
@@ -42,6 +45,7 @@ import {
   type Version,
   REPORT_REASONS,
   SANDBOX_GAME_SERVER,
+  SERVER_FILE,
   readPlayers,
   type ReportReason,
 } from "@zaisma/core";
@@ -56,7 +60,7 @@ import { pruneVersions } from "./scan.ts";
  *   GET    /api/dev/games                      your games
  *   POST   /api/dev/games                      make a game (starts as a draft)
  *   GET    /api/dev/games/:slug                one game, with its images and versions
- *   PATCH  /api/dev/games/:slug                title, description, visibility, devices, controls, screen, players, cloud_saves, room_browsing
+ *   PATCH  /api/dev/games/:slug                title, description, visibility, devices, controls, screen, players, cloud_saves, room_browsing, multiplayer
  *   POST   /api/dev/games/:slug/images?kind=   add a cover or screenshot (the image bytes as the body)
  *   DELETE /api/dev/games/:slug/images/:id     remove one
  *   POST   /api/dev/games/:slug/uploads        which of these files still need sending
@@ -218,9 +222,20 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     const checked = checkDetails(await readJson(request));
     if ("error" in checked) throw new ApiError(400, "bad_details", checked.error);
     if (game.status === "removed" && checked.change.visibility) throw new ApiError(403, "removed", "This game was taken down, so its visibility can't change.");
-    const { waiting } = await applyDetails(env.DB, game, checked.change);
-    await audit(env.DB, game.id, "details", Object.keys(checked.change).join(", ") + (waiting ? " (words waiting for review)" : ""), caller.actor);
-    return ok({ game: gameJson(env, (await gameBySlug(env.DB, game.slug))!), review: waiting ? "The new title or description shows once it's reviewed." : null });
+    const { multiplayer, ...details } = checked.change;
+    const changesMultiplayer = multiplayer !== undefined && multiplayer !== multiplayerOf(game.game_server);
+    if (changesMultiplayer && multiplayerOf(game.game_server) === "built-in") {
+      throw new ApiError(403, "built_in_server", "This game runs a game server built into Zaisma; ask us to change its multiplayer.");
+    }
+    const { waiting } = await applyDetails(env.DB, game, { ...details, ...(changesMultiplayer ? { multiplayer } : {}) });
+    if (Object.keys(details).length) await audit(env.DB, game.id, "details", Object.keys(details).join(", ") + (waiting ? " (words waiting for review)" : ""), caller.actor);
+    if (changesMultiplayer) await audit(env.DB, game.id, "multiplayer", `Multiplayer: ${multiplayer}`, caller.actor);
+    const missing = multiplayer === "own" && (await liveServerFile(env, game)) === false;
+    return ok({
+      game: gameJson(env, (await gameBySlug(env.DB, game.slug))!),
+      review: waiting ? "The new title or description shows once it's reviewed." : null,
+      ...(missing ? { note: "The live version has no zaisma-server.js, so its rooms can't open until a version with one is published." } : {}),
+    });
   }
 
   if (images && !m[2] && method === "POST") {
@@ -467,6 +482,15 @@ async function reportsFor(env: Env, game: Game, since = 0) {
   };
 }
 
+/** Whether the live version has a zaisma-server.js, or null when nothing is live. */
+async function liveServerFile(env: Env, game: Game): Promise<boolean | null> {
+  const version = game.current_version_id ? await versionById(env.DB, game.current_version_id) : null;
+  if (!version) return null;
+  const manifest = version.kind === "files" ? ((await (await env.GAMES.get(manifestKey(version.id)))?.json()) as Manifest | null) : null;
+  const key = fileKey(version, manifest, SERVER_FILE);
+  return key !== null && (await env.GAMES.head(key)) !== null;
+}
+
 /**
  * Multiplayer room use per day, and for games running their own game server on our rooms, how it's
  * doing: calls, errors, loops we stopped and matches that ended for it, plus its recent errors.
@@ -630,7 +654,9 @@ function gameJson(env: Env, g: Game) {
     players: readPlayers(g.players),
     // Signed-in players' browser saves are copied to their account.
     cloud_saves: Boolean(g.cloud_saves),
-    // Multiplayer on Zaisma rooms, and where its open rooms are listed: page, game or off.
+    // Multiplayer on Zaisma rooms: none, relay, own (its zaisma-server.js in a sandbox) or built-in
+    // (one of ours, set by Zaisma), and where its open rooms are listed: page, game or off.
+    multiplayer: multiplayerOf(g.game_server),
     zaisma_rooms: Boolean(g.game_server),
     room_browsing: g.room_browsing,
     waiting_for_review: draft,

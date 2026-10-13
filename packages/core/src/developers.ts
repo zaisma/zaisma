@@ -1,5 +1,5 @@
 import { newId, sha256Hex } from "./ids.ts";
-import { ROOM_BROWSING, type Game, type RoomBrowsing, type Visibility } from "./types.ts";
+import { MULTIPLAYER, ROOM_BROWSING, SANDBOX_GAME_SERVER, type Game, type RoomBrowsing, type Visibility } from "./types.ts";
 
 /**
  * Developer accounts: API keys, game details, device labels and images.
@@ -135,6 +135,8 @@ export interface DetailsChange {
   /** Copy signed-in players' browser saves to their account. Off for games that keep their own saves. */
   cloud_saves?: boolean;
   room_browsing?: RoomBrowsing;
+  /** none, relay, or own (the game's zaisma-server.js in a sandbox on our rooms). */
+  multiplayer?: (typeof MULTIPLAYER)[number];
 }
 
 /** Check a change from the API. Returns the tidied change or a plain error. */
@@ -187,6 +189,10 @@ export function checkDetails(input: Record<string, unknown>): { change: DetailsC
     if (!ROOM_BROWSING.includes(input.room_browsing as RoomBrowsing)) return { error: `room_browsing is one of: ${ROOM_BROWSING.join(", ")}.` };
     change.room_browsing = input.room_browsing as RoomBrowsing;
   }
+  if ("multiplayer" in input) {
+    if (!MULTIPLAYER.includes(input.multiplayer as (typeof MULTIPLAYER)[number])) return { error: `multiplayer is one of: ${MULTIPLAYER.join(", ")}.` };
+    change.multiplayer = input.multiplayer as (typeof MULTIPLAYER)[number];
+  }
   return { change };
 }
 
@@ -227,6 +233,8 @@ export async function applyDetails(db: D1Database, game: Game, change: DetailsCh
   if (change.players !== undefined) set("players", change.players ? JSON.stringify(change.players) : "");
   if (change.cloud_saves !== undefined) set("cloud_saves", change.cloud_saves ? 1 : 0);
   if (change.room_browsing !== undefined) set("room_browsing", change.room_browsing);
+  // Rooms running the old setting end within a minute, when they next check the game.
+  if (change.multiplayer !== undefined) set("game_server", { none: null, relay: "relay", own: SANDBOX_GAME_SERVER }[change.multiplayer]);
   if (sets.length) {
     set("updated_at", now());
     await db.prepare(`UPDATE games SET ${sets.join(", ")} WHERE id = ?`).bind(...binds, game.id).run();

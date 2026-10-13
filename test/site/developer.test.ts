@@ -121,6 +121,39 @@ describe("games", () => {
     expect(await env.DB.prepare("SELECT listed FROM live_rooms WHERE game_id = ?").bind(g.id).first("listed")).toBe(0);
   });
 
+  it("lets developers pick multiplayer: none, the relay or their own game server", async () => {
+    await api("/games", { body: { title: "Own Server", multiplayer: "relay" } });
+    const g = (await gameBySlug(env.DB, "own-server"))!;
+    expect(g.game_server).toBe("relay");
+    expect((await api("/games/own-server", { method: "PATCH", body: { multiplayer: "arena" } })).status).toBe(400);
+
+    // A live version without zaisma-server.js: saved, with a note saying rooms wait for one.
+    await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, bytes, scan_status, created_at) VALUES ('vown', ?, 'games/vown', 1, 0, 'approved', 0)").bind(g.id).run();
+    await env.DB.prepare("UPDATE games SET status = 'live', current_version_id = 'vown' WHERE id = ?").bind(g.id).run();
+    let res = await (await api("/games/own-server", { method: "PATCH", body: { multiplayer: "own" } })).json<{ game: Record<string, unknown>; note?: string }>();
+    expect(res.game).toMatchObject({ multiplayer: "own", zaisma_rooms: true });
+    expect(res.note).toContain("no zaisma-server.js");
+    expect((await gameBySlug(env.DB, "own-server"))!.game_server).toBe("sandbox");
+    await env.GAMES.put("games/vown/zaisma-server.js", "export default { setup: () => ({}) }");
+    res = await (await api("/games/own-server", { method: "PATCH", body: { multiplayer: "own" } })).json();
+    expect(res.note).toBeUndefined();
+
+    res = await (await api("/games/own-server", { method: "PATCH", body: { multiplayer: "none" } })).json();
+    expect(res.game).toMatchObject({ multiplayer: "none", zaisma_rooms: false });
+    const { history } = await (await api("/games/own-server/history")).json<{ history: { what: string }[] }>();
+    expect(history.filter((h) => h.what === "Multiplayer settings changed")).toHaveLength(2);
+  });
+
+  it("keeps a game server built into Zaisma for us to change", async () => {
+    await api("/games", { body: { title: "Built In" } });
+    await env.DB.prepare("UPDATE games SET game_server = 'arena' WHERE slug = 'built-in'").run();
+    expect((await (await api("/games/built-in")).json<{ game: Record<string, unknown> }>()).game.multiplayer).toBe("built-in");
+    expect((await api("/games/built-in", { method: "PATCH", body: { multiplayer: "relay" } })).status).toBe(403);
+    // Saving other details (the dashboard sends everything) leaves it alone.
+    expect((await api("/games/built-in", { method: "PATCH", body: { screen: "landscape" } })).status).toBe(200);
+    expect((await gameBySlug(env.DB, "built-in"))!.game_server).toBe("arena");
+  });
+
   it("holds new words on a game players can see until they're reviewed", async () => {
     await api("/games", { body: { title: "Live One", description: "Old words." } });
     await env.DB.prepare("UPDATE games SET status = 'live', current_version_id = 'v1', visibility = 'listed' WHERE slug = 'live-one'").run();

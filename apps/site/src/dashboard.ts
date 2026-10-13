@@ -23,6 +23,7 @@ interface GameJson {
   players: Players | null;
   cloud_saves: boolean;
   zaisma_rooms: boolean;
+  multiplayer: "none" | "relay" | "own" | "built-in";
   room_browsing: RoomBrowsing;
   waiting_for_review: { title?: string; description?: string } | null;
   updated_at: number;
@@ -66,6 +67,7 @@ const DONE: Record<string, string> = {
   made: "Your game is made. Upload a version below.",
   uploaded: "Uploaded. The scan usually takes under a minute; refresh to see the result.",
   details: "Details saved.",
+  "multiplayer-no-file": "Saved. Your live version has no zaisma-server.js yet, so its rooms open once you publish a version with one.",
   "details-review": "Saved. The new title or description shows once it's reviewed.",
   visibility: "Visibility changed.",
   image: "Image added. It shows on the game page once it's reviewed.",
@@ -122,7 +124,9 @@ export async function handleDashboard(request: Request, env: Env, path: string):
         players: playersFrom(form),
         cloud_saves: form.get("cloud_saves") === "on",
         ...(form.has("room_browsing") ? { room_browsing: field("room_browsing") } : {}),
-      })) as { review: string | null };
+        ...(form.has("multiplayer") ? { multiplayer: field("multiplayer") } : {}),
+      })) as { review: string | null; note?: string };
+      if (res.note) return back("multiplayer-no-file", "#details");
       return back(res.review ? "details-review" : "details", "#details");
     }
     if (action === "/visibility") {
@@ -372,6 +376,7 @@ ${waiting ? html`<p class="note small">Waiting for review: ${[waiting.title ? `t
 <fieldset><legend>Controls</legend><div class="row">${CONTROLS.map((c) => html`<label class="check"><input type="checkbox" name="controls" value="${c}"${g.controls.includes(c) ? raw(" checked") : ""}> ${CONTROL_LABELS[c]}</label>`)}</div></fieldset>
 ${playersFields(g.players)}
 <label>Screen<select name="screen">${["", ...SCREENS].map((s) => html`<option value="${s}"${g.screen === s ? raw(" selected") : ""}>${SCREEN_LABELS[s]}</option>`)}</select></label>
+${multiplayerFields(g.multiplayer)}
 ${g.zaisma_rooms ? roomBrowsingFields(g.room_browsing) : ""}
 <fieldset><legend>Saves</legend>
 <label class="check"><input type="checkbox" name="cloud_saves"${g.cloud_saves ? raw(" checked") : ""}> Cloud saves</label>
@@ -379,6 +384,22 @@ ${g.zaisma_rooms ? roomBrowsingFields(g.room_browsing) : ""}
 </fieldset>
 <button class="btn" type="submit">Save details</button>
 </form>`;
+}
+
+const MULTIPLAYER_LABELS = {
+  none: { label: "None", hint: "Single-player, or only your own servers." },
+  relay: { label: "Relay", hint: "Zaisma passes each player's messages to the others. No server code." },
+  own: { label: "Your game server", hint: "Runs zaisma-server.js from your upload on Zaisma, sealed off from the internet. Players never get the file." },
+} as const;
+
+/** Multiplayer on Zaisma rooms, as the developer sets it. A game server built into Zaisma is set by us. */
+function multiplayerFields(current: GameJson["multiplayer"]): Raw {
+  if (current === "built-in") return html`<fieldset><legend>Multiplayer</legend><p class="hint">Runs a game server built into Zaisma. Ask us to change it.</p></fieldset>`;
+  return html`<fieldset class="choices"><legend>Multiplayer</legend>
+${(["none", "relay", "own"] as const).map(
+    (m) => html`<label class="check"><input type="radio" name="multiplayer" value="${m}"${current === m ? raw(" checked") : ""}> <span>${MULTIPLAYER_LABELS[m].label}<small class="hint">${MULTIPLAYER_LABELS[m].hint}</small></span></label>`,
+  )}
+</fieldset>`;
 }
 
 /** Where open rooms on Zaisma are listed. Single rooms can still hide themselves from the game. */
