@@ -119,17 +119,25 @@ export default class extends WorkerEntrypoint {
 `;
 
 /** A version's game server files and their code, or null if it has none (or too much). */
-async function serverCode(env: Env, versionId: string): Promise<{ entry: string; modules: Record<string, string> } | null> {
+async function serverCode(env: Env, versionId: string): Promise<{ entry: string; modules: Record<string, string | WorkerLoaderModule> } | null> {
   const version = await env.DB.prepare("SELECT id, kind, r2_prefix FROM versions WHERE id = ?").bind(versionId).first<{ id: string; kind: "zip" | "files"; r2_prefix: string }>();
   if (!version) return null;
   const manifest = version.kind === "files" ? ((await (await env.GAMES.get(manifestKey(version.id)))?.json<Manifest>()) ?? null) : null;
   const found = await serverModules(env.GAMES, version, manifest);
   if (!found || "error" in found) return null;
-  const modules: Record<string, string> = {};
+  const modules: Record<string, string | WorkerLoaderModule> = {};
   for (const f of found.files) {
     const object = await env.GAMES.get(f.key);
     if (!object) return null;
-    modules[f.path] = await object.text();
+    // import levels from "./levels.json" gives the data; import physics from "./physics.wasm" a WebAssembly.Module.
+    if (f.path.endsWith(".wasm")) modules[f.path] = { wasm: await object.arrayBuffer() };
+    else if (f.path.endsWith(".json")) {
+      try {
+        modules[f.path] = { json: JSON.parse(await object.text()) };
+      } catch {
+        throw new Error(`${f.path} isn't valid JSON`);
+      }
+    } else modules[f.path] = { js: await object.text() };
   }
   return { entry: found.entry, modules };
 }

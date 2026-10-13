@@ -81,7 +81,7 @@ zaisma-server/
   levels/docks.js
 ```
 
-- **Plain JavaScript ES modules:** `zaisma-server/index.js` default-exports the game server above, and can import the folder's other `.js` files by relative path. Packages from npm (`import "lodash"`) and TypeScript need a build step: bundle into one `zaisma-server.js` at the top of the upload instead (`npx esbuild server.ts --format=esm --bundle --outfile=zaisma-server.js`). Up to 100 files and 1 MB.
+- **Plain JavaScript ES modules:** `zaisma-server/index.js` default-exports the game server above, and can import the folder's other files by relative path: `.js` code, `.json` data (`import levels from "./levels.json"`) and `.wasm` WebAssembly, like a physics engine (`import mod from "./physics.wasm"` gives a `WebAssembly.Module`; `new WebAssembly.Instance(mod, imports)` starts it). Packages from npm (`import "lodash"`) and TypeScript need a build step: bundle into one `zaisma-server.js` at the top of the upload instead (`npx esbuild server.ts --format=esm --bundle --outfile=zaisma-server.js`). Up to 500 files and 5 MB.
 - **Sealed off:** no internet and nothing of Zaisma's, so it only talks to its players through `room`. State is plain JSON.
 - **Private:** players never get its files; the game domain refuses `zaisma-server/` and `zaisma-server.js`.
 - **Kept in check:** an error in a handler loses that one message or tick and the match carries on. A handler that runs on too long (a loop that never ends) is stopped after about 2 seconds, freezing the match meanwhile, and a match stopped twice ends. Your dashboard and the MCP's `get_stats` show these errors with the file and line they came from.

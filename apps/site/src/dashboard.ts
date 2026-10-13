@@ -67,7 +67,7 @@ const DONE: Record<string, string> = {
   made: "Your game is made. Upload a version below.",
   uploaded: "Uploaded. The scan usually takes under a minute; refresh to see the result.",
   details: "Details saved.",
-  "multiplayer-no-file": "Saved, but your live version's game server can't run yet. Publish a version with a zaisma-server/ folder (index.js first) or a zaisma-server.js, up to 1 MB.",
+  "multiplayer-no-file": "Saved, but your live version's game server can't run yet. Publish a version with a zaisma-server/ folder (index.js first) or a zaisma-server.js, up to 5 MB.",
   "details-review": "Saved. The new title or description shows once it's reviewed.",
   visibility: "Visibility changed.",
   image: "Image added. It shows on the game page once it's reviewed.",
