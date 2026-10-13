@@ -228,7 +228,9 @@ const HOME_STYLES = `
   background:linear-gradient(180deg,#24331f,#1a2417);box-shadow:inset 1px 1px 0 rgba(185,231,166,.15),inset -1px -1px 0 #000}
 .stage .updated::before{content:"";width:7px;height:7px;background:var(--ok);box-shadow:0 0 8px rgba(95,211,141,.7)}
 .stage .go-row{margin-top:auto;padding-top:22px}
-.row-tiles{display:flex;gap:22px;overflow-x:auto;padding:8px 6px 18px;margin:-8px -6px 0;scroll-snap-type:x proximity}
+/* A scrolling row clips what spills out of it, so it leaves room for a card lifted by the pointer
+   (bigger, in a chrome frame): padding all round, taken back by the margin so the cards still line up. */
+.row-tiles{display:flex;gap:22px;overflow-x:auto;padding:16px 16px 34px;margin:-16px -16px -16px;scroll-padding-inline:16px;scroll-snap-type:x proximity}
 .row-tiles>.hit{flex:0 0 300px;scroll-snap-align:start}
 .continue[hidden]{display:none}
 /* Phones and tablets: one machined piece, like a big game card. The art takes the Z's cut corner
