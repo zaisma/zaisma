@@ -12,7 +12,7 @@ Steel is a theme, not a flat UI: like a console's big-screen mode, every page is
 
 - **Players first.** Show what helps a player decide or act. No feature flexes ("progress saved to your account!") and no jargon ("Connects to", "Purchases").
 - **No eyebrows and no ALL CAPS.** Headings are sentences; small print is plain text under the title.
-- **Game pictures are only the developer's image.** No text, badges or gradients on covers, screenshots or update images. Titles and buttons sit on the card below.
+- **Game pictures are only the developer's image.** We draw no text, badges or gradients over covers, screenshots or update images (the one exception: the small Updated flag on Continue playing cards). The cover is the whole card, so developers put their game's name or logo on it themselves; titles and buttons we draw sit beside a picture, never on it.
 - **Say game developers**, never creators.
 - **Nothing animates on its own.** Motion only answers the player (hover, press, a state change).
 - **Not flat.** Every surface is one of the three materials; no plain grey boxes, no hairline-only cards.
@@ -46,14 +46,14 @@ The primary action on a page is a metal plate: `metalButton(label, { href | id, 
 - On hover it tilts toward the cursor, less the bigger it is (up to about 13° for a small button).
 - The glint is the reflection of a fixed light above and to the left. It slides across the tilted plate, the opposite way to the cursor and faster, and dims as the plate turns away; at steep angles it slides off the edge.
 - The label and icon take no light: they look exactly the same on hover, so only the plate moves.
-- Game cards (`.tile`) tilt a little; their picture (`.pic`) reflects like glass, a sharp line plus a soft haze, and the card body is matte.
+- Game cards (`.tile`) tilt a little; their picture (`.pic`) reflects like glass, a sharp line plus a soft haze.
 - The hover area is a wrapper that never tilts (`.hit`), so tilting can't push the cursor out and back in.
 - Phones (no hover) get the still plate. Reduced motion keeps the glint and drops the tilt.
 
 ## Components
 
 - **Buttons:** `.btn` (gunmetal plate with the cut corner), `.btn.light` (chrome), `.btn.ghost` (outline), `.btn.danger`, `.btn.big`; the tilting metal plate for the main action. Any button that sends a form or opens a page shows the turning square (`.spin`) and can't be pressed twice.
-- **Game card:** `.tile` with `.pic` (the developer's image), a brushed nameplate `.body` with `.name` (title in Jost, optional `small` line or `.badge`) and `.go` (Play or Continue). Wrapped in `.hit.block` with `data-art` (the cover): pointing at it or tabbing to it lifts the card into a chrome frame, turns `.go` chrome and fades the screen to its art.
+- **Game card:** `a.tile` around `.pic`, the developer's cover alone: no nameplate, title or Play button, since a studio's art carries its own name and logo. It opens the game's page; only a Play button starts a game. The title is the link's `aria-label`. A game without a cover gets `.named`, its title engraved over a faint Z. `.flag` is the one note allowed on the art (Updated, on Continue playing). Wrapped in `.hit.block` with `data-art` (the cover): pointing at it or tabbing to it lifts the card into a chrome frame and fades the screen to its art. The dashboard's own cards add a nameplate (`.body`) for status.
 - **Stage:** the home page's game in a machined bezel, its details on a plate beside it (never on top of the art).
 - **Spec plate:** on the game page, `dl.spec` rows (Players, Works on, Controls) with icons and words, divided by engraved lines.
 - **Section heading:** `.sec-head h2` or `h2.rule-h`, engraved, with a metal rule running to the edge.

@@ -473,7 +473,7 @@ function imagesPanel(slug: string, images: ImageJson[]): Raw {
     : html`<p class="muted">No cover yet. Players see it on the game page and in lists.</p>`}
 <form class="stack" method="post" action="/dashboard/${slug}/images" enctype="multipart/form-data">
 <div class="row"><select name="kind" aria-label="Kind"><option value="cover">Cover</option><option value="screenshot">Screenshot</option></select><input type="file" name="file" accept="image/png,image/jpeg,image/webp" required aria-label="Image"></div>
-<p class="hint">PNG, JPEG or WebP, up to 5 MB, at least 320 px a side. Just the picture: no text or logos on top.</p>
+<p class="hint">Players see your cover alone as your game's card, so put your game's name or logo on it. Screenshots are just the game. PNG, JPEG or WebP, up to 5 MB, at least 320 px a side; 16:9 shows best.</p>
 <button class="btn" type="submit">Add image</button>
 </form>`;
 }

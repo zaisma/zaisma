@@ -146,7 +146,7 @@ body>main.gp{flex:1 0 auto;width:100%}
 .metal>*{position:relative;z-index:1}
 .metal.lit::before{opacity:calc(.9 * var(--gf,1))}
 
-/* Game cards. The picture is only the developer's image; the nameplate below holds the rest.
+/* Game cards. Players' cards are the developer's cover alone; the dashboard's add a nameplate below.
    Pointing at a card (or tabbing to it) lifts it into a chrome frame, and the page takes its colors. */
 .tile{position:relative;overflow:hidden;display:flex;flex-direction:column;background:#101215;box-shadow:0 0 0 1px #000,var(--drop);
   transform:perspective(800px) rotateX(var(--rx,0deg)) rotateY(var(--ry,0deg)) scale(var(--s,1));transition:transform 180ms ease-out,box-shadow 180ms ease-out}
@@ -167,10 +167,16 @@ body>main.gp{flex:1 0 auto;width:100%}
 .tile .name span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--display);font-weight:600;font-size:16px;letter-spacing:.005em}
 .tile .name:hover span{text-decoration:underline;text-underline-offset:3px}
 .tile .name small{color:var(--muted);font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.tile .go{--cut:8px;flex:none;display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;color:var(--text);
-  background:var(--brush) 0 0/320px 320px,var(--face-hi);box-shadow:inset 1px 1px 0 rgba(255,255,255,.13),inset -1px -1px 0 #000;transition:color 120ms}
-.hit.block:hover .go,.hit.block:focus-within .go{color:#0b0b0c;background:var(--chrome);box-shadow:inset 1px 1px 0 #fff,inset -1px -1px 0 #000}
-.tile .go svg{width:12px;height:14px}
+a.tile{color:inherit;text-decoration:none}
+/* A game with no cover: its title engraved on the plate, over a faint Z. */
+.tile .named{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:14px 20px;text-align:center}
+.tile .named::before{content:"";position:absolute;inset:0;background:url(/zaisma-mark-metal.svg) center/38% no-repeat;opacity:.1}
+.tile .named span{position:relative;font-family:var(--display);font-weight:600;font-size:clamp(17px,1.9vw,23px);line-height:1.15;color:#c4c7cd;
+  text-shadow:0 -1px 0 rgba(0,0,0,.85),0 1px 0 rgba(255,255,255,.09);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+/* A small note on a card's art, like Updated. */
+.tile .flag{position:absolute;left:10px;top:10px;z-index:3;display:inline-flex;align-items:center;gap:7px;min-height:26px;padding:0 10px;font-family:var(--display);font-size:12px;font-weight:600;color:var(--ok-text);
+  background:linear-gradient(180deg,#24331f,#1a2417);box-shadow:inset 1px 1px 0 rgba(185,231,166,.15),inset -1px -1px 0 #000,0 2px 10px rgba(0,0,0,.55)}
+.tile .flag::before{content:"";width:6px;height:6px;background:var(--ok);box-shadow:0 0 8px rgba(95,211,141,.7)}
 
 /* How a game is played, devices and controls: icons with words. */
 .modes{list-style:none;margin:0;padding:0;display:grid;gap:8px}
@@ -296,7 +302,7 @@ addEventListener("pointerover",pick,{passive:true});addEventListener("focusin",p
 const BUSY_SCRIPT = `(()=>{const busy=b=>{if(!b||b.getAttribute("aria-busy")==="true")return;b.setAttribute("aria-busy","true");const s=document.createElement("span");s.className="spin";s.setAttribute("aria-hidden","true");(b.matches(".metal")?b.lastElementChild||b:b).prepend(s);
 setTimeout(()=>{if(b.tagName==="BUTTON")b.disabled=true},0)};
 addEventListener("submit",e=>{if(!e.defaultPrevented&&e.target.method!=="dialog")busy(e.submitter||e.target.querySelector("button[type=submit],button:not([type])"))});
-addEventListener("click",e=>{const a=e.target.closest&&e.target.closest("a.btn,a.metal,a.go");if(!a||e.defaultPrevented||e.button||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||a.target==="_blank")return;const u=new URL(a.href,location.href);if(u.origin!==location.origin||(u.pathname===location.pathname&&u.search===location.search))return;busy(a)});
+addEventListener("click",e=>{const a=e.target.closest&&e.target.closest("a.btn,a.metal");if(!a||e.defaultPrevented||e.button||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||a.target==="_blank")return;const u=new URL(a.href,location.href);if(u.origin!==location.origin||(u.pathname===location.pathname&&u.search===location.search))return;busy(a)});
 addEventListener("pageshow",e=>{if(e.persisted)document.querySelectorAll("[aria-busy=true]").forEach(b=>{b.removeAttribute("aria-busy");b.disabled=false;b.querySelectorAll(".spin").forEach(s=>s.remove())})})})();`;
 
 const PLAY_ICON = '<svg viewBox="0 0 14 16" aria-hidden="true"><path d="M1 1v14l12-7z" fill="currentColor"/></svg>';
