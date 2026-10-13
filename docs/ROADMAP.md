@@ -30,7 +30,7 @@ Live on zaisma.com since Oct 11, 2026.
 
 Goal: open Zaisma to outside developers and players, with what both expect out of the box. **The beta bar:** a developer can publish any web game from their AI tool in one prompt, add multiplayer and saves, and see who plays; a player can tap a link, play on phone or computer, invite friends, keep progress and stay safe.
 
-**Order of work.** Four tracks run side by side; within a track, the **Needs** column says what has to land first. The longest waits are outside our control (PhotoDNA approval takes weeks), so Julius's track starts first. The build tracks meet at the end: developers' own game servers need multiplayer and publishing, and the seed games use everything.
+**Order of work.** Four tracks run side by side; within a track, the **Needs** column says what has to land first. The longest waits are outside our control (sign-ups for image matching and NCMEC), so Julius's track starts first. The build tracks meet at the end: developers' own game servers need multiplayer and publishing, and the seed games use everything.
 
 ### Launch prerequisites (Julius's track, start first)
 
@@ -38,14 +38,14 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | --- | --- | --- | --- | --- |
 | done | Must | Julius: buy the game domain | | zaismausercontent.com, bought Oct 11, 2026 |
 | done | Must | Serve each game on its own subdomain | Julius: buy the game domain | Live Oct 11, 2026: <slug>.zaismausercontent.com; workers.dev turned off |
-| doing | Must | Julius: apply for PhotoDNA | | First application (Oct 12, 2026) was declined only because it used an outlook.com address; reapplying from pdna_account@zaisma.com, which forwards to iCloud. Free, approval takes weeks. Check whether the 30-day subscription renews by itself |
-| next | Nice | Julius: sign up for Arachnid Shield | | Free backup if PhotoDNA doesn't come through: known-abuse-image matching from the Canadian Centre for Child Protection (Project Arachnid), self-serve API key at projectarachnid.ca. Use a zaisma.com address. Paid fallbacks: Thorn's Safer, directly or through Hive (quote only) |
-| next | Nice | Julius: turn on Cloudflare's CSAM Scanning Tool | | Free, one switch per domain (zaisma.com and zaismausercontent.com) plus an alert email. Only sees content served through Cloudflare's cache, after it's live, so it's a backstop, not the check before publishing |
+| planned | Nice | Julius: reapply for PhotoDNA | Julius: form an LLC | Declined twice: Oct 12, 2026 (outlook.com address) and Oct 13, 2026 (didn't qualify as an established organization). Arachnid Shield takes its place for the beta; try again as the LLC once Zaisma has a track record |
+| next | Must | Julius: sign up for Arachnid Shield | | Now the main image matcher, since PhotoDNA was declined: free known-abuse-image matching from the Canadian Centre for Child Protection (Project Arachnid), self-serve API key at projectarachnid.ca. Use a zaisma.com address. Paid fallbacks: Thorn's Safer, directly or through Hive (quote only) |
+| next | Nice | Julius: turn on Cloudflare's CSAM Scanning Tool | | Free, one switch per domain (zaisma.com and zaismausercontent.com) plus an alert email. Only sees content served through Cloudflare's cache, after it's live, so it's a backstop, not the check before publishing. The games Worker serves files straight from R2 without the cache, so on zaismausercontent.com it would see almost nothing until images go through the cache |
 | next | Must | Julius: register with NCMEC | | Free; how platforms report child sexual abuse material, which US law requires |
-| next | Must | Julius: form an LLC | | Liability protection before outside uploads (we host their files and indemnify Microsoft); a registered agent keeps your home address off public records. Moving PhotoDNA to the LLC needs Microsoft's consent or a new application |
+| next | Must | Julius: form an LLC | | Liability protection before outside uploads (we host their files); a registered agent keeps your home address off public records. Also lets us reapply for PhotoDNA as an established organization |
 | next | Must | Julius: register the DMCA agent | | $6 at copyright.gov, then fill in the DMCA page |
 | doing | Must | Alert and DMCA email delivery | | Fastmail limited mail from zaisma.com because the domain is new (their support, Oct 13, 2026: it lifts by itself within hours), so support@ forwards to iCloud for now; dmca@ and privacy@ next |
-| planned | Must | Connect image matching | Julius: apply for PhotoDNA, Julius: register with NCMEC | Every image in an upload is checked before publishing (PhotoDNA, or Arachnid Shield if PhotoDNA doesn't come through); matches are held, reported to NCMEC within minutes (PhotoDNA's terms require 72 hours) and alerted to Julius. Until then every game waits for manual approval |
+| planned | Must | Connect image matching | Julius: sign up for Arachnid Shield, Julius: register with NCMEC | Every image in an upload is checked before publishing with Arachnid Shield (PhotoDNA added later if approved); matches are held, reported to NCMEC within minutes and alerted to Julius. Until then every game waits for manual approval |
 | done | Must | Julius: Workers Paid plan | | $5/month, live Oct 12, 2026; needed to run developers' game servers |
 | planned | Must | Julius: Supabase Pro | | $25/month, switched on at launch; the free plan pauses |
 | planned | Nice | Julius: Public Suffix List entry | | Needs 2+ years left on the registration and a `_psl` TXT record; the list may turn down projects without players, so apply after launch |
