@@ -2,6 +2,7 @@ import { PLAYED_KEEP, gameBySlug, mergePlayed, readPlayers, recentlyPlayed, reco
 import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { esc, html, layout, metalButton, playerLine, raw, type Raw } from "./html.ts";
+import { shelfPlayers } from "./plays.ts";
 
 /**
  * The home page and what it needs. The page is the same for everyone (so it caches); the player's own
@@ -66,24 +67,36 @@ const SHELF = 12;
 const SHELF_MIN = 2;
 
 /**
- * Popular, trending and new, the same for everyone, by plain rules from play counts (plays.ts), not
- * AI. Popular: the most players in the last 7 days. Trending: more players in the last 3 days than
+ * Popular, trending and new, the same for everyone, by plain rules from counted plays (plays.ts), not
+ * AI, counting players the way shelfPlayers does. Popular: the most players in the last 7 days. Trending: more players in the last 3 days than
  * the 14 before would suggest, at least half as many again. New: first went live in the last 60 days, newest first. A shelf with too few games is left out.
  */
 export async function shelves(env: Env, games: ShowGame[], now = Date.now()): Promise<{ popular: ShowGame[]; trending: ShowGame[]; fresh: ShowGame[] }> {
   const day = (ago: number) => new Date(now - ago * DAY).toISOString().slice(0, 10);
-  const { results } = await env.DB
-    .prepare(
-      `SELECT games.slug,
-         SUM(CASE WHEN play_days.day >= ?1 THEN play_days.players ELSE 0 END) AS week,
-         SUM(CASE WHEN play_days.day >= ?2 THEN play_days.players ELSE 0 END) AS recent,
-         SUM(CASE WHEN play_days.day < ?2 THEN play_days.players ELSE 0 END) AS before
-       FROM play_days JOIN games ON games.id = play_days.game_id
-       WHERE play_days.day >= ?3 AND games.status = 'live' AND games.visibility = 'listed'
-       GROUP BY games.slug`,
-    )
-    .bind(day(6), day(2), day(16))
-    .all<{ slug: string; week: number; recent: number; before: number }>();
+  // Counted players by network, for listed games Zaisma hasn't kept off the shelves.
+  const [{ results: networks }, { results: held }] = await Promise.all([
+    env.DB
+      .prepare(
+        `SELECT games.slug, play_networks.day, play_networks.asn, play_networks.players
+         FROM play_networks JOIN games ON games.id = play_networks.game_id
+         WHERE play_networks.day >= ? AND games.status = 'live' AND games.visibility = 'listed' AND games.off_shelves = 0`,
+      )
+      .bind(day(16))
+      .all<{ slug: string; day: string; asn: number; players: number }>(),
+    env.DB.prepare("SELECT slug FROM games WHERE off_shelves = 1").all<{ slug: string }>(),
+  ]);
+  // Each game's days, as the shelves count them (plays.ts: no cloud networks, no one network carrying it).
+  const byDay = new Map<string, Map<string, { asn: number; players: number }[]>>();
+  for (const r of networks) {
+    const days = byDay.get(r.slug) ?? new Map<string, { asn: number; players: number }[]>();
+    days.set(r.day, [...(days.get(r.day) ?? []), r]);
+    byDay.set(r.slug, days);
+  }
+  const results = [...byDay].map(([slug, days]) => {
+    const sum = (from: string, to = "9999") => [...days].filter(([d]) => d >= from && d < to).reduce((n, [, rows]) => n + shelfPlayers(rows), 0);
+    return { slug, week: sum(day(6)), recent: sum(day(2)), before: sum(day(16), day(2)) };
+  });
+  const off = new Set(held.map((h) => h.slug));
   const bySlug = new Map(games.map((g) => [g.slug, g]));
   const pick = (slugs: string[]) => {
     const list = slugs.map((s) => bySlug.get(s)).filter((g): g is ShowGame => Boolean(g)).slice(0, SHELF);
@@ -100,7 +113,7 @@ export async function shelves(env: Env, games: ShowGame[], now = Date.now()): Pr
   );
   const fresh = pick(
     games
-      .filter((g) => g.since && g.since >= now - 60 * DAY)
+      .filter((g) => g.since && g.since >= now - 60 * DAY && !off.has(g.slug))
       .sort((a, b) => b.since! - a.since!)
       .map((g) => g.slug),
   );

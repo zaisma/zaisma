@@ -28,7 +28,9 @@ writeFileSync(
   join(STATE, "site.env"),
   [`SITE_ORIGIN=${SITE}`, `GAME_ORIGIN=${GAMES}`, "GAME_HOST_MODE=path", "GAME_DOMAIN=", "DEV_ADMIN=1", `SUPABASE_URL=http://localhost:${PORTS.auth}`, "SUPABASE_PUBLISHABLE_KEY=preview", "SUPABASE_SECRET_KEY=preview", "KEEP_OFFER_SECONDS=20",
     // Scans and report triage ask a stand-in AI (fake-ai.mjs): no real key, no cost.
-    "ANTHROPIC_API_KEY=preview", `ANTHROPIC_BASE_URL=http://localhost:${PORTS.ai}`, ""].join("\n"),
+    "ANTHROPIC_API_KEY=preview", `ANTHROPIC_BASE_URL=http://localhost:${PORTS.ai}`,
+    // Cloudflare's published test keys for its check on Play: invisible, and every browser passes.
+    "TURNSTILE_SITE_KEY=1x00000000000000000000BB", "TURNSTILE_SECRET=1x0000000000000000000000000000000AA", ""].join("\n"),
 );
 writeFileSync(join(STATE, "games.env"), [`SITE_ORIGIN=${SITE}`, "GAME_HOST_MODE=path", "GAME_DOMAIN=", `ROOMS_ORIGIN=${ROOMS}`, ""].join("\n"));
 // Multiplayer rooms, with their own pass signing key kept between runs so passes stay valid.
@@ -293,21 +295,33 @@ function crc(buf) {
   return ~c >>> 0;
 }
 
-/** Two months of made-up plays for Shard Dodge and Arena, growing over time, and a jump for Cave Crew and Tiny Farm; only fills days that are empty. */
+/**
+ * Two months of made-up plays for Shard Dodge and Arena, growing over time, and a jump for Cave Crew
+ * and Tiny Farm; only fills days that are empty. Most plays count, spread over home internet providers.
+ */
 function pretendPlaysSql(now = Date.now()) {
   const day = (ms) => new Date(ms).toISOString().slice(0, 10);
+  const PROVIDERS = [7922, 3320, 5089, 2856, 701, 3215];
   const rows = [];
+  const add = (slug, d, players, fresh, seconds) => {
+    const plays = Math.round(players * 1.8);
+    const counted = Math.round(plays * 0.8);
+    const countedPlayers = Math.round(players * 0.85);
+    rows.push(`INSERT OR IGNORE INTO play_days (game_id, day, plays, players, new_players, play_seconds, counted, counted_players, counted_new, counted_seconds) SELECT id, '${d}', ${plays}, ${players}, ${fresh}, 0, ${counted}, ${countedPlayers}, ${Math.round(fresh * 0.85)}, ${counted * seconds} FROM games WHERE slug = '${slug}'`);
+    PROVIDERS.forEach((asn, i) => {
+      const share = Math.floor(countedPlayers / PROVIDERS.length) + (i < countedPlayers % PROVIDERS.length ? 1 : 0);
+      if (share) rows.push(`INSERT OR IGNORE INTO play_networks (game_id, day, asn, players) SELECT id, '${d}', ${asn}, ${share} FROM games WHERE slug = '${slug}'`);
+    });
+  };
   for (const [slug, size] of [["shard-dodge", 40], ["arena", 15]]) {
     for (let i = 60; i >= 0; i--) {
       const grow = 1 + (60 - i) / 30;
       const weekend = [0, 6].includes(new Date(now - i * 86_400_000).getUTCDay()) ? 1.4 : 1;
       const fresh = Math.round(size * grow * weekend * (0.8 + 0.4 * Math.abs(Math.sin(i * 1.7))));
-      const players = Math.round(fresh * 1.6);
-      const plays = Math.round(players * 1.8);
       const d = day(now - i * 86_400_000);
-      rows.push(`INSERT OR IGNORE INTO play_days (game_id, day, plays, players, new_players, play_seconds) SELECT id, '${d}', ${plays}, ${players}, ${fresh}, ${plays * (slug === "arena" ? 540 : 260)} FROM games WHERE slug = '${slug}'`);
+      add(slug, d, Math.round(fresh * 1.6), fresh, slug === "arena" ? 540 : 260);
       for (const [after, share] of [[1, 0.32], [7, 0.14], [30, 0.06]]) {
-        if (i - after >= 0) rows.push(`INSERT OR IGNORE INTO play_returns (game_id, first_day, after, players) SELECT id, '${d}', ${after}, ${Math.round(fresh * share)} FROM games WHERE slug = '${slug}'`);
+        if (i - after >= 0) rows.push(`INSERT OR IGNORE INTO play_returns (game_id, first_day, after, players) SELECT id, '${d}', ${after}, ${Math.round(fresh * 0.85 * share)} FROM games WHERE slug = '${slug}'`);
       }
     }
   }
@@ -315,8 +329,14 @@ function pretendPlaysSql(now = Date.now()) {
   for (const [slug, jump] of [["cave-crew", 70], ["tiny-farm", 30]]) {
     for (let i = 16; i >= 0; i--) {
       const n = i < 3 ? jump + i * 10 : 6;
-      rows.push(`INSERT OR IGNORE INTO play_days (game_id, day, plays, players, new_players, play_seconds) SELECT id, '${day(now - i * 86_400_000)}', ${n * 2}, ${n}, ${Math.round(n * 0.7)}, ${n * 2 * 400} FROM games WHERE slug = '${slug}'`);
+      add(slug, day(now - i * 86_400_000), n, Math.round(n * 0.7), 400);
     }
   }
+  // Four in a Row looks botted today: a jump, mostly from cloud servers, for admin's Play spikes.
+  for (let i = 7; i >= 1; i--) add("four-in-a-row", day(now - i * 86_400_000), 4, 2, 300);
+  rows.push(`INSERT OR IGNORE INTO play_days (game_id, day, plays, players, new_players, counted, counted_players, counted_new, counted_seconds) SELECT id, '${day(now)}', 260, 240, 235, 240, 240, 235, ${240 * 70} FROM games WHERE slug = 'four-in-a-row'`);
+  rows.push(`INSERT OR IGNORE INTO play_networks (game_id, day, asn, players) SELECT id, '${day(now)}', 16509, 190 FROM games WHERE slug = 'four-in-a-row'`);
+  rows.push(`INSERT OR IGNORE INTO play_networks (game_id, day, asn, players) SELECT id, '${day(now)}', 14061, 38 FROM games WHERE slug = 'four-in-a-row'`);
+  rows.push(`INSERT OR IGNORE INTO play_networks (game_id, day, asn, players) SELECT id, '${day(now)}', 7922, 12 FROM games WHERE slug = 'four-in-a-row'`);
   return rows.join("; ");
 }

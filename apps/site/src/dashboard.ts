@@ -489,8 +489,9 @@ ${r.bug_reports.length ? html`<h3>What players said about bugs</h3><ul class="sa
 
 interface Stats {
   plays: {
-    days: { day: string; plays: number; players: number; new_players: number; minutes_played: number }[];
+    days: { day: string; plays: number; players: number; new_players: number; minutes_played: number; all_plays: number }[];
     plays: number;
+    all_plays: number;
     new_players: number;
     minutes_played: number;
     minutes_per_play: number | null;
@@ -504,8 +505,8 @@ const n = (x: number) => x.toLocaleString("en-US");
 
 /** Plays, time played and players coming back, as the game page counts them. */
 function playsPanel(p: Stats["plays"]): Raw {
-  const how = html`<p class="hint">Counted when someone presses Play on the game page, not through tester or preview links. A player is a browser: one person on two devices counts twice. Time counts only while the game is on screen.</p>`;
-  if (!p.plays) return html`<p class="muted">No plays in the last 30 days.</p>${how}`;
+  const how = html`<p class="hint">A play counts once the game has been on screen for a minute, in a browser Cloudflare checked is real. Plays through tester and preview links, and your own while signed in, don't count. A player is a browser: one person on two devices counts twice. Time counts only while the game is on screen.</p>`;
+  if (!p.plays) return html`<p class="muted">No counted plays in the last 30 days${p.all_plays ? html` (${n(p.all_plays)} started in all)` : ""}.</p>${how}`;
   const back = (label: string, b: Stats["plays"]["came_back"]["after_1_day"]) =>
     html`<div class="num plate"><strong>${b.percent === null ? "–" : `${b.percent}%`}</strong><span>${label}</span><small>${b.of ? `${n(b.players)} of ${n(b.of)} new players` : "Not enough days yet"}</small></div>`;
   const top = Math.max(...p.days.map((d) => d.plays), 1);
@@ -513,7 +514,7 @@ function playsPanel(p: Stats["plays"]): Raw {
   const by = new Map(p.days.map((d) => [d.day, d.plays]));
   const all = Array.from({ length: 30 }, (_, i) => new Date(Date.now() - (29 - i) * 86_400_000).toISOString().slice(0, 10));
   return html`<div class="numbers">
-<div class="num plate"><strong>${n(p.plays)}</strong><span>Plays</span></div>
+<div class="num plate"><strong>${n(p.plays)}</strong><span>Plays</span><small>${n(p.all_plays)} started in all</small></div>
 <div class="num plate"><strong>${n(p.new_players)}</strong><span>New players</span></div>
 <div class="num plate"><strong>${p.minutes_per_play === null ? "–" : `${p.minutes_per_play} min`}</strong><span>Per play</span><small>${n(p.minutes_played)} minutes in all</small></div>
 ${back("Back the next day", p.came_back.after_1_day)}
@@ -521,8 +522,8 @@ ${back("Back a week later", p.came_back.after_7_days)}
 </div>
 <figure class="chart"><div class="cols" role="img" aria-label="Plays per day">${all.map((d) => html`<span title="${d}: ${n(by.get(d) ?? 0)} plays" style="height:${Math.max(Math.round(((by.get(d) ?? 0) / top) * 100), 1)}%"></span>`)}</div>
 <figcaption><span>${all[0]}</span><span>Plays per day</span><span>Today</span></figcaption></figure>
-<details class="later"><summary>Day by day</summary><table><thead><tr><th>Day</th><th>Plays</th><th>Players</th><th>New</th><th>Minutes</th></tr></thead><tbody>${[...p.days].reverse().map(
-    (d) => html`<tr><td class="nowrap">${d.day}</td><td>${n(d.plays)}</td><td>${n(d.players)}</td><td>${n(d.new_players)}</td><td>${n(d.minutes_played)}</td></tr>`,
+<details class="later"><summary>Day by day</summary><table><thead><tr><th>Day</th><th>Plays</th><th>Players</th><th>New</th><th>Minutes</th><th>Started in all</th></tr></thead><tbody>${[...p.days].reverse().map(
+    (d) => html`<tr><td class="nowrap">${d.day}</td><td>${n(d.plays)}</td><td>${n(d.players)}</td><td>${n(d.new_players)}</td><td>${n(d.minutes_played)}</td><td class="muted">${n(d.all_plays)}</td></tr>`,
   )}</tbody></table></details>${how}`;
 }
 

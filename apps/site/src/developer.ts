@@ -585,6 +585,9 @@ const HISTORY: Record<string, string | null> = {
   "cloud-saves": "Cloud saves switched",
   "tester-link-added": "Made a tester link",
   "tester-link-removed": "Turned off a tester link",
+  "plays-cleared": "Zaisma removed a day's counted plays that looked faked",
+  "off-shelves": "Zaisma took the game off Popular, Trending and New",
+  "on-shelves": "Zaisma put the game back on Popular, Trending and New",
   owner: null,
 };
 
