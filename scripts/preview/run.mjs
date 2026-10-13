@@ -284,7 +284,7 @@ function crc(buf) {
   return ~c >>> 0;
 }
 
-/** Two months of made-up plays for Shard Dodge and Arena, growing over time; only fills days that are empty. */
+/** Two months of made-up plays for Shard Dodge and Arena, growing over time, and a jump for Cave Crew and Tiny Farm; only fills days that are empty. */
 function pretendPlaysSql(now = Date.now()) {
   const day = (ms) => new Date(ms).toISOString().slice(0, 10);
   const rows = [];
@@ -300,6 +300,13 @@ function pretendPlaysSql(now = Date.now()) {
       for (const [after, share] of [[1, 0.32], [7, 0.14], [30, 0.06]]) {
         if (i - after >= 0) rows.push(`INSERT OR IGNORE INTO play_returns (game_id, first_day, after, players) SELECT id, '${d}', ${after}, ${Math.round(fresh * share)} FROM games WHERE slug = '${slug}'`);
       }
+    }
+  }
+  // Cave Crew and Tiny Farm have had a lot more players these last 3 days, so they trend.
+  for (const [slug, jump] of [["cave-crew", 70], ["tiny-farm", 30]]) {
+    for (let i = 16; i >= 0; i--) {
+      const n = i < 3 ? jump + i * 10 : 6;
+      rows.push(`INSERT OR IGNORE INTO play_days (game_id, day, plays, players, new_players, play_seconds) SELECT id, '${day(now - i * 86_400_000)}', ${n * 2}, ${n}, ${Math.round(n * 0.7)}, ${n * 2 * 400} FROM games WHERE slug = '${slug}'`);
     }
   }
   return rows.join("; ");

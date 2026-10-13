@@ -1,6 +1,7 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { countPlay, playStats } from "../../apps/site/src/plays.ts";
+import { shelves } from "../../apps/site/src/home.ts";
 
 const SITE = "https://zaisma.test";
 const DAY = 86_400_000;
@@ -70,5 +71,36 @@ describe("play stats", () => {
     const tester = await SELF.fetch(`${SITE}/t/abcdefghij0123456789`);
     expect(tester.status).toBe(200);
     expect(await tester.text()).not.toContain("/api/plays/");
+  });
+});
+
+describe("home page shelves", () => {
+  const now = Date.parse("2026-10-20T12:00:00Z");
+  const show = (slug: string, since: number | null = null) => ({ slug, title: slug, description: "", developer: null, owner_id: null, cover: null, updated: null, since, modes: "", devices: [] });
+  const players = async (id: string, ago: number, n: number) =>
+    env.DB
+      .prepare("INSERT INTO play_days (game_id, day, plays, players) VALUES (?, ?, ?, ?) ON CONFLICT (game_id, day) DO UPDATE SET players = players + excluded.players")
+      .bind(id, day(now - ago * DAY), n, n)
+      .run();
+
+  it("ranks popular by players this week and trending by players above the usual", async () => {
+    const t = Date.now();
+    for (const id of ["a", "b", "c", "d"]) await env.DB.prepare("INSERT INTO games (id, slug, title, status, visibility, current_version_id, created_at, updated_at) VALUES (?, ?, ?, 'live', 'listed', 'v1', ?, ?)").bind(`g-play-${id}`, `play-${id}`, id, t, t).run();
+    // a: steady and big. b: steady and smaller. c: quiet, then a lot of players in the last 3 days.
+    // d: only played two weeks ago.
+    for (let i = 0; i < 17; i++) {
+      await players("g-play-a", i, 40);
+      await players("g-play-b", i, 10);
+      await players("g-play-c", i, i < 3 ? 25 : 2);
+    }
+    await players("g-play-d", 12, 500);
+    const games = ["a", "b", "c", "d"].map((x) => show(`play-${x}`, x === "d" ? now - 5 * DAY : x === "c" ? now - 20 * DAY : now - 200 * DAY));
+    const { popular, trending, fresh } = await shelves(env, games, now);
+    expect(popular.map((g) => g.slug)).toEqual(["play-a", "play-c", "play-b"]);
+    // Only c is above its usual, and one game isn't a shelf.
+    expect(trending).toEqual([]);
+    await players("g-play-b", 0, 300);
+    expect((await shelves(env, games, now)).trending.map((g) => g.slug)).toEqual(["play-b", "play-c"]);
+    expect(fresh.map((g) => g.slug)).toEqual(["play-d", "play-c"]);
   });
 });

@@ -18,6 +18,8 @@ export interface ShowGame {
   cover: string | null;
   /** When the version players get now went live. */
   updated: number | null;
+  /** When the game first went live. */
+  since: number | null;
   /** How it's played, in a few words: "Single-player · Online co-op". */
   modes: string;
   devices: string[];
@@ -29,6 +31,7 @@ export async function showcase(env: Env, limit = 200): Promise<ShowGame[]> {
     .prepare(
       `SELECT games.slug, games.title, games.description, games.owner_id, games.devices, games.players, games.game_server, games.connect_hosts,
          accounts.name AS developer, versions.published_at,
+         (SELECT MIN(published_at) FROM versions WHERE game_id = games.id) AS since,
          (SELECT id FROM game_images WHERE game_id = games.id AND kind = 'cover' AND status = 'approved' ORDER BY created_at DESC LIMIT 1) AS cover
        FROM games
        LEFT JOIN owners ON owners.id = games.owner_id
@@ -38,7 +41,7 @@ export async function showcase(env: Env, limit = 200): Promise<ShowGame[]> {
        ORDER BY COALESCE(versions.published_at, games.updated_at) DESC LIMIT ?`,
     )
     .bind(limit)
-    .all<{ slug: string; title: string; description: string; owner_id: string | null; devices: string; players: string; game_server: string | null; connect_hosts: string; developer: string | null; published_at: number | null; cover: string | null }>();
+    .all<{ slug: string; title: string; description: string; owner_id: string | null; devices: string; players: string; game_server: string | null; connect_hosts: string; developer: string | null; published_at: number | null; since: number | null; cover: string | null }>();
   return results.map((r) => ({
     slug: r.slug,
     title: r.title,
@@ -47,9 +50,57 @@ export async function showcase(env: Env, limit = 200): Promise<ShowGame[]> {
     owner_id: r.owner_id,
     cover: r.cover ? `/img/${r.cover}` : null,
     updated: r.published_at,
+    since: r.since,
     modes: playerLine(readPlayers(r.players), Boolean(r.game_server)),
     devices: r.devices ? r.devices.split(",") : [],
   }));
+}
+
+const DAY = 86_400_000;
+/** Games per shelf, and the fewest that make a shelf worth showing. */
+const SHELF = 12;
+const SHELF_MIN = 2;
+
+/**
+ * Popular, trending and new, the same for everyone, by plain rules from play counts (plays.ts), not
+ * AI. Popular: the most players in the last 7 days. Trending: more players in the last 3 days than
+ * the 14 before would suggest, at least half as many again. New: first went live in the last 60 days, newest first. A shelf with too few games is left out.
+ */
+export async function shelves(env: Env, games: ShowGame[], now = Date.now()): Promise<{ popular: ShowGame[]; trending: ShowGame[]; fresh: ShowGame[] }> {
+  const day = (ago: number) => new Date(now - ago * DAY).toISOString().slice(0, 10);
+  const { results } = await env.DB
+    .prepare(
+      `SELECT games.slug,
+         SUM(CASE WHEN play_days.day >= ?1 THEN play_days.players ELSE 0 END) AS week,
+         SUM(CASE WHEN play_days.day >= ?2 THEN play_days.players ELSE 0 END) AS recent,
+         SUM(CASE WHEN play_days.day < ?2 THEN play_days.players ELSE 0 END) AS before
+       FROM play_days JOIN games ON games.id = play_days.game_id
+       WHERE play_days.day >= ?3 AND games.status = 'live' AND games.visibility = 'listed'
+       GROUP BY games.slug`,
+    )
+    .bind(day(6), day(2), day(16))
+    .all<{ slug: string; week: number; recent: number; before: number }>();
+  const bySlug = new Map(games.map((g) => [g.slug, g]));
+  const pick = (slugs: string[]) => {
+    const list = slugs.map((s) => bySlug.get(s)).filter((g): g is ShowGame => Boolean(g)).slice(0, SHELF);
+    return list.length >= SHELF_MIN ? list : [];
+  };
+  const popular = pick(results.filter((r) => r.week >= 3).sort((a, b) => b.week - a.week).map((r) => r.slug));
+  // Over 3 days, what the 14 before would suggest, plus 10 so a handful of players can't trend.
+  const usual = (r: { before: number }) => (r.before / 14) * 3;
+  const trending = pick(
+    results
+      .filter((r) => r.recent >= 10 && r.recent >= usual(r) * 1.5)
+      .sort((a, b) => b.recent / (usual(b) + 10) - a.recent / (usual(a) + 10))
+      .map((r) => r.slug),
+  );
+  const fresh = pick(
+    games
+      .filter((g) => g.since && g.since >= now - 60 * DAY)
+      .sort((a, b) => b.since! - a.since!)
+      .map((g) => g.slug),
+  );
+  return { popular, trending, fresh };
 }
 
 const PLAY_ICON = raw('<svg viewBox="0 0 14 16" aria-hidden="true"><path d="M1 1v14l12-7z" fill="currentColor"/></svg>');
@@ -66,6 +117,9 @@ export function tile(g: ShowGame, opts: { href?: string; small?: Raw | string } 
 
 export async function home(env: Env): Promise<Response> {
   const games = await showcase(env);
+  const { popular, trending, fresh } = await shelves(env, games);
+  const shelf = (id: string, title: string, list: ShowGame[]) =>
+    list.length ? html`<section aria-labelledby="${id}"><div class="sec-head"><h2 id="${id}">${title}</h2></div><div class="row-tiles">${list.map((g) => tile(g))}</div></section>` : "";
   const featured = games.find((g) => g.cover) ?? games[0];
   const data = games.map(({ owner_id: _, ...g }) => g);
   return layout(env, {
@@ -93,8 +147,11 @@ ${featured
 <div class="seg" role="group" aria-label="Sort"><button type="button" data-sort="played" aria-pressed="true">Recently played</button><button type="button" data-sort="updated" aria-pressed="false">Recently updated</button></div></div>
 <div class="row-tiles" id="continue-tiles"></div>
 </section>
+${shelf("popular-title", "Popular", popular)}
+${shelf("trending-title", "Trending", trending)}
+${shelf("new-title", "New", fresh)}
 ${games.length
-      ? html`<section aria-labelledby="games-title"><div class="sec-head"><h2 id="games-title">Games</h2></div>
+      ? html`<section aria-labelledby="games-title"><div class="sec-head"><h2 id="games-title">${popular.length || trending.length || fresh.length ? "All games" : "Games"}</h2></div>
 <div class="grid">${games.map((g) => tile(g))}</div></section>`
       : ""}
 <script>const GAMES=${raw(JSON.stringify(data).replace(/</g, "\\u003c"))};${raw(HOME_SCRIPT)}</script>`,
