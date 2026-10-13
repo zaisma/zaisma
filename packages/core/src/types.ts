@@ -129,6 +129,19 @@ export const CONTINENTS: Record<string, string> = { AF: "Africa", AN: "Antarctic
 export const BUILT_IN_GAME_SERVERS = ["relay", "arena", "four-in-a-row"] as const;
 /** The game server setting for a game that runs its own (its zaisma-server.js) in a sandbox on our rooms. */
 export const SANDBOX_GAME_SERVER = "sandbox";
+/** The file in a game's upload that holds its own game server. Never served to players. */
+export const SERVER_FILE = "zaisma-server.js";
+
+/**
+ * Multiplayer as developers set it: none, the relay, or their own game server (zaisma-server.js,
+ * run in a sandbox on our rooms). "built-in" is one of ours, set in admin; developers can't pick it.
+ */
+export const MULTIPLAYER = ["none", "relay", "own"] as const;
+export type Multiplayer = (typeof MULTIPLAYER)[number] | "built-in";
+
+export function multiplayerOf(gameServer: string | null): Multiplayer {
+  return gameServer === null ? "none" : gameServer === "relay" ? "relay" : gameServer === SANDBOX_GAME_SERVER ? "own" : "built-in";
+}
 
 export const REPORT_REASONS = {
   child_safety: "Child safety",
