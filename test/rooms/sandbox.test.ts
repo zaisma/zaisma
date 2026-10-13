@@ -116,3 +116,33 @@ describe("sandboxed game servers", () => {
     expect(up.status).toBe(404);
   });
 });
+
+describe("a game server whose sandbox keeps failing", () => {
+  it("gets a fresh session after a failure, and gives up after the second", async () => {
+    const { wrapSession } = await import("../../apps/rooms/src/sandbox.ts");
+    let opened = 0;
+    let fail = false;
+    let broken = 0;
+    const session = {
+      settings: async () => ({ tickRate: 10 }),
+      setup: async () => ({ state: { n: 0 }, effects: [] }),
+      call: async (_hook: string, state: any) => {
+        if (fail) throw new Error("Worker exceeded CPU time limit.");
+        return { state: { n: state.n + 1 }, effects: [] };
+      },
+    };
+    const server = await wrapSession(async () => (opened++, session as never), () => broken++);
+    const room = { players: [], listed: true, open: true, name: null, labels: {} } as never;
+
+    expect(await server.onTick!({ n: 0 }, 0.1, room)).toEqual({ n: 1 });
+    fail = true;
+    await expect(server.onTick!({ n: 1 }, 0.1, room)).rejects.toThrow("CPU time limit");
+    expect([opened, broken]).toEqual([2, 0]);
+    await expect(server.onTick!({ n: 1 }, 0.1, room)).rejects.toThrow("CPU time limit");
+    expect([opened, broken]).toEqual([2, 1]);
+    // From then on it fails at once, without asking the sandbox again.
+    fail = false;
+    await expect(server.onTick!({ n: 1 }, 0.1, room)).rejects.toThrow("stopped working");
+    expect(server.stats.failures).toBe(2);
+  });
+});

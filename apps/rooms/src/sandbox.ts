@@ -19,8 +19,13 @@ export const SANDBOX = SANDBOX_GAME_SERVER;
 export const SERVER_FILE = "zaisma-server.js";
 /** A game server file bigger than this isn't loaded. */
 const MAX_BYTES = 1024 * 1024;
-/** CPU per call into the sandbox: plenty for a tick, not for a loop that never ends. */
+/**
+ * CPU per call into the sandbox. Cloudflare stops a call that runs on, but in practice only after
+ * about 2 seconds whatever this says (tested Oct 13, 2026), so the room also gives up on a game
+ * server that's stopped this often (FAILURES): a stuck one can't keep freezing its rooms or burning CPU.
+ */
 const CPU_MS = 50;
+const FAILURES = 2;
 
 /** What the game asked the room to do during one handler, in order. */
 type Effect =
@@ -46,7 +51,7 @@ interface Answer {
   error?: string;
 }
 
-interface Session {
+export interface Session {
   settings(): Promise<{ maxPlayers?: unknown; tickRate?: unknown; hostControls?: unknown }>;
   setup(data: unknown): Promise<Answer>;
   call(hook: string, state: unknown, args: unknown[], room: Snapshot): Promise<Answer>;
@@ -131,7 +136,7 @@ async function serverFile(env: Env, versionId: string): Promise<string | null> {
  * can run. One sandbox per game version, shared by all its rooms in a place, and warm while in use.
  * Null if the version has no game server file.
  */
-export async function sandboxServer(env: Env, gameId: string, versionId: string): Promise<GameServer | null> {
+export async function sandboxServer(env: Env, gameId: string, versionId: string, onBroken: () => void): Promise<GameServer | null> {
   const source = await serverFile(env, versionId);
   if (source === null) return null;
   const worker = env.LOADER.get(`${gameId}:${versionId}`, () => ({
@@ -143,21 +148,29 @@ export async function sandboxServer(env: Env, gameId: string, versionId: string)
     env: {},
     limits: { cpuMs: CPU_MS },
   }));
-  const open = () => (worker.getEntrypoint() as unknown as { open(): Promise<Session> }).open();
+  return wrapSession(() => (worker.getEntrypoint() as unknown as { open(): Promise<Session> }).open(), onBroken);
+}
+
+/**
+ * A game server that runs its handlers through a session with the sandbox. If the sandbox itself
+ * fails (over its CPU limit, or restarted), that call is lost and the next gets a fresh session;
+ * after FAILURES of those, onBroken is called once and every later call fails at once.
+ */
+export async function wrapSession(open: () => Promise<Session>, onBroken: () => void): Promise<GameServer & { stats: { calls: number; ms: number; failures: number } }> {
   let session = await open();
   const s = await session.settings();
   const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
-  const stats = { calls: 0, ms: 0 };
+  const stats = { calls: 0, ms: 0, failures: 0 };
 
   const ask = async (work: () => Promise<Answer>, room: Room | null): Promise<unknown> => {
     const started = Date.now();
+    if (stats.failures >= FAILURES) throw new Error("This game's server stopped working");
     let answer: Answer;
     try {
       answer = await work();
     } catch (err) {
-      // The sandbox itself failed (over its CPU limit, or restarted): this call is lost, and the
-      // next one gets a fresh session. The room and its players carry on.
-      session = await open();
+      if (++stats.failures >= FAILURES) onBroken();
+      else session = await open();
       throw err;
     }
     stats.calls++;
@@ -169,7 +182,7 @@ export async function sandboxServer(env: Env, gameId: string, versionId: string)
   const snap = (room: Room): Snapshot => ({ players: [...room.players], listed: room.listed, open: room.open, name: room.name, labels: room.labels });
   const call = (hook: string, state: unknown, args: unknown[], room: Room) => ask(() => session.call(hook, state, args, snap(room)), room);
 
-  const server: GameServer & { stats: typeof stats } = {
+  const server = {
     maxPlayers: num(s.maxPlayers),
     tickRate: num(s.tickRate),
     hostControls: s.hostControls === true,
@@ -179,8 +192,9 @@ export async function sandboxServer(env: Env, gameId: string, versionId: string)
     onLeave: (state, player, room) => call("onLeave", state, [player], room),
     onMessage: (state, player, msg, room) => call("onMessage", state, [player, msg], room),
     onTick: (state, dt, room) => call("onTick", state, [dt], room),
-  };
-  return defineGameServer(server);
+  } satisfies GameServer & { stats: typeof stats };
+  defineGameServer(server);
+  return server;
 }
 
 /** Do what the game asked, through the same room API built-in game servers use, so the same checks apply. */
