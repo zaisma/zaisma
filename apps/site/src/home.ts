@@ -103,16 +103,15 @@ export async function shelves(env: Env, games: ShowGame[], now = Date.now()): Pr
   return { popular, trending, fresh };
 }
 
-const PLAY_ICON = raw('<svg viewBox="0 0 14 16" aria-hidden="true"><path d="M1 1v14l12-7z" fill="currentColor"/></svg>');
-
-/** A game card: the developer's picture, the title, and Play. */
-export function tile(g: ShowGame, opts: { href?: string; small?: Raw | string } = {}): Raw {
-  const href = opts.href ?? `/g/${g.slug}`;
-  return html`<div class="hit block"${g.cover ? raw(` data-art="${esc(g.cover)}"`) : ""}><div class="tile">
-<a class="pic" href="${href}" tabindex="-1" aria-hidden="true">${g.cover ? html`<img src="${g.cover}" alt="" loading="lazy">` : ""}</a>
-<div class="body"><a class="name" href="${href}"><span>${g.title}</span>${opts.small ?? (g.developer ? html`<small>${g.developer}</small>` : "")}</a>
-<a class="go bevel-s" href="${href}?play" aria-label="Play ${g.title}">${PLAY_ICON}</a></div>
-</div></div>`;
+/**
+ * A game card: the developer's cover and nothing else, since a studio's art carries its own name and
+ * logo. It opens the game's page; only a Play button starts a game. A game without a cover gets its
+ * title engraved on a plate. `flag` is a small note on the art, like "Updated".
+ */
+export function tile(g: ShowGame, opts: { flag?: string } = {}): Raw {
+  return html`<div class="hit block"${g.cover ? raw(` data-art="${esc(g.cover)}"`) : ""}><a class="tile" href="/g/${g.slug}" aria-label="${g.title}">
+<span class="pic">${g.cover ? html`<img src="${g.cover}" alt="" loading="lazy">` : html`<span class="named"><span>${g.title}</span></span>`}${opts.flag ? html`<span class="flag">${opts.flag}</span>` : ""}</span>
+</a></div>`;
 }
 
 export async function home(env: Env): Promise<Response> {
@@ -138,7 +137,7 @@ ${featured
 <p class="by" id="stage-by">${[featured.developer, featured.modes].filter(Boolean).join(" · ")}</p>
 <a class="updated" id="stage-updated" hidden></a>
 <p class="desc" id="stage-desc">${featured.description}</p>
-<div class="go-row">${metalButton("Play", { href: `/g/${featured.slug}?play`, big: true, block: true, play: true })}</div>
+<div class="go-row">${metalButton("Play", { href: `/g/${featured.slug}?play`, big: true, block: true, play: true })}<a class="btn ghost big" id="stage-details" href="/g/${featured.slug}">Details</a></div>
 </div>
 </section>`
       : html`<h1>Every kind of game. One link away.</h1><p class="empty">The first games are on their way.</p>`}
@@ -227,7 +226,8 @@ const HOME_STYLES = `
 .stage .updated{align-self:flex-start;display:inline-flex;align-items:center;gap:8px;min-height:34px;padding:0 12px;text-decoration:none;font-family:var(--display);font-size:13px;font-weight:600;color:var(--ok-text);
   background:linear-gradient(180deg,#24331f,#1a2417);box-shadow:inset 1px 1px 0 rgba(185,231,166,.15),inset -1px -1px 0 #000}
 .stage .updated::before{content:"";width:7px;height:7px;background:var(--ok);box-shadow:0 0 8px rgba(95,211,141,.7)}
-.stage .go-row{margin-top:auto;padding-top:22px}
+.stage .go-row{margin-top:auto;padding-top:22px;display:flex;gap:12px}
+.stage .go-row>.hit{flex:1}
 /* A scrolling row clips what spills out of it, so it leaves room for a card lifted by the pointer
    (bigger, in a chrome frame): padding all round, taken back by the margin so the cards still line up. */
 .row-tiles{display:flex;gap:22px;overflow-x:auto;padding:16px 16px 34px;margin:-16px -16px -16px;scroll-padding-inline:16px;scroll-snap-type:x proximity}
@@ -249,7 +249,8 @@ const HOME_STYLES = `
 @media (max-width:640px){.row-tiles{gap:14px}.row-tiles>.hit{flex-basis:230px}}
 `;
 
-// Fills in the player's own part: the game they played last on the stage, then the others in Continue playing.
+// Fills in the player's own part: the game they played last on the stage, then the others in
+// Continue playing (cards like tile(): the cover, opening the game's page).
 const HOME_SCRIPT = `
 (()=>{const bySlug=Object.fromEntries(GAMES.map(g=>[g.slug,g]));const KEY="zaisma:played";
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]);
@@ -265,12 +266,12 @@ stage.querySelector("#stage-title").textContent=g.title;
 stage.querySelector("#stage-by").textContent=[g.developer,"played "+ago(last.at)].filter(Boolean).join(" · ");
 const up=stage.querySelector("#stage-updated");up.hidden=!fresh;if(fresh){up.href="/g/"+g.slug+"#updates";up.textContent="Updated "+ago(g.updated)}
 stage.querySelector("#stage-desc").hidden=true;
-const btn=stage.querySelector(".metal");btn.href="/g/"+g.slug+"?play";btn.querySelector("span").textContent="Continue"}
+const btn=stage.querySelector(".metal");btn.href="/g/"+g.slug+"?play";btn.querySelector("span").textContent="Continue";stage.querySelector("#stage-details").href="/g/"+g.slug}
 // The game on the stage isn't repeated underneath.
 const others=stage?list.slice(1):list;if(!others.length)return;
 const rest=sort==="played"?others:others.slice().sort((a,b)=>(bySlug[b.slug].updated||0)-(bySlug[a.slug].updated||0));
-document.getElementById("continue-tiles").innerHTML=rest.map(p=>{const t=bySlug[p.slug],up=t.updated&&t.updated>p.at,h="/g/"+esc(t.slug);
-return '<div class="hit block"'+(t.cover?' data-art="'+esc(t.cover)+'"':"")+'><div class="tile"><a class="pic" href="'+h+'" tabindex="-1" aria-hidden="true">'+(t.cover?'<img src="'+esc(t.cover)+'" alt="" loading="lazy">':"")+'</a><div class="body"><a class="name" href="'+h+'"><span>'+esc(t.title)+'</span>'+(up?'<span class="badge">Updated</span>':'<small>Played '+ago(p.at)+'</small>')+'</a><a class="go bevel-s" href="'+h+'?play" aria-label="Continue '+esc(t.title)+'"><svg viewBox="0 0 14 16" aria-hidden="true"><path d="M1 1v14l12-7z" fill="currentColor"/></svg></a></div></div></div>'}).join("");
+document.getElementById("continue-tiles").innerHTML=rest.map(p=>{const t=bySlug[p.slug],up=t.updated&&t.updated>p.at;
+return '<div class="hit block"'+(t.cover?' data-art="'+esc(t.cover)+'"':"")+'><a class="tile" href="/g/'+esc(t.slug)+'" aria-label="'+esc(t.title)+(up?', updated':'')+'"><span class="pic">'+(t.cover?'<img src="'+esc(t.cover)+'" alt="" loading="lazy">':'<span class="named"><span>'+esc(t.title)+'</span></span>')+(up?'<span class="flag">Updated</span>':'')+'</span></a></div>'}).join("");
 document.getElementById("continue").hidden=false}
 document.querySelectorAll("#continue [data-sort]").forEach(b=>b.onclick=()=>{sort=b.dataset.sort;document.querySelectorAll("#continue [data-sort]").forEach(x=>x.setAttribute("aria-pressed",String(x===b)));render()});
 render();

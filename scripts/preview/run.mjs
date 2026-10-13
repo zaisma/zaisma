@@ -199,8 +199,11 @@ async function seed() {
     upload(g.folder, game.slug, "First version.");
     await api("POST", `/games/${game.slug}/versions/${await approveNewest(game.slug)}/publish`);
     await api("PATCH", `/games/${game.slug}`, { visibility: "listed" });
+    // Covers carry the game's name in the studio's own lettering, as real ones do (covers/, made once
+    // from these pictures). Night Drive has none, to show the card a game without a cover gets.
     if (g.title !== "Night Drive") {
-      const { image } = await api("POST", `/games/${game.slug}/images?kind=cover`, picture(g.color, 0));
+      const titled = join(ROOT, "scripts/preview/covers", `${game.slug}.png`);
+      const { image } = await api("POST", `/games/${game.slug}/images?kind=cover`, existsSync(titled) ? new Uint8Array(readFileSync(titled)) : picture(g.color, 0));
       await go(`/admin/images/${image.id}/approve`, form({ reason: "" }));
     }
   }

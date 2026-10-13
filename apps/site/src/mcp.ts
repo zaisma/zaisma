@@ -161,7 +161,7 @@ const TOOLS: Tool[] = [
   {
     name: "add_image",
     title: "Add a cover or screenshot",
-    description: "Add a cover (replaces the old one once approved) or a screenshot (up to 8). PNG, JPEG or WebP, base64-encoded, up to 5 MB, at least 320 px a side. Images show once reviewed.",
+    description: "Add a cover (replaces the old one once approved) or a screenshot (up to 8). Players see the cover alone as the game's card, with no title drawn over or under it, so it should carry the game's name or logo; screenshots are just the game. PNG, JPEG or WebP, base64-encoded, up to 5 MB, at least 320 px a side; 16:9 shows best. Images show once reviewed.",
     inputSchema: object({ slug, kind: { enum: ["cover", "screenshot"] }, base64: { type: "string" } }, ["slug", "kind", "base64"]),
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     run: (args, call) => call("POST", `/games/${str(args.slug)}/images?kind=${str(args.kind)}`, decode(String(args.base64 ?? ""), "base64")),

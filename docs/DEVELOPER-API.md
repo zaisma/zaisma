@@ -72,7 +72,7 @@ Secret links that open the game's live version for anyone who has them, whatever
 | `POST /games/:slug/images?kind=cover` or `?kind=screenshot` | Send the image file as the request body. |
 | `DELETE /games/:slug/images/:id` | Remove one. |
 
-PNG, JPEG or WebP, checked from the file itself; SVG and other types are refused. Up to 5 MB, 320 to 8,192 px on each side, one cover and up to 8 screenshots. Each image is `pending` until it's reviewed, then shows at `https://zaisma.com/img/:id`; a newly approved cover replaces the old one. Until then only you can see it.
+The cover is your game's card everywhere players browse: we show it alone, with no title over or under it, so put your game's name or logo on it. Screenshots are just the game. 16:9 shows best. PNG, JPEG or WebP, checked from the file itself; SVG and other types are refused. Up to 5 MB, 320 to 8,192 px on each side, one cover and up to 8 screenshots. Each image is `pending` until it's reviewed, then shows at `https://zaisma.com/img/:id`; a newly approved cover replaces the old one. Until then only you can see it.
 
 ```bash
 curl -X POST "https://zaisma.com/api/dev/games/sky-hopper/images?kind=cover" \
