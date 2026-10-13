@@ -111,7 +111,7 @@ Detailed plan approved: guest passes, game server API, rooms, SDK, demos.
 | planned | Must | `zaisma check` and automatic fixes | Upload command | Pulls in outside scripts, unpacks compressed builds |
 | planned | Must | Claude Code skill | Developer MCP, `zaisma check` and automatic fixes | Teaches the whole workflow |
 | planned | Must | Basic play stats | Client SDK | Plays, session length, players coming back |
-| doing | Must | Developers' own game servers run safely | Upload command, Rooms on rooms.zaisma.com, Julius: Workers Paid plan | Dynamic Workers. Prototype works in the preview: a game's `zaisma-server.js` runs in a sandbox with no internet, nothing of ours and a CPU limit, never served to players; the Arena demo runs this way. Next: try it on Cloudflare (the CPU limit only works there) and measure the real cost, then let developers turn it on |
+| doing | Must | Developers' own game servers run safely | Upload command, Rooms on rooms.zaisma.com, Julius: Workers Paid plan | Dynamic Workers. Live on rooms.zaisma.com since Oct 13, 2026, switched on per game in admin (only a private test game so far): a game's `zaisma-server.js` runs in a sandbox with no internet and nothing of ours, never served to players. Tested live: 20 ticks a second for 4 minutes without a stall, about 14 ms round trips, crashes lose one message. An endless loop is stopped but freezes that game's rooms for about 2 seconds first. Next: stop loops sooner, check the real cost in Cloudflare's usage, then let developers turn it on themselves (upload, docs, MCP) |
 | planned | Nice | Drop-in Socket.IO and PeerJS | Client SDK | So existing multiplayer prototypes work with few changes |
 
 ### Polish before outreach (build track 5)
