@@ -70,5 +70,7 @@ export async function dailyCleanup(env: Env, now = Date.now()): Promise<{ drafts
   }
   // Lists already skip these; a room that stopped without saying so (a restart) leaves one behind.
   await env.DB.prepare("DELETE FROM live_rooms WHERE updated_at < ?").bind(now - ROOM_STALE_MS).run();
+  // Game server errors are for fixing what's happening now: kept 30 days after they last happened.
+  await env.DB.prepare("DELETE FROM game_server_errors WHERE last_at < ?").bind(now - 30 * DAY).run();
   return { drafts: drafts.length, files: keys.length, pictures: pictures.length };
 }

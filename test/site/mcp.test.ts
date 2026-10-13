@@ -38,7 +38,7 @@ async function passScan(id: string) {
 
 beforeEach(async () => {
   await env.DB.exec(
-    "DELETE FROM reports; DELETE FROM room_usage; DELETE FROM blobs; DELETE FROM game_images; DELETE FROM api_keys; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;",
+    "DELETE FROM reports; DELETE FROM room_usage; DELETE FROM game_server_errors; DELETE FROM blobs; DELETE FROM game_images; DELETE FROM api_keys; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;",
   );
   await createAccount(env.DB, { id: "dev-1", name: "Pixel Smith", ageBand: "18+" });
   await createAccount(env.DB, { id: "dev-2", name: "Other Dev", ageBand: "18+" });
@@ -151,6 +151,19 @@ describe("reports, stats and history", () => {
     await env.DB.prepare("INSERT INTO room_usage (game_id, day, rooms, player_seconds, messages) VALUES (?, ?, 3, 600, 42)").bind(game.id, today).run();
     const stats = await tool("get_stats", { slug: "hop", days: 7 });
     expect(stats.multiplayer).toEqual([{ day: today, rooms: 3, player_minutes: 10, messages: 42 }]);
+    expect(stats).not.toHaveProperty("game_server_errors");
+  });
+
+  it("shows how a game's own game server is doing, with its recent errors", async () => {
+    await tool("create_game", { title: "Hop" });
+    const game = (await gameBySlug(env.DB, "hop"))!;
+    await env.DB.prepare("UPDATE games SET game_server = 'sandbox' WHERE id = ?").bind(game.id).run();
+    const today = new Date().toISOString().slice(0, 10);
+    await env.DB.prepare("INSERT INTO room_usage (game_id, day, rooms, player_seconds, messages, server_calls, server_crashes, server_stops, server_broken_rooms) VALUES (?, ?, 2, 600, 42, 900, 5, 2, 1)").bind(game.id, today).run();
+    await env.DB.prepare("INSERT INTO game_server_errors (game_id, version_id, kind, message, count, first_at, last_at) VALUES (?, 'v1', 'crash', 'oops (zaisma-server.js:3:9)', 5, 1, 2)").bind(game.id).run();
+    const stats = await tool("get_stats", { slug: "hop", days: 7 });
+    expect(stats.multiplayer[0].game_server).toEqual({ calls: 900, crashes: 5, stopped: 2, matches_ended: 1 });
+    expect(stats.game_server_errors).toEqual([{ kind: "crash", error: "oops (zaisma-server.js:3:9)", times: 5, version: "v1", first: 1, last: 2 }]);
   });
 
   it("keeps scan details and admin notes out of the history", async () => {

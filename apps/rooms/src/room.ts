@@ -16,7 +16,7 @@ import {
   type ServerMessage,
 } from "@zaisma/game-server";
 import { gameServer } from "./registry.ts";
-import { SANDBOX, sandboxServer } from "./sandbox.ts";
+import { SANDBOX, sandboxServer, type SandboxStats } from "./sandbox.ts";
 import { signingKey, type Env } from "./index.ts";
 
 /** A socket's saved details, kept through hibernation. */
@@ -68,6 +68,8 @@ export class Room extends DurableObject<Env> {
   private core: RoomCore | null = null;
   /** The game server, loaded on first use since waking (a sandboxed one opens its session then). */
   private server: GameServer | null = null;
+  /** Set when the game server kept failing and the room ended for it. */
+  private wasBroken = false;
   private ended = false;
   private usage: Usage = { playerSeconds: 0, messages: 0 };
   private saved: unknown = undefined;
@@ -164,6 +166,8 @@ export class Room extends DurableObject<Env> {
       await this.load();
       this.room();
       if (await this.gameStillLive()) await this.list(true);
+      // A long match's game server health shouldn't wait for the room to empty.
+      await this.recordUsage(false);
       return;
     }
     await this.unlist();
@@ -339,26 +343,36 @@ export class Room extends DurableObject<Env> {
   }
 
   /** Add this room's player time and message count to the game's daily usage. Nothing about players. */
-  private async recordUsage(): Promise<void> {
-    // For now, how much a sandboxed game server is asked to do, to measure what it costs.
-    const stats = (this.server as { stats?: { calls: number; ms: number } } | null)?.stats;
-    if (stats?.calls) {
-      console.log(`Sandbox usage for ${this.meta?.slug}: ${stats.calls} calls, ${stats.ms} ms waiting on the game server`);
-      stats.calls = stats.ms = 0;
-    }
+  /**
+   * Add this room's player time, message count and game server health to the game's daily usage.
+   * Nothing about players. Called when the room empties or ends (ended), and hourly while it runs.
+   */
+  private async recordUsage(ended = true): Promise<void> {
     if (this.core) {
       this.usage.messages += this.core.messages;
       this.core.messages = 0;
     }
-    if (this.meta && (this.usage.playerSeconds || this.usage.messages)) {
-      const day = new Date().toISOString().slice(0, 10);
-      await this.env.DB.prepare(
-        "INSERT INTO room_usage (game_id, day, rooms, player_seconds, messages) VALUES (?, ?, 1, ?, ?) ON CONFLICT(game_id, day) DO UPDATE SET rooms = rooms + 1, player_seconds = player_seconds + excluded.player_seconds, messages = messages + excluded.messages",
-      )
-        .bind(this.meta.gameId, day, this.usage.playerSeconds, this.usage.messages)
-        .run();
-      this.usage = { playerSeconds: 0, messages: 0 };
+    const stats = (this.server as { stats?: SandboxStats } | null)?.stats;
+    const health = { calls: stats?.calls ?? 0, crashes: stats?.crashes ?? 0, stops: stats?.stops ?? 0, broken: ended && this.wasBroken ? 1 : 0 };
+    const errors = stats ? [...stats.errors.values()] : [];
+    if (stats) {
+      stats.calls = stats.ms = stats.crashes = stats.stops = 0;
+      stats.errors.clear();
     }
+    if (!this.meta || !(this.usage.playerSeconds || this.usage.messages || health.calls || health.crashes || health.stops || health.broken)) return;
+    const day = new Date().toISOString().slice(0, 10);
+    const now = Date.now();
+    await this.env.DB.batch([
+      this.env.DB.prepare(
+        "INSERT INTO room_usage (game_id, day, rooms, player_seconds, messages, server_calls, server_crashes, server_stops, server_broken_rooms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(game_id, day) DO UPDATE SET rooms = rooms + excluded.rooms, player_seconds = player_seconds + excluded.player_seconds, messages = messages + excluded.messages, server_calls = server_calls + excluded.server_calls, server_crashes = server_crashes + excluded.server_crashes, server_stops = server_stops + excluded.server_stops, server_broken_rooms = server_broken_rooms + excluded.server_broken_rooms",
+      ).bind(this.meta.gameId, day, ended ? 1 : 0, this.usage.playerSeconds, this.usage.messages, health.calls, health.crashes, health.stops, health.broken),
+      ...errors.map((e) =>
+        this.env.DB.prepare(
+          "INSERT INTO game_server_errors (game_id, version_id, kind, message, count, first_at, last_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(game_id, version_id, kind, message) DO UPDATE SET count = count + excluded.count, last_at = excluded.last_at",
+        ).bind(this.meta!.gameId, this.meta!.version ?? "", e.kind, e.message, e.count, e.first, now),
+      ),
+    ]);
+    this.usage = { playerSeconds: 0, messages: 0 };
   }
 
   /**
@@ -467,6 +481,7 @@ export class Room extends DurableObject<Env> {
   /** The game's own game server keeps failing (stuck in a loop, say): end the match rather than freeze it. */
   private broken(): void {
     console.error(`Game server for ${this.meta?.slug} stopped working; ending room ${this.meta?.code}`);
+    this.wasBroken = true;
     this.room()?.end("This game's server stopped working.");
     void this.finish();
   }

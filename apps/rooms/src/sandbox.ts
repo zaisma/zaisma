@@ -156,11 +156,18 @@ export async function sandboxServer(env: Env, gameId: string, versionId: string,
  * fails (over its CPU limit, or restarted), that call is lost and the next gets a fresh session;
  * after FAILURES of those, onBroken is called once and every later call fails at once.
  */
-export async function wrapSession(open: () => Promise<Session>, onBroken: () => void): Promise<GameServer & { stats: { calls: number; ms: number; failures: number } }> {
+export async function wrapSession(open: () => Promise<Session>, onBroken: () => void): Promise<GameServer & { stats: SandboxStats }> {
   let session = await open();
   const s = await session.settings();
   const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
-  const stats = { calls: 0, ms: 0, failures: 0 };
+  const stats: SandboxStats = { calls: 0, ms: 0, failures: 0, crashes: 0, stops: 0, errors: new Map() };
+  const record = (kind: "crash" | "stopped", text: string) => {
+    const message = errorLine(text);
+    const seen = stats.errors.get(`${kind}\n${message}`);
+    if (seen) seen.count++;
+    // A room keeps a handful of distinct errors; a game that throws a new message every tick can't fill the table.
+    else if (stats.errors.size < MAX_ERRORS) stats.errors.set(`${kind}\n${message}`, { kind, message, count: 1, first: Date.now() });
+  };
 
   const ask = async (work: () => Promise<Answer>, room: Room | null): Promise<unknown> => {
     const started = Date.now();
@@ -169,6 +176,8 @@ export async function wrapSession(open: () => Promise<Session>, onBroken: () => 
     try {
       answer = await work();
     } catch (err) {
+      stats.stops++;
+      record("stopped", /CPU time/i.test(String(err)) ? "Ran on too long and was stopped, like a loop that never ends" : `The game server stopped: ${String(err)}`);
       if (++stats.failures >= FAILURES) onBroken();
       else session = await open();
       throw err;
@@ -176,6 +185,10 @@ export async function wrapSession(open: () => Promise<Session>, onBroken: () => 
     stats.calls++;
     stats.ms += Date.now() - started;
     if (room) apply(answer.effects, room);
+    if (answer.error) {
+      stats.crashes++;
+      record("crash", answer.error);
+    }
     if (answer.error) throw new Error(`Game server error: ${answer.error.slice(0, 2000)}`);
     return answer.state;
   };
@@ -195,6 +208,31 @@ export async function wrapSession(open: () => Promise<Session>, onBroken: () => 
   } satisfies GameServer & { stats: typeof stats };
   defineGameServer(server);
   return server;
+}
+
+export interface SandboxStats {
+  calls: number;
+  /** Time spent waiting on the game server, for our own measurements. */
+  ms: number;
+  /** Times the sandbox itself failed; FAILURES of them end the room. */
+  failures: number;
+  crashes: number;
+  stops: number;
+  errors: Map<string, { kind: "crash" | "stopped"; message: string; count: number; first: number }>;
+}
+
+/** Distinct errors a room keeps until it records them. */
+const MAX_ERRORS = 5;
+
+/**
+ * An error as its developer should see it: the message and where in zaisma-server.js it happened,
+ * without our harness's lines. Up to 300 characters.
+ */
+export function errorLine(text: string): string {
+  const lines = text.split("\n").map((l) => l.trim());
+  const where = lines.find((l) => l.includes(SERVER_FILE))?.match(/zaisma-server\.js:\d+:\d+/)?.[0];
+  const message = lines[0]!.replace(/^Error: /, "");
+  return (where ? `${message} (${where})` : message).slice(0, 300);
 }
 
 /** Do what the game asked, through the same room API built-in game servers use, so the same checks apply. */

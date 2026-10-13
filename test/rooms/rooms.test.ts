@@ -153,7 +153,7 @@ describe("rooms", () => {
       if (!row) await new Promise((r) => setTimeout(r, 20));
     }
     expect(row).toMatchObject({ game_id: id, rooms: 1, messages: 1 });
-    expect(Object.keys(row).sort()).toEqual(["day", "game_id", "messages", "player_seconds", "rooms"]);
+    expect(Object.keys(row).sort()).toEqual(["day", "game_id", "messages", "player_seconds", "rooms", "server_broken_rooms", "server_calls", "server_crashes", "server_stops"]);
   });
 });
 

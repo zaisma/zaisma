@@ -41,6 +41,7 @@ import {
   type UploadFile,
   type Version,
   REPORT_REASONS,
+  SANDBOX_GAME_SERVER,
   readPlayers,
   type ReportReason,
 } from "@zaisma/core";
@@ -466,17 +467,42 @@ async function reportsFor(env: Env, game: Game, since = 0) {
   };
 }
 
-/** Multiplayer room use per day. Nothing about players. Plays, session length and players coming back arrive with the client SDK. */
+/**
+ * Multiplayer room use per day, and for games running their own game server on our rooms, how it's
+ * doing: calls, errors, loops we stopped and matches that ended for it, plus its recent errors.
+ * Nothing about players. Plays, session length and players coming back arrive with the client SDK.
+ */
 async function statsFor(env: Env, game: Game, days: number) {
   const n = Number.isInteger(days) && days > 0 ? Math.min(days, 90) : 30;
   const from = new Date(Date.now() - (n - 1) * DAY).toISOString().slice(0, 10);
-  const { results } = await env.DB
-    .prepare("SELECT day, rooms, player_seconds, messages FROM room_usage WHERE game_id = ? AND day >= ? ORDER BY day")
-    .bind(game.id, from)
-    .all<{ day: string; rooms: number; player_seconds: number; messages: number }>();
+  const [{ results }, { results: errors }] = await Promise.all([
+    env.DB
+      .prepare("SELECT day, rooms, player_seconds, messages, server_calls, server_crashes, server_stops, server_broken_rooms FROM room_usage WHERE game_id = ? AND day >= ? ORDER BY day")
+      .bind(game.id, from)
+      .all<{ day: string; rooms: number; player_seconds: number; messages: number; server_calls: number; server_crashes: number; server_stops: number; server_broken_rooms: number }>(),
+    env.DB
+      .prepare("SELECT version_id, kind, message, count, first_at, last_at FROM game_server_errors WHERE game_id = ? ORDER BY last_at DESC LIMIT 20")
+      .bind(game.id)
+      .all<{ version_id: string; kind: "crash" | "stopped"; message: string; count: number; first_at: number; last_at: number }>(),
+  ]);
+  const ownServer = game.game_server === SANDBOX_GAME_SERVER;
   return {
     days: n,
-    multiplayer: results.map((r) => ({ day: r.day, rooms: r.rooms, player_minutes: Math.round(r.player_seconds / 60), messages: r.messages })),
+    multiplayer: results.map((r) => ({
+      day: r.day,
+      rooms: r.rooms,
+      player_minutes: Math.round(r.player_seconds / 60),
+      messages: r.messages,
+      ...(ownServer ? { game_server: { calls: r.server_calls, crashes: r.server_crashes, stopped: r.server_stops, matches_ended: r.server_broken_rooms } } : {}),
+    })),
+    ...(ownServer
+      ? {
+          // Crashes lose one call each and the match carries on. "stopped" is a call that ran on too long
+          // (about 2 seconds of CPU, like a loop that never ends): it freezes the match while it runs,
+          // and a match whose game server is stopped twice ends.
+          game_server_errors: errors.map((e) => ({ kind: e.kind, error: e.message, times: e.count, version: e.version_id, first: e.first_at, last: e.last_at })),
+        }
+      : {}),
     plays: null,
     note: "Plays, session length and players coming back aren't counted yet; they arrive with the Zaisma SDK.",
   };

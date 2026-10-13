@@ -66,7 +66,7 @@ export default {
 
 describe("sandboxed game servers", () => {
   beforeEach(async () => {
-    await e.DB.exec("DELETE FROM room_usage; DELETE FROM live_rooms; DELETE FROM versions; DELETE FROM games;");
+    await e.DB.exec("DELETE FROM room_usage; DELETE FROM game_server_errors; DELETE FROM live_rooms; DELETE FROM versions; DELETE FROM games;");
   });
 
   it("runs the game's own server: state, messages and the room API", async () => {
@@ -107,6 +107,27 @@ describe("sandboxed game servers", () => {
     a.ws.send(JSON.stringify({ t: "msg", d: "crash" }));
     a.ws.send(JSON.stringify({ t: "msg", d: "add" }));
     expect((await a.next()).d).toEqual({ count: 1 });
+  });
+
+  it("records the game server's work and errors for its developer, saying where in the file", async () => {
+    await addSandboxGame("oops", COUNTER);
+    const a = await join("oops", "ABCDEF");
+    await a.next(); // hi
+    a.ws.send(JSON.stringify({ t: "msg", d: "crash" }));
+    a.ws.send(JSON.stringify({ t: "msg", d: "crash" }));
+    a.ws.send(JSON.stringify({ t: "msg", d: "add" }));
+    expect((await a.next()).d).toEqual({ count: 1 });
+    a.ws.close(1000);
+    let row: any = null;
+    for (let i = 0; i < 50 && !row; i++) {
+      row = await e.DB.prepare("SELECT * FROM room_usage WHERE game_id = 'goops'").first();
+      if (!row) await new Promise((r) => setTimeout(r, 20));
+    }
+    expect(row).toMatchObject({ rooms: 1, server_crashes: 2, server_stops: 0, server_broken_rooms: 0 });
+    expect(row.server_calls).toBeGreaterThanOrEqual(5);
+    const err = await e.DB.prepare("SELECT kind, message, count, version_id FROM game_server_errors WHERE game_id = 'goops'").first();
+    expect(err).toMatchObject({ kind: "crash", count: 2, version_id: "voops" });
+    expect(err!.message).toMatch(/^oops \(zaisma-server\.js:\d+:\d+\)$/);
   });
 
   it("leaves a game without a game server file unavailable", async () => {

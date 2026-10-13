@@ -269,9 +269,9 @@ async function managerPage(
     call("GET", `/games/${slug}/reports`),
     call("GET", `/games/${slug}/stats?days=30`),
     call("GET", `/games/${slug}/history`),
-  ])) as [
+  ])) as unknown as [
     { reasons: Record<string, { label: string; open: number; closed: number }>; bug_reports: { said: string; at: number }[] },
-    { multiplayer: { day: string; rooms: number; player_minutes: number; messages: number }[] },
+    Stats,
     { history: { what: string; version: string | null; by: string; at: number }[] },
   ];
   const cover = coverOf(images);
@@ -318,7 +318,7 @@ ${imagesPanel(slug, images)}
 </div>
 <div class="facts">
 <details${openReports ? raw(" open") : ""}><summary><h2>Player reports${openReports ? ` (${openReports} open)` : ""}</h2></summary>${reportsPanel(reports)}</details>
-<details><summary><h2>Multiplayer use</h2></summary>${statsPanel(stats.multiplayer)}</details>
+<details><summary><h2>Multiplayer use</h2></summary>${statsPanel(stats)}</details>
 <details><summary><h2>History</h2></summary>${history.history.length ? html`<table><tbody>${history.history.map((h) => html`<tr><td class="nowrap">${when(h.at)}</td><td>${h.what}${h.version ? html` <span class="muted">(${h.version.slice(0, 8)})</span>` : ""}</td><td class="muted">${h.by}</td></tr>`)}</tbody></table>` : html`<p class="muted">Nothing yet.</p>`}</details>
 </div>`,
     status,
@@ -426,13 +426,32 @@ function reportsPanel(r: { reasons: Record<string, { label: string; open: number
 ${r.bug_reports.length ? html`<h3>What players said about bugs</h3><ul class="said">${r.bug_reports.map((b) => html`<li>${b.said} <span class="muted">${when(b.at)}</span></li>`)}</ul>` : ""}`;
 }
 
-function statsPanel(days: { day: string; rooms: number; player_minutes: number; messages: number }[]): Raw {
+interface Stats {
+  multiplayer: { day: string; rooms: number; player_minutes: number; messages: number; game_server?: { calls: number; crashes: number; stopped: number; matches_ended: number } }[];
+  game_server_errors?: { kind: "crash" | "stopped"; error: string; times: number; version: string; last: number }[];
+}
+
+function statsPanel(stats: Stats): Raw {
+  const days = stats.multiplayer;
   const note = html`<p class="hint">Plays and players coming back aren't counted yet; they arrive with the Zaisma SDK.</p>`;
   if (!days.length) return html`<p class="muted">No multiplayer rooms in the last 30 days.</p>${note}`;
   const top = Math.max(...days.map((d) => d.player_minutes), 1);
-  return html`<table><thead><tr><th>Day</th><th>Rooms</th><th>Player minutes</th></tr></thead><tbody>${days.map(
-    (d) => html`<tr><td class="nowrap">${d.day}</td><td>${d.rooms}</td><td><span class="bar" style="width:${Math.round((d.player_minutes / top) * 100)}%"></span>${d.player_minutes}</td></tr>`,
-  )}</tbody></table>${note}`;
+  const own = stats.game_server_errors !== undefined;
+  return html`<table><thead><tr><th>Day</th><th>Rooms</th><th>Player minutes</th>${own ? html`<th>Game server errors</th><th>Stopped</th><th>Matches ended</th>` : ""}</tr></thead><tbody>${days.map(
+    (d) => html`<tr><td class="nowrap">${d.day}</td><td>${d.rooms}</td><td><span class="bar" style="width:${Math.round((d.player_minutes / top) * 100)}%"></span>${d.player_minutes}</td>${
+      own ? html`<td>${d.game_server?.crashes ?? 0}</td><td>${d.game_server?.stopped ?? 0}</td><td>${d.game_server?.matches_ended ?? 0}</td>` : ""
+    }</tr>`,
+  )}</tbody></table>${own ? serverErrors(stats.game_server_errors!) : ""}${note}`;
+}
+
+/** A game server's recent errors, so its developer can fix what wastes their players' time and our work. */
+function serverErrors(errors: NonNullable<Stats["game_server_errors"]>): Raw {
+  if (!errors.length) return html`<p class="muted">No errors from your game server in the last 30 days.</p>`;
+  return html`<h3>Your game server's errors</h3>
+<p class="hint">An error loses that one message or tick and the match carries on. Stopped means it ran on too long, like a loop that never ends: the match froze for about 2 seconds, and a match stopped twice ends.</p>
+<table><thead><tr><th>What happened</th><th>Times</th><th>Last</th></tr></thead><tbody>${errors.map(
+    (e) => html`<tr><td>${e.kind === "stopped" ? e.error : html`<code>${e.error}</code>`}</td><td>${e.times}</td><td class="nowrap">${when(e.last)}</td></tr>`,
+  )}</tbody></table>`;
 }
 
 const STYLES = `
