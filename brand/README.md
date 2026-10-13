@@ -13,8 +13,17 @@ The Z is the brand. Designed by Julius in Affinity Designer 2, based on Futura.
 | Launches, game jams, merch | `zaisma-mark-tricolor.svg` |
 | App icon | `zaisma-app-icon.svg`, `app-icon-*.png`, `apple-touch-icon.png` |
 | Browser tab | `favicon.svg`, `favicon.ico`, `favicon-32.png` |
+| Loading | `loader/` (see below) |
 
 PNG copies of the main files are included at 2048 px (mark) and 2400 px (wordmark).
+
+## Loader
+
+`loader/` holds the loading indicator: the Z building itself, one loop per second.
+
+- `zaisma-loader.svg` draws in `currentColor`; the site uses it as a CSS mask so it takes the text color. `-black` and `-white` are fixed-color copies.
+- `png/`, `webp/` and `gif/` are 128 px and 512 px exports, black and white, for places that can't run an animated SVG.
+- Use it only while something is actually loading, never as decoration.
 
 ## Typeface
 
