@@ -1,5 +1,6 @@
 import {
   BUILT_IN_GAME_SERVERS,
+  SANDBOX_GAME_SERVER,
   LIMITS,
   AUTO_HOLD_REASONS,
   SEVERITIES,
@@ -163,7 +164,7 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     const game = await gameById(env.DB, m[1]!);
     if (!game) return new Response("Not found", { status: 404 });
     const server = String(form.get("game_server") ?? "");
-    if (server && !(BUILT_IN_GAME_SERVERS as readonly string[]).includes(server)) return gameDetail(env, game.id, "Pick a game server from the list.");
+    if (server && server !== SANDBOX_GAME_SERVER && !(BUILT_IN_GAME_SERVERS as readonly string[]).includes(server)) return gameDetail(env, game.id, "Pick a game server from the list.");
     let hosts: string[];
     try {
       hosts = parseConnectHosts(String(form.get("connect_hosts") ?? ""));
@@ -370,6 +371,7 @@ ${images.length ? html`<div class="shots">${images.map((i) => html`<div>${imageR
     <select name="game_server">
       <option value="">None (single-player)</option>
       ${BUILT_IN_GAME_SERVERS.map((s) => html`<option value="${s}" ${game.game_server === s ? "selected" : ""}>${s}</option>`)}
+      <option value="${SANDBOX_GAME_SERVER}" ${game.game_server === SANDBOX_GAME_SERVER ? "selected" : ""}>The game's own (zaisma-server.js, in a sandbox)</option>
     </select></label>
   <label>The game's own servers, one per line, like wss://play.example.com (at most 5). The game may connect to them, and they're listed on the game page.
     <textarea name="connect_hosts" rows="3">${game.connect_hosts}</textarea></label>

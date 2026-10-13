@@ -127,6 +127,8 @@ export const CONTINENTS: Record<string, string> = { AF: "Africa", AN: "Antarctic
 
 /** Game servers built into the rooms Worker, by the name set on a game in admin. */
 export const BUILT_IN_GAME_SERVERS = ["relay", "arena", "four-in-a-row"] as const;
+/** The game server setting for a game that runs its own (its zaisma-server.js) in a sandbox on our rooms. */
+export const SANDBOX_GAME_SERVER = "sandbox";
 
 export const REPORT_REASONS = {
   child_safety: "Child safety",
