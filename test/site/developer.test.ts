@@ -132,7 +132,7 @@ describe("games", () => {
     await env.DB.prepare("UPDATE games SET status = 'live', current_version_id = 'vown' WHERE id = ?").bind(g.id).run();
     let res = await (await api("/games/own-server", { method: "PATCH", body: { multiplayer: "own" } })).json<{ game: Record<string, unknown>; note?: string }>();
     expect(res.game).toMatchObject({ multiplayer: "own", zaisma_rooms: true });
-    expect(res.note).toContain("no zaisma-server.js");
+    expect(res.note).toContain("no game server");
     expect((await gameBySlug(env.DB, "own-server"))!.game_server).toBe("sandbox");
     await env.GAMES.put("games/vown/zaisma-server.js", "export default { setup: () => ({}) }");
     res = await (await api("/games/own-server", { method: "PATCH", body: { multiplayer: "own" } })).json();

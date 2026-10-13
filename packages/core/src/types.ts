@@ -129,8 +129,17 @@ export const CONTINENTS: Record<string, string> = { AF: "Africa", AN: "Antarctic
 export const BUILT_IN_GAME_SERVERS = ["relay", "arena", "four-in-a-row"] as const;
 /** The game server setting for a game that runs its own (its zaisma-server.js) in a sandbox on our rooms. */
 export const SANDBOX_GAME_SERVER = "sandbox";
-/** The file in a game's upload that holds its own game server. Never served to players. */
+/**
+ * A game's own game server, in its upload: a zaisma-server/ folder whose index.js may import the
+ * folder's other .js files, or one zaisma-server.js file. Never served to players.
+ */
 export const SERVER_FILE = "zaisma-server.js";
+export const SERVER_DIR = "zaisma-server/";
+export const SERVER_ENTRY = "zaisma-server/index.js";
+
+export function isServerPath(path: string): boolean {
+  return path === SERVER_FILE || path.startsWith(SERVER_DIR);
+}
 
 /**
  * Multiplayer as developers set it: none, the relay, or their own game server (zaisma-server.js,

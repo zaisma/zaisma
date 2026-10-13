@@ -67,7 +67,7 @@ const DONE: Record<string, string> = {
   made: "Your game is made. Upload a version below.",
   uploaded: "Uploaded. The scan usually takes under a minute; refresh to see the result.",
   details: "Details saved.",
-  "multiplayer-no-file": "Saved. Your live version has no zaisma-server.js yet, so its rooms open once you publish a version with one.",
+  "multiplayer-no-file": "Saved, but your live version's game server can't run yet. Publish a version with a zaisma-server/ folder (index.js first) or a zaisma-server.js, up to 1 MB.",
   "details-review": "Saved. The new title or description shows once it's reviewed.",
   visibility: "Visibility changed.",
   image: "Image added. It shows on the game page once it's reviewed.",
@@ -389,7 +389,7 @@ ${g.zaisma_rooms ? roomBrowsingFields(g.room_browsing) : ""}
 const MULTIPLAYER_LABELS = {
   none: { label: "None", hint: "Single-player, or only your own servers." },
   relay: { label: "Relay", hint: "Zaisma passes each player's messages to the others. No server code." },
-  own: { label: "Your game server", hint: "Runs zaisma-server.js from your upload on Zaisma, sealed off from the internet. Players never get the file." },
+  own: { label: "Your game server", hint: "Runs the zaisma-server/ folder (or zaisma-server.js) from your upload on Zaisma, sealed off from the internet. Players never get its files." },
 } as const;
 
 /** Multiplayer on Zaisma rooms, as the developer sets it. A game server built into Zaisma is set by us. */

@@ -1,4 +1,4 @@
-import { SERVER_FILE, connectSources, contentTypeFor, fileKey, gameHeaders, manifestKey, servableGame, versionByPreview, type Manifest } from "@zaisma/core";
+import { isServerPath, connectSources, contentTypeFor, fileKey, gameHeaders, manifestKey, servableGame, versionByPreview, type Manifest } from "@zaisma/core";
 import savesScript from "@zaisma/sdk/saves.js";
 import pictureScript from "@zaisma/sdk/picture.js";
 import sdk from "@zaisma/sdk/zaisma.js";
@@ -174,7 +174,7 @@ export default {
 
     const path = target.path === "" || target.path.endsWith("/") ? `${target.path}index.html` : target.path;
     // A game's own game server runs in our rooms' sandbox; players never get its code.
-    if (path === SERVER_FILE) return page(404, "File not found", "This game is missing a file.", env);
+    if (isServerPath(path)) return page(404, "File not found", "This game is missing a file.", env);
     const html = path.endsWith(".html");
     const inject = html;
     // Pages get our scripts on the way out, so they skip ranges and R2's own ETag checks.

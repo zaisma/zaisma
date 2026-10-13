@@ -71,12 +71,20 @@ Games without server code can use the built-in `relay`, which passes each messag
 
 #### Your game server on Zaisma
 
-Put your game server in `zaisma-server.js` at the top of your upload and set multiplayer to "Your game server" (dashboard), or `multiplayer: "own"` (MCP or API). Zaisma's rooms run it for you:
+Put your game server in a `zaisma-server/` folder at the top of your upload and set multiplayer to "Your game server" (dashboard), or `multiplayer: "own"` (MCP or API). Zaisma's rooms run it for you:
 
-- **One plain JavaScript file:** an ES module whose `export default` is the game server above, with no `import`s. Bundle your libraries in, and strip TypeScript types first (`npx esbuild server.ts --format=esm --bundle --outfile=zaisma-server.js`). Up to 1 MB.
+```
+index.html
+zaisma-server/
+  index.js        export default { setup, onJoin, onMessage, ... }
+  physics.js      import { step } from "./physics.js" works in index.js
+  levels/docks.js
+```
+
+- **Plain JavaScript ES modules:** `zaisma-server/index.js` default-exports the game server above, and can import the folder's other `.js` files by relative path. Packages from npm (`import "lodash"`) and TypeScript need a build step: bundle into one `zaisma-server.js` at the top of the upload instead (`npx esbuild server.ts --format=esm --bundle --outfile=zaisma-server.js`). Up to 100 files and 1 MB.
 - **Sealed off:** no internet and nothing of Zaisma's, so it only talks to its players through `room`. State is plain JSON.
-- **Private:** players never get the file; the game domain refuses it.
-- **Kept in check:** an error in a handler loses that one message or tick and the match carries on. A handler that runs on too long (a loop that never ends) is stopped after about 2 seconds, freezing the match meanwhile, and a match stopped twice ends. Your dashboard and the MCP's `get_stats` show these errors with the line in `zaisma-server.js` they came from.
+- **Private:** players never get its files; the game domain refuses `zaisma-server/` and `zaisma-server.js`.
+- **Kept in check:** an error in a handler loses that one message or tick and the match carries on. A handler that runs on too long (a loop that never ends) is stopped after about 2 seconds, freezing the match meanwhile, and a match stopped twice ends. Your dashboard and the MCP's `get_stats` show these errors with the file and line they came from.
 - **Updates:** rooms keep the version they started with until they end; new rooms get the live version.
 
 The same file runs on your own machine too (below), so you can test it there or move off Zaisma any time.

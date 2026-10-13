@@ -1,6 +1,6 @@
 import { CONTENT_TYPES, extensionOf } from "./mime.ts";
 import { UploadError, cleanPath } from "./zip.ts";
-import type { Version } from "./types.ts";
+import { SERVER_DIR, SERVER_ENTRY, SERVER_FILE, type Version } from "./types.ts";
 
 /**
  * File-by-file uploads. Each file is stored once, by its SHA-256, at blobs/<sha256> in the games
@@ -123,4 +123,39 @@ export function fileKey(version: Pick<Version, "kind" | "r2_prefix">, manifest: 
 
 function mb(bytes: number): string {
   return bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(1)} GB` : `${Math.round(bytes / 1024 / 1024)} MB`;
+}
+
+/** What a game server may add up to: its files, and their size together. */
+export const SERVER_LIMITS = { files: 100, bytes: 1024 * 1024 };
+
+/**
+ * A version's own game server: the zaisma-server/ folder's .js files with index.js first, or else the
+ * one zaisma-server.js. Null when it has neither; an error when it's over SERVER_LIMITS.
+ */
+export async function serverModules(
+  bucket: R2Bucket,
+  version: Pick<Version, "kind" | "r2_prefix">,
+  manifest: Manifest | null,
+): Promise<{ entry: string; files: { path: string; key: string; bytes: number }[] } | { error: string } | null> {
+  let found: { path: string; key: string; bytes: number }[] = [];
+  if (version.kind === "files") {
+    for (const [path, f] of Object.entries(manifest?.files ?? {})) {
+      if ((path.startsWith(SERVER_DIR) && path.endsWith(".js")) || path === SERVER_FILE) found.push({ path, key: fileKey(version, manifest, path)!, bytes: f.bytes });
+    }
+  } else {
+    let cursor: string | undefined;
+    do {
+      const page = await bucket.list({ prefix: `${version.r2_prefix}/${SERVER_DIR}`, cursor });
+      for (const o of page.objects) if (o.key.endsWith(".js")) found.push({ path: o.key.slice(version.r2_prefix.length + 1), key: o.key, bytes: o.size });
+      cursor = page.truncated ? page.cursor : undefined;
+    } while (cursor && found.length <= SERVER_LIMITS.files);
+    const single = await bucket.head(`${version.r2_prefix}/${SERVER_FILE}`);
+    if (single) found.push({ path: SERVER_FILE, key: single.key, bytes: single.size });
+  }
+  const folder = found.some((f) => f.path === SERVER_ENTRY);
+  found = folder ? found.filter((f) => f.path !== SERVER_FILE) : found.filter((f) => f.path === SERVER_FILE);
+  if (!found.length) return null;
+  if (found.length > SERVER_LIMITS.files) return { error: `A game server can have up to ${SERVER_LIMITS.files} files.` };
+  if (found.reduce((n, f) => n + f.bytes, 0) > SERVER_LIMITS.bytes) return { error: "A game server can be up to 1 MB." };
+  return { entry: folder ? SERVER_ENTRY : SERVER_FILE, files: found };
 }
