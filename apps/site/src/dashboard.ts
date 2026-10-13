@@ -30,7 +30,7 @@ interface GameJson {
 }
 interface ImageJson {
   id: string;
-  kind: "cover" | "screenshot";
+  kind: "cover" | "square" | "screenshot";
   status: "pending" | "approved" | "rejected";
   url: string;
 }
@@ -142,7 +142,7 @@ export async function handleDashboard(request: Request, env: Env, path: string):
     if (action === "/images") {
       const file = form.get("file");
       if (!(file instanceof File) || file.size === 0) throw new ApiError(400, "no_file", "Choose an image first.");
-      const kind = field("kind") === "screenshot" ? "screenshot" : "cover";
+      const kind = field("kind") === "screenshot" ? "screenshot" : field("kind") === "square" ? "square" : "cover";
       await call("POST", `/games/${slug}/images?kind=${kind}`, new Uint8Array(await file.arrayBuffer()));
       return back("image", "#images");
     }
@@ -463,17 +463,19 @@ ${mode("online", "Online multiplayer", "Each on their own device. Leave the most
 </fieldset>`;
 }
 
+const KIND_LABELS: Record<ImageJson["kind"], string> = { cover: "Cover", square: "Square cover", screenshot: "Screenshot" };
+
 function imagesPanel(slug: string, images: ImageJson[]): Raw {
   const shown = images.filter((i) => i.status !== "rejected");
   return html`${shown.length
     ? html`<div class="thumbs">${shown.map(
-        (i) => html`<figure><img class="bevel-s" src="${i.url}" alt="" loading="lazy"><figcaption><span>${i.kind === "cover" ? "Cover" : "Screenshot"}${i.status === "pending" ? html` <span class="pill pending">In review</span>` : ""}</span>
+        (i) => html`<figure><img class="bevel-s${i.kind === "square" ? " sq" : ""}" src="${i.url}" alt="" loading="lazy"><figcaption><span>${KIND_LABELS[i.kind]}${i.status === "pending" ? html` <span class="pill pending">In review</span>` : ""}</span>
 <form method="post" action="/dashboard/${slug}/images/${i.id}/remove"><button class="link" type="submit">Remove</button></form></figcaption></figure>`,
       )}</div>`
     : html`<p class="muted">No cover yet. Players see it on the game page and in lists.</p>`}
 <form class="stack" method="post" action="/dashboard/${slug}/images" enctype="multipart/form-data">
-<div class="row"><select name="kind" aria-label="Kind"><option value="cover">Cover</option><option value="screenshot">Screenshot</option></select><input type="file" name="file" accept="image/png,image/jpeg,image/webp" required aria-label="Image"></div>
-<p class="hint">Players see your cover alone as your game's card, so put your game's name or logo on it. Screenshots are just the game. PNG, JPEG or WebP, up to 5 MB, at least 320 px a side; 16:9 shows best.</p>
+<div class="row"><select name="kind" aria-label="Kind"><option value="cover">Cover</option><option value="square">Square cover</option><option value="screenshot">Screenshot</option></select><input type="file" name="file" accept="image/png,image/jpeg,image/webp" required aria-label="Image"></div>
+<p class="hint">Players see your cover alone as your game's card, so put your game's name or logo on it. The cover is landscape (16:9 shows best). The square cover is optional: phones show it instead, where a landscape one would be small; at least 512 px. Screenshots are just the game. PNG, JPEG or WebP, up to 5 MB, at least 320 px a side.</p>
 <button class="btn" type="submit">Add image</button>
 </form>`;
 }
@@ -599,6 +601,7 @@ const STYLES = `
 .thumbs{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
 .thumbs figure{margin:0}
 .thumbs img{width:100%;aspect-ratio:16/9;object-fit:cover;background:var(--pic);display:block}
+.thumbs img.sq{aspect-ratio:1}
 .thumbs figcaption{display:flex;justify-content:space-between;align-items:center;gap:6px;font-size:13px;color:var(--text-2);padding-top:4px}
 button.link{background:none;border:0;color:var(--muted);font:inherit;font-size:13px;text-decoration:underline;cursor:pointer;min-height:32px;padding:0}
 button.link:hover{color:var(--text)}

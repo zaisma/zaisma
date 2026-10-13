@@ -168,6 +168,15 @@ body>main.gp{flex:1 0 auto;width:100%}
 .tile .name:hover span{text-decoration:underline;text-underline-offset:3px}
 .tile .name small{color:var(--muted);font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 a.tile{color:inherit;text-decoration:none}
+.tile .pic picture{display:block;width:100%;height:100%}
+.tile .fill{display:none}
+/* Phones: players' cards are square. A game with only a landscape cover shows it whole, over a
+   blurred copy of itself, so nothing of the developer's art is cut off. */
+@media (max-width:640px){
+  a.tile .pic{aspect-ratio:1}
+  a.tile.wide .pic img{position:relative;object-fit:contain}
+  a.tile.wide .fill{display:block;position:absolute;inset:-24px;background:var(--fill) center/cover no-repeat;filter:blur(18px) brightness(.5) saturate(1.15)}
+}
 /* A game with no cover: its title engraved on the plate, over a faint Z. */
 .tile .named{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:14px 20px;text-align:center}
 .tile .named::before{content:"";position:absolute;inset:0;background:url(/zaisma-mark-metal.svg) center/38% no-repeat;opacity:.1}

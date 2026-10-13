@@ -16,6 +16,8 @@ export interface ShowGame {
   developer: string | null;
   owner_id: string | null;
   cover: string | null;
+  /** The square cover phones show instead, if the developer added one. */
+  square: string | null;
   /** When the version players get now went live. */
   updated: number | null;
   /** When the game first went live. */
@@ -32,7 +34,8 @@ export async function showcase(env: Env, limit = 200): Promise<ShowGame[]> {
       `SELECT games.slug, games.title, games.description, games.owner_id, games.devices, games.players, games.game_server, games.connect_hosts,
          accounts.name AS developer, versions.published_at,
          (SELECT MIN(published_at) FROM versions WHERE game_id = games.id) AS since,
-         (SELECT id FROM game_images WHERE game_id = games.id AND kind = 'cover' AND status = 'approved' ORDER BY created_at DESC LIMIT 1) AS cover
+         (SELECT id FROM game_images WHERE game_id = games.id AND kind = 'cover' AND status = 'approved' ORDER BY created_at DESC LIMIT 1) AS cover,
+         (SELECT id FROM game_images WHERE game_id = games.id AND kind = 'square' AND status = 'approved' ORDER BY created_at DESC LIMIT 1) AS square
        FROM games
        LEFT JOIN owners ON owners.id = games.owner_id
        LEFT JOIN accounts ON accounts.id = owners.account_id
@@ -41,7 +44,7 @@ export async function showcase(env: Env, limit = 200): Promise<ShowGame[]> {
        ORDER BY COALESCE(versions.published_at, games.updated_at) DESC LIMIT ?`,
     )
     .bind(limit)
-    .all<{ slug: string; title: string; description: string; owner_id: string | null; devices: string; players: string; game_server: string | null; connect_hosts: string; developer: string | null; published_at: number | null; since: number | null; cover: string | null }>();
+    .all<{ slug: string; title: string; description: string; owner_id: string | null; devices: string; players: string; game_server: string | null; connect_hosts: string; developer: string | null; published_at: number | null; since: number | null; cover: string | null; square: string | null }>();
   return results.map((r) => ({
     slug: r.slug,
     title: r.title,
@@ -49,6 +52,7 @@ export async function showcase(env: Env, limit = 200): Promise<ShowGame[]> {
     developer: r.developer,
     owner_id: r.owner_id,
     cover: r.cover ? `/img/${r.cover}` : null,
+    square: r.square ? `/img/${r.square}` : null,
     updated: r.published_at,
     since: r.since,
     modes: playerLine(readPlayers(r.players), Boolean(r.game_server)),
@@ -109,9 +113,21 @@ export async function shelves(env: Env, games: ShowGame[], now = Date.now()): Pr
  * title engraved on a plate. `flag` is a small note on the art, like "Updated".
  */
 export function tile(g: ShowGame, opts: { flag?: string } = {}): Raw {
-  return html`<div class="hit block"${g.cover ? raw(` data-art="${esc(g.cover)}"`) : ""}><a class="tile" href="/g/${g.slug}" aria-label="${g.title}">
-<span class="pic">${g.cover ? html`<img src="${g.cover}" alt="" loading="lazy">` : html`<span class="named"><span>${g.title}</span></span>`}${opts.flag ? html`<span class="flag">${opts.flag}</span>` : ""}</span>
-</a></div>`;
+  return raw(card(g, opts.flag));
+}
+
+/**
+ * The card's HTML, shared with the home page's script (CARD_JS does the same in the browser). Phones
+ * show square cards: the square cover when there is one, otherwise the landscape cover whole (never
+ * cropped, so no logo is cut off) over a blurred copy of itself.
+ */
+function card(g: Pick<ShowGame, "slug" | "title" | "cover" | "square">, flag?: string, label = g.title): string {
+  const art = !g.cover
+    ? `<span class="named"><span>${esc(g.title)}</span></span>`
+    : g.square
+      ? `<picture><source media="(max-width:640px)" srcset="${esc(g.square)}"><img src="${esc(g.cover)}" alt="" loading="lazy"></picture>`
+      : `<span class="fill" style="--fill:url(${esc(g.cover)})"></span><img src="${esc(g.cover)}" alt="" loading="lazy">`;
+  return `<div class="hit block"${g.cover ? ` data-art="${esc(g.cover)}"` : ""}><a class="tile${g.cover && !g.square ? " wide" : ""}" href="/g/${esc(g.slug)}" aria-label="${esc(label)}"><span class="pic">${art}${flag ? `<span class="flag">${esc(flag)}</span>` : ""}</span></a></div>`;
 }
 
 export async function home(env: Env): Promise<Response> {
@@ -246,7 +262,7 @@ const HOME_STYLES = `
   .stage .desc{-webkit-line-clamp:3;font-size:15px}
   .stage .go-row{padding-top:12px}
 }
-@media (max-width:640px){.row-tiles{gap:14px}.row-tiles>.hit{flex-basis:230px}}
+@media (max-width:640px){.row-tiles{gap:14px}.row-tiles>.hit{flex-basis:164px}}
 `;
 
 // Fills in the player's own part: the game they played last on the stage, then the others in
@@ -254,6 +270,8 @@ const HOME_STYLES = `
 const HOME_SCRIPT = `
 (()=>{const bySlug=Object.fromEntries(GAMES.map(g=>[g.slug,g]));const KEY="zaisma:played";
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]);
+const card=(g,flag,label)=>{const art=!g.cover?'<span class="named"><span>'+esc(g.title)+'</span></span>':g.square?'<picture><source media="(max-width:640px)" srcset="'+esc(g.square)+'"><img src="'+esc(g.cover)+'" alt="" loading="lazy"></picture>':'<span class="fill" style="--fill:url('+esc(g.cover)+')"></span><img src="'+esc(g.cover)+'" alt="" loading="lazy">';
+return '<div class="hit block"'+(g.cover?' data-art="'+esc(g.cover)+'"':"")+'><a class="tile'+(g.cover&&!g.square?" wide":"")+'" href="/g/'+esc(g.slug)+'" aria-label="'+esc(label)+'"><span class="pic">'+art+(flag?'<span class="flag">'+esc(flag)+'</span>':"")+'</span></a></div>'};
 const ago=t=>{const m=Math.max(1,Math.round((Date.now()-t)/60000));return m<60?m+" min ago":m<1440?Math.round(m/60)+" h ago":Math.round(m/1440)===1?"yesterday":Math.round(m/1440)+" days ago"};
 let played=[];try{played=JSON.parse(localStorage.getItem(KEY)||"[]")}catch{}
 const signedIn=/(^|; )(__Host-)?zaisma_in=1/.test(document.cookie);const guest=document.getElementById("guest");if(guest&&!signedIn)guest.hidden=false;
@@ -270,8 +288,7 @@ const btn=stage.querySelector(".metal");btn.href="/g/"+g.slug+"?play";btn.queryS
 // The game on the stage isn't repeated underneath.
 const others=stage?list.slice(1):list;if(!others.length)return;
 const rest=sort==="played"?others:others.slice().sort((a,b)=>(bySlug[b.slug].updated||0)-(bySlug[a.slug].updated||0));
-document.getElementById("continue-tiles").innerHTML=rest.map(p=>{const t=bySlug[p.slug],up=t.updated&&t.updated>p.at;
-return '<div class="hit block"'+(t.cover?' data-art="'+esc(t.cover)+'"':"")+'><a class="tile" href="/g/'+esc(t.slug)+'" aria-label="'+esc(t.title)+(up?', updated':'')+'"><span class="pic">'+(t.cover?'<img src="'+esc(t.cover)+'" alt="" loading="lazy">':'<span class="named"><span>'+esc(t.title)+'</span></span>')+(up?'<span class="flag">Updated</span>':'')+'</span></a></div>'}).join("");
+document.getElementById("continue-tiles").innerHTML=rest.map(p=>{const t=bySlug[p.slug],up=t.updated&&t.updated>p.at;return card(t,up?"Updated":"",t.title+(up?", updated":""))}).join("");
 document.getElementById("continue").hidden=false}
 document.querySelectorAll("#continue [data-sort]").forEach(b=>b.onclick=()=>{sort=b.dataset.sort;document.querySelectorAll("#continue [data-sort]").forEach(x=>x.setAttribute("aria-pressed",String(x===b)));render()});
 render();
