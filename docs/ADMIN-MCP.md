@@ -8,7 +8,7 @@ The report queue and precedents in a Claude session: pull the latest reports in,
 | --- | --- |
 | `list_reports` | Open reports grouped by problem, most serious first, with what triage found and recommends. Optionally what triage handled without a person this week. |
 | `get_report` | One group in full: what players sent and any picture, the game, its versions and scans, re-checks, the precedent or the drafted one, recent history, and what can be decided. |
-| `decide_report` | Dismiss, pass to the developer, take down, or put back a paused game or update, exactly like the queue's buttons; optionally sets a precedent at the same time. |
+| `decide_report` | Dismiss, hide a reported room's name, pass to the developer, take down, or put back a paused game or update, exactly like the queue's buttons; optionally sets a precedent at the same time. |
 | `list_precedents`, `set_precedent`, `approve_precedent` | Read, set, change, approve and retire precedents. |
 | `get_game` | A game as admin sees it: versions and scans, open reports, history. |
 

@@ -160,6 +160,8 @@ export interface Report {
   /** The version that was live when it was reported. */
   version_id: string | null;
   room_code: string;
+  /** The room's name and labels when it was reported. */
+  room_name: string | null;
   /** A report about a player: their temporary ID and name, and what they did (a PLAYER_REPORT_REASONS key). */
   player_id: string;
   player_name: string;
@@ -191,6 +193,8 @@ export interface NewReport {
   details: string;
   versionId?: string | null;
   roomCode?: string;
+  /** The room's name and labels when it was reported, like "Ana's castle (Mode: Classic)". */
+  roomName?: string | null;
   player?: { id: string; name: string; reason: string };
 }
 
@@ -207,17 +211,17 @@ export function reportSeverity(reason: string, playerReason = ""): number {
 export async function createReport(db: D1Database, r: NewReport): Promise<string> {
   const id = newId();
   await db
-    .prepare("INSERT INTO reports (id, game_id, reason, details, created_at, version_id, room_code, player_id, player_name, player_reason, severity) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    .bind(id, r.gameId, r.reason, r.details, now(), r.versionId ?? null, r.roomCode ?? "", r.player?.id ?? "", r.player?.name ?? "", r.player?.reason ?? "", reportSeverity(r.reason, r.player?.reason))
+    .prepare("INSERT INTO reports (id, game_id, reason, details, created_at, version_id, room_code, room_name, player_id, player_name, player_reason, severity) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .bind(id, r.gameId, r.reason, r.details, now(), r.versionId ?? null, r.roomCode ?? "", r.roomName ?? null, r.player?.id ?? "", r.player?.name ?? "", r.player?.reason ?? "", reportSeverity(r.reason, r.player?.reason))
     .run();
   return id;
 }
 
 /** What a report is about, in a line: "Another player's behavior: Cheating (Swift Fox 42, room ABCDEF)". */
-export function reportLabel(r: Pick<Report, "reason" | "room_code" | "player_name" | "player_reason">): string {
+export function reportLabel(r: Pick<Report, "reason" | "room_code" | "player_name" | "player_reason"> & { room_name?: string | null }): string {
   let label: string = REPORT_REASONS[r.reason as ReportReason] ?? r.reason;
   if (r.player_reason) label += `: ${PLAYER_REPORT_REASONS[r.player_reason as PlayerReportReason] ?? r.player_reason}`;
-  const where = [r.player_name, r.room_code && `room ${r.room_code}`].filter(Boolean).join(", ");
+  const where = [r.player_name, r.room_code && `room ${r.room_code}${r.room_name ? ` “${r.room_name}”` : ""}`].filter(Boolean).join(", ");
   return where ? `${label} (${where})` : label;
 }
 

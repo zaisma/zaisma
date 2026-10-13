@@ -108,6 +108,11 @@ export interface LiveRoom {
   max_players: number;
   listed: number;
   open: number;
+  name: string | null;
+  /** JSON, like {"Mode": "Classic"}. */
+  labels: string;
+  /** 1: a person hid the name and labels after a report. */
+  name_hidden: number;
   country: string | null;
   continent: string | null;
   created_at: number;

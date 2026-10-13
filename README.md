@@ -79,9 +79,14 @@ const { rooms, playing, regions } = await Zaisma.rooms.list();  // rooms: [{ cod
 Zaisma.rooms.list({ region: "EU" });          // one region (continent codes, as in regions)
 const room = await Zaisma.rooms.quickJoin();  // the linked room, else a busy room with space nearby, else a new one
 Zaisma.joinRoom({ listed: false });           // a new room that's never listed: a private match
+Zaisma.joinRoom({ name: "Ana's castle", labels: { Mode: "Classic", Map: "Docks" } });  // name and label a new room
+Zaisma.rooms.list({ labels: { Mode: "Classic" } });  // rooms with those labels; quickJoin takes the same
+await Zaisma.filterText(typed);              // { ok, reason, text }: Zaisma's text filter, if you want it
 ```
 
-On the game server, `room.setListed(false)` hides a room (its code and links still work) and `room.setOpen(false)` closes it to new players once a match starts; players who were in it can still come back. With the relay, the room's first player can do the same from the game (`room.setListed`, `room.setOpen`). In the dashboard, a game lists its rooms on the page and in the game, only in the game, or nowhere.
+Rooms can have a name and up to 4 labels (like Mode and Map), set by your game server with `room.setInfo({ name, labels })`, by the room's first player with the relay, or when the room is made. Names and labels players type are fine; on zaisma.com they show only if they pass Zaisma's text filter (no links, handles, emails, phone numbers or contact apps; no slurs or sexual words), and players can report them. Inside your game they're yours to look after, under the content rules.
+
+On the game server, `room.setListed(false)` hides a room (its code and links still work) and `room.setOpen(false)` closes it to new players once a match starts; players who were in it can still come back. With the relay, the room's first player can do the same from the game (`room.setListed`, `room.setOpen`, `room.setInfo`). In the dashboard, a game lists its rooms on the page and in the game, only in the game, or nowhere.
 
 Join on the game page is an ordinary room link, so the game decides what comes first:
 

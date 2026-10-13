@@ -18,7 +18,14 @@ const worker = (name: string, configPath: string, extraBindings: Record<string, 
     }),
   ],
   // Files share one database, so they run one after another: one file's clean-up can't wipe another's data mid-test.
-  test: { name, include: [`test/${name}/**/*.test.ts`], setupFiles: ["test/apply-migrations.ts"], fileParallelism: false },
+  test: {
+    name,
+    include: [`test/${name}/**/*.test.ts`],
+    setupFiles: ["test/apply-migrations.ts"],
+    fileParallelism: false,
+    // The text filter's library ships as CommonJS behind a thin ES wrapper; bundle it for the Workers runtime.
+    deps: { optimizer: { ssr: { enabled: true, include: ["obscenity"] } } },
+  },
 });
 
 export default defineConfig({

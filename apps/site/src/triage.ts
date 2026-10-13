@@ -304,6 +304,8 @@ async function triageInput(env: Env, report: Report, game: Game, others: Report[
     `Sent: ${new Date(report.created_at).toISOString().slice(0, 16).replace("T", " ")} UTC`,
     `Reason picked: ${reportLabel({ ...report, player_name: "", room_code: "" })}`,
     ...(report.player_id ? [`About a player: "${untrusted(report.player_name)}" (temporary ID ${report.player_id}${report.room_code ? `, room ${report.room_code}` : ""})`] : report.room_code ? [`In room ${report.room_code}`] : []),
+    // Room names and labels can be typed by players: the player may be reporting the name itself.
+    ...(report.room_name ? [`The room's name and labels, as players saw them: "${untrusted(report.room_name)}"`] : []),
     `Details: ${report.details ? `"${untrusted(report.details)}"` : "(none)"}`,
     report.picture ? "With a picture of the game, after this block." : "",
     "</report>",

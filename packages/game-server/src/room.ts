@@ -27,6 +27,22 @@ export interface Room {
   /** Taking new players. A closed room lets back only players who were already in it. */
   readonly open: boolean;
   setOpen(open: boolean): void;
+  /** The room's name, like "Ana's castle", or null. Up to 40 characters. */
+  readonly name: string | null;
+  /** Up to 4 labels players can filter by, like { Mode: "Classic", Map: "Docks" }. */
+  readonly labels: Readonly<Record<string, string>>;
+  /**
+   * Name and label the room, from the game or from what a player typed. Names and labels a player
+   * typed show on zaisma.com only if they pass Zaisma's text filter; your game is responsible for
+   * them inside the game. Leave a field out to keep it; null clears it.
+   */
+  setInfo(info: RoomInfo): void;
+}
+
+/** A room's name and labels, as a game sets them. */
+export interface RoomInfo {
+  name?: string | null;
+  labels?: Record<string, string | number> | null;
 }
 
 type Result<S> = void | S;
@@ -50,6 +66,11 @@ export const ROOM_LIMITS = {
   maxPlayers: 16,
   defaultPlayers: 8,
   maxTickRate: 30,
+  /** A room's name, its labels, and each label's name and value, in characters. */
+  nameLength: 40,
+  labels: 4,
+  labelName: 16,
+  labelValue: 24,
   /** Largest message a client may send, in bytes. */
   messageBytes: 16 * 1024,
   /** Sustained messages per second per player, with a short burst allowance. */
@@ -68,15 +89,18 @@ export function defineGameServer<S>(server: GameServer<S>): GameServer<S> {
   return server;
 }
 
-/** Whether a room shows in room lists and takes new players. */
+/** Whether a room shows in room lists and takes new players, and its name and labels. */
 export interface RoomSettings {
   listed: boolean;
   open: boolean;
+  name: string | null;
+  labels: Record<string, string>;
 }
 
 /**
- * Messages from the room to a client. Clients send {t:"hello", pass, room?: {listed}} first, then
- * {t:"msg", d}; with hostControls, the first player may also send {t:"room", listed?, open?}.
+ * Messages from the room to a client. Clients send {t:"hello", pass, room?: {listed, name, labels}}
+ * first (the room's settings only count from the player who makes it), then {t:"msg", d}; with
+ * hostControls, the first player may also send {t:"room", listed?, open?, name?, labels?}.
  */
 export type ServerMessage =
   | { t: "welcome"; me: Player; players: Player[]; room: RoomSettings }
@@ -135,6 +159,8 @@ export class RoomCore<S = any> {
   dirty = false;
   listed = true;
   open = true;
+  name: string | null = null;
+  labels: Record<string, string> = {};
   /** Set when the player count, listed or open changed, so the room list can be brought up to date. */
   listingChanged = false;
   /** Players who have been in this room, newest last: they may come back after it closes. */
@@ -155,6 +181,8 @@ export class RoomCore<S = any> {
     if (opts.room) {
       this.listed = opts.room.listed;
       this.open = opts.room.open;
+      this.name = opts.room.name ?? null;
+      this.labels = opts.room.labels ?? {};
       for (const id of opts.room.known) this.known.add(id);
     }
     for (const p of this.players.values()) this.remember(p.id);
@@ -177,12 +205,19 @@ export class RoomCore<S = any> {
         return core.open;
       },
       setOpen: (open) => this.settle({ open: Boolean(open) }),
+      get name() {
+        return core.name;
+      },
+      get labels() {
+        return { ...core.labels };
+      },
+      setInfo: (info) => this.settle(roomInfo(info)),
     };
   }
 
   /** What a sleeping room saves besides the game's state. */
   get saved(): SavedRoom {
-    return { listed: this.listed, open: this.open, known: [...this.known] };
+    return { ...this.settings(), known: [...this.known] };
   }
 
   get ticking(): boolean {
@@ -191,14 +226,17 @@ export class RoomCore<S = any> {
 
   /**
    * A player arrives. Joining again with the same ID (a reconnect) keeps their place. The player who
-   * makes the room can make it hidden from the start, for a private match.
+   * makes the room can hide it from the start (a private match) and name and label it.
    */
-  join(player: Player, opts: { listed?: boolean } = {}): { ok: true; rejoined: boolean } | { ok: false; code: RoomErrorCode } {
+  join(player: Player, opts: { listed?: boolean } & RoomInfo = {}): { ok: true; rejoined: boolean } | { ok: false; code: RoomErrorCode } {
     if (this.ended) return { ok: false, code: "ended" };
     const rejoined = this.players.has(player.id);
     if (!rejoined && !this.open && !this.known.has(player.id)) return { ok: false, code: "closed" };
     if (!rejoined && this.players.size >= this.maxPlayers) return { ok: false, code: "full" };
-    if (this.known.size === 0 && opts.listed === false) this.listed = false;
+    if (this.known.size === 0) {
+      if (opts.listed === false) this.listed = false;
+      Object.assign(this, roomInfo(opts));
+    }
     this.players.set(player.id, player);
     this.remember(player.id);
     this.transport.send(player.id, JSON.stringify({ t: "welcome", me: player, players: this.list(), room: this.settings() } satisfies ServerMessage));
@@ -234,16 +272,16 @@ export class RoomCore<S = any> {
     } catch {
       return "bad-message";
     }
-    if (msg && typeof msg === "object" && (msg as { t?: unknown }).t === "room") return this.hostChange(playerId, msg as Partial<RoomSettings>);
+    if (msg && typeof msg === "object" && (msg as { t?: unknown }).t === "room") return this.hostChange(playerId, msg as Record<string, unknown>);
     if (!msg || typeof msg !== "object" || (msg as { t?: unknown }).t !== "msg") return "bad-message";
     this.run(() => this.server.onMessage?.(this.state, player, (msg as { d?: unknown }).d, this.api));
     return null;
   }
 
-  /** The first player hides, shows, opens or closes the room, when the game server allows it. */
-  private hostChange(playerId: string, msg: Partial<RoomSettings>): RoomErrorCode | null {
+  /** The first player hides, shows, opens, closes, names or labels the room, when the game server allows it. */
+  private hostChange(playerId: string, msg: Record<string, unknown>): RoomErrorCode | null {
     if (!this.server.hostControls || this.players.keys().next().value !== playerId) return "not-allowed";
-    const change: Partial<RoomSettings> = {};
+    const change: Partial<RoomSettings> = roomInfo(msg as RoomInfo);
     if (typeof msg.listed === "boolean") change.listed = msg.listed;
     if (typeof msg.open === "boolean") change.open = msg.open;
     this.settle(change);
@@ -252,15 +290,17 @@ export class RoomCore<S = any> {
   }
 
   private settings(): RoomSettings {
-    return { listed: this.listed, open: this.open };
+    return { listed: this.listed, open: this.open, name: this.name, labels: { ...this.labels } };
   }
 
-  /** Change listed or open, and tell everyone in the room. */
+  /** Change listed, open, the name or labels, and tell everyone in the room. */
   private settle(change: Partial<RoomSettings>): void {
     const next = { ...this.settings(), ...change };
-    if (next.listed === this.listed && next.open === this.open) return;
+    if (JSON.stringify(next) === JSON.stringify(this.settings())) return;
     this.listed = next.listed;
     this.open = next.open;
+    this.name = next.name;
+    this.labels = next.labels;
     this.listingChanged = true;
     const text = JSON.stringify({ t: "room", room: next } satisfies ServerMessage);
     for (const id of this.players.keys()) this.transport.send(id, text);
@@ -325,4 +365,33 @@ export class RoomCore<S = any> {
       console.error("Game server error:", err);
     }
   }
+}
+
+// Characters that hide text or flip its direction.
+const HIDDEN = /[\u0000-\u001f\u007f-\u009f\u00ad\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g;
+const tidy = (v: unknown, max: number) =>
+  String(v ?? "")
+    .normalize("NFKC")
+    .replace(HIDDEN, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, max)
+    .trim();
+
+/** A name and labels within the limits, with hidden characters dropped. Fields left out stay out. */
+export function roomInfo(info: RoomInfo): Partial<Pick<RoomSettings, "name" | "labels">> {
+  const out: Partial<Pick<RoomSettings, "name" | "labels">> = {};
+  if (info.name !== undefined) out.name = info.name === null ? null : tidy(info.name, ROOM_LIMITS.nameLength) || null;
+  if (info.labels !== undefined) {
+    const labels: Record<string, string> = {};
+    if (info.labels && typeof info.labels === "object") {
+      for (const [k, v] of Object.entries(info.labels)) {
+        const key = tidy(k, ROOM_LIMITS.labelName);
+        const value = typeof v === "string" || typeof v === "number" ? tidy(v, ROOM_LIMITS.labelValue) : "";
+        if (key && value && Object.keys(labels).length < ROOM_LIMITS.labels) labels[key] = value;
+      }
+    }
+    out.labels = labels;
+  }
+  return out;
 }

@@ -32,7 +32,7 @@ describe("RoomCore", () => {
     const room = new RoomCore(counter, t);
     room.join({ id: "a", name: "A" });
     room.join({ id: "b", name: "B" });
-    expect(sent.a![0]).toEqual({ t: "welcome", me: { id: "a", name: "A" }, players: [{ id: "a", name: "A" }], room: { listed: true, open: true } });
+    expect(sent.a![0]).toEqual({ t: "welcome", me: { id: "a", name: "A" }, players: [{ id: "a", name: "A" }], room: { listed: true, open: true, name: null, labels: {} } });
     expect(sent.a!.at(-1)).toEqual({ t: "players", players: [{ id: "a", name: "A" }, { id: "b", name: "B" }] });
 
     expect(room.receive("a", msg("hit"))).toBeNull();
@@ -118,7 +118,7 @@ describe("RoomCore", () => {
     room.receive("a", msg("start"));
     expect(room.open).toBe(false);
     expect(room.listingChanged).toBe(true);
-    expect(sent.b!.at(-1)).toEqual({ t: "room", room: { listed: true, open: false } });
+    expect(sent.b!.at(-1)).toEqual({ t: "room", room: { listed: true, open: false, name: null, labels: {} } });
     expect(room.join({ id: "c", name: "C" })).toEqual({ ok: false, code: "closed" });
     room.leave("b");
     expect(room.join({ id: "b", name: "B" })).toEqual({ ok: true, rejoined: false });
@@ -146,11 +146,35 @@ describe("RoomCore", () => {
     expect(room.receive("b", JSON.stringify({ t: "room", open: false }))).toBe("not-allowed");
     expect(room.open).toBe(true);
     expect(room.receive("a", JSON.stringify({ t: "room", listed: false, open: false }))).toBeNull();
-    expect(sent.b!.at(-1)).toEqual({ t: "room", room: { listed: false, open: false } });
+    expect(sent.b!.at(-1)).toEqual({ t: "room", room: { listed: false, open: false, name: null, labels: {} } });
     // Without host controls, only the game server decides.
     const plain = new RoomCore(counter, transport().t);
     plain.join({ id: "a", name: "A" });
     expect(plain.receive("a", JSON.stringify({ t: "room", listed: false }))).toBe("not-allowed");
+  });
+
+  it("names and labels a room within the limits, from the game server, its maker or the relay's first player", () => {
+    const named = defineGameServer({ setup: () => ({}), onMessage: (_s, _p, msg, room) => room.setInfo(msg as never) });
+    const { t, sent } = transport();
+    const room = new RoomCore(named, t);
+    room.join({ id: "a", name: "A" }, { name: "  Ana\u200b's   castle ", labels: { Mode: "Classic", Map: 3, Bad: { x: 1 } as never } });
+    expect([room.name, room.labels]).toEqual(["Ana's castle", { Mode: "Classic", Map: "3" }]);
+    // Later players don't set it up; the game server can change it.
+    room.join({ id: "b", name: "B" }, { name: "Mine now" });
+    expect(room.name).toBe("Ana's castle");
+    room.receive("a", msg({ name: "x".repeat(60), labels: { A: "1", B: "2", C: "3", D: "4", E: "5" } }));
+    expect(room.name).toHaveLength(40);
+    expect(Object.keys(room.labels)).toEqual(["A", "B", "C", "D"]);
+    expect(sent.b!.at(-1)).toMatchObject({ t: "room", room: { name: "x".repeat(40) } });
+    room.receive("a", msg({ name: null }));
+    expect(room.name).toBeNull();
+    // The relay's first player can name it; nobody else can.
+    const relayed = new RoomCore(relay, transport().t);
+    relayed.join({ id: "a", name: "A" });
+    relayed.join({ id: "b", name: "B" });
+    expect(relayed.receive("b", JSON.stringify({ t: "room", name: "Hijack" }))).toBe("not-allowed");
+    expect(relayed.receive("a", JSON.stringify({ t: "room", name: "Friday night", labels: { Mode: "Co-op" } }))).toBeNull();
+    expect([relayed.name, relayed.labels]).toEqual(["Friday night", { Mode: "Co-op" }]);
   });
 
   it("checks game server settings", () => {
