@@ -57,14 +57,14 @@ Multiplayer is server-client: the *client* is the game in the browser, the *game
 export default {
   maxPlayers: 8,           // up to 16
   tickRate: 20,            // leave out for turn-based games so the room sleeps between moves
-  setup: () => ({ players: {} }),
-  onJoin(state, player, room) {},
+  setup: (data) => ({ players: {} }),   // data: what room.reserve() passed, for a room another room made
+  onJoin(state, player, room, data) {}, // data: what the player's game passed to joinRoom({ data })
   onLeave(state, player, room) {},
   onMessage(state, player, msg, room) {},
   onTick(state, dt, room) {},
 };
 // room.broadcast(msg), room.send(playerId, msg), room.players, room.end(),
-// room.setListed(false), room.setOpen(false)
+// room.setListed(false), room.setOpen(false), room.reserve({ players, data })
 ```
 
 Games without server code can use the built-in `relay`, which passes each message to everyone else. See `examples/arena` (real-time) and `examples/four-in-a-row` (turn-based).
@@ -91,8 +91,22 @@ On the game server, `room.setListed(false)` hides a room (its code and links sti
 Join on the game page is an ordinary room link, so the game decides what comes first:
 
 - **Straight in:** call `joinRoom()` or `quickJoin()` when the game starts; both follow the link.
-- **A menu or character customizer first:** check `Zaisma.rooms.linked`, show your screen, then join. If the room filled up meanwhile, `joinRoom` fails with `err.code === "full"` and `quickJoin` finds another.
+- **A menu or character customizer first:** check `Zaisma.rooms.linked`, show your screen, then join with what the player picked: `joinRoom({ data: { character: "knight" } })` hands it to your game server's `onJoin` (plain JSON, up to 4 KB; it comes from the player's browser, so check it like any message). If the room filled up meanwhile, `joinRoom` fails with `err.code === "full"` and `quickJoin` finds another.
 - **Your own lobby:** list rooms only in the game and draw them yourself from `Zaisma.rooms.list()`.
+
+#### Lobbies and matches
+
+A room can make a room for some of its players and send them there, like a lobby starting a match:
+
+```ts
+const code = room.reserve({ players: [a.id, b.id], data: { map: "Docks", teams } });  // in your game server
+```
+
+```js
+room.on("move", (move) => { room.leave(); move.join(); });  // in the game: go to the new room
+```
+
+The new room runs the same game server, and its `setup(data)` gets your data, so it can start the match already set up (players can read the data but can't change it; up to 4 KB). It's ready before anyone hears its code, only the players named can join it (it's a closed room, until your server opens it), and it's hidden from room lists unless you pass `listed: true` (with a `name` and `labels` if you like). A room can reserve up to 20 rooms a minute. See `examples/four-in-a-row`: its "Find an opponent" waits in a lobby room until there's someone to play.
 
 Playing alone needs no room, so don't make one until others can join: time in a room counts toward hosting even with one player.
 

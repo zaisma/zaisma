@@ -27,6 +27,50 @@ function stayIn(rooms, origin, game, code, pass, first) {
   ws.on("close", (why) => why !== 4000 && why !== 4001 && setTimeout(() => stayIn(rooms, origin, game, code, pass, first), 2000));
 }
 
+/**
+ * A Four in a Row player waiting in the lobby (a room labelled Room: Lobby). When the game pairs it
+ * with you, it follows the move to your match, plays random columns and leaves when you do; another
+ * one takes its place in the lobby.
+ */
+async function lobbyBot(rooms, origin, code) {
+  const game = "four-in-a-row";
+  const pass = await guestPass(rooms, origin, game);
+  const ws = new WebSocket(`${rooms.replace(/^http/, "ws")}/v1/rooms/${game}/${code}`, { origin });
+  let moved = false;
+  ws.on("open", () => ws.send(JSON.stringify({ t: "hello", pass, room: { labels: { Room: "Lobby" } } })));
+  ws.on("message", (data) => {
+    const m = JSON.parse(String(data));
+    if (m.t !== "move" || moved) return;
+    moved = true;
+    ws.close(1000);
+    play(rooms, origin, game, m.code, pass);
+    setTimeout(() => lobbyBot(rooms, origin, code), 1000);
+  });
+  ws.on("error", () => {});
+  ws.on("close", (why) => !moved && why !== 4000 && why !== 4001 && setTimeout(() => lobbyBot(rooms, origin, code), 2000));
+}
+
+function play(rooms, origin, game, code, pass) {
+  const ws = new WebSocket(`${rooms.replace(/^http/, "ws")}/v1/rooms/${game}/${code}`, { origin });
+  let me = null;
+  let met = false;
+  ws.on("open", () => ws.send(JSON.stringify({ t: "hello", pass })));
+  ws.on("message", (data) => {
+    const m = JSON.parse(String(data));
+    if (m.t === "welcome") me = m.me.id;
+    // Once you've arrived, it leaves when you do.
+    if (m.t === "players") met = met || m.players.length >= 2;
+    if (m.t === "players" && met && m.players.length < 2) ws.close(1000);
+    if (m.t !== "msg" || !m.d.board) return;
+    const seat = m.d.seats.indexOf(me) + 1;
+    if (m.d.winner) return void setTimeout(() => ws.readyState === 1 && ws.send(JSON.stringify({ t: "msg", d: { again: true } })), 3000);
+    if (m.d.turn !== seat) return;
+    const open = [0, 1, 2, 3, 4, 5, 6].filter((c) => m.d.board[c] === 0);
+    setTimeout(() => ws.readyState === 1 && ws.send(JSON.stringify({ t: "msg", d: { col: open[Math.floor(Math.random() * open.length)] } })), 700);
+  });
+  ws.on("error", () => {});
+}
+
 /** Rooms of each kind: some with space, a full one, a closed one and a hidden one (never listed). */
 export async function openTestRooms(rooms, origin) {
   const plan = [
@@ -46,6 +90,7 @@ export async function openTestRooms(rooms, origin) {
       await new Promise((r) => setTimeout(r, 150));
     }
   }
+  await lobbyBot(rooms, origin, newCode());
 }
 
 /**

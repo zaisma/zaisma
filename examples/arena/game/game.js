@@ -135,6 +135,19 @@ function onSnapshot(list) {
 
 // Mute, block and report, from the game's own menu.
 document.getElementById("players").onclick = () => room && Zaisma.openSafetyPanel(room);
+// Your color: picked with the Color button, kept for next time and brought into each room as join data.
+const COLORS = ["#ff5d5d", "#4fc3ff", "#ffd84f", "#7dff8a", "#d07bff", "#ff9e4f", "#4fffe1", "#ff7bc4"];
+const colorBtn = document.getElementById("color");
+let color = null;
+try { color = localStorage.getItem("arena:color"); } catch (e) { /* storage off */ }
+function showColor() { colorBtn.style.borderColor = color || "#444"; }
+showColor();
+colorBtn.onclick = () => {
+  color = COLORS[(COLORS.indexOf(color) + 1) % COLORS.length];
+  try { localStorage.setItem("arena:color", color); } catch (e) { /* fine */ }
+  showColor();
+  if (room) room.send({ c: color });
+};
 const inviteBtn = document.getElementById("invite");
 inviteBtn.onclick = async () => {
   if (!room) return;
@@ -145,7 +158,7 @@ inviteBtn.onclick = async () => {
 async function start() {
   try {
     // A drop-in game: the room the player's link points to, else a busy arena with space, else a new one.
-    room = await Zaisma.rooms.quickJoin();
+    room = await Zaisma.rooms.quickJoin({ data: color ? { color } : undefined });
   } catch (err) {
     statusEl.textContent = err.message;
     return;

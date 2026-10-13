@@ -12,6 +12,8 @@
  *   room.send({ move: "left" });
  *   room.leave();
  *   Zaisma.joinRoom({ server: "wss://my-server.example" });  // your own game server
+ *   Zaisma.joinRoom({ data: { character: "knight" } });       // data for the game server's onJoin, up to 4 KB
+ *   room.on("move", (move) => { room.leave(); move.join(); }); // the game server reserved a room for this player
  *   await Zaisma.invite(room);                // share sheet on phones, copies the link elsewhere
  *
  * Room browsing. Listed rooms show on the game's Zaisma page and to the game itself:
@@ -127,6 +129,8 @@
     this._url = opts.url;
     this._pass = opts.pass;
     this._made = { listed: opts.listed === false ? false : undefined, name: opts.name, labels: opts.labels };
+    this._data = opts.data;
+    this._server = opts.server;
     this._tries = 0;
     this._done = false;
     this._ready = null;
@@ -138,7 +142,7 @@
     var ws = new WebSocket(this._url);
     this._ws = ws;
     ws.onopen = function () {
-      ws.send(JSON.stringify({ t: "hello", pass: room._pass, room: room._made }));
+      ws.send(JSON.stringify({ t: "hello", pass: room._pass, room: room._made, data: room._data }));
     };
     ws.onmessage = function (ev) {
       var m;
@@ -158,12 +162,14 @@
       } else if (m.t === "room") {
         room._settle(m.room);
         room._emit("room", m.room);
+      } else if (m.t === "move") {
+        room._emit("move", room._move(m));
       } else if (m.t === "ended") {
         room._done = true;
         room._emit("ended", m.reason);
       } else if (m.t === "error") {
         room._emit("error", m);
-        if (room._ready && (m.code === "full" || m.code === "closed" || m.code === "ended" || m.code === "bad-pass" || m.code === "game-unavailable")) {
+        if (room._ready && (m.code === "full" || m.code === "closed" || m.code === "ended" || m.code === "bad-pass" || m.code === "too-big" || m.code === "game-unavailable")) {
           room._done = true;
           var err = new Error(m.message);
           err.code = m.code;
@@ -212,6 +218,19 @@
   Room.prototype.setInfo = function (info) {
     info = info || {};
     if (this._ws && this._ws.readyState === 1) this._ws.send(JSON.stringify({ t: "room", name: info.name, labels: info.labels }));
+  };
+  /**
+   * The game server reserved a room for this player: { code, join(opts) }. join takes joinRoom's
+   * options (like data) and joins that room, on the same server as this one.
+   */
+  Room.prototype._move = function (m) {
+    var server = this._server;
+    return {
+      code: m.code,
+      join: function (opts) {
+        return connect(m.code, Object.assign({}, opts || {}, { server: server }));
+      },
+    };
   };
   Room.prototype._settle = function (r) {
     this.listed = r.listed;
@@ -265,6 +284,7 @@
    *   server - your own game server's address (wss://...) instead of Zaisma rooms
    *   listed - false: a new room that never shows in room lists, like a private match
    *   name, labels - a new room's name and labels, like "Ana's castle" and { Mode: "Classic" }
+   *   data   - plain JSON for the game server's onJoin, like the character the player picked (up to 4 KB)
    * If the room is full, closed or over, it fails with an error whose code says which.
    */
   function joinRoom(opts) {
@@ -280,7 +300,7 @@
     var codeReady = code ? Promise.resolve(code) : server ? Promise.resolve(randomCode()) : post("/v1/rooms", { game: config.game }).then(function (d) { return d.code; });
     return Promise.all([codeReady, player()]).then(function (got) {
       var base = (server || config.rooms).replace(/^http/, "ws");
-      var room = new Room({ code: got[0], pass: got[1].pass, url: base + "/v1/rooms/" + config.game + "/" + got[0], listed: opts.listed, name: opts.name, labels: opts.labels });
+      var room = new Room({ code: got[0], pass: got[1].pass, url: base + "/v1/rooms/" + config.game + "/" + got[0], listed: opts.listed, name: opts.name, labels: opts.labels, data: opts.data, server: server });
       joined.push(room);
       // Tell the Zaisma page the room code, so its Invite button and address bar point here.
       if (config.site && window.parent !== window) window.parent.postMessage({ type: "zaisma:room", code: room.code }, config.site);

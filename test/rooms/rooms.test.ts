@@ -15,8 +15,10 @@ async function addGame(slug: string, opts: { status?: string; server?: string | 
   return id;
 }
 
+// Each request comes from its own made-up address, so the tests don't run into the per-address limits.
+let address = 0;
 async function post(path: string, game: string, origin = ORIGIN) {
-  return SELF.fetch(`${R}${path}`, { method: "POST", headers: { Origin: origin, "Content-Type": "text/plain" }, body: JSON.stringify({ game }) });
+  return SELF.fetch(`${R}${path}`, { method: "POST", headers: { Origin: origin, "Content-Type": "text/plain", "cf-connecting-ip": `198.51.100.${++address % 250}` }, body: JSON.stringify({ game }) });
 }
 
 async function getPass(game: string): Promise<{ pass: string; player: { id: string; name: string } }> {
@@ -160,6 +162,57 @@ describe("game server registry", () => {
     const { GAME_SERVERS } = await import("../../apps/rooms/src/registry.ts");
     const { BUILT_IN_GAME_SERVERS } = await import("@zaisma/core");
     expect(Object.keys(GAME_SERVERS).sort()).toEqual([...BUILT_IN_GAME_SERVERS].sort());
+  });
+});
+
+describe("reserved rooms", () => {
+  beforeEach(async () => {
+    await e.DB.exec("DELETE FROM room_usage; DELETE FROM live_rooms; DELETE FROM games;");
+  });
+
+  const until = async (c: { next: () => Promise<any> }, t: string) => {
+    for (;;) {
+      const m = await c.next();
+      if (m.t === t) return m;
+    }
+  };
+
+  async function hello(game: string, code: string, msg: Record<string, unknown>, pass?: { pass: string; player: { id: string; name: string } }) {
+    const p = pass ?? (await getPass(game));
+    const c = await connect(game, code);
+    c.ws.send(JSON.stringify({ t: "hello", pass: p.pass, ...msg }));
+    return { ...c, pass: p.pass, player: p.player, first: await c.next() };
+  }
+
+  it("move a lobby's players to a match room set up for them, which nobody else can join", async () => {
+    await addGame("four", { server: "four-in-a-row" });
+    const a = await hello("four", "LBBYAA", { room: { labels: { Room: "Lobby" } } });
+    const b = await hello("four", "LBBYAA", {});
+    expect([a.first.t, b.first.t]).toEqual(["welcome", "welcome"]);
+    const [ma, mb] = [await until(a, "move"), await until(b, "move")];
+    expect(ma.code).toBe(mb.code);
+
+    // The room is waiting for them before they hear its code, so nobody else can start it first.
+    const stranger = await hello("four", ma.code, {});
+    expect(stranger.first).toMatchObject({ t: "error", code: "closed" });
+
+    const bIn = await hello("four", ma.code, {}, b);
+    expect(bIn.first).toMatchObject({ t: "welcome", room: { listed: false, open: false } });
+    const board = await until(bIn, "msg");
+    expect(board.d.seats).toEqual([a.player.id, b.player.id]);
+    expect(board.d.names).toEqual([a.player.name, b.player.name]);
+    const aIn = await hello("four", ma.code, {}, a);
+    expect(aIn.first.t).toBe("welcome");
+    // Hidden from the game's room list.
+    const live = async () => e.DB.prepare("SELECT listed, open, players FROM live_rooms WHERE code = ?").bind(ma.code).first();
+    for (let i = 0; i < 40 && (await live())?.players !== 2; i++) await new Promise((r) => setTimeout(r, 20));
+    expect(await live()).toEqual({ listed: 0, open: 0, players: 2 });
+  });
+
+  it("refuse join data that's too big", async () => {
+    await addGame("four", { server: "four-in-a-row" });
+    const c = await hello("four", "DATAAA", { data: "x".repeat(5000) });
+    expect(c.first).toMatchObject({ t: "error", code: "too-big" });
   });
 });
 

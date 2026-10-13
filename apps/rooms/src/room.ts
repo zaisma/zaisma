@@ -1,5 +1,19 @@
 import { DurableObject } from "cloudflare:workers";
-import { CLOSE_REFUSED, PassError, RoomCore, errorMessage, roomInfo, verifyPass, type Player, type RoomErrorCode, type RoomInfo, type SavedRoom } from "@zaisma/game-server";
+import {
+  CLOSE_REFUSED,
+  PassError,
+  RoomCore,
+  errorMessage,
+  roomData,
+  roomInfo,
+  verifyPass,
+  type Player,
+  type RoomErrorCode,
+  type RoomInfo,
+  type RoomStart,
+  type SavedRoom,
+  type ServerMessage,
+} from "@zaisma/game-server";
 import { gameServer } from "./registry.ts";
 import { signingKey, type Env } from "./index.ts";
 
@@ -39,6 +53,7 @@ const KEEP_EMPTY_MS = 24 * 3600 * 1000;
 /** How often a room with players checks in, so rooms that stop without saying so drop off. */
 const CHECK_IN_MS = 3600 * 1000;
 
+
 /**
  * One room: one live match running one copy of the game server. Uses the WebSocket
  * Hibernation API, so a turn-based room costs nothing between moves: its state is
@@ -57,6 +72,8 @@ export class Room extends DurableObject<Env> {
   private browsing: string | null = null;
   /** What this room last wrote to live_rooms ("" for no row), so unchanged rooms don't write again. */
   private listedAs: string | undefined = undefined;
+  /** Rooms this room is still setting up for its players (room.reserve), so it doesn't sleep before they're told. */
+  private moving: Promise<void>[] = [];
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -72,6 +89,8 @@ export class Room extends DurableObject<Env> {
   }
 
   async fetch(request: Request): Promise<Response> {
+    // Another room of the same game reserving this one (only rooms can reach this; players' requests are WebSockets).
+    if (request.method === "POST" && new URL(request.url).pathname === "/reserve") return this.reserved(request);
     if (!this.meta || !this.meta.code) {
       this.meta = {
         gameId: request.headers.get("x-game-id")!,
@@ -109,6 +128,7 @@ export class Room extends DurableObject<Env> {
     if (Date.now() - this.lastCheck > CHECK_MS && !(await this.gameStillLive())) return;
     const err = core.receive(att.id, data);
     if (err) ws.send(errorMessage(err));
+    await this.moved();
     await this.save();
     if (core.listingChanged) await this.list();
   }
@@ -148,16 +168,42 @@ export class Room extends DurableObject<Env> {
     }
   }
 
+  /**
+   * Set this room up for the players another room reserved it for: closed to everyone else, hidden
+   * unless the game listed it, and starting with the game's data. A room that's already in use says no.
+   */
+  private async reserved(request: Request): Promise<Response> {
+    if (this.meta || this.savedRoom) return new Response("This room is taken", { status: 409 });
+    const start = (await request.json()) as RoomStart;
+    this.meta = {
+      gameId: request.headers.get("x-game-id")!,
+      slug: request.headers.get("x-game-slug")!,
+      server: request.headers.get("x-game-server")!,
+      code: request.headers.get("x-room-code")!,
+      country: request.headers.get("x-room-country") || null,
+      continent: request.headers.get("x-room-continent") || null,
+    };
+    this.savedRoom = { listed: start.listed, open: false, name: start.name, labels: start.labels, known: start.players, data: start.data };
+    // Like an empty room: cleared after a day if nobody comes.
+    await this.ctx.storage.put({ meta: this.meta, room: this.savedRoom, emptySince: Date.now() });
+    await this.ctx.storage.setAlarm(Date.now() + KEEP_EMPTY_MS);
+    return new Response(null, { status: 204 });
+  }
+
   private async hello(ws: WebSocket, text: string): Promise<void> {
     let pass: unknown;
-    let made: { listed?: boolean } & RoomInfo = {};
+    let made: { listed?: boolean; data?: unknown } & RoomInfo = {};
     try {
-      const msg = JSON.parse(text) as { t?: unknown; pass?: unknown; room?: { listed?: unknown; name?: unknown; labels?: unknown } };
+      const msg = JSON.parse(text) as { t?: unknown; pass?: unknown; data?: unknown; room?: { listed?: unknown; name?: unknown; labels?: unknown } };
       if (msg.t !== "hello") return this.refuse(ws, "no-hello");
       pass = msg.pass;
       // How the player who makes the room sets it up; the room takes it only from them.
       const room = msg.room && typeof msg.room === "object" ? msg.room : {};
       made = { ...(room.listed === false ? { listed: false } : {}), ...roomInfo(room as RoomInfo) };
+      // What the player brings for the game server's onJoin, like the character they picked.
+      const data = roomData(msg.data);
+      if (!data.ok) return this.refuse(ws, "too-big");
+      made.data = data.data;
     } catch {
       return this.refuse(ws, "no-hello");
     }
@@ -186,6 +232,7 @@ export class Room extends DurableObject<Env> {
     if (!result.ok) return this.refuse(ws, result.code);
     if (core.players.size === 1) await this.ctx.storage.delete("emptySince");
     this.startTicking(core);
+    await this.moved();
     await this.save();
     await this.list();
   }
@@ -290,6 +337,27 @@ export class Room extends DurableObject<Env> {
     }
   }
 
+  /**
+   * The game reserved a room (room.reserve): set it up, then tell its players where to go. Players
+   * learn the code only once the room is waiting for them, so nobody else can get there first.
+   */
+  private reserve(code: string, start: RoomStart): void {
+    const meta = this.meta!;
+    const work = (async () => {
+      const headers = { "x-game-id": meta.gameId, "x-game-slug": meta.slug, "x-game-server": meta.server, "x-room-code": code, "x-room-country": meta.country ?? "", "x-room-continent": meta.continent ?? "" };
+      const res = await this.env.ROOMS.get(this.env.ROOMS.idFromName(`${meta.slug}:${code}`)).fetch("https://room/reserve", { method: "POST", headers, body: JSON.stringify(start) });
+      if (!res.ok) throw new Error(`room ${code} said ${res.status}`);
+      const text = JSON.stringify({ t: "move", code } satisfies ServerMessage);
+      for (const id of start.players) this.sockets(id).forEach((ws) => ws.send(text));
+    })().catch((err) => console.error("Couldn't reserve a room:", err));
+    this.moving.push(work);
+  }
+
+  /** Wait for reserved rooms still being set up. */
+  private async moved(): Promise<void> {
+    while (this.moving.length) await Promise.all(this.moving.splice(0));
+  }
+
   /** The room's game server, built on first use or after waking from hibernation. */
   private room(): RoomCore | null {
     if (this.core) return this.core;
@@ -306,6 +374,7 @@ export class Room extends DurableObject<Env> {
           this.retire(ws);
           ws.close(code, reason);
         }),
+      reserve: (code: string, start: RoomStart) => this.reserve(code, start),
     };
     // Turn-based rooms wake with their saved state. A ticking room's state isn't saved,
     // so if one is ever evicted mid-match, it starts fresh and everyone joins again.
