@@ -139,6 +139,21 @@ describe("sandboxed game servers", () => {
     expect((await a.next()).d).toBe(`Hello ${a.player.name}`);
   });
 
+  it("loads data and WebAssembly from the folder", async () => {
+    await addSandboxGame("wasm", COUNTER);
+    await e.GAMES.delete("games/vwasm/zaisma-server.js");
+    // A tiny WebAssembly module whose answer() returns 42.
+    const wasm = new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 127, 3, 2, 1, 0, 7, 10, 1, 6, 97, 110, 115, 119, 101, 114, 0, 0, 10, 6, 1, 4, 0, 65, 42, 11]);
+    await e.GAMES.put("games/vwasm/zaisma-server/answer.wasm", wasm);
+    await e.GAMES.put("games/vwasm/zaisma-server/levels.json", JSON.stringify({ first: "Docks" }));
+    await e.GAMES.put(
+      "games/vwasm/zaisma-server/index.js",
+      `import mod from "./answer.wasm";\nimport levels from "./levels.json";\nconst wasm = new WebAssembly.Instance(mod);\nexport default { setup: () => ({}), onJoin(state, player, room) { room.send(player.id, { answer: wasm.exports.answer(), level: levels.first }); } };`,
+    );
+    const a = await join("wasm", "ABCDEF");
+    expect((await a.next()).d).toEqual({ answer: 42, level: "Docks" });
+  });
+
   it("leaves a game without a game server file unavailable", async () => {
     await addSandboxGame("empty", COUNTER);
     await e.GAMES.delete("games/vempty/zaisma-server.js");
