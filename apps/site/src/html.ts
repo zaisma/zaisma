@@ -278,14 +278,14 @@ pre{white-space:pre-wrap;word-break:break-word;background:#0d0f12;padding:12px;f
 dialog{color:var(--text);border:0;padding:0}
 dialog::backdrop{background:rgba(0,0,0,.65);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)}
 
-/* Working: a small square turning, only after the player presses something. */
-.spin{width:12px;height:12px;flex:none;border:2px solid currentColor;border-right-color:transparent;animation:spin .8s linear infinite}
-.metal .spin{display:inline-block;margin-right:10px;vertical-align:-1px}
+/* Working: the Z building itself, only after the player presses something. Masked so it takes the text color. */
+.spin{width:19px;height:14px;flex:none;background:currentColor;-webkit-mask:url(/loader/zaisma-loader.svg) center/contain no-repeat;mask:url(/loader/zaisma-loader.svg) center/contain no-repeat}
+.metal .spin{display:inline-block;margin-right:10px;vertical-align:-2px}
 [aria-busy=true]{cursor:progress}
 [aria-busy=true] svg{display:none}
-@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes spin-calm{50%{opacity:.4}}
 @media (max-width:640px){main{padding:20px 16px 56px}header.top .in{padding:0 16px;gap:0 18px}.grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.tile .name small{display:none}.tile .body{padding:8px 8px 8px 10px}.tile .name span{font-size:15px}}
-@media (prefers-reduced-motion:reduce){.metal,.tile{transition:none}.hit.block:hover .tile,.hit.block:focus-within .tile{--s:1}.ambient i{transition:none}.spin{animation-duration:2.4s}}
+@media (prefers-reduced-motion:reduce){.metal,.tile{transition:none}.hit.block:hover .tile,.hit.block:focus-within .tile{--s:1}.ambient i{transition:none}.spin{-webkit-mask-image:url(/zaisma-mark-small-white.svg);mask-image:url(/zaisma-mark-small-white.svg);animation:spin-calm 2.4s ease-in-out infinite}}
 `;
 
 // Runs the metal hover on every page: one listener for all .hit areas, at most one update per frame.
