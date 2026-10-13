@@ -3,10 +3,11 @@
 // tried and iterated on before anything goes live. Run: npm run preview (add --reset for fresh data).
 // Uses its own data folder and ports, so it never touches your dev data or the live site.
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { cpSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deflateSync } from "node:zlib";
+import { transformSync } from "esbuild";
 import { startFakeAuth } from "./fake-auth.mjs";
 import { openTestRooms, pretendRoomsSql } from "./test-rooms.mjs";
 
@@ -85,12 +86,14 @@ if (fresh) {
   await seed();
   writeFileSync(join(STATE, "seeded"), new Date().toISOString());
 }
+// Arena runs its own game server (the zaisma-server.js in its upload) in a sandbox, like an outside
+// developer's game would; Four in a Row uses the copy built into our rooms.
 // The two multiplayer demos run on our rooms (also for preview data made before rooms were in the preview).
 // Cave Crew uses the relay, to show closed and hidden rooms. Rooms from the last run are gone.
 spawnSync(
   "npx",
   ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command",
-    "UPDATE games SET game_server = slug WHERE slug IN ('arena', 'four-in-a-row') AND game_server IS NULL; UPDATE games SET game_server = 'relay' WHERE slug = 'cave-crew' AND game_server IS NULL; DELETE FROM live_rooms"],
+    "UPDATE games SET game_server = 'sandbox' WHERE slug = 'arena'; UPDATE games SET game_server = slug WHERE slug = 'four-in-a-row' AND game_server IS NULL; UPDATE games SET game_server = 'relay' WHERE slug = 'cave-crew' AND game_server IS NULL; DELETE FROM live_rooms"],
   { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } },
 );
 // Test players keep a few rooms open, so the Rooms tab has something in it. Cave Crew also lists
@@ -121,6 +124,15 @@ Stop with Ctrl+C. Fresh data: npm run preview -- --reset
 `);
 
 // --- Test data, made through the same pages and API that people use ---
+
+/** A game folder with its game server beside it as zaisma-server.js (types stripped), like a developer would upload. */
+function withServer(example, name) {
+  const out = join(STATE, "uploads", name);
+  rmSync(out, { recursive: true, force: true });
+  cpSync(join(ROOT, example, "game"), out, { recursive: true });
+  writeFileSync(join(out, "zaisma-server.js"), transformSync(readFileSync(join(ROOT, example, "server.ts"), "utf8"), { loader: "ts", format: "esm" }).code);
+  return out;
+}
 
 async function seed() {
   const jar = new Map();
@@ -154,7 +166,7 @@ async function seed() {
     return data;
   };
   const upload = (folder, slug, notes) =>
-    spawnSync("node", [join(ROOT, "packages/cli/zaisma.mjs"), "upload", join(ROOT, folder), "--game", slug, "--notes", notes], {
+    spawnSync("node", [join(ROOT, "packages/cli/zaisma.mjs"), "upload", resolve(ROOT, folder), "--game", slug, "--notes", notes], {
       env: { ...process.env, ZAISMA_API: SITE, ZAISMA_KEY: key },
       stdio: "ignore",
     });
@@ -167,7 +179,7 @@ async function seed() {
 
   const games = [
     { title: "Shard Dodge", folder: "examples/hello-game", color: [70, 140, 220], description: "Dodge the falling shards for as long as you can. Arrow keys, mouse or finger.", devices: ["phone", "tablet", "computer"], controls: ["touch", "keyboard-mouse"], players: { single: true, local: null, online: null } },
-    { title: "Arena", folder: "examples/arena/game", color: [150, 70, 160], description: "Bump your friends off the platform. Last one standing wins the round.", devices: ["computer"], controls: ["keyboard-mouse", "gamepad"], players: { single: false, local: { min: 2, max: 4, style: "versus" }, online: { min: 2, max: 8, style: "versus" } } },
+    { title: "Arena", folder: withServer("examples/arena", "arena"), color: [150, 70, 160], description: "Bump your friends off the platform. Last one standing wins the round.", devices: ["computer"], controls: ["keyboard-mouse", "gamepad"], players: { single: false, local: { min: 2, max: 4, style: "versus" }, online: { min: 2, max: 8, style: "versus" } } },
     { title: "Four in a Row", folder: "examples/four-in-a-row/game", color: [200, 140, 50], description: "The classic: drop your pieces and line up four before your friend does.", devices: ["phone", "tablet", "computer"], controls: ["touch", "keyboard-mouse"], players: { single: false, local: { min: 2, max: 2, style: "versus" }, online: { min: 2, max: 2, style: "versus" } } },
     { title: "Night Drive", folder: "examples/hello-game", color: [40, 50, 90], description: "", devices: [], controls: [] },
     { title: "Tiny Farm", folder: "scripts/preview/tiny-farm", color: [90, 140, 60], description: "Harvest carrots. It saves like a Unity game does (in IndexedDB), to try cloud saves.", devices: ["phone", "tablet", "computer"], controls: ["touch", "keyboard-mouse"], players: { single: true, local: null, online: null } },

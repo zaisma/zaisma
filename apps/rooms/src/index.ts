@@ -1,11 +1,13 @@
 import { PLAYER_REPORT_REASONS, checkText, createReport, listRooms, readLabelParam, tidyText, type PlayerReportReason } from "@zaisma/core";
 import { guestName, isRoomCode, jwks, loadSigningKey, roomCode, signPass, type SigningKey } from "@zaisma/game-server";
-import { gameServer } from "./registry.ts";
+import { usesRooms } from "./registry.ts";
 
 export { Room } from "./room.ts";
 
 export interface Env {
   DB: D1Database;
+  GAMES: R2Bucket;
+  LOADER: WorkerLoader;
   ROOMS: DurableObjectNamespace;
   PASS_LIMIT?: RateLimit;
   ROOM_LIMIT?: RateLimit;
@@ -132,7 +134,7 @@ export default {
         return json({ ok: true }, 200, cors);
       }
 
-      if (!gameServer(game.game_server)) return json({ error: "This game doesn't use Zaisma rooms." }, 404, cors);
+      if (!usesRooms(game.game_server)) return json({ error: "This game doesn't use Zaisma rooms." }, 404, cors);
       if (await limited(env.ROOM_LIMIT, request)) return json({ error: "Too many requests. Try again in a minute." }, 429, cors);
       return json({ code: roomCode() }, 200, cors);
     }
@@ -143,7 +145,7 @@ export default {
       const slug = list[1]!;
       if (!(await isGameOrigin(env, slug, origin))) return json({ error: "Not allowed from here." }, 403);
       const game = await playableGame(env.DB, slug);
-      if (!game || !gameServer(game.game_server)) return json({ error: "This game doesn't use Zaisma rooms." }, 404, origin!);
+      if (!game || !usesRooms(game.game_server)) return json({ error: "This game doesn't use Zaisma rooms." }, 404, origin!);
       if (game.room_browsing === "off") return json({ rooms: [], playing: { players: 0, rooms: 0, closed: 0 }, joinable: 0, regions: [], region: null, more: 0, filters: [] }, 200, origin!);
       const found = await listRooms(env.DB, game.id, {
         country: request.cf?.country as string | undefined,
@@ -162,12 +164,13 @@ export default {
       if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") return new Response("Expected a WebSocket", { status: 426 });
       if (!isRoomCode(code) || !(await isGameOrigin(env, slug, origin))) return new Response("Not allowed from here", { status: 403 });
       const game = await playableGame(env.DB, slug);
-      if (!game || !gameServer(game.game_server)) return new Response("This game isn't available right now", { status: 404 });
+      if (!game || !usesRooms(game.game_server)) return new Response("This game isn't available right now", { status: 404 });
 
       const headers = new Headers(request.headers);
       headers.set("x-game-id", game.id);
       headers.set("x-game-slug", game.slug);
       headers.set("x-game-server", game.game_server!);
+      headers.set("x-game-version", game.current_version_id!);
       headers.set("x-room-code", code);
       // Where the room's first player is (country and continent), so room lists can say where it runs.
       headers.set("x-room-country", String(request.cf?.country ?? ""));

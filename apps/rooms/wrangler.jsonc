@@ -18,6 +18,9 @@
   // One Durable Object per room, SQLite-backed (required on the free plan), always with WebSocket hibernation.
   "durable_objects": { "bindings": [{ "name": "ROOMS", "class_name": "Room" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }],
+  // Developers' game servers run in Dynamic Workers (sandbox.ts); their files come from the games bucket.
+  "worker_loaders": [{ "binding": "LOADER" }],
+  "r2_buckets": [{ "binding": "GAMES", "bucket_name": "zaisma-games" }],
   "d1_databases": [{ "binding": "DB", "database_name": "zaisma", "database_id": "bffea7a7-f905-4eaf-84f2-97b1fb6bf932", "migrations_dir": "../../migrations" }],
   "ratelimits": [
     { "name": "PASS_LIMIT", "namespace_id": "1002", "simple": { "limit": 20, "period": 60 } },

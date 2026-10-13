@@ -7,7 +7,7 @@
  * running one copy of the game server.
  */
 
-import { roomCode } from "./names.ts";
+import { isRoomCode, roomCode } from "./names.ts";
 
 export interface Player {
   id: string;
@@ -226,6 +226,13 @@ export class RoomCore<S = any> {
   private readonly api: Room;
   readonly server: GameServer<S>;
   private readonly transport: Transport;
+  /**
+   * Set once a handler returns a promise (a game server in a sandbox): from then on handlers run
+   * one after another, each with the state the last one left.
+   */
+  private queue: Promise<void> | null = null;
+  /** Handlers waiting in the queue, so ticks don't pile up behind a slow game server. */
+  private waiting = 0;
 
   /**
    * opts.start makes a reserved room: closed, open only to the players it was made for, and set up
@@ -253,7 +260,14 @@ export class RoomCore<S = any> {
       this.data = opts.start.data;
     }
     for (const p of this.players.values()) this.remember(p.id);
-    this.state = opts.state !== undefined ? opts.state : server.setup(this.data);
+    if (opts.state !== undefined) this.state = opts.state;
+    else {
+      const first = server.setup(this.data) as S | Promise<S>;
+      if (isPromise(first)) {
+        this.state = undefined as S;
+        this.run(() => first);
+      } else this.state = first;
+    }
     const core = this;
     this.api = {
       get players() {
@@ -286,6 +300,15 @@ export class RoomCore<S = any> {
   /** What a sleeping room saves besides the game's state. */
   get saved(): SavedRoom {
     return { ...this.settings(), known: [...this.known], ...(this.data !== undefined ? { data: this.data } : {}) };
+  }
+
+  /** Resolves once every handler started so far has finished (at once for game servers that answer at once). */
+  async settled(): Promise<void> {
+    while (this.queue) {
+      const q = this.queue;
+      await q;
+      if (this.queue === q) return;
+    }
   }
 
   get ticking(): boolean {
@@ -376,7 +399,7 @@ export class RoomCore<S = any> {
   }
 
   /** A room made for some of this room's players (room.reserve). Mistakes in the game's call throw. */
-  private reserve(opts: ReserveOptions): string {
+  private reserve(opts: ReserveOptions & { code?: unknown }): string {
     if (!this.transport.reserve) throw new Error("Reserved rooms aren't available here");
     if (this.ended) throw new Error("This room has ended");
     const players = [...new Set(Array.isArray(opts?.players) ? opts.players : [])].filter((id) => this.players.has(id));
@@ -388,7 +411,8 @@ export class RoomCore<S = any> {
     if (this.reservedAt.length >= ROOM_LIMITS.reservesPerMinute) throw new Error(`A room can reserve up to ${ROOM_LIMITS.reservesPerMinute} rooms a minute`);
     this.reservedAt.push(now);
     const info = roomInfo({ name: opts.name ?? null, labels: opts.labels ?? {} });
-    const code = roomCode();
+    // A game server in a sandbox picks the code itself, since it tells the game at once.
+    const code = typeof opts.code === "string" && isRoomCode(opts.code) ? opts.code : roomCode();
     this.transport.reserve(code, { players, data: data.data, listed: opts.listed === true, name: info.name ?? null, labels: info.labels ?? {} });
     return code;
   }
@@ -401,6 +425,8 @@ export class RoomCore<S = any> {
 
   tick(dt: number): void {
     if (this.ended || !this.server.onTick) return;
+    // A game server that hasn't caught up skips this tick; dt carries the time over to the next one.
+    if (this.waiting > 1) return;
     this.run(() => this.server.onTick!(this.state, dt, this.api));
   }
 
@@ -443,15 +469,41 @@ export class RoomCore<S = any> {
   }
 
   /** Run a game server handler. A crash in game code is logged and never takes the room down. */
-  private run(fn: () => Result<S>): void {
-    try {
-      const next = fn();
-      if (next !== undefined) this.state = next as S;
-      this.dirty = true;
-    } catch (err) {
-      console.error("Game server error:", err);
+  private run(fn: () => Result<S> | Promise<Result<S>>): void {
+    if (!this.queue) {
+      let next: Result<S> | Promise<Result<S>>;
+      try {
+        next = fn();
+      } catch (err) {
+        console.error("Game server error:", err);
+        return;
+      }
+      if (!isPromise(next)) {
+        if (next !== undefined) this.state = next as S;
+        this.dirty = true;
+        return;
+      }
+      this.queue = Promise.resolve();
+      const started = next;
+      fn = () => started;
     }
+    this.waiting++;
+    this.queue = this.queue.then(async () => {
+      try {
+        const next = await fn();
+        if (next !== undefined) this.state = next as S;
+        this.dirty = true;
+      } catch (err) {
+        console.error("Game server error:", err);
+      } finally {
+        this.waiting--;
+      }
+    });
   }
+}
+
+function isPromise<T>(v: unknown): v is Promise<T> {
+  return typeof (v as { then?: unknown } | null)?.then === "function";
 }
 
 // Characters that hide text or flip its direction.
