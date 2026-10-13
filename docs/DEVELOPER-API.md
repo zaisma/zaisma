@@ -48,7 +48,7 @@ Secret links that open the game's live version for anyone who has them, whatever
 | --- | --- |
 | `GET /games/:slug/testers` | The links that are on: `{"id", "name", "url", "created_at", "opened_at"}`. `opened_at` is when someone last opened it (to the hour), or `null`. |
 | `POST /games/:slug/testers` | Make one: `{"name"}`, 1 to 60 characters. Up to 50 per game. |
-| `DELETE /games/:slug/testers/:id` | Turn one off for good. It stops opening the game straight away; make a new one to let that group back in. |
+| `DELETE /games/:slug/testers/:id` | Turn one off for good. It stops opening the game straight away, and players who came through it are let go from their multiplayer matches within about 10 seconds. A game already open in their browser keeps running until they leave or reload. Make a new one to let that group back in. |
 
 - A link looks like `https://zaisma.com/t/<secret>`: the game page with the game, marked as a test and kept out of search engines. The game itself runs at `https://<slug>--<secret>.zaismausercontent.com/`.
 - Multiplayer works through it: room invites and `Zaisma.rooms.list()` links point back to the tester link, not the public page. The game page's room list isn't shown on tester links.

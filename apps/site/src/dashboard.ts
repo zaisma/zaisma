@@ -76,7 +76,7 @@ const DONE: Record<string, string> = {
   scheduled: "Scheduled.",
   unscheduled: "It won't be published by itself.",
   "tester-added": "Tester link made. Copy it below and send it to your testers.",
-  "tester-removed": "Tester link turned off. It stopped working straight away.",
+  "tester-removed": "Tester link turned off. It stopped working straight away, and its testers leave their multiplayer matches within 10 seconds.",
 };
 
 export async function handleDashboard(request: Request, env: Env, path: string): Promise<Response | null> {

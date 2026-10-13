@@ -79,12 +79,48 @@ describe("rooms", () => {
     const link = await addTesterLink(e.DB, id, "Team");
     const at = (host: string) => gameOrigin(sub, "hidden-arena", `https://${host}`);
     expect(await at("hidden-arena.zaismausercontent.com")).toEqual({ page: "/g/hidden-arena" });
-    expect(await at(`hidden-arena--${link.token}.zaismausercontent.com`)).toEqual({ page: `/t/${link.token}` });
+    expect(await at(`hidden-arena--${link.token}.zaismausercontent.com`)).toEqual({ page: `/t/${link.token}`, tester: link.id });
     expect(await at(`other--${link.token}.zaismausercontent.com`)).toBeNull();
     expect(await at(`hidden-arena--${link.token}.evil.example`)).toBeNull();
     expect(await at(`hidden-arena--${"a".repeat(20)}.zaismausercontent.com`)).toBeNull();
     await revokeTesterLink(e.DB, id, link.id);
     expect(await at(`hidden-arena--${link.token}.zaismausercontent.com`)).toBeNull();
+    await e.DB.exec("DELETE FROM tester_links;");
+  });
+
+  it("lets players go once the tester link they came through is turned off", async () => {
+    const id = await addGame("arena");
+    const link = await addTesterLink(e.DB, id, "Team");
+    // As the rooms Worker hands over a player from a tester link's origin.
+    const res = await e.ROOMS.get(e.ROOMS.idFromName("arena:TSTRMS")).fetch("https://room/", {
+      headers: { Upgrade: "websocket", "x-game-id": id, "x-game-slug": "arena", "x-game-server": "relay", "x-game-version": "v1", "x-room-code": "TSTRMS", "x-tester-link": link.id },
+    });
+    const tester = res.webSocket!;
+    tester.accept();
+    const said: any[] = [];
+    tester.addEventListener("message", (ev) => said.push(JSON.parse(ev.data as string)));
+    const testerClosed = new Promise<number>((r) => tester.addEventListener("close", (ev) => r(ev.code)));
+    tester.send(JSON.stringify({ t: "hello", pass: (await getPass("arena")).pass }));
+    const other = await join("arena", "TSTRMS");
+    expect((await other.next()).players).toHaveLength(2);
+
+    // Still on: nothing happens.
+    other.ws.send(JSON.stringify({ t: "msg", d: 1 }));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(said.some((m) => m.t === "error")).toBe(false);
+
+    await revokeTesterLink(e.DB, id, link.id);
+    await runInDurableObject(e.ROOMS.get(e.ROOMS.idFromName("arena:TSTRMS")), (room: Room) => {
+      (room as unknown as { lastTesterCheck: number }).lastTesterCheck = 0;
+    });
+    other.ws.send(JSON.stringify({ t: "msg", d: 2 }));
+    expect(await testerClosed).toBe(4001);
+    expect(said).toContainEqual(expect.objectContaining({ t: "error", code: "game-unavailable" }));
+    // Everyone else plays on without them.
+    let left: any;
+    do left = await other.next();
+    while (!left.players || left.players.length !== 1);
+    expect(left.players.map((p: any) => p.id)).toEqual([other.player.id]);
     await e.DB.exec("DELETE FROM tester_links;");
   });
 

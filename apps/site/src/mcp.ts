@@ -186,7 +186,7 @@ const TOOLS: Tool[] = [
   {
     name: "remove_tester_link",
     title: "Turn off a tester link",
-    description: "Turn off a tester link by its ID from get_game, for good: it stops opening the game straight away. Make a new one to let that group back in.",
+    description: "Turn off a tester link by its ID from get_game, for good: it stops opening the game straight away, and players who came through it leave their multiplayer matches within about 10 seconds. Make a new one to let that group back in.",
     inputSchema: object({ slug, tester_id: { type: "string" } }, ["slug", "tester_id"]),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     run: (args, call) => call("DELETE", `/games/${str(args.slug)}/testers/${str(args.tester_id)}`),
