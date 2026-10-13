@@ -593,7 +593,7 @@ export function legal(env: Env, page: string): Response | null {
   return layout(env, { title: `${p.title} · Zaisma`, body: html`<h1>${p.title}</h1>${raw(p.body)}` });
 }
 
-// DRAFT: Julius approves this wording before it's deployed.
+// DRAFT: Julius approves this wording before it's deployed. The faked-plays rule was approved Oct 13, 2026.
 const CONTENT_RULES = `
 <p class="lead">Zaisma is for players 13 and up. Any kind of game is welcome, within these rules.</p>
 <h2>Not allowed</h2>
@@ -633,7 +633,7 @@ const DMCA = `
 <p>If your game was removed and you believe it was a mistake or you have permission, email the same address with a counter-notice. We'll forward it to the person who filed the claim.</p>
 `;
 
-// Approved by Julius on Oct 12, 2026; the play stats line on Oct 13, 2026. DRAFT: the play-check wording in that line waits for his OK.
+// Approved by Julius on Oct 12, 2026; the play stats and play-check lines on Oct 13, 2026.
 const PRIVACY = `
 <p class="lead">Zaisma keeps as little about you as it can. Playing needs no account, and guests leave nothing behind.</p>
 <h2>Playing as a guest</h2>

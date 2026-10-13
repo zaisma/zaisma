@@ -11,6 +11,8 @@
   "assets": { "directory": "../../brand" },
   "vars": {
     "SITE_ORIGIN": "https://zaisma.com",
+    // Cloudflare Turnstile widget "Zaisma Play check" (invisible). The secret is TURNSTILE_SECRET.
+    "TURNSTILE_SITE_KEY": "0x4AAAAAAFVvWotEFKr9rHTI",
     // Games live at <slug>.zaismausercontent.com. GAME_ORIGIN is only used in path mode (local dev).
     "GAME_HOST_MODE": "subdomain",
     "GAME_ORIGIN": "https://zaismausercontent.com",
