@@ -133,7 +133,6 @@ footer { color: var(--muted); font-size: 13px; border-top: 1px solid var(--line)
   summary .track { width: 72px; }
 }
 @media (prefers-reduced-motion: no-preference) {
-  html { scroll-behavior: smooth; }
   .meter i, summary .track i { transition: width .4s ease; }
 }
 </style>
@@ -309,6 +308,22 @@ function render() {
 }
 
 const smooth = () => !matchMedia("(prefers-reduced-motion: reduce)").matches;
+// A quick eased scroll (the browser's own smooth scroll is slow and can't be tuned): 250 to 450 ms by distance, easing out.
+// Scrolling with the wheel or a finger takes over at once.
+let gliding = 0;
+function glide(to) {
+  const from = scrollY, dist = to - from;
+  if (!smooth() || Math.abs(dist) < 2) { scrollTo(0, to); return; }
+  const ms = Math.min(450, 250 + Math.abs(dist) / 20), start = performance.now(), run = ++gliding;
+  const step = (now) => {
+    if (run !== gliding) return;
+    const t = Math.min(1, (now - start) / ms);
+    scrollTo(0, from + dist * (1 - Math.pow(1 - t, 3)));
+    if (t < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+for (const ev of ["wheel", "touchstart", "keydown"]) addEventListener(ev, () => { gliding++; }, { passive: true });
 // Slide a pill row sideways so the highlighted pill is in view, without touching the page's own scroll.
 function reveal(row, pill) {
   const r = row.getBoundingClientRect(), b = pill.getBoundingClientRect();
@@ -322,7 +337,7 @@ function go(id) {
   const phase = el.closest("details.phase"); if (phase && !phase.open) phase.open = true;
   // Land the phase or track just above the line the bar reads from, so the bar names what you jumped to.
   const top = el.getBoundingClientRect().top + scrollY - document.querySelector(".bar").offsetHeight - LINE + 8;
-  scrollTo({ top: Math.max(0, top), behavior: smooth() ? "smooth" : "auto" });
+  glide(Math.max(0, top));
 }
 
 // Which phase and track sit under the sticky bar: shown in the bar, with that phase's tracks as jumps.
