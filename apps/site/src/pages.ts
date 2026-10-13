@@ -1,4 +1,4 @@
-import { gameBySlug, readPlayers } from "@zaisma/core";
+import { gameBySlug, readPlayers, testerLinkByToken, testerLinkOpened, type TesterLink } from "@zaisma/core";
 import { gameUrl, type Env } from "./env.ts";
 import { html, layout, message, metalButton, playerModes, raw, siteFooter, siteHeader, type Raw } from "./html.ts";
 import { showcase, tile } from "./home.ts";
@@ -8,21 +8,28 @@ import { codeBox, pageRooms, roomsOnPage, roomsPanel, tabCount } from "./rooms.t
 
 const ROOM_CODE = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/;
 
-export async function gamePage(env: Env, slug: string, request: Request): Promise<Response> {
+/**
+ * A game's page, or the same page opened through a tester link (zaisma.com/t/<token>), which plays
+ * the live version whatever the game's visibility. Testers' progress stays in their browser.
+ */
+export async function gamePage(env: Env, slug: string, request: Request, tester?: TesterLink): Promise<Response> {
   const url = new URL(request.url);
   const game = await gameBySlug(env.DB, slug);
-  if (!game || game.status === "pending" || game.visibility === "draft" || game.visibility === "private") return message(env, "Game not found", "Check the link and try again.", 404);
+  if (!game || (!tester && (game.status === "pending" || game.visibility === "draft" || game.visibility === "private"))) return message(env, "Game not found", "Check the link and try again.", 404);
   if (game.status === "removed") return message(env, "This game was removed", "It broke Zaisma's content rules or was taken down on request.", 410);
   if (game.status === "held") return message(env, "This game is being reviewed", "Someone reported it and we're taking a look. Try again later.", 404);
+  if (tester && (game.status === "pending" || !game.current_version_id)) return message(env, "Nothing to play yet", "The developer hasn't published a version of this game yet. Try the link again later.", 404);
+  const here = tester ? `/t/${tester.token}` : `/g/${game.slug}`;
+  const hidden = game.visibility === "draft" || game.visibility === "private";
 
   // A room link (zaisma.com/g/<slug>?room=CODE) drops the player straight into that match.
   const code = url.searchParams.get("room")?.toUpperCase() ?? "";
   const inRoom = ROOM_CODE.test(code);
-  const src = gameUrl(env, game.slug) + (inRoom ? `?room=${code}` : "");
-  const saves = Boolean(game.cloud_saves && env.SUPABASE_URL);
+  const src = gameUrl(env, tester ? `${game.slug}--${tester.token}` : game.slug) + (inRoom ? `?room=${code}` : "");
+  const saves = Boolean(game.cloud_saves && env.SUPABASE_URL && !tester);
   // Without a new tab, making an account or signing in comes back to the game.
-  const joinHere = `/join?next=${encodeURIComponent(`/g/${game.slug}?play`)}`;
-  const signinHere = `/signin?next=${encodeURIComponent(`/g/${game.slug}?play`)}`;
+  const joinHere = `/join?next=${encodeURIComponent(`${here}?play`)}`;
+  const signinHere = `/signin?next=${encodeURIComponent(`${here}?play`)}`;
   const multiplayer = Boolean(game.game_server || game.connect_hosts);
   const ownServers = game.connect_hosts.split("\n").filter(Boolean).map((o) => o.replace(/^[a-z]+:\/\//, ""));
   const autoplay = inRoom || url.searchParams.has("play");
@@ -34,7 +41,8 @@ export async function gamePage(env: Env, slug: string, request: Request): Promis
     env.DB.prepare("SELECT id, notes, published_at FROM versions WHERE game_id = ? AND published_at IS NOT NULL AND notes != '' ORDER BY published_at DESC LIMIT 10").bind(game.id).all<{ id: string; notes: string; published_at: number }>(),
     showcase(env, 60),
     // Games on Zaisma rooms: who's playing now, and the rooms to list if the developer shows them here.
-    game.game_server ? pageRooms(env, game, request) : null,
+    // Not on tester links: their rooms are reached by code and invite link.
+    game.game_server && !tester ? pageRooms(env, game, request) : null,
   ]);
   const rooms = live && roomsOnPage(game) ? live : null;
   const playingNow = live ? live.playing.players : 0;
@@ -281,6 +289,7 @@ ${siteHeader(env)}
   <div class="side plate bevel-l">
     <h1 id="title">${game.title}</h1>
     ${developer ? html`<p class="by">by ${developer.name}</p>` : ""}
+    ${tester ? html`<p class="note tester">You're testing this game with a link from its developer.${hidden ? " It isn't public yet: anyone with this link can play, so only share it with other testers." : ""} Your progress stays in this browser.</p>` : ""}
     ${live ? playingLine(playingNow, Boolean(rooms)) : ""}
     ${metalButton("Play", { id: "play", big: true, block: true, play: true })}
     <p class="note" id="device-note" hidden></p>
@@ -354,7 +363,7 @@ full.onclick = () => frame && frame.requestFullscreen();
 // The game only loads when the player taps Play. That tap also lets the game play sound straight away.
 function play() {
   if (frame) return;
-  remember();
+  ${raw(tester ? "// A tester link's game stays off Continue playing." : "remember();")}
   frame = document.getElementById("game-frame").content.firstElementChild.cloneNode(true);
   if (window.startSaves) startSaves(frame);
   document.body.appendChild(frame);
@@ -529,7 +538,7 @@ ${raw(autoplay ? "play();" : "")}
 </script>`,
   });
   // Unlisted games are for people with the link, never search engines.
-  if (game.visibility === "unlisted") res.headers.set("X-Robots-Tag", "noindex");
+  if (game.visibility === "unlisted" || tester) res.headers.set("X-Robots-Tag", "noindex");
   return res;
 }
 
@@ -555,6 +564,14 @@ const ICON_RULES = svg('<path d="M12 3l8 3v6c0 4.4-3.4 8.2-8 9-4.6-.8-8-4.6-8-9V
 const ICON_GAMES = svg('<rect x="4" y="4" width="7" height="7"/><rect x="13" y="4" width="7" height="7"/><rect x="4" y="13" width="7" height="7"/><rect x="13" y="13" width="7" height="7"/>');
 const ICON_OUT = svg('<path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v6H4V6h6"/>').replace("<svg ", '<svg class="ext" ');
 const ICON_MORE = svg('<circle cx="5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="19" cy="12" r="1.3" fill="currentColor"/>');
+
+/** zaisma.com/t/<token>: a tester link that's on opens its game, noting when it was last used. */
+export async function testerPage(env: Env, token: string, request: Request, ctx: ExecutionContext): Promise<Response> {
+  const link = await testerLinkByToken(env.DB, token);
+  if (!link) return message(env, "This link doesn't work", "The developer may have turned it off. Ask them for a fresh link.", 404);
+  ctx.waitUntil(testerLinkOpened(env.DB, link.id));
+  return gamePage(env, link.slug, request, link);
+}
 
 export function legal(env: Env, page: string): Response | null {
   const pages: Record<string, { title: string; body: string }> = {

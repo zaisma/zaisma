@@ -1,6 +1,7 @@
 import { env, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import type { Env } from "../../apps/rooms/src/index.ts";
+import { gameOrigin, type Env } from "../../apps/rooms/src/index.ts";
+import { addTesterLink, revokeTesterLink } from "@zaisma/core";
 import type { Room } from "../../apps/rooms/src/room.ts";
 
 const R = "https://rooms.zaisma.test";
@@ -58,7 +59,7 @@ async function join(game: string, code: string, opts: { listed?: false; from?: {
 
 describe("rooms", () => {
   beforeEach(async () => {
-    await e.DB.exec("DELETE FROM room_usage; DELETE FROM domains; DELETE FROM games;");
+    await e.DB.exec("DELETE FROM tester_links; DELETE FROM room_usage; DELETE FROM domains; DELETE FROM games;");
   });
 
   it("issues guest passes only to the game's own origin", async () => {
@@ -70,6 +71,57 @@ describe("rooms", () => {
     expect((await post("/v1/pass", "arena", "https://zaisma.test")).status).toBe(403);
     await addGame("held-one", { status: "held" });
     expect((await post("/v1/pass", "held-one")).status).toBe(404);
+  });
+
+  it("lets a tester link's origin in, with room links back through it", async () => {
+    const id = await addGame("hidden-arena");
+    const sub = { ...e, GAME_HOST_MODE: "subdomain", GAME_DOMAIN: "zaismausercontent.com" } as Env;
+    const link = await addTesterLink(e.DB, id, "Team");
+    const at = (host: string) => gameOrigin(sub, "hidden-arena", `https://${host}`);
+    expect(await at("hidden-arena.zaismausercontent.com")).toEqual({ page: "/g/hidden-arena" });
+    expect(await at(`hidden-arena--${link.token}.zaismausercontent.com`)).toEqual({ page: `/t/${link.token}`, tester: link.id });
+    expect(await at(`other--${link.token}.zaismausercontent.com`)).toBeNull();
+    expect(await at(`hidden-arena--${link.token}.evil.example`)).toBeNull();
+    expect(await at(`hidden-arena--${"a".repeat(20)}.zaismausercontent.com`)).toBeNull();
+    await revokeTesterLink(e.DB, id, link.id);
+    expect(await at(`hidden-arena--${link.token}.zaismausercontent.com`)).toBeNull();
+    await e.DB.exec("DELETE FROM tester_links;");
+  });
+
+  it("lets players go once the tester link they came through is turned off", async () => {
+    const id = await addGame("arena");
+    const link = await addTesterLink(e.DB, id, "Team");
+    // As the rooms Worker hands over a player from a tester link's origin.
+    const res = await e.ROOMS.get(e.ROOMS.idFromName("arena:TSTRMS")).fetch("https://room/", {
+      headers: { Upgrade: "websocket", "x-game-id": id, "x-game-slug": "arena", "x-game-server": "relay", "x-game-version": "v1", "x-room-code": "TSTRMS", "x-tester-link": link.id },
+    });
+    const tester = res.webSocket!;
+    tester.accept();
+    const said: any[] = [];
+    tester.addEventListener("message", (ev) => said.push(JSON.parse(ev.data as string)));
+    const testerClosed = new Promise<number>((r) => tester.addEventListener("close", (ev) => r(ev.code)));
+    tester.send(JSON.stringify({ t: "hello", pass: (await getPass("arena")).pass }));
+    const other = await join("arena", "TSTRMS");
+    expect((await other.next()).players).toHaveLength(2);
+
+    // Still on: nothing happens.
+    other.ws.send(JSON.stringify({ t: "msg", d: 1 }));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(said.some((m) => m.t === "error")).toBe(false);
+
+    await revokeTesterLink(e.DB, id, link.id);
+    await runInDurableObject(e.ROOMS.get(e.ROOMS.idFromName("arena:TSTRMS")), (room: Room) => {
+      (room as unknown as { lastTesterCheck: number }).lastTesterCheck = 0;
+    });
+    other.ws.send(JSON.stringify({ t: "msg", d: 2 }));
+    expect(await testerClosed).toBe(4001);
+    expect(said).toContainEqual(expect.objectContaining({ t: "error", code: "game-unavailable" }));
+    // Everyone else plays on without them.
+    let left: any;
+    do left = await other.next();
+    while (!left.players || left.players.length !== 1);
+    expect(left.players.map((p: any) => p.id)).toEqual([other.player.id]);
+    await e.DB.exec("DELETE FROM tester_links;");
   });
 
   it("publishes the pass key", async () => {

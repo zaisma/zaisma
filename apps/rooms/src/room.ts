@@ -20,7 +20,11 @@ import { SANDBOX, sandboxServer, type SandboxStats } from "./sandbox.ts";
 import { signingKey, type Env } from "./index.ts";
 
 /** A socket's saved details, kept through hibernation. */
-type Attachment = { stage: "hello"; at: number } | { stage: "in"; id: string; name: string; joinedAt: number } | { stage: "gone" };
+type Attachment =
+  | { stage: "hello"; at: number; tester?: string }
+  // tester: the tester link the player came through, which they can only play through while it's on.
+  | { stage: "in"; id: string; name: string; joinedAt: number; tester?: string }
+  | { stage: "gone" };
 
 interface Meta {
   gameId: string;
@@ -52,6 +56,8 @@ const HELLO_MS = 5000;
 const SPARE_SOCKETS = 4;
 /** How often a running room re-checks that its game is still live, so takedowns close rooms. */
 const CHECK_MS = 60_000;
+/** How often a room with players who came through tester links checks those links are still on. */
+const TESTER_CHECK_MS = 10_000;
 /** An empty room's saved state is deleted after this. */
 const KEEP_EMPTY_MS = 24 * 3600 * 1000;
 /** How often a room with players checks in, so rooms that stop without saying so drop off. */
@@ -75,6 +81,7 @@ export class Room extends DurableObject<Env> {
   private saved: unknown = undefined;
   private savedRoom: SavedRoom | undefined = undefined;
   private lastCheck = 0;
+  private lastTesterCheck = 0;
   private timer: ReturnType<typeof setInterval> | null = null;
   /** The game's room browsing setting, read with its status; null until read since waking. */
   private browsing: string | null = null;
@@ -122,7 +129,8 @@ export class Room extends DurableObject<Env> {
 
     const { 0: client, 1: socket } = new WebSocketPair();
     this.ctx.acceptWebSocket(socket);
-    socket.serializeAttachment({ stage: "hello", at: Date.now() } satisfies Attachment);
+    const tester = request.headers.get("x-tester-link") || undefined;
+    socket.serializeAttachment({ stage: "hello", at: Date.now(), ...(tester ? { tester } : {}) } satisfies Attachment);
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -136,6 +144,8 @@ export class Room extends DurableObject<Env> {
     const core = this.room();
     if (!core) return;
     if (Date.now() - this.lastCheck > CHECK_MS && !(await this.gameStillLive())) return;
+    if (Date.now() - this.lastTesterCheck > TESTER_CHECK_MS) await this.testerLinksStillOn();
+    if ((ws.deserializeAttachment() as Attachment).stage !== "in") return;
     const err = core.receive(att.id, data);
     if (err) ws.send(errorMessage(err));
     await core.settled();
@@ -206,6 +216,7 @@ export class Room extends DurableObject<Env> {
   }
 
   private async hello(ws: WebSocket, text: string): Promise<void> {
+    const tester = (ws.deserializeAttachment() as Attachment & { stage: "hello" }).tester;
     let pass: unknown;
     let made: { listed?: boolean; data?: unknown } & RoomInfo = {};
     try {
@@ -243,7 +254,7 @@ export class Room extends DurableObject<Env> {
       this.retire(other);
       other.close(CLOSE_REFUSED, "Joined from somewhere else");
     }
-    ws.serializeAttachment({ stage: "in", id: player.id, name: player.name, joinedAt: Date.now() } satisfies Attachment);
+    ws.serializeAttachment({ stage: "in", id: player.id, name: player.name, joinedAt: Date.now(), ...(tester ? { tester } : {}) } satisfies Attachment);
     const result = core.join(player, made);
     if (!result.ok) return this.refuse(ws, result.code);
     await core.settled();
@@ -452,6 +463,7 @@ export class Room extends DurableObject<Env> {
       last = now;
       if (core.ended) void this.finish();
       else if (now - this.lastCheck > CHECK_MS) void this.gameStillLive();
+      else if (now - this.lastTesterCheck > TESTER_CHECK_MS) void this.testerLinksStillOn();
       else if (core.listingChanged) void this.list();
     }, 1000 / core.server.tickRate!);
   }
@@ -476,6 +488,35 @@ export class Room extends DurableObject<Env> {
     }
     await this.finish();
     return false;
+  }
+
+  /**
+   * Players who came through a tester link leave the room once the developer turns it off. Checked
+   * every 10 seconds, only while such players are in the room, so other rooms never read the table.
+   */
+  private async testerLinksStillOn(): Promise<void> {
+    this.lastTesterCheck = Date.now();
+    const links = [...new Set(this.sockets().map((ws) => (ws.deserializeAttachment() as Attachment & { stage: "in" }).tester).filter((t): t is string => Boolean(t)))];
+    if (!links.length) return;
+    const { results } = await this.env.DB.prepare(`SELECT id FROM tester_links WHERE id IN (${links.map(() => "?").join(", ")}) AND revoked_at IS NULL`)
+      .bind(...links)
+      .all<{ id: string }>();
+    const on = new Set(results.map((r) => r.id));
+    for (const ws of this.sockets()) {
+      const tester = (ws.deserializeAttachment() as Attachment & { stage: "in" }).tester;
+      if (!tester || on.has(tester)) continue;
+      try {
+        ws.send(errorMessage("game-unavailable"));
+      } catch {
+        // Already closed.
+      }
+      await this.left(ws);
+      try {
+        ws.close(CLOSE_REFUSED, "Tester link turned off");
+      } catch {
+        // Already closed.
+      }
+    }
   }
 
   /** The game's own game server keeps failing (stuck in a loop, say): end the match rather than freeze it. */

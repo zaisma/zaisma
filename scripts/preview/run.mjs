@@ -108,6 +108,10 @@ const tick = () => fetch(`${SITE}/__scheduled?cron=${encodeURIComponent("*/5 * *
 setInterval(tick, 20_000);
 tick();
 
+let testers = {};
+try {
+  testers = JSON.parse(readFileSync(join(STATE, "testers.json"), "utf8"));
+} catch {}
 console.log(`
 Zaisma preview is running. Nothing here touches the live site.
 
@@ -115,6 +119,8 @@ Zaisma preview is running. Nothing here touches the live site.
   A game page     ${SITE}/g/shard-dodge
   Multiplayer     ${SITE}/g/arena  (open it in two windows to play together)
   Rooms           ${SITE}/g/arena#rooms  and  ${SITE}/g/cave-crew#rooms  (Cave Crew's are mostly pretend, from around the world)
+  Tester links    ${testers.secret ?? "(npm run preview -- --reset to make them)"}  (Rocket Lab, a private game)
+                  ${testers.arena ?? ""}  (Arena, to try multiplayer through one)
   Your games      ${SITE}/dashboard
   Admin           ${SITE}/admin
   Report queue    ${SITE}/admin/reports
@@ -216,6 +222,16 @@ async function seed() {
   for (const [i, [slug, body]] of reports.entries()) {
     await fetch(`${SITE}/g/${slug}/report`, { method: "POST", headers: { "content-type": "application/json", origin: SITE, "cf-connecting-ip": `192.0.2.${i + 1}` }, body: JSON.stringify(body) });
   }
+
+  // A private game that only opens through tester links, and a tester link for Arena to try multiplayer through one.
+  const { game: secret } = await api("POST", "/games", { title: "Rocket Lab", description: "Build a rocket from scrap and see how high it goes. Still in testing.", devices: ["computer"], controls: ["keyboard-mouse"], players: { single: true, local: null, online: null } });
+  upload("examples/hello-game", secret.slug, "First test build.");
+  await api("POST", `/games/${secret.slug}/versions/${await approveNewest(secret.slug)}/publish`);
+  await api("PATCH", `/games/${secret.slug}`, { visibility: "private" });
+  const { tester } = await api("POST", `/games/${secret.slug}/testers`, { name: "Playtesters" });
+  await api("POST", `/games/${secret.slug}/testers`, { name: "My team" });
+  const { tester: arena } = await api("POST", "/games/arena/testers", { name: "Streamer" });
+  writeFileSync(join(STATE, "testers.json"), JSON.stringify({ secret: tester.url, arena: arena.url }));
 }
 
 /** A 16:9 test picture that reads like game art: a sky, a sun and two ranges of hills, in the game's colors. */

@@ -19,7 +19,7 @@ How publishing works:
 1. create_game makes a game. It starts as a draft only its developer can see.
 2. Upload a version. Small games (under 5 MB, like single-file HTML games): upload_files with the file contents. Bigger builds: run \`npx @zaisma/cli upload <folder> --game <slug>\` in a terminal with ZAISMA_KEY set to the same API key; it only sends changed files.
 3. Every version is scanned, usually in under a minute; get_version shows the result. A held version waits for a person, usually within a day. Passed versions get a private preview link.
-4. publish_version makes a passed version live (or rolls back to an older one), now or at a set time. Then update_game with visibility "listed" shows the game to players (or "unlisted": only people with the link).
+4. publish_version makes a passed version live (or rolls back to an older one), now or at a set time. Then update_game with visibility "listed" shows the game to players (or "unlisted": only people with the link). To let testers play first, keep it private and make tester links with add_tester_link.
 
 Ask the developer before making a game private or a draft again (players lose access), and show them the preview link before publishing. Never guess why a version was held beyond what get_version says.`;
 
@@ -91,7 +91,7 @@ const TOOLS: Tool[] = [
   {
     name: "get_game",
     title: "Get a game",
-    description: "One game: its details, covers and screenshots, and every version with its scan result, preview link and whether it's live.",
+    description: "One game: its details, covers and screenshots, every version with its scan result, preview link and whether it's live, and its tester links.",
     inputSchema: object({ slug }, ["slug"]),
     annotations: read,
     run: (args, call) => call("GET", `/games/${str(args.slug)}`),
@@ -100,7 +100,7 @@ const TOOLS: Tool[] = [
     name: "update_game",
     title: "Change a game's details",
     description:
-      'Change the title, description, device labels, players (single-player, local and online multiplayer with player counts), cloud saves, room browsing or visibility. listed: on Zaisma for everyone. unlisted: only people with the link. private and draft: only you. A new title or description on a game players can see waits for review. Making a public game private or a draft takes it away from players, so it needs "confirm": true after asking the developer.',
+      'Change the title, description, device labels, players (single-player, local and online multiplayer with player counts), cloud saves, room browsing or visibility. listed: on Zaisma for everyone. unlisted: only people with the link. private and draft: only you and people with a tester link (add_tester_link). A new title or description on a game players can see waits for review. Making a public game private or a draft takes it away from players, so it needs "confirm": true after asking the developer.',
     inputSchema: object({ slug, ...details, visibility: { enum: VISIBILITIES }, confirm: { type: "boolean", description: "The developer agreed to hide a public game" } }, ["slug"]),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     run: async (args, call) => {
@@ -173,6 +173,23 @@ const TOOLS: Tool[] = [
     inputSchema: object({ slug, image_id: { type: "string" } }, ["slug", "image_id"]),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     run: (args, call) => call("DELETE", `/games/${str(args.slug)}/images/${str(args.image_id)}`),
+  },
+  {
+    name: "add_tester_link",
+    title: "Make a tester link",
+    description:
+      "Make a secret link that opens the game's live version for anyone who has it, even while the game is private or a draft, with no account needed. Make one per group (your team, playtesters, a streamer) and name it for them, so you can turn one off without the others. Multiplayer works through it; testers' progress stays in their browser.",
+    inputSchema: object({ slug, name: { type: "string", description: 'Who it\'s for, like "Playtesters" (1 to 60 characters)' } }, ["slug", "name"]),
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+    run: (args, call) => call("POST", `/games/${str(args.slug)}/testers`, pick(args, ["name"])),
+  },
+  {
+    name: "remove_tester_link",
+    title: "Turn off a tester link",
+    description: "Turn off a tester link by its ID from get_game, for good: it stops opening the game straight away, and players who came through it leave their multiplayer matches within about 10 seconds. Make a new one to let that group back in.",
+    inputSchema: object({ slug, tester_id: { type: "string" } }, ["slug", "tester_id"]),
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    run: (args, call) => call("DELETE", `/games/${str(args.slug)}/testers/${str(args.tester_id)}`),
   },
   {
     name: "get_reports",

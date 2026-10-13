@@ -50,6 +50,11 @@
   var config = typeof __ZAISMA__ === "object" && __ZAISMA__ ? __ZAISMA__ : {};
   var CODE = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/;
 
+  // The game's page on Zaisma, or the tester link it was opened from (a private game has no public page).
+  function gamePage() {
+    return config.page || "/g/" + config.game;
+  }
+
   function Emitter() {
     this._on = {};
   }
@@ -121,7 +126,7 @@
     this.me = null;
     this.players = [];
     this.status = "connecting";
-    this.inviteLink = config.site && config.game ? config.site + "/g/" + config.game + "?room=" + this.code : null;
+    this.inviteLink = config.site && config.game ? config.site + gamePage() + "?room=" + this.code : null;
     this.listed = opts.listed !== false;
     this.open = true;
     this.name = null;
@@ -380,7 +385,7 @@
    * Call it from a button in your game, such as on a "waiting for players" screen.
    */
   function invite(room) {
-    var link = room && room.inviteLink ? room.inviteLink : config.site && config.game ? config.site + "/g/" + config.game : location.href;
+    var link = room && room.inviteLink ? room.inviteLink : config.site && config.game ? config.site + gamePage() : location.href;
     function copy() {
       if (!navigator.clipboard) return Promise.resolve("failed");
       return navigator.clipboard.writeText(link).then(function () { return "copied"; }, function () { return "failed"; });

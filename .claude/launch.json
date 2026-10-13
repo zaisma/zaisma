@@ -36,6 +36,17 @@
         "preview"
       ],
       "port": 8800
+    },
+    {
+      "name": "preview-fresh",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "preview",
+        "--",
+        "--reset"
+      ],
+      "port": 8800
     }
   ]
 }

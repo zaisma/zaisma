@@ -45,6 +45,11 @@ import {
   type Version,
   REPORT_REASONS,
   SANDBOX_GAME_SERVER,
+  MAX_TESTER_LINKS,
+  addTesterLink,
+  revokeTesterLink,
+  testerLinks,
+  type TesterLink,
   readPlayers,
   type ReportReason,
 } from "@zaisma/core";
@@ -72,6 +77,9 @@ import { pruneVersions } from "./scan.ts";
  *   GET    /api/dev/games/:slug/reports        what players reported, by reason
  *   GET    /api/dev/games/:slug/stats          multiplayer room use per day
  *   GET    /api/dev/games/:slug/history        what happened to the game, and who did it
+ *   GET    /api/dev/games/:slug/testers        tester links that are on
+ *   POST   /api/dev/games/:slug/testers        make a tester link: { "name" }
+ *   DELETE /api/dev/games/:slug/testers/:id    turn one off for good
  *
  * Images are served from /img/:id once approved; owners can see their own before that.
  */
@@ -203,17 +211,21 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     return ok(await historyFor(env, game, caller));
   }
 
+  const t = path.match(/^\/games\/([a-z0-9-]+)\/testers(?:\/([a-z0-9]+))?$/);
+  if (t) return ok(...(await testerRoute(request, env, await ownGame(env, t[1]!, caller), t[2], caller)));
+
   const m = path.match(/^\/games\/([a-z0-9-]+)(?:\/images(?:\/([a-z0-9]+))?)?$/);
   if (!m) throw new ApiError(404, "not_found", "No such API path.");
   const game = await ownGame(env, m[1]!, caller);
   const images = path.includes("/images");
 
   if (!images && method === "GET") {
-    const [imgs, versions] = await Promise.all([imagesForGame(env.DB, game.id), versionsForGame(env.DB, game.id)]);
+    const [imgs, versions, testers] = await Promise.all([imagesForGame(env.DB, game.id), versionsForGame(env.DB, game.id), testerLinks(env.DB, game.id)]);
     return ok({
       game: gameJson(env, game),
       images: imgs.map((i) => imageJson(env, i)),
       versions: versions.map((v) => versionJson(env, game, v)),
+      testers: testers.map((l) => testerJson(env, l)),
     });
   }
 
@@ -565,6 +577,8 @@ const HISTORY: Record<string, string | null> = {
   "room-name-hidden": "Zaisma hid a room's name from room lists after a report",
   multiplayer: "Multiplayer settings changed",
   "cloud-saves": "Cloud saves switched",
+  "tester-link-added": "Made a tester link",
+  "tester-link-removed": "Turned off a tester link",
   owner: null,
 };
 
@@ -589,6 +603,36 @@ function listOrThrow(files: unknown): UploadFile[] {
     if (err instanceof UploadError) throw new ApiError(400, "bad_files", err.message);
     throw err;
   }
+}
+
+/**
+ * Tester links: secret links that open the game's live version whatever its visibility, for guests
+ * too. One per group (team, playtesters, a streamer), so one can be turned off without the others.
+ */
+async function testerRoute(request: Request, env: Env, game: Game, id: string | undefined, caller: Caller): Promise<[unknown, number?]> {
+  if (!id && request.method === "GET") return [{ testers: (await testerLinks(env.DB, game.id)).map((l) => testerJson(env, l)) }];
+  if (!id && request.method === "POST") {
+    if (game.status === "removed") throw new ApiError(403, "removed", "This game was taken down, so it can't get tester links.");
+    const body = await readJson(request);
+    const name = typeof body.name === "string" ? body.name.trim().replace(/\s+/g, " ") : "";
+    if (!name || name.length > 60) throw new ApiError(400, "bad_name", "Name the link for who it's for, in 1 to 60 characters, like \"Playtesters\" or \"My team\".");
+    const on = await testerLinks(env.DB, game.id);
+    if (on.length >= MAX_TESTER_LINKS) throw new ApiError(403, "too_many_testers", `A game can have up to ${MAX_TESTER_LINKS} tester links. Turn one off first.`);
+    const link = await addTesterLink(env.DB, game.id, name);
+    await audit(env.DB, game.id, "tester-link-added", name, caller.actor);
+    return [{ tester: testerJson(env, link) }, 201];
+  }
+  if (id && request.method === "DELETE") {
+    const link = (await testerLinks(env.DB, game.id)).find((l) => l.id === id);
+    if (!link || !(await revokeTesterLink(env.DB, game.id, id))) throw new ApiError(404, "no_tester_link", "That tester link isn't on.");
+    await audit(env.DB, game.id, "tester-link-removed", link.name, caller.actor);
+    return [{ ok: true }];
+  }
+  throw new ApiError(405, "bad_method", "Tester links take GET, POST and DELETE.");
+}
+
+function testerJson(env: Env, l: TesterLink) {
+  return { id: l.id, name: l.name, url: `${env.SITE_ORIGIN}/t/${l.token}`, created_at: l.created_at, opened_at: l.opened_at };
 }
 
 function previewUrl(env: Env, slug: string, token: string): string {

@@ -1,5 +1,5 @@
 import { env, SELF } from "cloudflare:test";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { accountForApiKey, createAccount, createApiKey, createGame, describePlayers, gameBySlug, imageKey, personOwner, sniffImage } from "@zaisma/core";
 
 const SITE = "https://zaisma.test";
@@ -41,7 +41,7 @@ async function api(path: string, init: { method?: string; body?: unknown; raw?: 
 
 beforeEach(async () => {
   await env.DB.exec(
-    "DELETE FROM game_images; DELETE FROM api_keys; DELETE FROM passkeys; DELETE FROM save_history; DELETE FROM saves; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;",
+    "DELETE FROM tester_links; DELETE FROM game_images; DELETE FROM api_keys; DELETE FROM passkeys; DELETE FROM save_history; DELETE FROM saves; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;",
   );
   await createAccount(env.DB, { id: "dev-1", name: "Pixel Smith", ageBand: "18+" });
   await createAccount(env.DB, { id: "dev-2", name: "Other Dev", ageBand: "13-17" });
@@ -267,5 +267,51 @@ describe("players", () => {
       { mode: "online", label: "Online co-op and versus", count: "8+ players" },
     ]);
     expect(describePlayers({ single: false, local: null, online: { min: 2, max: 2, style: "versus" } })[0]!.count).toBe("2 players");
+  });
+});
+
+describe("tester links", () => {
+  afterAll(async () => {
+    await env.DB.exec("DELETE FROM tester_links;");
+  });
+
+  it("open a private game for anyone with the link, until it's turned off", async () => {
+    await api("/games", { body: { title: "Secret Hop" } });
+    const game = (await gameBySlug(env.DB, "secret-hop"))!;
+    await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, bytes, scan_status, created_at) VALUES ('vsh', ?, 'games/sh/vsh', 1, 0, 'approved', 0)").bind(game.id).run();
+
+    // Nothing published yet: the link works but there's nothing to play.
+    const made = await api("/games/secret-hop/testers", { body: { name: "  Play   testers " } });
+    expect(made.status).toBe(201);
+    const { tester } = (await made.json()) as { tester: { id: string; name: string; url: string; opened_at: number | null } };
+    expect(tester.name).toBe("Play testers");
+    expect(tester.url).toMatch(/^https:\/\/zaisma\.test\/t\/[a-z0-9]{20}$/);
+    const path = new URL(tester.url).pathname;
+    expect(await (await SELF.fetch(`${SITE}${path}`)).text()).toContain("Nothing to play yet");
+
+    await env.DB.prepare("UPDATE games SET status = 'live', current_version_id = 'vsh', visibility = 'private' WHERE id = ?").bind(game.id).run();
+    expect((await SELF.fetch(`${SITE}/g/secret-hop`)).status).toBe(404);
+    const page = await SELF.fetch(`${SITE}${path}`);
+    expect(page.status).toBe(200);
+    expect(page.headers.get("x-robots-tag")).toBe("noindex");
+    const body = await page.text();
+    expect(body).toContain(`secret-hop--${path.slice(3)}/`);
+    expect(body).toContain("It isn&#39;t public yet");
+    // Private games stay off Continue playing.
+    expect(body).not.toMatch(/if \(frame\) return;\s*remember\(\);/);
+    expect(((await (await api("/games/secret-hop")).json()) as { testers: { opened_at: number | null }[] }).testers[0]!.opened_at).toBeGreaterThan(0);
+
+    // Checks, and other people can't see or turn off the links.
+    expect((await api("/games/secret-hop/testers", { body: { name: "" } })).status).toBe(400);
+    expect((await api("/games/secret-hop/testers", { body: { name: "x".repeat(61) } })).status).toBe(400);
+    expect((await api("/games/secret-hop/testers", { key: other })).status).toBe(404);
+    expect((await api(`/games/secret-hop/testers/${tester.id}`, { key: other, method: "DELETE" })).status).toBe(404);
+
+    expect((await api(`/games/secret-hop/testers/${tester.id}`, { method: "DELETE" })).status).toBe(200);
+    expect((await api(`/games/secret-hop/testers/${tester.id}`, { method: "DELETE" })).status).toBe(404);
+    expect((await SELF.fetch(`${SITE}${path}`)).status).toBe(404);
+    expect(((await (await api("/games/secret-hop/testers")).json()) as { testers: unknown[] }).testers).toEqual([]);
+    const history = (await (await api("/games/secret-hop/history")).json()) as { history: { what: string }[] };
+    expect(history.history.map((h) => h.what)).toEqual(expect.arrayContaining(["Made a tester link", "Turned off a tester link"]));
   });
 });

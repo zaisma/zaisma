@@ -1,4 +1,4 @@
-import { isServerPath, connectSources, contentTypeFor, fileKey, gameHeaders, manifestKey, servableGame, versionByPreview, type Manifest } from "@zaisma/core";
+import { isServerPath, connectSources, contentTypeFor, fileKey, gameHeaders, manifestKey, servableGame, testerLinkByToken, versionByPreview, type Manifest } from "@zaisma/core";
 import savesScript from "@zaisma/sdk/saves.js";
 import pictureScript from "@zaisma/sdk/picture.js";
 import sdk from "@zaisma/sdk/zaisma.js";
@@ -107,9 +107,9 @@ export default {
 
     const target = resolveGame(url, env);
     if (!target) return page(404, "Game not found", "Check the link and try again.", env);
-    // A draft's private preview: <slug>--<token>. Slugs never contain "--".
-    const preview = "slug" in target.by ? target.by.slug.match(/^([a-z0-9-]+?)--([a-z0-9]{20})$/) : null;
-    const by = preview ? { slug: preview[1]! } : target.by;
+    // A secret link, <slug>--<token>: a version's private preview or a tester link. Slugs never contain "--".
+    const secret = "slug" in target.by ? target.by.slug.match(/^([a-z0-9-]+?)--([a-z0-9]{20})$/) : null;
+    const by = secret ? { slug: secret[1]! } : target.by;
 
     // Read status on every request so a takedown applies straight away.
     const game = await servableGame(env.DB, by);
@@ -118,19 +118,22 @@ export default {
     if (!game) return page(404, "Game not found", "Check the link and try again.", env);
 
     let version: { id: string; kind: "zip" | "files"; r2_prefix: string };
-    if (preview) {
-      const draft = await versionByPreview(env.DB, game.id, preview[2]!);
-      if (!draft) return page(404, "This preview link doesn't work", "It may be for a version that was deleted. Get a fresh link from the developer.", env);
-      version = draft;
-    } else {
-      // Drafts and private games open only through preview and tester links.
-      if (game.status !== "live" || !game.r2_prefix || !game.current_version_id || game.visibility === "draft" || game.visibility === "private") {
-        return page(404, "Game not found", "Check the link and try again.", env);
+    const draft = secret ? await versionByPreview(env.DB, game.id, secret[2]!) : null;
+    const tester = secret && !draft ? await testerLinkByToken(env.DB, secret[2]!) : null;
+    if (secret && !draft && tester?.game_id !== game.id) {
+      return page(404, "This link doesn't work", "The developer may have turned it off, or it was for a version that was deleted. Ask them for a fresh link.", env);
+    }
+    if (draft) version = draft;
+    else {
+      // Drafts and private games open only through preview and tester links; a tester link opens the live version.
+      if (game.status !== "live" || !game.r2_prefix || !game.current_version_id) {
+        return tester ? page(404, "Nothing to play yet", "The developer hasn't published a version of this game yet.", env) : page(404, "Game not found", "Check the link and try again.", env);
       }
+      if (!tester && (game.visibility === "draft" || game.visibility === "private")) return page(404, "Game not found", "Check the link and try again.", env);
       version = { id: game.current_version_id, kind: game.version_kind ?? "zip", r2_prefix: game.r2_prefix };
     }
-    // Previews keep their saves in their own browser storage, never the player's account.
-    const cloudSaves = Boolean(game.cloud_saves) && !preview;
+    // Previews and tester links keep their saves in their own browser storage, never the player's account.
+    const cloudSaves = Boolean(game.cloud_saves) && !secret;
 
     // /<slug> -> /<slug>/ so the game's relative links work.
     if (env.GAME_HOST_MODE === "path" && !url.pathname.endsWith("/") && target.path === "") {
@@ -146,7 +149,8 @@ export default {
 
     // The SDK, served from the game's own site so its sandbox allows it, set up for this game.
     if (target.path === "_zaisma/v1.js") {
-      const config = { rooms: env.ROOMS_ORIGIN, game: game.slug, site: env.SITE_ORIGIN };
+      // Room links from a tester link go back through it, since a private game has no public page.
+      const config = { rooms: env.ROOMS_ORIGIN, game: game.slug, site: env.SITE_ORIGIN, ...(tester ? { page: `/t/${tester.token}` } : {}) };
       const headers = gameHeaders("text/javascript; charset=utf-8", env.SITE_ORIGIN, connect);
       headers.set("Cache-Control", "public, max-age=300");
       return new Response(request.method === "HEAD" ? null : `var __ZAISMA__ = ${JSON.stringify(config)};\n${sdk}`, { headers });
@@ -183,7 +187,7 @@ export default {
     if (!object) return page(404, "File not found", "This game is missing a file.", env);
 
     const headers = gameHeaders(contentTypeFor(path), env.SITE_ORIGIN, connect);
-    if (preview) headers.set("X-Robots-Tag", "noindex");
+    if (secret) headers.set("X-Robots-Tag", "noindex");
     headers.set("ETag", object.httpEtag);
     // HTML is re-checked so takedowns and updates show up. Other files keep the same address
     // across versions, so they're only cached briefly: an update reaches players within a minute.

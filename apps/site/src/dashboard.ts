@@ -51,8 +51,8 @@ interface VersionJson {
 const VISIBILITY: Record<GameJson["visibility"], { label: string; hint: string }> = {
   listed: { label: "Everyone", hint: "On Zaisma for everyone to find" },
   unlisted: { label: "Link only", hint: "Anyone with the link can play; it's never listed" },
-  private: { label: "Only me", hint: "Only you, through preview links" },
-  draft: { label: "Draft", hint: "Not ready yet; only you, through preview links" },
+  private: { label: "Only me", hint: "Only you and your testers, through preview and tester links" },
+  draft: { label: "Draft", hint: "Not ready yet; only you and your testers, through preview and tester links" },
 };
 const REVIEW: Record<GameJson["review"], string> = { pending: "Not live yet", live: "Live", held: "Held", removed: "Taken down" };
 const DEVICE_LABELS: Record<string, string> = { phone: "Phone", tablet: "Tablet", computer: "Computer" };
@@ -75,6 +75,8 @@ const DONE: Record<string, string> = {
   published: "Published. Players get this version now.",
   scheduled: "Scheduled.",
   unscheduled: "It won't be published by itself.",
+  "tester-added": "Tester link made. Copy it below and send it to your testers.",
+  "tester-removed": "Tester link turned off. It stopped working straight away, and its testers leave their multiplayer matches within 10 seconds.",
 };
 
 export async function handleDashboard(request: Request, env: Env, path: string): Promise<Response | null> {
@@ -148,6 +150,15 @@ export async function handleDashboard(request: Request, env: Env, path: string):
     if (img) {
       await call("DELETE", `/games/${slug}/images/${img[1]}`);
       return back("image-removed", "#images");
+    }
+    if (action === "/testers") {
+      await call("POST", `/games/${slug}/testers`, { name: field("name") });
+      return back("tester-added", "#testers");
+    }
+    const tester = action.match(/^\/testers\/([a-z0-9]+)\/remove$/);
+    if (tester) {
+      await call("DELETE", `/games/${slug}/testers/${tester[1]}`);
+      return back("tester-removed", "#testers");
     }
     const ver = action.match(/^\/versions\/([a-z0-9]+)\/(publish|schedule|unschedule)$/);
     if (ver) {
@@ -253,14 +264,14 @@ async function managerPage(
   opts: { done?: string; error?: string; confirmHide?: GameJson["visibility"] },
   status = 200,
 ): Promise<Response> {
-  let data: { game: GameJson; images: ImageJson[]; versions: VersionJson[] };
+  let data: { game: GameJson; images: ImageJson[]; versions: VersionJson[]; testers: TesterJson[] };
   try {
     data = (await call("GET", `/games/${slug}`)) as typeof data;
   } catch (err) {
     if (err instanceof ApiError && err.status === 404) return page(env, "Game not found", html`<h1>Game not found</h1><p class="lead">${err.message}</p><a class="btn ghost" href="/dashboard">Your games</a>`, 404);
     throw err;
   }
-  const { game, images, versions } = data;
+  const { game, images, versions, testers } = data;
   // Held and rejected versions come with what the scan found.
   const findings = new Map<string, VersionJson["findings"]>();
   await Promise.all(
@@ -312,6 +323,8 @@ ${removed ? "" : uploadPanel(slug)}
 <h2 class="rule-h" id="versions">Versions</h2>
 ${versions.length ? html`<ol class="track">${versions.map((v) => versionRow(slug, v, findings.get(v.id)))}</ol>` : html`<p class="muted">No versions yet.</p>`}
 <p class="hint">Zaisma keeps the live version and the last 5 that passed, for rolling back. Drafts nobody publishes are deleted after 30 days.</p>
+<h2 class="rule-h" id="testers">Tester links</h2>
+${testersPanel(slug, game, testers, versions.some((v) => v.live))}
 </section>
 <aside>
 <h2 id="details">Details</h2>
@@ -328,6 +341,30 @@ ${imagesPanel(slug, images)}
     status,
     cover?.url ?? null,
   );
+}
+
+interface TesterJson {
+  id: string;
+  name: string;
+  url: string;
+  created_at: number;
+  opened_at: number | null;
+}
+
+/** Secret links that open the live version whatever the visibility: one per group, each turned off on its own. */
+function testersPanel(slug: string, game: GameJson, testers: TesterJson[], live: boolean): Raw {
+  const removed = game.review === "removed";
+  return html`<p class="hint">Anyone with a tester link plays your live version, even while the game is private or a draft, with no account needed. Make one for each group, like your team or a streamer, so you can turn one off without the others.${live ? "" : " Publish a version first: the links open the live version."}</p>
+${testers.length
+      ? html`<ul class="testers">${testers.map(
+          (t) => html`<li class="plate">
+<div class="t-head"><strong>${t.name}</strong><span class="muted">${t.opened_at ? html`Last opened ${when(t.opened_at)}` : "Not opened yet"}</span></div>
+<div class="row"><input readonly value="${t.url}" aria-label="Tester link for ${t.name}"><button class="btn ghost" type="button" data-copy="${t.url}">Copy</button>
+<form method="post" action="/dashboard/${slug}/testers/${t.id}/remove"><button class="btn ghost" type="submit">Turn off</button></form></div>
+</li>`,
+        )}</ul>`
+      : ""}
+${removed ? "" : html`<form class="row make-tester" method="post" action="/dashboard/${slug}/testers"><input name="name" maxlength="60" required placeholder="Who it's for, like Playtesters" aria-label="Who the link is for"><button class="btn light" type="submit">Make a tester link</button></form>`}`;
 }
 
 function uploadPanel(slug: string): Raw {
@@ -518,6 +555,11 @@ const STYLES = `
 .findings{margin:0;padding-left:18px;color:var(--warn)}
 .findings .muted{color:var(--muted)}
 .track p{margin:0}
+.testers{list-style:none;padding:0;margin:0 0 12px;display:grid;gap:12px}
+.testers>li{padding:14px 16px;display:grid;gap:10px}
+.t-head{display:flex;flex-wrap:wrap;gap:10px;align-items:baseline;justify-content:space-between}
+.testers .row input{flex:1;min-width:200px;font-size:14px}
+.make-tester input{flex:1;min-width:200px}
 .later summary{min-height:44px;display:inline-flex;align-items:center;font-size:15px}
 .later[open]{flex-basis:100%}
 .thumbs{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
@@ -556,7 +598,8 @@ input[type=file]::file-selector-button{background:var(--raised);color:var(--text
 
 // Times in the reader's own time zone, and "publish later" sent as an exact moment.
 const LOCAL_TIMES = `document.querySelectorAll("time[data-local]").forEach(t=>{t.textContent=new Date(t.dateTime).toLocaleString(undefined,{dateStyle:"medium",timeStyle:"short"})});
-document.querySelectorAll(".later form").forEach(f=>f.addEventListener("submit",()=>{const v=f.elements.local.value;if(v)f.elements.at.value=new Date(v).toISOString()}));`;
+document.querySelectorAll(".later form").forEach(f=>f.addEventListener("submit",()=>{const v=f.elements.local.value;if(v)f.elements.at.value=new Date(v).toISOString()}));
+document.querySelectorAll("[data-copy]").forEach(b=>b.onclick=async()=>{try{await navigator.clipboard.writeText(b.dataset.copy);b.textContent="Copied";setTimeout(()=>b.textContent="Copy",2000)}catch{b.previousElementSibling.select()}});`;
 
 /**
  * Upload a folder from the browser, the same way the upload command does: hash every file, ask the

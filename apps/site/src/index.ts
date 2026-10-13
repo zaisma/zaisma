@@ -8,7 +8,7 @@ import type { Env } from "./env.ts";
 import { message } from "./html.ts";
 import { handleMcp } from "./mcp.ts";
 import { handlePlayed, home } from "./home.ts";
-import { gamePage, legal } from "./pages.ts";
+import { gamePage, legal, testerPage } from "./pages.ts";
 import { reportForm, submitReport } from "./report.ts";
 import { roomsFragment } from "./rooms.ts";
 import { handlePasskeys } from "./passkeys.ts";
@@ -61,13 +61,17 @@ export default {
       if (report) return reportForm(env, slug);
     }
 
+    // A tester link: the game page for a game that may be private, for anyone with the link.
+    const tester = path.match(/^\/t\/([a-z0-9]{20})$/);
+    if (tester && method !== "POST") return testerPage(env, tester[1]!, request, ctx);
+
     const legalPage = path.match(/^\/legal\/([a-z-]+)$/);
     if (legalPage && method !== "POST") {
       const res = legal(env, legalPage[1]!);
       if (res) return res;
     }
 
-    if (path === "/robots.txt") return new Response("User-agent: *\nDisallow: /admin\nDisallow: /account\nDisallow: /join\nDisallow: /signin\nDisallow: /api/\n", { headers: { "Content-Type": "text/plain" } });
+    if (path === "/robots.txt") return new Response("User-agent: *\nDisallow: /admin\nDisallow: /account\nDisallow: /join\nDisallow: /signin\nDisallow: /api/\nDisallow: /t/\n", { headers: { "Content-Type": "text/plain" } });
     return message(env, "Page not found", "There's nothing at this address.", 404);
   },
 

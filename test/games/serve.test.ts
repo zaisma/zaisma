@@ -1,6 +1,6 @@
 import { env, SELF } from "cloudflare:test";
-import { beforeEach, describe, expect, it } from "vitest";
-import { blobKey, manifestKey, sha256Hex } from "@zaisma/core";
+import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { addTesterLink, blobKey, manifestKey, revokeTesterLink, sha256Hex } from "@zaisma/core";
 import { resolveGame } from "../../apps/games/src/index.ts";
 
 const G = "https://games.example";
@@ -22,7 +22,10 @@ async function addGame(slug: string, status: string, withVersion = true) {
 
 describe("game server", () => {
   beforeEach(async () => {
-    await env.DB.exec("DELETE FROM versions; DELETE FROM domains; DELETE FROM games;");
+    await env.DB.exec("DELETE FROM tester_links; DELETE FROM versions; DELETE FROM domains; DELETE FROM games;");
+  });
+  afterAll(async () => {
+    await env.DB.exec("DELETE FROM tester_links;");
   });
 
   it("serves a live game with the sandbox headers", async () => {
@@ -118,6 +121,39 @@ describe("game server", () => {
     // A takedown closes previews too.
     await env.DB.prepare("UPDATE games SET status = 'removed' WHERE id = ?").bind(id).run();
     expect((await SELF.fetch(`${G}/drafty--abcdefghij0123456789/`)).status).toBe(410);
+  });
+
+  it("opens the live version through a tester link, whatever the visibility", async () => {
+    const id = await addGame("secret-game", "live");
+    await env.DB.prepare("UPDATE games SET visibility = 'private', cloud_saves = 1 WHERE id = ?").bind(id).run();
+    const link = await addTesterLink(env.DB, id, "Playtesters");
+    expect((await SELF.fetch(`${G}/secret-game/`)).status).toBe(404);
+    const res = await SELF.fetch(`${G}/secret-game--${link.token}/`);
+    expect(res.status).toBe(200);
+    const page = await res.text();
+    expect(page).toContain("<p>game</p>");
+    // Testers' saves stay in their browser, like previews.
+    expect(page).not.toContain("saves.js");
+    expect(res.headers.get("x-robots-tag")).toBe("noindex");
+    // Room links from the game go back through the tester link.
+    expect(await (await SELF.fetch(`${G}/secret-game--${link.token}/_zaisma/v1.js`)).text()).toContain(`"page":"/t/${link.token}"`);
+    expect(await (await SELF.fetch(`${G}/secret-game/_zaisma/v1.js`)).text()).not.toContain('"page"');
+
+    // Another game's link doesn't open this one.
+    const other = await addGame("other-game", "live");
+    const theirs = await addTesterLink(env.DB, other, "Team");
+    expect((await SELF.fetch(`${G}/secret-game--${theirs.token}/`)).status).toBe(404);
+
+    // Turned off: it stops at once.
+    await revokeTesterLink(env.DB, id, link.id);
+    expect((await SELF.fetch(`${G}/secret-game--${link.token}/`)).status).toBe(404);
+
+    // Nothing published yet: nothing to play.
+    const none = await addGame("not-yet", "pending", false);
+    const early = await addTesterLink(env.DB, none, "Early");
+    const empty = await SELF.fetch(`${G}/not-yet--${early.token}/`);
+    expect(empty.status).toBe(404);
+    expect(await empty.text()).toContain("Nothing to play yet");
   });
 
   it("only allows reading", async () => {
