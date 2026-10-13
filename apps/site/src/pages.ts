@@ -64,9 +64,13 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   const res = layout(env, {
     title: `${game.title} on Zaisma`,
     bare: true,
+    // Cloudflare's invisible check on Play, for play counts (not on tester links, which aren't counted).
+    check: !tester && Boolean(env.TURNSTILE_SITE_KEY),
     art: shots[0] ?? null,
     body: html`<style>
 /* Two states on one page: details with a Play button, then the game filling the screen. */
+/* Cloudflare's check on Play is invisible; if it ever needs a tap, it sits above the game. */
+.play-check{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:50}
 body.playing{display:flex;flex-direction:column;height:100vh;height:100dvh;overflow:hidden;background:#000}
 body:not(.playing) #full{display:none}
 body.playing>header.top,body.playing>main.gp,body.playing>footer,body.playing>.ambient{display:none}
@@ -355,6 +359,7 @@ ${saves
   <nav><button class="btn" value="cloud"></button><button class="btn ghost" value="local"></button></nav>
 </form></dialog>`
       : ""}
+${tester ? "" : html`<div id="play-check" class="play-check"></div>`}
 <script>
 let frame = null;
 const share = document.getElementById("share");
@@ -376,7 +381,7 @@ function play() {
 }
 document.getElementById("play").onclick = play;
 document.getElementById("share-page").onclick = (e) => shareFrom(e.currentTarget);
-${raw(tester ? "" : playCounter(game.slug))}
+${raw(tester ? "" : playCounter(game.slug, env.TURNSTILE_SITE_KEY))}
 // Remember the game for Continue playing: on this device, and with the account when signed in.
 function remember() {
   try {
@@ -588,7 +593,7 @@ export function legal(env: Env, page: string): Response | null {
   return layout(env, { title: `${p.title} · Zaisma`, body: html`<h1>${p.title}</h1>${raw(p.body)}` });
 }
 
-// DRAFT: Julius approves this wording before it's deployed.
+// DRAFT: Julius approves this wording before it's deployed. The faked-plays rule was approved Oct 13, 2026.
 const CONTENT_RULES = `
 <p class="lead">Zaisma is for players 13 and up. Any kind of game is welcome, within these rules.</p>
 <h2>Not allowed</h2>
@@ -601,12 +606,14 @@ const CONTENT_RULES = `
 <li>Other people's games, art, music or characters used without permission.</li>
 <li>Collecting players' personal data.</li>
 <li>Free-text chat between players. Preset phrases and emotes are fine.</li>
+<li>Faking plays or players, with bots, scripts or click farms.</li>
 </ul>
 <p>Names players give to things in a game (sessions, worlds, maps) are allowed. The game is responsible for keeping them within these rules.</p>
 <h2>How we check</h2>
 <p>Every game is scanned before it's published: automatic malware checks, matching against known illegal images, and an AI review. Games that need a closer look wait for a person.</p>
 <h2>Reports and takedowns</h2>
 <p>Every game page has a Report button. We remove games that break these rules. Reports about child safety or illegal content go straight to a person. Until we've checked, a brand-new game is hidden and a recent update goes back to the version before it.</p>
+<p>A game with faked plays is taken off Popular, Trending and New. Doing it again can get the game taken down.</p>
 `;
 
 const DMCA = `
@@ -626,13 +633,13 @@ const DMCA = `
 <p>If your game was removed and you believe it was a mistake or you have permission, email the same address with a counter-notice. We'll forward it to the person who filed the claim.</p>
 `;
 
-// Approved by Julius on Oct 12, 2026; the play stats line on Oct 13, 2026.
+// Approved by Julius on Oct 12, 2026; the play stats and play-check lines on Oct 13, 2026.
 const PRIVACY = `
 <p class="lead">Zaisma keeps as little about you as it can. Playing needs no account, and guests leave nothing behind.</p>
 <h2>Playing as a guest</h2>
 <p>Guests get a temporary ID and a made-up name like "Swift Fox 42", used only to run the game session. They're kept in your browser tab and forgotten when it closes. We don't keep a profile, and we don't know who you are.</p>
 <p>Your browser also remembers which games you played recently, so the home page can show them first. That list stays on your device; we never see it.</p>
-<p>When you press Play, we count it for the game's developer: that the game was played, how long it was on screen, and whether this browser played it before (and on which day it first did). We keep only totals for each game and day, never anything that says who played.</p>
+<p>When you press Play, we count it for the game's developer and for lists like Popular: that the game was played, how long it was on screen, and whether this browser played it before (and on which day it first did). To keep the counts honest, Cloudflare checks, invisibly, that a real browser pressed Play, and we count players by internet provider (like Comcast or Vodafone) to spot bot networks. A play's details are kept for a day at most; after that we keep only totals for each game and day, never anything that says who played.</p>
 <h2>If you make an account</h2>
 <ul>
 <li><strong>Your email</strong>, only to sign you in. It's never shown to anyone, and we don't send marketing.</li>
@@ -652,7 +659,7 @@ const PRIVACY = `
 <p>Games run on a separate domain and can't see your account, email or cookies. Our content rules don't allow games to collect players' personal data.</p>
 <h2>Who helps us run Zaisma</h2>
 <ul>
-<li><strong>Cloudflare</strong> runs our servers and stores games. It sees your connection address to deliver pages and stop abuse; we don't store it.</li>
+<li><strong>Cloudflare</strong> runs our servers, stores games and checks that a real browser pressed Play. It sees your connection address to deliver pages and stop abuse; we don't store it. The check on Play is Cloudflare Turnstile, covered by its <a href="https://www.cloudflare.com/turnstile-privacy-policy/" target="_blank" rel="noopener">Turnstile Privacy Addendum</a>.</li>
 <li><strong>Supabase</strong> handles sign-in and holds your email. Your browser never talks to it directly.</li>
 <li><strong>Anthropic</strong> reviews uploaded games for safety. It sees game files, never players.</li>
 </ul>

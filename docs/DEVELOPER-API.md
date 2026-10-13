@@ -42,13 +42,13 @@ Make an API key on your account page (zaisma.com/account, under Game developers)
 
 ### Play stats
 
-`plays` in the stats answer, counted by the game page with no code in the game:
+`plays` in the stats answer, counted by the game page with no code in the game. These are **counted plays**, Zaisma's official numbers: a play counts once the game has been on screen for a minute, in a browser Cloudflare's invisible check says is real (each check works once, and time can't be claimed faster than it passes). They're also what Popular and Trending use.
 
-- **days:** per day (UTC), `plays` (presses of Play, and room links that start the game), `players` (browsers that played that day), `new_players` (browsers playing it for the first time) and `minutes_played` (time the game was on screen).
-- **plays**, **new_players** and **minutes_played** over the period, and **minutes_per_play**.
+- **days:** per day (UTC), `plays`, `players` (browsers with a counted play that day), `new_players` (browsers with their first counted play) and `minutes_played` (time on screen in counted plays), plus `all_plays`: every play started, counted or not.
+- **plays**, **all_plays**, **new_players** and **minutes_played** over the period, and **minutes_per_play**.
 - **came_back:** `after_1_day`, `after_7_days` and `after_30_days`, each `{"percent", "players", "of"}`: of the new players in the 30 days before, how many played again that many days after their first play. Only days that are over count, so `percent` is `null` until there are some.
 
-A player is a browser: one person on two devices counts twice, and clearing the browser makes them new. Plays through tester and preview links aren't counted. We keep only these counts: nothing that says who played.
+A player is a browser: one person on two devices counts twice, and clearing the browser makes them new. Plays through tester and preview links, and your own while signed in, aren't counted. We keep only counts: nothing that says who played. Faking plays breaks the content rules: it takes a game off Popular, Trending and New, and doing it again can get the game taken down.
 
 ## Tester links
 

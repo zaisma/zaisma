@@ -49,6 +49,7 @@ import { gameUrl, type Env } from "./env.ts";
 import { html, layout, raw, type Raw } from "./html.ts";
 import { handleAdminMcp } from "./admin-mcp.ts";
 import { precedentAction, precedentsPage, savePrecedent } from "./precedents.ts";
+import { clearCountedDay, playSpikes } from "./plays.ts";
 import { passVersion } from "./scan.ts";
 import { uploadGame } from "./upload.ts";
 
@@ -159,6 +160,25 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     return redirect("/admin");
   }
 
+  m = path.match(/^\/admin\/games\/([a-z0-9]+)\/plays\/(\d{4}-\d{2}-\d{2})\/clear$/);
+  if (m) {
+    const game = await gameById(env.DB, m[1]!);
+    if (!game) return new Response("Not found", { status: 404 });
+    await clearCountedDay(env.DB, game.id, m[2]!);
+    await audit(env.DB, game.id, "plays-cleared", `Counted plays on ${m[2]} removed`, actor);
+    return redirect("/admin#plays");
+  }
+
+  m = path.match(/^\/admin\/games\/([a-z0-9]+)\/shelves$/);
+  if (m) {
+    const game = await gameById(env.DB, m[1]!);
+    if (!game) return new Response("Not found", { status: 404 });
+    const off = form.get("off") === "1";
+    await env.DB.prepare("UPDATE games SET off_shelves = ? WHERE id = ?").bind(off ? 1 : 0, game.id).run();
+    await audit(env.DB, game.id, off ? "off-shelves" : "on-shelves", off ? "Kept off Popular, Trending and New" : "Back on Popular, Trending and New", actor);
+    return redirect(form.get("back") === "game" ? `/admin/games/${game.id}` : "/admin#plays");
+  }
+
   m = path.match(/^\/admin\/games\/([a-z0-9]+)\/multiplayer$/);
   if (m) {
     const game = await gameById(env.DB, m[1]!);
@@ -257,14 +277,16 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
 }
 
 async function dashboard(env: Env, error = ""): Promise<Response> {
-  const [queue, reports, games, usage, images, words] = await Promise.all([
+  const [queue, reports, games, usage, images, words, spikes] = await Promise.all([
     heldVersions(env.DB),
     openReports(env.DB),
     allGames(env.DB),
     aiUsage(env.DB),
     pendingImages(env.DB),
     gamesWithDetailsDrafts(env.DB),
+    playSpikes(env.DB),
   ]);
+  const offShelves = games.filter((g) => g.off_shelves);
   const groups = groupReports(reports);
   return page(
     env,
@@ -301,6 +323,18 @@ ${groups.length
         )}</table>
 <p><a class="btn ghost" href="/admin/reports">Open the report queue</a></p>`
       : html`<p class="note">No open reports.</p>`}
+
+<h2 id="plays">Play spikes (${spikes.length})</h2>
+${spikes.length
+      ? html`<p class="muted">Counted players at least 5 times the week before. Faked plays tend to come from few networks, or from cloud servers. Removing a day's counts keeps every play started; keeping a game off the shelves hides it from Popular, Trending and New until you put it back.</p>
+<table><tr><th>Game</th><th>Day</th><th>Players</th><th>Usual</th><th>Networks</th><th>Biggest network</th><th>Cloud</th><th></th></tr>${spikes.map(
+          (p) => html`<tr><td><a href="/admin/games/${p.game_id}">${p.title}</a>${p.off_shelves ? html` ${pill("off shelves")}` : ""}</td><td>${p.day}</td><td>${p.players}</td><td>${p.usual}</td><td>${p.networks}</td><td>${p.top_share}%</td><td>${p.hosting_share}%</td>
+<td><div class="row"><form method="post" action="/admin/games/${p.game_id}/plays/${p.day}/clear"><button class="btn ghost" type="submit">Remove this day's counts</button></form>${p.off_shelves ? "" : html`<form method="post" action="/admin/games/${p.game_id}/shelves"><input type="hidden" name="off" value="1"><button class="btn ghost" type="submit">Keep off the shelves</button></form>`}</div></td></tr>`,
+        )}</table>`
+      : html`<p class="note">No spikes.</p>`}
+${offShelves.length
+      ? html`<h3>Kept off the shelves</h3><table>${offShelves.map((g) => html`<tr><td><a href="/admin/games/${g.id}">${g.title}</a></td><td><form method="post" action="/admin/games/${g.id}/shelves"><input type="hidden" name="off" value="0"><button class="btn ghost" type="submit">Put back</button></form></td></tr>`)}</table>`
+      : ""}
 
 <h2>Upload a game</h2>
 ${error ? html`<p class="note" style="color:var(--danger)">${error}</p>` : ""}
@@ -357,6 +391,13 @@ ${images.length ? html`<div class="shots">${images.map((i) => html`<div>${imageR
 <form method="post" action="/admin/games/${game.id}/owner" class="row">
   <input name="account_id" placeholder="Account ID (blank for no owner)" size="40" value="${owner?.owner.account_id ?? ""}">
   <button class="btn ghost" type="submit">Set owner</button>
+</form>
+
+<h2>Shelves</h2>
+<form method="post" action="/admin/games/${game.id}/shelves" class="row">
+  <input type="hidden" name="off" value="${game.off_shelves ? "0" : "1"}"><input type="hidden" name="back" value="game">
+  <span>${game.off_shelves ? "Kept off Popular, Trending and New." : "Can show on Popular, Trending and New."}</span>
+  <button class="btn ghost" type="submit">${game.off_shelves ? "Put back on the shelves" : "Keep off the shelves"}</button>
 </form>
 
 <h2>Cloud saves</h2>

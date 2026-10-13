@@ -30,6 +30,8 @@ export interface Game {
   players: string;
   /** Where its rooms on Zaisma are listed. */
   room_browsing: RoomBrowsing;
+  /** 1 when Zaisma keeps it off Popular, Trending and New (faked plays, or while a spike is checked). */
+  off_shelves: number;
   /** A new title or description waiting for review, as JSON, for games players can already see. */
   details_draft: string | null;
   created_at: number;

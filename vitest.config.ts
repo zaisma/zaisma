@@ -46,6 +46,9 @@ export default defineConfig({
         SUPABASE_SECRET_KEY: "sb_secret_test",
         // Room lists answer from the database every time, so tests see each change at once.
         ROOM_LIST_CACHE_SECONDS: "0",
+        // Cloudflare's check on Play: tests answer it themselves (test/site/plays.test.ts).
+        TURNSTILE_SITE_KEY: "test-site-key",
+        TURNSTILE_SECRET: "test-secret",
       }, {
         // Tests run scans themselves. Wrangler's options are merged one level deep, so the queue's
         // consumer can't be removed; instead uploads send their scan jobs to a queue nothing reads.

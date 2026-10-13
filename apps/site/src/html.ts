@@ -327,15 +327,18 @@ export function metalButton(label: string, opts: { href?: string; id?: string; b
   return html`<span class="hit${opts.block ? " block" : ""}">${el}</span>`;
 }
 
-export function securityHeaders(env: Env, extra: Record<string, string> = {}): Headers {
+/** Cloudflare's invisible check (Turnstile), on pages that ask for it: its script and its frame. */
+const CHECK_ORIGIN = "https://challenges.cloudflare.com";
+
+export function securityHeaders(env: Env, extra: Record<string, string> = {}, check = false): Headers {
   const h = new Headers({
     "Content-Type": "text/html; charset=utf-8",
     "Content-Security-Policy": [
       "default-src 'self'",
       "img-src 'self' data:",
       "style-src 'self' 'unsafe-inline'",
-      "script-src 'self' 'unsafe-inline'",
-      `frame-src ${gameFrameSource(env)}`,
+      `script-src 'self' 'unsafe-inline'${check ? ` ${CHECK_ORIGIN}` : ""}`,
+      `frame-src ${gameFrameSource(env)}${check ? ` ${CHECK_ORIGIN}` : ""}`,
       "form-action 'self'",
       "frame-ancestors 'none'",
       "base-uri 'none'",
@@ -352,7 +355,7 @@ export function securityHeaders(env: Env, extra: Record<string, string> = {}): H
 // Pages stay cacheable for everyone, so the header learns about sign-in from a readable hint cookie.
 const ACCOUNT_LINK = `<a id="account-link" class="btn ghost" href="/signin">Sign in</a><script>if(/(^|; )(__Host-)?zaisma_in=1/.test(document.cookie)){var a=document.getElementById("account-link");a.href="/account";a.textContent="Account"}</script>`;
 
-export function layout(env: Env, opts: { title: string; body: Raw; bare?: boolean; admin?: boolean; private?: boolean; nav?: "dashboard" | "home"; art?: string | null }): Response {
+export function layout(env: Env, opts: { title: string; body: Raw; bare?: boolean; admin?: boolean; private?: boolean; nav?: "dashboard" | "home"; art?: string | null; check?: boolean }): Response {
   const doc = html`<!doctype html>
 <html lang="en">
 <head>
@@ -375,7 +378,7 @@ ${siteFooter()}`}
 <script>${raw(METAL_SCRIPT)}${raw(AMBIENT_SCRIPT)}${raw(BUSY_SCRIPT)}</script>
 </body>
 </html>`;
-  return new Response(doc.html, { headers: securityHeaders(env, opts.admin || opts.private ? { "Cache-Control": "no-store" } : {}) });
+  return new Response(doc.html, { headers: securityHeaders(env, opts.admin || opts.private ? { "Cache-Control": "no-store" } : {}, opts.check) });
 }
 
 /**

@@ -12,6 +12,9 @@ export interface Env {
   SAVE_LIMIT?: RateLimit;
   /** Play counts from game pages, per connection address. */
   PLAY_LIMIT?: RateLimit;
+  /** Cloudflare's invisible check on Play (Turnstile): the widget's site key and secret. Without them no play is counted. */
+  TURNSTILE_SITE_KEY?: string;
+  TURNSTILE_SECRET?: string;
   /** Developer API requests, per account. */
   DEV_LIMIT?: RateLimit;
   /** Sending game files to the developer API, per account. */
