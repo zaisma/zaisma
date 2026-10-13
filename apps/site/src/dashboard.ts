@@ -598,7 +598,7 @@ const STYLES = `
 .make-tester input{flex:1;min-width:200px}
 .later summary{min-height:44px;display:inline-flex;align-items:center;font-size:15px}
 .later[open]{flex-basis:100%}
-.thumbs{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
+.thumbs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:16px}
 .thumbs figure{margin:0}
 .thumbs img{width:100%;aspect-ratio:16/9;object-fit:cover;background:var(--pic);display:block}
 .thumbs img.sq{aspect-ratio:1}
@@ -639,8 +639,8 @@ button.link:hover{color:var(--text)}
 .choices>.hint{margin:6px 0 0}
 input[type=file]{flex:1;min-width:0;padding:9px 12px;color:var(--muted);font-size:14px}
 input[type=file]::file-selector-button{background:var(--raised);color:var(--text);border:0;padding:6px 12px;margin-right:10px;font:inherit;font-weight:600;cursor:pointer}
-@media (max-width:900px){.manage{grid-template-columns:1fr}.game-head{grid-template-columns:96px 1fr}.vis{grid-column:1/-1}.vis .hint{text-align:left}}
-@media (max-width:520px){.seg{display:flex}.seg button{flex:1;padding:0 8px}.make input{width:100%}.make{width:100%}}
+@media (max-width:900px){.manage{grid-template-columns:minmax(0,1fr)}.game-head{grid-template-columns:96px minmax(0,1fr)}.vis{grid-column:1/-1}.vis .hint{text-align:left}}
+@media (max-width:520px){.facts table{display:block;overflow-x:auto}.seg{display:flex}.seg button{flex:1;padding:0 8px}.make input{width:100%}.make{width:100%}}
 `;
 
 // Times in the reader's own time zone, and "publish later" sent as an exact moment.

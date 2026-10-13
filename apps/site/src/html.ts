@@ -230,7 +230,7 @@ a.tile{color:inherit;text-decoration:none}
 .seg button:hover,.seg a:hover{color:var(--text)}
 .seg [aria-pressed=true],.seg [aria-current]{color:#fff;background:var(--brush) 0 0/320px 320px,var(--face-hi);box-shadow:inset 1px 1px 0 rgba(255,255,255,.13),inset -1px -1px 0 #000}
 .seg [aria-pressed=true]::after,.seg [aria-current]::after{content:"";position:absolute;left:8px;right:8px;bottom:3px;height:2px;background:var(--chrome)}
-form.stack{display:grid;gap:14px;max-width:560px}
+form.stack{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;max-width:560px}
 form.stack>.btn,form.stack>.hit{justify-self:start}
 label{display:grid;gap:6px;font-size:14px;color:var(--muted)}
 input,textarea,select{background:#0d0f12;color:var(--text);border:1px solid #000;padding:0 12px;min-height:44px;font:inherit;

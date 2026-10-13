@@ -38,7 +38,8 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
     game.owner_id
       ? env.DB.prepare("SELECT accounts.name, (SELECT COUNT(*) FROM games WHERE owner_id = ? AND status = 'live' AND visibility = 'listed') AS games FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE owners.id = ?").bind(game.owner_id, game.owner_id).first<{ name: string; games: number }>()
       : null,
-    env.DB.prepare("SELECT id, kind FROM game_images WHERE game_id = ? AND status = 'approved' ORDER BY kind = 'cover' DESC, created_at").bind(game.id).all<{ id: string; kind: string }>(),
+    // The square cover is only for phones' game cards, not one of the game's pictures.
+    env.DB.prepare("SELECT id, kind FROM game_images WHERE game_id = ? AND status = 'approved' AND kind != 'square' ORDER BY kind = 'cover' DESC, created_at").bind(game.id).all<{ id: string; kind: string }>(),
     env.DB.prepare("SELECT id, notes, published_at FROM versions WHERE game_id = ? AND published_at IS NOT NULL AND notes != '' ORDER BY published_at DESC LIMIT 10").bind(game.id).all<{ id: string; notes: string; published_at: number }>(),
     showcase(env, 60),
     // Games on Zaisma rooms: who's playing now, and the rooms to list if the developer shows them here.
@@ -188,7 +189,8 @@ a.live-now:hover{text-decoration:underline;text-underline-offset:3px}
 .updates li{padding:18px 20px}
 .updates h3{margin:0 0 6px;font-size:18px}
 .updates p{margin:0;color:var(--text-2);white-space:pre-line}
-@media (max-width:960px){.gp-top,.about{grid-template-columns:1fr}main.gp{padding:16px 16px 56px}.side{padding:22px 20px}}
+/* minmax(0,…) so the strip of thumbnails scrolls instead of pushing the page past the screen. */
+@media (max-width:960px){.gp-top,.about{grid-template-columns:minmax(0,1fr)}main.gp{padding:16px 16px 56px}.side{padding:22px 20px}}
 /* Stacked (phones and tablets): the picture, a slim strip of the other pictures and the details plate
    make one machined piece, so Play sits near the top. The picture takes the cut corner, lit like a plate's. */
 @media (max-width:960px){
