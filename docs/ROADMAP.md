@@ -46,7 +46,7 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | next | Must | Julius: register the DMCA agent | | $6 at copyright.gov, then fill in the DMCA page |
 | doing | Must | Alert and DMCA email delivery | | Fastmail blocks mail from zaisma.com, so support@ forwards to iCloud instead; dmca@ and privacy@ next |
 | planned | Must | Connect image matching | Julius: apply for PhotoDNA, Julius: register with NCMEC | Every image in an upload is checked before publishing (PhotoDNA, or Arachnid Shield if PhotoDNA doesn't come through); matches are held, reported to NCMEC within minutes (PhotoDNA's terms require 72 hours) and alerted to Julius. Until then every game waits for manual approval |
-| planned | Must | Julius: Workers Paid plan | | $5/month; needed to run developers' game servers |
+| done | Must | Julius: Workers Paid plan | | $5/month, live Oct 12, 2026; needed to run developers' game servers |
 | planned | Must | Julius: Supabase Pro | | $25/month, switched on at launch; the free plan pauses |
 | planned | Nice | Julius: Public Suffix List entry | | Needs 2+ years left on the registration and a `_psl` TXT record; the list may turn down projects without players, so apply after launch |
 
@@ -111,7 +111,7 @@ Detailed plan approved: guest passes, game server API, rooms, SDK, demos.
 | planned | Must | `zaisma check` and automatic fixes | Upload command | Pulls in outside scripts, unpacks compressed builds |
 | planned | Must | Claude Code skill | Developer MCP, `zaisma check` and automatic fixes | Teaches the whole workflow |
 | planned | Must | Basic play stats | Client SDK | Plays, session length, players coming back |
-| planned | Must | Developers' own game servers run safely | Upload command, Rooms on rooms.zaisma.com, Julius: Workers Paid plan | Dynamic Workers; the biggest technical unknown in Phase 1, so prototype it early |
+| doing | Must | Developers' own game servers run safely | Upload command, Rooms on rooms.zaisma.com, Julius: Workers Paid plan | Dynamic Workers; the biggest technical unknown in Phase 1, so prototype it early |
 | planned | Nice | Drop-in Socket.IO and PeerJS | Client SDK | So existing multiplayer prototypes work with few changes |
 
 ### Polish before outreach (build track 5)
