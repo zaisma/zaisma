@@ -260,7 +260,8 @@ export async function gamesWithDetailsDrafts(db: D1Database): Promise<Game[]> {
 
 // --- Covers and screenshots ------------------------------------------------------
 
-export type ImageKind = "cover" | "screenshot";
+/** cover: landscape, the game's card and picture. square: an optional second cover for phones. */
+export type ImageKind = "cover" | "square" | "screenshot";
 export type ImageStatus = "pending" | "approved" | "rejected";
 
 export interface GameImage {
@@ -275,7 +276,10 @@ export interface GameImage {
   created_at: number;
 }
 
-export const IMAGE_LIMITS = { bytes: 5 * 1024 * 1024, minSide: 320, maxSide: 8192, screenshots: 8 };
+export const IMAGE_LIMITS = { bytes: 5 * 1024 * 1024, minSide: 320, maxSide: 8192, screenshots: 8, squareMinSide: 512 };
+
+/** A square cover is as wide as it is tall, give or take 1%. */
+export const isSquare = (width: number, height: number) => Math.abs(width - height) <= Math.max(width, height) * 0.01;
 
 /** Where an image's file lives in the games bucket. */
 export const imageKey = (img: Pick<GameImage, "game_id" | "id">) => `images/${img.game_id}/${img.id}`;
@@ -351,7 +355,7 @@ export async function pendingImages(db: D1Database): Promise<(GameImage & { slug
 }
 
 /**
- * Approve or reject an image. An approved cover replaces the game's old one; the old files
+ * Approve or reject an image. An approved cover (landscape or square) replaces the game's old one of that kind; the old files
  * to delete from storage are returned. Rejected files are kept, in case they need reporting.
  */
 export async function settleImage(db: D1Database, img: GameImage, approve: boolean): Promise<GameImage[]> {
@@ -360,8 +364,8 @@ export async function settleImage(db: D1Database, img: GameImage, approve: boole
     return [];
   }
   const { results: replaced } =
-    img.kind === "cover"
-      ? await db.prepare("SELECT * FROM game_images WHERE game_id = ? AND kind = 'cover' AND status = 'approved' AND id != ?").bind(img.game_id, img.id).all<GameImage>()
+    img.kind !== "screenshot"
+      ? await db.prepare("SELECT * FROM game_images WHERE game_id = ? AND kind = ? AND status = 'approved' AND id != ?").bind(img.game_id, img.kind, img.id).all<GameImage>()
       : { results: [] as GameImage[] };
   await db.batch([
     db.prepare("UPDATE game_images SET status = 'approved' WHERE id = ?").bind(img.id),

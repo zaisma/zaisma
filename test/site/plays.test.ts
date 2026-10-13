@@ -76,7 +76,7 @@ describe("play stats", () => {
 
 describe("home page shelves", () => {
   const now = Date.parse("2026-10-20T12:00:00Z");
-  const show = (slug: string, since: number | null = null) => ({ slug, title: slug, description: "", developer: null, owner_id: null, cover: null, updated: null, since, modes: "", devices: [] });
+  const show = (slug: string, since: number | null = null) => ({ slug, title: slug, description: "", developer: null, owner_id: null, cover: null, square: null, updated: null, since, modes: "", devices: [] });
   const players = async (id: string, ago: number, n: number) =>
     env.DB
       .prepare("INSERT INTO play_days (game_id, day, plays, players) VALUES (?, ?, ?, ?) ON CONFLICT (game_id, day) DO UPDATE SET players = players + excluded.players")

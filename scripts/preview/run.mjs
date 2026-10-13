@@ -205,6 +205,12 @@ async function seed() {
       const titled = join(ROOT, "scripts/preview/covers", `${game.slug}.png`);
       const { image } = await api("POST", `/games/${game.slug}/images?kind=cover`, existsSync(titled) ? new Uint8Array(readFileSync(titled)) : picture(g.color, 0));
       await go(`/admin/images/${image.id}/approve`, form({ reason: "" }));
+      // Some also have a square cover, which phones show; the rest show their landscape one whole.
+      const square = join(ROOT, "scripts/preview/covers", `${game.slug}-square.png`);
+      if (existsSync(square)) {
+        const { image: sq } = await api("POST", `/games/${game.slug}/images?kind=square`, new Uint8Array(readFileSync(square)));
+        await go(`/admin/images/${sq.id}/approve`, form({ reason: "" }));
+      }
     }
   }
   // Screenshots and a second version with patch notes, so the game page has everything.

@@ -232,6 +232,23 @@ describe("covers and screenshots", () => {
     expect((await SELF.fetch(`${SITE}/img/${second.id}`)).status).toBe(404);
   });
 
+  it("takes a square cover beside the landscape one, and replaces only its own kind", async () => {
+    await api("/games", { body: { title: "Squares" } });
+    expect((await api("/games/squares/images?kind=square", { raw: png(1280, 720) })).status).toBe(400);
+    expect((await api("/games/squares/images?kind=square", { raw: png(400, 400) })).status).toBe(400);
+    const add = async (kind: string, w: number, h: number) => ((await (await api(`/games/squares/images?kind=${kind}`, { raw: png(w, h) })).json()) as { image: { id: string } }).image.id;
+    const approve = (id: string) => SELF.fetch(`http://localhost/admin/images/${id}/approve`, { method: "POST", body: new URLSearchParams({}) });
+    const cover = await add("cover", 1280, 720);
+    const square = await add("square", 1024, 1030);
+    await approve(cover);
+    await approve(square);
+    const newer = await add("square", 512, 512);
+    await approve(newer);
+    const { images } = (await (await api("/games/squares")).json()) as { images: { id: string; kind: string }[] };
+    expect(images.filter((i) => i.kind === "cover").map((i) => i.id)).toEqual([cover]);
+    expect(images.filter((i) => i.kind === "square").map((i) => i.id)).toEqual([newer]);
+  });
+
   it("caps screenshots at eight", async () => {
     await api("/games", { body: { title: "Shots" } });
     for (let i = 0; i < 8; i++) expect((await api("/games/shots/images?kind=screenshot", { raw: webp(1280, 720) })).status).toBe(201);

@@ -1,5 +1,6 @@
 import {
   IMAGE_LIMITS,
+  isSquare,
   MAX_GAMES_PER_OWNER,
   accountById,
   accountForApiKey,
@@ -252,7 +253,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
 
   if (images && !m[2] && method === "POST") {
     const kind = new URL(request.url).searchParams.get("kind") as ImageKind;
-    if (kind !== "cover" && kind !== "screenshot") throw new ApiError(400, "bad_kind", "Add ?kind=cover or ?kind=screenshot.");
+    if (kind !== "cover" && kind !== "square" && kind !== "screenshot") throw new ApiError(400, "bad_kind", "Add ?kind=cover, ?kind=square or ?kind=screenshot.");
     const length = Number(request.headers.get("content-length") ?? 0);
     if (length > IMAGE_LIMITS.bytes) throw new ApiError(413, "image_too_big", "Images can be up to 5 MB.");
     const bytes = new Uint8Array(await request.arrayBuffer());
@@ -263,13 +264,16 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     if (Math.min(width, height) < IMAGE_LIMITS.minSide || Math.max(width, height) > IMAGE_LIMITS.maxSide) {
       throw new ApiError(400, "bad_size", `Images need to be at least ${IMAGE_LIMITS.minSide} px on each side and at most ${IMAGE_LIMITS.maxSide} px.`);
     }
+    if (kind === "square" && (!isSquare(width, height) || width < IMAGE_LIMITS.squareMinSide)) {
+      throw new ApiError(400, "not_square", `A square cover needs to be as wide as it is tall, at least ${IMAGE_LIMITS.squareMinSide} px.`);
+    }
     const existing = await imagesForGame(env.DB, game.id);
     const waiting = existing.filter((i) => i.kind === kind && i.status === "pending");
     if (kind === "screenshot" && existing.filter((i) => i.kind === "screenshot" && i.status !== "rejected").length >= IMAGE_LIMITS.screenshots) {
       throw new ApiError(400, "too_many_screenshots", `A game can have ${IMAGE_LIMITS.screenshots} screenshots. Remove one first.`);
     }
-    if (kind === "cover" && waiting.length) {
-      // Only the newest cover waits for review.
+    if (kind !== "screenshot" && waiting.length) {
+      // Only the newest cover of each kind waits for review.
       for (const old of waiting) {
         await env.GAMES.delete(imageKey(old));
         await deleteImageRow(env.DB, old.id);

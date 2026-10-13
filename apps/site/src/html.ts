@@ -168,6 +168,15 @@ body>main.gp{flex:1 0 auto;width:100%}
 .tile .name:hover span{text-decoration:underline;text-underline-offset:3px}
 .tile .name small{color:var(--muted);font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 a.tile{color:inherit;text-decoration:none}
+.tile .pic picture{display:block;width:100%;height:100%}
+.tile .fill{display:none}
+/* Phones: players' cards are square. A game with only a landscape cover shows it whole, over a
+   blurred copy of itself, so nothing of the developer's art is cut off. */
+@media (max-width:640px){
+  a.tile .pic{aspect-ratio:1}
+  a.tile.wide .pic img{position:relative;object-fit:contain}
+  a.tile.wide .fill{display:block;position:absolute;inset:-24px;background:var(--fill) center/cover no-repeat;filter:blur(18px) brightness(.5) saturate(1.15)}
+}
 /* A game with no cover: its title engraved on the plate, over a faint Z. */
 .tile .named{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:14px 20px;text-align:center}
 .tile .named::before{content:"";position:absolute;inset:0;background:url(/zaisma-mark-metal.svg) center/38% no-repeat;opacity:.1}
@@ -221,7 +230,7 @@ a.tile{color:inherit;text-decoration:none}
 .seg button:hover,.seg a:hover{color:var(--text)}
 .seg [aria-pressed=true],.seg [aria-current]{color:#fff;background:var(--brush) 0 0/320px 320px,var(--face-hi);box-shadow:inset 1px 1px 0 rgba(255,255,255,.13),inset -1px -1px 0 #000}
 .seg [aria-pressed=true]::after,.seg [aria-current]::after{content:"";position:absolute;left:8px;right:8px;bottom:3px;height:2px;background:var(--chrome)}
-form.stack{display:grid;gap:14px;max-width:560px}
+form.stack{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;max-width:560px}
 form.stack>.btn,form.stack>.hit{justify-self:start}
 label{display:grid;gap:6px;font-size:14px;color:var(--muted)}
 input,textarea,select{background:#0d0f12;color:var(--text);border:1px solid #000;padding:0 12px;min-height:44px;font:inherit;
