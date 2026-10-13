@@ -1,5 +1,5 @@
 import { defineGameServer, type GameServer, type Player, type Room } from "@zaisma/game-server";
-import { fileKey, manifestKey, type Manifest } from "@zaisma/core";
+import { SANDBOX_GAME_SERVER, fileKey, manifestKey, type Manifest } from "@zaisma/core";
 import type { Env } from "./index.ts";
 
 /**
@@ -15,7 +15,7 @@ import type { Env } from "./index.ts";
  * than one per message or tick.
  */
 
-export const SANDBOX = "sandbox";
+export const SANDBOX = SANDBOX_GAME_SERVER;
 export const SERVER_FILE = "zaisma-server.js";
 /** A game server file bigger than this isn't loaded. */
 const MAX_BYTES = 1024 * 1024;

@@ -49,6 +49,12 @@ describe("multiplayer on the site", () => {
     expect(await (await SELF.fetch("https://zaisma.test/g/arena")).text()).toContain("connects to its own servers: play.example.com");
   });
 
+  it("can set a game to run its own game server in a sandbox", async () => {
+    const id = await addGame("arena");
+    expect((await saveMultiplayer(id, "sandbox", "")).status).toBe(303);
+    expect((await gameById(env.DB, id))?.game_server).toBe("sandbox");
+  });
+
   it("refuses unknown game servers and bad server addresses", async () => {
     const id = await addGame("arena");
     expect(await (await saveMultiplayer(id, "my-evil-server", "")).text()).toContain("Pick a game server");
