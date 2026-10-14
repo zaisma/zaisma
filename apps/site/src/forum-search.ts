@@ -2,7 +2,7 @@ import type { Feedback, FeedbackPost } from "@zaisma/core";
 import type { Env } from "./env.ts";
 
 /**
- * Full-text search over the developer forum (migrations/0026_forum_search.sql). Only what others can
+ * Full-text search over the developer forum (migrations/0027_forum_search.sql). Only what others can
  * see is indexed: a public topic's title (with a known issue's workaround and roadmap item) and each
  * post that passed its check. Private messages to Zaisma never are.
  */

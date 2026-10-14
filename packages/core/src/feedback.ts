@@ -1,6 +1,6 @@
 /**
  * Feedback about Zaisma itself, from developers and their AI (migrations/0023_feedback.sql), and the
- * developer forum it lives in (migrations/0025_forum.sql): each item is a topic.
+ * developer forum it lives in (migrations/0026_forum.sql): each item is a topic.
  */
 
 /** talk: a discussion that isn't a bug, gap, idea or question. */
