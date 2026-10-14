@@ -74,5 +74,7 @@ export async function dailyCleanup(env: Env, now = Date.now()): Promise<{ drafts
   await env.DB.prepare("DELETE FROM game_server_errors WHERE last_at < ?").bind(now - 30 * DAY).run();
   // A play's ticket is only needed while it's going on.
   await env.DB.prepare("DELETE FROM play_tickets WHERE issued_at < ?").bind(now - DAY).run();
+  // So is its key to multiplayer passes.
+  await env.DB.prepare("DELETE FROM room_keys WHERE issued_at < ?").bind(now - DAY).run();
   return { drafts: drafts.length, files: keys.length, pictures: pictures.length };
 }

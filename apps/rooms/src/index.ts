@@ -1,4 +1,4 @@
-import { PLAYER_REPORT_REASONS, checkText, createReport, listRooms, pastFreeTier, readLabelParam, tidyText, type PlayerReportReason } from "@zaisma/core";
+import { PLAYER_REPORT_REASONS, checkText, createReport, listRooms, pastFreeTier, readLabelParam, tidyText, useRoomKey, type PlayerReportReason } from "@zaisma/core";
 import { ERROR_TEXT, guestName, isRoomCode, jwks, loadSigningKey, roomCode, signPass, type SigningKey } from "@zaisma/game-server";
 import { usesRooms } from "./registry.ts";
 
@@ -127,6 +127,8 @@ export default {
 
       if (url.pathname === "/v1/pass") {
         if (await limited(env.PASS_LIMIT, request)) return json({ error: "Too many requests. Try again in a minute." }, 429, cors);
+        // Only for a browser Cloudflare's check on Play said is real: the game page's key, a few passes each.
+        if (!(await useRoomKey(env.DB, game.id, body.key))) return json({ error: "Zaisma couldn't check this browser, so it can't play online. Reload the game to try again.", code: "unchecked" }, 403, cors);
         const now = Math.floor(Date.now() / 1000);
         const player = { id: `g_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`, name: guestName() };
         const pass = await signPass(await signingKey(env), { sub: player.id, name: player.name, aud: slug, iss: env.ISSUER, kind: "guest", iat: now, exp: now + PASS_SECONDS });

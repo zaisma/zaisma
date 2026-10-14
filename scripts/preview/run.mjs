@@ -103,7 +103,7 @@ spawnSync(
 spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", pretendPlaysSql()], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
 // Test players keep a few rooms open, so the Rooms tab has something in it. Cave Crew also lists
 // pretend rooms from around the world, kept fresh every half hour (without blocking the test players).
-await openTestRooms(ROOMS, GAMES).catch((err) => console.log(`Couldn't open the test rooms: ${err.message}`));
+await openTestRooms(ROOMS, GAMES, SITE).catch((err) => console.log(`Couldn't open the test rooms: ${err.message}`));
 const pretend = () => spawn("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", pretendRoomsSql()], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
 pretend();
 setInterval(pretend, 30 * 60_000);

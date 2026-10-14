@@ -64,8 +64,8 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   const res = layout(env, {
     title: `${game.title} on Zaisma`,
     bare: true,
-    // Cloudflare's invisible check on Play, for play counts (not on tester links, which aren't counted).
-    check: !tester && Boolean(env.TURNSTILE_SITE_KEY),
+    // Cloudflare's invisible check on Play, for play counts and multiplayer (tester links: only for multiplayer).
+    check: (!tester || multiplayer) && Boolean(env.TURNSTILE_SITE_KEY),
     art: shots[0] ?? null,
     body: html`<style>
 /* Two states on one page: details with a Play button, then the game filling the screen. */
@@ -359,7 +359,7 @@ ${saves
   <nav><button class="btn" value="cloud"></button><button class="btn ghost" value="local"></button></nav>
 </form></dialog>`
       : ""}
-${tester ? "" : html`<div id="play-check" class="play-check"></div>`}
+${tester && !multiplayer ? "" : html`<div id="play-check" class="play-check"></div>`}
 <script>
 let frame = null;
 const share = document.getElementById("share");
@@ -371,7 +371,7 @@ full.onclick = () => frame && frame.requestFullscreen();
 // The game only loads when the player taps Play. That tap also lets the game play sound straight away.
 function play() {
   if (frame) return;
-  ${raw(tester ? "// A tester link's game stays off Continue playing and out of the play stats." : "remember();\n  countPlay();")}
+  ${raw(tester ? `// A tester link's game stays off Continue playing and out of the play stats.${multiplayer ? "\n  countPlay();" : ""}` : "remember();\n  countPlay();")}
   frame = document.getElementById("game-frame").content.firstElementChild.cloneNode(true);
   if (window.startSaves) startSaves(frame);
   document.body.appendChild(frame);
@@ -381,7 +381,7 @@ function play() {
 }
 document.getElementById("play").onclick = play;
 document.getElementById("share-page").onclick = (e) => shareFrom(e.currentTarget);
-${raw(tester ? "" : playCounter(game.slug, env.TURNSTILE_SITE_KEY))}
+${raw(tester && !multiplayer ? "" : playCounter(game.slug, env.TURNSTILE_SITE_KEY, tester?.token))}
 // Remember the game for Continue playing: on this device, and with the account when signed in.
 function remember() {
   try {
@@ -540,6 +540,11 @@ addEventListener("message", (e) => {
   if (d && d.type === "zaisma:room" && typeof d.code === "string" && /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/.test(d.code)) {
     history.replaceState(null, "", location.pathname + "?room=" + d.code);
   }
+  // The game asks for its key to player passes: given once the check on Play has answered, only to this game.
+  if (d && d.type === "zaisma:room-key") {
+    const reply = (key) => frame.contentWindow.postMessage({ type: "zaisma:room-key", key }, gameOrigin);
+    typeof roomKey === "undefined" ? reply(null) : roomKey.then(reply);
+  }
 });
 ${raw(saves ? `const SAVES = ${JSON.stringify({ api: `/api/saves/${game.slug}`, root: gameUrl(env, game.slug), query: inRoom ? `?room=${code}` : "", frameOrigin: new URL(src).origin, slug: game.slug, offerAfter: (Number(env.KEEP_OFFER_SECONDS) || 300) * 1000 }).replace(/</g, "\\u003c")};\n${SAVES_CLIENT}` : "")}
 // A room link is an invitation into a match already underway, and ?play comes from a Play button elsewhere: both skip the details.
@@ -639,7 +644,7 @@ const PRIVACY = `
 <h2>Playing as a guest</h2>
 <p>Guests get a temporary ID and a made-up name like "Swift Fox 42", used only to run the game session. They're kept in your browser tab and forgotten when it closes. We don't keep a profile, and we don't know who you are.</p>
 <p>Your browser also remembers which games you played recently, so the home page can show them first. That list stays on your device; we never see it.</p>
-<p>When you press Play, we count it for the game's developer and for lists like Popular: that the game was played, how long it was on screen, and whether this browser played it before (and on which day it first did). To keep the counts honest, Cloudflare checks, invisibly, that a real browser pressed Play, and we count players by internet provider (like Comcast or Vodafone) to spot bot networks. A play's details are kept for a day at most; after that we keep only totals for each game and day, never anything that says who played.</p>
+<p>When you press Play, we count it for the game's developer and for lists like Popular: that the game was played, how long it was on screen, and whether this browser played it before (and on which day it first did). To keep the counts honest, Cloudflare checks, invisibly, that a real browser pressed Play, and we count players by internet provider (like Comcast or Vodafone) to spot bot networks. The same check lets you play online in multiplayer games, so bots can't fill their rooms. A play's details are kept for a day at most; after that we keep only totals for each game and day, never anything that says who played.</p>
 <h2>If you make an account</h2>
 <ul>
 <li><strong>Your email</strong>, only to sign you in. It's never shown to anyone, and we don't send marketing.</li>

@@ -22,7 +22,7 @@ beforeEach(async () => {
     const good = form.get("secret") === "test-secret" && form.get("response") === "good";
     return Response.json(good ? { success: true, action: "play", hostname: "zaisma.test" } : { success: false });
   });
-  await env.DB.exec("DELETE FROM play_days; DELETE FROM play_returns; DELETE FROM play_tickets; DELETE FROM play_networks; DELETE FROM tester_links; DELETE FROM games WHERE id LIKE 'g-play%';");
+  await env.DB.exec("DELETE FROM play_days; DELETE FROM play_returns; DELETE FROM play_tickets; DELETE FROM play_networks; DELETE FROM room_keys; DELETE FROM tester_links; DELETE FROM games WHERE id LIKE 'g-play%';");
   const now = Date.now();
   await env.DB.prepare("INSERT INTO games (id, slug, title, status, visibility, current_version_id, created_at, updated_at) VALUES ('g-play', 'play-game', 'Play Game', 'live', 'listed', 'v1', ?, ?)").bind(now, now).run();
   await env.DB.prepare("INSERT INTO games (id, slug, title, status, visibility, current_version_id, created_at, updated_at) VALUES ('g-play-hidden', 'play-hidden', 'Hidden', 'live', 'private', 'v1', ?, ?)").bind(now, now).run();
@@ -100,7 +100,32 @@ describe("counted plays", () => {
     expect(stats.days.map((d) => d.day)).toEqual(["2026-10-10", "2026-10-11", "2026-10-17"]);
   });
 
-  it("checks on the game page, but never through a tester link", async () => {
+  it("gives a checked browser in a multiplayer game its key to player passes", async () => {
+    // A single-player game: no key.
+    expect(await (await send("play-game", { ...NEW, token: "good" })).json()).not.toHaveProperty("key");
+    await env.DB.prepare("UPDATE games SET game_server = 'relay' WHERE id LIKE 'g-play%'").run();
+    const both = await (await send("play-game", { ...NEW, token: "good" })).json<{ ticket: string; key: string }>();
+    expect(both.ticket).toMatch(/^[a-z0-9]+$/);
+    expect(await env.DB.prepare("SELECT game_id, passes FROM room_keys WHERE id = ?").bind(both.key).first()).toEqual({ game_id: "g-play", passes: 0 });
+    expect((await send("play-game", { ...NEW, token: "forged" })).status).toBe(204);
+  });
+
+  it("gives a tester link's checked browser a key, never counting the play", async () => {
+    await env.DB.prepare("INSERT INTO tester_links (id, game_id, name, token, created_at) VALUES ('t1', 'g-play-hidden', 'Team', 'abcdefghij0123456789', ?)").bind(Date.now()).run();
+    const tester = { tester: "abcdefghij0123456789", token: "good" };
+    // A single-player game has nothing to check for.
+    expect((await send("play-hidden", tester)).status).toBe(204);
+    await env.DB.prepare("UPDATE games SET game_server = 'relay' WHERE id = 'g-play-hidden'").run();
+    const { key } = await (await send("play-hidden", tester)).json<{ key: string }>();
+    expect(key).toMatch(/^[a-z0-9]+$/);
+    expect((await send("play-hidden", { ...tester, token: "forged" })).status).toBe(204);
+    expect((await send("play-game", tester)).status).toBe(404);
+    expect((await send("play-hidden", { ...tester, tester: "abcdefghij0123456780" })).status).toBe(404);
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM play_days").first("n")).toBe(0);
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM play_tickets").first("n")).toBe(0);
+  });
+
+  it("checks on the game page, and through a tester link only for multiplayer", async () => {
     const res = await SELF.fetch(`${SITE}/g/play-game`);
     expect(res.headers.get("content-security-policy")).toContain("https://challenges.cloudflare.com");
     const page = await res.text();
@@ -112,6 +137,14 @@ describe("counted plays", () => {
     expect(tester.status).toBe(200);
     expect(tester.headers.get("content-security-policy")).not.toContain("challenges.cloudflare.com");
     expect(await tester.text()).not.toContain("/api/plays/");
+    // A multiplayer game checks the browser for its player passes, without counting the play.
+    await env.DB.prepare("UPDATE games SET game_server = 'relay' WHERE id = 'g-play-hidden'").run();
+    const multi = await SELF.fetch(`${SITE}/t/abcdefghij0123456789`);
+    expect(multi.headers.get("content-security-policy")).toContain("https://challenges.cloudflare.com");
+    const text = await multi.text();
+    expect(text).toContain('TESTER = "abcdefghij0123456789"');
+    expect(text).not.toContain("remember();");
+    expect(text).toContain('"zaisma:room-key"');
   });
 });
 
