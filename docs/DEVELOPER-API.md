@@ -10,7 +10,7 @@ Any AI tool that supports remote MCP servers can manage your games at `https://z
 claude mcp add --transport http zaisma https://zaisma.com/mcp --header "Authorization: Bearer $ZAISMA_KEY"
 ```
 
-Every tool is a call to this API (`apps/site/src/mcp.ts`): `list_games`, `create_game`, `get_game`, `update_game`, `upload_files` (small games up to 5 MB, sent as file contents), `get_version`, `publish_version` (also rolls back and publishes later), `cancel_scheduled_publish`, `add_image`, `remove_image`, `add_tester_link`, `remove_tester_link`, `get_reports`, `get_stats` and `get_history`. Bigger builds go through the upload command. Making a game players can play private or a draft again needs `"confirm": true`, so the AI asks you first.
+Every tool is a call to this API (`apps/site/src/mcp.ts`): `list_games`, `create_game`, `get_game`, `update_game`, `upload_files` (small games up to 5 MB, sent as file contents), `get_version`, `publish_version` (also rolls back and publishes later), `cancel_scheduled_publish`, `add_image`, `remove_image`, `add_tester_link`, `remove_tester_link`, `get_reports`, `get_stats`, `get_history`, and `get_feedback`, `send_feedback` and `add_to_feedback` (see Feedback below). Bigger builds go through the upload command. Making a game players can play private or a draft again needs `"confirm": true`, so the AI asks you first.
 
 ## Signing in
 
@@ -20,7 +20,7 @@ Make an API key on your account page (zaisma.com/account, under Game developers)
 
 | Call | What it does |
 | --- | --- |
-| `GET /games` | Your games. |
+| `GET /games` | Your games, and `feedback_news`: how many of your feedback items Zaisma has replied to or changed since you last opened them. |
 | `POST /games` | Make a game: `{"title", "slug"?, "description"?, "devices"?, "controls"?, "screen"?}`. It starts as a draft that only you can see. Up to 50 games. |
 | `GET /games/:slug` | One game with its images, versions and tester links. |
 | `PATCH /games/:slug` | Change any of `title`, `description`, `visibility`, `devices`, `controls`, `screen`, `players`, `cloud_saves`, `room_browsing`, `multiplayer`. |
@@ -78,6 +78,26 @@ The cover is your game's card everywhere players browse: we show it alone, with 
 curl -X POST "https://zaisma.com/api/dev/games/sky-hopper/images?kind=cover" \
   -H "Authorization: Bearer $ZAISMA_KEY" --data-binary @cover.png
 ```
+
+## Feedback
+
+Tell the people who build Zaisma about bugs, gaps (a limit or something missing that blocks you), feature requests and questions, about Zaisma itself (`apps/site/src/feedback.ts`). The MCP asks your AI to do this whenever it hits one, after checking what's already there.
+
+Each item is a thread. Your own items and every post on them are private to you and Zaisma. Known issues (items Zaisma merged and cleaned up: a title, a workaround until it's fixed, the roadmap item, how many developers it affects) are open to every developer and their AI.
+
+| Call | What it does |
+| --- | --- |
+| `GET /feedback?q=&since=` | `mine`: your items with their status and any known issue they're in (`news` when Zaisma replied and you haven't opened it), and `known_issues`. `q` searches both; `since` (the `next_since` from your last call) gives only what changed after it. |
+| `POST /feedback` | File one: `{"kind", "title", "text", "game"?, "context"?, "author"?, "picture"?}`. `kind` is `bug`, `gap`, `feature` or `question`; `title` up to 120 characters and `text` up to 8,000; `game` one of your games' slugs; `context` any JSON up to 8,000 characters (the call that failed, the exact error, the version); `picture` a PNG, JPEG or WebP screenshot up to 2 MB, base64. Answers with the item and `matches`: known issues that look like the same problem, with their workarounds. |
+| `GET /feedback/:id` | One of your items with every post (`by`: `you`, `your AI` or `Zaisma`), or a known issue. Opening your item reads its news. |
+| `POST /feedback/:id/posts` | Add to your item: `{"text", "context"?, "author"?, "picture"?}`, with `"reopen": true` to reopen one that's `fixed`, `wont` (won't change) or `answered`. Given a known issue's id, it files your own item under it (or adds to the one you have), so your case counts and you hear when it's fixed. |
+| `GET /feedback/:id/pictures/:post` | A screenshot you attached. |
+
+- **Status:** `new` (waiting for Zaisma), `known`, `planned`, `fixed`, `wont` or `answered`. When Zaisma changes a known issue's status, every item in it changes and each developer gets the news.
+- **Who wrote it:** every post says whether you wrote it or your AI did. Posts through the MCP are always your AI's; posts from the dashboard are yours. API callers say `"author": "person"` for something you wrote yourself; otherwise it's marked as your AI's (the upload command's `--by-me` does this).
+- **Secrets are blanked** before anything is stored (API keys, tokens, passwords, private keys); the answer says how many with `secrets_removed`. Still, leave them and players' personal details out.
+- Up to 100 posts a day per account: new items, additions and reopens alike.
+- Deleting your account deletes your feedback and screenshots. A known issue you started stays, without your name or your words.
 
 ## Uploading versions
 

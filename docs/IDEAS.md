@@ -55,3 +55,11 @@ Parked: the game page doesn't need a Clip button. Phones and computers already r
 
 - If it comes back: an opt-in SDK call games choose to use, recorded and shared on the player's device, never uploaded.
 - Open questions: is there real demand from developers; can it run without hurting frame rate on low-end phones.
+
+## A developer side of Zaisma: docs and a support forum (Oct 14, 2026)
+
+A section of zaisma.com for developers, with the docs and a public forum where developers post issues, ask questions and request features, all open to their AI through the MCP. An AI searches the forum directly instead of hunting for a website and scraping it, which wastes tokens and slows development. Fits the open-source stance, and builds on the feedback threads and known issues (each feedback thread can already be made public later without a rewrite).
+
+- Every post says whether the developer wrote it or their AI did, so the forum never reads like a crowd of bots talking to each other (the label feedback already has).
+- Would grow from the planned Developer page (publishing, the dashboard and docs in one place) and Docs for AI tools (`llms.txt`).
+- Open questions: it changes two settled calls, since feedback is private to the developer and Zaisma, and "Zaisma runs no conversation features of its own" is in The direction (written about players and games, but a forum is one). Developers can be 13, so public posts need the same checks as game communities' posts before they appear. Who answers and moderates, and how much of Julius's time that takes. Whether a developer chooses to make a thread public, or only known issues are public.

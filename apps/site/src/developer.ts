@@ -58,6 +58,7 @@ import {
 } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import { gameUrl, type Env } from "./env.ts";
+import { feedbackRoute } from "./feedback.ts";
 import { playStats } from "./plays.ts";
 import { pruneVersions } from "./scan.ts";
 
@@ -84,6 +85,7 @@ import { pruneVersions } from "./scan.ts";
  *   GET    /api/dev/games/:slug/testers        tester links that are on
  *   POST   /api/dev/games/:slug/testers        make a tester link: { "name" }
  *   DELETE /api/dev/games/:slug/testers/:id    turn one off for good
+ *   …/api/dev/feedback                         feedback about Zaisma itself (see feedback.ts)
  *
  * Images are served from /img/:id once approved; owners can see their own before that.
  */
@@ -93,6 +95,10 @@ export interface Caller {
   ownerId: string;
   actor: string;
   cookies: string[];
+  /** How the call came in: an API key, the MCP (an AI, always) or our own pages (the developer). */
+  via: "api" | "mcp" | "dashboard";
+  /** What the caller says it is (X-Zaisma-Client), like "cli". Only for labels; never trusted for anything else. */
+  client?: string;
 }
 
 export class ApiError extends Error {
@@ -144,6 +150,9 @@ export async function authenticate(request: Request, env: Env): Promise<Caller> 
   if (limit && !(await limit.limit({ key: accountId })).success) throw new ApiError(429, "slow_down", "Too many requests. Wait a minute and try again.");
   const caller = await callerFor(env, accountId, cookies);
   if (!caller) throw new ApiError(401, "no_account", "Finish making your account first.");
+  if (header) caller.via = "api";
+  const client = request.headers.get("x-zaisma-client");
+  if (client) caller.client = client.slice(0, 20);
   return caller;
 }
 
@@ -151,7 +160,7 @@ export async function authenticate(request: Request, env: Env): Promise<Caller> 
 export async function callerFor(env: Env, accountId: string, cookies: string[] = []): Promise<Caller | null> {
   if (!(await accountById(env.DB, accountId))) return null;
   const owner = await personOwner(env.DB, accountId);
-  return { accountId, ownerId: owner.id, actor: `account:${accountId}`, cookies };
+  return { accountId, ownerId: owner.id, actor: `account:${accountId}`, cookies, via: "dashboard" };
 }
 
 /**
@@ -175,8 +184,17 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
   const ok = (data: unknown, status = 200) => json(data, status, caller.cookies);
 
   if (path === "/games" && method === "GET") {
-    const { results } = await env.DB.prepare("SELECT * FROM games WHERE owner_id = ? ORDER BY updated_at DESC").bind(caller.ownerId).all<Game>();
-    return ok({ games: results.map((g) => gameJson(env, g)) });
+    const [{ results }, news] = await Promise.all([
+      env.DB.prepare("SELECT * FROM games WHERE owner_id = ? ORDER BY updated_at DESC").bind(caller.ownerId).all<Game>(),
+      env.DB.prepare("SELECT COUNT(*) AS n FROM feedback WHERE account_id = ? AND news_at > COALESCE(seen_at, 0)").bind(caller.accountId).first<{ n: number }>(),
+    ]);
+    // Your feedback items with a reply or change from Zaisma you haven't opened yet.
+    return ok({ games: results.map((g) => gameJson(env, g)), feedback_news: news?.n ?? 0 });
+  }
+
+  if (path === "/feedback" || path.startsWith("/feedback/")) {
+    const out = await feedbackRoute(request, env, path, caller);
+    return out instanceof Response ? out : ok(...out);
   }
 
   if (path === "/games" && method === "POST") {
@@ -679,13 +697,13 @@ function versionJson(env: Env, game: Game, v: Version, detail = false) {
 }
 
 /** A game this caller owns. Someone else's game looks the same as no game. */
-async function ownGame(env: Env, slug: string, caller: Caller): Promise<Game> {
+export async function ownGame(env: Env, slug: string, caller: Caller): Promise<Game> {
   const game = await gameBySlug(env.DB, slug);
   if (!game || game.owner_id !== caller.ownerId) throw new ApiError(404, "no_game", `You don't have a game at zaisma.com/g/${slug}.`);
   return game;
 }
 
-async function readJson(request: Request, max = 64 * 1024): Promise<Record<string, unknown>> {
+export async function readJson(request: Request, max = 64 * 1024): Promise<Record<string, unknown>> {
   if (Number(request.headers.get("content-length") ?? 0) > max) throw new ApiError(413, "too_big", `Send less than ${max / 1024} KB of JSON.`);
   try {
     const body = await request.json();
