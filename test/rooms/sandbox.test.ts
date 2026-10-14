@@ -36,6 +36,21 @@ async function knock(game: string, code: string, data?: unknown, pass?: string) 
   return first;
 }
 
+/** Join with a pass and data, and say the first thing the game itself sends (or the room's error). */
+async function arrive(game: string, code: string, data: unknown, pass: string) {
+  const up = await SELF.fetch(`${R}/v1/rooms/${game}/${code}`, { headers: { Upgrade: "websocket", Origin: ORIGIN } });
+  const ws = up.webSocket!;
+  ws.accept();
+  const got = new Promise<any>((r) =>
+    ws.addEventListener("message", (ev) => {
+      const m = JSON.parse(ev.data as string);
+      if (m.t === "msg" || m.t === "error") r(m);
+    }),
+  );
+  ws.send(JSON.stringify({ t: "hello", pass, data }));
+  return got;
+}
+
 async function join(game: string, code: string, data?: unknown) {
   const { pass, player } = await newPass(game);
   const up = await SELF.fetch(`${R}/v1/rooms/${game}/${code}`, { headers: { Upgrade: "websocket", Origin: ORIGIN } });
@@ -54,7 +69,7 @@ async function join(game: string, code: string, data?: unknown) {
   const game_ = async () => {
     for (;;) {
       const m = await next();
-      if (m.t === "msg" || m.t === "ended" || m.t === "error" || m.t === "kicked") return m;
+      if (m.t === "msg" || m.t === "ended" || m.t === "error" || m.t === "kicked" || m.t === "move") return m;
     }
   };
   ws.send(JSON.stringify({ t: "hello", pass, ...(data !== undefined ? { data } : {}) }));
@@ -204,6 +219,40 @@ describe("sandboxed game servers", () => {
       if (row) await new Promise((r) => setTimeout(r, 20));
     }
     expect(row).toBeNull();
+  });
+
+  it("moves players to another room that's already running, which can say no", async () => {
+    await addSandboxGame(
+      "world",
+      `export default {
+        setup: () => ({ locked: false }),
+        canJoin(state, player, room, data, info) { return !(state.locked && info.from) || "This area is locked."; },
+        onJoin(state, player, room, data, info) { if (info.from) room.send(player.id, { arrived: data, from: info.from }); },
+        onMessage(state, player, msg, room) {
+          if (msg === "lock") state.locked = true;
+          if (typeof msg === "string" && msg.startsWith("go ")) room.moveTo(msg.slice(3), { players: [player.id], data: { door: "north" } });
+          return state;
+        },
+        onMoved(state, result, room) {
+          for (const r of result.refused) room.send(r.player.id, { stayed: r.reason, code: r.code });
+        },
+      };`,
+    );
+    const forest = await join("world", "FRSTAA");
+    const town = await join("world", "TWNAAA");
+    town.ws.send(JSON.stringify({ t: "msg", d: "go FRSTAA" }));
+    expect(await town.next()).toEqual({ t: "move", code: "FRSTAA" });
+
+    // Same pass, the forest room: it gets the town's data, not anything the browser sends.
+    expect(await arrive("world", "FRSTAA", { door: "cheat" }, town.pass)).toEqual({ t: "msg", d: { arrived: { door: "north" }, from: "TWNAAA" } });
+
+    // A room that's locked, and one that isn't running, both say no; the player stays put.
+    forest.ws.send(JSON.stringify({ t: "msg", d: "lock" }));
+    const other = await join("world", "THRDAA");
+    other.ws.send(JSON.stringify({ t: "msg", d: "go FRSTAA" }));
+    expect(await other.next()).toEqual({ t: "msg", d: { stayed: "This area is locked.", code: "refused" } });
+    other.ws.send(JSON.stringify({ t: "msg", d: "go ZZZZZZ" }));
+    expect(await other.next()).toEqual({ t: "msg", d: { stayed: "That room isn't running.", code: "no-room" } });
   });
 
   it("leaves a game without a game server file unavailable", async () => {

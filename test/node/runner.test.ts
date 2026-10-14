@@ -98,4 +98,47 @@ describe("Node runner", () => {
     for (const c of [a, b, m]) c.ws.close();
     await own.close();
   });
+
+  it("moves players to another room that's running, which gets the data and can say no", async () => {
+    const world = defineGameServer({
+      setup: () => ({}),
+      onJoin(_s, p, room, data, info) {
+        if (info?.from) room.send(p.id, { arrived: data, from: info.from });
+      },
+      onMessage(_s, p, msg, room) {
+        room.moveTo(String(msg), { players: [p.id], data: { door: "north" } });
+      },
+      onMoved(_s, result, room) {
+        for (const r of result.refused) room.send(r.player.id, { stayed: r.code });
+      },
+    });
+    const own = startServer({ server: world, game: "arena", port: 0, origins: [ORIGIN], issuer: ISS, keys: async () => [signing.publicKey] });
+    await new Promise((r) => own.wss.once("listening", r));
+    const at = (own.wss.address() as { port: number }).port;
+    const until = async (c: { next: () => Promise<any> }, t: string) => {
+      for (;;) {
+        const m = await c.next();
+        if (m.t === t) return m;
+      }
+    };
+    const forest = connect(ORIGIN, "/v1/rooms/arena/FRSTAA", at);
+    const town = connect(ORIGIN, "/v1/rooms/arena/TWNAAA", at);
+    await Promise.all([forest.open, town.open]);
+    forest.ws.send(JSON.stringify({ t: "hello", pass: await pass("f") }));
+    await until(forest, "welcome");
+    town.ws.send(JSON.stringify({ t: "hello", pass: await pass("a") }));
+    await until(town, "welcome");
+
+    town.ws.send(JSON.stringify({ t: "msg", d: "ZZZZZZ" }));
+    expect(await until(town, "msg")).toEqual({ t: "msg", d: { stayed: "no-room" } });
+    town.ws.send(JSON.stringify({ t: "msg", d: "FRSTAA" }));
+    expect(await until(town, "move")).toEqual({ t: "move", code: "FRSTAA" });
+
+    const moved = connect(ORIGIN, "/v1/rooms/arena/FRSTAA", at);
+    await moved.open;
+    moved.ws.send(JSON.stringify({ t: "hello", pass: await pass("a"), data: { door: "cheat" } }));
+    expect(await until(moved, "msg")).toEqual({ t: "msg", d: { arrived: { door: "north" }, from: "TWNAAA" } });
+    for (const c of [forest, town, moved]) c.ws.close();
+    await own.close();
+  });
 });

@@ -13,7 +13,11 @@
  *   room.leave();
  *   Zaisma.joinRoom({ server: "wss://my-server.example" });  // your own game server
  *   Zaisma.joinRoom({ data: { character: "knight" } });       // data for the game server's onJoin, up to 4 KB
- *   room.on("move", (move) => { room.leave(); move.join(); }); // the game server reserved a room for this player
+ * When the game server sends the player to another room (room.reserve or room.moveTo), the room
+ * follows by itself: same room object, new code, a "moved" event, then "players" with the new list.
+ *   room.on("moved", (code) => {});
+ *   room.on("move", (move) => { showLoading(); move.follow(); });  // step in: listening to "move" turns
+ *                                             // off following by itself; move.follow() goes when you're ready
  *   room.on("kicked", ({ reason, keptOut }) => {});  // removed from the room by the game server or the host
  *   room.host;                                // the host's player ID, when the game server gives the host controls
  *   room.kick(playerId, { keepOut: true });   // the host removes a player (relay games; keepOut: for the rest of the match)
@@ -163,6 +167,7 @@
         room.host = m.host || null;
         if (m.room) room._settle(m.room);
         room._setStatus("open");
+        if (room._moved) { room._moved = false; room._emit("players", m.players); }
         if (room._ready) { room._ready.resolve(room); room._ready = null; }
       } else if (m.t === "players") {
         room.players = m.players;
@@ -174,7 +179,8 @@
         room._settle(m.room);
         room._emit("room", m.room);
       } else if (m.t === "move") {
-        room._emit("move", room._move(m));
+        if ((room._on.move || []).length) room._emit("move", room._move(m));
+        else room._follow(m.code);
       } else if (m.t === "kicked") {
         room._done = true;
         room._emit("kicked", { reason: m.reason, keptOut: m.keptOut === true });
@@ -241,17 +247,42 @@
     if (this._ws && this._ws.readyState === 1) this._ws.send(JSON.stringify({ t: "room", name: info.name, labels: info.labels }));
   };
   /**
-   * The game server reserved a room for this player: { code, join(opts) }. join takes joinRoom's
-   * options (like data) and joins that room, on the same server as this one.
+   * The game server sent this player to another room: { code, follow(), join(opts) }. follow() moves
+   * this room object there. join takes joinRoom's options and joins it as a new room object instead,
+   * on the same server as this one (leave this one first).
    */
   Room.prototype._move = function (m) {
     var server = this._server;
+    var room = this;
     return {
       code: m.code,
+      follow: function () { room._follow(m.code); },
       join: function (opts) {
         return connect(m.code, Object.assign({}, opts || {}, { server: server }));
       },
     };
+  };
+  /** Move this room object to another room of the game: the old connection closes, the new one opens. */
+  Room.prototype._follow = function (code) {
+    if (this._done || !CODE.test(code) || code === this.code) return;
+    var old = this._ws;
+    if (old) {
+      old.onclose = null;
+      old.onmessage = null;
+      try { old.close(1000, "Moved"); } catch (e) { /* fine */ }
+    }
+    this._ws = null;
+    this.code = code;
+    this._url = this._url.replace(/[A-Z0-9]{6}$/, code);
+    if (this.inviteLink) this.inviteLink = config.site + gamePage() + "?room=" + code;
+    this._made = {};
+    this._data = undefined;
+    this._tries = 0;
+    this._moved = true;
+    if (config.site && window.parent !== window) window.parent.postMessage({ type: "zaisma:room", code: code }, config.site);
+    this._setStatus("connecting");
+    this._emit("moved", code);
+    this._connect();
   };
   Room.prototype._settle = function (r) {
     this.listed = r.listed;

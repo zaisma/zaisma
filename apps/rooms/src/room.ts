@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import {
   CLOSE_REFUSED,
+  ERROR_TEXT,
   PassError,
   RoomCore,
   errorMessage,
@@ -8,6 +9,7 @@ import {
   roomInfo,
   verifyPass,
   type GameServer,
+  type MoveAsk,
   type Player,
   type RoomErrorCode,
   type RoomInfo,
@@ -106,6 +108,7 @@ export class Room extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
     // Another room of the same game reserving this one (only rooms can reach this; players' requests are WebSockets).
     if (request.method === "POST" && new URL(request.url).pathname === "/reserve") return this.reserved(request);
+    if (request.method === "POST" && new URL(request.url).pathname === "/expect") return this.expecting(request);
     if (!this.meta || !this.meta.code) {
       this.meta = {
         gameId: request.headers.get("x-game-id")!,
@@ -150,6 +153,7 @@ export class Room extends DurableObject<Env> {
     if (err) ws.send(errorMessage(err));
     await core.settled();
     await this.moved();
+    await core.settled();
     await this.save();
     if (core.listingChanged) await this.list();
   }
@@ -215,6 +219,26 @@ export class Room extends DurableObject<Env> {
     return new Response(null, { status: 204 });
   }
 
+  /**
+   * Another room of the same game sends players here (room.moveTo): the game server decides who it
+   * takes, and holds a seat for each for a minute. A room that isn't running takes nobody.
+   */
+  private async expecting(request: Request): Promise<Response> {
+    if (!this.meta?.code || this.ended || this.meta.gameId !== request.headers.get("x-game-id")) return new Response("No such room", { status: 404 });
+    const ask = (await request.json()) as MoveAsk;
+    const players = Array.isArray(ask?.players) ? ask.players.filter((p) => typeof p?.id === "string" && typeof p?.name === "string").slice(0, 16) : [];
+    if (typeof ask?.from !== "string" || !players.length) return new Response("Bad request", { status: 400 });
+    if (!(await this.load()) || !(await this.gameStillLive())) return new Response("No such room", { status: 404 });
+    const core = this.room();
+    if (!core) return new Response("No such room", { status: 404 });
+    const answer = await core.expect({ from: ask.from, players: players.map((p) => ({ id: p.id, name: p.name })), data: ask.data });
+    await core.settled();
+    this.savedRoom = core.saved;
+    await this.ctx.storage.put("room", this.savedRoom);
+    await this.save();
+    return Response.json(answer);
+  }
+
   private async hello(ws: WebSocket, text: string): Promise<void> {
     const tester = (ws.deserializeAttachment() as Attachment & { stage: "hello" }).tester;
     let pass: unknown;
@@ -265,6 +289,7 @@ export class Room extends DurableObject<Env> {
     if (core.players.size === 1) await this.ctx.storage.delete("emptySince");
     this.startTicking(core);
     await this.moved();
+    await core.settled();
     await this.save();
     await this.list();
   }
@@ -406,7 +431,37 @@ export class Room extends DurableObject<Env> {
     this.moving.push(work);
   }
 
-  /** Wait for reserved rooms still being set up. */
+  /**
+   * The game sends players to another of its rooms (room.moveTo): ask that room, tell the players it
+   * takes where to go, and give the game server the answer (onMoved).
+   */
+  private moveTo(code: string, ask: Omit<MoveAsk, "from">): void {
+    const meta = this.meta!;
+    const nobody = (c: "no-room" | "busy") => ({ moved: [] as string[], refused: ask.players.map((p) => ({ id: p.id, code: c, reason: ERROR_TEXT[c] })) });
+    const work = (async () => {
+      let answer: { moved: string[]; refused: { id: string; code: RoomErrorCode; reason: string }[] };
+      if (code === meta.code || !meta.code) answer = nobody("no-room");
+      else {
+        try {
+          const res = await this.env.ROOMS.get(this.env.ROOMS.idFromName(`${meta.slug}:${code}`)).fetch("https://room/expect", {
+            method: "POST",
+            headers: { "x-game-id": meta.gameId },
+            body: JSON.stringify({ ...ask, from: meta.code } satisfies MoveAsk),
+          });
+          answer = res.ok ? await res.json() : nobody("no-room");
+        } catch (err) {
+          console.error("Couldn't move players:", err);
+          answer = nobody("busy");
+        }
+      }
+      const text = JSON.stringify({ t: "move", code } satisfies ServerMessage);
+      for (const id of answer.moved) this.sockets(id).forEach((ws) => ws.send(text));
+      this.core?.moved(code, answer, ask.players);
+    })().catch((err) => console.error("Couldn't move players:", err));
+    this.moving.push(work);
+  }
+
+  /** Wait for reserved rooms still being set up, and moves still being asked. */
   private async moved(): Promise<void> {
     while (this.moving.length) await Promise.all(this.moving.splice(0));
   }
@@ -431,6 +486,7 @@ export class Room extends DurableObject<Env> {
         if (!this.core?.ended && this.sockets().length === 0) void this.emptied();
       },
       reserve: (code: string, start: RoomStart) => this.reserve(code, start),
+      moveTo: (code: string, ask: Omit<MoveAsk, "from">) => this.moveTo(code, ask),
     };
     // Turn-based rooms wake with their saved state. A ticking room's state isn't saved,
     // so if one is ever evicted mid-match, it starts fresh and everyone joins again.

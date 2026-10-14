@@ -10,11 +10,13 @@
 import { WebSocketServer } from "ws";
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
-import { CLOSE_REFUSED, PassError, RoomCore, defineGameServer, errorMessage, isRoomCode, relay, roomData, roomInfo, verifyPass } from "../src/index.ts";
+import { CLOSE_REFUSED, ERROR_TEXT, PassError, RoomCore, defineGameServer, errorMessage, isRoomCode, relay, roomData, roomInfo, verifyPass } from "../src/index.ts";
 
 const HELLO_MS = 5000;
 /** A reserved room nobody comes to is dropped after this. */
 const RESERVED_MS = 10 * 60 * 1000;
+/** A room that took players from another (room.moveTo) waits this long for them, like its held seats. */
+const SEAT_MS = 60 * 1000;
 
 /** Fetch Zaisma's published pass keys, caching them for an hour. */
 export function keysFrom(jwksUrl) {
@@ -49,14 +51,23 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
         send: (id, text) => sockets.get(id)?.send(text),
         close: (id, code, reason) => sockets.get(id)?.close(code, reason),
         reserve: (next, how) => {
-          const made = roomFor(next, how);
           // It waits for its players, then goes like any room once it's empty.
-          made.waiting = true;
-          setTimeout(() => {
-            made.waiting = false;
-            closeIfEmpty(next, made);
-          }, RESERVED_MS).unref?.();
+          wait(next, roomFor(next, how), RESERVED_MS);
           for (const id of how.players) sockets.get(id)?.send(JSON.stringify({ t: "move", code: next }));
+        },
+        // Another room here takes the players it wants; they're told to go, and this room hears who went.
+        moveTo: (next, ask) => {
+          const target = rooms.get(next);
+          const answer = target && next !== code
+            ? target.core.expect({ ...ask, from: code })
+            : Promise.resolve({ moved: [], refused: ask.players.map((p) => ({ id: p.id, code: "no-room", reason: ERROR_TEXT["no-room"] })) });
+          answer
+            .then((a) => {
+              if (target && a.moved.length) wait(next, target, SEAT_MS);
+              for (const id of a.moved) sockets.get(id)?.send(JSON.stringify({ t: "move", code: next }));
+              core.moved(next, a, ask.players);
+            })
+            .catch((err) => console.error("Couldn't move players:", err));
         },
       },
       { start },
@@ -72,6 +83,17 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
     }
     rooms.set(code, room);
     return room;
+  }
+
+  /** Keep a room for players on their way, even if it empties meanwhile. */
+  function wait(code, room, ms) {
+    room.waiting = true;
+    clearTimeout(room.waitTimer);
+    room.waitTimer = setTimeout(() => {
+      room.waiting = false;
+      closeIfEmpty(code, room);
+    }, ms);
+    room.waitTimer.unref?.();
   }
 
   function closeIfEmpty(code, room) {

@@ -53,6 +53,38 @@ export interface Room {
    * match, and out of any room it reserves after. onLeave runs once the current handler is done.
    */
   kick(playerId: string, opts?: KickOptions): void;
+  /**
+   * Send some of this room's players to another room of this game that already exists, like back to
+   * their party's match or into the next area of an open world. The other room's canJoin decides with
+   * your data (plain JSON, up to 4 KB) and holds a seat for each player it takes for a minute, even
+   * if it's closed to new players; its onJoin gets the same data. Each player taken gets a "move" event in the game, which follows by
+   * default. onMoved then says who was taken and who was turned away; they stay here.
+   */
+  moveTo(code: string, opts: MoveOptions): void;
+}
+
+export interface MoveOptions {
+  players: string[];
+  data?: unknown;
+}
+
+/** Who another room took (room.moveTo) and who it turned away, and why. */
+export interface MoveResult {
+  code: string;
+  moved: Player[];
+  refused: { player: Player; code: RoomErrorCode; reason: string }[];
+}
+
+/** How a player came in: from, the code of the room that sent them (room.moveTo), or undefined. */
+export interface JoinInfo {
+  from?: string;
+}
+
+/** What one room asks another when moving players there; from is the asking room's code, added by the transport. */
+export interface MoveAsk {
+  from: string;
+  players: Player[];
+  data?: unknown;
 }
 
 export interface KickOptions {
@@ -100,16 +132,20 @@ export interface GameServer<S = any> {
   setup(data?: unknown): S;
   /**
    * data is what the player's game passed to joinRoom({ data }), like the character they picked, or
-   * undefined. It comes from the player's browser, so check it like any message.
+   * undefined. It comes from the player's browser, so check it like any message. For a player another
+   * room sent (room.moveTo), data is what that room's game server passed, and info.from is its code.
    */
-  onJoin?(state: S, player: Player, room: Room, data?: unknown): Result<S>;
+  onJoin?(state: S, player: Player, room: Room, data?: unknown, info?: JoinInfo): Result<S>;
   /**
    * Say who may come in, before they join: return false, or a reason the player sees (up to 200
    * characters), to turn them away, like a wrong room password in data or a full team. Anything
    * else lets them in. Players coming back after a dropped connection don't ask again. Only decide
-   * here; change the state in onJoin. If it throws, the player is turned away.
+   * here; change the state in onJoin. If it throws, the player is turned away. Players another room
+   * sends are asked when it sends them, with its data and info.from, and not again when they arrive.
    */
-  canJoin?(state: S, player: Player, room: Room, data?: unknown): boolean | string | void | Promise<boolean | string | void>;
+  canJoin?(state: S, player: Player, room: Room, data?: unknown, info?: JoinInfo): boolean | string | void | Promise<boolean | string | void>;
+  /** After room.moveTo: who the other room took, and who it turned away and why. */
+  onMoved?(state: S, result: MoveResult, room: Room): Result<S>;
   onLeave?(state: S, player: Player, room: Room): Result<S>;
   onMessage?(state: S, player: Player, msg: unknown, room: Room): Result<S>;
   onTick?(state: S, dt: number, room: Room): Result<S>;
@@ -126,7 +162,7 @@ export const ROOM_LIMITS = {
   labelValue: 24,
   /** Data a player brings to a room, and data a reserved room starts with, in bytes of JSON. */
   dataBytes: 4 * 1024,
-  /** Rooms one room may reserve a minute: enough for a full lobby, not for a bug that reserves every tick. */
+  /** Rooms one room may reserve or move players to a minute: enough for a full lobby, not for a bug that does it every tick. */
   reservesPerMinute: 20,
   /** A kick's or a refusal's reason, in characters. */
   reasonLength: 200,
@@ -172,7 +208,7 @@ export type ServerMessage =
   | { t: "error"; code: RoomErrorCode; message: string }
   | { t: "ended"; reason: string };
 
-export type RoomErrorCode = "full" | "closed" | "ended" | "too-big" | "too-fast" | "bad-message" | "bad-pass" | "no-hello" | "not-allowed" | "game-unavailable" | "busy" | "kept-out" | "refused";
+export type RoomErrorCode = "full" | "closed" | "ended" | "too-big" | "too-fast" | "bad-message" | "bad-pass" | "no-hello" | "not-allowed" | "game-unavailable" | "busy" | "kept-out" | "refused" | "no-room";
 
 export const ERROR_TEXT: Record<RoomErrorCode, string> = {
   full: "This room is full.",
@@ -188,6 +224,7 @@ export const ERROR_TEXT: Record<RoomErrorCode, string> = {
   busy: "Rooms are busy. Try again soon.",
   "kept-out": "You were removed from this room.",
   refused: "The game didn't let you into this room.",
+  "no-room": "That room isn't running.",
 };
 
 /**
@@ -198,7 +235,18 @@ export interface SavedRoom extends RoomSettings {
   known: string[];
   data?: unknown;
   keptOut?: Record<string, string>;
+  expected?: Record<string, Expected>;
 }
+
+/** A player another room is sending here: the data it sent, where from, and until when their seat is held. */
+export interface Expected {
+  data?: unknown;
+  from: string;
+  until: number;
+}
+
+/** How long a room holds a seat for a player another room is sending. */
+const SEAT_MS = 60_000;
 
 /** How the room reaches players: a Durable Object's sockets, or a Node server's. */
 export interface Transport {
@@ -206,6 +254,11 @@ export interface Transport {
   close(playerId: string, code: number, reason: string): void;
   /** Set up a reserved room, then send each of its players a "move" message. Without it, rooms can't reserve. */
   reserve?(code: string, start: RoomStart): void;
+  /**
+   * Ask another room of the game to take some players (its expect()), send each player it takes a
+   * "move" message, then hand the answer to this room's moved(). Without it, rooms can't move players.
+   */
+  moveTo?(code: string, ask: Omit<MoveAsk, "from">): void;
 }
 
 /** Plain JSON within ROOM_LIMITS.dataBytes, or undefined if it isn't. Players' data that fails this is refused. */
@@ -255,6 +308,8 @@ export class RoomCore<S = any> {
   readonly known = new Set<string>();
   /** Players kicked and kept out for the rest of the match, with the reason they were given. */
   readonly keptOut = new Map<string, string>();
+  /** Players other rooms are sending here (room.moveTo), with a seat each until they arrive. */
+  readonly expected = new Map<string, Expected>();
   /** What a reserved room started with, kept so a room that starts over starts the same way. */
   private data: unknown = undefined;
   /** When this room last reserved rooms, for the limit. */
@@ -294,6 +349,7 @@ export class RoomCore<S = any> {
       for (const id of opts.room.known) this.known.add(id);
       this.data = opts.room.data;
       this.keepOut(opts.room.keptOut);
+      for (const [id, e] of Object.entries(opts.room.expected ?? {})) this.expected.set(id, e);
     } else if (opts.start) {
       this.open = false;
       this.listed = opts.start.listed;
@@ -339,6 +395,7 @@ export class RoomCore<S = any> {
       setInfo: (info) => this.settle(roomInfo(info)),
       reserve: (o) => this.reserve(o),
       kick: (id, o) => this.kick(id, o),
+      moveTo: (code, o) => this.moveTo(code, o),
     };
   }
 
@@ -349,6 +406,7 @@ export class RoomCore<S = any> {
       known: [...this.known],
       ...(this.data !== undefined ? { data: this.data } : {}),
       ...(this.keptOut.size ? { keptOut: Object.fromEntries(this.keptOut) } : {}),
+      ...(this.seatsHeld() ? { expected: Object.fromEntries(this.expected) } : {}),
     };
   }
 
@@ -372,30 +430,76 @@ export class RoomCore<S = any> {
   async admit(player: Player, data?: unknown): Promise<Admission> {
     const door = this.door(player.id);
     if (door) return door;
-    if (this.players.has(player.id) || !this.server.canJoin) return { ok: true };
+    // Players already in, and players another room sent (asked when it sent them), don't ask again.
+    if (this.players.has(player.id) || this.seat(player.id)) return { ok: true };
+    return this.ask(player, data, {});
+  }
+
+  /** The game server's canJoin, then the room's rules again, since things may change while it decides. */
+  private async ask(player: Player, data: unknown, info: JoinInfo): Promise<Admission> {
+    const moving = info.from !== undefined;
+    if (!this.server.canJoin) return this.door(player.id, moving) ?? { ok: true };
     await this.settled();
     let verdict: unknown;
     try {
-      verdict = await this.server.canJoin(this.state, player, this.api, data);
+      verdict = await this.server.canJoin(this.state, player, this.api, data, info);
     } catch (err) {
       console.error("Game server error:", err);
       return { ok: false, code: "refused" };
     }
     if (verdict === false) return { ok: false, code: "refused" };
     if (typeof verdict === "string") return { ok: false, code: "refused", ...(tidy(verdict, ROOM_LIMITS.reasonLength) ? { message: tidy(verdict, ROOM_LIMITS.reasonLength) } : {}) };
-    // Things may have changed while the game server decided.
-    return this.door(player.id) ?? { ok: true };
+    return this.door(player.id, moving) ?? { ok: true };
   }
 
-  /** The room's own rules for a player coming in, or null if they may. A player already in may always come back. */
-  private door(id: string): Admission | null {
+  /**
+   * The room's own rules for a player coming in, or null if they may. A player already in may always
+   * come back, and a player another room sent has a seat. moving: the game is sending this player
+   * from another room, which a closed room still takes (closed keeps out strangers, not the game).
+   */
+  private door(id: string, moving = false): Admission | null {
     if (this.ended) return { ok: false, code: "ended" };
     const out = this.keptOut.get(id);
     if (out !== undefined) return { ok: false, code: "kept-out", message: out };
-    if (this.players.has(id)) return null;
-    if (!this.open && !this.known.has(id)) return { ok: false, code: "closed" };
-    if (this.players.size >= this.maxPlayers) return { ok: false, code: "full" };
+    if (this.players.has(id) || this.seat(id)) return null;
+    if (!moving && !this.open && !this.known.has(id)) return { ok: false, code: "closed" };
+    if (this.players.size + this.seatsHeld() >= this.maxPlayers) return { ok: false, code: "full" };
     return null;
+  }
+
+  /** The seat held for a player another room is sending, if it hasn't run out. */
+  private seat(id: string): Expected | null {
+    const e = this.expected.get(id);
+    if (e && e.until > this.now()) return e;
+    if (e) this.expected.delete(id);
+    return null;
+  }
+
+  /** Seats held for players other rooms are sending, dropping those that ran out. */
+  private seatsHeld(): number {
+    let held = 0;
+    for (const id of [...this.expected.keys()]) if (!this.players.has(id) && this.seat(id)) held++;
+    return held;
+  }
+
+  /**
+   * Another room of the game wants to send players here (its room.moveTo). Each is checked like a
+   * newcomer, with the room's rules and canJoin given the sending room's data; those taken get a
+   * seat for a minute. Says who was taken and who wasn't, and why.
+   */
+  async expect(ask: MoveAsk): Promise<{ moved: string[]; refused: { id: string; code: RoomErrorCode; reason: string }[] }> {
+    const moved: string[] = [];
+    const refused: { id: string; code: RoomErrorCode; reason: string }[] = [];
+    const data = roomData(ask.data);
+    for (const player of ask.players) {
+      const verdict = this.players.has(player.id) ? ({ ok: false, code: "bad-message", message: "Already in that room." } as const) : await this.ask(player, data.ok ? data.data : undefined, { from: ask.from });
+      if (verdict.ok) {
+        this.expected.set(player.id, { ...(data.ok && data.data !== undefined ? { data: data.data } : {}), from: ask.from, until: this.now() + SEAT_MS });
+        moved.push(player.id);
+      } else refused.push({ id: player.id, code: verdict.code, reason: verdict.message || ERROR_TEXT[verdict.code] });
+    }
+    if (moved.length) this.dirty = true;
+    return { moved, refused };
   }
 
   /**
@@ -407,6 +511,11 @@ export class RoomCore<S = any> {
     const rejoined = this.players.has(player.id);
     const door = this.door(player.id);
     if (door && !door.ok) return door;
+    // A player another room sent brings what that room's game server passed, not what their browser sent.
+    const seat = rejoined ? null : this.seat(player.id);
+    this.expected.delete(player.id);
+    const data = seat ? seat.data : opts.data;
+    const info: JoinInfo = seat ? { from: seat.from } : {};
     if (this.known.size === 0) {
       if (opts.listed === false) this.listed = false;
       Object.assign(this, roomInfo({ name: opts.name, labels: opts.labels }));
@@ -416,7 +525,7 @@ export class RoomCore<S = any> {
     this.transport.send(player.id, JSON.stringify({ t: "welcome", me: player, players: this.list(), room: this.settings(), ...this.hostField() } satisfies ServerMessage));
     if (!rejoined) {
       this.listingChanged = true;
-      this.run(() => this.server.onJoin?.(this.state, player, this.api, opts.data));
+      this.run(() => this.server.onJoin?.(this.state, player, this.api, data, info));
       this.broadcastPlayers();
     }
     return { ok: true, rejoined };
@@ -509,10 +618,7 @@ export class RoomCore<S = any> {
     if (!players.length) throw new Error("room.reserve needs players who are in this room");
     const data = roomData(opts.data);
     if (!data.ok) throw new Error(`Reserved room data must be plain JSON up to ${ROOM_LIMITS.dataBytes / 1024} KB`);
-    const now = this.now();
-    this.reservedAt = this.reservedAt.filter((at) => now - at < 60_000);
-    if (this.reservedAt.length >= ROOM_LIMITS.reservesPerMinute) throw new Error(`A room can reserve up to ${ROOM_LIMITS.reservesPerMinute} rooms a minute`);
-    this.reservedAt.push(now);
+    this.limit();
     const info = roomInfo({ name: opts.name ?? null, labels: opts.labels ?? {} });
     // A game server in a sandbox picks the code itself, since it tells the game at once.
     const code = typeof opts.code === "string" && isRoomCode(opts.code) ? opts.code : roomCode();
@@ -525,6 +631,42 @@ export class RoomCore<S = any> {
       ...(this.keptOut.size ? { keptOut: Object.fromEntries(this.keptOut) } : {}),
     });
     return code;
+  }
+
+  /** Send players to another room of the game (room.moveTo). Mistakes in the game's call throw. */
+  private moveTo(code: string, opts: MoveOptions): void {
+    if (!this.transport.moveTo) throw new Error("Moving players isn't available here");
+    if (this.ended) throw new Error("This room has ended");
+    if (typeof code !== "string" || !isRoomCode(code)) throw new Error("room.moveTo needs a room code");
+    const players = [...new Set(Array.isArray(opts?.players) ? opts.players : [])].map((id) => this.players.get(id)).filter((p): p is Player => Boolean(p));
+    if (!players.length) throw new Error("room.moveTo needs players who are in this room");
+    const data = roomData(opts.data);
+    if (!data.ok) throw new Error(`Move data must be plain JSON up to ${ROOM_LIMITS.dataBytes / 1024} KB`);
+    this.limit();
+    this.transport.moveTo(code, { players, data: data.data });
+  }
+
+  /**
+   * The other room's answer to room.moveTo, for onMoved. Players it took who already left, or who
+   * aren't here, are left out.
+   */
+  moved(code: string, answer: { moved: string[]; refused: { id: string; code: RoomErrorCode; reason: string }[] }, sent: Player[]): void {
+    if (this.ended || !this.server.onMoved) return;
+    const who = new Map(sent.map((p) => [p.id, p]));
+    const result: MoveResult = {
+      code,
+      moved: answer.moved.map((id) => who.get(id)).filter((p): p is Player => Boolean(p)),
+      refused: answer.refused.filter((r) => who.has(r.id)).map((r) => ({ player: who.get(r.id)!, code: r.code, reason: r.reason })),
+    };
+    this.run(() => this.server.onMoved!(this.state, result, this.api));
+  }
+
+  /** Reserving rooms and moving players share one limit a minute. */
+  private limit(): void {
+    const now = this.now();
+    this.reservedAt = this.reservedAt.filter((at) => now - at < 60_000);
+    if (this.reservedAt.length >= ROOM_LIMITS.reservesPerMinute) throw new Error(`A room can reserve rooms or move players up to ${ROOM_LIMITS.reservesPerMinute} times a minute`);
+    this.reservedAt.push(now);
   }
 
   /** Remove a player (room.kick). Their onLeave runs once the handler that kicked them is done. */
