@@ -1,4 +1,4 @@
-import { checkText, gameBySlug, hasSpace, listRooms, readLabelParam, type Game, type ListedRoom, type RoomList } from "@zaisma/core";
+import { checkText, gameBySlug, hasSpace, leaveOut, listRooms, readLabelParam, readLeftParam, type Game, type ListedRoom, type RoomList } from "@zaisma/core";
 import type { Env } from "./env.ts";
 import { html, raw, type Raw } from "./html.ts";
 
@@ -26,8 +26,12 @@ export function pageRooms(env: Env, game: Game, request: Request, pick: { region
 /** Rows shown before "Show more"; the list is sorted, so these are the best ones to join. */
 const FIRST = 10;
 
-/** The number on the Rooms tab: rooms a player could join right now, everywhere. */
-export const tabCount = (list: RoomList) => (list.joinable > 99 ? "99+" : String(list.joinable));
+/** The number on the Rooms tab: the rooms the list shows, full ones too, in the region and labels picked. */
+export const tabCount = (list: RoomList) => {
+  // A copy cached from before rooms counted this way (seconds after a deploy) has only joinable.
+  const n = list.open ?? list.joinable;
+  return n > 99 ? "99+" : String(n);
+};
 
 const plural = (n: number, one: string, many: string) => (n === 1 ? `1 ${one}` : `${n} ${many}`);
 
@@ -75,7 +79,7 @@ export function roomsPanel(slug: string, list: RoomList, picked: Record<string, 
     : closed
       ? "Every room is in a match that isn't taking new players. Press Play to start a new one."
       : "Nobody's in an open room right now. Press Play to start.";
-  return html`<div class="rooms-in" data-joinable="${tabCount(list)}" data-playing="${players}" data-shown="${shownKey(list.region, picked)}">
+  return html`<div class="rooms-in" data-count="${tabCount(list)}" data-playing="${players}" data-shown="${shownKey(list.region, picked)}">
 ${head}
 ${regions || filterBar ? html`<div class="rooms-pick">${regions}${filterBar}</div>` : ""}
 ${open.length ? html`<ol class="rooms">${open.map((r, i) => roomRow(slug, r, i >= FIRST))}</ol>` : html`<p class="note rooms-empty">${empty}</p>`}
@@ -137,6 +141,9 @@ export async function roomsFragment(env: Env, slug: string, request: Request): P
   if (!shown) return new Response("", { status: 404, headers: { "Cache-Control": "no-store" } });
   const query = new URL(request.url).searchParams;
   const picked = readLabelParam(query.get("labels")) ?? {};
-  const body = roomsPanel(game.slug, await pageRooms(env, game, request, { region: query.get("region"), labels: picked }), picked);
+  const list = await pageRooms(env, game, request, { region: query.get("region"), labels: picked });
+  // The page says which room this player just left, so they don't see themselves in it while lists catch up.
+  const left = readLeftParam(query.get("left"));
+  const body = roomsPanel(game.slug, left ? leaveOut(list, left) : list, picked);
   return new Response(String(body), { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "private, max-age=10" } });
 }

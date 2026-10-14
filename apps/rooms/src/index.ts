@@ -1,4 +1,4 @@
-import { PLAYER_REPORT_REASONS, checkText, createReport, listRooms, pastFreeTier, readLabelParam, tidyText, useRoomKey, type PlayerReportReason } from "@zaisma/core";
+import { PLAYER_REPORT_REASONS, checkText, createReport, leaveOut, listRooms, pastFreeTier, readLabelParam, readLeftParam, tidyText, useRoomKey, type PlayerReportReason } from "@zaisma/core";
 import { ERROR_TEXT, guestName, isRoomCode, jwks, loadSigningKey, roomCode, signPass, type SigningKey } from "@zaisma/game-server";
 import { usesRooms } from "./registry.ts";
 
@@ -167,14 +167,17 @@ export default {
       if (!from) return json({ error: "Not allowed from here." }, 403);
       const game = await playableGame(env.DB, slug);
       if (!game || !usesRooms(game.game_server)) return json({ error: "This game doesn't use Zaisma rooms." }, 404, origin!);
-      if (game.room_browsing === "off") return json({ rooms: [], playing: { players: 0, rooms: 0, closed: 0 }, joinable: 0, regions: [], region: null, more: 0, filters: [] }, 200, origin!);
-      const found = await listRooms(env.DB, game.id, {
+      if (game.room_browsing === "off") return json({ rooms: [], playing: { players: 0, rooms: 0, closed: 0 }, joinable: 0, open: 0, regions: [], region: null, more: 0, filters: [] }, 200, origin!);
+      // The SDK says which room this player just left, so they don't see themselves in it while lists catch up.
+      const left = readLeftParam(url.searchParams.get("left"));
+      const listed = await listRooms(env.DB, game.id, {
         country: request.cf?.country as string | undefined,
         continent: request.cf?.continent as string | undefined,
         region: url.searchParams.get("region"),
         labels: readLabelParam(url.searchParams.get("labels")),
         cacheSeconds: Number(env.ROOM_LIST_CACHE_SECONDS ?? 10),
       });
+      const { changed: _, ...found } = left ? leaveOut(listed, left) : listed;
       const link = (code: string) => `${env.SITE_ORIGIN}${from.page}?room=${code}`;
       return json({ ...found, rooms: found.rooms.map((r) => ({ ...r, link: link(r.code) })) }, 200, origin!);
     }

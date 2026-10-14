@@ -7,12 +7,25 @@
  *   room.me; room.players; room.code; room.inviteLink;
  *   room.on("message", (msg) => {});          // from the game server
  *   room.on("players", (list) => {});
- *   room.on("status", (s) => {});             // "connecting" | "open" | "reconnecting" | "closed"
+ *   room.on("status", (s) => {});             // "connecting" | "open" | "reconnecting" | "away" | "closed"
  *   room.on("ended", (reason) => {});
  *   room.send({ move: "left" });
  *   room.leave();
  *   Zaisma.joinRoom({ server: "wss://my-server.example" });  // your own game server
  *   Zaisma.joinRoom({ data: { character: "knight" } });       // data for the game server's onJoin, up to 4 KB
+ *
+ * Players who walk away. The SDK pings the room every 25 seconds (a connection that stops answering
+ * comes back by itself) and says goodbye as the page goes. After 10 minutes without input (the game
+ * server's idleAfter) it asks "Still there?" for 30 seconds, then tells the room; in a real-time room,
+ * the game hidden for 2 minutes counts too. The room then takes the player out of the match and holds
+ * their seat for a few minutes, unless the game server decides (onAway). Any input brings them back.
+ *   room.on("idle", (asking) => {});          // true: ask "Still there?" yourself (replaces Zaisma's small plate);
+ *                                             // false: they answered, or time's up
+ *   room.on("away", ({ why, seconds }) => {}); // out of the match ("idle" or "hidden"), seat held for seconds
+ *   room.on("back", (back) => { back.rejoin(); });  // back after the seat ran out: listening turns off
+ *                                             // rejoining by itself; rejoin() fails if the room is full or over
+ *   Zaisma.joinRoom({ idle: 300 });           // seconds without input before "Still there?"; false: never ask
+ *                                             // (the room's own check still applies, except with the relay)
  * When the game server sends the player to another room (room.reserve or room.moveTo), the room
  * follows by itself: same room object, new code, a "moved" event, then "players" with the new list.
  *   room.on("moved", (code) => {});
@@ -180,28 +193,63 @@
     this._tries = 0;
     this._done = false;
     this._ready = null;
+    // Walking away: the idle check the game asked for, when the room counts the player away (from welcome),
+    // whether they're out of the match (and their connection gone too), and the last ping, pong and message.
+    this._idle = opts.idle === false || typeof opts.idle === "number" ? opts.idle : undefined;
+    this._checks = { idle: null, hidden: null };
+    this._away = false;
+    this._gone = false;
+    this._idleSent = false;
+    this._pingAt = 0;
+    this._pongAt = 0;
+    this._sentAt = 0;
   }
   Room.prototype = Object.create(Emitter.prototype);
+
+  /** Send a message to the room if the connection is open. */
+  Room.prototype._say = function (m) {
+    if (!this._ws || this._ws.readyState !== 1) return;
+    this._ws.send(JSON.stringify(m));
+    this._sentAt = Date.now();
+  };
 
   Room.prototype._connect = function () {
     var room = this;
     var ws = new WebSocket(this._url);
     this._ws = ws;
+    watch();
     ws.onopen = function () {
-      ws.send(JSON.stringify({ t: "hello", pass: room._pass, room: room._made, data: room._data }));
+      room._pingAt = room._pongAt = Date.now();
+      room._say({ t: "hello", pass: room._pass, room: room._made, data: room._data, idle: room._idle });
     };
     ws.onmessage = function (ev) {
+      if (ev.data === "pong") { room._pongAt = Date.now(); return; }
       var m;
       try { m = JSON.parse(ev.data); } catch (e) { return; }
       if (m.t === "welcome") {
+        var wasAway = room._away;
         room._tries = 0;
         room.me = m.me;
         room.players = m.players;
         room.host = m.host || null;
+        room._checks = m.away || { idle: null, hidden: null };
+        room._away = room._gone = room._idleSent = room._coming = room._offered = false;
+        // From here on, the room's row counts this player (room lists leave them out once they've left).
+        room._joinedAt = Date.now();
         if (m.room) room._settle(m.room);
         room._setStatus("open");
-        if (room._moved) { room._moved = false; room._emit("players", m.players); }
+        if (room._moved || wasAway) { room._moved = false; room._emit("players", m.players); }
         if (room._ready) { room._ready.resolve(room); room._ready = null; }
+        // In (again, after walking away or a move): the Zaisma page counts on knowing.
+        if (config.site && window.parent !== window) window.parent.postMessage({ type: "zaisma:room", code: room.code, joined: true }, config.site);
+        // Hidden already (a move, a reconnect): the room should know.
+        if (document.hidden && room._checks.hidden) room._say({ t: "hidden" });
+      } else if (m.t === "away") {
+        room._away = true;
+        room._idleSent = room._coming = false;
+        room._setStatus("away");
+        room._emit("away", { why: m.why, seconds: m.seconds });
+        left(room);
       } else if (m.t === "players") {
         room.players = m.players;
         room.host = m.host || null;
@@ -217,9 +265,11 @@
       } else if (m.t === "kicked") {
         room._done = true;
         room._emit("kicked", { reason: m.reason, keptOut: m.keptOut === true });
+        left(room);
       } else if (m.t === "ended") {
         room._done = true;
         room._emit("ended", m.reason);
+        left(room);
       } else if (m.t === "error") {
         room._emit("error", m);
         if (room._ready && (m.code === "full" || m.code === "closed" || m.code === "ended" || m.code === "bad-pass" || m.code === "too-big" || m.code === "game-unavailable" || m.code === "kept-out" || m.code === "refused" || m.code === "month-limit")) {
@@ -239,10 +289,68 @@
         if (room._ready) { room._ready.reject(new Error(ev.reason || "Couldn't join the room")); room._ready = null; }
         return;
       }
+      // 4002: the room stopped holding the seat of a player who walked away. Either way, while they're
+      // away, wait for them to come back before connecting again.
+      if (ev.code === 4002 || room._away) {
+        room._ws = null;
+        room._away = room._gone = true;
+        room._setStatus("away");
+        return;
+      }
       room._setStatus("reconnecting");
       var wait = Math.min(8000, 500 * Math.pow(2, room._tries++));
       setTimeout(function () { if (!room._done) room._connect(); }, wait);
     };
+  };
+
+  /** The connection stopped answering pings (lost signal, a laptop waking up): drop it and connect again. */
+  Room.prototype._lost = function () {
+    var ws = this._ws;
+    if (ws) {
+      ws.onclose = null;
+      ws.onmessage = null;
+      try { ws.close(); } catch (e) { /* fine */ }
+    }
+    this._ws = null;
+    if (this._away) { this._gone = true; return; }
+    this._setStatus("reconnecting");
+    var room = this;
+    setTimeout(function () { if (!room._done && !room._ws) room._connect(); }, 500);
+  };
+
+  /**
+   * The player is here (input, or the game shown again). Back from walking away: to their held seat,
+   * or once it ran out, their old room if it has space (offered to the game first, when it listens for "back").
+   */
+  Room.prototype._return = function () {
+    if (this._done) return;
+    if (this._idleSent && !this._away) {
+      this._idleSent = false;
+      this._say({ t: "back" });
+    }
+    if (!this._away || this._coming) return;
+    if (this._ws && this._ws.readyState === 1) {
+      this._coming = true;
+      this._say({ t: "back", data: this._data, idle: this._idle });
+      return;
+    }
+    if (!this._gone || this._offered || this._paused) return;
+    this._offered = true;
+    var room = this;
+    function rejoin() {
+      if (room._done || room._ws) return;
+      room._tries = 0;
+      room._setStatus("connecting");
+      room._connect();
+    }
+    if ((this._on.back || []).length) this._emit("back", { code: this.code, rejoin: rejoin });
+    else rejoin();
+  };
+
+  /** Seconds without input before this room's player is asked "Still there?", or null: the game's choice, else the room's. */
+  Room.prototype._idleAfter = function () {
+    if (this._idle === false) return null;
+    return typeof this._idle === "number" ? this._idle : this._checks.idle;
   };
 
   Room.prototype._setStatus = function (s) {
@@ -253,7 +361,7 @@
 
   /** Send a message to the game server. Plain JSON, up to 16 KB. Send input when it changes, not every frame. */
   Room.prototype.send = function (data) {
-    if (this._ws && this._ws.readyState === 1) this._ws.send(JSON.stringify({ t: "msg", d: data }));
+    if (!this._away) this._say({ t: "msg", d: data });
   };
 
   /**
@@ -262,22 +370,22 @@
    * The "room" event says when it changed.
    */
   Room.prototype.setListed = function (listed) {
-    if (this._ws && this._ws.readyState === 1) this._ws.send(JSON.stringify({ t: "room", listed: Boolean(listed) }));
+    this._say({ t: "room", listed: Boolean(listed) });
   };
   Room.prototype.setOpen = function (open) {
-    if (this._ws && this._ws.readyState === 1) this._ws.send(JSON.stringify({ t: "room", open: Boolean(open) }));
+    this._say({ t: "room", open: Boolean(open) });
   };
   /**
    * The host removes a player, when the game server gives the host controls (the relay does).
    * keepOut: true keeps them out for the rest of the match. They're told the host removed them.
    */
   Room.prototype.kick = function (playerId, opts) {
-    if (this._ws && this._ws.readyState === 1) this._ws.send(JSON.stringify({ t: "kick", player: playerId, keepOut: Boolean(opts && opts.keepOut) }));
+    this._say({ t: "kick", player: playerId, keepOut: Boolean(opts && opts.keepOut) });
   };
   /** Name and label the room: { name, labels }. Leave a field out to keep it; null clears it. */
   Room.prototype.setInfo = function (info) {
     info = info || {};
-    if (this._ws && this._ws.readyState === 1) this._ws.send(JSON.stringify({ t: "room", name: info.name, labels: info.labels }));
+    this._say({ t: "room", name: info.name, labels: info.labels });
   };
   /**
    * The game server sent this player to another room: { code, follow(), join(opts) }. follow() moves
@@ -305,6 +413,8 @@
       try { old.close(1000, "Moved"); } catch (e) { /* fine */ }
     }
     this._ws = null;
+    left(this);
+    this._gone = this._coming = false;
     this.code = code;
     this._url = this._url.replace(/[A-Z0-9]{6}$/, code);
     if (this.inviteLink) this.inviteLink = config.site + gamePage() + "?room=" + code;
@@ -359,6 +469,7 @@
   };
 
   Room.prototype.leave = function () {
+    if (!this._done) left(this);
     this._done = true;
     if (this._ws) this._ws.close(1000, "Left");
   };
@@ -370,6 +481,8 @@
    *   listed - false: a new room that never shows in room lists, like a private match
    *   name, labels - a new room's name and labels, like "Ana's castle" and { Mode: "Classic" }
    *   data   - plain JSON for the game server's onJoin, like the character the player picked (up to 4 KB)
+   *   idle   - seconds without input before the player is asked "Still there?" (30 to 86400), or false
+   *            never to ask; by default, the game server's idleAfter (10 minutes)
    * If the room is full, closed or over, the player was kept out or turned away, or the game has used
    * this month's multiplayer time, it fails with an error whose code says which (full, closed, ended,
    * kept-out, refused, month-limit) and whose message says why.
@@ -387,7 +500,7 @@
     var codeReady = code ? Promise.resolve(code) : server ? Promise.resolve(randomCode()) : post("/v1/rooms", { game: config.game }).then(function (d) { return d.code; });
     return Promise.all([codeReady, player()]).then(function (got) {
       var base = (server || config.rooms).replace(/^http/, "ws");
-      var room = new Room({ code: got[0], pass: got[1].pass, url: base + "/v1/rooms/" + config.game + "/" + got[0], listed: opts.listed, name: opts.name, labels: opts.labels, data: opts.data, server: server });
+      var room = new Room({ code: got[0], pass: got[1].pass, url: base + "/v1/rooms/" + config.game + "/" + got[0], listed: opts.listed, name: opts.name, labels: opts.labels, data: opts.data, idle: opts.idle, server: server });
       joined.push(room);
       // Tell the Zaisma page the room code, so its Invite button and address bar point here.
       if (config.site && window.parent !== window) window.parent.postMessage({ type: "zaisma:room", code: room.code }, config.site);
@@ -405,7 +518,7 @@
 
   /**
    * The game's listed rooms on Zaisma: { rooms: [{ code, players, max, open, location, near, link }],
-   * playing: { players, rooms, closed }, joinable, regions: [{ code, name, rooms, players }], region,
+   * playing: { players, rooms, closed }, joinable (rooms with space), open (rooms taking players, full ones too), regions: [{ code, name, rooms, players }], region,
    * more }. playing counts everyone in the game's rooms, hidden ones too. location is where the room runs: { country, name, continent }, like DE, Germany and EU.
    * Rooms with space come first (the player's country, then continent, then the busiest), up to 50;
    * more says how many open rooms are past those. Pass { region } (a continent code, like EU) for
@@ -417,6 +530,10 @@
     var query = [];
     if (opts.region) query.push("region=" + encodeURIComponent(opts.region));
     if (opts.labels) query.push("labels=" + encodeURIComponent(JSON.stringify(opts.labels)));
+    // The room this tab just left, so the player doesn't see themselves in it while lists catch up.
+    var ago = recent ? Date.now() - recent.at : -1;
+    var back = recent && joined.some(function (r) { return r.code === recent.code && !r._done && !r._away; });
+    if (ago >= 0 && ago < 30000 && !back) query.push("left=" + recent.code + "." + ago + "." + (Date.now() - recent.joined));
     return fetch(config.rooms + "/v1/rooms/" + config.game + (query.length ? "?" + query.join("&") : "")).then(function (res) {
       return res.json().then(function (data) {
         if (!res.ok) throw new Error(data.error || "Couldn't load the rooms");
@@ -439,7 +556,7 @@
     function fresh() { return connect(null, opts); }
     function busiest() {
       return listRooms({ region: opts.region, labels: opts.labels }).then(function (found) {
-        var tries = found.rooms.filter(function (r) { return r.open && r.players < r.max && r.code !== linked; }).slice(0, 3);
+        var tries = found.rooms.filter(function (r) { return r.open && r.players + (r.held || 0) < r.max && r.code !== linked; }).slice(0, 3);
         function next() {
           var r = tries.shift();
           if (!r) return fresh();
@@ -482,6 +599,171 @@
   }
 
   var joined = [];
+
+  // The room this tab last left and when it joined it, for its own room lists, and for the Zaisma page's (zaisma:left).
+  var recent = null;
+  function left(room) {
+    if (room._joinedAt) recent = { code: room.code, at: Date.now(), joined: room._joinedAt };
+    room._joinedAt = 0;
+    if (config.site && window.parent !== window) window.parent.postMessage({ type: "zaisma:left", code: room.code }, config.site);
+  }
+
+  /*
+   * Players who walk away. Honest clients do the fast part (docs/DECISIONS.md): ping so a dead connection
+   * comes back by itself, say "Still there?" after a while without input and tell the room the answer,
+   * say when the game is hidden, and say goodbye as the page goes. The room keeps its own slower checks.
+   */
+  var PING_MS = 25000;
+  var PONG_MS = 15000;
+  var ASK_MS = 30000;
+  var lastInput = Date.now();
+  var asking = null; // { until, rooms } while "Still there?" is up
+  var watching = null;
+
+  function watch() {
+    if (watching) return;
+    watching = setInterval(check, 5000);
+    ["keydown", "pointerdown", "pointermove", "wheel", "touchstart"].forEach(function (type) {
+      addEventListener(type, input, { capture: true, passive: true });
+    });
+    addEventListener("gamepadconnected", pollPads);
+    pollPads();
+  }
+
+  function input() {
+    lastInput = Date.now();
+    if (asking) stopAsking();
+    joined.forEach(function (room) { room._return(); });
+  }
+
+  // Gamepads don't send events for their buttons, so they're checked every second while one is connected.
+  var pads = "";
+  var padTimer = null;
+  function pollPads() {
+    if (padTimer || !navigator.getGamepads) return;
+    padTimer = setInterval(function () {
+      var now = Array.prototype.filter.call(navigator.getGamepads() || [], Boolean);
+      if (!now.length) { clearInterval(padTimer); padTimer = null; return; }
+      var seen = now.map(function (p) {
+        return p.buttons.map(function (b) { return b.pressed ? 1 : 0; }).join("") + p.axes.map(function (a) { return Math.round(a * 4); }).join(",");
+      }).join("|");
+      if (pads && seen !== pads) input();
+      pads = seen;
+    }, 1000);
+  }
+
+  function check() {
+    var now = Date.now();
+    var due = [];
+    joined.forEach(function (room) {
+      var ws = room._ws;
+      if (room._done || !ws || ws.readyState !== 1) return;
+      // A ping that went unanswered: the connection is gone, even if the browser hasn't noticed.
+      if (room._pingAt > room._pongAt && now - room._pingAt > PONG_MS) return room._lost();
+      if (now - room._pingAt >= PING_MS) {
+        room._pingAt = now;
+        ws.send("ping");
+      }
+      if (room._away || room._idleSent) return;
+      var idle = room._idleAfter();
+      if (idle !== null && now - lastInput >= idle * 1000) due.push(room);
+      // The room's own check hears from players who give input but whose game sends nothing for a while.
+      var roomIdle = room._checks.idle;
+      if (roomIdle !== null && lastInput > room._sentAt && now - room._sentAt > Math.min(240000, roomIdle * 500)) room._say({ t: "here" });
+    });
+    if (asking && now >= asking.until) {
+      var asked = asking.rooms;
+      stopAsking();
+      asked.forEach(function (room) {
+        if (room._done || room._away || now - lastInput < ASK_MS) return;
+        room._idleSent = true;
+        room._say({ t: "idle" });
+      });
+    } else if (!asking && due.length) startAsking(due);
+  }
+
+  function startAsking(rooms) {
+    asking = { until: Date.now() + ASK_MS, rooms: rooms };
+    var own = false;
+    rooms.forEach(function (room) {
+      if ((room._on.idle || []).length) own = true;
+      room._emit("idle", true);
+    });
+    if (!own) showStillThere();
+  }
+
+  function stopAsking() {
+    var rooms = asking ? asking.rooms : [];
+    asking = null;
+    hideStillThere();
+    rooms.forEach(function (room) { room._emit("idle", false); });
+  }
+
+  /** Zaisma's small "Still there?" plate, in the Steel look. It never covers the game; games can restyle #zaisma-still-there. */
+  function showStillThere() {
+    hideStillThere();
+    var plate = document.createElement("div");
+    plate.id = "zaisma-still-there";
+    plate.setAttribute("role", "status");
+    plate.style.cssText = "position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:2147483647;display:flex;gap:14px;align-items:center;max-width:calc(100vw - 32px);box-sizing:border-box;padding:12px 14px 14px;font:15px/1.4 system-ui,-apple-system,sans-serif;color:#eceef0;background:linear-gradient(180deg,#262a31,#1b1e23);box-shadow:inset 1px 1px 0 rgba(255,255,255,.09),inset -1px -1px 0 rgba(0,0,0,.7),0 14px 32px rgba(0,0,0,.42);clip-path:polygon(0 0,calc(100% - 14px) 0,100% 14px,100% 100%,0 100%)";
+    var text = document.createElement("div");
+    var title = document.createElement("strong");
+    title.textContent = "Still there?";
+    var note = document.createElement("div");
+    note.textContent = "Tap or press any key to keep playing.";
+    note.style.cssText = "color:#969ba4;font-size:13px";
+    text.append(title, note);
+    var here = document.createElement("button");
+    here.type = "button";
+    here.textContent = "I'm here";
+    here.style.cssText = "font:inherit;font-size:13px;font-weight:600;min-height:36px;padding:0 14px;border:0;background:linear-gradient(180deg,#eef0f2 0%,#b9bcc1 46%,#7d8086 100%);box-shadow:inset 1px 1px 0 #fff,inset -1px -1px 0 #000;clip-path:polygon(0 0,calc(100% - 7px) 0,100% 7px,100% 100%,0 100%);color:#0b0b0c;cursor:pointer;flex:none";
+    here.onclick = input;
+    // How long is left, as a bar that runs down along the bottom.
+    var bar = document.createElement("i");
+    bar.style.cssText = "position:absolute;left:0;bottom:0;height:3px;width:100%;background:#b9bcc1;transform-origin:left;transition:transform " + ASK_MS + "ms linear";
+    plate.append(text, here, bar);
+    document.body.appendChild(plate);
+    requestAnimationFrame(function () { requestAnimationFrame(function () { bar.style.transform = "scaleX(0)"; }); });
+  }
+
+  function hideStillThere() {
+    var old = document.getElementById("zaisma-still-there");
+    if (old) old.remove();
+  }
+
+  // Hidden and shown again: the room counts a real-time game hidden for 2 minutes as away; coming back counts as input.
+  document.addEventListener("visibilitychange", function () {
+    joined.forEach(function (room) {
+      if (!room._done && room._checks.hidden) room._say({ t: document.hidden ? "hidden" : "shown" });
+    });
+    if (!document.hidden) input();
+  });
+
+  // Goodbye as the page goes, so the room lets the player go at once instead of waiting for pings to stop.
+  addEventListener("pagehide", function () {
+    joined.forEach(function (room) {
+      var ws = room._ws;
+      if (room._done || !ws) return;
+      ws.onclose = null;
+      ws.onmessage = null;
+      try { ws.close(1000, "Left"); } catch (e) { /* fine */ }
+      room._ws = null;
+      room._paused = true;
+    });
+  });
+  // Back from the browser's back-forward cache: join again, or wait for the player if they'd walked away.
+  addEventListener("pageshow", function (e) {
+    if (!e.persisted) return;
+    joined.forEach(function (room) {
+      if (!room._paused || room._done) return;
+      room._paused = false;
+      if (room._away) { room._gone = true; return; }
+      room._tries = 0;
+      room._setStatus("reconnecting");
+      room._connect();
+    });
+  });
+
   // The Zaisma page says when a player report was sent from its plate: mute them, as the panel's own form does.
   window.addEventListener("message", function (e) {
     if (!config.site || e.origin !== config.site || e.source !== window.parent || !e.data || e.data.type !== "zaisma:reported") return;

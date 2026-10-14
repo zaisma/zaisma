@@ -58,8 +58,8 @@ export default {
   maxPlayers: 8,           // up to 16
   tickRate: 20,            // leave out for turn-based games so the room sleeps between moves
   setup: (data) => ({ players: {} }),   // data: what room.reserve() passed, for a room another room made
-  onJoin(state, player, room, data) {}, // data: what the player's game passed to joinRoom({ data })
-  onLeave(state, player, room) {},
+  onJoin(state, player, room, data, info) {}, // data: what the player's game passed to joinRoom({ data }); info.back: back to a held seat
+  onLeave(state, player, room, info) {},      // info.why: left, lost, idle, hidden or kicked
   onMessage(state, player, msg, room) {},
   onTick(state, dt, room) {},
 };
@@ -129,6 +129,40 @@ room.on("move", (move) => { room.leave(); move.join(); });  // in the game: go t
 The new room runs the same game server, and its `setup(data)` gets your data, so it can start the match already set up (players can read the data but can't change it; up to 4 KB). It's ready before anyone hears its code, only the players named can join it (it's a closed room, until your server opens it), and it's hidden from room lists unless you pass `listed: true` (with a `name` and `labels` if you like). A room can reserve up to 20 rooms a minute. See `examples/four-in-a-row`: its "Find an opponent" waits in a lobby room until there's someone to play.
 
 Playing alone needs no room, so don't make one until others can join: time in a room counts toward hosting even with one player. Each game gets 1,000 player-hours a month on Zaisma rooms free (the dashboard shows how much it has used). Until hosting billing is ready, that's also the most it can use: past it, new rooms don't open until the month resets (UTC) and joining fails with `err.code === "month-limit"`, while matches already running carry on.
+
+#### Players who walk away
+
+Players who walk away stop holding seats and running matches, in every game, with no code:
+
+- **Lost connections** (a closed laptop, lost signal): the SDK pings the room every 25 seconds without waking it, and a connection that stops answering is dropped about a minute later. The SDK says goodbye as the page closes, so most players leave at once.
+- **Idle:** after 10 minutes without input the SDK asks "Still there?" with a small plate at the top of the game for 30 seconds; no answer, and the player walks away. Rooms check for themselves too: a game that sends nothing at all for a minute past that counts as idle.
+- **Hidden:** in a real-time room (one with a `tickRate`), a game hidden for 2 minutes counts as away.
+
+A player who walks away or loses their connection leaves the match (`onLeave` with `info.why`) and the room holds their seat for 5 minutes: they come straight back to it with any input, or by reconnecting, and `onJoin` gets `info.back`. Held seats count toward `maxPlayers`, but players who walked away don't count as playing now or toward how full a room looks, and a room where everyone's away stops ticking. Once the seat runs out, the SDK offers their old room again if it has space. Zaisma never covers your game or sends anyone away from it for being idle.
+
+Your game server picks what happens:
+
+```ts
+export default {
+  idleAfter: 300,   // seconds without input before "Still there?" (default 600); false: no idle check
+  holdFor: 120,     // seconds a seat stays held (default 300, up to 1800; 0 for none)
+  away: "lobby",    // send players who walk away back to the room that made this one (room.reserve)
+  onAway(state, player, room, why) {},  // or decide yourself: the player stays in the room, you kick, move or keep them
+  onBack(state, player, room) {},       // a player onAway kept came back
+};
+```
+
+In the game, all of it is optional:
+
+```js
+room.on("status", (s) => {});              // "away" while out of the match
+room.on("away", ({ why, seconds }) => {});  // why: "idle" or "hidden"; the seat is held for seconds
+room.on("idle", (asking) => {});           // ask "Still there?" your way: true to show it, false when answered or over
+room.on("back", (back) => back.rejoin());  // back after the seat ran out: listening turns off rejoining by itself
+Zaisma.joinRoom({ idle: false });          // no "Still there?" in this game (with the relay, the room follows this)
+```
+
+Your own clients follow the same protocol: send the text `ping` every 30 seconds or so (the room answers `pong`), `{"t":"idle"}`, `{"t":"hidden"}` and `{"t":"shown"}` as they happen, and `{"t":"back"}` when the player returns.
 
 #### Run your game server yourself
 
