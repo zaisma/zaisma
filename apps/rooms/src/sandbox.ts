@@ -1,4 +1,4 @@
-import { defineGameServer, type GameServer, type Player, type Room } from "@zaisma/game-server";
+import { defineGameServer, type GameServer, type JoinInfo, type Player, type Room } from "@zaisma/game-server";
 import { SANDBOX_GAME_SERVER, manifestKey, serverModules, type Manifest } from "@zaisma/core";
 import type { Env } from "./index.ts";
 
@@ -35,7 +35,8 @@ type Effect =
   | { do: "open"; value: boolean }
   | { do: "info"; info: unknown }
   | { do: "reserve"; opts: unknown; code: string }
-  | { do: "kick"; player: unknown; opts: unknown };
+  | { do: "kick"; player: unknown; opts: unknown }
+  | { do: "moveTo"; code: unknown; opts: unknown };
 
 interface Snapshot {
   players: Player[];
@@ -56,7 +57,7 @@ export interface Session {
   setup(data: unknown): Promise<Answer>;
   call(hook: string, state: unknown, args: unknown[], room: Snapshot): Promise<Answer>;
   /** canJoin: the game's verdict on a player coming in. It can't change the state or the room. */
-  check(state: unknown, player: Player, data: unknown, room: Snapshot): Promise<{ verdict?: unknown; error?: string }>;
+  check(state: unknown, player: Player, data: unknown, room: Snapshot, info: JoinInfo): Promise<{ verdict?: unknown; error?: string }>;
 }
 
 // Runs inside the sandbox, beside the game's file. Plain JavaScript: nothing here is trusted by the
@@ -67,7 +68,7 @@ import server from "./${entry}";
 
 const ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 const code = () => Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => ALPHABET[b & 31]).join("");
-const HOOKS = ["onJoin", "onLeave", "onMessage", "onTick"];
+const HOOKS = ["onJoin", "onLeave", "onMessage", "onTick", "onMoved"];
 
 function recorder(snap, effects) {
   const room = {
@@ -84,6 +85,7 @@ function recorder(snap, effects) {
     setInfo(info) { effects.push({ do: "info", info }); },
     reserve(opts) { const c = code(); effects.push({ do: "reserve", opts, code: c }); return c; },
     kick(player, opts) { effects.push({ do: "kick", player, opts }); },
+    moveTo(code, opts) { effects.push({ do: "moveTo", code, opts }); },
   };
   return room;
 }
@@ -108,15 +110,15 @@ class Session extends RpcTarget {
     const effects = [];
     if (!HOOKS.includes(hook) || typeof server[hook] !== "function") return { state, effects };
     const room = recorder(snap, effects);
-    // onJoin(state, player, room, data), onLeave(state, player, room),
-    // onMessage(state, player, msg, room), onTick(state, dt, room)
-    const full = hook === "onJoin" ? [state, args[0], room, args[1]] : hook === "onMessage" ? [state, args[0], args[1], room] : [state, args[0], room];
+    // onJoin(state, player, room, data, info), onLeave(state, player, room),
+    // onMessage(state, player, msg, room), onTick(state, dt, room), onMoved(state, result, room)
+    const full = hook === "onJoin" ? [state, args[0], room, args[1], args[2] || {}] : hook === "onMessage" ? [state, args[0], args[1], room] : [state, args[0], room];
     return answer(() => server[hook](...full), effects, state);
   }
-  check(state, player, data, snap) {
+  check(state, player, data, snap, info) {
     if (typeof server.canJoin !== "function") return { verdict: true };
     try {
-      const verdict = server.canJoin(state, player, recorder(snap, []), data);
+      const verdict = server.canJoin(state, player, recorder(snap, []), data, info || {});
       return { verdict: typeof verdict === "boolean" || typeof verdict === "string" ? verdict : true };
     } catch (err) {
       return { error: String((err && err.stack) || err) };
@@ -232,14 +234,15 @@ export async function wrapSession(open: () => Promise<Session>, onBroken: () => 
     hostControls: s.hostControls === true,
     stats,
     setup: (data) => ask(() => session.setup(data), null),
-    onJoin: (state, player, room, data) => call("onJoin", state, [player, data], room),
+    onJoin: (state, player, room, data, info) => call("onJoin", state, [player, data, info ?? {}], room),
     onLeave: (state, player, room) => call("onLeave", state, [player], room),
     onMessage: (state, player, msg, room) => call("onMessage", state, [player, msg], room),
     onTick: (state, dt, room) => call("onTick", state, [dt], room),
+    onMoved: (state, result, room) => call("onMoved", state, [result], room),
     ...(s.canJoin === true
       ? {
-          canJoin: async (state: unknown, player: Player, room: Room, data: unknown) => {
-            const answer = await reach(() => session.check(state, player, data, snap(room)));
+          canJoin: async (state: unknown, player: Player, room: Room, data: unknown, info?: JoinInfo) => {
+            const answer = await reach(() => session.check(state, player, data, snap(room), info ?? {}));
             if (answer.error) throw new Error(`Game server error: ${answer.error.slice(0, 2000)}`);
             return typeof answer.verdict === "boolean" || typeof answer.verdict === "string" ? answer.verdict : true;
           },
@@ -304,6 +307,9 @@ function apply(effects: unknown, room: Room): void {
           break;
         case "kick":
           if (typeof e.player === "string") room.kick(e.player, (e.opts && typeof e.opts === "object" ? e.opts : {}) as never);
+          break;
+        case "moveTo":
+          room.moveTo(e.code as string, (e.opts && typeof e.opts === "object" ? e.opts : {}) as never);
           break;
       }
     } catch (err) {

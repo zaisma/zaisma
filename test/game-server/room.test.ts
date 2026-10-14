@@ -338,3 +338,111 @@ describe("kicking and turning players away", () => {
     expect(room.receive("b", JSON.stringify({ t: "room", open: false }))).toBeNull();
   });
 });
+
+describe("moving players to a room that's already running", () => {
+  // An area of an open world: takes players moving in unless it's "locked", and remembers where they came from.
+  const area = defineGameServer({
+    maxPlayers: 3,
+    setup: () => ({ locked: false, arrived: [] as unknown[], results: [] as unknown[] }),
+    canJoin: (s, _p, _room, _data, info) => !(s.locked && info?.from) || "This area is locked.",
+    onJoin: (s, p, _room, data, info) => void s.arrived.push({ id: p.id, data: data ?? null, from: info?.from ?? null }),
+    onMessage(s, p, msg, room) {
+      if (msg === "lock") s.locked = true;
+      const [word, code, ...ids] = String(msg).split(" ");
+      if (word === "go") room.moveTo(code!, { players: ids.length ? ids : [p.id], data: { door: "north" } });
+    },
+    onMoved: (s, result) => void s.results.push(result),
+  });
+
+  /** Two rooms of one game wired together like the Node runner does. */
+  function world() {
+    const rooms = new Map<string, RoomCore>();
+    const moves: Record<string, string[]> = {};
+    const make = (code: string) => {
+      const sent = transport();
+      const core: RoomCore = new RoomCore(area, {
+        ...sent.t,
+        moveTo: (next, ask) => {
+          const target = rooms.get(next);
+          void (target ? target.expect({ ...ask, from: code }) : Promise.resolve({ moved: [], refused: ask.players.map((p) => ({ id: p.id, code: "no-room" as const, reason: "That room isn't running." })) })).then((a) => {
+            for (const id of a.moved) (moves[id] ??= []).push(next);
+            core.moved(next, a, ask.players);
+          });
+        },
+      });
+      rooms.set(code, core);
+      return core;
+    };
+    return { make, moves, rooms };
+  }
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+
+  it("sends players to another room, which gets the sending room's data and where they came from", async () => {
+    const { make, moves } = world();
+    const town = make("TWNAAA");
+    const forest = make("FRSTAA");
+    forest.join({ id: "z", name: "Z" });
+    town.join({ id: "a", name: "A" });
+    town.join({ id: "b", name: "B" });
+    town.receive("a", msg("go FRSTAA a b"));
+    await tick();
+    expect(moves).toEqual({ a: ["FRSTAA"], b: ["FRSTAA"] });
+    expect(town.state.results).toEqual([{ code: "FRSTAA", moved: [{ id: "a", name: "A" }, { id: "b", name: "B" }], refused: [] }]);
+
+    // They arrive with the town's data, not whatever their browser sends, and the game isn't asked again.
+    expect(await forest.admit({ id: "a", name: "A" }, { door: "cheat" })).toEqual({ ok: true });
+    forest.join({ id: "a", name: "A" }, { data: { door: "cheat" } });
+    expect(forest.state.arrived.at(-1)).toEqual({ id: "a", data: { door: "north" }, from: "TWNAAA" });
+  });
+
+  it("holds a seat for each player on their way, even in a closed room, for a minute", async () => {
+    let now = 0;
+    const target = new RoomCore(area, transport().t, { now: () => now });
+    target.join({ id: "z", name: "Z" });
+    (target as any).api.setOpen(false);
+    expect(await target.expect({ from: "TWNAAA", players: [{ id: "a", name: "A" }, { id: "b", name: "B" }, { id: "c", name: "C" }] })).toEqual({
+      moved: ["a", "b"],
+      refused: [{ id: "c", code: "full", reason: "This room is full." }],
+    });
+    // The seats count as taken, so nobody else gets in ahead of them.
+    (target as any).api.setOpen(true);
+    expect(await target.admit({ id: "x", name: "X" })).toEqual({ ok: false, code: "full" });
+    // A sleeping room wakes still holding them.
+    const woken = new RoomCore(area, transport().t, { state: target.state, room: target.saved, now: () => now });
+    expect(woken.join({ id: "a", name: "A" })).toMatchObject({ ok: true });
+    // Seats run out after a minute.
+    now += 61_000;
+    expect(await target.admit({ id: "x", name: "X" })).toEqual({ ok: true });
+    (target as any).api.setOpen(false);
+    expect(target.join({ id: "b", name: "B" })).toEqual({ ok: false, code: "closed" });
+  });
+
+  it("lets the other room say no, and tells the sending room who stayed and why", async () => {
+    const { make, moves } = world();
+    const town = make("TWNAAA");
+    const keep = make("KEEPAA");
+    keep.join({ id: "z", name: "Z" });
+    keep.receive("z", msg("lock"));
+    town.join({ id: "a", name: "A" });
+    town.receive("a", msg("go KEEPAA"));
+    town.receive("a", msg("go GNEAAA"));
+    await tick();
+    expect(moves).toEqual({});
+    // Each answer comes back when that room has decided, so they can arrive in either order.
+    expect([...town.state.results].sort((x: any, y: any) => x.code.localeCompare(y.code))).toEqual([
+      { code: "GNEAAA", moved: [], refused: [{ player: { id: "a", name: "A" }, code: "no-room", reason: "That room isn't running." }] },
+      { code: "KEEPAA", moved: [], refused: [{ player: { id: "a", name: "A" }, code: "refused", reason: "This area is locked." }] },
+    ]);
+    expect([...town.players.keys()]).toEqual(["a"]);
+  });
+
+  it("refuses mistakes in the game's call", () => {
+    const { make } = world();
+    const town = make("TWNAAA");
+    town.join({ id: "a", name: "A" });
+    const api = (town as any).api;
+    expect(() => api.moveTo("nope", { players: ["a"] })).toThrow("room code");
+    expect(() => api.moveTo("FRSTAA", { players: ["stranger"] })).toThrow("players who are in this room");
+    expect(() => api.moveTo("FRSTAA", { players: ["a"], data: "x".repeat(5000) })).toThrow("plain JSON");
+  });
+});
