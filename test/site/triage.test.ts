@@ -1,6 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { gameBySlug, versionById, type ImageMatcher, type Report, type Triage } from "@zaisma/core";
+import { KNOWN_IMAGE_RULE, gameBySlug, versionById, type ImageMatcher, type Report, type Triage } from "@zaisma/core";
 import { scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
 import { recheckVersion, triageReports, type TriageAnswer, type TriageDeps, type TriageInput } from "../../apps/site/src/triage.ts";
 import type { AiResult } from "../../apps/site/src/ai.ts";
@@ -152,6 +152,19 @@ describe("report triage", () => {
     const second = (await reports())[1]!;
     expect(triageOf(second)).toMatchObject({ recommendation: "person" });
     expect(triageOf(second).recheck).toBeUndefined();
+  });
+
+  it("hides even an established game when its files match known abuse material", async () => {
+    const { versionId } = await liveGame();
+    await send({ reason: "other", details: "weird pictures in the menu" });
+    await triageReports(testEnv, ai({ severity: "high", category: "sexual", recommendation: "recheck" }).deps);
+    const known: ImageMatcher = { check: async (media) => ({ provider: "test", connected: true, checked: media.length, findings: [{ stage: "images", severity: "hold", rule: KNOWN_IMAGE_RULE, detail: "Known.", path: "game.js" }] }) };
+    await recheckVersion(testEnv, versionId, (await reports())[0]!.id, { ...scanSays("pass"), images: known });
+    const [r] = await reports();
+    expect(r!.severity).toBe(0);
+    expect(triageOf(r!).actions).toContain("Hid the game: its files match known abuse material");
+    expect((await gameBySlug(env.DB, "test-game"))?.status).toBe("held");
+    expect((await versionById(env.DB, versionId))?.scan_status).toBe("held");
   });
 
   it("hides a brand-new game when the check finds a clear problem it can point to in the files", async () => {

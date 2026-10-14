@@ -4,7 +4,10 @@ import { CONTINENTS, ROOM_STALE_MS, type LiveRoom } from "./types.ts";
 /** A room as players see it in a room list. Never who's in it. */
 export interface ListedRoom {
   code: string;
+  /** Players in the match, not counting players who walked away. */
   players: number;
+  /** Seats the room holds for players coming back or on their way: it has space while players + held < max. */
+  held: number;
   max: number;
   /** False: closed, only players who were already in it can come back. */
   open: boolean;
@@ -27,6 +30,11 @@ export interface RoomList {
   playing: { players: number; rooms: number; closed: number };
   /** Rooms a player could join right now, everywhere. */
   joinable: number;
+  /**
+   * Listed rooms taking players, full ones too, in the region and with the labels asked for: the rooms
+   * the list shows plus the ones past them (more). The number on the game page's Rooms tab.
+   */
+  open: number;
   /** The regions (continents, like EU) with listed rooms, busiest first, for a region filter. */
   regions: { code: string; name: string; rooms: number; players: number }[];
   /** The region the rooms are filtered to, or null for everywhere. */
@@ -35,6 +43,8 @@ export interface RoomList {
   more: number;
   /** Labels worth filtering by: ones that several rooms have, with a handful of values. */
   filters: { label: string; values: string[] }[];
+  /** When each listed room's row last changed, for leaveOut. Zaisma's own, not for games. */
+  changed?: Record<string, number>;
 }
 
 const MAX_SHOWN = 50;
@@ -96,7 +106,7 @@ export function countryName(code: string): string {
 const isCountry = (c: string | null): c is string => Boolean(c && /^[A-Z]{2}$/.test(c) && c !== "XX");
 
 /** Room with space a new player could join. */
-export const hasSpace = (r: ListedRoom) => r.open && r.players < r.max;
+export const hasSpace = (r: Pick<ListedRoom, "open" | "players" | "held" | "max">) => r.open && r.players + (r.held ?? 0) < r.max;
 
 /**
  * A game's listed rooms, optionally in one region (a continent code), and how many are playing in
@@ -132,6 +142,7 @@ export async function listRooms(
     (r): ListedRoom => ({
       code: r.code,
       players: r.players,
+      held: r.held ?? 0,
       max: r.max_players,
       open: r.open === 1,
       location: isCountry(r.country) ? { country: r.country, name: countryName(r.country), continent: continent(r) } : null,
@@ -141,6 +152,7 @@ export async function listRooms(
     }),
   );
   const created = new Map(results.map((r) => [r.code, r.created_at]));
+  const updated = new Map(results.map((r) => [r.code, r.updated_at]));
   const where = new Map(results.map((r) => [r.code, continent(r)]));
   const mine = (r: ListedRoom) => Number(here !== null && r.location?.country === here);
   all.sort((a, b) => Number(hasSpace(b)) - Number(hasSpace(a)) || mine(b) - mine(a) || Number(b.near) - Number(a.near) || b.players - a.players || created.get(b.code)! - created.get(a.code)!);
@@ -162,13 +174,55 @@ export async function listRooms(
     rooms: shown,
     playing: { players: results.reduce((n, r) => n + r.players, 0), rooms: results.length, closed: all.filter((r) => !r.open).length },
     joinable: all.filter(hasSpace).length,
+    open: inRegion.filter((r) => r.open).length,
     regions: [...regions.values()].sort((a, b) => b.players - a.players || b.rooms - a.rooms),
     region,
     more: inRegion.filter((r) => r.open).length - shown.filter((r) => r.open).length,
     filters: labelFilters(all),
+    changed: Object.fromEntries(shown.map((r) => [r.code, updated.get(r.code)!])),
   };
   if (cache) await cache.put(key, Response.json(list, { headers: { "Cache-Control": `max-age=${seconds}` } }));
   return list;
+}
+
+/** How long after leaving a room a player's own lists leave them out of it, while room lists catch up. */
+export const LEFT_FOR_MS = 30_000;
+
+/**
+ * A room list as the player who just left a room should see it: without themselves in it, so nobody
+ * sees their own ghost while lists catch up (copies can be up to 10 seconds old). The room writes its
+ * row as players come and go, so only a copy of its row written after they joined (joinedAt) and
+ * before they left (leftAt) counts them: one from later already counts them out, and one from before
+ * never counted them. Honest clients say which room they left (docs/DECISIONS.md); it only changes
+ * what that player sees. The list sent to games leaves out changed.
+ */
+export function leaveOut(list: RoomList, left: { code: string; at: number; joined: number }, now = Date.now()): RoomList {
+  const changed = list.changed?.[left.code];
+  // A second's leeway each way: the room writes its row a moment before or after the player's game hears it.
+  if (changed === undefined || now - left.at > LEFT_FOR_MS || changed >= left.at - 1000 || changed < left.joined - 1000) return list;
+  const code = left.code;
+  const room = list.rooms.find((r) => r.code === code);
+  if (!room || room.players < 1) return list;
+  const gone = room.players === 1;
+  const next: ListedRoom = { ...room, players: room.players - 1 };
+  const continent = room.location?.continent ?? null;
+  return {
+    ...list,
+    rooms: gone ? list.rooms.filter((r) => r !== room) : list.rooms.map((r) => (r === room ? next : r)),
+    playing: { players: Math.max(0, list.playing.players - 1), rooms: list.playing.rooms - Number(gone), closed: list.playing.closed - Number(gone && !room.open) },
+    joinable: list.joinable - Number(hasSpace(room)) + Number(!gone && hasSpace(next)),
+    open: list.open - Number(gone && room.open),
+    regions: list.regions.map((g) => (g.code === continent ? { ...g, players: g.players - 1, rooms: g.rooms - Number(gone) } : g)).filter((g) => g.rooms > 0),
+  };
+}
+
+/**
+ * The room a player just left, as their lists send it (left=CODE.LEFT.JOINED: its code, and how many
+ * milliseconds ago they left it and joined it), or null.
+ */
+export function readLeftParam(v: string | null, now = Date.now()): { code: string; at: number; joined: number } | null {
+  const m = v?.match(/^([23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6})\.(\d{1,6})\.(\d{1,9})$/);
+  return m && Number(m[3]) >= Number(m[2]) ? { code: m[1]!, at: now - Number(m[2]), joined: now - Number(m[3]) } : null;
 }
 
 function readLabels(json: string): Record<string, string> {

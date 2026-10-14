@@ -75,9 +75,24 @@ export interface MoveResult {
   refused: { player: Player; code: RoomErrorCode; reason: string }[];
 }
 
-/** How a player came in: from, the code of the room that sent them (room.moveTo), or undefined. */
+/**
+ * How a player came in: from, the code of the room that sent them (room.moveTo), or undefined.
+ * back: they're coming back to the seat the room held for them, after walking away or losing their connection.
+ */
 export interface JoinInfo {
   from?: string;
+  back?: boolean;
+}
+
+/** Why a player walked away: no input (idle), or the game hidden in a real-time room. */
+export type AwayReason = "idle" | "hidden";
+
+/**
+ * Why a player left: left (closed the game or left the room), lost (their connection dropped, and
+ * the room holds their seat), idle or hidden (they walked away, and the room holds their seat), kicked.
+ */
+export interface LeaveInfo {
+  why: "left" | "lost" | AwayReason | "kicked";
 }
 
 /** What one room asks another when moving players there; from is the asking room's code, added by the transport. */
@@ -105,6 +120,8 @@ export interface RoomStart extends Pick<RoomSettings, "listed" | "name" | "label
   data?: unknown;
   /** Players kept out of the room that made this one, and why: they stay out of this one too. */
   keptOut?: Record<string, string>;
+  /** The code of the room that made this one, where away: "lobby" sends players. Added by the transport. */
+  lobby?: string;
 }
 
 /** A room's name and labels, as a game sets them. */
@@ -126,6 +143,25 @@ export interface GameServer<S = any> {
    */
   hostControls?: boolean;
   /**
+   * Seconds without input before a player's game asks "Still there?"; 30 seconds later they walk
+   * away. Defaults to 600 (10 minutes); false turns the idle check off. "client" lets the game in the
+   * player's browser decide (joinRoom({ idle })), as the relay does.
+   */
+  idleAfter?: number | false | "client";
+  /**
+   * What happens when a player walks away (idle, or the game hidden for 2 minutes in a real-time
+   * room). "hold" (the default) takes them out of the match (onLeave) and holds their seat for
+   * holdFor seconds, so they come straight back to it. "lobby" sends them to the room that made this
+   * one (room.reserve), holding their seat if there isn't one or it won't take them. Give onAway to
+   * handle it yourself instead.
+   */
+  away?: "hold" | "lobby";
+  /**
+   * How long the room holds a seat for a player who walked away or lost their connection, in
+   * seconds: up to 1800, 0 for none. Defaults to 300. Held seats count toward maxPlayers.
+   */
+  holdFor?: number;
+  /**
    * The starting state. It must be plain JSON so a sleeping room can be saved and woken. data is
    * what room.reserve() passed when another room made this one, and undefined otherwise.
    */
@@ -146,7 +182,15 @@ export interface GameServer<S = any> {
   canJoin?(state: S, player: Player, room: Room, data?: unknown, info?: JoinInfo): boolean | string | void | Promise<boolean | string | void>;
   /** After room.moveTo: who the other room took, and who it turned away and why. */
   onMoved?(state: S, result: MoveResult, room: Room): Result<S>;
-  onLeave?(state: S, player: Player, room: Room): Result<S>;
+  /** info.why says why they left; a player who lost their connection or walked away gets their seat held. */
+  onLeave?(state: S, player: Player, room: Room, info?: LeaveInfo): Result<S>;
+  /**
+   * A player walked away. With onAway, they stay in the room and your game decides what happens:
+   * kick them, move them (room.moveTo) or keep them. They don't count as playing meanwhile, and a
+   * room where everyone is away stops ticking. onBack runs when they return.
+   */
+  onAway?(state: S, player: Player, room: Room, why: AwayReason): Result<S>;
+  onBack?(state: S, player: Player, room: Room): Result<S>;
   onMessage?(state: S, player: Player, msg: unknown, room: Room): Result<S>;
   onTick?(state: S, dt: number, room: Room): Result<S>;
 }
@@ -171,7 +215,20 @@ export const ROOM_LIMITS = {
   /** Sustained messages per second per player, with a short burst allowance. */
   messagesPerSecond: 30,
   burst: 60,
+  /** The idle check's default and range, in seconds (idleAfter, joinRoom({ idle })). */
+  idleAfter: 600,
+  idleMin: 30,
+  idleMax: 24 * 3600,
+  /** How long a game hidden in a real-time room counts before its player is away, in seconds. */
+  hiddenAway: 120,
+  /** How long a seat is held by default, and at most, in seconds (holdFor). */
+  holdFor: 300,
+  holdMax: 1800,
 } as const;
+
+/** "Still there?" waits this long for an answer, and the room this much more before it decides for itself. */
+const IDLE_ASK_MS = 30_000;
+const IDLE_GRACE_MS = 60_000;
 
 /** Check a game server's settings once, when it's defined. */
 export function defineGameServer<S>(server: GameServer<S>): GameServer<S> {
@@ -180,6 +237,14 @@ export function defineGameServer<S>(server: GameServer<S>): GameServer<S> {
   if (!Number.isInteger(max) || max < 1 || max > ROOM_LIMITS.maxPlayers) throw new Error(`maxPlayers must be 1 to ${ROOM_LIMITS.maxPlayers}`);
   if (server.tickRate !== undefined && !(server.tickRate > 0 && server.tickRate <= ROOM_LIMITS.maxTickRate)) {
     throw new Error(`tickRate must be above 0 and at most ${ROOM_LIMITS.maxTickRate}`);
+  }
+  const idle = server.idleAfter;
+  if (idle !== undefined && idle !== false && idle !== "client" && !(typeof idle === "number" && idle >= ROOM_LIMITS.idleMin && idle <= ROOM_LIMITS.idleMax)) {
+    throw new Error(`idleAfter must be ${ROOM_LIMITS.idleMin} to ${ROOM_LIMITS.idleMax} seconds, false or "client"`);
+  }
+  if (server.away !== undefined && server.away !== "hold" && server.away !== "lobby") throw new Error(`away must be "hold" or "lobby"`);
+  if (server.holdFor !== undefined && !(typeof server.holdFor === "number" && server.holdFor >= 0 && server.holdFor <= ROOM_LIMITS.holdMax)) {
+    throw new Error(`holdFor must be 0 to ${ROOM_LIMITS.holdMax} seconds`);
   }
   return server;
 }
@@ -193,14 +258,24 @@ export interface RoomSettings {
 }
 
 /**
- * Messages from the room to a client. Clients send {t:"hello", pass, data?, room?: {listed, name, labels}}
- * first (data is for canJoin and onJoin; the room's settings only count from the player who makes it), then
- * {t:"msg", d}; with hostControls, the host may also send {t:"room", listed?, open?, name?, labels?} and
- * {t:"kick", player, keepOut?}. host is in welcome and players only with hostControls.
+ * Messages from the room to a client. Clients send {t:"hello", pass, data?, room?: {listed, name, labels}, idle?}
+ * first (data is for canJoin and onJoin; the room's settings only count from the player who makes it;
+ * idle, seconds or false, only where the game server leaves it to the client), then {t:"msg", d}; with
+ * hostControls, the host may also send {t:"room", listed?, open?, name?, labels?} and {t:"kick", player, keepOut?}.
+ * host is in welcome and players only with hostControls.
+ *
+ * Players who walk away (docs/DECISIONS.md): clients send the text "ping" every 30 seconds or so (the
+ * room answers "pong"; a connection with no ping or message for about a minute is dropped), and
+ * {t:"here"} now and then while the player gives input but the game sends nothing. They send
+ * {t:"idle"} when the player didn't answer "Still there?", {t:"hidden"} and {t:"shown"} as the game is
+ * hidden and shown (where welcome's away.hidden says it counts), and {t:"back", data?} when the player
+ * returns. A player out of the match with their seat held gets {t:"away"}, and once the seat is no
+ * longer held, their connection closes with CLOSE_SEAT_GONE.
  */
 export type ServerMessage =
-  | { t: "welcome"; me: Player; players: Player[]; room: RoomSettings; host?: string | null }
+  | { t: "welcome"; me: Player; players: Player[]; room: RoomSettings; host?: string | null; away: AwayChecks }
   | { t: "players"; players: Player[]; host?: string | null }
+  | { t: "away"; why: AwayReason; seconds: number }
   | { t: "kicked"; reason: string; keptOut: boolean }
   | { t: "room"; room: RoomSettings }
   | { t: "move"; code: string }
@@ -237,6 +312,22 @@ export interface SavedRoom extends RoomSettings {
   data?: unknown;
   keptOut?: Record<string, string>;
   expected?: Record<string, Expected>;
+  held?: Record<string, Held>;
+  kept?: Record<string, AwayReason>;
+  lobby?: string;
+}
+
+/** A seat held for a player out of the match: who, why they're out, and until when. */
+export interface Held {
+  player: Player;
+  why: "lost" | AwayReason;
+  until: number;
+}
+
+/** When a room counts its players as away, in seconds, or null when it doesn't: no input (idle), and the game hidden. */
+export interface AwayChecks {
+  idle: number | null;
+  hidden: number | null;
 }
 
 /** A player another room is sending here: the data it sent, where from, and until when their seat is held. */
@@ -287,6 +378,10 @@ export type Admission = { ok: true } | { ok: false; code: RoomErrorCode; message
 export const CLOSE_ENDED = 4000;
 /** Close code for a player refused or removed by the room. */
 export const CLOSE_REFUSED = 4001;
+/** Close code for a player who walked away, once the room stops holding their seat. They may try to come back. */
+export const CLOSE_SEAT_GONE = 4002;
+/** Close code for a connection that stopped answering. */
+export const CLOSE_NO_ANSWER = 4003;
 
 /** How many past players a room remembers, so they can come back to a closed room, and how many it keeps out. */
 const REMEMBERED = 64;
@@ -311,6 +406,16 @@ export class RoomCore<S = any> {
   readonly keptOut = new Map<string, string>();
   /** Players other rooms are sending here (room.moveTo), with a seat each until they arrive. */
   readonly expected = new Map<string, Expected>();
+  /** Seats held for players out of the match (walked away, or lost their connection) until they come back or it runs out. */
+  readonly held = new Map<string, Held>();
+  /** Players who walked away that onAway kept in the room, and why. */
+  readonly kept = new Map<string, AwayReason>();
+  /** The room that made this one, where away: "lobby" sends players who walk away. */
+  lobby: string | null = null;
+  /** When each player in the match was last heard from, when their game was hidden, and the idle check their game asked for. */
+  private presence = new Map<string, Presence>();
+  /** Players this room is sending to its lobby for walking away, so onMoved doesn't hear of it. */
+  private sentAway = new Set<string>();
   /** What a reserved room started with, kept so a room that starts over starts the same way. */
   private data: unknown = undefined;
   /** When this room last reserved rooms, for the limit. */
@@ -334,14 +439,23 @@ export class RoomCore<S = any> {
 
   /**
    * opts.start makes a reserved room: closed, open only to the players it was made for, and set up
-   * with its data. A saved room (opts.room) wakes as it was.
+   * with its data. A saved room (opts.room) wakes as it was, with opts.presence saying when each of
+   * its players was last heard from and the idle check their game asked for.
    */
-  constructor(server: GameServer<S>, transport: Transport, opts: { state?: S; players?: Player[]; room?: SavedRoom; start?: RoomStart; now?: () => number } = {}) {
+  constructor(
+    server: GameServer<S>,
+    transport: Transport,
+    opts: { state?: S; players?: Player[]; room?: SavedRoom; start?: RoomStart; presence?: Record<string, { seen?: number; idle?: unknown }>; now?: () => number } = {},
+  ) {
     this.server = server;
     this.transport = transport;
     this.now = opts.now ?? Date.now;
     this.maxPlayers = server.maxPlayers ?? ROOM_LIMITS.defaultPlayers;
-    for (const p of opts.players ?? []) this.players.set(p.id, p);
+    for (const p of opts.players ?? []) {
+      this.players.set(p.id, p);
+      const was = opts.presence?.[p.id];
+      this.presence.set(p.id, { seen: was?.seen ?? this.now(), idle: clientIdle(was?.idle) });
+    }
     if (opts.room) {
       this.listed = opts.room.listed;
       this.open = opts.room.open;
@@ -351,6 +465,9 @@ export class RoomCore<S = any> {
       this.data = opts.room.data;
       this.keepOut(opts.room.keptOut);
       for (const [id, e] of Object.entries(opts.room.expected ?? {})) this.expected.set(id, e);
+      for (const [id, h] of Object.entries(opts.room.held ?? {})) if (!this.players.has(id)) this.held.set(id, h);
+      for (const [id, why] of Object.entries(opts.room.kept ?? {})) if (this.players.has(id)) this.kept.set(id, why);
+      this.lobby = opts.room.lobby ?? null;
     } else if (opts.start) {
       this.open = false;
       this.listed = opts.start.listed;
@@ -359,6 +476,7 @@ export class RoomCore<S = any> {
       for (const id of opts.start.players) this.known.add(id);
       this.data = opts.start.data;
       this.keepOut(opts.start.keptOut);
+      this.lobby = opts.start.lobby ?? null;
     }
     for (const p of this.players.values()) this.remember(p.id);
     if (opts.state !== undefined) this.state = opts.state;
@@ -402,13 +520,27 @@ export class RoomCore<S = any> {
 
   /** What a sleeping room saves besides the game's state. */
   get saved(): SavedRoom {
+    this.seatsHeld();
     return {
       ...this.settings(),
       known: [...this.known],
       ...(this.data !== undefined ? { data: this.data } : {}),
       ...(this.keptOut.size ? { keptOut: Object.fromEntries(this.keptOut) } : {}),
-      ...(this.seatsHeld() ? { expected: Object.fromEntries(this.expected) } : {}),
+      ...(this.expected.size ? { expected: Object.fromEntries(this.expected) } : {}),
+      ...(this.held.size ? { held: Object.fromEntries(this.held) } : {}),
+      ...(this.kept.size ? { kept: Object.fromEntries(this.kept) } : {}),
+      ...(this.lobby ? { lobby: this.lobby } : {}),
     };
+  }
+
+  /** Players in the match who haven't walked away: what room lists and "playing now" count. */
+  get playing(): number {
+    return this.players.size - this.kept.size;
+  }
+
+  /** Seats the room holds for players on their way (room.moveTo) or out of the match for now. */
+  get heldSeats(): number {
+    return this.seatsHeld();
   }
 
   /** Resolves once every handler started so far has finished (at once for game servers that answer at once). */
@@ -431,8 +563,8 @@ export class RoomCore<S = any> {
   async admit(player: Player, data?: unknown): Promise<Admission> {
     const door = this.door(player.id);
     if (door) return door;
-    // Players already in, and players another room sent (asked when it sent them), don't ask again.
-    if (this.players.has(player.id) || this.seat(player.id)) return { ok: true };
+    // Players already in, players another room sent (asked when it sent them) and players coming back to a held seat don't ask again.
+    if (this.players.has(player.id) || this.seat(player.id) || this.holding(player.id)) return { ok: true };
     return this.ask(player, data, {});
   }
 
@@ -455,22 +587,35 @@ export class RoomCore<S = any> {
 
   /**
    * The room's own rules for a player coming in, or null if they may. A player already in may always
-   * come back, and a player another room sent has a seat. moving: the game is sending this player
-   * from another room, which a closed room still takes (closed keeps out strangers, not the game).
+   * come back, and a player another room sent, or whose seat is held, has a seat. moving: the game is
+   * sending this player from another room, which a closed room still takes (closed keeps out
+   * strangers, not the game).
    */
   private door(id: string, moving = false): Admission | null {
     if (this.ended) return { ok: false, code: "ended" };
     const out = this.keptOut.get(id);
     if (out !== undefined) return { ok: false, code: "kept-out", message: out };
-    if (this.players.has(id) || this.seat(id)) return null;
+    if (this.players.has(id) || this.seat(id) || this.holding(id)) return null;
     if (!moving && !this.open && !this.known.has(id)) return { ok: false, code: "closed" };
     if (this.players.size + this.seatsHeld() >= this.maxPlayers) return { ok: false, code: "full" };
     return null;
   }
 
-  /** Whether this room is holding a place for a player: they've been in it, or another room is sending them. */
+  /** Whether this room is holding a place for a player: they've been in it, another room is sending them, or their seat is held. */
   expects(id: string): boolean {
-    return this.known.has(id) || this.seat(id) !== null;
+    return this.known.has(id) || this.seat(id) !== null || this.holding(id) !== null;
+  }
+
+  /** The seat held for a player out of the match, if it hasn't run out. */
+  private holding(id: string): Held | null {
+    const h = this.held.get(id);
+    if (h && h.until > this.now()) return h;
+    if (h) {
+      this.held.delete(id);
+      this.listingChanged = true;
+      this.dirty = true;
+    }
+    return null;
   }
 
   /** The seat held for a player another room is sending, if it hasn't run out. */
@@ -481,10 +626,11 @@ export class RoomCore<S = any> {
     return null;
   }
 
-  /** Seats held for players other rooms are sending, dropping those that ran out. */
+  /** Seats held for players other rooms are sending and players out of the match, dropping those that ran out. */
   private seatsHeld(): number {
     let held = 0;
     for (const id of [...this.expected.keys()]) if (!this.players.has(id) && this.seat(id)) held++;
+    for (const id of [...this.held.keys()]) if (this.holding(id)) held++;
     return held;
   }
 
@@ -511,47 +657,163 @@ export class RoomCore<S = any> {
   /**
    * A player arrives. Joining again with the same ID (a reconnect) keeps their place. The player who
    * makes the room can hide it from the start (a private match) and name and label it. data is what
-   * the player's game sent along, for onJoin.
+   * the player's game sent along, for onJoin; idle is the idle check it asked for (idleAfter "client").
    */
-  join(player: Player, opts: { listed?: boolean; data?: unknown } & RoomInfo = {}): { ok: true; rejoined: boolean } | { ok: false; code: RoomErrorCode; message?: string } {
+  join(player: Player, opts: { listed?: boolean; data?: unknown; idle?: unknown } & RoomInfo = {}): { ok: true; rejoined: boolean } | { ok: false; code: RoomErrorCode; message?: string } {
     const rejoined = this.players.has(player.id);
     const door = this.door(player.id);
     if (door && !door.ok) return door;
     // A player another room sent brings what that room's game server passed, not what their browser sent.
     const seat = rejoined ? null : this.seat(player.id);
+    const back = rejoined || seat ? null : this.holding(player.id);
     this.expected.delete(player.id);
+    if (back) this.held.delete(player.id);
     const data = seat ? seat.data : opts.data;
-    const info: JoinInfo = seat ? { from: seat.from } : {};
+    const info: JoinInfo = seat ? { from: seat.from } : back ? { back: true } : {};
     if (this.known.size === 0) {
       if (opts.listed === false) this.listed = false;
       Object.assign(this, roomInfo({ name: opts.name, labels: opts.labels }));
     }
     this.players.set(player.id, player);
     this.remember(player.id);
-    this.transport.send(player.id, JSON.stringify({ t: "welcome", me: player, players: this.list(), room: this.settings(), ...this.hostField() } satisfies ServerMessage));
+    this.presence.set(player.id, { seen: this.now(), idle: opts.idle === undefined ? this.presence.get(player.id)?.idle : clientIdle(opts.idle) });
+    this.transport.send(player.id, JSON.stringify({ t: "welcome", me: player, players: this.list(), room: this.settings(), ...this.hostField(), away: this.checks(player.id) } satisfies ServerMessage));
     if (!rejoined) {
       this.listingChanged = true;
       this.run(() => this.server.onJoin?.(this.state, player, this.api, data, info));
       this.broadcastPlayers();
-    }
+    } else if (this.kept.has(player.id)) this.back(player.id);
     return { ok: true, rejoined };
   }
 
-  leave(playerId: string): void {
+  /**
+   * A player's connection closed: they left (closed the game, or followed a move), or it was lost. A
+   * lost player's seat is held for a while, so they can come straight back.
+   */
+  leave(playerId: string, why: "left" | "lost" = "left"): void {
+    if (this.held.has(playerId)) {
+      // A player out of the match went for good: their seat is free. A lost connection keeps it held.
+      if (why === "left") {
+        this.held.delete(playerId);
+        this.listingChanged = true;
+        this.dirty = true;
+      }
+      return;
+    }
     const player = this.players.get(playerId);
     if (!player) return;
+    this.out(playerId);
+    if (this.ended) return;
+    if (why === "lost") this.hold(player, "lost");
+    this.run(() => this.server.onLeave?.(this.state, player, this.api, { why }));
+    this.broadcastPlayers();
+  }
+
+  /** Take a player out of the match, forgetting what the room knew about them while they were in. */
+  private out(playerId: string): void {
     this.players.delete(playerId);
+    this.kept.delete(playerId);
+    this.presence.delete(playerId);
     this.buckets.delete(playerId);
     this.listingChanged = true;
-    if (this.ended) return;
-    this.run(() => this.server.onLeave?.(this.state, player, this.api));
+    this.dirty = true;
+  }
+
+  /** Hold a seat for a player out of the match, for the game's holdFor. */
+  private hold(player: Player, why: Held["why"]): number {
+    const seconds = this.server.holdFor ?? ROOM_LIMITS.holdFor;
+    if (seconds > 0) this.held.set(player.id, { player, why, until: this.now() + seconds * 1000 });
+    this.listingChanged = true;
+    this.dirty = true;
+    return seconds;
+  }
+
+  /** When this room counts a player as away (welcome's away), by the game's settings and what their game asked for. */
+  private checks(playerId: string): AwayChecks {
+    return { idle: this.idleLimit(playerId), hidden: this.ticking ? ROOM_LIMITS.hiddenAway : null };
+  }
+
+  /** Seconds without input before a player counts as idle, or null if the idle check is off for them. */
+  private idleLimit(playerId: string): number | null {
+    const setting = this.server.idleAfter === "client" ? this.presence.get(playerId)?.idle : this.server.idleAfter;
+    if (setting === false) return null;
+    return typeof setting === "number" ? setting : ROOM_LIMITS.idleAfter;
+  }
+
+  /**
+   * A player walked away: idle (they didn't answer "Still there?", or the room heard nothing for
+   * longer), or their game hidden too long in a real-time room. The game's onAway decides; otherwise
+   * they leave the match with their seat held, and with away: "lobby" are sent to the lobby.
+   */
+  private walkAway(playerId: string, why: AwayReason): void {
+    const player = this.players.get(playerId);
+    if (!player || this.ended || this.kept.has(playerId)) return;
+    if (this.server.onAway) {
+      const p = this.presence.get(playerId);
+      if (p) p.hiddenAt = undefined;
+      this.kept.set(playerId, why);
+      this.listingChanged = true;
+      this.dirty = true;
+      this.run(() => this.server.onAway!(this.state, player, this.api, why));
+      return;
+    }
+    this.out(playerId);
+    const seconds = this.hold(player, why);
+    this.transport.send(playerId, JSON.stringify({ t: "away", why, seconds } satisfies ServerMessage));
+    this.run(() => this.server.onLeave?.(this.state, player, this.api, { why }));
     this.broadcastPlayers();
+    if (this.server.away === "lobby" && this.lobby && this.transport.moveTo) {
+      this.sentAway.add(playerId);
+      this.transport.moveTo(this.lobby, { players: [player] });
+    } else if (!seconds) this.transport.close(playerId, CLOSE_SEAT_GONE, "Seat no longer held");
+  }
+
+  /** A player who walked away is back: kept in the room by onAway, or coming back to their held seat. */
+  private back(playerId: string, data?: unknown, idle?: unknown): RoomErrorCode | null {
+    const player = this.players.get(playerId);
+    if (player) {
+      if (!this.kept.delete(playerId)) return null;
+      this.listingChanged = true;
+      this.dirty = true;
+      this.run(() => this.server.onBack?.(this.state, player, this.api));
+      return null;
+    }
+    const held = this.holding(playerId);
+    if (!held) return null;
+    const brought = roomData(data);
+    const result = this.join(held.player, { data: brought.ok ? brought.data : undefined, idle });
+    return result.ok ? null : result.code;
+  }
+
+  /**
+   * Check on the room's players, every half a minute or so: players the room hasn't heard from in
+   * longer than the idle check allows (a game that doesn't ask "Still there?"), and players whose
+   * game has been hidden too long in a real-time room, walk away; held seats that ran out are freed,
+   * and those players' connections close.
+   */
+  sweep(): void {
+    if (this.ended) return;
+    const now = this.now();
+    for (const [id, p] of [...this.presence]) {
+      if (this.kept.has(id)) continue;
+      const idle = this.idleLimit(id);
+      if (idle !== null && now - p.seen >= idle * 1000 + IDLE_ASK_MS + IDLE_GRACE_MS) this.walkAway(id, "idle");
+      else if (this.ticking && p.hiddenAt !== undefined && now - p.hiddenAt >= ROOM_LIMITS.hiddenAway * 1000) this.walkAway(id, "hidden");
+    }
+    for (const [id, h] of [...this.held]) {
+      if (h.until > now) continue;
+      this.held.delete(id);
+      this.listingChanged = true;
+      this.dirty = true;
+      this.transport.close(id, CLOSE_SEAT_GONE, "Seat no longer held");
+    }
   }
 
   /** A raw text message from a client. Returns an error code if it was refused. */
   receive(playerId: string, text: string): RoomErrorCode | null {
     const player = this.players.get(playerId);
-    if (!player || this.ended) return "ended";
+    const held = !player && this.held.has(playerId);
+    if ((!player && !held) || this.ended) return "ended";
     this.messages++;
     if (text.length > ROOM_LIMITS.messageBytes || new TextEncoder().encode(text).length > ROOM_LIMITS.messageBytes) return "too-big";
     if (!this.take(playerId)) return "too-fast";
@@ -561,11 +823,35 @@ export class RoomCore<S = any> {
     } catch {
       return "bad-message";
     }
-    if (msg && typeof msg === "object" && (msg as { t?: unknown }).t === "room") return this.hostChange(playerId, msg as Record<string, unknown>);
-    if (msg && typeof msg === "object" && (msg as { t?: unknown }).t === "kick") return this.hostKick(playerId, msg as Record<string, unknown>);
-    if (!msg || typeof msg !== "object" || (msg as { t?: unknown }).t !== "msg") return "bad-message";
-    this.run(() => this.server.onMessage?.(this.state, player, (msg as { d?: unknown }).d, this.api));
-    return null;
+    const m = (msg && typeof msg === "object" ? msg : {}) as Record<string, unknown>;
+    // Out of the match with their seat held, a player can only come back; anything else waits.
+    if (held) return m.t === "back" ? this.back(playerId, m.data, m.idle) : null;
+    const p = this.presence.get(playerId);
+    if (p) p.seen = this.now();
+    switch (m.t) {
+      case "room":
+        return this.hostChange(playerId, m);
+      case "kick":
+        return this.hostKick(playerId, m);
+      case "here":
+        return null;
+      case "idle":
+        this.walkAway(playerId, "idle");
+        return null;
+      case "hidden":
+        if (p && this.ticking) p.hiddenAt ??= this.now();
+        return null;
+      case "shown":
+        if (p) p.hiddenAt = undefined;
+        return this.kept.get(playerId) === "hidden" ? this.back(playerId) : null;
+      case "back":
+        return this.back(playerId);
+      case "msg":
+        this.run(() => this.server.onMessage?.(this.state, player!, m.d, this.api));
+        return null;
+      default:
+        return "bad-message";
+    }
   }
 
   /** The host: the room's first player, when the game server has host controls on. */
@@ -657,6 +943,13 @@ export class RoomCore<S = any> {
    * aren't here, are left out.
    */
   moved(code: string, answer: { moved: string[]; refused: { id: string; code: RoomErrorCode; reason: string }[] }, sent: Player[]): void {
+    // The room sending a player who walked away to its lobby: if the lobby turned them away, their seat
+    // here stays held, and with no seat held (holdFor: 0) there's nothing to stay connected for.
+    if (sent.length === 1 && this.sentAway.delete(sent[0]!.id)) {
+      const id = sent[0]!.id;
+      if (!answer.moved.includes(id) && !this.players.has(id) && !this.holding(id)) this.transport.close(sent[0]!.id, CLOSE_SEAT_GONE, "Seat no longer held");
+      return;
+    }
     if (this.ended || !this.server.onMoved) return;
     const who = new Map(sent.map((p) => [p.id, p]));
     const result: MoveResult = {
@@ -678,20 +971,21 @@ export class RoomCore<S = any> {
   /** Remove a player (room.kick). Their onLeave runs once the handler that kicked them is done. */
   kick(playerId: string, opts?: KickOptions): void {
     const player = this.players.get(playerId);
-    if (!player || this.ended) return;
+    const held = this.held.get(playerId);
+    if ((!player && !held) || this.ended) return;
     const reason = tidy(opts?.reason, ROOM_LIMITS.reasonLength) || ERROR_TEXT["kept-out"];
     const keptOut = opts?.keepOut === true;
     this.known.delete(playerId);
     if (keptOut) this.keepOut({ [playerId]: reason });
     this.transport.send(playerId, JSON.stringify({ t: "kicked", reason, keptOut } satisfies ServerMessage));
     this.transport.close(playerId, CLOSE_REFUSED, "Removed from the room");
-    this.players.delete(playerId);
-    this.buckets.delete(playerId);
-    this.listingChanged = true;
-    this.dirty = true;
+    this.held.delete(playerId);
+    this.out(playerId);
+    // A player out of the match with their seat held already left it: there's no onLeave to run.
+    if (!player) return;
     this.soon(() => {
       if (this.ended) return;
-      this.run(() => this.server.onLeave?.(this.state, player, this.api));
+      this.run(() => this.server.onLeave?.(this.state, player, this.api, { why: "kicked" }));
       this.broadcastPlayers();
     });
   }
@@ -723,7 +1017,8 @@ export class RoomCore<S = any> {
   }
 
   tick(dt: number): void {
-    if (this.ended || !this.server.onTick) return;
+    // A room where everyone walked away stops running until someone's back.
+    if (this.ended || !this.server.onTick || this.playing === 0) return;
     // A game server that hasn't caught up skips this tick; dt carries the time over to the next one.
     if (this.waiting > 1) return;
     this.run(() => this.server.onTick!(this.state, dt, this.api));
@@ -734,11 +1029,14 @@ export class RoomCore<S = any> {
     this.ended = true;
     this.listingChanged = true;
     const text = JSON.stringify({ t: "ended", reason } satisfies ServerMessage);
-    for (const id of [...this.players.keys()]) {
+    for (const id of [...this.players.keys(), ...this.held.keys()]) {
       this.transport.send(id, text);
       this.transport.close(id, CLOSE_ENDED, "Match ended");
     }
     this.players.clear();
+    this.held.clear();
+    this.kept.clear();
+    this.presence.clear();
   }
 
   private list(): Player[] {
@@ -811,6 +1109,23 @@ export class RoomCore<S = any> {
 
 function isPromise<T>(v: unknown): v is Promise<T> {
   return typeof (v as { then?: unknown } | null)?.then === "function";
+}
+
+/** What the room knows about a player in the match, for the away checks. */
+interface Presence {
+  /** When the room last heard from them (any message but a ping). */
+  seen: number;
+  /** Since when their game has been hidden, as their game said. */
+  hiddenAt?: number;
+  /** The idle check their game asked for, for idleAfter "client": seconds, false for none, or undefined for the default. */
+  idle?: number | false;
+}
+
+/** An idle check a player's game asked for (joinRoom({ idle })): seconds within the limits, false, or undefined for the default. */
+function clientIdle(v: unknown): number | false | undefined {
+  if (v === false) return false;
+  if (typeof v !== "number" || !Number.isFinite(v)) return undefined;
+  return Math.min(ROOM_LIMITS.idleMax, Math.max(ROOM_LIMITS.idleMin, Math.round(v)));
 }
 
 // Characters that hide text or flip its direction.

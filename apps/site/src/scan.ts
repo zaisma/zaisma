@@ -10,18 +10,29 @@ import {
   notConnected,
   publishVersion,
   saveScan,
+  setGameStatus,
   sha256Hex,
   staticScan,
   versionById,
   type Finding,
   type ImageMatcher,
+  type ImageMatchResult,
   type ScanJob,
   type ScanReport,
   type Manifest,
   type Version,
   type Game,
   KEEP_VERSIONS,
+  KNOWN_IMAGE_RULE,
+  MATCH_TYPES,
+  MATROSKA_HEAD_BYTES,
+  SNIFF_BYTES,
   approveDraft,
+  arachnidShield,
+  embeddedMedia,
+  matroskaHasVideo,
+  sniffMedia,
+  type MediaForMatching,
   blobKey,
   ownedBlobKey,
   manifestKey,
@@ -36,24 +47,37 @@ import { recheckFailed, recheckVersion } from "./triage.ts";
 const STATIC_TEXT_LIMIT = 40 * 1024 * 1024;
 const AI_IMAGE_LIMIT = 8;
 const AI_IMAGE_MAX_BYTES = 1024 * 1024;
+/** Most pictures and videos matched per version (each is a request to the matcher and one to storage). More are held for a person. */
+export const MATCH_LIMIT = 5000;
+/** Most other files whose first bytes are read, to find pictures and videos under other names. More are held for a person. */
+export const SNIFF_LIMIT = 5000;
 
 export interface ScanDeps {
   images: ImageMatcher;
   ai: (apiKey: string, model: string, input: AiInput) => Promise<AiResult>;
 }
 
-const defaultDeps: ScanDeps = { images: notConnected, ai: aiReview };
+/** Arachnid Shield when its key is set; otherwise image matching isn't connected and every game waits for a person. */
+export function imageMatcher(env: Env): ImageMatcher {
+  return env.ARACHNID_SHIELD_KEY ? arachnidShield(env.ARACHNID_SHIELD_KEY, { baseUrl: env.ARACHNID_SHIELD_URL }) : notConnected;
+}
 
-export async function handleScanBatch(batch: MessageBatch<ScanJob>, env: Env, deps = defaultDeps): Promise<void> {
+export const scanDeps = (env: Env): ScanDeps => ({ images: imageMatcher(env), ai: aiReview });
+
+export async function handleScanBatch(batch: MessageBatch<ScanJob>, env: Env, deps = scanDeps(env)): Promise<void> {
   for (const msg of batch.messages) {
-    const { recheck } = msg.body;
+    const { recheck, images } = msg.body;
     try {
       if (recheck) await recheckVersion(env, msg.body.versionId, recheck.reportId, deps);
+      else if (images) await recheckImages(env, msg.body.versionId, deps);
       else await scanVersion(env, msg.body.versionId, deps);
       msg.ack();
     } catch (err) {
-      console.error(recheck ? "re-check failed" : "scan failed", msg.body.versionId, err);
-      if (recheck && msg.attempts >= 3) {
+      console.error(recheck ? "re-check failed" : images ? "image check failed" : "scan failed", msg.body.versionId, err);
+      if (images && msg.attempts >= 3) {
+        // Tried again with tomorrow's batch; the version stays as it is.
+        msg.ack();
+      } else if (recheck && msg.attempts >= 3) {
         await recheckFailed(env, recheck.reportId, String(err));
         msg.ack();
       } else if (msg.attempts >= 3) {
@@ -67,7 +91,7 @@ export async function handleScanBatch(batch: MessageBatch<ScanJob>, env: Env, de
   }
 }
 
-export async function scanVersion(env: Env, versionId: string, deps: ScanDeps = defaultDeps): Promise<ScanReport> {
+export async function scanVersion(env: Env, versionId: string, deps: ScanDeps = scanDeps(env)): Promise<ScanReport> {
   const version = await versionById(env.DB, versionId);
   if (!version) throw new Error(`No version ${versionId}`);
   const game = await gameById(env.DB, version.game_id);
@@ -80,7 +104,14 @@ export async function scanVersion(env: Env, versionId: string, deps: ScanDeps = 
     await passVersion(env, version, "Passed the scan");
   } else {
     await audit(env.DB, game.id, decision === "held" ? "scan-held" : "scan-rejected", `Version ${version.id}\n${summarize(findings)}`);
-    if (decision === "held" || childSafety) {
+    const known = findings.some((f) => f.rule === KNOWN_IMAGE_RULE);
+    if (known) {
+      await sendAlert(
+        env,
+        `URGENT: known abuse images uploaded to ${game.slug}`,
+        `${KNOWN_IMAGE_ALERT}\n\n${summarize(findings)}\n\nGame: ${env.SITE_ORIGIN}/admin/games/${game.id}`,
+      );
+    } else if (decision === "held" || childSafety) {
       await sendAlert(
         env,
         childSafety ? `URGENT child-safety flag on ${game.slug}` : `${game.slug} needs review`,
@@ -91,54 +122,41 @@ export async function scanVersion(env: Env, versionId: string, deps: ScanDeps = 
   return report;
 }
 
+/** What to do when image matching finds known abuse material, for the alert and the admin page. */
+export const KNOWN_IMAGE_ALERT =
+  "Image matching (Arachnid Shield) found pictures that match known child sexual abuse material. The version is held and nothing was deleted. Don't open the pictures and don't delete anything: the law requires a report to NCMEC's CyberTipline (report.cybertip.org) as soon as possible, and the files must be kept.";
+
 /**
  * Every check on a version's files, deciding but changing nothing: the scan saves and acts on the
  * result, and a re-check after a report (triage.ts) only compares it. `reported` is what a player
  * reported, passed to the AI reviewer as something to look into.
  */
-export async function inspectVersion(env: Env, version: Version, game: Game, deps: ScanDeps = defaultDeps, reported?: string): Promise<ScanReport> {
+export async function inspectVersion(env: Env, version: Version, game: Game, deps: ScanDeps = scanDeps(env), reported?: string): Promise<ScanReport> {
   // 1. Collect the files: under the version's prefix (zip uploads) or from its manifest (file-by-file uploads).
   const objects = await versionFiles(env, version);
   const findings: Finding[] = [];
-  const texts: { path: string; text: string }[] = [];
-  let textBytes = 0;
-  for (const o of objects) {
-    if (!TEXT_EXTENSIONS.has(extensionOf(o.path))) continue;
-    if (textBytes + o.size > STATIC_TEXT_LIMIT) {
-      findings.push({ stage: "static", severity: "hold", rule: "too-much-code", detail: "More code than the automatic checks read. A person should look." });
-      break;
-    }
-    const body = await env.GAMES.get(o.key);
-    if (!body) continue;
-    texts.push({ path: o.path, text: await body.text() });
-    textBytes += o.size;
-  }
+  const { texts, disguised, tooMuch } = await readCode(env, objects);
+  if (tooMuch) findings.push({ stage: "static", severity: "hold", rule: "too-much-code", detail: "More code than the automatic checks read. A person should look." });
 
   // 2. Static checks.
   const stat = staticScan(texts);
   findings.push(...stat.findings);
   if (env.VT_API_KEY) findings.push(...(await virusTotal(env, objects)));
 
-  // 3. Known-illegal-image matching.
+  // 3. Known-illegal-image matching, before any picture is passed on.
   const imageObjects = objects.filter((o) => extensionOf(o.path) in IMAGE_TYPES);
-  const toMatch =
-    deps.images === notConnected
-      ? []
-      : await Promise.all(
-          imageObjects.map(async (o) => {
-            const bytes = new Uint8Array(await (await env.GAMES.get(o.key))!.arrayBuffer());
-            return { path: o.path, bytes, sha256: await sha256Hex(bytes) };
-          }),
-        );
-  const images = await deps.images.check(toMatch);
+  const images = await matchMedia(env, objects, texts, disguised, deps.images);
   findings.push(...images.findings);
+  const knownImage = images.findings.some((f) => f.rule === KNOWN_IMAGE_RULE);
 
-  // 4. AI review, within the monthly budget.
+  // 4. AI review, within the monthly budget. Never with pictures that matched known abuse material.
   let ai: ScanReport["ai"] = null;
-  let childSafety = images.findings.some((f) => f.rule === "known-illegal-image");
+  let childSafety = knownImage;
   const cap = Number(env.AI_MONTHLY_INPUT_TOKENS) || 0;
   const used = await aiUsage(env.DB);
-  if (!env.ANTHROPIC_API_KEY) {
+  if (knownImage) {
+    ai = { model: env.AI_MODEL, verdict: "skipped", summary: "Not sent for AI review: image matching found known abuse material.", inputTokens: 0, outputTokens: 0 };
+  } else if (!env.ANTHROPIC_API_KEY) {
     ai = { model: env.AI_MODEL, verdict: "skipped", summary: "No API key set.", inputTokens: 0, outputTokens: 0 };
     findings.push({ stage: "ai", severity: "hold", rule: "ai-not-configured", detail: "AI review isn't set up, so a person has to approve this game." });
   } else if (used.input_tokens >= cap) {
@@ -174,6 +192,135 @@ export async function inspectVersion(env: Env, version: Version, game: Game, dep
     ai,
     childSafety,
   };
+}
+
+/** A version's code files, read in full, and any that are really pictures or videos under a code file's name. */
+async function readCode(env: Env, objects: FileRef[]): Promise<{ texts: { path: string; text: string }[]; disguised: MediaForMatching[]; tooMuch: boolean }> {
+  const texts: { path: string; text: string }[] = [];
+  const disguised: MediaForMatching[] = [];
+  let textBytes = 0;
+  for (const o of objects) {
+    if (!TEXT_EXTENSIONS.has(extensionOf(o.path))) continue;
+    if (textBytes + o.size > STATIC_TEXT_LIMIT) return { texts, disguised, tooMuch: true };
+    const body = await env.GAMES.get(o.key);
+    if (!body) continue;
+    const bytes = new Uint8Array(await body.arrayBuffer());
+    textBytes += o.size;
+    const type = sniffMedia(bytes.subarray(0, SNIFF_BYTES));
+    if (type && (type !== "video/webm" || matroskaHasVideo(bytes))) disguised.push({ path: o.path, type, id: o.key, body: async () => bytes });
+    else texts.push({ path: o.path, text: new TextDecoder().decode(bytes) });
+  }
+  return { texts, disguised, tooMuch: false };
+}
+
+/**
+ * Image matching on every picture and video in a version: by name, by their first bytes whatever they're
+ * called (a picture renamed .bin), and written into code as base64. Files are streamed from storage, so
+ * a big video never sits in memory. Audio-only WebM files aren't sent.
+ */
+export async function matchMedia(env: Env, objects: FileRef[], texts: { path: string; text: string }[], disguised: MediaForMatching[], matcher: ImageMatcher): Promise<ImageMatchResult> {
+  if (matcher === notConnected) return matcher.check([]);
+  const findings: Finding[] = [];
+  const media: MediaForMatching[] = [...disguised];
+  const stored = (o: FileRef, type: string): MediaForMatching => ({ path: o.path, type, id: o.key, body: () => streamFile(env, o.key) });
+  let sniffed = 0;
+  for (const o of objects) {
+    const ext = extensionOf(o.path);
+    if (TEXT_EXTENSIONS.has(ext)) continue; // Read in full already.
+    const named = MATCH_TYPES[ext];
+    if (named && named !== "video/webm") {
+      media.push(stored(o, named));
+      continue;
+    }
+    if (o.size < 4) continue;
+    if (++sniffed > SNIFF_LIMIT) continue;
+    const type = sniffMedia(await readStart(env, o.key, SNIFF_BYTES));
+    if (!type || (type === "video/webm" && !matroskaHasVideo(await readStart(env, o.key, MATROSKA_HEAD_BYTES)))) continue;
+    media.push(stored(o, type));
+  }
+  if (sniffed > SNIFF_LIMIT) findings.push({ stage: "images", severity: "hold", rule: "too-many-files", detail: `More than ${SNIFF_LIMIT} files that aren't code or pictures: the first ${SNIFF_LIMIT} were checked for hidden pictures, and a person should look at the rest.` });
+  for (const t of texts) {
+    embeddedMedia(t.text).forEach(({ type, bytes }, i) => media.push({ path: `${t.path} (picture ${i + 1} in the code)`, type, id: `embedded:${t.path}:${i}`, body: async () => bytes }));
+  }
+  if (media.length > MATCH_LIMIT) findings.push({ stage: "images", severity: "hold", rule: "too-many-images", detail: `More than ${MATCH_LIMIT} pictures and videos: the first ${MATCH_LIMIT} were matched, and a person should look at the rest.` });
+  const result = await matcher.check(media.slice(0, MATCH_LIMIT));
+  return { ...result, findings: [...findings, ...result.findings] };
+}
+
+/** A stored file as a stream of known length: sent to the matcher without holding it in memory. */
+async function streamFile(env: Env, key: string): Promise<ReadableStream> {
+  const object = await env.GAMES.get(key);
+  if (!object) throw new Error(`No file at ${key}`);
+  const { readable, writable } = new FixedLengthStream(object.size);
+  object.body.pipeTo(writable).catch(() => {});
+  return readable;
+}
+
+async function readStart(env: Env, key: string, length: number): Promise<Uint8Array> {
+  const object = await env.GAMES.get(key, { range: { offset: 0, length } });
+  return object ? new Uint8Array(await object.arrayBuffer()) : new Uint8Array();
+}
+
+/** Versions image matching hasn't fully checked yet (they passed before it was connected), queued once a day. */
+export async function queueImageChecks(env: Env, matcher = imageMatcher(env)): Promise<number> {
+  if (matcher === notConnected) return 0;
+  const { results } = await env.DB
+    .prepare("SELECT id FROM versions WHERE scan_status = 'approved' AND (scan_report IS NULL OR json_extract(scan_report, '$.images.connected') IS NOT 1) ORDER BY created_at DESC LIMIT 1000")
+    .all<{ id: string }>();
+  for (let i = 0; i < results.length; i += 100) await env.SCAN_QUEUE.sendBatch(results.slice(i, i + 100).map((v) => ({ body: { versionId: v.id, images: true } })));
+  return results.length;
+}
+
+/**
+ * Image matching on a version that already passed review (it passed before matching was connected).
+ * A match takes it off at once (holdKnownImages). Otherwise its report notes the check, so it isn't
+ * checked again; if Shield couldn't finish, this throws and the queue tries again.
+ */
+export async function recheckImages(env: Env, versionId: string, deps: ScanDeps = scanDeps(env)): Promise<void> {
+  const version = await versionById(env.DB, versionId);
+  const game = version && (await gameById(env.DB, version.game_id));
+  if (!version || !game || version.scan_status !== "approved" || deps.images === notConnected) return;
+  const objects = await versionFiles(env, version);
+  const { texts, disguised, tooMuch } = await readCode(env, objects);
+  const result = await matchMedia(env, objects, texts, disguised, deps.images);
+  if (result.findings.some((f) => f.rule === KNOWN_IMAGE_RULE)) {
+    await holdKnownImages(env, game, version, result, "Image matching on a version that passed before it was connected");
+    return;
+  }
+  const unfinished = result.findings.filter((f) => f.rule === "image-matching-failed" && !f.path);
+  if (unfinished.length) throw new Error(summarize(unfinished));
+  const report = reportOf(version);
+  report.images = { provider: result.provider, connected: true, checked: result.checked };
+  await env.DB.prepare("UPDATE versions SET scan_report = ? WHERE id = ?").bind(JSON.stringify(report), version.id).run();
+  const loose = [...result.findings, ...(tooMuch ? [{ stage: "static", severity: "hold", rule: "too-much-code", detail: "More code than the checks read." } as Finding] : [])];
+  await audit(env.DB, game.id, "images-checked", `Version ${version.id}: ${result.checked} pictures and videos matched, no known abuse material${loose.length ? `\nNot fully checked:\n${summarize(loose)}` : ""}`);
+  if (loose.length) await sendAlert(env, `${game.slug}: some files couldn't be image-matched`, `Version ${version.id} passed before image matching was connected. It was matched now and nothing known was found, but:\n\n${summarize(loose)}\n\nGame: ${env.SITE_ORIGIN}/admin/games/${game.id}`);
+}
+
+/**
+ * Pictures or videos in a version that already passed matched known abuse material: it comes off at
+ * once, whatever its age or reports. Held, its preview link and scheduled publish off, the game hidden
+ * if players get this version, and an urgent alert. Nothing is deleted. Returns whether the game was hidden.
+ */
+export async function holdKnownImages(env: Env, game: Game, version: Version, images: ImageMatchResult, why: string): Promise<boolean> {
+  const known = images.findings.filter((f) => f.rule === KNOWN_IMAGE_RULE);
+  const report = reportOf(version);
+  report.findings = [...report.findings.filter((f) => f.rule !== KNOWN_IMAGE_RULE), ...known];
+  report.decision = "held";
+  report.childSafety = true;
+  report.images = { provider: images.provider, connected: images.connected, checked: images.checked };
+  await env.DB.prepare("UPDATE versions SET scan_status = 'held', preview_token = NULL, publish_at = NULL, scan_report = ? WHERE id = ?").bind(JSON.stringify(report), version.id).run();
+  const hide = game.current_version_id === version.id && game.status === "live";
+  if (hide) await setGameStatus(env.DB, game.id, "held");
+  await audit(env.DB, game.id, "image-match-hold", `${why}: version ${version.id} is held${hide ? " and the game is hidden" : ""}\n${summarize(known)}`);
+  await sendAlert(env, `URGENT: known abuse images in ${game.slug}${hide ? " (game hidden)" : ""}`, `${why}.\n\n${KNOWN_IMAGE_ALERT}${hide ? " The game is hidden from players." : ""}\n\n${summarize(known)}\n\nGame: ${env.SITE_ORIGIN}/admin/games/${game.id}`);
+  return hide;
+}
+
+function reportOf(version: Version): ScanReport {
+  return version.scan_report
+    ? (JSON.parse(version.scan_report) as ScanReport)
+    : { finishedAt: Date.now(), decision: "approved", findings: [], outsideHosts: [], images: { provider: "none", connected: false, checked: 0 }, ai: null, childSafety: false };
 }
 
 export function summarize(findings: Finding[]): string {

@@ -1,6 +1,7 @@
-import { env, SELF } from "cloudflare:test";
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { createExecutionContext, env, SELF } from "cloudflare:test";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { accountForApiKey, createAccount, createApiKey, createGame, describePlayers, gameBySlug, imageKey, personOwner, sniffImage } from "@zaisma/core";
+import worker from "../../apps/site/src/index.ts";
 
 const SITE = "https://zaisma.test";
 
@@ -56,7 +57,10 @@ describe("API keys", () => {
     expect(await accountForApiKey(env.DB, token.slice(0, -1) + (token.endsWith("A") ? "B" : "A"))).toBeNull();
     expect(await accountForApiKey(env.DB, "zsk_nope")).toBeNull();
     const stored = await env.DB.prepare("SELECT * FROM api_keys WHERE account_id = 'dev-1'").first<Record<string, string>>();
-    expect(JSON.stringify(stored)).not.toContain(token.split("_")[2]);
+    // The secret is base64url and can itself contain "_", so take everything after the second underscore.
+    const secret = token.slice(token.indexOf("_", 4) + 1);
+    expect(secret).toHaveLength(43);
+    expect(JSON.stringify(stored)).not.toContain(secret);
   });
 
   it("refuses requests without a key or with a bad one", async () => {
@@ -253,6 +257,46 @@ describe("covers and screenshots", () => {
     await api("/games", { body: { title: "Shots" } });
     for (let i = 0; i < 8; i++) expect((await api("/games/shots/images?kind=screenshot", { raw: webp(1280, 720) })).status).toBe(201);
     expect((await api("/games/shots/images?kind=screenshot", { raw: webp(1280, 720) })).status).toBe(400);
+  });
+});
+
+describe("image matching on covers and screenshots", () => {
+  // The site with Arachnid Shield connected, pointed at a stand-in that matches pictures whose last byte is 0x42.
+  const shieldEnv = { ...env, ARACHNID_SHIELD_KEY: "user:pass", ARACHNID_SHIELD_URL: "https://shield.test" };
+  const shielded = (path: string, raw: Uint8Array) =>
+    worker.fetch(new Request(`${SITE}/api/dev${path}`, { method: "POST", headers: { authorization: `Bearer ${token}` }, body: raw }), shieldEnv, createExecutionContext());
+  let asked: string[] = [];
+  beforeEach(() => {
+    asked = [];
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      asked.push(String(input));
+      const bytes = new Uint8Array(await new Response(init!.body).arrayBuffer());
+      const bad = bytes[bytes.length - 1] === 0x42;
+      return new Response(JSON.stringify({ classification: bad ? "csam" : "no-known-match", match_type: bad ? "near" : null }));
+    });
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("lets clean pictures through to review", async () => {
+    await api("/games", { body: { title: "Pics" } });
+    const res = await shielded("/games/pics/images?kind=cover", png(1280, 720));
+    expect(res.status).toBe(201);
+    expect(asked).toEqual(["https://shield.test/v1/media/"]);
+  });
+
+  it("keeps a matching picture out of sight, for reporting, and alerts", async () => {
+    await api("/games", { body: { title: "Pics" } });
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const bad = png(1280, 720);
+    bad[63] = 0x42;
+    const res = await shielded("/games/pics/images?kind=screenshot", bad);
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as { error: { code: string; message: string } }).error).toMatchObject({ code: "image_refused", message: "This image can't be used." });
+    const game = (await gameBySlug(env.DB, "pics"))!;
+    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM game_images WHERE game_id = ?").bind(game.id).first<{ n: number }>())!.n).toBe(0);
+    expect((await env.GAMES.list({ prefix: `held-images/${game.id}/` })).objects).toHaveLength(1);
+    expect(await env.DB.prepare("SELECT reason FROM audit_log WHERE game_id = ? AND action = 'image-held'").bind(game.id).first()).not.toBeNull();
+    expect(log.mock.calls.flat().join("\n")).toContain("[alert] URGENT: known abuse image uploaded to pics");
   });
 });
 

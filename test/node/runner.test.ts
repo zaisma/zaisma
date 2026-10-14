@@ -22,7 +22,8 @@ function connect(origin = ORIGIN, path = "/v1/rooms/arena/ABCDEF", on = port) {
   const inbox: any[] = [];
   const waiters: ((m: any) => void)[] = [];
   ws.on("message", (d) => {
-    const m = JSON.parse(d.toString());
+    const text = d.toString();
+    const m = text === "pong" ? { t: "pong" } : JSON.parse(text);
     const w = waiters.shift();
     w ? w(m) : inbox.push(m);
   });
@@ -139,6 +140,54 @@ describe("Node runner", () => {
     moved.ws.send(JSON.stringify({ t: "hello", pass: await pass("a"), data: { door: "cheat" } }));
     expect(await until(moved, "msg")).toEqual({ t: "msg", d: { arrived: { door: "north" }, from: "TWNAAA" } });
     for (const c of [forest, town, moved]) c.ws.close();
+    await own.close();
+  });
+
+  it("answers pings, takes players who walk away out of the match with their seat held, and lets them back", async () => {
+    const duel = defineGameServer({
+      maxPlayers: 2,
+      setup: () => ({}),
+      onJoin(_s, p, room, _data, info) {
+        room.broadcast({ joined: p.id, back: info?.back === true });
+      },
+      onLeave(_s, p, room, info) {
+        room.broadcast({ left: p.id, why: info?.why });
+      },
+    });
+    const own = startServer({ server: duel, game: "arena", port: 0, origins: [ORIGIN], issuer: ISS, keys: async () => [signing.publicKey] });
+    await new Promise((r) => own.wss.once("listening", r));
+    const at = (own.wss.address() as { port: number }).port;
+    const until = async (c: { next: () => Promise<any> }, t: string) => {
+      for (;;) {
+        const m = await c.next();
+        if (m.t === t) return m;
+      }
+    };
+    const a = connect(ORIGIN, "/v1/rooms/arena/DLAAAA", at);
+    const b = connect(ORIGIN, "/v1/rooms/arena/DLAAAA", at);
+    await Promise.all([a.open, b.open]);
+    a.ws.send("ping");
+    expect(await a.next()).toEqual({ t: "pong" });
+    a.ws.send(JSON.stringify({ t: "hello", pass: await pass("a") }));
+    expect((await until(a, "welcome")).away).toEqual({ idle: 600, hidden: null });
+    b.ws.send(JSON.stringify({ t: "hello", pass: await pass("b") }));
+    await until(b, "welcome");
+
+    b.ws.send(JSON.stringify({ t: "idle" }));
+    expect(await until(b, "away")).toEqual({ t: "away", why: "idle", seconds: 300 });
+    expect((await until(a, "msg")).d).toEqual({ joined: "a", back: false });
+    expect((await until(a, "msg")).d).toEqual({ joined: "b", back: false });
+    expect((await until(a, "msg")).d).toEqual({ left: "b", why: "idle" });
+    // The held seat keeps the room full.
+    const c = connect(ORIGIN, "/v1/rooms/arena/DLAAAA", at);
+    await c.open;
+    c.ws.send(JSON.stringify({ t: "hello", pass: await pass("c") }));
+    expect(await c.next()).toMatchObject({ t: "error", code: "full" });
+
+    b.ws.send(JSON.stringify({ t: "back" }));
+    await until(b, "welcome");
+    expect((await until(a, "msg")).d).toEqual({ joined: "b", back: true });
+    for (const x of [a, b]) x.ws.close();
     await own.close();
   });
 });

@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { addAiUsage, aiUsage, feedbackMediaKey, type Feedback, type FeedbackPost } from "@zaisma/core";
+import { addAiUsage, aiUsage, feedbackMediaKey, type Feedback, type FeedbackPost, type ImageMatcher } from "@zaisma/core";
+import { matchWaiting } from "./forum-images.ts";
 import type { Env } from "./env.ts";
 import { indexPost, indexTopic, unindexPost, unindexTopic } from "./forum-search.ts";
 import { notifyMentions } from "./forum-mentions.ts";
@@ -24,6 +25,8 @@ export type CheckImage = { mediaType: "image/png" | "image/jpeg" | "image/webp";
 
 export interface CheckDeps {
   ai: (apiKey: string, model: string, text: string, images?: CheckImage[]) => Promise<CheckAnswer>;
+  /** Image matching (Arachnid Shield, by default when its key is set). */
+  images?: ImageMatcher;
 }
 
 const BATCH = 30;
@@ -35,6 +38,15 @@ export async function checkPost(env: Env, postId: string, deps: CheckDeps = { ai
   if (!post || post.check_state !== "pending") return (post?.check_state as "ok" | "held") ?? "pending";
   const topic = await env.DB.prepare("SELECT * FROM feedback WHERE id = ?").bind(post.feedback_id).first<Feedback>();
   if (!topic) return "pending";
+  // Images are matched against known abuse material before anything else; others never see one that
+  // isn't. Not matched yet (matching not connected): it waits, like a post the AI couldn't check, and a
+  // person can look. A match: that image is down, Julius alerted, and the post waits for a person.
+  const matching = await matchWaiting(env, { postId: post.id }, deps.images);
+  if (matching === "unmatched") return "pending";
+  if (matching === "match") {
+    await env.DB.prepare("UPDATE feedback_posts SET check_state = 'held', check_reason = ? WHERE id = ? AND check_state = 'pending'").bind("Image matching found known abuse material in an image; it's taken down. Report it and deal with the account.", post.id).run();
+    return "held";
+  }
   if (!env.ANTHROPIC_API_KEY || (await aiUsage(env.DB)).input_tokens >= (Number(env.AI_MONTHLY_INPUT_TOKENS) || 0)) return "pending";
   const first = await isFirst(env, post);
   // The post's images are checked with its words: others see them only if all of it passes.
@@ -60,8 +72,9 @@ export async function checkPost(env: Env, postId: string, deps: CheckDeps = { ai
   return "held";
 }
 
-/** The 5-minute run: posts the AI couldn't check when they were sent. */
+/** The 5-minute run: images not matched yet (messages' too), and posts the AI couldn't check when they were sent. */
 export async function checkForumPosts(env: Env, deps: CheckDeps = { ai: aiCheck }): Promise<number> {
+  await matchWaiting(env, { limit: 50 }, deps.images);
   if (!env.ANTHROPIC_API_KEY) return 0;
   const { results } = await env.DB.prepare("SELECT id, check_tries FROM feedback_posts WHERE check_state = 'pending' AND check_tries < ? ORDER BY created_at LIMIT ?").bind(MAX_TRIES, BATCH).all<{ id: string; check_tries: number }>();
   let checked = 0;

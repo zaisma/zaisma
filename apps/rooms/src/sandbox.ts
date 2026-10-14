@@ -1,4 +1,4 @@
-import { defineGameServer, type GameServer, type JoinInfo, type Player, type Room } from "@zaisma/game-server";
+import { defineGameServer, type AwayReason, type GameServer, type JoinInfo, type LeaveInfo, type Player, type Room } from "@zaisma/game-server";
 import { SANDBOX_GAME_SERVER, manifestKey, serverModules, type Manifest } from "@zaisma/core";
 import type { Env } from "./index.ts";
 
@@ -53,7 +53,7 @@ interface Answer {
 }
 
 export interface Session {
-  settings(): Promise<{ maxPlayers?: unknown; tickRate?: unknown; hostControls?: unknown; canJoin?: unknown }>;
+  settings(): Promise<{ maxPlayers?: unknown; tickRate?: unknown; hostControls?: unknown; canJoin?: unknown; idleAfter?: unknown; away?: unknown; holdFor?: unknown; onAway?: unknown; onBack?: unknown }>;
   setup(data: unknown): Promise<Answer>;
   call(hook: string, state: unknown, args: unknown[], room: Snapshot): Promise<Answer>;
   /** canJoin: the game's verdict on a player coming in. It can't change the state or the room. */
@@ -68,7 +68,7 @@ import server from "./${entry}";
 
 const ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 const code = () => Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => ALPHABET[b & 31]).join("");
-const HOOKS = ["onJoin", "onLeave", "onMessage", "onTick", "onMoved"];
+const HOOKS = ["onJoin", "onLeave", "onMessage", "onTick", "onMoved", "onAway", "onBack"];
 
 function recorder(snap, effects) {
   const room = {
@@ -101,7 +101,17 @@ function answer(fn, effects, state) {
 
 class Session extends RpcTarget {
   settings() {
-    return { maxPlayers: server.maxPlayers, tickRate: server.tickRate, hostControls: server.hostControls, canJoin: typeof server.canJoin === "function" };
+    return {
+      maxPlayers: server.maxPlayers,
+      tickRate: server.tickRate,
+      hostControls: server.hostControls,
+      canJoin: typeof server.canJoin === "function",
+      idleAfter: server.idleAfter,
+      away: server.away,
+      holdFor: server.holdFor,
+      onAway: typeof server.onAway === "function",
+      onBack: typeof server.onBack === "function",
+    };
   }
   setup(data) {
     return answer(() => server.setup(data), [], undefined);
@@ -110,9 +120,14 @@ class Session extends RpcTarget {
     const effects = [];
     if (!HOOKS.includes(hook) || typeof server[hook] !== "function") return { state, effects };
     const room = recorder(snap, effects);
-    // onJoin(state, player, room, data, info), onLeave(state, player, room),
-    // onMessage(state, player, msg, room), onTick(state, dt, room), onMoved(state, result, room)
-    const full = hook === "onJoin" ? [state, args[0], room, args[1], args[2] || {}] : hook === "onMessage" ? [state, args[0], args[1], room] : [state, args[0], room];
+    // onJoin(state, player, room, data, info), onLeave(state, player, room, info), onAway(state, player, room, why),
+    // onMessage(state, player, msg, room), onTick(state, dt, room), onMoved(state, result, room), onBack(state, player, room)
+    const full =
+      hook === "onJoin" ? [state, args[0], room, args[1], args[2] || {}]
+      : hook === "onMessage" ? [state, args[0], args[1], room]
+      : hook === "onLeave" ? [state, args[0], room, args[1] || { why: "left" }]
+      : hook === "onAway" ? [state, args[0], room, args[1]]
+      : [state, args[0], room];
     return answer(() => server[hook](...full), effects, state);
   }
   check(state, player, data, snap, info) {
@@ -232,13 +247,19 @@ export async function wrapSession(open: () => Promise<Session>, onBroken: () => 
     maxPlayers: num(s.maxPlayers),
     tickRate: num(s.tickRate),
     hostControls: s.hostControls === true,
+    idleAfter: s.idleAfter === false || s.idleAfter === "client" ? s.idleAfter : num(s.idleAfter),
+    away: s.away === "lobby" ? ("lobby" as const) : undefined,
+    holdFor: num(s.holdFor),
     stats,
     setup: (data) => ask(() => session.setup(data), null),
     onJoin: (state, player, room, data, info) => call("onJoin", state, [player, data, info ?? {}], room),
-    onLeave: (state, player, room) => call("onLeave", state, [player], room),
+    onLeave: (state, player, room, info?: LeaveInfo) => call("onLeave", state, [player, info ?? { why: "left" }], room),
     onMessage: (state, player, msg, room) => call("onMessage", state, [player, msg], room),
     onTick: (state, dt, room) => call("onTick", state, [dt], room),
     onMoved: (state, result, room) => call("onMoved", state, [result], room),
+    // Only for game servers that have them: with onAway, players who walk away stay in the room.
+    ...(s.onAway === true ? { onAway: (state: unknown, player: Player, room: Room, why: AwayReason) => call("onAway", state, [player, why], room) } : {}),
+    ...(s.onBack === true ? { onBack: (state: unknown, player: Player, room: Room) => call("onBack", state, [player], room) } : {}),
     ...(s.canJoin === true
       ? {
           canJoin: async (state: unknown, player: Player, room: Room, data: unknown, info?: JoinInfo) => {

@@ -133,7 +133,8 @@ describe("room browsing on the game page", () => {
     await room(id, "XYZ234", 5, 1, Date.now() - 3 * 3600_000);
     const page = await (await SELF.fetch("https://zaisma.test/g/arena")).text();
     expect(page).toContain('aria-controls="rooms"');
-    expect(page).toContain('id="rooms-count">1</span>');
+    // The tab counts the rooms listed, the full one too.
+    expect(page).toContain('id="rooms-count">2</span>');
     expect(page).toContain("13 playing now");
     expect(page).toContain('<a class="badge live-now" id="playing-now" href="#rooms">13 playing now</a>');
     expect(page).toContain('<a class="btn" href="/g/arena?room=BCDFGH" aria-label="Join a room with 3 of 8 players in Germany">Join</a>');
@@ -151,7 +152,7 @@ describe("room browsing on the game page", () => {
 
     const fragment = await SELF.fetch("https://zaisma.test/g/arena/rooms");
     expect(fragment.headers.get("content-type")).toContain("text/html");
-    expect(await fragment.text()).toContain('data-joinable="1"');
+    expect(await fragment.text()).toContain('data-count="2"');
   });
 
   it("filters by region once rooms run in more than one, shows big rooms as shares of 16 seats, and the best ten first", async () => {
@@ -170,6 +171,8 @@ describe("room browsing on the game page", () => {
 
     const na = await (await SELF.fetch("https://zaisma.test/g/arena/rooms?region=NA")).text();
     expect(na).toContain('data-region="NA" title="North America" aria-pressed="true"');
+    // The tab's number follows the region picked, like the rows.
+    expect(na).toContain('data-count="1"');
     expect(na.match(/class="room plate/g)).toHaveLength(1);
     const none = await (await SELF.fetch("https://zaisma.test/g/arena/rooms?region=AF")).text();
     expect(none).toContain("No open rooms in that region right now.");

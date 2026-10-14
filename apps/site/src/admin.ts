@@ -1,5 +1,6 @@
 import {
   BUILT_IN_GAME_SERVERS,
+  KNOWN_IMAGE_RULE,
   SANDBOX_GAME_SERVER,
   LIMITS,
   AUTO_HOLD_REASONS,
@@ -42,6 +43,7 @@ import {
   type PrecedentDecision,
   type Report,
   type ScanReport,
+  type Version,
   type Triage,
 } from "@zaisma/core";
 import { adminIdentity } from "./access.ts";
@@ -51,11 +53,13 @@ import { handleAdminMcp } from "./admin-mcp.ts";
 import { adminFeedbackAction, adminFeedbackPage, feedbackSummary } from "./admin-feedback.ts";
 import { precedentAction, precedentsPage, savePrecedent } from "./precedents.ts";
 import { clearCountedDay, playSpikes } from "./plays.ts";
-import { passVersion } from "./scan.ts";
+import { KNOWN_IMAGE_ALERT, passVersion } from "./scan.ts";
 import { uploadGame } from "./upload.ts";
 
 const when = (ms: number) => new Date(ms).toISOString().slice(0, 16).replace("T", " ");
 const pill = (s: string) => html`<span class="pill ${s}">${s}</span>`;
+/** A version with pictures that matched known abuse material: never approved, only kept and reported. */
+const knownImages = (v: Version) => (v.scan_report ? (JSON.parse(v.scan_report) as ScanReport).findings.some((f) => f.rule === KNOWN_IMAGE_RULE) : false);
 
 export function adminPage(env: Env, title: string, body: Raw): Response {
   return page(env, title, body);
@@ -134,6 +138,7 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
   if (m) {
     const version = await versionById(env.DB, m[1]!);
     if (!version) return new Response("Not found", { status: 404 });
+    if (m[2] === "approve" && knownImages(version)) return new Response("This version matched known abuse material, so it can't be approved.", { status: 409 });
     if (version.report_held_at && m[2] === "approve") {
       // A report paused this update: put it back, and later reports can't pause it again.
       await publishVersion(env.DB, version);
@@ -243,6 +248,8 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
       await closeReports(env.DB, game.id, "actioned");
       await audit(env.DB, game.id, "takedown", reason, actor);
     } else if (m[2] === "restore") {
+      const current = game.current_version_id ? await versionById(env.DB, game.current_version_id) : null;
+      if (current && knownImages(current)) return gameDetail(env, game.id, "Players would get the version that matched known abuse material. Once the developer publishes a clean version, the game can be shown again.");
       await setGameStatus(env.DB, game.id, game.current_version_id ? "live" : "pending");
       // A person checked it: reports can't hide this version again.
       if (game.current_version_id) await clearVersion(env.DB, game.current_version_id);
@@ -307,13 +314,13 @@ async function dashboard(env: Env, error = ""): Promise<Response> {
 <h2>Waiting for review (${queue.length})</h2>
 ${queue.length
       ? html`<table><tr><th>Game</th><th>Version</th><th>Status</th><th>Uploaded</th></tr>${queue.map(
-          (v) => html`<tr><td><a href="/admin/games/${v.game_id}">${v.title}</a></td><td>${v.id}</td><td>${pill(v.scan_status)}${v.report_held_at ? " paused by a report" : ""}</td><td>${when(v.created_at)}</td></tr>`,
+          (v) => html`<tr><td><a href="/admin/games/${v.game_id}">${v.title}</a></td><td>${v.id}</td><td>${pill(v.scan_status)}${v.report_held_at ? " paused by a report" : ""}${knownImages(v) ? html` <strong style="color:var(--danger)">known abuse images</strong>` : ""}</td><td>${when(v.created_at)}</td></tr>`,
         )}</table>`
       : html`<p class="note">Nothing waiting.</p>`}
 
 <h2>Covers and screenshots (${images.length})</h2>
 ${images.length
-      ? html`<p class="muted">Image matching isn't connected yet, so every picture waits here. Check it shows the game and follows the content rules.</p>
+      ? html`<p class="muted">${env.ARACHNID_SHIELD_KEY ? "These passed image matching. Check each shows the game and follows the content rules." : "Image matching isn't connected yet, so check each picture shows the game and follows the content rules."}</p>
 <div class="shots">${images.map((i) => html`<div>${imageReview(i)}<p><a href="/admin/games/${i.game_id}">${i.title}</a></p></div>`)}</div>`
       : html`<p class="note">Nothing waiting.</p>`}
 
@@ -448,7 +455,7 @@ ${versions.map((v) => {
   ${report ? scanReport(report) : html`<p>Scan in progress…</p>`}
   ${v.scan_status !== "approved" || !current
         ? html`<div class="row">
-    ${v.scan_status !== "approved" ? html`<form method="post" action="/admin/versions/${v.id}/approve"><button class="btn" type="submit">${v.report_held_at ? "Put the update back" : v.publish_when_approved ? "Approve and publish" : "Approve as a draft"}</button></form>` : ""}
+    ${v.scan_status !== "approved" && !knownImages(v) ? html`<form method="post" action="/admin/versions/${v.id}/approve"><button class="btn" type="submit">${v.report_held_at ? "Put the update back" : v.publish_when_approved ? "Approve and publish" : "Approve as a draft"}</button></form>` : ""}
     ${v.scan_status !== "rejected" ? html`<form method="post" action="/admin/versions/${v.id}/reject"><button class="btn ghost" type="submit">${v.report_held_at ? "Keep it off" : "Reject"}</button></form>` : ""}
   </div>`
         : ""}
@@ -462,7 +469,11 @@ ${auditTable(log)}`,
 
 function scanReport(r: ScanReport): Raw {
   return html`
-${r.childSafety ? html`<p style="color:var(--danger)"><strong>Child-safety flag.</strong> Don't delete anything. Review, and if confirmed report to NCMEC (CyberTipline) as the law requires.</p>` : ""}
+${r.findings.some((f) => f.rule === KNOWN_IMAGE_RULE)
+    ? html`<p style="color:var(--danger)"><strong>Known abuse images.</strong> ${KNOWN_IMAGE_ALERT} It can't be approved.</p>`
+    : r.childSafety
+      ? html`<p style="color:var(--danger)"><strong>Child-safety flag.</strong> Don't delete anything. Review, and if confirmed report to NCMEC (CyberTipline) as the law requires.</p>`
+      : ""}
 <p>Scan result: ${pill(r.decision)} · image matching: ${r.images.connected ? `${r.images.provider}, ${r.images.checked} checked` : "not connected"} · AI: ${r.ai ? `${r.ai.verdict} (${r.ai.model})` : "not run"}</p>
 ${r.ai?.summary ? html`<p>${r.ai.summary}</p>` : ""}
 ${r.findings.length

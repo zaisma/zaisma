@@ -12,8 +12,11 @@ CREATE TABLE feedback_media (
   -- image/png, image/jpeg, image/webp or image/gif.
   type TEXT NOT NULL,
   ord INTEGER NOT NULL,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  -- 1 once image matching (Arachnid Shield) found it clean. Others see an image only when it is.
+  matched INTEGER NOT NULL DEFAULT 0
 );
+CREATE INDEX feedback_media_unmatched ON feedback_media(matched, created_at);
 CREATE INDEX feedback_media_post ON feedback_media(post_id, ord);
 CREATE INDEX feedback_media_account ON feedback_media(account_id, created_at);
 

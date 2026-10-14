@@ -173,8 +173,10 @@ async function start() {
       if (body) flashes.push({ x: body[0], y: body[1], at: performance.now() });
     }
   });
+  // Walked away (idle, or the tab hidden for a while): out of the match, with the seat kept a few minutes. Any key brings them back.
   room.on("status", (s) => {
-    statusEl.textContent = s === "reconnecting" ? "Reconnecting…" : s === "closed" ? "Disconnected. Reload to play again." : "";
+    statusEl.textContent =
+      s === "reconnecting" ? "Reconnecting…" : s === "away" ? "You stepped away. Press any key to jump back in." : s === "closed" ? "Disconnected. Reload to play again." : "";
   });
   room.on("ended", (reason) => { statusEl.textContent = reason; });
   input();

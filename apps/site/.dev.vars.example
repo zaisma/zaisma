@@ -7,6 +7,9 @@ GAME_DOMAIN=
 DEV_ADMIN=1
 # Optional locally: without it, AI review is skipped and games are held for you to approve.
 ANTHROPIC_API_KEY=
+# Image matching (Arachnid Shield, "username:password"). Leave it empty locally: without it games are
+# held for you to approve, and npm run preview brings its own stand-in.
+ARACHNID_SHIELD_KEY=
 # Accounts. Copy from wrangler.jsonc to use the real project, or leave empty to turn accounts off.
 SUPABASE_URL=
 SUPABASE_PUBLISHABLE_KEY=

@@ -1,9 +1,10 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { createAccount, createApiKey, createGame, deleteAccount, feedbackPictureKey, personOwner } from "@zaisma/core";
+import { KNOWN_IMAGE_RULE, createAccount, createApiKey, createGame, deleteAccount, feedbackMediaKey, feedbackPictureKey, personOwner, type ImageMatcher } from "@zaisma/core";
 import { decideFeedback, deleteStaleDraftMedia } from "../../apps/site/src/feedback.ts";
 import { sortFeedback, sortMisplaced, type SortAnswer, type SortDeps } from "../../apps/site/src/feedback-sort.ts";
 import { checkForumPosts, type CheckImage } from "../../apps/site/src/forum-check.ts";
+import { forumHeldKey } from "../../apps/site/src/forum-images.ts";
 import { renderMarkdown } from "../../apps/site/src/forum-markdown.ts";
 
 const SITE = "https://zaisma.test";
@@ -282,7 +283,9 @@ describe("categories and votes", () => {
 });
 
 describe("search, phases and reading a topic in part", () => {
-  const passAll = () => checkForumPosts({ ...env, ANTHROPIC_API_KEY: "test-key" }, { ai: async () => ({ verdict: "ok", reason: "", inputTokens: 10, outputTokens: 2 }) });
+  // Image matching, standing in for Arachnid Shield: clean, or a match.
+  const clean: ImageMatcher = { check: async (m) => ({ provider: "test", connected: true, checked: m.length, findings: [] }) };
+  const passAll = () => checkForumPosts({ ...env, ANTHROPIC_API_KEY: "test-key" }, { ai: async () => ({ verdict: "ok", reason: "", inputTokens: 10, outputTokens: 2 }), images: clean });
 
   it("finds answers by relevance: codes whole, word stems, phrases, and any word when all finds nothing", async () => {
     const upload = (await mcp("post_topic", { kind: "question", category: "mcp", title: "upload_files refuses my build", text: "It says too_big for a 3 MB game." })).topic;
@@ -447,7 +450,7 @@ describe("search, phases and reading a topic in part", () => {
     // Being checked: only its developer.
     expect((await SELF.fetch(`${SITE}${url}`)).status).toBe(404);
     const seen: CheckImage[][] = [];
-    await checkForumPosts({ ...env, ANTHROPIC_API_KEY: "test-key" }, { ai: async (_k, _m, _t, images) => (seen.push(images ?? []), { verdict: "ok", reason: "", inputTokens: 10, outputTokens: 2 }) });
+    await checkForumPosts({ ...env, ANTHROPIC_API_KEY: "test-key" }, { ai: async (_k, _m, _t, images) => (seen.push(images ?? []), { verdict: "ok", reason: "", inputTokens: 10, outputTokens: 2 }), images: clean });
     // The check saw both images with the words.
     expect(seen[0]).toHaveLength(2);
     const open = await SELF.fetch(`${SITE}${url}`);
@@ -486,6 +489,23 @@ describe("search, phases and reading a topic in part", () => {
     // Drafts never posted go after a day.
     expect(await deleteStaleDraftMedia(env, Date.now() + 2 * 86400_000)).toBe(1);
     expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM feedback_media").first<{ n: number }>())!.n).toBe(1);
+  });
+
+  it("holds a post whose image isn't matched, and takes down an image that matches known abuse material", async () => {
+    const { topic, posts } = await mcp("post_topic", { kind: "bug", category: "pages", title: "Screens", text: "See.", media_base64: [PNG] });
+    // Matching isn't connected in tests: the post waits, and a person can look.
+    await checkForumPosts({ ...env, ANTHROPIC_API_KEY: "test-key" }, { ai: async () => ({ verdict: "ok", reason: "", inputTokens: 1, outputTokens: 1 }) });
+    expect((await mcp("get_topic", { id: topic.id })).posts[0].state).toBe("checking");
+    expect((await admin("list_feedback")).posts_to_check[0]).toMatchObject({ id: posts[0].id, state: "not checked yet" });
+
+    // Connected, and it matches: the image comes down, its file kept for reporting, and the post waits for a person.
+    const { posts: second } = await mcp("post_topic", { kind: "bug", category: "pages", title: "More", text: "And this.", media_base64: [PNG] });
+    const match: ImageMatcher = { check: async (m) => ({ provider: "test", connected: true, checked: m.length, findings: [{ rule: KNOWN_IMAGE_RULE, severity: "block", detail: "match", path: m[0]!.path }] as never }) };
+    const mediaId = second[0].media[0].id;
+    await checkForumPosts({ ...env, ANTHROPIC_API_KEY: "test-key" }, { ai: async () => ({ verdict: "ok", reason: "", inputTokens: 1, outputTokens: 1 }), images: match });
+    expect(await env.DB.prepare("SELECT id FROM feedback_media WHERE id = ?").bind(mediaId).first()).toBeNull();
+    expect(await env.GAMES.get(forumHeldKey(mediaId))).not.toBeNull();
+    expect(await env.GAMES.get(feedbackMediaKey(mediaId))).toBeNull();
   });
 
   it("counts everyone in a big topic and shows only the latest few", async () => {

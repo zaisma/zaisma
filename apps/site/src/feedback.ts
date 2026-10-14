@@ -22,6 +22,7 @@ import { ApiError, ownGame, readJson, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { checkPost } from "./forum-check.ts";
 import { notifyMentions, saveMentions } from "./forum-mentions.ts";
+import { matchUpload, refuse } from "./forum-images.ts";
 import { indexPost, indexTopic, unindexTopic } from "./forum-search.ts";
 
 /**
@@ -293,10 +294,18 @@ export async function storePost(env: Env, f: Feedback, caller: Caller, post: Pos
   for (const [ord, mediaId] of placed.filter((m) => drafts.includes(m)).entries()) {
     await env.DB.prepare("UPDATE feedback_media SET post_id = ?, ord = ? WHERE id = ? AND account_id = ? AND post_id IS NULL").bind(id, ord, mediaId, caller.accountId).run();
   }
-  for (const [i, m] of post.media.entries()) {
+  // Every image is matched against known abuse material as it comes in; a match refuses the post.
+  const matched: { mediaId: string; ok: boolean }[] = [];
+  for (const m of post.media) {
     const mediaId = newId();
+    const outcome = await matchUpload(env, mediaId, m.bytes, m.type, caller.accountId);
+    if (outcome === "match") refuse();
+    matched.push({ mediaId, ok: outcome === "clean" });
+  }
+  for (const [i, m] of post.media.entries()) {
+    const { mediaId, ok } = matched[i]!;
     await env.GAMES.put(feedbackMediaKey(mediaId), m.bytes, { httpMetadata: { contentType: m.type } });
-    await env.DB.prepare("INSERT INTO feedback_media (id, post_id, account_id, type, ord, created_at) VALUES (?, ?, ?, ?, ?, ?)").bind(mediaId, id, caller.accountId, m.type, drafts.length + i, now).run();
+    await env.DB.prepare("INSERT INTO feedback_media (id, post_id, account_id, type, ord, created_at, matched) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(mediaId, id, caller.accountId, m.type, drafts.length + i, now, ok ? 1 : 0).run();
   }
   await env.DB.prepare("INSERT INTO feedback_posts (id, feedback_id, account_id, author, via, kind, text, context, picture, created_at, reply_to, check_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)")
     .bind(id, f.id, caller.accountId, post.author, post.via, kind, post.text, post.context, now, replyTo, f.public ? "pending" : null)
@@ -400,8 +409,10 @@ export async function uploadDraftMedia(env: Env, caller: Caller, bytes: Uint8Arr
   if ((today?.n ?? 0) >= FEEDBACK_LIMITS.mediaPerDay) throw new ApiError(429, "media_limit", `You've uploaded ${FEEDBACK_LIMITS.mediaPerDay} images in the last day, the most for one account.`);
   const image = readImage(bytes);
   const id = newId();
+  const outcome = await matchUpload(env, id, image.bytes, image.type, caller.accountId);
+  if (outcome === "match") refuse();
   await env.GAMES.put(feedbackMediaKey(id), image.bytes, { httpMetadata: { contentType: image.type } });
-  await env.DB.prepare("INSERT INTO feedback_media (id, post_id, account_id, type, ord, created_at) VALUES (?, NULL, ?, ?, 0, ?)").bind(id, caller.accountId, image.type, Date.now()).run();
+  await env.DB.prepare("INSERT INTO feedback_media (id, post_id, account_id, type, ord, created_at, matched) VALUES (?, NULL, ?, ?, 0, ?, ?)").bind(id, caller.accountId, image.type, Date.now(), outcome === "clean" ? 1 : 0).run();
   // The path is what a post's text carries; it works on the forum's pages and through the API.
   return { id, url: `${env.SITE_ORIGIN}/forum/media/${id}`, markdown: `![image](/forum/media/${id})` };
 }

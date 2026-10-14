@@ -9,13 +9,14 @@ import { fileURLToPath } from "node:url";
 import { deflateSync } from "node:zlib";
 import { transformSync } from "esbuild";
 import { startFakeAuth } from "./fake-auth.mjs";
+import { LATER_MARKER, MATCH_MARKER } from "./fake-shield.mjs";
 import { openTestRooms, pretendRoomsSql } from "./test-rooms.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const STATE = join(ROOT, ".wrangler/preview");
 // PREVIEW_PORT_OFFSET=100 moves every port up (site on 8900), for a second checkout while another runs its preview.
 const OFFSET = Number(process.env.PREVIEW_PORT_OFFSET) || 0;
-const PORTS = { site: 8800 + OFFSET, games: 8801 + OFFSET, rooms: 8802 + OFFSET, auth: 8790 + OFFSET, ai: 8791 + OFFSET };
+const PORTS = { site: 8800 + OFFSET, games: 8801 + OFFSET, rooms: 8802 + OFFSET, auth: 8790 + OFFSET, ai: 8791 + OFFSET, shield: 8792 + OFFSET };
 const SITE = `http://localhost:${PORTS.site}`;
 const GAMES = `http://localhost:${PORTS.games}`;
 const ROOMS = `http://localhost:${PORTS.rooms}`;
@@ -31,6 +32,8 @@ writeFileSync(
   [`SITE_ORIGIN=${SITE}`, `GAME_ORIGIN=${GAMES}`, "GAME_HOST_MODE=path", "GAME_DOMAIN=", "DEV_ADMIN=1", `SUPABASE_URL=http://localhost:${PORTS.auth}`, "SUPABASE_PUBLISHABLE_KEY=preview", "SUPABASE_SECRET_KEY=preview", "KEEP_OFFER_SECONDS=20",
     // Scans and report triage ask a stand-in AI (fake-ai.mjs): no real key, no cost.
     "ANTHROPIC_API_KEY=preview", `ANTHROPIC_BASE_URL=http://localhost:${PORTS.ai}`,
+    // Image matching asks a stand-in Arachnid Shield (fake-shield.mjs) that only matches marked test pictures.
+    "ARACHNID_SHIELD_KEY=preview:preview", `ARACHNID_SHIELD_URL=http://localhost:${PORTS.shield}`,
     // Cloudflare's published test keys for its check on Play: invisible, and every browser passes.
     "TURNSTILE_SITE_KEY=1x00000000000000000000BB", "TURNSTILE_SECRET=1x0000000000000000000000000000000AA", ""].join("\n"),
 );
@@ -76,6 +79,7 @@ async function waitFor(url) {
 
 await startFakeAuth(PORTS.auth, join(STATE, "auth-key.json")).catch(() => console.log(`Sign-in stand-in already running on ${PORTS.auth}.`));
 children.push(spawn("node", [join(ROOT, "scripts/preview/fake-ai.mjs"), String(PORTS.ai)], { stdio: "ignore" }));
+children.push(spawn("node", [join(ROOT, "scripts/preview/fake-shield.mjs"), String(PORTS.shield), STATE], { stdio: "ignore" }));
 console.log("Applying database updates…");
 spawnSync("npx", ["wrangler", "d1", "migrations", "apply", "zaisma", "--local", "--persist-to", STATE], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
 // One at a time: they share the preview's database, and starting together can find it locked.
@@ -133,6 +137,10 @@ Zaisma preview is running. Nothing here touches the live site.
   Report queue    ${SITE}/admin/reports
   Forum           ${SITE}/forum  (topics, known issues, a topic: ${SITE}/forum?tab=known)
   Admin feedback  ${SITE}/admin/feedback
+  Image matching  ${SITE}/admin  (Night Drive's update is held: a picture renamed .dat, a video and a picture
+                  written into its code matched known abuse material, in the stand-in. Cave Crew's history
+                  shows a screenshot refused the same way. Pixel Garden passed before matching knew its
+                  picture; the daily check found it and hid the game.)
 
 Sign in with any email and the code 123456. ${EMAIL} owns the test games.
 Stop with Ctrl+C. Fresh data: npm run preview -- --reset
@@ -145,7 +153,11 @@ function withServer(example, name) {
   const out = join(STATE, "uploads", name);
   rmSync(out, { recursive: true, force: true });
   cpSync(join(ROOT, example, "game"), out, { recursive: true });
-  writeFileSync(join(out, "zaisma-server.js"), transformSync(readFileSync(join(ROOT, example, "server.ts"), "utf8"), { loader: "ts", format: "esm" }).code);
+  const code = transformSync(readFileSync(join(ROOT, example, "server.ts"), "utf8"), { loader: "ts", format: "esm" }).code;
+  // In the preview, players who walk away are quick to try: "Still there?" after a minute, seats held for two.
+  const quick = code.replace(/export\s*\{\s*(\w+) as default\s*\};?\s*$/, "export default { ...$1, idleAfter: 60, holdFor: 120 };");
+  if (quick === code) throw new Error(`Couldn't give the preview's ${name} game server quick away settings`);
+  writeFileSync(join(out, "zaisma-server.js"), quick);
   return out;
 }
 
@@ -185,7 +197,7 @@ async function seed() {
       env: { ...process.env, ZAISMA_API: SITE, ZAISMA_KEY: key },
       stdio: "ignore",
     });
-  // With no AI review locally, every version waits for a person: approve it as admin.
+  // Scans may still be running: approve as admin so the test data is ready at once.
   const approveNewest = async (slug) => {
     const { versions } = await api("GET", `/games/${slug}`);
     await go(`/admin/versions/${versions[0].id}/approve`, form({ reason: "Preview test data" }));
@@ -226,6 +238,42 @@ async function seed() {
   }
   upload("examples/hello-game", "shard-dodge", "New night level, faster hops and a fix for the double-jump bug.");
   await api("POST", `/games/shard-dodge/versions/${await approveNewest("shard-dodge")}/publish`);
+
+  // Image matching: an update with a picture the stand-in Arachnid Shield matches, held for a person
+  // (the game stays on its first version), and a screenshot it refuses. Both are harmless test pictures.
+  // The matched files hide: a picture renamed .dat, a video, and a picture written into the code as base64.
+  const flagged = join(STATE, "uploads", "night-drive-v2");
+  rmSync(flagged, { recursive: true, force: true });
+  cpSync(join(ROOT, "examples/hello-game"), flagged, { recursive: true });
+  mkdirSync(join(flagged, "art"), { recursive: true });
+  mkdirSync(join(flagged, "data"), { recursive: true });
+  writeFileSync(join(flagged, "art", "sky.png"), picture([40, 50, 90], 0));
+  writeFileSync(join(flagged, "data", "stars.dat"), picture([40, 50, 90], 1, MATCH_MARKER));
+  writeFileSync(join(flagged, "art", "intro.mp4"), Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from(`ftypisom\0\0\x02\0${MATCH_MARKER}`, "latin1")]));
+  writeFileSync(join(flagged, "moon.js"), `// The moon, drawn from a picture in the code.\nconst moon = "data:image/png;base64,${Buffer.from(picture([200, 200, 220], 2, MATCH_MARKER)).toString("base64")}";\n`);
+  upload(flagged, "night-drive", "A starry sky.");
+  await api("POST", "/games/cave-crew/images?kind=screenshot", picture([60, 120, 90], 2, MATCH_MARKER)).catch(() => {});
+
+  // A game that passed before image matching was connected, with a picture the stand-in only learns
+  // about later: the daily check (run once here) matches it and hides the game.
+  const { game: garden } = await api("POST", "/games", { title: "Pixel Garden", description: "Grow a tiny garden, one pixel at a time.", devices: ["computer"], controls: ["keyboard-mouse"], players: { single: true, local: null, online: null } });
+  const gardenFolder = join(STATE, "uploads", "pixel-garden");
+  rmSync(gardenFolder, { recursive: true, force: true });
+  cpSync(join(ROOT, "examples/hello-game"), gardenFolder, { recursive: true });
+  writeFileSync(join(gardenFolder, "flowers.png"), picture([90, 160, 90], 1, LATER_MARKER));
+  upload(gardenFolder, garden.slug, "First version.");
+  let gardenVersion;
+  for (let i = 0; i < 60; i++) {
+    gardenVersion = (await api("GET", `/games/${garden.slug}`)).versions[0];
+    if (gardenVersion.scan !== "scanning") break;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  if (gardenVersion.scan !== "approved") await go(`/admin/versions/${gardenVersion.id}/approve`, form({ reason: "Preview test data" }));
+  await api("POST", `/games/${garden.slug}/versions/${gardenVersion.id}/publish`);
+  await api("PATCH", `/games/${garden.slug}`, { visibility: "unlisted" });
+  spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", `UPDATE versions SET scan_report = json_set(scan_report, '$.images.connected', json('false')) WHERE id = '${gardenVersion.id}'`], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
+  writeFileSync(join(STATE, "shield-knows-later"), "");
+  await fetch(`${SITE}/__scheduled?cron=${encodeURIComponent("17 3 * * *")}`);
 
   // Reports for the report queue, sent like the plate beside a game sends them. The stand-in AI sorts them within half a minute.
   const reports = [
@@ -435,8 +483,8 @@ async function developer(name, email) {
   };
 }
 
-/** A 16:9 test picture that reads like game art: a sky, a sun and two ranges of hills, in the game's colors. */
-function picture([r, g, b], n) {
+/** A 16:9 test picture that reads like game art: a sky, a sun and two ranges of hills, in the game's colors. A marker goes in a text chunk. */
+function picture([r, g, b], n, marker) {
   const w = 640, h = 360;
   const rows = [];
   const sun = { x: 140 + n * 150, y: 110 + n * 20, r: 46 };
@@ -470,7 +518,7 @@ function picture([r, g, b], n) {
   head.writeUInt32BE(w, 0);
   head.writeUInt32BE(h, 4);
   head.set([8, 2, 0, 0, 0], 8);
-  return new Uint8Array(Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk("IHDR", head), chunk("IDAT", deflateSync(Buffer.concat(rows))), chunk("IEND", Buffer.alloc(0))]));
+  return new Uint8Array(Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk("IHDR", head), ...(marker ? [chunk("tEXt", Buffer.from(`Comment\0${marker}`, "latin1"))] : []), chunk("IDAT", deflateSync(Buffer.concat(rows))), chunk("IEND", Buffer.alloc(0))]));
 }
 
 function crc(buf) {
