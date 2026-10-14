@@ -78,6 +78,8 @@ Detailed plan approved: guest passes, game server API, rooms, SDK, demos.
 | planned | Nice | Find players across rooms | Kick and move players, Player safety in rooms | A small directory per game: the game server asks which room its players are in and sends messages to another room ("your friend wants in"), for in-game friends lists, parties and join a friend. Only within one game and only from the game server; blocks always apply; players can appear offline, and teens are findable only by friends by default. Lasting friends lists need signed-in players or the game's own accounts. Moves to Phase 3 if not ready |
 | planned | Nice | Own servers list their rooms | Room browsing | Rooms on a developer's own servers show in the same list: their server checks in with Zaisma every minute. For games that outgrow our rooms (more players, bigger servers), so moving off doesn't empty their Rooms tab |
 | planned | Must | Game database | Rooms on rooms.zaisma.com | A real database for each game, part of its hosting: tables and queries, read and written straight from its game servers, with full access for the developer and their AI (query it, change its tables, fix data, import and export everything); no Zaisma forms in between. The same calls use a local database file on the developer's own server, so self-hosting keeps working and the data can leave with them. What games keep there is theirs: ban lists, moderators, leaderboards, shared worlds. Free up to a limit per game, then priced with a margin like rooms from the same prepaid credit (Julius approved in principle Oct 13, 2026; the limits come to him with the numbers when it's built). Limits keep it from becoming free file hosting |
+| planned | Must | Game server endpoints and schedules | Developers' own game servers run safely | A game's server code can also answer plain requests (an endpoint per game: leaderboards, a shop or daily rewards in a single-player game) and run on a schedule (daily resets, persistent worlds), with the game database behind it. The same code runs on the developer's own server |
+| planned | Must | Game server reach and secrets | Developers' own game servers run safely | Game servers can call the developer's own listed servers (and payment providers they use), with secrets set per game in the dashboard, MCP or API and never shown again. Still nothing of ours inside |
 
 ### Accounts (build track 2)
 
@@ -91,7 +93,8 @@ Detailed plan approved: guest passes, game server API, rooms, SDK, demos.
 | done | Must | Save history | Cloud saves | Up to 5 earlier versions per game: one an hour while playing, plus one whenever progress is about to be replaced (the progress the player didn't pick, a save that shrinks to under half). Players go back from their account (Your saves) or the game menu |
 | done | Must | Passkeys | Sign-in | Face ID or fingerprint to sign back in; the email code stays for new accounts and lost devices. Checked on our server (Supabase's own passkeys are still experimental); adding one needs a sign-in in the last 10 minutes |
 | done | Nice | Google and Discord sign-in | Sign-in, Age question | Through Supabase. The age question still comes first for new accounts: someone new who skips it is forgotten and asked it before continuing. Buttons only show once a provider is switched on in Supabase |
-| planned | Must | Zaisma accounts in games | Sign-in, Player passes | One ID everywhere. Passes become proof only: the ID, guest or account, the game, when it expires (guests also get their generated name). A public profile lookup any game or server can call, returning what a stranger sees; teens show little more than a name. Games ask players to sign in when they like and choose guests, accounts only or a mix, for a room, multiplayer or the whole game; the game page says "Needs a Zaisma account" before Play when the whole game does. Site copy that says every game plays as a guest changes when this ships |
+| planned | Must | Zaisma accounts in games | Sign-in, Player passes | One ID everywhere. Passes become proof only: the ID, guest or account, the game, when it expires (guests also get their generated name). A public profile lookup any game or server can call, returning what a stranger sees; teens show little more than a name. Games ask players to sign in when they like and choose guests, accounts only or a mix, for a room, multiplayer or the whole game; the game page says "Needs a Zaisma account" before Play when the whole game does. Ships with Sign in with Zaisma (moved up from Phase 3): one OAuth server for developers' own sites and servers, games with their own accounts and the MCP sign-in without a key. Site copy that says every game plays as a guest changes when this ships |
+| planned | Must | Social modes and age bands | Age question | Three age bands (13–15, 16–17, 18+); older teen accounts are asked again. Every account has a social mode: solo-focused, friends-focused or open and social. 13–15 start solo-focused and can switch only to friends-focused, by hand; 16–17 and 18+ choose at signup (friends-focused by default) and can change later. Open and social stays within the same band group. Friends by invitation in solo- and friends-focused. The pass carries an opaque chat group and the player's friends, never the age; `canChat(a, b)` for developers' own servers |
 
 ### Developer publishing (build track 3)
 
@@ -104,11 +107,14 @@ Detailed plan approved: guest passes, game server API, rooms, SDK, demos.
 | done | Must | Game visibility | Developer accounts | Draft, listed, unlisted or private; separate from review status. Unlisted is noindex and never in any shelf. Draft and private games open only through preview and tester links |
 | done | Must | Tester links | Game visibility | Secret, named, revocable links (zaisma.com/t/…) that open the live version whatever the visibility; guests can use them and multiplayer works through them. Dashboard, MCP and API. Inviting specific accounts comes later |
 | doing | Must | Game details and device labels | Developer accounts | Covers and screenshots, scanned; games for your device first, "Play anyway" for the rest. Labels, covers and screenshots show on the game page (approved by a person until image matching is connected), with "Play anyway" on other devices; sorting games for your device first is next |
-| planned | Must | No-slop cover and title checks | Game details and device labels | AI review checks covers; real screenshots on every game page |
-| planned | Must | No live chat or DMs between strangers rule | | In the content rules and the AI review; games may offer preset phrases and emotes |
+| planned | Must | No-slop cover and title checks | Game details and device labels | AI review checks covers; real screenshots on every game page. Fake rewards and brands the developer doesn't own hold the game; other slop only keeps it off the shelves until the cover is fixed |
+| planned | Must | Chat rules |  | In the content rules and the AI review: chat only for accounts, through Zaisma's chat hosting or with `canChat` and the filter on a developer's own server. Until those ship (Phase 3), games offer preset phrases and emotes |
 | done | Must | Developer MCP | Drafts and publishing | Create, edit, upload, publish, roll back, scans, reports, stats at zaisma.com/mcp, signed in with an API key; small games upload through the MCP, bigger builds through the upload command |
-| planned | Must | MCP sign-in without a key | Developer MCP | OAuth, so claude.ai and other apps that can't send a key can connect after the developer signs in |
-| planned | Nice | Webhooks for developers | Developer MCP, AI report triage | Zaisma calls a web address the developer sets when something happens (a new bug report, a scan finished, a version published), signed so they can trust it; e.g. to open a GitHub issue for every bug report. Until then their AI checks for new bug reports with `since` |
+| planned | Must | MCP sign-in without a key | Developer MCP | OAuth, so claude.ai and other apps that can't send a key can connect after the developer signs in. The same OAuth server as Sign in with Zaisma |
+| planned | Must | Webhooks for developers | Developer MCP, AI report triage | Moved up from Nice (Oct 14, 2026): one signed event stream to an address the developer sets for every event (bug reports, scans, publishes, room events, later purchases), e.g. a GitHub issue for every bug report. Follower alerts, Discord posts and purchase notifications all go out this way. Until then their AI checks for new bug reports with `since` |
+| planned | Must | Scoped API keys | Developer accounts | Keys limited to one game, read-only or upload-only, for CI and collaborators |
+| planned | Must | Export everything | Developer accounts, Game database | One command (and MCP tool) exports a game: files, versions, database, stats, reports and updates |
+| planned | Must | Registered links | Developer accounts | Moved up from Phase 2 (Oct 14, 2026), so developers can earn with their own payments from day one: links to their store, Patreon, Steam or Discord, opened by `Zaisma.links` with a leaving-Zaisma notice |
 | doing | Must | Support tools in the MCP | Developer MCP | "Why is my game held?", scan reports, logs, bills: developers' own AI answers their questions. Game history and scan findings are in; bills and logs next |
 | next | Must | Feedback from developers' AI | Developer MCP, AI report triage | Bugs, gaps, feature requests and questions about Zaisma itself, filed by developers' AI assistants (MCP `send_feedback`, the API, `npx @zaisma/cli feedback`) or by hand in the dashboard. The MCP tells AIs to file whenever they hit a bug or a limit. Each one answers at once with known issues that match and their workarounds, and AI sorts the rest like reports: duplicates merged with a count of developers affected, severity, area. Secrets in the text are blanked, and about 20 a day per account. `get_feedback` shows where each one stands, and developers hear when it's fixed. Julius works through them in the admin MCP and dashboard, links them to roadmap items, and can copy a cleaned-up issue to public GitHub |
 | planned | Must | Errors that explain themselves | | Every hold, takedown, bill and failed upload has a plain reason, a rule, a fix and an error code that links to docs |
@@ -118,6 +124,7 @@ Detailed plan approved: guest passes, game server API, rooms, SDK, demos.
 | planned | Must | Claude Code skill | Developer MCP, `zaisma check` and automatic fixes | Teaches the whole workflow |
 | done | Must | Basic play stats | | Live Oct 13, 2026. Plays, session length, players coming back. Counted by the game page (no code in the game, no player IDs: only counts per game per day); in the dashboard, API and MCP |
 | done | Must | Play-count protection | Basic play stats | Live Oct 13, 2026. Counted plays are the official numbers: Cloudflare's invisible check on Play, a ticket per play, a minute on screen; shelves skip cloud networks and cap any one provider; spike alerts and actions in admin; a content rule against faking plays. Before outreach |
+| planned | Nice | Stats export and game events | Basic play stats | Daily counts through the API to export, and games counting their own events (`Zaisma.track`, no player IDs) next to plays |
 | planned | Must | Room-count protection | Play-count protection | "Playing now", room lists and multiplayer stats count whoever is connected, so bots could fake a busy game or fill rooms so real players can't join. A player pass from Zaisma rooms needs a checked play ticket (a few passes per ticket, for rejoining), and "playing now" counts only those players. Games on their own servers hand out their own passes. Before other developers' multiplayer games go out, and before "playing now" feeds any ranking |
 | planned | Must | Room connection limits | | Opening a room connection is limited per internet address, like passes and new rooms, so a script claiming to be a game's page can't keep waking rooms |
 | planned | Must | Beta usage ceiling | Rooms on rooms.zaisma.com | Until Hosting billing exists, each game's rooms stop at the free tier (1,000 player-hours a month): running matches finish, no new rooms open until the month resets or billing goes live. Bounds our cost from bots and runaway games. Julius approved Oct 13, 2026 |
@@ -131,7 +138,7 @@ The platform works but looks and feels rough. No outreach, no listings for other
 | Status | Must/Nice | Item | Needs | Notes |
 | --- | --- | --- | --- | --- |
 | doing | Must | Design system | | Steel, from the brand, now a full theme like a console's big-screen mode: the ground, gunmetal plates and chrome, lit by the game on screen (its art blurred behind every page, changing as you point at games). Live on the home, game, dashboard and account pages (docs/DESIGN.md); remaining pages move over as they are rebuilt |
-| planned | Must | Friends | Sign-in | Friend list, invites, see what friends are playing and join them; requests only from people you've played with; teen-safe defaults. Moved up from Phase 3 to land with the home page |
+| planned | Must | Friends | Sign-in, Social modes and age bands | Friend list, invites, see what friends are playing and join them; by invitation in solo- and friends-focused modes, open requests in open and social; teen-safe defaults. Games get the same list and presence (`Zaisma.friends`). Moved up from Phase 3 to land with the home page |
 | doing | Must | Home page | Design system, Friends, Continue playing, Game updates | Friends first, then last played, Continue playing, For you (once it exists), then Games for everyone: popular, trending, new. Live: the last-played stage with Play and Details, Continue playing, and Popular (most players this week), Trending (more players in the last 3 days than usual), New (first live in the last 60 days) and All games, each shelf once it has 2 games. Game cards are the developer's cover alone and open the game page; only Play starts a game. Developers can add a square cover that phones show instead (without one, the landscape cover shows whole). Friends and For you land with their own items |
 | done | Must | Continue playing | | The games you played most recently, on the home page; sort by recently played or recently updated, with an "Updated" badge. On this device for guests, on your account when signed in |
 | doing | Must | Game updates | | Developers post a title, a short text and an optional image (checked like covers); version notes become patch notes on the update's details page. Patch notes show in the game page's Updates tab; posts with a title and image next |
@@ -151,7 +158,7 @@ The platform works but looks and feels rough. No outreach, no listings for other
 | planned | Must | Developer links on game pages | Developer accounts | Steam, itch.io, Discord, website, socials |
 | planned | Must | At least 5 seed games | Claude Code skill, Two demo games | Made with Claude Code through our own publishing flow, different genres, multiplayer |
 | planned | Nice | 10 seed games | At least 5 seed games | The target in `docs/PLAN.md` |
-| planned | Must | Link-out listings | Ready for outreach | Games hosted elsewhere, added from admin with the developer's OK: credited and linked, marked "Plays on example.com", never embedded. Original games only. Checked at listing and re-checked automatically. Developers can claim them once developer accounts exist |
+| planned | Must | Link-out listings | Ready for outreach | Games hosted elsewhere, credited and linked, marked "Plays on example.com", never embedded. Original games only. Checked at listing and re-checked automatically. Added from admin with the developer's OK at first; once developer accounts exist, developers add and claim their own from the dashboard or MCP |
 | planned | Nice | QR codes | | |
 | planned | Must | Open the public beta | Connect image matching, Gleb: register the DMCA agent, Julius: form an LLC, Gleb: alert and DMCA email delivery, Julius: Supabase Pro, At least 5 seed games | And every other must item above. Weekly releases and the weekly game jam start here |
 
@@ -165,13 +172,12 @@ Goal: developers can make money within days of the beta.
 | planned | Must | Zaisma buy sheet | Cards, Apple Pay, Google Pay; saved card works in every game |
 | planned | Must | Owned items and receipts | On the account, in the player pass, signed receipts |
 | planned | Must | Live purchases | Exactly-once delivery to the game and game server |
-| planned | Must | Purchase notifications for developers' servers | Also links purchases to games' own accounts |
-| planned | Must | Registered links | Developers' own payments and stores, with a leaving-Zaisma notice |
+| planned | Must | Purchase notifications for developers' servers | Through webhooks. Also links purchases to games' own accounts |
 | planned | Must | Purchase rules | Honest labels, real prices, refund policies, no loot boxes |
 | planned | Must | Hosting billing | About 2x our Cloudflare cost; first 1,000 player-hours a month free per developer or team, no card needed. Above that, prepaid credit (about $10 minimum, optional automatic top-up): when it runs out, running matches finish but no new rooms open beyond the free tier; warnings at 20% and empty. Credit pays only for Zaisma services and is never paid out. Starts the month payments go live |
 | planned | Must | AI support assistant | Errors that explain themselves | On zaisma.com for players and developers. Reads the same records (account, game status, scan report, receipts, saves, bills), answers from facts and takes safe actions (resend a code, re-run a scan, restore a save); hands judgment calls to a person |
 | planned | Must | Appeals queue | AI report triage | Takedown and ban appeals with AI summaries and a recommendation; one-click decisions |
-| planned | Must | Zaisma Pro | About $10/month: deeper stats, custom domains, more storage and seats, priority review, higher upload limit, scheduled releases |
+| planned | Must | Zaisma Pro | About $10/month, only for what costs us more: custom domains (Cloudflare for SaaS, moved from Phase 6), more storage and seats, higher upload limit. Stats and scheduled releases stay free for everyone (Oct 14, 2026) |
 | planned | Must | Promoted games | Labeled front-page slots, no tracking, priced by traffic |
 | planned | Must | Review deposits | $5 / $25, refundable |
 | planned | Nice | Donation page | GitHub Sponsors / Open Collective; a bonus, not the plan |
@@ -186,12 +192,15 @@ Goal: playing with friends is effortless, wherever friends already hang out.
 
 | Status | Must/Nice | Item | Notes |
 | --- | --- | --- | --- |
-| planned | Must | Zaisma in Discord | One Discord Activity for every game; our voice chat for now |
-| planned | Must | Game communities | A Community tab per game: developer updates, player posts (screenshots, clips, guides, questions) with comments, every post checked by AI before it shows |
+| planned | Must | Zaisma in Discord | Rooms that work through Discord's proxy, so developers can ship their own Activity; plus one Zaisma Activity for every game, using Discord's voice |
+| planned | Must | Game communities | Like a Steam hub, switched on by the developer: developer updates, player posts (screenshots, clips, guides, questions) with comments. The developer picks their own moderators or points players to their Discord instead; posts readable through the API. Zaisma checks every post for safety before it shows |
 | planned | Must | Mods and remixes shelf | On each game's Community tab, with the credit chain |
-| planned | Must | Profiles | Games you play, mods and remixes you've made, your posts; private to friends for teens by default |
-| planned | Must | Julius: online safety risk assessment | Written risk assessment and takedown process for public posts (UK Online Safety Act) before communities open |
-| planned | Nice | Sign in with Zaisma | For games with their own accounts |
+| planned | Must | Profiles | Games you play, achievements, mods and remixes you've made, your posts; private to friends for teens by default |
+| planned | Must | Achievements | Steam-style: the developer defines them (name, description, icon checked like covers), the game or game server unlocks them (`Zaisma.achievements`), they show on the profile and game page; full API. Zaisma never makes badges for games |
+| planned | Must | Chat filter | Catches contact details in any disguise, slurs and sexual content aimed at teens; leaves scores, coordinates and ordinary words alone. Rules in the browser first, a small AI model only for unclear messages; a blocked message isn't sent and the sender sees why. Always on for under-18 accounts. Upgrades `Zaisma.filterText` |
+| planned | Must | Text chat in rooms | Chat hosting for games: messages ride the room's own connection (included in room hosting), delivered only to players their social modes allow; the game draws the chat and moderates it. Reports attach the last messages from the reporter's screen; Zaisma stores no chat. Needs Social modes and age bands, Chat filter and the risk assessment |
+| planned | Must | Voice chat in rooms | Through Cloudflare's media server, so players never see each other's addresses; the same social-mode rules as text, only the loudest few speakers heard. Off by default per game, with a cost caution when switched on; a voice player-hour counts as 2. Voice reports attach the last 30 seconds the reporter heard |
+| planned | Must | Julius: online safety risk assessment | Written risk assessment and takedown process (UK Online Safety Act) for chat and public posts. Before text chat or communities open |
 | planned | Nice | Install button | Installable web app per game: icon, own window, offline |
 
 ## Phase 4: Discover
@@ -203,17 +212,16 @@ Goal: good games get found, ranked by quality rather than clicks, and developers
 | planned | Must | Progress bar and front page | Ranked by players coming back, playtime, real ratings, reports |
 | planned | Must | "New and rising" shelf | With its own quality bar |
 | planned | Must | For you and today's queue | Ranked from what you play by plain rules, not AI; each pick says why. A full-screen daily queue of 8 games, refresh for more |
-| planned | Must | Ratings only from people who played | |
+| planned | Must | Ratings only from people who played | Developers can reply, and read their ratings through the API |
 | planned | Must | Search by genre and tags | |
 | planned | Must | Player lists and developer picks | |
-| planned | Must | Follow games and update notes | Followers hear about new versions; posts to the developer's Discord |
+| planned | Must | Follow games and update notes | Followers hear about new versions; developers post to their Discord or anywhere else through webhooks |
 | planned | Must | Zaisma Plus | About $5/month: badge, profile extras, new features first, early access to games whose developers opt in; half to developers by playtime |
 | planned | Nice | Scout badge | |
 | planned | Nice | Copycat grouping | Reposted templates count as one game |
 | planned | Nice | Embeds for developers' sites | |
 | planned | Nice | Tracked share links | Counts per link, nothing about players |
-| planned | Nice | Press kits | |
-| planned | Nice | AI-drafted launch posts | MCP tools; the developer approves before posting |
+| planned | Nice | Game assets through the API | Covers, screenshots and details downloadable, so developers' own AI makes press kits and launch posts (replaces Zaisma-made press kits and drafted posts) |
 
 ## Phase 5: Create together
 
@@ -223,8 +231,7 @@ Goal: players and developers build on each other's games.
 | --- | --- | --- | --- |
 | planned | Must | Remixes | Opt-in, automatic credit, remix chains; optional 12-month unlock for abandoned games |
 | planned | Must | Teams | Owner, publisher and developer roles |
-| planned | Must | Mods | SDK mod API; scanned and versioned; invite links carry mods |
-| planned | Nice | Tools tab | Free, open-source developer tools |
+| planned | Must | Mods | SDK mod API: Zaisma hosts, scans and versions mods; the game lists and switches them on its own way (`Zaisma.mods`), a game-page listing optional; invite links carry mods |
 
 ## Phase 6: Grow
 
@@ -233,7 +240,6 @@ Goal: room for games that outgrow the defaults.
 | Status | Must/Nice | Item | Notes |
 | --- | --- | --- | --- |
 | planned | Nice | Bigger game servers | Cloudflare Containers; check outbound data charges first |
-| planned | Nice | Custom game domains | Cloudflare for SaaS |
 | planned | Nice | One-command switch from Wavedash | |
 | planned | Nice | Subscriptions in the buy sheet | |
 
@@ -244,3 +250,4 @@ Not planned; revisit only if there's a reason.
 | Status | Item | Notes |
 | --- | --- | --- |
 | idea | Under-13 support | Its own project, with verified parental consent |
+| idea | Tools tab | Free, open-source developer tools. Parked Oct 14, 2026; revisit after Phase 5 |
