@@ -1,0 +1,155 @@
+<title>Zaisma Safety Sign-ups</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jost:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* Layout: one column checklist. Shared details first, then the three sign-ups in the order to do them. Same Steel palette as the roadmap. */
+:root {
+  --bg: #f3f4f6; --surface: #ffffff; --line: #dcdde2; --fg: #17171b; --muted: #5d5e68;
+  --steel: #3d4f6b; --ask: #9a6a10; --must: #17171b;
+  --display: "Jost", "Futura", "Century Gothic", system-ui, sans-serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #16161a; --surface: #1e1e23; --line: #2d2d34; --fg: #ececef; --muted: #9b9ba6;
+    --steel: #b9c6d8; --ask: #e2b45e; --must: #ececef; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #16161a; --surface: #1e1e23; --line: #2d2d34; --fg: #ececef; --muted: #9b9ba6;
+  --steel: #b9c6d8; --ask: #e2b45e; --must: #ececef; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font: 15px/1.6 var(--body); }
+.wrap { max-width: 760px; margin: 0 auto; padding-inline: 20px; padding-block: 32px 64px; display: grid; gap: 28px; }
+h1, h2 { font-family: var(--display); font-weight: 600; margin: 0; text-wrap: balance; }
+h1 { font-size: clamp(28px, 5vw, 38px); }
+h2 { font-size: 22px; display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+h2 .when { font: 500 13px var(--mono); color: var(--muted); }
+p { margin: 0; max-width: 65ch; }
+a { color: var(--steel); }
+:focus-visible { outline: 2px solid var(--steel); outline-offset: 2px; border-radius: 4px; }
+.lede { font-size: 17px; }
+.muted { color: var(--muted); }
+section { display: grid; gap: 14px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px; display: grid; gap: 14px; min-width: 0; }
+ol, ul { margin: 0; padding-left: 22px; display: grid; gap: 8px; }
+dl { margin: 0; display: grid; grid-template-columns: minmax(120px, 190px) minmax(0, 1fr); gap: 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--surface); }
+dt, dd { margin: 0; padding: 9px 12px; border-top: 1px solid var(--line); }
+dt:first-of-type, dt:first-of-type + dd { border-top: 0; }
+dt { color: var(--muted); font-size: 14px; }
+dd { min-width: 0; overflow-wrap: anywhere; display: flex; gap: 8px; align-items: baseline; justify-content: space-between; }
+code { font: 500 13.5px var(--mono); }
+.ask { color: var(--ask); font-weight: 500; }
+.copy { flex: none; font: 500 12px var(--body); padding: 2px 9px; border-radius: 99px; border: 1px solid var(--line); background: transparent; color: var(--muted); cursor: pointer; }
+.copy:hover { border-color: var(--steel); color: var(--fg); }
+.tag { font: 500 12px var(--mono); padding: 1px 7px; border-radius: 5px; border: 1px solid var(--must); color: var(--must); }
+.note { border-left: 3px solid var(--line); padding-left: 12px; color: var(--muted); font-size: 14px; }
+blockquote { margin: 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); font-size: 14px; display: grid; gap: 8px; }
+@media (max-width: 560px) {
+  .wrap { padding-inline: 16px; }
+  dl { grid-template-columns: minmax(0, 1fr); }
+  dd { border-top: 0; padding-top: 0; }
+}
+</style>
+
+<div class="wrap">
+  <header style="display:grid;gap:12px">
+    <h1>Safety sign-ups for Gleb</h1>
+    <p class="lede">Three sign-ups Zaisma needs before the public beta: Arachnid Shield, NCMEC and the DMCA agent. Everything you need to type is below, plus what to send back to Julius.</p>
+  </header>
+
+  <section>
+    <h2>Before you start</h2>
+    <div class="card">
+      <ul>
+        <li><strong>Sign up as the company, Zaisma LLC,</strong> never as yourself. Use the zaisma.com addresses given for each sign-up, never a personal or free email; these services check that the email matches the company.</li>
+        <li><strong>Every zaisma.com address lands in Julius's inbox.</strong> When a site sends a confirmation link or code, message Julius and he'll pass it on.</li>
+        <li><strong>Two things only Julius has:</strong> the company's street address and the phone number to use. Ask him once before you start.</li>
+        <li><strong>Never post an API key in chat, an email or the repo.</strong> The repo is public.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Company details</h2>
+    <p class="muted">The same answers work for all three forms.</p>
+    <dl>
+      <dt>Legal name</dt><dd><code>Zaisma LLC</code><button class="copy" type="button">Copy</button></dd>
+      <dt>Type and state</dt><dd>Limited liability company, Wyoming (formed Oct 13, 2026)</dd>
+      <dt>Website</dt><dd><code>zaisma.com</code><button class="copy" type="button">Copy</button></dd>
+      <dt>Other domain</dt><dd><span><code>zaismausercontent.com</code> <span class="muted">(where the games themselves are served)</span></span><button class="copy" type="button">Copy</button></dd>
+      <dt>Street address</dt><dd><span class="ask">Ask Julius.</span> Use the registered agent's address in Wyoming, not anyone's home. No P.O. box.</dd>
+      <dt>Phone</dt><dd><span class="ask">Ask Julius.</span></dd>
+      <dt>What we do</dt><dd>See the text to paste below</dd>
+    </dl>
+    <blockquote>
+      <span class="muted">If a form asks what the service is:</span>
+      <span id="about">Zaisma is a website where people publish and play browser games. Developers upload game files (HTML, JavaScript, images, audio), which we host and serve to players. Players can play as guests or with an account, and can play together in multiplayer rooms. We check uploaded images before games go live.</span>
+      <button class="copy" type="button" data-copy="about" style="justify-self:start">Copy</button>
+    </blockquote>
+  </section>
+
+  <section>
+    <h2>1. Arachnid Shield <span class="tag">Must</span> <span class="when">first, about 10 minutes</span></h2>
+    <div class="card">
+      <p>A free service from the Canadian Centre for Child Protection that checks images against known child abuse images. Zaisma will run it on every image in every upload before a game goes live.</p>
+      <ol>
+        <li>Go to <a href="https://projectarachnid.ca/en/api/accounts/register/" target="_blank" rel="noopener">projectarachnid.ca/en/api/accounts/register</a> and create an account.</li>
+        <li>Email: <code>safety@zaisma.com</code>. Organization: <code>Zaisma LLC</code>. Website: <code>zaisma.com</code>.</li>
+        <li>Ask Julius for the confirmation email, then sign in.</li>
+        <li>Once you're signed in, the site gives you an API key, or a username and password for the API. Send it to Julius <strong>privately</strong>: a password manager share or something similar, never chat or email. He puts it in Cloudflare's settings.</li>
+      </ol>
+      <p class="note">If they ask for more detail or want to talk first, answer from the text above. Questions for them go through <a href="https://projectarachnid.ca/en/contact/" target="_blank" rel="noopener">their contact page</a>. Their technical docs are at <a href="https://shield.projectarachnid.com/docs/" target="_blank" rel="noopener">shield.projectarachnid.com/docs</a>, for Julius and Claude, not you.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>2. Register with NCMEC <span class="tag">Must</span> <span class="when">start now, it takes a while</span></h2>
+    <div class="card">
+      <p>US law requires services that host user uploads to register with NCMEC's CyberTipline, which is how we report child abuse material if we ever find any. It's free. Registration starts with you contacting NCMEC; someone from their team then follows up to finish it.</p>
+      <ol>
+        <li>Contact NCMEC through <a href="https://www.missingkids.org" target="_blank" rel="noopener">missingkids.org</a> and ask to <strong>register Zaisma LLC as an electronic service provider (ESP) for CyberTipline reporting</strong>. We couldn't find a current online sign-up form. If you can't find one either, call their main line, <code>1-800-843-5678</code>, and ask for ESP registration.</li>
+        <li>Contact email: <code>safety@zaisma.com</code>.</li>
+        <li>They'll ask for the company name, address, phone, an emergency contact, and what the service does. Use the company details above. Julius is the emergency contact; <span class="ask">ask him for his number.</span></li>
+        <li>When their team replies, reply to them from the same thread, or ask Julius to.</li>
+        <li>Send Julius anything they give you at the end: a confirmation, an account or a reporting login.</li>
+      </ol>
+    </div>
+  </section>
+
+  <section>
+    <h2>3. Register the DMCA agent <span class="tag">Must</span> <span class="when">about 15 minutes, $6</span></h2>
+    <div class="card">
+      <p>A listing at the US Copyright Office naming who receives copyright takedown notices for Zaisma. Without it, Zaisma isn't protected when someone uploads a copied game.</p>
+      <ol>
+        <li>Go to <a href="https://www.copyright.gov/dmca-directory/" target="_blank" rel="noopener">copyright.gov/dmca-directory</a> and click <strong>Login/Register</strong>. Make the account with <code>dmca@zaisma.com</code>.</li>
+        <li><strong>Service provider:</strong> <code>Zaisma LLC</code>, at the company street address (no P.O. box).</li>
+        <li><strong>Alternate names:</strong> add <code>Zaisma</code>, <code>zaisma.com</code> and <code>zaismausercontent.com</code>.</li>
+        <li><strong>Designated agent:</strong> name <code>Copyright Agent</code> (a role is allowed, so no one's personal name goes on the record), organization <code>Zaisma LLC</code>, the company address, the company phone, email <code>dmca@zaisma.com</code>.</li>
+        <li><strong>Administrative contact:</strong> email <code>dmca@zaisma.com</code>, so renewal reminders reach Julius. Your own name is fine as the person.</li>
+        <li>Pay the $6 fee. <span class="ask">Ask Julius which card to use.</span></li>
+        <li>Send Julius the confirmation, or a screenshot of the finished listing. We'll put the agent details on <a href="https://zaisma.com/dmca" target="_blank" rel="noopener">zaisma.com/dmca</a>; you don't need to change the site.</li>
+      </ol>
+      <p class="note">The listing expires after 3 years. Renewing costs another $6, and the Copyright Office emails reminders to dmca@ ahead of time.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>When you're done</h2>
+    <div class="card">
+      <p>Tell Julius which of the three are finished and what you sent him. He'll mark them done on the roadmap.</p>
+    </div>
+  </section>
+</div>
+
+<script>
+for (const b of document.querySelectorAll(".copy")) b.addEventListener("click", async () => {
+  const el = b.dataset.copy ? document.getElementById(b.dataset.copy) : b.parentElement.querySelector("code");
+  const text = el.textContent.trim();
+  try { await navigator.clipboard.writeText(text); b.textContent = "Copied"; }
+  catch { const r = document.createRange(); r.selectNodeContents(el); const s = getSelection(); s.removeAllRanges(); s.addRange(r); b.textContent = "Selected"; }
+  setTimeout(() => { b.textContent = "Copy"; }, 1500);
+});
+</script>
