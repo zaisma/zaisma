@@ -76,7 +76,7 @@ const ICONS = {
   known: stroke('<path d="M7.2 3h5.6l-.9 5 3.1 3.2H5l3.1-3.2z"/><path d="M10 11.2V17.4"/>'),
   replies: stroke('<path d="M3.5 4.5h13v9h-7l-4 3v-3h-2z"/>'),
   want: stroke('<path d="M4.5 12.8L10 7.2l5.5 5.6"/>'),
-  affects: stroke('<circle cx="8" cy="6.4" r="3"/><path d="M2.4 17c0-3.2 2.5-5.6 5.6-5.6 1.7 0 3.2.7 4.2 1.9"/><path d="M15.4 10.6v6M12.4 13.6h6"/>'),
+  affects: stroke('<path d="M7 10.2V4.6a1.2 1.2 0 0 1 2.4 0V9"/><path d="M9.4 9V3.4a1.2 1.2 0 0 1 2.4 0V9"/><path d="M11.8 9V4.4a1.2 1.2 0 0 1 2.4 0V10"/><path d="M14.2 10V7a1.2 1.2 0 0 1 2.4 0v4.6c0 3.4-2.4 6-5.6 6-2.3 0-3.7-1-4.9-2.8l-2.5-4.1a1.2 1.2 0 0 1 2-1.3L7 11.2"/>'),
   same: stroke('<circle cx="8.6" cy="9.6" r="6.4"/><path d="M6.8 7.8a1.9 1.9 0 1 1 2.7 1.7c-.5.3-.9.7-.9 1.3v.3"/><path d="M8.6 13.2v.1M15.6 3v4.4M13.4 5.2h4.4"/>'),
   lock: stroke('<rect x="4.5" y="9" width="11" height="8"/><path d="M7 9V6.5a3 3 0 0 1 6 0V9"/>'),
   check: stroke('<path d="M4 10.5l4 4 8-9"/>'),
