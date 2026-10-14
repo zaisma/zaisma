@@ -17,7 +17,7 @@ Click a link and you're in the game: no account, no app download, in any browser
 We win by being the default "publish" step for games made in Claude Code, then letting every shared game link recruit new players.
 
 1. **Developer MCP + SDK.** An MCP server any AI tool can connect to after the developer signs in: create games, edit details, upload, publish, roll back, and check scans, reports and stats. A small upload command sends builds straight to us, and a Claude Code skill teaches the whole workflow. A small JavaScript SDK adds login, friends, saves and multiplayer to any game.
-2. **Instant play links.** Every game and every multiplayer room has a link. Anyone who taps it joins as a guest in seconds, in the browser, with no signup and no download. After a good session we offer "keep your progress" to turn the guest into an account.
+2. **Instant play links.** Every game and every multiplayer room has a link. Anyone who taps it joins as a guest in seconds, in the browser, with no signup and no download (unless the developer asks for an account). After a good session we offer "keep your progress" to turn the guest into an account.
 3. **Friends pull friends.** "Join my room" links put new players onto the platform; once they have an account, every other game is one tap away.
 4. **Developers pull players.** Developers already post their AI-made games on X, Reddit and Discord. Each post points at our link, not a zip file or a GitHub page.
 
