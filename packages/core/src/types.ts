@@ -106,7 +106,10 @@ export type PlayerReportReason = keyof typeof PLAYER_REPORT_REASONS;
 export interface LiveRoom {
   game_id: string;
   code: string;
+  /** Players in the match who haven't walked away. */
   players: number;
+  /** Seats held for players out of the match for now, or on their way (migrations/0025_held_seats.sql). */
+  held: number;
   max_players: number;
   listed: number;
   open: number;

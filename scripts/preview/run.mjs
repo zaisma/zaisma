@@ -141,7 +141,11 @@ function withServer(example, name) {
   const out = join(STATE, "uploads", name);
   rmSync(out, { recursive: true, force: true });
   cpSync(join(ROOT, example, "game"), out, { recursive: true });
-  writeFileSync(join(out, "zaisma-server.js"), transformSync(readFileSync(join(ROOT, example, "server.ts"), "utf8"), { loader: "ts", format: "esm" }).code);
+  const code = transformSync(readFileSync(join(ROOT, example, "server.ts"), "utf8"), { loader: "ts", format: "esm" }).code;
+  // In the preview, players who walk away are quick to try: "Still there?" after a minute, seats held for two.
+  const quick = code.replace(/export\s*\{\s*(\w+) as default\s*\};?\s*$/, "export default { ...$1, idleAfter: 60, holdFor: 120 };");
+  if (quick === code) throw new Error(`Couldn't give the preview's ${name} game server quick away settings`);
+  writeFileSync(join(out, "zaisma-server.js"), quick);
   return out;
 }
 

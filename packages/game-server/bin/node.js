@@ -13,6 +13,10 @@ import { resolve } from "node:path";
 import { CLOSE_REFUSED, ERROR_TEXT, PassError, RoomCore, defineGameServer, errorMessage, isRoomCode, relay, roomData, roomInfo, verifyPass } from "../src/index.ts";
 
 const HELLO_MS = 5000;
+/** How often rooms check on their players (idle, hidden, held seats), and drop connections that stopped answering. */
+const SWEEP_MS = 15 * 1000;
+/** A connection with no ping or message for this long is dropped. Games ping every 25 seconds (once a minute while hidden). */
+const DEAD_MS = 75 * 1000;
 /** A reserved room nobody comes to is dropped after this. */
 const RESERVED_MS = 10 * 60 * 1000;
 /** A room that took players from another (room.moveTo) waits this long for them, like its held seats. */
@@ -51,8 +55,8 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
         send: (id, text) => sockets.get(id)?.send(text),
         close: (id, code, reason) => sockets.get(id)?.close(code, reason),
         reserve: (next, how) => {
-          // It waits for its players, then goes like any room once it's empty.
-          wait(next, roomFor(next, how), RESERVED_MS);
+          // It waits for its players, then goes like any room once it's empty. It knows where it came from (away: "lobby").
+          wait(next, roomFor(next, { ...how, lobby: code }), RESERVED_MS);
           for (const id of how.players) sockets.get(id)?.send(JSON.stringify({ t: "move", code: next }));
         },
         // Another room here takes the players it wants; they're told to go, and this room hears who went.
@@ -73,16 +77,25 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
       { start },
     );
     room = { core, sockets, timer: null, waiting: false };
-    if (definition.tickRate) {
+    rooms.set(code, room);
+    return room;
+  }
+
+  /** A real-time room ticks while someone's playing, and stops while everyone's walked away. */
+  function pace(room) {
+    if (!definition.tickRate) return;
+    if (room.core.playing > 0 && !room.core.ended) {
+      if (room.timer) return;
       let last = Date.now();
       room.timer = setInterval(() => {
         const now = Date.now();
-        core.tick((now - last) / 1000);
+        room.core.tick((now - last) / 1000);
         last = now;
       }, 1000 / definition.tickRate);
+    } else if (room.timer) {
+      clearInterval(room.timer);
+      room.timer = null;
     }
-    rooms.set(code, room);
-    return room;
   }
 
   /** Keep a room for players on their way, even if it empties meanwhile. */
@@ -96,11 +109,24 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
     room.waitTimer.unref?.();
   }
 
+  // A room with nobody connected stays while it holds seats, so players who lost their connection can come back.
   function closeIfEmpty(code, room) {
-    if (rooms.get(code) !== room || room.waiting || (room.sockets.size > 0 && !room.core.ended)) return;
+    if (rooms.get(code) !== room || room.waiting || (!room.core.ended && (room.sockets.size > 0 || room.core.heldSeats > 0))) return;
     if (room.timer) clearInterval(room.timer);
     rooms.delete(code);
   }
+
+  // Check on every room's players: connections that stopped answering, idle and hidden players, held seats that ran out.
+  const sweeper = setInterval(() => {
+    const now = Date.now();
+    for (const [code, room] of rooms) {
+      for (const ws of room.sockets.values()) if (now - ws.zaismaSeen > DEAD_MS) ws.terminate();
+      room.core.sweep();
+      pace(room);
+      closeIfEmpty(code, room);
+    }
+  }, SWEEP_MS);
+  sweeper.unref?.();
 
   wss.on("connection", (ws, req) => {
     const m = /^\/v1\/rooms\/([a-z0-9-]{1,40})\/([A-Z0-9]{6})$/.exec(req.url ?? "");
@@ -113,13 +139,18 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
     const code = m[2];
     let playerId = null;
     const helloTimer = setTimeout(() => playerId || refuse("no-hello"), HELLO_MS);
+    ws.zaismaSeen = Date.now();
 
     ws.on("message", async (data, isBinary) => {
       const text = isBinary ? null : data.toString();
+      ws.zaismaSeen = Date.now();
+      // Games ping every 25 seconds or so, so a connection that stops answering can be dropped.
+      if (text === "ping") return ws.send("pong");
       if (playerId) {
         const room = rooms.get(code);
         const err = text === null ? "bad-message" : room?.core.receive(playerId, text);
         if (err) ws.send(errorMessage(err));
+        if (room) pace(room);
         return;
       }
       let pass;
@@ -129,6 +160,7 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
         if (msg.t !== "hello" || typeof msg.pass !== "string") return refuse("no-hello");
         pass = msg.pass;
         if (msg.room && typeof msg.room === "object") made = { ...(msg.room.listed === false ? { listed: false } : {}), ...roomInfo(msg.room) };
+        if (msg.idle === false || typeof msg.idle === "number") made.idle = msg.idle;
         const data = roomData(msg.data);
         if (!data.ok) return refuse("too-big");
         made.data = data.data;
@@ -165,19 +197,28 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
       }
       playerId = claims.sub;
       room.waiting = false;
+      pace(room);
     });
 
-    ws.on("close", () => {
+    // Closed on purpose (1000, or 1001 as a page goes away), or lost: then the room holds the seat a while.
+    ws.on("close", (closeCode) => {
       clearTimeout(helloTimer);
       const room = rooms.get(code);
       if (!room || !playerId || room.sockets.get(playerId) !== ws) return;
       room.sockets.delete(playerId);
-      room.core.leave(playerId);
+      room.core.leave(playerId, closeCode === 1000 || closeCode === 1001 ? "left" : "lost");
+      pace(room);
       closeIfEmpty(code, room);
     });
   });
 
-  return { wss, rooms, close: () => new Promise((done) => { for (const r of rooms.values()) if (r.timer) clearInterval(r.timer); wss.close(done); }) };
+  const close = () =>
+    new Promise((done) => {
+      clearInterval(sweeper);
+      for (const r of rooms.values()) if (r.timer) clearInterval(r.timer);
+      wss.close(done);
+    });
+  return { wss, rooms, close };
 }
 
 function arg(name, fallback) {

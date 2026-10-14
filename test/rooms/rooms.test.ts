@@ -37,21 +37,31 @@ async function getPass(game: string): Promise<{ pass: string; player: { id: stri
 /** A connected test client that collects what the room sends. */
 async function connect(game: string, code: string, origin = ORIGIN, from?: { country: string; continent: string }) {
   const res = await SELF.fetch(`${R}/v1/rooms/${game}/${code}`, { headers: { Upgrade: "websocket", Origin: origin, "cf-connecting-ip": `198.51.100.${++address % 250}` }, ...(from ? { cf: from } : {}) });
-  if (!res.webSocket) return { res, ws: null as never, inbox: [] as any[], next: async () => null as any, closed: Promise.resolve(0) };
+  if (!res.webSocket) return { res, ws: null as never, inbox: [] as any[], next: async () => null as any, closed: Promise.resolve(0), pongs: [] as number[] };
   const ws = res.webSocket;
   ws.accept();
   const inbox: any[] = [];
   const waiters: ((m: any) => void)[] = [];
+  const pongs: number[] = [];
   let closedResolve: (code: number) => void;
   const closed = new Promise<number>((r) => (closedResolve = r));
   ws.addEventListener("message", (ev) => {
+    if (ev.data === "pong") return void pongs.push(Date.now());
     const m = JSON.parse(ev.data as string);
     const w = waiters.shift();
     w ? w(m) : inbox.push(m);
   });
   ws.addEventListener("close", (ev) => closedResolve(ev.code));
   const next = () => (inbox.length ? Promise.resolve(inbox.shift()) : new Promise<any>((r) => waiters.push(r)));
-  return { res, ws, inbox, next, closed };
+  return { res, ws, inbox, next, closed, pongs };
+}
+
+/** The next message a client gets that matches, skipping others. */
+async function until(c: { next: () => Promise<any> }, want: (m: any) => boolean): Promise<any> {
+  for (;;) {
+    const m = await c.next();
+    if (want(m)) return m;
+  }
 }
 
 async function join(game: string, code: string, opts: { listed?: false; from?: { country: string; continent: string } } = {}) {
@@ -492,7 +502,7 @@ describe("room browsing", () => {
     expect(res.headers.get("access-control-allow-origin")).toBe(ORIGIN);
     const body = await res.json<{ rooms: any[]; playing: unknown }>();
     expect(body.rooms.map((r) => r.code)).toEqual(["GGGGGG", "DDDDDD", "CCCCCC", "BBBBBB", "HHHHHH", "AAAAAA", "EEEEEE"]);
-    expect(body.rooms[0]).toEqual({ code: "GGGGGG", players: 1, max: 8, open: true, location: { country: "DE", name: "Germany", continent: "EU" }, near: true, name: null, labels: {}, link: "https://zaisma.test/g/lister?room=GGGGGG" });
+    expect(body.rooms[0]).toEqual({ code: "GGGGGG", players: 1, held: 0, max: 8, open: true, location: { country: "DE", name: "Germany", continent: "EU" }, near: true, name: null, labels: {}, link: "https://zaisma.test/g/lister?room=GGGGGG" });
     expect(body.rooms.find((r) => r.code === "HHHHHH").location).toBeNull();
     expect(body.playing).toEqual({ players: 23, rooms: 7, closed: 1 });
     expect(body).toMatchObject({ joinable: 5, region: null, more: 0 });
@@ -540,14 +550,120 @@ describe("room browsing", () => {
     expect(await check("add me on snap")).toMatchObject({ ok: false, reason: "contact" });
   });
 
+  it("answers pings without waking the room, and drops a connection that stops answering, holding its seat", async () => {
+    const id = await addGame("pinger");
+    const a = await join("pinger", "PNGRMA");
+    const b = await join("pinger", "PNGRMA");
+    await until(a, (m) => m.t === "players" && m.players.length === 2);
+    await rows(id, (r) => r[0]?.players === 2);
+    a.ws.send("ping");
+    for (let i = 0; i < 40 && !a.pongs.length; i++) await new Promise((r) => setTimeout(r, 20));
+    expect(a.pongs).toHaveLength(1);
+
+    // b's game went quiet: no ping or message for over 75 seconds (a closed laptop). a pinged just now.
+    const stub = e.ROOMS.get(e.ROOMS.idFromName("pinger:PNGRMA"));
+    await runInDurableObject(stub, async (_room: Room, state) => {
+      for (const ws of state.getWebSockets()) {
+        const att = ws.deserializeAttachment();
+        if (att.id === b.player.id) ws.serializeAttachment({ ...att, joinedAt: Date.now() - 100_000, seen: Date.now() - 100_000 });
+      }
+      await state.storage.setAlarm(Date.now());
+    });
+    await runDurableObjectAlarm(stub);
+    expect(await b.closed).toBe(4003);
+    await until(a, (m) => m.t === "players" && m.players.length === 1 && m.players[0].id === a.player.id);
+    // Not playing now, but their seat is held for when they reconnect.
+    expect((await rows(id, (r) => r[0]?.players === 1))[0]).toMatchObject({ players: 1, held: 1 });
+    const back = await connect("pinger", "PNGRMA");
+    back.ws.send(JSON.stringify({ t: "hello", pass: b.pass }));
+    expect((await back.next()).t).toBe("welcome");
+    expect((await rows(id, (r) => r[0]?.players === 2))[0]).toMatchObject({ players: 2, held: 0 });
+    a.ws.close(1000);
+    back.ws.close(1000);
+  });
+
+  it("takes a player who walked away out of the match and out of the counts, and lets them back", async () => {
+    const id = await addGame("idler");
+    const a = await join("idler", "DLRRMA");
+    const b = await join("idler", "DLRRMA");
+    await until(a, (m) => m.t === "players" && m.players.length === 2);
+    b.ws.send(JSON.stringify({ t: "idle" }));
+    expect(await until(b, (m) => m.t === "away")).toEqual({ t: "away", why: "idle", seconds: 300 });
+    await until(a, (m) => m.t === "players" && m.players.length === 1);
+    expect((await rows(id, (r) => r[0]?.players === 1))[0]).toMatchObject({ players: 1, held: 1 });
+    const list = await SELF.fetch(`${R}/v1/rooms/idler`, { headers: { Origin: ORIGIN } }).then((r) => r.json<any>());
+    expect(list.playing.players).toBe(1);
+    expect(list.rooms[0]).toMatchObject({ players: 1, held: 1 });
+
+    b.ws.send(JSON.stringify({ t: "back" }));
+    await until(b, (m) => m.t === "welcome");
+    expect((await rows(id, (r) => r[0]?.players === 2))[0]).toMatchObject({ players: 2, held: 0 });
+
+    // Out again, and this time the seat runs out: the room's check frees it and closes b's connection.
+    b.ws.send(JSON.stringify({ t: "idle" }));
+    await until(b, (m) => m.t === "away");
+    await rows(id, (r) => r[0]?.held === 1);
+    const stub = e.ROOMS.get(e.ROOMS.idFromName("idler:DLRRMA"));
+    await runInDurableObject(stub, async (room: Room, state) => {
+      for (const h of (room as any).core.held.values()) h.until = Date.now() - 1;
+      await state.storage.setAlarm(Date.now());
+    });
+    await runDurableObjectAlarm(stub);
+    expect(await b.closed).toBe(4002);
+    expect((await rows(id, (r) => r[0]?.held === 0))[0]).toMatchObject({ players: 1, held: 0 });
+    const back = await connect("idler", "DLRRMA");
+    back.ws.send(JSON.stringify({ t: "hello", pass: b.pass }));
+    expect((await back.next()).t).toBe("welcome");
+
+    // A room where everyone walked away has no row: nobody's playing in it.
+    a.ws.send(JSON.stringify({ t: "idle" }));
+    back.ws.send(JSON.stringify({ t: "idle" }));
+    expect(await rows(id, (r) => r.length === 0)).toEqual([]);
+    a.ws.close(1000);
+    back.ws.close(1000);
+  });
+
+  it("leaves the player who just left out of the room list, while lists catch up", async () => {
+    const id = await addGame("leaver");
+    // Rows the rooms last wrote 20 seconds ago, as a list copy from before the player left would have them.
+    const then = Date.now() - 20_000;
+    for (const [code, players] of [["LVRRMA", 1], ["LVRRMB", 3]] as const) {
+      await e.DB.prepare("INSERT INTO live_rooms (game_id, code, players, max_players, open, country, continent, created_at, updated_at) VALUES (?, ?, ?, 8, 1, 'DE', 'EU', ?, ?)").bind(id, code, players, then, then).run();
+    }
+    const list = (left = "") => SELF.fetch(`${R}/v1/rooms/leaver${left ? `?left=${left}` : ""}`, { headers: { Origin: ORIGIN } }).then((r) => r.json<any>());
+    const all = await list();
+    expect(all.playing).toEqual({ players: 4, rooms: 2, closed: 0 });
+    expect(all.changed).toBeUndefined();
+    // Joined 25 seconds ago (so the rows count them) and left the room on its own 3 seconds ago: it's gone from their list.
+    const alone = await list("LVRRMA.3000.25000");
+    expect(alone.rooms.map((r: any) => r.code)).toEqual(["LVRRMB"]);
+    expect(alone).toMatchObject({ playing: { players: 3, rooms: 1, closed: 0 }, joinable: 1, open: 1, regions: [{ code: "EU", rooms: 1, players: 3 }] });
+    expect((await list("LVRRMB.3000.25000")).rooms.find((r: any) => r.code === "LVRRMB").players).toBe(2);
+    // Rows from before they joined never counted them, so nothing comes off.
+    expect((await list("LVRRMB.3000.10000")).rooms.find((r: any) => r.code === "LVRRMB").players).toBe(3);
+    // A row the room wrote as the player went already counts them out; so does a list long after.
+    await e.DB.prepare("UPDATE live_rooms SET players = 2, updated_at = ? WHERE code = 'LVRRMB'").bind(Date.now() - 2_500).run();
+    expect((await list("LVRRMB.3000.25000")).rooms.find((r: any) => r.code === "LVRRMB").players).toBe(2);
+    expect((await list("LVRRMA.40000.50000")).rooms).toHaveLength(2);
+    expect((await list("LVRRMA.3000")).rooms).toHaveLength(2);
+    expect((await list("nope")).rooms).toHaveLength(2);
+  });
+
   it("checks in every hour, and a room that stopped without hearing its players go drops off", async () => {
     const id = await addGame("checker");
     const a = await join("checker", "GHJKMN");
     await rows(id, (r) => r.length === 1);
     await e.DB.prepare("UPDATE live_rooms SET updated_at = 1").run();
     const stub = e.ROOMS.get(e.ROOMS.idFromName("checker:GHJKMN"));
+    // The room wakes every half a minute to check on its players, and checks in once an hour has passed.
     expect(await runDurableObjectAlarm(stub)).toBe(true);
-    expect((await rows(id))[0].updated_at).toBeGreaterThan(1);
+    expect((await rows(id))[0].updated_at).toBe(1);
+    await runInDurableObject(stub, async (room: Room, state) => {
+      (room as any).checkedIn = Date.now() - 3600_000;
+      await state.storage.setAlarm(Date.now());
+    });
+    await runDurableObjectAlarm(stub); // Due now, so it may already have run by itself.
+    expect((await rows(id, (r) => r[0]?.updated_at > 1))[0].updated_at).toBeGreaterThan(1);
 
     // A room that lost its players without hearing them go (as after a restart) leaves its row on the next check.
     await runInDurableObject(stub, async (_room: Room, state) => {

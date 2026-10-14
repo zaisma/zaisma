@@ -26,11 +26,29 @@ async function guestPass(rooms, origin, game) {
   return (await res.json()).pass;
 }
 
+/**
+ * Ping like a game does, and say the player's still there now and then, as a game does while its
+ * player gives input: otherwise rooms drop test players as gone or idle.
+ */
+function keepUp(ws) {
+  const timer = setInterval(() => {
+    if (ws.readyState !== 1) return clearInterval(timer);
+    ws.send("ping");
+    ws.send(JSON.stringify({ t: "here" }));
+  }, 20_000);
+  ws.on("close", () => clearInterval(timer));
+}
+
+/** A room's message, or null for the room's answer to a ping. */
+const read = (data) => (String(data) === "pong" ? null : JSON.parse(String(data)));
+
 function stayIn(rooms, origin, game, code, pass, first) {
   const ws = new WebSocket(`${rooms.replace(/^http/, "ws")}/v1/rooms/${game}/${code}`, { origin });
+  keepUp(ws);
   ws.on("open", () => ws.send(JSON.stringify({ t: "hello", pass, room: { listed: first.listed, name: first.name, labels: first.labels } })));
   ws.on("message", (data) => {
-    const m = JSON.parse(String(data));
+    const m = read(data);
+    if (!m) return;
     // Once everyone's in, the room's first player closes it, as a game's host does when the match starts.
     if (m.t === "players" && first.closeAt && m.players.length >= first.closeAt) ws.send(JSON.stringify({ t: "room", open: false }));
   });
@@ -53,11 +71,12 @@ async function lobbyBot(rooms, origin, code) {
   const game = "four-in-a-row";
   const pass = await guestPass(rooms, origin, game);
   const ws = new WebSocket(`${rooms.replace(/^http/, "ws")}/v1/rooms/${game}/${code}`, { origin });
+  keepUp(ws);
   let moved = false;
   ws.on("open", () => ws.send(JSON.stringify({ t: "hello", pass, room: { labels: { Room: "Lobby" } } })));
   ws.on("message", (data) => {
-    const m = JSON.parse(String(data));
-    if (m.t !== "move" || moved) return;
+    const m = read(data);
+    if (!m || m.t !== "move" || moved) return;
     moved = true;
     ws.close(1000);
     play(rooms, origin, game, m.code, pass);
@@ -69,11 +88,13 @@ async function lobbyBot(rooms, origin, code) {
 
 function play(rooms, origin, game, code, pass) {
   const ws = new WebSocket(`${rooms.replace(/^http/, "ws")}/v1/rooms/${game}/${code}`, { origin });
+  keepUp(ws);
   let me = null;
   let met = false;
   ws.on("open", () => ws.send(JSON.stringify({ t: "hello", pass })));
   ws.on("message", (data) => {
-    const m = JSON.parse(String(data));
+    const m = read(data);
+    if (!m) return;
     if (m.t === "welcome") me = m.me.id;
     // Once you've arrived, it leaves when you do.
     if (m.t === "players") met = met || m.players.length >= 2;

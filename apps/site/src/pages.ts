@@ -71,6 +71,8 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
 /* Two states on one page: details with a Play button, then the game filling the screen. */
 /* Cloudflare's check is invisible; if it ever needs a tap, it sits at the bottom, above the game. */
 .play-check{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:50}
+/* Just back from a match: the room list waits a moment for a copy without the player in it. */
+.just-left #rooms-list,.just-left #playing-now{visibility:hidden}
 body.playing{display:flex;flex-direction:column;height:100vh;height:100dvh;overflow:hidden;background:#000}
 body:not(.playing) #full{display:none}
 body.playing>header.top,body.playing>main.gp,body.playing>footer,body.playing>.ambient{display:none}
@@ -408,9 +410,26 @@ let roomsRegion = "";
 let roomsLabels = {};
 const roomsKey = () => roomsRegion + "|" + JSON.stringify(Object.entries(roomsLabels).sort());
 try { roomsRegion = localStorage.getItem("zaisma:rooms-region") || ""; } catch {}
+// The room this tab just left, so the list doesn't show the player in it while room lists catch up (about 15 seconds).
+const leftKey = "zaisma:left:" + ${raw(JSON.stringify(game.slug))};
+function justLeft() {
+  try {
+    const left = JSON.parse(sessionStorage.getItem(leftKey) || "null");
+    const ago = left ? Date.now() - left.at : -1;
+    return ago >= 0 && ago < 30000 && /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/.test(left.code) ? left.code + "." + ago + "." + (Date.now() - left.joined) : null;
+  } catch { return null; }
+}
+// The room the game is in now and since when, as it says (zaisma:room, zaisma:left).
+let inRoom = null;
+// The game left the room it was in: lists leave the player out of it while they catch up.
+function leftRoom() {
+  if (!inRoom) return;
+  try { sessionStorage.setItem(leftKey, JSON.stringify({ code: inRoom.code, at: Date.now(), joined: inRoom.at })); } catch {}
+  inRoom = null;
+}
 async function refreshRooms(force) {
   // The automatic refresh waits while nobody's looking; a pick the player just made always loads.
-  if (!roomsPanel || roomsPanel.hidden || frame || (document.hidden && !force)) return;
+  if (!roomsPanel || (roomsPanel.hidden && force !== "left") || frame || (document.hidden && !force)) return;
   const list = document.getElementById("rooms-list");
   const shown = list.firstElementChild?.dataset.shown || "|[]";
   if (!force && shown === roomsKey() && Date.now() - roomsAt < 19000) return;
@@ -419,19 +438,33 @@ async function refreshRooms(force) {
     const query = new URLSearchParams();
     if (roomsRegion) query.set("region", roomsRegion);
     if (Object.keys(roomsLabels).length) query.set("labels", JSON.stringify(roomsLabels));
+    const left = justLeft();
+    if (left) query.set("left", left);
     const res = await fetch(location.pathname + "/rooms" + (query.size ? "?" + query : ""));
     if (!res.ok) return;
     list.innerHTML = await res.text();
-    const n = list.firstElementChild?.dataset.joinable || "0";
+    const n = list.firstElementChild?.dataset.count || "0";
     const playing = Number(list.firstElementChild?.dataset.playing || 0);
     const line = document.getElementById("playing-now");
     if (line) { line.hidden = playing < ${raw(String(PLAYING_NOW_MIN))}; line.textContent = playing + " playing now"; }
     const count = document.getElementById("rooms-count");
     count.textContent = n;
     count.hidden = n === "0";
-  } catch {}
+  } catch {} finally {
+    document.documentElement.classList.remove("just-left");
+  }
 }
 if (roomsPanel) {
+  // Back on the page just after leaving a match: show the list without this player in it, straight away.
+  const comeBack = () => {
+    if (!justLeft()) return;
+    document.documentElement.classList.add("just-left");
+    setTimeout(() => document.documentElement.classList.remove("just-left"), 2000);
+    refreshRooms("left");
+  };
+  comeBack();
+  // Back to this page from the browser's back-forward cache, which keeps the list as it was: bring it up to date.
+  addEventListener("pageshow", (e) => { if (e.persisted) justLeft() ? comeBack() : refreshRooms(true); });
   setInterval(refreshRooms, 5000);
   document.addEventListener("visibilitychange", () => refreshRooms());
   roomsPanel.addEventListener("click", (e) => {
@@ -539,14 +572,23 @@ addEventListener("message", (e) => {
   const d = e.data;
   if (d && d.type === "zaisma:room" && typeof d.code === "string" && /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/.test(d.code)) {
     history.replaceState(null, "", location.pathname + "?room=" + d.code);
+    // The code comes first, for Share; joined once the room let the player in.
+    if (d.joined === true) inRoom = { code: d.code, at: Date.now() };
   }
+  // The game left a room (the player left, walked away, was moved or the match ended).
+  if (d && d.type === "zaisma:left" && inRoom && d.code === inRoom.code) leftRoom();
   // The game asks for its key to player passes: given once the check on Play has answered, only to this game.
   if (d && d.type === "zaisma:room-key") {
     const reply = (key) => frame.contentWindow.postMessage({ type: "zaisma:room-key", key }, gameOrigin);
     typeof roomKey === "undefined" ? reply(null) : roomKey.then(reply);
   }
 });
-${raw(saves ? `const SAVES = ${JSON.stringify({ api: `/api/saves/${game.slug}`, root: gameUrl(env, game.slug), query: inRoom ? `?room=${code}` : "", frameOrigin: new URL(src).origin, slug: game.slug, offerAfter: (Number(env.KEEP_OFFER_SECONDS) || 300) * 1000 }).replace(/</g, "\\u003c")};\n${SAVES_CLIENT}` : "")}
+// Leaving the page while in a match leaves the room too (the game says goodbye as it goes). Only
+// while the game is in one: a room the player already left has counted them out, and doing it again would count them twice.
+addEventListener("pagehide", () => {
+  if (frame) leftRoom();
+});
+${raw(saves ? `const SAVES =${JSON.stringify({ api: `/api/saves/${game.slug}`, root: gameUrl(env, game.slug), query: inRoom ? `?room=${code}` : "", frameOrigin: new URL(src).origin, slug: game.slug, offerAfter: (Number(env.KEEP_OFFER_SECONDS) || 300) * 1000 }).replace(/</g, "\\u003c")};\n${SAVES_CLIENT}` : "")}
 // A room link is an invitation into a match already underway, and ?play comes from a Play button elsewhere: both skip the details.
 ${raw(autoplay ? "play();" : "")}
 </script>`,

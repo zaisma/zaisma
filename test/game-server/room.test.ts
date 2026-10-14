@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RoomCore, defineGameServer, isRoomCode, relay, ROOM_LIMITS, type RoomStart, type Transport } from "../../packages/game-server/src/index.ts";
+import { RoomCore, defineGameServer, isRoomCode, relay, ROOM_LIMITS, type GameServer, type RoomStart, type Transport } from "../../packages/game-server/src/index.ts";
 
 function transport() {
   const sent: Record<string, any[]> = {};
@@ -32,7 +32,7 @@ describe("RoomCore", () => {
     const room = new RoomCore(counter, t);
     room.join({ id: "a", name: "A" });
     room.join({ id: "b", name: "B" });
-    expect(sent.a![0]).toEqual({ t: "welcome", me: { id: "a", name: "A" }, players: [{ id: "a", name: "A" }], room: { listed: true, open: true, name: null, labels: {} } });
+    expect(sent.a![0]).toEqual({ t: "welcome", me: { id: "a", name: "A" }, players: [{ id: "a", name: "A" }], room: { listed: true, open: true, name: null, labels: {} }, away: { idle: 600, hidden: null } });
     expect(sent.a!.at(-1)).toEqual({ t: "players", players: [{ id: "a", name: "A" }, { id: "b", name: "B" }] });
 
     expect(room.receive("a", msg("hit"))).toBeNull();
@@ -444,5 +444,213 @@ describe("moving players to a room that's already running", () => {
     expect(() => api.moveTo("nope", { players: ["a"] })).toThrow("room code");
     expect(() => api.moveTo("FRSTAA", { players: ["stranger"] })).toThrow("players who are in this room");
     expect(() => api.moveTo("FRSTAA", { players: ["a"], data: "x".repeat(5000) })).toThrow("plain JSON");
+  });
+});
+
+describe("players who walk away", () => {
+  const hosted = (opts: Partial<GameServer> = {}) =>
+    defineGameServer({
+      maxPlayers: 2,
+      setup: () => ({ joined: [] as any[], left: [] as any[], away: [] as any[], back: [] as string[] }),
+      onJoin: (s, p, _room, _data, info) => void s.joined.push([p.id, info ?? {}]),
+      onLeave: (s, p, _room, info) => void s.left.push([p.id, info?.why]),
+      ...opts,
+    } as GameServer);
+  const clock = () => {
+    const c = { now: 1_000_000 };
+    return { c, now: () => c.now };
+  };
+  const say = (t: string, more: object = {}) => JSON.stringify({ t, ...more });
+
+  it("tells each player when the room counts them away", () => {
+    const { t, sent } = transport();
+    new RoomCore(hosted(), t).join({ id: "a", name: "A" });
+    expect(sent.a![0].away).toEqual({ idle: 600, hidden: null });
+    const ticking = transport();
+    new RoomCore(hosted({ tickRate: 10, idleAfter: 120 }), ticking.t).join({ id: "a", name: "A" });
+    expect(ticking.sent.a![0].away).toEqual({ idle: 120, hidden: 120 });
+    const off = transport();
+    new RoomCore(hosted({ idleAfter: false }), off.t).join({ id: "a", name: "A" });
+    expect(off.sent.a![0].away).toEqual({ idle: null, hidden: null });
+  });
+
+  it("takes a player who didn't answer 'Still there?' out of the match, holds their seat, and lets them straight back", () => {
+    const { t, sent, closed } = transport();
+    const { c, now } = clock();
+    const room = new RoomCore(hosted(), t, { now });
+    room.join({ id: "a", name: "A" });
+    room.join({ id: "b", name: "B" });
+    expect(room.receive("a", say("idle"))).toBeNull();
+    expect(sent.a!.at(-1)).toEqual({ t: "away", why: "idle", seconds: 300 });
+    expect(sent.b!.at(-1)).toEqual({ t: "players", players: [{ id: "b", name: "B" }] });
+    expect(room.state.left).toEqual([["a", "idle"]]);
+    expect(room.playing).toBe(1);
+    expect(room.heldSeats).toBe(1);
+    // The held seat counts toward maxPlayers.
+    expect(room.join({ id: "c", name: "C" })).toEqual({ ok: false, code: "full" });
+    // While out, the player's messages wait; coming back gives them their seat, without asking canJoin.
+    expect(room.receive("a", msg("hit"))).toBeNull();
+    c.now += 60_000;
+    expect(room.receive("a", say("back", { data: { color: "red" } }))).toBeNull();
+    expect(room.state.joined.at(-1)).toEqual(["a", { back: true }]);
+    expect(sent.a!.at(-1)).toMatchObject({ t: "players" });
+    expect(room.heldSeats).toBe(0);
+    expect(closed).toEqual([]);
+  });
+
+  it("frees a held seat once it runs out, and closes that player's connection", () => {
+    const { t, closed } = transport();
+    const { c, now } = clock();
+    const room = new RoomCore(hosted({ holdFor: 60 }), t, { now });
+    room.join({ id: "a", name: "A" });
+    room.receive("a", say("idle"));
+    c.now += 59_000;
+    room.sweep();
+    expect(closed).toEqual([]);
+    c.now += 1_000;
+    room.sweep();
+    expect(closed).toEqual(["a"]);
+    expect(room.heldSeats).toBe(0);
+    expect(room.receive("a", say("back"))).toBe("ended");
+  });
+
+  it("decides for itself when a game sends nothing for longer than the idle check allows", () => {
+    const { t, sent } = transport();
+    const { c, now } = clock();
+    const room = new RoomCore(hosted({ idleAfter: 60 }), t, { now });
+    room.join({ id: "a", name: "A" });
+    room.join({ id: "b", name: "B" });
+    // "Still there?" takes 30 seconds, and the room gives the game a minute more to say.
+    c.now += 60_000 + 30_000 + 59_000;
+    room.receive("b", say("here"));
+    room.sweep();
+    expect(room.playing).toBe(2);
+    c.now += 1_000;
+    room.sweep();
+    expect(sent.a!.at(-1)).toEqual({ t: "away", why: "idle", seconds: 300 });
+    expect(room.playing).toBe(1);
+  });
+
+  it("lets a player's game set its own idle check only where the game server leaves it to the client", () => {
+    const { t, sent } = transport();
+    const { c, now } = clock();
+    const room = new RoomCore(defineGameServer({ ...relay, maxPlayers: 4 }), t, { now });
+    room.join({ id: "a", name: "A" }, { idle: false });
+    room.join({ id: "b", name: "B" }, { idle: 45 });
+    room.join({ id: "c", name: "C" });
+    expect([sent.a![0].away.idle, sent.b![0].away.idle, sent.c![0].away.idle]).toEqual([null, 45, 600]);
+    c.now += 24 * 3600_000;
+    room.sweep();
+    expect(room.players.has("a")).toBe(true);
+    expect(room.players.has("b")).toBe(false);
+    const server = transport();
+    new RoomCore(hosted(), server.t).join({ id: "a", name: "A" }, { idle: false });
+    expect(server.sent.a![0].away.idle).toBe(600);
+  });
+
+  it("counts a game hidden for 2 minutes as away in a real-time room, and not in a turn-based one", () => {
+    const { t, sent } = transport();
+    const { c, now } = clock();
+    const room = new RoomCore(hosted({ tickRate: 10 }), t, { now });
+    room.join({ id: "a", name: "A" });
+    room.join({ id: "b", name: "B" });
+    room.receive("a", say("hidden"));
+    room.receive("b", say("hidden"));
+    c.now += 60_000;
+    room.receive("b", say("shown"));
+    c.now += 60_000;
+    room.sweep();
+    expect(sent.a!.at(-1)).toEqual({ t: "away", why: "hidden", seconds: 300 });
+    expect([...room.players.keys()]).toEqual(["b"]);
+
+    const turns = transport();
+    const slow = new RoomCore(hosted(), turns.t, { now });
+    slow.join({ id: "a", name: "A" });
+    slow.receive("a", say("hidden"));
+    c.now += 9 * 60_000;
+    slow.sweep();
+    expect(slow.players.has("a")).toBe(true);
+  });
+
+  it("holds the seat of a player whose connection was lost, but not one who left", () => {
+    const { t } = transport();
+    const room = new RoomCore(hosted(), t);
+    room.join({ id: "a", name: "A" });
+    room.join({ id: "b", name: "B" });
+    room.leave("a", "lost");
+    room.leave("b");
+    expect(room.state.left).toEqual([["a", "lost"], ["b", "left"]]);
+    expect(room.heldSeats).toBe(1);
+    expect(room.join({ id: "a", name: "A" })).toEqual({ ok: true, rejoined: false });
+    expect(room.state.joined.at(-1)).toEqual(["a", { back: true }]);
+    // A player out of the match whose connection then closes on purpose is gone for good.
+    room.receive("a", say("idle"));
+    room.leave("a");
+    expect(room.heldSeats).toBe(0);
+  });
+
+  it("lets the game decide with onAway: the player stays, doesn't count as playing, and a room where everyone's away stops ticking", () => {
+    const { t, sent } = transport();
+    const room = new RoomCore(
+      hosted({
+        tickRate: 10,
+        setup: () => ({ joined: [] as any[], left: [] as any[], away: [] as any[], back: [] as string[], ticks: 0 }),
+        onAway: (s, p, _room, why) => void s.away.push([p.id, why]),
+        onBack: (s, p) => void s.back.push(p.id),
+        onTick: (s) => void s.ticks++,
+      }),
+      t,
+    );
+    room.join({ id: "a", name: "A" });
+    room.tick(0.1);
+    room.receive("a", say("idle"));
+    expect(room.state.away).toEqual([["a", "idle"]]);
+    expect(room.players.has("a")).toBe(true);
+    expect(room.playing).toBe(0);
+    expect(sent.a!.some((m) => m.t === "away")).toBe(false);
+    room.tick(0.1);
+    expect(room.state.ticks).toBe(1);
+    room.receive("a", say("back"));
+    expect(room.state.back).toEqual(["a"]);
+    expect(room.playing).toBe(1);
+    expect(room.saved.kept).toBeUndefined();
+  });
+
+  it("sends a player who walked away to the lobby that made the room, holding their seat if the lobby says no", () => {
+    const { t } = transport();
+    const asked: any[] = [];
+    const room = new RoomCore(
+      hosted({ away: "lobby", onMoved: (s: any) => void (s.heard = true) }),
+      { ...t, moveTo: (code, ask) => asked.push([code, ask]) },
+      { start: { players: ["a"], listed: false, name: null, labels: {}, lobby: "LBBYAA" } },
+    );
+    room.join({ id: "a", name: "A" });
+    room.receive("a", say("idle"));
+    expect(asked).toEqual([["LBBYAA", { players: [{ id: "a", name: "A" }] }]]);
+    room.moved("LBBYAA", { moved: [], refused: [{ id: "a", code: "full", reason: "This room is full." }] }, [{ id: "a", name: "A" }]);
+    expect((room.state as any).heard).toBeUndefined();
+    expect(room.heldSeats).toBe(1);
+    expect(room.saved.lobby).toBe("LBBYAA");
+  });
+
+  it("keeps held seats and players kept away through a sleep", async () => {
+    const { t } = transport();
+    const keeper = hosted({ maxPlayers: 3, onAway: () => {} });
+    const room = new RoomCore(keeper, t);
+    room.join({ id: "a", name: "A" });
+    room.join({ id: "b", name: "B" });
+    room.leave("a", "lost");
+    room.receive("b", say("idle"));
+    const woke = new RoomCore(keeper, t, { state: room.state, players: [{ id: "b", name: "B" }], room: room.saved });
+    expect(woke.heldSeats).toBe(1);
+    expect(woke.playing).toBe(0);
+    expect(await woke.admit({ id: "a", name: "A" })).toEqual({ ok: true });
+  });
+
+  it("checks the away settings when the game server is defined", () => {
+    expect(() => defineGameServer({ setup: () => ({}), idleAfter: 5 })).toThrow("idleAfter");
+    expect(() => defineGameServer({ setup: () => ({}), away: "home" as never })).toThrow("away");
+    expect(() => defineGameServer({ setup: () => ({}), holdFor: 4000 })).toThrow("holdFor");
+    expect(() => defineGameServer({ setup: () => ({}), idleAfter: false, away: "lobby", holdFor: 0 })).not.toThrow();
   });
 });
