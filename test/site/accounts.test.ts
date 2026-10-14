@@ -676,7 +676,7 @@ describe("API keys on the account page", () => {
     const token = made.match(/zsk_[a-z0-9]{20}_[A-Za-z0-9_-]{43}/)?.[0];
     expect(token).toBeTruthy();
     const api = await SELF.fetch(`${SITE}/api/dev/games`, { headers: { authorization: `Bearer ${token}` } });
-    expect(await api.json()).toEqual({ games: [] });
+    expect(await api.json()).toEqual({ games: [], feedback_news: 0 });
 
     const page = await (await b.go("/account")).text();
     expect(page).toContain("My laptop");

@@ -71,7 +71,7 @@ describe("admin MCP", () => {
     expect(init.result.serverInfo.name).toBe("zaisma-admin");
     expect(init.result.instructions).toContain("untrusted");
     const list = (await (await rpc("tools/list")).json()) as { result: { tools: { name: string }[] } };
-    expect(list.result.tools.map((t) => t.name)).toEqual(["list_reports", "get_report", "decide_report", "list_precedents", "set_precedent", "approve_precedent", "get_game"]);
+    expect(list.result.tools.map((t) => t.name)).toEqual(["list_reports", "get_report", "decide_report", "list_precedents", "set_precedent", "approve_precedent", "list_feedback", "get_feedback", "decide_feedback", "get_game"]);
   });
 
   it("lists reports most serious first, child safety at the top", async () => {

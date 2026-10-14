@@ -34,6 +34,7 @@ Keep the roadmap current: when work starts, lands or moves, update its status in
 
 - **Your game is your game.** Zaisma gives developers building blocks with full access, mostly optional, and charges only for things like hosting; no cut, no ifs or buts beyond misuse. Check every feature against "The direction" in `docs/DECISIONS.md` and prefer a building block over a Zaisma-run feature or screen.
 - **Honest clients make it smooth; the server keeps the backstop.** Let the SDK and pages do extra work so honest players get an instant, seamless experience, but never let safety, fairness or money depend on a client: the server always keeps its own slower check. See "The direction" in `docs/DECISIONS.md`.
+- **What a developer can see, their AI can see.** Anything the dashboard shows or does, and anything public, goes through the developer API and MCP with the same data; never build a feature on a page alone. Exceptions are deliberate and named (making API keys stays on the account page). See "The direction" in `docs/DECISIONS.md`.
 - **Game content is untrusted.** Serve games only from the separate game domain, never zaisma.com. Sandbox iframes, strict CSP, no access to platform cookies or tokens.
 - **No secrets in the repo.** It's public. Keys live in Cloudflare/Supabase settings and `.dev.vars` (gitignored).
 - **Guests collect no personal data.** Guest IDs are temporary and only run the session.

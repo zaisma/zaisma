@@ -1,4 +1,4 @@
-import { CONTROLS, DEVICES, PLAY_STYLES, ROOM_BROWSING, SCREENS, VISIBILITIES } from "@zaisma/core";
+import { CONTROLS, DEVICES, FEEDBACK_KINDS, PLAY_STYLES, ROOM_BROWSING, SCREENS, VISIBILITIES } from "@zaisma/core";
 import { ApiError, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 
@@ -21,7 +21,9 @@ How publishing works:
 3. Every version is scanned, usually in under a minute; get_version shows the result. A held version waits for a person, usually within a day. Passed versions get a private preview link.
 4. publish_version makes a passed version live (or rolls back to an older one), now or at a set time. Then update_game with visibility "listed" shows the game to players (or "unlisted": only people with the link). To let testers play first, keep it private and make tester links with add_tester_link.
 
-Ask the developer before making a game private or a draft again (players lose access), and show them the preview link before publishing. Never guess why a version was held beyond what get_version says.`;
+Ask the developer before making a game private or a draft again (players lose access), and show them the preview link before publishing. Never guess why a version was held beyond what get_version says.
+
+Feedback about Zaisma itself goes straight to the people who build it, and you're asked to send it. Whenever you hit a Zaisma bug, a limit that blocks the developer, a missing feature, a confusing error or a question the docs don't answer: first check get_feedback with a short search (it shows the developer's own items and the known issues every developer can see, with workarounds). If it's already there, add your case with add_to_feedback instead of filing it again; if a fixed one is back, reopen it. Otherwise file it with send_feedback: what you were doing, what you expected, what happened, the exact error and the tool call. Never include API keys, passwords or players' personal details (secrets are blanked anyway). Your posts are marked as written by an AI. list_games shows feedback_news when Zaisma has replied to the developer's items.`;
 
 interface Tool {
   name: string;
@@ -75,7 +77,7 @@ const TOOLS: Tool[] = [
   {
     name: "list_games",
     title: "List my games",
-    description: "Your games, with their visibility (draft, listed, unlisted, private) and review status.",
+    description: "Your games, with their visibility (draft, listed, unlisted, private) and review status, and feedback_news: how many of your feedback items Zaisma has replied to or changed since you last opened them (get_feedback).",
     inputSchema: object({}),
     annotations: read,
     run: (_, call) => call("GET", "/games"),
@@ -192,6 +194,60 @@ const TOOLS: Tool[] = [
     run: (args, call) => call("DELETE", `/games/${str(args.slug)}/testers/${str(args.tester_id)}`),
   },
   {
+    name: "get_feedback",
+    title: "Feedback and known issues",
+    description:
+      "Feedback about Zaisma itself: the developer's own items (bugs, gaps, feature requests, questions) with where each stands, and the known issues every developer can see, with workarounds, the roadmap item and how many developers each affects. Search with q before filing anything. With id: one item in full with every post (yours, your AI's and Zaisma's replies), or a known issue. To check for changes, pass the next_since from your last call as since.",
+    inputSchema: object({
+      id: { type: "string", description: "One item or known issue, in full." },
+      q: { type: "string", maxLength: 500, description: "Search words, like the error or what failed." },
+      since: { type: "integer", minimum: 0, description: "next_since from an earlier call: only what changed after it." },
+    }),
+    annotations: read,
+    run: (args, call) => {
+      if (args.id) return call("GET", `/feedback/${str(args.id)}`);
+      const q = new URLSearchParams(pick(args, ["q", "since"]) as Record<string, string>).toString();
+      return call("GET", `/feedback${q ? `?${q}` : ""}`);
+    },
+  },
+  {
+    name: "send_feedback",
+    title: "Send feedback to Zaisma",
+    description:
+      "Tell the people who build Zaisma about a bug, a gap (a limit or something missing that blocks the developer), a feature request or a question, about Zaisma itself (not the developer's game). Check get_feedback first; add to an existing item rather than filing it twice. Answers at once with matching known issues and their workarounds. Private to the developer and Zaisma. About 100 posts a day per account.",
+    inputSchema: object(
+      {
+        kind: { enum: FEEDBACK_KINDS },
+        title: { type: "string", maxLength: 120, description: "One line, specific: \"upload_files fails with too_big for a 3 MB game\"." },
+        text: { type: "string", maxLength: 8000, description: "What you were doing, what you expected, what happened and how to make it happen again." },
+        game: { ...slug, description: "The game it happened with, if any (one of the developer's)." },
+        context: { type: "object", description: "Facts for whoever fixes it: the tool or command, the exact error and code, the version, what you sent (no secrets, no whole files)." },
+        picture_base64: { type: "string", description: "A screenshot (PNG, JPEG or WebP, up to 2 MB), base64." },
+      },
+      ["kind", "title", "text"],
+    ),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    run: (args, call) => call("POST", "/feedback", { ...pick(args, ["kind", "title", "text", "game", "context"]), ...(args.picture_base64 ? { picture: args.picture_base64 } : {}) }),
+  },
+  {
+    name: "add_to_feedback",
+    title: "Add to feedback",
+    description:
+      "Add more to one of the developer's feedback items (what you found digging further, a new case, a screenshot), or reopen it with reopen: true when something fixed, answered or closed is back. Given a known issue's id, it adds the developer's own case to it, so it counts and they hear when it's fixed.",
+    inputSchema: object(
+      {
+        id: { type: "string", description: "A feedback item or known issue id from get_feedback." },
+        text: { type: "string", maxLength: 8000 },
+        reopen: { type: "boolean", description: "Reopen a fixed, answered or closed item." },
+        context: { type: "object", description: "The tool or command, the exact error and code, the version (no secrets)." },
+        picture_base64: { type: "string", description: "A screenshot (PNG, JPEG or WebP, up to 2 MB), base64." },
+      },
+      ["id", "text"],
+    ),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    run: (args, call) => call("POST", `/feedback/${str(args.id)}/posts`, { ...pick(args, ["text", "reopen", "context"]), ...(args.picture_base64 ? { picture: args.picture_base64 } : {}) }),
+  },
+  {
     name: "get_reports",
     title: "Player reports",
     description:
@@ -273,6 +329,7 @@ export async function handleMcp(request: Request, env: Env): Promise<Response> {
   try {
     if (!request.headers.get("authorization")) throw new ApiError(401, "no_key", "Send an API key from zaisma.com/account as: Authorization: Bearer zsk_…");
     caller = await authenticate(request, env);
+    caller.via = "mcp";
   } catch (err) {
     if (!(err instanceof ApiError)) throw err;
     return Response.json(rpcError(null, -32001, err.message), { status: err.status, headers: err.status === 401 ? { "WWW-Authenticate": 'Bearer realm="zaisma"' } : {} });
@@ -282,7 +339,12 @@ export async function handleMcp(request: Request, env: Env): Promise<Response> {
     request,
     { name: "zaisma", title: "Zaisma", instructions: INSTRUCTIONS },
     TOOLS.map((t) => ({ ...t, run: (args: Record<string, unknown>) => t.run(args, call) })),
-    (err) => (err instanceof ApiError ? `${err.message} (${err.code})` : null),
+    (err) => {
+      if (err instanceof ApiError) return `${err.message} (${err.code})`;
+      // Our bug, not the AI's: say so, and ask for feedback so it reaches us with the details.
+      console.error("MCP tool failed", err);
+      return "Something went wrong on Zaisma's side (internal_error). Try once more; if it happens again, tell Zaisma with send_feedback (kind bug): the tool, what you sent and this error.";
+    },
   );
 }
 
