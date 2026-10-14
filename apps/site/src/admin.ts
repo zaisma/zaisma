@@ -292,7 +292,7 @@ async function dashboard(env: Env, error = ""): Promise<Response> {
     env,
     "Admin",
     html`<h1>Admin</h1>
-<p class="lead">AI this month: ${usage.scans} scans and ${usage.reports} reports sorted, ${usage.input_tokens.toLocaleString("en-US")} of ${Number(env.AI_MONTHLY_INPUT_TOKENS).toLocaleString("en-US")} input tokens.</p>
+<p class="lead">AI this month: ${usage.scans} scans, ${usage.reports} reports and ${usage.feedback} feedback items sorted, ${usage.input_tokens.toLocaleString("en-US")} of ${Number(env.AI_MONTHLY_INPUT_TOKENS).toLocaleString("en-US")} input tokens.</p>
 
 <h2>Waiting for review (${queue.length})</h2>
 ${queue.length

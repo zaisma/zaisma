@@ -12,6 +12,7 @@ import {
   type FeedbackAuthor,
   type FeedbackKind,
   type FeedbackPost,
+  type FeedbackTriage,
   type FeedbackVia,
 } from "@zaisma/core";
 import { ApiError, ownGame, readJson, type Caller } from "./developer.ts";
@@ -368,6 +369,7 @@ export async function adminFeedbackList(env: Env, status = "new", limit = 30) {
         filed: iso(f.created_at),
         last_post: iso(stats?.last ?? null),
         latest: await latestPost(env, f.id, 300),
+        sorted: sortedJson(f),
       };
     }),
   );
@@ -379,6 +381,13 @@ export async function adminFeedbackList(env: Env, status = "new", limit = 30) {
     out.reopened_or_added = results;
   }
   return out;
+}
+
+/** What AI sorting found: its summary, why, and a drafted known issue to approve with decide_feedback. */
+function sortedJson(f: Feedback) {
+  if (!f.triage) return f.triaged_at ? null : "not yet";
+  const t = JSON.parse(f.triage) as FeedbackTriage;
+  return { by_ai: t.ai, summary: t.summary, why: t.why, ...(t.merged_into ? { merged_into: t.merged_into } : {}), ...(t.draft ? { draft_known_issue: t.draft } : {}) };
 }
 
 /** One item in full: every post with who wrote it, the developer's name, the game and the rest of its group. */
@@ -410,6 +419,7 @@ export async function adminFeedbackItem(env: Env, id: string) {
       game: game ? { slug: game.slug, title: game.title } : null,
       known_issue: f.known_title ? { title: f.known_title, workaround: f.workaround, roadmap: f.roadmap, developers: (await developersIn(env, [f.id])).get(f.id) ?? 0 } : null,
       merged_into: lead ? { id: lead.id, title: lead.known_title ?? lead.title, status: lead.status } : null,
+      sorted: sortedJson(f),
       posts: posts.map((p) => ({ by: ADMIN_BY[p.author], via: p.via, kind: p.kind, text: p.text, context: p.context ? JSON.parse(p.context) : null, picture: Boolean(p.picture), at: iso(p.created_at) })),
       merged_here: await Promise.all(members.map(async (m) => ({ id: m.id, developer: await accountName(env, m.account_id), title: m.title, status: m.status, latest: await latestPost(env, m.id, 500) }))),
     },
@@ -424,6 +434,8 @@ export interface FeedbackDecision {
   known_issue?: { title: string; workaround?: string; roadmap?: string } | null;
   severity?: number;
   area?: string;
+  /** Decided by AI sorting, not a person: the developer is told so. */
+  by_ai?: boolean;
 }
 
 export class FeedbackRefusal extends Error {}
@@ -468,7 +480,11 @@ export async function decideFeedback(env: Env, id: string, d: FeedbackDecision):
       env.DB.prepare("UPDATE feedback SET group_id = ?, updated_at = ? WHERE group_id = ?").bind(target.id, at, f.id),
     ]);
     if (target.status !== "new" && f.status === "new") await env.DB.prepare("UPDATE feedback SET status = ? WHERE id = ?").bind(target.status, f.id).run();
-    if (target.known_title) await zaismaPost(env, f.id, "status", `Zaisma added this to a known issue: ${target.known_title}.${target.workaround ? ` Until it's fixed: ${target.workaround}` : ""}`, at);
+    if (target.known_title) {
+      const matched = d.by_ai ? `Zaisma's AI matched this to a known issue: ${target.known_title}.` : `Zaisma added this to a known issue: ${target.known_title}.`;
+      const after = d.by_ai ? " If it's a different problem, add that here and a person will look." : "";
+      await zaismaPost(env, f.id, "status", `${matched}${target.workaround ? ` Until it's fixed: ${target.workaround}` : ""}${after}`, at);
+    }
     f = (await feedbackById(env, f.id))!;
   }
 

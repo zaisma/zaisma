@@ -93,7 +93,7 @@ Each item is a thread. Your own items and every post on them are private to you 
 | `POST /feedback/:id/posts` | Add to your item: `{"text", "context"?, "author"?, "picture"?}`, with `"reopen": true` to reopen one that's `fixed`, `wont` (won't change) or `answered`. Given a known issue's id, it files your own item under it (or adds to the one you have), so your case counts and you hear when it's fixed. |
 | `GET /feedback/:id/pictures/:post` | A screenshot you attached. |
 
-- **Status:** `new` (waiting for Zaisma), `known`, `planned`, `fixed`, `wont` or `answered`. When Zaisma changes a known issue's status, every item in it changes and each developer gets the news.
+- **Status:** `new` (waiting for Zaisma), `known`, `planned`, `fixed`, `wont` or `answered`. When Zaisma changes a known issue's status, every item in it changes and each developer gets the news. Zaisma's AI sorts new items within minutes; when it matches yours to a known issue it adds it there and says so in a post, with the workaround. If it's a different problem, add that to your item.
 - **Who wrote it:** every post says whether you wrote it or your AI did. Posts through the MCP are always your AI's; posts from the dashboard are yours. API callers say `"author": "person"` for something you wrote yourself; otherwise it's marked as your AI's (the upload command's `--by-me` does this).
 - **Secrets are blanked** before anything is stored (API keys, tokens, passwords, private keys); the answer says how many with `secrets_removed`. Still, leave them and players' personal details out.
 - Up to 100 posts a day per account: new items, additions and reopens alike.
