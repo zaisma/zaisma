@@ -329,6 +329,19 @@ function placeOf(area: string | null): { category: string; name: string; sub: st
 
 const tagChip = (t: string) => html`<a class="tag" href="/forum?tag=${t}">${(FORUM_TAGS as Record<string, string>)[t] ?? t}</a>`;
 
+/** A post as one line of plain words, for quoting it: code, links and markdown's marks taken out. */
+function plain(text: string, max = 140): string {
+  const words = text
+    .replace(/```[\s\S]*?(```|$)/g, " [code] ")
+    .replace(/!?\[([^\]\n]*)\]\([^)\s]*\)/g, "$1")
+    .replace(/@\[([^\]\n]{1,60})\]/g, "@$1")
+    .replace(/^\s{0,3}(#{1,3}|>|[-*+]|\d{1,3}[.)])\s+/gm, "")
+    .replace(/(\*\*|__|~~|`|\*|_(?=\S)|(?<=\S)_)/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return words.length > max ? `${words.slice(0, max - 1).trimEnd()}…` : words;
+}
+
 /** Post text: markdown, with the people it mentions (forum-markdown.ts). */
 function richText(ctx: Ctx, p: PostJson): Raw {
   return raw(renderMarkdown(p.text, { siteOrigin: ctx.env.SITE_ORIGIN, mentions: new Set(p.mentions.map((n) => n.toLowerCase())) }));
@@ -567,13 +580,13 @@ function postItem(ctx: Ctx, t: Topic["topic"], p: PostJson, all: PostJson[], ope
   <div class="p-side">${avatar(p.by, "md")}</div>
   <div class="p-body">
     <header class="p-head">${nameOf(p.by)}${p.by.by !== "zaisma" && t.author.by !== "zaisma" && p.by.name === t.author.name ? html`<span class="mark op-mark" title="Started this topic">Author</span>` : ""}${p.kind === "reopen" ? html`<span class="pill pending">Reopened</span>` : ""}${p.answer ? html`<span class="flag ok">${ICONS.check}Answer</span>` : ""}${mostHelpful ? html`<span class="flag">${ICONS.helpful}Most helpful</span>` : ""}${p.state === "checking" ? html`<span class="flag warn">Being checked: only you see it yet</span>` : p.state === "held" ? html`<span class="flag warn">Waiting for a person at Zaisma: only you see it yet</span>` : ""}<a class="p-when" href="#p-${p.id}">${ago(p.at)}</a></header>
-    ${p.reply_to ? html`<a class="quote" href="#p-${p.reply_to.id}">${ICONS.reply}<span><strong>${p.reply_to.name}</strong> ${p.reply_to.excerpt}${p.reply_to.excerpt.length >= 140 ? "…" : ""}</span></a>` : ""}
+    ${p.reply_to ? html`<a class="quote" href="#p-${p.reply_to.id}">${ICONS.reply}<span><strong>${p.reply_to.name}</strong> ${plain(p.reply_to.excerpt)}${p.reply_to.excerpt.length >= 140 ? "…" : ""}</span></a>` : ""}
     <div class="p-text">${richText(ctx, p)}</div>
     ${mediaGrid(p)}
     ${p.context ? html`<details class="p-att"><summary>What ${p.by.by === "ai" ? "your AI" : "you"} attached (only you and Zaisma see it)</summary><pre>${JSON.stringify(p.context, null, 2)}</pre></details>` : ""}
     ${p.picture_url ? html`<a class="p-pic" href="/forum/${t.id}/pictures/${p.id}" target="_blank" rel="noopener"><img src="/forum/${t.id}/pictures/${p.id}" alt="Your screenshot" loading="lazy"><small>Only you and Zaisma see your screenshot</small></a>` : ""}
     <div class="p-foot">
-      ${t.can.reply && p.state === null ? html`<a href="?to=${p.id}#reply" data-reply="${p.id}" data-name="${p.by.name}" data-excerpt="${p.text.slice(0, 140)}">${ICONS.reply}Reply</a>` : ""}
+      ${t.can.reply && p.state === null ? html`<a href="?to=${p.id}#reply" data-reply="${p.id}" data-name="${p.by.name}" data-excerpt="${plain(p.text)}">${ICONS.reply}Reply</a>` : ""}
       ${canAnswer ? html`<form method="post" action="/forum/${t.id}/answer"><input type="hidden" name="post" value="${p.answer ? "" : p.id}"><button type="submit">${p.answer ? ICONS.cross : ICONS.check}${p.answer ? "Not the answer" : "Mark as the answer"}</button></form>` : ""}
       ${opening && all.length > 1 ? html`<span class="muted">${all.length === 2 ? "1 reply" : `${all.length - 1} replies`}</span>` : ""}
       ${t.public && p.state === null && p.kind !== "status"
@@ -594,7 +607,7 @@ function composer(ctx: Ctx, t: Topic["topic"], text: string, to: PostJson | unde
   if (!ctx.viewer || !ctx.me) return html`<div class="composer plate bevel-s signed-out" id="reply"><p>Sign in to reply, vote or follow this topic.</p><a class="btn light" href="/signin?next=/forum/${t.id}">Sign in</a></div>`;
   return html`<form class="composer plate bevel-s" id="reply" method="post" action="/forum/${t.id}/reply" enctype="multipart/form-data">
   <input type="hidden" name="reply_to" value="${to?.id ?? ""}">
-  <p class="replying"${to ? "" : raw(" hidden")}>${ICONS.reply}<span>Replying to <strong data-to-name>${to?.by.name ?? ""}</strong>: <span data-to-excerpt>${to?.text.slice(0, 140) ?? ""}</span></span><button type="button" class="x" data-unreply aria-label="Reply to the whole topic instead">×</button></p>
+  <p class="replying"${to ? "" : raw(" hidden")}>${ICONS.reply}<span>Replying to <strong data-to-name>${to?.by.name ?? ""}</strong>: <span data-to-excerpt>${to ? plain(to.text) : ""}</span></span><button type="button" class="x" data-unreply aria-label="Reply to the whole topic instead">×</button></p>
   <div class="c-row">${avatar(ctx.me, "md")}<label class="c-text"><span class="sr">Your reply</span><textarea name="text" required maxlength="${FEEDBACK_LIMITS.text}" rows="4" data-mentions data-topic="${t.public ? t.id : ""}" placeholder="${t.public ? "Write a reply. Markdown works; @ mentions someone; put code between ``` lines." : "Add what you found since, another case, or reply to Zaisma."}">${text}</textarea></label></div>
   <div class="c-foot">
     ${mediaPicker(t.public)}
@@ -663,7 +676,7 @@ async function reportPage(ctx: Ctx, topicId: string, postId: string): Promise<Re
 <form class="np plate bevel-s" method="post" action="/forum/${topicId}/report">
   <h1>Report a post</h1>
   <input type="hidden" name="post" value="${post.id}">
-  <blockquote class="quote">${avatar(post.by, "xs")}<span><strong>${post.by.name}</strong> ${post.text.slice(0, 300)}${post.text.length > 300 ? "…" : ""}</span></blockquote>
+  <blockquote class="quote">${avatar(post.by, "xs")}<span><strong>${post.by.name}</strong> ${plain(post.text, 300)}</span></blockquote>
   <fieldset class="seen"><legend>What's wrong with it?</legend>
     ${Object.entries(FORUM_REPORT_REASONS).map(([k, label], i) => html`<label class="check"><input type="radio" name="reason" value="${k}" required${i === 0 ? "" : ""}><span><strong>${label}</strong>${k === "child_safety" ? html`<small>It's hidden straight away while a person looks.</small>` : ""}</span></label>`)}
   </fieldset>
@@ -998,7 +1011,8 @@ blockquote.quote{margin:0}
 .replying{display:flex;align-items:center;gap:8px;margin:0;font-size:13px;color:var(--muted)}
 .replying[hidden]{display:none}
 .replying svg{width:14px;height:14px;flex:none}
-.replying>span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.replying>span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.composer>*{min-width:0}
 .replying strong{color:var(--text-2)}
 .x{border:0;background:none;color:var(--muted);font-size:18px;line-height:1;cursor:pointer;padding:0 4px}
 .x:hover{color:var(--text)}
