@@ -1,7 +1,7 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { gameBySlug, notConnected, versionById, type ImageMatcher, type ScanReport } from "@zaisma/core";
-import { scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
+import { KNOWN_IMAGE_RULE, arachnidShield, gameBySlug, notConnected, versionById, type ImageMatcher, type ScanReport } from "@zaisma/core";
+import { imageMatcher, scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
 import { dailyCleanup } from "../../apps/site/src/cleanup.ts";
 import type { AiResult } from "../../apps/site/src/ai.ts";
 import { CLEAN_GAME, makeZip } from "../helpers.ts";
@@ -139,6 +139,54 @@ describe("scan and publish", () => {
     const detail = await (await SELF.fetch(`${LOCAL}/admin/games/${gameId}`)).text();
     expect(detail).toContain("approved");
     expect(detail).toContain("dev@localhost");
+  });
+
+  it("connects Arachnid Shield only when its key is set", () => {
+    expect(imageMatcher(env)).toBe(notConnected);
+    expect(imageMatcher({ ...env, ARACHNID_SHIELD_KEY: "user:pass" })).not.toBe(notConnected);
+  });
+
+  it("holds known abuse images, keeps them from the AI and never lets them be approved", async () => {
+    // Pictures whose bytes end in "BAD" match, as far as this stand-in for Arachnid Shield knows.
+    const picture = (tail: string) => new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...new TextEncoder().encode(tail)]);
+    const sent: string[] = [];
+    const shield = arachnidShield("user:pass", {
+      baseUrl: "https://shield.test",
+      fetch: (async (_url: RequestInfo | URL, init?: RequestInit) => {
+        const body = new TextDecoder().decode(init!.body as Uint8Array);
+        sent.push(body);
+        const bad = body.endsWith("BAD");
+        return new Response(JSON.stringify({ classification: bad ? "csam" : "no-known-match", match_type: bad ? "exact" : null }), { status: 200 });
+      }) as typeof fetch,
+    });
+    let aiCalled = false;
+    const files = { ...CLEAN_GAME, "art/hero.png": picture("fine"), "art/other.png": picture("BAD") };
+    const { report, versionId, gameId } = await uploadAndScan(files, { images: shield, ai: async (...a) => ((aiCalled = true), aiSays("pass")(...a)) });
+    expect(sent).toHaveLength(2);
+    expect(report.decision).toBe("held");
+    expect(report.childSafety).toBe(true);
+    expect(report.images).toEqual({ provider: "arachnid-shield", connected: true, checked: 2 });
+    expect(report.findings.filter((f) => f.rule === KNOWN_IMAGE_RULE).map((f) => f.path)).toEqual(["art/other.png"]);
+    expect(aiCalled).toBe(false);
+    expect(report.ai?.verdict).toBe("skipped");
+
+    // Nothing is deleted, and a person can't approve it, only keep it off.
+    expect(await env.GAMES.head(`games/${gameId}/${versionId}/art/other.png`)).not.toBeNull();
+    const detail = await (await SELF.fetch(`${LOCAL}/admin/games/${gameId}`)).text();
+    expect(detail).toContain("Known abuse images");
+    expect(detail).not.toContain(`/admin/versions/${versionId}/approve`);
+    expect(detail).toContain(`/admin/versions/${versionId}/reject`);
+    const approve = await SELF.fetch(`${LOCAL}/admin/versions/${versionId}/approve`, { method: "POST", body: new FormData(), redirect: "manual" });
+    expect(approve.status).toBe(409);
+    expect((await versionById(env.DB, versionId))?.scan_status).toBe("held");
+    expect((await gameBySlug(env.DB, "test-game"))?.status).toBe("pending");
+  });
+
+  it("publishes a clean game with pictures once Arachnid Shield passes them", async () => {
+    const shield = arachnidShield("user:pass", { fetch: (async () => new Response(JSON.stringify({ classification: "no-known-match" }))) as typeof fetch });
+    const { report } = await uploadAndScan({ ...CLEAN_GAME, "a.png": new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]) }, { images: shield, ai: aiSays("pass") });
+    expect(report.decision).toBe("approved");
+    expect(report.images.checked).toBe(1);
   });
 
   it("keeps players on the old version while a new one is held", async () => {

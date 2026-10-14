@@ -21,7 +21,9 @@ import {
   type Version,
   type Game,
   KEEP_VERSIONS,
+  KNOWN_IMAGE_RULE,
   approveDraft,
+  arachnidShield,
   blobKey,
   ownedBlobKey,
   manifestKey,
@@ -36,15 +38,22 @@ import { recheckFailed, recheckVersion } from "./triage.ts";
 const STATIC_TEXT_LIMIT = 40 * 1024 * 1024;
 const AI_IMAGE_LIMIT = 8;
 const AI_IMAGE_MAX_BYTES = 1024 * 1024;
+/** Most pictures matched per version (each is a request to the matcher and one to storage). More are held for a person. */
+export const MATCH_IMAGE_LIMIT = 2000;
 
 export interface ScanDeps {
   images: ImageMatcher;
   ai: (apiKey: string, model: string, input: AiInput) => Promise<AiResult>;
 }
 
-const defaultDeps: ScanDeps = { images: notConnected, ai: aiReview };
+/** Arachnid Shield when its key is set; otherwise image matching isn't connected and every game waits for a person. */
+export function imageMatcher(env: Env): ImageMatcher {
+  return env.ARACHNID_SHIELD_KEY ? arachnidShield(env.ARACHNID_SHIELD_KEY, { baseUrl: env.ARACHNID_SHIELD_URL }) : notConnected;
+}
 
-export async function handleScanBatch(batch: MessageBatch<ScanJob>, env: Env, deps = defaultDeps): Promise<void> {
+export const scanDeps = (env: Env): ScanDeps => ({ images: imageMatcher(env), ai: aiReview });
+
+export async function handleScanBatch(batch: MessageBatch<ScanJob>, env: Env, deps = scanDeps(env)): Promise<void> {
   for (const msg of batch.messages) {
     const { recheck } = msg.body;
     try {
@@ -67,7 +76,7 @@ export async function handleScanBatch(batch: MessageBatch<ScanJob>, env: Env, de
   }
 }
 
-export async function scanVersion(env: Env, versionId: string, deps: ScanDeps = defaultDeps): Promise<ScanReport> {
+export async function scanVersion(env: Env, versionId: string, deps: ScanDeps = scanDeps(env)): Promise<ScanReport> {
   const version = await versionById(env.DB, versionId);
   if (!version) throw new Error(`No version ${versionId}`);
   const game = await gameById(env.DB, version.game_id);
@@ -80,7 +89,14 @@ export async function scanVersion(env: Env, versionId: string, deps: ScanDeps = 
     await passVersion(env, version, "Passed the scan");
   } else {
     await audit(env.DB, game.id, decision === "held" ? "scan-held" : "scan-rejected", `Version ${version.id}\n${summarize(findings)}`);
-    if (decision === "held" || childSafety) {
+    const known = findings.some((f) => f.rule === KNOWN_IMAGE_RULE);
+    if (known) {
+      await sendAlert(
+        env,
+        `URGENT: known abuse images uploaded to ${game.slug}`,
+        `${KNOWN_IMAGE_ALERT}\n\n${summarize(findings)}\n\nGame: ${env.SITE_ORIGIN}/admin/games/${game.id}`,
+      );
+    } else if (decision === "held" || childSafety) {
       await sendAlert(
         env,
         childSafety ? `URGENT child-safety flag on ${game.slug}` : `${game.slug} needs review`,
@@ -91,12 +107,16 @@ export async function scanVersion(env: Env, versionId: string, deps: ScanDeps = 
   return report;
 }
 
+/** What to do when image matching finds known abuse material, for the alert and the admin page. */
+export const KNOWN_IMAGE_ALERT =
+  "Image matching (Arachnid Shield) found pictures that match known child sexual abuse material. The version is held and nothing was deleted. Don't open the pictures and don't delete anything: the law requires a report to NCMEC's CyberTipline (report.cybertip.org) as soon as possible, and the files must be kept.";
+
 /**
  * Every check on a version's files, deciding but changing nothing: the scan saves and acts on the
  * result, and a re-check after a report (triage.ts) only compares it. `reported` is what a player
  * reported, passed to the AI reviewer as something to look into.
  */
-export async function inspectVersion(env: Env, version: Version, game: Game, deps: ScanDeps = defaultDeps, reported?: string): Promise<ScanReport> {
+export async function inspectVersion(env: Env, version: Version, game: Game, deps: ScanDeps = scanDeps(env), reported?: string): Promise<ScanReport> {
   // 1. Collect the files: under the version's prefix (zip uploads) or from its manifest (file-by-file uploads).
   const objects = await versionFiles(env, version);
   const findings: Finding[] = [];
@@ -119,26 +139,31 @@ export async function inspectVersion(env: Env, version: Version, game: Game, dep
   findings.push(...stat.findings);
   if (env.VT_API_KEY) findings.push(...(await virusTotal(env, objects)));
 
-  // 3. Known-illegal-image matching.
+  // 3. Known-illegal-image matching, before any picture is passed on.
   const imageObjects = objects.filter((o) => extensionOf(o.path) in IMAGE_TYPES);
-  const toMatch =
-    deps.images === notConnected
-      ? []
-      : await Promise.all(
-          imageObjects.map(async (o) => {
-            const bytes = new Uint8Array(await (await env.GAMES.get(o.key))!.arrayBuffer());
-            return { path: o.path, bytes, sha256: await sha256Hex(bytes) };
-          }),
-        );
+  const connected = deps.images !== notConnected;
+  if (connected && imageObjects.length > MATCH_IMAGE_LIMIT) {
+    findings.push({ stage: "images", severity: "hold", rule: "too-many-images", detail: `More than ${MATCH_IMAGE_LIMIT} pictures: the first ${MATCH_IMAGE_LIMIT} were matched, and a person should look at the rest.` });
+  }
+  const toMatch = connected
+    ? imageObjects.slice(0, MATCH_IMAGE_LIMIT).map((o) => ({
+        path: o.path,
+        type: IMAGE_TYPES[extensionOf(o.path)]!,
+        load: async () => new Uint8Array(await (await env.GAMES.get(o.key))!.arrayBuffer()),
+      }))
+    : [];
   const images = await deps.images.check(toMatch);
   findings.push(...images.findings);
+  const knownImage = images.findings.some((f) => f.rule === KNOWN_IMAGE_RULE);
 
-  // 4. AI review, within the monthly budget.
+  // 4. AI review, within the monthly budget. Never with pictures that matched known abuse material.
   let ai: ScanReport["ai"] = null;
-  let childSafety = images.findings.some((f) => f.rule === "known-illegal-image");
+  let childSafety = knownImage;
   const cap = Number(env.AI_MONTHLY_INPUT_TOKENS) || 0;
   const used = await aiUsage(env.DB);
-  if (!env.ANTHROPIC_API_KEY) {
+  if (knownImage) {
+    ai = { model: env.AI_MODEL, verdict: "skipped", summary: "Not sent for AI review: image matching found known abuse material.", inputTokens: 0, outputTokens: 0 };
+  } else if (!env.ANTHROPIC_API_KEY) {
     ai = { model: env.AI_MODEL, verdict: "skipped", summary: "No API key set.", inputTokens: 0, outputTokens: 0 };
     findings.push({ stage: "ai", severity: "hold", rule: "ai-not-configured", detail: "AI review isn't set up, so a person has to approve this game." });
   } else if (used.input_tokens >= cap) {
