@@ -371,9 +371,9 @@ function editorBar(): Raw {
 }
 
 /** Adding images: choose, drop or paste, up to the limit, shown before sending. */
-function mediaPicker(isPublic: boolean): Raw {
+function mediaPicker(): Raw {
   return html`<div class="media-pick" data-max="${FEEDBACK_LIMITS.media}" data-bytes="${FEEDBACK_LIMITS.pictureBytes}">
-  <label class="mp-drop"><input type="file" name="media" accept="image/png,image/jpeg,image/webp" multiple>${ICONS.image}<span><strong>Add images</strong><small>Drop, paste or choose up to ${FEEDBACK_LIMITS.media}, ${FEEDBACK_LIMITS.pictureBytes / 1048576} MB each. ${isPublic ? "Everyone sees them once they're checked." : "Only you and Zaisma see them."}</small></span></label>
+  <label class="mp-drop"><input type="file" name="media" accept="image/png,image/jpeg,image/webp" multiple>${ICONS.image}<span><strong>Add images</strong><small>Drop, paste or choose up to ${FEEDBACK_LIMITS.media}, ${FEEDBACK_LIMITS.pictureBytes / 1048576} MB each.</small></span></label>
   <div class="mp-thumbs" aria-live="polite"></div><p class="mp-error error" hidden></p>
 </div>`;
 }
@@ -627,7 +627,7 @@ function composer(ctx: Ctx, t: Topic["topic"], text: string, to: PostJson | unde
   <p class="replying"${to ? "" : raw(" hidden")}>${ICONS.reply}<span>Replying to <strong data-to-name>${to?.by.name ?? ""}</strong>: <span data-to-excerpt>${to ? plain(to.text) : ""}</span></span><button type="button" class="x" data-unreply aria-label="Reply to the whole topic instead">×</button></p>
   <div class="c-row">${avatar(ctx.me, "md")}<label class="c-text editor"><span class="sr">Your reply</span>${editorBar()}<textarea data-editor name="text" required maxlength="${FEEDBACK_LIMITS.text}" rows="4" data-mentions data-topic="${t.public ? t.id : ""}" placeholder="${t.public ? "Write a reply. Markdown works; @ mentions someone; put code between ``` lines." : "Add what you found since, another case, or reply to Zaisma."}">${text}</textarea></label></div>
   <div class="c-foot">
-    ${mediaPicker(t.public)}
+    ${mediaPicker()}
     ${t.can.reopen ? html`<label class="check"><input type="checkbox" name="reopen" value="1"> It's back: reopen it</label>` : ""}
     <button class="btn light" type="submit">Post reply</button>
   </div>
@@ -740,13 +740,13 @@ async function newPage(ctx: Ctx, f: Record<string, string>, message: boolean, er
     : html`<fieldset class="np-tags"><legend>Tags (up to ${FEEDBACK_LIMITS.tags})</legend><div class="r-tags">${Object.entries(FORUM_TAGS).map(
         ([t, name]) => html`<label class="tag pick"><input type="checkbox" name="tags" value="${t}"${tags.includes(t) ? raw(" checked") : ""}><span>${name}</span></label>`,
       )}</div></fieldset>`}
-  ${mediaPicker(!message)}
+  ${mediaPicker()}
   <div class="np-foot"><button class="btn light" type="submit">${message ? "Send to Zaisma" : "Post topic"}</button><span class="hint">Keys and passwords are blanked before anything is saved.</span></div>
 </form>
 <aside class="np-side">
   ${message
     ? html`<div class="side plate bevel-s"><h2>Private</h2><p>Messages are only between you and Zaisma. To ask other developers too, <a href="/forum/new">start a public topic</a> instead.</p></div>`
-    : html`<div class="side plate bevel-s"><h2>Before you post</h2><p>Search first: if someone has posted it, vote there. It counts, and you hear when it changes.</p><p>Everything here is public, checked before it shows. For logs, an unreleased game or anything private, <a href="/forum/messages/new">message Zaisma</a> instead.</p></div>`}
+    : html`<div class="side plate bevel-s"><h2>Before you post</h2><p>Search first: if someone has posted it, vote there. It counts, and you hear when it changes.</p><p>For logs, an unreleased game or anything private, <a href="/forum/messages/new">message Zaisma</a> instead.</p></div>`}
   <div class="side plate bevel-s"><h2>From your AI</h2><p>With the Zaisma MCP, your AI searches the forum, posts what it hits with the exact error, and replies. Its posts show your name with an ${ICONS.ai} AI mark.</p></div>
 </aside>
 </div>`,
