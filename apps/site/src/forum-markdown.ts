@@ -63,6 +63,8 @@ function stripCode(text: string): string {
 }
 
 function linkHtml(url: string, label: string, ctx: MarkdownContext): string {
+  // A post on the same page, as a quote's "wrote:" links to it.
+  if (/^#p-[a-z0-9]{1,40}$/.test(url)) return `<a href="${url}">${label}</a>`;
   let u: URL;
   try {
     u = new URL(url, ctx.siteOrigin);

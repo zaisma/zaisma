@@ -27,6 +27,17 @@ export async function saveMentions(env: Env, topicId: string, postId: string, te
   }
 }
 
+/** For a preview: the names in a draft that would be saved as mentions if it were posted now. */
+export async function previewMentions(env: Env, text: string): Promise<Set<string>> {
+  const out = new Set<string>();
+  for (const written of mentionedNames(text)) {
+    const lower = written.toLowerCase();
+    if (lower === "zaisma") out.add(lower);
+    else if (await env.DB.prepare("SELECT 1 AS y FROM accounts a WHERE LOWER(a.name) = ? AND EXISTS (SELECT 1 FROM feedback_posts p WHERE p.account_id = a.id AND p.check_state = 'ok') LIMIT 1").bind(lower).first()) out.add(lower);
+  }
+  return out;
+}
+
 /** Once a post can be seen: everyone it mentions follows the topic, with it unread for them. */
 export async function notifyMentions(env: Env, postId: string, topicId: string, at: number): Promise<void> {
   const { results } = await env.DB.prepare("SELECT account_id FROM feedback_mentions WHERE post_id = ? AND account_id != 'zaisma'").bind(postId).all<{ account_id: string }>();

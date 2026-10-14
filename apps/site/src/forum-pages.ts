@@ -13,7 +13,7 @@ import { currentSession } from "./auth.ts";
 import { ApiError, apiCall, callerFor, route, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { esc, html, layout, raw, type Raw } from "./html.ts";
-import { forumPeople } from "./forum-mentions.ts";
+import { forumPeople, previewMentions } from "./forum-mentions.ts";
 import { renderMarkdown, VIDEO_FRAMES } from "./forum-markdown.ts";
 import {
   areasOf,
@@ -99,6 +99,7 @@ const ICONS = {
   helpful: stroke('<path d="M6.4 9.4v7.8H3.4V9.4z"/><path d="M6.4 9.4l3-6.1c1.4 0 2.3 1.1 2 2.4l-.5 2.6h4.4a1.6 1.6 0 0 1 1.6 1.9l-1.2 5.7a1.6 1.6 0 0 1-1.6 1.3H6.4"/>'),
   flag: stroke('<path d="M4.6 17.6V3.4"/><path d="M4.6 4h9.6l-2 3.3 2 3.3H4.6"/>'),
   image: stroke('<rect x="2.6" y="3.6" width="14.8" height="12.8"/><circle cx="7" cy="8" r="1.5"/><path d="M17.4 13.2l-4.2-4.2-7.6 7.4"/>'),
+  quote: stroke('<path d="M3.5 9.5h4v5h-4zM3.5 9.5c0-2.6 1.2-4.2 3.6-5M12.5 9.5h4v5h-4zM12.5 9.5c0-2.6 1.2-4.2 3.6-5"/>'),
   plus: stroke('<path d="M10 4v12M4 10h12"/>'),
   cross: stroke('<path d="M5 5l10 10M15 5L5 15"/>'),
 };
@@ -132,6 +133,13 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
       return done(new Response(JSON.stringify(people), { headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } }));
     }
     if (path === "/forum/out" && !post) return done(outPage(ctx, url.searchParams.get("to") ?? ""));
+    // What a draft will look like, rendered exactly as a post is.
+    if (path === "/forum/preview" && post) {
+      if (!caller) return new Response("", { status: 401 });
+      const text = String((await request.formData()).get("text") ?? "").slice(0, FEEDBACK_LIMITS.text);
+      const body = text.trim() ? renderMarkdown(text, { siteOrigin: env.SITE_ORIGIN, mentions: await previewMentions(env, text) }) : `<p class="muted">Nothing to preview yet.</p>`;
+      return done(new Response(body, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } }));
+    }
     if (path === "/forum" || path === "/forum/messages") {
       const query = queryFrom(url.searchParams);
       if (path === "/forum/messages") query.tab = "messages";
@@ -353,6 +361,15 @@ function mediaGrid(p: PostJson): Raw {
   return html`<div class="p-media${p.media.length === 1 ? " one" : ""}">${p.media.map((m, i) => html`<a href="/forum/media/${m.id}" target="_blank" rel="noopener"><img src="/forum/media/${m.id}" alt="Image ${i + 1} from ${p.by.name}" loading="lazy"></a>`)}</div>`;
 }
 
+/** Markdown tools and a preview, around a text box (the script wires them up). */
+function editorBar(): Raw {
+  const tool = (cmd: string, label: string, title: string) => html`<button type="button" data-md="${cmd}" title="${title}" aria-label="${title}">${raw(label)}</button>`;
+  return html`<div class="ed-bar" role="toolbar" aria-label="Formatting">
+  <span class="ed-tabs"><button type="button" data-tab="write" aria-pressed="true">Write</button><button type="button" data-tab="preview" aria-pressed="false">Preview</button></span>
+  <span class="ed-tools">${tool("bold", "<b>B</b>", "Bold (⌘B)")}${tool("italic", "<i>I</i>", "Italic (⌘I)")}${tool("code", "&lt;/&gt;", "Code")}${tool("link", "Link", "Link (⌘K)")}${tool("quote", "“”", "Quote")}${tool("list", "• List", "List")}</span>
+</div>`;
+}
+
 /** Adding images: choose, drop or paste, up to the limit, shown before sending. */
 function mediaPicker(isPublic: boolean): Raw {
   return html`<div class="media-pick" data-max="${FEEDBACK_LIMITS.media}" data-bytes="${FEEDBACK_LIMITS.pictureBytes}">
@@ -535,7 +552,7 @@ function phaseTrack(status: FeedbackStatus): Raw {
 function opPost(ctx: Ctx, t: Topic["topic"], p: PostJson | null, answer: PostJson | undefined): Raw {
   const v = voteOf(t);
   const count = t.known_issue ? (t.developers ?? 0) : t.votes;
-  return html`<article class="op plate bevel-s"${p ? raw(` id="p-${p.id}"`) : ""}>
+  return html`<article class="op plate bevel-s"${p ? raw(` id="p-${p.id}"`) : ""} data-by="${t.author.name}">
   <h1 class="t-title"><span class="ticon k-${t.known_issue ? "known" : t.kind}" title="${t.known_issue ? "Known issue" : KINDS[t.kind].label}">${kindIcon(t)}</span>${t.title}</h1>
   <p class="t-meta"><span class="kind">${t.known_issue ? "Known issue" : KINDS[t.kind].label}</span>${statusPill(t.status, t.public)}${t.tags.map(tagChip)}${t.public ? "" : html`<span class="flag">${ICONS.lock}A message to Zaisma: only you and Zaisma see it</span>`}${t.game ? html`<span class="muted">About <a href="/dashboard/${t.game}">${t.game}</a>, which only you and Zaisma see</span>` : ""}</p>
   <div class="op-by">${avatar(t.author, "md")}<div><p class="op-name">${nameOf(t.author)}${p?.state === "checking" ? html`<span class="flag warn">Being checked: only you see it yet</span>` : p?.state === "held" ? html`<span class="flag warn">Waiting for a person at Zaisma: only you see it yet</span>` : ""}</p><p class="muted">${t.known_issue ? "Known issue" : t.public ? "Started this" : "Sent this"} ${ago(t.created_at)}</p></div>${p ? html`<span class="op-report">${reportLink(ctx, t, p)}</span>` : ""}</div>
@@ -576,7 +593,7 @@ function postItem(ctx: Ctx, t: Topic["topic"], p: PostJson, all: PostJson[], ope
     return html`<li class="event" id="p-${p.id}">${avatar(p.by, "xs")}<p>${p.text}</p>${ago(p.at)}</li>`;
   }
   const canAnswer = t.can.answer && !opening && p.state === null && !p.by.you;
-  return html`<li class="post${p.by.by === "zaisma" ? " z" : ""}${p.answer ? " answer" : ""}${opening ? " opening" : ""}${p.state ? " pending" : ""}" id="p-${p.id}">
+  return html`<li data-by="${p.by.name}" class="post${p.by.by === "zaisma" ? " z" : ""}${p.answer ? " answer" : ""}${opening ? " opening" : ""}${p.state ? " pending" : ""}" id="p-${p.id}">
   <div class="p-side">${avatar(p.by, "md")}</div>
   <div class="p-body">
     <header class="p-head">${nameOf(p.by)}${p.by.by !== "zaisma" && t.author.by !== "zaisma" && p.by.name === t.author.name ? html`<span class="mark op-mark" title="Started this topic">Author</span>` : ""}${p.kind === "reopen" ? html`<span class="pill pending">Reopened</span>` : ""}${p.answer ? html`<span class="flag ok">${ICONS.check}Answer</span>` : ""}${mostHelpful ? html`<span class="flag">${ICONS.helpful}Most helpful</span>` : ""}${p.state === "checking" ? html`<span class="flag warn">Being checked: only you see it yet</span>` : p.state === "held" ? html`<span class="flag warn">Waiting for a person at Zaisma: only you see it yet</span>` : ""}<a class="p-when" href="#p-${p.id}">${ago(p.at)}</a></header>
@@ -586,7 +603,7 @@ function postItem(ctx: Ctx, t: Topic["topic"], p: PostJson, all: PostJson[], ope
     ${p.context ? html`<details class="p-att"><summary>What ${p.by.by === "ai" ? "your AI" : "you"} attached (only you and Zaisma see it)</summary><pre>${JSON.stringify(p.context, null, 2)}</pre></details>` : ""}
     ${p.picture_url ? html`<a class="p-pic" href="/forum/${t.id}/pictures/${p.id}" target="_blank" rel="noopener"><img src="/forum/${t.id}/pictures/${p.id}" alt="Your screenshot" loading="lazy"><small>Only you and Zaisma see your screenshot</small></a>` : ""}
     <div class="p-foot">
-      ${t.can.reply && p.state === null ? html`<a href="?to=${p.id}#reply" data-reply="${p.id}" data-name="${p.by.name}" data-excerpt="${plain(p.text)}">${ICONS.reply}Reply</a>` : ""}
+      ${t.can.reply && p.state === null ? html`<a href="?to=${p.id}#reply" data-reply="${p.id}" data-name="${p.by.name}" data-excerpt="${plain(p.text)}">${ICONS.reply}Reply</a><button type="button" data-quote-post="${p.id}">${ICONS.quote}Quote</button>` : ""}
       ${canAnswer ? html`<form method="post" action="/forum/${t.id}/answer"><input type="hidden" name="post" value="${p.answer ? "" : p.id}"><button type="submit">${p.answer ? ICONS.cross : ICONS.check}${p.answer ? "Not the answer" : "Mark as the answer"}</button></form>` : ""}
       ${opening && all.length > 1 ? html`<span class="muted">${all.length === 2 ? "1 reply" : `${all.length - 1} replies`}</span>` : ""}
       ${t.public && p.state === null && p.kind !== "status"
@@ -608,7 +625,7 @@ function composer(ctx: Ctx, t: Topic["topic"], text: string, to: PostJson | unde
   return html`<form class="composer plate bevel-s" id="reply" method="post" action="/forum/${t.id}/reply" enctype="multipart/form-data">
   <input type="hidden" name="reply_to" value="${to?.id ?? ""}">
   <p class="replying"${to ? "" : raw(" hidden")}>${ICONS.reply}<span>Replying to <strong data-to-name>${to?.by.name ?? ""}</strong>: <span data-to-excerpt>${to ? plain(to.text) : ""}</span></span><button type="button" class="x" data-unreply aria-label="Reply to the whole topic instead">×</button></p>
-  <div class="c-row">${avatar(ctx.me, "md")}<label class="c-text"><span class="sr">Your reply</span><textarea name="text" required maxlength="${FEEDBACK_LIMITS.text}" rows="4" data-mentions data-topic="${t.public ? t.id : ""}" placeholder="${t.public ? "Write a reply. Markdown works; @ mentions someone; put code between ``` lines." : "Add what you found since, another case, or reply to Zaisma."}">${text}</textarea></label></div>
+  <div class="c-row">${avatar(ctx.me, "md")}<label class="c-text editor"><span class="sr">Your reply</span>${editorBar()}<textarea data-editor name="text" required maxlength="${FEEDBACK_LIMITS.text}" rows="4" data-mentions data-topic="${t.public ? t.id : ""}" placeholder="${t.public ? "Write a reply. Markdown works; @ mentions someone; put code between ``` lines." : "Add what you found since, another case, or reply to Zaisma."}">${text}</textarea></label></div>
   <div class="c-foot">
     ${mediaPicker(t.public)}
     ${t.can.reopen ? html`<label class="check"><input type="checkbox" name="reopen" value="1"> It's back: reopen it</label>` : ""}
@@ -711,7 +728,7 @@ async function newPage(ctx: Ctx, f: Record<string, string>, message: boolean, er
       )}</fieldset>`}
   <label>Title <input name="title" required maxlength="${FEEDBACK_LIMITS.title}" value="${f.title ?? known?.topic.title ?? ""}" placeholder="Upload stops at 99% for a 300 MB build" autocomplete="off"></label>
   <div id="similar" class="similar" aria-live="polite"></div>
-  <label>What happened, or what you'd like <textarea name="text" required maxlength="${FEEDBACK_LIMITS.text}" rows="9"${message ? "" : raw(" data-mentions")} placeholder="What you did, what you expected and what happened instead. Markdown works: **bold**, lists, links, and code and errors between \`\`\` lines.">${f.text ?? ""}</textarea></label>
+  <label class="editor">What happened, or what you'd like ${editorBar()}<textarea data-editor name="text" required maxlength="${FEEDBACK_LIMITS.text}" rows="9"${message ? "" : raw(" data-mentions")} placeholder="What you did, what you expected and what happened instead. Markdown works: **bold**, lists, links, and code and errors between \`\`\` lines.">${f.text ?? ""}</textarea></label>
   <div class="np-row">
     <label>Category${message ? " (optional)" : ""} <select name="category"${message ? "" : raw(" required")}><option value=""${category ? "" : raw(" selected")}${message ? "" : raw(" disabled")}>${message ? "Not sure" : "Pick where it belongs"}</option>${FORUM_CATEGORIES.map(
       (c) => html`<optgroup label="${c.name}">${Object.entries(c.areas).map(([a, name]) => html`<option value="${a}"${a === category ? raw(" selected") : ""}>${name}</option>`)}</optgroup>`,
@@ -938,6 +955,18 @@ a.tag:hover,.tag.on{color:#0b0b0c;background:var(--chrome);box-shadow:none}
 .p-text hr{border:0;height:2px;margin:14px 0;background:linear-gradient(#000,#000) top/100% 1px no-repeat,linear-gradient(rgba(255,255,255,.06),rgba(255,255,255,.06)) bottom/100% 1px no-repeat}
 .p-text del{color:var(--muted)}
 .p-text a.out::after{content:"↗";margin-left:2px;font-size:.8em;color:var(--muted)}
+.editor{display:grid !important;gap:0 !important;position:relative}
+.ed-bar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:4px 12px;padding:4px 6px;background:#14161a;box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}
+.ed-bar button{min-height:28px;padding:0 9px;border:0;background:none;color:var(--muted);font:inherit;font-family:var(--display);font-size:13px;cursor:pointer}
+.ed-bar button:hover{color:var(--text)}
+.ed-tabs button[aria-pressed=true]{color:var(--text);box-shadow:inset 0 -2px 0 #dfe2e6}
+.ed-tools{display:flex;flex-wrap:wrap}
+.editor.previewing .ed-tools{visibility:hidden}
+.ed-preview{min-height:110px;padding:12px;background:#0d0f12;box-shadow:inset 0 2px 5px rgba(0,0,0,.65)}
+.ed-preview[hidden]{display:none}
+.quote-pop{position:fixed;z-index:50;display:inline-flex;align-items:center;gap:6px;min-height:34px;padding:0 12px;border:0;cursor:pointer;color:#0b0b0c;background:var(--chrome);font-family:var(--display);font-weight:600;font-size:13px;box-shadow:0 6px 18px rgba(0,0,0,.5)}
+.quote-pop svg{width:14px;height:14px}
+.quote-pop[hidden]{display:none}
 .mention{font-family:var(--display);font-weight:600;color:var(--text);padding:0 4px;background:rgba(160,190,255,.12);box-shadow:inset 0 0 0 1px rgba(160,190,255,.25)}
 figure.code{margin:8px 0 12px;background:#0d0f12;box-shadow:inset 0 2px 5px rgba(0,0,0,.65),0 1px 0 rgba(255,255,255,.06)}
 figure.code figcaption{display:flex;align-items:center;gap:12px;padding:6px 10px;font-family:var(--display);font-size:12px;color:var(--muted);background:linear-gradient(#000,#000) bottom/100% 1px no-repeat}
@@ -1132,6 +1161,31 @@ box.addEventListener("dragover",e=>{e.preventDefault();box.classList.add("over")
 box.addEventListener("drop",e=>{e.preventDefault();box.classList.remove("over");add([...e.dataTransfer.files])});
 if(form)form.addEventListener("paste",e=>{const pics=[...(e.clipboardData?.files||[])].filter(f=>f.type.startsWith("image/"));if(pics.length){e.preventDefault();add(pics)}});
 });
+// Markdown tools wrap the selection (or the word), and Preview shows the draft as it will be posted.
+const wrapSel=(ta,before,after,ph)=>{const a=ta.selectionStart,b=ta.selectionEnd,sel=ta.value.slice(a,b)||ph;ta.setRangeText(before+sel+after,a,b,"select");ta.setSelectionRange(a+before.length,a+before.length+sel.length);ta.focus();ta.dispatchEvent(new Event("input"))};
+const lines=(ta,prefix)=>{const v=ta.value,a=v.lastIndexOf("\n",ta.selectionStart-1)+1,b=ta.selectionEnd,block=v.slice(a,b)||"";const out=(block||"text").split("\n").map((l,i)=>(typeof prefix==="function"?prefix(i):prefix)+l).join("\n");ta.setRangeText(out,a,b,"end");ta.focus();ta.dispatchEvent(new Event("input"))};
+const md=(ta,cmd)=>{const sel=ta.value.slice(ta.selectionStart,ta.selectionEnd);if(cmd==="bold")wrapSel(ta,"**","**","bold");else if(cmd==="italic")wrapSel(ta,"*","*","italic");else if(cmd==="code")sel.includes("\n")?wrapSel(ta,"\n\x60\x60\x60\n","\n\x60\x60\x60\n","code"):wrapSel(ta,"\x60","\x60","code");else if(cmd==="link"){const url=prompt("Link to","https://");if(url)wrapSel(ta,"[","]("+url+")","text")}else if(cmd==="quote")lines(ta,"> ");else if(cmd==="list")lines(ta,"- ")};
+document.querySelectorAll("textarea[data-editor]").forEach(ta=>{
+const ed=ta.closest(".editor"),bar=ed.querySelector(".ed-bar"),pv=document.createElement("div");pv.className="ed-preview p-text";pv.hidden=true;ta.after(pv);
+bar.addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;e.preventDefault();
+if(b.dataset.md)md(ta,b.dataset.md);
+if(b.dataset.tab){const show=b.dataset.tab==="preview";bar.querySelectorAll("[data-tab]").forEach(x=>x.setAttribute("aria-pressed",x===b?"true":"false"));ed.classList.toggle("previewing",show);ta.hidden=show;pv.hidden=!show;
+if(show){pv.innerHTML='<p class="muted">Loading the preview…</p>';const fd=new FormData();fd.set("text",ta.value);fetch("/forum/preview",{method:"POST",body:fd}).then(r=>r.text()).then(h=>pv.innerHTML=h).catch(()=>pv.innerHTML='<p class="muted">The preview didn\'t load.</p>')}else ta.focus()}});
+ta.addEventListener("keydown",e=>{if(!(e.metaKey||e.ctrlKey)||e.altKey)return;const k=e.key.toLowerCase();if(k==="b"||k==="i"||k==="k"){e.preventDefault();md(ta,k==="b"?"bold":k==="i"?"italic":"link")}});
+});
+// Quote: select words in a post and press Quote, or Quote a whole post from its footer. Each quote
+// goes in where the cursor is, linked back to the post, as many as you like.
+const reply=document.querySelector("form#reply textarea");
+if(reply){const pop=document.createElement("button");pop.type="button";pop.className="quote-pop";pop.hidden=true;pop.innerHTML='<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3.5 9.5h4v5h-4zM3.5 9.5c0-2.6 1.2-4.2 3.6-5M12.5 9.5h4v5h-4zM12.5 9.5c0-2.6 1.2-4.2 3.6-5"/></svg>Quote';document.body.append(pop);let pending=null;
+// Quotes go where you last left the cursor in the reply, or after what's there; each one after the last.
+let caret=null;["keyup","click","input"].forEach(ev=>reply.addEventListener(ev,()=>{caret=reply.selectionStart}));
+const quote=(post,text)=>{const name=post.dataset.by||"Someone",body=text.trim().split("\n").map(l=>("> "+l).trimEnd()).join("\n");const q="> ["+name+"](#"+post.id+") wrote:\n"+body+"\n\n";const at=caret??reply.value.length,pre=reply.value.slice(0,at),lead=pre&&!pre.endsWith("\n\n")?(pre.endsWith("\n")?"\n":"\n\n"):"";reply.setRangeText(lead+q,at,at,"end");caret=at+lead.length+q.length;reply.dispatchEvent(new Event("input"));reply.closest("form").scrollIntoView({behavior:"smooth",block:"center"});reply.focus({preventScroll:true});reply.setSelectionRange(caret,caret)};
+// A whole post as markdown again: its words, lists and code, a video as its link, without the quotes inside it.
+const asText=el=>[...el.children].map(b=>{if(b.matches("figure.code"))return "\x60\x60\x60\n"+b.querySelector("code").textContent+"\n\x60\x60\x60";if(b.matches(".video"))return b.querySelector("a")?.dataset.out||"";if(b.matches("blockquote,hr"))return "";if(b.matches("ul,ol"))return [...b.children].map((li,i)=>(b.tagName==="OL"?(i+1)+". ":"- ")+li.innerText).join("\n");return b.innerText}).filter(Boolean).join("\n\n");
+document.addEventListener("selectionchange",()=>{const s=getSelection();if(!s||s.isCollapsed||!s.rangeCount){pop.hidden=true;return}const r=s.getRangeAt(0),host=r.commonAncestorContainer.nodeType===1?r.commonAncestorContainer:r.commonAncestorContainer.parentElement,text=host&&host.closest(".p-text:not(.ed-preview)"),post=text&&text.closest(".post,.op");if(!post||!s.toString().trim()){pop.hidden=true;return}pending={post,text:s.toString()};const box=r.getBoundingClientRect();pop.hidden=false;pop.style.left=Math.max(8,box.left+box.width/2-40)+"px";pop.style.top=Math.max(70,box.top-42)+"px"});
+pop.addEventListener("mousedown",e=>e.preventDefault());pop.addEventListener("click",()=>{if(pending)quote(pending.post,pending.text);pop.hidden=true;getSelection().removeAllRanges()});
+document.addEventListener("click",e=>{const b=e.target.closest("[data-quote-post]");if(!b)return;const post=document.getElementById("p-"+b.dataset.quotePost),t=post&&post.querySelector(".p-text");if(t)quote(post,asText(t))});
+addEventListener("scroll",()=>{pop.hidden=true},{passive:true})}
 document.querySelectorAll("textarea[data-mentions]").forEach(ta=>{
 // The list sits on the page itself, placed under the box: plates with the cut corner clip what's inside them.
 const list=document.createElement("ul");list.className="mention-list";list.hidden=true;list.setAttribute("role","listbox");document.body.append(list);let items=[],at=-1,timer=0,token=null;
