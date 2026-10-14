@@ -954,7 +954,7 @@ figure.code.wrap pre{white-space:pre-wrap;word-break:break-word}
 .mp-thumb img{width:100%;height:100%;object-fit:cover;display:block}
 .mp-thumb button{position:absolute;right:2px;top:2px;width:22px;height:22px;border:0;cursor:pointer;color:#fff;background:rgba(0,0,0,.7);font-size:15px;line-height:1}
 .mp-error{margin:0}
-.mention-list{position:absolute;top:100%;left:0;z-index:20;list-style:none;margin:4px 0 0;padding:4px;min-width:220px;background:var(--brush) 0 0/320px 320px,var(--face-hi);box-shadow:var(--rim),var(--drop)}
+.mention-list{position:fixed;z-index:50;list-style:none;margin:4px 0 0;padding:4px;min-width:220px;background:var(--brush) 0 0/320px 320px,var(--face-hi);box-shadow:var(--rim),var(--drop)}
 .mention-list li{display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer;font-size:14px}
 .mention-list li small{margin-left:auto;color:var(--muted);font-size:11px}
 .mention-list li[aria-selected=true],.mention-list li:hover{background:rgba(255,255,255,.07)}
@@ -1119,10 +1119,13 @@ box.addEventListener("drop",e=>{e.preventDefault();box.classList.remove("over");
 if(form)form.addEventListener("paste",e=>{const pics=[...(e.clipboardData?.files||[])].filter(f=>f.type.startsWith("image/"));if(pics.length){e.preventDefault();add(pics)}});
 });
 document.querySelectorAll("textarea[data-mentions]").forEach(ta=>{
-const list=document.createElement("ul");list.className="mention-list";list.hidden=true;list.setAttribute("role","listbox");ta.after(list);let items=[],at=-1,timer=0,token=null;
+// The list sits on the page itself, placed under the box: plates with the cut corner clip what's inside them.
+const list=document.createElement("ul");list.className="mention-list";list.hidden=true;list.setAttribute("role","listbox");document.body.append(list);let items=[],at=-1,timer=0,token=null;
+const place=()=>{const r=ta.getBoundingClientRect(),h=list.offsetHeight,below=innerHeight-r.bottom>h+8;list.style.left=Math.max(8,r.left)+"px";list.style.top=(below?r.bottom+4:Math.max(8,r.top-h-4))+"px"};
+addEventListener("scroll",()=>{if(!list.hidden)place()},{passive:true});addEventListener("resize",()=>{if(!list.hidden)place()});
 const close=()=>{list.hidden=true;items=[];at=-1};
 const pick=p=>{const before=ta.value.slice(0,ta.selectionStart),after=ta.value.slice(ta.selectionStart),start=before.length-token.length-1,text=/^[\p{L}\p{N}_]+$/u.test(p.name)?"@"+p.name+" ":"@["+p.name+"] ";ta.value=before.slice(0,start)+text+after;const c=start+text.length;ta.setSelectionRange(c,c);ta.focus();close()};
-const show=()=>{list.textContent="";items.forEach((p,i)=>{const li=document.createElement("li");li.setAttribute("role","option");li.setAttribute("aria-selected",i===at?"true":"false");li.textContent="@"+p.name;if(p.in_topic||p.zaisma){const s=document.createElement("small");s.textContent=p.zaisma?"the team":"in this topic";li.append(s)}li.onmousedown=e=>{e.preventDefault();pick(p)};list.append(li)});list.hidden=!items.length};
+const show=()=>{list.textContent="";items.forEach((p,i)=>{const li=document.createElement("li");li.setAttribute("role","option");li.setAttribute("aria-selected",i===at?"true":"false");li.textContent="@"+p.name;if(p.in_topic||p.zaisma){const s=document.createElement("small");s.textContent=p.zaisma?"the team":"in this topic";li.append(s)}li.onmousedown=e=>{e.preventDefault();pick(p)};list.append(li)});list.hidden=!items.length;if(!list.hidden)place()};
 ta.addEventListener("input",()=>{const m=ta.value.slice(0,ta.selectionStart).match(/(?:^|\s)@(\[[^\]\n]{0,40}|[\p{L}\p{N}_]{0,40})$/u);if(!m){close();return}token=m[1];const q=token.replace(/^\[/,"");clearTimeout(timer);timer=setTimeout(()=>fetch("/forum/people?q="+encodeURIComponent(q)+"&topic="+encodeURIComponent(ta.dataset.topic||"")).then(r=>r.ok?r.json():[]).then(p=>{items=p;at=items.length?0:-1;show()}).catch(close),120)});
 ta.addEventListener("keydown",e=>{if(list.hidden)return;if(e.key==="ArrowDown"||e.key==="ArrowUp"){e.preventDefault();at=(at+(e.key==="ArrowDown"?1:items.length-1))%items.length;show()}else if((e.key==="Enter"||e.key==="Tab")&&at>=0){e.preventDefault();pick(items[at])}else if(e.key==="Escape")close()});
 ta.addEventListener("blur",()=>setTimeout(close,150));
