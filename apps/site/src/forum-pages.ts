@@ -488,7 +488,7 @@ async function topicPage(ctx: Ctx, id: string, opts: { done?: string; error?: st
     ? html`<h2 class="replies-h">${rest.filter((p) => p.kind !== "status" || p.text.length > 60).length === 1 ? "1 reply" : `${rest.filter((p) => p.kind !== "status" || p.text.length > 60).length} replies`}</h2>
   <ol class="posts">${rest.map((p) => postItem(ctx, t, p, data.posts, false, p.id === mostHelpful))}</ol>`
     : html`<p class="no-replies muted">No replies yet.</p>`}
-  ${composer(ctx, t, data.posts_left_today, opts.text ?? "", to)}
+  ${composer(ctx, t, opts.text ?? "", to)}
 </article>
 ${sidePanel(ctx, t, data.posts)}
 </div>`,
@@ -590,7 +590,7 @@ function postItem(ctx: Ctx, t: Topic["topic"], p: PostJson, all: PostJson[], ope
 </li>`;
 }
 
-function composer(ctx: Ctx, t: Topic["topic"], left: number | null, text: string, to: PostJson | undefined): Raw {
+function composer(ctx: Ctx, t: Topic["topic"], text: string, to: PostJson | undefined): Raw {
   if (!ctx.viewer || !ctx.me) return html`<div class="composer plate bevel-s signed-out" id="reply"><p>Sign in to reply, vote or follow this topic.</p><a class="btn light" href="/signin?next=/forum/${t.id}">Sign in</a></div>`;
   return html`<form class="composer plate bevel-s" id="reply" method="post" action="/forum/${t.id}/reply" enctype="multipart/form-data">
   <input type="hidden" name="reply_to" value="${to?.id ?? ""}">
@@ -599,7 +599,6 @@ function composer(ctx: Ctx, t: Topic["topic"], left: number | null, text: string
   <div class="c-foot">
     ${mediaPicker(t.public)}
     ${t.can.reopen ? html`<label class="check"><input type="checkbox" name="reopen" value="1"> It's back: reopen it</label>` : ""}
-    <span class="hint">${t.public ? "Checked before others see it. " : ""}${left !== null ? `${left} of ${FEEDBACK_LIMITS.postsPerDay} posts left today.` : ""}</span>
     <button class="btn light" type="submit">Post reply</button>
   </div>
 </form>`;
