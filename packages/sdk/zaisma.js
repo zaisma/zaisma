@@ -83,7 +83,7 @@
     // text/plain keeps this a simple request, so the browser needs no preflight.
     return fetch(config.rooms + path, { method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify(body) }).then(function (res) {
       return res.json().then(function (data) {
-        if (!res.ok) throw new Error(data.error || "Zaisma request failed");
+        if (!res.ok) { var err = new Error(data.error || "Zaisma request failed"); if (data.code) err.code = data.code; throw err; }
         return data;
       });
     });
@@ -189,7 +189,7 @@
         room._emit("ended", m.reason);
       } else if (m.t === "error") {
         room._emit("error", m);
-        if (room._ready && (m.code === "full" || m.code === "closed" || m.code === "ended" || m.code === "bad-pass" || m.code === "too-big" || m.code === "game-unavailable" || m.code === "kept-out" || m.code === "refused")) {
+        if (room._ready && (m.code === "full" || m.code === "closed" || m.code === "ended" || m.code === "bad-pass" || m.code === "too-big" || m.code === "game-unavailable" || m.code === "kept-out" || m.code === "refused" || m.code === "month-limit")) {
           room._done = true;
           var err = new Error(m.message);
           err.code = m.code;
@@ -337,8 +337,9 @@
    *   listed - false: a new room that never shows in room lists, like a private match
    *   name, labels - a new room's name and labels, like "Ana's castle" and { Mode: "Classic" }
    *   data   - plain JSON for the game server's onJoin, like the character the player picked (up to 4 KB)
-   * If the room is full, closed or over, or the player was kept out or turned away, it fails with an
-   * error whose code says which (full, closed, ended, kept-out, refused) and whose message says why.
+   * If the room is full, closed or over, the player was kept out or turned away, or the game has used
+   * this month's multiplayer time, it fails with an error whose code says which (full, closed, ended,
+   * kept-out, refused, month-limit) and whose message says why.
    */
   function joinRoom(opts) {
     opts = opts || {};
@@ -391,7 +392,8 @@
     });
   }
 
-  var RETRY = { full: true, closed: true, ended: true };
+  // A room that can't take this player, so another may: month-limit is an empty room that can't open again this month.
+  var RETRY = { full: true, closed: true, ended: true, "month-limit": true };
 
   /**
    * Drop the player into a match: the room their link points to if it has space, otherwise a

@@ -53,6 +53,8 @@ import {
   type TesterLink,
   readPlayers,
   type ReportReason,
+  FREE_PLAYER_HOURS,
+  monthPlayerSeconds,
 } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import { gameUrl, type Env } from "./env.ts";
@@ -518,7 +520,7 @@ async function liveServerProblem(env: Env, game: Game): Promise<string | null> {
 async function statsFor(env: Env, game: Game, days: number) {
   const n = Number.isInteger(days) && days > 0 ? Math.min(days, 90) : 30;
   const from = new Date(Date.now() - (n - 1) * DAY).toISOString().slice(0, 10);
-  const [plays, { results }, { results: errors }] = await Promise.all([
+  const [plays, { results }, { results: errors }, month] = await Promise.all([
     playStats(env.DB, game.id, n),
     env.DB
       .prepare("SELECT day, rooms, player_seconds, messages, server_calls, server_crashes, server_stops, server_broken_rooms FROM room_usage WHERE game_id = ? AND day >= ? ORDER BY day")
@@ -528,6 +530,7 @@ async function statsFor(env: Env, game: Game, days: number) {
       .prepare("SELECT version_id, kind, message, count, first_at, last_at FROM game_server_errors WHERE game_id = ? ORDER BY last_at DESC LIMIT 20")
       .bind(game.id)
       .all<{ version_id: string; kind: "crash" | "stopped"; message: string; count: number; first_at: number; last_at: number }>(),
+    monthPlayerSeconds(env.DB, game.id),
   ]);
   const ownServer = game.game_server === SANDBOX_GAME_SERVER;
   return {
@@ -539,6 +542,8 @@ async function statsFor(env: Env, game: Game, days: number) {
       messages: r.messages,
       ...(ownServer ? { game_server: { calls: r.server_calls, crashes: r.server_crashes, stopped: r.server_stops, matches_ended: r.server_broken_rooms } } : {}),
     })),
+    // Until Hosting billing exists, new rooms stop opening at the free tier until the month resets (UTC).
+    rooms_this_month: { player_hours: Math.round(month / 360) / 10, free_player_hours: FREE_PLAYER_HOURS, new_rooms_paused: month >= FREE_PLAYER_HOURS * 3600 },
     ...(ownServer
       ? {
           // Crashes lose one call each and the match carries on. "stopped" is a call that ran on too long

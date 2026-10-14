@@ -128,7 +128,7 @@ room.on("move", (move) => { room.leave(); move.join(); });  // in the game: go t
 
 The new room runs the same game server, and its `setup(data)` gets your data, so it can start the match already set up (players can read the data but can't change it; up to 4 KB). It's ready before anyone hears its code, only the players named can join it (it's a closed room, until your server opens it), and it's hidden from room lists unless you pass `listed: true` (with a `name` and `labels` if you like). A room can reserve up to 20 rooms a minute. See `examples/four-in-a-row`: its "Find an opponent" waits in a lobby room until there's someone to play.
 
-Playing alone needs no room, so don't make one until others can join: time in a room counts toward hosting even with one player.
+Playing alone needs no room, so don't make one until others can join: time in a room counts toward hosting even with one player. Each game gets 1,000 player-hours a month on Zaisma rooms free (the dashboard shows how much it has used). Until hosting billing is ready, that's also the most it can use: past it, new rooms don't open until the month resets (UTC) and joining fails with `err.code === "month-limit"`, while matches already running carry on.
 
 #### Run your game server yourself
 

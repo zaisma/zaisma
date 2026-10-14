@@ -336,7 +336,7 @@ ${imagesPanel(slug, images)}
 <div class="facts">
 <details open><summary><h2>Plays</h2><span class="muted">Last 30 days</span></summary>${playsPanel(stats.plays)}</details>
 <details${openReports ? raw(" open") : ""}><summary><h2>Player reports${openReports ? ` (${openReports} open)` : ""}</h2></summary>${reportsPanel(reports)}</details>
-<details><summary><h2>Multiplayer use</h2></summary>${statsPanel(stats)}</details>
+<details${stats.rooms_this_month.new_rooms_paused ? raw(" open") : ""}><summary><h2>Multiplayer use${stats.rooms_this_month.new_rooms_paused ? " (new rooms paused)" : ""}</h2></summary>${statsPanel(stats)}</details>
 <details><summary><h2>History</h2></summary>${history.history.length ? html`<table><tbody>${history.history.map((h) => html`<tr><td class="nowrap">${when(h.at)}</td><td>${h.what}${h.version ? html` <span class="muted">(${h.version.slice(0, 8)})</span>` : ""}</td><td class="muted">${h.by}</td></tr>`)}</tbody></table>` : html`<p class="muted">Nothing yet.</p>`}</details>
 </div>`,
     status,
@@ -498,6 +498,7 @@ interface Stats {
     came_back: Record<"after_1_day" | "after_7_days" | "after_30_days", { percent: number | null; players: number; of: number }>;
   };
   multiplayer: { day: string; rooms: number; player_minutes: number; messages: number; game_server?: { calls: number; crashes: number; stopped: number; matches_ended: number } }[];
+  rooms_this_month: { player_hours: number; free_player_hours: number; new_rooms_paused: boolean };
   game_server_errors?: { kind: "crash" | "stopped"; error: string; times: number; version: string; last: number }[];
 }
 
@@ -529,14 +530,18 @@ ${back("Back a week later", p.came_back.after_7_days)}
 
 function statsPanel(stats: Stats): Raw {
   const days = stats.multiplayer;
-  if (!days.length) return html`<p class="muted">No multiplayer rooms in the last 30 days.</p>`;
+  const m = stats.rooms_this_month;
+  const month = m.new_rooms_paused
+    ? html`<p class="hint">Your game has used this month's ${n(m.free_player_hours)} free player-hours on Zaisma rooms, so new rooms don't open until the month resets (UTC). Matches already running carry on. Until hosting billing is ready, that's the most a game can use. Rooms on a server you run yourself are never limited.</p>`
+    : html`<p class="hint">${n(m.player_hours)} of ${n(m.free_player_hours)} free player-hours on Zaisma rooms this month. Until hosting billing is ready, new rooms stop opening at ${n(m.free_player_hours)} until the month resets (UTC); matches already running carry on.</p>`;
+  if (!days.length) return html`<p class="muted">No multiplayer rooms in the last 30 days.</p>${m.player_hours || m.new_rooms_paused ? month : ""}`;
   const top = Math.max(...days.map((d) => d.player_minutes), 1);
   const own = stats.game_server_errors !== undefined;
   return html`<table><thead><tr><th>Day</th><th>Rooms</th><th>Player minutes</th>${own ? html`<th>Game server errors</th><th>Stopped</th><th>Matches ended</th>` : ""}</tr></thead><tbody>${days.map(
     (d) => html`<tr><td class="nowrap">${d.day}</td><td>${d.rooms}</td><td><span class="bar" style="width:${Math.round((d.player_minutes / top) * 100)}%"></span>${d.player_minutes}</td>${
       own ? html`<td>${d.game_server?.crashes ?? 0}</td><td>${d.game_server?.stopped ?? 0}</td><td>${d.game_server?.matches_ended ?? 0}</td>` : ""
     }</tr>`,
-  )}</tbody></table>${own ? serverErrors(stats.game_server_errors!) : ""}`;
+  )}</tbody></table>${month}${own ? serverErrors(stats.game_server_errors!) : ""}`;
 }
 
 /** A game server's recent errors, so its developer can fix what wastes their players' time and our work. */

@@ -28,7 +28,7 @@ async function newPass(game: string) {
 /** Try to join, and say what the room answered first. */
 async function knock(game: string, code: string, data?: unknown, pass?: string) {
   pass ??= (await newPass(game)).pass;
-  const up = await SELF.fetch(`${R}/v1/rooms/${game}/${code}`, { headers: { Upgrade: "websocket", Origin: ORIGIN } });
+  const up = await SELF.fetch(`${R}/v1/rooms/${game}/${code}`, { headers: { Upgrade: "websocket", Origin: ORIGIN, "cf-connecting-ip": `198.51.100.${++address % 250}` } });
   const ws = up.webSocket!;
   ws.accept();
   const first = new Promise<any>((r) => ws.addEventListener("message", (ev) => r(JSON.parse(ev.data as string)), { once: true }));
@@ -38,7 +38,7 @@ async function knock(game: string, code: string, data?: unknown, pass?: string) 
 
 /** Join with a pass and data, and say the first thing the game itself sends (or the room's error). */
 async function arrive(game: string, code: string, data: unknown, pass: string) {
-  const up = await SELF.fetch(`${R}/v1/rooms/${game}/${code}`, { headers: { Upgrade: "websocket", Origin: ORIGIN } });
+  const up = await SELF.fetch(`${R}/v1/rooms/${game}/${code}`, { headers: { Upgrade: "websocket", Origin: ORIGIN, "cf-connecting-ip": `198.51.100.${++address % 250}` } });
   const ws = up.webSocket!;
   ws.accept();
   const got = new Promise<any>((r) =>
@@ -53,7 +53,7 @@ async function arrive(game: string, code: string, data: unknown, pass: string) {
 
 async function join(game: string, code: string, data?: unknown) {
   const { pass, player } = await newPass(game);
-  const up = await SELF.fetch(`${R}/v1/rooms/${game}/${code}`, { headers: { Upgrade: "websocket", Origin: ORIGIN } });
+  const up = await SELF.fetch(`${R}/v1/rooms/${game}/${code}`, { headers: { Upgrade: "websocket", Origin: ORIGIN, "cf-connecting-ip": `198.51.100.${++address % 250}` } });
   expect(up.status).toBe(101);
   const ws = up.webSocket!;
   ws.accept();
@@ -258,7 +258,7 @@ describe("sandboxed game servers", () => {
   it("leaves a game without a game server file unavailable", async () => {
     await addSandboxGame("empty", COUNTER);
     await e.GAMES.delete("games/vempty/zaisma-server.js");
-    const up = await SELF.fetch(`${R}/v1/rooms/empty/ABCDEF`, { headers: { Upgrade: "websocket", Origin: ORIGIN } });
+    const up = await SELF.fetch(`${R}/v1/rooms/empty/ABCDEF`, { headers: { Upgrade: "websocket", Origin: ORIGIN, "cf-connecting-ip": `198.51.100.${++address % 250}` } });
     expect(up.status).toBe(404);
   });
 });
