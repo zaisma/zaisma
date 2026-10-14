@@ -90,6 +90,8 @@ export interface ScanJob {
   versionId: string;
   /** Look at a live version's files again after a report (AI report triage). Never publishes or changes the version. */
   recheck?: { reportId: string };
+  /** Image matching on a version that already passed (before matching was connected). Takes it off only on a match. */
+  images?: true;
 }
 
 /** Why a player reports another player in a room. */

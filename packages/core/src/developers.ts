@@ -283,6 +283,8 @@ export const isSquare = (width: number, height: number) => Math.abs(width - heig
 
 /** Where an image's file lives in the games bucket. */
 export const imageKey = (img: Pick<GameImage, "game_id" | "id">) => `images/${img.game_id}/${img.id}`;
+/** Where a cover or screenshot that matched known abuse material is kept for reporting. Never served or listed. */
+export const heldImageKey = (gameId: string, id: string) => `held-images/${gameId}/${id}`;
 
 /**
  * What an image really is, read from its bytes (never the name or the type it claims):

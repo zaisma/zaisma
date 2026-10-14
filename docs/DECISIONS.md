@@ -68,6 +68,7 @@ Settled calls. Don't reopen these in code or docs without Julius approving the c
 ## Safety and moderation
 
 - **Scan before publish.** Malware scan, known-illegal-image matching, AI review. Every upload is scanned within minutes; the developer then publishes when ready.
+- **Known abuse material comes off at once.** Image matching (Arachnid Shield) checks every picture and video in an upload, whatever it's named or hidden in, and every cover and screenshot. A match isn't a report or an AI opinion, so the rules that keep established games up don't apply: the version is held and can't be approved, a live game is hidden until the developer publishes a clean version, nothing is deleted, the developer is told only that a person needs to look, and Julius gets an urgent alert to report it to NCMEC. Versions that passed before matching was connected are matched once, by a daily job.
 - **Scan only what changed.** Files are fingerprinted, and an update reuses earlier results for unchanged files. Updates are limited per game per day (about 20) so a broken script can't upload in a loop.
 - **Moderation pays for itself.** A capped free review budget per developer (not per game), then refundable $5 / $25 deposits, so floods from bad actors cost them, not us.
 - **Games are sandboxed** on a separate game domain, never on zaisma.com.

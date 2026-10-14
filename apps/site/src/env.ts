@@ -32,6 +32,10 @@ export interface Env {
   ALERT_EMAIL?: string;
   ANTHROPIC_API_KEY?: string;
   VT_API_KEY?: string;
+  /** Arachnid Shield's API user, as "username:password". Without it, image matching isn't connected and every game waits for a person. */
+  ARACHNID_SHIELD_KEY?: string;
+  /** Only to point image matching at a stand-in (the local preview). */
+  ARACHNID_SHIELD_URL?: string;
   DEV_ADMIN?: string;
   /** Seconds a guest plays with progress before "Keep your progress" shows. Default 300; the local preview uses less. */
   KEEP_OFFER_SECONDS?: string;

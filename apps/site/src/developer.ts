@@ -14,6 +14,8 @@ import {
   gameBySlug,
   imageById,
   imageKey,
+  heldImageKey,
+  KNOWN_IMAGE_RULE,
   imagesForGame,
   newId,
   personOwner,
@@ -60,7 +62,8 @@ import { currentSession } from "./auth.ts";
 import { gameUrl, type Env } from "./env.ts";
 import { feedbackRoute } from "./feedback.ts";
 import { playStats } from "./plays.ts";
-import { pruneVersions } from "./scan.ts";
+import { sendAlert } from "./email.ts";
+import { KNOWN_IMAGE_ALERT, imageMatcher, pruneVersions } from "./scan.ts";
 
 /**
  * The developer API: one API for the MCP, the upload command and the dashboard, so they always agree.
@@ -286,6 +289,16 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     }
     if (kind === "square" && (!isSquare(width, height) || width < IMAGE_LIMITS.squareMinSide)) {
       throw new ApiError(400, "not_square", `A square cover needs to be as wide as it is tall, at least ${IMAGE_LIMITS.squareMinSide} px.`);
+    }
+    // Matched against known abuse material before anyone sees it. A match is kept for reporting, never shown.
+    // If matching fails, the picture waits for a person as usual.
+    const matched = await imageMatcher(env).check([{ path: `${kind} image`, type: kindOf.type, id: "upload", body: async () => bytes }]);
+    if (matched.findings.some((f) => f.rule === KNOWN_IMAGE_RULE)) {
+      const id = newId();
+      await env.GAMES.put(heldImageKey(game.id, id), bytes, { httpMetadata: { contentType: kindOf.type } });
+      await audit(env.DB, game.id, "image-held", `A ${kind} upload matched known abuse material. Kept at ${heldImageKey(game.id, id)}; never shown.`, caller.actor);
+      await sendAlert(env, `URGENT: known abuse image uploaded to ${game.slug}`, `${KNOWN_IMAGE_ALERT}\n\nA ${kind} upload, kept at ${heldImageKey(game.id, id)} in the games bucket.\n\nGame: ${env.SITE_ORIGIN}/admin/games/${game.id}`);
+      throw new ApiError(422, "image_refused", "This image can't be used.");
     }
     const existing = await imagesForGame(env.DB, game.id);
     const waiting = existing.filter((i) => i.kind === kind && i.status === "pending");

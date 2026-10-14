@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import {
   AUTO_HOLD_REASONS,
+  KNOWN_IMAGE_RULE,
   PRECEDENT_DECISIONS,
   REPORT_REASONS,
   SEVERITIES,
@@ -25,7 +26,7 @@ import {
 import { sendAlert } from "./email.ts";
 import type { Env } from "./env.ts";
 import { pauseForReport } from "./report.ts";
-import { inspectVersion, summarize, versionFiles, type ScanDeps } from "./scan.ts";
+import { holdKnownImages, inspectVersion, summarize, versionFiles, type ScanDeps } from "./scan.ts";
 
 /**
  * AI report triage (docs/DECISIONS.md). Every few minutes, new reports are sorted by severity,
@@ -448,6 +449,13 @@ export async function recheckVersion(env: Env, versionId: string, reportId: stri
     severity = Math.min(severity, SEVERITY.high);
     triage.recommendation = "person";
     triage.why = "The re-check called it a clear problem but couldn't point to it in the game's files, so nothing was paused.";
+  } else if (news.some((f) => f.rule === KNOWN_IMAGE_RULE)) {
+    // Known abuse material in the files isn't an opinion: the version comes off whatever the game's age (holdKnownImages alerts).
+    severity = SEVERITY.child_safety;
+    const hidden = await holdKnownImages(env, game, version, { provider: result.images.provider, connected: result.images.connected, checked: result.images.checked, findings: news }, `A re-check after a report`);
+    triage.actions.push(hidden ? "Hid the game: its files match known abuse material" : "Held the version: its files match known abuse material");
+    triage.recommendation = "take_down";
+    triage.why = "Image matching found known abuse material in the game's files.";
   } else if (clear) {
     severity = Math.min(severity, result.childSafety ? SEVERITY.child_safety : SEVERITY.urgent);
     // The same rule as a child-safety or illegal-content report: no single report takes an established game offline.
