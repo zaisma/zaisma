@@ -1,6 +1,5 @@
 import { CONTROLS, DEVICES, PLAY_STYLES, ROOM_BROWSING, SCREENS, type PlayerCount, type Players, type RoomBrowsing } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
-import { FEEDBACK_STYLES, handleFeedbackPages } from "./dashboard-feedback.ts";
 import { ApiError, apiCall, callerFor, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { html, layout, metalButton, raw, type Raw } from "./html.ts";
@@ -94,10 +93,10 @@ export async function handleDashboard(request: Request, env: Env, path: string):
   const url = new URL(request.url);
 
   if (path === "/dashboard" && !post) return done(await gamesPage(env, call, url.searchParams.get("error") ?? undefined));
-  if (path === "/dashboard/feedback" || path.startsWith("/dashboard/feedback/")) {
-    const res = await handleFeedbackPages(request, env, path, call, caller);
-    return res ? done(res) : null;
-  }
+  // Feedback moved into the developer forum.
+  if (path === "/dashboard/feedback") return done(redirect("/forum?tab=yours"));
+  const moved = path.match(/^\/dashboard\/feedback\/([a-z0-9]{1,40})/);
+  if (moved) return done(redirect(`/forum/${moved[1]}`));
   if (path === "/dashboard/new" && post) {
     const form = await request.formData();
     try {
@@ -206,8 +205,8 @@ function withCookies(res: Response, cookies: string[]): Response {
   return out;
 }
 
-export function page(env: Env, title: string, body: Raw, status = 200, art: string | null = null, nav: "dashboard" | "feedback" = "dashboard"): Response {
-  const res = layout(env, { title: `${title} · Zaisma`, body: html`<style>${raw(STYLES + FEEDBACK_STYLES)}</style>${body}<script>${raw(LOCAL_TIMES)}</script>`, private: true, nav, art });
+export function page(env: Env, title: string, body: Raw, status = 200, art: string | null = null): Response {
+  const res = layout(env, { title: `${title} · Zaisma`, body: html`<style>${raw(STYLES)}</style>${body}<script>${raw(LOCAL_TIMES)}</script>`, private: true, nav: "dashboard", art });
   return new Response(res.body, { status, headers: res.headers });
 }
 
@@ -237,7 +236,7 @@ ${metalButton("Make a game", { type: "submit" })}
     "Your games",
     html`<div class="dash-head"><h1>Your games</h1>${make}</div>
 ${notice({ error })}
-${news ? html`<p class="done" role="status">Zaisma replied to ${news === 1 ? "your feedback" : `${news} of your feedback items`}. <a href="/dashboard/feedback#yours">Read ${news === 1 ? "it" : "them"}</a></p>` : ""}
+${news ? html`<p class="done" role="status">Zaisma replied to ${news === 1 ? "one of your forum topics" : `${news} of your forum topics`}. <a href="/forum?tab=yours">Read ${news === 1 ? "it" : "them"}</a></p>` : ""}
 ${games.length
       ? html`<div class="grid">${games.map((g, i) => {
           const cover = coverOf(details[i]!.images);

@@ -1,9 +1,10 @@
 import { FEEDBACK_AREAS, FEEDBACK_STATUSES, feedbackPictureKey, type Feedback } from "@zaisma/core";
 import type { Env } from "./env.ts";
 import { adminFeedbackItem, adminFeedbackList, decideFeedback, FeedbackRefusal, type FeedbackDecision } from "./feedback.ts";
+import { removePost, showPost } from "./forum-check.ts";
 import { html, raw, type Raw } from "./html.ts";
 import { adminPage, severityPill } from "./admin.ts";
-import { KIND_LABELS } from "./dashboard-feedback.ts";
+import { KINDS as KIND_LABELS } from "./forum-pages.ts";
 
 /**
  * The feedback queue on the admin pages: the same lists and decisions as list_feedback, get_feedback
@@ -30,6 +31,14 @@ export async function adminFeedbackPage(env: Env, path: string, url: URL): Promi
 
 /** A decision from the queue or an item's page: only what the form changed goes to decideFeedback. */
 export async function adminFeedbackAction(env: Env, path: string, form: FormData): Promise<Response | null> {
+  // A forum post the check held: show it, or remove it (check_post in the admin MCP).
+  const check = path.match(/^\/admin\/feedback\/posts\/([a-z0-9]{1,40})\/(show|remove)$/);
+  if (check) {
+    if (check[2] === "show") await showPost(env, check[1]!);
+    else await removePost(env, check[1]!);
+    const back = String(form.get("back") ?? "");
+    return new Response(null, { status: 303, headers: { Location: /^\/admin\/feedback(\/[a-z0-9]{1,40})?$/.test(back) ? back : "/admin/feedback" } });
+  }
   const m = path.match(/^\/admin\/feedback\/([a-z0-9]{1,40})\/decide$/);
   if (!m) return null;
   const id = m[1]!;
@@ -86,6 +95,7 @@ async function queue(env: Env, status: string): Promise<Response> {
   ]);
   const rows = list.feedback;
   const inside = (list.reopened_or_added ?? []) as { id: string; title: string; group_id: string; group_status: string }[];
+  const toCheck = list.posts_to_check ?? [];
   // The full record of each card, for the reply form's known-issue fields.
   const full = new Map((await Promise.all(rows.map((r) => env.DB.prepare("SELECT * FROM feedback WHERE id = ?").bind(r.id).first<Feedback>()))).filter((f): f is Feedback => f !== null).map((f) => [f.id, f]));
   return adminPage(
@@ -94,6 +104,13 @@ async function queue(env: Env, status: string): Promise<Response> {
     html`<h1>Feedback</h1>
 <p class="lead">${rows.length ? `${rows.length} ${filter === "new" ? "waiting" : filter === "all" ? "items and known issues" : STATUS_NAMES[filter]!.toLowerCase()}, most serious first.` : filter === "new" ? "Nothing waiting." : "Nothing here."}${filter === "new" && waiting?.n ? ` ${waiting.n} still being sorted.` : ""}</p>
 <nav class="seg" aria-label="Which feedback">${FILTERS.map((s) => html`<a href="/admin/feedback?status=${s}"${s === filter ? raw(' aria-current="page"') : ""}>${s === "all" ? "All" : s === "new" ? "Waiting" : STATUS_NAMES[s]}</a>`)}</nav>
+${toCheck.length
+      ? html`<h2>Forum posts waiting for a check (${toCheck.length})</h2>
+<p class="muted">Others don't see these yet. Held ones say why.</p>
+<table><tr><th>Post</th><th>Why</th><th></th></tr>${toCheck.map(
+          (p) => html`<tr><td><a href="/admin/feedback/${p.topic.id}">${p.topic.title}</a><br><span class="muted">${p.developer} (${p.by}), ${p.at}:</span> <span style="white-space:pre-wrap">${p.text.slice(0, 400)}</span></td><td>${p.state === "held" ? p.why : html`<span class="muted">Not checked yet</span>`}</td><td class="nowrap">${checkButtons(p.id, "/admin/feedback")}</td></tr>`,
+        )}</table>`
+      : ""}
 ${inside.length
       ? html`<h2>Added to or reopened inside a known issue (${inside.length})</h2>
 <table>${inside.map((i) => html`<tr><td><a href="/admin/feedback/${i.id}">${i.title}</a></td><td class="muted">in <a href="/admin/feedback/${i.group_id}">a known issue</a> that's ${STATUS_NAMES[i.group_status]?.toLowerCase() ?? i.group_status}</td></tr>`)}</table>`
@@ -102,16 +119,21 @@ ${inside.length
   );
 }
 
+function checkButtons(postId: string, back: string): Raw {
+  return html`<form method="post" action="/admin/feedback/posts/${postId}/show" style="display:inline"><input type="hidden" name="back" value="${back}"><button class="btn" type="submit">Show it</button></form>
+<form method="post" action="/admin/feedback/posts/${postId}/remove" style="display:inline"><input type="hidden" name="back" value="${back}"><button class="btn ghost" type="submit">Remove</button></form>`;
+}
+
 function sortedLines(s: Sorted): Raw {
   if (s === "not yet") return html`<p class="muted">Waiting to be sorted.</p>`;
   if (!s || typeof s !== "object") return html``;
-  return html`<p class="said">${s.summary}</p><p class="muted">${s.why}${s.by_ai ? "" : " (Not sorted by AI.)"}</p>`;
+  return html`<p class="said">${s.summary}</p><p class="muted">${s.why}${s.by_ai ? "" : " (Not sorted by AI.)"}${"looks_like" in s && s.looks_like ? html` Looks like <a href="/admin/feedback/${s.looks_like}">another public topic</a>; merge it if it is.` : ""}</p>`;
 }
 
 function card(r: Row, f: Feedback | null, known: KnownOption[], filter: string): Raw {
   const sev = SEVERITY_NUMBER[r.severity] ?? 3;
   return html`<article class="note case sev${sev}" id="f-${r.id}">
-  <div class="row">${severityPill(sev)} ${r.status !== "new" ? html`<span class="pill">${STATUS_NAMES[r.status]}</span> ` : ""}<a href="/admin/feedback/${r.id}"><strong>${r.known_issue ?? r.title}</strong></a>
+  <div class="row">${severityPill(sev)} ${r.status !== "new" ? html`<span class="pill">${STATUS_NAMES[r.status]}</span> ` : ""}${r.public ? html`<span class="pill info">Public</span> ` : ""}<a href="/admin/feedback/${r.id}"><strong>${r.known_issue ?? r.title}</strong></a>
     <span class="muted">${KIND_LABELS[r.kind].label}${r.area ? ` · ${r.area}` : ""} · ${r.developers === 1 ? "1 developer" : `${r.developers} developers`} · ${r.posts === 1 ? "1 post" : `${r.posts} posts`}${r.game ? ` · ${r.game}` : ""}</span></div>
   ${r.known_issue ? html`<p class="muted">Known issue. First filed as “${r.title}”.</p>` : ""}
   ${sortedLines(r.sorted)}
@@ -127,11 +149,11 @@ function decideForm(f: Feedback, sorted: Sorted, known: KnownOption[], back: "qu
   const merged = Boolean(f.group_id);
   return html`<form method="post" action="/admin/feedback/${f.id}/decide" class="decide">
   <input type="hidden" name="back" value="${back}"><input type="hidden" name="status_filter" value="${filter}">
-  <label>Reply to the developer${merged ? "" : isKnown ? " (with a status change, every developer in it gets it)" : ""} <textarea name="reply" rows="2" maxlength="8000" placeholder="They see it from Zaisma"></textarea></label>
+  <label>Reply${f.public ? " in the public topic (every developer sees it)" : merged ? " to the developer" : isKnown ? " (with a status change, every developer in it gets it)" : " to the developer (if you make it a known issue, only they get this)"} <textarea name="reply" rows="2" maxlength="8000" placeholder="From Zaisma"></textarea></label>
   ${merged
     ? ""
     : html`<div class="precedent">
-    <label class="check"><input type="checkbox" name="known" value="1"${isKnown ? raw(" checked") : ""}> ${isKnown ? html`A known issue every developer sees` : draft ? html`Make it a known issue every developer sees: <strong>${draft.title}</strong> <span class="muted">(the AI's draft)</span>` : "Make it a known issue every developer sees"}</label>
+    <label class="check"><input type="checkbox" name="known" value="1"${isKnown ? raw(" checked") : ""}> ${isKnown ? html`A known issue every developer sees` : draft ? html`Make it a known issue every developer sees: <strong>${draft.title}</strong> <span class="muted">(the AI's draft${f.public ? "" : "; a new public topic of Zaisma's own, without the developer's words"})</span>` : f.public ? "Make this public topic a known issue" : "Make it a known issue: a new public topic of Zaisma's own, without the developer's words"}</label>
     <details><summary>${isKnown ? "Edit the known issue" : draft ? "Edit it first" : "Write the known issue"}</summary>
       <label>Title: general, with no names, games or anything said in private <input name="k_title" maxlength="120" value="${title}"></label>
       <label>Until it's fixed (optional) <textarea name="k_workaround" rows="2" maxlength="2000">${f.workaround ?? draft?.workaround ?? ""}</textarea></label>
@@ -160,7 +182,7 @@ async function itemPage(env: Env, id: string, error: string): Promise<Response> 
     d.title,
     html`<p><a href="/admin/feedback">Feedback</a></p>
 <h1>${d.known_issue?.title ?? d.title}</h1>
-<p class="row">${severityPill(sev)} <span class="pill">${STATUS_NAMES[d.status]}</span> <span class="muted">${KIND_LABELS[d.kind].label}${d.area ? ` · ${d.area}` : ""} · from ${d.developer}${d.game ? html` · <a href="/g/${d.game.slug}">${d.game.title}</a>` : ""}</span></p>
+<p class="row">${severityPill(sev)} <span class="pill">${STATUS_NAMES[d.status]}</span> ${d.public ? html`<span class="pill info">Public</span> <a href="/forum/${d.id}">Open in the forum</a>` : html`<span class="pill">Private</span>`} <span class="muted">${KIND_LABELS[d.kind].label}${d.area ? ` · ${d.area}` : ""} · from ${d.developer}${d.game ? html` · <a href="/g/${d.game.slug}">${d.game.title}</a>` : ""}</span></p>
 ${error ? html`<p class="note" style="color:var(--danger)">${error}</p>` : ""}
 ${d.known_issue ? html`<div class="note"><p><strong>Known issue</strong> · ${d.known_issue.developers === 1 ? "1 developer" : `${d.known_issue.developers} developers`}${d.known_issue.roadmap ? ` · roadmap: ${d.known_issue.roadmap}` : ""}. First filed as “${d.title}”.</p>${d.known_issue.workaround ? html`<p>Until it's fixed: ${d.known_issue.workaround}</p>` : ""}</div>` : ""}
 ${d.merged_into ? html`<p class="note">Merged into <a href="/admin/feedback/${d.merged_into.id}">${d.merged_into.title}</a> (${STATUS_NAMES[d.merged_into.status]?.toLowerCase()}).</p>` : ""}
@@ -168,7 +190,7 @@ ${d.merged_into ? html`<p class="note">Merged into <a href="/admin/feedback/${d.
 <h2>Posts (${d.posts.length})</h2>
 <div class="queue">${d.posts.map(
       (p) => html`<article class="note case">
-  <div class="row"><strong>${p.by}</strong> <span class="muted">${p.via}${p.kind === "reopen" ? " · reopened it" : ""} · ${p.at}</span></div>
+  <div class="row"><strong>${p.by}</strong> <span class="muted">${p.via}${p.kind === "reopen" ? " · reopened it" : ""} · ${p.at}</span>${"check" in p && p.check && p.check !== "shown" ? html` <span class="pill pending">${p.check}</span> ${checkButtons(p.id, `/admin/feedback/${d.id}`)}` : ""}</div>
   <p class="said" style="white-space:pre-wrap">${p.text}</p>
   ${p.context ? html`<details><summary>What was attached</summary><pre>${JSON.stringify(p.context, null, 2)}</pre></details>` : ""}
   ${p.picture ? html`<p><a href="/admin/feedback/pictures/${p.id}" target="_blank">Screenshot</a></p>` : ""}

@@ -1,4 +1,4 @@
-import { CONTROLS, DEVICES, FEEDBACK_KINDS, PLAY_STYLES, ROOM_BROWSING, SCREENS, VISIBILITIES } from "@zaisma/core";
+import { CONTROLS, DEVICES, FEEDBACK_AREAS, FEEDBACK_KINDS, FORUM_CATEGORIES, FORUM_TAGS, PLAY_STYLES, ROOM_BROWSING, SCREENS, VISIBILITIES } from "@zaisma/core";
 import { ApiError, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 
@@ -23,7 +23,7 @@ How publishing works:
 
 Ask the developer before making a game private or a draft again (players lose access), and show them the preview link before publishing. Never guess why a version was held beyond what get_version says.
 
-Feedback about Zaisma itself goes straight to the people who build it, and you're asked to send it. Whenever you hit a Zaisma bug, a limit that blocks the developer, a missing feature, a confusing error or a question the docs don't answer: first check get_feedback with a short search (it shows the developer's own items and the known issues every developer can see, with workarounds). If it's already there, add your case with add_to_feedback instead of filing it again; if a fixed one is back, reopen it. Otherwise file it with send_feedback: what you were doing, what you expected, what happened, the exact error and the tool call. Never include API keys, passwords or players' personal details (secrets are blanked anyway). Your posts are marked as written by an AI. list_games shows feedback_news when Zaisma has replied to the developer's items.`;
+Zaisma's developer forum is where developers and their AI talk with the people who build Zaisma, and you're asked to use it. Whenever you hit a Zaisma bug, a limit that blocks the developer, a missing feature, a confusing error or a question the docs don't answer: first search_forum with a short search (topics, answers and the known issues with their workarounds). If it's there, say me_too, reply, or send the developer's own case privately (post_topic with known_issue); if their fixed topic is back, reopen it. Otherwise post it with post_topic: what you were doing, what you expected, what happened, the exact error and the tool call. Bugs and gaps go privately to Zaisma by default; ideas, questions and discussions are public, so keep private details out of them (context and screenshots are never public). Never include API keys, passwords or players' personal details (secrets are blanked anyway). Your posts carry the developer's name with an AI mark. search_forum's yours tab shows what's new, and list_games shows feedback_news when Zaisma has replied.`;
 
 interface Tool {
   name: string;
@@ -77,7 +77,7 @@ const TOOLS: Tool[] = [
   {
     name: "list_games",
     title: "List my games",
-    description: "Your games, with their visibility (draft, listed, unlisted, private) and review status, and feedback_news: how many of your feedback items Zaisma has replied to or changed since you last opened them (get_feedback).",
+    description: "Your games, with their visibility (draft, listed, unlisted, private) and review status, and feedback_news: how many of your forum topics Zaisma has replied to or changed since you last opened them (search_forum, tab yours).",
     inputSchema: object({}),
     annotations: read,
     run: (_, call) => call("GET", "/games"),
@@ -194,58 +194,98 @@ const TOOLS: Tool[] = [
     run: (args, call) => call("DELETE", `/games/${str(args.slug)}/testers/${str(args.tester_id)}`),
   },
   {
-    name: "get_feedback",
-    title: "Feedback and known issues",
+    name: "search_forum",
+    title: "Search the developer forum",
     description:
-      "Feedback about Zaisma itself: the developer's own items (bugs, gaps, feature requests, questions) with where each stands, and the known issues every developer can see, with workarounds, the roadmap item and how many developers each affects. Search with q before filing anything. With id: one item in full with every post (yours, your AI's and Zaisma's replies), or a known issue. To check for changes, pass the next_since from your last call as since.",
+      "The developer forum, where developers and their AI talk with Zaisma about Zaisma itself: bugs, missing pieces, ideas, questions and discussions, and Zaisma's known issues (with workarounds, the roadmap item and how many developers each affects). Search with q before posting anything. tab: latest (default), top (most Me too), unanswered (questions), known (known issues) or yours (the developer's own topics, private ones included, and ones they follow; unread marks what's new). Filter by category (a category or sub-category id), kind or tag. 30 a page.",
     inputSchema: object({
-      id: { type: "string", description: "One item or known issue, in full." },
-      q: { type: "string", maxLength: 500, description: "Search words, like the error or what failed." },
-      since: { type: "integer", minimum: 0, description: "next_since from an earlier call: only what changed after it." },
+      q: { type: "string", maxLength: 200, description: "Search words, like the error or what failed." },
+      tab: { enum: ["latest", "top", "unanswered", "known", "yours"] },
+      category: { type: "string", description: `A category (${FORUM_CATEGORIES.map((c) => c.id).join(", ")}) or sub-category (${FEEDBACK_AREAS.join(", ")}).` },
+      kind: { enum: FEEDBACK_KINDS },
+      tag: { enum: Object.keys(FORUM_TAGS) },
+      page: { type: "integer", minimum: 1 },
     }),
     annotations: read,
     run: (args, call) => {
-      if (args.id) return call("GET", `/feedback/${str(args.id)}`);
-      const q = new URLSearchParams(pick(args, ["q", "since"]) as Record<string, string>).toString();
-      return call("GET", `/feedback${q ? `?${q}` : ""}`);
+      const q = new URLSearchParams(pick(args, ["q", "tab", "category", "kind", "tag", "page"]) as Record<string, string>).toString();
+      return call("GET", `/forum${q ? `?${q}` : ""}`);
     },
   },
   {
-    name: "send_feedback",
-    title: "Send feedback to Zaisma",
+    name: "get_topic",
+    title: "A forum topic",
     description:
-      "Tell the people who build Zaisma about a bug, a gap (a limit or something missing that blocks the developer), a feature request or a question, about Zaisma itself (not the developer's game). Check get_feedback first; add to an existing item rather than filing it twice. Answers at once with matching known issues and their workarounds. Private to the developer and Zaisma. About 100 posts a day per account.",
+      "One forum topic with every post you can see: who wrote each (the developer, a developer's AI, or Zaisma), what it replies to, the answer, and for a known issue its workaround and how many developers it affects. Your own posts still being checked show their state; what you attached and your screenshots show only to you.",
+    inputSchema: object({ id: { type: "string" } }, ["id"]),
+    annotations: read,
+    run: (args, call) => call("GET", `/forum/${str(args.id)}`),
+  },
+  {
+    name: "post_topic",
+    title: "Post to the developer forum",
+    description:
+      "Start a topic about Zaisma itself (not the developer's game): a bug, a gap (a limit or missing piece that blocks the developer), a feature idea, a question or a discussion. Search first; if it's there, reply or say me_too instead. Bugs and gaps go privately to Zaisma unless public: true; ideas, questions and discussions are public unless public: false. Public posts are checked before others see them and are signed with the developer's name and an AI mark; never put private details, keys or players' information in one. To add the developer's own case to a known issue privately, pass known_issue. Answers with similar topics. About 100 posts a day per account.",
     inputSchema: object(
       {
         kind: { enum: FEEDBACK_KINDS },
         title: { type: "string", maxLength: 120, description: "One line, specific: \"upload_files fails with too_big for a 3 MB game\"." },
-        text: { type: "string", maxLength: 8000, description: "What you were doing, what you expected, what happened and how to make it happen again." },
-        game: { ...slug, description: "The game it happened with, if any (one of the developer's)." },
-        context: { type: "object", description: "Facts for whoever fixes it: the tool or command, the exact error and code, the version, what you sent (no secrets, no whole files)." },
-        picture_base64: { type: "string", description: "A screenshot (PNG, JPEG or WebP, up to 2 MB), base64." },
+        text: { type: "string", maxLength: 8000, description: "What you were doing, what you expected, what happened and how to make it happen again. Code between ``` lines." },
+        category: { type: "string", description: `The sub-category: ${FEEDBACK_AREAS.join(", ")}. Leave out if unsure.` },
+        tags: { type: "array", items: { enum: Object.keys(FORUM_TAGS) }, maxItems: 3 },
+        public: { type: "boolean", description: "Override who sees it (default: private for bug and gap, public otherwise)." },
+        known_issue: { type: "string", description: "A known issue's id: send the developer's own case to Zaisma privately, so it counts." },
+        game: { ...slug, description: "The game it happened with, if any. Only the developer and Zaisma see it." },
+        context: { type: "object", description: "Facts for whoever fixes it: the tool or command, the exact error and code, the version, what you sent (no secrets, no whole files). Only the developer and Zaisma see it." },
+        picture_base64: { type: "string", description: "A screenshot (PNG, JPEG or WebP, up to 2 MB), base64. Only the developer and Zaisma see it." },
       },
       ["kind", "title", "text"],
     ),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-    run: (args, call) => call("POST", "/feedback", { ...pick(args, ["kind", "title", "text", "game", "context"]), ...(args.picture_base64 ? { picture: args.picture_base64 } : {}) }),
+    run: (args, call) => call("POST", "/forum", { ...pick(args, ["kind", "title", "text", "category", "tags", "public", "known_issue", "game", "context"]), ...(args.picture_base64 ? { picture: args.picture_base64 } : {}) }),
   },
   {
-    name: "add_to_feedback",
-    title: "Add to feedback",
+    name: "reply_to_topic",
+    title: "Reply in the forum",
     description:
-      "Add more to one of the developer's feedback items (what you found digging further, a new case, a screenshot), or reopen it with reopen: true when something fixed, answered or closed is back. Given a known issue's id, it adds the developer's own case to it, so it counts and they hear when it's fixed.",
+      "Reply to a forum topic, or to one post in it (reply_to). On the developer's own private topic, add what you found digging further, or reopen it (reopen: true) when something fixed, answered or closed is back. Public replies are checked before others see them and are signed with the developer's name and an AI mark.",
     inputSchema: object(
       {
-        id: { type: "string", description: "A feedback item or known issue id from get_feedback." },
+        id: { type: "string", description: "A topic id from search_forum." },
         text: { type: "string", maxLength: 8000 },
-        reopen: { type: "boolean", description: "Reopen a fixed, answered or closed item." },
-        context: { type: "object", description: "The tool or command, the exact error and code, the version (no secrets)." },
-        picture_base64: { type: "string", description: "A screenshot (PNG, JPEG or WebP, up to 2 MB), base64." },
+        reply_to: { type: "string", description: "A post id in the topic, to answer that post." },
+        reopen: { type: "boolean", description: "Reopen the developer's own fixed, answered or closed topic." },
+        context: { type: "object", description: "The tool or command, the exact error and code, the version (no secrets). Only the developer and Zaisma see it." },
+        picture_base64: { type: "string", description: "A screenshot (PNG, JPEG or WebP, up to 2 MB), base64. Only the developer and Zaisma see it." },
       },
       ["id", "text"],
     ),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-    run: (args, call) => call("POST", `/feedback/${str(args.id)}/posts`, { ...pick(args, ["text", "reopen", "context"]), ...(args.picture_base64 ? { picture: args.picture_base64 } : {}) }),
+    run: (args, call) => call("POST", `/forum/${str(args.id)}/posts`, { ...pick(args, ["text", "reply_to", "reopen", "context"]), ...(args.picture_base64 ? { picture: args.picture_base64 } : {}) }),
+  },
+  {
+    name: "me_too",
+    title: "Say Me too",
+    description: "On someone else's public topic: it happens to the developer too, or they want it too. It counts (on a known issue, toward the developers affected) and the developer follows the topic. on: false takes it back.",
+    inputSchema: object({ id: { type: "string" }, on: { type: "boolean" } }, ["id"]),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    run: (args, call) => call("POST", `/forum/${str(args.id)}/vote`, { on: args.on !== false }),
+  },
+  {
+    name: "follow_topic",
+    title: "Follow a forum topic",
+    description: "Follow a topic, so what's new in it shows as unread in search_forum's yours tab (the developer's own topics, ones they replied to and Me too are followed already). on: false stops.",
+    inputSchema: object({ id: { type: "string" }, on: { type: "boolean" } }, ["id"]),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    run: (args, call) => call("POST", `/forum/${str(args.id)}/follow`, { on: args.on !== false }),
+  },
+  {
+    name: "mark_answer",
+    title: "Mark a question's answer",
+    description: "On the developer's own question: mark the reply that answered it (post: null clears it). Ask the developer first.",
+    inputSchema: object({ id: { type: "string" }, post: { type: ["string", "null"] } }, ["id", "post"]),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    run: (args, call) => call("POST", `/forum/${str(args.id)}/answer`, { post: args.post ?? null }),
   },
   {
     name: "get_reports",
@@ -343,7 +383,7 @@ export async function handleMcp(request: Request, env: Env): Promise<Response> {
       if (err instanceof ApiError) return `${err.message} (${err.code})`;
       // Our bug, not the AI's: say so, and ask for feedback so it reaches us with the details.
       console.error("MCP tool failed", err);
-      return "Something went wrong on Zaisma's side (internal_error). Try once more; if it happens again, tell Zaisma with send_feedback (kind bug): the tool, what you sent and this error.";
+      return "Something went wrong on Zaisma's side (internal_error). Try once more; if it happens again, tell Zaisma with post_topic (kind bug): the tool, what you sent and this error.";
     },
   );
 }

@@ -59,6 +59,7 @@ import {
 import { currentSession } from "./auth.ts";
 import { gameUrl, type Env } from "./env.ts";
 import { feedbackRoute } from "./feedback.ts";
+import { forumRoute } from "./forum.ts";
 import { playStats } from "./plays.ts";
 import { pruneVersions } from "./scan.ts";
 
@@ -85,7 +86,8 @@ import { pruneVersions } from "./scan.ts";
  *   GET    /api/dev/games/:slug/testers        tester links that are on
  *   POST   /api/dev/games/:slug/testers        make a tester link: { "name" }
  *   DELETE /api/dev/games/:slug/testers/:id    turn one off for good
- *   …/api/dev/feedback                         feedback about Zaisma itself (see feedback.ts)
+ *   …/api/dev/forum                            the developer forum: topics, replies, Me too (see forum.ts)
+ *   …/api/dev/feedback                         the first feedback calls, kept for older clients (see feedback.ts)
  *
  * Images are served from /img/:id once approved; owners can see their own before that.
  */
@@ -194,6 +196,10 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
 
   if (path === "/feedback" || path.startsWith("/feedback/")) {
     const out = await feedbackRoute(request, env, path, caller);
+    return out instanceof Response ? out : ok(...out);
+  }
+  if (path === "/forum" || path.startsWith("/forum/")) {
+    const out = await forumRoute(request, env, path, caller);
     return out instanceof Response ? out : ok(...out);
   }
 

@@ -17,10 +17,13 @@ import {
 } from "@zaisma/core";
 import { ApiError, ownGame, readJson, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
+import { checkPost } from "./forum-check.ts";
 
 /**
- * Feedback about Zaisma itself, from developers and their AI (docs/DECISIONS.md). Part of the
- * developer API, so the MCP, the upload command and the dashboard see exactly the same thing:
+ * Feedback about Zaisma itself, from developers and their AI (docs/DECISIONS.md). These are the
+ * first calls, kept as they were for the upload command and older clients; the developer forum's
+ * calls (forum.ts) reach the same topics, public ones included. Part of the developer API, so the
+ * MCP, the upload command and the forum see exactly the same thing:
  *
  *   GET  /api/dev/feedback?q=&since=           your items and the known issues (q: search, since: changed after)
  *   POST /api/dev/feedback                     file one: { kind, title, text, game?, context?, author?, picture? }
@@ -33,10 +36,10 @@ import type { Env } from "./env.ts";
  */
 
 const DAY = 86400_000;
-const KNOWN = "SELECT * FROM feedback WHERE known_title IS NOT NULL";
+export const KNOWN = "SELECT * FROM feedback WHERE known_title IS NOT NULL AND group_id IS NULL";
 
-/** Who wrote a post, from what the server knows: the MCP is always an AI, the dashboard is the developer, and API callers say (AI unless told otherwise). */
-function authorOf(caller: Caller, body: Record<string, unknown>): { author: FeedbackAuthor; via: FeedbackVia } {
+/** Who wrote a post, from what the server knows: the MCP is always an AI, the dashboard and forum pages are the developer, and API callers say (AI unless told otherwise). */
+export function authorOf(caller: Caller, body: Record<string, unknown>): { author: FeedbackAuthor; via: FeedbackVia } {
   if (caller.via === "mcp") return { author: "ai", via: "mcp" };
   if (caller.via === "dashboard") return { author: "person", via: "dashboard" };
   return { author: body.author === "person" ? "person" : "ai", via: caller.client === "cli" ? "cli" : "api" };
@@ -59,28 +62,35 @@ export async function feedbackRoute(request: Request, env: Env, path: string, ca
   throw new ApiError(405, "bad_method", `${method} isn't used here.`);
 }
 
-async function feedbackById(env: Env, id: string): Promise<Feedback | null> {
+export async function feedbackById(env: Env, id: string): Promise<Feedback | null> {
   return env.DB.prepare("SELECT * FROM feedback WHERE id = ?").bind(id).first<Feedback>();
 }
 
 /** One of the caller's own items. Someone else's item looks the same as no item. */
 async function ownFeedback(env: Env, caller: Caller, id: string): Promise<Feedback> {
   const f = await feedbackById(env, id);
-  if (!f || f.account_id !== caller.accountId) throw new ApiError(404, "no_feedback", "You have no feedback with that id. get_feedback lists yours and the known issues.");
+  if (!f || f.account_id !== caller.accountId) throw new ApiError(404, "no_feedback", "You have no feedback with that id. GET /feedback (or search_forum) lists yours and the known issues.");
   return f;
 }
 
-/** How many developers a known issue affects: the people with an item in it. */
-async function developersIn(env: Env, ids: string[]): Promise<Map<string, number>> {
-  if (!ids.length) return new Map();
-  if (ids.length === 1) {
-    const row = await env.DB.prepare("SELECT COUNT(DISTINCT account_id) AS n FROM feedback WHERE (id = ? OR group_id = ?) AND account_id IS NOT NULL").bind(ids[0], ids[0]).first<{ n: number }>();
-    return new Map([[ids[0]!, row?.n ?? 0]]);
+/** How many developers a known issue affects: the people with an item in it, and those who said "Me too". */
+export async function developersIn(env: Env, ids: string[]): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  // D1 takes at most 100 values per query: three per id.
+  for (let i = 0; i < ids.length; i += 30) {
+    const chunk = ids.slice(i, i + 30);
+    const marks = chunk.map(() => "?").join(", ");
+    const { results } = await env.DB.prepare(
+      `SELECT issue, COUNT(DISTINCT who) AS n FROM (
+         SELECT COALESCE(group_id, id) AS issue, account_id AS who FROM feedback WHERE account_id IS NOT NULL AND (id IN (${marks}) OR group_id IN (${marks}))
+         UNION SELECT feedback_id, account_id FROM feedback_votes WHERE feedback_id IN (${marks})
+       ) GROUP BY issue`,
+    )
+      .bind(...chunk, ...chunk, ...chunk)
+      .all<{ issue: string; n: number }>();
+    for (const r of results) out.set(r.issue, r.n);
   }
-  // Every group at once: D1 takes at most 100 values per query, so no long IN lists.
-  const { results } = await env.DB.prepare("SELECT COALESCE(group_id, id) AS issue, COUNT(DISTINCT account_id) AS n FROM feedback WHERE account_id IS NOT NULL GROUP BY issue").all<{ issue: string; n: number }>();
-  const wanted = new Set(ids);
-  return new Map(results.filter((r) => wanted.has(r.issue)).map((r) => [r.issue, r.n]));
+  return out;
 }
 
 function knownJson(k: Feedback, developers: number, yours: string | null) {
@@ -127,7 +137,7 @@ async function feedbackList(env: Env, caller: Caller, q: string, since: number) 
   };
 }
 
-const hasNews = (f: Feedback) => Boolean(f.news_at && f.news_at > (f.seen_at ?? 0));
+export const hasNews = (f: Feedback) => Boolean(f.news_at && f.news_at > (f.seen_at ?? 0));
 
 async function summaryJson(env: Env, f: Feedback, group: Feedback | null) {
   const game = f.game_id ? await gameById(env.DB, f.game_id) : null;
@@ -181,15 +191,15 @@ async function feedbackItem(env: Env, caller: Caller, id: string) {
     return { feedback: await itemJson(env, caller, f) };
   }
   if (f?.known_title) return { known_issue: (await knownIssues(env, caller, [f]))[0] };
-  throw new ApiError(404, "no_feedback", "You have no feedback with that id, and it isn't a known issue. get_feedback lists yours and the known issues.");
+  throw new ApiError(404, "no_feedback", "You have no feedback with that id, and it isn't a known issue. GET /feedback (or search_forum) lists yours and the known issues.");
 }
 
-async function postsLeft(env: Env, caller: Caller): Promise<number> {
+export async function postsLeft(env: Env, caller: Caller): Promise<number> {
   const row = await env.DB.prepare("SELECT COUNT(*) AS n FROM feedback_posts WHERE account_id = ? AND created_at > ?").bind(caller.accountId, Date.now() - DAY).first<{ n: number }>();
   return Math.max(0, FEEDBACK_LIMITS.postsPerDay - (row?.n ?? 0));
 }
 
-interface Post {
+export interface Post {
   text: string;
   context: string | null;
   picture: { bytes: Uint8Array; type: string } | null;
@@ -199,7 +209,7 @@ interface Post {
 }
 
 /** Checks a post and blanks its secrets, before anything is stored. */
-async function readPost(env: Env, caller: Caller, body: Record<string, unknown>): Promise<Post> {
+export async function readPost(env: Env, caller: Caller, body: Record<string, unknown>): Promise<Post> {
   if ((await postsLeft(env, caller)) <= 0) {
     throw new ApiError(429, "feedback_limit", `You've posted ${FEEDBACK_LIMITS.postsPerDay} times in the last day, the most for one account. Add to an existing item tomorrow, or write to us if something is urgent.`);
   }
@@ -236,16 +246,27 @@ async function readPost(env: Env, caller: Caller, body: Record<string, unknown>)
   return { text: text.text, context, picture, blanked, ...authorOf(caller, body) };
 }
 
-async function storePost(env: Env, feedbackId: string, caller: Caller, post: Post, kind: "post" | "reopen"): Promise<string> {
+/**
+ * Stores a post. On a private topic it's there at once for the developer and Zaisma; on a public one
+ * it's checked first, and others see it once it passes (forum-check.ts).
+ */
+export async function storePost(env: Env, f: Feedback, caller: Caller, post: Post, kind: "post" | "reopen", replyTo: string | null = null): Promise<{ id: string; check: FeedbackPost["check_state"] }> {
   const id = newId();
+  const now = Date.now();
   if (post.picture) await env.GAMES.put(feedbackPictureKey(id), post.picture.bytes, { httpMetadata: { contentType: post.picture.type } });
-  await env.DB.prepare("INSERT INTO feedback_posts (id, feedback_id, account_id, author, via, kind, text, context, picture, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    .bind(id, feedbackId, caller.accountId, post.author, post.via, kind, post.text, post.context, post.picture?.type ?? null, Date.now())
+  await env.DB.prepare("INSERT INTO feedback_posts (id, feedback_id, account_id, author, via, kind, text, context, picture, created_at, reply_to, check_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .bind(id, f.id, caller.accountId, post.author, post.via, kind, post.text, post.context, post.picture?.type ?? null, now, replyTo, f.public ? "pending" : null)
     .run();
-  return id;
+  // Whoever posts follows the topic, and has seen it up to now.
+  await env.DB.prepare("INSERT INTO feedback_follows (feedback_id, account_id, seen_at) VALUES (?, ?, ?) ON CONFLICT DO UPDATE SET seen_at = excluded.seen_at").bind(f.id, caller.accountId, now).run();
+  if (!f.public) {
+    await env.DB.prepare("UPDATE feedback SET active_at = ? WHERE id = ?").bind(now, f.id).run();
+    return { id, check: null };
+  }
+  return { id, check: await checkPost(env, id) };
 }
 
-function readTitle(body: Record<string, unknown>): string {
+export function readTitle(body: Record<string, unknown>): string {
   const title = typeof body.title === "string" ? body.title.trim().replace(/\s+/g, " ") : "";
   if (!title || title.length > FEEDBACK_LIMITS.title) throw new ApiError(400, "bad_title", `Give it a title of 1 to ${FEEDBACK_LIMITS.title} characters.`);
   return blankSecrets(title).text;
@@ -260,15 +281,15 @@ async function fileFeedback(env: Env, caller: Caller, body: Record<string, unkno
   let group: Feedback | null = null;
   if (typeof body.known_issue === "string" && body.known_issue) {
     group = await feedbackById(env, body.known_issue);
-    if (!group?.known_title) throw new ApiError(404, "no_known_issue", "There's no known issue with that id. get_feedback lists them.");
+    if (!group?.known_title) throw new ApiError(404, "no_known_issue", "There's no known issue with that id. GET /feedback (or search_forum) lists them.");
   }
   const post = await readPost(env, caller, body);
   const id = newId();
   const now = Date.now();
-  await env.DB.prepare("INSERT INTO feedback (id, account_id, kind, title, game_id, status, group_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    .bind(id, caller.accountId, kind, title, game?.id ?? null, group && (group.status === "known" || group.status === "planned") ? group.status : "new", group?.id ?? null, now, now)
+  await env.DB.prepare("INSERT INTO feedback (id, account_id, kind, title, game_id, status, group_id, created_at, updated_at, active_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .bind(id, caller.accountId, kind, title, game?.id ?? null, group && (group.status === "known" || group.status === "planned") ? group.status : "new", group?.id ?? null, now, now, now)
     .run();
-  await storePost(env, id, caller, post, "post");
+  await storePost(env, (await feedbackById(env, id))!, caller, post, "post");
   const { results: known } = group ? { results: [] } : await env.DB.prepare(`${KNOWN} ORDER BY updated_at DESC LIMIT 500`).all<Feedback>();
   const matches = matchKnownIssues(`${title} ${post.text}`, known);
   return {
@@ -294,11 +315,11 @@ async function addToFeedback(env: Env, caller: Caller, id: string, body: Record<
       f = yours;
     }
   }
-  if (!f) throw new ApiError(404, "no_feedback", "You have no feedback with that id, and it isn't a known issue. get_feedback lists yours and the known issues.");
+  if (!f) throw new ApiError(404, "no_feedback", "You have no feedback with that id, and it isn't a known issue. GET /feedback (or search_forum) lists yours and the known issues.");
   const reopen = body.reopen === true;
   if (reopen && !FEEDBACK_CLOSED.includes(f.status)) throw new ApiError(400, "not_closed", `It's ${f.status}, not closed, so there's nothing to reopen. Just add to it.`);
   const post = await readPost(env, caller, body);
-  await storePost(env, f.id, caller, post, reopen ? "reopen" : "post");
+  await storePost(env, f, caller, post, reopen ? "reopen" : "post");
   await env.DB.prepare(`UPDATE feedback SET updated_at = ?${reopen ? ", status = 'new'" : ""} WHERE id = ?`).bind(Date.now(), f.id).run();
   return { feedback: await itemJson(env, caller, (await feedbackById(env, f.id))!), ...(post.blanked ? { secrets_removed: post.blanked } : {}) };
 }
@@ -360,6 +381,7 @@ export async function adminFeedbackList(env: Env, status = "new", limit = 30) {
         kind: f.kind,
         title: f.title,
         known_issue: f.known_title,
+        public: f.public === 1,
         status: f.status,
         severity: SEVERITY_NAMES[f.severity] ?? "normal",
         area: f.area || null,
@@ -373,14 +395,39 @@ export async function adminFeedbackList(env: Env, status = "new", limit = 30) {
       };
     }),
   );
-  const out: { feedback: typeof rows; reopened_or_added?: { id: string; title: string; group_id: string; group_status: string }[] } = { feedback: rows };
+  const out: { feedback: typeof rows; reopened_or_added?: { id: string; title: string; group_id: string; group_status: string }[]; posts_to_check?: Awaited<ReturnType<typeof postsToCheck>> } = { feedback: rows };
   if (status === "new") {
     const { results } = await env.DB
       .prepare("SELECT f.id, f.title, f.group_id, g.status AS group_status FROM feedback f JOIN feedback g ON g.id = f.group_id WHERE f.status = 'new' AND g.status != 'new' ORDER BY f.updated_at DESC LIMIT 50")
       .all<{ id: string; title: string; group_id: string; group_status: string }>();
     out.reopened_or_added = results;
+    out.posts_to_check = await postsToCheck(env, 50);
   }
   return out;
+}
+
+/**
+ * Forum posts others can't see yet: held by the check (with why), or not checked yet because the AI
+ * couldn't. A person shows or removes each one (check_post in the admin MCP).
+ */
+export async function postsToCheck(env: Env, limit = 50) {
+  const { results } = await env.DB.prepare(
+    "SELECT p.*, f.title AS topic_title, f.known_title AS topic_known FROM feedback_posts p JOIN feedback f ON f.id = p.feedback_id WHERE p.check_state IN ('held', 'pending') ORDER BY p.check_state = 'held' DESC, p.created_at LIMIT ?",
+  )
+    .bind(limit)
+    .all<FeedbackPost & { topic_title: string; topic_known: string | null }>();
+  return Promise.all(
+    results.map(async (p) => ({
+      id: p.id,
+      topic: { id: p.feedback_id, title: p.topic_known ?? p.topic_title },
+      state: p.check_state === "held" ? "held" : "not checked yet",
+      why: p.check_reason,
+      developer: await accountName(env, p.account_id),
+      by: ADMIN_BY[p.author],
+      text: p.text.slice(0, 2000),
+      at: iso(p.created_at),
+    })),
+  );
 }
 
 /** What AI sorting found: its summary, why, and a drafted known issue to approve with decide_feedback. */
@@ -388,7 +435,7 @@ function sortedJson(f: Feedback) {
   // Only new items on their own are sorted; known issues and grouped items never wait for it.
   if (!f.triage) return f.triaged_at || f.known_title || f.group_id || f.status !== "new" ? null : "not yet";
   const t = JSON.parse(f.triage) as FeedbackTriage;
-  return { by_ai: t.ai, summary: t.summary, why: t.why, ...(t.merged_into ? { merged_into: t.merged_into } : {}), ...(t.draft ? { draft_known_issue: t.draft } : {}) };
+  return { by_ai: t.ai, summary: t.summary, why: t.why, ...(t.merged_into ? { merged_into: t.merged_into } : {}), ...(t.same_as ? { looks_like: t.same_as } : {}), ...(t.draft ? { draft_known_issue: t.draft } : {}) };
 }
 
 /** One item in full: every post with who wrote it, the developer's name, the game and the rest of its group. */
@@ -414,14 +461,28 @@ export async function adminFeedbackItem(env: Env, id: string) {
       kind: f.kind,
       title: f.title,
       status: f.status,
+      // A public forum topic every developer can read, or private to the developer and Zaisma.
+      public: f.public === 1,
       severity: SEVERITY_NAMES[f.severity] ?? "normal",
       area: f.area || null,
-      developer: await accountName(env, f.account_id),
+      developer: f.account_id ? await accountName(env, f.account_id) : "Zaisma (a known issue)",
       game: game ? { slug: game.slug, title: game.title } : null,
       known_issue: f.known_title ? { title: f.known_title, workaround: f.workaround, roadmap: f.roadmap, developers: (await developersIn(env, [f.id])).get(f.id) ?? 0 } : null,
       merged_into: lead ? { id: lead.id, title: lead.known_title ?? lead.title, status: lead.status } : null,
       sorted: sortedJson(f),
-      posts: posts.map((p) => ({ id: p.id, by: ADMIN_BY[p.author], via: p.via, kind: p.kind, text: p.text, context: p.context ? JSON.parse(p.context) : null, picture: Boolean(p.picture), at: iso(p.created_at) })),
+      posts: posts.map((p) => ({
+        id: p.id,
+        by: ADMIN_BY[p.author],
+        via: p.via,
+        kind: p.kind,
+        text: p.text,
+        context: p.context ? JSON.parse(p.context) : null,
+        picture: Boolean(p.picture),
+        // On a public topic: shown, held by the check (with why) or not checked yet.
+        ...(p.check_state ? { check: p.check_state === "ok" ? "shown" : p.check_state === "held" ? `held: ${p.check_reason ?? ""}` : "not checked yet" } : {}),
+        ...(p.reply_to ? { reply_to: p.reply_to } : {}),
+        at: iso(p.created_at),
+      })),
       merged_here: await Promise.all(members.map(async (m) => ({ id: m.id, developer: await accountName(env, m.account_id), title: m.title, status: m.status, latest: await latestPost(env, m.id, 500) }))),
     },
     pictures: pictures.filter((p): p is { data: string; mimeType: string } => p !== null),
@@ -435,16 +496,19 @@ export interface FeedbackDecision {
   known_issue?: { title: string; workaround?: string; roadmap?: string } | null;
   severity?: number;
   area?: string;
+  /** Marks a post in the topic as its answer (null clears it). */
+  answer?: string | null;
   /** Decided by AI sorting, not a person: the developer is told so. */
   by_ai?: boolean;
 }
 
 export class FeedbackRefusal extends Error {}
 
+/** Zaisma's own posts need no check: on a public topic everyone sees them at once. */
 async function zaismaPost(env: Env, feedbackId: string, kind: "post" | "status", text: string, at: number) {
   await env.DB.batch([
-    env.DB.prepare("INSERT INTO feedback_posts (id, feedback_id, account_id, author, via, kind, text, created_at) VALUES (?, ?, NULL, 'zaisma', 'admin', ?, ?, ?)").bind(newId(), feedbackId, kind, text, at),
-    env.DB.prepare("UPDATE feedback SET updated_at = ?, news_at = ? WHERE id = ?").bind(at, at, feedbackId),
+    env.DB.prepare("INSERT INTO feedback_posts (id, feedback_id, account_id, author, via, kind, text, created_at, check_state) SELECT ?, id, NULL, 'zaisma', 'admin', ?, ?, ?, CASE WHEN public = 1 THEN 'ok' END FROM feedback WHERE id = ?").bind(newId(), kind, text, at, feedbackId),
+    env.DB.prepare("UPDATE feedback SET updated_at = ?, news_at = ?, active_at = ?, replies = replies + public WHERE id = ?").bind(at, at, at, feedbackId),
   ]);
 }
 
@@ -460,7 +524,9 @@ const STATUS_WORDS: Record<string, string> = {
 /**
  * What the admin decided, in one call: a reply, a status (for a known issue, every item merged into
  * it too, and each developer hears), merging into a known issue, making an item a known issue (its
- * cleaned-up title, workaround and roadmap item, which every developer sees), severity and area.
+ * cleaned-up title, workaround and roadmap item, which every developer sees), severity, area and the
+ * answer. A private report made a known issue becomes a public topic of Zaisma's own with the report
+ * under it, so nothing the developer wrote in private is shown; the reply still goes to them alone.
  */
 export async function decideFeedback(env: Env, id: string, d: FeedbackDecision): Promise<void> {
   let f = await feedbackById(env, id);
@@ -489,26 +555,56 @@ export async function decideFeedback(env: Env, id: string, d: FeedbackDecision):
     f = (await feedbackById(env, f.id))!;
   }
 
+  // The developer the reply is for, when the decision moves on to a new known issue.
+  let replyFirst: string | null = null;
   if (d.known_issue !== undefined) {
     if (f.group_id) throw new FeedbackRefusal("This item is merged into another; make that one the known issue.");
     const k = d.known_issue;
     const title = k?.title?.trim().replace(/\s+/g, " ").slice(0, FEEDBACK_LIMITS.title) ?? "";
     if (k && !title) throw new FeedbackRefusal("A known issue needs a title every developer can read.");
     const workaround = k?.workaround?.trim().slice(0, 2000) || null;
-    await env.DB.prepare("UPDATE feedback SET known_title = ?, workaround = ?, roadmap = ?, updated_at = ? WHERE id = ?")
-      .bind(k ? title : null, workaround, k?.roadmap?.trim().slice(0, 200) || null, at, f.id)
-      .run();
-    // A new or changed workaround is news for everyone in the group.
-    if (workaround && workaround !== f.workaround) for (const itemId of await group(f.id)) await zaismaPost(env, itemId, "status", `Until it's fixed: ${workaround}`, at);
+    const roadmap = k?.roadmap?.trim().slice(0, 200) || null;
+    if (k && !f.public) {
+      const kid = newId();
+      const kStatus = status && status !== "new" ? status : f.status === "new" ? "known" : f.status;
+      await env.DB.batch([
+        env.DB.prepare(
+          "INSERT INTO feedback (id, account_id, kind, title, status, severity, area, known_title, workaround, roadmap, created_at, updated_at, triaged_at, public, shown, active_at) VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?)",
+        ).bind(kid, f.kind, title, kStatus, f.severity, f.area, title, workaround, roadmap, at, at, at, at),
+        env.DB.prepare("UPDATE feedback SET group_id = ?, status = ?, updated_at = ? WHERE id = ? OR group_id = ?").bind(kid, kStatus, at, f.id, f.id),
+      ]);
+      for (const itemId of await group(kid)) {
+        if (itemId !== kid) await zaismaPost(env, itemId, "status", `Zaisma made this a known issue every developer can see, without anything you wrote: ${title}.${workaround ? ` Until it's fixed: ${workaround}` : ""}`, at);
+      }
+      replyFirst = f.id;
+      f = (await feedbackById(env, kid))!;
+    } else {
+      await env.DB.prepare("UPDATE feedback SET known_title = ?, workaround = ?, roadmap = ?, updated_at = ? WHERE id = ?").bind(k ? title : null, workaround, roadmap, at, f.id).run();
+      // Zaisma's own known issue, taken back: its reports stand on their own again, and the topic goes.
+      if (!k && f.account_id === null) await env.DB.batch([env.DB.prepare("UPDATE feedback SET group_id = NULL WHERE group_id = ?").bind(f.id), env.DB.prepare("UPDATE feedback SET public = 0, shown = 0 WHERE id = ?").bind(f.id)]);
+      // A new or changed workaround is news for everyone in the group.
+      if (workaround && workaround !== f.workaround) for (const itemId of await group(f.id)) await zaismaPost(env, itemId, "status", `Until it's fixed: ${workaround}`, at);
+      f = (await feedbackById(env, f.id))!;
+    }
   }
 
+  if (replyFirst && reply) await zaismaPost(env, replyFirst, "post", reply, at);
+  const shared = replyFirst ? "" : reply;
   if (status && status !== f.status) {
     for (const itemId of f.group_id ? [f.id] : await group(f.id)) {
       await env.DB.prepare("UPDATE feedback SET status = ? WHERE id = ?").bind(status, itemId).run();
-      await zaismaPost(env, itemId, "status", reply ? `${STATUS_WORDS[status]} ${reply}` : STATUS_WORDS[status]!, at);
+      await zaismaPost(env, itemId, "status", shared ? `${STATUS_WORDS[status]} ${shared}` : STATUS_WORDS[status]!, at);
     }
-  } else if (reply) {
-    await zaismaPost(env, f.id, "post", reply, at);
+  } else if (shared) {
+    await zaismaPost(env, f.id, "post", shared, at);
+  }
+
+  if (d.answer !== undefined) {
+    if (d.answer) {
+      const post = await env.DB.prepare("SELECT id FROM feedback_posts WHERE id = ? AND feedback_id = ?").bind(d.answer, f.id).first();
+      if (!post) throw new FeedbackRefusal("That post isn't in this topic.");
+    }
+    await env.DB.prepare("UPDATE feedback SET answer_post = ?, status = CASE WHEN ? IS NOT NULL THEN 'answered' WHEN status = 'answered' THEN 'new' ELSE status END, updated_at = ? WHERE id = ?").bind(d.answer, d.answer, at, f.id).run();
   }
 
   if (d.severity !== undefined || d.area !== undefined) {

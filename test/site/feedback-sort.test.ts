@@ -36,7 +36,7 @@ const item = async (id: string) => (await env.DB.prepare("SELECT * FROM feedback
 const triageOf = (f: Feedback) => JSON.parse(f.triage!) as FeedbackTriage;
 
 beforeEach(async () => {
-  await env.DB.exec("DELETE FROM feedback_posts; DELETE FROM feedback; DELETE FROM api_keys; DELETE FROM ai_usage; DELETE FROM audit_log; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
+  await env.DB.exec("DELETE FROM feedback_posts; DELETE FROM feedback_tags; DELETE FROM feedback_votes; DELETE FROM feedback_follows; DELETE FROM feedback; DELETE FROM api_keys; DELETE FROM ai_usage; DELETE FROM audit_log; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
   await createAccount(env.DB, { id: "dev-1", name: "Pixel Smith", ageBand: "18+" });
   await createAccount(env.DB, { id: "dev-2", name: "Other Dev", ageBand: "18+" });
   token = (await createApiKey(env.DB, "dev-1", "claude")).token;
@@ -73,11 +73,13 @@ describe("feedback sorting", () => {
     expect(await sortFeedback(testEnv, deps)).toBe(1);
     expect(seen[0]!.text).toContain("Rooms disconnect at 50 players");
 
+    // The known issue is a public topic of Zaisma's own, with the first report under it.
+    const known = (await item(first.id)).group_id!;
     const merged = await item(second.id);
-    expect(merged).toMatchObject({ group_id: first.id, status: "known" });
-    expect(triageOf(merged).merged_into).toBe(first.id);
+    expect(merged).toMatchObject({ group_id: known, status: "known" });
+    expect(triageOf(merged).merged_into).toBe(known);
     const mine = await api(`/feedback/${second.id}`, undefined, other);
-    expect(mine.feedback.known_issue).toMatchObject({ id: first.id, developers: 2, workaround: "Cap rooms at 40 for now." });
+    expect(mine.feedback.known_issue).toMatchObject({ id: known, developers: 2, workaround: "Cap rooms at 40 for now." });
     expect(mine.feedback.posts.at(-1)).toMatchObject({ by: "Zaisma", text: expect.stringContaining("Zaisma's AI matched this to a known issue") });
   });
 

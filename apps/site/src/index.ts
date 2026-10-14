@@ -17,6 +17,8 @@ import { handleSaveHistory, handleSaves } from "./saves.ts";
 import { handleScanBatch } from "./scan.ts";
 import { triageReports } from "./triage.ts";
 import { sortFeedback } from "./feedback-sort.ts";
+import { checkForumPosts } from "./forum-check.ts";
+import { handleForum } from "./forum-pages.ts";
 
 /** Must match the daily cron in wrangler.jsonc. */
 const DAILY = "17 3 * * *";
@@ -46,6 +48,9 @@ export default {
 
     const dashboard = await handleDashboard(request, env, path);
     if (dashboard) return dashboard;
+
+    const forum = await handleForum(request, env, path);
+    if (forum) return forum;
 
     const passkeys = await handlePasskeys(request, env, path);
     if (passkeys) return passkeys;
@@ -86,7 +91,7 @@ export default {
 
   async scheduled(event, env): Promise<void> {
     // One failing job mustn't stop the others.
-    const jobs = await Promise.allSettled([publishDue(env), triageReports(env), sortFeedback(env), ...(event.cron === DAILY ? [dailyCleanup(env)] : [])]);
+    const jobs = await Promise.allSettled([publishDue(env), triageReports(env), sortFeedback(env), checkForumPosts(env), ...(event.cron === DAILY ? [dailyCleanup(env)] : [])]);
     for (const job of jobs) if (job.status === "rejected") console.error("scheduled job failed", job.reason);
   },
 } satisfies ExportedHandler<Env, ScanJob>;

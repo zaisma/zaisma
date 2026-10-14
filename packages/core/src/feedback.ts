@@ -1,8 +1,10 @@
 /**
- * Feedback about Zaisma itself, from developers and their AI (migrations/0023_feedback.sql).
+ * Feedback about Zaisma itself, from developers and their AI (migrations/0023_feedback.sql), and the
+ * developer forum it lives in (migrations/0025_forum.sql): each item is a topic.
  */
 
-export const FEEDBACK_KINDS = ["bug", "gap", "feature", "question"] as const;
+/** talk: a discussion that isn't a bug, gap, idea or question. */
+export const FEEDBACK_KINDS = ["bug", "gap", "feature", "question", "talk"] as const;
 export type FeedbackKind = (typeof FEEDBACK_KINDS)[number];
 
 /** new: waiting for Zaisma. known: Zaisma knows about it. planned: on the roadmap. fixed. wont: won't change, with why. answered: a question with an answer. */
@@ -11,8 +13,55 @@ export type FeedbackStatus = (typeof FEEDBACK_STATUSES)[number];
 /** Statuses a developer can reopen from. */
 export const FEEDBACK_CLOSED: FeedbackStatus[] = ["fixed", "wont", "answered"];
 
-/** Where in Zaisma an item is about, set when it's sorted. */
-export const FEEDBACK_AREAS = ["publishing", "scans", "pages", "rooms", "saves", "accounts", "sdk", "mcp", "api", "cli", "dashboard", "docs", "other"] as const;
+/** Kinds that start private to the developer and Zaisma unless they post them publicly: they carry logs, screenshots and unreleased games. */
+export const FEEDBACK_PRIVATE_KINDS: FeedbackKind[] = ["bug", "gap"];
+
+/**
+ * The forum's categories, each with its sub-categories. A topic's area is one sub-category: chosen
+ * when it's posted, or set when it's sorted.
+ */
+export const FORUM_CATEGORIES = [
+  { id: "publish", name: "Publishing", areas: { publishing: "Uploads and versions", scans: "Scans and reviews", pages: "Game pages and links" } },
+  { id: "multiplayer", name: "Multiplayer", areas: { rooms: "Rooms", servers: "Game servers", passes: "Player passes" } },
+  { id: "build", name: "Building games", areas: { sdk: "SDK", saves: "Cloud saves", stats: "Stats and plays" } },
+  { id: "tools", name: "MCP and API", areas: { mcp: "MCP", api: "API", cli: "Upload command" } },
+  { id: "site", name: "Accounts and dashboard", areas: { accounts: "Accounts and sign-in", dashboard: "Dashboard" } },
+  { id: "safety", name: "Safety", areas: { reports: "Reports and moderation", rules: "Content rules" } },
+  { id: "general", name: "General", areas: { docs: "Docs", other: "Anything else" } },
+] as const;
+
+/** Where in Zaisma an item is about: a forum sub-category. */
+type AreasOf = { [C in (typeof FORUM_CATEGORIES)[number] as C["id"]]: keyof C["areas"] };
+export type FeedbackArea = AreasOf[keyof AreasOf] & string;
+export const FEEDBACK_AREAS = FORUM_CATEGORIES.flatMap((c) => Object.keys(c.areas)) as FeedbackArea[];
+
+/** The category an area is in. */
+export function forumCategoryOf(area: string): (typeof FORUM_CATEGORIES)[number] | null {
+  return FORUM_CATEGORIES.find((c) => area in c.areas) ?? null;
+}
+
+/** The name of an area, like "Rooms". */
+export function forumAreaName(area: string): string | null {
+  const c = forumCategoryOf(area);
+  return c ? (c.areas as Record<string, string>)[area]! : null;
+}
+
+/** Tags a topic can have, up to FEEDBACK_LIMITS.tags: what it runs on and what it's built with. */
+export const FORUM_TAGS = {
+  mobile: "Mobile",
+  desktop: "Desktop",
+  performance: "Performance",
+  audio: "Audio",
+  controls: "Controls",
+  godot: "Godot",
+  unity: "Unity",
+  phaser: "Phaser",
+  threejs: "Three.js",
+  construct: "Construct",
+  gamemaker: "GameMaker",
+  "ai-made": "Made with AI",
+} as const;
+export type ForumTag = keyof typeof FORUM_TAGS;
 
 /** What AI sorting found (migrations/0024_feedback_sorting.sql), for the person deciding. Never shown to developers. */
 export interface FeedbackTriage {
@@ -22,6 +71,8 @@ export interface FeedbackTriage {
   why: string;
   /** The item it was merged into as a duplicate. */
   merged_into?: string;
+  /** A public topic that looks like the same thing, for a person to merge or not. */
+  same_as?: string;
   /** A known issue the AI proposes for a person to approve: a title every developer can read and what to do until it's fixed. */
   draft?: { title: string; workaround: string };
 }
@@ -37,6 +88,7 @@ export const FEEDBACK_LIMITS = {
   /** The JSON an AI attaches: the tool, the error, what it sent. */
   context: 8000,
   pictureBytes: 2 * 1024 * 1024,
+  tags: 3,
 } as const;
 
 export interface Feedback {
@@ -60,6 +112,14 @@ export interface Feedback {
   triage: string | null;
   triaged_at: number | null;
   triage_tries: number;
+  /** 1 when it's a public topic. */
+  public: number;
+  /** 1 once a public topic's first post has passed the check, so others see it. */
+  shown: number;
+  votes: number;
+  replies: number;
+  answer_post: string | null;
+  active_at: number | null;
 }
 
 export interface FeedbackPost {
@@ -73,6 +133,11 @@ export interface FeedbackPost {
   context: string | null;
   picture: string | null;
   created_at: number;
+  reply_to: string | null;
+  /** On a public topic: pending, ok (others see it) or held (waits for a person). NULL on a private one. */
+  check_state: "pending" | "ok" | "held" | null;
+  check_tries: number;
+  check_reason: string | null;
 }
 
 export const feedbackPictureKey = (postId: string) => `feedback-pictures/${postId}`;
