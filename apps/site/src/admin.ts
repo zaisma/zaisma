@@ -50,6 +50,7 @@ import { adminIdentity } from "./access.ts";
 import { gameUrl, type Env } from "./env.ts";
 import { html, layout, raw, type Raw } from "./html.ts";
 import { handleAdminMcp } from "./admin-mcp.ts";
+import { adminFeedbackAction, adminFeedbackPage, feedbackSummary } from "./admin-feedback.ts";
 import { precedentAction, precedentsPage, savePrecedent } from "./precedents.ts";
 import { clearCountedDay, playSpikes } from "./plays.ts";
 import { KNOWN_IMAGE_ALERT, passVersion } from "./scan.ts";
@@ -59,6 +60,10 @@ const when = (ms: number) => new Date(ms).toISOString().slice(0, 16).replace("T"
 const pill = (s: string) => html`<span class="pill ${s}">${s}</span>`;
 /** A version with pictures that matched known abuse material: never approved, only kept and reported. */
 const knownImages = (v: Version) => (v.scan_report ? (JSON.parse(v.scan_report) as ScanReport).findings.some((f) => f.rule === KNOWN_IMAGE_RULE) : false);
+
+export function adminPage(env: Env, title: string, body: Raw): Response {
+  return page(env, title, body);
+}
 
 function page(env: Env, title: string, body: Raw): Response {
   return layout(env, { title: `${title} · Zaisma admin`, body, admin: true });
@@ -86,6 +91,8 @@ export async function handleAdmin(request: Request, env: Env, path: string): Pro
   if (path === "/admin/audit") return auditPage(env);
   if (path === "/admin/reports") return reportQueue(env);
   if (path === "/admin/precedents") return page(env, "Precedents", await precedentsPage(env));
+  const feedback = path === "/admin/feedback" || path.startsWith("/admin/feedback/") ? await adminFeedbackPage(env, path, new URL(request.url)) : null;
+  if (feedback) return feedback;
   const m = path.match(/^\/admin\/games\/([a-z0-9]+)$/);
   if (m) return gameDetail(env, m[1]!);
   const img = path.match(/^\/admin\/images\/([a-z0-9]+)$/);
@@ -119,6 +126,8 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
   const reason = String(form.get("reason") ?? "").trim().slice(0, 500);
   const back = (fallback: string) => redirect(form.get("back") === "queue" ? "/admin/reports" : fallback);
 
+  const feedback = await adminFeedbackAction(env, path, form);
+  if (feedback) return feedback;
   const precedents = await precedentAction(env, path, form, actor);
   if (precedents) return precedents;
   // Deciding a report in the queue can also set a precedent for cases like it.
@@ -284,7 +293,7 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
 }
 
 async function dashboard(env: Env, error = ""): Promise<Response> {
-  const [queue, reports, games, usage, images, words, spikes] = await Promise.all([
+  const [queue, reports, games, usage, images, words, spikes, feedback] = await Promise.all([
     heldVersions(env.DB),
     openReports(env.DB),
     allGames(env.DB),
@@ -292,6 +301,7 @@ async function dashboard(env: Env, error = ""): Promise<Response> {
     pendingImages(env.DB),
     gamesWithDetailsDrafts(env.DB),
     playSpikes(env.DB),
+    feedbackSummary(env),
   ]);
   const offShelves = games.filter((g) => g.off_shelves);
   const groups = groupReports(reports);
@@ -330,6 +340,8 @@ ${groups.length
         )}</table>
 <p><a class="btn ghost" href="/admin/reports">Open the report queue</a></p>`
       : html`<p class="note">No open reports.</p>`}
+
+${feedback}
 
 <h2 id="plays">Play spikes (${spikes.length})</h2>
 ${spikes.length
@@ -523,7 +535,7 @@ export function groupReports(rows: QueueRow[]): ReportGroup[] {
     .sort((a, b) => a.severity - b.severity || a.rows[0]!.created_at - b.rows[0]!.created_at);
 }
 
-const severityPill = (n: number) => html`<span class="pill sev${n}">${SEVERITIES[n] ?? "Normal"}</span>`;
+export const severityPill = (n: number) => html`<span class="pill sev${n}">${SEVERITIES[n] ?? "Normal"}</span>`;
 
 function ago(ms: number): string {
   const min = Math.round((Date.now() - ms) / 60000);

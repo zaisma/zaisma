@@ -93,6 +93,10 @@ export async function handleDashboard(request: Request, env: Env, path: string):
   const url = new URL(request.url);
 
   if (path === "/dashboard" && !post) return done(await gamesPage(env, call, url.searchParams.get("error") ?? undefined));
+  // Feedback moved into the developer forum.
+  if (path === "/dashboard/feedback") return done(redirect("/forum?tab=yours"));
+  const moved = path.match(/^\/dashboard\/feedback\/([a-z0-9]{1,40})/);
+  if (moved) return done(redirect(`/forum/${moved[1]}`));
   if (path === "/dashboard/new" && post) {
     const form = await request.formData();
     try {
@@ -186,9 +190,9 @@ function playersFrom(form: FormData): Players | null {
   return players.single || players.local || players.online ? players : null;
 }
 
-type Call = (method: string, path: string, body?: unknown) => Promise<Record<string, unknown>>;
+export type Call = (method: string, path: string, body?: unknown) => Promise<Record<string, unknown>>;
 
-function redirect(to: string, cookies: string[] = []): Response {
+export function redirect(to: string, cookies: string[] = []): Response {
   const res = new Response(null, { status: 303, headers: { Location: to, "Cache-Control": "no-store" } });
   for (const c of cookies) res.headers.append("Set-Cookie", c);
   return res;
@@ -201,15 +205,15 @@ function withCookies(res: Response, cookies: string[]): Response {
   return out;
 }
 
-function page(env: Env, title: string, body: Raw, status = 200, art: string | null = null): Response {
+export function page(env: Env, title: string, body: Raw, status = 200, art: string | null = null): Response {
   const res = layout(env, { title: `${title} · Zaisma`, body: html`<style>${raw(STYLES)}</style>${body}<script>${raw(LOCAL_TIMES)}</script>`, private: true, nav: "dashboard", art });
   return new Response(res.body, { status, headers: res.headers });
 }
 
-const notice = (opts: { done?: string; error?: string }) =>
+export const notice = (opts: { done?: string; error?: string }) =>
   opts.error ? html`<p class="error" role="alert">${opts.error}</p>` : opts.done ? html`<p class="done" role="status">${opts.done}</p>` : "";
 
-const when = (ms: number) => html`<time datetime="${new Date(ms).toISOString()}" data-local>${new Date(ms).toISOString().slice(0, 16).replace("T", " ")} UTC</time>`;
+export const when = (ms: number) => html`<time datetime="${new Date(ms).toISOString()}" data-local>${new Date(ms).toISOString().slice(0, 16).replace("T", " ")} UTC</time>`;
 
 const size = (n: number) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.ceil(n / 1024))} KB`);
 
@@ -221,7 +225,7 @@ function coverOf(images: ImageJson[]): ImageJson | undefined {
 // --- Your games ---
 
 async function gamesPage(env: Env, call: Call, error?: string, title = ""): Promise<Response> {
-  const { games } = (await call("GET", "/games")) as { games: GameJson[] };
+  const { games, feedback_news: news } = (await call("GET", "/games")) as { games: GameJson[]; feedback_news: number };
   const details = await Promise.all(games.map((g) => call("GET", `/games/${g.slug}`) as Promise<{ images: ImageJson[]; versions: VersionJson[] }>));
   const make = html`<form class="make" method="post" action="/dashboard/new">
 <input name="title" maxlength="80" required placeholder="Your game's name" aria-label="Your game's name" value="${title}">
@@ -232,6 +236,7 @@ ${metalButton("Make a game", { type: "submit" })}
     "Your games",
     html`<div class="dash-head"><h1>Your games</h1>${make}</div>
 ${notice({ error })}
+${news ? html`<p class="done" role="status">Zaisma replied to ${news === 1 ? "one of your forum topics" : `${news} of your forum topics`}. <a href="/forum?tab=yours">Read ${news === 1 ? "it" : "them"}</a></p>` : ""}
 ${games.length
       ? html`<div class="grid">${games.map((g, i) => {
           const cover = coverOf(details[i]!.images);

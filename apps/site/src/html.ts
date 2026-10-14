@@ -102,6 +102,11 @@ header.top nav a:hover{color:var(--text)}
 header.top nav a[aria-current]{color:var(--text)}
 header.top nav a[aria-current]::after{content:"";position:absolute;left:-4px;right:-4px;bottom:0;height:3px;background:var(--chrome);box-shadow:0 0 14px rgba(225,230,240,.35)}
 header.top .end{margin-left:auto;display:flex;gap:12px;align-items:center;padding:10px 0}
+/* A page's own search and main action live in the header (the forum's), not in a second bar. */
+header.top .find{flex:1 1 220px;max-width:420px;margin-left:auto;display:flex;align-items:center;padding:10px 0}
+header.top .find input{width:100%;min-height:40px;padding-left:36px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%23969ba4' stroke-width='1.8' stroke-linecap='round'%3E%3Ccircle cx='8.5' cy='8.5' r='5.5'/%3E%3Cpath d='M13 13l4 4'/%3E%3C/svg%3E") 11px center/16px no-repeat,#0d0f12}
+header.top .find+.end{margin-left:0}
+header.top .end .btn{min-height:40px}
 main{flex:1 0 auto;width:100%;max-width:1240px;margin:0 auto;padding:32px 24px 72px}
 body>main.gp{flex:1 0 auto;width:100%}
 
@@ -284,7 +289,7 @@ dialog::backdrop{background:rgba(0,0,0,.65);-webkit-backdrop-filter:blur(4px);ba
 [aria-busy=true]{cursor:progress}
 [aria-busy=true] svg{display:none}
 @keyframes spin-calm{50%{opacity:.4}}
-@media (max-width:640px){main{padding:20px 16px 56px}header.top .in{padding:0 16px;gap:0 18px}.grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.tile .name small{display:none}.tile .body{padding:8px 8px 8px 10px}.tile .name span{font-size:15px}}
+@media (max-width:640px){main{padding:20px 16px 56px}header.top .in{padding:0 16px;gap:0 18px}header.top .find{order:3;flex-basis:100%;max-width:none;padding-top:0}.grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.tile .name small{display:none}.tile .body{padding:8px 8px 8px 10px}.tile .name span{font-size:15px}}
 @media (prefers-reduced-motion:reduce){.metal,.tile{transition:none}.hit.block:hover .tile,.hit.block:focus-within .tile{--s:1}.ambient i{transition:none}.spin{-webkit-mask-image:url(/zaisma-mark-small-white.svg);mask-image:url(/zaisma-mark-small-white.svg);animation:spin-calm 2.4s ease-in-out infinite}}
 `;
 
@@ -330,7 +335,7 @@ export function metalButton(label: string, opts: { href?: string; id?: string; b
 /** Cloudflare's invisible check (Turnstile), on pages that ask for it: its script and its frame. */
 const CHECK_ORIGIN = "https://challenges.cloudflare.com";
 
-export function securityHeaders(env: Env, extra: Record<string, string> = {}, check = false): Headers {
+export function securityHeaders(env: Env, extra: Record<string, string> = {}, check = false, frames: string[] = []): Headers {
   const h = new Headers({
     "Content-Type": "text/html; charset=utf-8",
     "Content-Security-Policy": [
@@ -338,7 +343,7 @@ export function securityHeaders(env: Env, extra: Record<string, string> = {}, ch
       "img-src 'self' data:",
       "style-src 'self' 'unsafe-inline'",
       `script-src 'self' 'unsafe-inline'${check ? ` ${CHECK_ORIGIN}` : ""}`,
-      `frame-src ${gameFrameSource(env)}${check ? ` ${CHECK_ORIGIN}` : ""}`,
+      `frame-src ${gameFrameSource(env)}${check ? ` ${CHECK_ORIGIN}` : ""}${frames.map((f) => ` ${f}`).join("")}`,
       "form-action 'self'",
       "frame-ancestors 'none'",
       "base-uri 'none'",
@@ -355,7 +360,18 @@ export function securityHeaders(env: Env, extra: Record<string, string> = {}, ch
 // Pages stay cacheable for everyone, so the header learns about sign-in from a readable hint cookie.
 const ACCOUNT_LINK = `<a id="account-link" class="btn ghost" href="/signin">Sign in</a><script>if(/(^|; )(__Host-)?zaisma_in=1/.test(document.cookie)){var a=document.getElementById("account-link");a.href="/account";a.textContent="Account"}</script>`;
 
-export function layout(env: Env, opts: { title: string; body: Raw; bare?: boolean; admin?: boolean; private?: boolean; nav?: "dashboard" | "home"; art?: string | null; check?: boolean }): Response {
+export type Nav = "dashboard" | "forum" | "home";
+
+/** A page's search box in the header: where it sends, what's typed, and fields it keeps. */
+export interface HeaderSearch {
+  action: string;
+  q: string;
+  placeholder: string;
+  label: string;
+  keep?: Record<string, string>;
+}
+
+export function layout(env: Env, opts: { title: string; body: Raw; bare?: boolean; admin?: boolean; private?: boolean; nav?: Nav; art?: string | null; check?: boolean; search?: HeaderSearch; action?: Raw; frames?: string[] }): Response {
   const doc = html`<!doctype html>
 <html lang="en">
 <head>
@@ -378,7 +394,7 @@ ${siteFooter()}`}
 <script>${raw(METAL_SCRIPT)}${raw(AMBIENT_SCRIPT)}${raw(BUSY_SCRIPT)}</script>
 </body>
 </html>`;
-  return new Response(doc.html, { headers: securityHeaders(env, opts.admin || opts.private ? { "Cache-Control": "no-store" } : {}, opts.check) });
+  return new Response(doc.html, { headers: securityHeaders(env, opts.admin || opts.private ? { "Cache-Control": "no-store" } : {}, opts.check, opts.frames) });
 }
 
 /**
@@ -390,11 +406,14 @@ export function ambient(art: string | null | undefined): Raw {
 }
 
 /** The site's header, also used on its own by pages that lay themselves out (the game page). */
-export function siteHeader(env: Env, opts: { admin?: boolean; nav?: "dashboard" | "home" } = {}): Raw {
+export function siteHeader(env: Env, opts: { admin?: boolean; nav?: Nav; search?: HeaderSearch; action?: Raw } = {}): Raw {
+  const here = (n: Nav) => (opts.nav === n ? raw(' aria-current="page"') : "");
+  const s = opts.search;
   return html`<header class="top"><div class="in">
   <a class="logo" href="/" aria-label="Zaisma home"><img src="/zaisma-wordmark-metal.svg" alt="Zaisma"></a>
-  <nav>${opts.admin ? html`<a href="/admin">Admin</a><a href="/admin/reports">Reports</a><a href="/admin/precedents">Precedents</a><a href="/admin/audit">Audit log</a>` : opts.nav === "dashboard" ? html`<a href="/">Home</a><a href="/dashboard" aria-current="page">Your games</a>` : html`<a href="/"${opts.nav === "home" ? raw(' aria-current="page"') : ""}>Home</a>`}</nav>
-  <div class="end">${env.SUPABASE_URL ? raw(ACCOUNT_LINK) : ""}</div>
+  <nav>${opts.admin ? html`<a href="/admin">Admin</a><a href="/admin/reports">Reports</a><a href="/admin/feedback">Feedback</a><a href="/admin/precedents">Precedents</a><a href="/admin/audit">Audit log</a>` : opts.nav === "dashboard" || opts.nav === "forum" ? html`<a href="/">Home</a><a href="/dashboard"${here("dashboard")}>Your games</a><a href="/forum"${here("forum")}>Forum</a>` : html`<a href="/"${here("home")}>Home</a>`}</nav>
+  ${s ? html`<form class="find" method="get" action="${s.action}" role="search">${Object.entries(s.keep ?? {}).map(([k, v]) => html`<input type="hidden" name="${k}" value="${v}">`)}<input type="search" name="q" value="${s.q}" maxlength="200" placeholder="${s.placeholder}" aria-label="${s.label}"></form>` : ""}
+  <div class="end">${opts.action ?? ""}${env.SUPABASE_URL ? raw(ACCOUNT_LINK) : ""}</div>
 </div></header>`;
 }
 

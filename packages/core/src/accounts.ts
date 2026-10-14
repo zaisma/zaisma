@@ -93,10 +93,31 @@ export async function deleteAccount(db: D1Database, id: string): Promise<void> {
     db.prepare("DELETE FROM saves WHERE account_id = ?").bind(id),
     db.prepare("DELETE FROM played WHERE account_id = ?").bind(id),
     db.prepare("DELETE FROM api_keys WHERE account_id = ?").bind(id),
-    // Feedback goes too (the caller deletes its screenshots); a known issue they started stays, nameless.
+    // Their forum topics and posts go too (the caller deletes their screenshots); a known issue they
+    // started stays, nameless. Their replies and Me too come off other topics' counts.
+    db.prepare(
+      "UPDATE feedback SET replies = MAX(0, replies - (SELECT COUNT(*) FROM feedback_posts p WHERE p.feedback_id = feedback.id AND p.account_id = ? AND p.check_state = 'ok')) WHERE id IN (SELECT feedback_id FROM feedback_posts WHERE account_id = ? AND check_state = 'ok') AND COALESCE(account_id, '') != ?",
+    ).bind(id, id, id),
+    db.prepare("UPDATE feedback SET votes = MAX(0, votes - 1) WHERE id IN (SELECT feedback_id FROM feedback_votes WHERE account_id = ?)").bind(id),
+    db.prepare("DELETE FROM feedback_votes WHERE account_id = ?").bind(id),
+    db.prepare("DELETE FROM feedback_follows WHERE account_id = ?").bind(id),
+    db.prepare("DELETE FROM feedback_misplaced WHERE account_id = ?").bind(id),
+    db.prepare("UPDATE feedback_posts SET helpful = MAX(0, helpful - 1) WHERE id IN (SELECT post_id FROM feedback_helpful WHERE account_id = ?)").bind(id),
+    db.prepare("DELETE FROM feedback_helpful WHERE account_id = ?").bind(id),
+    db.prepare("DELETE FROM forum_reports WHERE account_id = ?").bind(id),
+    // Their posts' images and mentions (the files go with deleteFeedbackPictures), and mentions of them.
+    db.prepare("DELETE FROM feedback_media WHERE account_id = ? OR post_id IN (SELECT id FROM feedback_posts WHERE account_id = ? OR feedback_id IN (SELECT id FROM feedback WHERE account_id = ? AND known_title IS NULL))").bind(id, id, id),
+    db.prepare("DELETE FROM feedback_mentions WHERE account_id = ? OR post_id IN (SELECT id FROM feedback_posts WHERE account_id = ? OR feedback_id IN (SELECT id FROM feedback WHERE account_id = ? AND known_title IS NULL))").bind(id, id, id),
+    // Out of the forum's search too.
+    db.prepare("DELETE FROM forum_search WHERE post_id IN (SELECT id FROM feedback_posts WHERE account_id = ?)").bind(id),
+    db.prepare("DELETE FROM forum_search WHERE topic_id IN (SELECT id FROM feedback WHERE account_id = ? AND known_title IS NULL)").bind(id),
     db.prepare("DELETE FROM feedback_posts WHERE account_id = ?").bind(id),
     db.prepare("UPDATE feedback SET group_id = NULL WHERE group_id IN (SELECT id FROM feedback WHERE account_id = ? AND known_title IS NULL)").bind(id),
     db.prepare("DELETE FROM feedback_posts WHERE feedback_id IN (SELECT id FROM feedback WHERE account_id = ? AND known_title IS NULL)").bind(id),
+    db.prepare("DELETE FROM feedback_tags WHERE feedback_id IN (SELECT id FROM feedback WHERE account_id = ? AND known_title IS NULL)").bind(id),
+    db.prepare("DELETE FROM feedback_votes WHERE feedback_id IN (SELECT id FROM feedback WHERE account_id = ? AND known_title IS NULL)").bind(id),
+    db.prepare("DELETE FROM feedback_follows WHERE feedback_id IN (SELECT id FROM feedback WHERE account_id = ? AND known_title IS NULL)").bind(id),
+    db.prepare("DELETE FROM feedback_misplaced WHERE feedback_id IN (SELECT id FROM feedback WHERE account_id = ? AND known_title IS NULL)").bind(id),
     db.prepare("DELETE FROM feedback WHERE account_id = ? AND known_title IS NULL").bind(id),
     db.prepare("UPDATE feedback SET account_id = NULL WHERE account_id = ?").bind(id),
     db.prepare("DELETE FROM accounts WHERE id = ?").bind(id),

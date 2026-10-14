@@ -1,6 +1,7 @@
 // A stand-in for the Claude API, for local previews only, so scans and report triage run without a
 // real key or cost. It answers from keywords, nothing clever:
 // - scans pass, unless a re-check after a report mentions a password or login (then it's phishing);
+// - forum posts pass, unless they ask to be reached on another app;
 // - reports are sorted by what the player wrote: bugs go to the developer, claims about the game's
 //   content get its files checked again, players get a person, and the rest is dismissed. A report
 //   fits the drafted precedent for its kind once that precedent is in force; until then it comes
@@ -45,6 +46,44 @@ function sortReport(text, system) {
   return { severity: kind.severity, category: kind.category, summary: kind.summary(details), recommendation: kind.recommendation, why: kind.why, same_as: same?.[1] ?? "", ...precedentFor(system, kind) };
 }
 
+const AREAS = [
+  ["publishing", /upload|publish|version|build|MB\b/i],
+  ["rooms", /room|multiplayer|player.*join|disconnect/i],
+  ["saves", /save/i],
+  ["mcp", /\bmcp\b|tool/i],
+  ["pages", /game page|cover|screenshot/i],
+  ["accounts", /account|sign.?in|domain/i],
+];
+const WORDS = (s) => new Set(s.toLowerCase().match(/[a-z0-9]{4,}/g) ?? []);
+
+// Feedback is sorted by its words: urgent for data loss or security, high when it blocks publishing,
+// low for questions. A candidate sharing four or more words is the same problem; otherwise it drafts
+// a known issue from the title, unless it's a question.
+function sortFeedback(text) {
+  const item = text.match(/<item[^>]*>([\s\S]*?)<\/item>/)?.[1] ?? "";
+  const kind = item.match(/^Kind: (.*)$/m)?.[1] ?? "bug";
+  const title = item.match(/^Title: (.*)$/m)?.[1] ?? "";
+  const severity = /lost|leak|security|everyone/i.test(item) ? "urgent" : /can.?t publish|blocks|stuck|fails/i.test(item) ? "high" : kind === "question" ? "low" : "normal";
+  const area = AREAS.find(([, re]) => re.test(item))?.[0] ?? "other";
+  const words = WORDS(`${title} ${item}`);
+  const same = [...text.matchAll(/^id ([a-z0-9]+), (.*)$/gm)].find(([, , line]) => [...WORDS(line)].filter((w) => words.has(w)).length >= 4);
+  return {
+    severity,
+    area,
+    summary: `${kind === "question" ? "Asks" : kind === "bug" ? "Reports" : "Asks for"}: ${title}. (Preview stand-in AI.)`,
+    why: same ? `Same words as ${same[1]}.` : `Looks ${severity}; nothing like it yet.`,
+    same_as: same?.[1] ?? "",
+    draft: same || kind === "question" ? { title: "", workaround: "" } : { title, workaround: "" },
+  };
+}
+
+// Forum posts pass unless they ask to be reached somewhere else or share a number.
+function checkPost(text) {
+  const post = text.match(/<post>([\s\S]*?)<\/post>/)?.[1] ?? "";
+  if (/discord|whatsapp|snapchat|my number|dm me/i.test(post)) return { verdict: "hold", reason: "Asks people to reach them on another app. (Preview stand-in AI.)" };
+  return { verdict: "ok", reason: "" };
+}
+
 function scan(text) {
   const reported = text.match(/a player reported it[^:]*: (.*)/)?.[1] ?? "";
   if (/password|login|steam|card/i.test(reported)) {
@@ -63,7 +102,7 @@ export function startFakeAi(port) {
         const request = JSON.parse(body || "{}");
         const text = (request.messages?.[0]?.content ?? []).map((b) => b.text ?? "").join("\n");
         const system = String(request.system ?? "");
-        const answer = system.startsWith("You sort reports") ? sortReport(text, system) : scan(text);
+        const answer = system.startsWith("You sort reports") ? sortReport(text, system) : system.startsWith("You sort feedback") ? sortFeedback(text) : system.startsWith("You check forum posts") ? checkPost(text) : scan(text);
         res.writeHead(200, { "content-type": "application/json" });
         res.end(
           JSON.stringify({

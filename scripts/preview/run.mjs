@@ -14,7 +14,9 @@ import { openTestRooms, pretendRoomsSql } from "./test-rooms.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const STATE = join(ROOT, ".wrangler/preview");
-const PORTS = { site: 8800, games: 8801, rooms: 8802, auth: 8790, ai: 8791, shield: 8792 };
+// PREVIEW_PORT_OFFSET=100 moves every port up (site on 8900), for a second checkout while another runs its preview.
+const OFFSET = Number(process.env.PREVIEW_PORT_OFFSET) || 0;
+const PORTS = { site: 8800 + OFFSET, games: 8801 + OFFSET, rooms: 8802 + OFFSET, auth: 8790 + OFFSET, ai: 8791 + OFFSET, shield: 8792 + OFFSET };
 const SITE = `http://localhost:${PORTS.site}`;
 const GAMES = `http://localhost:${PORTS.games}`;
 const ROOMS = `http://localhost:${PORTS.rooms}`;
@@ -81,11 +83,11 @@ children.push(spawn("node", [join(ROOT, "scripts/preview/fake-shield.mjs"), Stri
 console.log("Applying database updates…");
 spawnSync("npx", ["wrangler", "d1", "migrations", "apply", "zaisma", "--local", "--persist-to", STATE], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
 // One at a time: they share the preview's database, and starting together can find it locked.
-children.push(wrangler("games", ["dev", "--port", String(PORTS.games), "--inspector-port", "9341", "--persist-to", STATE, "--env-file", join(STATE, "games.env")], { quiet: true }));
+children.push(wrangler("games", ["dev", "--port", String(PORTS.games), "--inspector-port", String(9341 + OFFSET), "--persist-to", STATE, "--env-file", join(STATE, "games.env")], { quiet: true }));
 await waitFor(GAMES);
-children.push(wrangler("site", ["dev", "--port", String(PORTS.site), "--inspector-port", "9340", "--local-upstream", `localhost:${PORTS.site}`, "--persist-to", STATE, "--env-file", join(STATE, "site.env"), "--test-scheduled"], { quiet: true }));
+children.push(wrangler("site", ["dev", "--port", String(PORTS.site), "--inspector-port", String(9340 + OFFSET), "--local-upstream", `localhost:${PORTS.site}`, "--persist-to", STATE, "--env-file", join(STATE, "site.env"), "--test-scheduled"], { quiet: true }));
 await waitFor(SITE);
-children.push(wrangler("rooms", ["dev", "--port", String(PORTS.rooms), "--inspector-port", "9342", "--persist-to", STATE, "--env-file", join(STATE, "rooms.env")], { quiet: true }));
+children.push(wrangler("rooms", ["dev", "--port", String(PORTS.rooms), "--inspector-port", String(9342 + OFFSET), "--persist-to", STATE, "--env-file", join(STATE, "rooms.env")], { quiet: true }));
 await waitFor(ROOMS);
 if (fresh) {
   console.log("Adding test games…");
@@ -133,6 +135,8 @@ Zaisma preview is running. Nothing here touches the live site.
   Your games      ${SITE}/dashboard
   Admin           ${SITE}/admin
   Report queue    ${SITE}/admin/reports
+  Forum           ${SITE}/forum  (topics, known issues, a topic: ${SITE}/forum?tab=known)
+  Admin feedback  ${SITE}/admin/feedback
   Image matching  ${SITE}/admin  (Night Drive's update is held: a picture renamed .dat, a video and a picture
                   written into its code matched known abuse material, in the stand-in. Cave Crew's history
                   shows a screenshot refused the same way. Pixel Garden passed before matching knew its
@@ -294,6 +298,189 @@ async function seed() {
   await api("POST", `/games/${secret.slug}/testers`, { name: "My team" });
   const { tester: arena } = await api("POST", "/games/arena/testers", { name: "Streamer" });
   writeFileSync(join(STATE, "testers.json"), JSON.stringify({ secret: tester.url, arena: arena.url }));
+
+  // The developer forum, as it might look a few weeks in: developers and their AI posting ideas,
+  // questions and discussions, bugs sent to Zaisma privately, known issues, answers and Me too.
+  await seedForum(api, go, form);
+}
+
+/**
+ * Forum test data. Everything goes through the API and admin pages, then the times are spread over
+ * the last three weeks (in order), so the lists read like a forum that's been running a while.
+ */
+async function seedForum(you, go, form) {
+  const start = Date.now();
+  const names = ["Pixel Forge", "Bramble Studio", "Lumen Works", "Tiny Rocket", "Coral Arcade", "Quiet Owl", "Hexa Labs", "Other Studio"];
+  const dev = {};
+  for (const name of names) dev[name] = await developer(name, `${name.toLowerCase().replace(/[^a-z]+/g, "-")}@zaisma.test`);
+  const me = "person";
+  const topic = async (who, body) => (await who("POST", "/forum", body)).topic;
+  const reply = async (who, id, text, extra = {}) => (await who("POST", `/forum/${id}/posts`, { text, ...extra })).post;
+  const meToo = async (id, ...who) => {
+    for (const w of who) await w("POST", `/forum/${id}/vote`, { on: true });
+  };
+  const zaisma = (id, fields) => go(`/admin/feedback/${id}/decide`, form(fields));
+  const zaismaPostId = async (who, id) => (await who("GET", `/forum/${id}`)).posts.filter((p) => p.by.by === "zaisma").at(-1)?.id;
+  const { "Pixel Forge": pf, "Bramble Studio": bs, "Lumen Works": lw, "Tiny Rocket": tr, "Coral Arcade": ca, "Quiet Owl": qo, "Hexa Labs": hl, "Other Studio": os } = dev;
+
+  // A rooms bug, sent privately, that Zaisma makes a public known issue; others hit it too.
+  const { topic: roomsBug } = await os("POST", "/forum", { public: false, kind: "bug", author: me, category: "rooms", title: "Rooms disconnect everyone when the 50th player joins", text: "Every time a room reaches 50 players, every player in it is disconnected at once. Under 50 it's fine." });
+  await zaisma(roomsBug.id, { known: "1", k_title: "Rooms drop every player at 50", k_workaround: "Cap rooms at 40 players for now: Zaisma.rooms.create({ max: 40 }).", k_roadmap: "Multiplayer", status: "known", severity: "2", area: "rooms", reply: "Thanks, we can see it happening. We've made it a known issue so others find the workaround." });
+  const known = (await you("GET", "/forum?tab=known")).topics;
+  const roomsKnown = known.find((k) => k.title === "Rooms drop every player at 50").id;
+  await meToo(roomsKnown, pf, lw, ca);
+  await reply(pf, roomsKnown, "Same here with a 64-player lobby. Capping at 40 works for now, thanks.", { author: me });
+  await reply(lw, roomsKnown, "Happens on our relay rooms too, not only Zaisma's own rooms. Logs show the drop right as player 50's pass is checked.", { author: "ai" });
+
+  // Ideas.
+  const bigRooms = await topic(pf, { kind: "feature", author: me, category: "rooms", tags: ["performance"], title: "Let rooms hold more than 50 players", text: "Battle-royale style games need 80 to 100 players in one room. Could the limit be raised, maybe with a cost per room above 50?" });
+  await meToo(bigRooms.id, bs, lw, tr, ca, hl);
+  const r1 = await reply(lw, bigRooms.id, "+1. Even 64 would cover most of what we make.");
+  await reply(tr, bigRooms.id, "Would you pay per room, or per player-hour? Per player-hour feels fairer for small rooms.", { reply_to: r1.id, author: "person" });
+  await zaisma(bigRooms.id, { reply: "We're looking at this with the multiplayer work. The 50 cap comes from how a room's messages fan out; a bigger tier would cost more per room, and we'd show the price up front.", status: "planned", area: "rooms" });
+
+  const scanTool = await topic(lw, { kind: "feature", category: "mcp", tags: ["ai-made"], title: "An MCP tool that shows every finding in a held version", text: "get_version shows that a version was held and the first finding. When there are several, the AI fixes one, uploads, waits for the scan, and finds the next. Showing all of them at once would save a lot of round trips." });
+  await meToo(scanTool.id, pf, qo, you);
+  await reply(qo, scanTool.id, "Yes please. My AI went through four uploads last week for three small findings.", { author: me });
+
+  const webhook = await topic(hl, { kind: "feature", author: me, category: "api", title: "A webhook when a scan finishes", text: "Our CI uploads with the upload command and then polls get_version. A webhook (or a wait flag on the upload command) would be cleaner." });
+  await meToo(webhook.id, pf, bs, lw, tr, ca, you);
+  await reply(bs, webhook.id, "A --wait flag on the upload command would already do it for CI:\n```\nnpx @zaisma/cli upload dist --game my-game --wait\n```", { author: me });
+
+  const rumble = await topic(ca, { kind: "feature", author: me, category: "sdk", tags: ["controls"], title: "Gamepad rumble through the SDK", text: "Browsers support vibration on most gamepads now. A Zaisma.gamepad.rumble(ms, strength) would save everyone writing the same feature checks." });
+  await meToo(rumble.id, tr, hl);
+
+  const country = await topic(tr, { kind: "feature", author: me, category: "stats", title: "Show plays by country", text: "Would help decide which languages to translate into first." });
+  await meToo(country.id, bs, ca, qo, lw);
+
+  const brotli = await topic(qo, { kind: "feature", category: "publishing", tags: ["unity"], title: "Serve Unity WebGL builds compressed with Brotli", text: "Unity's default WebGL build uses Brotli (.br files). Right now they need decompression fallback turned on, which makes the first load slower." });
+  await meToo(brotli.id, hl, ca);
+
+  await topic(you, { kind: "feature", author: me, category: "pages", title: "Let players favorite a game from its page", text: "Players ask how to find our game again. A heart on the game page that adds it to their library would help." });
+
+  // Questions, some answered.
+  const domain = await topic(you, { kind: "question", author: me, category: "pages", title: "Can a game use its own domain?", text: "I'd like players to reach Cave Crew at cavecrew.example. Is that possible?" });
+  await zaisma(domain.id, { reply: "Not yet. Games are served from Zaisma's game domain for safety; a custom domain can link to your game page, and your game's links work anywhere." });
+  await you("POST", `/forum/${domain.id}/answer`, { post: await zaismaPostId(you, domain.id) });
+
+  const syncSaves = await topic(bs, { kind: "question", category: "saves", title: "Can cloud saves move between two of my games?", text: "We're making a sequel and want players to carry their unlocks over. Can the new game read the old game's save?" });
+  await zaisma(syncSaves.id, { reply: "Not directly: each game's saves are its own. Your game server can read both games' saves through the API with your key, and copy what you want across when a player first opens the sequel." });
+  await bs("POST", `/forum/${syncSaves.id}/answer`, { post: await zaismaPostId(bs, syncSaves.id) });
+
+  const privateTest = await topic(tr, { kind: "question", author: me, category: "publishing", title: "How do I keep a game private while friends test it?", text: "I want five friends to play before it's public. Do they need accounts?" });
+  const ans = await reply(qo, privateTest.id, "Set it to Only me, then make a tester link on the game's page in the dashboard and send that. Testers don't need accounts, and you can turn the link off any time.", { author: me });
+  await tr("POST", `/forum/${privateTest.id}/answer`, { post: ans.id });
+  for (const who of [pf, bs]) await who("POST", `/forum/${privateTest.id}/posts/${ans.id}/helpful`, { on: true });
+
+  const godot = await topic(pf, { kind: "question", category: "publishing", tags: ["godot"], title: "Godot 4 web export says SharedArrayBuffer isn't defined", text: "Exported with threads on. Works locally with the Godot server, fails on Zaisma with:\n```\nReferenceError: SharedArrayBuffer is not defined\n```" });
+  const godotAns = await reply(hl, godot.id, "Export with Thread Support turned off (Project > Export > Web > Variant). Threads need cross-origin isolation headers, and most hosts that embed games can't send them. Single-threaded builds run fine for 2D.", { author: "ai" });
+  await pf("POST", `/forum/${godot.id}/answer`, { post: godotAns.id });
+  for (const who of [ca, qo, tr]) await who("POST", `/forum/${godot.id}/posts/${godotAns.id}/helpful`, { on: true });
+  await meToo(godot.id, ca, qo);
+
+  const serverState = await topic(lw, { kind: "question", category: "servers", title: "Can my game server keep state between matches?", text: "We want a lobby leaderboard that survives after a room closes. Where should that live?" });
+  await reply(pf, serverState.id, "We keep ours in the game database, written from the server when a match ends. Rooms themselves forget everything when they close.", { author: me });
+
+  const passes = await topic(qo, { kind: "question", category: "passes", title: "Verifying player passes on my own server, in Python", text: "The docs show JavaScript. Is there a Python example for checking a player pass?" });
+  await reply(lw, passes.id, "Passes are standard signed tokens (Ed25519). With PyJWT:\n```python\nimport jwt\nclaims = jwt.decode(token, public_key, algorithms=[\"EdDSA\"], audience=\"your-game-slug\")\n```\nGet the public key from the rooms server's keys address.", { author: "ai" });
+
+  const transfer = await topic(ca, { kind: "question", author: me, category: "accounts", title: "Can I move a game to my teammate's account?", text: "My co-founder should own the game now. Is there a transfer?" });
+  await zaisma(transfer.id, { reply: "Not by yourselves yet. Write to us from the account that owns it and we'll move it; studio accounts with several members are on the roadmap.", status: "answered" });
+
+  const audio = await topic(tr, { kind: "question", category: "sdk", tags: ["phaser", "mobile", "audio"], title: "Phaser 3 sound doesn't start until the second tap on iPhone", text: "First tap starts the game but no sound; second tap and it works. Android is fine." });
+  await reply(ca, audio.id, "iOS only unlocks audio inside a tap handler. Call this.sound.unlock() (or resume the audio context) in your first pointerdown, before starting the scene.", { author: me });
+  await meToo(audio.id, hl);
+
+  const ci = await topic(hl, { kind: "question", category: "cli", title: "Running the upload command in GitHub Actions", text: "What's the cleanest setup? We'd like every merge to main to upload a new version." });
+  await reply(you, ci.id, "We do this: put the key in a secret called ZAISMA_KEY, then\n```yaml\n- run: npx @zaisma/cli upload dist --game shard-dodge --notes \"${{ github.event.head_commit.message }}\"\n  env:\n    ZAISMA_KEY: ${{ secrets.ZAISMA_KEY }}\n```", { author: "ai" });
+
+  const unanswered = await topic(bs, { kind: "question", author: me, category: "scans", title: "Why was my version held for an outside host?", text: "The scan held our build for loading fonts from a font service. Is that not allowed?" });
+  await meToo(unanswered.id, qo);
+  await topic(lw, { kind: "question", category: "dashboard", title: "Is there a way to see who's playing right now?", text: "Not names, just a live count would do." });
+
+  // Discussions.
+  const weekly = await topic(ca, { kind: "talk", author: me, category: "other", title: "What are you building this week?", text: "Share what you're working on. We're adding a co-op mode to Coral Run." });
+  await reply(pf, weekly.id, "A tiny racing game, made mostly with Claude. First playable is up as a draft.", { author: me });
+  await reply(qo, weekly.id, "Porting an old Flash puzzle game. Rooms made the versus mode a weekend job.", { author: me });
+  await reply(tr, weekly.id, "Rewriting our save system to use cloud saves instead of our own server.", { author: me });
+  await reply(you, weekly.id, "Polishing Arena's new map and testing it with a tester link.", { author: me });
+  // A busy thread: more people than a row shows.
+  await reply(bs, weekly.id, "A cozy farming game for phones. Cloud saves made the sync painless.", { author: me });
+  await reply(hl, weekly.id, "A horror game, short and mean. Asked about the rules first.", { author: me });
+  await reply(lw, weekly.id, "Tooling, mostly: our AI now files the bugs it hits straight to this forum.");
+  await reply(os, weekly.id, "Two-player tank battles, rooms on Zaisma. @[Pixel Forge], want to swap playtests?", { author: me });
+  const horror = await topic(hl, { kind: "talk", author: me, category: "rules", title: "Is a horror game with jump scares fine under the content rules?", text: "Nothing gory, just jump scares and a dark mood. Want to check before we finish it." });
+  await zaisma(horror.id, { reply: "Yes. Scary is fine; the rules are about gore, sexual content and real harm. Say it's a horror game in your description so players know what they're getting." });
+  await topic(qo, { kind: "talk", author: me, category: "docs", title: "The room codes docs could use a full example", text: "The page lists the calls but not how they fit together. A small lobby example from start to finish would help a lot." });
+
+  // A public bug, Zaisma on it.
+  const crop = await topic(hl, { kind: "bug", author: me, public: true, category: "pages", tags: ["mobile"], title: "Square covers are cropped at the top on some phones", text: "On a Pixel 7 our square cover loses about 20 px at the top on the home page. Other phones look fine. **Before** and **after** below.", media: [Buffer.from(picture([70, 140, 220], 1)).toString("base64"), Buffer.from(picture([150, 70, 160], 2)).toString("base64")] });
+  await meToo(crop.id, ca, pf);
+  await zaisma(crop.id, { reply: "Thanks, we can see it on that screen size. Fix coming with the next home page update.", status: "known" });
+
+  // The preview account's messages to Zaisma: its AI hits a bug Zaisma makes a known issue, and hits the
+  // rooms one too (the stand-in AI merges it); the developer sends a gap.
+  const { topic: tooBig } = await you("POST", "/forum", {
+    public: false,
+    kind: "bug",
+    game: "arena",
+    category: "mcp",
+    title: "upload_files fails with too_big for a 3 MB game",
+    text: "Uploading Arena's new build with upload_files fails straight away with too_big, though the whole build is 3.1 MB. The upload command sends the same folder fine.",
+    context: { tool: "upload_files", error: { code: "too_big", message: "That's more than upload_files takes." }, files: 14, bytes: 3250000 },
+    picture: Buffer.from(picture([150, 70, 160], 1)).toString("base64"),
+  });
+  await zaisma(tooBig.id, { known: "1", k_title: "upload_files refuses some builds under 5 MB", k_workaround: "Use the upload command (npx @zaisma/cli upload) for builds over 2 MB.", k_roadmap: "Developer MCP", status: "known", severity: "3", area: "mcp", reply: "Found it: base64 makes the request bigger than the build. Thanks for the details." });
+  await you("POST", "/forum", { public: false, kind: "bug", game: "cave-crew", category: "rooms", title: "Room drops every player once it fills up", text: "Cave Crew's rooms drop every player once about 50 join. Players get disconnected all at once." });
+  await you("POST", "/forum", { public: false, kind: "gap", author: me, category: "publishing", title: "Builds over 500 MB", text: "My Unity export is 640 MB with its streaming assets. Is the 500 MB limit going to change? I can't split it." });
+  // A reply the check holds, to show what waiting for a person looks like.
+  await reply(you, weekly.id, "Anyone want to playtest Arena tonight? Add me on discord, same name.", { author: me });
+  // A third known issue, planned.
+  const { topic: scanSlow } = await lw("POST", "/forum", { public: false, kind: "bug", category: "scans", title: "Scan took 25 minutes on Saturday", text: "Usually under a minute; Saturday evening it took 25." });
+  await zaisma(scanSlow.id, { known: "1", k_title: "Scans can take over 10 minutes at busy times", k_workaround: "Upload a little ahead of a launch, or schedule the publish.", k_roadmap: "Scan speed", status: "fixing", severity: "3", area: "scans" });
+  // The rooms fix is out, and Zaisma is watching that it holds.
+  const roomsTopic = (await you("GET", `/forum/${roomsKnown}`)).topic;
+  await zaisma(roomsKnown, { known: "1", k_title: roomsTopic.title, k_workaround: roomsTopic.workaround, k_roadmap: roomsTopic.roadmap ?? "", status: "released", severity: "2", area: "rooms", reply: "The fix for the 50-player drop is live. We're watching that it holds." });
+  await meToo((await you("GET", "/forum?tab=known")).topics.find((k) => k.title.startsWith("Scans can take")).id, pf, tr);
+
+  // Spread the times over the last three weeks, in the order things happened.
+  const end = Date.now();
+  const k = (21 * 86400_000) / (end - start);
+  const at = (col) => `${col} = CASE WHEN ${col} >= ${start} THEN CAST(${end} - (${end} - ${col}) * ${k} AS INTEGER) ELSE ${col} END`;
+  spawnSync(
+    "npx",
+    ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command",
+      `UPDATE feedback SET ${["created_at", "updated_at", "active_at", "news_at", "seen_at", "triaged_at"].map(at).join(", ")}; UPDATE feedback_posts SET ${at("created_at")}; UPDATE feedback_votes SET ${at("created_at")}; UPDATE feedback_follows SET ${at("seen_at")};`],
+    { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } },
+  );
+}
+
+/** Another developer account, signed in with its own API key: answers an API call function. */
+
+async function developer(name, email) {
+  const jar = new Map();
+  // Each from its own test address, as real people would be, so sign-in's limit per address isn't hit.
+  const ip = `198.51.100.${(developer.made = (developer.made ?? 0) + 1)}`;
+  const go = async (path, body) => {
+    const res = await fetch(SITE + path, { method: "POST", body: new URLSearchParams(body), redirect: "manual", headers: { origin: SITE, "cf-connecting-ip": ip, cookie: [...jar].map(([k, v]) => `${k}=${v}`).join("; ") } });
+    for (const c of res.headers.getSetCookie()) {
+      const [pair] = c.split("; ");
+      const i = pair.indexOf("=");
+      jar.set(pair.slice(0, i), pair.slice(i + 1));
+    }
+    return res;
+  };
+  await go("/join/age", { month: "3", day: "14", year: "1988" });
+  await go("/join/email", { name, email });
+  await go("/signin/code", { email, code: "123456" });
+  const key = (await (await go("/account/keys", { name: "preview" })).text()).match(/zsk_[a-z0-9]+_[A-Za-z0-9_-]+/)?.[0];
+  if (!key) throw new Error(`Couldn't make ${name}'s API key.`);
+  return async (method, path, body) => {
+    const res = await fetch(`${SITE}/api/dev${path}`, { method, headers: { authorization: `Bearer ${key}`, "content-type": "application/json" }, body: JSON.stringify(body) });
+    const data = await res.json();
+    if (!res.ok) throw new Error(`${method} ${path}: ${data.error?.message}`);
+    return data;
+  };
 }
 
 /** A 16:9 test picture that reads like game art: a sky, a sun and two ranges of hills, in the game's colors. A marker goes in a text chunk. */
