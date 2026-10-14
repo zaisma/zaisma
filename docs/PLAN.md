@@ -30,7 +30,7 @@ Playing, publishing, game files, accounts, friends and saves are free for everyo
 **Where the money comes from**
 
 - **Hosting, priced with a margin.** Multiplayer on our rooms costs about twice what Cloudflare charges us, roughly $2 per 1,000 player-hours of real-time play, still far below dedicated game-server services. Bigger game servers (Cloudflare Containers, after beta) are priced the same way. Every developer or team gets the first 1,000 player-hours a month free, enough for family and friends or a prototype (8 friends playing 2 hours a night for a month is about 500), so hobbyists never see a bill and only games that take off pay. Above the free tier, hosting is prepaid credit (automatic top-up optional), so we never serve what isn't paid for; developers see their game server's errors and wasted CPU so they can keep costs down. Running your own servers is always free.
-- **Zaisma Pro for developers, about $10/month.** Publishing stays free; Pro adds what serious developers want and what costs us more: deeper stats, custom domains on our hosting, more storage and team seats, priority review, a higher daily upload limit and scheduled releases.
+- **Zaisma Pro for developers, about $10/month.** Publishing stays free; Pro adds only what costs us more: custom domains on our hosting, more storage and team seats and a higher daily upload limit. Stats and scheduled releases stay free for everyone.
 - **Promoted games.** Clearly labeled front-page slots that developers buy, inside Zaisma only and with no tracking, priced by traffic (about $50/week at launch, rising with players).
 - **Zaisma Plus for players, about $5/month (later).** A supporter badge, profile extras, new Zaisma features first, and early access to games whose developers choose to open new releases to Plus members a few days early. Half of Plus money goes to developers by playtime, so developers earn even if they sell nothing.
 - **Donations** (GitHub Sponsors, Open Collective) are welcome, as a bonus, not the plan.
@@ -68,7 +68,7 @@ Supabase's free plan pauses after a week without traffic, so we move to Pro ($25
 Launching at 13+ keeps us outside the strictest child-privacy law, as long as we never knowingly collect data from under-13s. These rules ship with version one.
 
 - **Age question at signup.** Ask birth date; block under-13s and don't store their data. Keep only the age band, never the birth date; no ID or face checks. COPPA covers services that collect data from children under 13, and the FTC's updated rule has applied since April 22, 2026 ([Hunton](https://www.hunton.com/privacy-and-cybersecurity-law-blog/tag/coppa)).
-- **Teen-safe defaults.** For 13–17: friend requests only from people they've played with, chat off or preset phrases, profiles private.
+- **Teen-safe defaults.** Every account has a social mode (solo-focused, friends-focused, open and social). 13–15 start with no chat and can turn on friends-only chat by hand; friends only by invitation. 16–17 pick a mode, friends-focused by default, and open chat reaches only other 16–17s. Profiles private. See `docs/DECISIONS.md`.
 - **Developer payouts through Stripe Standard accounts.** These allow sellers from age 13 if a parent or guardian owns the account; Stripe's Express and Custom accounts require 18+ ([Stripe](https://support.stripe.com/questions/age-requirement-to-create-a-stripe-account)).
 - **Player purchases by teens.** Purchases go through the Zaisma buy sheet with clear prices and receipts to the card owner. No default spending cap; optional family controls and "Ask a parent to buy".
 - **Content and takedowns.** Any game can list, but we remove illegal content and copyright-infringing remixes on notice. Register a DMCA agent and add a report button to every game page.
@@ -85,7 +85,7 @@ The live roadmap, with every item and its status, is [`docs/ROADMAP.md`](ROADMAP
 2. **Earn:** the Zaisma buy sheet, owned items, purchase rules, hosting billing, Zaisma Pro, promoted games, deposits, donations.
 3. **Play together:** friends, Zaisma in Discord.
 4. **Discover:** the progress bar, real ratings, player lists, follows and the rest of the developer marketing kit.
-5. **Create together:** remixes, teams, mods, the Tools tab.
+5. **Create together:** remixes, teams, mods.
 6. **Grow:** bigger game servers, custom game domains, the Wavedash switch, subscriptions.
 
 ## First 100 games and targets
@@ -103,9 +103,9 @@ The goal for the first 90 days after beta: 100 listed games and 10,000 monthly p
 | Guests who make an account | 15% |
 | Games with paid items | 10 |
 
-## Tools tab (after launch)
+## Tools tab (parked)
 
-After the beta (Phase 5), Zaisma adds a Tools tab for free, open-source developer tools: asset pipelines, engines, level editors, Claude Code skills and plugins. Games lead the launch so the player crowd forms first; tools then make more and better games.
+Parked Oct 14, 2026; revisit after Phase 5. The idea: Zaisma adds a Tools tab for free, open-source developer tools: asset pipelines, engines, level editors, Claude Code skills and plugins. Games lead the launch so the player crowd forms first; tools then make more and better games.
 
 - **Rules:** the same as games. Free to list, no cut, scanned before going live, same progress bar for the front page.
 - **Requirement:** a tool must be open source to be listed.
