@@ -416,7 +416,9 @@ export async function adminFeedbackList(env: Env, status = "new", limit = 30) {
  */
 export async function postsToCheck(env: Env, limit = 50) {
   const { results } = await env.DB.prepare(
-    "SELECT p.*, f.title AS topic_title, f.known_title AS topic_known FROM feedback_posts p JOIN feedback f ON f.id = p.feedback_id WHERE p.check_state IN ('held', 'pending') ORDER BY p.check_state = 'held' DESC, p.created_at LIMIT ?",
+    `SELECT p.*, f.title AS topic_title, f.known_title AS topic_known FROM feedback_posts p JOIN feedback f ON f.id = p.feedback_id
+     WHERE p.check_state IN ('held', 'pending') OR p.id IN (SELECT post_id FROM forum_reports)
+     ORDER BY p.id IN (SELECT post_id FROM forum_reports WHERE reason = 'child_safety') DESC, p.check_state = 'held' DESC, p.created_at LIMIT ?`,
   )
     .bind(limit)
     .all<FeedbackPost & { topic_title: string; topic_known: string | null }>();
@@ -424,8 +426,10 @@ export async function postsToCheck(env: Env, limit = 50) {
     results.map(async (p) => ({
       id: p.id,
       topic: { id: p.feedback_id, title: p.topic_known ?? p.topic_title },
-      state: p.check_state === "held" ? "held" : "not checked yet",
+      state: p.check_state === "held" ? "held" : p.check_state === "pending" ? "not checked yet" : "shown, reported",
       why: p.check_reason,
+      // What developers reported it for; who reported it stays with Zaisma.
+      reports: (await env.DB.prepare("SELECT reason, details FROM forum_reports WHERE post_id = ? ORDER BY created_at").bind(p.id).all<{ reason: string; details: string | null }>()).results,
       developer: await accountName(env, p.account_id),
       by: ADMIN_BY[p.author],
       text: p.text.slice(0, 2000),

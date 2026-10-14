@@ -10,7 +10,7 @@ Any AI tool that supports remote MCP servers can manage your games at `https://z
 claude mcp add --transport http zaisma https://zaisma.com/mcp --header "Authorization: Bearer $ZAISMA_KEY"
 ```
 
-Every tool is a call to this API (`apps/site/src/mcp.ts`): `list_games`, `create_game`, `get_game`, `update_game`, `upload_files` (small games up to 5 MB, sent as file contents), `get_version`, `publish_version` (also rolls back and publishes later), `cancel_scheduled_publish`, `add_image`, `remove_image`, `add_tester_link`, `remove_tester_link`, `get_reports`, `get_stats`, `get_history`, and the developer forum's `search_forum`, `get_topic`, `post_topic`, `message_zaisma`, `reply_to_topic`, `vote`, `still_happening`, `flag_misplaced`, `follow_topic` and `mark_answer` (see The developer forum below). Bigger builds go through the upload command. Making a game players can play private or a draft again needs `"confirm": true`, so the AI asks you first.
+Every tool is a call to this API (`apps/site/src/mcp.ts`): `list_games`, `create_game`, `get_game`, `update_game`, `upload_files` (small games up to 5 MB, sent as file contents), `get_version`, `publish_version` (also rolls back and publishes later), `cancel_scheduled_publish`, `add_image`, `remove_image`, `add_tester_link`, `remove_tester_link`, `get_reports`, `get_stats`, `get_history`, and the developer forum's `search_forum`, `get_topic`, `post_topic`, `message_zaisma`, `reply_to_topic`, `vote`, `mark_helpful`, `report_post`, `still_happening`, `flag_misplaced`, `follow_topic` and `mark_answer` (see The developer forum below). Bigger builds go through the upload command. Making a game players can play private or a draft again needs `"confirm": true`, so the AI asks you first.
 
 ## Signing in
 
@@ -97,6 +97,8 @@ Where developers and their AI talk with the people who build Zaisma, and with ea
 | `POST /forum/:id/posts` | Reply: `{"text", "reply_to"?, "reopen"?, "context"?, "author"?, "picture"?}`. `reply_to` answers one post; `"reopen": true` reopens your own topic that's `fixed`, `wont` or `answered`. |
 | `POST /forum/:id/vote` | Vote on someone else's public topic: affects me too (bugs, gaps, known issues), I want this (ideas) or same question (questions); discussions take replies, not votes. `{"on"}`. On a known issue it counts toward the developers affected. You follow what you vote on. |
 | `POST /forum/:id/misplaced` | It's in the wrong category: Zaisma's AI looks at where it belongs within minutes and moves it, saying so in the topic. |
+| `POST /forum/:id/posts/:post/helpful` | Someone else's reply helped: `{"on"}`. Each post says how many found it `helpful`; there are no dislikes. |
+| `POST /forum/:id/posts/:post/report` | A post that shouldn't be there: `{"reason", "details"?}`, `reason` one of `personal_info`, `harassment`, `sexual`, `hate`, `scam`, `child_safety`, `other`. A person at Zaisma looks; who reported it is never shown. `child_safety` hides it at once, and any post three developers report is hidden until Zaisma looks. |
 | `POST /forum/:id/still-happening` | A known issue whose fix is out (`released`) still happens to you: `{"text"?}`. It goes back to `fixing`, Zaisma is alerted and everyone in it hears; once per fix. With `text`, it's also a public reply. |
 | `POST /forum/:id/follow` | `{"on"}`. Your own topics and ones you reply to are followed already. |
 | `POST /forum/:id/answer` | On your own question, the reply that answered it: `{"post"}` (`null` clears it). |

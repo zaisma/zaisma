@@ -105,10 +105,10 @@ async function queue(env: Env, status: string): Promise<Response> {
 <p class="lead">${rows.length ? `${rows.length} ${filter === "new" ? "waiting" : filter === "all" ? "items and known issues" : STATUS_NAMES[filter]!.toLowerCase()}, most serious first.` : filter === "new" ? "Nothing waiting." : "Nothing here."}${filter === "new" && waiting?.n ? ` ${waiting.n} still being sorted.` : ""}</p>
 <nav class="seg" aria-label="Which feedback">${FILTERS.map((s) => html`<a href="/admin/feedback?status=${s}"${s === filter ? raw(' aria-current="page"') : ""}>${s === "all" ? "All" : s === "new" ? "Waiting" : STATUS_NAMES[s]}</a>`)}</nav>
 ${toCheck.length
-      ? html`<h2>Forum posts waiting for a check (${toCheck.length})</h2>
-<p class="muted">Others don't see these yet. Held ones say why.</p>
+      ? html`<h2>Forum posts to look at (${toCheck.length})</h2>
+<p class="muted">Held by the check, not checked yet, or reported by developers. Show it keeps it up and clears its reports; Remove takes it down.</p>
 <table><tr><th>Post</th><th>Why</th><th></th></tr>${toCheck.map(
-          (p) => html`<tr><td><a href="/admin/feedback/${p.topic.id}">${p.topic.title}</a><br><span class="muted">${p.developer} (${p.by}), ${p.at}:</span> <span style="white-space:pre-wrap">${p.text.slice(0, 400)}</span></td><td>${p.state === "held" ? p.why : html`<span class="muted">Not checked yet</span>`}</td><td class="nowrap">${checkButtons(p.id, "/admin/feedback")}</td></tr>`,
+          (p) => html`<tr><td><a href="/admin/feedback/${p.topic.id}">${p.topic.title}</a><br><span class="muted">${p.developer} (${p.by}), ${p.at}:</span> <span style="white-space:pre-wrap">${p.text.slice(0, 400)}</span></td><td>${p.reports.length ? html`<strong>Reported ${p.reports.length === 1 ? "once" : `${p.reports.length} times`}:</strong> ${p.reports.map((r) => `${r.reason.replace("_", " ")}${r.details ? ` (“${r.details}”)` : ""}`).join("; ")}<br>` : ""}${p.state === "held" ? p.why : p.state === "not checked yet" ? html`<span class="muted">Not checked yet</span>` : html`<span class="muted">Still shown</span>`}</td><td class="nowrap">${checkButtons(p.id, "/admin/feedback")}</td></tr>`,
         )}</table>`
       : ""}
 ${inside.length

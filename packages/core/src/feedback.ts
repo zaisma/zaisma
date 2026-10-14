@@ -145,7 +145,23 @@ export interface FeedbackPost {
   check_state: "pending" | "ok" | "held" | null;
   check_tries: number;
   check_reason: string | null;
+  /** How many developers marked it helpful. */
+  helpful: number;
 }
+
+/** Why a forum post is reported. child_safety hides it at once; any three reports hide it until a person looks. */
+export const FORUM_REPORT_REASONS = {
+  personal_info: "Shares someone's personal details, or asks to talk somewhere else",
+  harassment: "Harasses, insults or threatens someone",
+  sexual: "Sexual content",
+  hate: "Hateful",
+  scam: "A scam, spam or malware",
+  child_safety: "Puts a young person at risk",
+  other: "Something else",
+} as const;
+export type ForumReportReason = keyof typeof FORUM_REPORT_REASONS;
+/** Reports from this many developers hide a post until a person looks. */
+export const FORUM_REPORTS_TO_HIDE = 3;
 
 export const feedbackPictureKey = (postId: string) => `feedback-pictures/${postId}`;
 

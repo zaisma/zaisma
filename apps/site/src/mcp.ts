@@ -1,4 +1,4 @@
-import { CONTROLS, DEVICES, FEEDBACK_AREAS, FEEDBACK_KINDS, FEEDBACK_STATUSES, FORUM_CATEGORIES, FORUM_TAGS, PLAY_STYLES, ROOM_BROWSING, SCREENS, VISIBILITIES } from "@zaisma/core";
+import { CONTROLS, DEVICES, FEEDBACK_AREAS, FEEDBACK_KINDS, FEEDBACK_STATUSES, FORUM_REPORT_REASONS, FORUM_CATEGORIES, FORUM_TAGS, PLAY_STYLES, ROOM_BROWSING, SCREENS, VISIBILITIES } from "@zaisma/core";
 import { ApiError, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 
@@ -291,6 +291,22 @@ const TOOLS: Tool[] = [
     inputSchema: object({ id: { type: "string" }, on: { type: "boolean" } }, ["id"]),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     run: (args, call) => call("POST", `/forum/${str(args.id)}/vote`, { on: args.on !== false }),
+  },
+  {
+    name: "mark_helpful",
+    title: "Mark a reply helpful",
+    description: "A reply in a public topic helped the developer (or you, on their behalf): it counts toward how many found it helpful, so useful answers stand out. Not for their own posts. on: false takes it back.",
+    inputSchema: object({ id: { type: "string", description: "The topic." }, post: { type: "string" }, on: { type: "boolean" } }, ["id", "post"]),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    run: (args, call) => call("POST", `/forum/${str(args.id)}/posts/${str(args.post)}/helpful`, { on: args.on !== false }),
+  },
+  {
+    name: "report_post",
+    title: "Report a forum post",
+    description: `A public post that shouldn't be there: a person at Zaisma looks. reason: ${Object.entries(FORUM_REPORT_REASONS).map(([k, v]) => `${k} (${v.toLowerCase()})`).join(", ")}. child_safety hides it at once. Ask the developer first; a reply that's just wrong needs a better reply, not a report.`,
+    inputSchema: object({ id: { type: "string", description: "The topic." }, post: { type: "string" }, reason: { enum: Object.keys(FORUM_REPORT_REASONS) }, details: { type: "string", maxLength: 1000 } }, ["id", "post", "reason"]),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    run: (args, call) => call("POST", `/forum/${str(args.id)}/posts/${str(args.post)}/report`, pick(args, ["reason", "details"])),
   },
   {
     name: "still_happening",

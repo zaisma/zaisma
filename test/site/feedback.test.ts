@@ -53,7 +53,7 @@ async function adminPost(path: string, form: Record<string, string>): Promise<Re
 }
 
 beforeEach(async () => {
-  await env.DB.exec("DELETE FROM feedback_posts; DELETE FROM feedback_tags; DELETE FROM feedback_votes; DELETE FROM feedback_follows; DELETE FROM feedback_misplaced; DELETE FROM forum_search; DELETE FROM feedback; DELETE FROM api_keys; DELETE FROM audit_log; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
+  await env.DB.exec("DELETE FROM feedback_posts; DELETE FROM feedback_tags; DELETE FROM feedback_votes; DELETE FROM feedback_follows; DELETE FROM feedback_misplaced; DELETE FROM forum_search; DELETE FROM feedback_helpful; DELETE FROM forum_reports; DELETE FROM feedback; DELETE FROM api_keys; DELETE FROM audit_log; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
   await createAccount(env.DB, { id: "dev-1", name: "Pixel Smith", ageBand: "18+" });
   await createAccount(env.DB, { id: "dev-2", name: "Other Dev", ageBand: "18+" });
   token = (await createApiKey(env.DB, "dev-1", "claude")).token;
@@ -344,6 +344,38 @@ describe("search, phases and reading a topic in part", () => {
     expect((await mcp("get_topic", { id: topic.id })).topic.status).toBe("fixing");
     // Once per fix: it's fixing now, so no more.
     expect((await mcp("still_happening", { id: k }, other)).error).toContain("not_released");
+  });
+
+  it("marks helpful replies and takes reports, hiding a post three developers report", async () => {
+    const { topic } = await mcp("post_topic", { kind: "question", category: "saves", title: "Do saves sync?", text: "Between devices?" });
+    await passAll();
+    const reply = (await mcp("reply_to_topic", { id: topic.id, text: "Yes, for signed-in players." }, other)).post;
+    await passAll();
+    expect(await mcp("mark_helpful", { id: topic.id, post: reply.id })).toEqual({ helpful: 1, helpful_by_you: true });
+    expect(await mcp("mark_helpful", { id: topic.id, post: reply.id })).toEqual({ helpful: 1, helpful_by_you: true });
+    expect((await mcp("mark_helpful", { id: topic.id, post: reply.id }, other)).error).toContain("other people's posts");
+    expect((await mcp("get_topic", { id: topic.id })).posts[1]).toMatchObject({ helpful: 1, helpful_by_you: true });
+
+    // Reports: who reported stays with Zaisma; three hide it until a person looks.
+    expect((await mcp("report_post", { id: topic.id, post: reply.id, reason: "nope" })).error).toContain("bad_reason");
+    expect(await mcp("report_post", { id: topic.id, post: reply.id, reason: "scam" })).toEqual({ reported: true, hidden: false });
+    for (const n of [3, 4]) {
+      await createAccount(env.DB, { id: `dev-${n}`, name: `Dev ${n}`, ageBand: "18+" });
+      const key = (await createApiKey(env.DB, `dev-${n}`, "ai")).token;
+      await mcp("report_post", { id: topic.id, post: reply.id, reason: "harassment", details: n === 4 ? "Rude." : undefined }, key);
+    }
+    expect((await mcp("get_topic", { id: topic.id })).posts).toHaveLength(1);
+    expect((await mcp("get_topic", { id: topic.id }, other)).posts[1]).toMatchObject({ state: "held" });
+    const queue = await admin("list_feedback");
+    expect(queue.posts_to_check[0]).toMatchObject({ id: reply.id, state: "held", reports: [{ reason: "scam" }, { reason: "harassment" }, { reason: "harassment", details: "Rude." }] });
+    // A person looks and keeps it: shown again, reports cleared.
+    await admin("check_post", { id: reply.id, decision: "show" });
+    expect((await mcp("get_topic", { id: topic.id })).posts).toHaveLength(2);
+    expect((await admin("list_feedback")).posts_to_check).toEqual([]);
+
+    // A child-safety report hides it at once.
+    expect(await mcp("report_post", { id: topic.id, post: reply.id, reason: "child_safety" })).toEqual({ reported: true, hidden: true });
+    expect((await mcp("get_topic", { id: topic.id })).posts).toHaveLength(1);
   });
 
   it("counts everyone in a big topic and shows only the latest few", async () => {

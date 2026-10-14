@@ -6,7 +6,10 @@ import {
   FEEDBACK_OPEN_PHASES,
   FEEDBACK_STATUSES,
   FORUM_CATEGORIES,
+  FORUM_REPORT_REASONS,
+  FORUM_REPORTS_TO_HIDE,
   FORUM_TAGS,
+  type ForumReportReason,
   feedbackPictureKey,
   gameById,
   newId,
@@ -20,6 +23,7 @@ import { ApiError, ownGame, readJson, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { decideFeedback, developersIn, feedbackById, hasNews, KNOWN, postsLeft, readPost, readTitle, storePost } from "./feedback.ts";
 import { searchTerms, searchTopics } from "./forum-search.ts";
+import { hidePost } from "./forum-check.ts";
 import { sendAlert } from "./email.ts";
 
 /**
@@ -39,6 +43,8 @@ import { sendAlert } from "./email.ts";
  *   POST /api/dev/forum/:id/answer                          your question's answer: { post } (null to clear)
  *   POST /api/dev/forum/:id/misplaced                       it's in the wrong category: Zaisma's AI moves it
  *   POST /api/dev/forum/:id/still-happening                 a known issue whose fix is out still happens: { text? }
+ *   POST /api/dev/forum/:id/posts/:post/helpful             someone else's reply helped: { on }
+ *   POST /api/dev/forum/:id/posts/:post/report              it shouldn't be here: { reason, details? }
  *   GET  /api/dev/forum/:id/pictures/:post                  a screenshot you attached
  *
  * Others see a public post once it passes the check (forum-check.ts). Screenshots and what an AI
@@ -135,6 +141,11 @@ export interface PostJson {
   /** Your own post that others can't see yet: checking, or held for a person. */
   state: "checking" | "held" | null;
   via: FeedbackPost["via"];
+  /** How many developers found it helpful, and whether you did. */
+  helpful: number;
+  helpful_by_you: boolean;
+  /** You reported it, and Zaisma hasn't looked yet. */
+  reported_by_you: boolean;
   /** Only for whoever posted it (and Zaisma). */
   context: unknown;
   picture_url: string | null;
@@ -152,6 +163,13 @@ export async function forumRoute(request: Request, env: Env, path: string, calle
   }
   if (path === "/forum/similar" && method === "GET") return [{ topics: await similarTopics(env, caller, url.searchParams.get("q") ?? "") }];
   if (path === "/forum" && method === "POST") return [await createTopic(env, caller, await readJson(request, 4 * 1024 * 1024)), 201];
+  const onPost = path.match(/^\/forum\/([a-z0-9]{1,40})\/posts\/([a-z0-9]{1,40})\/(helpful|report)$/);
+  if (onPost) {
+    if (method !== "POST") throw new ApiError(405, "bad_method", `${method} isn't used here.`);
+    const body = await readJson(request, 8192);
+    if (onPost[3] === "helpful") return [await markHelpful(env, caller, onPost[1]!, onPost[2]!, body.on !== false)];
+    return [await reportPost(env, caller, onPost[1]!, onPost[2]!, body)];
+  }
   const m = path.match(/^\/forum\/([a-z0-9]{1,40})(?:\/(posts|vote|follow|answer|misplaced|still-happening|pictures)(?:\/([a-z0-9]{1,40}))?)?$/);
   if (!m) throw new ApiError(404, "not_found", "No such API path.");
   const [, id, sub, postId] = m as unknown as [string, string, string | undefined, string | undefined];
@@ -435,6 +453,12 @@ export async function getTopic(env: Env, viewer: Viewer, id: string, opts: { pos
   const yours = viewer && f.known_title ? await env.DB.prepare("SELECT id FROM feedback WHERE group_id = ? AND account_id = ? ORDER BY created_at LIMIT 1").bind(f.id, viewer.accountId).first<{ id: string }>() : null;
   const following = viewer ? await env.DB.prepare("SELECT seen_at FROM feedback_follows WHERE feedback_id = ? AND account_id = ?").bind(f.id, viewer.accountId).first<{ seen_at: number }>() : null;
   const flagged = viewer ? await env.DB.prepare("SELECT 1 AS y FROM feedback_misplaced WHERE feedback_id = ? AND account_id = ?").bind(f.id, viewer.accountId).first() : null;
+  const [helped, reported]: [Set<string>, Set<string>] = viewer
+    ? await Promise.all([
+        env.DB.prepare("SELECT post_id FROM feedback_helpful WHERE account_id = ? AND post_id IN (SELECT id FROM feedback_posts WHERE feedback_id = ?)").bind(viewer.accountId, f.id).all<{ post_id: string }>(),
+        env.DB.prepare("SELECT post_id FROM forum_reports WHERE account_id = ? AND post_id IN (SELECT id FROM feedback_posts WHERE feedback_id = ?)").bind(viewer.accountId, f.id).all<{ post_id: string }>(),
+      ]).then(([h, r]) => [new Set(h.results.map((x) => x.post_id)), new Set(r.results.map((x) => x.post_id))] as [Set<string>, Set<string>])
+    : [new Set<string>(), new Set<string>()];
   if (viewer) {
     const now = Date.now();
     if (following) await env.DB.prepare("UPDATE feedback_follows SET seen_at = ? WHERE feedback_id = ? AND account_id = ?").bind(now, f.id, viewer.accountId).run();
@@ -472,6 +496,9 @@ export async function getTopic(env: Env, viewer: Viewer, id: string, opts: { pos
         answer: f.answer_post === p.id,
         state: mine && p.check_state === "pending" ? "checking" : mine && p.check_state === "held" ? "held" : null,
         via: p.via,
+        helpful: p.helpful,
+        helpful_by_you: helped.has(p.id),
+        reported_by_you: reported.has(p.id),
         context: mine && p.context ? JSON.parse(p.context) : null,
         picture_url: mine && p.picture ? `${env.SITE_ORIGIN}/api/dev/forum/${f.id}/pictures/${p.id}` : null,
         at: p.created_at,
@@ -602,6 +629,44 @@ export async function stillHappening(env: Env, caller: Caller, id: string, body:
   await decideFeedback(env, f.id, { status: "fixing", reply: "A developer says it still happens after the fix, so Zaisma is working on it again." });
   await sendAlert(env, `Still happening after the fix: ${f.known_title}`, `A developer says the known issue still happens after its fix was released. It's back to fixing.\n\nOpen: ${env.SITE_ORIGIN}/admin/feedback/${f.id}`);
   return { status: "fixing", ...(reply?.post ? { post: reply.post } : {}) };
+}
+
+async function visiblePost(env: Env, caller: Caller, topicId: string, postId: string): Promise<{ f: Feedback; p: FeedbackPost }> {
+  const f = await readable(env, caller, topicId);
+  const p = await env.DB.prepare("SELECT * FROM feedback_posts WHERE id = ? AND feedback_id = ?").bind(postId, f.id).first<FeedbackPost>();
+  if (!p || p.check_state !== "ok") throw new ApiError(404, "no_post", "There's no post with that id others can see in this topic.");
+  return { f, p };
+}
+
+/** Someone else's reply helped: it shows how many found it helpful. No dislikes: a wrong reply gets a better one, a harmful one a report. */
+export async function markHelpful(env: Env, caller: Caller, topicId: string, postId: string, on: boolean) {
+  const { p } = await visiblePost(env, caller, topicId, postId);
+  if (p.account_id === caller.accountId && p.author !== "zaisma") throw new ApiError(400, "cant_mark", "Helpful is for other people's posts.");
+  const change = on
+    ? await env.DB.prepare("INSERT OR IGNORE INTO feedback_helpful (post_id, account_id, created_at) VALUES (?, ?, ?)").bind(p.id, caller.accountId, Date.now()).run()
+    : await env.DB.prepare("DELETE FROM feedback_helpful WHERE post_id = ? AND account_id = ?").bind(p.id, caller.accountId).run();
+  if (change.meta.changes) await env.DB.prepare(`UPDATE feedback_posts SET helpful = MAX(0, helpful ${on ? "+" : "-"} 1) WHERE id = ?`).bind(p.id).run();
+  const row = await env.DB.prepare("SELECT helpful FROM feedback_posts WHERE id = ?").bind(p.id).first<{ helpful: number }>();
+  return { helpful: row?.helpful ?? 0, helpful_by_you: on };
+}
+
+/**
+ * A post that shouldn't be here. A person at Zaisma looks; it's hidden at once when it puts a young
+ * person at risk (and Zaisma is alerted), or once FORUM_REPORTS_TO_HIDE developers have reported it.
+ */
+export async function reportPost(env: Env, caller: Caller, topicId: string, postId: string, body: Record<string, unknown>) {
+  const { p } = await visiblePost(env, caller, topicId, postId);
+  const reason = String(body.reason ?? "") as ForumReportReason;
+  if (!(reason in FORUM_REPORT_REASONS)) throw new ApiError(400, "bad_reason", `reason is one of: ${Object.keys(FORUM_REPORT_REASONS).join(", ")}.`);
+  if (p.author === "zaisma") throw new ApiError(400, "cant_report", "Zaisma's own posts can't be reported here. Message Zaisma instead.");
+  if (p.account_id === caller.accountId) throw new ApiError(400, "cant_report", "That's your own post.");
+  const details = typeof body.details === "string" ? body.details.trim().slice(0, 1000) : "";
+  await env.DB.prepare("INSERT OR REPLACE INTO forum_reports (post_id, account_id, reason, details, created_at) VALUES (?, ?, ?, ?, ?)").bind(p.id, caller.accountId, reason, details || null, Date.now()).run();
+  const count = (await env.DB.prepare("SELECT COUNT(*) AS n FROM forum_reports WHERE post_id = ?").bind(p.id).first<{ n: number }>())?.n ?? 0;
+  const hidden = reason === "child_safety" || count >= FORUM_REPORTS_TO_HIDE;
+  if (hidden) await hidePost(env, p.id, `Reported: ${FORUM_REPORT_REASONS[reason]}${count > 1 ? ` (${count} reports)` : ""}`);
+  if (reason === "child_safety") await sendAlert(env, "Forum post reported: puts a young person at risk", `A forum post was reported as putting a young person at risk. It's hidden until you look.\n\nOpen: ${env.SITE_ORIGIN}/admin/feedback/${p.feedback_id}`);
+  return { reported: true, hidden };
 }
 
 /** Follow a topic to hear about what's new in it (yours, ones you replied to and voted on are followed already). */

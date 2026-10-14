@@ -2,6 +2,7 @@ import {
   FEEDBACK_KINDS,
   FEEDBACK_LIMITS,
   FORUM_CATEGORIES,
+  FORUM_REPORT_REASONS,
   FORUM_TAGS,
   forumAreaName,
   forumCategoryOf,
@@ -17,6 +18,8 @@ import {
   createTopic,
   flagMisplaced,
   follow,
+  markHelpful,
+  reportPost,
   stillHappening,
   getTopic,
   listTopics,
@@ -65,6 +68,8 @@ const DONE: Record<string, string> = {
   checking: "Posted. Others see it once it's checked, usually within minutes.",
   held: "Posted. A person at Zaisma checks it before others see it, usually within a day.",
   replied: "Replied.",
+  reported: "Thanks. A person at Zaisma looks at it; whoever wrote it isn't told who reported it.",
+  "reported-hidden": "Thanks. It's hidden until a person at Zaisma looks at it.",
   still: "Thanks. It's back to fixing, Zaisma has been alerted, and everyone in it hears.",
   misplaced: "Thanks. Zaisma's AI looks at where it belongs within a few minutes, and moves it if it's in the wrong place.",
   reopened: "Reopened. A person at Zaisma looks at it again.",
@@ -88,6 +93,8 @@ const ICONS = {
   ai: stroke('<path fill-rule="evenodd" d="M9 1.8h2v3.6h4.2a1.8 1.8 0 0 1 1.8 1.8v8a1.8 1.8 0 0 1-1.8 1.8H4.8A1.8 1.8 0 0 1 3 15.2v-8a1.8 1.8 0 0 1 1.8-1.8H9zM6.6 9.2v2.8h2.2V9.2zm4.6 0v2.8h2.2V9.2zM7.4 13.6v1.3h5.2v-1.3z"/><path d="M.8 9h1.5v4.4H.8zM17.7 9h1.5v4.4h-1.5z"/>', true),
   reply: stroke('<path d="M8 5L3.5 9.5 8 14"/><path d="M3.5 9.5H12a4.5 4.5 0 0 1 4.5 4.5v1"/>'),
   again: stroke('<path d="M4.2 10.2a5.9 5.9 0 1 0 1.9-4.6"/><path d="M4.4 3.2v3.4h3.4"/>'),
+  helpful: stroke('<path d="M6.4 9.4v7.8H3.4V9.4z"/><path d="M6.4 9.4l3-6.1c1.4 0 2.3 1.1 2 2.4l-.5 2.6h4.4a1.6 1.6 0 0 1 1.6 1.9l-1.2 5.7a1.6 1.6 0 0 1-1.6 1.3H6.4"/>'),
+  flag: stroke('<path d="M4.6 17.6V3.4"/><path d="M4.6 4h9.6l-2 3.3 2 3.3H4.6"/>'),
   plus: stroke('<path d="M10 4v12M4 10h12"/>'),
   cross: stroke('<path d="M5 5l10 10M15 5L5 15"/>'),
 };
@@ -148,7 +155,7 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
       }
     }
 
-    const m = path.match(/^\/forum\/([a-z0-9]{1,40})(?:\/(reply|vote|follow|answer|misplaced|still-happening|pictures\/([a-z0-9]{1,40})))?$/);
+    const m = path.match(/^\/forum\/([a-z0-9]{1,40})(?:\/(reply|vote|follow|answer|misplaced|still-happening|helpful|report|pictures\/([a-z0-9]{1,40})))?$/);
     if (!m) return null;
     const [, id, sub, postId] = m as unknown as [string, string, string | undefined, string | undefined];
     if (!sub && !post) return done(await topicPage(ctx, id, { done: url.searchParams.get("done") ?? undefined, to: url.searchParams.get("to") ?? undefined }));
@@ -161,6 +168,7 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
         throw err;
       }
     }
+    if (sub === "report" && !post) return done(await reportPage(ctx, id, url.searchParams.get("post") ?? ""));
     if (!post) return done(redirect(`/forum/${id}`));
     const form = await request.formData();
     const field = (name: string) => String(form.get(name) ?? "").trim();
@@ -179,6 +187,14 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
       if (sub === "vote") await vote(env, caller, id, form.get("on") === "1");
       if (sub === "follow") await follow(env, caller, id, form.get("on") === "1");
       if (sub === "answer") await markAnswer(env, caller, id, field("post") || null);
+      if (sub === "helpful") {
+        await markHelpful(env, caller, id, field("post"), form.get("on") === "1");
+        return done(redirect(`/forum/${id}#p-${field("post")}`));
+      }
+      if (sub === "report") {
+        const res = await reportPost(env, caller, id, field("post"), { reason: field("reason"), details: field("details") });
+        return done(redirect(`/forum/${id}?done=${res.hidden ? "reported-hidden" : "reported"}`));
+      }
       if (sub === "still-happening") {
         await stillHappening(env, caller, id, { text: field("text") });
         return done(redirect(`/forum/${id}?done=still`));
@@ -432,6 +448,9 @@ async function topicPage(ctx: Ctx, id: string, opts: { done?: string; error?: st
   const opening = t.author.by !== "zaisma" && first && !t.known_issue ? first : null;
   const rest = opening ? data.posts.slice(1) : data.posts;
   const answer = data.posts.find((p) => p.answer);
+  // The reply most people found helpful, when at least two did and there's a choice (and it isn't the answer already).
+  const best = rest.length > 1 ? rest.reduce<PostJson | null>((b, p) => (p.helpful >= 2 && !p.answer && (!b || p.helpful > b.helpful) ? p : b), null) : null;
+  const mostHelpful = best?.id ?? "";
   const to = opts.to ? data.posts.find((p) => p.id === opts.to) : undefined;
   const notice = opts.error ? html`<p class="error" role="alert">${opts.error}</p>` : opts.done && DONE[opts.done] ? html`<p class="done" role="status">${DONE[opts.done]}</p>` : "";
   return forumPage(
@@ -445,7 +464,7 @@ async function topicPage(ctx: Ctx, id: string, opts: { done?: string; error?: st
   ${opPost(ctx, t, opening, answer)}
   ${rest.length
     ? html`<h2 class="replies-h">${rest.filter((p) => p.kind !== "status" || p.text.length > 60).length === 1 ? "1 reply" : `${rest.filter((p) => p.kind !== "status" || p.text.length > 60).length} replies`}</h2>
-  <ol class="posts">${rest.map((p) => postItem(t, p, data.posts, false))}</ol>`
+  <ol class="posts">${rest.map((p) => postItem(ctx, t, p, data.posts, false, p.id === mostHelpful))}</ol>`
     : html`<p class="no-replies muted">No replies yet.</p>`}
   ${composer(ctx, t, data.posts_left_today, opts.text ?? "", to)}
 </article>
@@ -484,7 +503,7 @@ function opPost(ctx: Ctx, t: Topic["topic"], p: PostJson | null, answer: PostJso
   return html`<article class="op plate bevel-s"${p ? raw(` id="p-${p.id}"`) : ""}>
   <h1 class="t-title"><span class="ticon k-${t.known_issue ? "known" : t.kind}" title="${t.known_issue ? "Known issue" : KINDS[t.kind].label}">${kindIcon(t)}</span>${t.title}</h1>
   <p class="t-meta"><span class="kind">${t.known_issue ? "Known issue" : KINDS[t.kind].label}</span>${statusPill(t.status, t.public)}${t.tags.map(tagChip)}${t.public ? "" : html`<span class="flag">${ICONS.lock}A message to Zaisma: only you and Zaisma see it</span>`}${t.game ? html`<span class="muted">About <a href="/dashboard/${t.game}">${t.game}</a>, which only you and Zaisma see</span>` : ""}</p>
-  <div class="op-by">${avatar(t.author, "md")}<div><p class="op-name">${nameOf(t.author)}${p?.state === "checking" ? html`<span class="flag warn">Being checked: only you see it yet</span>` : p?.state === "held" ? html`<span class="flag warn">Waiting for a person at Zaisma: only you see it yet</span>` : ""}</p><p class="muted">${t.known_issue ? "Known issue" : t.public ? "Started this" : "Sent this"} ${ago(t.created_at)}</p></div></div>
+  <div class="op-by">${avatar(t.author, "md")}<div><p class="op-name">${nameOf(t.author)}${p?.state === "checking" ? html`<span class="flag warn">Being checked: only you see it yet</span>` : p?.state === "held" ? html`<span class="flag warn">Waiting for a person at Zaisma: only you see it yet</span>` : ""}</p><p class="muted">${t.known_issue ? "Known issue" : t.public ? "Started this" : "Sent this"} ${ago(t.created_at)}</p></div>${p ? html`<span class="op-report">${reportLink(ctx, t, p)}</span>` : ""}</div>
   ${t.known_issue
     ? html`${phaseTrack(t.status)}<div class="op-text"><p>${PHASE_WORDS[t.status] ?? "Zaisma knows about this."} ${t.developers === 1 ? "1 developer has" : `${t.developers} developers have`} hit it${t.roadmap ? html`; it's part of <strong>${t.roadmap}</strong> on the roadmap` : ""}.</p>${t.workaround && t.status !== "fixed" ? html`<p class="kb-work"><strong>Until it's fixed:</strong> ${t.workaround}</p>` : ""}</div>`
     : p
@@ -509,7 +528,13 @@ function opPost(ctx: Ctx, t: Topic["topic"], p: PostJson | null, answer: PostJso
 </article>`;
 }
 
-function postItem(t: Topic["topic"], p: PostJson, all: PostJson[], opening: boolean): Raw {
+/** Report a post, for anyone signed in who didn't write it. */
+function reportLink(ctx: Ctx, t: Topic["topic"], p: PostJson): Raw {
+  if (!ctx.viewer || !t.public || p.by.you || p.by.by === "zaisma" || p.state !== null) return html``;
+  return p.reported_by_you ? html`<span class="muted reported">${ICONS.flag}Reported</span>` : html`<a class="report" href="/forum/${t.id}/report?post=${p.id}" rel="nofollow">${ICONS.flag}Report</a>`;
+}
+
+function postItem(ctx: Ctx, t: Topic["topic"], p: PostJson, all: PostJson[], opening: boolean, mostHelpful = false): Raw {
   // A bare status change reads as a line in the thread; one with Zaisma's words is a post.
   if (p.kind === "status" && p.text.length <= 60) {
     return html`<li class="event" id="p-${p.id}">${avatar(p.by, "xs")}<p>${p.text}</p>${ago(p.at)}</li>`;
@@ -518,7 +543,7 @@ function postItem(t: Topic["topic"], p: PostJson, all: PostJson[], opening: bool
   return html`<li class="post${p.by.by === "zaisma" ? " z" : ""}${p.answer ? " answer" : ""}${opening ? " opening" : ""}${p.state ? " pending" : ""}" id="p-${p.id}">
   <div class="p-side">${avatar(p.by, "md")}</div>
   <div class="p-body">
-    <header class="p-head">${nameOf(p.by)}${p.by.by !== "zaisma" && t.author.by !== "zaisma" && p.by.name === t.author.name ? html`<span class="mark op-mark" title="Started this topic">Author</span>` : ""}${p.kind === "reopen" ? html`<span class="pill pending">Reopened</span>` : ""}${p.answer ? html`<span class="flag ok">${ICONS.check}Answer</span>` : ""}${p.state === "checking" ? html`<span class="flag warn">Being checked: only you see it yet</span>` : p.state === "held" ? html`<span class="flag warn">Waiting for a person at Zaisma: only you see it yet</span>` : ""}<a class="p-when" href="#p-${p.id}">${ago(p.at)}</a></header>
+    <header class="p-head">${nameOf(p.by)}${p.by.by !== "zaisma" && t.author.by !== "zaisma" && p.by.name === t.author.name ? html`<span class="mark op-mark" title="Started this topic">Author</span>` : ""}${p.kind === "reopen" ? html`<span class="pill pending">Reopened</span>` : ""}${p.answer ? html`<span class="flag ok">${ICONS.check}Answer</span>` : ""}${mostHelpful ? html`<span class="flag">${ICONS.helpful}Most helpful</span>` : ""}${p.state === "checking" ? html`<span class="flag warn">Being checked: only you see it yet</span>` : p.state === "held" ? html`<span class="flag warn">Waiting for a person at Zaisma: only you see it yet</span>` : ""}<a class="p-when" href="#p-${p.id}">${ago(p.at)}</a></header>
     ${p.reply_to ? html`<a class="quote" href="#p-${p.reply_to.id}">${ICONS.reply}<span><strong>${p.reply_to.name}</strong> ${p.reply_to.excerpt}${p.reply_to.excerpt.length >= 140 ? "…" : ""}</span></a>` : ""}
     <div class="p-text">${richText(p.text)}</div>
     ${p.context ? html`<details class="p-att"><summary>What ${p.by.by === "ai" ? "your AI" : "you"} attached (only you and Zaisma see it)</summary><pre>${JSON.stringify(p.context, null, 2)}</pre></details>` : ""}
@@ -527,6 +552,15 @@ function postItem(t: Topic["topic"], p: PostJson, all: PostJson[], opening: bool
       ${t.can.reply && p.state === null ? html`<a href="?to=${p.id}#reply" data-reply="${p.id}" data-name="${p.by.name}" data-excerpt="${p.text.slice(0, 140)}">${ICONS.reply}Reply</a>` : ""}
       ${canAnswer ? html`<form method="post" action="/forum/${t.id}/answer"><input type="hidden" name="post" value="${p.answer ? "" : p.id}"><button type="submit">${p.answer ? ICONS.cross : ICONS.check}${p.answer ? "Not the answer" : "Mark as the answer"}</button></form>` : ""}
       ${opening && all.length > 1 ? html`<span class="muted">${all.length === 2 ? "1 reply" : `${all.length - 1} replies`}</span>` : ""}
+      ${t.public && p.state === null && p.kind !== "status"
+        ? t.can.reply && !p.by.you
+          ? html`<form method="post" action="/forum/${t.id}/helpful"><input type="hidden" name="post" value="${p.id}"><input type="hidden" name="on" value="${p.helpful_by_you ? "0" : "1"}"><button type="submit" class="${p.helpful_by_you ? "on" : ""}" aria-pressed="${p.helpful_by_you ? "true" : "false"}">${ICONS.helpful}Helpful${p.helpful ? html` <span class="n">${p.helpful}</span>` : ""}</button></form>`
+          : p.helpful
+            ? html`<span class="muted">${ICONS.helpful}${p.helpful} found it helpful</span>`
+            : ""
+        : ""}
+      <span class="p-gap"></span>
+      ${reportLink(ctx, t, p)}
     </div>
   </div>
 </li>`;
@@ -569,6 +603,31 @@ function sidePanel(ctx: Ctx, t: Topic["topic"], posts: PostJson[]): Raw {
     ? html`<div class="side plate bevel-s"><p>${t.yours ? html`You've messaged Zaisma about this. <a href="/forum/${t.yours}">Open your message</a>` : html`Have logs, a screenshot or a game to point at? <a href="/forum/messages/new?known_issue=${t.id}&kind=${t.kind}">Message Zaisma about your case</a>: only Zaisma sees it, and it counts here.`}</p></div>`
     : ""}
 </aside>`;
+}
+
+// --- Reporting a post ---
+
+async function reportPage(ctx: Ctx, topicId: string, postId: string): Promise<Response> {
+  const data = await getTopic(ctx.env, ctx.viewer, topicId);
+  const post = data.posts.find((p) => p.id === postId);
+  if (!post || post.by.by === "zaisma" || post.by.you) throw new ApiError(404, "no_post", "There's no post here you can report.");
+  return forumPage(
+    ctx,
+    "Report a post",
+    html`<div class="newtopic">
+<form class="np plate bevel-s" method="post" action="/forum/${topicId}/report">
+  <h1>Report a post</h1>
+  <input type="hidden" name="post" value="${post.id}">
+  <blockquote class="quote">${avatar(post.by, "xs")}<span><strong>${post.by.name}</strong> ${post.text.slice(0, 300)}${post.text.length > 300 ? "…" : ""}</span></blockquote>
+  <fieldset class="seen"><legend>What's wrong with it?</legend>
+    ${Object.entries(FORUM_REPORT_REASONS).map(([k, label], i) => html`<label class="check"><input type="radio" name="reason" value="${k}" required${i === 0 ? "" : ""}><span><strong>${label}</strong>${k === "child_safety" ? html`<small>It's hidden straight away while a person looks.</small>` : ""}</span></label>`)}
+  </fieldset>
+  <label>Anything else Zaisma should know (optional) <textarea name="details" maxlength="1000" rows="3"></textarea></label>
+  <div class="np-foot"><button class="btn light" type="submit">Send report</button><a class="btn ghost" href="/forum/${topicId}#p-${post.id}">Cancel</a></div>
+</form>
+<aside class="np-side"><div class="side plate bevel-s"><h2>What happens</h2><p>A person at Zaisma looks at it. Whoever wrote it isn't told who reported it. Posts that put a young person at risk are hidden straight away, and any post three developers report is hidden until Zaisma looks.</p><p>If it's just wrong, a reply that says why helps everyone more.</p></div></aside>
+</div>`,
+  );
 }
 
 // --- A new topic ---
@@ -825,6 +884,15 @@ a.tag:hover,.tag.on{color:#0b0b0c;background:var(--chrome);box-shadow:none}
 .p-foot a:hover,.p-foot button:hover{color:var(--text)}
 .p-foot svg{width:14px;height:14px}
 .p-foot form{display:inline}
+.p-foot button.on{color:var(--text)}
+.p-foot .n{font-family:var(--display);font-weight:600;color:var(--text-2)}
+.p-gap{flex:1}
+.p-foot .report,.op-report .report,.reported{opacity:.75;font-size:12px}
+.p-foot .report:hover,.op-report .report:hover{opacity:1}
+.op-report{margin-left:auto;align-self:flex-start}
+.op-report a,.op-report span{display:inline-flex;align-items:center;gap:5px;color:var(--muted);text-decoration:none;font-family:var(--display)}
+.op-report svg,.reported svg{width:13px;height:13px}
+blockquote.quote{margin:0}
 .event{display:flex;align-items:center;gap:10px;padding:2px 18px 2px 30px;font-size:14px;color:var(--muted)}
 .event p{margin:0;flex:1}
 .event time{font-size:12px}

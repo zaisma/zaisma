@@ -322,10 +322,12 @@ async function seedForum(you, go, form) {
   const privateTest = await topic(tr, { kind: "question", author: me, category: "publishing", title: "How do I keep a game private while friends test it?", text: "I want five friends to play before it's public. Do they need accounts?" });
   const ans = await reply(qo, privateTest.id, "Set it to Only me, then make a tester link on the game's page in the dashboard and send that. Testers don't need accounts, and you can turn the link off any time.", { author: me });
   await tr("POST", `/forum/${privateTest.id}/answer`, { post: ans.id });
+  for (const who of [pf, bs]) await who("POST", `/forum/${privateTest.id}/posts/${ans.id}/helpful`, { on: true });
 
   const godot = await topic(pf, { kind: "question", category: "publishing", tags: ["godot"], title: "Godot 4 web export says SharedArrayBuffer isn't defined", text: "Exported with threads on. Works locally with the Godot server, fails on Zaisma with:\n```\nReferenceError: SharedArrayBuffer is not defined\n```" });
   const godotAns = await reply(hl, godot.id, "Export with Thread Support turned off (Project > Export > Web > Variant). Threads need cross-origin isolation headers, and most hosts that embed games can't send them. Single-threaded builds run fine for 2D.", { author: "ai" });
   await pf("POST", `/forum/${godot.id}/answer`, { post: godotAns.id });
+  for (const who of [ca, qo, tr]) await who("POST", `/forum/${godot.id}/posts/${godotAns.id}/helpful`, { on: true });
   await meToo(godot.id, ca, qo);
 
   const serverState = await topic(lw, { kind: "question", category: "servers", title: "Can my game server keep state between matches?", text: "We want a lobby leaderboard that survives after a room closes. Where should that live?" });
@@ -354,6 +356,11 @@ async function seedForum(you, go, form) {
   await reply(qo, weekly.id, "Porting an old Flash puzzle game. Rooms made the versus mode a weekend job.", { author: me });
   await reply(tr, weekly.id, "Rewriting our save system to use cloud saves instead of our own server.", { author: me });
   await reply(you, weekly.id, "Polishing Arena's new map and testing it with a tester link.", { author: me });
+  // A busy thread: more people than a row shows.
+  await reply(bs, weekly.id, "A cozy farming game for phones. Cloud saves made the sync painless.", { author: me });
+  await reply(hl, weekly.id, "A horror game, short and mean. Asked about the rules first.", { author: me });
+  await reply(lw, weekly.id, "Tooling, mostly: our AI now files the bugs it hits straight to this forum.");
+  await reply(os, weekly.id, "Two-player tank battles, rooms on Zaisma.", { author: me });
   const horror = await topic(hl, { kind: "talk", author: me, category: "rules", title: "Is a horror game with jump scares fine under the content rules?", text: "Nothing gory, just jump scares and a dark mood. Want to check before we finish it." });
   await zaisma(horror.id, { reply: "Yes. Scary is fine; the rules are about gore, sexual content and real harm. Say it's a horror game in your description so players know what they're getting." });
   await topic(qo, { kind: "talk", author: me, category: "docs", title: "The room codes docs could use a full example", text: "The page lists the calls but not how they fit together. A small lobby example from start to finish would help a lot." });
@@ -382,7 +389,10 @@ async function seedForum(you, go, form) {
   await reply(you, weekly.id, "Anyone want to playtest Arena tonight? Add me on discord, same name.", { author: me });
   // A third known issue, planned.
   const { topic: scanSlow } = await lw("POST", "/forum", { public: false, kind: "bug", category: "scans", title: "Scan took 25 minutes on Saturday", text: "Usually under a minute; Saturday evening it took 25." });
-  await zaisma(scanSlow.id, { known: "1", k_title: "Scans can take over 10 minutes at busy times", k_workaround: "Upload a little ahead of a launch, or schedule the publish.", k_roadmap: "Scan speed", status: "planned", severity: "3", area: "scans" });
+  await zaisma(scanSlow.id, { known: "1", k_title: "Scans can take over 10 minutes at busy times", k_workaround: "Upload a little ahead of a launch, or schedule the publish.", k_roadmap: "Scan speed", status: "fixing", severity: "3", area: "scans" });
+  // The rooms fix is out, and Zaisma is watching that it holds.
+  const roomsTopic = (await you("GET", `/forum/${roomsKnown}`)).topic;
+  await zaisma(roomsKnown, { known: "1", k_title: roomsTopic.title, k_workaround: roomsTopic.workaround, k_roadmap: roomsTopic.roadmap ?? "", status: "released", severity: "2", area: "rooms", reply: "The fix for the 50-player drop is live. We're watching that it holds." });
   await meToo((await you("GET", "/forum?tab=known")).topics.find((k) => k.title.startsWith("Scans can take")).id, pf, tr);
 
   // Spread the times over the last three weeks, in the order things happened.

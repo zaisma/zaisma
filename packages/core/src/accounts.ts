@@ -102,6 +102,9 @@ export async function deleteAccount(db: D1Database, id: string): Promise<void> {
     db.prepare("DELETE FROM feedback_votes WHERE account_id = ?").bind(id),
     db.prepare("DELETE FROM feedback_follows WHERE account_id = ?").bind(id),
     db.prepare("DELETE FROM feedback_misplaced WHERE account_id = ?").bind(id),
+    db.prepare("UPDATE feedback_posts SET helpful = MAX(0, helpful - 1) WHERE id IN (SELECT post_id FROM feedback_helpful WHERE account_id = ?)").bind(id),
+    db.prepare("DELETE FROM feedback_helpful WHERE account_id = ?").bind(id),
+    db.prepare("DELETE FROM forum_reports WHERE account_id = ?").bind(id),
     // Out of the forum's search too.
     db.prepare("DELETE FROM forum_search WHERE post_id IN (SELECT id FROM feedback_posts WHERE account_id = ?)").bind(id),
     db.prepare("DELETE FROM forum_search WHERE topic_id IN (SELECT id FROM feedback WHERE account_id = ? AND known_title IS NULL)").bind(id),

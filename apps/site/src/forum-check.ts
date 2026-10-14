@@ -75,6 +75,8 @@ async function isFirst(env: Env, post: FeedbackPost): Promise<boolean> {
  */
 export async function showPost(env: Env, postId: string): Promise<void> {
   const post = await env.DB.prepare("SELECT * FROM feedback_posts WHERE id = ?").bind(postId).first<FeedbackPost>();
+  // Shown again, any reports on it are settled.
+  await env.DB.prepare("DELETE FROM forum_reports WHERE post_id = ?").bind(postId).run();
   if (!post || post.check_state === "ok") return;
   const topic = await env.DB.prepare("SELECT account_id FROM feedback WHERE id = ?").bind(post.feedback_id).first<{ account_id: string | null }>();
   // Zaisma's own topics (known issues) have no opening post: everything in them is a reply.
@@ -88,10 +90,28 @@ export async function showPost(env: Env, postId: string): Promise<void> {
   if (opens) await indexTopic(env, post.feedback_id);
 }
 
+/**
+ * Hide a post others could see, until a person looks (a report): it comes off the counts and the
+ * search, and a topic whose opening post it is goes from the lists. showPost brings it back.
+ */
+export async function hidePost(env: Env, postId: string, reason: string): Promise<void> {
+  const post = await env.DB.prepare("SELECT * FROM feedback_posts WHERE id = ?").bind(postId).first<FeedbackPost>();
+  if (!post || post.check_state !== "ok") return;
+  const topic = await env.DB.prepare("SELECT account_id FROM feedback WHERE id = ?").bind(post.feedback_id).first<{ account_id: string | null }>();
+  const opens = topic?.account_id !== null && (await isFirst(env, post));
+  await env.DB.batch([
+    env.DB.prepare("UPDATE feedback_posts SET check_state = 'held', check_reason = ? WHERE id = ?").bind(reason, post.id),
+    env.DB.prepare(`UPDATE feedback SET ${opens ? "shown = 0" : "replies = MAX(0, replies - 1)"} WHERE id = ?`).bind(post.feedback_id),
+  ]);
+  if (opens) await unindexTopic(env, post.feedback_id);
+  else await unindexPost(env, post.id);
+}
+
 /** A person removes a post: gone for everyone. Removing a topic's first post makes the topic private to its developer again. */
 export async function removePost(env: Env, postId: string): Promise<void> {
   const post = await env.DB.prepare("SELECT * FROM feedback_posts WHERE id = ?").bind(postId).first<FeedbackPost>();
   if (!post) return;
+  await env.DB.batch([env.DB.prepare("DELETE FROM forum_reports WHERE post_id = ?").bind(postId), env.DB.prepare("DELETE FROM feedback_helpful WHERE post_id = ?").bind(postId)]);
   const first = await isFirst(env, post);
   const topic = await env.DB.prepare("SELECT account_id FROM feedback WHERE id = ?").bind(post.feedback_id).first<{ account_id: string | null }>();
   if (first && topic?.account_id) {
