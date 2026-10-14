@@ -43,7 +43,6 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | next | Nice | Gleb: turn on Cloudflare's CSAM Scanning Tool | | Free, one switch per domain (zaisma.com and zaismausercontent.com) plus an alert email. Only sees content served through Cloudflare's cache, after it's live, so it's a backstop, not the check before publishing. The games Worker serves files straight from R2 without the cache, so on zaismausercontent.com it would see almost nothing until images go through the cache |
 | next | Must | Gleb: register with NCMEC | | Free; how platforms report child sexual abuse material, which US law requires |
 | done | Must | Julius: form an LLC | | Zaisma LLC, registered in Wyoming (Oct 13, 2026). Liability protection before outside uploads (we host their files); a registered agent keeps your home address off public records. Also what PhotoDNA needs to continue |
-| planned | Nice | Julius: register Zaisma LLC in Florida | Julius: form an LLC | Julius runs Zaisma from Florida, so the Wyoming LLC must also register there as a foreign LLC (Sunbiz, about $125, then a yearly report by May 1). Julius decided Oct 13, 2026 to do this after the beta opens. Without it the LLC can be fined and can't sue in Florida courts |
 | next | Must | Gleb: register the DMCA agent | | $6 at copyright.gov, then fill in the DMCA page |
 | doing | Must | Gleb: alert and DMCA email delivery | | Fastmail limited mail from zaisma.com because the domain is new (their support, Oct 13, 2026: it lifts by itself within hours), so support@ forwards to iCloud for now; dmca@ and privacy@ next |
 | planned | Must | Connect image matching | Gleb: sign up for Arachnid Shield, Gleb: register with NCMEC | Every image in an upload is checked before publishing with Arachnid Shield (PhotoDNA added once the LLC's records go through); matches are held, reported to NCMEC within minutes and alerted to Julius. Until then every game waits for manual approval |
@@ -158,6 +157,7 @@ Goal: developers can make money within days of the beta.
 
 | Status | Must/Nice | Item | Notes |
 | --- | --- | --- | --- |
+| planned | Must | Julius: register Zaisma LLC in Florida | Julius runs Zaisma from Florida, so the Wyoming LLC must also register there as a foreign LLC (Sunbiz, about $125, then a yearly report by May 1). Moved after the beta (Julius, Oct 13, 2026); done before Zaisma takes money. Without it the LLC can be fined and can't sue in Florida courts |
 | planned | Must | Zaisma buy sheet | Cards, Apple Pay, Google Pay; saved card works in every game |
 | planned | Must | Owned items and receipts | On the account, in the player pass, signed receipts |
 | planned | Must | Live purchases | Exactly-once delivery to the game and game server |
