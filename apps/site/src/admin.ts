@@ -239,6 +239,8 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
       await closeReports(env.DB, game.id, "actioned");
       await audit(env.DB, game.id, "takedown", reason, actor);
     } else if (m[2] === "restore") {
+      const current = game.current_version_id ? await versionById(env.DB, game.current_version_id) : null;
+      if (current && knownImages(current)) return gameDetail(env, game.id, "Players would get the version that matched known abuse material. Once the developer publishes a clean version, the game can be shown again.");
       await setGameStatus(env.DB, game.id, game.current_version_id ? "live" : "pending");
       // A person checked it: reports can't hide this version again.
       if (game.current_version_id) await clearVersion(env.DB, game.current_version_id);

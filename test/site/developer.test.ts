@@ -270,7 +270,7 @@ describe("image matching on covers and screenshots", () => {
     asked = [];
     vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
       asked.push(String(input));
-      const bytes = init!.body as Uint8Array;
+      const bytes = new Uint8Array(await new Response(init!.body).arrayBuffer());
       const bad = bytes[bytes.length - 1] === 0x42;
       return new Response(JSON.stringify({ classification: bad ? "csam" : "no-known-match", match_type: bad ? "near" : null }));
     });

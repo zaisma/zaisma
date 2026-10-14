@@ -292,7 +292,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     }
     // Matched against known abuse material before anyone sees it. A match is kept for reporting, never shown.
     // If matching fails, the picture waits for a person as usual.
-    const matched = await imageMatcher(env).check([{ path: `${kind} image`, type: kindOf.type, load: async () => bytes }]);
+    const matched = await imageMatcher(env).check([{ path: `${kind} image`, type: kindOf.type, id: "upload", body: async () => bytes }]);
     if (matched.findings.some((f) => f.rule === KNOWN_IMAGE_RULE)) {
       const id = newId();
       await env.GAMES.put(heldImageKey(game.id, id), bytes, { httpMetadata: { contentType: kindOf.type } });

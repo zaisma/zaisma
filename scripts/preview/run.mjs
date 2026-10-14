@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { deflateSync } from "node:zlib";
 import { transformSync } from "esbuild";
 import { startFakeAuth } from "./fake-auth.mjs";
-import { MATCH_MARKER } from "./fake-shield.mjs";
+import { LATER_MARKER, MATCH_MARKER } from "./fake-shield.mjs";
 import { openTestRooms, pretendRoomsSql } from "./test-rooms.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -77,7 +77,7 @@ async function waitFor(url) {
 
 await startFakeAuth(PORTS.auth, join(STATE, "auth-key.json")).catch(() => console.log(`Sign-in stand-in already running on ${PORTS.auth}.`));
 children.push(spawn("node", [join(ROOT, "scripts/preview/fake-ai.mjs"), String(PORTS.ai)], { stdio: "ignore" }));
-children.push(spawn("node", [join(ROOT, "scripts/preview/fake-shield.mjs"), String(PORTS.shield)], { stdio: "ignore" }));
+children.push(spawn("node", [join(ROOT, "scripts/preview/fake-shield.mjs"), String(PORTS.shield), STATE], { stdio: "ignore" }));
 console.log("Applying database updates…");
 spawnSync("npx", ["wrangler", "d1", "migrations", "apply", "zaisma", "--local", "--persist-to", STATE], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
 // One at a time: they share the preview's database, and starting together can find it locked.
@@ -133,8 +133,10 @@ Zaisma preview is running. Nothing here touches the live site.
   Your games      ${SITE}/dashboard
   Admin           ${SITE}/admin
   Report queue    ${SITE}/admin/reports
-  Image matching  ${SITE}/admin  (Night Drive's update is held: a picture in it matched known abuse material,
-                  in the stand-in. Cave Crew's history shows a screenshot refused the same way.)
+  Image matching  ${SITE}/admin  (Night Drive's update is held: a picture renamed .dat, a video and a picture
+                  written into its code matched known abuse material, in the stand-in. Cave Crew's history
+                  shows a screenshot refused the same way. Pixel Garden passed before matching knew its
+                  picture; the daily check found it and hid the game.)
 
 Sign in with any email and the code 123456. ${EMAIL} owns the test games.
 Stop with Ctrl+C. Fresh data: npm run preview -- --reset
@@ -235,14 +237,39 @@ async function seed() {
 
   // Image matching: an update with a picture the stand-in Arachnid Shield matches, held for a person
   // (the game stays on its first version), and a screenshot it refuses. Both are harmless test pictures.
+  // The matched files hide: a picture renamed .dat, a video, and a picture written into the code as base64.
   const flagged = join(STATE, "uploads", "night-drive-v2");
   rmSync(flagged, { recursive: true, force: true });
   cpSync(join(ROOT, "examples/hello-game"), flagged, { recursive: true });
   mkdirSync(join(flagged, "art"), { recursive: true });
+  mkdirSync(join(flagged, "data"), { recursive: true });
   writeFileSync(join(flagged, "art", "sky.png"), picture([40, 50, 90], 0));
-  writeFileSync(join(flagged, "art", "stars.png"), picture([40, 50, 90], 1, MATCH_MARKER));
+  writeFileSync(join(flagged, "data", "stars.dat"), picture([40, 50, 90], 1, MATCH_MARKER));
+  writeFileSync(join(flagged, "art", "intro.mp4"), Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from(`ftypisom\0\0\x02\0${MATCH_MARKER}`, "latin1")]));
+  writeFileSync(join(flagged, "moon.js"), `// The moon, drawn from a picture in the code.\nconst moon = "data:image/png;base64,${Buffer.from(picture([200, 200, 220], 2, MATCH_MARKER)).toString("base64")}";\n`);
   upload(flagged, "night-drive", "A starry sky.");
   await api("POST", "/games/cave-crew/images?kind=screenshot", picture([60, 120, 90], 2, MATCH_MARKER)).catch(() => {});
+
+  // A game that passed before image matching was connected, with a picture the stand-in only learns
+  // about later: the daily check (run once here) matches it and hides the game.
+  const { game: garden } = await api("POST", "/games", { title: "Pixel Garden", description: "Grow a tiny garden, one pixel at a time.", devices: ["computer"], controls: ["keyboard-mouse"], players: { single: true, local: null, online: null } });
+  const gardenFolder = join(STATE, "uploads", "pixel-garden");
+  rmSync(gardenFolder, { recursive: true, force: true });
+  cpSync(join(ROOT, "examples/hello-game"), gardenFolder, { recursive: true });
+  writeFileSync(join(gardenFolder, "flowers.png"), picture([90, 160, 90], 1, LATER_MARKER));
+  upload(gardenFolder, garden.slug, "First version.");
+  let gardenVersion;
+  for (let i = 0; i < 60; i++) {
+    gardenVersion = (await api("GET", `/games/${garden.slug}`)).versions[0];
+    if (gardenVersion.scan !== "scanning") break;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  if (gardenVersion.scan !== "approved") await go(`/admin/versions/${gardenVersion.id}/approve`, form({ reason: "Preview test data" }));
+  await api("POST", `/games/${garden.slug}/versions/${gardenVersion.id}/publish`);
+  await api("PATCH", `/games/${garden.slug}`, { visibility: "unlisted" });
+  spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", `UPDATE versions SET scan_report = json_set(scan_report, '$.images.connected', json('false')) WHERE id = '${gardenVersion.id}'`], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
+  writeFileSync(join(STATE, "shield-knows-later"), "");
+  await fetch(`${SITE}/__scheduled?cron=${encodeURIComponent("17 3 * * *")}`);
 
   // Reports for the report queue, sent like the plate beside a game sends them. The stand-in AI sorts them within half a minute.
   const reports = [

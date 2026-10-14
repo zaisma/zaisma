@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { KNOWN_IMAGE_RULE, arachnidShield, type ImageForMatching } from "@zaisma/core";
+import { KNOWN_IMAGE_RULE, arachnidShield, embeddedMedia, matroskaHasVideo, sniffMedia, type MediaForMatching } from "@zaisma/core";
 
-const image = (path: string, text = path): ImageForMatching => ({ path, type: "image/png", load: async () => new TextEncoder().encode(text) });
+const image = (path: string, text = path): MediaForMatching => ({ path, type: "image/png", id: text, body: async () => new TextEncoder().encode(text) });
 
 /** A stand-in for Arachnid Shield: answers each picture by its contents, and records what it was sent. */
 function shield(answer: (body: string) => Response | Promise<Response>) {
   const calls: { url: string; headers: Headers; body: string }[] = [];
   const fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const body = new TextDecoder().decode(init!.body as Uint8Array);
+    const body = await new Response(init!.body).text();
     calls.push({ url: String(input), headers: new Headers(init!.headers), body });
     return answer(body);
   }) as typeof globalThis.fetch;
@@ -28,7 +28,15 @@ describe("Arachnid Shield image matching", () => {
     expect(s.calls[0]!.headers.get("content-type")).toBe("image/png");
   });
 
-  it("sends the same picture once, however many names it has", async () => {
+  it("streams big files", async () => {
+    const s = shield(clear);
+    const video: MediaForMatching = { path: "intro.mp4", type: "video/mp4", id: "v", body: async () => new Blob(["frames"]).stream() };
+    expect((await arachnidShield("u:p", { fetch: s.fetch }).check([video])).checked).toBe(1);
+    expect(s.calls[0]).toMatchObject({ body: "frames" });
+    expect(s.calls[0]!.headers.get("content-type")).toBe("video/mp4");
+  });
+
+  it("sends the same file once, however many names it has", async () => {
     const s = shield(clear);
     const result = await arachnidShield("u:p", { fetch: s.fetch }).check([image("a.png", "same"), image("b/c.png", "same"), image("d.png")]);
     expect(s.calls).toHaveLength(2);
@@ -89,5 +97,51 @@ describe("Arachnid Shield image matching", () => {
     const s = shield(() => json({ classification: null }));
     const result = await arachnidShield("u:p", { fetch: s.fetch }).check([image("a.png")]);
     expect(result.findings).toEqual([expect.objectContaining({ rule: "image-matching-failed" })]);
+  });
+});
+
+const bytes = (...parts: (number[] | string)[]) => new Uint8Array(parts.flatMap((p) => (typeof p === "string" ? [...p].map((c) => c.charCodeAt(0)) : p)));
+const b64 = (b: Uint8Array) => btoa(String.fromCharCode(...b));
+
+describe("finding pictures and videos whatever they're called", () => {
+  it("knows pictures and videos by their first bytes", () => {
+    expect(sniffMedia(bytes([0x89], "PNG\r\n\x1a\n", [0, 0]))).toBe("image/png");
+    expect(sniffMedia(bytes([0xff, 0xd8, 0xff, 0xe0]))).toBe("image/jpeg");
+    expect(sniffMedia(bytes("GIF89a"))).toBe("image/gif");
+    expect(sniffMedia(bytes("RIFF", [0, 0, 0, 0], "WEBPVP8 "))).toBe("image/webp");
+    expect(sniffMedia(bytes("RIFF", [0, 0, 0, 0], "AVI LIST"))).toBe("video/x-msvideo");
+    expect(sniffMedia(bytes("BM", Array(12).fill(0), [40, 0, 0, 0]))).toBe("image/bmp");
+    expect(sniffMedia(bytes([0, 0, 0, 0x20], "ftypisom", [0, 0, 2, 0], "isomiso2mp41"))).toBe("video/mp4");
+    expect(sniffMedia(bytes([0, 0, 0, 0x14], "ftypqt  "))).toBe("video/quicktime");
+    expect(sniffMedia(bytes([0, 0, 0, 0x1c], "ftypavif", [0, 0, 0, 0], "avifmif1"))).toBe("image/avif");
+    expect(sniffMedia(bytes([0x1a, 0x45, 0xdf, 0xa3]))).toBe("video/webm");
+  });
+
+  it("leaves audio, fonts, code and data alone", () => {
+    expect(sniffMedia(bytes([0, 0, 0, 0x20], "ftypM4A ", [0, 0, 0, 0]))).toBeNull();
+    expect(sniffMedia(bytes("RIFF", [0, 0, 0, 0], "WAVEfmt "))).toBeNull();
+    expect(sniffMedia(bytes("ID3", [4, 0, 0]))).toBeNull();
+    expect(sniffMedia(bytes("OggS", [0, 2]))).toBeNull();
+    expect(sniffMedia(bytes("wOF2", [0, 1, 0, 0]))).toBeNull();
+    expect(sniffMedia(bytes([0, 0x61, 0x73, 0x6d, 1, 0, 0, 0]))).toBeNull();
+    expect(sniffMedia(bytes("BMW cars are fast"))).toBeNull();
+    expect(sniffMedia(bytes("const x = 1;"))).toBeNull();
+  });
+
+  it("skips WebM files that are only sound", () => {
+    expect(matroskaHasVideo(bytes([0x1a, 0x45, 0xdf, 0xa3], "webm", [0x86, 0x85], "V_VP9", [0x86, 0x86], "A_OPUS"))).toBe(true);
+    expect(matroskaHasVideo(bytes([0x1a, 0x45, 0xdf, 0xa3], "webm", [0x86, 0x86], "A_OPUS"))).toBe(false);
+    expect(matroskaHasVideo(bytes([0x1a, 0x45, 0xdf, 0xa3], "webm"))).toBe(true);
+  });
+
+  it("finds pictures written into code as base64", () => {
+    const png = bytes([0x89], "PNG\r\n\x1a\n", Array(80).fill(7));
+    const jpeg = bytes([0xff, 0xd8, 0xff, 0xe0], Array(80).fill(9));
+    const mp4 = bytes([0, 0, 0, 0x1a], "ftypisom", Array(80).fill(3));
+    const code = `const hero = "data:image/png;base64,${b64(png)}"; const bg = '${b64(jpeg)}'; v.src = "data:video/mp4;base64,${b64(mp4)}"; const note = "iVBORw0KGgo is how PNGs start";`;
+    const found = embeddedMedia(code);
+    expect(found.map((f) => f.type)).toEqual(["image/png", "image/jpeg", "video/mp4"]);
+    expect(found[0]!.bytes).toEqual(png);
+    expect(embeddedMedia("const s = '/9j/' + 'not really a picture at all, just a long string of letters and words here';")).toEqual([]);
   });
 });

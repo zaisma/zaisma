@@ -1,7 +1,7 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { KNOWN_IMAGE_RULE, arachnidShield, gameBySlug, notConnected, versionById, type ImageMatcher, type ScanReport } from "@zaisma/core";
-import { imageMatcher, scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
+import { imageMatcher, queueImageChecks, recheckImages, scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
 import { dailyCleanup } from "../../apps/site/src/cleanup.ts";
 import type { AiResult } from "../../apps/site/src/ai.ts";
 import { CLEAN_GAME, makeZip } from "../helpers.ts";
@@ -10,6 +10,20 @@ const LOCAL = "http://localhost";
 const testEnv = { ...env, DEV_ADMIN: "1", ANTHROPIC_API_KEY: "test-key" };
 
 const connected: ImageMatcher = { check: async (imgs) => ({ provider: "test", connected: true, checked: imgs.length, findings: [] }) };
+
+const bytes = (...parts: (number[] | string)[]) => new Uint8Array(parts.flatMap((p) => (typeof p === "string" ? [...p].map((c) => c.charCodeAt(0)) : p)));
+const picture = (tail: string) => bytes([0x89], "PNG\r\n\x1a\n", tail);
+// A stand-in for Arachnid Shield: files whose bytes end in "BAD" match. It records what it was sent.
+let sent: { type: string; body: string }[] = [];
+const shield = arachnidShield("user:pass", {
+  baseUrl: "https://shield.test",
+  fetch: (async (_url: RequestInfo | URL, init?: RequestInit) => {
+    const body = await new Response(init!.body).text();
+    sent.push({ type: new Headers(init!.headers).get("content-type")!, body });
+    const bad = body.endsWith("BAD");
+    return new Response(JSON.stringify({ classification: bad ? "csam" : "no-known-match", match_type: bad ? "exact" : null }));
+  }) as typeof fetch,
+});
 const aiSays = (verdict: "pass" | "hold" | "reject", childSafety = false): ScanDeps["ai"] => async () =>
   ({
     report: { model: "test", verdict, summary: `AI says ${verdict}`, inputTokens: 1000, outputTokens: 100 },
@@ -35,6 +49,7 @@ async function uploadAndScan(files: Record<string, string | Uint8Array>, deps: S
 }
 
 beforeEach(async () => {
+  sent = [];
   await env.DB.exec("DELETE FROM reports; DELETE FROM audit_log; DELETE FROM versions; DELETE FROM games; DELETE FROM ai_usage;");
   const all = await env.GAMES.list();
   if (all.objects.length) await env.GAMES.delete(all.objects.map((o) => o.key));
@@ -147,22 +162,10 @@ describe("scan and publish", () => {
   });
 
   it("holds known abuse images, keeps them from the AI and never lets them be approved", async () => {
-    // Pictures whose bytes end in "BAD" match, as far as this stand-in for Arachnid Shield knows.
-    const picture = (tail: string) => new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...new TextEncoder().encode(tail)]);
-    const sent: string[] = [];
-    const shield = arachnidShield("user:pass", {
-      baseUrl: "https://shield.test",
-      fetch: (async (_url: RequestInfo | URL, init?: RequestInit) => {
-        const body = new TextDecoder().decode(init!.body as Uint8Array);
-        sent.push(body);
-        const bad = body.endsWith("BAD");
-        return new Response(JSON.stringify({ classification: bad ? "csam" : "no-known-match", match_type: bad ? "exact" : null }), { status: 200 });
-      }) as typeof fetch,
-    });
     let aiCalled = false;
     const files = { ...CLEAN_GAME, "art/hero.png": picture("fine"), "art/other.png": picture("BAD") };
     const { report, versionId, gameId } = await uploadAndScan(files, { images: shield, ai: async (...a) => ((aiCalled = true), aiSays("pass")(...a)) });
-    expect(sent).toHaveLength(2);
+    expect(sent.map((s) => s.type)).toEqual(["image/png", "image/png"]);
     expect(report.decision).toBe("held");
     expect(report.childSafety).toBe(true);
     expect(report.images).toEqual({ provider: "arachnid-shield", connected: true, checked: 2 });
@@ -180,6 +183,56 @@ describe("scan and publish", () => {
     expect(approve.status).toBe(409);
     expect((await versionById(env.DB, versionId))?.scan_status).toBe("held");
     expect((await gameBySlug(env.DB, "test-game"))?.status).toBe("pending");
+  });
+
+  it("finds pictures and videos under other names, inside code, and in videos, but not in sound", async () => {
+    const webm = (codec: string, tail = "") => bytes([0x1a, 0x45, 0xdf, 0xa3], "webm", [0x86, codec.length + 0x80], codec, tail);
+    const files = {
+      ...CLEAN_GAME,
+      "index.html": `<!doctype html><img src="data:image/png;base64,${btoa(String.fromCharCode(...picture("x".repeat(60) + "BAD")))}"><script src="game.js"></script>`,
+      "data/level.dat": picture("BAD"),
+      "assets/data.json": picture("fine"),
+      "audio/theme.mp3": bytes("ID3", [4, 0, 0, 0], "music"),
+      "audio/theme.webm": webm("A_OPUS"),
+      "video/intro.webm": webm("V_VP9"),
+      "video/outro.mp4": bytes([0, 0, 0, 0x18], "ftypisom", [0, 0, 2, 0], "BAD"),
+    };
+    const { report } = await uploadAndScan(files, { images: shield, ai: aiSays("pass") });
+    expect(sent.map((s) => `${s.type}`).sort()).toEqual(["image/png", "image/png", "image/png", "video/mp4", "video/webm"]);
+    expect(report.findings.filter((f) => f.rule === KNOWN_IMAGE_RULE).map((f) => f.path).sort()).toEqual(["data/level.dat", "index.html (picture 1 in the code)", "video/outro.mp4"]);
+    expect(report.decision).toBe("held");
+  });
+
+  it("matches games that passed before matching was connected, once, and hides a live one that matches", async () => {
+    // Approved by a person while matching wasn't connected, and live.
+    const clean = await uploadAndScan(CLEAN_GAME, { images: notConnected, ai: aiSays("pass") }, "clean-game");
+    const bad = await uploadAndScan({ ...CLEAN_GAME, "art/pic.bin": picture("BAD") }, { images: notConnected, ai: aiSays("pass") }, "bad-game");
+    for (const v of [clean, bad]) await SELF.fetch(`${LOCAL}/admin/versions/${v.versionId}/approve`, { method: "POST", body: new FormData(), redirect: "manual" });
+    expect((await gameBySlug(env.DB, "bad-game"))?.status).toBe("live");
+
+    expect(await queueImageChecks(env, notConnected)).toBe(0);
+    expect(await queueImageChecks(env, shield)).toBe(2);
+    const deps = { images: shield, ai: aiSays("pass") };
+    await recheckImages(testEnv, clean.versionId, deps);
+    await recheckImages(testEnv, bad.versionId, deps);
+
+    // The clean one is noted as checked and stays up; it isn't queued again.
+    expect((await gameBySlug(env.DB, "clean-game"))?.status).toBe("live");
+    expect(JSON.parse((await versionById(env.DB, clean.versionId))!.scan_report!).images).toMatchObject({ provider: "arachnid-shield", connected: true });
+    expect(await queueImageChecks(env, shield)).toBe(0);
+
+    // The matching one comes off at once, keeps its files, and can't be put back.
+    const v = (await versionById(env.DB, bad.versionId))!;
+    expect(v.scan_status).toBe("held");
+    expect(v.preview_token).toBeNull();
+    expect((JSON.parse(v.scan_report!) as ScanReport).childSafety).toBe(true);
+    expect((await gameBySlug(env.DB, "bad-game"))?.status).toBe("held");
+    expect(await env.GAMES.head(`games/${bad.gameId}/${bad.versionId}/art/pic.bin`)).not.toBeNull();
+    const restore = await (await SELF.fetch(`${LOCAL}/admin/games/${bad.gameId}/restore`, { method: "POST", body: new FormData() })).text();
+    expect(restore).toContain("matched known abuse material");
+    expect((await gameBySlug(env.DB, "bad-game"))?.status).toBe("held");
+    const game = await SELF.fetch(`${LOCAL}/g/bad-game`);
+    expect(game.status).not.toBe(200);
   });
 
   it("publishes a clean game with pictures once Arachnid Shield passes them", async () => {
