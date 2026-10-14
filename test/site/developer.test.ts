@@ -56,7 +56,10 @@ describe("API keys", () => {
     expect(await accountForApiKey(env.DB, token.slice(0, -1) + (token.endsWith("A") ? "B" : "A"))).toBeNull();
     expect(await accountForApiKey(env.DB, "zsk_nope")).toBeNull();
     const stored = await env.DB.prepare("SELECT * FROM api_keys WHERE account_id = 'dev-1'").first<Record<string, string>>();
-    expect(JSON.stringify(stored)).not.toContain(token.split("_")[2]);
+    // The secret is base64url and can itself contain "_", so take everything after the second underscore.
+    const secret = token.slice(token.indexOf("_", 4) + 1);
+    expect(secret).toHaveLength(43);
+    expect(JSON.stringify(stored)).not.toContain(secret);
   });
 
   it("refuses requests without a key or with a bad one", async () => {
