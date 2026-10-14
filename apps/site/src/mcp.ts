@@ -204,7 +204,7 @@ const TOOLS: Tool[] = [
     name: "get_stats",
     title: "Play stats",
     description:
-      "Play stats: plays, players and new players per day, minutes played and per play, and how many new players came back 1, 7 and 30 days later (percent is null until enough days have passed). These are counted plays, the official numbers: the game on screen for a minute in a browser Cloudflare checked is real; all_plays is every play started. Tester and preview links and the developer's own plays don't count; a player is a browser. Also multiplayer use per day (rooms, player minutes, messages) and, for games with their own game server, its errors.",
+      "Play stats: plays, players and new players per day, minutes played and per play, and how many new players came back 1, 7 and 30 days later (percent is null until enough days have passed). These are counted plays, the official numbers: the game on screen for a minute in a browser Cloudflare checked is real; all_plays is every play started. Tester and preview links and the developer's own plays don't count; a player is a browser. Also multiplayer use per day (rooms, player minutes, messages); rooms_this_month: player hours on Zaisma rooms this month against the 1,000 free (until hosting billing is ready, new rooms stop opening at that until the month resets, matches already running carry on); and, for games with their own game server, its errors.",
     inputSchema: object({ slug, days: { type: "integer", minimum: 1, maximum: 90 } }, ["slug"]),
     annotations: read,
     run: (args, call) => call("GET", `/games/${str(args.slug)}/stats${args.days ? `?days=${str(args.days)}` : ""}`),

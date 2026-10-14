@@ -38,6 +38,26 @@ export interface RoomList {
 
 const MAX_SHOWN = 50;
 
+/**
+ * Until Hosting billing exists, each game's rooms stop at the free tier, 1,000 player-hours a month
+ * (UTC): rooms already running carry on, new ones don't open until the month resets (docs/DECISIONS.md).
+ */
+export const FREE_PLAYER_HOURS = 1000;
+
+/** A game's player time in Zaisma rooms this month (UTC), in seconds. Running rooms add theirs at least hourly. */
+export async function monthPlayerSeconds(db: D1Database, gameId: string, now = Date.now()): Promise<number> {
+  const row = await db
+    .prepare("SELECT COALESCE(SUM(player_seconds), 0) AS seconds FROM room_usage WHERE game_id = ? AND day >= ?")
+    .bind(gameId, `${new Date(now).toISOString().slice(0, 7)}-01`)
+    .first<{ seconds: number }>();
+  return row?.seconds ?? 0;
+}
+
+/** Whether a game has used this month's free tier, so its new rooms don't open. */
+export async function pastFreeTier(db: D1Database, gameId: string, now = Date.now()): Promise<boolean> {
+  return (await monthPlayerSeconds(db, gameId, now)) >= FREE_PLAYER_HOURS * 3600;
+}
+
 /** A country's name in English, like Germany for DE. */
 export function countryName(code: string): string {
   try {

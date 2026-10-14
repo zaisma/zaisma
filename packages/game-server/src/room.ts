@@ -208,7 +208,7 @@ export type ServerMessage =
   | { t: "error"; code: RoomErrorCode; message: string }
   | { t: "ended"; reason: string };
 
-export type RoomErrorCode = "full" | "closed" | "ended" | "too-big" | "too-fast" | "bad-message" | "bad-pass" | "no-hello" | "not-allowed" | "game-unavailable" | "busy" | "kept-out" | "refused" | "no-room";
+export type RoomErrorCode = "full" | "closed" | "ended" | "too-big" | "too-fast" | "bad-message" | "bad-pass" | "no-hello" | "not-allowed" | "game-unavailable" | "busy" | "kept-out" | "refused" | "no-room" | "month-limit";
 
 export const ERROR_TEXT: Record<RoomErrorCode, string> = {
   full: "This room is full.",
@@ -225,6 +225,7 @@ export const ERROR_TEXT: Record<RoomErrorCode, string> = {
   "kept-out": "You were removed from this room.",
   refused: "The game didn't let you into this room.",
   "no-room": "That room isn't running.",
+  "month-limit": "This game has used this month's multiplayer time. New rooms open again next month.",
 };
 
 /**
@@ -465,6 +466,11 @@ export class RoomCore<S = any> {
     if (!moving && !this.open && !this.known.has(id)) return { ok: false, code: "closed" };
     if (this.players.size + this.seatsHeld() >= this.maxPlayers) return { ok: false, code: "full" };
     return null;
+  }
+
+  /** Whether this room is holding a place for a player: they've been in it, or another room is sending them. */
+  expects(id: string): boolean {
+    return this.known.has(id) || this.seat(id) !== null;
   }
 
   /** The seat held for a player another room is sending, if it hasn't run out. */

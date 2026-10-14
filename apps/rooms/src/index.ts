@@ -1,5 +1,5 @@
-import { PLAYER_REPORT_REASONS, checkText, createReport, listRooms, readLabelParam, tidyText, type PlayerReportReason } from "@zaisma/core";
-import { guestName, isRoomCode, jwks, loadSigningKey, roomCode, signPass, type SigningKey } from "@zaisma/game-server";
+import { PLAYER_REPORT_REASONS, checkText, createReport, listRooms, pastFreeTier, readLabelParam, tidyText, type PlayerReportReason } from "@zaisma/core";
+import { ERROR_TEXT, guestName, isRoomCode, jwks, loadSigningKey, roomCode, signPass, type SigningKey } from "@zaisma/game-server";
 import { usesRooms } from "./registry.ts";
 
 export { Room } from "./room.ts";
@@ -13,6 +13,7 @@ export interface Env {
   ROOM_LIMIT?: RateLimit;
   REPORT_LIMIT?: RateLimit;
   FILTER_LIMIT?: RateLimit;
+  CONNECT_LIMIT?: RateLimit;
   ISSUER: string;
   SITE_ORIGIN: string;
   GAME_HOST_MODE: "path" | "subdomain";
@@ -152,6 +153,7 @@ export default {
 
       if (!usesRooms(game.game_server)) return json({ error: "This game doesn't use Zaisma rooms." }, 404, cors);
       if (await limited(env.ROOM_LIMIT, request)) return json({ error: "Too many requests. Try again in a minute." }, 429, cors);
+      if (await pastFreeTier(env.DB, game.id)) return json({ error: ERROR_TEXT["month-limit"], code: "month-limit" }, 403, cors);
       return json({ code: roomCode() }, 200, cors);
     }
 
@@ -179,6 +181,8 @@ export default {
     if (m && request.method === "GET") {
       const [, slug, code] = m as unknown as [string, string, string];
       if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") return new Response("Expected a WebSocket", { status: 426 });
+      // Checked first: a script claiming to be the game's page can't keep waking rooms.
+      if (await limited(env.CONNECT_LIMIT, request)) return new Response("Too many connections. Try again in a minute.", { status: 429 });
       const from = isRoomCode(code) ? await gameOrigin(env, slug, origin) : null;
       if (!from) return new Response("Not allowed from here", { status: 403 });
       const game = await playableGame(env.DB, slug);

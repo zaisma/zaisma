@@ -30,7 +30,7 @@ async function getPass(game: string): Promise<{ pass: string; player: { id: stri
 
 /** A connected test client that collects what the room sends. */
 async function connect(game: string, code: string, origin = ORIGIN, from?: { country: string; continent: string }) {
-  const res = await SELF.fetch(`${R}/v1/rooms/${game}/${code}`, { headers: { Upgrade: "websocket", Origin: origin }, ...(from ? { cf: from } : {}) });
+  const res = await SELF.fetch(`${R}/v1/rooms/${game}/${code}`, { headers: { Upgrade: "websocket", Origin: origin, "cf-connecting-ip": `198.51.100.${++address % 250}` }, ...(from ? { cf: from } : {}) });
   if (!res.webSocket) return { res, ws: null as never, inbox: [] as any[], next: async () => null as any, closed: Promise.resolve(0) };
   const ws = res.webSocket;
   ws.accept();
@@ -71,6 +71,15 @@ describe("rooms", () => {
     expect((await post("/v1/pass", "arena", "https://zaisma.test")).status).toBe(403);
     await addGame("held-one", { status: "held" });
     expect((await post("/v1/pass", "held-one")).status).toBe(404);
+  });
+
+  it("limits how many room connections one address opens in a minute", async () => {
+    // A game that isn't there answers quickly, and still counts toward the limit.
+    const open = () => SELF.fetch(`${R}/v1/rooms/no-such-game/ABCDEF`, { headers: { Upgrade: "websocket", Origin: ORIGIN, "cf-connecting-ip": "203.0.113.9" } });
+    for (let i = 0; i < 60; i++) expect((await open()).status).toBe(404);
+    expect((await open()).status).toBe(429);
+    const other = await SELF.fetch(`${R}/v1/rooms/no-such-game/ABCDEF`, { headers: { Upgrade: "websocket", Origin: ORIGIN, "cf-connecting-ip": "203.0.113.10" } });
+    expect(other.status).toBe(404);
   });
 
   it("lets a tester link's origin in, with room links back through it", async () => {
@@ -206,6 +215,43 @@ describe("rooms", () => {
     }
     expect(row).toMatchObject({ game_id: id, rooms: 1, messages: 1 });
     expect(Object.keys(row).sort()).toEqual(["day", "game_id", "messages", "player_seconds", "rooms", "server_broken_rooms", "server_calls", "server_crashes", "server_stops"]);
+  });
+
+  it("past the month's free player-hours, opens no new rooms while running ones carry on", async () => {
+    const id = await addGame("arena");
+    const a = await join("arena", "CAPPDA");
+    const now = new Date();
+    const lastMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 15)).toISOString().slice(0, 10);
+    const used = (day: string, seconds: number) => e.DB.prepare("INSERT INTO room_usage (game_id, day, player_seconds) VALUES (?, ?, ?)").bind(id, day, seconds).run();
+    // Last month's time doesn't count.
+    await used(lastMonth, 4_000_000);
+    expect((await post("/v1/rooms", "arena")).status).toBe(200);
+    await used(`${now.toISOString().slice(0, 7)}-01`, 1000 * 3600);
+
+    const made = await post("/v1/rooms", "arena");
+    expect(made.status).toBe(403);
+    expect(await made.json()).toMatchObject({ code: "month-limit" });
+    const fresh = await connect("arena", "NEWRMA");
+    fresh.ws.send(JSON.stringify({ t: "hello", pass: (await getPass("arena")).pass }));
+    expect(await fresh.next()).toMatchObject({ t: "error", code: "month-limit" });
+    const reserve = await e.ROOMS.get(e.ROOMS.idFromName("arena:RSRVDA")).fetch("https://room/reserve", {
+      method: "POST",
+      headers: { "x-game-id": id, "x-game-slug": "arena", "x-game-server": "relay", "x-room-code": "RSRVDA" },
+      body: JSON.stringify({ players: [a.player.id] }),
+    });
+    expect(reserve.status).toBe(403);
+
+    // The running room still takes players, and once it empties, only its own players come back.
+    const b = await join("arena", "CAPPDA");
+    a.ws.close(1000);
+    b.ws.close(1000);
+    await Promise.all([a.closed, b.closed]);
+    const stranger = await connect("arena", "CAPPDA");
+    stranger.ws.send(JSON.stringify({ t: "hello", pass: (await getPass("arena")).pass }));
+    expect(await stranger.next()).toMatchObject({ t: "error", code: "month-limit" });
+    const back = await connect("arena", "CAPPDA");
+    back.ws.send(JSON.stringify({ t: "hello", pass: a.pass }));
+    expect(await back.next()).toMatchObject({ t: "welcome", me: { id: a.player.id } });
   });
 });
 

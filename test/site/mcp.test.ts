@@ -151,6 +151,7 @@ describe("reports, stats and history", () => {
     await env.DB.prepare("INSERT INTO room_usage (game_id, day, rooms, player_seconds, messages) VALUES (?, ?, 3, 600, 42)").bind(game.id, today).run();
     const stats = await tool("get_stats", { slug: "hop", days: 7 });
     expect(stats.multiplayer).toEqual([{ day: today, rooms: 3, player_minutes: 10, messages: 42 }]);
+    expect(stats.rooms_this_month).toEqual({ player_hours: 0.2, free_player_hours: 1000, new_rooms_paused: false });
     expect(stats).not.toHaveProperty("game_server_errors");
   });
 

@@ -17,6 +17,7 @@ import {
   type SavedRoom,
   type ServerMessage,
 } from "@zaisma/game-server";
+import { pastFreeTier } from "@zaisma/core";
 import { gameServer } from "./registry.ts";
 import { SANDBOX, sandboxServer, type SandboxStats } from "./sandbox.ts";
 import { signingKey, type Env } from "./index.ts";
@@ -202,9 +203,11 @@ export class Room extends DurableObject<Env> {
    */
   private async reserved(request: Request): Promise<Response> {
     if (this.meta || this.savedRoom) return new Response("This room is taken", { status: 409 });
+    const gameId = request.headers.get("x-game-id")!;
+    if (await pastFreeTier(this.env.DB, gameId)) return new Response(ERROR_TEXT["month-limit"], { status: 403 });
     const start = (await request.json()) as RoomStart;
     this.meta = {
-      gameId: request.headers.get("x-game-id")!,
+      gameId,
       slug: request.headers.get("x-game-slug")!,
       server: request.headers.get("x-game-server")!,
       version: request.headers.get("x-game-version") ?? undefined,
@@ -272,6 +275,8 @@ export class Room extends DurableObject<Env> {
     await this.load();
     const core = this.room();
     if (!core) return this.refuse(ws, "game-unavailable");
+    // Past this month's free tier, a room with nobody in it opens only for players it's holding a place for.
+    if (core.players.size === 0 && !core.expects(player.id) && (await pastFreeTier(this.env.DB, this.meta.gameId))) return this.refuse(ws, "month-limit");
     // The room's rules and the game's canJoin, before anyone hears about this player.
     const admitted = await core.admit(player, made.data);
     if (!admitted.ok) return this.refuse(ws, admitted.code, admitted.message);
