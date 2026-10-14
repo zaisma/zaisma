@@ -2,8 +2,9 @@ import { esc } from "./html.ts";
 
 /**
  * Markdown for forum posts, written by developers and their AI: headings, bold, italics,
- * strikethrough, lists, quotes, rules, links, `code` and fenced code blocks (with a language, Copy
- * and Wrap), and @mentions. Everything else is text: nothing a post contains becomes HTML on its own.
+ * strikethrough, lists (* bullets, - dashes, 1. numbers), quotes, rules, links, images uploaded to
+ * the forum (![…](/forum/media/ID), nothing from elsewhere), `code` and fenced code blocks (with a
+ * language, Copy and Wrap), and @mentions. Everything else is text: nothing a post contains becomes HTML on its own.
  *
  * Links to Zaisma open directly. Links elsewhere go through /forum/out, which says where they lead
  * (a viewer can trust a site once). A link on its own line to a video on YouTube, Vimeo or
@@ -84,6 +85,8 @@ function inline(text: string, ctx: MarkdownContext): string {
   const hold = (html: string) => `\u0000${held.push(html) - 1}\u0000`;
   let s = text.replace(/\u0000/g, "");
   s = s.replace(/`([^`\n]+)`/g, (_m, code: string) => hold(`<code>${esc(code)}</code>`));
+  // Images uploaded to the forum only: an image from anywhere else stays its words.
+  s = s.replace(/!\[([^\]\n]{0,200})\]\((\/forum\/media\/[a-z0-9]{1,40})\)/g, (_m, alt: string, src: string) => hold(`<a class="p-img" href="${src}" target="_blank" rel="noopener"><img src="${src}" alt="${esc(alt || "Image")}" loading="lazy"></a>`));
   s = s.replace(/\[([^\]\n]{1,200})\]\(([^)\s]{1,2000})\)/g, (_m, label: string, url: string) => hold(linkHtml(url, inlineText(label), ctx)));
   s = s.replace(/\bhttps?:\/\/[^\s<>()]+[^\s<>().,;:!?'"]/g, (url) => hold(linkHtml(url, esc(url), ctx)));
   s = s.replace(MENTION, (m, bracketed: string | undefined, word: string | undefined) => {
@@ -157,16 +160,19 @@ export function renderMarkdown(text: string, ctx: MarkdownContext): string {
       out.push(`<blockquote>${renderMarkdown(quoted.join("\n"), ctx)}</blockquote>`);
       continue;
     }
-    const bullet = /^\s*[-*+]\s+/;
-    const number = /^\s*\d{1,3}[.)]\s+/;
-    if (bullet.test(line) || number.test(line)) {
+    // Three kinds of list: * bullets, - dashes, 1. numbers.
+    const kinds = [
+      { re: /^\s*\d{1,3}[.)]\s+/, open: "<ol>", close: "</ol>" },
+      { re: /^\s*-\s+/, open: '<ul class="dashes">', close: "</ul>" },
+      { re: /^\s*[*+]\s+/, open: "<ul>", close: "</ul>" },
+    ];
+    const list = kinds.find((k) => k.re.test(line));
+    if (list) {
       flush();
-      const ordered = number.test(line);
-      const re = ordered ? number : bullet;
       const items: string[] = [];
-      while (i < lines.length && re.test(lines[i]!)) items.push(lines[i++]!.replace(re, ""));
+      while (i < lines.length && list.re.test(lines[i]!)) items.push(lines[i++]!.replace(list.re, ""));
       i--;
-      out.push(`<${ordered ? "ol" : "ul"}>${items.map((it) => `<li>${inline(it, ctx)}</li>`).join("")}</${ordered ? "ol" : "ul"}>`);
+      out.push(`${list.open}${items.map((it) => `<li>${inline(it, ctx)}</li>`).join("")}${list.close}`);
       continue;
     }
     const bare = line.trim();

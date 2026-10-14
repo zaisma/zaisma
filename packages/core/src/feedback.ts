@@ -95,8 +95,11 @@ export const FEEDBACK_LIMITS = {
   /** The JSON an AI attaches: the tool, the error, what it sent. */
   context: 8000,
   pictureBytes: 2 * 1024 * 1024,
-  /** Images a post can carry. */
-  media: 4,
+  /** Images a post can carry, and how big each can be. */
+  media: 10,
+  mediaBytes: 5 * 1024 * 1024,
+  /** Images an account can upload in a day, posted or not. */
+  mediaPerDay: 200,
   tags: 3,
 } as const;
 

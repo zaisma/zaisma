@@ -226,6 +226,18 @@ export interface Post {
   blanked: number;
 }
 
+/** An image someone sent: PNG, JPEG, WebP or GIF, up to FEEDBACK_LIMITS.mediaBytes. */
+export function readImage(bytes: Uint8Array): { bytes: Uint8Array; type: string } {
+  if (bytes.byteLength > FEEDBACK_LIMITS.mediaBytes) throw new ApiError(413, "picture_too_big", `Images can be up to ${FEEDBACK_LIMITS.mediaBytes / 1048576} MB each.`);
+  const gif = bytes.length > 6 && String.fromCharCode(...bytes.subarray(0, 6)).match(/^GIF8[79]a$/);
+  const kind = gif ? { type: "image/gif" } : sniffImage(bytes);
+  if (!kind) throw new ApiError(415, "not_an_image", "Images can be PNG, JPEG, WebP or GIF.");
+  return { bytes, type: kind.type };
+}
+
+/** The images placed in a post's text: ![…](/forum/media/ID). */
+export const placedMedia = (text: string) => [...new Set([...text.matchAll(/\(\/forum\/media\/([a-z0-9]{1,40})\)/g)].map((m) => m[1]!))];
+
 /** Checks a post and blanks its secrets, before anything is stored. */
 export async function readPost(env: Env, caller: Caller, body: Record<string, unknown>): Promise<Post> {
   if ((await postsLeft(env, caller)) <= 0) {
@@ -260,10 +272,7 @@ export async function readPost(env: Env, caller: Caller, body: Record<string, un
     } catch {
       throw new ApiError(400, "bad_picture", "Send each image as base64.");
     }
-    if (bytes.byteLength > FEEDBACK_LIMITS.pictureBytes) throw new ApiError(413, "picture_too_big", `Images can be up to ${FEEDBACK_LIMITS.pictureBytes / 1048576} MB each.`);
-    const kind = sniffImage(bytes);
-    if (!kind) throw new ApiError(415, "not_an_image", "Images can be PNG, JPEG or WebP.");
-    media.push({ bytes, type: kind.type });
+    media.push(readImage(bytes));
   }
   return { text: text.text, context, media, blanked, ...authorOf(caller, body) };
 }
@@ -275,10 +284,19 @@ export async function readPost(env: Env, caller: Caller, body: Record<string, un
 export async function storePost(env: Env, f: Feedback, caller: Caller, post: Post, kind: "post" | "reopen", replyTo: string | null = null): Promise<{ id: string; check: FeedbackPost["check_state"] }> {
   const id = newId();
   const now = Date.now();
-  for (const [ord, m] of post.media.entries()) {
+  // Images placed in the text were uploaded while it was written: the writer's own, not posted yet.
+  const placed = placedMedia(post.text);
+  const drafts = placed.length
+    ? (await env.DB.prepare(`SELECT id FROM feedback_media WHERE account_id = ? AND post_id IS NULL AND id IN (${placed.map(() => "?").join(", ")})`).bind(caller.accountId, ...placed).all<{ id: string }>()).results.map((r) => r.id)
+    : [];
+  if (drafts.length + post.media.length > FEEDBACK_LIMITS.media) throw new ApiError(400, "too_much_media", `A post can carry up to ${FEEDBACK_LIMITS.media} images.`);
+  for (const [ord, mediaId] of placed.filter((m) => drafts.includes(m)).entries()) {
+    await env.DB.prepare("UPDATE feedback_media SET post_id = ?, ord = ? WHERE id = ? AND account_id = ? AND post_id IS NULL").bind(id, ord, mediaId, caller.accountId).run();
+  }
+  for (const [i, m] of post.media.entries()) {
     const mediaId = newId();
     await env.GAMES.put(feedbackMediaKey(mediaId), m.bytes, { httpMetadata: { contentType: m.type } });
-    await env.DB.prepare("INSERT INTO feedback_media (id, post_id, type, ord, created_at) VALUES (?, ?, ?, ?, ?)").bind(mediaId, id, m.type, ord, now).run();
+    await env.DB.prepare("INSERT INTO feedback_media (id, post_id, account_id, type, ord, created_at) VALUES (?, ?, ?, ?, ?, ?)").bind(mediaId, id, caller.accountId, m.type, drafts.length + i, now).run();
   }
   await env.DB.prepare("INSERT INTO feedback_posts (id, feedback_id, account_id, author, via, kind, text, context, picture, created_at, reply_to, check_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)")
     .bind(id, f.id, caller.accountId, post.author, post.via, kind, post.text, post.context, now, replyTo, f.public ? "pending" : null)
@@ -373,15 +391,42 @@ async function feedbackPicture(env: Env, caller: Caller, id: string, postId: str
   });
 }
 
+/**
+ * An image uploaded while a post is written, to place in its text. Only its uploader sees it until
+ * the post that places it is made; one never posted goes after a day (dailyCleanup).
+ */
+export async function uploadDraftMedia(env: Env, caller: Caller, bytes: Uint8Array) {
+  const today = await env.DB.prepare("SELECT COUNT(*) AS n FROM feedback_media WHERE account_id = ? AND created_at > ?").bind(caller.accountId, Date.now() - DAY).first<{ n: number }>();
+  if ((today?.n ?? 0) >= FEEDBACK_LIMITS.mediaPerDay) throw new ApiError(429, "media_limit", `You've uploaded ${FEEDBACK_LIMITS.mediaPerDay} images in the last day, the most for one account.`);
+  const image = readImage(bytes);
+  const id = newId();
+  await env.GAMES.put(feedbackMediaKey(id), image.bytes, { httpMetadata: { contentType: image.type } });
+  await env.DB.prepare("INSERT INTO feedback_media (id, post_id, account_id, type, ord, created_at) VALUES (?, NULL, ?, ?, 0, ?)").bind(id, caller.accountId, image.type, Date.now()).run();
+  // The path is what a post's text carries; it works on the forum's pages and through the API.
+  return { id, url: `${env.SITE_ORIGIN}/forum/media/${id}`, markdown: `![image](/forum/media/${id})` };
+}
+
+/** Draft images never posted, after a day. */
+export async function deleteStaleDraftMedia(env: Env, now = Date.now()): Promise<number> {
+  const { results } = await env.DB.prepare("SELECT id FROM feedback_media WHERE post_id IS NULL AND created_at < ? LIMIT 500").bind(now - DAY).all<{ id: string }>();
+  if (!results.length) return 0;
+  await env.GAMES.delete(results.map((r) => feedbackMediaKey(r.id)));
+  for (let i = 0; i < results.length; i += 90) {
+    const chunk = results.slice(i, i + 90);
+    await env.DB.prepare(`DELETE FROM feedback_media WHERE id IN (${chunk.map(() => "?").join(", ")})`).bind(...chunk.map((r) => r.id)).run();
+  }
+  return results.length;
+}
+
 /** For account deletion: the files of the account's screenshots (the rows go with deleteAccount). */
 export async function deleteFeedbackPictures(env: Env, accountId: string): Promise<void> {
   const { results } = await env.DB.prepare("SELECT id FROM feedback_posts WHERE account_id = ? AND picture IS NOT NULL").bind(accountId).all<{ id: string }>();
   for (let i = 0; i < results.length; i += 500) await env.GAMES.delete(results.slice(i, i + 500).map((p) => feedbackPictureKey(p.id)));
   // Images in their posts, and in every post of their topics, which go with them.
   const { results: media } = await env.DB.prepare(
-    "SELECT m.id FROM feedback_media m JOIN feedback_posts p ON p.id = m.post_id WHERE p.account_id = ? OR p.feedback_id IN (SELECT id FROM feedback WHERE account_id = ? AND known_title IS NULL)",
+    "SELECT m.id FROM feedback_media m LEFT JOIN feedback_posts p ON p.id = m.post_id WHERE m.account_id = ? OR p.account_id = ? OR p.feedback_id IN (SELECT id FROM feedback WHERE account_id = ? AND known_title IS NULL)",
   )
-    .bind(accountId, accountId)
+    .bind(accountId, accountId, accountId)
     .all<{ id: string }>();
   for (let i = 0; i < media.length; i += 500) await env.GAMES.delete(media.slice(i, i + 500).map((m) => feedbackMediaKey(m.id)));
 }

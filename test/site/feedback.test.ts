@@ -1,7 +1,7 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createAccount, createApiKey, createGame, deleteAccount, feedbackPictureKey, personOwner } from "@zaisma/core";
-import { decideFeedback } from "../../apps/site/src/feedback.ts";
+import { decideFeedback, deleteStaleDraftMedia } from "../../apps/site/src/feedback.ts";
 import { sortFeedback, sortMisplaced, type SortAnswer, type SortDeps } from "../../apps/site/src/feedback-sort.ts";
 import { checkForumPosts, type CheckImage } from "../../apps/site/src/forum-check.ts";
 import { renderMarkdown } from "../../apps/site/src/forum-markdown.ts";
@@ -399,7 +399,14 @@ describe("search, phases and reading a topic in part", () => {
     expect(md).toContain('<h3 class="md-h">Heading</h3>');
     expect(md).toContain("<strong>bold</strong> and <em>em</em> and <code>too_big</code> &lt;script&gt;");
     expect(md).not.toContain("<script>");
-    expect(md).toContain("<ul><li>one</li><li>two</li></ul>");
+    expect(md).toContain('<ul class="dashes"><li>one</li><li>two</li></ul>');
+    const lists = renderMarkdown("* a\n* b\n\n- c\n\n1. d\n2. e\n\n![shot](/forum/media/abc123) ![no](https://evil.example/x.png)", { siteOrigin: "https://zaisma.test", mentions: new Set() });
+    expect(lists).toContain("<ul><li>a</li><li>b</li></ul>");
+    expect(lists).toContain('<ul class="dashes"><li>c</li></ul>');
+    expect(lists).toContain("<ol><li>d</li><li>e</li></ol>");
+    expect(lists).toContain('<img src="/forum/media/abc123" alt="shot" loading="lazy">');
+    // An image from elsewhere never loads: it's a link out instead.
+    expect(lists).not.toContain('<img src="https://evil');
     expect(md).toContain("<blockquote><p>quoted</p></blockquote>");
     expect(md).toContain('<figure class="code"><figcaption><span>js</span>');
     expect(md).toContain("const a = &#39;&lt;b&gt;&#39;;");
@@ -447,10 +454,38 @@ describe("search, phases and reading a topic in part", () => {
     expect(open.headers.get("content-type")).toBe("image/png");
     expect(open.headers.get("cache-control")).toBe("public, max-age=300");
     expect((await mcp("get_topic", { id: topic.id }, other)).posts[0].media).toHaveLength(2);
-    expect((await mcp("post_topic", { kind: "bug", category: "pages", title: "x", text: "y", media_base64: [PNG, PNG, PNG, PNG, PNG] })).error).toContain("too_much_media");
+    expect((await mcp("post_topic", { kind: "bug", category: "pages", title: "x", text: "y", media_base64: Array(11).fill(PNG) })).error).toContain("too_much_media");
 
     const message = await mcp("message_zaisma", { kind: "bug", title: "Private", text: "Mine.", media_base64: [PNG] });
     expect((await SELF.fetch(`${SITE}/forum/media/${message.posts[0].media[0].id}`)).status).toBe(404);
+  });
+
+  it("places images uploaded while writing in the text, private until posted, and clears ones never posted", async () => {
+    const bytes = Uint8Array.from(atob(PNG), (c) => c.charCodeAt(0));
+    const up = await SELF.fetch(`${SITE}/api/dev/forum/media`, { method: "POST", headers: { authorization: `Bearer ${token}` }, body: bytes });
+    expect(up.status).toBe(201);
+    const { id, markdown } = (await up.json()) as { id: string; markdown: string };
+    expect(markdown).toBe(`![image](/forum/media/${id})`);
+    // Only its uploader sees it until it's posted.
+    expect((await SELF.fetch(`${SITE}/api/dev/forum/x/media/${id}`, { headers: { authorization: `Bearer ${other}` } })).status).toBe(404);
+    expect((await SELF.fetch(`${SITE}/api/dev/forum/x/media/${id}`, { headers: { authorization: `Bearer ${token}` } })).status).toBe(200);
+    // Someone else can't place it in their post.
+    const theirs = await mcp("post_topic", { kind: "talk", category: "other", title: "Borrowed", text: `Look ${markdown}` }, other);
+    expect(theirs.posts[0].media).toEqual([]);
+
+    const { topic, posts } = await mcp("post_topic", { kind: "bug", category: "pages", title: "Cover crop", text: `Here:\n${markdown}` });
+    expect(posts[0].media.map((m: { id: string }) => m.id)).toEqual([id]);
+    await passAll();
+    expect((await SELF.fetch(`${SITE}/forum/media/${id}`)).status).toBe(200);
+    expect((await mcp("get_topic", { id: topic.id }, other)).posts[0].media).toHaveLength(1);
+
+    // A GIF is fine; something else isn't.
+    const gif = new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 1, 0, 1, 0, 0, 0, 0, 0x3b]);
+    expect((await SELF.fetch(`${SITE}/api/dev/forum/media`, { method: "POST", headers: { authorization: `Bearer ${token}` }, body: gif })).status).toBe(201);
+    expect((await SELF.fetch(`${SITE}/api/dev/forum/media`, { method: "POST", headers: { authorization: `Bearer ${token}` }, body: new Uint8Array(40) })).status).toBe(415);
+    // Drafts never posted go after a day.
+    expect(await deleteStaleDraftMedia(env, Date.now() + 2 * 86400_000)).toBe(1);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM feedback_media").first<{ n: number }>())!.n).toBe(1);
   });
 
   it("counts everyone in a big topic and shows only the latest few", async () => {

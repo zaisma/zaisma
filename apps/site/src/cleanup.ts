@@ -1,3 +1,4 @@
+import { deleteStaleDraftMedia } from "./feedback.ts";
 import { ROOM_STALE_MS, audit, blobKey, manifestKey, ownedBlobKey, publishVersion, reportPictureKey, type Manifest, type Version } from "@zaisma/core";
 import type { Env } from "./env.ts";
 import { deleteVersion, pruneVersions } from "./scan.ts";
@@ -28,7 +29,7 @@ const DAY = 86400_000;
  * pictures from reports closed more than 30 days ago, then rooms-list rows of rooms that stopped.
  * Held and rejected versions are kept: they may need a person, or a report to the authorities.
  */
-export async function dailyCleanup(env: Env, now = Date.now()): Promise<{ drafts: number; files: number; pictures: number }> {
+export async function dailyCleanup(env: Env, now = Date.now()): Promise<{ drafts: number; files: number; pictures: number; forumDrafts: number }> {
   const { results: drafts } = await env.DB
     .prepare(
       `SELECT versions.* FROM versions JOIN games ON games.id = versions.game_id
@@ -76,5 +77,7 @@ export async function dailyCleanup(env: Env, now = Date.now()): Promise<{ drafts
   await env.DB.prepare("DELETE FROM play_tickets WHERE issued_at < ?").bind(now - DAY).run();
   // So is its key to multiplayer passes.
   await env.DB.prepare("DELETE FROM room_keys WHERE issued_at < ?").bind(now - DAY).run();
-  return { drafts: drafts.length, files: keys.length, pictures: pictures.length };
+  // Images uploaded for a forum post that was never posted.
+  const forumDrafts = await deleteStaleDraftMedia(env, now);
+  return { drafts: drafts.length, files: keys.length, pictures: pictures.length, forumDrafts };
 }

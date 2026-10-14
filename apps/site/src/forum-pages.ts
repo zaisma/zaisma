@@ -14,6 +14,7 @@ import { ApiError, apiCall, callerFor, route, type Caller } from "./developer.ts
 import type { Env } from "./env.ts";
 import { esc, html, layout, raw, type Raw } from "./html.ts";
 import { forumPeople, previewMentions } from "./forum-mentions.ts";
+import { uploadDraftMedia } from "./feedback.ts";
 import { renderMarkdown, VIDEO_FRAMES } from "./forum-markdown.ts";
 import {
   areasOf,
@@ -133,6 +134,19 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
       return done(new Response(JSON.stringify(people), { headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } }));
     }
     if (path === "/forum/out" && !post) return done(outPage(ctx, url.searchParams.get("to") ?? ""));
+    // An image to place in a post's text, uploaded while it's written.
+    if (path === "/forum/media" && post) {
+      if (!caller) return new Response(JSON.stringify({ error: "Sign in to add images." }), { status: 401, headers: { "Content-Type": "application/json" } });
+      const file = (await request.formData()).get("file");
+      try {
+        if (!(file instanceof File)) throw new ApiError(400, "no_file", "Choose an image.");
+        const up = await uploadDraftMedia(env, caller, new Uint8Array(await file.arrayBuffer()));
+        return done(new Response(JSON.stringify(up), { headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } }));
+      } catch (err) {
+        if (err instanceof ApiError) return new Response(JSON.stringify({ error: err.message }), { status: err.status, headers: { "Content-Type": "application/json" } });
+        throw err;
+      }
+    }
     // What a draft will look like, rendered exactly as a post is.
     if (path === "/forum/preview" && post) {
       if (!caller) return new Response("", { status: 401 });
@@ -357,25 +371,32 @@ function richText(ctx: Ctx, p: PostJson): Raw {
 
 /** A post's images, opening full size. */
 function mediaGrid(p: PostJson): Raw {
-  if (!p.media.length) return html``;
-  return html`<div class="p-media${p.media.length === 1 ? " one" : ""}">${p.media.map((m, i) => html`<a href="/forum/media/${m.id}" target="_blank" rel="noopener"><img src="/forum/media/${m.id}" alt="Image ${i + 1} from ${p.by.name}" loading="lazy"></a>`)}</div>`;
+  const rest = p.media.filter((m) => !p.text.includes(`/forum/media/${m.id}`));
+  if (!rest.length) return html``;
+  return html`<div class="p-media${rest.length === 1 ? " one" : ""}">${rest.map((m, i) => html`<a href="/forum/media/${m.id}" target="_blank" rel="noopener"><img src="/forum/media/${m.id}" alt="Image ${i + 1} from ${p.by.name}" loading="lazy"></a>`)}</div>`;
 }
 
-/** Markdown tools and a preview, around a text box (the script wires them up). */
+/** Formatting, in the bar and over a selection in the text (the script wires them up). */
+const FORMAT_TOOLS: [string, string, string][] = [
+  ["bold", "<b>B</b>", "Bold (⌘B)"],
+  ["italic", "<i>I</i>", "Italic (⌘I)"],
+  ["strike", "<s>S</s>", "Strikethrough"],
+  ["code", "&lt;/&gt;", "Code"],
+  ["link", '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M8.5 11.5a3.5 3.5 0 0 0 5 0l2.5-2.5a3.5 3.5 0 0 0-5-5l-1 1"/><path d="M11.5 8.5a3.5 3.5 0 0 0-5 0L4 11a3.5 3.5 0 0 0 5 5l1-1"/></svg>', "Link (⌘K)"],
+  ["heading", "H", "Heading"],
+  ["bullets", "•", "Bulleted list"],
+  ["dashes", "–", "Dashed list"],
+  ["numbers", "1.", "Numbered list"],
+  ["quote", "“”", "Quote"],
+];
+
+/** Write and Preview, Insert (images, a link, a video, code) and formatting, over a text box. */
 function editorBar(): Raw {
-  const tool = (cmd: string, label: string, title: string) => html`<button type="button" data-md="${cmd}" title="${title}" aria-label="${title}">${raw(label)}</button>`;
-  return html`<div class="ed-bar" role="toolbar" aria-label="Formatting">
+  return html`<div class="ed-bar" role="toolbar" aria-label="Writing tools">
   <span class="ed-tabs"><button type="button" data-tab="write" aria-pressed="true">Write</button><button type="button" data-tab="preview" aria-pressed="false">Preview</button></span>
-  <span class="ed-tools">${tool("bold", "<b>B</b>", "Bold (⌘B)")}${tool("italic", "<i>I</i>", "Italic (⌘I)")}${tool("code", "&lt;/&gt;", "Code")}${tool("link", "Link", "Link (⌘K)")}${tool("quote", "“”", "Quote")}${tool("list", "• List", "List")}</span>
-</div>`;
-}
-
-/** Adding images: choose, drop or paste, up to the limit, shown before sending. */
-function mediaPicker(): Raw {
-  return html`<div class="media-pick" data-max="${FEEDBACK_LIMITS.media}" data-bytes="${FEEDBACK_LIMITS.pictureBytes}">
-  <label class="mp-drop"><input type="file" name="media" accept="image/png,image/jpeg,image/webp" multiple>${ICONS.image}<span><strong>Add images</strong><small>Drop, paste or choose up to ${FEEDBACK_LIMITS.media}, ${FEEDBACK_LIMITS.pictureBytes / 1048576} MB each.</small></span></label>
-  <div class="mp-thumbs" aria-live="polite"></div><p class="mp-error error" hidden></p>
-</div>`;
+  <span class="ed-tools"><button type="button" class="ed-insert" data-insert-menu aria-haspopup="menu" aria-expanded="false">${ICONS.plus}Insert</button><span class="ed-format">${raw(FORMAT_TOOLS.map(([cmd, label, title]) => `<button type="button" data-md="${cmd}" title="${title}" aria-label="${title}">${label}</button>`).join(""))}</span></span>
+  <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden data-upload>
+</div><p class="ed-error error" hidden></p>`;
 }
 
 // --- The topic list ---
@@ -627,7 +648,6 @@ function composer(ctx: Ctx, t: Topic["topic"], text: string, to: PostJson | unde
   <p class="replying"${to ? "" : raw(" hidden")}>${ICONS.reply}<span>Replying to <strong data-to-name>${to?.by.name ?? ""}</strong>: <span data-to-excerpt>${to ? plain(to.text) : ""}</span></span><button type="button" class="x" data-unreply aria-label="Reply to the whole topic instead">×</button></p>
   <div class="c-row">${avatar(ctx.me, "md")}<label class="c-text editor"><span class="sr">Your reply</span>${editorBar()}<textarea data-editor name="text" required maxlength="${FEEDBACK_LIMITS.text}" rows="4" data-mentions data-topic="${t.public ? t.id : ""}" placeholder="${t.public ? "Write a reply. Markdown works; @ mentions someone; put code between ``` lines." : "Add what you found since, another case, or reply to Zaisma."}">${text}</textarea></label></div>
   <div class="c-foot">
-    ${mediaPicker()}
     ${t.can.reopen ? html`<label class="check"><input type="checkbox" name="reopen" value="1"> It's back: reopen it</label>` : ""}
     <button class="btn light" type="submit">Post reply</button>
   </div>
@@ -740,7 +760,6 @@ async function newPage(ctx: Ctx, f: Record<string, string>, message: boolean, er
     : html`<fieldset class="np-tags"><legend>Tags (up to ${FEEDBACK_LIMITS.tags})</legend><div class="r-tags">${Object.entries(FORUM_TAGS).map(
         ([t, name]) => html`<label class="tag pick"><input type="checkbox" name="tags" value="${t}"${tags.includes(t) ? raw(" checked") : ""}><span>${name}</span></label>`,
       )}</div></fieldset>`}
-  ${mediaPicker()}
   <div class="np-foot"><button class="btn light" type="submit">${message ? "Send to Zaisma" : "Post topic"}</button><span class="hint">Keys and passwords are blanked before anything is saved.</span></div>
 </form>
 <aside class="np-side">
@@ -960,8 +979,35 @@ a.tag:hover,.tag.on{color:#0b0b0c;background:var(--chrome);box-shadow:none}
 .ed-bar button{min-height:28px;padding:0 9px;border:0;background:none;color:var(--muted);font:inherit;font-family:var(--display);font-size:13px;cursor:pointer}
 .ed-bar button:hover{color:var(--text)}
 .ed-tabs button[aria-pressed=true]{color:var(--text);box-shadow:inset 0 -2px 0 #dfe2e6}
-.ed-tools{display:flex;flex-wrap:wrap}
+.ed-tools{display:flex;flex-wrap:wrap;align-items:center;gap:2px}
+.ed-format{display:flex;flex-wrap:wrap}
+.ed-bar svg{width:15px;height:15px;vertical-align:-3px}
+.ed-insert{display:inline-flex;align-items:center;gap:5px;margin-right:6px;color:var(--text-2) !important;box-shadow:inset 0 0 0 1px #3a3e46}
+.ed-insert:hover{box-shadow:inset 0 0 0 1px #6a6f78}
 .editor.previewing .ed-tools{visibility:hidden}
+.ed-error{margin:6px 0 0;font-size:13px}
+.ed-bar [data-md=bullets],.ed-bar [data-md=dashes],.ed-float [data-md=bullets],.ed-float [data-md=dashes]{font-size:17px}
+.p-text .p-img{display:inline-block;max-width:100%;vertical-align:top;margin:4px 0}
+.p-text .p-img img{display:block;max-width:100%;max-height:520px;background:var(--pic)}
+.p-text ul.dashes{list-style:none;padding-left:18px}
+.p-text ul.dashes li::before{content:"–";display:inline-block;width:16px;margin-left:-16px;color:var(--muted)}
+.ed-pop{position:fixed;z-index:60;background:var(--brush) 0 0/320px 320px,var(--face-hi);box-shadow:var(--rim),0 14px 32px rgba(0,0,0,.55)}
+.ed-pop[hidden]{display:none}
+.ed-menu{display:grid;min-width:200px;padding:4px}
+.ed-menu button,.ed-float button{display:flex;align-items:center;gap:10px;min-height:34px;padding:0 10px;border:0;background:none;color:var(--text-2);font:inherit;font-size:14px;cursor:pointer;text-align:left}
+.ed-menu button:hover,.ed-menu button:focus-visible,.ed-float button:hover{color:var(--text);background:rgba(255,255,255,.07)}
+.ed-menu svg{width:16px;height:16px;flex:none}
+.ed-menu small{margin-left:auto;color:var(--muted);font-size:12px}
+.ed-float{display:flex;padding:2px}
+.ed-float button{min-height:30px;padding:0 8px;font-family:var(--display);font-size:13px}
+.ed-float svg{width:15px;height:15px}
+.ed-panel{display:grid;gap:10px;width:min(360px,calc(100vw - 32px));padding:14px}
+.ed-panel label{display:grid;gap:4px;font-size:13px;color:var(--muted)}
+.ed-panel input{min-height:38px}
+.ed-panel .row{gap:8px}
+.ed-panel .btn{min-height:36px;padding:0 14px;font-size:14px}
+.ed-panel .hint{margin:0}
+textarea[data-editor].over{box-shadow:inset 0 2px 5px rgba(0,0,0,.65),0 0 0 2px rgba(230,233,238,.55)}
 .ed-preview{min-height:110px;padding:12px;background:#0d0f12;box-shadow:inset 0 2px 5px rgba(0,0,0,.65)}
 .ed-preview[hidden]{display:none}
 .quote-pop{position:fixed;z-index:50;display:inline-flex;align-items:center;gap:6px;min-height:34px;padding:0 12px;border:0;cursor:pointer;color:#0b0b0c;background:var(--chrome);font-family:var(--display);font-weight:600;font-size:13px;box-shadow:0 6px 18px rgba(0,0,0,.5)}
@@ -983,19 +1029,7 @@ figure.code.wrap pre{white-space:pre-wrap;word-break:break-word}
 .p-media a{display:block;background:var(--pic)}
 .p-media img{width:100%;height:100%;max-height:360px;object-fit:cover;display:block}
 .p-media.one img{object-fit:contain;height:auto}
-.media-pick{display:grid;gap:8px;flex:1 1 280px}
-.mp-drop{display:flex !important;align-items:center;gap:10px;padding:10px 12px;cursor:pointer;color:var(--muted);box-shadow:inset 0 0 0 1px dashed;outline:1px dashed #4a4f58;outline-offset:-1px}
-.mp-drop:hover,.media-pick.over .mp-drop{outline-color:#8a8f98;color:var(--text-2)}
-.mp-drop input{position:absolute;opacity:0;width:1px;height:1px}
-.mp-drop svg{width:20px;height:20px;flex:none}
-.mp-drop strong{display:block;font-family:var(--display);color:var(--text-2)}
-.mp-drop small{display:block;font-size:12px}
-.mp-thumbs{display:flex;flex-wrap:wrap;gap:8px}
-.mp-thumbs:empty{display:none}
-.mp-thumb{position:relative;width:84px;height:64px;background:var(--pic)}
-.mp-thumb img{width:100%;height:100%;object-fit:cover;display:block}
-.mp-thumb button{position:absolute;right:2px;top:2px;width:22px;height:22px;border:0;cursor:pointer;color:#fff;background:rgba(0,0,0,.7);font-size:15px;line-height:1}
-.mp-error{margin:0}
+
 .mention-list{position:fixed;z-index:50;list-style:none;margin:4px 0 0;padding:4px;min-width:220px;background:var(--brush) 0 0/320px 320px,var(--face-hi);box-shadow:var(--rim),var(--drop)}
 .mention-list li{display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer;font-size:14px}
 .mention-list li small{margin-left:auto;color:var(--muted);font-size:11px}
@@ -1152,27 +1186,61 @@ const copy=e.target.closest("figure.code [data-copy]");if(copy){const code=copy.
 const wrap=e.target.closest("figure.code [data-wrap]");if(wrap){const f=wrap.closest("figure"),on=f.classList.toggle("wrap");wrap.setAttribute("aria-pressed",on?"true":"false");return}
 });
 const go=document.getElementById("go"),trust=document.getElementById("trust");if(go&&trust)go.addEventListener("click",()=>{if(trust.checked){const t=trusted();if(!t.includes(trust.dataset.host))t.push(trust.dataset.host);try{localStorage.setItem(TRUST,JSON.stringify(t))}catch{}}});
-document.querySelectorAll(".media-pick").forEach(box=>{
-const input=box.querySelector("input[type=file]"),thumbs=box.querySelector(".mp-thumbs"),err=box.querySelector(".mp-error"),max=+box.dataset.max,bytes=+box.dataset.bytes,form=box.closest("form");let files=[];
-const sync=()=>{const dt=new DataTransfer();files.forEach(f=>dt.items.add(f));input.files=dt.files;thumbs.textContent="";files.forEach((f,i)=>{const d=document.createElement("div");d.className="mp-thumb";const img=document.createElement("img");img.alt=f.name;const r=new FileReader();r.onload=()=>img.src=r.result;r.readAsDataURL(f);const x=document.createElement("button");x.type="button";x.textContent="×";x.setAttribute("aria-label","Remove "+f.name);x.onclick=()=>{files.splice(i,1);sync()};d.append(img,x);thumbs.append(d)})};
-const add=list=>{err.hidden=true;for(const f of list){if(!/^image\/(png|jpeg|webp)$/.test(f.type))continue;if(f.size>bytes){err.textContent=f.name+" is over "+Math.round(bytes/1048576)+" MB.";err.hidden=false;continue}if(files.length>=max){err.textContent="Up to "+max+" images.";err.hidden=false;break}files.push(f)}sync()};
-input.addEventListener("change",()=>{const picked=[...input.files];files=files.filter(f=>!picked.includes(f));add(picked)});
-box.addEventListener("dragover",e=>{e.preventDefault();box.classList.add("over")});box.addEventListener("dragleave",()=>box.classList.remove("over"));
-box.addEventListener("drop",e=>{e.preventDefault();box.classList.remove("over");add([...e.dataTransfer.files])});
-if(form)form.addEventListener("paste",e=>{const pics=[...(e.clipboardData?.files||[])].filter(f=>f.type.startsWith("image/"));if(pics.length){e.preventDefault();add(pics)}});
-});
-// Markdown tools wrap the selection (or the word), and Preview shows the draft as it will be posted.
+// The editor: Write and Preview, Insert (images uploaded as you go and placed at the cursor, a link,
+// a video, a code block), formatting in the bar and over a selection, and a link panel to add or
+// edit a link. Images can also be dropped or pasted into the text.
 const wrapSel=(ta,before,after,ph)=>{const a=ta.selectionStart,b=ta.selectionEnd,sel=ta.value.slice(a,b)||ph;ta.setRangeText(before+sel+after,a,b,"select");ta.setSelectionRange(a+before.length,a+before.length+sel.length);ta.focus();ta.dispatchEvent(new Event("input"))};
-const lines=(ta,prefix)=>{const v=ta.value,a=v.lastIndexOf("\n",ta.selectionStart-1)+1,b=ta.selectionEnd,block=v.slice(a,b)||"";const out=(block||"text").split("\n").map((l,i)=>(typeof prefix==="function"?prefix(i):prefix)+l).join("\n");ta.setRangeText(out,a,b,"end");ta.focus();ta.dispatchEvent(new Event("input"))};
-const md=(ta,cmd)=>{const sel=ta.value.slice(ta.selectionStart,ta.selectionEnd);if(cmd==="bold")wrapSel(ta,"**","**","bold");else if(cmd==="italic")wrapSel(ta,"*","*","italic");else if(cmd==="code")sel.includes("\n")?wrapSel(ta,"\n\x60\x60\x60\n","\n\x60\x60\x60\n","code"):wrapSel(ta,"\x60","\x60","code");else if(cmd==="link"){const url=prompt("Link to","https://");if(url)wrapSel(ta,"[","]("+url+")","text")}else if(cmd==="quote")lines(ta,"> ");else if(cmd==="list")lines(ta,"- ")};
+const lines=(ta,prefix,test)=>{const v=ta.value,a=v.lastIndexOf("\n",ta.selectionStart-1)+1,e=v.indexOf("\n",Math.max(ta.selectionEnd-1,a)),b=e<0?v.length:e,block=v.slice(a,b).split("\n"),on=block.every(l=>test.test(l));const out=block.map((l,i)=>on?l.replace(test,""):(typeof prefix==="function"?prefix(i):prefix)+l.replace(/^\s*([*+-]|\d{1,3}[.)]|>|#{1,3})\s+/,"")).join("\n");ta.setRangeText(out,a,b,"select");ta.focus();ta.dispatchEvent(new Event("input"))};
+const insertAt=(ta,text,own)=>{const a=ta.selectionStart,b=ta.selectionEnd,pre=ta.value.slice(0,a),lead=own&&pre&&!pre.endsWith("\n")?"\n":"",trail=own?"\n":"";ta.setRangeText(lead+text+trail,a,b,"end");ta.focus();ta.dispatchEvent(new Event("input"))};
+const pop=cls=>{const d=document.createElement("div");d.className="ed-pop "+cls;d.hidden=true;document.body.append(d);return d};
+const near=(el,x,y)=>{el.hidden=false;const w=el.offsetWidth,h=el.offsetHeight;el.style.left=Math.max(8,Math.min(x,innerWidth-w-8))+"px";el.style.top=(y+h+8>innerHeight?Math.max(8,y-h-36):y)+"px"};
+const caretXY=(ta,pos)=>{const cs=getComputedStyle(ta),d=document.createElement("div");for(const k of ["boxSizing","width","fontFamily","fontSize","fontWeight","lineHeight","letterSpacing","paddingTop","paddingRight","paddingBottom","paddingLeft","borderTopWidth","borderRightWidth","borderBottomWidth","borderLeftWidth","tabSize"])d.style[k]=cs[k];Object.assign(d.style,{position:"absolute",visibility:"hidden",whiteSpace:"pre-wrap",overflowWrap:"break-word",top:"0",left:"0"});d.textContent=ta.value.slice(0,pos);const m=document.createElement("span");m.textContent="​";d.append(m);document.body.append(d);const r=ta.getBoundingClientRect(),out={x:r.left+m.offsetLeft-ta.scrollLeft,y:r.top+m.offsetTop-ta.scrollTop,h:parseFloat(cs.lineHeight)||22};d.remove();return out};
+const menu=pop("ed-menu"),float=pop("ed-float"),panel=pop("ed-panel");menu.setAttribute("role","menu");
+menu.innerHTML='<button type="button" role="menuitem" data-insert="image"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="2.6" y="3.6" width="14.8" height="12.8"/><circle cx="7" cy="8" r="1.5"/><path d="M17.4 13.2l-4.2-4.2-7.6 7.4"/></svg>Images<small>or drop, paste</small></button><button type="button" role="menuitem" data-insert="link"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M8.5 11.5a3.5 3.5 0 0 0 5 0l2.5-2.5a3.5 3.5 0 0 0-5-5l-1 1"/><path d="M11.5 8.5a3.5 3.5 0 0 0-5 0L4 11a3.5 3.5 0 0 0 5 5l1-1"/></svg>Link<small>⌘K</small></button><button type="button" role="menuitem" data-insert="video"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="2.5" y="4.5" width="15" height="11"/><path d="M8.5 7.8v4.4l3.6-2.2z" fill="currentColor"/></svg>Video<small>YouTube, Vimeo, Streamable</small></button><button type="button" role="menuitem" data-insert="code"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 6l-4 4 4 4M13 6l4 4-4 4"/></svg>Code block</button>';
+let active=null,menuFor=null;
+const MAX=+(document.body.dataset.mediaMax||10),BYTES=+(document.body.dataset.mediaBytes||5242880);
+const err=(ta,msg)=>{const e=ta.closest(".editor").parentElement.querySelector(".ed-error")||ta.closest(".editor").querySelector(".ed-error");if(!e)return;e.textContent=msg;e.hidden=!msg};
+const upload=(ta,file)=>{if(!/^image\/(png|jpeg|webp|gif)$/.test(file.type)){err(ta,file.name+" isn't a PNG, JPEG, WebP or GIF.");return}if(file.size>BYTES){err(ta,file.name+" is over "+Math.round(BYTES/1048576)+" MB.");return}if((ta.value.match(/\(\/forum\/media\/[a-z0-9]+\)/g)||[]).length>=MAX){err(ta,"A post can carry up to "+MAX+" images.");return}err(ta,"");
+const tag="![Uploading "+file.name.replace(/[\[\]\n]/g,"")+"…]()";insertAt(ta,tag,true);const fd=new FormData();fd.set("file",file);
+fetch("/forum/media",{method:"POST",body:fd}).then(r=>r.json().then(j=>({ok:r.ok,j}))).then(({ok,j})=>{const at=ta.value.indexOf(tag);if(at<0)return;if(ok){ta.setRangeText(j.markdown,at,at+tag.length,"preserve")}else{ta.setRangeText("",at,at+tag.length,"preserve");err(ta,j.error||"That image didn't upload.")}ta.dispatchEvent(new Event("input"))}).catch(()=>{const at=ta.value.indexOf(tag);if(at>=0)ta.setRangeText("",at,at+tag.length,"preserve");err(ta,"That image didn't upload. Try again.")})};
+// The link panel: add a link, or edit or remove the one the cursor is in. Video: a link on its own line.
+const linkAt=ta=>{const re=/\[([^\]\n]*)\]\(([^)\s]*)\)/g;let m;while((m=re.exec(ta.value))){const a=m.index,b=a+m[0].length;if(ta.selectionStart>=a&&ta.selectionEnd<=b&&ta.value[a-1]!=="!")return{a,b,text:m[1],url:m[2]}}return null};
+const openPanel=(ta,kind)=>{active=ta;const found=kind==="link"?linkAt(ta):null,sel=ta.value.slice(ta.selectionStart,ta.selectionEnd);
+panel.innerHTML=kind==="video"?'<label>Video link<input name="u" type="url" placeholder="https://www.youtube.com/watch?v=…"></label><p class="hint">YouTube, Vimeo or Streamable. It plays in the post.</p><div class="row"><button type="button" class="btn light" data-apply>Add video</button><button type="button" class="btn ghost" data-cancel>Cancel</button></div>':'<label>Text<input name="t" placeholder="What the link says"></label><label>Link<input name="u" type="url" placeholder="https://"></label><div class="row"><button type="button" class="btn light" data-apply>'+(found?"Save link":"Add link")+'</button>'+(found?'<button type="button" class="btn ghost" data-remove>Remove link</button>':'')+'<button type="button" class="btn ghost" data-cancel>Cancel</button></div>';
+const t=panel.querySelector("[name=t]"),u=panel.querySelector("[name=u]");if(t)t.value=found?found.text:sel;if(found)u.value=found.url;
+const c=caretXY(ta,ta.selectionStart);near(panel,c.x,c.y+c.h+6);(t&&!t.value?t:u).focus();
+panel.onkeydown=e=>{if(e.key==="Escape"){panel.hidden=true;ta.focus()}if(e.key==="Enter"){e.preventDefault();panel.querySelector("[data-apply]").click()}};
+panel.onclick=e=>{const b=e.target.closest("button");if(!b)return;if(b.dataset.cancel!==undefined){panel.hidden=true;ta.focus();return}
+if(b.dataset.remove!==undefined&&found){ta.setRangeText(found.text,found.a,found.b,"end");panel.hidden=true;ta.focus();ta.dispatchEvent(new Event("input"));return}
+let url=u.value.trim();if(!url){u.focus();return}if(!/^(https?:\/\/|\/)/.test(url))url="https://"+url;
+if(kind==="video"){insertAt(ta,url,true)}else{const text=(t.value.trim()||url).replace(/[\[\]]/g,"");const md="["+text+"]("+url+")";if(found)ta.setRangeText(md,found.a,found.b,"end");else ta.setRangeText(md,ta.selectionStart,ta.selectionEnd,"end");ta.focus();ta.dispatchEvent(new Event("input"))}panel.hidden=true}};
+const run=(ta,cmd)=>{active=ta;if(cmd==="bold")wrapSel(ta,"**","**","bold");else if(cmd==="italic")wrapSel(ta,"*","*","italic");else if(cmd==="strike")wrapSel(ta,"~~","~~","text");
+else if(cmd==="code"){const sel=ta.value.slice(ta.selectionStart,ta.selectionEnd);sel.includes("\n")?wrapSel(ta,"\n\x60\x60\x60\n","\n\x60\x60\x60\n","code"):wrapSel(ta,"\x60","\x60","code")}
+else if(cmd==="link")openPanel(ta,"link");else if(cmd==="heading")lines(ta,"# ",/^#{1,3}\s+/);else if(cmd==="bullets")lines(ta,"* ",/^\s*[*+]\s+/);else if(cmd==="dashes")lines(ta,"- ",/^\s*-\s+/);
+else if(cmd==="numbers")lines(ta,i=>(i+1)+". ",/^\s*\d{1,3}[.)]\s+/);else if(cmd==="quote")lines(ta,"> ",/^>\s?/);float.hidden=true};
 document.querySelectorAll("textarea[data-editor]").forEach(ta=>{
-const ed=ta.closest(".editor"),bar=ed.querySelector(".ed-bar"),pv=document.createElement("div");pv.className="ed-preview p-text";pv.hidden=true;ta.after(pv);
+const ed=ta.closest(".editor"),bar=ed.querySelector(".ed-bar"),file=bar.querySelector("[data-upload]"),pv=document.createElement("div");pv.className="ed-preview p-text";pv.hidden=true;ta.after(pv);
+if(!float.childElementCount)float.innerHTML=bar.querySelector(".ed-format").innerHTML;
+bar.addEventListener("mousedown",e=>{if(e.target.closest("[data-md]"))e.preventDefault()});
 bar.addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;e.preventDefault();
-if(b.dataset.md)md(ta,b.dataset.md);
+if(b.dataset.md)run(ta,b.dataset.md);
+if(b.hasAttribute("data-insert-menu")){if(!menu.hidden&&menuFor===ta){menu.hidden=true;b.setAttribute("aria-expanded","false");return}menuFor=ta;active=ta;const r=b.getBoundingClientRect();near(menu,r.left,r.bottom+4);b.setAttribute("aria-expanded","true");menu.querySelector("button").focus()}
 if(b.dataset.tab){const show=b.dataset.tab==="preview";bar.querySelectorAll("[data-tab]").forEach(x=>x.setAttribute("aria-pressed",x===b?"true":"false"));ed.classList.toggle("previewing",show);ta.hidden=show;pv.hidden=!show;
 if(show){pv.innerHTML='<p class="muted">Loading the preview…</p>';const fd=new FormData();fd.set("text",ta.value);fetch("/forum/preview",{method:"POST",body:fd}).then(r=>r.text()).then(h=>pv.innerHTML=h).catch(()=>pv.innerHTML='<p class="muted">The preview didn\'t load.</p>')}else ta.focus()}});
-ta.addEventListener("keydown",e=>{if(!(e.metaKey||e.ctrlKey)||e.altKey)return;const k=e.key.toLowerCase();if(k==="b"||k==="i"||k==="k"){e.preventDefault();md(ta,k==="b"?"bold":k==="i"?"italic":"link")}});
+file.addEventListener("change",()=>{[...file.files].forEach(f=>upload(ta,f));file.value=""});
+ta.addEventListener("dragover",e=>{if([...e.dataTransfer.items].some(i=>i.kind==="file")){e.preventDefault();ta.classList.add("over")}});ta.addEventListener("dragleave",()=>ta.classList.remove("over"));
+ta.addEventListener("drop",e=>{const files=[...e.dataTransfer.files].filter(f=>f.type.startsWith("image/"));ta.classList.remove("over");if(!files.length)return;e.preventDefault();files.forEach(f=>upload(ta,f))});
+ta.addEventListener("paste",e=>{const files=[...(e.clipboardData?.files||[])].filter(f=>f.type.startsWith("image/"));if(files.length){e.preventDefault();files.forEach(f=>upload(ta,f))}});
+ta.addEventListener("keydown",e=>{if(!(e.metaKey||e.ctrlKey)||e.altKey)return;const k=e.key.toLowerCase();if(k==="b"||k==="i"||k==="k"){e.preventDefault();run(ta,k==="b"?"bold":k==="i"?"italic":"link")}});
+// Formatting over a selection in the text.
+const showFloat=()=>{if(ta.selectionStart===ta.selectionEnd||ta.hidden){float.hidden=true;return}active=ta;const c=caretXY(ta,ta.selectionStart),r=ta.getBoundingClientRect();near(float,Math.max(r.left,c.x-20),Math.max(r.top-44,c.y-44))};
+ta.addEventListener("mouseup",()=>setTimeout(showFloat,0));ta.addEventListener("keyup",e=>{if(e.shiftKey||e.key==="Shift")showFloat()});ta.addEventListener("input",()=>float.hidden=true);ta.addEventListener("blur",()=>setTimeout(()=>{if(!float.matches(":hover"))float.hidden=true},150));
 });
+float.addEventListener("mousedown",e=>e.preventDefault());float.addEventListener("click",e=>{const b=e.target.closest("[data-md]");if(b&&active)run(active,b.dataset.md)});
+menu.addEventListener("click",e=>{const b=e.target.closest("[data-insert]");if(!b||!menuFor)return;menu.hidden=true;const ta=menuFor,kind=b.dataset.insert;document.querySelectorAll("[data-insert-menu]").forEach(x=>x.setAttribute("aria-expanded","false"));
+if(kind==="image")ta.closest(".editor").querySelector("[data-upload]").click();else if(kind==="code"){ta.focus();wrapSel(ta,"\n\x60\x60\x60\n","\n\x60\x60\x60\n","code")}else{ta.focus();openPanel(ta,kind)}});
+document.addEventListener("mousedown",e=>{if(!menu.hidden&&!menu.contains(e.target)&&!e.target.closest("[data-insert-menu]")){menu.hidden=true;document.querySelectorAll("[data-insert-menu]").forEach(x=>x.setAttribute("aria-expanded","false"))}if(!panel.hidden&&!panel.contains(e.target))panel.hidden=true});
+addEventListener("scroll",()=>{menu.hidden=true;float.hidden=true},{passive:true});
 // Quote: select words in a post and press Quote, or Quote a whole post from its footer. Each quote
 // goes in where the cursor is, linked back to the post, as many as you like.
 const reply=document.querySelector("form#reply textarea");

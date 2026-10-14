@@ -22,7 +22,7 @@ import {
 } from "@zaisma/core";
 import { ApiError, ownGame, readJson, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
-import { decideFeedback, developersIn, feedbackById, hasNews, KNOWN, mediaOf, postsLeft, readPost, readTitle, storePost } from "./feedback.ts";
+import { decideFeedback, developersIn, feedbackById, hasNews, KNOWN, mediaOf, postsLeft, readPost, readTitle, storePost, uploadDraftMedia } from "./feedback.ts";
 import { forumPeople, mentionsOf } from "./forum-mentions.ts";
 import { searchTerms, searchTopics } from "./forum-search.ts";
 import { hidePost } from "./forum-check.ts";
@@ -48,6 +48,7 @@ import { sendAlert } from "./email.ts";
  *   POST /api/dev/forum/:id/posts/:post/helpful             someone else's reply helped: { on }
  *   POST /api/dev/forum/:id/posts/:post/report              it shouldn't be here: { reason, details? }
  *   GET  /api/dev/forum/:id/pictures/:post                  a screenshot you attached (the first calls)
+ *   POST /api/dev/forum/media                               upload an image (the bytes) to place in a post's text as ![image](/forum/media/ID)
  *   GET  /api/dev/forum/:id/media/:media                    an image in a post you can see
  *   GET  /api/dev/forum/people?q=&topic=                    names to @mention: Zaisma, people in the topic, then anyone in the forum
  *
@@ -171,10 +172,14 @@ export async function forumRoute(request: Request, env: Env, path: string, calle
     return [list];
   }
   if (path === "/forum/similar" && method === "GET") return [{ topics: await similarTopics(env, caller, url.searchParams.get("q") ?? "") }];
+  if (path === "/forum/media" && method === "POST") {
+    const bytes = new Uint8Array(await request.arrayBuffer());
+    return [await uploadDraftMedia(env, caller, bytes), 201];
+  }
   if (path === "/forum/people" && method === "GET") return [{ people: await forumPeople(env, url.searchParams.get("q") ?? "", url.searchParams.get("topic") || null, caller.accountId) }];
   const mediaPath = path.match(/^\/forum\/[a-z0-9]{1,40}\/media\/([a-z0-9]{1,40})$/);
   if (mediaPath && method === "GET") return serveMedia(env, caller, mediaPath[1]!);
-  if (path === "/forum" && method === "POST") return [await createTopic(env, caller, await readJson(request, 4 * 1024 * 1024)), 201];
+  if (path === "/forum" && method === "POST") return [await createTopic(env, caller, await readJson(request, 72 * 1024 * 1024)), 201];
   const onPost = path.match(/^\/forum\/([a-z0-9]{1,40})\/posts\/([a-z0-9]{1,40})\/(helpful|report)$/);
   if (onPost) {
     if (method !== "POST") throw new ApiError(405, "bad_method", `${method} isn't used here.`);
@@ -188,7 +193,7 @@ export async function forumRoute(request: Request, env: Env, path: string, calle
   if (!sub && method === "GET") return [await getTopic(env, caller, id, { posts: url.searchParams.get("posts") ?? "all" })];
   if (sub === "pictures" && postId && method === "GET") return topicPicture(env, caller, id, postId);
   if (method !== "POST" || postId) throw new ApiError(405, "bad_method", `${method} isn't used here.`);
-  const body = await readJson(request, sub === "posts" ? 4 * 1024 * 1024 : 4096);
+  const body = await readJson(request, sub === "posts" ? 72 * 1024 * 1024 : 4096);
   if (sub === "posts") return [await replyTo(env, caller, id, body), 201];
   if (sub === "vote") return [await vote(env, caller, id, body.on !== false)];
   if (sub === "follow") return [await follow(env, caller, id, body.on !== false)];
@@ -712,12 +717,13 @@ export async function markAnswer(env: Env, caller: Caller, id: string, postId: s
  */
 export async function serveMedia(env: Env, viewer: Viewer, mediaId: string): Promise<Response> {
   const m = await env.DB.prepare(
-    "SELECT m.id, m.type, p.check_state, p.account_id AS poster, f.shown, f.account_id AS owner FROM feedback_media m JOIN feedback_posts p ON p.id = m.post_id JOIN feedback f ON f.id = p.feedback_id WHERE m.id = ?",
+    "SELECT m.id, m.type, m.post_id, m.account_id AS uploader, p.check_state, p.account_id AS poster, f.shown, f.account_id AS owner FROM feedback_media m LEFT JOIN feedback_posts p ON p.id = m.post_id LEFT JOIN feedback f ON f.id = p.feedback_id WHERE m.id = ?",
   )
     .bind(mediaId)
-    .first<{ id: string; type: string; check_state: string | null; poster: string | null; shown: number; owner: string | null }>();
-  const open = Boolean(m && m.check_state === "ok" && m.shown);
-  const own = Boolean(m && viewer && (m.poster === viewer.accountId || (m.check_state === null && m.owner === viewer.accountId)));
+    .first<{ id: string; type: string; post_id: string | null; uploader: string | null; check_state: string | null; poster: string | null; shown: number; owner: string | null }>();
+  const open = Boolean(m?.post_id && m.check_state === "ok" && m.shown);
+  // Not posted yet: its uploader's alone.
+  const own = Boolean(m && viewer && (m.post_id ? m.poster === viewer.accountId || (m.check_state === null && m.owner === viewer.accountId) : m.uploader === viewer.accountId));
   const object = m && (open || own) ? await env.GAMES.get(feedbackMediaKey(m.id)) : null;
   if (!m || !object) throw new ApiError(404, "no_media", "There's no image there you can see.");
   return new Response(object.body, {
