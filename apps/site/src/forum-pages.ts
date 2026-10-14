@@ -1007,6 +1007,9 @@ a.tag:hover,.tag.on{color:#0b0b0c;background:var(--chrome);box-shadow:none}
 .ed-panel .row{gap:8px}
 .ed-panel .btn{min-height:36px;padding:0 14px;font-size:14px}
 .ed-panel .hint{margin:0}
+/* The box grows with what's written, up to most of the screen, then scrolls: no handle to drag it out of shape. */
+textarea[data-editor]{resize:none;overflow-y:hidden;max-height:min(60vh,640px)}
+textarea[data-editor].full{overflow-y:auto}
 textarea[data-editor].over{box-shadow:inset 0 2px 5px rgba(0,0,0,.65),0 0 0 2px rgba(230,233,238,.55)}
 .ed-preview{min-height:110px;padding:12px;background:#0d0f12;box-shadow:inset 0 2px 5px rgba(0,0,0,.65)}
 .ed-preview[hidden]{display:none}
@@ -1219,6 +1222,8 @@ else if(cmd==="code"){const sel=ta.value.slice(ta.selectionStart,ta.selectionEnd
 else if(cmd==="link")openPanel(ta,"link");else if(cmd==="heading")lines(ta,"# ",/^#{1,3}\s+/);else if(cmd==="bullets")lines(ta,"* ",/^\s*[*+]\s+/);else if(cmd==="dashes")lines(ta,"- ",/^\s*-\s+/);
 else if(cmd==="numbers")lines(ta,i=>(i+1)+". ",/^\s*\d{1,3}[.)]\s+/);else if(cmd==="quote")lines(ta,"> ",/^>\s?/);float.hidden=true};
 document.querySelectorAll("textarea[data-editor]").forEach(ta=>{
+const min=ta.offsetHeight||110,grow=()=>{if(ta.hidden)return;ta.style.height="auto";const max=parseFloat(getComputedStyle(ta).maxHeight)||640,h=Math.max(min,ta.scrollHeight+2);ta.style.height=Math.min(h,max)+"px";ta.classList.toggle("full",h>max)};
+ta.addEventListener("input",grow);addEventListener("resize",grow);grow();
 const ed=ta.closest(".editor"),bar=ed.querySelector(".ed-bar"),file=bar.querySelector("[data-upload]"),pv=document.createElement("div");pv.className="ed-preview p-text";pv.hidden=true;ta.after(pv);
 if(!float.childElementCount)float.innerHTML=bar.querySelector(".ed-format").innerHTML;
 bar.addEventListener("mousedown",e=>{if(e.target.closest("[data-md]"))e.preventDefault()});
@@ -1226,7 +1231,7 @@ bar.addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return
 if(b.dataset.md)run(ta,b.dataset.md);
 if(b.hasAttribute("data-insert-menu")){if(!menu.hidden&&menuFor===ta){menu.hidden=true;b.setAttribute("aria-expanded","false");return}menuFor=ta;active=ta;const r=b.getBoundingClientRect();near(menu,r.left,r.bottom+4);b.setAttribute("aria-expanded","true");menu.querySelector("button").focus()}
 if(b.dataset.tab){const show=b.dataset.tab==="preview";bar.querySelectorAll("[data-tab]").forEach(x=>x.setAttribute("aria-pressed",x===b?"true":"false"));ed.classList.toggle("previewing",show);ta.hidden=show;pv.hidden=!show;
-if(show){pv.innerHTML='<p class="muted">Loading the preview…</p>';const fd=new FormData();fd.set("text",ta.value);fetch("/forum/preview",{method:"POST",body:fd}).then(r=>r.text()).then(h=>pv.innerHTML=h).catch(()=>pv.innerHTML='<p class="muted">The preview didn\'t load.</p>')}else ta.focus()}});
+if(!show)setTimeout(grow,0);if(show){pv.innerHTML='<p class="muted">Loading the preview…</p>';const fd=new FormData();fd.set("text",ta.value);fetch("/forum/preview",{method:"POST",body:fd}).then(r=>r.text()).then(h=>pv.innerHTML=h).catch(()=>pv.innerHTML='<p class="muted">The preview didn\'t load.</p>')}else ta.focus()}});
 file.addEventListener("change",()=>{[...file.files].forEach(f=>upload(ta,f));file.value=""});
 ta.addEventListener("dragover",e=>{if([...e.dataTransfer.items].some(i=>i.kind==="file")){e.preventDefault();ta.classList.add("over")}});ta.addEventListener("dragleave",()=>ta.classList.remove("over"));
 ta.addEventListener("drop",e=>{const files=[...e.dataTransfer.files].filter(f=>f.type.startsWith("image/"));ta.classList.remove("over");if(!files.length)return;e.preventDefault();files.forEach(f=>upload(ta,f))});
