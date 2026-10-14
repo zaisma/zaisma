@@ -82,8 +82,8 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
 
   wss.on("connection", (ws, req) => {
     const m = /^\/v1\/rooms\/([a-z0-9-]{1,40})\/([A-Z0-9]{6})$/.exec(req.url ?? "");
-    const refuse = (code) => {
-      ws.send(errorMessage(code));
+    const refuse = (code, message) => {
+      ws.send(errorMessage(code, message));
       ws.close(CLOSE_REFUSED, code);
     };
     if (!m || m[1] !== game || !isRoomCode(m[2])) return ws.close(CLOSE_REFUSED, "Unknown room");
@@ -126,6 +126,12 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
       }
       clearTimeout(helloTimer);
       const room = roomFor(code);
+      // The room's rules and the game's canJoin, before anyone hears about this player.
+      const admitted = await room.core.admit({ id: claims.sub, name: claims.name }, made.data);
+      if (!admitted.ok) {
+        closeIfEmpty(code, room);
+        return refuse(admitted.code, admitted.message);
+      }
       room.sockets.get(claims.sub)?.close(CLOSE_REFUSED, "Joined from somewhere else");
       room.sockets.set(claims.sub, ws);
       // Rooms here aren't in Zaisma's room lists, but listed, open and closed work the same for the game.
@@ -133,7 +139,7 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
       if (!result.ok) {
         room.sockets.delete(claims.sub);
         closeIfEmpty(code, room);
-        return refuse(result.code);
+        return refuse(result.code, result.message);
       }
       playerId = claims.sub;
       room.waiting = false;
