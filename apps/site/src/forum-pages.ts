@@ -80,6 +80,7 @@ const ICONS = {
   ai: stroke('<path d="M10 1.8l2 6.2 6.2 2-6.2 2-2 6.2-2-6.2-6.2-2 6.2-2z"/>', true),
   reply: stroke('<path d="M8 5L3.5 9.5 8 14"/><path d="M3.5 9.5H12a4.5 4.5 0 0 1 4.5 4.5v1"/>'),
   plus: stroke('<path d="M10 4v12M4 10h12"/>'),
+  cross: stroke('<path d="M5 5l10 10M15 5L5 15"/>'),
 };
 const kindIcon = (t: { kind: FeedbackKind; known_issue: boolean }) => (t.known_issue ? ICONS.known : ICONS[t.kind]);
 
@@ -432,7 +433,7 @@ function postItem(t: Topic["topic"], p: PostJson, all: PostJson[], opening: bool
     ${p.picture_url ? html`<a class="p-pic" href="/forum/${t.id}/pictures/${p.id}" target="_blank" rel="noopener"><img src="/forum/${t.id}/pictures/${p.id}" alt="Your screenshot" loading="lazy"><small>Only you and Zaisma see your screenshot</small></a>` : ""}
     <div class="p-foot">
       ${t.can.reply && p.state === null ? html`<a href="?to=${p.id}#reply" data-reply="${p.id}" data-name="${p.by.name}" data-excerpt="${p.text.slice(0, 140)}">${ICONS.reply}Reply</a>` : ""}
-      ${canAnswer ? html`<form method="post" action="/forum/${t.id}/answer"><input type="hidden" name="post" value="${p.answer ? "" : p.id}"><button type="submit">${ICONS.check}${p.answer ? "Not the answer" : "Mark as the answer"}</button></form>` : ""}
+      ${canAnswer ? html`<form method="post" action="/forum/${t.id}/answer"><input type="hidden" name="post" value="${p.answer ? "" : p.id}"><button type="submit">${p.answer ? ICONS.cross : ICONS.check}${p.answer ? "Not the answer" : "Mark as the answer"}</button></form>` : ""}
       ${opening && all.length > 1 ? html`<span class="muted">${all.length === 2 ? "1 reply" : `${all.length - 1} replies`}</span>` : ""}
     </div>
   </div>
