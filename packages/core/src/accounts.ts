@@ -81,7 +81,7 @@ export async function updateAccount(db: D1Database, id: string, a: { name?: stri
     .run();
 }
 
-/** Remove an account, its API keys and its save records (the caller deletes the save files). Its games stay up with no owner. */
+/** Remove an account, its API keys, its save records and its feedback (the caller deletes the save files and screenshots). Its games stay up with no owner. */
 export async function deleteAccount(db: D1Database, id: string): Promise<void> {
   const owner = await db.prepare("SELECT id FROM owners WHERE account_id = ?").bind(id).first<{ id: string }>();
   await db.batch([
@@ -93,6 +93,12 @@ export async function deleteAccount(db: D1Database, id: string): Promise<void> {
     db.prepare("DELETE FROM saves WHERE account_id = ?").bind(id),
     db.prepare("DELETE FROM played WHERE account_id = ?").bind(id),
     db.prepare("DELETE FROM api_keys WHERE account_id = ?").bind(id),
+    // Feedback goes too (the caller deletes its screenshots); a known issue they started stays, nameless.
+    db.prepare("DELETE FROM feedback_posts WHERE account_id = ?").bind(id),
+    db.prepare("UPDATE feedback SET group_id = NULL WHERE group_id IN (SELECT id FROM feedback WHERE account_id = ? AND known_title IS NULL)").bind(id),
+    db.prepare("DELETE FROM feedback_posts WHERE feedback_id IN (SELECT id FROM feedback WHERE account_id = ? AND known_title IS NULL)").bind(id),
+    db.prepare("DELETE FROM feedback WHERE account_id = ? AND known_title IS NULL").bind(id),
+    db.prepare("UPDATE feedback SET account_id = NULL WHERE account_id = ?").bind(id),
     db.prepare("DELETE FROM accounts WHERE id = ?").bind(id),
   ]);
 }

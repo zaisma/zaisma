@@ -24,6 +24,13 @@ const HELP = `Usage:
         [--at "2026-11-01 17:00"]           Publish later, at this time (your computer's time zone)
   zaisma unschedule <slug> <version>        Cancel a publish-later
   zaisma show <slug> [--visibility listed|unlisted|private|draft]
+  zaisma feedback [--search "words"]       Your feedback to Zaisma, and the known issues
+  zaisma feedback <id>                      One item with every post, or a known issue
+  zaisma feedback send --kind bug|gap|feature|question --title "…" --text "…" [--game <slug>]
+                                            Tell Zaisma about a bug, a gap, an idea or a question
+  zaisma feedback add <id> --text "…" [--reopen]
+                                            Add to an item, reopen it, or add your case to a known issue
+        [--by-me]                           Mark a post as written by you; otherwise it says your AI wrote it
 
 Set ZAISMA_KEY to an API key from https://zaisma.com/account (under Game developers).
 Without installing: npx @zaisma/cli <command>. Installed (npm i -g @zaisma/cli): zaisma <command>.`;
@@ -50,7 +57,7 @@ async function api(method, path, body) {
   if (!KEY) fail("set ZAISMA_KEY to an API key from https://zaisma.com/account first.");
   const res = await fetch(`${API}/api/dev${path}`, {
     method,
-    headers: { authorization: `Bearer ${KEY}`, ...(body && !(body instanceof Uint8Array) ? { "content-type": "application/json" } : {}) },
+    headers: { authorization: `Bearer ${KEY}`, "x-zaisma-client": "cli", ...(body && !(body instanceof Uint8Array) ? { "content-type": "application/json" } : {}) },
     body: body instanceof Uint8Array ? body : body ? JSON.stringify(body) : undefined,
   });
   const data = await res.json().catch(() => ({}));
@@ -161,15 +168,74 @@ async function upload(folder, opts) {
   console.log(`Still scanning. Check later with: zaisma versions ${slug}`);
 }
 
+const day = (ms) => new Date(ms).toISOString().slice(0, 10);
+
+function printKnown(k) {
+  console.log(`${k.id}  ${k.status.padEnd(8)} ${k.title}  (${k.developers} developer${k.developers === 1 ? "" : "s"}${k.roadmap ? `, roadmap: ${k.roadmap}` : ""})`);
+  if (k.workaround) console.log(`    Until it's fixed: ${k.workaround}`);
+}
+
+/** Text from --text, or piped in. */
+async function readText(opts) {
+  if (typeof opts.text === "string") return opts.text;
+  if (process.stdin.isTTY) return "";
+  const chunks = [];
+  for await (const c of process.stdin) chunks.push(c);
+  return Buffer.concat(chunks).toString("utf8").trim();
+}
+
+/** Feedback to Zaisma. Posts say an AI wrote them unless --by-me says the developer did. */
+async function feedback(opts) {
+  const [sub, id] = opts._;
+  const by = opts["by-me"] ? { author: "person" } : {};
+  if (sub === "send") {
+    const text = await readText(opts);
+    if (typeof opts.kind !== "string" || typeof opts.title !== "string" || !text) fail('usage: zaisma feedback send --kind bug|gap|feature|question --title "…" --text "…" [--game <slug>]');
+    const out = await api("POST", "/feedback", { kind: opts.kind, title: opts.title, text, ...(typeof opts.game === "string" ? { game: opts.game } : {}), ...by });
+    console.log(`Sent (${out.feedback.id}). Zaisma will reply here: zaisma feedback ${out.feedback.id}`);
+    if (out.secrets_removed) console.log(`${out.secrets_removed} secret${out.secrets_removed === 1 ? " was" : "s were"} blanked before it was stored.`);
+    if (out.matches.length) {
+      console.log("\nKnown issues that look like the same problem:");
+      for (const k of out.matches) printKnown(k);
+    }
+    return;
+  }
+  if (sub === "add") {
+    const text = await readText(opts);
+    if (!id || !text) fail('usage: zaisma feedback add <id> --text "…" [--reopen]');
+    const out = await api("POST", `/feedback/${id}/posts`, { text, ...(opts.reopen ? { reopen: true } : {}), ...by });
+    console.log(`Added to ${out.feedback.id} (${out.feedback.status}).`);
+    return;
+  }
+  if (sub) {
+    const out = await api("GET", `/feedback/${sub}`);
+    if (!out.feedback) return printKnown(out.known_issue);
+    const f = out.feedback;
+    console.log(`${f.title}\n${f.kind}, ${f.status}${f.game ? `, ${f.game}` : ""}`);
+    if (f.known_issue) printKnown(f.known_issue);
+    for (const p of f.posts) console.log(`\n${day(p.at)}  ${p.by}${p.kind === "reopen" ? " (reopened)" : ""}:\n${p.text}${p.picture_url ? `\n[screenshot] ${p.picture_url}` : ""}`);
+    return;
+  }
+  const q = typeof opts.search === "string" ? `?q=${encodeURIComponent(opts.search)}` : "";
+  const { mine, known_issues } = await api("GET", `/feedback${q}`);
+  console.log(mine.length ? "Yours (* has a reply you haven't read):" : "You haven't sent any feedback yet.");
+  for (const f of mine) console.log(`${f.id}  ${f.status.padEnd(8)} ${f.news ? "* " : "  "}${f.title}`);
+  if (known_issues.length) {
+    console.log("\nKnown issues:");
+    for (const k of known_issues) printKnown(k);
+  }
+}
+
 async function main() {
   const [command, ...rest] = process.argv.slice(2);
   const opts = args(rest);
   if (!command || command === "help" || command === "--help" || command === "-h") return console.log(HELP);
 
   if (command === "games") {
-    const { games } = await api("GET", "/games");
+    const { games, feedback_news } = await api("GET", "/games");
     if (!games.length) return console.log('No games yet. Make one with: zaisma new "My Game"');
     for (const g of games) console.log(`${g.slug.padEnd(28)} ${g.visibility.padEnd(9)} ${g.review.padEnd(8)} ${g.title}`);
+    if (feedback_news) console.log(`\nZaisma replied to ${feedback_news} of your feedback items. See them with: zaisma feedback`);
     return;
   }
   if (command === "new") {
@@ -213,6 +279,7 @@ async function main() {
     const { game } = await api("PATCH", `/games/${slug}`, { visibility: opts.visibility });
     return console.log(`${game.title} is now ${game.visibility}.`);
   }
+  if (command === "feedback") return feedback(opts);
   fail(`unknown command "${command}". Run zaisma help.`);
 }
 
