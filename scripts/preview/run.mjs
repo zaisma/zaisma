@@ -276,7 +276,7 @@ async function seedForum(you, go, form) {
   const { "Pixel Forge": pf, "Bramble Studio": bs, "Lumen Works": lw, "Tiny Rocket": tr, "Coral Arcade": ca, "Quiet Owl": qo, "Hexa Labs": hl, "Other Studio": os } = dev;
 
   // A rooms bug, sent privately, that Zaisma makes a public known issue; others hit it too.
-  const { topic: roomsBug } = await os("POST", "/forum", { kind: "bug", author: me, category: "rooms", title: "Rooms disconnect everyone when the 50th player joins", text: "Every time a room reaches 50 players, every player in it is disconnected at once. Under 50 it's fine." });
+  const { topic: roomsBug } = await os("POST", "/forum", { public: false, kind: "bug", author: me, category: "rooms", title: "Rooms disconnect everyone when the 50th player joins", text: "Every time a room reaches 50 players, every player in it is disconnected at once. Under 50 it's fine." });
   await zaisma(roomsBug.id, { known: "1", k_title: "Rooms drop every player at 50", k_workaround: "Cap rooms at 40 players for now: Zaisma.rooms.create({ max: 40 }).", k_roadmap: "Multiplayer", status: "known", severity: "2", area: "rooms", reply: "Thanks, we can see it happening. We've made it a known issue so others find the workaround." });
   const known = (await you("GET", "/forum?tab=known")).topics;
   const roomsKnown = known.find((k) => k.title === "Rooms drop every player at 50").id;
@@ -363,9 +363,10 @@ async function seedForum(you, go, form) {
   await meToo(crop.id, ca, pf);
   await zaisma(crop.id, { reply: "Thanks, we can see it on that screen size. Fix coming with the next home page update.", status: "known" });
 
-  // The preview account's private reports: its AI hits a bug Zaisma makes a known issue, and hits the
+  // The preview account's messages to Zaisma: its AI hits a bug Zaisma makes a known issue, and hits the
   // rooms one too (the stand-in AI merges it); the developer sends a gap.
   const { topic: tooBig } = await you("POST", "/forum", {
+    public: false,
     kind: "bug",
     game: "arena",
     category: "mcp",
@@ -375,12 +376,12 @@ async function seedForum(you, go, form) {
     picture: Buffer.from(picture([150, 70, 160], 1)).toString("base64"),
   });
   await zaisma(tooBig.id, { known: "1", k_title: "upload_files refuses some builds under 5 MB", k_workaround: "Use the upload command (npx @zaisma/cli upload) for builds over 2 MB.", k_roadmap: "Developer MCP", status: "known", severity: "3", area: "mcp", reply: "Found it: base64 makes the request bigger than the build. Thanks for the details." });
-  await you("POST", "/forum", { kind: "bug", game: "cave-crew", category: "rooms", title: "Room drops every player once it fills up", text: "Cave Crew's rooms drop every player once about 50 join. Players get disconnected all at once." });
-  await you("POST", "/forum", { kind: "gap", author: me, category: "publishing", title: "Builds over 500 MB", text: "My Unity export is 640 MB with its streaming assets. Is the 500 MB limit going to change? I can't split it." });
+  await you("POST", "/forum", { public: false, kind: "bug", game: "cave-crew", category: "rooms", title: "Room drops every player once it fills up", text: "Cave Crew's rooms drop every player once about 50 join. Players get disconnected all at once." });
+  await you("POST", "/forum", { public: false, kind: "gap", author: me, category: "publishing", title: "Builds over 500 MB", text: "My Unity export is 640 MB with its streaming assets. Is the 500 MB limit going to change? I can't split it." });
   // A reply the check holds, to show what waiting for a person looks like.
   await reply(you, weekly.id, "Anyone want to playtest Arena tonight? Add me on discord, same name.", { author: me });
   // A third known issue, planned.
-  const { topic: scanSlow } = await lw("POST", "/forum", { kind: "bug", category: "scans", title: "Scan took 25 minutes on Saturday", text: "Usually under a minute; Saturday evening it took 25." });
+  const { topic: scanSlow } = await lw("POST", "/forum", { public: false, kind: "bug", category: "scans", title: "Scan took 25 minutes on Saturday", text: "Usually under a minute; Saturday evening it took 25." });
   await zaisma(scanSlow.id, { known: "1", k_title: "Scans can take over 10 minutes at busy times", k_workaround: "Upload a little ahead of a launch, or schedule the publish.", k_roadmap: "Scan speed", status: "planned", severity: "3", area: "scans" });
   await meToo((await you("GET", "/forum?tab=known")).topics.find((k) => k.title.startsWith("Scans can take")).id, pf, tr);
 

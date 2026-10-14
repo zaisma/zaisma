@@ -1,7 +1,6 @@
 import {
   FEEDBACK_KINDS,
   FEEDBACK_LIMITS,
-  FEEDBACK_PRIVATE_KINDS,
   FORUM_CATEGORIES,
   FORUM_TAGS,
   forumAreaName,
@@ -58,7 +57,7 @@ const STATUS: Record<FeedbackStatus, { label: string; pill: string }> = {
 };
 const DONE: Record<string, string> = {
   posted: "Posted.",
-  "posted-private": "Sent to Zaisma. Its AI sorts it within minutes and a person reads it; replies show here and to your AI.",
+  "posted-private": "Sent to Zaisma. Only you and Zaisma see this; a person reads it, and replies show here and to your AI.",
   checking: "Posted. Others see it once it's checked, usually within minutes.",
   held: "Posted. A person at Zaisma checks it before others see it, usually within a day.",
   replied: "Replied.",
@@ -108,14 +107,18 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
 
   try {
     if (path === "/forum/similar") return done(await similarFragment(ctx, url.searchParams.get("q") ?? ""));
-    if (path === "/forum") {
+    if (path === "/forum" || path === "/forum/messages") {
       const query = queryFrom(url.searchParams);
-      if (query.tab === "yours" && !caller) return signIn();
+      if (path === "/forum/messages") query.tab = "messages";
+      if ((query.tab === "yours" || query.tab === "messages") && !caller) return signIn();
       return done(await listPage(ctx, query));
     }
-    if (path === "/forum/new") {
+    // A private report under a known issue is a message to Zaisma now.
+    if (path === "/forum/new" && !post && url.searchParams.get("known_issue")) return done(redirect(`/forum/messages/new${url.search}`));
+    if (path === "/forum/new" || path === "/forum/messages/new") {
+      const message = path === "/forum/messages/new";
       if (!caller) return signIn();
-      if (!post) return done(await newPage(ctx, Object.fromEntries(url.searchParams)));
+      if (!post) return done(await newPage(ctx, Object.fromEntries(url.searchParams), message));
       const form = await request.formData();
       const field = (name: string) => String(form.get(name) ?? "").trim();
       try {
@@ -124,8 +127,8 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
           title: field("title"),
           text: field("text"),
           ...(field("category") ? { category: field("category") } : {}),
-          tags: form.getAll("tags").map(String),
-          public: field("visibility") !== "private",
+          tags: message ? [] : form.getAll("tags").map(String),
+          public: !message,
           ...(field("game") ? { game: field("game") } : {}),
           ...(field("known_issue") ? { known_issue: field("known_issue") } : {}),
           ...(await picture(form)),
@@ -134,7 +137,7 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
         const state = !t.public ? "posted-private" : t.shown ? "posted" : res.posts[0]?.state === "held" ? "held" : "checking";
         return done(redirect(`/forum/${t.id}?done=${state}`));
       } catch (err) {
-        if (err instanceof ApiError) return done(await newPage(ctx, Object.fromEntries([...form].filter(([, v]) => typeof v === "string")) as Record<string, string>, err.message, err.status, form.getAll("tags").map(String)));
+        if (err instanceof ApiError) return done(await newPage(ctx, Object.fromEntries([...form].filter(([, v]) => typeof v === "string")) as Record<string, string>, message, err.message, err.status, form.getAll("tags").map(String)));
         throw err;
       }
     }
@@ -301,17 +304,18 @@ function richText(text: string): Raw {
 
 async function listPage(ctx: Ctx, query: ForumQuery): Promise<Response> {
   const data = await listTopics(ctx.env, ctx.viewer, query);
-  const unread = ctx.viewer ? await unreadCount(ctx.env, ctx.viewer) : 0;
+  const unread = ctx.viewer ? { topics: await unreadCount(ctx.env, ctx.viewer), messages: await unreadCount(ctx.env, ctx.viewer, true) } : { topics: 0, messages: 0 };
+  const messages = data.tab === "messages";
   const cat = query.category ? FORUM_CATEGORIES.find((c) => c.id === query.category) : undefined;
   const area = query.category && !cat ? placeOf(query.category) : null;
-  const heading = data.tab === "yours" ? "Your topics" : data.tab === "known" && !query.category ? "Known issues" : area ? area.sub : cat ? cat.name : "All topics";
+  const heading = messages ? "Messages to Zaisma" : data.tab === "yours" ? "Your topics" : data.tab === "known" && !query.category ? "Known issues" : area ? area.sub : cat ? cat.name : "All topics";
   const tabs = [
     ["latest", "Latest"],
     ["top", "Top"],
     ["unanswered", "Unanswered"],
     ["known", "Known issues"],
   ] as const;
-  const filters = [["", "Everything"], ...FEEDBACK_KINDS.map((k) => [k, KINDS[k].plural])] as const;
+  const filters = [["", "Everything"], ...FEEDBACK_KINDS.filter((k) => !(messages && k === "talk")).map((k) => [k, KINDS[k].plural])] as const;
   const keep: Record<string, string> = {};
   for (const k of ["category", "kind", "tag", "tab"] as const) if (query[k]) keep[k] = String(query[k]);
   return forumPage(
@@ -322,8 +326,10 @@ ${rail(ctx, query, data.tab, unread)}
 <section class="board" aria-labelledby="board-h">
   <div class="board-head">
     <h1 id="board-h">${area ? html`<a class="up" href="${link(query, { category: area.category, page: 1 })}">${area.name}</a><span class="sep">/</span>` : ""}${heading}</h1>
-    ${data.tab === "yours" ? "" : html`<nav class="seg tabs" aria-label="Sort">${tabs.map(([t, label]) => html`<a href="${link(query, { tab: t === "latest" ? "" : t, page: 1 })}"${data.tab === t ? raw(' aria-current="page"') : ""}>${label}</a>`)}</nav>`}
+    ${messages ? html`<a class="btn ghost" href="/forum/messages/new">New message</a>` : ""}
+    ${data.tab === "yours" || messages ? "" : html`<nav class="seg tabs" aria-label="Sort">${tabs.map(([t, label]) => html`<a href="${link(query, { tab: t === "latest" ? "" : t, page: 1 })}"${data.tab === t ? raw(' aria-current="page"') : ""}>${label}</a>`)}</nav>`}
   </div>
+  ${messages ? html`<p class="board-note muted">Private conversations with the people who build Zaisma: logs, unreleased games, anything you'd rather not post. Only you and Zaisma see them. When others hit the same problem, Zaisma posts a public known issue, without your words.</p>` : ""}
   <div class="filters">
     <nav class="chips" aria-label="What kind">${filters.map(([k, label]) => html`<a href="${link(query, { kind: k, page: 1 })}"${(query.kind ?? "") === k ? raw(' aria-current="true"') : ""}>${label}</a>`)}</nav>
     ${query.tag ? html`<a class="tag on" href="${link(query, { tag: "", page: 1 })}" title="Show every tag">${(FORUM_TAGS as Record<string, string>)[query.tag] ?? query.tag} ×</a>` : ""}
@@ -336,26 +342,29 @@ ${rail(ctx, query, data.tab, unread)}
   ${data.topics.length
     ? html`<div class="topics-head" aria-hidden="true"><span>Topic</span><span>People</span><span>Replies</span><span>Votes</span><span>Active</span></div>
   <ol class="topics">${data.topics.map((t) => topicRow(t, query))}</ol>`
-    : html`<div class="empty-board"><p>${query.q ? "Nothing matches that." : data.tab === "yours" ? "You haven't posted yet. Topics you post, reply to or vote on show here." : data.tab === "unanswered" ? "Every question here has an answer." : "No topics here yet."}</p>${ctx.viewer ? html`<a class="btn ghost" href="/forum/new${query.category ? `?category=${query.category}` : ""}">Start a topic</a>` : ""}</div>`}
+    : html`<div class="empty-board"><p>${query.q ? "Nothing matches that." : messages ? "No messages yet. Message Zaisma about anything you'd rather not post in public." : data.tab === "yours" ? "You haven't posted yet. Topics you post, reply to or vote on show here." : data.tab === "unanswered" ? "Every question here has an answer." : "No topics here yet."}</p>${ctx.viewer ? (messages ? html`<a class="btn ghost" href="/forum/messages/new">Message Zaisma</a>` : html`<a class="btn ghost" href="/forum/new${query.category ? `?category=${query.category}` : ""}">Start a topic</a>`) : ""}</div>`}
   ${data.page > 1 || data.more
     ? html`<nav class="pager" aria-label="Pages">${data.page > 1 ? html`<a class="btn ghost" href="${link(query, { page: data.page - 1 })}">Newer</a>` : ""}<span class="muted">Page ${data.page}</span>${data.more ? html`<a class="btn ghost" href="${link(query, { page: data.page + 1 })}">Older</a>` : ""}</nav>`
     : ""}
 </section>
 </div>`,
-    { q: query.q, keep },
+    { q: query.q, keep: messages ? {} : keep },
   );
 }
 
-function rail(ctx: Ctx, query: ForumQuery, tab: string, unread: number): Raw {
+function rail(ctx: Ctx, query: ForumQuery, tab: string, unread: { topics: number; messages: number }): Raw {
   const current = query.category ?? "";
   const openCat = FORUM_CATEGORIES.find((c) => c.id === current || current in c.areas)?.id;
   const here = (on: boolean) => (on ? raw(' aria-current="page"') : "");
-  const all = !current && tab !== "yours" && tab !== "known";
+  const all = !current && tab !== "yours" && tab !== "known" && tab !== "messages";
   return html`<details class="rail" open>
-<summary>${current ? (placeOf(current)?.sub ?? FORUM_CATEGORIES.find((c) => c.id === current)?.name) : tab === "yours" ? "Your topics" : "All topics"}</summary>
+<summary>${current ? (placeOf(current)?.sub ?? FORUM_CATEGORIES.find((c) => c.id === current)?.name) : tab === "yours" ? "Your topics" : tab === "messages" ? "Messages to Zaisma" : "All topics"}</summary>
 <nav aria-label="Forum">
   <a class="r-top" href="/forum"${here(all)}>All topics</a>
-  ${ctx.viewer ? html`<a class="r-top" href="/forum?tab=yours"${here(tab === "yours")}>Your topics${unread ? html`<span class="count" title="Topics with something new">${unread}</span>` : ""}</a>` : ""}
+  ${ctx.viewer
+    ? html`<a class="r-top" href="/forum?tab=yours"${here(tab === "yours")}>Your topics${unread.topics ? html`<span class="count" title="Topics with something new">${unread.topics}</span>` : ""}</a>
+  <a class="r-top" href="/forum/messages"${here(tab === "messages")}>Messages to Zaisma${unread.messages ? html`<span class="count" title="Messages with a reply">${unread.messages}</span>` : ""}</a>`
+    : ""}
   <a class="r-top" href="/forum?tab=known"${here(tab === "known" && !current)}>Known issues</a>
   <p class="r-head">Categories</p>
   ${FORUM_CATEGORIES.map(
@@ -377,13 +386,13 @@ function topicRow(t: TopicRow, q: ForumQuery): Raw {
   return html`<li class="trow${t.unread ? " unread" : ""}${t.known_issue ? " known" : ""}">
   <span class="ticon k-${t.known_issue ? "known" : t.kind}" title="${kindLabel}">${kindIcon(t)}<span class="sr">${kindLabel}</span></span>
   <div class="tmain">
-    <p class="tline"><a class="ttitle" href="/forum/${t.id}">${t.title}</a>${t.answered && !t.known_issue ? html`<span class="flag ok" title="Answered">${ICONS.check}Answered</span>` : ""}${t.public ? "" : html`<span class="flag" title="Only you and Zaisma can see it">${ICONS.lock}Private</span>`}${t.public && !t.shown ? html`<span class="flag warn">Being checked</span>` : ""}${t.status !== "new" && t.status !== "answered" ? statusPill(t.status, t.public) : t.status === "new" && !t.public ? statusPill(t.status, false) : ""}${t.merged_into ? html`<a class="flag" href="/forum/${t.merged_into}">Part of a known issue</a>` : ""}</p>
+    <p class="tline"><a class="ttitle" href="/forum/${t.id}">${t.title}</a>${t.answered && !t.known_issue ? html`<span class="flag ok" title="Answered">${ICONS.check}Answered</span>` : ""}${t.public || q.tab === "messages" ? "" : html`<span class="flag" title="Only you and Zaisma can see it">${ICONS.lock}Message to Zaisma</span>`}${t.public && !t.shown ? html`<span class="flag warn">Being checked</span>` : ""}${t.status !== "new" && t.status !== "answered" ? statusPill(t.status, t.public) : t.status === "new" && !t.public ? statusPill(t.status, false) : ""}${t.merged_into ? html`<a class="flag" href="/forum/${t.merged_into}">Part of a known issue</a>` : ""}</p>
     <p class="tmeta">${place ? html`<a class="cat" href="${link({}, { category: t.category ?? "" })}">${place.name} · ${place.sub}</a>` : ""}${t.tags.map(tagChip)}<span class="by">${avatar(t.author, "xs")}${t.author.name}${t.author.by === "ai" ? html`<span class="mark ai">${ICONS.ai}AI</span>` : ""}${t.author.by === "zaisma" ? html`<span class="mark team">Team</span>` : ""}</span><span class="when">${ago(t.created_at)}</span></p>
   </div>
   <div class="tpeople">${t.people.map((p) => avatar(p, "sm"))}</div>
   <div class="tstat" title="${t.replies === 1 ? "1 reply" : `${t.replies} replies`}">${ICONS.replies}<span>${t.replies}</span></div>
   ${(() => {
-    const v = voteOf(t);
+    const v = t.public ? voteOf(t) : null;
     const n = t.known_issue ? (t.developers ?? 0) : t.votes;
     return v ? html`<div class="tstat${t.voted ? " mine" : ""}" title="${n} ${v.count(n)}">${v.icon}<span>${n}</span></div>` : html`<div class="tstat none" aria-hidden="true"></div>`;
   })()}
@@ -416,7 +425,7 @@ async function topicPage(ctx: Ctx, id: string, opts: { done?: string; error?: st
     t.title,
     html`<div class="topic">
 <article class="t-main">
-  <p class="crumbs"><a href="/forum">Forum</a>${place ? html`<span>/</span><a href="/forum?category=${place.category}">${place.name}</a><span>/</span><a href="/forum?category=${t.category}">${place.sub}</a>` : ""}</p>
+  <p class="crumbs"><a href="/forum">Forum</a>${!t.public ? html`<span>/</span><a href="/forum/messages">Messages to Zaisma</a>` : place ? html`<span>/</span><a href="/forum?category=${place.category}">${place.name}</a><span>/</span><a href="/forum?category=${t.category}">${place.sub}</a>` : ""}</p>
   ${notice}
   ${t.public && !t.shown ? html`<p class="note warn-note">Others see this topic once its first post is checked${first?.state === "held" ? ": a person at Zaisma looks at it, usually within a day" : ", usually within minutes"}.</p>` : ""}
   ${opPost(ctx, t, opening, answer)}
@@ -441,8 +450,8 @@ function opPost(ctx: Ctx, t: Topic["topic"], p: PostJson | null, answer: PostJso
   const count = t.known_issue ? (t.developers ?? 0) : t.votes;
   return html`<article class="op plate bevel-s"${p ? raw(` id="p-${p.id}"`) : ""}>
   <h1 class="t-title"><span class="ticon k-${t.known_issue ? "known" : t.kind}" title="${t.known_issue ? "Known issue" : KINDS[t.kind].label}">${kindIcon(t)}</span>${t.title}</h1>
-  <p class="t-meta"><span class="kind">${t.known_issue ? "Known issue" : KINDS[t.kind].label}</span>${statusPill(t.status, t.public)}${t.tags.map(tagChip)}${t.public ? "" : html`<span class="flag">${ICONS.lock}Only you and Zaisma can see this</span>`}${t.game ? html`<span class="muted">About <a href="/dashboard/${t.game}">${t.game}</a>, which only you and Zaisma see</span>` : ""}</p>
-  <div class="op-by">${avatar(t.author, "md")}<div><p class="op-name">${nameOf(t.author)}${p?.state === "checking" ? html`<span class="flag warn">Being checked: only you see it yet</span>` : p?.state === "held" ? html`<span class="flag warn">Waiting for a person at Zaisma: only you see it yet</span>` : ""}</p><p class="muted">${t.known_issue ? "Known issue" : "Started this"} ${ago(t.created_at)}</p></div></div>
+  <p class="t-meta"><span class="kind">${t.known_issue ? "Known issue" : KINDS[t.kind].label}</span>${statusPill(t.status, t.public)}${t.tags.map(tagChip)}${t.public ? "" : html`<span class="flag">${ICONS.lock}A message to Zaisma: only you and Zaisma see it</span>`}${t.game ? html`<span class="muted">About <a href="/dashboard/${t.game}">${t.game}</a>, which only you and Zaisma see</span>` : ""}</p>
+  <div class="op-by">${avatar(t.author, "md")}<div><p class="op-name">${nameOf(t.author)}${p?.state === "checking" ? html`<span class="flag warn">Being checked: only you see it yet</span>` : p?.state === "held" ? html`<span class="flag warn">Waiting for a person at Zaisma: only you see it yet</span>` : ""}</p><p class="muted">${t.known_issue ? "Known issue" : t.public ? "Started this" : "Sent this"} ${ago(t.created_at)}</p></div></div>
   ${t.known_issue
     ? html`<div class="op-text"><p>Zaisma knows about this. ${t.developers === 1 ? "1 developer has" : `${t.developers} developers have`} hit it${t.roadmap ? html`; it's part of <strong>${t.roadmap}</strong> on the roadmap` : ""}.</p>${t.workaround ? html`<p class="kb-work"><strong>Until it's fixed:</strong> ${t.workaround}</p>` : ""}</div>`
     : p
@@ -521,54 +530,53 @@ function sidePanel(ctx: Ctx, t: Topic["topic"], posts: PostJson[]): Raw {
     <dt>Who can see it</dt><dd>${t.public ? "Every developer and their AI" : "Only you and Zaisma"}</dd>
   </dl>
   ${t.known_issue && ctx.viewer
-    ? html`<div class="side plate bevel-s"><p>${t.yours ? html`You've sent Zaisma a private report about this. <a href="/forum/${t.yours}">Open it</a>` : html`Have logs, a screenshot or a game to point at? <a href="/forum/new?known_issue=${t.id}&kind=${t.kind}">Report your case privately</a>: only Zaisma sees it, and it counts here.`}</p></div>`
+    ? html`<div class="side plate bevel-s"><p>${t.yours ? html`You've messaged Zaisma about this. <a href="/forum/${t.yours}">Open your message</a>` : html`Have logs, a screenshot or a game to point at? <a href="/forum/messages/new?known_issue=${t.id}&kind=${t.kind}">Message Zaisma about your case</a>: only Zaisma sees it, and it counts here.`}</p></div>`
     : ""}
 </aside>`;
 }
 
 // --- A new topic ---
 
-async function newPage(ctx: Ctx, f: Record<string, string>, error = "", status = 200, tags: string[] = []): Promise<Response> {
+async function newPage(ctx: Ctx, f: Record<string, string>, message: boolean, error = "", status = 200, tags: string[] = []): Promise<Response> {
   const { games } = (await apiCall(ctx.env, ctx.viewer!, "GET", "/games")) as { games: { slug: string; title: string }[] };
-  const kind = (FEEDBACK_KINDS as readonly string[]).includes(f.kind ?? "") ? (f.kind as FeedbackKind) : "question";
+  const kinds = message ? FEEDBACK_KINDS.filter((k) => k !== "talk") : FEEDBACK_KINDS;
+  const kind = (kinds as readonly string[]).includes(f.kind ?? "") ? (f.kind as FeedbackKind) : message ? "bug" : "question";
   const known = f.known_issue ? await getTopic(ctx.env, ctx.viewer, f.known_issue).catch(() => null) : null;
-  const isPrivate = known ? true : f.visibility ? f.visibility === "private" : FEEDBACK_PRIVATE_KINDS.includes(kind);
   const category = f.category && !FORUM_CATEGORIES.some((c) => c.id === f.category) ? f.category : (f.category ? areasOf(f.category)[0] : "") || known?.topic.category || "";
   return forumPage(
     ctx,
-    "New topic",
+    message ? "Message Zaisma" : "New topic",
     html`<div class="newtopic">
-<form class="np plate bevel-s" method="post" action="/forum/new" enctype="multipart/form-data">
-  <h1>${known ? "Report your case privately" : "New topic"}</h1>
+<form class="np plate bevel-s" method="post" action="${message ? "/forum/messages/new" : "/forum/new"}" enctype="multipart/form-data">
+  <h1>${message ? "Message Zaisma" : "New topic"}</h1>
+  ${message && !known ? html`<p class="note">Only you and the people who build Zaisma see this: share logs, an unreleased game, anything private. If others hit the same problem, Zaisma posts a public known issue without your words.</p>` : ""}
   ${error ? html`<p class="error" role="alert">${error}</p>` : ""}
   ${known
     ? html`<input type="hidden" name="known_issue" value="${known.topic.id}"><input type="hidden" name="kind" value="${kind}"><p class="note">About the known issue <a href="/forum/${known.topic.id}"><strong>${known.topic.title}</strong></a>. Only you and Zaisma see what you write here; it counts toward the developers affected, and you hear when it's fixed.</p>`
-    : html`<fieldset class="kinds"><legend>What is it?</legend>${FEEDBACK_KINDS.map(
+    : html`<fieldset class="kinds"><legend>What is it?</legend>${kinds.map(
         (k) => html`<label class="kind-opt"><input type="radio" name="kind" value="${k}"${k === kind ? raw(" checked") : ""}><span class="ticon k-${k}">${ICONS[k]}</span><span><strong>${KINDS[k].label}</strong><small>${KINDS[k].hint}</small></span></label>`,
       )}</fieldset>`}
   <label>Title <input name="title" required maxlength="${FEEDBACK_LIMITS.title}" value="${f.title ?? known?.topic.title ?? ""}" placeholder="Upload stops at 99% for a 300 MB build" autocomplete="off"></label>
   <div id="similar" class="similar" aria-live="polite"></div>
   <label>What happened, or what you'd like <textarea name="text" required maxlength="${FEEDBACK_LIMITS.text}" rows="9" placeholder="What you did, what you expected and what happened instead. Put code and errors between \`\`\` lines.">${f.text ?? ""}</textarea></label>
   <div class="np-row">
-    <label>Category <select name="category" required><option value=""${category ? "" : raw(" selected")} disabled>Pick where it belongs</option>${FORUM_CATEGORIES.map(
+    <label>Category${message ? " (optional)" : ""} <select name="category"${message ? "" : raw(" required")}><option value=""${category ? "" : raw(" selected")}${message ? "" : raw(" disabled")}>${message ? "Not sure" : "Pick where it belongs"}</option>${FORUM_CATEGORIES.map(
       (c) => html`<optgroup label="${c.name}">${Object.entries(c.areas).map(([a, name]) => html`<option value="${a}"${a === category ? raw(" selected") : ""}>${name}</option>`)}</optgroup>`,
     )}</select></label>
     ${games.length ? html`<label>Which game (optional) <select name="game"><option value="">None</option>${games.map((g) => html`<option value="${g.slug}"${g.slug === f.game ? raw(" selected") : ""}>${g.title}</option>`)}</select><small class="hint">Only you and Zaisma see which game.</small></label>` : ""}
   </div>
-  ${known
+  ${known || message
     ? ""
     : html`<fieldset class="np-tags"><legend>Tags (up to ${FEEDBACK_LIMITS.tags})</legend><div class="r-tags">${Object.entries(FORUM_TAGS).map(
         ([t, name]) => html`<label class="tag pick"><input type="checkbox" name="tags" value="${t}"${tags.includes(t) ? raw(" checked") : ""}><span>${name}</span></label>`,
-      )}</div></fieldset>
-  <fieldset class="seen"><legend>Who can see it</legend>
-    <label class="check"><input type="radio" name="visibility" value="public"${isPrivate ? "" : raw(" checked")}><span><strong>Every developer and their AI</strong><small>Others can reply and vote. Checked before it shows.</small></span></label>
-    <label class="check"><input type="radio" name="visibility" value="private"${isPrivate ? raw(" checked") : ""}><span><strong>Only Zaisma</strong><small>For logs, unreleased games or anything private. If others hit it too, Zaisma makes it a public known issue without your words.</small></span></label>
-  </fieldset>`}
+      )}</div></fieldset>`}
   <label>Screenshot (optional) <input type="file" name="picture" accept="image/png,image/jpeg,image/webp"><small class="hint">PNG, JPEG or WebP up to ${FEEDBACK_LIMITS.pictureBytes / 1048576} MB. Only you and Zaisma see it.</small></label>
-  <div class="np-foot"><button class="btn light" type="submit">${known ? "Send to Zaisma" : "Post topic"}</button><span class="hint">Keys and passwords are blanked before anything is saved.</span></div>
+  <div class="np-foot"><button class="btn light" type="submit">${message ? "Send to Zaisma" : "Post topic"}</button><span class="hint">Keys and passwords are blanked before anything is saved.</span></div>
 </form>
 <aside class="np-side">
-  <div class="side plate bevel-s"><h2>Before you post</h2><p>Search first: if someone has posted it, vote there. It counts, and you hear when it changes.</p><p>Bugs and missing pieces go to Zaisma privately by default. Ideas, questions and discussions are public.</p></div>
+  ${message
+    ? html`<div class="side plate bevel-s"><h2>Private</h2><p>Messages are only between you and Zaisma. To ask other developers too, <a href="/forum/new">start a public topic</a> instead.</p></div>`
+    : html`<div class="side plate bevel-s"><h2>Before you post</h2><p>Search first: if someone has posted it, vote there. It counts, and you hear when it changes.</p><p>Everything here is public, checked before it shows. For logs, an unreleased game or anything private, <a href="/forum/messages/new">message Zaisma</a> instead.</p></div>`}
   <div class="side plate bevel-s"><h2>From your AI</h2><p>With the Zaisma MCP, your AI searches the forum, posts what it hits with the exact error, and replies. Its posts show your name with an ${ICONS.ai} AI mark.</p></div>
 </aside>
 </div>`,
@@ -882,7 +890,7 @@ label.check{display:flex;gap:8px;align-items:center;color:var(--text);font-size:
 `;
 
 // Reply to one post without reloading, keep the rail closed on phones, suggest similar topics while
-// a title is typed, keep tags to three, and match who sees a new topic to its kind until it's chosen.
+// a title is typed, and keep tags to three.
 const FORUM_SCRIPT = `(()=>{
 const rail=document.querySelector(".rail");if(rail&&matchMedia("(max-width:900px)").matches)rail.open=false;
 const c=document.getElementById("reply");
@@ -894,6 +902,4 @@ const t=f.elements.title,sim=document.getElementById("similar");let timer=0,last
 const look=()=>{const q=t.value.trim();if(q===last)return;last=q;if(q.length<6){sim.innerHTML="";return}fetch("/forum/similar?q="+encodeURIComponent(q)).then(r=>r.text()).then(h=>{if(t.value.trim()===q)sim.innerHTML=h}).catch(()=>{})};
 t.addEventListener("input",()=>{clearTimeout(timer);timer=setTimeout(look,350)});
 const tags=[...f.querySelectorAll("input[name=tags]")],cap=()=>{const n=tags.filter(x=>x.checked).length;tags.forEach(x=>x.disabled=!x.checked&&n>=${FEEDBACK_LIMITS.tags})};tags.forEach(x=>x.addEventListener("change",cap));cap();
-let chosen=false;f.querySelectorAll("input[name=visibility]").forEach(r=>r.addEventListener("change",()=>chosen=true));
-f.querySelectorAll("input[name=kind]").forEach(r=>r.addEventListener("change",()=>{if(chosen)return;const v=["bug","gap"].includes(r.value)?"private":"public",o=f.querySelector("input[name=visibility][value="+v+"]");if(o)o.checked=true}));
 })();`;

@@ -84,7 +84,7 @@ describe("filing feedback", () => {
   });
 
   it("marks posts through the MCP as an AI's, whatever they claim", async () => {
-    const ok = await mcp("post_topic", { category: "other", kind: "gap", title: "No way to delete a game", text: "I need to remove a test game.", author: "person", picture_base64: PNG });
+    const ok = await mcp("message_zaisma", { kind: "gap", title: "No way to delete a game", text: "I need to remove a test game.", author: "person", picture_base64: PNG });
     expect(ok.topic.public).toBe(false);
     expect(ok.posts[0]).toMatchObject({ by: { by: "ai", name: "Pixel Smith", you: true }, via: "mcp" });
     expect(ok.posts[0].picture_url).toContain(`/api/dev/forum/${ok.topic.id}/pictures/`);
@@ -107,8 +107,8 @@ describe("filing feedback", () => {
 });
 
 describe("threads and known issues", () => {
-  it("keeps a developer's reports private, and makes known issues public topics of Zaisma's own", async () => {
-    const { topic } = await mcp("post_topic", { category: "other", kind: "bug", title: "Uploads over 500 MB fail", text: "A 700 MB Unity build fails partway through the upload." });
+  it("keeps messages to Zaisma private, and makes known issues public topics of Zaisma's own", async () => {
+    const { topic } = await mcp("message_zaisma", { kind: "bug", title: "Uploads over 500 MB fail", text: "A 700 MB Unity build fails partway through the upload." });
     const id = topic.id;
     // Not visible to anyone else.
     expect((await api(`/forum/${id}`, { key: other })).status).toBe(404);
@@ -130,7 +130,7 @@ describe("threads and known issues", () => {
     expect(mine.posts.at(-1).text).toContain("Zaisma made this a known issue every developer can see");
 
     // The other developer's AI sends its own case privately; a third says Me too. Both count.
-    const added = await mcp("post_topic", { kind: "bug", title: "Big uploads", text: "Same here with a 600 MB Godot export.", known_issue: k.id }, other);
+    const added = await mcp("message_zaisma", { kind: "bug", title: "Big uploads", text: "Same here with a 600 MB Godot export.", known_issue: k.id }, other);
     expect(added.topic).toMatchObject({ public: false, merged_into: { id: k.id } });
     const third = await createAccount(env.DB, { id: "dev-3", name: "Third", ageBand: "18+" });
     const key3 = (await createApiKey(env.DB, third.id, "ai")).token;
@@ -145,10 +145,10 @@ describe("threads and known issues", () => {
   });
 
   it("tells developers about replies and fixes, and lets them reopen", async () => {
-    const { topic } = await mcp("post_topic", { category: "other", kind: "bug", title: "Rooms drop players on Safari", text: "Safari players disconnect after a minute." });
+    const { topic } = await mcp("message_zaisma", { kind: "bug", title: "Rooms drop players on Safari", text: "Safari players disconnect after a minute." });
     await decideFeedback(env, topic.id, { known_issue: { title: "Rooms drop players on Safari" } });
     const k = (await mcp("search_forum", { tab: "known" })).topics[0].id;
-    const second = (await mcp("post_topic", { category: "other", kind: "bug", title: "Safari kicks", text: "Kicked from rooms in Safari." }, other)).topic;
+    const second = (await mcp("message_zaisma", { kind: "bug", title: "Safari kicks", text: "Kicked from rooms in Safari." }, other)).topic;
     await decideFeedback(env, second.id, { merge_into: k });
 
     await decideFeedback(env, k, { status: "fixed", reply: "Fixed in today's release." });
@@ -194,7 +194,7 @@ describe("threads and known issues", () => {
   });
 
   it("is worked through on the admin pages, with only what the form changed applied", async () => {
-    const { topic } = await mcp("post_topic", { category: "other", kind: "bug", title: "upload_files says too_big at 3 MB", text: "My 3 MB build fails.", picture_base64: PNG });
+    const { topic } = await mcp("message_zaisma", { kind: "bug", title: "upload_files says too_big at 3 MB", text: "My 3 MB build fails.", picture_base64: PNG });
     const queue = await (await SELF.fetch(`${LOCAL}/admin/feedback`)).text();
     expect(queue).toContain("upload_files says too_big at 3 MB");
     expect(queue).toContain("Waiting to be sorted.");
@@ -275,8 +275,8 @@ describe("categories and votes", () => {
 
 describe("deleting an account", () => {
   it("deletes its topics, posts and screenshots, keeping known issues without a name", async () => {
-    const kept = (await mcp("post_topic", { category: "other", kind: "bug", title: "Known one", text: "Shared problem." })).topic;
-    const gone = await mcp("post_topic", { category: "other", kind: "question", title: "Private one", text: "Just mine.", public: false, picture_base64: PNG });
+    const kept = (await mcp("message_zaisma", { kind: "bug", title: "Known one", text: "Shared problem." })).topic;
+    const gone = await mcp("message_zaisma", { kind: "question", title: "Private one", text: "Just mine.", picture_base64: PNG });
     await decideFeedback(env, kept.id, { known_issue: { title: "A shared problem" } });
     const k = (await mcp("search_forum", { tab: "known" })).topics[0].id;
     await mcp("vote", { id: k });

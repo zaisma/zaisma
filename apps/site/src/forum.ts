@@ -3,7 +3,6 @@ import {
   FEEDBACK_CLOSED,
   FEEDBACK_KINDS,
   FEEDBACK_LIMITS,
-  FEEDBACK_PRIVATE_KINDS,
   FORUM_CATEGORIES,
   FORUM_TAGS,
   feedbackPictureKey,
@@ -21,13 +20,14 @@ import type { Env } from "./env.ts";
 import { developersIn, feedbackById, hasNews, KNOWN, postsLeft, readPost, readTitle, storePost } from "./feedback.ts";
 
 /**
- * The developer forum (docs/DECISIONS.md): every feedback item is a topic. Ideas, questions and
- * discussions are public, bugs and gaps start private to the developer and Zaisma, and known issues
- * are public topics of Zaisma's own. The forum pages, the MCP and API callers all use these:
+ * The developer forum (docs/DECISIONS.md): every feedback item is a topic. Topics are public; anything
+ * private is a message to Zaisma (public: false), which only the developer and Zaisma see. Known
+ * issues are public topics of Zaisma's own. The forum pages, the MCP and API callers all use these:
  *
  *   GET  /api/dev/forum?q=&category=&kind=&tag=&tab=&page=   topics (tab: latest, top, unanswered, known, yours)
  *   GET  /api/dev/forum/similar?q=                          topics and known issues like a title, while writing one
- *   POST /api/dev/forum                                     a topic: { kind, title, text, category?, tags?, public?, game?, known_issue?, context?, author?, picture? }
+ *   POST /api/dev/forum                                     a topic: { kind, title, text, category, tags?, game?, context?, author?, picture? }, or with
+ *                                                           public: false (or known_issue) a private message to Zaisma
  *   GET  /api/dev/forum/:id                                 a topic with its posts
  *   POST /api/dev/forum/:id/posts                           reply: { text, reply_to?, reopen?, context?, author?, picture? }
  *   POST /api/dev/forum/:id/vote                            a vote (affects me too, I want this, same question): { on }
@@ -44,7 +44,8 @@ import { developersIn, feedbackById, hasNews, KNOWN, postsLeft, readPost, readTi
 /** Who's reading: an account, or nobody signed in (the pages only). */
 export type Viewer = Caller | null;
 
-export const FORUM_TABS = ["latest", "top", "unanswered", "known", "yours"] as const;
+/** yours: your public topics and the ones you follow. messages: your private messages to Zaisma. */
+export const FORUM_TABS = ["latest", "top", "unanswered", "known", "yours", "messages"] as const;
 export type ForumTab = (typeof FORUM_TABS)[number];
 const PAGE = 30;
 
@@ -149,13 +150,16 @@ const like = (word: string) => `%${word.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
  */
 export async function listTopics(env: Env, viewer: Viewer, query: ForumQuery) {
   const tab: ForumTab = (FORUM_TABS as readonly string[]).includes(query.tab ?? "") ? (query.tab as ForumTab) : "latest";
-  if (tab === "yours" && !viewer) throw new ApiError(401, "signed_out", "Sign in to see your topics.");
+  if ((tab === "yours" || tab === "messages") && !viewer) throw new ApiError(401, "signed_out", "Sign in to see your topics and messages.");
   const page = Math.max(1, Math.min(1000, Math.floor(Number(query.page) || 1)));
   const where: string[] = [];
   const binds: unknown[] = [];
   if (tab === "yours") {
-    where.push("(f.account_id = ? OR f.id IN (SELECT feedback_id FROM feedback_follows WHERE account_id = ?))");
+    where.push("f.public = 1 AND (f.account_id = ? OR f.id IN (SELECT feedback_id FROM feedback_follows WHERE account_id = ?))");
     binds.push(viewer!.accountId, viewer!.accountId);
+  } else if (tab === "messages") {
+    where.push("f.public = 0 AND f.account_id = ?");
+    binds.push(viewer!.accountId);
   } else where.push("f.shown = 1 AND f.group_id IS NULL");
   const areas = query.category ? areasOf(query.category) : [];
   if (areas.length) {
@@ -238,7 +242,7 @@ async function rowsJson(env: Env, viewer: Viewer, rows: Feedback[]): Promise<Top
   const ids = rows.map((r) => r.id);
   const marks = ids.map(() => "?").join(", ");
   const me = viewer?.accountId ?? "";
-  const [tags, posters, firsts, votes, follows, developers] = await Promise.all([
+  const [tags, posters, firsts, votes, follows, developers, counts] = await Promise.all([
     env.DB.prepare(`SELECT feedback_id, tag FROM feedback_tags WHERE feedback_id IN (${marks})`).bind(...ids).all<{ feedback_id: string; tag: string }>(),
     env.DB.prepare(
       `SELECT feedback_id, account_id, author, MAX(created_at) AS at FROM feedback_posts WHERE feedback_id IN (${marks}) AND (check_state = 'ok' OR check_state IS NULL OR account_id = ?) GROUP BY feedback_id, account_id, author ORDER BY at DESC`,
@@ -251,6 +255,10 @@ async function rowsJson(env: Env, viewer: Viewer, rows: Feedback[]): Promise<Top
     me ? env.DB.prepare(`SELECT feedback_id FROM feedback_votes WHERE account_id = ? AND feedback_id IN (${marks})`).bind(me, ...ids).all<{ feedback_id: string }>() : { results: [] },
     me ? env.DB.prepare(`SELECT feedback_id, seen_at FROM feedback_follows WHERE account_id = ? AND feedback_id IN (${marks})`).bind(me, ...ids).all<{ feedback_id: string; seen_at: number }>() : { results: [] },
     developersIn(env, rows.filter((r) => r.known_title).map((r) => r.id)),
+    // A private message's replies aren't counted as it goes (only public ones are): count them here.
+    rows.some((r) => !r.public)
+      ? env.DB.prepare(`SELECT feedback_id, COUNT(*) AS n FROM feedback_posts WHERE feedback_id IN (${marks}) GROUP BY feedback_id`).bind(...ids).all<{ feedback_id: string; n: number }>()
+      : { results: [] as { feedback_id: string; n: number }[] },
   ]);
   const names = await namesOf(env, [...rows.map((r) => r.account_id), ...posters.results.map((p) => p.account_id)]);
   const voted = new Set(votes.results.map((v) => v.feedback_id));
@@ -276,7 +284,7 @@ async function rowsJson(env: Env, viewer: Viewer, rows: Feedback[]): Promise<Top
       known_issue: Boolean(f.known_title),
       author,
       people,
-      replies: f.replies,
+      replies: f.public ? f.replies : Math.max(0, (counts.results.find((c) => c.feedback_id === f.id)?.n ?? 1) - 1),
       votes: f.votes,
       voted: voted.has(f.id),
       developers: f.known_title ? (developers.get(f.id) ?? 0) : null,
@@ -396,8 +404,9 @@ export async function createTopic(env: Env, caller: Caller, body: Record<string,
     group = await feedbackById(env, body.known_issue);
     if (!group?.known_title || !group.shown) throw new ApiError(404, "no_known_issue", "There's no known issue with that id. GET /forum?tab=known lists them.");
   }
-  if (!area && !group) throw new ApiError(400, "no_category", `Pick a category: one of ${FEEDBACK_AREAS.join(", ")} (other for anything else).`);
-  const isPublic = group ? false : typeof body.public === "boolean" ? body.public : !FEEDBACK_PRIVATE_KINDS.includes(kind);
+  // Every forum topic is public; public: false (or a known_issue) makes it a private message to Zaisma instead.
+  const isPublic = group ? false : body.public !== false;
+  if (!area && isPublic) throw new ApiError(400, "no_category", `Pick a category: one of ${FEEDBACK_AREAS.join(", ")} (other for anything else).`);
   const game = typeof body.game === "string" && body.game ? await ownGame(env, body.game, caller) : null;
   const post = await readPost(env, caller, body);
   const id = newId();
@@ -508,8 +517,8 @@ async function topicPicture(env: Env, caller: Caller, id: string, postId: string
 }
 
 /** How many topics the caller follows have something new since they last opened them. */
-export async function unreadCount(env: Env, caller: Caller): Promise<number> {
-  const row = await env.DB.prepare("SELECT COUNT(*) AS n FROM feedback_follows w JOIN feedback f ON f.id = w.feedback_id WHERE w.account_id = ? AND COALESCE(f.active_at, f.updated_at) > w.seen_at")
+export async function unreadCount(env: Env, caller: Caller, messages = false): Promise<number> {
+  const row = await env.DB.prepare(`SELECT COUNT(*) AS n FROM feedback_follows w JOIN feedback f ON f.id = w.feedback_id WHERE w.account_id = ? AND f.public = ${messages ? 0 : 1} AND COALESCE(f.active_at, f.updated_at) > w.seen_at`)
     .bind(caller.accountId)
     .first<{ n: number }>();
   return row?.n ?? 0;

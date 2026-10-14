@@ -778,7 +778,7 @@ describe("the dashboard", () => {
     expect((await owner.go("/dashboard/mine/visibility", { visibility: "listed" }, { origin: "https://evil.example" })).status).toBe(403);
   });
 
-  it("posts to the forum from its pages as the developer, and shows who wrote each post", async () => {
+  it("messages Zaisma privately from the forum's pages as the developer, and shows who wrote each post", async () => {
     const b = new Browser();
     await join(b);
     await b.go("/dashboard/new", { title: "Sky Hopper" });
@@ -790,11 +790,11 @@ describe("the dashboard", () => {
     expect((await new Browser().go("/forum/new")).headers.get("location")).toBe("/signin?next=%2Fforum%2Fnew");
 
     // A refusal keeps what was typed.
-    const refused = await b.go("/forum/new", { kind: "bug", title: "", text: "Kept text", visibility: "private" });
+    const refused = await b.go("/forum/messages/new", { kind: "bug", title: "", text: "Kept text" });
     expect(refused.status).toBe(400);
     expect(await refused.text()).toContain("Kept text");
 
-    const sent = await b.go("/forum/new", { kind: "bug", title: "Upload stalls at 99%", text: "My 300 MB build stops near the end.", game: "sky-hopper", category: "publishing", visibility: "private" });
+    const sent = await b.go("/forum/messages/new", { kind: "bug", title: "Upload stalls at 99%", text: "My 300 MB build stops near the end.", game: "sky-hopper", category: "publishing" });
     const id = sent.headers.get("location")!.match(/^\/forum\/([a-z0-9]+)\?done=posted-private$/)![1]!;
     expect(await env.DB.prepare("SELECT author, via, check_state FROM feedback_posts WHERE feedback_id = ?").bind(id).first()).toEqual({ author: "person", via: "dashboard", check_state: null });
 
@@ -808,10 +808,11 @@ describe("the dashboard", () => {
     const thread = await (await b.go(`/forum/${id}?done=posted-private`)).text();
     expect(thread).toContain("<strong>Night Owl</strong>");
     expect(thread).toContain('class="mark ai"');
-    expect(thread).toContain("Only you and Zaisma can see this");
+    expect(thread).toContain("A message to Zaisma: only you and Zaisma see it");
     expect(thread).toContain(`/forum/${id}/pictures/${aiPost.id}`);
     expect((await b.go(`/forum/${id}/pictures/${aiPost.id}`)).headers.get("content-type")).toBe("image/png");
-    expect(await (await b.go("/forum?tab=yours")).text()).toContain("Upload stalls at 99%");
+    expect(await (await b.go("/forum/messages")).text()).toContain("Upload stalls at 99%");
+    expect(await (await b.go("/forum?tab=yours")).text()).not.toContain("Upload stalls at 99%");
 
     // Zaisma's reply is news on Your games until the topic is opened, and is marked as Zaisma's.
     await decideFeedback(env, id, { reply: "We are on it." });
@@ -842,7 +843,7 @@ describe("the dashboard", () => {
     const check = () => checkForumPosts({ ...env, ANTHROPIC_API_KEY: "test-key" }, pass);
     const first = new Browser();
     await join(first);
-    const sent = await first.go("/forum/new", { kind: "question", title: "How do rooms pick a region?", text: "Players in Europe get a US room.", category: "rooms", tags: "mobile", visibility: "public" });
+    const sent = await first.go("/forum/new", { kind: "question", title: "How do rooms pick a region?", text: "Players in Europe get a US room.", category: "rooms", tags: "mobile" });
     const id = sent.headers.get("location")!.match(/^\/forum\/([a-z0-9]+)\?done=checking$/)![1]!;
 
     // Until it's checked only its developer sees it.
@@ -892,7 +893,7 @@ describe("the dashboard", () => {
     }
 
     // A known issue is pinned at the top of its category.
-    const bug = await first.go("/forum/new", { kind: "bug", title: "Rooms drop at 50", text: "Everyone is disconnected.", category: "rooms", visibility: "private" });
+    const bug = await first.go("/forum/messages/new", { kind: "bug", title: "Rooms drop at 50", text: "Everyone is disconnected.", category: "rooms" });
     await decideFeedback(env, bug.headers.get("location")!.split("/")[2]!.split("?")[0]!, { status: "known", known_issue: { title: "Rooms drop every player at 50", workaround: "Cap rooms at 40." } });
     const rooms = await (await reader.go("/forum?category=multiplayer")).text();
     expect(rooms).toContain("Known issues here");

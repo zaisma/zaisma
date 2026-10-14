@@ -23,7 +23,7 @@ How publishing works:
 
 Ask the developer before making a game private or a draft again (players lose access), and show them the preview link before publishing. Never guess why a version was held beyond what get_version says.
 
-Zaisma's developer forum is where developers and their AI talk with the people who build Zaisma, and you're asked to use it. Whenever you hit a Zaisma bug, a limit that blocks the developer, a missing feature, a confusing error or a question the docs don't answer: first search_forum with a short search (topics, answers and the known issues with their workarounds). If it's there, vote, reply, or send the developer's own case privately (post_topic with known_issue); if their fixed topic is back, reopen it. Otherwise post it with post_topic: what you were doing, what you expected, what happened, the exact error and the tool call. Bugs and gaps go privately to Zaisma by default; ideas, questions and discussions are public, so keep private details out of them (context and screenshots are never public). Never include API keys, passwords or players' personal details (secrets are blanked anyway). Your posts carry the developer's name with an AI mark. search_forum's yours tab shows what's new, and list_games shows feedback_news when Zaisma has replied.`;
+Zaisma's developer forum is where developers and their AI talk with the people who build Zaisma, and you're asked to use it. Whenever you hit a Zaisma bug, a limit that blocks the developer, a missing feature, a confusing error or a question the docs don't answer: first search_forum with a short search (topics, answers and the known issues with their workarounds). If it's there, vote, reply, or send the developer's own case privately (message_zaisma with known_issue); if their fixed topic is back, reopen it. Otherwise post it: what you were doing, what you expected, what happened, the exact error and the tool call. Forum topics (post_topic) are public, so keep private details out of them; anything private (logs, an unreleased game, details the developer wouldn't share) goes in message_zaisma, which only the developer and Zaisma see. Context and screenshots are never public. Never include API keys, passwords or players' personal details (secrets are blanked anyway). Your posts carry the developer's name with an AI mark. search_forum's yours tab shows what's new, and list_games shows feedback_news when Zaisma has replied.`;
 
 interface Tool {
   name: string;
@@ -197,10 +197,10 @@ const TOOLS: Tool[] = [
     name: "search_forum",
     title: "Search the developer forum",
     description:
-      "The developer forum, where developers and their AI talk with Zaisma about Zaisma itself: bugs, missing pieces, ideas, questions and discussions, and Zaisma's known issues (with workarounds, the roadmap item and how many developers each affects). Search with q before posting anything. tab: latest (default), top (most votes), unanswered (questions), known (known issues) or yours (the developer's own topics, private ones included, and ones they follow; unread marks what's new). Filter by category (a category or sub-category id), kind or tag. 30 a page.",
+      "The developer forum, where developers and their AI talk with Zaisma about Zaisma itself: bugs, missing pieces, ideas, questions and discussions, and Zaisma's known issues (with workarounds, the roadmap item and how many developers each affects). Search with q before posting anything. tab: latest (default), top (most votes), unanswered (questions), known (known issues), yours (the developer's own topics and the ones they follow; unread marks what's new) or messages (their private messages to Zaisma). Filter by category (a category or sub-category id), kind or tag. 30 a page.",
     inputSchema: object({
       q: { type: "string", maxLength: 200, description: "Search words, like the error or what failed." },
-      tab: { enum: ["latest", "top", "unanswered", "known", "yours"] },
+      tab: { enum: ["latest", "top", "unanswered", "known", "yours", "messages"] },
       category: { type: "string", description: `A category (${FORUM_CATEGORIES.map((c) => c.id).join(", ")}) or sub-category (${FEEDBACK_AREAS.join(", ")}).` },
       kind: { enum: FEEDBACK_KINDS },
       tag: { enum: Object.keys(FORUM_TAGS) },
@@ -225,7 +225,7 @@ const TOOLS: Tool[] = [
     name: "post_topic",
     title: "Post to the developer forum",
     description:
-      "Start a topic about Zaisma itself (not the developer's game): a bug, a gap (a limit or missing piece that blocks the developer), a feature idea, a question or a discussion. Search first; if it's there, reply or vote instead. Bugs and gaps go privately to Zaisma unless public: true; ideas, questions and discussions are public unless public: false. Public posts are checked before others see them and are signed with the developer's name and an AI mark; never put private details, keys or players' information in one. To add the developer's own case to a known issue privately, pass known_issue. Answers with similar topics. About 100 posts a day per account.",
+      "Start a public topic about Zaisma itself (not the developer's game): a bug, a gap (a limit or missing piece that blocks the developer), a feature idea, a question or a discussion. Every topic is public: checked before others see it and signed with the developer's name and an AI mark, so never put private details, keys, unreleased games or players' information in one; use message_zaisma for anything private. Search first; if it's there, reply or vote instead. Answers with similar topics. About 100 posts a day per account.",
     inputSchema: object(
       {
         kind: { enum: FEEDBACK_KINDS },
@@ -233,16 +233,34 @@ const TOOLS: Tool[] = [
         text: { type: "string", maxLength: 8000, description: "What you were doing, what you expected, what happened and how to make it happen again. Code between ``` lines." },
         category: { type: "string", description: `The sub-category it belongs in: ${FEEDBACK_AREAS.join(", ")} (other for anything else).` },
         tags: { type: "array", items: { enum: Object.keys(FORUM_TAGS) }, maxItems: 3 },
-        public: { type: "boolean", description: "Override who sees it (default: private for bug and gap, public otherwise)." },
-        known_issue: { type: "string", description: "A known issue's id: send the developer's own case to Zaisma privately, so it counts." },
-        game: { ...slug, description: "The game it happened with, if any. Only the developer and Zaisma see it." },
         context: { type: "object", description: "Facts for whoever fixes it: the tool or command, the exact error and code, the version, what you sent (no secrets, no whole files). Only the developer and Zaisma see it." },
         picture_base64: { type: "string", description: "A screenshot (PNG, JPEG or WebP, up to 2 MB), base64. Only the developer and Zaisma see it." },
       },
       ["kind", "title", "text", "category"],
     ),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-    run: (args, call) => call("POST", "/forum", { ...pick(args, ["kind", "title", "text", "category", "tags", "public", "known_issue", "game", "context"]), ...(args.picture_base64 ? { picture: args.picture_base64 } : {}) }),
+    run: (args, call) => call("POST", "/forum", { ...pick(args, ["kind", "title", "text", "category", "tags", "context"]), ...(args.picture_base64 ? { picture: args.picture_base64 } : {}) }),
+  },
+  {
+    name: "message_zaisma",
+    title: "Message Zaisma privately",
+    description:
+      "A private message to the people who build Zaisma, inside the forum: only the developer and Zaisma see it. For a bug or gap with logs, an unreleased game, screenshots or anything the developer wouldn't post in public, or to add their own case to a known issue (known_issue), so it counts. When others hit the same problem, Zaisma posts a public known issue without the developer's words. Replies come back on it (get_topic, search_forum tab messages).",
+    inputSchema: object(
+      {
+        kind: { enum: FEEDBACK_KINDS.filter((k) => k !== "talk") },
+        title: { type: "string", maxLength: 120 },
+        text: { type: "string", maxLength: 8000, description: "What you were doing, what you expected, what happened and how to make it happen again." },
+        category: { type: "string", description: `The sub-category, if you know it: ${FEEDBACK_AREAS.join(", ")}.` },
+        known_issue: { type: "string", description: "A known issue's id: the developer's own case about it." },
+        game: { ...slug, description: "The game it happened with, if any." },
+        context: { type: "object", description: "The tool or command, the exact error and code, the version, what you sent (no secrets, no whole files)." },
+        picture_base64: { type: "string", description: "A screenshot (PNG, JPEG or WebP, up to 2 MB), base64." },
+      },
+      ["kind", "title", "text"],
+    ),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    run: (args, call) => call("POST", "/forum", { public: false, ...pick(args, ["kind", "title", "text", "category", "known_issue", "game", "context"]), ...(args.picture_base64 ? { picture: args.picture_base64 } : {}) }),
   },
   {
     name: "reply_to_topic",
