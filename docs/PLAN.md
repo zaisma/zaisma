@@ -103,11 +103,11 @@ The goal for the first 90 days after beta: 100 listed games and 10,000 monthly p
 | Guests who make an account | 15% |
 | Games with paid items | 10 |
 
-## Tools tab (parked)
+## Tools on the developer page (Phase 4)
 
-Parked Oct 14, 2026; revisit after Phase 5. The idea: Zaisma adds a Tools tab for free, open-source developer tools: asset pipelines, engines, level editors, Claude Code skills and plugins. Games lead the launch so the player crowd forms first; tools then make more and better games.
+Zaisma lists free, open-source developer tools on the developer page: asset pipelines, engines, level editors, Claude Code skills, plugins and MCP servers. Browser tools upload and run like games, marked as a tool; others link to their repository. Games lead the launch so the player crowd forms first; tools then make more and better games.
 
-- **Rules:** the same as games. Free to list, no cut, scanned before going live, same progress bar for the front page.
+- **Rules:** the same as games. Free to list, no cut, scanned before going live, no listing next to games on the home page.
 - **Requirement:** a tool must be open source to be listed.
 - **Why:** developers already build tools for each other with Claude. Every good tool on Zaisma brings its users' next games with it.
 

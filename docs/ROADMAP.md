@@ -220,6 +220,7 @@ Goal: good games get found, ranked by quality rather than clicks, and developers
 | planned | Nice | Scout badge | |
 | planned | Nice | Copycat grouping | Reposted templates count as one game |
 | planned | Nice | Embeds for developers' sites | |
+| planned | Nice | Tools on the developer page | Free, open-source developer tools (engines, asset pipelines, level editors, Claude Code skills, MCP servers). Browser tools go through the same upload, scan and hosting as games, marked as a tool; others link to their repository. Open source only, same content rules, no cut. Seeded with Zaisma's own skill, `zaisma check` and the SDK |
 | planned | Nice | Tracked share links | Counts per link, nothing about players |
 | planned | Nice | Game assets through the API | Covers, screenshots and details downloadable, so developers' own AI makes press kits and launch posts (replaces Zaisma-made press kits and drafted posts) |
 
@@ -250,4 +251,3 @@ Not planned; revisit only if there's a reason.
 | Status | Item | Notes |
 | --- | --- | --- |
 | idea | Under-13 support | Its own project, with verified parental consent |
-| idea | Tools tab | Free, open-source developer tools. Parked Oct 14, 2026; revisit after Phase 5 |
