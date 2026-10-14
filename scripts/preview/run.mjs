@@ -360,13 +360,13 @@ async function seedForum(you, go, form) {
   await reply(bs, weekly.id, "A cozy farming game for phones. Cloud saves made the sync painless.", { author: me });
   await reply(hl, weekly.id, "A horror game, short and mean. Asked about the rules first.", { author: me });
   await reply(lw, weekly.id, "Tooling, mostly: our AI now files the bugs it hits straight to this forum.");
-  await reply(os, weekly.id, "Two-player tank battles, rooms on Zaisma.", { author: me });
+  await reply(os, weekly.id, "Two-player tank battles, rooms on Zaisma. @[Pixel Forge], want to swap playtests?", { author: me });
   const horror = await topic(hl, { kind: "talk", author: me, category: "rules", title: "Is a horror game with jump scares fine under the content rules?", text: "Nothing gory, just jump scares and a dark mood. Want to check before we finish it." });
   await zaisma(horror.id, { reply: "Yes. Scary is fine; the rules are about gore, sexual content and real harm. Say it's a horror game in your description so players know what they're getting." });
   await topic(qo, { kind: "talk", author: me, category: "docs", title: "The room codes docs could use a full example", text: "The page lists the calls but not how they fit together. A small lobby example from start to finish would help a lot." });
 
   // A public bug, Zaisma on it.
-  const crop = await topic(hl, { kind: "bug", author: me, public: true, category: "pages", tags: ["mobile"], title: "Square covers are cropped at the top on some phones", text: "On a Pixel 7 our square cover loses about 20 px at the top on the home page. Other phones look fine." });
+  const crop = await topic(hl, { kind: "bug", author: me, public: true, category: "pages", tags: ["mobile"], title: "Square covers are cropped at the top on some phones", text: "On a Pixel 7 our square cover loses about 20 px at the top on the home page. Other phones look fine. **Before** and **after** below.", media: [Buffer.from(picture([70, 140, 220], 1)).toString("base64"), Buffer.from(picture([150, 70, 160], 2)).toString("base64")] });
   await meToo(crop.id, ca, pf);
   await zaisma(crop.id, { reply: "Thanks, we can see it on that screen size. Fix coming with the next home page update.", status: "known" });
 

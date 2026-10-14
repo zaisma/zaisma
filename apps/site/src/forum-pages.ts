@@ -13,6 +13,8 @@ import { currentSession } from "./auth.ts";
 import { ApiError, apiCall, callerFor, route, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { esc, html, layout, raw, type Raw } from "./html.ts";
+import { forumPeople } from "./forum-mentions.ts";
+import { renderMarkdown, VIDEO_FRAMES } from "./forum-markdown.ts";
 import {
   areasOf,
   createTopic,
@@ -20,6 +22,7 @@ import {
   follow,
   markHelpful,
   reportPost,
+  serveMedia,
   stillHappening,
   getTopic,
   listTopics,
@@ -95,6 +98,7 @@ const ICONS = {
   again: stroke('<path d="M4.2 10.2a5.9 5.9 0 1 0 1.9-4.6"/><path d="M4.4 3.2v3.4h3.4"/>'),
   helpful: stroke('<path d="M6.4 9.4v7.8H3.4V9.4z"/><path d="M6.4 9.4l3-6.1c1.4 0 2.3 1.1 2 2.4l-.5 2.6h4.4a1.6 1.6 0 0 1 1.6 1.9l-1.2 5.7a1.6 1.6 0 0 1-1.6 1.3H6.4"/>'),
   flag: stroke('<path d="M4.6 17.6V3.4"/><path d="M4.6 4h9.6l-2 3.3 2 3.3H4.6"/>'),
+  image: stroke('<rect x="2.6" y="3.6" width="14.8" height="12.8"/><circle cx="7" cy="8" r="1.5"/><path d="M17.4 13.2l-4.2-4.2-7.6 7.4"/>'),
   plus: stroke('<path d="M10 4v12M4 10h12"/>'),
   cross: stroke('<path d="M5 5l10 10M15 5L5 15"/>'),
 };
@@ -120,6 +124,14 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
 
   try {
     if (path === "/forum/similar") return done(await similarFragment(ctx, url.searchParams.get("q") ?? ""));
+    const media = path.match(/^\/forum\/media\/([a-z0-9]{1,40})$/);
+    if (media && !post) return done(await serveMedia(env, caller, media[1]!));
+    if (path === "/forum/people" && !post) {
+      if (!caller) return new Response("[]", { status: 401, headers: { "Content-Type": "application/json" } });
+      const people = await forumPeople(env, url.searchParams.get("q") ?? "", url.searchParams.get("topic") || null, caller.accountId);
+      return done(new Response(JSON.stringify(people), { headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } }));
+    }
+    if (path === "/forum/out" && !post) return done(outPage(ctx, url.searchParams.get("to") ?? ""));
     if (path === "/forum" || path === "/forum/messages") {
       const query = queryFrom(url.searchParams);
       if (path === "/forum/messages") query.tab = "messages";
@@ -144,7 +156,7 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
           public: !message,
           ...(field("game") ? { game: field("game") } : {}),
           ...(field("known_issue") ? { known_issue: field("known_issue") } : {}),
-          ...(await picture(form)),
+          ...(await mediaFrom(form)),
         })) as Topic & { note?: string };
         const t = res.topic;
         const state = !t.public ? "posted-private" : t.shown ? "posted" : res.posts[0]?.state === "held" ? "held" : "checking";
@@ -175,7 +187,7 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
     if (sub === "reply") {
       const reopen = form.get("reopen") === "1";
       try {
-        const res = await replyTo(env, caller, id, { text: field("text"), ...(field("reply_to") ? { reply_to: field("reply_to") } : {}), ...(reopen ? { reopen: true } : {}), ...(await picture(form)) });
+        const res = await replyTo(env, caller, id, { text: field("text"), ...(field("reply_to") ? { reply_to: field("reply_to") } : {}), ...(reopen ? { reopen: true } : {}), ...(await mediaFrom(form)) });
         const state = reopen ? "reopened" : res.post?.state === "checking" ? "checking" : res.post?.state === "held" ? "held" : "replied";
         return done(redirect(`/forum/${id}?done=${state}#${res.post ? `p-${res.post.id}` : "reply"}`));
       } catch (err) {
@@ -237,25 +249,31 @@ function withCookies(res: Response, cookies: string[]): Response {
   return out;
 }
 
-/** A screenshot from a form, as the API takes it. */
-async function picture(form: FormData): Promise<{ picture?: string }> {
-  const file = form.get("picture");
-  if (!(file instanceof File) || file.size === 0) return {};
-  if (file.size > FEEDBACK_LIMITS.pictureBytes) throw new ApiError(413, "picture_too_big", `Screenshots can be up to ${FEEDBACK_LIMITS.pictureBytes / 1048576} MB.`);
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  let s = "";
-  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return { picture: btoa(s) };
+/** The images from a form, as the API takes them. */
+async function mediaFrom(form: FormData): Promise<{ media?: string[] }> {
+  const files = form.getAll("media").filter((f): f is File => f instanceof File && f.size > 0);
+  if (!files.length) return {};
+  if (files.length > FEEDBACK_LIMITS.media) throw new ApiError(400, "too_much_media", `A post can carry up to ${FEEDBACK_LIMITS.media} images.`);
+  const media: string[] = [];
+  for (const file of files) {
+    if (file.size > FEEDBACK_LIMITS.pictureBytes) throw new ApiError(413, "picture_too_big", `Images can be up to ${FEEDBACK_LIMITS.pictureBytes / 1048576} MB each.`);
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    let s = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    media.push(btoa(s));
+  }
+  return { media };
 }
 
 /** The site's page with the forum's search and New topic in the header. */
 function forumPage(ctx: Ctx, title: string, body: Raw, opts: { status?: number; q?: string; keep?: Record<string, string> } = {}): Response {
   const res = layout(ctx.env, {
     title: `${title} · Zaisma forum`,
-    body: html`<style>${raw(FORUM_STYLES)}</style>${body}<script>${raw(FORUM_SCRIPT)}</script>`,
+    body: html`<style>${raw(FORUM_STYLES)}</style>${body}<script>${raw(FORUM_SCRIPT)}${raw(POSTS_SCRIPT)}</script>`,
     private: true,
     nav: "forum",
     search: { action: "/forum", q: opts.q ?? "", placeholder: "Search the forum", label: "Search the forum", keep: opts.keep },
+    frames: VIDEO_FRAMES,
     action: html`<a class="btn light new-topic" href="/forum/new${ctx.url.searchParams.get("category") ? `?category=${encodeURIComponent(ctx.url.searchParams.get("category")!)}` : ""}">${ICONS.plus}<span>New topic</span></a>`,
   });
   return new Response(res.body, { status: opts.status ?? 200, headers: res.headers });
@@ -311,19 +329,23 @@ function placeOf(area: string | null): { category: string; name: string; sub: st
 
 const tagChip = (t: string) => html`<a class="tag" href="/forum?tag=${t}">${(FORUM_TAGS as Record<string, string>)[t] ?? t}</a>`;
 
-/** Post text: plain words, with ``` code blocks, `code` and links. */
-function richText(text: string): Raw {
-  const parts = text.split("```");
-  return raw(
-    parts
-      .map((part, i) => {
-        if (i % 2 === 1) return `<pre><code>${esc(part.replace(/^[a-z0-9+-]*\n/i, ""))}</code></pre>`;
-        return esc(part)
-          .replace(/`([^`\n]+)`/g, "<code>$1</code>")
-          .replace(/\bhttps?:\/\/[^\s<]+[^\s<.,;:!?)'&]/g, (u) => `<a href="${u}" rel="nofollow ugc noopener" target="_blank">${u}</a>`);
-      })
-      .join(""),
-  );
+/** Post text: markdown, with the people it mentions (forum-markdown.ts). */
+function richText(ctx: Ctx, p: PostJson): Raw {
+  return raw(renderMarkdown(p.text, { siteOrigin: ctx.env.SITE_ORIGIN, mentions: new Set(p.mentions.map((n) => n.toLowerCase())) }));
+}
+
+/** A post's images, opening full size. */
+function mediaGrid(p: PostJson): Raw {
+  if (!p.media.length) return html``;
+  return html`<div class="p-media${p.media.length === 1 ? " one" : ""}">${p.media.map((m, i) => html`<a href="/forum/media/${m.id}" target="_blank" rel="noopener"><img src="/forum/media/${m.id}" alt="Image ${i + 1} from ${p.by.name}" loading="lazy"></a>`)}</div>`;
+}
+
+/** Adding images: choose, drop or paste, up to the limit, shown before sending. */
+function mediaPicker(isPublic: boolean): Raw {
+  return html`<div class="media-pick" data-max="${FEEDBACK_LIMITS.media}" data-bytes="${FEEDBACK_LIMITS.pictureBytes}">
+  <label class="mp-drop"><input type="file" name="media" accept="image/png,image/jpeg,image/webp" multiple>${ICONS.image}<span><strong>Add images</strong><small>Drop, paste or choose up to ${FEEDBACK_LIMITS.media}, ${FEEDBACK_LIMITS.pictureBytes / 1048576} MB each. ${isPublic ? "Everyone sees them once they're checked." : "Only you and Zaisma see them."}</small></span></label>
+  <div class="mp-thumbs" aria-live="polite"></div><p class="mp-error error" hidden></p>
+</div>`;
 }
 
 // --- The topic list ---
@@ -507,7 +529,8 @@ function opPost(ctx: Ctx, t: Topic["topic"], p: PostJson | null, answer: PostJso
   ${t.known_issue
     ? html`${phaseTrack(t.status)}<div class="op-text"><p>${PHASE_WORDS[t.status] ?? "Zaisma knows about this."} ${t.developers === 1 ? "1 developer has" : `${t.developers} developers have`} hit it${t.roadmap ? html`; it's part of <strong>${t.roadmap}</strong> on the roadmap` : ""}.</p>${t.workaround && t.status !== "fixed" ? html`<p class="kb-work"><strong>Until it's fixed:</strong> ${t.workaround}</p>` : ""}</div>`
     : p
-      ? html`<div class="op-text p-text">${richText(p.text)}</div>
+      ? html`<div class="op-text p-text">${richText(ctx, p)}</div>
+  ${mediaGrid(p)}
   ${p.context ? html`<details class="p-att"><summary>What ${p.by.by === "ai" ? "your AI" : "you"} attached (only you and Zaisma see it)</summary><pre>${JSON.stringify(p.context, null, 2)}</pre></details>` : ""}
   ${p.picture_url ? html`<a class="p-pic" href="/forum/${t.id}/pictures/${p.id}" target="_blank" rel="noopener"><img src="/forum/${t.id}/pictures/${p.id}" alt="Your screenshot" loading="lazy"><small>Only you and Zaisma see your screenshot</small></a>` : ""}`
       : ""}
@@ -545,7 +568,8 @@ function postItem(ctx: Ctx, t: Topic["topic"], p: PostJson, all: PostJson[], ope
   <div class="p-body">
     <header class="p-head">${nameOf(p.by)}${p.by.by !== "zaisma" && t.author.by !== "zaisma" && p.by.name === t.author.name ? html`<span class="mark op-mark" title="Started this topic">Author</span>` : ""}${p.kind === "reopen" ? html`<span class="pill pending">Reopened</span>` : ""}${p.answer ? html`<span class="flag ok">${ICONS.check}Answer</span>` : ""}${mostHelpful ? html`<span class="flag">${ICONS.helpful}Most helpful</span>` : ""}${p.state === "checking" ? html`<span class="flag warn">Being checked: only you see it yet</span>` : p.state === "held" ? html`<span class="flag warn">Waiting for a person at Zaisma: only you see it yet</span>` : ""}<a class="p-when" href="#p-${p.id}">${ago(p.at)}</a></header>
     ${p.reply_to ? html`<a class="quote" href="#p-${p.reply_to.id}">${ICONS.reply}<span><strong>${p.reply_to.name}</strong> ${p.reply_to.excerpt}${p.reply_to.excerpt.length >= 140 ? "…" : ""}</span></a>` : ""}
-    <div class="p-text">${richText(p.text)}</div>
+    <div class="p-text">${richText(ctx, p)}</div>
+    ${mediaGrid(p)}
     ${p.context ? html`<details class="p-att"><summary>What ${p.by.by === "ai" ? "your AI" : "you"} attached (only you and Zaisma see it)</summary><pre>${JSON.stringify(p.context, null, 2)}</pre></details>` : ""}
     ${p.picture_url ? html`<a class="p-pic" href="/forum/${t.id}/pictures/${p.id}" target="_blank" rel="noopener"><img src="/forum/${t.id}/pictures/${p.id}" alt="Your screenshot" loading="lazy"><small>Only you and Zaisma see your screenshot</small></a>` : ""}
     <div class="p-foot">
@@ -571,9 +595,9 @@ function composer(ctx: Ctx, t: Topic["topic"], left: number | null, text: string
   return html`<form class="composer plate bevel-s" id="reply" method="post" action="/forum/${t.id}/reply" enctype="multipart/form-data">
   <input type="hidden" name="reply_to" value="${to?.id ?? ""}">
   <p class="replying"${to ? "" : raw(" hidden")}>${ICONS.reply}<span>Replying to <strong data-to-name>${to?.by.name ?? ""}</strong>: <span data-to-excerpt>${to?.text.slice(0, 140) ?? ""}</span></span><button type="button" class="x" data-unreply aria-label="Reply to the whole topic instead">×</button></p>
-  <div class="c-row">${avatar(ctx.me, "md")}<label class="c-text"><span class="sr">Your reply</span><textarea name="text" required maxlength="${FEEDBACK_LIMITS.text}" rows="4" placeholder="${t.public ? "Write a reply. Put code between ``` lines." : "Add what you found since, another case, or reply to Zaisma."}">${text}</textarea></label></div>
+  <div class="c-row">${avatar(ctx.me, "md")}<label class="c-text"><span class="sr">Your reply</span><textarea name="text" required maxlength="${FEEDBACK_LIMITS.text}" rows="4" data-mentions data-topic="${t.public ? t.id : ""}" placeholder="${t.public ? "Write a reply. Markdown works; @ mentions someone; put code between ``` lines." : "Add what you found since, another case, or reply to Zaisma."}">${text}</textarea></label></div>
   <div class="c-foot">
-    <label class="c-file">Screenshot <small>(only you and Zaisma see it)</small><input type="file" name="picture" accept="image/png,image/jpeg,image/webp"></label>
+    ${mediaPicker(t.public)}
     ${t.can.reopen ? html`<label class="check"><input type="checkbox" name="reopen" value="1"> It's back: reopen it</label>` : ""}
     <span class="hint">${t.public ? "Checked before others see it. " : ""}${left !== null ? `${left} of ${FEEDBACK_LIMITS.postsPerDay} posts left today.` : ""}</span>
     <button class="btn light" type="submit">Post reply</button>
@@ -603,6 +627,28 @@ function sidePanel(ctx: Ctx, t: Topic["topic"], posts: PostJson[]): Raw {
     ? html`<div class="side plate bevel-s"><p>${t.yours ? html`You've messaged Zaisma about this. <a href="/forum/${t.yours}">Open your message</a>` : html`Have logs, a screenshot or a game to point at? <a href="/forum/messages/new?known_issue=${t.id}&kind=${t.kind}">Message Zaisma about your case</a>: only Zaisma sees it, and it counts here.`}</p></div>`
     : ""}
 </aside>`;
+}
+
+// --- Leaving Zaisma ---
+
+/** A link out of Zaisma says where it goes first; a viewer can trust a site in their browser. */
+function outPage(ctx: Ctx, to: string): Response {
+  let u: URL | null = null;
+  try {
+    u = new URL(to);
+  } catch {}
+  if (!u || (u.protocol !== "https:" && u.protocol !== "http:")) return forumPage(ctx, "Not a link", html`<div class="gone"><h1>That isn't a link we can open</h1><a class="btn ghost" href="/forum">Back to the forum</a></div>`, { status: 400 });
+  return forumPage(
+    ctx,
+    "Leaving Zaisma",
+    html`<div class="leaving plate bevel-s">
+  <h1>You're leaving Zaisma</h1>
+  <p class="lead">This link goes to <strong>${u.hostname}</strong>, a site Zaisma doesn't run.</p>
+  <p class="out-url">${u.href}</p>
+  <label class="check"><input type="checkbox" id="trust" data-host="${u.hostname}"> Open links to ${u.hostname} straight away from now on, in this browser</label>
+  <div class="row"><a class="btn light" id="go" href="${u.href}" rel="noopener noreferrer nofollow">Continue to ${u.hostname}</a><a class="btn ghost" href="/forum" onclick="if(history.length>1){history.back();return false}">Go back</a></div>
+</div>`,
+  );
 }
 
 // --- Reporting a post ---
@@ -653,7 +699,7 @@ async function newPage(ctx: Ctx, f: Record<string, string>, message: boolean, er
       )}</fieldset>`}
   <label>Title <input name="title" required maxlength="${FEEDBACK_LIMITS.title}" value="${f.title ?? known?.topic.title ?? ""}" placeholder="Upload stops at 99% for a 300 MB build" autocomplete="off"></label>
   <div id="similar" class="similar" aria-live="polite"></div>
-  <label>What happened, or what you'd like <textarea name="text" required maxlength="${FEEDBACK_LIMITS.text}" rows="9" placeholder="What you did, what you expected and what happened instead. Put code and errors between \`\`\` lines.">${f.text ?? ""}</textarea></label>
+  <label>What happened, or what you'd like <textarea name="text" required maxlength="${FEEDBACK_LIMITS.text}" rows="9"${message ? "" : raw(" data-mentions")} placeholder="What you did, what you expected and what happened instead. Markdown works: **bold**, lists, links, and code and errors between \`\`\` lines.">${f.text ?? ""}</textarea></label>
   <div class="np-row">
     <label>Category${message ? " (optional)" : ""} <select name="category"${message ? "" : raw(" required")}><option value=""${category ? "" : raw(" selected")}${message ? "" : raw(" disabled")}>${message ? "Not sure" : "Pick where it belongs"}</option>${FORUM_CATEGORIES.map(
       (c) => html`<optgroup label="${c.name}">${Object.entries(c.areas).map(([a, name]) => html`<option value="${a}"${a === category ? raw(" selected") : ""}>${name}</option>`)}</optgroup>`,
@@ -665,7 +711,7 @@ async function newPage(ctx: Ctx, f: Record<string, string>, message: boolean, er
     : html`<fieldset class="np-tags"><legend>Tags (up to ${FEEDBACK_LIMITS.tags})</legend><div class="r-tags">${Object.entries(FORUM_TAGS).map(
         ([t, name]) => html`<label class="tag pick"><input type="checkbox" name="tags" value="${t}"${tags.includes(t) ? raw(" checked") : ""}><span>${name}</span></label>`,
       )}</div></fieldset>`}
-  <label>Screenshot (optional) <input type="file" name="picture" accept="image/png,image/jpeg,image/webp"><small class="hint">PNG, JPEG or WebP up to ${FEEDBACK_LIMITS.pictureBytes / 1048576} MB. Only you and Zaisma see it.</small></label>
+  ${mediaPicker(!message)}
   <div class="np-foot"><button class="btn light" type="submit">${message ? "Send to Zaisma" : "Post topic"}</button><span class="hint">Keys and passwords are blanked before anything is saved.</span></div>
 </form>
 <aside class="np-side">
@@ -866,7 +912,58 @@ a.tag:hover,.tag.on{color:#0b0b0c;background:var(--chrome);box-shadow:none}
 .p-head{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;font-size:14px}
 .p-when{margin-left:auto;color:var(--muted);font-size:13px;text-decoration:none}
 .p-when:hover{color:var(--text)}
-.p-text{color:var(--text-2);white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.6}
+.p-text{color:var(--text-2);overflow-wrap:anywhere;line-height:1.6;min-width:0}
+/* Grid items don't shrink below their content by default: a long line of code would widen the post. */
+.p-body>*,.op>*,.np>*{min-width:0}
+.p-text>:first-child{margin-top:0}
+.p-text>:last-child{margin-bottom:0}
+.p-text p{margin:0 0 10px}
+.p-text ul,.p-text ol{margin:0 0 10px;padding-left:22px}
+.p-text li{margin:2px 0}
+.p-text .md-h{font-size:17px;margin:14px 0 6px;text-shadow:none}
+.p-text h4.md-h{font-size:15px}
+.p-text blockquote{margin:0 0 10px;padding:6px 12px;color:var(--muted);box-shadow:inset 3px 0 0 var(--line-2);background:rgba(0,0,0,.15)}
+.p-text hr{border:0;height:2px;margin:14px 0;background:linear-gradient(#000,#000) top/100% 1px no-repeat,linear-gradient(rgba(255,255,255,.06),rgba(255,255,255,.06)) bottom/100% 1px no-repeat}
+.p-text del{color:var(--muted)}
+.p-text a.out::after{content:"↗";margin-left:2px;font-size:.8em;color:var(--muted)}
+.mention{font-family:var(--display);font-weight:600;color:var(--text);padding:0 4px;background:rgba(160,190,255,.12);box-shadow:inset 0 0 0 1px rgba(160,190,255,.25)}
+figure.code{margin:8px 0 12px;background:#0d0f12;box-shadow:inset 0 2px 5px rgba(0,0,0,.65),0 1px 0 rgba(255,255,255,.06)}
+figure.code figcaption{display:flex;align-items:center;gap:12px;padding:6px 10px;font-family:var(--display);font-size:12px;color:var(--muted);background:linear-gradient(#000,#000) bottom/100% 1px no-repeat}
+figure.code figcaption span{flex:1}
+figure.code figcaption button{border:0;padding:0;background:none;color:var(--muted);font:inherit;cursor:pointer}
+figure.code figcaption button:hover,figure.code figcaption button[aria-pressed=true]{color:var(--text)}
+figure.code pre{margin:0;padding:10px 12px;background:none;box-shadow:none;white-space:pre;overflow:auto;max-height:460px;font-size:13px}
+figure.code.wrap pre{white-space:pre-wrap;word-break:break-word}
+.video{margin:8px 0 12px;display:grid;gap:6px;justify-items:start}
+.video iframe{width:min(100%,640px);aspect-ratio:16/9;border:0;display:block;background:#000;box-shadow:0 0 0 1px #000,var(--drop)}
+.video>a{font-size:13px;color:var(--muted)}
+.p-media{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;max-width:640px}
+.p-media.one{grid-template-columns:minmax(0,480px)}
+.p-media a{display:block;background:var(--pic)}
+.p-media img{width:100%;height:100%;max-height:360px;object-fit:cover;display:block}
+.p-media.one img{object-fit:contain;height:auto}
+.media-pick{display:grid;gap:8px;flex:1 1 280px}
+.mp-drop{display:flex !important;align-items:center;gap:10px;padding:10px 12px;cursor:pointer;color:var(--muted);box-shadow:inset 0 0 0 1px dashed;outline:1px dashed #4a4f58;outline-offset:-1px}
+.mp-drop:hover,.media-pick.over .mp-drop{outline-color:#8a8f98;color:var(--text-2)}
+.mp-drop input{position:absolute;opacity:0;width:1px;height:1px}
+.mp-drop svg{width:20px;height:20px;flex:none}
+.mp-drop strong{display:block;font-family:var(--display);color:var(--text-2)}
+.mp-drop small{display:block;font-size:12px}
+.mp-thumbs{display:flex;flex-wrap:wrap;gap:8px}
+.mp-thumbs:empty{display:none}
+.mp-thumb{position:relative;width:84px;height:64px;background:var(--pic)}
+.mp-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.mp-thumb button{position:absolute;right:2px;top:2px;width:22px;height:22px;border:0;cursor:pointer;color:#fff;background:rgba(0,0,0,.7);font-size:15px;line-height:1}
+.mp-error{margin:0}
+.mention-list{position:absolute;top:100%;left:0;z-index:20;list-style:none;margin:4px 0 0;padding:4px;min-width:220px;background:var(--brush) 0 0/320px 320px,var(--face-hi);box-shadow:var(--rim),var(--drop)}
+.mention-list li{display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer;font-size:14px}
+.mention-list li small{margin-left:auto;color:var(--muted);font-size:11px}
+.mention-list li[aria-selected=true],.mention-list li:hover{background:rgba(255,255,255,.07)}
+.c-text,.np label:has(textarea[data-mentions]){position:relative}
+.leaving{max-width:620px;padding:26px 28px;display:grid;gap:14px}
+.leaving h1{font-size:28px;margin:0}
+.leaving .lead{margin:0}
+.out-url{margin:0;padding:10px 12px;font-size:13px;color:var(--text-2);word-break:break-all;background:#0d0f12;box-shadow:inset 0 2px 5px rgba(0,0,0,.65)}
 .p-text a{color:var(--text)}
 .p-text code{font-size:13px;padding:1px 5px;background:#0d0f12;box-shadow:inset 0 1px 2px rgba(0,0,0,.7)}
 .p-text pre{margin:8px 0;white-space:pre;overflow:auto;max-height:420px}
@@ -910,8 +1007,7 @@ blockquote.quote{margin:0}
 .c-text textarea{width:100%;min-height:110px}
 .c-foot{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;padding-left:54px}
 .c-foot .btn{margin-left:auto}
-.c-file{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;font-size:13px}
-.c-file input{min-height:0;padding:4px;font-size:12px;max-width:220px;box-shadow:none;border:0;background:none}
+
 label.check{display:flex;gap:8px;align-items:center;color:var(--text);font-size:14px}
 .t-side{position:sticky;top:84px;display:grid;gap:14px}
 .side{padding:14px 16px;display:grid;gap:10px}
@@ -1004,6 +1100,36 @@ label.check{display:flex;gap:8px;align-items:center;color:var(--text);font-size:
 }
 `;
 
+// Posts: images to add (choose, drop, paste), Copy and Wrap on code, links out that say where they go (unless the site is trusted in this
+// browser), and @ suggestions while writing.
+const POSTS_SCRIPT = String.raw`(()=>{
+const TRUST="zaisma-trusted-sites",trusted=()=>{try{return JSON.parse(localStorage.getItem(TRUST)||"[]")}catch{return[]}};
+document.addEventListener("click",e=>{
+const out=e.target.closest("a.out");if(out&&!e.metaKey&&!e.ctrlKey&&trusted().includes(out.dataset.host)){e.preventDefault();window.open(out.dataset.out,"_blank","noopener,noreferrer");return}
+const copy=e.target.closest("figure.code [data-copy]");if(copy){const code=copy.closest("figure").querySelector("code").textContent;navigator.clipboard.writeText(code).then(()=>{copy.textContent="Copied";setTimeout(()=>copy.textContent="Copy",1600)}).catch(()=>{});return}
+const wrap=e.target.closest("figure.code [data-wrap]");if(wrap){const f=wrap.closest("figure"),on=f.classList.toggle("wrap");wrap.setAttribute("aria-pressed",on?"true":"false");return}
+});
+const go=document.getElementById("go"),trust=document.getElementById("trust");if(go&&trust)go.addEventListener("click",()=>{if(trust.checked){const t=trusted();if(!t.includes(trust.dataset.host))t.push(trust.dataset.host);try{localStorage.setItem(TRUST,JSON.stringify(t))}catch{}}});
+document.querySelectorAll(".media-pick").forEach(box=>{
+const input=box.querySelector("input[type=file]"),thumbs=box.querySelector(".mp-thumbs"),err=box.querySelector(".mp-error"),max=+box.dataset.max,bytes=+box.dataset.bytes,form=box.closest("form");let files=[];
+const sync=()=>{const dt=new DataTransfer();files.forEach(f=>dt.items.add(f));input.files=dt.files;thumbs.textContent="";files.forEach((f,i)=>{const d=document.createElement("div");d.className="mp-thumb";const img=document.createElement("img");img.alt=f.name;const r=new FileReader();r.onload=()=>img.src=r.result;r.readAsDataURL(f);const x=document.createElement("button");x.type="button";x.textContent="×";x.setAttribute("aria-label","Remove "+f.name);x.onclick=()=>{files.splice(i,1);sync()};d.append(img,x);thumbs.append(d)})};
+const add=list=>{err.hidden=true;for(const f of list){if(!/^image\/(png|jpeg|webp)$/.test(f.type))continue;if(f.size>bytes){err.textContent=f.name+" is over "+Math.round(bytes/1048576)+" MB.";err.hidden=false;continue}if(files.length>=max){err.textContent="Up to "+max+" images.";err.hidden=false;break}files.push(f)}sync()};
+input.addEventListener("change",()=>{const picked=[...input.files];files=files.filter(f=>!picked.includes(f));add(picked)});
+box.addEventListener("dragover",e=>{e.preventDefault();box.classList.add("over")});box.addEventListener("dragleave",()=>box.classList.remove("over"));
+box.addEventListener("drop",e=>{e.preventDefault();box.classList.remove("over");add([...e.dataTransfer.files])});
+if(form)form.addEventListener("paste",e=>{const pics=[...(e.clipboardData?.files||[])].filter(f=>f.type.startsWith("image/"));if(pics.length){e.preventDefault();add(pics)}});
+});
+document.querySelectorAll("textarea[data-mentions]").forEach(ta=>{
+const list=document.createElement("ul");list.className="mention-list";list.hidden=true;list.setAttribute("role","listbox");ta.after(list);let items=[],at=-1,timer=0,token=null;
+const close=()=>{list.hidden=true;items=[];at=-1};
+const pick=p=>{const before=ta.value.slice(0,ta.selectionStart),after=ta.value.slice(ta.selectionStart),start=before.length-token.length-1,text=/^[\p{L}\p{N}_]+$/u.test(p.name)?"@"+p.name+" ":"@["+p.name+"] ";ta.value=before.slice(0,start)+text+after;const c=start+text.length;ta.setSelectionRange(c,c);ta.focus();close()};
+const show=()=>{list.textContent="";items.forEach((p,i)=>{const li=document.createElement("li");li.setAttribute("role","option");li.setAttribute("aria-selected",i===at?"true":"false");li.textContent="@"+p.name;if(p.in_topic||p.zaisma){const s=document.createElement("small");s.textContent=p.zaisma?"the team":"in this topic";li.append(s)}li.onmousedown=e=>{e.preventDefault();pick(p)};list.append(li)});list.hidden=!items.length};
+ta.addEventListener("input",()=>{const m=ta.value.slice(0,ta.selectionStart).match(/(?:^|\s)@(\[[^\]\n]{0,40}|[\p{L}\p{N}_]{0,40})$/u);if(!m){close();return}token=m[1];const q=token.replace(/^\[/,"");clearTimeout(timer);timer=setTimeout(()=>fetch("/forum/people?q="+encodeURIComponent(q)+"&topic="+encodeURIComponent(ta.dataset.topic||"")).then(r=>r.ok?r.json():[]).then(p=>{items=p;at=items.length?0:-1;show()}).catch(close),120)});
+ta.addEventListener("keydown",e=>{if(list.hidden)return;if(e.key==="ArrowDown"||e.key==="ArrowUp"){e.preventDefault();at=(at+(e.key==="ArrowDown"?1:items.length-1))%items.length;show()}else if((e.key==="Enter"||e.key==="Tab")&&at>=0){e.preventDefault();pick(items[at])}else if(e.key==="Escape")close()});
+ta.addEventListener("blur",()=>setTimeout(close,150));
+});
+})();`;
+
 // Reply to one post without reloading, keep the rail closed on phones, suggest similar topics while
 // a title is typed, and keep tags to three.
 const FORUM_SCRIPT = `(()=>{
@@ -1012,7 +1138,7 @@ const c=document.getElementById("reply");
 if(c&&c.tagName==="FORM"){const box=c.querySelector(".replying"),to=c.elements.reply_to;
 document.addEventListener("click",e=>{const a=e.target.closest("[data-reply]");if(a){e.preventDefault();to.value=a.dataset.reply;box.querySelector("[data-to-name]").textContent=a.dataset.name;box.querySelector("[data-to-excerpt]").textContent=a.dataset.excerpt;box.hidden=false;c.scrollIntoView({behavior:"smooth",block:"center"});c.elements.text.focus({preventScroll:true})}
 if(e.target.closest("[data-unreply]")||e.target.closest("[data-reply-top]")){to.value="";box.hidden=true;if(e.target.closest("[data-reply-top]")){e.preventDefault();c.scrollIntoView({behavior:"smooth",block:"center"});c.elements.text.focus({preventScroll:true})}}})}
-const f=document.querySelector("form.np");if(!f)return;
+const f=document.querySelector("form.np");if(!f||!f.elements.title)return;
 const t=f.elements.title,sim=document.getElementById("similar");let timer=0,last="";
 const look=()=>{const q=t.value.trim();if(q===last)return;last=q;if(q.length<6){sim.innerHTML="";return}fetch("/forum/similar?q="+encodeURIComponent(q)).then(r=>r.text()).then(h=>{if(t.value.trim()===q)sim.innerHTML=h}).catch(()=>{})};
 t.addEventListener("input",()=>{clearTimeout(timer);timer=setTimeout(look,350)});

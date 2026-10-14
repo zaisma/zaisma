@@ -95,6 +95,8 @@ export const FEEDBACK_LIMITS = {
   /** The JSON an AI attaches: the tool, the error, what it sent. */
   context: 8000,
   pictureBytes: 2 * 1024 * 1024,
+  /** Images a post can carry. */
+  media: 4,
   tags: 3,
 } as const;
 
@@ -164,6 +166,8 @@ export type ForumReportReason = keyof typeof FORUM_REPORT_REASONS;
 export const FORUM_REPORTS_TO_HIDE = 3;
 
 export const feedbackPictureKey = (postId: string) => `feedback-pictures/${postId}`;
+/** Where an image in a forum post is kept (feedback_media). */
+export const feedbackMediaKey = (mediaId: string) => `feedback-media/${mediaId}`;
 
 const REMOVED = "[secret removed]";
 

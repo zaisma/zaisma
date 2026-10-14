@@ -10,6 +10,7 @@ import {
   FORUM_REPORTS_TO_HIDE,
   FORUM_TAGS,
   type ForumReportReason,
+  feedbackMediaKey,
   feedbackPictureKey,
   gameById,
   newId,
@@ -21,7 +22,8 @@ import {
 } from "@zaisma/core";
 import { ApiError, ownGame, readJson, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
-import { decideFeedback, developersIn, feedbackById, hasNews, KNOWN, postsLeft, readPost, readTitle, storePost } from "./feedback.ts";
+import { decideFeedback, developersIn, feedbackById, hasNews, KNOWN, mediaOf, postsLeft, readPost, readTitle, storePost } from "./feedback.ts";
+import { forumPeople, mentionsOf } from "./forum-mentions.ts";
 import { searchTerms, searchTopics } from "./forum-search.ts";
 import { hidePost } from "./forum-check.ts";
 import { sendAlert } from "./email.ts";
@@ -45,7 +47,9 @@ import { sendAlert } from "./email.ts";
  *   POST /api/dev/forum/:id/still-happening                 a known issue whose fix is out still happens: { text? }
  *   POST /api/dev/forum/:id/posts/:post/helpful             someone else's reply helped: { on }
  *   POST /api/dev/forum/:id/posts/:post/report              it shouldn't be here: { reason, details? }
- *   GET  /api/dev/forum/:id/pictures/:post                  a screenshot you attached
+ *   GET  /api/dev/forum/:id/pictures/:post                  a screenshot you attached (the first calls)
+ *   GET  /api/dev/forum/:id/media/:media                    an image in a post you can see
+ *   GET  /api/dev/forum/people?q=&topic=                    names to @mention: Zaisma, people in the topic, then anyone in the forum
  *
  * Others see a public post once it passes the check (forum-check.ts). Screenshots and what an AI
  * attaches stay private to whoever posted them and Zaisma. Reading needs no account on the pages;
@@ -148,7 +152,12 @@ export interface PostJson {
   reported_by_you: boolean;
   /** Only for whoever posted it (and Zaisma). */
   context: unknown;
+  /** The first calls' screenshot, for whoever posted it. */
   picture_url: string | null;
+  /** Its images: public with the post, or private to you and Zaisma in a message. */
+  media: { id: string; url: string }[];
+  /** The people it @mentions, by name. */
+  mentions: string[];
   at: number;
 }
 
@@ -162,6 +171,9 @@ export async function forumRoute(request: Request, env: Env, path: string, calle
     return [list];
   }
   if (path === "/forum/similar" && method === "GET") return [{ topics: await similarTopics(env, caller, url.searchParams.get("q") ?? "") }];
+  if (path === "/forum/people" && method === "GET") return [{ people: await forumPeople(env, url.searchParams.get("q") ?? "", url.searchParams.get("topic") || null, caller.accountId) }];
+  const mediaPath = path.match(/^\/forum\/[a-z0-9]{1,40}\/media\/([a-z0-9]{1,40})$/);
+  if (mediaPath && method === "GET") return serveMedia(env, caller, mediaPath[1]!);
   if (path === "/forum" && method === "POST") return [await createTopic(env, caller, await readJson(request, 4 * 1024 * 1024)), 201];
   const onPost = path.match(/^\/forum\/([a-z0-9]{1,40})\/posts\/([a-z0-9]{1,40})\/(helpful|report)$/);
   if (onPost) {
@@ -445,6 +457,7 @@ export async function getTopic(env: Env, viewer: Viewer, id: string, opts: { pos
           : visible;
   const names = await namesOf(env, posts.map((p) => p.account_id));
   const byId = new Map(posts.map((p) => [p.id, p]));
+  const [media, mentions] = await Promise.all([mediaOf(env, posts.map((p) => p.id)), mentionsOf(env, posts.map((p) => p.id))]);
   const [row] = await rowsJson(env, viewer, [f]);
   const own = Boolean(viewer && f.account_id === viewer.accountId);
   const group = f.group_id ? await feedbackById(env, f.group_id) : null;
@@ -501,6 +514,8 @@ export async function getTopic(env: Env, viewer: Viewer, id: string, opts: { pos
         reported_by_you: reported.has(p.id),
         context: mine && p.context ? JSON.parse(p.context) : null,
         picture_url: mine && p.picture ? `${env.SITE_ORIGIN}/api/dev/forum/${f.id}/pictures/${p.id}` : null,
+        media: (media.get(p.id) ?? []).map((m) => ({ id: m.id, url: `${env.SITE_ORIGIN}/api/dev/forum/${f.id}/media/${m.id}` })),
+        mentions: mentions.get(p.id) ?? [],
         at: p.created_at,
       } satisfies PostJson;
     }),
@@ -689,6 +704,31 @@ export async function markAnswer(env: Env, caller: Caller, id: string, postId: s
     .bind(postId, postId, Date.now(), f.id)
     .run();
   return { answer: postId };
+}
+
+/**
+ * An image in a post. Anyone who can see the post can see it: on a public topic once the post
+ * passed its check, in a message only the developer (and Zaisma, on the admin pages).
+ */
+export async function serveMedia(env: Env, viewer: Viewer, mediaId: string): Promise<Response> {
+  const m = await env.DB.prepare(
+    "SELECT m.id, m.type, p.check_state, p.account_id AS poster, f.shown, f.account_id AS owner FROM feedback_media m JOIN feedback_posts p ON p.id = m.post_id JOIN feedback f ON f.id = p.feedback_id WHERE m.id = ?",
+  )
+    .bind(mediaId)
+    .first<{ id: string; type: string; check_state: string | null; poster: string | null; shown: number; owner: string | null }>();
+  const open = Boolean(m && m.check_state === "ok" && m.shown);
+  const own = Boolean(m && viewer && (m.poster === viewer.accountId || (m.check_state === null && m.owner === viewer.accountId)));
+  const object = m && (open || own) ? await env.GAMES.get(feedbackMediaKey(m.id)) : null;
+  if (!m || !object) throw new ApiError(404, "no_media", "There's no image there you can see.");
+  return new Response(object.body, {
+    headers: {
+      "Content-Type": m.type,
+      // Public images are cached briefly, so one taken down stops showing soon after.
+      "Cache-Control": open ? "public, max-age=300" : "private, no-store",
+      "X-Content-Type-Options": "nosniff",
+      "Content-Security-Policy": "default-src 'none'; sandbox",
+    },
+  });
 }
 
 async function topicPicture(env: Env, caller: Caller, id: string, postId: string): Promise<Response> {

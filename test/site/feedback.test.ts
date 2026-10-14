@@ -3,7 +3,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { createAccount, createApiKey, createGame, deleteAccount, feedbackPictureKey, personOwner } from "@zaisma/core";
 import { decideFeedback } from "../../apps/site/src/feedback.ts";
 import { sortFeedback, sortMisplaced, type SortAnswer, type SortDeps } from "../../apps/site/src/feedback-sort.ts";
-import { checkForumPosts } from "../../apps/site/src/forum-check.ts";
+import { checkForumPosts, type CheckImage } from "../../apps/site/src/forum-check.ts";
+import { renderMarkdown } from "../../apps/site/src/forum-markdown.ts";
 
 const SITE = "https://zaisma.test";
 const LOCAL = "http://localhost";
@@ -53,7 +54,7 @@ async function adminPost(path: string, form: Record<string, string>): Promise<Re
 }
 
 beforeEach(async () => {
-  await env.DB.exec("DELETE FROM feedback_posts; DELETE FROM feedback_tags; DELETE FROM feedback_votes; DELETE FROM feedback_follows; DELETE FROM feedback_misplaced; DELETE FROM forum_search; DELETE FROM feedback_helpful; DELETE FROM forum_reports; DELETE FROM feedback; DELETE FROM api_keys; DELETE FROM audit_log; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
+  await env.DB.exec("DELETE FROM feedback_posts; DELETE FROM feedback_tags; DELETE FROM feedback_votes; DELETE FROM feedback_follows; DELETE FROM feedback_misplaced; DELETE FROM forum_search; DELETE FROM feedback_helpful; DELETE FROM forum_reports; DELETE FROM feedback_media; DELETE FROM feedback_mentions; DELETE FROM feedback; DELETE FROM api_keys; DELETE FROM audit_log; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
   await createAccount(env.DB, { id: "dev-1", name: "Pixel Smith", ageBand: "18+" });
   await createAccount(env.DB, { id: "dev-2", name: "Other Dev", ageBand: "18+" });
   token = (await createApiKey(env.DB, "dev-1", "claude")).token;
@@ -84,14 +85,14 @@ describe("filing feedback", () => {
   });
 
   it("marks posts through the MCP as an AI's, whatever they claim", async () => {
-    const ok = await mcp("message_zaisma", { kind: "gap", title: "No way to delete a game", text: "I need to remove a test game.", author: "person", picture_base64: PNG });
+    const ok = await mcp("message_zaisma", { kind: "gap", title: "No way to delete a game", text: "I need to remove a test game.", author: "person", media_base64: [PNG] });
     expect(ok.topic.public).toBe(false);
     expect(ok.posts[0]).toMatchObject({ by: { by: "ai", name: "Pixel Smith", you: true }, via: "mcp" });
-    expect(ok.posts[0].picture_url).toContain(`/api/dev/forum/${ok.topic.id}/pictures/`);
-    const picture = await SELF.fetch(ok.posts[0].picture_url, { headers: { authorization: `Bearer ${token}` } });
+    expect(ok.posts[0].media[0].url).toContain(`/api/dev/forum/${ok.topic.id}/media/`);
+    const picture = await SELF.fetch(ok.posts[0].media[0].url, { headers: { authorization: `Bearer ${token}` } });
     expect(picture.headers.get("content-type")).toBe("image/png");
     // Only its owner can see it.
-    expect((await SELF.fetch(ok.posts[0].picture_url, { headers: { authorization: `Bearer ${other}` } })).status).toBe(404);
+    expect((await SELF.fetch(ok.posts[0].media[0].url, { headers: { authorization: `Bearer ${other}` } })).status).toBe(404);
   });
 
   it("allows about 100 posts a day per account", async () => {
@@ -201,7 +202,7 @@ describe("threads and known issues", () => {
   });
 
   it("is worked through on the admin pages, with only what the form changed applied", async () => {
-    const { topic } = await mcp("message_zaisma", { kind: "bug", title: "upload_files says too_big at 3 MB", text: "My 3 MB build fails.", picture_base64: PNG });
+    const { topic } = await mcp("message_zaisma", { kind: "bug", title: "upload_files says too_big at 3 MB", text: "My 3 MB build fails.", media_base64: [PNG] });
     const queue = await (await SELF.fetch(`${LOCAL}/admin/feedback`)).text();
     expect(queue).toContain("upload_files says too_big at 3 MB");
     expect(queue).toContain("Waiting to be sorted.");
@@ -378,6 +379,80 @@ describe("search, phases and reading a topic in part", () => {
     expect((await mcp("get_topic", { id: topic.id })).posts).toHaveLength(1);
   });
 
+  it("renders markdown safely, links out through a warning, and turns video links into cards", async () => {
+    const md = renderMarkdown(
+      [
+        "# Heading",
+        "**bold** and *em* and `too_big` <script>alert(1)</script>",
+        "- one",
+        "- two",
+        "> quoted",
+        "```js",
+        "const a = '<b>';",
+        "```",
+        "[docs](https://zaisma.com/docs) and https://example.com/page and [bad](javascript:alert(1))",
+        "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        "Hi @Pixel_Smith and @[Other Dev] and @nobody",
+      ].join("\n"),
+      { siteOrigin: "https://zaisma.test", mentions: new Set(["pixel_smith", "other dev"]) },
+    );
+    expect(md).toContain('<h3 class="md-h">Heading</h3>');
+    expect(md).toContain("<strong>bold</strong> and <em>em</em> and <code>too_big</code> &lt;script&gt;");
+    expect(md).not.toContain("<script>");
+    expect(md).toContain("<ul><li>one</li><li>two</li></ul>");
+    expect(md).toContain("<blockquote><p>quoted</p></blockquote>");
+    expect(md).toContain('<figure class="code"><figcaption><span>js</span>');
+    expect(md).toContain("const a = &#39;&lt;b&gt;&#39;;");
+    expect(md).toContain('<a href="https://zaisma.com/docs">docs</a>');
+    expect(md).toContain('href="/forum/out?to=https%3A%2F%2Fexample.com%2Fpage"');
+    expect(md).not.toContain("javascript:");
+    expect(md).toContain('<iframe src="https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"');
+    expect(md).toContain('<span class="mention">@Pixel_Smith</span>');
+    expect(md).toContain('<span class="mention">@Other Dev</span>');
+    expect(md).toContain("@nobody");
+    expect(md).not.toContain(">@nobody<");
+  });
+
+  it("saves mentions to the right people, who hear, and lists people to mention", async () => {
+    const { topic } = await mcp("post_topic", { kind: "question", category: "rooms", title: "Room limits?", text: "How many players fit?" });
+    await passAll();
+    const reply = await mcp("reply_to_topic", { id: topic.id, text: "Ask @Zaisma or @Pixel_Smith, or @[Pixel Smith] who asked." }, other);
+    // Not heard until others can see the post.
+    expect((await env.DB.prepare("SELECT seen_at FROM feedback_follows WHERE feedback_id = ? AND account_id = 'dev-1'").bind(topic.id).first<{ seen_at: number }>())!.seen_at).toBeGreaterThan(0);
+    await passAll();
+    const seen = await mcp("get_topic", { id: topic.id }, other);
+    expect(seen.posts[1].mentions.sort()).toEqual(["Pixel Smith", "Zaisma"]);
+    expect((await mcp("search_forum", { tab: "yours" })).topics[0]).toMatchObject({ id: topic.id, unread: true });
+    expect((await admin("list_feedback")).zaisma_mentioned).toMatchObject([{ post: reply.post.id, topic: { id: topic.id } }]);
+    // Once Zaisma replies, it's no longer waiting.
+    await decideFeedback(env, topic.id, { reply: "About 50 for now." });
+    expect((await admin("list_feedback")).zaisma_mentioned).toEqual([]);
+
+    const people = await mcp("forum_people", { q: "p", topic: topic.id }, other);
+    expect(people.people).toEqual([{ name: "Pixel Smith", zaisma: false, in_topic: true }]);
+    expect((await mcp("forum_people", { q: "za" }, other)).people[0]).toEqual({ name: "Zaisma", zaisma: true, in_topic: false });
+  });
+
+  it("shows a public post's images to everyone once checked, and a message's only to its developer", async () => {
+    const { topic, posts } = await mcp("post_topic", { kind: "bug", category: "pages", title: "Cover looks off", text: "See the pictures.", media_base64: [PNG, PNG] });
+    expect(posts[0].media).toHaveLength(2);
+    const url = `/forum/media/${posts[0].media[0].id}`;
+    // Being checked: only its developer.
+    expect((await SELF.fetch(`${SITE}${url}`)).status).toBe(404);
+    const seen: CheckImage[][] = [];
+    await checkForumPosts({ ...env, ANTHROPIC_API_KEY: "test-key" }, { ai: async (_k, _m, _t, images) => (seen.push(images ?? []), { verdict: "ok", reason: "", inputTokens: 10, outputTokens: 2 }) });
+    // The check saw both images with the words.
+    expect(seen[0]).toHaveLength(2);
+    const open = await SELF.fetch(`${SITE}${url}`);
+    expect(open.headers.get("content-type")).toBe("image/png");
+    expect(open.headers.get("cache-control")).toBe("public, max-age=300");
+    expect((await mcp("get_topic", { id: topic.id }, other)).posts[0].media).toHaveLength(2);
+    expect((await mcp("post_topic", { kind: "bug", category: "pages", title: "x", text: "y", media_base64: [PNG, PNG, PNG, PNG, PNG] })).error).toContain("too_much_media");
+
+    const message = await mcp("message_zaisma", { kind: "bug", title: "Private", text: "Mine.", media_base64: [PNG] });
+    expect((await SELF.fetch(`${SITE}/forum/media/${message.posts[0].media[0].id}`)).status).toBe(404);
+  });
+
   it("counts everyone in a big topic and shows only the latest few", async () => {
     const { topic } = await mcp("post_topic", { kind: "talk", category: "other", title: "Big thread", text: "Everyone say hi." });
     await passAll();
@@ -397,7 +472,7 @@ describe("search, phases and reading a topic in part", () => {
 describe("deleting an account", () => {
   it("deletes its topics, posts and screenshots, keeping known issues without a name", async () => {
     const kept = (await mcp("message_zaisma", { kind: "bug", title: "Known one", text: "Shared problem." })).topic;
-    const gone = await mcp("message_zaisma", { kind: "question", title: "Private one", text: "Just mine.", picture_base64: PNG });
+    const gone = await mcp("message_zaisma", { kind: "question", title: "Private one", text: "Just mine.", media_base64: [PNG] });
     await decideFeedback(env, kept.id, { known_issue: { title: "A shared problem" } });
     const k = (await mcp("search_forum", { tab: "known" })).topics[0].id;
     await mcp("vote", { id: k });
@@ -406,7 +481,8 @@ describe("deleting an account", () => {
     expect(rows.results).toEqual([{ id: k, account_id: null, votes: 0 }]);
     expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM feedback_posts WHERE account_id = 'dev-1'").first<{ n: number }>())!.n).toBe(0);
     expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM feedback_follows WHERE account_id = 'dev-1'").first<{ n: number }>())!.n).toBe(0);
-    expect(gone.posts[0].picture_url).toBeTruthy();
+    expect(gone.posts[0].media).toHaveLength(1);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM feedback_media").first<{ n: number }>())!.n).toBe(0);
     expect(feedbackPictureKey("x")).toBe("feedback-pictures/x");
   });
 });

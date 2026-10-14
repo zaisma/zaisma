@@ -105,6 +105,9 @@ export async function deleteAccount(db: D1Database, id: string): Promise<void> {
     db.prepare("UPDATE feedback_posts SET helpful = MAX(0, helpful - 1) WHERE id IN (SELECT post_id FROM feedback_helpful WHERE account_id = ?)").bind(id),
     db.prepare("DELETE FROM feedback_helpful WHERE account_id = ?").bind(id),
     db.prepare("DELETE FROM forum_reports WHERE account_id = ?").bind(id),
+    // Their posts' images and mentions (the files go with deleteFeedbackPictures), and mentions of them.
+    db.prepare("DELETE FROM feedback_media WHERE post_id IN (SELECT id FROM feedback_posts WHERE account_id = ? OR feedback_id IN (SELECT id FROM feedback WHERE account_id = ? AND known_title IS NULL))").bind(id, id),
+    db.prepare("DELETE FROM feedback_mentions WHERE account_id = ? OR post_id IN (SELECT id FROM feedback_posts WHERE account_id = ? OR feedback_id IN (SELECT id FROM feedback WHERE account_id = ? AND known_title IS NULL))").bind(id, id, id),
     // Out of the forum's search too.
     db.prepare("DELETE FROM forum_search WHERE post_id IN (SELECT id FROM feedback_posts WHERE account_id = ?)").bind(id),
     db.prepare("DELETE FROM forum_search WHERE topic_id IN (SELECT id FROM feedback WHERE account_id = ? AND known_title IS NULL)").bind(id),

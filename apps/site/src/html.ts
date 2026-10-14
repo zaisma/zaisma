@@ -335,7 +335,7 @@ export function metalButton(label: string, opts: { href?: string; id?: string; b
 /** Cloudflare's invisible check (Turnstile), on pages that ask for it: its script and its frame. */
 const CHECK_ORIGIN = "https://challenges.cloudflare.com";
 
-export function securityHeaders(env: Env, extra: Record<string, string> = {}, check = false): Headers {
+export function securityHeaders(env: Env, extra: Record<string, string> = {}, check = false, frames: string[] = []): Headers {
   const h = new Headers({
     "Content-Type": "text/html; charset=utf-8",
     "Content-Security-Policy": [
@@ -343,7 +343,7 @@ export function securityHeaders(env: Env, extra: Record<string, string> = {}, ch
       "img-src 'self' data:",
       "style-src 'self' 'unsafe-inline'",
       `script-src 'self' 'unsafe-inline'${check ? ` ${CHECK_ORIGIN}` : ""}`,
-      `frame-src ${gameFrameSource(env)}${check ? ` ${CHECK_ORIGIN}` : ""}`,
+      `frame-src ${gameFrameSource(env)}${check ? ` ${CHECK_ORIGIN}` : ""}${frames.map((f) => ` ${f}`).join("")}`,
       "form-action 'self'",
       "frame-ancestors 'none'",
       "base-uri 'none'",
@@ -371,7 +371,7 @@ export interface HeaderSearch {
   keep?: Record<string, string>;
 }
 
-export function layout(env: Env, opts: { title: string; body: Raw; bare?: boolean; admin?: boolean; private?: boolean; nav?: Nav; art?: string | null; check?: boolean; search?: HeaderSearch; action?: Raw }): Response {
+export function layout(env: Env, opts: { title: string; body: Raw; bare?: boolean; admin?: boolean; private?: boolean; nav?: Nav; art?: string | null; check?: boolean; search?: HeaderSearch; action?: Raw; frames?: string[] }): Response {
   const doc = html`<!doctype html>
 <html lang="en">
 <head>
@@ -394,7 +394,7 @@ ${siteFooter()}`}
 <script>${raw(METAL_SCRIPT)}${raw(AMBIENT_SCRIPT)}${raw(BUSY_SCRIPT)}</script>
 </body>
 </html>`;
-  return new Response(doc.html, { headers: securityHeaders(env, opts.admin || opts.private ? { "Cache-Control": "no-store" } : {}, opts.check) });
+  return new Response(doc.html, { headers: securityHeaders(env, opts.admin || opts.private ? { "Cache-Control": "no-store" } : {}, opts.check, opts.frames) });
 }
 
 /**

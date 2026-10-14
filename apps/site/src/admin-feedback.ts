@@ -1,4 +1,4 @@
-import { FEEDBACK_AREAS, FEEDBACK_STATUSES, feedbackPictureKey, type Feedback } from "@zaisma/core";
+import { FEEDBACK_AREAS, FEEDBACK_STATUSES, feedbackMediaKey, feedbackPictureKey, type Feedback } from "@zaisma/core";
 import type { Env } from "./env.ts";
 import { adminFeedbackItem, adminFeedbackList, decideFeedback, FeedbackRefusal, type FeedbackDecision } from "./feedback.ts";
 import { removePost, showPost } from "./forum-check.ts";
@@ -96,6 +96,7 @@ async function queue(env: Env, status: string): Promise<Response> {
   const rows = list.feedback;
   const inside = (list.reopened_or_added ?? []) as { id: string; title: string; group_id: string; group_status: string }[];
   const toCheck = list.posts_to_check ?? [];
+  const asked = list.zaisma_mentioned ?? [];
   // The full record of each card, for the reply form's known-issue fields.
   const full = new Map((await Promise.all(rows.map((r) => env.DB.prepare("SELECT * FROM feedback WHERE id = ?").bind(r.id).first<Feedback>()))).filter((f): f is Feedback => f !== null).map((f) => [f.id, f]));
   return adminPage(
@@ -104,6 +105,11 @@ async function queue(env: Env, status: string): Promise<Response> {
     html`<h1>Feedback</h1>
 <p class="lead">${rows.length ? `${rows.length} ${filter === "new" ? "waiting" : filter === "all" ? "items and known issues" : STATUS_NAMES[filter]!.toLowerCase()}, most serious first.` : filter === "new" ? "Nothing waiting." : "Nothing here."}${filter === "new" && waiting?.n ? ` ${waiting.n} still being sorted.` : ""}</p>
 <nav class="seg" aria-label="Which feedback">${FILTERS.map((s) => html`<a href="/admin/feedback?status=${s}"${s === filter ? raw(' aria-current="page"') : ""}>${s === "all" ? "All" : s === "new" ? "Waiting" : STATUS_NAMES[s]}</a>`)}</nav>
+${asked.length
+      ? html`<h2>Asked for Zaisma (${asked.length})</h2>
+<p class="muted">Public posts that mention @Zaisma, with no reply from Zaisma since.</p>
+<table>${asked.map((a) => html`<tr><td><a href="/forum/${a.topic.id}#p-${a.post}">${a.topic.title}</a><br><span class="muted">${a.developer} (${a.by}), ${a.at}:</span> ${a.text.slice(0, 300)}</td><td class="nowrap"><a class="btn ghost" href="/admin/feedback/${a.topic.id}">Reply</a></td></tr>`)}</table>`
+      : ""}
 ${toCheck.length
       ? html`<h2>Forum posts to look at (${toCheck.length})</h2>
 <p class="muted">Held by the check, not checked yet, or reported by developers. Show it keeps it up and clears its reports; Remove takes it down.</p>
@@ -194,6 +200,7 @@ ${d.merged_into ? html`<p class="note">Merged into <a href="/admin/feedback/${d.
   <p class="said" style="white-space:pre-wrap">${p.text}</p>
   ${p.context ? html`<details><summary>What was attached</summary><pre>${JSON.stringify(p.context, null, 2)}</pre></details>` : ""}
   ${p.picture ? html`<p><a href="/admin/feedback/pictures/${p.id}" target="_blank">Screenshot</a></p>` : ""}
+  ${p.media.length ? html`<p class="row">${p.media.map((m, i) => html`<a href="/admin/feedback/pictures/${m}" target="_blank">Image ${i + 1}</a>`)}</p>` : ""}
 </article>`,
     )}</div>
 ${d.merged_here.length
@@ -207,12 +214,14 @@ ${d.merged_here.length
   );
 }
 
-/** A screenshot a developer or their AI attached. */
-async function picture(env: Env, postId: string): Promise<Response> {
-  const post = await env.DB.prepare("SELECT picture FROM feedback_posts WHERE id = ?").bind(postId).first<{ picture: string | null }>();
-  const object = post?.picture ? await env.GAMES.get(feedbackPictureKey(postId)) : null;
-  if (!post?.picture || !object) return new Response("Not found", { status: 404 });
+/** A screenshot a developer or their AI attached: a post's own (the first calls), or one of its images by id. */
+async function picture(env: Env, id: string): Promise<Response> {
+  const post = await env.DB.prepare("SELECT picture FROM feedback_posts WHERE id = ?").bind(id).first<{ picture: string | null }>();
+  const media = post?.picture ? null : await env.DB.prepare("SELECT type FROM feedback_media WHERE id = ?").bind(id).first<{ type: string }>();
+  const object = post?.picture ? await env.GAMES.get(feedbackPictureKey(id)) : media ? await env.GAMES.get(feedbackMediaKey(id)) : null;
+  const type = post?.picture ?? media?.type;
+  if (!type || !object) return new Response("Not found", { status: 404 });
   return new Response(object.body, {
-    headers: { "Content-Type": post.picture, "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; sandbox" },
+    headers: { "Content-Type": type, "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; sandbox" },
   });
 }

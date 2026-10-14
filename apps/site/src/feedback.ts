@@ -5,6 +5,7 @@ import {
   FEEDBACK_OPEN_PHASES,
   FEEDBACK_LIMITS,
   blankSecrets,
+  feedbackMediaKey,
   feedbackPictureKey,
   gameById,
   matchKnownIssues,
@@ -20,6 +21,7 @@ import {
 import { ApiError, ownGame, readJson, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { checkPost } from "./forum-check.ts";
+import { notifyMentions, saveMentions } from "./forum-mentions.ts";
 import { indexPost, indexTopic, unindexTopic } from "./forum-search.ts";
 
 /**
@@ -160,7 +162,19 @@ async function summaryJson(env: Env, f: Feedback, group: Feedback | null) {
 
 const BY: Record<FeedbackAuthor, string> = { person: "you", ai: "your AI", zaisma: "Zaisma" };
 
-function postJson(env: Env, f: Feedback, p: FeedbackPost) {
+/** The images each post carries, in order. */
+export async function mediaOf(env: Env, postIds: string[]): Promise<Map<string, { id: string; type: string }[]>> {
+  const out = new Map<string, { id: string; type: string }[]>();
+  for (let i = 0; i < postIds.length; i += 90) {
+    const chunk = postIds.slice(i, i + 90);
+    const { results } = await env.DB.prepare(`SELECT id, post_id, type FROM feedback_media WHERE post_id IN (${chunk.map(() => "?").join(", ")}) ORDER BY ord`).bind(...chunk).all<{ id: string; post_id: string; type: string }>();
+    for (const r of results) out.set(r.post_id, [...(out.get(r.post_id) ?? []), { id: r.id, type: r.type }]);
+  }
+  return out;
+}
+
+function postJson(env: Env, f: Feedback, p: FeedbackPost, media: { id: string }[] = []) {
+  const first = p.picture ? p.id : media[0]?.id;
   return {
     id: p.id,
     // you (written by the developer), your AI, or Zaisma.
@@ -169,7 +183,7 @@ function postJson(env: Env, f: Feedback, p: FeedbackPost) {
     kind: p.kind,
     text: p.text,
     context: p.context ? JSON.parse(p.context) : null,
-    picture_url: p.picture ? `${env.SITE_ORIGIN}/api/dev/feedback/${f.id}/pictures/${p.id}` : null,
+    picture_url: first ? `${env.SITE_ORIGIN}/api/dev/feedback/${f.id}/pictures/${first}` : null,
     at: p.created_at,
   };
 }
@@ -181,7 +195,7 @@ async function itemJson(env: Env, caller: Caller, f: Feedback) {
   return {
     ...(await summaryJson(env, f, group)),
     known_issue: known ? (await knownIssues(env, caller, [known]))[0] : null,
-    posts: posts.map((p) => postJson(env, f, p)),
+    posts: await mediaOf(env, posts.map((p) => p.id)).then((media) => posts.map((p) => postJson(env, f, p, media.get(p.id)))),
     posts_left_today: await postsLeft(env, caller),
   };
 }
@@ -205,7 +219,8 @@ export async function postsLeft(env: Env, caller: Caller): Promise<number> {
 export interface Post {
   text: string;
   context: string | null;
-  picture: { bytes: Uint8Array; type: string } | null;
+  /** Up to FEEDBACK_LIMITS.media images. */
+  media: { bytes: Uint8Array; type: string }[];
   author: FeedbackAuthor;
   via: FeedbackVia;
   blanked: number;
@@ -233,20 +248,24 @@ export async function readPost(env: Env, caller: Caller, body: Record<string, un
       context = JSON.stringify({ text: clean.text });
     }
   }
-  let picture: Post["picture"] = null;
-  if (typeof body.picture === "string" && body.picture) {
+  // Images: media (a list), or picture (one, as the first calls sent it). Base64, PNG, JPEG or WebP.
+  const sent = [...(typeof body.picture === "string" && body.picture ? [body.picture] : []), ...(Array.isArray(body.media) ? body.media : [])];
+  if (sent.length > FEEDBACK_LIMITS.media) throw new ApiError(400, "too_much_media", `A post can carry up to ${FEEDBACK_LIMITS.media} images.`);
+  const media: Post["media"] = [];
+  for (const item of sent) {
+    if (typeof item !== "string" || !item) throw new ApiError(400, "bad_picture", "Send each image as base64.");
     let bytes: Uint8Array;
     try {
-      bytes = Uint8Array.from(atob(body.picture.replace(/^data:[^,]*,/, "").replace(/\s+/g, "")), (c) => c.charCodeAt(0));
+      bytes = Uint8Array.from(atob(item.replace(/^data:[^,]*,/, "").replace(/\s+/g, "")), (c) => c.charCodeAt(0));
     } catch {
-      throw new ApiError(400, "bad_picture", "Send the screenshot as base64.");
+      throw new ApiError(400, "bad_picture", "Send each image as base64.");
     }
-    if (bytes.byteLength > FEEDBACK_LIMITS.pictureBytes) throw new ApiError(413, "picture_too_big", `Screenshots can be up to ${FEEDBACK_LIMITS.pictureBytes / 1048576} MB.`);
+    if (bytes.byteLength > FEEDBACK_LIMITS.pictureBytes) throw new ApiError(413, "picture_too_big", `Images can be up to ${FEEDBACK_LIMITS.pictureBytes / 1048576} MB each.`);
     const kind = sniffImage(bytes);
-    if (!kind) throw new ApiError(415, "not_an_image", "Screenshots can be PNG, JPEG or WebP.");
-    picture = { bytes, type: kind.type };
+    if (!kind) throw new ApiError(415, "not_an_image", "Images can be PNG, JPEG or WebP.");
+    media.push({ bytes, type: kind.type });
   }
-  return { text: text.text, context, picture, blanked, ...authorOf(caller, body) };
+  return { text: text.text, context, media, blanked, ...authorOf(caller, body) };
 }
 
 /**
@@ -256,10 +275,16 @@ export async function readPost(env: Env, caller: Caller, body: Record<string, un
 export async function storePost(env: Env, f: Feedback, caller: Caller, post: Post, kind: "post" | "reopen", replyTo: string | null = null): Promise<{ id: string; check: FeedbackPost["check_state"] }> {
   const id = newId();
   const now = Date.now();
-  if (post.picture) await env.GAMES.put(feedbackPictureKey(id), post.picture.bytes, { httpMetadata: { contentType: post.picture.type } });
-  await env.DB.prepare("INSERT INTO feedback_posts (id, feedback_id, account_id, author, via, kind, text, context, picture, created_at, reply_to, check_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    .bind(id, f.id, caller.accountId, post.author, post.via, kind, post.text, post.context, post.picture?.type ?? null, now, replyTo, f.public ? "pending" : null)
+  for (const [ord, m] of post.media.entries()) {
+    const mediaId = newId();
+    await env.GAMES.put(feedbackMediaKey(mediaId), m.bytes, { httpMetadata: { contentType: m.type } });
+    await env.DB.prepare("INSERT INTO feedback_media (id, post_id, type, ord, created_at) VALUES (?, ?, ?, ?, ?)").bind(mediaId, id, m.type, ord, now).run();
+  }
+  await env.DB.prepare("INSERT INTO feedback_posts (id, feedback_id, account_id, author, via, kind, text, context, picture, created_at, reply_to, check_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)")
+    .bind(id, f.id, caller.accountId, post.author, post.via, kind, post.text, post.context, now, replyTo, f.public ? "pending" : null)
     .run();
+  // Mentions mean someone only in public topics; they hear once others can see the post.
+  if (f.public) await saveMentions(env, f.id, id, post.text, caller.accountId);
   // Whoever posts follows the topic, and has seen it up to now.
   await env.DB.prepare("INSERT INTO feedback_follows (feedback_id, account_id, seen_at) VALUES (?, ?, ?) ON CONFLICT DO UPDATE SET seen_at = excluded.seen_at").bind(f.id, caller.accountId, now).run();
   if (!f.public) {
@@ -330,12 +355,17 @@ async function addToFeedback(env: Env, caller: Caller, id: string, body: Record<
 
 async function feedbackPicture(env: Env, caller: Caller, id: string, postId: string): Promise<Response> {
   const f = await ownFeedback(env, caller, id);
+  // A post's own picture (the first calls), or one of its images by id.
   const post = await env.DB.prepare("SELECT * FROM feedback_posts WHERE id = ? AND feedback_id = ?").bind(postId, f.id).first<FeedbackPost>();
-  const object = post?.picture ? await env.GAMES.get(feedbackPictureKey(post.id)) : null;
-  if (!post?.picture || !object) throw new ApiError(404, "no_picture", "That post has no screenshot.");
+  const media = post?.picture
+    ? null
+    : await env.DB.prepare("SELECT m.id, m.type FROM feedback_media m JOIN feedback_posts p ON p.id = m.post_id WHERE m.id = ? AND p.feedback_id = ?").bind(postId, f.id).first<{ id: string; type: string }>();
+  const object = post?.picture ? await env.GAMES.get(feedbackPictureKey(post.id)) : media ? await env.GAMES.get(feedbackMediaKey(media.id)) : null;
+  const type = post?.picture ?? media?.type;
+  if (!type || !object) throw new ApiError(404, "no_picture", "That post has no screenshot.");
   return new Response(object.body, {
     headers: {
-      "Content-Type": post.picture,
+      "Content-Type": type,
       "Cache-Control": "private, no-store",
       "X-Content-Type-Options": "nosniff",
       "Content-Security-Policy": "default-src 'none'; sandbox",
@@ -347,6 +377,13 @@ async function feedbackPicture(env: Env, caller: Caller, id: string, postId: str
 export async function deleteFeedbackPictures(env: Env, accountId: string): Promise<void> {
   const { results } = await env.DB.prepare("SELECT id FROM feedback_posts WHERE account_id = ? AND picture IS NOT NULL").bind(accountId).all<{ id: string }>();
   for (let i = 0; i < results.length; i += 500) await env.GAMES.delete(results.slice(i, i + 500).map((p) => feedbackPictureKey(p.id)));
+  // Images in their posts, and in every post of their topics, which go with them.
+  const { results: media } = await env.DB.prepare(
+    "SELECT m.id FROM feedback_media m JOIN feedback_posts p ON p.id = m.post_id WHERE p.account_id = ? OR p.feedback_id IN (SELECT id FROM feedback WHERE account_id = ? AND known_title IS NULL)",
+  )
+    .bind(accountId, accountId)
+    .all<{ id: string }>();
+  for (let i = 0; i < media.length; i += 500) await env.GAMES.delete(media.slice(i, i + 500).map((m) => feedbackMediaKey(m.id)));
 }
 
 // --- Admin: the feedback queue in the admin MCP ---
@@ -399,13 +436,19 @@ export async function adminFeedbackList(env: Env, status = "new", limit = 30) {
       };
     }),
   );
-  const out: { feedback: typeof rows; reopened_or_added?: { id: string; title: string; group_id: string; group_status: string }[]; posts_to_check?: Awaited<ReturnType<typeof postsToCheck>> } = { feedback: rows };
+  const out: {
+    feedback: typeof rows;
+    reopened_or_added?: { id: string; title: string; group_id: string; group_status: string }[];
+    posts_to_check?: Awaited<ReturnType<typeof postsToCheck>>;
+    zaisma_mentioned?: Awaited<ReturnType<typeof zaismaMentioned>>;
+  } = { feedback: rows };
   if (status === "new") {
     const { results } = await env.DB
       .prepare("SELECT f.id, f.title, f.group_id, g.status AS group_status FROM feedback f JOIN feedback g ON g.id = f.group_id WHERE f.status = 'new' AND g.status != 'new' ORDER BY f.updated_at DESC LIMIT 50")
       .all<{ id: string; title: string; group_id: string; group_status: string }>();
     out.reopened_or_added = results;
     out.posts_to_check = await postsToCheck(env, 50);
+    out.zaisma_mentioned = await zaismaMentioned(env);
   }
   return out;
 }
@@ -438,6 +481,18 @@ export async function postsToCheck(env: Env, limit = 50) {
   );
 }
 
+/** Public posts that mention @Zaisma, where Zaisma hasn't posted since. */
+export async function zaismaMentioned(env: Env) {
+  const { results } = await env.DB.prepare(
+    `SELECT p.id, p.feedback_id, p.text, p.created_at, p.author, p.account_id, COALESCE(f.known_title, f.title) AS title FROM feedback_mentions m
+     JOIN feedback_posts p ON p.id = m.post_id JOIN feedback f ON f.id = p.feedback_id
+     WHERE m.account_id = 'zaisma' AND p.check_state = 'ok' AND f.shown = 1
+       AND NOT EXISTS (SELECT 1 FROM feedback_posts z WHERE z.feedback_id = p.feedback_id AND z.author = 'zaisma' AND z.created_at > p.created_at)
+     ORDER BY p.created_at DESC LIMIT 20`,
+  ).all<{ id: string; feedback_id: string; text: string; created_at: number; author: FeedbackAuthor; account_id: string | null; title: string }>();
+  return Promise.all(results.map(async (p) => ({ post: p.id, topic: { id: p.feedback_id, title: p.title }, developer: await accountName(env, p.account_id), by: ADMIN_BY[p.author], text: p.text.slice(0, 500), at: iso(p.created_at) })));
+}
+
 /** What AI sorting found: its summary, why, and a drafted known issue to approve with decide_feedback. */
 function sortedJson(f: Feedback) {
   // Only new items on their own are sorted; known issues and grouped items never wait for it.
@@ -454,14 +509,16 @@ export async function adminFeedbackItem(env: Env, id: string) {
   const { results: posts } = await env.DB.prepare("SELECT * FROM feedback_posts WHERE feedback_id = ? ORDER BY created_at, rowid").bind(f.id).all<FeedbackPost>();
   const { results: members } = await env.DB.prepare("SELECT * FROM feedback WHERE group_id = ? ORDER BY created_at").bind(f.id).all<Feedback>();
   const game = f.game_id ? await gameById(env.DB, f.game_id) : null;
+  const media = await mediaOf(env, posts.map((p) => p.id));
+  const images = [
+    ...posts.filter((p) => p.picture).map((p) => ({ key: feedbackPictureKey(p.id), type: p.picture! })),
+    ...posts.flatMap((p) => (media.get(p.id) ?? []).map((m) => ({ key: feedbackMediaKey(m.id), type: m.type }))),
+  ].slice(-3);
   const pictures = await Promise.all(
-    posts
-      .filter((p) => p.picture)
-      .slice(-3)
-      .map(async (p) => {
-        const object = await env.GAMES.get(feedbackPictureKey(p.id));
-        return object ? { data: toBase64(new Uint8Array(await object.arrayBuffer())), mimeType: p.picture! } : null;
-      }),
+    images.map(async (i) => {
+      const object = await env.GAMES.get(i.key);
+      return object ? { data: toBase64(new Uint8Array(await object.arrayBuffer())), mimeType: i.type } : null;
+    }),
   );
   return {
     data: {
@@ -486,6 +543,7 @@ export async function adminFeedbackItem(env: Env, id: string) {
         text: p.text,
         context: p.context ? JSON.parse(p.context) : null,
         picture: Boolean(p.picture),
+        media: (media.get(p.id) ?? []).map((m) => m.id),
         // On a public topic: shown, held by the check (with why) or not checked yet.
         ...(p.check_state ? { check: p.check_state === "ok" ? "shown" : p.check_state === "held" ? `held: ${p.check_reason ?? ""}` : "not checked yet" } : {}),
         ...(p.reply_to ? { reply_to: p.reply_to } : {}),
@@ -520,7 +578,11 @@ export async function zaismaPost(env: Env, feedbackId: string, kind: "post" | "s
     env.DB.prepare("UPDATE feedback SET updated_at = ?, news_at = ?, active_at = ?, replies = replies + public WHERE id = ?").bind(at, at, at, feedbackId),
   ]);
   const shown = await env.DB.prepare("SELECT shown FROM feedback WHERE id = ?").bind(feedbackId).first<{ shown: number }>();
-  if (shown?.shown) await indexPost(env, { id, feedback_id: feedbackId, text, kind });
+  if (shown?.shown) {
+    await indexPost(env, { id, feedback_id: feedbackId, text, kind });
+    await saveMentions(env, feedbackId, id, text, null);
+    await notifyMentions(env, id, feedbackId, at);
+  }
 }
 
 const STATUS_WORDS: Record<string, string> = {

@@ -120,7 +120,7 @@ beforeEach(async () => {
     const url = new URL(input instanceof Request ? input.url : String(input));
     return url.origin === SUPABASE ? fakeSupabase(url, init) : realFetch(input, init);
   });
-  await env.DB.exec("DELETE FROM feedback_posts; DELETE FROM feedback_tags; DELETE FROM feedback_votes; DELETE FROM feedback_follows; DELETE FROM feedback; DELETE FROM played; DELETE FROM game_images; DELETE FROM api_keys; DELETE FROM passkeys; DELETE FROM save_history; DELETE FROM saves; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
+  await env.DB.exec("DELETE FROM feedback_posts; DELETE FROM feedback_tags; DELETE FROM feedback_votes; DELETE FROM feedback_follows; DELETE FROM feedback_media; DELETE FROM feedback_mentions; DELETE FROM feedback; DELETE FROM played; DELETE FROM game_images; DELETE FROM api_keys; DELETE FROM passkeys; DELETE FROM save_history; DELETE FROM saves; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -804,13 +804,14 @@ describe("the dashboard", () => {
     const png = new Uint8Array(64);
     png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);
     const added = await SELF.fetch(`${SITE}/api/dev/forum/${id}/posts`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ text: "It fails at the last 4 MB part.", picture: btoa(String.fromCharCode(...png)) }) });
-    const aiPost = ((await added.json()) as { post: { id: string } }).post;
+    const aiPost = ((await added.json()) as { post: { id: string; media: { id: string }[] } }).post;
+    const image = aiPost.media[0]!.id;
     const thread = await (await b.go(`/forum/${id}?done=posted-private`)).text();
     expect(thread).toContain("<strong>Night Owl</strong>");
     expect(thread).toContain('class="mark ai"');
     expect(thread).toContain("A message to Zaisma: only you and Zaisma see it");
-    expect(thread).toContain(`/forum/${id}/pictures/${aiPost.id}`);
-    expect((await b.go(`/forum/${id}/pictures/${aiPost.id}`)).headers.get("content-type")).toBe("image/png");
+    expect(thread).toContain(`/forum/media/${image}`);
+    expect((await b.go(`/forum/media/${image}`)).headers.get("content-type")).toBe("image/png");
     expect(await (await b.go("/forum/messages")).text()).toContain("Upload stalls at 99%");
     expect(await (await b.go("/forum?tab=yours")).text()).not.toContain("Upload stalls at 99%");
 
@@ -833,7 +834,7 @@ describe("the dashboard", () => {
     const other = new Browser();
     await join(other, "other@example.com", "Other Owl");
     expect((await other.go(`/forum/${id}`)).status).toBe(404);
-    expect((await other.go(`/forum/${id}/pictures/${aiPost.id}`)).status).toBe(404);
+    expect((await other.go(`/forum/media/${image}`)).status).toBe(404);
     expect((await b.go("/dashboard/feedback")).headers.get("location")).toBe("/forum?tab=yours");
     expect((await b.go(`/dashboard/feedback/${id}`)).headers.get("location")).toBe(`/forum/${id}`);
   });
