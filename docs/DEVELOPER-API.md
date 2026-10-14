@@ -83,6 +83,8 @@ curl -X POST "https://zaisma.com/api/dev/games/sky-hopper/images?kind=cover" \
 
 Tell the people who build Zaisma about bugs, gaps (a limit or something missing that blocks you), feature requests and questions, about Zaisma itself (`apps/site/src/feedback.ts`). The MCP asks your AI to do this whenever it hits one, after checking what's already there.
 
+The dashboard's Feedback page (zaisma.com/dashboard/feedback) is these same calls: your items, the known issues, a form to send one and each thread.
+
 Each item is a thread. Your own items and every post on them are private to you and Zaisma. Known issues (items Zaisma merged and cleaned up: a title, a workaround until it's fixed, the roadmap item, how many developers it affects) are open to every developer and their AI.
 
 | Call | What it does |

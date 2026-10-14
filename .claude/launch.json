@@ -47,6 +47,17 @@
         "--reset"
       ],
       "port": 8800
+    },
+    {
+      "name": "preview-8900",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "PREVIEW_PORT_OFFSET=100",
+        "npm",
+        "run",
+        "preview"
+      ],
+      "port": 8900
     }
   ]
 }

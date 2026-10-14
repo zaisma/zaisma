@@ -355,7 +355,7 @@ export function securityHeaders(env: Env, extra: Record<string, string> = {}, ch
 // Pages stay cacheable for everyone, so the header learns about sign-in from a readable hint cookie.
 const ACCOUNT_LINK = `<a id="account-link" class="btn ghost" href="/signin">Sign in</a><script>if(/(^|; )(__Host-)?zaisma_in=1/.test(document.cookie)){var a=document.getElementById("account-link");a.href="/account";a.textContent="Account"}</script>`;
 
-export function layout(env: Env, opts: { title: string; body: Raw; bare?: boolean; admin?: boolean; private?: boolean; nav?: "dashboard" | "home"; art?: string | null; check?: boolean }): Response {
+export function layout(env: Env, opts: { title: string; body: Raw; bare?: boolean; admin?: boolean; private?: boolean; nav?: "dashboard" | "feedback" | "home"; art?: string | null; check?: boolean }): Response {
   const doc = html`<!doctype html>
 <html lang="en">
 <head>
@@ -390,10 +390,10 @@ export function ambient(art: string | null | undefined): Raw {
 }
 
 /** The site's header, also used on its own by pages that lay themselves out (the game page). */
-export function siteHeader(env: Env, opts: { admin?: boolean; nav?: "dashboard" | "home" } = {}): Raw {
+export function siteHeader(env: Env, opts: { admin?: boolean; nav?: "dashboard" | "feedback" | "home" } = {}): Raw {
   return html`<header class="top"><div class="in">
   <a class="logo" href="/" aria-label="Zaisma home"><img src="/zaisma-wordmark-metal.svg" alt="Zaisma"></a>
-  <nav>${opts.admin ? html`<a href="/admin">Admin</a><a href="/admin/reports">Reports</a><a href="/admin/precedents">Precedents</a><a href="/admin/audit">Audit log</a>` : opts.nav === "dashboard" ? html`<a href="/">Home</a><a href="/dashboard" aria-current="page">Your games</a>` : html`<a href="/"${opts.nav === "home" ? raw(' aria-current="page"') : ""}>Home</a>`}</nav>
+  <nav>${opts.admin ? html`<a href="/admin">Admin</a><a href="/admin/reports">Reports</a><a href="/admin/feedback">Feedback</a><a href="/admin/precedents">Precedents</a><a href="/admin/audit">Audit log</a>` : opts.nav === "dashboard" || opts.nav === "feedback" ? html`<a href="/">Home</a><a href="/dashboard"${opts.nav === "dashboard" ? raw(' aria-current="page"') : ""}>Your games</a><a href="/dashboard/feedback"${opts.nav === "feedback" ? raw(' aria-current="page"') : ""}>Feedback</a>` : html`<a href="/"${opts.nav === "home" ? raw(' aria-current="page"') : ""}>Home</a>`}</nav>
   <div class="end">${env.SUPABASE_URL ? raw(ACCOUNT_LINK) : ""}</div>
 </div></header>`;
 }

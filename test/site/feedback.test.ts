@@ -46,6 +46,10 @@ const PNG = (() => {
   return btoa(String.fromCharCode(...b));
 })();
 
+async function adminPost(path: string, form: Record<string, string>): Promise<Response> {
+  return SELF.fetch(`${LOCAL}${path}`, { method: "POST", body: new URLSearchParams(form), redirect: "manual" });
+}
+
 beforeEach(async () => {
   await env.DB.exec("DELETE FROM feedback_posts; DELETE FROM feedback; DELETE FROM api_keys; DELETE FROM audit_log; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
   await createAccount(env.DB, { id: "dev-1", name: "Pixel Smith", ageBand: "18+" });
@@ -173,6 +177,38 @@ describe("threads and known issues", () => {
     expect(decided).toMatchObject({ status: "planned", severity: "low", area: "mcp", known_issue: { title: "Webhooks", roadmap: "Webhooks for developers" } });
     expect((await admin("decide_feedback", { id: feedback.id, status: "nope" })).error).toBeDefined();
     expect((await admin("list_feedback")).feedback).toEqual([]);
+  });
+
+  it("is worked through on the admin pages, with only what the form changed applied", async () => {
+    const { feedback } = await mcp("send_feedback", { kind: "bug", title: "upload_files says too_big at 3 MB", text: "My 3 MB build fails.", picture_base64: PNG });
+    const queue = await (await SELF.fetch(`${LOCAL}/admin/feedback`)).text();
+    expect(queue).toContain("upload_files says too_big at 3 MB");
+    expect(queue).toContain("Waiting to be sorted.");
+    expect(await (await SELF.fetch(`${LOCAL}/admin`)).text()).toContain("Feedback from developers (1)");
+
+    // Make it a known issue with a reply; severity and area as they were.
+    const form = { back: "queue", status_filter: "new", reply: "Found it.", known: "1", k_title: "upload_files refuses builds over 3 MB", k_workaround: "Use the upload command.", k_roadmap: "", status: "known", severity: "3", area: "" };
+    const saved = await adminPost(`/admin/feedback/${feedback.id}/decide`, form);
+    expect(saved.headers.get("location")).toBe(`/admin/feedback?status=new#f-${feedback.id}`);
+    const mine = (await mcp("get_feedback", { id: feedback.id })).feedback;
+    expect(mine).toMatchObject({ status: "known", known_issue: { title: "upload_files refuses builds over 3 MB", workaround: "Use the upload command." } });
+    expect(mine.posts.map((p: { text: string }) => p.text)).toEqual(["My 3 MB build fails.", "Until it's fixed: Use the upload command.", "Zaisma knows about this. Found it."]);
+
+    // Saving the same form again changes nothing and tells nobody.
+    await adminPost(`/admin/feedback/${feedback.id}/decide`, { ...form, reply: "" });
+    expect((await mcp("get_feedback", { id: feedback.id })).feedback.posts).toHaveLength(3);
+
+    // Unticking it stops it being a known issue; a refusal comes back on the item's page.
+    await adminPost(`/admin/feedback/${feedback.id}/decide`, { ...form, reply: "", known: "" });
+    expect((await mcp("get_feedback", { id: feedback.id })).feedback.known_issue).toBeNull();
+    const refused = await adminPost(`/admin/feedback/${feedback.id}/decide`, { ...form, reply: "", k_title: "" });
+    expect(refused.headers.get("location")).toContain(`/admin/feedback/${feedback.id}?error=`);
+
+    // The item page shows every post with who wrote it, and the screenshot.
+    const item = await (await SELF.fetch(`${LOCAL}/admin/feedback/${feedback.id}`)).text();
+    expect(item).toContain("the developer&#39;s AI");
+    const postId = item.match(/\/admin\/feedback\/pictures\/([a-z0-9]+)/)![1]!;
+    expect((await SELF.fetch(`${LOCAL}/admin/feedback/pictures/${postId}`)).headers.get("content-type")).toBe("image/png");
   });
 });
 

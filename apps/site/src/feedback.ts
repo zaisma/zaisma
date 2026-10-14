@@ -373,7 +373,7 @@ export async function adminFeedbackList(env: Env, status = "new", limit = 30) {
       };
     }),
   );
-  const out: Record<string, unknown> = { feedback: rows };
+  const out: { feedback: typeof rows; reopened_or_added?: { id: string; title: string; group_id: string; group_status: string }[] } = { feedback: rows };
   if (status === "new") {
     const { results } = await env.DB
       .prepare("SELECT f.id, f.title, f.group_id, g.status AS group_status FROM feedback f JOIN feedback g ON g.id = f.group_id WHERE f.status = 'new' AND g.status != 'new' ORDER BY f.updated_at DESC LIMIT 50")
@@ -385,7 +385,8 @@ export async function adminFeedbackList(env: Env, status = "new", limit = 30) {
 
 /** What AI sorting found: its summary, why, and a drafted known issue to approve with decide_feedback. */
 function sortedJson(f: Feedback) {
-  if (!f.triage) return f.triaged_at ? null : "not yet";
+  // Only new items on their own are sorted; known issues and grouped items never wait for it.
+  if (!f.triage) return f.triaged_at || f.known_title || f.group_id || f.status !== "new" ? null : "not yet";
   const t = JSON.parse(f.triage) as FeedbackTriage;
   return { by_ai: t.ai, summary: t.summary, why: t.why, ...(t.merged_into ? { merged_into: t.merged_into } : {}), ...(t.draft ? { draft_known_issue: t.draft } : {}) };
 }
@@ -420,7 +421,7 @@ export async function adminFeedbackItem(env: Env, id: string) {
       known_issue: f.known_title ? { title: f.known_title, workaround: f.workaround, roadmap: f.roadmap, developers: (await developersIn(env, [f.id])).get(f.id) ?? 0 } : null,
       merged_into: lead ? { id: lead.id, title: lead.known_title ?? lead.title, status: lead.status } : null,
       sorted: sortedJson(f),
-      posts: posts.map((p) => ({ by: ADMIN_BY[p.author], via: p.via, kind: p.kind, text: p.text, context: p.context ? JSON.parse(p.context) : null, picture: Boolean(p.picture), at: iso(p.created_at) })),
+      posts: posts.map((p) => ({ id: p.id, by: ADMIN_BY[p.author], via: p.via, kind: p.kind, text: p.text, context: p.context ? JSON.parse(p.context) : null, picture: Boolean(p.picture), at: iso(p.created_at) })),
       merged_here: await Promise.all(members.map(async (m) => ({ id: m.id, developer: await accountName(env, m.account_id), title: m.title, status: m.status, latest: await latestPost(env, m.id, 500) }))),
     },
     pictures: pictures.filter((p): p is { data: string; mimeType: string } => p !== null),

@@ -13,7 +13,9 @@ import { openTestRooms, pretendRoomsSql } from "./test-rooms.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const STATE = join(ROOT, ".wrangler/preview");
-const PORTS = { site: 8800, games: 8801, rooms: 8802, auth: 8790, ai: 8791 };
+// PREVIEW_PORT_OFFSET=100 moves every port up (site on 8900), for a second checkout while another runs its preview.
+const OFFSET = Number(process.env.PREVIEW_PORT_OFFSET) || 0;
+const PORTS = { site: 8800 + OFFSET, games: 8801 + OFFSET, rooms: 8802 + OFFSET, auth: 8790 + OFFSET, ai: 8791 + OFFSET };
 const SITE = `http://localhost:${PORTS.site}`;
 const GAMES = `http://localhost:${PORTS.games}`;
 const ROOMS = `http://localhost:${PORTS.rooms}`;
@@ -77,11 +79,11 @@ children.push(spawn("node", [join(ROOT, "scripts/preview/fake-ai.mjs"), String(P
 console.log("Applying database updates…");
 spawnSync("npx", ["wrangler", "d1", "migrations", "apply", "zaisma", "--local", "--persist-to", STATE], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
 // One at a time: they share the preview's database, and starting together can find it locked.
-children.push(wrangler("games", ["dev", "--port", String(PORTS.games), "--inspector-port", "9341", "--persist-to", STATE, "--env-file", join(STATE, "games.env")], { quiet: true }));
+children.push(wrangler("games", ["dev", "--port", String(PORTS.games), "--inspector-port", String(9341 + OFFSET), "--persist-to", STATE, "--env-file", join(STATE, "games.env")], { quiet: true }));
 await waitFor(GAMES);
-children.push(wrangler("site", ["dev", "--port", String(PORTS.site), "--inspector-port", "9340", "--local-upstream", `localhost:${PORTS.site}`, "--persist-to", STATE, "--env-file", join(STATE, "site.env"), "--test-scheduled"], { quiet: true }));
+children.push(wrangler("site", ["dev", "--port", String(PORTS.site), "--inspector-port", String(9340 + OFFSET), "--local-upstream", `localhost:${PORTS.site}`, "--persist-to", STATE, "--env-file", join(STATE, "site.env"), "--test-scheduled"], { quiet: true }));
 await waitFor(SITE);
-children.push(wrangler("rooms", ["dev", "--port", String(PORTS.rooms), "--inspector-port", "9342", "--persist-to", STATE, "--env-file", join(STATE, "rooms.env")], { quiet: true }));
+children.push(wrangler("rooms", ["dev", "--port", String(PORTS.rooms), "--inspector-port", String(9342 + OFFSET), "--persist-to", STATE, "--env-file", join(STATE, "rooms.env")], { quiet: true }));
 await waitFor(ROOMS);
 if (fresh) {
   console.log("Adding test games…");
@@ -129,6 +131,7 @@ Zaisma preview is running. Nothing here touches the live site.
   Your games      ${SITE}/dashboard
   Admin           ${SITE}/admin
   Report queue    ${SITE}/admin/reports
+  Feedback        ${SITE}/dashboard/feedback  and the admin queue at ${SITE}/admin/feedback
 
 Sign in with any email and the code 123456. ${EMAIL} owns the test games.
 Stop with Ctrl+C. Fresh data: npm run preview -- --reset
@@ -246,6 +249,50 @@ async function seed() {
   await api("POST", `/games/${secret.slug}/testers`, { name: "My team" });
   const { tester: arena } = await api("POST", "/games/arena/testers", { name: "Streamer" });
   writeFileSync(join(STATE, "testers.json"), JSON.stringify({ secret: tester.url, arena: arena.url }));
+
+  // Feedback about Zaisma. Another developer hit a rooms bug first, and Zaisma made it a known issue;
+  // the preview account's AI then hits it too (the stand-in AI merges it in) and sends a bug of its
+  // own, and the developer sends a gap and a question that Zaisma answers.
+  const other = await developer("Other Studio", "other@zaisma.test");
+  const { feedback: rooms } = await other("POST", "/feedback", { kind: "bug", author: "person", title: "Rooms disconnect everyone when the 50th player joins", text: "Every time a room reaches 50 players, every player in it is disconnected at once. Under 50 it's fine." });
+  await go(`/admin/feedback/${rooms.id}/decide`, form({ known: "1", k_title: "Rooms drop every player at 50", k_workaround: "Cap rooms at 40 players for now.", k_roadmap: "Multiplayer", status: "known", severity: "2", area: "rooms", reply: "Thanks, we can see it happening." }));
+  await api("POST", "/feedback", {
+    kind: "bug",
+    game: "arena",
+    title: "upload_files fails with too_big for a 3 MB game",
+    text: "Uploading Arena's new build with upload_files fails straight away with too_big, though the whole build is 3.1 MB. The upload command sends the same folder fine.",
+    context: { tool: "upload_files", error: { code: "too_big", message: "That's more than upload_files takes." }, files: 14, bytes: 3250000 },
+    picture: Buffer.from(picture([150, 70, 160], 1)).toString("base64"),
+  });
+  await api("POST", "/feedback", { kind: "bug", game: "cave-crew", title: "Room drops every player once it fills up", text: "Cave Crew's rooms drop every player once about 50 join. Players get disconnected all at once." });
+  await api("POST", "/feedback", { kind: "gap", author: "person", title: "Builds over 500 MB", text: "My Unity export is 640 MB with its streaming assets. Is the 500 MB limit going to change? I can't split it." });
+  const { feedback: question } = await api("POST", "/feedback", { kind: "question", author: "person", title: "Can a game use its own domain?", text: "I'd like players to reach Cave Crew at cavecrew.example. Is that possible?" });
+  await go(`/admin/feedback/${question.id}/decide`, form({ status: "answered", severity: "4", area: "pages", reply: "Not yet. Games are served from Zaisma's game domain for safety; a custom domain can link to your game page." }));
+}
+
+/** Another developer account, signed in with its own API key: answers an API call function. */
+async function developer(name, email) {
+  const jar = new Map();
+  const go = async (path, body) => {
+    const res = await fetch(SITE + path, { method: "POST", body: new URLSearchParams(body), redirect: "manual", headers: { origin: SITE, cookie: [...jar].map(([k, v]) => `${k}=${v}`).join("; ") } });
+    for (const c of res.headers.getSetCookie()) {
+      const [pair] = c.split("; ");
+      const i = pair.indexOf("=");
+      jar.set(pair.slice(0, i), pair.slice(i + 1));
+    }
+    return res;
+  };
+  await go("/join/age", { month: "3", day: "14", year: "1988" });
+  await go("/join/email", { name, email });
+  await go("/signin/code", { email, code: "123456" });
+  const key = (await (await go("/account/keys", { name: "preview" })).text()).match(/zsk_[a-z0-9]+_[A-Za-z0-9_-]+/)?.[0];
+  if (!key) throw new Error(`Couldn't make ${name}'s API key.`);
+  return async (method, path, body) => {
+    const res = await fetch(`${SITE}/api/dev${path}`, { method, headers: { authorization: `Bearer ${key}`, "content-type": "application/json" }, body: JSON.stringify(body) });
+    const data = await res.json();
+    if (!res.ok) throw new Error(`${method} ${path}: ${data.error?.message}`);
+    return data;
+  };
 }
 
 /** A 16:9 test picture that reads like game art: a sky, a sun and two ranges of hills, in the game's colors. */

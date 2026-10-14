@@ -19,6 +19,8 @@ Child-safety reports come first. Triage never sorts them with AI, but here the a
 
 Every few minutes an AI sorts new feedback (`apps/site/src/feedback-sort.ts`), on the same run and monthly AI budget as report triage: it sets severity and area, merges a duplicate into the item or known issue it repeats (a developer merged into a known issue is told an AI matched it, and gets the workaround), alerts on anything urgent, and drafts a known issue for a new problem. The draft stays private until the admin approves it with `decide_feedback`.
 
+The same queue is on the admin pages at `zaisma.com/admin/feedback` (`apps/site/src/admin-feedback.ts`): the cards come from `list_feedback`, each item's page from `get_feedback`, and saving a card calls `decide_feedback` with only what the form changed.
+
 ## Connect Claude Code
 
 1. In the Cloudflare dashboard: Zero Trust → Access → Service credentials → Service Tokens → Create a service token (for example "Claude admin MCP"). Copy the client ID and secret; the secret is shown once.

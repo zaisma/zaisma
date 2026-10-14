@@ -1,6 +1,7 @@
 import { env, SELF } from "cloudflare:test";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { accountById, ageBand, ageOn, canonicalSave, checkName, gameById, gameBySlug, gameOwner, saveKey, sha256Hex } from "@zaisma/core";
+import { accountById, ageBand, ageOn, canonicalSave, checkName, createApiKey, gameById, gameBySlug, gameOwner, saveKey, sha256Hex } from "@zaisma/core";
+import { decideFeedback } from "../../apps/site/src/feedback.ts";
 import { scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
 
 const SITE = "https://zaisma.test";
@@ -118,7 +119,7 @@ beforeEach(async () => {
     const url = new URL(input instanceof Request ? input.url : String(input));
     return url.origin === SUPABASE ? fakeSupabase(url, init) : realFetch(input, init);
   });
-  await env.DB.exec("DELETE FROM played; DELETE FROM game_images; DELETE FROM api_keys; DELETE FROM passkeys; DELETE FROM save_history; DELETE FROM saves; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
+  await env.DB.exec("DELETE FROM feedback_posts; DELETE FROM feedback; DELETE FROM played; DELETE FROM game_images; DELETE FROM api_keys; DELETE FROM passkeys; DELETE FROM save_history; DELETE FROM saves; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -772,6 +773,83 @@ describe("the dashboard", () => {
     expect((await other.go("/dashboard/mine")).status).toBe(404);
     expect((await other.go("/dashboard/mine/visibility", { visibility: "draft" })).status).toBe(404);
     expect((await owner.go("/dashboard/mine/visibility", { visibility: "listed" }, { origin: "https://evil.example" })).status).toBe(403);
+  });
+
+  it("sends feedback, shows the thread with who wrote each post, and adds to it", async () => {
+    const b = new Browser();
+    await join(b);
+    await b.go("/dashboard/new", { title: "Sky Hopper" });
+    const empty = await (await b.go("/dashboard/feedback")).text();
+    expect(empty).toContain("Nothing sent yet");
+    expect(empty).toContain('<option value="sky-hopper">Sky Hopper</option>');
+
+    // A refusal keeps what was typed.
+    const refused = await b.go("/dashboard/feedback", { kind: "bug", title: "", text: "Kept text" });
+    expect(refused.status).toBe(400);
+    expect(await refused.text()).toContain("Kept text");
+
+    const sent = await b.go("/dashboard/feedback", { kind: "bug", title: "Upload stalls at 99%", text: "My 300 MB build stops near the end.", game: "sky-hopper" });
+    const id = sent.headers.get("location")!.match(/^\/dashboard\/feedback\/([a-z0-9]+)\?done=sent$/)![1]!;
+    const post = await env.DB.prepare("SELECT author, via FROM feedback_posts WHERE feedback_id = ?").bind(id).first();
+    expect(post).toEqual({ author: "person", via: "dashboard" });
+
+    // Their AI adds to it through the API, with a screenshot; the page labels each post and shows it.
+    const account = (await env.DB.prepare("SELECT id FROM accounts WHERE name = ?").bind("Night Owl").first<{ id: string }>())!;
+    const { token } = await createApiKey(env.DB, account.id, "claude");
+    const png = new Uint8Array(64);
+    png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);
+    const added = await SELF.fetch(`${SITE}/api/dev/feedback/${id}/posts`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ text: "It fails at the last 4 MB part.", picture: btoa(String.fromCharCode(...png)) }) });
+    const aiPost = ((await added.json()) as { feedback: { posts: { id: string }[] } }).feedback.posts[1]!;
+    const thread = await (await b.go(`/dashboard/feedback/${id}?done=sent`)).text();
+    expect(thread).toContain("<strong>You</strong>");
+    expect(thread).toContain("<strong>Your AI</strong>");
+    expect(thread).toContain(`/dashboard/feedback/${id}/pictures/${aiPost.id}`);
+    const pic = await b.go(`/dashboard/feedback/${id}/pictures/${aiPost.id}`);
+    expect(pic.headers.get("content-type")).toBe("image/png");
+
+    // Zaisma's reply is news on Your games until the thread is opened.
+    await decideFeedback(env, id, { reply: "We are on it." });
+    expect(await (await b.go("/dashboard")).text()).toContain("Zaisma replied to your feedback");
+    expect(await (await b.go(`/dashboard/feedback/${id}`)).text()).toContain("We are on it.");
+    expect(await (await b.go("/dashboard")).text()).not.toContain("Zaisma replied");
+
+    // Closed, it offers reopening.
+    await decideFeedback(env, id, { status: "fixed" });
+    expect(await (await b.go(`/dashboard/feedback/${id}`)).text()).toContain('name="reopen" value="1"');
+    const reopened = await b.go(`/dashboard/feedback/${id}/posts`, { text: "Back again.", reopen: "1" });
+    expect(reopened.headers.get("location")).toBe(`/dashboard/feedback/${id}?done=reopened#latest`);
+    expect((await env.DB.prepare("SELECT status FROM feedback WHERE id = ?").bind(id).first<{ status: string }>())!.status).toBe("new");
+
+    // Someone else's item looks like no item, and so do its pictures.
+    const other = new Browser();
+    await join(other, "other@example.com", "Other Owl");
+    expect((await other.go(`/dashboard/feedback/${id}`)).status).toBe(404);
+    expect((await other.go(`/dashboard/feedback/${id}/pictures/${aiPost.id}`)).status).toBe(404);
+  });
+
+  it("lists known issues for everyone and adds a developer's case to one", async () => {
+    const first = new Browser();
+    await join(first);
+    const id = (await first.go("/dashboard/feedback", { kind: "bug", title: "Rooms drop at 50", text: "Everyone is disconnected." })).headers.get("location")!.split("/")[3]!.split("?")[0]!;
+    await decideFeedback(env, id, { status: "known", known_issue: { title: "Rooms drop every player at 50", workaround: "Cap rooms at 40." } });
+
+    const other = new Browser();
+    await join(other, "other@example.com", "Other Owl");
+    const list = await (await other.go("/dashboard/feedback")).text();
+    expect(list).toContain("Rooms drop every player at 50");
+    expect(list).toContain("Cap rooms at 40.");
+    expect(list).not.toContain("Everyone is disconnected.");
+    const issue = await (await other.go(`/dashboard/feedback/${id}`)).text();
+    expect(issue).toContain("Add my case");
+    expect(issue).not.toContain("Everyone is disconnected.");
+
+    const added = await other.go(`/dashboard/feedback/${id}/posts`, { text: "Mine too, at 50 exactly." });
+    const mine = added.headers.get("location")!.match(/^\/dashboard\/feedback\/([a-z0-9]+)\?done=sent#latest$/)![1]!;
+    expect(mine).not.toBe(id);
+    const page = await (await other.go(`/dashboard/feedback/${mine}`)).text();
+    expect(page).toContain("Part of the known issue");
+    expect(page).toContain("2 developers");
+    expect(await (await other.go(`/dashboard/feedback/${id}`)).text()).toContain(`/dashboard/feedback/${mine}`);
   });
 });
 
