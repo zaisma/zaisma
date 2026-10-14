@@ -398,23 +398,51 @@ async function topicPage(ctx: Ctx, id: string, opts: { done?: string; error?: st
     html`<div class="topic">
 <article class="t-main">
   <p class="crumbs"><a href="/forum">Forum</a>${place ? html`<span>/</span><a href="/forum?category=${place.category}">${place.name}</a><span>/</span><a href="/forum?category=${t.category}">${place.sub}</a>` : ""}</p>
-  <h1 class="t-title"><span class="ticon k-${t.known_issue ? "known" : t.kind}" title="${t.known_issue ? "Known issue" : KINDS[t.kind].label}">${kindIcon(t)}</span>${t.title}</h1>
-  <p class="t-meta"><span class="kind">${t.known_issue ? "Known issue" : KINDS[t.kind].label}</span>${statusPill(t.status, t.public)}${t.tags.map(tagChip)}${t.public ? "" : html`<span class="flag">${ICONS.lock}Only you and Zaisma can see this</span>`}${t.game ? html`<span class="muted">About <a href="/dashboard/${t.game}">${t.game}</a>, which only you and Zaisma see</span>` : ""}</p>
   ${notice}
   ${t.public && !t.shown ? html`<p class="note warn-note">Others see this topic once its first post is checked${first?.state === "held" ? ": a person at Zaisma looks at it, usually within a day" : ", usually within minutes"}.</p>` : ""}
-  ${t.known_issue
-    ? html`<div class="known-box plate bevel-s"><p class="kb-head">${ICONS.known}<strong>A known issue</strong><span class="muted">Zaisma knows about this. ${t.developers === 1 ? "1 developer has" : `${t.developers} developers have`} hit it${t.roadmap ? html`; it's part of <strong>${t.roadmap}</strong> on the roadmap` : ""}.</span></p>
-      ${t.workaround ? html`<p class="kb-work"><strong>Until it's fixed:</strong> ${t.workaround}</p>` : ""}</div>`
-    : ""}
-  ${t.merged_into ? html`<div class="known-box plate bevel-s"><p class="kb-head">${ICONS.known}<span>Part of the known issue <a href="/forum/${t.merged_into.id}"><strong>${t.merged_into.title}</strong></a>.</span></p>${t.merged_into.workaround ? html`<p class="kb-work"><strong>Until it's fixed:</strong> ${t.merged_into.workaround}</p>` : ""}</div>` : ""}
-  ${answer && opening ? html`<p class="jump">${ICONS.check}<a href="#p-${answer.id}">Answered by ${answer.by.name}${answer.by.by === "ai" ? "'s AI" : ""}</a></p>` : ""}
-  <ol class="posts">${opening ? postItem(t, opening, data.posts, true) : ""}${rest.map((p) => postItem(t, p, data.posts, false))}</ol>
+  ${opPost(ctx, t, opening, answer)}
+  ${rest.length
+    ? html`<h2 class="replies-h">${rest.filter((p) => p.kind !== "status" || p.text.length > 60).length === 1 ? "1 reply" : `${rest.filter((p) => p.kind !== "status" || p.text.length > 60).length} replies`}</h2>
+  <ol class="posts">${rest.map((p) => postItem(t, p, data.posts, false))}</ol>`
+    : html`<p class="no-replies muted">No replies yet.</p>`}
   ${composer(ctx, t, data.posts_left_today, opts.text ?? "", to)}
 </article>
 ${sidePanel(ctx, t, data.posts)}
 </div>`,
     { status },
   );
+}
+
+/**
+ * The opening post is the topic: its title, who started it and when, what it is, the post itself in
+ * larger type, and the topic's actions. A known issue opens with Zaisma's summary instead.
+ */
+function opPost(ctx: Ctx, t: Topic["topic"], p: PostJson | null, answer: PostJson | undefined): Raw {
+  const voteWords = t.known_issue ? "This happens to me too" : t.kind === "feature" ? "I want this too" : t.kind === "question" ? "I have this question too" : t.kind === "talk" ? "Me too" : "This happens to me too";
+  const count = t.known_issue ? t.developers ?? 0 : t.votes;
+  return html`<article class="op plate bevel-s"${p ? raw(` id="p-${p.id}"`) : ""}>
+  <h1 class="t-title"><span class="ticon k-${t.known_issue ? "known" : t.kind}" title="${t.known_issue ? "Known issue" : KINDS[t.kind].label}">${kindIcon(t)}</span>${t.title}</h1>
+  <p class="t-meta"><span class="kind">${t.known_issue ? "Known issue" : KINDS[t.kind].label}</span>${statusPill(t.status, t.public)}${t.tags.map(tagChip)}${t.public ? "" : html`<span class="flag">${ICONS.lock}Only you and Zaisma can see this</span>`}${t.game ? html`<span class="muted">About <a href="/dashboard/${t.game}">${t.game}</a>, which only you and Zaisma see</span>` : ""}</p>
+  <div class="op-by">${avatar(t.author, "md")}<div><p class="op-name">${nameOf(t.author)}${p?.state === "checking" ? html`<span class="flag warn">Being checked: only you see it yet</span>` : p?.state === "held" ? html`<span class="flag warn">Waiting for a person at Zaisma: only you see it yet</span>` : ""}</p><p class="muted">${t.known_issue ? "Known issue" : "Started this"} ${ago(t.created_at)}</p></div></div>
+  ${t.known_issue
+    ? html`<div class="op-text"><p>Zaisma knows about this. ${t.developers === 1 ? "1 developer has" : `${t.developers} developers have`} hit it${t.roadmap ? html`; it's part of <strong>${t.roadmap}</strong> on the roadmap` : ""}.</p>${t.workaround ? html`<p class="kb-work"><strong>Until it's fixed:</strong> ${t.workaround}</p>` : ""}</div>`
+    : p
+      ? html`<div class="op-text p-text">${richText(p.text)}</div>
+  ${p.context ? html`<details class="p-att"><summary>What ${p.by.by === "ai" ? "your AI" : "you"} attached (only you and Zaisma see it)</summary><pre>${JSON.stringify(p.context, null, 2)}</pre></details>` : ""}
+  ${p.picture_url ? html`<a class="p-pic" href="/forum/${t.id}/pictures/${p.id}" target="_blank" rel="noopener"><img src="/forum/${t.id}/pictures/${p.id}" alt="Your screenshot" loading="lazy"><small>Only you and Zaisma see your screenshot</small></a>` : ""}`
+      : ""}
+  ${t.merged_into ? html`<div class="known-box"><p class="kb-head">${ICONS.known}<span>Part of the known issue <a href="/forum/${t.merged_into.id}"><strong>${t.merged_into.title}</strong></a>.</span></p>${t.merged_into.workaround ? html`<p class="kb-work"><strong>Until it's fixed:</strong> ${t.merged_into.workaround}</p>` : ""}</div>` : ""}
+  ${answer ? html`<p class="jump">${ICONS.check}<a href="#p-${answer.id}">Answered by ${answer.by.name}${answer.by.by === "ai" ? "'s AI" : ""}</a></p>` : ""}
+  <div class="op-actions">
+    ${t.can.vote
+      ? html`<form method="post" action="/forum/${t.id}/vote"><input type="hidden" name="on" value="${t.voted ? "0" : "1"}"><button class="btn${t.voted ? " ghost" : " light"} vote" type="submit" aria-pressed="${t.voted ? "true" : "false"}">${ICONS.vote}<span>${t.voted ? "You said Me too" : voteWords}</span></button></form>`
+      : ""}
+    ${t.public && t.shown ? html`<span class="op-count"><strong>${count}</strong> ${t.known_issue ? (count === 1 ? "developer affected" : "developers affected") : count === 1 ? "said Me too" : "said Me too"}</span>` : ""}
+    <span class="op-gap"></span>
+    ${t.can.reply && p?.state !== "checking" && p?.state !== "held" ? html`<a class="btn ghost" href="#reply" data-reply-top>${ICONS.reply}Reply</a>` : ""}
+    ${ctx.viewer ? html`<form method="post" action="/forum/${t.id}/follow"><input type="hidden" name="on" value="${t.following ? "0" : "1"}"><button class="btn ghost" type="submit" title="${t.following ? "New replies show in Your topics. Press to stop." : "Hear about new replies in Your topics."}">${t.following ? "Following" : "Follow"}</button></form>` : ""}
+  </div>
+</article>`;
 }
 
 function postItem(t: Topic["topic"], p: PostJson, all: PostJson[], opening: boolean): Raw {
@@ -426,7 +454,7 @@ function postItem(t: Topic["topic"], p: PostJson, all: PostJson[], opening: bool
   return html`<li class="post${p.by.by === "zaisma" ? " z" : ""}${p.answer ? " answer" : ""}${opening ? " opening" : ""}${p.state ? " pending" : ""}" id="p-${p.id}">
   <div class="p-side">${avatar(p.by, "md")}</div>
   <div class="p-body">
-    <header class="p-head">${nameOf(p.by)}${p.kind === "reopen" ? html`<span class="pill pending">Reopened</span>` : ""}${p.answer ? html`<span class="flag ok">${ICONS.check}Answer</span>` : ""}${p.state === "checking" ? html`<span class="flag warn">Being checked: only you see it yet</span>` : p.state === "held" ? html`<span class="flag warn">Waiting for a person at Zaisma: only you see it yet</span>` : ""}<a class="p-when" href="#p-${p.id}">${ago(p.at)}</a></header>
+    <header class="p-head">${nameOf(p.by)}${p.by.by !== "zaisma" && t.author.by !== "zaisma" && p.by.name === t.author.name ? html`<span class="mark op-mark" title="Started this topic">Author</span>` : ""}${p.kind === "reopen" ? html`<span class="pill pending">Reopened</span>` : ""}${p.answer ? html`<span class="flag ok">${ICONS.check}Answer</span>` : ""}${p.state === "checking" ? html`<span class="flag warn">Being checked: only you see it yet</span>` : p.state === "held" ? html`<span class="flag warn">Waiting for a person at Zaisma: only you see it yet</span>` : ""}<a class="p-when" href="#p-${p.id}">${ago(p.at)}</a></header>
     ${p.reply_to ? html`<a class="quote" href="#p-${p.reply_to.id}">${ICONS.reply}<span><strong>${p.reply_to.name}</strong> ${p.reply_to.excerpt}${p.reply_to.excerpt.length >= 140 ? "…" : ""}</span></a>` : ""}
     <div class="p-text">${richText(p.text)}</div>
     ${p.context ? html`<details class="p-att"><summary>What ${p.by.by === "ai" ? "your AI" : "you"} attached (only you and Zaisma see it)</summary><pre>${JSON.stringify(p.context, null, 2)}</pre></details>` : ""}
@@ -459,22 +487,11 @@ function sidePanel(ctx: Ctx, t: Topic["topic"], posts: PostJson[]): Raw {
   const place = placeOf(t.category);
   const seen = new Set<string>();
   const people = posts.map((p) => p.by).filter((p) => (seen.has(`${p.name}:${p.by}`) ? false : (seen.add(`${p.name}:${p.by}`), true)));
-  const voteWords = t.known_issue ? "This happens to me too" : t.kind === "feature" ? "I want this too" : t.kind === "question" ? "I have this question too" : t.kind === "talk" ? "Me too" : "This happens to me too";
   return html`<aside class="t-side">
-  ${t.public && t.shown
-    ? html`<div class="side plate bevel-s">
-    ${t.can.vote
-      ? html`<form method="post" action="/forum/${t.id}/vote"><input type="hidden" name="on" value="${t.voted ? "0" : "1"}"><button class="btn${t.voted ? " ghost" : " light"} vote" type="submit" aria-pressed="${t.voted ? "true" : "false"}">${ICONS.vote}<span>${t.voted ? "You said Me too" : voteWords}</span></button></form>`
-      : ""}
-    <p class="count-line"><strong>${t.known_issue ? t.developers : t.votes}</strong> ${t.known_issue ? (t.developers === 1 ? "developer affected" : "developers affected") : t.votes === 1 ? "developer said Me too" : "developers said Me too"}</p>
-    ${ctx.viewer ? html`<form method="post" action="/forum/${t.id}/follow"><input type="hidden" name="on" value="${t.following ? "0" : "1"}"><button class="btn ghost follow" type="submit">${t.following ? "Following: stop" : "Follow"}</button></form><p class="hint">${t.following ? "New replies show in Your topics." : "Hear about new replies in Your topics."}</p>` : ""}
-  </div>`
-    : ""}
   <dl class="facts plate bevel-s">
     <dt>Status</dt><dd>${t.status === "new" ? (t.public ? "Open" : "Waiting for Zaisma") : STATUS[t.status].label}</dd>
     ${place ? html`<dt>Category</dt><dd><a href="/forum?category=${place.category}">${place.name}</a> · <a href="/forum?category=${t.category}">${place.sub}</a></dd>` : ""}
     ${t.tags.length ? html`<dt>Tags</dt><dd class="tags">${t.tags.map(tagChip)}</dd>` : ""}
-    <dt>Started by</dt><dd class="person">${avatar(t.author, "sm")}${nameOf(t.author)}<span class="muted">${ago(t.created_at)}</span></dd>
     ${people.length > 1 ? html`<dt>In this topic</dt><dd class="people">${people.slice(0, 12).map((p) => html`<span class="person">${avatar(p, "sm")}${nameOf(p)}</span>`)}</dd>` : ""}
     <dt>Who can see it</dt><dd>${t.public ? "Every developer and their AI" : "Only you and Zaisma"}</dd>
   </dl>
@@ -670,10 +687,31 @@ a.tag:hover,.tag.on{color:#0b0b0c;background:var(--chrome);box-shadow:none}
 .warn-note{color:var(--warn);margin:0 0 16px}
 .jump{display:flex;align-items:center;gap:6px;margin:0 0 14px;font-size:14px;color:var(--ok-text)}
 .jump svg{width:15px;height:15px}
-.posts{list-style:none;margin:0 0 20px;padding:0;display:grid;gap:12px}
-.post{display:grid;grid-template-columns:40px minmax(0,1fr);gap:14px;padding:16px 18px;background:var(--brush) 0 0/320px 320px,var(--face);box-shadow:var(--rim),var(--drop)}
-.post.z{box-shadow:inset 3px 0 0 #dfe2e6,var(--rim),var(--drop);background:var(--brush) 0 0/320px 320px,linear-gradient(180deg,#2b3038,#1d2026)}
-.post.answer{box-shadow:inset 3px 0 0 var(--ok),var(--rim),var(--drop)}
+.op{padding:22px 24px 18px;margin:0 0 8px;display:grid;gap:14px}
+.op .t-title,.op .t-meta{margin:0}
+.op-by{display:flex;align-items:center;gap:12px}
+.op-by p{margin:0}
+.op-name{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
+.op-by .muted{font-size:13px}
+.op-text{font-size:17px;line-height:1.65;color:var(--text)}
+.op-text>p{margin:0 0 8px}
+.op .jump{margin:0}
+.op .known-box{margin:0;padding:12px 14px;background:rgba(0,0,0,.2);box-shadow:inset 3px 0 0 #c9cace}
+.op-actions{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding-top:14px;background:linear-gradient(#000,#000) top/100% 1px no-repeat;box-shadow:inset 0 1px 0 rgba(255,255,255,.04)}
+.op-actions form{display:contents}
+.op-actions .btn{min-height:40px}
+.op-actions .btn svg{width:15px;height:15px}
+.op-count{color:var(--muted);font-size:14px}
+.op-count strong{color:var(--text);font-family:var(--display);font-size:17px}
+.op-gap{flex:1}
+.replies-h{font-size:18px;margin:26px 0 12px;display:flex;align-items:center;gap:14px}
+.replies-h::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,rgba(230,233,238,.25),rgba(230,233,238,0))}
+.no-replies{margin:18px 0}
+.mark.op-mark{color:var(--text);box-shadow:inset 0 0 0 1px #8a8f98}
+.posts{list-style:none;margin:0 0 20px;padding:0;display:grid;gap:10px}
+.post{display:grid;grid-template-columns:40px minmax(0,1fr);gap:14px;padding:14px 18px;background:var(--brush) 0 0/320px 320px,linear-gradient(180deg,#202329,#191b20);box-shadow:var(--rim)}
+.post.z{box-shadow:inset 3px 0 0 #dfe2e6,var(--rim);background:var(--brush) 0 0/320px 320px,linear-gradient(180deg,#2b3038,#1d2026)}
+.post.answer{box-shadow:inset 3px 0 0 var(--ok),var(--rim)}
 .post.pending{opacity:.8}
 .p-body{min-width:0;display:grid;gap:8px}
 .p-head{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;font-size:14px}
@@ -797,6 +835,8 @@ label.check{display:flex;gap:8px;align-items:center;color:var(--text);font-size:
   .btn.new-topic span{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
   .board-head h1{font-size:22px}
   .post{grid-template-columns:28px minmax(0,1fr);gap:10px;padding:14px}
+  .op{padding:18px 16px 14px}
+  .op-text{font-size:16px}
   .post .av.md,.c-row .av.md{--s:28px}
   .c-row{grid-template-columns:minmax(0,1fr)}
   .c-row .av{display:none}
@@ -813,7 +853,7 @@ const rail=document.querySelector(".rail");if(rail&&matchMedia("(max-width:900px
 const c=document.getElementById("reply");
 if(c&&c.tagName==="FORM"){const box=c.querySelector(".replying"),to=c.elements.reply_to;
 document.addEventListener("click",e=>{const a=e.target.closest("[data-reply]");if(a){e.preventDefault();to.value=a.dataset.reply;box.querySelector("[data-to-name]").textContent=a.dataset.name;box.querySelector("[data-to-excerpt]").textContent=a.dataset.excerpt;box.hidden=false;c.scrollIntoView({behavior:"smooth",block:"center"});c.elements.text.focus({preventScroll:true})}
-if(e.target.closest("[data-unreply]")){to.value="";box.hidden=true}})}
+if(e.target.closest("[data-unreply]")||e.target.closest("[data-reply-top]")){to.value="";box.hidden=true;if(e.target.closest("[data-reply-top]")){e.preventDefault();c.scrollIntoView({behavior:"smooth",block:"center"});c.elements.text.focus({preventScroll:true})}}})}
 const f=document.querySelector("form.np");if(!f)return;
 const t=f.elements.title,sim=document.getElementById("similar");let timer=0,last="";
 const look=()=>{const q=t.value.trim();if(q===last)return;last=q;if(q.length<6){sim.innerHTML="";return}fetch("/forum/similar?q="+encodeURIComponent(q)).then(r=>r.text()).then(h=>{if(t.value.trim()===q)sim.innerHTML=h}).catch(()=>{})};
