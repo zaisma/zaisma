@@ -8,10 +8,10 @@ import { playable } from "./home.ts";
  * plays are the official numbers). We keep only counts per game per day: no ID, no address, nothing
  * that says who played.
  *
- * A play is counted once Cloudflare's invisible check (Turnstile) says a real browser pressed Play
- * and the game has been on screen for a minute. The check's answer works once, and a checked play
- * gets a ticket: a random ID the page reports with, which can't claim time faster than it passes
- * and counts once. Every play started is still counted too, as a smaller "in all" line.
+ * A play is counted once Cloudflare's invisible check (Turnstile, run as the game page opens) says a
+ * real browser pressed Play and the game has been on screen for a minute. The check's answer works
+ * once, and a checked play gets a ticket: a random ID the page reports with, which can't claim time
+ * faster than it passes and counts once. Every play started is still counted too, as a smaller "in all" line.
  *
  * The same check lets players into multiplayer (room-count protection): a checked browser in a
  * multiplayer game gets a key, which the page hands to its game to trade for a few player passes.
@@ -303,8 +303,9 @@ export async function playStats(db: D1Database, gameId: string, days: number, no
 }
 
 /**
- * The game page's part. On Play it asks Cloudflare's invisible check about this browser and reports
- * the start; a checked play gets a ticket, and in a multiplayer game a key for the game's passes. After a minute on screen it asks for the play to count,
+ * The game page's part. As the page opens it asks Cloudflare's invisible check about this browser, so
+ * Play doesn't wait for it; on Play it reports the start with the check's answer. A checked play gets
+ * a ticket, and in a multiplayer game a key for the game's passes. After a minute on screen it asks for the play to count,
  * and reports time on screen when the page is hidden and every 5 minutes. Which games this browser
  * played, and when it first and last did, stay in this browser (zaisma:plays).
  */
@@ -325,19 +326,37 @@ const save = (mine) => {
   const keep = Object.entries(all).sort((a, b) => (b[1].last || "").localeCompare(a[1].last || "")).slice(0, 200);
   try { localStorage.setItem(KEY, JSON.stringify(Object.fromEntries(keep))); } catch {}
 };
-// Cloudflare's invisible check: an answer, or null if it can't give one (the play still runs, it just isn't counted).
+// Cloudflare's invisible check starts as the page opens, so its answer is ready by the time the player
+// taps Play. Each answer works once and lasts 5 minutes; Cloudflare renews it while the page stays open.
+let answer = null, answeredAt = 0, widget = null, broken = !SITE_KEY;
+const waiting = [];
+const settle = () => waiting.splice(0).forEach((w) => w());
+const answered = (t) => { answer = t || null; answeredAt = Date.now(); settle(); };
+if (SITE_KEY) {
+  const go = () => {
+    try {
+      widget = turnstile.render(document.getElementById("play-check"), { sitekey: SITE_KEY, action: "play", appearance: "interaction-only", "refresh-expired": "auto", callback: answered, "expired-callback": () => (answer = null), "error-callback": settle, "timeout-callback": settle });
+    } catch { broken = true; settle(); }
+  };
+  if (window.turnstile) go();
+  else {
+    const s = document.createElement("script");
+    s.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+    s.async = true;
+    s.onload = go;
+    s.onerror = () => { broken = true; settle(); };
+    document.head.appendChild(s);
+  }
+}
+// The check's answer for this play, or null if it can't give one (the play still runs, it just isn't counted).
 const check = () => new Promise((done) => {
-  if (!SITE_KEY) return done(null);
+  const take = () => { const t = answer; answer = null; done(t); };
+  if (answer && Date.now() - answeredAt < 240000) return take();
+  if (broken) return done(null);
+  // An answer about to run out: ask for a fresh one.
+  if (answer && widget !== null) { answer = null; try { turnstile.reset(widget); } catch {} }
   const timer = setTimeout(() => done(null), 20000);
-  const finish = (t) => { clearTimeout(timer); done(t || null); };
-  const go = () => { try { const box = document.getElementById("play-check"); turnstile.render(box, { sitekey: SITE_KEY, action: "play", appearance: "interaction-only", callback: finish, "error-callback": () => finish(null), "timeout-callback": () => finish(null) }); } catch { finish(null); } };
-  if (window.turnstile) return go();
-  const s = document.createElement("script");
-  s.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
-  s.async = true;
-  s.onload = go;
-  s.onerror = () => finish(null);
-  document.head.appendChild(s);
+  waiting.push(() => { clearTimeout(timer); answer ? take() : done(null); });
 });
 let ticket = null, shown = 0, since = 0, sent = 0, counted = false;
 const onScreen = () => shown + (since ? Date.now() - since : 0);

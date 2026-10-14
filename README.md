@@ -49,7 +49,7 @@ To run your own Zaisma, create a D1 database, two R2 buckets (game files and clo
 
 ### Multiplayer
 
-Games include the SDK with `<script src="_zaisma/v1.js"></script>` and call `await Zaisma.joinRoom()`. A room link (`zaisma.com/g/<game>?room=CODE`) drops friends into the same match as guests. Player passes come from the game's zaisma.com page, which checks on Play that a real browser pressed it (Cloudflare's invisible check), so bots can't fill rooms: a game opened anywhere else, or a browser the check can't confirm, can't join (`err.code === "unchecked"`).
+Games include the SDK with `<script src="_zaisma/v1.js"></script>` and call `await Zaisma.joinRoom()`. A room link (`zaisma.com/g/<game>?room=CODE`) drops friends into the same match as guests. Player passes come from the game's zaisma.com page, which checks that a real browser opened it (Cloudflare's invisible check, started as the page opens so Play doesn't wait), so bots can't fill rooms: a game opened anywhere else, or a browser the check can't confirm, can't join (`err.code === "unchecked"`).
 
 Multiplayer is server-client: the *client* is the game in the browser, the *game server* holds the official state and checks every move, and a *room* is one live match running one copy of the game server. A game server is a plain object:
 

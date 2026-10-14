@@ -64,12 +64,12 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   const res = layout(env, {
     title: `${game.title} on Zaisma`,
     bare: true,
-    // Cloudflare's invisible check on Play, for play counts and multiplayer (tester links: only for multiplayer).
+    // Cloudflare's invisible check from when the page opens, for play counts and multiplayer (tester links: only for multiplayer).
     check: (!tester || multiplayer) && Boolean(env.TURNSTILE_SITE_KEY),
     art: shots[0] ?? null,
     body: html`<style>
 /* Two states on one page: details with a Play button, then the game filling the screen. */
-/* Cloudflare's check on Play is invisible; if it ever needs a tap, it sits above the game. */
+/* Cloudflare's check is invisible; if it ever needs a tap, it sits at the bottom, above the game. */
 .play-check{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:50}
 body.playing{display:flex;flex-direction:column;height:100vh;height:100dvh;overflow:hidden;background:#000}
 body:not(.playing) #full{display:none}
@@ -644,7 +644,7 @@ const PRIVACY = `
 <h2>Playing as a guest</h2>
 <p>Guests get a temporary ID and a made-up name like "Swift Fox 42", used only to run the game session. They're kept in your browser tab and forgotten when it closes. We don't keep a profile, and we don't know who you are.</p>
 <p>Your browser also remembers which games you played recently, so the home page can show them first. That list stays on your device; we never see it.</p>
-<p>When you press Play, we count it for the game's developer and for lists like Popular: that the game was played, how long it was on screen, and whether this browser played it before (and on which day it first did). To keep the counts honest, Cloudflare checks, invisibly, that a real browser pressed Play, and we count players by internet provider (like Comcast or Vodafone) to spot bot networks. The same check lets you play online in multiplayer games, so bots can't fill their rooms. A play's details are kept for a day at most; after that we keep only totals for each game and day, never anything that says who played.</p>
+<p>When you press Play, we count it for the game's developer and for lists like Popular: that the game was played, how long it was on screen, and whether this browser played it before (and on which day it first did). To keep the counts honest, Cloudflare checks, invisibly, when you open a game's page that it's a real browser, and we count players by internet provider (like Comcast or Vodafone) to spot bot networks. The same check lets you play online in multiplayer games, so bots can't fill their rooms. A play's details are kept for a day at most; after that we keep only totals for each game and day, never anything that says who played.</p>
 <h2>If you make an account</h2>
 <ul>
 <li><strong>Your email</strong>, only to sign you in. It's never shown to anyone, and we don't send marketing.</li>
@@ -664,7 +664,7 @@ const PRIVACY = `
 <p>Games run on a separate domain and can't see your account, email or cookies. Our content rules don't allow games to collect players' personal data.</p>
 <h2>Who helps us run Zaisma</h2>
 <ul>
-<li><strong>Cloudflare</strong> runs our servers, stores games and checks that a real browser pressed Play. It sees your connection address to deliver pages and stop abuse; we don't store it. The check on Play is Cloudflare Turnstile, covered by its <a href="https://www.cloudflare.com/turnstile-privacy-policy/" target="_blank" rel="noopener">Turnstile Privacy Addendum</a>.</li>
+<li><strong>Cloudflare</strong> runs our servers, stores games and checks that a real browser opened a game's page. It sees your connection address to deliver pages and stop abuse; we don't store it. The check is Cloudflare Turnstile, covered by its <a href="https://www.cloudflare.com/turnstile-privacy-policy/" target="_blank" rel="noopener">Turnstile Privacy Addendum</a>.</li>
 <li><strong>Supabase</strong> handles sign-in and holds your email. Your browser never talks to it directly.</li>
 <li><strong>Anthropic</strong> reviews uploaded games for safety. It sees game files, never players.</li>
 </ul>

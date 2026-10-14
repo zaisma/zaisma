@@ -39,6 +39,11 @@ function stayIn(rooms, origin, game, code, pass, first) {
   ws.on("close", (why) => why !== 4000 && why !== 4001 && setTimeout(() => stayIn(rooms, origin, game, code, pass, first), 2000));
 }
 
+/** Another lobby player, trying again while the rooms server restarts (it does when files change). */
+function lobbyAgain(rooms, origin, code, ms) {
+  setTimeout(() => lobbyBot(rooms, origin, code).catch(() => lobbyAgain(rooms, origin, code, 2000)), ms);
+}
+
 /**
  * A Four in a Row player waiting in the lobby (a room labelled Room: Lobby). When the game pairs it
  * with you, it follows the move to your match, plays random columns and leaves when you do; another
@@ -56,10 +61,10 @@ async function lobbyBot(rooms, origin, code) {
     moved = true;
     ws.close(1000);
     play(rooms, origin, game, m.code, pass);
-    setTimeout(() => lobbyBot(rooms, origin, code), 1000);
+    lobbyAgain(rooms, origin, code, 1000);
   });
   ws.on("error", () => {});
-  ws.on("close", (why) => !moved && why !== 4000 && why !== 4001 && setTimeout(() => lobbyBot(rooms, origin, code), 2000));
+  ws.on("close", (why) => !moved && why !== 4000 && why !== 4001 && lobbyAgain(rooms, origin, code, 2000));
 }
 
 function play(rooms, origin, game, code, pass) {
