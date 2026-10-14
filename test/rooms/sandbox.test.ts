@@ -20,9 +20,24 @@ async function addSandboxGame(slug: string, server: string) {
 }
 
 let address = 0;
-async function join(game: string, code: string) {
+async function newPass(game: string) {
   const res = await SELF.fetch(`${R}/v1/pass`, { method: "POST", headers: { Origin: ORIGIN, "Content-Type": "text/plain", "cf-connecting-ip": `198.51.100.${++address % 250}` }, body: JSON.stringify({ game }) });
-  const { pass, player } = await res.json<{ pass: string; player: { id: string; name: string } }>();
+  return res.json<{ pass: string; player: { id: string; name: string } }>();
+}
+
+/** Try to join, and say what the room answered first. */
+async function knock(game: string, code: string, data?: unknown, pass?: string) {
+  pass ??= (await newPass(game)).pass;
+  const up = await SELF.fetch(`${R}/v1/rooms/${game}/${code}`, { headers: { Upgrade: "websocket", Origin: ORIGIN } });
+  const ws = up.webSocket!;
+  ws.accept();
+  const first = new Promise<any>((r) => ws.addEventListener("message", (ev) => r(JSON.parse(ev.data as string)), { once: true }));
+  ws.send(JSON.stringify({ t: "hello", pass, data }));
+  return first;
+}
+
+async function join(game: string, code: string, data?: unknown) {
+  const { pass, player } = await newPass(game);
   const up = await SELF.fetch(`${R}/v1/rooms/${game}/${code}`, { headers: { Upgrade: "websocket", Origin: ORIGIN } });
   expect(up.status).toBe(101);
   const ws = up.webSocket!;
@@ -39,12 +54,12 @@ async function join(game: string, code: string) {
   const game_ = async () => {
     for (;;) {
       const m = await next();
-      if (m.t === "msg" || m.t === "ended" || m.t === "error") return m;
+      if (m.t === "msg" || m.t === "ended" || m.t === "error" || m.t === "kicked") return m;
     }
   };
-  ws.send(JSON.stringify({ t: "hello", pass }));
+  ws.send(JSON.stringify({ t: "hello", pass, ...(data !== undefined ? { data } : {}) }));
   expect((await next()).t).toBe("welcome");
-  return { ws, player, next: game_ };
+  return { ws, player, pass, next: game_ };
 }
 
 const COUNTER = `
@@ -152,6 +167,43 @@ describe("sandboxed game servers", () => {
     );
     const a = await join("wasm", "ABCDEF");
     expect((await a.next()).d).toEqual({ answer: 42, level: "Docks" });
+  });
+
+  it("lets the game's own server turn players away and kick them, keeping kicked players out", async () => {
+    await addSandboxGame(
+      "guarded",
+      `export default {
+        setup: () => ({}),
+        canJoin(state, player, room, data) { return (data && data.password === "docks") || "Wrong password."; },
+        onMessage(state, player, msg, room) {
+          const other = room.players.find((p) => p.id !== player.id);
+          if (msg === "kick" && other) room.kick(other.id, { reason: "Too rough.", keepOut: true });
+          if (msg === "out") room.kick(player.id);
+        },
+      };`,
+    );
+    const turnedAway = await knock("guarded", "ABCDEF", { password: "nope" });
+    expect(turnedAway).toEqual({ t: "error", code: "refused", message: "Wrong password." });
+
+    const a = await join("guarded", "ABCDEF", { password: "docks" });
+    const b = await join("guarded", "ABCDEF", { password: "docks" });
+    a.ws.send(JSON.stringify({ t: "msg", d: "kick" }));
+    expect(await b.next()).toEqual({ t: "kicked", reason: "Too rough.", keptOut: true });
+
+    // Kept out, even with the password and a fresh connection under the same pass.
+    const again = await knock("guarded", "ABCDEF", { password: "docks" }, b.pass);
+    expect(again).toEqual({ t: "error", code: "kept-out", message: "Too rough." });
+
+    // Kicking the last player empties the room like everyone leaving: it drops out of the room list.
+    expect(await e.DB.prepare("SELECT players FROM live_rooms WHERE game_id = 'gguarded'").first()).toEqual({ players: 1 });
+    a.ws.send(JSON.stringify({ t: "msg", d: "out" }));
+    expect(await a.next()).toEqual({ t: "kicked", reason: "You were removed from this room.", keptOut: false });
+    let row: unknown = {};
+    for (let i = 0; i < 50 && row; i++) {
+      row = await e.DB.prepare("SELECT players FROM live_rooms WHERE game_id = 'gguarded'").first();
+      if (row) await new Promise((r) => setTimeout(r, 20));
+    }
+    expect(row).toBeNull();
   });
 
   it("leaves a game without a game server file unavailable", async () => {

@@ -208,7 +208,7 @@ export class Room extends DurableObject<Env> {
       country: request.headers.get("x-room-country") || null,
       continent: request.headers.get("x-room-continent") || null,
     };
-    this.savedRoom = { listed: start.listed, open: false, name: start.name, labels: start.labels, known: start.players, data: start.data };
+    this.savedRoom = { listed: start.listed, open: false, name: start.name, labels: start.labels, known: start.players, data: start.data, ...(start.keptOut ? { keptOut: start.keptOut } : {}) };
     // Like an empty room: cleared after a day if nobody comes.
     await this.ctx.storage.put({ meta: this.meta, room: this.savedRoom, emptySince: Date.now() });
     await this.ctx.storage.setAlarm(Date.now() + KEEP_EMPTY_MS);
@@ -248,6 +248,10 @@ export class Room extends DurableObject<Env> {
     await this.load();
     const core = this.room();
     if (!core) return this.refuse(ws, "game-unavailable");
+    // The room's rules and the game's canJoin, before anyone hears about this player.
+    const admitted = await core.admit(player, made.data);
+    if (!admitted.ok) return this.refuse(ws, admitted.code, admitted.message);
+    if ((ws.deserializeAttachment() as Attachment).stage !== "hello") return;
 
     // The same player connecting again (a reconnect or a second tab) replaces the old connection.
     for (const other of this.sockets(player.id)) {
@@ -256,7 +260,7 @@ export class Room extends DurableObject<Env> {
     }
     ws.serializeAttachment({ stage: "in", id: player.id, name: player.name, joinedAt: Date.now(), ...(tester ? { tester } : {}) } satisfies Attachment);
     const result = core.join(player, made);
-    if (!result.ok) return this.refuse(ws, result.code);
+    if (!result.ok) return this.refuse(ws, result.code, result.message);
     await core.settled();
     if (core.players.size === 1) await this.ctx.storage.delete("emptySince");
     this.startTicking(core);
@@ -418,11 +422,14 @@ export class Room extends DurableObject<Env> {
     });
     const transport = {
       send: (id: string, text: string) => this.sockets(id).forEach((ws) => ws.send(text)),
-      close: (id: string, code: number, reason: string) =>
+      close: (id: string, code: number, reason: string) => {
         this.sockets(id).forEach((ws) => {
           this.retire(ws);
           ws.close(code, reason);
-        }),
+        });
+        // The game kicked the last player: the room empties like when everyone leaves.
+        if (!this.core?.ended && this.sockets().length === 0) void this.emptied();
+      },
       reserve: (code: string, start: RoomStart) => this.reserve(code, start),
     };
     // Turn-based rooms wake with their saved state. A ticking room's state isn't saved,
@@ -539,10 +546,10 @@ export class Room extends DurableObject<Env> {
     await this.ctx.storage.put("saved", { state: core.state, usage: this.usage } satisfies Saved);
   }
 
-  private refuse(ws: WebSocket, code: RoomErrorCode): void {
+  private refuse(ws: WebSocket, code: RoomErrorCode, message?: string): void {
     ws.serializeAttachment({ stage: "gone" } satisfies Attachment);
     try {
-      ws.send(errorMessage(code));
+      ws.send(errorMessage(code, message));
       ws.close(CLOSE_REFUSED, code);
     } catch {
       // Already closed.

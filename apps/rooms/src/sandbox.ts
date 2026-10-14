@@ -11,7 +11,8 @@ import type { Env } from "./index.ts";
  * The room (our Durable Object) still owns everything players touch: sockets, passes, limits,
  * mute, block and report. The sandbox only runs the game's handlers: each call gets the state and
  * a copy of the room, and hands back the new state plus what the game asked the room to do
- * (broadcast, send, end, ...), which the room then does. A room opens one session with the sandbox
+ * (broadcast, send, end, kick, ...), which the room then does; canJoin only answers yes or no.
+ * A room opens one session with the sandbox
  * when it wakes and makes every call through it, so a room is billed one request per wake rather
  * than one per message or tick.
  */
@@ -33,7 +34,8 @@ type Effect =
   | { do: "listed"; value: boolean }
   | { do: "open"; value: boolean }
   | { do: "info"; info: unknown }
-  | { do: "reserve"; opts: unknown; code: string };
+  | { do: "reserve"; opts: unknown; code: string }
+  | { do: "kick"; player: unknown; opts: unknown };
 
 interface Snapshot {
   players: Player[];
@@ -50,9 +52,11 @@ interface Answer {
 }
 
 export interface Session {
-  settings(): Promise<{ maxPlayers?: unknown; tickRate?: unknown; hostControls?: unknown }>;
+  settings(): Promise<{ maxPlayers?: unknown; tickRate?: unknown; hostControls?: unknown; canJoin?: unknown }>;
   setup(data: unknown): Promise<Answer>;
   call(hook: string, state: unknown, args: unknown[], room: Snapshot): Promise<Answer>;
+  /** canJoin: the game's verdict on a player coming in. It can't change the state or the room. */
+  check(state: unknown, player: Player, data: unknown, room: Snapshot): Promise<{ verdict?: unknown; error?: string }>;
 }
 
 // Runs inside the sandbox, beside the game's file. Plain JavaScript: nothing here is trusted by the
@@ -79,6 +83,7 @@ function recorder(snap, effects) {
     get labels() { return { ...snap.labels }; },
     setInfo(info) { effects.push({ do: "info", info }); },
     reserve(opts) { const c = code(); effects.push({ do: "reserve", opts, code: c }); return c; },
+    kick(player, opts) { effects.push({ do: "kick", player, opts }); },
   };
   return room;
 }
@@ -94,7 +99,7 @@ function answer(fn, effects, state) {
 
 class Session extends RpcTarget {
   settings() {
-    return { maxPlayers: server.maxPlayers, tickRate: server.tickRate, hostControls: server.hostControls };
+    return { maxPlayers: server.maxPlayers, tickRate: server.tickRate, hostControls: server.hostControls, canJoin: typeof server.canJoin === "function" };
   }
   setup(data) {
     return answer(() => server.setup(data), [], undefined);
@@ -107,6 +112,15 @@ class Session extends RpcTarget {
     // onMessage(state, player, msg, room), onTick(state, dt, room)
     const full = hook === "onJoin" ? [state, args[0], room, args[1]] : hook === "onMessage" ? [state, args[0], args[1], room] : [state, args[0], room];
     return answer(() => server[hook](...full), effects, state);
+  }
+  check(state, player, data, snap) {
+    if (typeof server.canJoin !== "function") return { verdict: true };
+    try {
+      const verdict = server.canJoin(state, player, recorder(snap, []), data);
+      return { verdict: typeof verdict === "boolean" || typeof verdict === "string" ? verdict : true };
+    } catch (err) {
+      return { error: String((err && err.stack) || err) };
+    }
   }
 }
 
@@ -181,10 +195,11 @@ export async function wrapSession(open: () => Promise<Session>, onBroken: () => 
     else if (stats.errors.size < MAX_ERRORS) stats.errors.set(`${kind}\n${message}`, { kind, message, count: 1, first: Date.now() });
   };
 
-  const ask = async (work: () => Promise<Answer>, room: Room | null): Promise<unknown> => {
+  /** One call into the sandbox, counting it and handling a sandbox that fails. */
+  const reach = async <T extends { error?: string }>(work: () => Promise<T>): Promise<T> => {
     const started = Date.now();
     if (stats.failures >= FAILURES) throw new Error("This game's server stopped working");
-    let answer: Answer;
+    let answer: T;
     try {
       answer = await work();
     } catch (err) {
@@ -196,11 +211,15 @@ export async function wrapSession(open: () => Promise<Session>, onBroken: () => 
     }
     stats.calls++;
     stats.ms += Date.now() - started;
-    if (room) apply(answer.effects, room);
     if (answer.error) {
       stats.crashes++;
       record("crash", answer.error);
     }
+    return answer;
+  };
+  const ask = async (work: () => Promise<Answer>, room: Room | null): Promise<unknown> => {
+    const answer = await reach(work);
+    if (room) apply(answer.effects, room);
     if (answer.error) throw new Error(`Game server error: ${answer.error.slice(0, 2000)}`);
     return answer.state;
   };
@@ -217,6 +236,15 @@ export async function wrapSession(open: () => Promise<Session>, onBroken: () => 
     onLeave: (state, player, room) => call("onLeave", state, [player], room),
     onMessage: (state, player, msg, room) => call("onMessage", state, [player, msg], room),
     onTick: (state, dt, room) => call("onTick", state, [dt], room),
+    ...(s.canJoin === true
+      ? {
+          canJoin: async (state: unknown, player: Player, room: Room, data: unknown) => {
+            const answer = await reach(() => session.check(state, player, data, snap(room)));
+            if (answer.error) throw new Error(`Game server error: ${answer.error.slice(0, 2000)}`);
+            return typeof answer.verdict === "boolean" || typeof answer.verdict === "string" ? answer.verdict : true;
+          },
+        }
+      : {}),
   } satisfies GameServer & { stats: typeof stats };
   defineGameServer(server);
   return server;
@@ -273,6 +301,9 @@ function apply(effects: unknown, room: Room): void {
           break;
         case "reserve":
           room.reserve({ ...(e.opts as object), code: e.code } as never);
+          break;
+        case "kick":
+          if (typeof e.player === "string") room.kick(e.player, (e.opts && typeof e.opts === "object" ? e.opts : {}) as never);
           break;
       }
     } catch (err) {

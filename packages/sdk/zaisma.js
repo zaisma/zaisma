@@ -14,6 +14,9 @@
  *   Zaisma.joinRoom({ server: "wss://my-server.example" });  // your own game server
  *   Zaisma.joinRoom({ data: { character: "knight" } });       // data for the game server's onJoin, up to 4 KB
  *   room.on("move", (move) => { room.leave(); move.join(); }); // the game server reserved a room for this player
+ *   room.on("kicked", ({ reason, keptOut }) => {});  // removed from the room by the game server or the host
+ *   room.host;                                // the host's player ID, when the game server gives the host controls
+ *   room.kick(playerId, { keepOut: true });   // the host removes a player (relay games; keepOut: for the rest of the match)
  *   await Zaisma.invite(room);                // share sheet on phones, copies the link elsewhere
  *
  * Room browsing. Listed rooms show on the game's Zaisma page and to the game itself:
@@ -27,7 +30,7 @@
  *   Zaisma.joinRoom({ name: "Ana's castle", labels: { Mode: "Classic", Map: "Docks" } });  // name and label a new room
  *   room.listed; room.open; room.name; room.labels; room.on("room", ({ listed, open, name, labels }) => {});
  *   room.setListed(false); room.setOpen(false); room.setInfo({ name, labels });
- *                                             // with the relay, from the room's first player;
+ *                                             // with the relay, from the room's host (its first player);
  *                                             // otherwise the game server decides (room.setInfo)
  *   await Zaisma.filterText("what a player typed");  // { ok, reason, text }: Zaisma's text filter
  * Names and labels players type show on Zaisma's pages only if they pass the filter. Inside your game
@@ -125,6 +128,7 @@
     this.code = opts.code;
     this.me = null;
     this.players = [];
+    this.host = null;
     this.status = "connecting";
     this.inviteLink = config.site && config.game ? config.site + gamePage() + "?room=" + this.code : null;
     this.listed = opts.listed !== false;
@@ -156,11 +160,13 @@
         room._tries = 0;
         room.me = m.me;
         room.players = m.players;
+        room.host = m.host || null;
         if (m.room) room._settle(m.room);
         room._setStatus("open");
         if (room._ready) { room._ready.resolve(room); room._ready = null; }
       } else if (m.t === "players") {
         room.players = m.players;
+        room.host = m.host || null;
         room._emit("players", m.players);
       } else if (m.t === "msg") {
         room._emit("message", m.d);
@@ -169,12 +175,15 @@
         room._emit("room", m.room);
       } else if (m.t === "move") {
         room._emit("move", room._move(m));
+      } else if (m.t === "kicked") {
+        room._done = true;
+        room._emit("kicked", { reason: m.reason, keptOut: m.keptOut === true });
       } else if (m.t === "ended") {
         room._done = true;
         room._emit("ended", m.reason);
       } else if (m.t === "error") {
         room._emit("error", m);
-        if (room._ready && (m.code === "full" || m.code === "closed" || m.code === "ended" || m.code === "bad-pass" || m.code === "too-big" || m.code === "game-unavailable")) {
+        if (room._ready && (m.code === "full" || m.code === "closed" || m.code === "ended" || m.code === "bad-pass" || m.code === "too-big" || m.code === "game-unavailable" || m.code === "kept-out" || m.code === "refused")) {
           room._done = true;
           var err = new Error(m.message);
           err.code = m.code;
@@ -210,14 +219,21 @@
 
   /**
    * Show or hide the room in room lists, and open or close it to new players. Works from the room's
-   * first player when the game uses the relay; with a game server, the server decides. The "room"
-   * event says when it changed.
+   * host (its first player) when the game uses the relay; with a game server, the server decides.
+   * The "room" event says when it changed.
    */
   Room.prototype.setListed = function (listed) {
     if (this._ws && this._ws.readyState === 1) this._ws.send(JSON.stringify({ t: "room", listed: Boolean(listed) }));
   };
   Room.prototype.setOpen = function (open) {
     if (this._ws && this._ws.readyState === 1) this._ws.send(JSON.stringify({ t: "room", open: Boolean(open) }));
+  };
+  /**
+   * The host removes a player, when the game server gives the host controls (the relay does).
+   * keepOut: true keeps them out for the rest of the match. They're told the host removed them.
+   */
+  Room.prototype.kick = function (playerId, opts) {
+    if (this._ws && this._ws.readyState === 1) this._ws.send(JSON.stringify({ t: "kick", player: playerId, keepOut: Boolean(opts && opts.keepOut) }));
   };
   /** Name and label the room: { name, labels }. Leave a field out to keep it; null clears it. */
   Room.prototype.setInfo = function (info) {
@@ -290,7 +306,8 @@
    *   listed - false: a new room that never shows in room lists, like a private match
    *   name, labels - a new room's name and labels, like "Ana's castle" and { Mode: "Classic" }
    *   data   - plain JSON for the game server's onJoin, like the character the player picked (up to 4 KB)
-   * If the room is full, closed or over, it fails with an error whose code says which.
+   * If the room is full, closed or over, or the player was kept out or turned away, it fails with an
+   * error whose code says which (full, closed, ended, kept-out, refused) and whose message says why.
    */
   function joinRoom(opts) {
     opts = opts || {};
