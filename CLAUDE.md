@@ -32,6 +32,7 @@ Keep the roadmap current: when work starts, lands or moves, update its status in
 
 ## Rules for code
 
+- **Your game is your game.** Zaisma gives developers building blocks with full access, mostly optional, and charges only for things like hosting; no cut, no ifs or buts beyond misuse. Check every feature against "The direction" in `docs/DECISIONS.md` and prefer a building block over a Zaisma-run feature or screen.
 - **Game content is untrusted.** Serve games only from the separate game domain, never zaisma.com. Sandbox iframes, strict CSP, no access to platform cookies or tokens.
 - **No secrets in the repo.** It's public. Keys live in Cloudflare/Supabase settings and `.dev.vars` (gitignored).
 - **Guests collect no personal data.** Guest IDs are temporary and only run the session.

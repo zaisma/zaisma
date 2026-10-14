@@ -2,6 +2,10 @@
 
 Settled calls. Don't reopen these in code or docs without Julius approving the change. Newest at the bottom.
 
+## The direction
+
+- **Your game is your game.** Zaisma is simple and transparent. We provide what developers need (hosting, rooms, a database, accounts, the SDK) at their convenience, all or mostly optional, with no ifs or buts beyond misuse and hosting fees. We never take a cut of revenue: our fees are for things developers can reason about and account for, like hosting. It's why everything is open source. Every future decision follows this: give developers building blocks with full access rather than Zaisma-run features, screens or rules, and keep for Zaisma only what safety needs (Oct 13, 2026).
+
 ## Who we serve
 
 - **Developers first.** Players come through developers' games and shared links.
