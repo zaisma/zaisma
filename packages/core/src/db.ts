@@ -250,18 +250,18 @@ export function currentMonth(at = new Date()): string {
   return at.toISOString().slice(0, 7);
 }
 
-export async function aiUsage(db: D1Database, month = currentMonth()): Promise<{ input_tokens: number; output_tokens: number; scans: number; reports: number }> {
-  return (await db.prepare("SELECT input_tokens, output_tokens, scans, reports FROM ai_usage WHERE month = ?").bind(month).first()) ?? { input_tokens: 0, output_tokens: 0, scans: 0, reports: 0 };
+export async function aiUsage(db: D1Database, month = currentMonth()): Promise<{ input_tokens: number; output_tokens: number; scans: number; reports: number; feedback: number }> {
+  return (await db.prepare("SELECT input_tokens, output_tokens, scans, reports, feedback FROM ai_usage WHERE month = ?").bind(month).first()) ?? { input_tokens: 0, output_tokens: 0, scans: 0, reports: 0, feedback: 0 };
 }
 
-/** Scans and report triage share one monthly budget. */
-export async function addAiUsage(db: D1Database, input: number, output: number, what: "scans" | "reports" = "scans", month = currentMonth()): Promise<void> {
-  const [scans, reports] = what === "scans" ? [1, 0] : [0, 1];
+/** Scans, report triage and feedback sorting share one monthly budget. */
+export async function addAiUsage(db: D1Database, input: number, output: number, what: "scans" | "reports" | "feedback" = "scans", month = currentMonth()): Promise<void> {
+  const [scans, reports, feedback] = [what === "scans" ? 1 : 0, what === "reports" ? 1 : 0, what === "feedback" ? 1 : 0];
   await db
     .prepare(
-      "INSERT INTO ai_usage (month, input_tokens, output_tokens, scans, reports) VALUES (?, ?, ?, ?, ?) ON CONFLICT(month) DO UPDATE SET input_tokens = input_tokens + excluded.input_tokens, output_tokens = output_tokens + excluded.output_tokens, scans = scans + excluded.scans, reports = reports + excluded.reports",
+      "INSERT INTO ai_usage (month, input_tokens, output_tokens, scans, reports, feedback) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(month) DO UPDATE SET input_tokens = input_tokens + excluded.input_tokens, output_tokens = output_tokens + excluded.output_tokens, scans = scans + excluded.scans, reports = reports + excluded.reports, feedback = feedback + excluded.feedback",
     )
-    .bind(month, input, output, scans, reports)
+    .bind(month, input, output, scans, reports, feedback)
     .run();
 }
 

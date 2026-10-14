@@ -11,6 +11,21 @@ export type FeedbackStatus = (typeof FEEDBACK_STATUSES)[number];
 /** Statuses a developer can reopen from. */
 export const FEEDBACK_CLOSED: FeedbackStatus[] = ["fixed", "wont", "answered"];
 
+/** Where in Zaisma an item is about, set when it's sorted. */
+export const FEEDBACK_AREAS = ["publishing", "scans", "pages", "rooms", "saves", "accounts", "sdk", "mcp", "api", "cli", "dashboard", "docs", "other"] as const;
+
+/** What AI sorting found (migrations/0024_feedback_sorting.sql), for the person deciding. Never shown to developers. */
+export interface FeedbackTriage {
+  /** false when it was sorted without the AI (no key, or the month's budget used up). */
+  ai: boolean;
+  summary: string;
+  why: string;
+  /** The item it was merged into as a duplicate. */
+  merged_into?: string;
+  /** A known issue the AI proposes for a person to approve: a title every developer can read and what to do until it's fixed. */
+  draft?: { title: string; workaround: string };
+}
+
 export type FeedbackAuthor = "person" | "ai" | "zaisma";
 export type FeedbackVia = "mcp" | "api" | "cli" | "dashboard" | "admin";
 
@@ -41,6 +56,10 @@ export interface Feedback {
   updated_at: number;
   news_at: number | null;
   seen_at: number | null;
+  /** FeedbackTriage as JSON, once sorted. */
+  triage: string | null;
+  triaged_at: number | null;
+  triage_tries: number;
 }
 
 export interface FeedbackPost {
