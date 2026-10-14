@@ -375,7 +375,7 @@ async function seedForum(you, go, form) {
     picture: Buffer.from(picture([150, 70, 160], 1)).toString("base64"),
   });
   await zaisma(tooBig.id, { known: "1", k_title: "upload_files refuses some builds under 5 MB", k_workaround: "Use the upload command (npx @zaisma/cli upload) for builds over 2 MB.", k_roadmap: "Developer MCP", status: "known", severity: "3", area: "mcp", reply: "Found it: base64 makes the request bigger than the build. Thanks for the details." });
-  await you("POST", "/forum", { kind: "bug", game: "cave-crew", title: "Room drops every player once it fills up", text: "Cave Crew's rooms drop every player once about 50 join. Players get disconnected all at once." });
+  await you("POST", "/forum", { kind: "bug", game: "cave-crew", category: "rooms", title: "Room drops every player once it fills up", text: "Cave Crew's rooms drop every player once about 50 join. Players get disconnected all at once." });
   await you("POST", "/forum", { kind: "gap", author: me, category: "publishing", title: "Builds over 500 MB", text: "My Unity export is 640 MB with its streaming assets. Is the 500 MB limit going to change? I can't split it." });
   // A reply the check holds, to show what waiting for a person looks like.
   await reply(you, weekly.id, "Anyone want to playtest Arena tonight? Add me on discord, same name.", { author: me });

@@ -30,9 +30,10 @@ import { developersIn, feedbackById, hasNews, KNOWN, postsLeft, readPost, readTi
  *   POST /api/dev/forum                                     a topic: { kind, title, text, category?, tags?, public?, game?, known_issue?, context?, author?, picture? }
  *   GET  /api/dev/forum/:id                                 a topic with its posts
  *   POST /api/dev/forum/:id/posts                           reply: { text, reply_to?, reopen?, context?, author?, picture? }
- *   POST /api/dev/forum/:id/vote                            "Me too": { on }
+ *   POST /api/dev/forum/:id/vote                            a vote (affects me too, I want this, same question): { on }
  *   POST /api/dev/forum/:id/follow                          { on }
  *   POST /api/dev/forum/:id/answer                          your question's answer: { post } (null to clear)
+ *   POST /api/dev/forum/:id/misplaced                       it's in the wrong category: Zaisma's AI moves it
  *   GET  /api/dev/forum/:id/pictures/:post                  a screenshot you attached
  *
  * Others see a public post once it passes the check (forum-check.ts). Screenshots and what an AI
@@ -104,7 +105,7 @@ export async function forumRoute(request: Request, env: Env, path: string, calle
   if (path === "/forum" && method === "GET") return [await listTopics(env, caller, queryFrom(url.searchParams))];
   if (path === "/forum/similar" && method === "GET") return [{ topics: await similarTopics(env, caller, url.searchParams.get("q") ?? "") }];
   if (path === "/forum" && method === "POST") return [await createTopic(env, caller, await readJson(request, 4 * 1024 * 1024)), 201];
-  const m = path.match(/^\/forum\/([a-z0-9]{1,40})(?:\/(posts|vote|follow|answer|pictures)(?:\/([a-z0-9]{1,40}))?)?$/);
+  const m = path.match(/^\/forum\/([a-z0-9]{1,40})(?:\/(posts|vote|follow|answer|misplaced|pictures)(?:\/([a-z0-9]{1,40}))?)?$/);
   if (!m) throw new ApiError(404, "not_found", "No such API path.");
   const [, id, sub, postId] = m as unknown as [string, string, string | undefined, string | undefined];
   if (!sub && method === "GET") return [await getTopic(env, caller, id)];
@@ -115,6 +116,7 @@ export async function forumRoute(request: Request, env: Env, path: string, calle
   if (sub === "vote") return [await vote(env, caller, id, body.on !== false)];
   if (sub === "follow") return [await follow(env, caller, id, body.on !== false)];
   if (sub === "answer") return [await markAnswer(env, caller, id, typeof body.post === "string" ? body.post : null)];
+  if (sub === "misplaced") return [await flagMisplaced(env, caller, id)];
   throw new ApiError(404, "not_found", "No such API path.");
 }
 
@@ -320,6 +322,7 @@ export async function getTopic(env: Env, viewer: Viewer, id: string) {
   // Your own private report under a known issue.
   const yours = viewer && f.known_title ? await env.DB.prepare("SELECT id FROM feedback WHERE group_id = ? AND account_id = ? ORDER BY created_at LIMIT 1").bind(f.id, viewer.accountId).first<{ id: string }>() : null;
   const following = viewer ? await env.DB.prepare("SELECT seen_at FROM feedback_follows WHERE feedback_id = ? AND account_id = ?").bind(f.id, viewer.accountId).first<{ seen_at: number }>() : null;
+  const flagged = viewer ? await env.DB.prepare("SELECT 1 AS y FROM feedback_misplaced WHERE feedback_id = ? AND account_id = ?").bind(f.id, viewer.accountId).first() : null;
   if (viewer) {
     const now = Date.now();
     if (following) await env.DB.prepare("UPDATE feedback_follows SET seen_at = ? WHERE feedback_id = ? AND account_id = ?").bind(now, f.id, viewer.accountId).run();
@@ -335,9 +338,12 @@ export async function getTopic(env: Env, viewer: Viewer, id: string) {
       merged_into: group ? { id: group.id, title: group.known_title ?? group.title, status: group.status, workaround: group.workaround } : null,
       yours: yours?.id ?? null,
       following: Boolean(following),
+      // You flagged it as in the wrong category, and Zaisma hasn't looked yet.
+      flagged_misplaced: Boolean(flagged),
       can: {
         reply: Boolean(viewer),
-        vote: Boolean(viewer && f.public && !own),
+        vote: Boolean(viewer && f.public && !own && f.kind !== "talk"),
+        flag: Boolean(viewer && f.shown && !f.group_id),
         answer: own && f.kind === "question",
         reopen: own && FEEDBACK_CLOSED.includes(f.status),
       },
@@ -381,6 +387,7 @@ export async function createTopic(env: Env, caller: Caller, body: Record<string,
   const kind = body.kind as FeedbackKind;
   if (!FEEDBACK_KINDS.includes(kind)) throw new ApiError(400, "bad_kind", `kind is one of: ${FEEDBACK_KINDS.join(", ")}.`);
   const title = readTitle(body);
+  // Whoever posts picks the sub-category; Zaisma only moves a topic someone flags as misplaced.
   const area = typeof body.category === "string" ? body.category : "";
   if (area && !(FEEDBACK_AREAS as string[]).includes(area)) throw new ApiError(400, "bad_category", `category is a sub-category: ${FEEDBACK_AREAS.join(", ")}.`);
   const tags = readTags(body);
@@ -389,6 +396,7 @@ export async function createTopic(env: Env, caller: Caller, body: Record<string,
     group = await feedbackById(env, body.known_issue);
     if (!group?.known_title || !group.shown) throw new ApiError(404, "no_known_issue", "There's no known issue with that id. GET /forum?tab=known lists them.");
   }
+  if (!area && !group) throw new ApiError(400, "no_category", `Pick a category: one of ${FEEDBACK_AREAS.join(", ")} (other for anything else).`);
   const isPublic = group ? false : typeof body.public === "boolean" ? body.public : !FEEDBACK_PRIVATE_KINDS.includes(kind);
   const game = typeof body.game === "string" && body.game ? await ownGame(env, body.game, caller) : null;
   const post = await readPost(env, caller, body);
@@ -415,7 +423,7 @@ export async function createTopic(env: Env, caller: Caller, body: Record<string,
   const similar = group ? [] : (await similarTopics(env, caller, `${title} ${post.text}`)).filter((t) => t.id !== id);
   return {
     ...(await getTopic(env, caller, id)),
-    // Topics and known issues that look like the same thing: if one is, say "Me too" there or reply.
+    // Topics and known issues that look like the same thing: if one is, vote there or reply.
     similar,
     ...(stored.check === "pending" ? { note: "Others see it once it's checked, usually within minutes." } : stored.check === "held" ? { note: "A person at Zaisma checks it before others see it, usually within a day." } : {}),
     ...(post.blanked ? { secrets_removed: post.blanked } : {}),
@@ -426,7 +434,7 @@ export async function createTopic(env: Env, caller: Caller, body: Record<string,
 export async function replyTo(env: Env, caller: Caller, id: string, body: Record<string, unknown>) {
   const f = await readable(env, caller, id);
   const reopen = body.reopen === true;
-  if (reopen && f.account_id !== caller.accountId) throw new ApiError(403, "not_yours", "Only the developer who posted a topic can reopen it. Reply, or say Me too.");
+  if (reopen && f.account_id !== caller.accountId) throw new ApiError(403, "not_yours", "Only the developer who posted a topic can reopen it. Reply, or vote.");
   if (reopen && !FEEDBACK_CLOSED.includes(f.status)) throw new ApiError(400, "not_closed", `It's ${f.status}, not closed, so there's nothing to reopen. Just reply.`);
   let replyTo: string | null = null;
   if (typeof body.reply_to === "string" && body.reply_to) {
@@ -445,10 +453,11 @@ export async function replyTo(env: Env, caller: Caller, id: string, body: Record
   };
 }
 
-/** "Me too" on someone else's public topic: it affects you too, or you want it too. You follow it. */
+/** A vote on someone else's public topic: it affects you too, you want it, or you have the question too. You follow it. */
 export async function vote(env: Env, caller: Caller, id: string, on: boolean) {
   const f = await readable(env, caller, id);
-  if (!f.public || f.account_id === caller.accountId) throw new ApiError(400, "cant_vote", "Me too is for public topics someone else started.");
+  if (!f.public || f.account_id === caller.accountId) throw new ApiError(400, "cant_vote", "Votes are for public topics someone else started.");
+  if (f.kind === "talk") throw new ApiError(400, "cant_vote", "Discussions take replies, not votes.");
   const now = Date.now();
   const change = on
     ? await env.DB.prepare("INSERT OR IGNORE INTO feedback_votes (feedback_id, account_id, created_at) VALUES (?, ?, ?)").bind(f.id, caller.accountId, now).run()
@@ -459,7 +468,15 @@ export async function vote(env: Env, caller: Caller, id: string, on: boolean) {
   return { votes: row?.votes ?? 0, voted: on };
 }
 
-/** Follow a topic to hear about what's new in it (yours, ones you replied to and Me too are followed already). */
+/** It's in the wrong category: Zaisma's AI looks at where it belongs on its next run and moves it, saying so in the topic. */
+export async function flagMisplaced(env: Env, caller: Caller, id: string) {
+  const f = await readable(env, caller, id);
+  if (!f.shown || f.group_id) throw new ApiError(400, "cant_flag", "Only public topics others can see can be flagged as misplaced.");
+  await env.DB.prepare("INSERT OR IGNORE INTO feedback_misplaced (feedback_id, account_id, created_at) VALUES (?, ?, ?)").bind(f.id, caller.accountId, Date.now()).run();
+  return { flagged: true };
+}
+
+/** Follow a topic to hear about what's new in it (yours, ones you replied to and voted on are followed already). */
 export async function follow(env: Env, caller: Caller, id: string, on: boolean) {
   const f = await readable(env, caller, id);
   if (on) await env.DB.prepare("INSERT OR IGNORE INTO feedback_follows (feedback_id, account_id, seen_at) VALUES (?, ?, ?)").bind(f.id, caller.accountId, Date.now()).run();

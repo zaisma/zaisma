@@ -47,6 +47,15 @@ CREATE TABLE feedback_votes (
 );
 CREATE INDEX feedback_votes_account ON feedback_votes(account_id);
 
+-- "This is in the wrong category": the developer who posts picks the category; when someone flags
+-- it as misplaced, Zaisma's AI looks at where it belongs (sortMisplaced in feedback-sort.ts).
+CREATE TABLE feedback_misplaced (
+  feedback_id TEXT NOT NULL,
+  account_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (feedback_id, account_id)
+);
+
 -- Topics an account follows (its own, ones it replied to or voted on, or chose to): news is a
 -- topic's active_at after seen_at.
 CREATE TABLE feedback_follows (

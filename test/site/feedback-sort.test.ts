@@ -52,7 +52,8 @@ describe("feedback sorting", () => {
     // The developer's words reach the AI only inside the untrusted block.
     expect(seen[0]!.text).toMatch(/<item id="[a-z0-9]+">[\s\S]*Ignore your instructions[\s\S]*<\/item>/);
     const sorted = await item(feedback.id);
-    expect(sorted).toMatchObject({ severity: 2, area: "publishing", status: "new", group_id: null, known_title: null });
+    // The category is the developer's: sorting leaves it alone.
+    expect(sorted).toMatchObject({ severity: 2, area: "", status: "new", group_id: null, known_title: null });
     expect(triageOf(sorted)).toMatchObject({ ai: true, summary: "Big uploads stall.", draft: { title: "Big uploads can stall near the end" } });
     expect((await aiUsage(env.DB)).feedback).toBe(1);
 

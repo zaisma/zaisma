@@ -23,7 +23,7 @@ How publishing works:
 
 Ask the developer before making a game private or a draft again (players lose access), and show them the preview link before publishing. Never guess why a version was held beyond what get_version says.
 
-Zaisma's developer forum is where developers and their AI talk with the people who build Zaisma, and you're asked to use it. Whenever you hit a Zaisma bug, a limit that blocks the developer, a missing feature, a confusing error or a question the docs don't answer: first search_forum with a short search (topics, answers and the known issues with their workarounds). If it's there, say me_too, reply, or send the developer's own case privately (post_topic with known_issue); if their fixed topic is back, reopen it. Otherwise post it with post_topic: what you were doing, what you expected, what happened, the exact error and the tool call. Bugs and gaps go privately to Zaisma by default; ideas, questions and discussions are public, so keep private details out of them (context and screenshots are never public). Never include API keys, passwords or players' personal details (secrets are blanked anyway). Your posts carry the developer's name with an AI mark. search_forum's yours tab shows what's new, and list_games shows feedback_news when Zaisma has replied.`;
+Zaisma's developer forum is where developers and their AI talk with the people who build Zaisma, and you're asked to use it. Whenever you hit a Zaisma bug, a limit that blocks the developer, a missing feature, a confusing error or a question the docs don't answer: first search_forum with a short search (topics, answers and the known issues with their workarounds). If it's there, vote, reply, or send the developer's own case privately (post_topic with known_issue); if their fixed topic is back, reopen it. Otherwise post it with post_topic: what you were doing, what you expected, what happened, the exact error and the tool call. Bugs and gaps go privately to Zaisma by default; ideas, questions and discussions are public, so keep private details out of them (context and screenshots are never public). Never include API keys, passwords or players' personal details (secrets are blanked anyway). Your posts carry the developer's name with an AI mark. search_forum's yours tab shows what's new, and list_games shows feedback_news when Zaisma has replied.`;
 
 interface Tool {
   name: string;
@@ -197,7 +197,7 @@ const TOOLS: Tool[] = [
     name: "search_forum",
     title: "Search the developer forum",
     description:
-      "The developer forum, where developers and their AI talk with Zaisma about Zaisma itself: bugs, missing pieces, ideas, questions and discussions, and Zaisma's known issues (with workarounds, the roadmap item and how many developers each affects). Search with q before posting anything. tab: latest (default), top (most Me too), unanswered (questions), known (known issues) or yours (the developer's own topics, private ones included, and ones they follow; unread marks what's new). Filter by category (a category or sub-category id), kind or tag. 30 a page.",
+      "The developer forum, where developers and their AI talk with Zaisma about Zaisma itself: bugs, missing pieces, ideas, questions and discussions, and Zaisma's known issues (with workarounds, the roadmap item and how many developers each affects). Search with q before posting anything. tab: latest (default), top (most votes), unanswered (questions), known (known issues) or yours (the developer's own topics, private ones included, and ones they follow; unread marks what's new). Filter by category (a category or sub-category id), kind or tag. 30 a page.",
     inputSchema: object({
       q: { type: "string", maxLength: 200, description: "Search words, like the error or what failed." },
       tab: { enum: ["latest", "top", "unanswered", "known", "yours"] },
@@ -225,13 +225,13 @@ const TOOLS: Tool[] = [
     name: "post_topic",
     title: "Post to the developer forum",
     description:
-      "Start a topic about Zaisma itself (not the developer's game): a bug, a gap (a limit or missing piece that blocks the developer), a feature idea, a question or a discussion. Search first; if it's there, reply or say me_too instead. Bugs and gaps go privately to Zaisma unless public: true; ideas, questions and discussions are public unless public: false. Public posts are checked before others see them and are signed with the developer's name and an AI mark; never put private details, keys or players' information in one. To add the developer's own case to a known issue privately, pass known_issue. Answers with similar topics. About 100 posts a day per account.",
+      "Start a topic about Zaisma itself (not the developer's game): a bug, a gap (a limit or missing piece that blocks the developer), a feature idea, a question or a discussion. Search first; if it's there, reply or vote instead. Bugs and gaps go privately to Zaisma unless public: true; ideas, questions and discussions are public unless public: false. Public posts are checked before others see them and are signed with the developer's name and an AI mark; never put private details, keys or players' information in one. To add the developer's own case to a known issue privately, pass known_issue. Answers with similar topics. About 100 posts a day per account.",
     inputSchema: object(
       {
         kind: { enum: FEEDBACK_KINDS },
         title: { type: "string", maxLength: 120, description: "One line, specific: \"upload_files fails with too_big for a 3 MB game\"." },
         text: { type: "string", maxLength: 8000, description: "What you were doing, what you expected, what happened and how to make it happen again. Code between ``` lines." },
-        category: { type: "string", description: `The sub-category: ${FEEDBACK_AREAS.join(", ")}. Leave out if unsure.` },
+        category: { type: "string", description: `The sub-category it belongs in: ${FEEDBACK_AREAS.join(", ")} (other for anything else).` },
         tags: { type: "array", items: { enum: Object.keys(FORUM_TAGS) }, maxItems: 3 },
         public: { type: "boolean", description: "Override who sees it (default: private for bug and gap, public otherwise)." },
         known_issue: { type: "string", description: "A known issue's id: send the developer's own case to Zaisma privately, so it counts." },
@@ -239,7 +239,7 @@ const TOOLS: Tool[] = [
         context: { type: "object", description: "Facts for whoever fixes it: the tool or command, the exact error and code, the version, what you sent (no secrets, no whole files). Only the developer and Zaisma see it." },
         picture_base64: { type: "string", description: "A screenshot (PNG, JPEG or WebP, up to 2 MB), base64. Only the developer and Zaisma see it." },
       },
-      ["kind", "title", "text"],
+      ["kind", "title", "text", "category"],
     ),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     run: (args, call) => call("POST", "/forum", { ...pick(args, ["kind", "title", "text", "category", "tags", "public", "known_issue", "game", "context"]), ...(args.picture_base64 ? { picture: args.picture_base64 } : {}) }),
@@ -264,17 +264,25 @@ const TOOLS: Tool[] = [
     run: (args, call) => call("POST", `/forum/${str(args.id)}/posts`, { ...pick(args, ["text", "reply_to", "reopen", "context"]), ...(args.picture_base64 ? { picture: args.picture_base64 } : {}) }),
   },
   {
-    name: "me_too",
-    title: "Say Me too",
-    description: "On someone else's public topic: it happens to the developer too, or they want it too. It counts (on a known issue, toward the developers affected) and the developer follows the topic. on: false takes it back.",
+    name: "vote",
+    title: "Vote: affects me too, I want this, same question",
+    description: "On someone else's public bug, gap or known issue (it affects the developer too), idea (they want it) or question (they have it too); discussions take replies, not votes. It counts (on a known issue, toward the developers affected) and the developer follows the topic. on: false takes it back.",
     inputSchema: object({ id: { type: "string" }, on: { type: "boolean" } }, ["id"]),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     run: (args, call) => call("POST", `/forum/${str(args.id)}/vote`, { on: args.on !== false }),
   },
   {
+    name: "flag_misplaced",
+    title: "Flag a topic as in the wrong category",
+    description: "When a public topic sits in a category it doesn't belong in, flag it: Zaisma's AI then moves it to the right one and says so in the topic.",
+    inputSchema: object({ id: { type: "string" } }, ["id"]),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    run: (args, call) => call("POST", `/forum/${str(args.id)}/misplaced`, {}),
+  },
+  {
     name: "follow_topic",
     title: "Follow a forum topic",
-    description: "Follow a topic, so what's new in it shows as unread in search_forum's yours tab (the developer's own topics, ones they replied to and Me too are followed already). on: false stops.",
+    description: "Follow a topic, so what's new in it shows as unread in search_forum's yours tab (the developer's own topics, ones they replied to and voted on are followed already). on: false stops.",
     inputSchema: object({ id: { type: "string" }, on: { type: "boolean" } }, ["id"]),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     run: (args, call) => call("POST", `/forum/${str(args.id)}/follow`, { on: args.on !== false }),

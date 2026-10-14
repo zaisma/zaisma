@@ -1,4 +1,5 @@
 import {
+  FEEDBACK_AREAS,
   FEEDBACK_CLOSED,
   FEEDBACK_KINDS,
   FEEDBACK_LIMITS,
@@ -286,8 +287,9 @@ async function fileFeedback(env: Env, caller: Caller, body: Record<string, unkno
   const post = await readPost(env, caller, body);
   const id = newId();
   const now = Date.now();
-  await env.DB.prepare("INSERT INTO feedback (id, account_id, kind, title, game_id, status, group_id, created_at, updated_at, active_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    .bind(id, caller.accountId, kind, title, game?.id ?? null, group && (group.status === "known" || group.status === "planned") ? group.status : "new", group?.id ?? null, now, now, now)
+  const area = typeof body.category === "string" && (FEEDBACK_AREAS as string[]).includes(body.category) ? body.category : (group?.area ?? "");
+  await env.DB.prepare("INSERT INTO feedback (id, account_id, kind, title, game_id, status, group_id, area, created_at, updated_at, active_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .bind(id, caller.accountId, kind, title, game?.id ?? null, group && (group.status === "known" || group.status === "planned") ? group.status : "new", group?.id ?? null, area, now, now, now)
     .run();
   await storePost(env, (await feedbackById(env, id))!, caller, post, "post");
   const { results: known } = group ? { results: [] } : await env.DB.prepare(`${KNOWN} ORDER BY updated_at DESC LIMIT 500`).all<Feedback>();
@@ -505,7 +507,7 @@ export interface FeedbackDecision {
 export class FeedbackRefusal extends Error {}
 
 /** Zaisma's own posts need no check: on a public topic everyone sees them at once. */
-async function zaismaPost(env: Env, feedbackId: string, kind: "post" | "status", text: string, at: number) {
+export async function zaismaPost(env: Env, feedbackId: string, kind: "post" | "status", text: string, at: number) {
   await env.DB.batch([
     env.DB.prepare("INSERT INTO feedback_posts (id, feedback_id, account_id, author, via, kind, text, created_at, check_state) SELECT ?, id, NULL, 'zaisma', 'admin', ?, ?, ?, CASE WHEN public = 1 THEN 'ok' END FROM feedback WHERE id = ?").bind(newId(), kind, text, at, feedbackId),
     env.DB.prepare("UPDATE feedback SET updated_at = ?, news_at = ?, active_at = ?, replies = replies + public WHERE id = ?").bind(at, at, at, feedbackId),
@@ -610,6 +612,7 @@ export async function decideFeedback(env: Env, id: string, d: FeedbackDecision):
   if (d.severity !== undefined || d.area !== undefined) {
     const severity = d.severity !== undefined ? Math.min(4, Math.max(1, Math.round(d.severity))) : f.severity;
     await env.DB.prepare("UPDATE feedback SET severity = ?, area = ? WHERE id = ?").bind(severity, d.area !== undefined ? d.area.trim().slice(0, 40) : f.area, f.id).run();
+    if (d.area !== undefined) await env.DB.prepare("DELETE FROM feedback_misplaced WHERE feedback_id = ?").bind(f.id).run();
   }
 }
 

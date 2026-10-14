@@ -16,6 +16,7 @@ import { esc, html, layout, raw, type Raw } from "./html.ts";
 import {
   areasOf,
   createTopic,
+  flagMisplaced,
   follow,
   getTopic,
   listTopics,
@@ -61,6 +62,7 @@ const DONE: Record<string, string> = {
   checking: "Posted. Others see it once it's checked, usually within minutes.",
   held: "Posted. A person at Zaisma checks it before others see it, usually within a day.",
   replied: "Replied.",
+  misplaced: "Thanks. Zaisma's AI looks at where it belongs within a few minutes, and moves it if it's in the wrong place.",
   reopened: "Reopened. A person at Zaisma looks at it again.",
 };
 
@@ -74,14 +76,23 @@ const ICONS = {
   talk: stroke('<path d="M3 4h10.5v7.2H8.2l-3 2.6v-2.6H3z"/><path d="M13.5 7.6H17v6.6h-1.6v2.4l-2.8-2.4H9.2v-2"/>'),
   known: stroke('<path d="M7.2 3h5.6l-.9 5 3.1 3.2H5l3.1-3.2z"/><path d="M10 11.2V17.4"/>'),
   replies: stroke('<path d="M3.5 4.5h13v9h-7l-4 3v-3h-2z"/>'),
-  vote: stroke('<path d="M10 3.5l6 6.8h-3.6v6.2H7.6v-6.2H4z"/>'),
+  want: stroke('<path d="M4.5 12.8L10 7.2l5.5 5.6"/>'),
+  affects: stroke('<circle cx="8" cy="6.4" r="3"/><path d="M2.4 17c0-3.2 2.5-5.6 5.6-5.6 1.7 0 3.2.7 4.2 1.9"/><path d="M15.4 10.6v6M12.4 13.6h6"/>'),
+  same: stroke('<circle cx="8.6" cy="9.6" r="6.4"/><path d="M6.8 7.8a1.9 1.9 0 1 1 2.7 1.7c-.5.3-.9.7-.9 1.3v.3"/><path d="M8.6 13.2v.1M15.6 3v4.4M13.4 5.2h4.4"/>'),
   lock: stroke('<rect x="4.5" y="9" width="11" height="8"/><path d="M7 9V6.5a3 3 0 0 1 6 0V9"/>'),
   check: stroke('<path d="M4 10.5l4 4 8-9"/>'),
-  ai: stroke('<path d="M10 1.8l2 6.2 6.2 2-6.2 2-2 6.2-2-6.2-6.2-2 6.2-2z"/>', true),
+  ai: stroke('<path fill-rule="evenodd" d="M9 1.8h2v3.6h4.2a1.8 1.8 0 0 1 1.8 1.8v8a1.8 1.8 0 0 1-1.8 1.8H4.8A1.8 1.8 0 0 1 3 15.2v-8a1.8 1.8 0 0 1 1.8-1.8H9zM6.6 9.2v2.8h2.2V9.2zm4.6 0v2.8h2.2V9.2zM7.4 13.6v1.3h5.2v-1.3z"/><path d="M.8 9h1.5v4.4H.8zM17.7 9h1.5v4.4h-1.5z"/>', true),
   reply: stroke('<path d="M8 5L3.5 9.5 8 14"/><path d="M3.5 9.5H12a4.5 4.5 0 0 1 4.5 4.5v1"/>'),
   plus: stroke('<path d="M10 4v12M4 10h12"/>'),
   cross: stroke('<path d="M5 5l10 10M15 5L5 15"/>'),
 };
+/** What a vote means on each kind of topic. Discussions take replies, not votes. */
+function voteOf(t: { kind: FeedbackKind; known_issue: boolean }): { ask: string; done: string; icon: Raw; count: (n: number) => string } | null {
+  if (t.kind === "talk" && !t.known_issue) return null;
+  if (t.kind === "feature" && !t.known_issue) return { ask: "I want this", done: "You want this", icon: ICONS.want, count: (n) => (n === 1 ? "developer wants this" : "developers want this") };
+  if (t.kind === "question" && !t.known_issue) return { ask: "Same question", done: "You have this question too", icon: ICONS.same, count: (n) => (n === 1 ? "developer has this question" : "developers have this question") };
+  return { ask: "Affects me too", done: "It affects you too", icon: ICONS.affects, count: (n) => (n === 1 ? "developer affected" : "developers affected") };
+}
 const kindIcon = (t: { kind: FeedbackKind; known_issue: boolean }) => (t.known_issue ? ICONS.known : ICONS[t.kind]);
 
 export async function handleForum(request: Request, env: Env, path: string): Promise<Response | null> {
@@ -128,7 +139,7 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
       }
     }
 
-    const m = path.match(/^\/forum\/([a-z0-9]{1,40})(?:\/(reply|vote|follow|answer|pictures\/([a-z0-9]{1,40})))?$/);
+    const m = path.match(/^\/forum\/([a-z0-9]{1,40})(?:\/(reply|vote|follow|answer|misplaced|pictures\/([a-z0-9]{1,40})))?$/);
     if (!m) return null;
     const [, id, sub, postId] = m as unknown as [string, string, string | undefined, string | undefined];
     if (!sub && !post) return done(await topicPage(ctx, id, { done: url.searchParams.get("done") ?? undefined, to: url.searchParams.get("to") ?? undefined }));
@@ -159,6 +170,10 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
       if (sub === "vote") await vote(env, caller, id, form.get("on") === "1");
       if (sub === "follow") await follow(env, caller, id, form.get("on") === "1");
       if (sub === "answer") await markAnswer(env, caller, id, field("post") || null);
+      if (sub === "misplaced") {
+        await flagMisplaced(env, caller, id);
+        return done(redirect(`/forum/${id}?done=misplaced`));
+      }
     } catch (err) {
       if (err instanceof ApiError) return done(await topicPage(ctx, id, { error: err.message }, err.status));
       throw err;
@@ -319,9 +334,9 @@ ${rail(ctx, query, data.tab, unread)}
   <ol class="topics">${data.pinned.map((t) => topicRow(t, query))}</ol></details>`
     : ""}
   ${data.topics.length
-    ? html`<div class="topics-head" aria-hidden="true"><span>Topic</span><span>People</span><span>Replies</span><span>Me too</span><span>Active</span></div>
+    ? html`<div class="topics-head" aria-hidden="true"><span>Topic</span><span>People</span><span>Replies</span><span>Votes</span><span>Active</span></div>
   <ol class="topics">${data.topics.map((t) => topicRow(t, query))}</ol>`
-    : html`<div class="empty-board"><p>${query.q ? "Nothing matches that." : data.tab === "yours" ? "You haven't posted yet. Topics you post, reply to or say Me too on show here." : data.tab === "unanswered" ? "Every question here has an answer." : "No topics here yet."}</p>${ctx.viewer ? html`<a class="btn ghost" href="/forum/new${query.category ? `?category=${query.category}` : ""}">Start a topic</a>` : ""}</div>`}
+    : html`<div class="empty-board"><p>${query.q ? "Nothing matches that." : data.tab === "yours" ? "You haven't posted yet. Topics you post, reply to or vote on show here." : data.tab === "unanswered" ? "Every question here has an answer." : "No topics here yet."}</p>${ctx.viewer ? html`<a class="btn ghost" href="/forum/new${query.category ? `?category=${query.category}` : ""}">Start a topic</a>` : ""}</div>`}
   ${data.page > 1 || data.more
     ? html`<nav class="pager" aria-label="Pages">${data.page > 1 ? html`<a class="btn ghost" href="${link(query, { page: data.page - 1 })}">Newer</a>` : ""}<span class="muted">Page ${data.page}</span>${data.more ? html`<a class="btn ghost" href="${link(query, { page: data.page + 1 })}">Older</a>` : ""}</nav>`
     : ""}
@@ -350,7 +365,7 @@ function rail(ctx: Ctx, query: ForumQuery, tab: string, unread: number): Raw {
   )}
   <p class="r-head">Tags</p>
   <div class="r-tags">${Object.entries(FORUM_TAGS).map(([t, name]) => html`<a class="tag${query.tag === t ? " on" : ""}" href="${link({ ...query, page: 1 }, { tag: query.tag === t ? "" : t })}">${name}</a>`)}</div>
-  ${ctx.viewer ? "" : html`<p class="r-note">Anyone can read the forum. <a href="/signin?next=/forum">Sign in</a> to post, reply and say Me too.</p>`}
+  ${ctx.viewer ? "" : html`<p class="r-note">Anyone can read the forum. <a href="/signin?next=/forum">Sign in</a> to post, reply and vote.</p>`}
   <p class="r-note">Your AI reads and posts here too, through the Zaisma MCP. Its posts carry an ${ICONS.ai} AI mark.</p>
 </nav>
 </details>`;
@@ -367,7 +382,11 @@ function topicRow(t: TopicRow, q: ForumQuery): Raw {
   </div>
   <div class="tpeople">${t.people.map((p) => avatar(p, "sm"))}</div>
   <div class="tstat" title="${t.replies === 1 ? "1 reply" : `${t.replies} replies`}">${ICONS.replies}<span>${t.replies}</span></div>
-  <div class="tstat${t.voted ? " mine" : ""}" title="${t.known_issue ? `${t.developers} developers affected` : `${t.votes} said Me too`}">${ICONS.vote}<span>${t.known_issue ? t.developers : t.votes}</span></div>
+  ${(() => {
+    const v = voteOf(t);
+    const n = t.known_issue ? (t.developers ?? 0) : t.votes;
+    return v ? html`<div class="tstat${t.voted ? " mine" : ""}" title="${n} ${v.count(n)}">${v.icon}<span>${n}</span></div>` : html`<div class="tstat none" aria-hidden="true"></div>`;
+  })()}
   <div class="tage">${ago(t.active_at)}</div>
 </li>`;
 }
@@ -375,7 +394,7 @@ function topicRow(t: TopicRow, q: ForumQuery): Raw {
 async function similarFragment(ctx: Ctx, q: string): Promise<Response> {
   const found = await similarTopics(ctx.env, ctx.viewer, q);
   const body = found.length
-    ? html`<p><strong>Already here?</strong> If one of these is the same, say Me too or reply there instead.</p><ol class="topics">${found.map((t) => topicRow(t, {}))}</ol>`
+    ? html`<p><strong>Already here?</strong> If one of these is the same, vote or reply there instead.</p><ol class="topics">${found.map((t) => topicRow(t, {}))}</ol>`
     : html``;
   return new Response(body.html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
 }
@@ -418,8 +437,8 @@ ${sidePanel(ctx, t, data.posts)}
  * larger type, and the topic's actions. A known issue opens with Zaisma's summary instead.
  */
 function opPost(ctx: Ctx, t: Topic["topic"], p: PostJson | null, answer: PostJson | undefined): Raw {
-  const voteWords = t.known_issue ? "This happens to me too" : t.kind === "feature" ? "I want this too" : t.kind === "question" ? "I have this question too" : t.kind === "talk" ? "Me too" : "This happens to me too";
-  const count = t.known_issue ? t.developers ?? 0 : t.votes;
+  const v = voteOf(t);
+  const count = t.known_issue ? (t.developers ?? 0) : t.votes;
   return html`<article class="op plate bevel-s"${p ? raw(` id="p-${p.id}"`) : ""}>
   <h1 class="t-title"><span class="ticon k-${t.known_issue ? "known" : t.kind}" title="${t.known_issue ? "Known issue" : KINDS[t.kind].label}">${kindIcon(t)}</span>${t.title}</h1>
   <p class="t-meta"><span class="kind">${t.known_issue ? "Known issue" : KINDS[t.kind].label}</span>${statusPill(t.status, t.public)}${t.tags.map(tagChip)}${t.public ? "" : html`<span class="flag">${ICONS.lock}Only you and Zaisma can see this</span>`}${t.game ? html`<span class="muted">About <a href="/dashboard/${t.game}">${t.game}</a>, which only you and Zaisma see</span>` : ""}</p>
@@ -434,10 +453,10 @@ function opPost(ctx: Ctx, t: Topic["topic"], p: PostJson | null, answer: PostJso
   ${t.merged_into ? html`<div class="known-box"><p class="kb-head">${ICONS.known}<span>Part of the known issue <a href="/forum/${t.merged_into.id}"><strong>${t.merged_into.title}</strong></a>.</span></p>${t.merged_into.workaround ? html`<p class="kb-work"><strong>Until it's fixed:</strong> ${t.merged_into.workaround}</p>` : ""}</div>` : ""}
   ${answer ? html`<p class="jump">${ICONS.check}<a href="#p-${answer.id}">Answered by ${answer.by.name}${answer.by.by === "ai" ? "'s AI" : ""}</a></p>` : ""}
   <div class="op-actions">
-    ${t.can.vote
-      ? html`<form method="post" action="/forum/${t.id}/vote"><input type="hidden" name="on" value="${t.voted ? "0" : "1"}"><button class="btn${t.voted ? " ghost" : " light"} vote" type="submit" aria-pressed="${t.voted ? "true" : "false"}">${ICONS.vote}<span>${t.voted ? "You said Me too" : voteWords}</span></button></form>`
+    ${v && t.can.vote
+      ? html`<form method="post" action="/forum/${t.id}/vote"><input type="hidden" name="on" value="${t.voted ? "0" : "1"}"><button class="btn${t.voted ? " ghost" : " light"} vote" type="submit" aria-pressed="${t.voted ? "true" : "false"}" title="${t.voted ? "Press to take it back" : ""}">${v.icon}<span>${t.voted ? v.done : v.ask}</span></button></form>`
       : ""}
-    ${t.public && t.shown ? html`<span class="op-count"><strong>${count}</strong> ${t.known_issue ? (count === 1 ? "developer affected" : "developers affected") : count === 1 ? "said Me too" : "said Me too"}</span>` : ""}
+    ${v && t.public && t.shown ? html`<span class="op-count"><strong>${count}</strong> ${v.count(count)}</span>` : ""}
     <span class="op-gap"></span>
     ${t.can.reply && p?.state !== "checking" && p?.state !== "held" ? html`<a class="btn ghost" href="#reply" data-reply-top>${ICONS.reply}Reply</a>` : ""}
     ${ctx.viewer ? html`<form method="post" action="/forum/${t.id}/follow"><input type="hidden" name="on" value="${t.following ? "0" : "1"}"><button class="btn ghost" type="submit" title="${t.following ? "New replies show in Your topics. Press to stop." : "Hear about new replies in Your topics."}">${t.following ? "Following" : "Follow"}</button></form>` : ""}
@@ -469,7 +488,7 @@ function postItem(t: Topic["topic"], p: PostJson, all: PostJson[], opening: bool
 }
 
 function composer(ctx: Ctx, t: Topic["topic"], left: number | null, text: string, to: PostJson | undefined): Raw {
-  if (!ctx.viewer || !ctx.me) return html`<div class="composer plate bevel-s signed-out" id="reply"><p>Sign in to reply, say Me too or follow this topic.</p><a class="btn light" href="/signin?next=/forum/${t.id}">Sign in</a></div>`;
+  if (!ctx.viewer || !ctx.me) return html`<div class="composer plate bevel-s signed-out" id="reply"><p>Sign in to reply, vote or follow this topic.</p><a class="btn light" href="/signin?next=/forum/${t.id}">Sign in</a></div>`;
   return html`<form class="composer plate bevel-s" id="reply" method="post" action="/forum/${t.id}/reply" enctype="multipart/form-data">
   <input type="hidden" name="reply_to" value="${to?.id ?? ""}">
   <p class="replying"${to ? "" : raw(" hidden")}>${ICONS.reply}<span>Replying to <strong data-to-name>${to?.by.name ?? ""}</strong>: <span data-to-excerpt>${to?.text.slice(0, 140) ?? ""}</span></span><button type="button" class="x" data-unreply aria-label="Reply to the whole topic instead">×</button></p>
@@ -490,7 +509,13 @@ function sidePanel(ctx: Ctx, t: Topic["topic"], posts: PostJson[]): Raw {
   return html`<aside class="t-side">
   <dl class="facts plate bevel-s">
     <dt>Status</dt><dd>${t.status === "new" ? (t.public ? "Open" : "Waiting for Zaisma") : STATUS[t.status].label}</dd>
-    ${place ? html`<dt>Category</dt><dd><a href="/forum?category=${place.category}">${place.name}</a> · <a href="/forum?category=${t.category}">${place.sub}</a></dd>` : ""}
+    ${place
+      ? html`<dt>Category</dt><dd><a href="/forum?category=${place.category}">${place.name}</a> · <a href="/forum?category=${t.category}">${place.sub}</a>${t.can.flag
+          ? t.flagged_misplaced
+            ? html`<p class="hint flagged">You flagged it as in the wrong category. Zaisma's AI moves it if it is.</p>`
+            : html`<form method="post" action="/forum/${t.id}/misplaced"><button class="link-btn" type="submit">Wrong category?</button></form>`
+          : ""}</dd>`
+      : ""}
     ${t.tags.length ? html`<dt>Tags</dt><dd class="tags">${t.tags.map(tagChip)}</dd>` : ""}
     ${people.length > 1 ? html`<dt>In this topic</dt><dd class="people">${people.slice(0, 12).map((p) => html`<span class="person">${avatar(p, "sm")}${nameOf(p)}</span>`)}</dd>` : ""}
     <dt>Who can see it</dt><dd>${t.public ? "Every developer and their AI" : "Only you and Zaisma"}</dd>
@@ -525,7 +550,7 @@ async function newPage(ctx: Ctx, f: Record<string, string>, error = "", status =
   <div id="similar" class="similar" aria-live="polite"></div>
   <label>What happened, or what you'd like <textarea name="text" required maxlength="${FEEDBACK_LIMITS.text}" rows="9" placeholder="What you did, what you expected and what happened instead. Put code and errors between \`\`\` lines.">${f.text ?? ""}</textarea></label>
   <div class="np-row">
-    <label>Category <select name="category"><option value="">Not sure: Zaisma sorts it</option>${FORUM_CATEGORIES.map(
+    <label>Category <select name="category" required><option value=""${category ? "" : raw(" selected")} disabled>Pick where it belongs</option>${FORUM_CATEGORIES.map(
       (c) => html`<optgroup label="${c.name}">${Object.entries(c.areas).map(([a, name]) => html`<option value="${a}"${a === category ? raw(" selected") : ""}>${name}</option>`)}</optgroup>`,
     )}</select></label>
     ${games.length ? html`<label>Which game (optional) <select name="game"><option value="">None</option>${games.map((g) => html`<option value="${g.slug}"${g.slug === f.game ? raw(" selected") : ""}>${g.title}</option>`)}</select><small class="hint">Only you and Zaisma see which game.</small></label>` : ""}
@@ -536,14 +561,14 @@ async function newPage(ctx: Ctx, f: Record<string, string>, error = "", status =
         ([t, name]) => html`<label class="tag pick"><input type="checkbox" name="tags" value="${t}"${tags.includes(t) ? raw(" checked") : ""}><span>${name}</span></label>`,
       )}</div></fieldset>
   <fieldset class="seen"><legend>Who can see it</legend>
-    <label class="check"><input type="radio" name="visibility" value="public"${isPrivate ? "" : raw(" checked")}><span><strong>Every developer and their AI</strong><small>Others can reply and say Me too. Checked before it shows.</small></span></label>
+    <label class="check"><input type="radio" name="visibility" value="public"${isPrivate ? "" : raw(" checked")}><span><strong>Every developer and their AI</strong><small>Others can reply and vote. Checked before it shows.</small></span></label>
     <label class="check"><input type="radio" name="visibility" value="private"${isPrivate ? raw(" checked") : ""}><span><strong>Only Zaisma</strong><small>For logs, unreleased games or anything private. If others hit it too, Zaisma makes it a public known issue without your words.</small></span></label>
   </fieldset>`}
   <label>Screenshot (optional) <input type="file" name="picture" accept="image/png,image/jpeg,image/webp"><small class="hint">PNG, JPEG or WebP up to ${FEEDBACK_LIMITS.pictureBytes / 1048576} MB. Only you and Zaisma see it.</small></label>
   <div class="np-foot"><button class="btn light" type="submit">${known ? "Send to Zaisma" : "Post topic"}</button><span class="hint">Keys and passwords are blanked before anything is saved.</span></div>
 </form>
 <aside class="np-side">
-  <div class="side plate bevel-s"><h2>Before you post</h2><p>Search first: if someone has posted it, say Me too there. It counts, and you hear when it changes.</p><p>Bugs and missing pieces go to Zaisma privately by default. Ideas, questions and discussions are public.</p></div>
+  <div class="side plate bevel-s"><h2>Before you post</h2><p>Search first: if someone has posted it, vote there. It counts, and you hear when it changes.</p><p>Bugs and missing pieces go to Zaisma privately by default. Ideas, questions and discussions are public.</p></div>
   <div class="side plate bevel-s"><h2>From your AI</h2><p>With the Zaisma MCP, your AI searches the forum, posts what it hits with the exact error, and replies. Its posts show your name with an ${ICONS.ai} AI mark.</p></div>
 </aside>
 </div>`,
@@ -555,6 +580,15 @@ async function newPage(ctx: Ctx, f: Record<string, string>, error = "", status =
 
 const FORUM_STYLES = `
 main{max-width:1320px;padding-top:20px}
+/* Room for the scrollbar is always kept, so pages don't shift sideways as they load. */
+html{scrollbar-gutter:stable}
+@media (prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}}
+.op,.post,.event,.composer{scroll-margin-top:96px}
+.op:target,.post:target{box-shadow:inset 0 0 0 2px #dfe2e6,var(--rim),var(--drop)}
+.link-btn{display:block;margin-top:6px;padding:0;border:0;background:none;color:var(--muted);font:inherit;font-size:13px;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+.link-btn:hover{color:var(--text)}
+.facts .flagged{margin:6px 0 0}
+.tstat.none{visibility:hidden}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .done{color:var(--ok-text);margin:0 0 14px}
 .btn.new-topic{min-height:40px;padding:0 16px}
@@ -656,7 +690,7 @@ a.tag:hover,.tag.on{color:#0b0b0c;background:var(--chrome);box-shadow:none}
 .tpeople .av{margin-left:-6px;box-shadow:0 0 0 2px #1d2026,inset 1px 1px 0 rgba(255,255,255,.18)}
 .tpeople .av:first-child{margin-left:0}
 .tstat{display:flex;align-items:center;justify-content:center;gap:5px;color:var(--muted);font-family:var(--display);font-weight:600;font-size:14px}
-.tstat svg{width:15px;height:15px}
+.tstat svg{width:16px;height:16px}
 .tstat.mine{color:var(--text)}
 .tage{text-align:right;color:var(--muted);font-size:13px}
 .pinned{margin:0 0 16px}
@@ -700,7 +734,8 @@ a.tag:hover,.tag.on{color:#0b0b0c;background:var(--chrome);box-shadow:none}
 .op-actions{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding-top:14px;background:linear-gradient(#000,#000) top/100% 1px no-repeat;box-shadow:inset 0 1px 0 rgba(255,255,255,.04)}
 .op-actions form{display:contents}
 .op-actions .btn{min-height:40px}
-.op-actions .btn svg{width:15px;height:15px}
+.op-actions .btn svg{width:19px;height:19px}
+.op-actions .btn.vote{padding:0 18px 0 14px}
 .op-count{color:var(--muted);font-size:14px}
 .op-count strong{color:var(--text);font-family:var(--display);font-size:17px}
 .op-gap{flex:1}

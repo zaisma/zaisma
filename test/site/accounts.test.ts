@@ -211,7 +211,9 @@ describe("making an account", () => {
     await join(b, "teen@example.com", "Quiet Comet", { year: String(thisYear - 15), month: "1", day: "1" });
     const row = await env.DB.prepare("SELECT * FROM accounts").first();
     expect(row).toMatchObject({ age_band: "13-17" });
-    expect(JSON.stringify(row)).not.toContain(String(thisYear - 15));
+    // Everything but the id and timestamps, which can contain any four digits.
+    const { id: _id, created_at: _c, updated_at: _u, ...stored } = row!;
+    expect(JSON.stringify(stored)).not.toContain(String(thisYear - 15));
     expect([...b.jar.values()].join()).not.toContain(String(thisYear - 15));
   });
 
@@ -835,7 +837,7 @@ describe("the dashboard", () => {
     expect((await b.go(`/dashboard/feedback/${id}`)).headers.get("location")).toBe(`/forum/${id}`);
   });
 
-  it("shows public topics to everyone once checked, with replies to one post, Me too and answers", async () => {
+  it("shows public topics to everyone once checked, with replies to one post, votes and answers", async () => {
     const pass: CheckDeps = { ai: async (_k, _m, text) => ({ verdict: /discord/i.test(text) ? "hold" : "ok", reason: "Asks to move to another app.", inputTokens: 100, outputTokens: 10 }) };
     const check = () => checkForumPosts({ ...env, ANTHROPIC_API_KEY: "test-key" }, pass);
     const first = new Browser();
@@ -851,7 +853,7 @@ describe("the dashboard", () => {
     expect(await check()).toBe(1);
     const board = await (await reader.go("/forum")).text();
     expect(board).toContain("How do rooms pick a region?");
-    expect(board).toContain("to post, reply and say Me too");
+    expect(board).toContain("to post, reply and vote");
     expect(await (await reader.go(`/forum/${id}`)).text()).toContain("Sign in to reply");
 
     // Another developer replies; the first answers that one post.
