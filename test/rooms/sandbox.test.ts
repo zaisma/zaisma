@@ -1,5 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
+import { issueRoomKey } from "@zaisma/core";
 import type { Env } from "../../apps/rooms/src/index.ts";
 
 // Developers' own game servers, run in a sandbox (apps/rooms/src/sandbox.ts).
@@ -21,7 +22,9 @@ async function addSandboxGame(slug: string, server: string) {
 
 let address = 0;
 async function newPass(game: string) {
-  const res = await SELF.fetch(`${R}/v1/pass`, { method: "POST", headers: { Origin: ORIGIN, "Content-Type": "text/plain", "cf-connecting-ip": `198.51.100.${++address % 250}` }, body: JSON.stringify({ game }) });
+  // The key the game page gets when Cloudflare's check on Play passes.
+  const key = await issueRoomKey(e.DB, `g${game.replace(/-/g, "")}`);
+  const res = await SELF.fetch(`${R}/v1/pass`, { method: "POST", headers: { Origin: ORIGIN, "Content-Type": "text/plain", "cf-connecting-ip": `198.51.100.${++address % 250}` }, body: JSON.stringify({ game, key }) });
   return res.json<{ pass: string; player: { id: string; name: string } }>();
 }
 

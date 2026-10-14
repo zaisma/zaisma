@@ -51,6 +51,10 @@
  *
  * On Zaisma, the games Worker defines __ZAISMA__ before this file with the rooms
  * address, the game and the site. Anywhere else, pass { server } yourself.
+ *
+ * Player passes (for rooms and your own servers) need the game played on its zaisma.com page, which
+ * checks the browser on Play: joining fails with err.code "unchecked" when it couldn't, or when the
+ * game was opened anywhere else.
  */
 (function () {
   "use strict";
@@ -91,6 +95,33 @@
 
   var passKey = "zaisma:pass:" + config.game;
   var passPromise = null;
+  var keyPromise = null;
+  var UNCHECKED = "Zaisma couldn't check this browser, so it can't play online. Reload the game to try again.";
+
+  /**
+   * The game page's key to player passes. zaisma.com gives one when Cloudflare's check on Play says
+   * a real browser pressed it, so bots can't fill rooms; a game opened anywhere else gets none.
+   */
+  function roomKey() {
+    if (!keyPromise) {
+      keyPromise = new Promise(function (resolve, reject) {
+        function fail(message) { var err = new Error(message); err.code = "unchecked"; reject(err); }
+        if (!config.site || window.parent === window) return fail("Online play works when the game is played on Zaisma.");
+        // The check usually answers in a second or two, or asks the player to tap a box.
+        var timer = setTimeout(function () { removeEventListener("message", onMessage); fail(UNCHECKED); }, 30000);
+        function onMessage(e) {
+          if (e.origin !== config.site || e.source !== window.parent || !e.data || e.data.type !== "zaisma:room-key") return;
+          removeEventListener("message", onMessage);
+          clearTimeout(timer);
+          if (typeof e.data.key === "string") resolve(e.data.key);
+          else fail(UNCHECKED);
+        }
+        addEventListener("message", onMessage);
+        window.parent.postMessage({ type: "zaisma:room-key" }, config.site);
+      });
+    }
+    return keyPromise;
+  }
 
   /** This tab's guest player: { id, name, pass }. Kept only for the tab, like the guest it belongs to. */
   function player() {
@@ -100,7 +131,9 @@
       if (saved && saved.expiresAt - Date.now() > 10 * 60 * 1000) return Promise.resolve(saved);
     } catch (e) { /* storage off: fetch a new pass */ }
     if (!passPromise) {
-      passPromise = post("/v1/pass", { game: config.game }).then(function (data) {
+      passPromise = roomKey().then(function (key) {
+        return post("/v1/pass", { game: config.game, key: key });
+      }).then(function (data) {
         var p = { id: data.player.id, name: data.player.name, pass: data.pass, expiresAt: data.expiresAt };
         try { sessionStorage.setItem(passKey, JSON.stringify(p)); } catch (e) { /* fine */ }
         passPromise = null;

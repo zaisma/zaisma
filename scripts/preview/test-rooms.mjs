@@ -6,10 +6,22 @@ import WebSocket from "ws";
 const ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 const newCode = () => Array.from({ length: 6 }, () => ALPHABET[Math.floor(Math.random() * ALPHABET.length)]).join("");
 let address = 0;
+/** The preview's zaisma.com, where test players get their keys to passes like a browser does. */
+let site = "";
 
 async function guestPass(rooms, origin, game) {
-  // Each test player asks from its own made-up address, so they don't use up your own pass limit.
-  const res = await fetch(`${rooms}/v1/pass`, { method: "POST", headers: { origin, "content-type": "text/plain", "cf-connecting-ip": `198.51.100.${++address}` }, body: JSON.stringify({ game }) });
+  // Each test player asks from its own made-up address, so they don't use up your own limits.
+  const headers = { "content-type": "text/plain", "cf-connecting-ip": `198.51.100.${++address}` };
+  // The game page's key, as a browser gets it when Cloudflare's check on Play passes: the preview uses
+  // Cloudflare's test keys, which pass this token.
+  // The site can still be settling right after it starts, so try a few times.
+  let key;
+  for (let i = 0; i < 5 && !key; i++) {
+    const check = await fetch(`${site}/api/plays/${game}`, { method: "POST", headers: { ...headers, origin: site }, body: JSON.stringify({ token: "XXXX.DUMMY.TOKEN.XXXX" }) }).catch(() => null);
+    key = check?.status === 200 ? (await check.json()).key : undefined;
+    if (!key) await new Promise((r) => setTimeout(r, 1000));
+  }
+  const res = await fetch(`${rooms}/v1/pass`, { method: "POST", headers: { ...headers, origin }, body: JSON.stringify({ game, key }) });
   if (!res.ok) throw new Error(`No pass for ${game}: ${res.status}`);
   return (await res.json()).pass;
 }
@@ -72,7 +84,8 @@ function play(rooms, origin, game, code, pass) {
 }
 
 /** Rooms of each kind: some with space, a full one, a closed one and a hidden one (never listed). */
-export async function openTestRooms(rooms, origin) {
+export async function openTestRooms(rooms, origin, siteOrigin) {
+  site = siteOrigin;
   const plan = [
     ["arena", 3, { name: "Bumper cars", labels: { Map: "Classic" } }],
     ["arena", 1, { labels: { Map: "Ice" } }],

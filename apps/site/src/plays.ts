@@ -1,4 +1,4 @@
-import { gameBySlug, newId, type Game } from "@zaisma/core";
+import { gameBySlug, issueRoomKey, newId, testerLinkByToken, type Game } from "@zaisma/core";
 import { checkAccessToken, readCookie } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { playable } from "./home.ts";
@@ -13,10 +13,16 @@ import { playable } from "./home.ts";
  * gets a ticket: a random ID the page reports with, which can't claim time faster than it passes
  * and counts once. Every play started is still counted too, as a smaller "in all" line.
  *
+ * The same check lets players into multiplayer (room-count protection): a checked browser in a
+ * multiplayer game gets a key, which the page hands to its game to trade for a few player passes.
+ * The developer's own plays and tester links get a key too; they just aren't counted.
+ *
  *   POST /api/plays/:slug
  *     { first, last, cfirst, clast, token }   a play starts. first/last: the days this browser first
  *          and last played the game; cfirst/clast: the same for counted plays (YYYY-MM-DD, UTC, or
- *          null); token: the check's answer. Answers { ticket } when the play can be counted.
+ *          null); token: the check's answer. Answers { ticket } when the play can be counted, and
+ *          { key } when the browser was checked and the game is multiplayer.
+ *     { tester, token }   a play through a tester link (its token): never counted; answers { key }.
  *     { ticket, counted: true }   a minute on screen: count the play
  *     { ticket, seconds }         time on screen since the last report, up to 10 minutes
  */
@@ -58,6 +64,7 @@ export async function handlePlays(request: Request, env: Env, path: string): Pro
     return new Response(null, { status: 400 });
   }
   const game = await gameBySlug(env.DB, m[1]!);
+  if (body.tester !== undefined) return testerPlay(env, game, body);
   if (!game || !playable(game)) return new Response(null, { status: 404 });
 
   if (typeof body.ticket === "string") {
@@ -68,9 +75,22 @@ export async function handlePlays(request: Request, env: Env, path: string): Pro
   }
   const facts = startFacts(body);
   await countStart(env.DB, game.id, facts);
+  if (!(await checked(env, body.token))) return ok();
+  const key = multiplayer(game) ? await issueRoomKey(env.DB, game.id) : undefined;
   // Only plays from a checked browser, and not the developer's own, can be counted.
-  if (!(await checked(env, body.token)) || (await ownGame(request, env, game))) return ok();
-  return ok({ ticket: await issueTicket(env.DB, game.id, facts) });
+  const ticket = (await ownGame(request, env, game)) ? undefined : await issueTicket(env.DB, game.id, facts);
+  return ticket || key ? ok({ ...(ticket ? { ticket } : {}), ...(key ? { key } : {}) }) : ok();
+}
+
+/** Multiplayer with Zaisma's player passes: on Zaisma rooms or the game's own servers. */
+const multiplayer = (game: Game) => Boolean(game.game_server || game.connect_hosts);
+
+/** A play through a tester link: never counted, but a checked browser still gets its key to multiplayer. */
+async function testerPlay(env: Env, game: Game | null, body: Record<string, unknown>): Promise<Response> {
+  const link = typeof body.tester === "string" ? await testerLinkByToken(env.DB, body.tester) : null;
+  if (!game || !link || link.slug !== game.slug || game.status !== "live" || !game.current_version_id) return new Response(null, { status: 404 });
+  if (!multiplayer(game) || !(await checked(env, body.token))) return ok();
+  return ok({ key: await issueRoomKey(env.DB, game.id) });
 }
 
 interface StartFacts {
@@ -284,13 +304,16 @@ export async function playStats(db: D1Database, gameId: string, days: number, no
 
 /**
  * The game page's part. On Play it asks Cloudflare's invisible check about this browser and reports
- * the start; a checked play gets a ticket. After a minute on screen it asks for the play to count,
+ * the start; a checked play gets a ticket, and in a multiplayer game a key for the game's passes. After a minute on screen it asks for the play to count,
  * and reports time on screen when the page is hidden and every 5 minutes. Which games this browser
  * played, and when it first and last did, stay in this browser (zaisma:plays).
  */
-export function playCounter(slug: string, siteKey: string | undefined): string {
-  return `const countPlay = (() => {
-const api = "/api/plays/${slug}", KEY = "zaisma:plays", SLUG = ${JSON.stringify(slug)}, SITE_KEY = ${JSON.stringify(siteKey ?? "")};
+export function playCounter(slug: string, siteKey: string | undefined, tester?: string): string {
+  return `// The key to player passes the check gives a checked browser in a multiplayer game, for the game to ask for (zaisma:room-key).
+let gotKey;
+const roomKey = new Promise((done) => (gotKey = (r) => done((r && r.key) || null)));
+const countPlay = (() => {
+const api = "/api/plays/${slug}", KEY = "zaisma:plays", SLUG = ${JSON.stringify(slug)}, SITE_KEY = ${JSON.stringify(siteKey ?? "")}, TESTER = ${JSON.stringify(tester ?? "")};
 const post = (body) => fetch(api, { method: "POST", body: JSON.stringify(body), keepalive: true }).then((r) => (r.status === 200 ? r.json() : null)).catch(() => null);
 const beacon = (body) => { const data = JSON.stringify(body); if (!(navigator.sendBeacon && navigator.sendBeacon(api, data))) post(body); };
 const day = () => new Date().toISOString().slice(0, 10);
@@ -333,6 +356,8 @@ const tick = () => {
   if (onScreen() - sent >= 300000) flush();
 };
 return () => {
+  // A tester link's play is never counted: the check is only for multiplayer.
+  if (TESTER) return check().then((token) => post({ tester: TESTER, token })).then(gotKey);
   const mine = load()[SLUG] || {};
   const start = { first: mine.first || null, last: mine.last || null, cfirst: mine.cfirst || null, clast: mine.clast || null };
   save({ ...mine, first: mine.first || day(), last: day() });
@@ -340,7 +365,7 @@ return () => {
   document.addEventListener("visibilitychange", () => { if (document.hidden) flush(); else since = Date.now(); });
   addEventListener("pagehide", flush);
   setInterval(tick, 5000);
-  check().then((token) => post({ ...start, token })).then((r) => { if (r && r.ticket) ticket = r.ticket; });
+  check().then((token) => post({ ...start, token })).then((r) => { if (r && r.ticket) ticket = r.ticket; gotKey(r); });
 };
 })();`;
 }

@@ -1,3 +1,4 @@
+import { newId } from "./ids.ts";
 import { CONTINENTS, ROOM_STALE_MS, type LiveRoom } from "./types.ts";
 
 /** A room as players see it in a room list. Never who's in it. */
@@ -51,6 +52,30 @@ export async function monthPlayerSeconds(db: D1Database, gameId: string, now = D
     .bind(gameId, `${new Date(now).toISOString().slice(0, 7)}-01`)
     .first<{ seconds: number }>();
   return row?.seconds ?? 0;
+}
+
+/** How long a room key gives passes, and how many: enough to rejoin, not to fill rooms. */
+export const ROOM_KEY_MS = 6 * 3_600_000;
+export const PASSES_PER_KEY = 5;
+
+/**
+ * A key to multiplayer for a browser Cloudflare's check on Play said is real: the game page hands it to
+ * its game, which trades it for player passes (useRoomKey). Nothing about the player.
+ */
+export async function issueRoomKey(db: D1Database, gameId: string, now = Date.now()): Promise<string> {
+  const id = newId();
+  await db.prepare("INSERT INTO room_keys (id, game_id, issued_at) VALUES (?, ?, ?)").bind(id, gameId, now).run();
+  return id;
+}
+
+/** Take one pass from a game's room key, if it's this game's, still good and not used up. */
+export async function useRoomKey(db: D1Database, gameId: string, key: unknown, now = Date.now()): Promise<boolean> {
+  if (typeof key !== "string" || !/^[a-z0-9]{10,40}$/.test(key)) return false;
+  const row = await db
+    .prepare("UPDATE room_keys SET passes = passes + 1 WHERE id = ? AND game_id = ? AND issued_at > ? AND passes < ? RETURNING id")
+    .bind(key, gameId, now - ROOM_KEY_MS, PASSES_PER_KEY)
+    .first();
+  return row !== null;
 }
 
 /** Whether a game has used this month's free tier, so its new rooms don't open. */

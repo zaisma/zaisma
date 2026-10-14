@@ -1,7 +1,7 @@
 import { env, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { gameOrigin, type Env } from "../../apps/rooms/src/index.ts";
-import { addTesterLink, revokeTesterLink } from "@zaisma/core";
+import { addTesterLink, issueRoomKey, revokeTesterLink } from "@zaisma/core";
 import type { Room } from "../../apps/rooms/src/room.ts";
 
 const R = "https://rooms.zaisma.test";
@@ -18,12 +18,18 @@ async function addGame(slug: string, opts: { status?: string; server?: string | 
 
 // Each request comes from its own made-up address, so the tests don't run into the per-address limits.
 let address = 0;
-async function post(path: string, game: string, origin = ORIGIN) {
-  return SELF.fetch(`${R}${path}`, { method: "POST", headers: { Origin: origin, "Content-Type": "text/plain", "cf-connecting-ip": `198.51.100.${++address % 250}` }, body: JSON.stringify({ game }) });
+async function post(path: string, game: string, origin = ORIGIN, extra: Record<string, unknown> = {}) {
+  return SELF.fetch(`${R}${path}`, { method: "POST", headers: { Origin: origin, "Content-Type": "text/plain", "cf-connecting-ip": `198.51.100.${++address % 250}` }, body: JSON.stringify({ game, ...extra }) });
+}
+
+/** The key the game page gets when Cloudflare's check on Play passes (apps/site/src/plays.ts). */
+async function keyFor(game: string) {
+  const row = await e.DB.prepare("SELECT id FROM games WHERE slug = ?").bind(game).first<{ id: string }>();
+  return issueRoomKey(e.DB, row?.id ?? "none");
 }
 
 async function getPass(game: string): Promise<{ pass: string; player: { id: string; name: string } }> {
-  const res = await post("/v1/pass", game);
+  const res = await post("/v1/pass", game, ORIGIN, { key: await keyFor(game) });
   expect(res.status).toBe(200);
   return res.json();
 }
@@ -59,7 +65,7 @@ async function join(game: string, code: string, opts: { listed?: false; from?: {
 
 describe("rooms", () => {
   beforeEach(async () => {
-    await e.DB.exec("DELETE FROM tester_links; DELETE FROM room_usage; DELETE FROM domains; DELETE FROM games;");
+    await e.DB.exec("DELETE FROM tester_links; DELETE FROM room_usage; DELETE FROM room_keys; DELETE FROM domains; DELETE FROM games;");
   });
 
   it("issues guest passes only to the game's own origin", async () => {
@@ -71,6 +77,25 @@ describe("rooms", () => {
     expect((await post("/v1/pass", "arena", "https://zaisma.test")).status).toBe(403);
     await addGame("held-one", { status: "held" });
     expect((await post("/v1/pass", "held-one")).status).toBe(404);
+  });
+
+  it("gives passes only for a browser the check on Play let in, a few per key", async () => {
+    await addGame("arena");
+    await addGame("other");
+    const none = await post("/v1/pass", "arena");
+    expect(none.status).toBe(403);
+    expect(await none.json()).toMatchObject({ code: "unchecked" });
+    expect((await post("/v1/pass", "arena", ORIGIN, { key: "madeupkey123" })).status).toBe(403);
+    expect((await post("/v1/pass", "arena", ORIGIN, { key: await keyFor("other") })).status).toBe(403);
+
+    const key = await keyFor("arena");
+    for (let i = 0; i < 5; i++) expect((await post("/v1/pass", "arena", ORIGIN, { key })).status).toBe(200);
+    expect((await post("/v1/pass", "arena", ORIGIN, { key })).status).toBe(403);
+
+    // A key is good for 6 hours.
+    const old = await keyFor("arena");
+    await e.DB.prepare("UPDATE room_keys SET issued_at = ? WHERE id = ?").bind(Date.now() - 6 * 3_600_000 - 1000, old).run();
+    expect((await post("/v1/pass", "arena", ORIGIN, { key: old })).status).toBe(403);
   });
 
   it("limits how many room connections one address opens in a minute", async () => {
