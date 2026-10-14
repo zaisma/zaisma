@@ -126,8 +126,8 @@ Detailed plan approved: guest passes, game server API, rooms, SDK, demos.
 | done | Must | Play-count protection | Basic play stats | Live Oct 13, 2026. Counted plays are the official numbers: Cloudflare's invisible check on Play, a ticket per play, a minute on screen; shelves skip cloud networks and cap any one provider; spike alerts and actions in admin; a content rule against faking plays. Before outreach |
 | planned | Nice | Stats export and game events | Basic play stats | Daily counts through the API to export, and games counting their own events (`Zaisma.track`, no player IDs) next to plays |
 | planned | Must | Room-count protection | Play-count protection | "Playing now", room lists and multiplayer stats count whoever is connected, so bots could fake a busy game or fill rooms so real players can't join. A player pass from Zaisma rooms needs a checked play ticket (a few passes per ticket, for rejoining), and "playing now" counts only those players. Games on their own servers hand out their own passes. Before other developers' multiplayer games go out, and before "playing now" feeds any ranking |
-| planned | Must | Room connection limits | | Opening a room connection is limited per internet address, like passes and new rooms, so a script claiming to be a game's page can't keep waking rooms |
-| planned | Must | Beta usage ceiling | Rooms on rooms.zaisma.com | Until Hosting billing exists, each game's rooms stop at the free tier (1,000 player-hours a month): running matches finish, no new rooms open until the month resets or billing goes live. Bounds our cost from bots and runaway games. Julius approved Oct 13, 2026 |
+| doing | Must | Room connection limits | | Opening a room connection is limited per internet address (60 a minute), like passes and new rooms, so a script claiming to be a game's page can't keep waking rooms. Built and tested; in review |
+| doing | Must | Beta usage ceiling | Rooms on rooms.zaisma.com | Until Hosting billing exists, each game's rooms stop at the free tier (1,000 player-hours a month): running matches finish, no new rooms open until the month resets or billing goes live. Bounds our cost from bots and runaway games. Julius approved Oct 13, 2026. Built and tested: a running room keeps taking players, an empty one takes back only its own, and developers see the month's hours (dashboard, MCP, API). In review |
 | done | Must | Developers' own game servers run safely | Upload command, Rooms on rooms.zaisma.com, Julius: Workers Paid plan | Live Oct 13, 2026. Developers set multiplayer to their own game server (dashboard, MCP or API) and upload a `zaisma-server/` folder (index.js plus the files it imports, no build step) or one bundled `zaisma-server.js`; it runs on our rooms in a Dynamic Worker with no internet and nothing of ours, never served to players. Cloudflare stops an endless loop only after about 2 seconds, so a match stopped twice ends. Developers see its errors (with the line), stopped loops and ended matches. Tested live: 20 ticks a second for minutes, about 14 ms round trips, under 1 ms of CPU a call (under $1 per 1,000 player-hours for a busy real-time game) |
 | planned | Nice | Drop-in Socket.IO and PeerJS | Client SDK | So existing multiplayer prototypes work with few changes |
 
@@ -220,6 +220,7 @@ Goal: good games get found, ranked by quality rather than clicks, and developers
 | planned | Nice | Scout badge | |
 | planned | Nice | Copycat grouping | Reposted templates count as one game |
 | planned | Nice | Embeds for developers' sites | |
+| planned | Nice | Tools on the developer page | Free, open-source developer tools (engines, asset pipelines, level editors, Claude Code skills, MCP servers). Browser tools go through the same upload, scan and hosting as games, marked as a tool; others link to their repository. Open source only, same content rules, no cut. Seeded with Zaisma's own skill, `zaisma check` and the SDK |
 | planned | Nice | Tracked share links | Counts per link, nothing about players |
 | planned | Nice | Game assets through the API | Covers, screenshots and details downloadable, so developers' own AI makes press kits and launch posts (replaces Zaisma-made press kits and drafted posts) |
 
@@ -250,4 +251,3 @@ Not planned; revisit only if there's a reason.
 | Status | Item | Notes |
 | --- | --- | --- |
 | idea | Under-13 support | Its own project, with verified parental consent |
-| idea | Tools tab | Free, open-source developer tools. Parked Oct 14, 2026; revisit after Phase 5 |
