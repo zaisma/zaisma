@@ -2,6 +2,7 @@ import {
   FEEDBACK_AREAS,
   FEEDBACK_CLOSED,
   FEEDBACK_KINDS,
+  FEEDBACK_OPEN_PHASES,
   FEEDBACK_LIMITS,
   blankSecrets,
   feedbackPictureKey,
@@ -19,6 +20,7 @@ import {
 import { ApiError, ownGame, readJson, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { checkPost } from "./forum-check.ts";
+import { indexPost, indexTopic, unindexTopic } from "./forum-search.ts";
 
 /**
  * Feedback about Zaisma itself, from developers and their AI (docs/DECISIONS.md). These are the
@@ -289,7 +291,7 @@ async function fileFeedback(env: Env, caller: Caller, body: Record<string, unkno
   const now = Date.now();
   const area = typeof body.category === "string" && (FEEDBACK_AREAS as string[]).includes(body.category) ? body.category : (group?.area ?? "");
   await env.DB.prepare("INSERT INTO feedback (id, account_id, kind, title, game_id, status, group_id, area, created_at, updated_at, active_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    .bind(id, caller.accountId, kind, title, game?.id ?? null, group && (group.status === "known" || group.status === "planned") ? group.status : "new", group?.id ?? null, area, now, now, now)
+    .bind(id, caller.accountId, kind, title, game?.id ?? null, group && FEEDBACK_OPEN_PHASES.includes(group.status) ? group.status : "new", group?.id ?? null, area, now, now, now)
     .run();
   await storePost(env, (await feedbackById(env, id))!, caller, post, "post");
   const { results: known } = group ? { results: [] } : await env.DB.prepare(`${KNOWN} ORDER BY updated_at DESC LIMIT 500`).all<Feedback>();
@@ -508,16 +510,22 @@ export class FeedbackRefusal extends Error {}
 
 /** Zaisma's own posts need no check: on a public topic everyone sees them at once. */
 export async function zaismaPost(env: Env, feedbackId: string, kind: "post" | "status", text: string, at: number) {
+  const id = newId();
   await env.DB.batch([
-    env.DB.prepare("INSERT INTO feedback_posts (id, feedback_id, account_id, author, via, kind, text, created_at, check_state) SELECT ?, id, NULL, 'zaisma', 'admin', ?, ?, ?, CASE WHEN public = 1 THEN 'ok' END FROM feedback WHERE id = ?").bind(newId(), kind, text, at, feedbackId),
+    env.DB.prepare("INSERT INTO feedback_posts (id, feedback_id, account_id, author, via, kind, text, created_at, check_state) SELECT ?, id, NULL, 'zaisma', 'admin', ?, ?, ?, CASE WHEN public = 1 THEN 'ok' END FROM feedback WHERE id = ?").bind(id, kind, text, at, feedbackId),
     env.DB.prepare("UPDATE feedback SET updated_at = ?, news_at = ?, active_at = ?, replies = replies + public WHERE id = ?").bind(at, at, at, feedbackId),
   ]);
+  const shown = await env.DB.prepare("SELECT shown FROM feedback WHERE id = ?").bind(feedbackId).first<{ shown: number }>();
+  if (shown?.shown) await indexPost(env, { id, feedback_id: feedbackId, text, kind });
 }
 
 const STATUS_WORDS: Record<string, string> = {
   new: "Zaisma opened this again.",
+  investigating: "Zaisma is looking into this.",
   known: "Zaisma knows about this.",
   planned: "This is on Zaisma's roadmap.",
+  fixing: "Zaisma is working on a fix.",
+  released: "A fix is out. Zaisma is watching that it holds; if it still happens, say so here.",
   fixed: "Zaisma fixed this.",
   wont: "Zaisma won't change this.",
   answered: "Zaisma answered this.",
@@ -580,10 +588,14 @@ export async function decideFeedback(env: Env, id: string, d: FeedbackDecision):
       }
       replyFirst = f.id;
       f = (await feedbackById(env, kid))!;
+      await indexTopic(env, kid);
     } else {
       await env.DB.prepare("UPDATE feedback SET known_title = ?, workaround = ?, roadmap = ?, updated_at = ? WHERE id = ?").bind(k ? title : null, workaround, roadmap, at, f.id).run();
       // Zaisma's own known issue, taken back: its reports stand on their own again, and the topic goes.
-      if (!k && f.account_id === null) await env.DB.batch([env.DB.prepare("UPDATE feedback SET group_id = NULL WHERE group_id = ?").bind(f.id), env.DB.prepare("UPDATE feedback SET public = 0, shown = 0 WHERE id = ?").bind(f.id)]);
+      if (!k && f.account_id === null) {
+        await env.DB.batch([env.DB.prepare("UPDATE feedback SET group_id = NULL WHERE group_id = ?").bind(f.id), env.DB.prepare("UPDATE feedback SET public = 0, shown = 0 WHERE id = ?").bind(f.id)]);
+        await unindexTopic(env, f.id);
+      } else await indexTopic(env, f.id);
       // A new or changed workaround is news for everyone in the group.
       if (workaround && workaround !== f.workaround) for (const itemId of await group(f.id)) await zaismaPost(env, itemId, "status", `Until it's fixed: ${workaround}`, at);
       f = (await feedbackById(env, f.id))!;

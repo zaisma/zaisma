@@ -142,7 +142,7 @@ type Candidate = Feedback & { first_text: string | null };
 async function candidatesFor(env: Env, item: Feedback, posts: FeedbackPost[]): Promise<Candidate[]> {
   const { results } = await env.DB.prepare(
     `SELECT f.*, (SELECT text FROM feedback_posts p WHERE p.feedback_id = f.id ORDER BY p.created_at, p.rowid LIMIT 1) AS first_text
-     FROM feedback f WHERE f.group_id IS NULL AND f.id != ? AND (f.known_title IS NOT NULL OR (f.status IN ('new', 'known', 'planned') AND f.created_at <= ?))
+     FROM feedback f WHERE f.group_id IS NULL AND f.id != ? AND (f.known_title IS NOT NULL OR (f.status IN ('new', 'investigating', 'known', 'planned', 'fixing', 'released') AND f.created_at <= ?))
      ORDER BY f.updated_at DESC LIMIT 300`,
   )
     .bind(item.id, item.created_at)

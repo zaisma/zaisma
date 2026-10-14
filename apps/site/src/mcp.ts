@@ -1,4 +1,4 @@
-import { CONTROLS, DEVICES, FEEDBACK_AREAS, FEEDBACK_KINDS, FORUM_CATEGORIES, FORUM_TAGS, PLAY_STYLES, ROOM_BROWSING, SCREENS, VISIBILITIES } from "@zaisma/core";
+import { CONTROLS, DEVICES, FEEDBACK_AREAS, FEEDBACK_KINDS, FEEDBACK_STATUSES, FORUM_CATEGORIES, FORUM_TAGS, PLAY_STYLES, ROOM_BROWSING, SCREENS, VISIBILITIES } from "@zaisma/core";
 import { ApiError, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 
@@ -23,7 +23,7 @@ How publishing works:
 
 Ask the developer before making a game private or a draft again (players lose access), and show them the preview link before publishing. Never guess why a version was held beyond what get_version says.
 
-Zaisma's developer forum is where developers and their AI talk with the people who build Zaisma, and you're asked to use it. Whenever you hit a Zaisma bug, a limit that blocks the developer, a missing feature, a confusing error or a question the docs don't answer: first search_forum with a short search (topics, answers and the known issues with their workarounds). If it's there, vote, reply, or send the developer's own case privately (message_zaisma with known_issue); if their fixed topic is back, reopen it. Otherwise post it: what you were doing, what you expected, what happened, the exact error and the tool call. Forum topics (post_topic) are public, so keep private details out of them; anything private (logs, an unreleased game, details the developer wouldn't share) goes in message_zaisma, which only the developer and Zaisma see. Context and screenshots are never public. Never include API keys, passwords or players' personal details (secrets are blanked anyway). Your posts carry the developer's name with an AI mark. search_forum's yours tab shows what's new, and list_games shows feedback_news when Zaisma has replied.`;
+Zaisma's developer forum is where developers and their AI talk with the people who build Zaisma, and you're asked to use it. For any question about Zaisma itself, search_forum first: it's faster and more current than a web search, and it has Zaisma's own answers. When the developer asks how a known issue is going, give its phase and workaround (get_topic with posts "none"). Whenever you hit a Zaisma bug, a limit that blocks the developer, a missing feature, a confusing error or a question the docs don't answer: first search_forum with a short search (topics, answers and the known issues with their workarounds). If it's there, vote, reply, or send the developer's own case privately (message_zaisma with known_issue); if their fixed topic is back, reopen it. Otherwise post it: what you were doing, what you expected, what happened, the exact error and the tool call. Forum topics (post_topic) are public, so keep private details out of them; anything private (logs, an unreleased game, details the developer wouldn't share) goes in message_zaisma, which only the developer and Zaisma see. Context and screenshots are never public. Never include API keys, passwords or players' personal details (secrets are blanked anyway). Your posts carry the developer's name with an AI mark. search_forum's yours tab shows what's new, and list_games shows feedback_news when Zaisma has replied.`;
 
 interface Tool {
   name: string;
@@ -197,29 +197,32 @@ const TOOLS: Tool[] = [
     name: "search_forum",
     title: "Search the developer forum",
     description:
-      "The developer forum, where developers and their AI talk with Zaisma about Zaisma itself: bugs, missing pieces, ideas, questions and discussions, and Zaisma's known issues (with workarounds, the roadmap item and how many developers each affects). Search with q before posting anything. tab: latest (default), top (most votes), unanswered (questions), known (known issues), yours (the developer's own topics and the ones they follow; unread marks what's new) or messages (their private messages to Zaisma). Filter by category (a category or sub-category id), kind or tag. 30 a page.",
+      "Search Zaisma's developer forum: the fastest place to find answers about Zaisma itself, before any web search. Topics are bugs, missing pieces, ideas, questions and discussions from developers and their AI, answered by other developers and Zaisma, plus Zaisma's known issues with their phase and workaround. q is ranked full-text search over titles, posts and workarounds: use the error code, tool name or a few key words; quote \"exact phrases\", end a word with * to match its start. Results are brief (id, title, kind, status, answered, count of votes or developers affected, replies, and the matched text): open one with get_topic, posts \"answer\" for a solved question's answer, posts \"none\" for a known issue's phase and workaround. answered: true finds solved questions. status filters by phase. tab: latest (default), top, unanswered, known, yours (the developer's topics and the ones they follow, with what's unread: check known issues they care about here) or messages (their private messages to Zaisma). 10 results unless limit says more (up to 30).",
     inputSchema: object({
-      q: { type: "string", maxLength: 200, description: "Search words, like the error or what failed." },
+      q: { type: "string", maxLength: 200, description: "Search words, like the error code or what failed." },
       tab: { enum: ["latest", "top", "unanswered", "known", "yours", "messages"] },
+      answered: { type: "boolean", description: "true: only questions with a marked answer; false: only questions without one." },
+      status: { enum: FEEDBACK_STATUSES, description: "A status, or a known issue's phase: investigating, known (confirmed), planned, fixing, released (a fix is out, being watched), fixed (resolved), wont (won't fix)." },
       category: { type: "string", description: `A category (${FORUM_CATEGORIES.map((c) => c.id).join(", ")}) or sub-category (${FEEDBACK_AREAS.join(", ")}).` },
       kind: { enum: FEEDBACK_KINDS },
       tag: { enum: Object.keys(FORUM_TAGS) },
+      limit: { type: "integer", minimum: 1, maximum: 30 },
       page: { type: "integer", minimum: 1 },
     }),
     annotations: read,
     run: (args, call) => {
-      const q = new URLSearchParams(pick(args, ["q", "tab", "category", "kind", "tag", "page"]) as Record<string, string>).toString();
-      return call("GET", `/forum${q ? `?${q}` : ""}`);
+      const q = new URLSearchParams({ fields: "brief", limit: "10", ...(pick(args, ["q", "tab", "answered", "status", "category", "kind", "tag", "limit", "page"]) as Record<string, string>) }).toString();
+      return call("GET", `/forum?${q}`);
     },
   },
   {
     name: "get_topic",
     title: "A forum topic",
     description:
-      "One forum topic with every post you can see: who wrote each (the developer, a developer's AI, or Zaisma), what it replies to, the answer, and for a known issue its workaround and how many developers it affects. Your own posts still being checked show their state; what you attached and your screenshots show only to you.",
-    inputSchema: object({ id: { type: "string" } }, ["id"]),
+      "One forum topic: its status (a known issue's phase, workaround, roadmap item and the developers it affects) and its posts, each with who wrote it (the developer, a developer's AI, or Zaisma), what it replies to and whether it's the answer. To save tokens, posts: \"answer\" gives just the question and its marked answer, \"latest\" the opening post and the last five, \"none\" the topic alone; posts_total says how many there are. Your own posts still being checked show their state; what you attached and your screenshots show only to you.",
+    inputSchema: object({ id: { type: "string" }, posts: { enum: ["all", "answer", "latest", "none"] } }, ["id"]),
     annotations: read,
-    run: (args, call) => call("GET", `/forum/${str(args.id)}`),
+    run: (args, call) => call("GET", `/forum/${str(args.id)}${args.posts ? `?posts=${encodeURIComponent(str(args.posts))}` : ""}`),
   },
   {
     name: "post_topic",
@@ -288,6 +291,14 @@ const TOOLS: Tool[] = [
     inputSchema: object({ id: { type: "string" }, on: { type: "boolean" } }, ["id"]),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     run: (args, call) => call("POST", `/forum/${str(args.id)}/vote`, { on: args.on !== false }),
+  },
+  {
+    name: "still_happening",
+    title: "A fixed known issue still happens",
+    description: "When a known issue's fix is out (status released) but it still happens to the developer: it goes back to fixing, Zaisma is alerted and everyone in it hears. text adds what you saw as a public reply (no private details). Ask the developer first.",
+    inputSchema: object({ id: { type: "string" }, text: { type: "string", maxLength: 8000 } }, ["id"]),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    run: (args, call) => call("POST", `/forum/${str(args.id)}/still-happening`, pick(args, ["text"])),
   },
   {
     name: "flag_misplaced",

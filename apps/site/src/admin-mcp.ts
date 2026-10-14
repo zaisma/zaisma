@@ -1,4 +1,5 @@
 import {
+  FEEDBACK_STATUSES,
   PRECEDENT_DECISIONS,
   SEVERITIES,
   aiUsage,
@@ -318,7 +319,7 @@ function tools(env: Env, actor: string): McpTool[] {
       name: "list_feedback",
       title: "Feedback from developers",
       description: "Feedback about Zaisma from developers and their AI (topics in the developer forum), most serious first: items on their own and known issues, with how many developers each affects, whether it's public, and the latest post. Default: new ones, plus items added to or reopened inside a known issue, and posts_to_check: forum posts the check held or couldn't check yet.",
-      inputSchema: object({ status: { enum: ["new", "known", "planned", "fixed", "wont", "answered", "all"] }, limit: { type: "integer", minimum: 1, maximum: 100 } }),
+      inputSchema: object({ status: { enum: [...FEEDBACK_STATUSES, "all"] }, limit: { type: "integer", minimum: 1, maximum: 100 } }),
       annotations: read,
       run: (args) => adminFeedbackList(env, str(args.status, 10) || "new", Number(args.limit) || 30),
     },
@@ -338,12 +339,12 @@ function tools(env: Env, actor: string): McpTool[] {
       name: "decide_feedback",
       title: "Answer or sort feedback",
       description:
-        "Any of: reply (the developer sees it), status (new, known, planned, fixed, wont, answered; on a known issue it changes every item merged into it, and each developer hears, with the reply as the note), merge_into (a duplicate goes under a known issue), known_issue (make this item one: a title, a workaround and the roadmap item, seen by every developer; null stops it being one), severity (1 urgent to 4 low) and area. Ask the admin first.",
+        "Any of: reply (the developer sees it), status (new, or a known issue's phase: investigating, known (confirmed), planned, fixing, released (a fix is out, watching that it holds), fixed (resolved), wont (won't fix); answered for a question. On a known issue it changes every item merged into it, and each developer hears, with the reply as the note), merge_into (a duplicate goes under a known issue), known_issue (make this item one: a title, a workaround and the roadmap item, seen by every developer; null stops it being one), severity (1 urgent to 4 low) and area. Ask the admin first.",
       inputSchema: object(
         {
           id: { type: "string" },
           reply: { type: "string", maxLength: 8000 },
-          status: { enum: ["new", "known", "planned", "fixed", "wont", "answered"] },
+          status: { enum: [...FEEDBACK_STATUSES] },
           merge_into: { type: "string", description: "The id of the known issue (or first item) it duplicates." },
           known_issue: {
             type: ["object", "null"],

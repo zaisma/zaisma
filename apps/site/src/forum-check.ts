@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { addAiUsage, aiUsage, type Feedback, type FeedbackPost } from "@zaisma/core";
 import type { Env } from "./env.ts";
+import { indexPost, indexTopic, unindexPost, unindexTopic } from "./forum-search.ts";
 
 /**
  * The check every public post in the developer forum passes before others see it (docs/DECISIONS.md),
@@ -82,6 +83,9 @@ export async function showPost(env: Env, postId: string): Promise<void> {
     env.DB.prepare("UPDATE feedback_posts SET check_state = 'ok' WHERE id = ?").bind(post.id),
     env.DB.prepare(`UPDATE feedback SET ${opens ? "shown = 1" : "replies = replies + 1"}, active_at = MAX(COALESCE(active_at, 0), ?) WHERE id = ?`).bind(post.created_at, post.feedback_id),
   ]);
+  // Findable now: the post, and when it opens the topic, the topic's title.
+  await indexPost(env, post);
+  if (opens) await indexTopic(env, post.feedback_id);
 }
 
 /** A person removes a post: gone for everyone. Removing a topic's first post makes the topic private to its developer again. */
@@ -92,10 +96,12 @@ export async function removePost(env: Env, postId: string): Promise<void> {
   const topic = await env.DB.prepare("SELECT account_id FROM feedback WHERE id = ?").bind(post.feedback_id).first<{ account_id: string | null }>();
   if (first && topic?.account_id) {
     await env.DB.prepare("UPDATE feedback SET public = 0, shown = 0 WHERE id = ?").bind(post.feedback_id).run();
+    await unindexTopic(env, post.feedback_id);
     // Kept for the developer and Zaisma, like any private topic.
     await env.DB.prepare("UPDATE feedback_posts SET check_state = NULL WHERE feedback_id = ?").bind(post.feedback_id).run();
     return;
   }
+  await unindexPost(env, post.id);
   await env.DB.batch([
     env.DB.prepare("DELETE FROM feedback_posts WHERE id = ?").bind(post.id),
     ...(post.check_state === "ok" ? [env.DB.prepare("UPDATE feedback SET replies = MAX(0, replies - 1) WHERE id = ?").bind(post.feedback_id)] : []),

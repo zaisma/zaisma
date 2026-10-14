@@ -3,11 +3,12 @@ import {
   FEEDBACK_CLOSED,
   FEEDBACK_KINDS,
   FEEDBACK_LIMITS,
+  FEEDBACK_OPEN_PHASES,
+  FEEDBACK_STATUSES,
   FORUM_CATEGORIES,
   FORUM_TAGS,
   feedbackPictureKey,
   gameById,
-  matchKnownIssues,
   newId,
   type Feedback,
   type FeedbackAuthor,
@@ -17,23 +18,27 @@ import {
 } from "@zaisma/core";
 import { ApiError, ownGame, readJson, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
-import { developersIn, feedbackById, hasNews, KNOWN, postsLeft, readPost, readTitle, storePost } from "./feedback.ts";
+import { decideFeedback, developersIn, feedbackById, hasNews, KNOWN, postsLeft, readPost, readTitle, storePost } from "./feedback.ts";
+import { searchTerms, searchTopics } from "./forum-search.ts";
+import { sendAlert } from "./email.ts";
 
 /**
  * The developer forum (docs/DECISIONS.md): every feedback item is a topic. Topics are public; anything
  * private is a message to Zaisma (public: false), which only the developer and Zaisma see. Known
  * issues are public topics of Zaisma's own. The forum pages, the MCP and API callers all use these:
  *
- *   GET  /api/dev/forum?q=&category=&kind=&tag=&tab=&page=   topics (tab: latest, top, unanswered, known, yours)
+ *   GET  /api/dev/forum?q=&category=&kind=&tag=&tab=&status=&answered=&page=&limit=&fields=brief
+ *                                                           topics (tab: latest, top, unanswered, known, yours, messages); q ranks by relevance
  *   GET  /api/dev/forum/similar?q=                          topics and known issues like a title, while writing one
  *   POST /api/dev/forum                                     a topic: { kind, title, text, category, tags?, game?, context?, author?, picture? }, or with
  *                                                           public: false (or known_issue) a private message to Zaisma
- *   GET  /api/dev/forum/:id                                 a topic with its posts
+ *   GET  /api/dev/forum/:id?posts=all|answer|latest|none   a topic with its posts (or just the answer, the latest few, or none)
  *   POST /api/dev/forum/:id/posts                           reply: { text, reply_to?, reopen?, context?, author?, picture? }
  *   POST /api/dev/forum/:id/vote                            a vote (affects me too, I want this, same question): { on }
  *   POST /api/dev/forum/:id/follow                          { on }
  *   POST /api/dev/forum/:id/answer                          your question's answer: { post } (null to clear)
  *   POST /api/dev/forum/:id/misplaced                       it's in the wrong category: Zaisma's AI moves it
+ *   POST /api/dev/forum/:id/still-happening                 a known issue whose fix is out still happens: { text? }
  *   GET  /api/dev/forum/:id/pictures/:post                  a screenshot you attached
  *
  * Others see a public post once it passes the check (forum-check.ts). Screenshots and what an AI
@@ -70,6 +75,8 @@ export interface TopicRow {
   author: Person;
   /** The latest few people in it, newest first, without the author. */
   people: Person[];
+  /** Everyone in it besides the author, however many: people shows the latest few. */
+  people_count: number;
   replies: number;
   votes: number;
   voted: boolean;
@@ -82,7 +89,41 @@ export interface TopicRow {
   unread: boolean;
   created_at: number;
   active_at: number;
+  /** With a search: the words that matched, marked «like this». */
+  match?: string;
 }
+
+/** A topic in a few fields, for an AI scanning results: open one with get_topic for more. */
+export interface BriefRow {
+  id: string;
+  title: string;
+  kind: FeedbackKind;
+  status: FeedbackStatus;
+  known_issue: boolean;
+  answered: boolean;
+  /** Votes, or for a known issue the developers it affects. */
+  count: number;
+  replies: number;
+  category: string | null;
+  match?: string;
+  unread?: true;
+  active_at: number;
+}
+
+const brief = (t: TopicRow): BriefRow => ({
+  id: t.id,
+  title: t.title,
+  kind: t.kind,
+  status: t.status,
+  known_issue: t.known_issue,
+  answered: t.answered,
+  count: t.known_issue ? (t.developers ?? 0) : t.votes,
+  replies: t.replies,
+  category: t.category,
+  ...(t.match ? { match: t.match } : {}),
+  ...(t.unread ? { unread: true as const } : {}),
+  active_at: t.active_at,
+});
 
 export interface PostJson {
   id: string;
@@ -103,13 +144,18 @@ export interface PostJson {
 export async function forumRoute(request: Request, env: Env, path: string, caller: Caller): Promise<[unknown, number?] | Response> {
   const method = request.method;
   const url = new URL(request.url);
-  if (path === "/forum" && method === "GET") return [await listTopics(env, caller, queryFrom(url.searchParams))];
+  if (path === "/forum" && method === "GET") {
+    const list = await listTopics(env, caller, queryFrom(url.searchParams));
+    // fields=brief: a few fields per topic, so an AI scanning results spends few tokens.
+    if (url.searchParams.get("fields") === "brief") return [{ topics: list.topics.map(brief), pinned: list.pinned.map(brief), tab: list.tab, page: list.page, more: list.more }];
+    return [list];
+  }
   if (path === "/forum/similar" && method === "GET") return [{ topics: await similarTopics(env, caller, url.searchParams.get("q") ?? "") }];
   if (path === "/forum" && method === "POST") return [await createTopic(env, caller, await readJson(request, 4 * 1024 * 1024)), 201];
-  const m = path.match(/^\/forum\/([a-z0-9]{1,40})(?:\/(posts|vote|follow|answer|misplaced|pictures)(?:\/([a-z0-9]{1,40}))?)?$/);
+  const m = path.match(/^\/forum\/([a-z0-9]{1,40})(?:\/(posts|vote|follow|answer|misplaced|still-happening|pictures)(?:\/([a-z0-9]{1,40}))?)?$/);
   if (!m) throw new ApiError(404, "not_found", "No such API path.");
   const [, id, sub, postId] = m as unknown as [string, string, string | undefined, string | undefined];
-  if (!sub && method === "GET") return [await getTopic(env, caller, id)];
+  if (!sub && method === "GET") return [await getTopic(env, caller, id, { posts: url.searchParams.get("posts") ?? "all" })];
   if (sub === "pictures" && postId && method === "GET") return topicPicture(env, caller, id, postId);
   if (method !== "POST" || postId) throw new ApiError(405, "bad_method", `${method} isn't used here.`);
   const body = await readJson(request, sub === "posts" ? 4 * 1024 * 1024 : 4096);
@@ -118,6 +164,7 @@ export async function forumRoute(request: Request, env: Env, path: string, calle
   if (sub === "follow") return [await follow(env, caller, id, body.on !== false)];
   if (sub === "answer") return [await markAnswer(env, caller, id, typeof body.post === "string" ? body.post : null)];
   if (sub === "misplaced") return [await flagMisplaced(env, caller, id)];
+  if (sub === "still-happening") return [await stillHappening(env, caller, id, body)];
   throw new ApiError(404, "not_found", "No such API path.");
 }
 
@@ -127,11 +174,27 @@ export interface ForumQuery {
   kind?: string;
   tag?: string;
   tab?: string;
+  /** A status or known-issue phase. */
+  status?: string;
+  /** Only questions with an answer (true), or without (false). */
+  answered?: boolean;
   page?: number;
+  limit?: number;
 }
 
 export function queryFrom(p: URLSearchParams): ForumQuery {
-  return { q: p.get("q") ?? "", category: p.get("category") ?? "", kind: p.get("kind") ?? "", tag: p.get("tag") ?? "", tab: p.get("tab") ?? "", page: Number(p.get("page") ?? 1) };
+  const answered = p.get("answered");
+  return {
+    q: p.get("q") ?? "",
+    category: p.get("category") ?? "",
+    kind: p.get("kind") ?? "",
+    tag: p.get("tag") ?? "",
+    tab: p.get("tab") ?? "",
+    status: p.get("status") ?? "",
+    ...(answered === "true" || answered === "false" ? { answered: answered === "true" } : {}),
+    page: Number(p.get("page") ?? 1),
+    ...(p.get("limit") ? { limit: Number(p.get("limit")) } : {}),
+  };
 }
 
 /** The areas a category id stands for: a sub-category, or every one in a category. */
@@ -152,6 +215,7 @@ export async function listTopics(env: Env, viewer: Viewer, query: ForumQuery) {
   const tab: ForumTab = (FORUM_TABS as readonly string[]).includes(query.tab ?? "") ? (query.tab as ForumTab) : "latest";
   if ((tab === "yours" || tab === "messages") && !viewer) throw new ApiError(401, "signed_out", "Sign in to see your topics and messages.");
   const page = Math.max(1, Math.min(1000, Math.floor(Number(query.page) || 1)));
+  const size = Math.max(1, Math.min(PAGE, Math.floor(Number(query.limit) || PAGE)));
   const where: string[] = [];
   const binds: unknown[] = [];
   if (tab === "yours") {
@@ -176,31 +240,48 @@ export async function listTopics(env: Env, viewer: Viewer, query: ForumQuery) {
   }
   if (tab === "unanswered") where.push("f.kind = 'question' AND f.answer_post IS NULL AND f.status NOT IN ('answered', 'fixed', 'wont') AND f.known_title IS NULL");
   if (tab === "known") where.push("f.known_title IS NOT NULL");
+  if (query.status && (FEEDBACK_STATUSES as readonly string[]).includes(query.status)) {
+    where.push("f.status = ?");
+    binds.push(query.status);
+  }
+  if (query.answered !== undefined) where.push(query.answered ? "(f.answer_post IS NOT NULL OR f.status = 'answered')" : "f.kind = 'question' AND f.answer_post IS NULL AND f.status != 'answered'");
   const q = (query.q ?? "").trim().slice(0, 200);
   // Open known issues are pinned above the latest topics, so they aren't listed again below them.
-  const pins = tab === "latest" && !q && !query.tag && (!query.kind || query.kind === "bug" || query.kind === "gap");
-  if (pins) where.push("NOT (f.known_title IS NOT NULL AND f.status IN ('known', 'planned'))");
-  // Every word, in the title or in a post others can see (or your own).
-  for (const word of q.split(/\s+/).filter((w) => w.length >= 2).slice(0, 6)) {
-    where.push("(f.title LIKE ? ESCAPE '\\' OR f.known_title LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM feedback_posts p WHERE p.feedback_id = f.id AND p.text LIKE ? ESCAPE '\\' AND (p.check_state = 'ok' OR p.account_id = ? OR f.account_id = ?)))");
-    binds.push(like(word), like(word), like(word), viewer?.accountId ?? "", viewer?.accountId ?? "");
+  const open = FEEDBACK_OPEN_PHASES.map((s) => `'${s}'`).join(", ");
+  const pins = tab === "latest" && !q && !query.tag && !query.status && query.answered === undefined && (!query.kind || query.kind === "bug" || query.kind === "gap");
+  if (pins) where.push(`NOT (f.known_title IS NOT NULL AND f.status IN (${open}))`);
+  let rows: (Feedback & { search_match?: string })[];
+  const terms = q ? searchTerms(q) : null;
+  if (terms && tab !== "yours" && tab !== "messages") {
+    // Ranked full-text search over what's public; all the words, or any of them when all finds nothing.
+    rows = await searchTopics(env, terms.all, { where, binds }, size + 1, (page - 1) * size);
+    if (!rows.length && page === 1 && terms.any !== terms.all) rows = await searchTopics(env, terms.any, { where, binds }, size + 1, 0);
+  } else {
+    // Your own topics and messages: every word, in the title or a post.
+    for (const word of q.split(/\s+/).filter((w) => w.length >= 2).slice(0, 6)) {
+      where.push("(f.title LIKE ? ESCAPE '\\' OR f.known_title LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM feedback_posts p WHERE p.feedback_id = f.id AND p.text LIKE ? ESCAPE '\\'))");
+      binds.push(like(word), like(word), like(word));
+    }
+    const order =
+      tab === "top"
+        ? "f.votes DESC, f.replies DESC, f.active_at DESC"
+        : tab === "known"
+          ? `CASE f.status ${FEEDBACK_OPEN_PHASES.map((s, i) => `WHEN '${s}' THEN ${i}`).join(" ")} ELSE 9 END, f.active_at DESC`
+          : "COALESCE(f.active_at, f.updated_at) DESC";
+    rows = (await env.DB.prepare(`SELECT f.* FROM feedback f WHERE ${where.join(" AND ")} ORDER BY ${order} LIMIT ? OFFSET ?`).bind(...binds, size + 1, (page - 1) * size).all<Feedback>()).results;
   }
-  const order =
-    tab === "top"
-      ? "f.votes DESC, f.replies DESC, f.active_at DESC"
-      : tab === "known"
-        ? "CASE f.status WHEN 'known' THEN 0 WHEN 'planned' THEN 1 ELSE 2 END, f.active_at DESC"
-        : "COALESCE(f.active_at, f.updated_at) DESC";
-  const { results } = await env.DB.prepare(`SELECT f.* FROM feedback f WHERE ${where.join(" AND ")} ORDER BY ${order} LIMIT ? OFFSET ?`)
-    .bind(...binds, PAGE + 1, (page - 1) * PAGE)
-    .all<Feedback>();
-  const more = results.length > PAGE;
-  const topics = await rowsJson(env, viewer, results.slice(0, PAGE));
+  const more = rows.length > size;
+  const shown = rows.slice(0, size);
+  // What matched, unless it's just the title again.
+  const topics = (await rowsJson(env, viewer, shown)).map((t, i) => {
+    const match = shown[i]!.search_match;
+    return match && match.replace(/[«»]/g, "") !== t.title ? { ...t, match } : t;
+  });
   // Known issues in the category, pinned above the latest topics.
   let pinned: TopicRow[] = [];
   if (pins && page === 1) {
     const { results: known } = await env.DB.prepare(
-      `SELECT * FROM feedback f WHERE f.shown = 1 AND f.group_id IS NULL AND f.known_title IS NOT NULL AND f.status IN ('known', 'planned')${areas.length ? ` AND f.area IN (${areas.map(() => "?").join(", ")})` : ""} ORDER BY f.votes DESC, f.active_at DESC LIMIT 5`,
+      `SELECT * FROM feedback f WHERE f.shown = 1 AND f.group_id IS NULL AND f.known_title IS NOT NULL AND f.status IN (${open})${areas.length ? ` AND f.area IN (${areas.map(() => "?").join(", ")})` : ""} ORDER BY f.votes DESC, f.active_at DESC LIMIT 5`,
     )
       .bind(...areas)
       .all<Feedback>();
@@ -213,9 +294,10 @@ export async function listTopics(env: Env, viewer: Viewer, query: ForumQuery) {
 export async function similarTopics(env: Env, viewer: Viewer, text: string): Promise<TopicRow[]> {
   const q = text.trim().slice(0, 500);
   if (q.length < 4) return [];
-  const { results } = await env.DB.prepare("SELECT * FROM feedback WHERE shown = 1 AND group_id IS NULL ORDER BY active_at DESC LIMIT 500").all<Feedback>();
-  // Shared words: two are enough for a short title.
-  return rowsJson(env, viewer, matchKnownIssues(q, results, 5));
+  const terms = searchTerms(q);
+  if (!terms) return [];
+  const found = await searchTopics(env, terms.any, { where: ["f.shown = 1", "f.group_id IS NULL"], binds: [] }, 5, 0);
+  return rowsJson(env, viewer, found);
 }
 
 const BY: Record<FeedbackAuthor, Person["by"]> = { person: "developer", ai: "ai", zaisma: "zaisma" };
@@ -245,10 +327,15 @@ async function rowsJson(env: Env, viewer: Viewer, rows: Feedback[]): Promise<Top
   const [tags, posters, firsts, votes, follows, developers, counts] = await Promise.all([
     env.DB.prepare(`SELECT feedback_id, tag FROM feedback_tags WHERE feedback_id IN (${marks})`).bind(...ids).all<{ feedback_id: string; tag: string }>(),
     env.DB.prepare(
-      `SELECT feedback_id, account_id, author, MAX(created_at) AS at FROM feedback_posts WHERE feedback_id IN (${marks}) AND (check_state = 'ok' OR check_state IS NULL OR account_id = ?) GROUP BY feedback_id, account_id, author ORDER BY at DESC`,
+      `SELECT feedback_id, account_id, author, at, everyone FROM (
+         SELECT feedback_id, account_id, author, MAX(created_at) AS at,
+           ROW_NUMBER() OVER (PARTITION BY feedback_id ORDER BY MAX(created_at) DESC) AS place,
+           COUNT(*) OVER (PARTITION BY feedback_id) AS everyone
+         FROM feedback_posts WHERE feedback_id IN (${marks}) AND (check_state = 'ok' OR check_state IS NULL OR account_id = ?) GROUP BY feedback_id, account_id, author
+       ) WHERE place <= 6 ORDER BY at DESC`,
     )
       .bind(...ids, me)
-      .all<{ feedback_id: string; account_id: string | null; author: FeedbackAuthor }>(),
+      .all<{ feedback_id: string; account_id: string | null; author: FeedbackAuthor; everyone: number }>(),
     env.DB.prepare(`SELECT p.feedback_id, p.author FROM feedback_posts p WHERE p.feedback_id IN (${marks}) AND p.rowid = (SELECT q.rowid FROM feedback_posts q WHERE q.feedback_id = p.feedback_id ORDER BY q.created_at, q.rowid LIMIT 1)`)
       .bind(...ids)
       .all<{ feedback_id: string; author: FeedbackAuthor }>(),
@@ -266,10 +353,14 @@ async function rowsJson(env: Env, viewer: Viewer, rows: Feedback[]): Promise<Top
   return rows.map((f) => {
     const firstBy = firsts.results.find((p) => p.feedback_id === f.id)?.author ?? (f.account_id ? "person" : "zaisma");
     const author = personOf(f.account_id, f.account_id ? firstBy : "zaisma", names, viewer);
-    const people = posters.results
-      .filter((p) => p.feedback_id === f.id && !(p.account_id === f.account_id && p.author === firstBy && f.account_id))
+    const mine = posters.results.filter((p) => p.feedback_id === f.id);
+    const isAuthor = (p: { account_id: string | null; author: FeedbackAuthor }) => Boolean(f.account_id && p.account_id === f.account_id && p.author === firstBy);
+    const people = mine
+      .filter((p) => !isAuthor(p))
       .slice(0, 4)
       .map((p) => personOf(p.account_id, p.author, names, viewer));
+    // Everyone who posted, less the author (whose opening post is always there).
+    const peopleCount = Math.max(people.length, (mine[0]?.everyone ?? 0) - (f.account_id ? 1 : 0));
     const active = f.active_at ?? f.updated_at;
     const lastSeen = seen.get(f.id);
     return {
@@ -284,6 +375,7 @@ async function rowsJson(env: Env, viewer: Viewer, rows: Feedback[]): Promise<Top
       known_issue: Boolean(f.known_title),
       author,
       people,
+      people_count: peopleCount,
       replies: f.public ? f.replies : Math.max(0, (counts.results.find((c) => c.feedback_id === f.id)?.n ?? 1) - 1),
       votes: f.votes,
       voted: voted.has(f.id),
@@ -317,10 +409,22 @@ function canSeePost(f: Feedback, p: FeedbackPost, viewer: Viewer): boolean {
 }
 
 /** A topic with its posts. Opening it counts as having seen what's in it. */
-export async function getTopic(env: Env, viewer: Viewer, id: string) {
+export async function getTopic(env: Env, viewer: Viewer, id: string, opts: { posts?: string } = {}) {
   const f = await readable(env, viewer, id);
   const { results: all } = await env.DB.prepare("SELECT * FROM feedback_posts WHERE feedback_id = ? ORDER BY created_at, rowid LIMIT 1000").bind(f.id).all<FeedbackPost>();
-  const posts = all.filter((p) => canSeePost(f, p, viewer));
+  const visible = all.filter((p) => canSeePost(f, p, viewer));
+  // To save an AI's tokens: answer is the opening post and the marked answer; latest is the opening
+  // post and the last five; none is the topic alone (a known issue's phase and workaround).
+  const opening = f.account_id ? visible.slice(0, 1) : [];
+  const which = opts.posts ?? "all";
+  const posts =
+    which === "none"
+      ? []
+      : which === "answer"
+        ? [...opening, ...visible.filter((p) => p.id === f.answer_post && !opening.includes(p))]
+        : which === "latest"
+          ? [...opening, ...visible.slice(-5).filter((p) => !opening.includes(p))]
+          : visible;
   const names = await namesOf(env, posts.map((p) => p.account_id));
   const byId = new Map(posts.map((p) => [p.id, p]));
   const [row] = await rowsJson(env, viewer, [f]);
@@ -373,6 +477,8 @@ export async function getTopic(env: Env, viewer: Viewer, id: string) {
         at: p.created_at,
       } satisfies PostJson;
     }),
+    // How many posts you can see in all, whichever were sent.
+    posts_total: visible.length,
     posts_left_today: viewer ? await postsLeft(env, viewer) : null,
   };
 }
@@ -418,7 +524,7 @@ export async function createTopic(env: Env, caller: Caller, body: Record<string,
       kind,
       title,
       game?.id ?? null,
-      group && (group.status === "known" || group.status === "planned") ? group.status : "new",
+      group && FEEDBACK_OPEN_PHASES.includes(group.status) ? group.status : "new",
       group?.id ?? null,
       area || group?.area || "",
       isPublic ? 1 : 0,
@@ -483,6 +589,19 @@ export async function flagMisplaced(env: Env, caller: Caller, id: string) {
   if (!f.shown || f.group_id) throw new ApiError(400, "cant_flag", "Only public topics others can see can be flagged as misplaced.");
   await env.DB.prepare("INSERT OR IGNORE INTO feedback_misplaced (feedback_id, account_id, created_at) VALUES (?, ?, ?)").bind(f.id, caller.accountId, Date.now()).run();
   return { flagged: true };
+}
+
+/**
+ * A known issue whose fix is out (released) still happens: it goes back to fixing, everyone in it
+ * hears, and Zaisma gets an alert. Once per fix, however many say so; with text, it's also a reply.
+ */
+export async function stillHappening(env: Env, caller: Caller, id: string, body: Record<string, unknown>) {
+  const f = await readable(env, caller, id);
+  if (!f.known_title || f.status !== "released") throw new ApiError(400, "not_released", "Only a known issue whose fix is out (released) can be reported as still happening. Reply, or message Zaisma.");
+  const reply = typeof body.text === "string" && body.text.trim() ? await replyTo(env, caller, f.id, { text: body.text, ...(body.context ? { context: body.context } : {}) }) : null;
+  await decideFeedback(env, f.id, { status: "fixing", reply: "A developer says it still happens after the fix, so Zaisma is working on it again." });
+  await sendAlert(env, `Still happening after the fix: ${f.known_title}`, `A developer says the known issue still happens after its fix was released. It's back to fixing.\n\nOpen: ${env.SITE_ORIGIN}/admin/feedback/${f.id}`);
+  return { status: "fixing", ...(reply?.post ? { post: reply.post } : {}) };
 }
 
 /** Follow a topic to hear about what's new in it (yours, ones you replied to and voted on are followed already). */

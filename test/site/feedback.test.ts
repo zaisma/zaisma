@@ -53,7 +53,7 @@ async function adminPost(path: string, form: Record<string, string>): Promise<Re
 }
 
 beforeEach(async () => {
-  await env.DB.exec("DELETE FROM feedback_posts; DELETE FROM feedback_tags; DELETE FROM feedback_votes; DELETE FROM feedback_follows; DELETE FROM feedback_misplaced; DELETE FROM feedback; DELETE FROM api_keys; DELETE FROM audit_log; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
+  await env.DB.exec("DELETE FROM feedback_posts; DELETE FROM feedback_tags; DELETE FROM feedback_votes; DELETE FROM feedback_follows; DELETE FROM feedback_misplaced; DELETE FROM forum_search; DELETE FROM feedback; DELETE FROM api_keys; DELETE FROM audit_log; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
   await createAccount(env.DB, { id: "dev-1", name: "Pixel Smith", ageBand: "18+" });
   await createAccount(env.DB, { id: "dev-2", name: "Other Dev", ageBand: "18+" });
   token = (await createApiKey(env.DB, "dev-1", "claude")).token;
@@ -120,9 +120,16 @@ describe("threads and known issues", () => {
     expect(found.topics).toHaveLength(1);
     const k = found.topics[0];
     expect(k.id).not.toBe(id);
-    expect(k).toMatchObject({ title: "Uploads over 500 MB fail", status: "known", known_issue: true, public: true, developers: 1, author: { by: "zaisma", name: "Zaisma" } });
-    const face = await mcp("get_topic", { id: k.id }, other);
-    expect(face.topic).toMatchObject({ workaround: "Split big files under 500 MB.", roadmap: "Upload command" });
+    // Search results are brief, with the words that matched.
+    expect(k).toMatchObject({ title: "Uploads over 500 MB fail", status: "known", known_issue: true, count: 1 });
+    // The workaround is searched too, and what matched comes back (not when it's just the title).
+    expect(k.match).toBeUndefined();
+    expect((await mcp("search_forum", { q: "split files" }, other)).pinned.length + (await mcp("search_forum", { q: "split files" }, other)).topics.length).toBe(1);
+    expect((await mcp("search_forum", { q: "split files" }, other)).topics[0].match).toContain("«Split»");
+    expect(k.author).toBeUndefined();
+    const face = await mcp("get_topic", { id: k.id, posts: "none" }, other);
+    expect(face.topic).toMatchObject({ workaround: "Split big files under 500 MB.", roadmap: "Upload command", public: true, developers: 1, author: { by: "zaisma", name: "Zaisma" } });
+    expect(face.posts).toEqual([]);
     expect(JSON.stringify(face)).not.toContain("Unity build");
     // The report stays the developer's own, under it, and they're told.
     const mine = await mcp("get_topic", { id });
@@ -270,6 +277,88 @@ describe("categories and votes", () => {
     expect((await mcp("vote", { id: talk.id }, other)).error).toContain("Discussions take replies");
     expect((await mcp("get_topic", { id: talk.id }, other)).topic.can.vote).toBe(false);
     expect(await mcp("vote", { id: idea.id }, other)).toEqual({ votes: 1, voted: true });
+  });
+});
+
+describe("search, phases and reading a topic in part", () => {
+  const passAll = () => checkForumPosts({ ...env, ANTHROPIC_API_KEY: "test-key" }, { ai: async () => ({ verdict: "ok", reason: "", inputTokens: 10, outputTokens: 2 }) });
+
+  it("finds answers by relevance: codes whole, word stems, phrases, and any word when all finds nothing", async () => {
+    const upload = (await mcp("post_topic", { kind: "question", category: "mcp", title: "upload_files refuses my build", text: "It says too_big for a 3 MB game." })).topic;
+    const rooms = (await mcp("post_topic", { kind: "bug", category: "rooms", title: "Players get disconnected", text: "Everyone is disconnected at once when the room fills." }, other)).topic;
+    const unrelated = (await mcp("post_topic", { kind: "talk", category: "other", title: "What are you making?", text: "Share it here." })).topic;
+    await passAll();
+    // Not public yet when it's private: a message never shows up in anyone else's search.
+    await mcp("message_zaisma", { kind: "bug", title: "too_big again", text: "Private logs: too_big." });
+    const answer = await mcp("reply_to_topic", { id: upload.id, text: "Base64 makes the request bigger than the build: use the upload command for builds over 2 MB." }, other);
+    await passAll();
+    await mcp("mark_answer", { id: upload.id, post: answer.post.id });
+
+    const ids = async (args: Record<string, unknown>, key = other) => (await mcp("search_forum", args, key)).topics.map((t: { id: string }) => t.id);
+    expect(await ids({ q: "too_big" })).toEqual([upload.id]);
+    expect(await ids({ q: "disconnects" })).toEqual([rooms.id]);
+    expect(await ids({ q: '"bigger than the build"' })).toEqual([upload.id]);
+    expect(await ids({ q: "upload command" })).toEqual([upload.id]);
+    // None has all of these words, so any of them.
+    expect((await ids({ q: "disconnected zebra" }))).toEqual([rooms.id]);
+    expect(await ids({ q: "zebra" })).toEqual([]);
+    expect(await ids({ q: "share", answered: true })).toEqual([]);
+    expect(await ids({ answered: true })).toEqual([upload.id]);
+    // "making" also finds "makes" in the answer; the title that says it ranks first.
+    expect(await ids({ q: "making" })).toEqual([unrelated.id, upload.id]);
+
+    // Brief results, ten at most unless asked, with what matched.
+    const found = await mcp("search_forum", { q: "too_big" }, other);
+    expect(Object.keys(found.topics[0]).sort()).toEqual(["active_at", "answered", "category", "count", "id", "kind", "known_issue", "match", "replies", "status", "title"]);
+    expect(found.topics[0].match).toContain("«too_big»");
+    expect(found.topics[0].answered).toBe(true);
+
+    // Reading in part: just the answer, the latest few, or the topic alone.
+    const part = await mcp("get_topic", { id: upload.id, posts: "answer" }, other);
+    expect(part.posts.map((p: { answer: boolean }) => p.answer)).toEqual([false, true]);
+    expect(part.posts_total).toBe(2);
+    expect((await mcp("get_topic", { id: upload.id, posts: "none" }, other)).posts).toEqual([]);
+
+    // The same search suggests similar topics while one is written.
+    const similar = await api(`/forum/similar?q=${encodeURIComponent("my game is too_big to upload")}`);
+    expect(similar.data.topics.map((t: { id: string }) => t.id)).toContain(upload.id);
+  });
+
+  it("walks a known issue through its phases, and takes it back to fixing when it still happens", async () => {
+    const { topic } = await mcp("message_zaisma", { kind: "bug", title: "Saves vanish", text: "Cloud saves are gone after a reload." });
+    await decideFeedback(env, topic.id, { status: "investigating", known_issue: { title: "Cloud saves can vanish after a reload" } });
+    const k = (await mcp("search_forum", { tab: "known" })).topics[0].id;
+    expect((await mcp("get_topic", { id: k, posts: "none" })).topic.status).toBe("investigating");
+    // Open known issues are pinned, whatever the phase.
+    expect((await mcp("search_forum", {}, other)).pinned.map((t: { id: string }) => t.id)).toEqual([k]);
+    expect((await mcp("still_happening", { id: k }, other)).error).toContain("not_released");
+
+    await decideFeedback(env, k, { status: "fixing" });
+    await decideFeedback(env, k, { status: "released" });
+    expect((await mcp("search_forum", { tab: "known", status: "released" }, other)).topics.map((t: { id: string }) => t.id)).toEqual([k]);
+    const mine = await mcp("get_topic", { id: topic.id });
+    expect(mine.posts.at(-1).text).toContain("A fix is out. Zaisma is watching that it holds");
+
+    expect(await mcp("still_happening", { id: k }, other)).toEqual({ status: "fixing" });
+    expect((await mcp("get_topic", { id: k, posts: "none" })).topic.status).toBe("fixing");
+    expect((await mcp("get_topic", { id: topic.id })).topic.status).toBe("fixing");
+    // Once per fix: it's fixing now, so no more.
+    expect((await mcp("still_happening", { id: k }, other)).error).toContain("not_released");
+  });
+
+  it("counts everyone in a big topic and shows only the latest few", async () => {
+    const { topic } = await mcp("post_topic", { kind: "talk", category: "other", title: "Big thread", text: "Everyone say hi." });
+    await passAll();
+    for (let i = 0; i < 8; i++) {
+      await createAccount(env.DB, { id: `crowd-${i}`, name: `Crowd ${i}`, ageBand: "18+" });
+      const key = (await createApiKey(env.DB, `crowd-${i}`, "ai")).token;
+      await mcp("reply_to_topic", { id: topic.id, text: `Hi from ${i}.` }, key);
+    }
+    await passAll();
+    const page = (await api("/forum")).data.topics.find((t: { id: string }) => t.id === topic.id);
+    expect(page.people).toHaveLength(4);
+    expect(page.people_count).toBe(8);
+    expect(page.people[0].name).toBe("Crowd 7");
   });
 });
 

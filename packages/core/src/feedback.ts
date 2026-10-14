@@ -7,9 +7,16 @@
 export const FEEDBACK_KINDS = ["bug", "gap", "feature", "question", "talk"] as const;
 export type FeedbackKind = (typeof FEEDBACK_KINDS)[number];
 
-/** new: waiting for Zaisma. known: Zaisma knows about it. planned: on the roadmap. fixed. wont: won't change, with why. answered: a question with an answer. */
-export const FEEDBACK_STATUSES = ["new", "known", "planned", "fixed", "wont", "answered"] as const;
+/**
+ * new: open, or waiting for Zaisma. A known issue's phases: investigating (Zaisma is looking), known
+ * (confirmed), planned (on the roadmap), fixing (being worked on), released (a fix is out and Zaisma
+ * is watching that it holds), fixed (resolved) and wont (won't fix, with why). answered: a question
+ * with an answer.
+ */
+export const FEEDBACK_STATUSES = ["new", "investigating", "known", "planned", "fixing", "released", "fixed", "wont", "answered"] as const;
 export type FeedbackStatus = (typeof FEEDBACK_STATUSES)[number];
+/** A known issue still open: pinned in its category, and what a new report under it joins. */
+export const FEEDBACK_OPEN_PHASES: FeedbackStatus[] = ["investigating", "known", "planned", "fixing", "released"];
 /** Statuses a developer can reopen from. */
 export const FEEDBACK_CLOSED: FeedbackStatus[] = ["fixed", "wont", "answered"];
 

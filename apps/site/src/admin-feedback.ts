@@ -16,9 +16,9 @@ type Item = NonNullable<Awaited<ReturnType<typeof adminFeedbackItem>>>["data"];
 type Sorted = Row["sorted"];
 type KnownOption = { id: string; known_title: string };
 
-const STATUS_NAMES: Record<string, string> = { new: "New", known: "Known", planned: "Planned", fixed: "Fixed", wont: "Won't change", answered: "Answered" };
+const STATUS_NAMES: Record<string, string> = { new: "New", investigating: "Investigating", known: "Confirmed", planned: "Planned", fixing: "Fixing", released: "Fix released", fixed: "Resolved", wont: "Won't fix", answered: "Answered" };
 const SEVERITY_NUMBER: Record<string, number> = { urgent: 1, high: 2, normal: 3, low: 4 };
-const FILTERS = [...FEEDBACK_STATUSES.filter((s) => s !== "fixed" && s !== "wont" && s !== "answered"), "all"] as const;
+const FILTERS = ["new", "investigating", "known", "planned", "fixing", "released", "all"] as const;
 
 export async function adminFeedbackPage(env: Env, path: string, url: URL): Promise<Response | null> {
   if (path === "/admin/feedback") return queue(env, url.searchParams.get("status") ?? "new");

@@ -17,6 +17,7 @@ import {
   createTopic,
   flagMisplaced,
   follow,
+  stillHappening,
   getTopic,
   listTopics,
   markAnswer,
@@ -49,10 +50,13 @@ export const KINDS: Record<FeedbackKind, { label: string; plural: string; hint: 
 };
 const STATUS: Record<FeedbackStatus, { label: string; pill: string }> = {
   new: { label: "Open", pill: "" },
-  known: { label: "Known", pill: "held" },
+  investigating: { label: "Investigating", pill: "pending" },
+  known: { label: "Confirmed", pill: "held" },
   planned: { label: "Planned", pill: "info" },
-  fixed: { label: "Fixed", pill: "live" },
-  wont: { label: "Won't change", pill: "removed" },
+  fixing: { label: "Fixing", pill: "info" },
+  released: { label: "Fix released", pill: "live" },
+  fixed: { label: "Resolved", pill: "live" },
+  wont: { label: "Won't fix", pill: "removed" },
   answered: { label: "Answered", pill: "live" },
 };
 const DONE: Record<string, string> = {
@@ -61,6 +65,7 @@ const DONE: Record<string, string> = {
   checking: "Posted. Others see it once it's checked, usually within minutes.",
   held: "Posted. A person at Zaisma checks it before others see it, usually within a day.",
   replied: "Replied.",
+  still: "Thanks. It's back to fixing, Zaisma has been alerted, and everyone in it hears.",
   misplaced: "Thanks. Zaisma's AI looks at where it belongs within a few minutes, and moves it if it's in the wrong place.",
   reopened: "Reopened. A person at Zaisma looks at it again.",
 };
@@ -77,11 +82,12 @@ const ICONS = {
   replies: stroke('<path d="M3.5 4.5h13v9h-7l-4 3v-3h-2z"/>'),
   want: stroke('<path d="M4.5 12.8L10 7.2l5.5 5.6"/>'),
   affects: stroke('<path d="M7 10.2V4.6a1.2 1.2 0 0 1 2.4 0V9"/><path d="M9.4 9V3.4a1.2 1.2 0 0 1 2.4 0V9"/><path d="M11.8 9V4.4a1.2 1.2 0 0 1 2.4 0V10"/><path d="M14.2 10V7a1.2 1.2 0 0 1 2.4 0v4.6c0 3.4-2.4 6-5.6 6-2.3 0-3.7-1-4.9-2.8l-2.5-4.1a1.2 1.2 0 0 1 2-1.3L7 11.2"/>'),
-  same: stroke('<circle cx="8.6" cy="9.6" r="6.4"/><path d="M6.8 7.8a1.9 1.9 0 1 1 2.7 1.7c-.5.3-.9.7-.9 1.3v.3"/><path d="M8.6 13.2v.1M15.6 3v4.4M13.4 5.2h4.4"/>'),
+  same: stroke('<path d="M7.4 6.4V3.4h10.2v7H16v2.6l-3.1-2.6h-.6"/><path d="M2.4 6.4h9.8v7.2H7l-3.1 2.6v-2.6H2.4z"/><path d="M5.9 8.7a1.4 1.4 0 1 1 1.9 1.3c-.4.2-.6.5-.6.9v.2"/><path d="M7.2 12.4v.1"/>'),
   lock: stroke('<rect x="4.5" y="9" width="11" height="8"/><path d="M7 9V6.5a3 3 0 0 1 6 0V9"/>'),
   check: stroke('<path d="M4 10.5l4 4 8-9"/>'),
   ai: stroke('<path fill-rule="evenodd" d="M9 1.8h2v3.6h4.2a1.8 1.8 0 0 1 1.8 1.8v8a1.8 1.8 0 0 1-1.8 1.8H4.8A1.8 1.8 0 0 1 3 15.2v-8a1.8 1.8 0 0 1 1.8-1.8H9zM6.6 9.2v2.8h2.2V9.2zm4.6 0v2.8h2.2V9.2zM7.4 13.6v1.3h5.2v-1.3z"/><path d="M.8 9h1.5v4.4H.8zM17.7 9h1.5v4.4h-1.5z"/>', true),
   reply: stroke('<path d="M8 5L3.5 9.5 8 14"/><path d="M3.5 9.5H12a4.5 4.5 0 0 1 4.5 4.5v1"/>'),
+  again: stroke('<path d="M4.2 10.2a5.9 5.9 0 1 0 1.9-4.6"/><path d="M4.4 3.2v3.4h3.4"/>'),
   plus: stroke('<path d="M10 4v12M4 10h12"/>'),
   cross: stroke('<path d="M5 5l10 10M15 5L5 15"/>'),
 };
@@ -142,7 +148,7 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
       }
     }
 
-    const m = path.match(/^\/forum\/([a-z0-9]{1,40})(?:\/(reply|vote|follow|answer|misplaced|pictures\/([a-z0-9]{1,40})))?$/);
+    const m = path.match(/^\/forum\/([a-z0-9]{1,40})(?:\/(reply|vote|follow|answer|misplaced|still-happening|pictures\/([a-z0-9]{1,40})))?$/);
     if (!m) return null;
     const [, id, sub, postId] = m as unknown as [string, string, string | undefined, string | undefined];
     if (!sub && !post) return done(await topicPage(ctx, id, { done: url.searchParams.get("done") ?? undefined, to: url.searchParams.get("to") ?? undefined }));
@@ -173,6 +179,10 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
       if (sub === "vote") await vote(env, caller, id, form.get("on") === "1");
       if (sub === "follow") await follow(env, caller, id, form.get("on") === "1");
       if (sub === "answer") await markAnswer(env, caller, id, field("post") || null);
+      if (sub === "still-happening") {
+        await stillHappening(env, caller, id, { text: field("text") });
+        return done(redirect(`/forum/${id}?done=still`));
+      }
       if (sub === "misplaced") {
         await flagMisplaced(env, caller, id);
         return done(redirect(`/forum/${id}?done=misplaced`));
@@ -271,7 +281,7 @@ const statusPill = (s: FeedbackStatus, isPublic: boolean) => (s === "new" ? (isP
 function link(q: ForumQuery, change: Partial<ForumQuery>): string {
   const next = { ...q, ...change };
   const p = new URLSearchParams();
-  for (const k of ["q", "category", "kind", "tag", "tab"] as const) if (next[k]) p.set(k, String(next[k]));
+  for (const k of ["q", "category", "kind", "tag", "tab", "status"] as const) if (next[k]) p.set(k, String(next[k]));
   if (next.page && next.page > 1) p.set("page", String(next.page));
   const s = p.toString();
   return `/forum${s ? `?${s}` : ""}`;
@@ -317,7 +327,8 @@ async function listPage(ctx: Ctx, query: ForumQuery): Promise<Response> {
   ] as const;
   const filters = [["", "Everything"], ...FEEDBACK_KINDS.filter((k) => !(messages && k === "talk")).map((k) => [k, KINDS[k].plural])] as const;
   const keep: Record<string, string> = {};
-  for (const k of ["category", "kind", "tag", "tab"] as const) if (query[k]) keep[k] = String(query[k]);
+  for (const k of ["category", "kind", "tag", "tab", "status"] as const) if (query[k]) keep[k] = String(query[k]);
+  const phases = [["", "Every phase"], ...(["investigating", "known", "planned", "fixing", "released", "fixed", "wont"] as const).map((st) => [st, STATUS[st].label])] as const;
   return forumPage(
     ctx,
     heading,
@@ -331,7 +342,9 @@ ${rail(ctx, query, data.tab, unread)}
   </div>
   ${messages ? html`<p class="board-note muted">Private conversations with the people who build Zaisma: logs, unreleased games, anything you'd rather not post. Only you and Zaisma see them. When others hit the same problem, Zaisma posts a public known issue, without your words.</p>` : ""}
   <div class="filters">
-    <nav class="chips" aria-label="What kind">${filters.map(([k, label]) => html`<a href="${link(query, { kind: k, page: 1 })}"${(query.kind ?? "") === k ? raw(' aria-current="true"') : ""}>${label}</a>`)}</nav>
+    ${data.tab === "known"
+      ? html`<nav class="chips" aria-label="Which phase">${phases.map(([st, label]) => html`<a href="${link(query, { status: st, page: 1 })}"${(query.status ?? "") === st ? raw(' aria-current="true"') : ""}>${label}</a>`)}</nav>`
+      : html`<nav class="chips" aria-label="What kind">${filters.map(([k, label]) => html`<a href="${link(query, { kind: k, page: 1 })}"${(query.kind ?? "") === k ? raw(' aria-current="true"') : ""}>${label}</a>`)}</nav>`}
     ${query.tag ? html`<a class="tag on" href="${link(query, { tag: "", page: 1 })}" title="Show every tag">${(FORUM_TAGS as Record<string, string>)[query.tag] ?? query.tag} ×</a>` : ""}
     ${query.q ? html`<span class="muted">Matching “${query.q}” · <a href="${link(query, { q: "", page: 1 })}">Clear</a></span>` : ""}
   </div>
@@ -387,9 +400,10 @@ function topicRow(t: TopicRow, q: ForumQuery): Raw {
   <span class="ticon k-${t.known_issue ? "known" : t.kind}" title="${kindLabel}">${kindIcon(t)}<span class="sr">${kindLabel}</span></span>
   <div class="tmain">
     <p class="tline"><a class="ttitle" href="/forum/${t.id}">${t.title}</a>${t.answered && !t.known_issue ? html`<span class="flag ok" title="Answered">${ICONS.check}Answered</span>` : ""}${t.public || q.tab === "messages" ? "" : html`<span class="flag" title="Only you and Zaisma can see it">${ICONS.lock}Message to Zaisma</span>`}${t.public && !t.shown ? html`<span class="flag warn">Being checked</span>` : ""}${t.status !== "new" && t.status !== "answered" ? statusPill(t.status, t.public) : t.status === "new" && !t.public ? statusPill(t.status, false) : ""}${t.merged_into ? html`<a class="flag" href="/forum/${t.merged_into}">Part of a known issue</a>` : ""}</p>
+    ${t.match ? html`<p class="tmatch">${raw(esc(t.match).replace(/«/g, "<mark>").replace(/»/g, "</mark>"))}</p>` : ""}
     <p class="tmeta">${place ? html`<a class="cat" href="${link({}, { category: t.category ?? "" })}">${place.name} · ${place.sub}</a>` : ""}${t.tags.map(tagChip)}<span class="by">${avatar(t.author, "xs")}${t.author.name}${t.author.by === "ai" ? html`<span class="mark ai">${ICONS.ai}AI</span>` : ""}${t.author.by === "zaisma" ? html`<span class="mark team">Team</span>` : ""}</span><span class="when">${ago(t.created_at)}</span></p>
   </div>
-  <div class="tpeople">${t.people.map((p) => avatar(p, "sm"))}</div>
+  <div class="tpeople">${t.people.slice(0, 3).map((p) => avatar(p, "sm"))}${t.people_count > 3 ? html`<span class="more" title="${t.people_count} people in it">+${t.people_count - 3 > 99 ? "99" : t.people_count - 3}</span>` : ""}</div>
   <div class="tstat" title="${t.replies === 1 ? "1 reply" : `${t.replies} replies`}">${ICONS.replies}<span>${t.replies}</span></div>
   ${(() => {
     const v = t.public ? voteOf(t) : null;
@@ -441,6 +455,25 @@ ${sidePanel(ctx, t, data.posts)}
   );
 }
 
+/** Where a known issue stands, in a sentence. */
+const PHASE_WORDS: Partial<Record<FeedbackStatus, string>> = {
+  investigating: "Zaisma is looking into this.",
+  known: "Zaisma has confirmed this.",
+  planned: "This is on Zaisma's roadmap.",
+  fixing: "Zaisma is working on a fix.",
+  released: "A fix is out, and Zaisma is watching that it holds. If it still happens to you, say so.",
+  fixed: "This is fixed.",
+  wont: "Zaisma won't fix this.",
+};
+const TRACK: FeedbackStatus[] = ["investigating", "known", "planned", "fixing", "released", "fixed"];
+
+/** A known issue's phases as a track, the current one lit; won't fix stands alone. */
+function phaseTrack(status: FeedbackStatus): Raw {
+  if (status === "wont" || !TRACK.includes(status)) return html``;
+  const at = TRACK.indexOf(status);
+  return html`<ol class="phases" aria-label="Phase">${TRACK.map((st, i) => html`<li class="${i < at ? "past" : i === at ? "now" : ""}"${i === at ? raw(' aria-current="step"') : ""}>${STATUS[st].label}</li>`)}</ol>`;
+}
+
 /**
  * The opening post is the topic: its title, who started it and when, what it is, the post itself in
  * larger type, and the topic's actions. A known issue opens with Zaisma's summary instead.
@@ -453,7 +486,7 @@ function opPost(ctx: Ctx, t: Topic["topic"], p: PostJson | null, answer: PostJso
   <p class="t-meta"><span class="kind">${t.known_issue ? "Known issue" : KINDS[t.kind].label}</span>${statusPill(t.status, t.public)}${t.tags.map(tagChip)}${t.public ? "" : html`<span class="flag">${ICONS.lock}A message to Zaisma: only you and Zaisma see it</span>`}${t.game ? html`<span class="muted">About <a href="/dashboard/${t.game}">${t.game}</a>, which only you and Zaisma see</span>` : ""}</p>
   <div class="op-by">${avatar(t.author, "md")}<div><p class="op-name">${nameOf(t.author)}${p?.state === "checking" ? html`<span class="flag warn">Being checked: only you see it yet</span>` : p?.state === "held" ? html`<span class="flag warn">Waiting for a person at Zaisma: only you see it yet</span>` : ""}</p><p class="muted">${t.known_issue ? "Known issue" : t.public ? "Started this" : "Sent this"} ${ago(t.created_at)}</p></div></div>
   ${t.known_issue
-    ? html`<div class="op-text"><p>Zaisma knows about this. ${t.developers === 1 ? "1 developer has" : `${t.developers} developers have`} hit it${t.roadmap ? html`; it's part of <strong>${t.roadmap}</strong> on the roadmap` : ""}.</p>${t.workaround ? html`<p class="kb-work"><strong>Until it's fixed:</strong> ${t.workaround}</p>` : ""}</div>`
+    ? html`${phaseTrack(t.status)}<div class="op-text"><p>${PHASE_WORDS[t.status] ?? "Zaisma knows about this."} ${t.developers === 1 ? "1 developer has" : `${t.developers} developers have`} hit it${t.roadmap ? html`; it's part of <strong>${t.roadmap}</strong> on the roadmap` : ""}.</p>${t.workaround && t.status !== "fixed" ? html`<p class="kb-work"><strong>Until it's fixed:</strong> ${t.workaround}</p>` : ""}</div>`
     : p
       ? html`<div class="op-text p-text">${richText(p.text)}</div>
   ${p.context ? html`<details class="p-att"><summary>What ${p.by.by === "ai" ? "your AI" : "you"} attached (only you and Zaisma see it)</summary><pre>${JSON.stringify(p.context, null, 2)}</pre></details>` : ""}
@@ -465,7 +498,10 @@ function opPost(ctx: Ctx, t: Topic["topic"], p: PostJson | null, answer: PostJso
     ${v && t.can.vote
       ? html`<form method="post" action="/forum/${t.id}/vote"><input type="hidden" name="on" value="${t.voted ? "0" : "1"}"><button class="btn${t.voted ? " ghost" : " light"} vote" type="submit" aria-pressed="${t.voted ? "true" : "false"}" title="${t.voted ? "Press to take it back" : ""}">${v.icon}<span>${t.voted ? v.done : v.ask}</span></button></form>`
       : ""}
-    ${v && t.public && t.shown ? html`<span class="op-count"><strong>${count}</strong> ${v.count(count)}</span>` : ""}
+    ${v && t.public && t.shown && count > 0 ? html`<span class="op-count"><strong>${count}</strong> ${v.count(count)}</span>` : ""}
+    ${t.known_issue && t.status === "released" && ctx.viewer
+      ? html`<form method="post" action="/forum/${t.id}/still-happening"><button class="btn ghost" type="submit" title="Puts it back to fixing and tells Zaisma">${ICONS.again}It still happens</button></form>`
+      : ""}
     <span class="op-gap"></span>
     ${t.can.reply && p?.state !== "checking" && p?.state !== "held" ? html`<a class="btn ghost" href="#reply" data-reply-top>${ICONS.reply}Reply</a>` : ""}
     ${ctx.viewer ? html`<form method="post" action="/forum/${t.id}/follow"><input type="hidden" name="on" value="${t.following ? "0" : "1"}"><button class="btn ghost" type="submit" title="${t.following ? "New replies show in Your topics. Press to stop." : "Hear about new replies in Your topics."}">${t.following ? "Following" : "Follow"}</button></form>` : ""}
@@ -526,7 +562,7 @@ function sidePanel(ctx: Ctx, t: Topic["topic"], posts: PostJson[]): Raw {
           : ""}</dd>`
       : ""}
     ${t.tags.length ? html`<dt>Tags</dt><dd class="tags">${t.tags.map(tagChip)}</dd>` : ""}
-    ${people.length > 1 ? html`<dt>In this topic</dt><dd class="people">${people.slice(0, 12).map((p) => html`<span class="person">${avatar(p, "sm")}${nameOf(p)}</span>`)}</dd>` : ""}
+    ${people.length > 1 ? html`<dt>In this topic</dt><dd class="people">${people.slice(0, 8).map((p) => html`<span class="person">${avatar(p, "sm")}${nameOf(p)}</span>`)}${people.length > 8 ? html`<span class="muted">and ${people.length - 8} more</span>` : ""}</dd>` : ""}
     <dt>Who can see it</dt><dd>${t.public ? "Every developer and their AI" : "Only you and Zaisma"}</dd>
   </dl>
   ${t.known_issue && ctx.viewer
@@ -697,6 +733,9 @@ a.tag:hover,.tag.on{color:#0b0b0c;background:var(--chrome);box-shadow:none}
 .tpeople{display:flex;justify-content:center}
 .tpeople .av{margin-left:-6px;box-shadow:0 0 0 2px #1d2026,inset 1px 1px 0 rgba(255,255,255,.18)}
 .tpeople .av:first-child{margin-left:0}
+.tpeople .more{margin-left:-6px;min-width:26px;height:26px;padding:0 5px;display:inline-flex;align-items:center;justify-content:center;font-family:var(--display);font-size:11px;font-weight:600;color:var(--text-2);background:#2a2e35;box-shadow:0 0 0 2px #1d2026,inset 1px 1px 0 rgba(255,255,255,.1)}
+.tmatch{margin:0;font-size:13px;color:var(--text-2);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.tmatch mark{background:none;color:var(--text);font-weight:600;box-shadow:inset 0 -2px 0 rgba(230,233,238,.45)}
 .tstat{display:flex;align-items:center;justify-content:center;gap:5px;color:var(--muted);font-family:var(--display);font-weight:600;font-size:14px}
 .tstat svg{width:16px;height:16px}
 .tstat.mine{color:var(--text)}
@@ -738,6 +777,14 @@ a.tag:hover,.tag.on{color:#0b0b0c;background:var(--chrome);box-shadow:none}
 .op-text{font-size:17px;line-height:1.65;color:var(--text)}
 .op-text>p{margin:0 0 8px}
 .op .jump{margin:0}
+.phases{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:4px 0;counter-reset:phase}
+.phases li{position:relative;display:flex;align-items:center;gap:8px;padding-right:22px;font-family:var(--display);font-size:13px;font-weight:500;color:var(--muted)}
+.phases li::before{content:"";width:9px;height:9px;flex:none;box-shadow:inset 0 0 0 2px #4a4f58}
+.phases li:not(:last-child)::after{content:"";position:absolute;right:6px;top:50%;width:10px;height:1px;background:#4a4f58}
+.phases li.past{color:var(--text-2)}
+.phases li.past::before{background:#8a8f98;box-shadow:none}
+.phases li.now{color:var(--text);font-weight:600}
+.phases li.now::before{background:var(--chrome);box-shadow:0 0 10px rgba(225,230,240,.45)}
 .op .known-box{margin:0;padding:12px 14px;background:rgba(0,0,0,.2);box-shadow:inset 3px 0 0 #c9cace}
 .op-actions{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding-top:14px;background:linear-gradient(#000,#000) top/100% 1px no-repeat;box-shadow:inset 0 1px 0 rgba(255,255,255,.04)}
 .op-actions form{display:contents}
