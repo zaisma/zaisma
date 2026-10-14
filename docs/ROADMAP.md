@@ -44,7 +44,7 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | next | Must | Gleb: register with NCMEC | | Free; how platforms report child sexual abuse material, which US law requires |
 | done | Must | Julius: form an LLC | | Zaisma LLC, registered in Wyoming (Oct 13, 2026). Liability protection before outside uploads (we host their files); a registered agent keeps your home address off public records. Also what PhotoDNA needs to continue |
 | next | Must | Gleb: register the DMCA agent | | $6 at copyright.gov, then fill in the DMCA page |
-| doing | Must | Gleb: alert and DMCA email delivery | | Fastmail limited mail from zaisma.com because the domain is new (their support, Oct 13, 2026: it lifts by itself within hours), so support@ forwards to iCloud for now; dmca@ and privacy@ next |
+| done | Must | Julius: alert and DMCA email delivery | | Fastmail whitelisted zaisma.com (Oct 14, 2026). support@, dmca@, privacy@, safety@, pdna_account@ and julius@ all forward to Julius's Fastmail through Cloudflare Email Routing; site alerts send from alerts@ |
 | planned | Must | Connect image matching | Gleb: sign up for Arachnid Shield, Gleb: register with NCMEC | Every image in an upload is checked before publishing with Arachnid Shield (PhotoDNA added once the LLC's records go through); matches are held, reported to NCMEC within minutes and alerted to Julius. Until then every game waits for manual approval |
 | done | Must | Julius: Workers Paid plan | | $5/month, live Oct 12, 2026; needed to run developers' game servers |
 | planned | Must | Julius: Supabase Pro | | $25/month, switched on at launch; the free plan pauses |
