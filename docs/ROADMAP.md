@@ -9,7 +9,7 @@ The live plan of what gets built, in what order. `docs/DECISIONS.md` says *how* 
 - **Phases** run in order. Phase 1 is everything the public beta needs; nothing else blocks launch. After the beta, phases 3 to 6 can swap order if players or developers ask for something sooner.
 - **Must** items finish the phase. **Nice** items ship if they're ready and otherwise move to a later phase without holding anything up.
 - **Status:** `done`, `doing`, `next`, `planned`, `idea`.
-- **Julius** marks things only Julius can do (money, accounts, sign-ups).
+- **Julius** and **Gleb** mark things only that person does (money, accounts, sign-ups, legal filings). Gleb can sign for Zaisma LLC.
 - **Needs** lists the items that must land first, by name, separated by commas (so item names never contain commas). Items without needs can start any time.
 - **Weekly releases** start with the beta. Every phase after it ships in small pieces as each one is ready.
 
@@ -30,23 +30,23 @@ Live on zaisma.com since Oct 11, 2026.
 
 Goal: open Zaisma to outside developers and players, with what both expect out of the box. **The beta bar:** a developer can publish any web game from their AI tool in one prompt, add multiplayer and saves, and see who plays; a player can tap a link, play on phone or computer, invite friends, keep progress and stay safe.
 
-**Order of work.** Four tracks run side by side; within a track, the **Needs** column says what has to land first. The longest waits are outside our control (sign-ups for image matching and NCMEC), so Julius's track starts first. The build tracks meet at the end: developers' own game servers need multiplayer and publishing, and the seed games use everything.
+**Order of work.** Four tracks run side by side; within a track, the **Needs** column says what has to land first. The longest waits are outside our control (sign-ups for image matching and NCMEC), so the launch prerequisites start first. The build tracks meet at the end: developers' own game servers need multiplayer and publishing, and the seed games use everything.
 
-### Launch prerequisites (Julius's track, start first)
+### Launch prerequisites (Julius and Gleb, start first)
 
 | Status | Must/Nice | Item | Needs | Notes |
 | --- | --- | --- | --- | --- |
 | done | Must | Julius: buy the game domain | | zaismausercontent.com, bought Oct 11, 2026 |
 | done | Must | Serve each game on its own subdomain | Julius: buy the game domain | Live Oct 11, 2026: <slug>.zaismausercontent.com; workers.dev turned off |
 | next | Nice | Julius: send PhotoDNA the LLC's records | Julius: form an LLC | Application still open. Oct 13, 2026: Microsoft found no business records under Julius's own name, so it didn't qualify as an established organization. To continue, reply on that email thread with the LLC's full legal name and a link to its state registration record. No new application needed. Unblocked now that Zaisma LLC exists (Wyoming). Arachnid Shield covers the beta until then |
-| next | Must | Julius: sign up for Arachnid Shield | | Now the main image matcher, since PhotoDNA was declined: free known-abuse-image matching from the Canadian Centre for Child Protection (Project Arachnid), self-serve API key at projectarachnid.ca. Use a zaisma.com address. Paid fallbacks: Thorn's Safer, directly or through Hive (quote only) |
-| next | Nice | Julius: turn on Cloudflare's CSAM Scanning Tool | | Free, one switch per domain (zaisma.com and zaismausercontent.com) plus an alert email. Only sees content served through Cloudflare's cache, after it's live, so it's a backstop, not the check before publishing. The games Worker serves files straight from R2 without the cache, so on zaismausercontent.com it would see almost nothing until images go through the cache |
-| next | Must | Julius: register with NCMEC | | Free; how platforms report child sexual abuse material, which US law requires |
+| next | Must | Gleb: sign up for Arachnid Shield | | Now the main image matcher, since PhotoDNA was declined: free known-abuse-image matching from the Canadian Centre for Child Protection (Project Arachnid), self-serve API key at projectarachnid.ca. Use a zaisma.com address; Gleb sends Julius the API key privately. Paid fallbacks: Thorn's Safer, directly or through Hive (quote only) |
+| next | Nice | Gleb: turn on Cloudflare's CSAM Scanning Tool | | Free, one switch per domain (zaisma.com and zaismausercontent.com) plus an alert email. Only sees content served through Cloudflare's cache, after it's live, so it's a backstop, not the check before publishing. The games Worker serves files straight from R2 without the cache, so on zaismausercontent.com it would see almost nothing until images go through the cache |
+| next | Must | Gleb: register with NCMEC | | Free; how platforms report child sexual abuse material, which US law requires |
 | done | Must | Julius: form an LLC | | Zaisma LLC, registered in Wyoming (Oct 13, 2026). Liability protection before outside uploads (we host their files); a registered agent keeps your home address off public records. Also what PhotoDNA needs to continue |
 | planned | Nice | Julius: register Zaisma LLC in Florida | Julius: form an LLC | Julius runs Zaisma from Florida, so the Wyoming LLC must also register there as a foreign LLC (Sunbiz, about $125, then a yearly report by May 1). Julius decided Oct 13, 2026 to do this after the beta opens. Without it the LLC can be fined and can't sue in Florida courts |
-| next | Must | Julius: register the DMCA agent | | $6 at copyright.gov, then fill in the DMCA page |
-| doing | Must | Alert and DMCA email delivery | | Fastmail limited mail from zaisma.com because the domain is new (their support, Oct 13, 2026: it lifts by itself within hours), so support@ forwards to iCloud for now; dmca@ and privacy@ next |
-| planned | Must | Connect image matching | Julius: sign up for Arachnid Shield, Julius: register with NCMEC | Every image in an upload is checked before publishing with Arachnid Shield (PhotoDNA added once the LLC's records go through); matches are held, reported to NCMEC within minutes and alerted to Julius. Until then every game waits for manual approval |
+| next | Must | Gleb: register the DMCA agent | | $6 at copyright.gov, then fill in the DMCA page |
+| doing | Must | Gleb: alert and DMCA email delivery | | Fastmail limited mail from zaisma.com because the domain is new (their support, Oct 13, 2026: it lifts by itself within hours), so support@ forwards to iCloud for now; dmca@ and privacy@ next |
+| planned | Must | Connect image matching | Gleb: sign up for Arachnid Shield, Gleb: register with NCMEC | Every image in an upload is checked before publishing with Arachnid Shield (PhotoDNA added once the LLC's records go through); matches are held, reported to NCMEC within minutes and alerted to Julius. Until then every game waits for manual approval |
 | done | Must | Julius: Workers Paid plan | | $5/month, live Oct 12, 2026; needed to run developers' game servers |
 | planned | Must | Julius: Supabase Pro | | $25/month, switched on at launch; the free plan pauses |
 | planned | Nice | Julius: Public Suffix List entry | | Needs 2+ years left on the registration and a `_psl` TXT record; the list may turn down projects without players, so apply after launch |
@@ -150,7 +150,7 @@ The platform works but looks and feels rough. No outreach, no listings for other
 | planned | Nice | 10 seed games | At least 5 seed games | The target in `docs/PLAN.md` |
 | planned | Must | Link-out listings | Ready for outreach | Games hosted elsewhere, added from admin with the developer's OK: credited and linked, marked "Plays on example.com", never embedded. Original games only. Checked at listing and re-checked automatically. Developers can claim them once developer accounts exist |
 | planned | Nice | QR codes | | |
-| planned | Must | Open the public beta | Connect image matching, Julius: register the DMCA agent, Julius: form an LLC, Alert and DMCA email delivery, Julius: Supabase Pro, At least 5 seed games | And every other must item above. Weekly releases and the weekly game jam start here |
+| planned | Must | Open the public beta | Connect image matching, Gleb: register the DMCA agent, Julius: form an LLC, Gleb: alert and DMCA email delivery, Julius: Supabase Pro, At least 5 seed games | And every other must item above. Weekly releases and the weekly game jam start here |
 
 ## Phase 2: Earn
 

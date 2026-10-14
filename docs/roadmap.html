@@ -5,7 +5,7 @@
 /* Layout: a roadmap ledger. A sticky bar says where you are and jumps between phases and tracks; phases fold, items are one line until tapped. Dark first (the metal logo lives on dark). */
 :root {
   --bg: #16161a; --surface: #1e1e23; --line: #2d2d34; --fg: #ececef; --muted: #9b9ba6;
-  --steel: #b9c6d8; --julius: #e2b45e;
+  --steel: #b9c6d8; --julius: #e2b45e; --gleb: #6cc6c0;
   --done: #74c393; --doing: #e2b45e; --next: #86aef0; --planned: #8a8a96;
   --display: "Jost", "Futura", "Century Gothic", system-ui, sans-serif;
   --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -16,14 +16,14 @@
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
     --bg: #f3f4f6; --surface: #ffffff; --line: #dcdde2; --fg: #17171b; --muted: #5d5e68;
-    --steel: #3d4f6b; --julius: #9a6a10;
+    --steel: #3d4f6b; --julius: #9a6a10; --gleb: #1d7f79;
     --done: #1f8a4c; --doing: #9a6a10; --next: #2f5fb3; --planned: #6c6c78;
     --logo-metal: none; --logo-black: block; color-scheme: light;
   }
 }
 :root[data-theme="light"] {
   --bg: #f3f4f6; --surface: #ffffff; --line: #dcdde2; --fg: #17171b; --muted: #5d5e68;
-  --steel: #3d4f6b; --julius: #9a6a10;
+  --steel: #3d4f6b; --julius: #9a6a10; --gleb: #1d7f79;
   --done: #1f8a4c; --doing: #9a6a10; --next: #2f5fb3; --planned: #6c6c78;
   --logo-metal: none; --logo-black: block; color-scheme: light;
 }
@@ -110,6 +110,7 @@ li.open .needs.later, body.full .needs.later { display: block; }
 .tag { font: 500 12px var(--mono); padding: 1px 7px; border-radius: 5px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
 .tag.must { color: var(--fg); border-color: var(--fg); }
 .tag.julius { color: var(--julius); border-color: var(--julius); }
+.tag.gleb { color: var(--gleb); border-color: var(--gleb); }
 .needs { font-size: 13px; color: var(--muted); margin-top: 3px; }
 .needs .lbl { font: 500 12px var(--mono); margin-right: 4px; }
 .needs .open { color: var(--fg); }
@@ -163,6 +164,7 @@ footer { color: var(--muted); font-size: 13px; border-top: 1px solid var(--line)
     <button class="chip" id="f-all" type="button" aria-pressed="true">Everything</button>
     <button class="chip" id="f-must" type="button" aria-pressed="false">Must items only</button>
     <button class="chip" id="f-julius" type="button" aria-pressed="false">Julius's to-dos</button>
+    <button class="chip" id="f-gleb" type="button" aria-pressed="false">Gleb's to-dos</button>
     <button class="chip" id="f-open" type="button" aria-pressed="false">Hide done</button>
     <button class="chip" id="f-full" type="button" aria-pressed="false">Full notes</button>
   </div>
@@ -209,9 +211,9 @@ function parse(text) {
       if (!header) { header = cells.map((c) => c.toLowerCase()); continue; }
       const get = (k) => cells[header.indexOf(k)] ?? "";
       let name = get("item");
-      const julius = /^Julius:\s*/.test(name);
-      name = name.replace(/^Julius:\s*/, ""); name = name.charAt(0).toUpperCase() + name.slice(1);
-      group.items.push({ status: get("status") || "planned", must: /must/i.test(get("must/nice")), nice: /nice/i.test(get("must/nice")), name, note: get("notes"), julius, needs: get("needs").split(",").map((n) => n.trim()).filter(Boolean) });
+      const owner = (name.match(/^(Julius|Gleb):\s*/) || [])[1] || "";
+      name = name.replace(/^(Julius|Gleb):\s*/, ""); name = name.charAt(0).toUpperCase() + name.slice(1);
+      group.items.push({ status: get("status") || "planned", must: /must/i.test(get("must/nice")), nice: /nice/i.test(get("must/nice")), name, note: get("notes"), owner, needs: get("needs").split(",").map((n) => n.trim()).filter(Boolean) });
       continue;
     }
     header = null;
@@ -234,7 +236,8 @@ const countDone = (items) => `${items.filter((i) => i.status === "done").length}
 function visible(item) {
   if (hideDone && item.status === "done") return false;
   if (filter === "must") return item.must;
-  if (filter === "julius") return item.julius;
+  if (filter === "julius") return item.owner === "Julius";
+  if (filter === "gleb") return item.owner === "Gleb";
   return true;
 }
 
@@ -263,7 +266,7 @@ function render() {
   const needsHtml = (i) => {
     if (!i.needs.length) return "";
     const parts = i.needs.map((n) => {
-      const shown = n.replace(/^Julius:\s*/, "");
+      const shown = n.replace(/^(Julius|Gleb):\s*/, "");
       const met = statusOf.get(shown.toLowerCase()) === "done";
       return { met, html: `<span class="${met ? "met" : "open"}">${md(shown.charAt(0).toUpperCase() + shown.slice(1))}</span>` };
     });
@@ -283,7 +286,7 @@ function render() {
         return `<li class="s-${esc(i.status)}${more ? " has-more" : ""}">
         <span class="status">${esc(i.status)}</span>
         <div>${more ? `<button class="name" type="button" aria-expanded="false">${md(i.name)}</button>` : `<div class="name">${md(i.name)}</div>`}${i.note ? `<div class="note">${md(i.note)}</div>` : ""}${needsHtml(i)}</div>
-        <div class="tags">${i.julius ? '<span class="tag julius">Julius</span>' : ""}${i.must ? '<span class="tag must">Must</span>' : i.nice ? '<span class="tag">Nice</span>' : ""}</div>
+        <div class="tags">${i.owner ? `<span class="tag ${i.owner.toLowerCase()}">${i.owner}</span>` : ""}${i.must ? '<span class="tag must">Must</span>' : i.nice ? '<span class="tag">Nice</span>' : ""}</div>
       </li>`;
       }).join("");
       const gid = g.title ? groupId(p, g) : "";
@@ -385,13 +388,14 @@ document.addEventListener("click", (e) => {
 
 function setFilter(next) {
   filter = next;
-  for (const [id, f] of [["f-all", "all"], ["f-must", "must"], ["f-julius", "julius"]]) document.getElementById(id).setAttribute("aria-pressed", String(f === filter));
+  for (const [id, f] of [["f-all", "all"], ["f-must", "must"], ["f-julius", "julius"], ["f-gleb", "gleb"]]) document.getElementById(id).setAttribute("aria-pressed", String(f === filter));
   try { localStorage.setItem("roadmap-filter", filter); } catch {}
   render();
 }
 document.getElementById("f-all").onclick = () => setFilter("all");
 document.getElementById("f-must").onclick = () => setFilter("must");
 document.getElementById("f-julius").onclick = () => setFilter("julius");
+document.getElementById("f-gleb").onclick = () => setFilter("gleb");
 document.getElementById("f-open").onclick = (e) => {
   hideDone = !hideDone; e.currentTarget.setAttribute("aria-pressed", String(hideDone));
   try { localStorage.setItem("roadmap-hide-done", hideDone ? "1" : ""); } catch {}
@@ -409,11 +413,11 @@ fetch("ROADMAP.md", { cache: "no-store" })
   .then((text) => {
     data = parse(text);
     try {
-      const f = localStorage.getItem("roadmap-filter"); if (f && ["all", "must", "julius"].includes(f)) filter = f;
+      const f = localStorage.getItem("roadmap-filter"); if (f && ["all", "must", "julius", "gleb"].includes(f)) filter = f;
       hideDone = localStorage.getItem("roadmap-hide-done") === "1";
       full = localStorage.getItem("roadmap-full") === "1";
     } catch {}
-    for (const [id, f] of [["f-all", "all"], ["f-must", "must"], ["f-julius", "julius"]]) document.getElementById(id).setAttribute("aria-pressed", String(f === filter));
+    for (const [id, f] of [["f-all", "all"], ["f-must", "must"], ["f-julius", "julius"], ["f-gleb", "gleb"]]) document.getElementById(id).setAttribute("aria-pressed", String(f === filter));
     document.getElementById("f-open").setAttribute("aria-pressed", String(hideDone));
     document.getElementById("f-full").setAttribute("aria-pressed", String(full));
     document.body.classList.toggle("full", full);
