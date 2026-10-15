@@ -27,7 +27,7 @@ export const ERROR_CODES = {
   bad_slug: { httpStatus: 400, meaning: "The link name isn't lowercase letters, numbers and single hyphens, or is reserved." },
   slug_taken: { httpStatus: 409, meaning: "Another game has that link name." },
   too_many_games: { httpStatus: 403, meaning: "The account has as many games as it can have." },
-  bad_title: { httpStatus: 400, meaning: "A game's or topic's title is empty or too long." },
+  bad_title: { httpStatus: 400, meaning: "A game's, topic's or precedent's title is empty or too long." },
   bad_description: { httpStatus: 400, meaning: "The description isn't text of up to 500 characters." },
   bad_visibility: { httpStatus: 400, meaning: "visibility isn't draft, listed, unlisted or private." },
   bad_devices: { httpStatus: 400, meaning: "devices isn't a list of phone, tablet and computer." },
@@ -132,7 +132,39 @@ export const ERROR_CODES = {
   cant_report: { httpStatus: 400, meaning: "The post can't be reported: it's yours, or Zaisma's." },
 } as const satisfies Record<string, { httpStatus: number; meaning: string }>;
 
-export type ErrorCode = keyof typeof ERROR_CODES;
+/**
+ * The errors only the admin MCP answers with, on top of ERROR_CODES (which it uses too, like no_topic).
+ * docs/ADMIN-MCP.md lists them, and the same test keeps the two in step.
+ */
+export const ADMIN_ERROR_CODES = {
+  // Reports
+  no_report_group: { httpStatus: 404, meaning: "There's no report group with that ID." },
+  report_group_closed: { httpStatus: 409, meaning: "Every report in the group is closed already." },
+  bad_maximum_group_count: { httpStatus: 400, meaning: "maximum_group_count isn't a whole number from 1 to 100." },
+  bad_decision: { httpStatus: 400, meaning: "decision isn't one of the choices the call takes." },
+  cant_decide: { httpStatus: 409, meaning: "The report group can't be decided that way now; get_report_group lists what can." },
+  decision_refused: { httpStatus: 409, meaning: "The decision didn't go through, like putting back an update that matched known abuse material." },
+  bad_why: { httpStatus: 400, meaning: "why is blank or over 500 characters." },
+
+  // Precedents
+  no_precedent: { httpStatus: 404, meaning: "There's no precedent with that ID." },
+  not_proposed: { httpStatus: 409, meaning: "Only a proposed precedent can be approved; one in force changes with set_precedent." },
+  bad_precedent: { httpStatus: 400, meaning: "precedent isn't { title, applies_when, why } and its optional fields within their lengths, or the decision sets none (hide_name)." },
+  bad_applies_when: { httpStatus: 400, meaning: "applies_when is blank or over 500 characters." },
+  bad_can_ai_apply_alone: { httpStatus: 400, meaning: "can_ai_apply_alone isn't true or false, or is true for a precedent that isn't a dismissal." },
+  bad_precedent_status: { httpStatus: 400, meaning: "precedent_status isn't active, proposed, retired or all." },
+
+  // The forum queue
+  bad_reply_text_markdown: { httpStatus: 400, meaning: "reply_text_markdown is blank or over 8,000 characters." },
+  bad_known_issue: { httpStatus: 400, meaning: "known_issue isn't { title, workaround, roadmap_item } with a title, or null." },
+  bad_severity: { httpStatus: 400, meaning: "severity isn't urgent, high, normal or low." },
+  cant_merge: { httpStatus: 409, meaning: "A topic can't be merged into itself." },
+  already_merged: { httpStatus: 409, meaning: "The topic is merged, or being merged, into another, so that one is the one to make a known issue." },
+} as const satisfies Record<string, { httpStatus: number; meaning: string }>;
+
+export type ErrorCode = keyof typeof ERROR_CODES | keyof typeof ADMIN_ERROR_CODES;
+/** Every code, the developer API's and the admin MCP's, with its HTTP status. */
+export const EVERY_ERROR_CODE: Record<ErrorCode, { httpStatus: number; meaning: string }> = { ...ERROR_CODES, ...ADMIN_ERROR_CODES };
 
 /** What went wrong besides its code, as an error answer gives it. */
 export interface ErrorDetails {
@@ -163,7 +195,7 @@ export class ApiError extends Error {
     details: ErrorDetails,
   ) {
     super(details.message);
-    this.httpStatus = ERROR_CODES[code].httpStatus;
+    this.httpStatus = EVERY_ERROR_CODE[code].httpStatus;
     this.field = details.field ?? null;
     this.fix = details.fix;
     this.retryAfterSec = details.retryAfterSec ?? null;

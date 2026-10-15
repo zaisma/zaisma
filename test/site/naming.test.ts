@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TOOLS } from "../../apps/site/src/mcp.ts";
+import { ADMIN_TOOLS } from "../../apps/site/src/admin-mcp.ts";
 import { namingProblems, schemaProblems } from "../schema-check.ts";
 
 describe("names in the developer MCP follow docs/NAMING.md", () => {
@@ -13,6 +14,16 @@ describe("names in the developer MCP follow docs/NAMING.md", () => {
       expect(tool.outputSchema, `${tool.name} needs an output schema`).toBeDefined();
       expect(tool.outputSchema!.type).toBe("object");
       expect(namingProblems(tool.outputSchema!, `${tool.name} answer`, false)).toEqual([]);
+    });
+  }
+});
+
+describe("names in the admin MCP follow docs/NAMING.md", () => {
+  for (const tool of ADMIN_TOOLS) {
+    it(tool.name, () => {
+      expect(namingProblems(tool.inputSchema, `${tool.name} input`, true)).toEqual([]);
+      expect(tool.outputSchema.type).toBe("object");
+      expect(namingProblems(tool.outputSchema, `${tool.name} answer`, false)).toEqual([]);
     });
   }
 });

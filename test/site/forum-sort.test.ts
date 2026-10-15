@@ -116,10 +116,10 @@ describe("forum sorting", () => {
     const queue = await SELF.fetch("http://localhost/admin/mcp", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "list_feedback", arguments: {} } }),
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "list_topics", arguments: {} } }),
     });
-    const { result } = (await queue.json()) as { result: { structuredContent: { feedback: { id: string; developers: number; sorted: unknown }[] } } };
-    expect(result.structuredContent.feedback.find((row) => row.id === first.id)).toMatchObject({ developers: 2, sorted: { by_ai: true } });
+    const { result } = (await queue.json()) as { result: { structuredContent: { topics: { id: string; affected_developer_count: number; sorting: unknown }[] } } };
+    expect(result.structuredContent.topics.find((row) => row.id === first.id)).toMatchObject({ affected_developer_count: 2, sorting: { is_by_ai: true } });
 
     // No key: sorted as waiting for a person, with no AI call.
     const fourth = await message({ kind: "bug", title: "Saves vanish", text_markdown: "Cloud saves are gone." });

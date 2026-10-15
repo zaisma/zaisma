@@ -228,6 +228,15 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 | A version's notes for players, and when it goes live by itself | `patch_notes`, `scheduled_publish_at` | |
 | Links, by what they open | `page_url` (a game's page), `preview_url` (a version), `image_url`, `link_url` (a tester link) | `inviteUrl` (a room's invite link), `serverUrl` (a game server of the developer's own) |
 | Forum topics with something new from Zaisma | `unread_topic_count` | |
+| What a player wrote in a report | `player_text` | |
+| Reports about the same problem, named by the first one (admin MCP) | `report_group_id` (a `report_…` ID) | |
+| Where a report stands | `report_status`: `open`, `dismissed`, `actioned` | |
+| How serious a report or topic is (admin MCP) | `severity`: `child_safety` (reports only), `urgent`, `high`, `normal`, `low` | |
+| What a person decides about reports, a precedent or a post, and why (admin MCP) | `decision`, `why` | |
+| A ruling report triage follows, and where it stands (admin MCP) | `precedent_id`; `precedent_status`: `proposed`, `active`, `retired`; `can_ai_apply_alone`, `replaces_precedent_id`, `followed_count` | |
+| What report triage and forum sorting found (admin MCP) | `triage`, `sorting`, `is_waiting_for_sorting`; what triage did by itself is `ai_actions` | |
+| Public forum posts waiting for a person (admin MCP) | `waiting_posts` | |
+| What happened to a game, and who did it | `events`, each with `happened_at`; `actor` in the admin MCP | |
 | The calls that usually follow a change | `next_steps` | |
 | Ticks a second, and the time since the last tick | | `ticksPerSec`, `tickDurationSec` |
 | Time without input before "Still there?", and who checks | | `idleTimeoutSec`, `idleCheck`: `server`, `client`, `off`; a player's game turns its own off with `idleCheckEnabled: false` |

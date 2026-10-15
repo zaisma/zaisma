@@ -186,6 +186,8 @@ export type ReportReason = keyof typeof REPORT_REASONS;
 export const SEVERITIES = ["Child safety", "Urgent", "High", "Normal", "Low"] as const;
 export const SEVERITY = { child_safety: 0, urgent: 1, high: 2, normal: 3, low: 4 } as const;
 export type ReportSeverity = keyof typeof SEVERITY;
+/** The same, as the admin MCP says it: reports.severity is the index. */
+export const REPORT_SEVERITIES = Object.keys(SEVERITY) as ReportSeverity[];
 
 /** What AI report triage found and did about a report (reports.triage). */
 export interface Triage {
@@ -219,7 +221,11 @@ export const PRECEDENT_DECISIONS = {
 } as const;
 export type PrecedentDecision = keyof typeof PRECEDENT_DECISIONS;
 
-/** A ruling a person made on a report, which report triage follows (migrations/0014_precedents.sql). */
+/** proposed (waiting for a person), active (in force) or retired. */
+export const PRECEDENT_STATUSES = ["proposed", "active", "retired"] as const;
+export type PrecedentStatus = (typeof PRECEDENT_STATUSES)[number];
+
+/** A ruling a person made on a report, which report triage follows (migrations/0014_precedents.sql, 0033). */
 export interface Precedent {
   id: string;
   title: string;
@@ -227,13 +233,14 @@ export interface Precedent {
   decision: PrecedentDecision;
   why: string;
   /** 1: the AI may apply it by itself. Dismissals only. */
-  ai_alone: number;
-  status: "proposed" | "active" | "retired";
-  replaces: string | null;
-  from_report: string | null;
+  can_ai_apply_alone: number;
+  precedent_status: PrecedentStatus;
+  /** The precedent this one changed, and the report group it was set while deciding. */
+  replaces_precedent_id: string | null;
+  from_report_group_id: string | null;
   created_by: string;
-  created_at: number;
-  updated_at: number;
+  created_at_ms: number;
+  updated_at_ms: number;
 }
 
 /** Reports for these reasons hide the game until it's reviewed. */

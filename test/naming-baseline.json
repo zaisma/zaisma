@@ -83,27 +83,6 @@
       "k: a short form, not a whole word": 2,
       "g: a short form, not a whole word": 1
     },
-    "apps/site/src/admin-mcp.ts": {
-      "DAY: a number's name ends in Count, a unit, Index or Number": 1,
-      "str: a short form, not a whole word": 1,
-      "v: a short form, not a whole word": 4,
-      "max: \"max\" alone doesn't say what it is": 1,
-      "max: a number's name ends in Count, a unit, Index or Number": 1,
-      "g: a short form, not a whole word": 6,
-      "r: a short form, not a whole word": 9,
-      "t: \"t\" alone doesn't say what it is": 2,
-      "t: a short form, not a whole word": 2,
-      "args: a short form, not a whole word": 11,
-      "data: \"data\" alone doesn't say what it is": 2,
-      "f: a short form, not a whole word": 2,
-      "e: a short form, not a whole word": 2,
-      "p: a short form, not a whole word": 4,
-      "res: a short form, not a whole word": 1,
-      "stmt: a short form, not a whole word": 1,
-      "followed: a number's name ends in a count, a unit, index or number": 1,
-      "s: a short form, not a whole word": 1,
-      "err: a short form, not a whole word": 1
-    },
     "apps/site/src/admin.ts": {
       "s: a short form, not a whole word": 1,
       "v: a short form, not a whole word": 4,
@@ -343,18 +322,6 @@
       "hosting_share: a number's name ends in a count, a unit, index or number": 1,
       "x: a short form, not a whole word": 7,
       "usual: a number's name ends in Count, a unit, Index or Number": 1
-    },
-    "apps/site/src/precedents.ts": {
-      "v: a short form, not a whole word": 2,
-      "max: \"max\" alone doesn't say what it is": 1,
-      "max: a number's name ends in Count, a unit, Index or Number": 1,
-      "p: a short form, not a whole word": 12,
-      "now: a number's name ends in Count, a unit, Index or Number": 2,
-      "m: a short form, not a whole word": 1,
-      "k: a short form, not a whole word": 1,
-      "n: a short form, not a whole word": 2,
-      "n: a number's name ends in a count, a unit, index or number": 1,
-      "u: a short form, not a whole word": 1
     },
     "apps/site/src/report.ts": {
       "opts: a short form, not a whole word": 1,
@@ -645,11 +612,10 @@
       "listed: a number's name ends in a count, a unit, index or number": 1,
       "open: a number's name ends in a count, a unit, index or number": 1,
       "name_hidden: a number's name ends in a count, a unit, index or number": 1,
-      "created_at: a number's name ends in a count, a unit, index or number": 2,
-      "updated_at: a number's name ends in a count, a unit, index or number": 2,
+      "created_at: a number's name ends in a count, a unit, index or number": 1,
+      "updated_at: a number's name ends in a count, a unit, index or number": 1,
       "ai: a yes/no field starts with is, has or can, or ends in enabled": 1,
-      "spot_check: a yes/no field starts with is, has or can, or ends in enabled": 1,
-      "ai_alone: a number's name ends in a count, a unit, index or number": 1
+      "spot_check: a yes/no field starts with is, has or can, or ends in enabled": 1
     },
     "packages/core/src/uploads.ts": {
       "db: a short form, not a whole word": 5
@@ -860,17 +826,6 @@
       "at: \"at\" alone doesn't say what it is": 1,
       "at: a stored time is <event>_at_ms": 1,
       "at: a number column ends in _count, a unit or _ms; a yes/no column starts with is_, has_ or can_ or ends in _enabled": 1
-    },
-    "precedents.ai_alone": {
-      "ai_alone: a number column ends in _count, a unit or _ms; a yes/no column starts with is_, has_ or can_ or ends in _enabled": 1
-    },
-    "precedents.created_at": {
-      "created_at: a stored time is <event>_at_ms": 1,
-      "created_at: a number column ends in _count, a unit or _ms; a yes/no column starts with is_, has_ or can_ or ends in _enabled": 1
-    },
-    "precedents.updated_at": {
-      "updated_at: a stored time is <event>_at_ms": 1,
-      "updated_at: a number column ends in _count, a unit or _ms; a yes/no column starts with is_, has_ or can_ or ends in _enabled": 1
     },
     "reports.created_at": {
       "created_at: a stored time is <event>_at_ms": 1,

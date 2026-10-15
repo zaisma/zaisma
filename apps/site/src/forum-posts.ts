@@ -333,8 +333,6 @@ export interface TopicDecision {
   isByAi?: boolean;
 }
 
-export class TopicRefusal extends Error {}
-
 /** Zaisma's own posts need no check: on a public topic everyone sees them at once. */
 export async function zaismaPost(env: Env, topicId: string, kind: "post" | "status", text: string, atMs: number) {
   const id = newId("post");
@@ -370,21 +368,47 @@ const STATUS_WORDS: Record<TopicStatus, string> = {
  * cleaned-up title, workaround and roadmap item, which every developer sees), severity, category and
  * the answer. A private message made a known issue becomes a public topic of Zaisma's own with the
  * message under it, so nothing the developer wrote in private is shown; the reply still goes to them alone.
+ * Everything is checked before anything changes, so a refused decision (an ApiError, in the admin MCP's
+ * names) changes nothing.
  */
 export async function decideTopic(env: Env, topicId: string, decision: TopicDecision): Promise<void> {
   let topic = await topicById(env, topicId);
-  if (!topic) throw new TopicRefusal("No topic with that id.");
+  const listFix = "list_topics in the admin MCP lists the topics with their IDs.";
+  if (!topic) throw new ApiError("no_topic", { message: `There's no topic with the ID ${topicId}.`, field: "topic_id", fix: listFix });
   const atMs = Date.now();
   const topicStatus = decision.topicStatus?.trim() as TopicStatus | undefined;
-  if (topicStatus && !TOPIC_STATUSES.includes(topicStatus)) throw new TopicRefusal(`Status is one of: ${TOPIC_STATUSES.join(", ")}.`);
+  if (topicStatus && !TOPIC_STATUSES.includes(topicStatus)) {
+    throw new ApiError("bad_topic_status", { message: `${topicStatus} isn't a topic status.`, field: "topic_status", fix: `Give one of: ${TOPIC_STATUSES.join(", ")}.` });
+  }
+  if (decision.severity !== undefined && !TOPIC_SEVERITIES.includes(decision.severity)) {
+    throw new ApiError("bad_severity", { message: `${decision.severity} isn't a severity.`, field: "severity", fix: `Give one of: ${TOPIC_SEVERITIES.join(", ")}.` });
+  }
+  let target = decision.mergeIntoTopicId ? await topicById(env, decision.mergeIntoTopicId) : null;
+  if (target?.merged_into_topic_id) target = await topicById(env, target.merged_into_topic_id);
+  if (decision.mergeIntoTopicId && !target) throw new ApiError("no_topic", { message: `There's no topic with the ID ${decision.mergeIntoTopicId}.`, field: "merge_into_topic_id", fix: listFix });
+  if (target && target.id === topic.id) {
+    throw new ApiError("cant_merge", { message: "A topic can't be merged into itself.", field: "merge_into_topic_id", fix: "Give another topic: a known issue or the first message of a group." });
+  }
+  const mergedIntoTopicId = target?.id ?? topic.merged_into_topic_id;
+  if (decision.knownIssue !== undefined && mergedIntoTopicId) {
+    throw new ApiError("already_merged", {
+      message: target ? "A topic being merged into another can't be made a known issue too." : "This topic is merged into another.",
+      field: "known_issue",
+      fix: `Make that one the known issue: decide_topic with topic_id ${mergedIntoTopicId}.`,
+    });
+  }
+  if (decision.knownIssue && !decision.knownIssue.title?.trim()) {
+    throw new ApiError("bad_known_issue", { message: "A known issue needs a title every developer can read.", field: "known_issue.title", fix: "Give a general title, with no names, games or anything said in private." });
+  }
+  if (decision.answerPostId && !(await env.DB.prepare("SELECT id FROM forum_posts WHERE id = ? AND topic_id = ?").bind(decision.answerPostId, topic.id).first())) {
+    throw new ApiError("no_post", { message: `${decision.answerPostId} isn't a post in this topic.`, field: "answer_post_id", fix: "get_topic in the admin MCP lists the topic's posts with their IDs." });
+  }
+  const answerTopicId = topic.id;
   const reply = decision.reply?.trim().slice(0, FORUM_LIMITS.textCharacterCount) ?? "";
   const withMerged = async (knownIssueId: string) =>
     (await env.DB.prepare("SELECT id FROM forum_topics WHERE id = ? OR merged_into_topic_id = ?").bind(knownIssueId, knownIssueId).all<{ id: string }>()).results.map((row) => row.id);
 
-  if (decision.mergeIntoTopicId) {
-    let target = await topicById(env, decision.mergeIntoTopicId);
-    if (target?.merged_into_topic_id) target = await topicById(env, target.merged_into_topic_id);
-    if (!target || target.id === topic.id) throw new TopicRefusal("Merge into another topic: a known issue or the first message of a group.");
+  if (target) {
     // The topic and everything already merged into it move under the target.
     await env.DB.batch([
       env.DB.prepare("UPDATE forum_topics SET merged_into_topic_id = ?, known_issue_title = NULL, workaround = NULL, roadmap_item = NULL, updated_at_ms = ? WHERE id = ?").bind(target.id, atMs, topic.id),
@@ -402,10 +426,9 @@ export async function decideTopic(env: Env, topicId: string, decision: TopicDeci
   // The developer the reply is for, when the decision moves on to a new known issue.
   let replyFirstTo: string | null = null;
   if (decision.knownIssue !== undefined) {
-    if (topic.merged_into_topic_id) throw new TopicRefusal("This topic is merged into another; make that one the known issue.");
     const knownIssue = decision.knownIssue;
+    // Checked above: a known issue has a title.
     const title = knownIssue?.title?.trim().replace(/\s+/g, " ").slice(0, FORUM_LIMITS.titleCharacterCount) ?? "";
-    if (knownIssue && !title) throw new TopicRefusal("A known issue needs a title every developer can read.");
     const workaround = knownIssue?.workaround?.trim().slice(0, 2000) || null;
     const roadmapItem = knownIssue?.roadmapItem?.trim().slice(0, 200) || null;
     if (knownIssue && !topic.is_public) {
@@ -451,19 +474,15 @@ export async function decideTopic(env: Env, topicId: string, decision: TopicDeci
   }
 
   if (decision.answerPostId !== undefined) {
-    if (decision.answerPostId) {
-      const post = await env.DB.prepare("SELECT id FROM forum_posts WHERE id = ? AND topic_id = ?").bind(decision.answerPostId, topic.id).first();
-      if (!post) throw new TopicRefusal("That post isn't in this topic.");
-    }
+    // The answer is a post in the topic it was asked in.
     await env.DB.prepare(
       "UPDATE forum_topics SET answer_post_id = ?, topic_status = CASE WHEN ? IS NOT NULL THEN 'answered' WHEN topic_status = 'answered' THEN 'new' ELSE topic_status END, updated_at_ms = ? WHERE id = ?",
     )
-      .bind(decision.answerPostId, decision.answerPostId, atMs, topic.id)
+      .bind(decision.answerPostId, decision.answerPostId, atMs, answerTopicId)
       .run();
   }
 
   if (decision.severity !== undefined || decision.category !== undefined) {
-    if (decision.severity !== undefined && !TOPIC_SEVERITIES.includes(decision.severity)) throw new TopicRefusal(`Severity is one of: ${TOPIC_SEVERITIES.join(", ")}.`);
     await env.DB.prepare("UPDATE forum_topics SET severity = ?, category = ? WHERE id = ?")
       .bind(decision.severity ?? topic.severity, decision.category !== undefined ? decision.category.trim().slice(0, 40) : topic.category, topic.id)
       .run();
