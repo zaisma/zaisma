@@ -594,13 +594,35 @@ async function uploadFiles(toolArguments: Record<string, unknown>, call: ApiCall
 }
 
 /** Words an AI often sends for an argument a tool names otherwise. */
-const MEANT: Record<string, string> = { q: "search_text", query: "search_text", search: "search_text", text: "text_markdown", body: "text_markdown", content: "text_markdown", players: "play_modes", publish_at: "scheduled_publish_at", at: "scheduled_publish_at", images: "images_base64", image: "image_base64", game: "slug" };
+const MEANT: Record<string, string> = {
+  q: "search_text",
+  query: "search_text",
+  search: "search_text",
+  text: "text_markdown",
+  body: "text_markdown",
+  content: "text_markdown",
+  players: "play_modes",
+  publish_at: "scheduled_publish_at",
+  at: "scheduled_publish_at",
+  images: "images_base64",
+  image: "image_base64",
+  game: "slug",
+  // The admin MCP's names before docs/NAMING.md.
+  group: "report_group_id",
+  reason: "why",
+  reply: "reply_text_markdown",
+  area: "category",
+  merge_into: "merge_into_topic_id",
+  ai_alone: "can_ai_apply_alone",
+  replaces: "replaces_precedent_id",
+  answer: "answer_post_id",
+};
 
 /**
  * Arguments are closed and the required ones must be there: a misnamed argument is an error, never
- * quietly dropped (docs/NAMING.md, Inputs). Values are checked by the API.
+ * quietly dropped (docs/NAMING.md, Inputs). Values are checked by the API (and by the admin MCP itself).
  */
-function checkArguments(tool: Tool, toolArguments: Record<string, unknown>): void {
+export function checkArguments(tool: Pick<Tool, "name" | "inputSchema">, toolArguments: Record<string, unknown>): void {
   const properties = (tool.inputSchema.properties ?? {}) as Record<string, { description?: string }>;
   const names = Object.keys(properties);
   for (const key of Object.keys(toolArguments)) {

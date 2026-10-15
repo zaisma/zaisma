@@ -1,8 +1,9 @@
-import { CONTROLS, DEVICES, PLAY_STYLES, ROOM_BROWSING, SCREENS, VISIBILITIES, type IdKind } from "@zaisma/core";
+import { CONTROLS, DEVICES, FORUM_REPORT_REASONS, PLAY_STYLES, PLAYER_REPORT_REASONS, REPORT_REASONS, ROOM_BROWSING, SCREENS, VISIBILITIES, type IdKind } from "@zaisma/core";
 
 /**
- * The developer API's answers as JSON Schema: the MCP's output schemas, and what the tests check
- * every answer against. Names follow docs/NAMING.md, and test/site/naming.test.ts checks them.
+ * The developer API's answers as JSON Schema, and the admin MCP's at the end: the MCPs' output
+ * schemas, and what the tests check every answer against. Names follow docs/NAMING.md, and
+ * test/site/naming.test.ts checks them.
  */
 
 export type Schema = Record<string, unknown>;
@@ -86,11 +87,13 @@ export const FINDING = object({
   path: nullable(text("The file it's in, if any.")),
 });
 
+const SCAN_STATUS = choice({ scanning: "being scanned, usually under a minute", held: "waiting for a person at Zaisma", approved: "passed; it can be previewed and published", rejected: "can't be published; see findings" });
+
 export const VERSION = object({
   id: idOf("version"),
   file_count: countOf(),
   size_bytes: countOf(),
-  scan_status: choice({ scanning: "being scanned, usually under a minute", held: "waiting for a person at Zaisma", approved: "passed; it can be previewed and published", rejected: "can't be published; see findings" }),
+  scan_status: SCAN_STATUS,
   is_live: yes("This is the version players get."),
   patch_notes: text(),
   preview_url: nullable(url("A private link to play this version, once it's approved.")),
@@ -265,9 +268,10 @@ export const TOPIC_STATUS = choice(
   },
   "Where it stands: a known issue's phase, or answered.",
 );
+const AUTHOR_KIND = choice({ developer: "the developer wrote it", ai: "the developer's AI assistant wrote it", zaisma: "the people who build Zaisma" });
 const PERSON = object({
   name: text("The account's name; an AI's posts carry its developer's name."),
-  kind: choice({ developer: "the developer wrote it", ai: "the developer's AI assistant wrote it", zaisma: "the people who build Zaisma" }),
+  kind: AUTHOR_KIND,
   is_you: yes(),
 });
 const TOPIC_FIELDS = {
@@ -332,15 +336,17 @@ const DEBUG_CONTEXT = object(
   { call: nullable(text()), error_code: nullable(text()), error_message: nullable(text()), request_json: nullable(text()), notes: nullable(text()) },
   "What was attached for whoever fixes it; only its poster and Zaisma see it.",
 );
+const POST_KIND = choice({ post: "a post", reopen: "its developer reopened the topic", status: "Zaisma changed where it stands" });
+const POSTED_VIA = choice(["mcp", "api", "cli", "dashboard", "admin"]);
 export const POST = object({
   id: idOf("post"),
   author: PERSON,
-  kind: choice({ post: "a post", reopen: "its developer reopened the topic", status: "Zaisma changed where it stands" }),
+  kind: POST_KIND,
   text_markdown: text(),
   reply_to_post: nullable(object({ id: idOf("post"), author_name: text(), excerpt: text() }, "The post it answers, if it answers one.")),
   is_answer: yes("The question's marked answer."),
   check_status: nullable(choice({ pending: "being checked: only you see it yet", passed: "others see it", held: "waiting for a person at Zaisma: only you see it yet" }, "null in a message to Zaisma.")),
-  posted_via: choice(["mcp", "api", "cli", "dashboard", "admin"]),
+  posted_via: POSTED_VIA,
   helpful_count: countOf(),
   has_marked_helpful: yes(),
   has_reported: yes("You reported it, and Zaisma hasn't looked yet."),
@@ -375,3 +381,278 @@ export const NEW_TOPIC = object({
   next_steps: NEXT,
 });
 export const NEW_REPLY = object({ post: POST, check_note: CHECK_NOTE, removed_secret_count: REMOVED_SECRET_COUNT, next_steps: NEXT });
+
+// --- The admin MCP (docs/ADMIN-MCP.md) ---
+
+/** A precedent's ID. The first ones were named by hand, with hyphens: precedent_hard-or-boring. */
+export const PRECEDENT_ID_PATTERN = "^precedent_[a-z0-9-]+$";
+const precedentIdOf = (description?: string) => describe({ type: "string", pattern: PRECEDENT_ID_PATTERN }, description);
+/** A report group is named by its first report: its ID is that report's. */
+const reportGroupIdOf = (description?: string) => idOf("report", description ?? "The group's ID: its first report's.");
+
+export const REPORT_SEVERITY = choice(
+  { child_safety: "a person decides, nothing is deleted, and a confirmed case goes to NCMEC", urgent: "illegal content, or harm happening now", high: "malware, sexual content or hate", normal: "most reports", low: "taste, or copyright from players" },
+  "How serious, most serious first.",
+);
+export const TOPIC_SEVERITY = choice(
+  {
+    urgent: "a security hole, data exposed or lost, money handled wrong, or broken for everyone",
+    high: "blocks a developer from publishing or running their game, with no way around it",
+    normal: "a bug with a way around it, a gap, most feature requests",
+    low: "a question, a nice-to-have, a docs wording",
+  },
+  "How serious, most serious first.",
+);
+const PRECEDENT_DECISION = choice({ dismiss: "nothing against the rules", bug: "the developer's to fix: passed to them as a bug report", recheck: "check the game's files again", take_down: "take the game down" });
+export const REPORT_GROUP_DECISION = choice({
+  dismiss: "nothing against the rules; the reports close",
+  hide_name: "hide a reported room's name and labels from room lists",
+  bug: "pass to the developer as a bug report",
+  take_down: "take the game down",
+  restore: "put a paused game back",
+  put_update_back: "put a paused update back for players",
+  keep_update_off: "keep a paused update off",
+});
+const TRIAGE_RECOMMENDATION = choice({ dismiss: "nothing against the rules", bug: "the developer's to fix", recheck: "check the game's files again", person: "a person should look", take_down: "take the game down", restore: "put the game back" });
+const REPORT_REASON = choice(Object.keys(REPORT_REASONS));
+const PRECEDENT_FIT = object(
+  { id: precedentIdOf(), title: text(), fit: choice({ fits: "the case fits it, so it's decided the same way", challenges: "the case looks like it, but the precedent doesn't seem right for it" }) },
+  "The precedent the case fits or challenges.",
+);
+
+const ADMIN_GAME = object({
+  id: idOf("game"),
+  slug: text(),
+  title: text(),
+  description: text(),
+  review_status: REVIEW_STATUS,
+  visibility: VISIBILITY,
+  multiplayer_mode: MULTIPLAYER_MODE,
+  game_server_name: nullable(text("What runs its multiplayer on Zaisma rooms: relay, sandbox (the game's own game server) or a built-in one's name; null without rooms.")),
+  has_own_servers: yes("The game talks to servers of its own."),
+  created_at: isoTime(),
+});
+const ADMIN_VERSION = object({
+  id: idOf("version"),
+  scan_status: SCAN_STATUS,
+  is_live: yes("This is the version players get."),
+  patch_notes: text(),
+  published_at: nullable(isoTime("When it last went live.")),
+  created_at: isoTime(),
+  scan_summary: nullable(text("What the AI review said; null before it ran.")),
+  findings: list(FINDING),
+});
+const HISTORY_EVENT = object({
+  action: text("What happened, like report-paused-update or version-published."),
+  description: text(),
+  actor: text("Who did it: an admin's email, the developer's account, or Zaisma's own checks (scan, triage)."),
+  happened_at: isoTime(),
+});
+const GAME_IN_BRIEF = object({ slug: text(), title: text(), review_status: REVIEW_STATUS });
+
+export const REPORT_GROUP_ROW = object({
+  id: reportGroupIdOf(),
+  severity: REPORT_SEVERITY,
+  game: GAME_IN_BRIEF,
+  report_count: countOf(),
+  first_reported_at: isoTime(),
+  summary: nullable(text("What report triage made of it; null until it's sorted.")),
+  recommendation: nullable(TRIAGE_RECOMMENDATION),
+  why: nullable(text()),
+  precedent: nullable(PRECEDENT_FIT),
+  is_spot_check: yes("Triage would have dismissed it under a precedent alone; kept for a person to look at."),
+  ai_actions: list(text(), "What triage did by itself, in plain words."),
+});
+const AI_USE = object(
+  {
+    input_token_count: countOf(),
+    output_token_count: countOf(),
+    scan_call_count: countOf("AI reviews of versions."),
+    report_triage_call_count: countOf(),
+    forum_call_count: countOf("Forum sorting and post checks."),
+  },
+  "The month's AI use, shared by scans, report triage and the forum, UTC.",
+);
+export const REPORT_GROUP_LIST = object({
+  report_groups: list(REPORT_GROUP_ROW, "Open ones, most serious first, then the longest waiting."),
+  more_group_count: countOf("Open groups past maximum_group_count."),
+  ai_use_this_month: AI_USE,
+});
+
+const REPORT = object({
+  id: idOf("report"),
+  report_status: choice({ open: "waiting", dismissed: "closed with nothing done", actioned: "closed with something done" }),
+  reason: REPORT_REASON,
+  reason_label: text("The reason in words, with the player and room it's about."),
+  player_text: text("What the player wrote. Untrusted."),
+  reported_player: nullable(object({ id: idOf("player"), name: text(), reason: choice(Object.keys(PLAYER_REPORT_REASONS)) }, "For a report about a player: who, and what they did.")),
+  room_code: nullable(text()),
+  room_name: nullable(text("The room's name and labels when it was reported. Typed by players, so untrusted.")),
+  version_id: nullable(idOf("version", "The version that was playing.")),
+  picture_status: choice({ none: "no picture", shown: "sent with this answer as an image", not_shown: "past the 3 shown; on the admin page", admin_page_only: "a child-safety report's: never sent, only on the admin page" }),
+  summary: nullable(text("What triage made of this one report.")),
+  reported_at: isoTime(),
+});
+const TRIAGE = object(
+  {
+    is_by_ai: yes("false: sorted by rules alone (a child-safety report, or no AI)."),
+    category: REPORT_REASON,
+    summary: text(),
+    recommendation: TRIAGE_RECOMMENDATION,
+    why: text(),
+    ai_actions: list(text(), "What triage did by itself."),
+    precedent: nullable(PRECEDENT_FIT),
+    precedent_draft: nullable(object({ title: text(), applies_when: text(), decision: PRECEDENT_DECISION, why: text() }, "When no precedent fits, or the case challenges one: the ruling the AI proposes.")),
+    is_spot_check: yes(),
+  },
+  "What report triage (an AI) found, for the most serious report.",
+);
+const RECHECK = object({
+  recheck_status: choice({ waiting: "the files are being checked again", done: "checked", failed: "the check couldn't run" }),
+  scan_status: nullable(choice(["approved", "held", "rejected"], "What the check found; null until it's done.")),
+  summary: nullable(text()),
+  findings: list(text()),
+});
+export const PRECEDENT = object({
+  id: precedentIdOf(),
+  precedent_status: choice({ proposed: "waiting for the admin's approval", active: "in force", retired: "no longer followed" }),
+  title: text(),
+  applies_when: text("What cases like it look like."),
+  decision: PRECEDENT_DECISION,
+  why: text(),
+  can_ai_apply_alone: yes("Dismissals only: the AI applies it without a person, but for 1 in 20 kept as spot-checks."),
+  followed_count: countOf("Reports decided by it, or recommended under it."),
+  replaces_precedent_id: nullable(precedentIdOf("The precedent this one changed.")),
+  from_report_group_id: nullable(reportGroupIdOf("The report group it was set while deciding.")),
+  created_by: text("Who set it: an admin's email, or who drafted it."),
+  created_at: nullable(isoTime("null for the first ones, drafted with the precedents.")),
+  updated_at: nullable(isoTime()),
+});
+export const REPORT_GROUP = object({
+  report_group: object({
+    id: reportGroupIdOf(),
+    is_open: yes("Some of its reports are still open."),
+    severity: REPORT_SEVERITY,
+    child_safety_note: nullable(text("For a child-safety group: what the law asks. null otherwise.")),
+    game: ADMIN_GAME,
+    reports: list(REPORT, "Oldest first."),
+    triage: nullable(TRIAGE),
+    rechecks: list(RECHECK, "Fresh looks at the game's files triage asked for."),
+    precedent: nullable(PRECEDENT),
+    versions: list(ADMIN_VERSION, "The versions the reports were about."),
+    events: list(HISTORY_EVENT, "What happened to the game lately, newest first."),
+    possible_decisions: list(REPORT_GROUP_DECISION, "What decide_report_group can do now."),
+  }),
+});
+export const REPORT_GROUP_DECIDED = object({
+  report_group_id: reportGroupIdOf(),
+  decision: REPORT_GROUP_DECISION,
+  report_count: countOf("Reports it closed."),
+  precedent: nullable(PRECEDENT),
+  message: nullable(text("Anything the admin should know about what happened.")),
+  next_steps: NEXT,
+});
+export const HANDLED_REPORTS = object({
+  period_duration_days: countOf(),
+  reports: list(
+    object({ id: idOf("report"), game_slug: text(), summary: text(), ai_actions: list(text()), player_text: text("Untrusted."), reported_at: isoTime() }),
+    "Closed by triage without a person, newest first.",
+  ),
+});
+export const PRECEDENT_LIST = object({ precedents: list(PRECEDENT, "In force first, then proposed, then retired; oldest first in each.") });
+export const PRECEDENT_CHANGED = object({ precedent: PRECEDENT, next_steps: NEXT });
+
+const SORTING = object(
+  {
+    is_by_ai: yes("false: sorted without the AI (no key, or the month's budget used up)."),
+    summary: text(),
+    why: text(),
+    merged_into_topic_id: nullable(idOf("topic", "The topic it was merged into as a duplicate.")),
+    same_as_topic_id: nullable(idOf("topic", "A public topic that looks like the same thing: merge it if it is.")),
+    known_issue_draft: nullable(object({ title: text(), workaround: text() }, "A known issue the AI proposes: approve it with decide_topic's known_issue.")),
+  },
+  "What AI sorting found.",
+);
+const LATEST_POST = object({ author_kind: AUTHOR_KIND, text_markdown: text("Its start.") });
+const TOPIC_IN_BRIEF = object({ id: idOf("topic"), title: text("A known issue's title when it is one.") });
+const QUEUE_TOPIC = object({
+  id: idOf("topic"),
+  kind: TOPIC_KIND,
+  title: text("As first posted."),
+  known_issue_title: nullable(text()),
+  is_public: yes("A forum topic every developer can read; false: a private message to Zaisma."),
+  topic_status: TOPIC_STATUS,
+  severity: TOPIC_SEVERITY,
+  category: nullable(text()),
+  affected_developer_count: countOf(),
+  post_count: countOf("In it and the topics merged into it."),
+  game_slug: nullable(text()),
+  created_at: isoTime(),
+  last_posted_at: nullable(isoTime()),
+  latest_post: nullable(LATEST_POST),
+  is_waiting_for_sorting: yes("New, and AI sorting hasn't looked yet."),
+  sorting: nullable(SORTING),
+});
+const WAITING_POST = object({
+  id: idOf("post"),
+  topic: TOPIC_IN_BRIEF,
+  check_status: choice({ held: "the check held it: others can't see it", pending: "not checked yet: others can't see it", passed: "shown, and developers reported it" }),
+  held_reason: nullable(text("Why the check held it.")),
+  reports: list(object({ reason: choice(Object.keys(FORUM_REPORT_REASONS)), details: nullable(text()) }), "What developers reported it for; who reported it stays with Zaisma."),
+  developer_name: nullable(text("null: the account was deleted.")),
+  author_kind: AUTHOR_KIND,
+  text_markdown: text(),
+  created_at: isoTime(),
+});
+const ZAISMA_MENTION = object({ id: idOf("post"), topic: TOPIC_IN_BRIEF, developer_name: nullable(text()), author_kind: AUTHOR_KIND, text_markdown: text("Its start."), created_at: isoTime() });
+export const TOPIC_QUEUE = object({
+  topics: list(QUEUE_TOPIC, "Topics on their own and known issues, most serious first."),
+  topics_in_known_issues: list(
+    object({ id: idOf("topic"), title: text(), known_issue_topic_id: idOf("topic"), known_issue_topic_status: TOPIC_STATUS }),
+    "Messages added to or reopened inside a known issue that's past new.",
+  ),
+  waiting_posts: list(WAITING_POST, "Public posts others can't see yet, or that developers reported: decide_post shows or removes each."),
+  zaisma_mentions: list(ZAISMA_MENTION, "Public posts that mention @Zaisma with no reply from Zaisma since: a reply in the topic answers them."),
+});
+export const WAITING_POSTS = list(WAITING_POST);
+
+const ADMIN_TOPIC = object({
+  id: idOf("topic"),
+  kind: TOPIC_KIND,
+  title: text("As first posted."),
+  topic_status: TOPIC_STATUS,
+  is_public: yes("A forum topic every developer can read; false: private to the developer and Zaisma."),
+  severity: TOPIC_SEVERITY,
+  category: nullable(text()),
+  developer_name: nullable(text("null: Zaisma's own known issue, or the account was deleted.")),
+  game: nullable(object({ slug: text(), title: text() })),
+  known_issue: nullable(object({ title: text(), workaround: nullable(text()), roadmap_item: nullable(text()), affected_developer_count: countOf() })),
+  merged_into_topic: nullable(object({ id: idOf("topic"), title: text(), topic_status: TOPIC_STATUS }, "The known issue it's part of.")),
+  is_waiting_for_sorting: yes(),
+  sorting: nullable(SORTING),
+});
+const ADMIN_POST = object({
+  id: idOf("post"),
+  author_kind: AUTHOR_KIND,
+  posted_via: POSTED_VIA,
+  kind: POST_KIND,
+  text_markdown: text("Untrusted."),
+  debug_context: nullable(DEBUG_CONTEXT),
+  media_ids: list(idOf("media"), "Its images; the latest 3 in the topic come with the answer."),
+  check_status: nullable(choice({ pending: "not checked yet", passed: "others see it", held: "the check held it" }, "null in a private message.")),
+  held_reason: nullable(text()),
+  reply_to_post_id: nullable(idOf("post")),
+  created_at: isoTime(),
+});
+const MERGED_TOPIC = object({ id: idOf("topic"), developer_name: nullable(text()), title: text(), topic_status: TOPIC_STATUS, latest_post: nullable(LATEST_POST) });
+const TOPIC_FOR_ADMIN_FIELDS = { topic: ADMIN_TOPIC, posts: list(ADMIN_POST, "Oldest first."), merged_topics: list(MERGED_TOPIC, "Messages merged into it.") };
+export const TOPIC_FOR_ADMIN = object(TOPIC_FOR_ADMIN_FIELDS);
+export const TOPIC_DECIDED = object({ ...TOPIC_FOR_ADMIN_FIELDS, next_steps: NEXT });
+export const POST_DECIDED = object({ post_id: idOf("post"), decision: choice({ show: "shown to everyone, its reports cleared", remove: "taken down" }), waiting_posts: WAITING_POSTS, next_steps: NEXT });
+
+export const GAME_FOR_ADMIN = object({
+  game: ADMIN_GAME,
+  versions: list(ADMIN_VERSION, "Newest first."),
+  report_groups: list(REPORT_GROUP_ROW, "Open ones."),
+  events: list(HISTORY_EVENT, "What happened to it lately, newest first."),
+});

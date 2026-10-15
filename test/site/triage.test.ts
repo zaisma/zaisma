@@ -69,11 +69,11 @@ const reports = async () => (await env.DB.prepare("SELECT * FROM reports ORDER B
 const triageOf = (r: Report) => JSON.parse(r.triage!) as Triage;
 
 beforeEach(async () => {
-  await env.DB.exec("DELETE FROM reports; DELETE FROM audit_log; DELETE FROM versions; DELETE FROM games; DELETE FROM ai_usage; UPDATE precedents SET status = 'proposed', ai_alone = 0; DELETE FROM precedents WHERE created_at > 0;");
+  await env.DB.exec("DELETE FROM reports; DELETE FROM audit_log; DELETE FROM versions; DELETE FROM games; DELETE FROM ai_usage; UPDATE precedents SET precedent_status = 'proposed', can_ai_apply_alone = 0; DELETE FROM precedents WHERE created_at_ms > 0;");
 });
 
 /** A seeded precedent, put in force. */
-const inForce = (id: string, aiAlone = false) => env.DB.prepare("UPDATE precedents SET status = 'active', ai_alone = ? WHERE id = ?").bind(aiAlone ? 1 : 0, id).run();
+const inForce = (id: string, aiAlone = false) => env.DB.prepare("UPDATE precedents SET precedent_status = 'active', can_ai_apply_alone = ? WHERE id = ?").bind(aiAlone ? 1 : 0, id).run();
 
 describe("report triage", () => {
   it("sorts a report, keeps what it found, and merges a report about the same problem", async () => {
@@ -310,9 +310,9 @@ describe("precedents", () => {
     const form = new FormData();
     for (const [k, v] of Object.entries({ back: "queue", group: (await reports())[0]!.id, precedent: "1", p_replaces: "precedent_cartoon-violence", p_title: "Violence", p_when: "Fighting or cartoon blood; realistic gore is different.", p_why: "Fine for 13+.", p_alone: "1", reason: "Fine" })) form.set(k, v);
     await SELF.fetch(`${LOCAL}/admin/report-groups/${(await reports())[0]!.id}/dismiss`, { method: "POST", body: form, redirect: "manual" });
-    const made = await env.DB.prepare("SELECT * FROM precedents WHERE replaces = 'precedent_cartoon-violence'").first<Record<string, unknown>>();
-    expect(made).toMatchObject({ title: "Violence", decision: "dismiss", ai_alone: 1, status: "active", created_by: "dev@localhost" });
-    expect(await env.DB.prepare("SELECT status FROM precedents WHERE id = 'precedent_cartoon-violence'").first("status")).toBe("retired");
+    const made = await env.DB.prepare("SELECT * FROM precedents WHERE replaces_precedent_id = 'precedent_cartoon-violence'").first<Record<string, unknown>>();
+    expect(made).toMatchObject({ title: "Violence", decision: "dismiss", can_ai_apply_alone: 1, precedent_status: "active", created_by: "dev@localhost" });
+    expect(await env.DB.prepare("SELECT precedent_status FROM precedents WHERE id = 'precedent_cartoon-violence'").first("precedent_status")).toBe("retired");
     expect((await reports())[0]).toMatchObject({ status: "dismissed", precedent_id: made!.id });
   });
 
@@ -321,7 +321,7 @@ describe("precedents", () => {
     const form = new FormData();
     for (const [k, v] of Object.entries({ p_title: "Fake stores", p_when: "Copies a real store's login.", p_why: "Phishing.", p_decision: "take_down", p_alone: "1" })) form.set(k, v);
     await SELF.fetch(`${LOCAL}/admin/precedents`, { method: "POST", body: form, redirect: "manual" });
-    expect(await env.DB.prepare("SELECT ai_alone FROM precedents WHERE title = 'Fake stores'").first("ai_alone")).toBe(0);
+    expect(await env.DB.prepare("SELECT can_ai_apply_alone FROM precedents WHERE title = 'Fake stores'").first("can_ai_apply_alone")).toBe(0);
   });
 
   it("shows the drafted precedents for approval", async () => {
@@ -330,7 +330,7 @@ describe("precedents", () => {
     const form = new FormData();
     for (const [k, v] of Object.entries({ p_title: "Too hard or boring", p_when: "The player just doesn't like it.", p_why: "Taste.", p_decision: "dismiss", p_alone: "1" })) form.set(k, v);
     await SELF.fetch(`${LOCAL}/admin/precedents/precedent_hard-or-boring/activate`, { method: "POST", body: form, redirect: "manual" });
-    expect(await env.DB.prepare("SELECT title, status, ai_alone FROM precedents WHERE id = 'precedent_hard-or-boring'").first()).toEqual({ title: "Too hard or boring", status: "active", ai_alone: 1 });
+    expect(await env.DB.prepare("SELECT title, precedent_status, can_ai_apply_alone FROM precedents WHERE id = 'precedent_hard-or-boring'").first()).toEqual({ title: "Too hard or boring", precedent_status: "active", can_ai_apply_alone: 1 });
   });
 });
 

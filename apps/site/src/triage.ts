@@ -43,7 +43,7 @@ import { holdKnownImages, inspectVersion, summarize, versionFiles, type ScanDeps
  * - child safety: no AI reads child-safety reports. If the AI finds child safety in any other
  *   report, it's treated as one: top of the queue, an URGENT alert and the same pause rule.
  * Precedents are the rulings a person already made (migrations/0014_precedents.sql). A case that
- * fits one is decided the same way; a dismissal precedent marked ai_alone is applied without a
+ * fits one is decided the same way; a dismissal precedent marked can_ai_apply_alone is applied without a
  * person, except for 1 in 20 kept as a spot-check. New cases and challenges come with a drafted
  * ruling. Takedowns, restores and everything else stay a person's one click, in /admin/reports.
  */
@@ -90,7 +90,7 @@ const MAX_TRIES = 3;
 export async function triageReports(env: Env, deps: TriageDeps = { ai: aiTriage }): Promise<number> {
   const { results } = await env.DB.prepare("SELECT * FROM reports WHERE status = 'open' AND triaged_at IS NULL AND triage_tries < 5 ORDER BY created_at, rowid LIMIT ?").bind(BATCH).all<Report>();
   if (!results.length) return 0;
-  const { results: precedents } = await env.DB.prepare("SELECT * FROM precedents WHERE status = 'active' ORDER BY created_at").all<Precedent>();
+  const { results: precedents } = await env.DB.prepare("SELECT * FROM precedents WHERE precedent_status = 'active' ORDER BY created_at_ms").all<Precedent>();
   let sorted = 0;
   for (const report of results) {
     // Claim it, so an overlapping run never sorts it twice.
@@ -190,7 +190,7 @@ async function act(env: Env, report: Report, game: Game, others: Report[], answe
     triage.recommendation = precedent.decision;
     triage.why = `Precedent “${precedent.title}”: ${precedent.why}`;
     // Never for urgent reports, or one that paused the game: those always reach a person.
-    if (precedent.decision === "dismiss" && precedent.ai_alone && outcome.severity >= SEVERITY.high && !paused) {
+    if (precedent.decision === "dismiss" && precedent.can_ai_apply_alone && outcome.severity >= SEVERITY.high && !paused) {
       if (random() < SPOT_CHECK) {
         triage.spot_check = true;
         triage.why = `Spot-check: under precedent “${precedent.title}”, this was dismissed without you. ${precedent.why}`;

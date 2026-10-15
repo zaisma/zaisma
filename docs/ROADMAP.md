@@ -73,8 +73,8 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | done | Must | IDs that say their kind | | Live Oct 15, 2026 (#138, migration 0032): every ID Zaisma makes says its kind (`version_…`, `topic_…`, `game_…`), existing IDs and the files named by them moved, and an ID of the wrong kind gets `wrong_id_kind`. Guests' player IDs move with Names: SDK and game server |
 | done | Must | Names: SDK and game server | | Live Oct 15, 2026 (#139): the SDK, game server API, room lists and room messages (`type` and `data`) follow docs/NAMING.md, error codes are snake_case, guests' IDs are `player_…`, and unknown options and events are refused with the valid ones (a game server with one doesn't start and says why in its errors) |
 | done | Must | canJoin refuses with refusalMessage | Names: SDK and game server | Live Oct 15, 2026 (#143, rooms deployed): a game server's `canJoin` answers `true` (or nothing), `false` or `{ refusalMessage }`; any other answer, like a string, turns the player away and shows in the game server's errors at once |
-| next | Must | Names: the admin MCP | | The admin MCP's tools, inputs and answers for reports, precedents and the forum queue, with output schemas (docs/ADMIN-MCP.md) |
-| next | Must | Names: last sweep of the insides | | Rooms, scans, triage, accounts, saves, plays and the game server's insides, until the naming baseline is empty |
+| doing | Must | Names: the admin MCP | | The admin MCP's tools, inputs and answers for reports, precedents and the forum queue, with output schemas, closed inputs and coded errors (docs/ADMIN-MCP.md); precedents' columns move with it |
+| next | Must | Names: last sweep of the insides | | Rooms, scans, reports and triage, accounts, saves, plays and the game server's insides, until the naming baseline is empty |
 | next | Must | Errors: holds and takedowns | Errors: developer API and MCP | Every hold and takedown has a plain reason, the rule it broke and a fix, with an error code; the same in the dashboard, API and MCP. Bills get the same when Hosting billing ships |
 
 ### Developer publishing

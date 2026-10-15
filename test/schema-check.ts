@@ -2,7 +2,7 @@
  * Checks for docs/NAMING.md: that schemas follow the naming rules, and that answers match their
  * schemas exactly. A small JSON Schema reader, only the parts our schemas use, so no dependency.
  */
-import { ERROR_CODES, ID_KINDS, type ErrorAnswer } from "@zaisma/core";
+import { EVERY_ERROR_CODE, ID_KINDS, type ErrorAnswer } from "@zaisma/core";
 import { ERROR } from "../apps/site/src/schemas.ts";
 
 type Schema = Record<string, unknown>;
@@ -121,8 +121,8 @@ export function errorProblems(answer: unknown, httpStatus?: number): string[] {
   const out = schemaProblems(ERROR, answer, "error answer");
   if (out.length) return out;
   const { code, message, fix } = (answer as ErrorAnswer).error;
-  if (!(code in ERROR_CODES)) return [`error answer: ${code} isn't in ERROR_CODES`];
-  if (httpStatus !== undefined && ERROR_CODES[code].httpStatus !== httpStatus) out.push(`error answer: ${code} came with HTTP ${httpStatus}, listed as ${ERROR_CODES[code].httpStatus}`);
+  if (!(code in EVERY_ERROR_CODE)) return [`error answer: ${code} isn't in ERROR_CODES or ADMIN_ERROR_CODES`];
+  if (httpStatus !== undefined && EVERY_ERROR_CODE[code].httpStatus !== httpStatus) out.push(`error answer: ${code} came with HTTP ${httpStatus}, listed as ${EVERY_ERROR_CODE[code].httpStatus}`);
   if (!message.trim() || !fix.trim() || fix === message) out.push(`error answer: ${code} needs a message and a different fix`);
   return out;
 }

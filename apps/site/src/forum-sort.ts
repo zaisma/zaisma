@@ -122,7 +122,7 @@ async function sortOne(env: Env, topic: ForumTopic, deps: SortDeps, isLastAttemp
         `${answer.summary}`,
         `Why urgent: ${answer.why}`,
         ...(target ? [`Merged into ${target.known_issue_title ?? target.title} (${target.id}).`] : []),
-        `Review: list_feedback in the admin MCP (topic ${topic.id}).`,
+        `Review: get_topic in the admin MCP (topic_id ${topic.id}).`,
       ].join("\n\n"),
     );
   }

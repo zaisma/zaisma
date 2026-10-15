@@ -60,7 +60,7 @@ The HTTP status goes with the code, as listed. The list lives in `ERROR_CODES` (
 | `bad_slug` | 400 | The link name isn't lowercase letters, numbers and single hyphens, or is reserved. |
 | `slug_taken` | 409 | Another game has that link name. |
 | `too_many_games` | 403 | The account has as many games as it can have. |
-| `bad_title` | 400 | A game's or topic's title is empty or too long. |
+| `bad_title` | 400 | A game's, topic's or precedent's title is empty or too long. |
 | `bad_description` | 400 | The description isn't text of up to 500 characters. |
 | `bad_visibility` | 400 | visibility isn't draft, listed, unlisted or private. |
 | `bad_devices` | 400 | devices isn't a list of phone, tablet and computer. |

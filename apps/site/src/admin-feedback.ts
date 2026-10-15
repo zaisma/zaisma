@@ -1,6 +1,18 @@
-import { FORUM_CATEGORIES, TOPIC_SEVERITIES, TOPIC_STATUSES, gameById, type AuthorKind, type ForumPost, type ForumTopic, type TopicSeverity, type TopicTriage } from "@zaisma/core";
+import {
+  FORUM_CATEGORIES,
+  TOPIC_SEVERITIES,
+  TOPIC_STATUSES,
+  ApiError,
+  gameById,
+  iso,
+  type AuthorKind,
+  type ForumPost,
+  type ForumTopic,
+  type TopicSeverity,
+  type TopicTriage,
+} from "@zaisma/core";
 import type { Env } from "./env.ts";
-import { affectedDeveloperCounts, decideTopic, mediaOf, topicById, TopicRefusal, type TopicDecision } from "./forum-posts.ts";
+import { affectedDeveloperCounts, decideTopic, mediaOf, topicById, type TopicDecision } from "./forum-posts.ts";
 import { debugContextOf } from "./forum.ts";
 import { removePost, showPost } from "./forum-check.ts";
 import { html, raw, type Raw } from "./html.ts";
@@ -9,37 +21,38 @@ import { KINDS as KIND_LABELS } from "./forum-pages.ts";
 import type { McpImage } from "./mcp.ts";
 
 /**
- * The forum's queue for Zaisma: what list_feedback, get_feedback and decide_feedback in the admin MCP
- * answer, and the admin pages that show the same, so a click here and a call there do exactly the
- * same thing. The admin MCP's own names move to docs/NAMING.md in its own slice.
+ * The forum's queue for Zaisma: what list_topics, get_topic and decide_topic in the admin MCP answer
+ * (TOPIC_QUEUE and TOPIC_FOR_ADMIN in schemas.ts), and the admin pages that show the same, so a click
+ * here and a call there do exactly the same thing.
  */
 
-const ADMIN_AUTHOR_NAMES: Record<AuthorKind, string> = { developer: "the developer", ai: "the developer's AI", zaisma: "Zaisma" };
-/** The admin MCP's severity numbers, 1 (urgent) to 4 (low), until its own names move over. */
+const AUTHOR_NAMES: Record<AuthorKind, string> = { developer: "the developer", ai: "the developer's AI", zaisma: "Zaisma" };
+/** The admin pages' severity pills, 1 (urgent) to 4 (low), as reports have them. */
 export const SEVERITY_NUMBERS: Record<TopicSeverity, number> = { urgent: 1, high: 2, normal: 3, low: 4 };
 const SEVERITY_ORDER = `CASE severity ${TOPIC_SEVERITIES.map((severity, i) => `WHEN '${severity}' THEN ${i}`).join(" ")} END`;
-const readableTime = (atMs: number | null) => (atMs ? new Date(atMs).toISOString().slice(0, 16).replace("T", " ") + " UTC" : null);
+/** An ISO time as the admin pages show it: to the minute. */
+const readableTime = (atIso: string | null) => (atIso ? `${atIso.slice(0, 16).replace("T", " ")} UTC` : "");
+const accountNameOrDeleted = (name: string | null) => name ?? "(account deleted)";
 
-async function accountName(env: Env, accountId: string | null): Promise<string> {
-  const name = accountId ? (await env.DB.prepare("SELECT name FROM accounts WHERE id = ?").bind(accountId).first<{ name: string }>())?.name : null;
-  return name ?? "(account deleted)";
+async function accountName(env: Env, accountId: string | null): Promise<string | null> {
+  return accountId ? ((await env.DB.prepare("SELECT name FROM accounts WHERE id = ?").bind(accountId).first<{ name: string }>())?.name ?? null) : null;
 }
 
 async function latestPost(env: Env, topicId: string, maximumCharacterCount: number) {
   const post = await env.DB.prepare("SELECT author_kind, text_markdown FROM forum_posts WHERE topic_id = ? ORDER BY created_at_ms DESC, rowid DESC LIMIT 1").bind(topicId).first<{ author_kind: AuthorKind; text_markdown: string }>();
-  return post ? { by: ADMIN_AUTHOR_NAMES[post.author_kind], text: post.text_markdown.slice(0, maximumCharacterCount) } : null;
+  return post ? { author_kind: post.author_kind, text_markdown: post.text_markdown.slice(0, maximumCharacterCount) } : null;
 }
 
 /**
- * Topics on their own and known issues (with the messages merged into them), most serious first.
- * With status "new" (the default) it also lists messages someone added to or reopened inside a known
- * issue that isn't new any more.
+ * The queue: topics on their own and known issues (with the messages merged into them) at a status,
+ * or "all", most serious first; messages added to or reopened inside a known issue past new; the
+ * public posts to check; and the posts that ask for @Zaisma.
  */
-export async function adminFeedbackList(env: Env, status = "new", maximumTopicCount = 30) {
-  const statement = env.DB.prepare(`SELECT * FROM forum_topics WHERE merged_into_topic_id IS NULL${status === "all" ? "" : " AND topic_status = ?"} ORDER BY ${SEVERITY_ORDER}, created_at_ms LIMIT ?`);
-  const { results: leads } = await (status === "all" ? statement.bind(maximumTopicCount) : statement.bind(status, maximumTopicCount)).all<ForumTopic>();
+export async function topicQueue(env: Env, topicStatus = "new", maximumTopicCount = 30) {
+  const statement = env.DB.prepare(`SELECT * FROM forum_topics WHERE merged_into_topic_id IS NULL${topicStatus === "all" ? "" : " AND topic_status = ?"} ORDER BY ${SEVERITY_ORDER}, created_at_ms LIMIT ?`);
+  const { results: leads } = await (topicStatus === "all" ? statement.bind(maximumTopicCount) : statement.bind(topicStatus, maximumTopicCount)).all<ForumTopic>();
   const affected = await affectedDeveloperCounts(env, leads.map((lead) => lead.id));
-  const rows = await Promise.all(
+  const topics = await Promise.all(
     leads.map(async (topic) => {
       const posts = await env.DB.prepare("SELECT COUNT(*) AS post_count, MAX(created_at_ms) AS last_posted_at_ms FROM forum_posts WHERE topic_id IN (SELECT id FROM forum_topics WHERE id = ? OR merged_into_topic_id = ?)")
         .bind(topic.id, topic.id)
@@ -48,41 +61,30 @@ export async function adminFeedbackList(env: Env, status = "new", maximumTopicCo
         id: topic.id,
         kind: topic.kind,
         title: topic.title,
-        known_issue: topic.known_issue_title,
-        public: topic.is_public === 1,
-        status: topic.topic_status,
+        known_issue_title: topic.known_issue_title,
+        is_public: topic.is_public === 1,
+        topic_status: topic.topic_status,
         severity: topic.severity,
-        area: topic.category || null,
-        developers: affected.get(topic.id) ?? 0,
-        posts: posts?.post_count ?? 0,
-        game: topic.game_id ? ((await gameById(env.DB, topic.game_id))?.slug ?? null) : null,
-        filed: readableTime(topic.created_at_ms),
-        last_post: readableTime(posts?.last_posted_at_ms ?? null),
-        latest: await latestPost(env, topic.id, 300),
-        sorted: sortedJson(topic),
+        category: topic.category || null,
+        affected_developer_count: affected.get(topic.id) ?? 0,
+        post_count: posts?.post_count ?? 0,
+        game_slug: topic.game_id ? ((await gameById(env.DB, topic.game_id))?.slug ?? null) : null,
+        created_at: iso(topic.created_at_ms)!,
+        last_posted_at: iso(posts?.last_posted_at_ms),
+        latest_post: await latestPost(env, topic.id, 300),
+        ...sortingOf(topic),
       };
     }),
   );
-  const list: {
-    feedback: typeof rows;
-    reopened_or_added?: { id: string; title: string; group_id: string; group_status: string }[];
-    posts_to_check?: Awaited<ReturnType<typeof postsToCheck>>;
-    zaisma_mentioned?: Awaited<ReturnType<typeof zaismaMentioned>>;
-  } = { feedback: rows };
-  if (status === "new") {
-    const { results } = await env.DB.prepare(
-      "SELECT topic.id, topic.title, topic.merged_into_topic_id AS group_id, known.topic_status AS group_status FROM forum_topics topic JOIN forum_topics known ON known.id = topic.merged_into_topic_id WHERE topic.topic_status = 'new' AND known.topic_status != 'new' ORDER BY topic.updated_at_ms DESC LIMIT 50",
-    ).all<{ id: string; title: string; group_id: string; group_status: string }>();
-    list.reopened_or_added = results;
-    list.posts_to_check = await postsToCheck(env, 50);
-    list.zaisma_mentioned = await zaismaMentioned(env);
-  }
-  return list;
+  const { results: insideKnownIssues } = await env.DB.prepare(
+    "SELECT topic.id, topic.title, topic.merged_into_topic_id AS known_issue_topic_id, known.topic_status AS known_issue_topic_status FROM forum_topics topic JOIN forum_topics known ON known.id = topic.merged_into_topic_id WHERE topic.topic_status = 'new' AND known.topic_status != 'new' ORDER BY topic.updated_at_ms DESC LIMIT 50",
+  ).all<{ id: string; title: string; known_issue_topic_id: string; known_issue_topic_status: string }>();
+  return { topics, topics_in_known_issues: insideKnownIssues, waiting_posts: await postsToCheck(env, 50), zaisma_mentions: await zaismaMentions(env) };
 }
 
 /**
  * Forum posts others can't see yet: held by the check (with why), or not checked yet because the AI
- * couldn't, and posts developers reported. A person shows or removes each one (check_post in the admin MCP).
+ * couldn't, and posts developers reported. A person shows or removes each one (decide_post in the admin MCP).
  */
 export async function postsToCheck(env: Env, maximumPostCount = 50) {
   const { results } = await env.DB.prepare(
@@ -96,20 +98,20 @@ export async function postsToCheck(env: Env, maximumPostCount = 50) {
     results.map(async (post) => ({
       id: post.id,
       topic: { id: post.topic_id, title: post.topic_known_issue_title ?? post.topic_title },
-      state: post.check_status === "held" ? "held" : post.check_status === "pending" ? "not checked yet" : "shown, reported",
-      why: post.held_reason,
+      check_status: post.check_status ?? "passed",
+      held_reason: post.held_reason,
       // What developers reported it for; who reported it stays with Zaisma.
       reports: (await env.DB.prepare("SELECT reason, details FROM forum_reports WHERE post_id = ? ORDER BY created_at_ms").bind(post.id).all<{ reason: string; details: string | null }>()).results,
-      developer: await accountName(env, post.account_id),
-      by: ADMIN_AUTHOR_NAMES[post.author_kind],
-      text: post.text_markdown.slice(0, 2000),
-      at: readableTime(post.created_at_ms),
+      developer_name: await accountName(env, post.account_id),
+      author_kind: post.author_kind,
+      text_markdown: post.text_markdown.slice(0, 2000),
+      created_at: iso(post.created_at_ms)!,
     })),
   );
 }
 
 /** Public posts that mention @Zaisma, where Zaisma hasn't posted since. */
-export async function zaismaMentioned(env: Env) {
+async function zaismaMentions(env: Env) {
   const { results } = await env.DB.prepare(
     `SELECT post.id, post.topic_id, post.text_markdown, post.created_at_ms, post.author_kind, post.account_id, COALESCE(topic.known_issue_title, topic.title) AS title FROM forum_mentions mention
      JOIN forum_posts post ON post.id = mention.post_id JOIN forum_topics topic ON topic.id = post.topic_id
@@ -119,33 +121,36 @@ export async function zaismaMentioned(env: Env) {
   ).all<{ id: string; topic_id: string; text_markdown: string; created_at_ms: number; author_kind: AuthorKind; account_id: string | null; title: string }>();
   return Promise.all(
     results.map(async (post) => ({
-      post: post.id,
+      id: post.id,
       topic: { id: post.topic_id, title: post.title },
-      developer: await accountName(env, post.account_id),
-      by: ADMIN_AUTHOR_NAMES[post.author_kind],
-      text: post.text_markdown.slice(0, 500),
-      at: readableTime(post.created_at_ms),
+      developer_name: await accountName(env, post.account_id),
+      author_kind: post.author_kind,
+      text_markdown: post.text_markdown.slice(0, 500),
+      created_at: iso(post.created_at_ms)!,
     })),
   );
 }
 
-/** What AI sorting found: its summary, why, and a drafted known issue to approve with decide_feedback. */
-function sortedJson(topic: ForumTopic) {
+/** What AI sorting found (its summary, why and a drafted known issue to approve with decide_topic), and whether it's still to come. */
+function sortingOf(topic: ForumTopic) {
   // Only new topics on their own are sorted; known issues and merged messages never wait for it.
-  if (!topic.triage) return topic.triaged_at_ms || topic.known_issue_title || topic.merged_into_topic_id || topic.topic_status !== "new" ? null : "not yet";
+  if (!topic.triage) return { is_waiting_for_sorting: !(topic.triaged_at_ms || topic.known_issue_title || topic.merged_into_topic_id || topic.topic_status !== "new"), sorting: null };
   const triage = JSON.parse(topic.triage) as TopicTriage;
   return {
-    by_ai: triage.is_by_ai,
-    summary: triage.summary,
-    why: triage.why,
-    ...(triage.merged_into_topic_id ? { merged_into: triage.merged_into_topic_id } : {}),
-    ...(triage.same_as_topic_id ? { looks_like: triage.same_as_topic_id } : {}),
-    ...(triage.known_issue_draft ? { draft_known_issue: triage.known_issue_draft } : {}),
+    is_waiting_for_sorting: false,
+    sorting: {
+      is_by_ai: triage.is_by_ai,
+      summary: triage.summary,
+      why: triage.why,
+      merged_into_topic_id: triage.merged_into_topic_id,
+      same_as_topic_id: triage.same_as_topic_id,
+      known_issue_draft: triage.known_issue_draft,
+    },
   };
 }
 
 /** One topic in full: every post with who wrote it, the developer's name, the game and the messages merged into it. */
-export async function adminFeedbackItem(env: Env, topicId: string) {
+export async function topicForAdmin(env: Env, topicId: string) {
   const topic = await topicById(env, topicId);
   if (!topic) return null;
   const mergedInto = topic.merged_into_topic_id ? await topicById(env, topic.merged_into_topic_id) : null;
@@ -161,37 +166,44 @@ export async function adminFeedbackItem(env: Env, topicId: string) {
     }),
   );
   return {
-    topicDetails: {
-      id: topic.id,
-      kind: topic.kind,
-      title: topic.title,
-      status: topic.topic_status,
-      // A public forum topic every developer can read, or private to the developer and Zaisma.
-      public: topic.is_public === 1,
-      severity: topic.severity,
-      area: topic.category || null,
-      developer: topic.account_id ? await accountName(env, topic.account_id) : "Zaisma (a known issue)",
-      game: game ? { slug: game.slug, title: game.title } : null,
-      known_issue: topic.known_issue_title
-        ? { title: topic.known_issue_title, workaround: topic.workaround, roadmap: topic.roadmap_item, developers: (await affectedDeveloperCounts(env, [topic.id])).get(topic.id) ?? 0 }
-        : null,
-      merged_into: mergedInto ? { id: mergedInto.id, title: mergedInto.known_issue_title ?? mergedInto.title, status: mergedInto.topic_status } : null,
-      sorted: sortedJson(topic),
+    answer: {
+      topic: {
+        id: topic.id,
+        kind: topic.kind,
+        title: topic.title,
+        topic_status: topic.topic_status,
+        is_public: topic.is_public === 1,
+        severity: topic.severity,
+        category: topic.category || null,
+        developer_name: await accountName(env, topic.account_id),
+        game: game ? { slug: game.slug, title: game.title } : null,
+        known_issue: topic.known_issue_title
+          ? { title: topic.known_issue_title, workaround: topic.workaround, roadmap_item: topic.roadmap_item, affected_developer_count: (await affectedDeveloperCounts(env, [topic.id])).get(topic.id) ?? 0 }
+          : null,
+        merged_into_topic: mergedInto ? { id: mergedInto.id, title: mergedInto.known_issue_title ?? mergedInto.title, topic_status: mergedInto.topic_status } : null,
+        ...sortingOf(topic),
+      },
       posts: posts.map((post) => ({
         id: post.id,
-        by: ADMIN_AUTHOR_NAMES[post.author_kind],
-        via: post.posted_via,
+        author_kind: post.author_kind,
+        posted_via: post.posted_via,
         kind: post.kind,
-        text: post.text_markdown,
-        context: debugContextOf(post.debug_context),
-        media: (media.get(post.id) ?? []).map((image) => image.id),
-        // On a public topic: shown, held by the check (with why) or not checked yet.
-        ...(post.check_status ? { check: post.check_status === "passed" ? "shown" : post.check_status === "held" ? `held: ${post.held_reason ?? ""}` : "not checked yet" } : {}),
-        ...(post.reply_to_post_id ? { reply_to: post.reply_to_post_id } : {}),
-        at: readableTime(post.created_at_ms),
+        text_markdown: post.text_markdown,
+        debug_context: debugContextOf(post.debug_context),
+        media_ids: (media.get(post.id) ?? []).map((image) => image.id),
+        check_status: post.check_status,
+        held_reason: post.held_reason,
+        reply_to_post_id: post.reply_to_post_id,
+        created_at: iso(post.created_at_ms)!,
       })),
-      merged_here: await Promise.all(
-        merged.map(async (message) => ({ id: message.id, developer: await accountName(env, message.account_id), title: message.title, status: message.topic_status, latest: await latestPost(env, message.id, 500) })),
+      merged_topics: await Promise.all(
+        merged.map(async (message) => ({
+          id: message.id,
+          developer_name: await accountName(env, message.account_id),
+          title: message.title,
+          topic_status: message.topic_status,
+          latest_post: await latestPost(env, message.id, 500),
+        })),
       ),
     },
     pictures: pictures.filter((picture): picture is McpImage => picture !== null),
@@ -206,9 +218,8 @@ function toBase64(bytes: Uint8Array): string {
 
 // --- The admin pages ---
 
-type Row = Awaited<ReturnType<typeof adminFeedbackList>>["feedback"] extends (infer Element)[] ? Element : never;
-type TopicDetails = NonNullable<Awaited<ReturnType<typeof adminFeedbackItem>>>["topicDetails"];
-type Sorted = Row["sorted"];
+type Row = Awaited<ReturnType<typeof topicQueue>>["topics"] extends (infer Element)[] ? Element : never;
+type Sorting = Pick<Row, "is_waiting_for_sorting" | "sorting">;
 type KnownOption = { id: string; known_issue_title: string };
 
 const STATUS_NAMES: Record<string, string> = { new: "New", investigating: "Investigating", known: "Confirmed", planned: "Planned", fixing: "Fixing", released: "Fix released", fixed: "Resolved", wont: "Won't fix", answered: "Answered" };
@@ -225,7 +236,7 @@ export async function adminFeedbackPage(env: Env, path: string, url: URL): Promi
 
 /** A decision from the queue or a topic's page: only what the form changed goes to decideTopic. */
 export async function adminFeedbackAction(env: Env, path: string, form: FormData): Promise<Response | null> {
-  // A forum post the check held: show it, or remove it (check_post in the admin MCP).
+  // A forum post the check held: show it, or remove it (decide_post in the admin MCP).
   const check = path.match(/^\/admin\/feedback\/posts\/([a-z0-9_]{1,40})\/(show|remove)$/);
   if (check) {
     if (check[2] === "show") await showPost(env, check[1]!);
@@ -254,24 +265,24 @@ export async function adminFeedbackAction(env: Env, path: string, form: FormData
   try {
     await decideTopic(env, id, decision);
   } catch (error) {
-    if (!(error instanceof TopicRefusal)) throw error;
-    return new Response(null, { status: 303, headers: { Location: `/admin/feedback/${id}?error=${encodeURIComponent(error.message)}` } });
+    if (!(error instanceof ApiError)) throw error;
+    return new Response(null, { status: 303, headers: { Location: `/admin/feedback/${id}?error=${encodeURIComponent(error.messageWithFix)}` } });
   }
   return new Response(null, { status: 303, headers: { Location: back } });
 }
 
 /** For the admin home page: how many are waiting and the most serious few. */
 export async function feedbackSummary(env: Env): Promise<Raw> {
-  const [waiting, list] = await Promise.all([
+  const [waiting, queue] = await Promise.all([
     env.DB.prepare("SELECT COUNT(*) AS topic_count FROM forum_topics WHERE merged_into_topic_id IS NULL AND topic_status = 'new'").first<{ topic_count: number }>(),
-    adminFeedbackList(env, "new", 5),
+    topicQueue(env, "new", 5),
   ]);
-  const rows = list.feedback;
+  const rows = queue.topics;
   return html`<h2>Feedback from developers (${waiting?.topic_count ?? 0})</h2>
 ${rows.length
     ? html`<table><tr><th>How serious</th><th>What</th><th>Developers</th></tr>${rows.map(
         (row) =>
-          html`<tr><td>${severityPill(SEVERITY_NUMBERS[row.severity])}</td><td><a href="/admin/feedback/${row.id}">${row.known_issue ?? row.title}</a>${typeof row.sorted === "object" && row.sorted ? html`<br><small class="muted">${row.sorted.summary}</small>` : ""}</td><td>${row.developers}</td></tr>`,
+          html`<tr><td>${severityPill(SEVERITY_NUMBERS[row.severity])}</td><td><a href="/admin/feedback/${row.id}">${row.known_issue_title ?? row.title}</a>${row.sorting ? html`<br><small class="muted">${row.sorting.summary}</small>` : ""}</td><td>${row.affected_developer_count}</td></tr>`,
       )}</table>
 <p><a class="btn ghost" href="/admin/feedback">Open the feedback queue</a></p>`
     : html`<p class="note">Nothing waiting.</p>`}`;
@@ -283,15 +294,17 @@ async function knownOptions(env: Env): Promise<KnownOption[]> {
 
 async function queue(env: Env, status: string): Promise<Response> {
   const filter = (FILTERS as readonly string[]).includes(status) || TOPIC_STATUSES.includes(status as never) ? status : "new";
-  const [list, known, sorting] = await Promise.all([
-    adminFeedbackList(env, filter, 50),
+  const [queue, known, sorting] = await Promise.all([
+    topicQueue(env, filter, 50),
     knownOptions(env),
     env.DB.prepare("SELECT COUNT(*) AS topic_count FROM forum_topics WHERE topic_status = 'new' AND triaged_at_ms IS NULL AND merged_into_topic_id IS NULL AND known_issue_title IS NULL").first<{ topic_count: number }>(),
   ]);
-  const rows = list.feedback;
-  const inside = list.reopened_or_added ?? [];
-  const toCheck = list.posts_to_check ?? [];
-  const asked = list.zaisma_mentioned ?? [];
+  const rows = queue.topics;
+  // What's waiting besides the topics shows with the waiting ones only.
+  const isWaiting = filter === "new";
+  const inside = isWaiting ? queue.topics_in_known_issues : [];
+  const toCheck = isWaiting ? queue.waiting_posts : [];
+  const asked = isWaiting ? queue.zaisma_mentions : [];
   // The full record of each card, for the reply form's known-issue fields.
   const full = new Map((await Promise.all(rows.map((row) => topicById(env, row.id)))).filter((topic): topic is ForumTopic => topic !== null).map((topic) => [topic.id, topic]));
   return adminPage(
@@ -303,19 +316,19 @@ async function queue(env: Env, status: string): Promise<Response> {
 ${asked.length
       ? html`<h2>Asked for Zaisma (${asked.length})</h2>
 <p class="muted">Public posts that mention @Zaisma, with no reply from Zaisma since.</p>
-<table>${asked.map((mention) => html`<tr><td><a href="/forum/${mention.topic.id}#p-${mention.post}">${mention.topic.title}</a><br><span class="muted">${mention.developer} (${mention.by}), ${mention.at}:</span> ${mention.text.slice(0, 300)}</td><td class="nowrap"><a class="btn ghost" href="/admin/feedback/${mention.topic.id}">Reply</a></td></tr>`)}</table>`
+<table>${asked.map((mention) => html`<tr><td><a href="/forum/${mention.topic.id}#p-${mention.id}">${mention.topic.title}</a><br><span class="muted">${accountNameOrDeleted(mention.developer_name)} (${AUTHOR_NAMES[mention.author_kind]}), ${readableTime(mention.created_at)}:</span> ${mention.text_markdown.slice(0, 300)}</td><td class="nowrap"><a class="btn ghost" href="/admin/feedback/${mention.topic.id}">Reply</a></td></tr>`)}</table>`
       : ""}
 ${toCheck.length
       ? html`<h2>Forum posts to look at (${toCheck.length})</h2>
 <p class="muted">Held by the check, not checked yet, or reported by developers. Show it keeps it up and clears its reports; Remove takes it down.</p>
 <table><tr><th>Post</th><th>Why</th><th></th></tr>${toCheck.map(
           (post) =>
-            html`<tr><td><a href="/admin/feedback/${post.topic.id}">${post.topic.title}</a><br><span class="muted">${post.developer} (${post.by}), ${post.at}:</span> <span style="white-space:pre-wrap">${post.text.slice(0, 400)}</span></td><td>${post.reports.length ? html`<strong>Reported ${post.reports.length === 1 ? "once" : `${post.reports.length} times`}:</strong> ${post.reports.map((report) => `${report.reason.replace("_", " ")}${report.details ? ` (“${report.details}”)` : ""}`).join("; ")}<br>` : ""}${post.state === "held" ? post.why : post.state === "not checked yet" ? html`<span class="muted">Not checked yet</span>` : html`<span class="muted">Still shown</span>`}</td><td class="nowrap">${checkButtons(post.id, "/admin/feedback")}</td></tr>`,
+            html`<tr><td><a href="/admin/feedback/${post.topic.id}">${post.topic.title}</a><br><span class="muted">${accountNameOrDeleted(post.developer_name)} (${AUTHOR_NAMES[post.author_kind]}), ${readableTime(post.created_at)}:</span> <span style="white-space:pre-wrap">${post.text_markdown.slice(0, 400)}</span></td><td>${post.reports.length ? html`<strong>Reported ${post.reports.length === 1 ? "once" : `${post.reports.length} times`}:</strong> ${post.reports.map((report) => `${report.reason.replace("_", " ")}${report.details ? ` (“${report.details}”)` : ""}`).join("; ")}<br>` : ""}${post.check_status === "held" ? post.held_reason : post.check_status === "pending" ? html`<span class="muted">Not checked yet</span>` : html`<span class="muted">Still shown</span>`}</td><td class="nowrap">${checkButtons(post.id, "/admin/feedback")}</td></tr>`,
         )}</table>`
       : ""}
 ${inside.length
       ? html`<h2>Added to or reopened inside a known issue (${inside.length})</h2>
-<table>${inside.map((message) => html`<tr><td><a href="/admin/feedback/${message.id}">${message.title}</a></td><td class="muted">in <a href="/admin/feedback/${message.group_id}">a known issue</a> that's ${STATUS_NAMES[message.group_status]?.toLowerCase() ?? message.group_status}</td></tr>`)}</table>`
+<table>${inside.map((message) => html`<tr><td><a href="/admin/feedback/${message.id}">${message.title}</a></td><td class="muted">in <a href="/admin/feedback/${message.known_issue_topic_id}">a known issue</a> that's ${STATUS_NAMES[message.known_issue_topic_status]?.toLowerCase() ?? message.known_issue_topic_status}</td></tr>`)}</table>`
       : ""}
 <div class="queue">${rows.map((row) => card(row, full.get(row.id) ?? null, known, filter))}</div>`,
   );
@@ -326,26 +339,27 @@ function checkButtons(postId: string, back: string): Raw {
 <form method="post" action="/admin/feedback/posts/${postId}/remove" style="display:inline"><input type="hidden" name="back" value="${back}"><button class="btn ghost" type="submit">Remove</button></form>`;
 }
 
-function sortedLines(sorted: Sorted): Raw {
-  if (sorted === "not yet") return html`<p class="muted">Waiting to be sorted.</p>`;
-  if (!sorted || typeof sorted !== "object") return html``;
-  return html`<p class="said">${sorted.summary}</p><p class="muted">${sorted.why}${sorted.by_ai ? "" : " (Not sorted by AI.)"}${"looks_like" in sorted && sorted.looks_like ? html` Looks like <a href="/admin/feedback/${sorted.looks_like}">another public topic</a>; merge it if it is.` : ""}</p>`;
+function sortedLines(sorting: Sorting): Raw {
+  if (sorting.is_waiting_for_sorting) return html`<p class="muted">Waiting to be sorted.</p>`;
+  const found = sorting.sorting;
+  if (!found) return html``;
+  return html`<p class="said">${found.summary}</p><p class="muted">${found.why}${found.is_by_ai ? "" : " (Not sorted by AI.)"}${found.same_as_topic_id ? html` Looks like <a href="/admin/feedback/${found.same_as_topic_id}">another public topic</a>; merge it if it is.` : ""}</p>`;
 }
 
 function card(row: Row, topic: ForumTopic | null, known: KnownOption[], filter: string): Raw {
   const severityNumber = SEVERITY_NUMBERS[row.severity];
   return html`<article class="note case sev${severityNumber}" id="f-${row.id}">
-  <div class="row">${severityPill(severityNumber)} ${row.status !== "new" ? html`<span class="pill">${STATUS_NAMES[row.status]}</span> ` : ""}${row.public ? html`<span class="pill info">Public</span> ` : ""}<a href="/admin/feedback/${row.id}"><strong>${row.known_issue ?? row.title}</strong></a>
-    <span class="muted">${KIND_LABELS[row.kind].label}${row.area ? ` · ${row.area}` : ""} · ${row.developers === 1 ? "1 developer" : `${row.developers} developers`} · ${row.posts === 1 ? "1 post" : `${row.posts} posts`}${row.game ? ` · ${row.game}` : ""}</span></div>
-  ${row.known_issue ? html`<p class="muted">Known issue. First posted as “${row.title}”.</p>` : ""}
-  ${sortedLines(row.sorted)}
-  ${row.latest ? html`<p class="latest"><span class="muted">Latest, by ${row.latest.by}:</span> ${row.latest.text}</p>` : ""}
-  ${topic ? decideForm(topic, row.sorted, known, "queue", filter) : ""}
+  <div class="row">${severityPill(severityNumber)} ${row.topic_status !== "new" ? html`<span class="pill">${STATUS_NAMES[row.topic_status]}</span> ` : ""}${row.is_public ? html`<span class="pill info">Public</span> ` : ""}<a href="/admin/feedback/${row.id}"><strong>${row.known_issue_title ?? row.title}</strong></a>
+    <span class="muted">${KIND_LABELS[row.kind].label}${row.category ? ` · ${row.category}` : ""} · ${row.affected_developer_count === 1 ? "1 developer" : `${row.affected_developer_count} developers`} · ${row.post_count === 1 ? "1 post" : `${row.post_count} posts`}${row.game_slug ? ` · ${row.game_slug}` : ""}</span></div>
+  ${row.known_issue_title ? html`<p class="muted">Known issue. First posted as “${row.title}”.</p>` : ""}
+  ${sortedLines(row)}
+  ${row.latest_post ? html`<p class="latest"><span class="muted">Latest, by ${AUTHOR_NAMES[row.latest_post.author_kind]}:</span> ${row.latest_post.text_markdown}</p>` : ""}
+  ${topic ? decideForm(topic, row, known, "queue", filter) : ""}
 </article>`;
 }
 
-function decideForm(topic: ForumTopic, sorted: Sorted, known: KnownOption[], back: "queue" | "item", filter = "new"): Raw {
-  const draft = typeof sorted === "object" && sorted && "draft_known_issue" in sorted ? sorted.draft_known_issue : undefined;
+function decideForm(topic: ForumTopic, sorting: Sorting, known: KnownOption[], back: "queue" | "item", filter = "new"): Raw {
+  const draft = sorting.sorting?.known_issue_draft ?? null;
   const isKnownIssue = Boolean(topic.known_issue_title);
   const title = topic.known_issue_title ?? draft?.title ?? "";
   const isMerged = Boolean(topic.merged_into_topic_id);
@@ -376,38 +390,40 @@ function decideForm(topic: ForumTopic, sorted: Sorted, known: KnownOption[], bac
 }
 
 async function itemPage(env: Env, id: string, error: string): Promise<Response> {
-  const [found, known, topic] = await Promise.all([adminFeedbackItem(env, id), knownOptions(env), topicById(env, id)]);
+  const [found, known, topic] = await Promise.all([topicForAdmin(env, id), knownOptions(env), topicById(env, id)]);
   if (!found || !topic) return new Response("Not found", { status: 404 });
-  const details: TopicDetails = found.topicDetails;
+  const { topic: details, posts, merged_topics: mergedTopics } = found.answer;
   const severityNumber = SEVERITY_NUMBERS[details.severity];
+  const checkLabel = (checkStatus: string | null, heldReason: string | null) => (checkStatus === "held" ? `held: ${heldReason ?? ""}` : checkStatus === "pending" ? "not checked yet" : null);
   return adminPage(
     env,
     details.title,
     html`<p><a href="/admin/feedback">Feedback</a></p>
 <h1>${details.known_issue?.title ?? details.title}</h1>
-<p class="row">${severityPill(severityNumber)} <span class="pill">${STATUS_NAMES[details.status]}</span> ${details.public ? html`<span class="pill info">Public</span> <a href="/forum/${details.id}">Open in the forum</a>` : html`<span class="pill">Private</span>`} <span class="muted">${KIND_LABELS[details.kind].label}${details.area ? ` · ${details.area}` : ""} · from ${details.developer}${details.game ? html` · <a href="/g/${details.game.slug}">${details.game.title}</a>` : ""}</span></p>
+<p class="row">${severityPill(severityNumber)} <span class="pill">${STATUS_NAMES[details.topic_status]}</span> ${details.is_public ? html`<span class="pill info">Public</span> <a href="/forum/${details.id}">Open in the forum</a>` : html`<span class="pill">Private</span>`} <span class="muted">${KIND_LABELS[details.kind].label}${details.category ? ` · ${details.category}` : ""} · from ${topic.account_id ? accountNameOrDeleted(details.developer_name) : "Zaisma (a known issue)"}${details.game ? html` · <a href="/g/${details.game.slug}">${details.game.title}</a>` : ""}</span></p>
 ${error ? html`<p class="note" style="color:var(--danger)">${error}</p>` : ""}
-${details.known_issue ? html`<div class="note"><p><strong>Known issue</strong> · ${details.known_issue.developers === 1 ? "1 developer" : `${details.known_issue.developers} developers`}${details.known_issue.roadmap ? ` · roadmap: ${details.known_issue.roadmap}` : ""}. First posted as “${details.title}”.</p>${details.known_issue.workaround ? html`<p>Until it's fixed: ${details.known_issue.workaround}</p>` : ""}</div>` : ""}
-${details.merged_into ? html`<p class="note">Merged into <a href="/admin/feedback/${details.merged_into.id}">${details.merged_into.title}</a> (${STATUS_NAMES[details.merged_into.status]?.toLowerCase()}).</p>` : ""}
-<div class="case">${sortedLines(details.sorted)}</div>
-<h2>Posts (${details.posts.length})</h2>
-<div class="queue">${details.posts.map(
-      (post) => html`<article class="note case">
-  <div class="row"><strong>${post.by}</strong> <span class="muted">${post.via}${post.kind === "reopen" ? " · reopened it" : ""} · ${post.at}</span>${"check" in post && post.check && post.check !== "shown" ? html` <span class="pill pending">${post.check}</span> ${checkButtons(post.id, `/admin/feedback/${details.id}`)}` : ""}</div>
-  <p class="said" style="white-space:pre-wrap">${post.text}</p>
-  ${post.context ? html`<details><summary>What was attached</summary><pre>${JSON.stringify(post.context, null, 2)}</pre></details>` : ""}
-  ${post.media.length ? html`<p class="row">${post.media.map((mediaId, i) => html`<a href="/admin/feedback/pictures/${mediaId}" target="_blank">Image ${i + 1}</a>`)}</p>` : ""}
-</article>`,
-    )}</div>
-${details.merged_here.length
-      ? html`<h2>Merged into this (${details.merged_here.length})</h2>
-<table><tr><th>Message</th><th>Developer</th><th>Status</th><th>Latest</th></tr>${details.merged_here.map(
+${details.known_issue ? html`<div class="note"><p><strong>Known issue</strong> · ${details.known_issue.affected_developer_count === 1 ? "1 developer" : `${details.known_issue.affected_developer_count} developers`}${details.known_issue.roadmap_item ? ` · roadmap: ${details.known_issue.roadmap_item}` : ""}. First posted as “${details.title}”.</p>${details.known_issue.workaround ? html`<p>Until it's fixed: ${details.known_issue.workaround}</p>` : ""}</div>` : ""}
+${details.merged_into_topic ? html`<p class="note">Merged into <a href="/admin/feedback/${details.merged_into_topic.id}">${details.merged_into_topic.title}</a> (${STATUS_NAMES[details.merged_into_topic.topic_status]?.toLowerCase()}).</p>` : ""}
+<div class="case">${sortedLines(details)}</div>
+<h2>Posts (${posts.length})</h2>
+<div class="queue">${posts.map((post) => {
+      const label = checkLabel(post.check_status, post.held_reason);
+      return html`<article class="note case">
+  <div class="row"><strong>${AUTHOR_NAMES[post.author_kind]}</strong> <span class="muted">${post.posted_via}${post.kind === "reopen" ? " · reopened it" : ""} · ${readableTime(post.created_at)}</span>${label ? html` <span class="pill pending">${label}</span> ${checkButtons(post.id, `/admin/feedback/${details.id}`)}` : ""}</div>
+  <p class="said" style="white-space:pre-wrap">${post.text_markdown}</p>
+  ${post.debug_context ? html`<details><summary>What was attached</summary><pre>${JSON.stringify(post.debug_context, null, 2)}</pre></details>` : ""}
+  ${post.media_ids.length ? html`<p class="row">${post.media_ids.map((mediaId, i) => html`<a href="/admin/feedback/pictures/${mediaId}" target="_blank">Image ${i + 1}</a>`)}</p>` : ""}
+</article>`;
+    })}</div>
+${mergedTopics.length
+      ? html`<h2>Merged into this (${mergedTopics.length})</h2>
+<table><tr><th>Message</th><th>Developer</th><th>Status</th><th>Latest</th></tr>${mergedTopics.map(
           (message) =>
-            html`<tr><td><a href="/admin/feedback/${message.id}">${message.title}</a></td><td>${message.developer}</td><td>${STATUS_NAMES[message.status]}</td><td>${message.latest ? html`<span class="muted">${message.latest.by}:</span> ${message.latest.text}` : ""}</td></tr>`,
+            html`<tr><td><a href="/admin/feedback/${message.id}">${message.title}</a></td><td>${accountNameOrDeleted(message.developer_name)}</td><td>${STATUS_NAMES[message.topic_status]}</td><td>${message.latest_post ? html`<span class="muted">${AUTHOR_NAMES[message.latest_post.author_kind]}:</span> ${message.latest_post.text_markdown}` : ""}</td></tr>`,
         )}</table>`
       : ""}
 <h2>Decide</h2>
-<div class="note case">${decideForm(topic, details.sorted, known, "item")}</div>`,
+<div class="note case">${decideForm(topic, details, known, "item")}</div>`,
   );
 }
 

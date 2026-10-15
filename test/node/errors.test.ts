@@ -1,20 +1,20 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ERROR_CODES } from "../../packages/core/src/errors.ts";
+import { ADMIN_ERROR_CODES, ERROR_CODES } from "../../packages/core/src/errors.ts";
 
 /**
  * docs/NAMING.md, Errors: one list of codes. Every code in ERROR_CODES is listed in
- * docs/DEVELOPER-API.md with its HTTP status and meaning, nothing else is listed there, and every
- * code is one the code can answer with.
+ * docs/DEVELOPER-API.md with its HTTP status and meaning, and every one in ADMIN_ERROR_CODES in
+ * docs/ADMIN-MCP.md; nothing else is listed there, and every code is one the code can answer with.
  */
 
 const ROOT = join(import.meta.dirname, "../..");
 
-/** The rows of the Errors section's tables: | `code` | HTTP | Meaning |. */
-function listedCodes(): { code: string; httpStatus: number; meaning: string }[] {
-  const doc = readFileSync(join(ROOT, "docs/DEVELOPER-API.md"), "utf8");
-  const section = doc.slice(doc.indexOf("\n## Errors\n"), doc.indexOf("\n## Next steps\n"));
+/** The rows of a doc's Errors section's tables: | `code` | HTTP | Meaning |. */
+function listedCodes(file: string, nextHeading: string): { code: string; httpStatus: number; meaning: string }[] {
+  const doc = readFileSync(join(ROOT, file), "utf8");
+  const section = doc.slice(doc.indexOf("\n## Errors\n"), doc.indexOf(`\n## ${nextHeading}\n`));
   return [...section.matchAll(/^\| `([a-z0-9_]+)` \| (\d+) \| (.+) \|$/gm)].map((row) => ({ code: row[1]!, httpStatus: Number(row[2]), meaning: row[3]! }));
 }
 
@@ -28,14 +28,23 @@ function source(): string {
 }
 
 describe("error codes", () => {
-  it("are lowercase snake_case", () => {
-    for (const code of Object.keys(ERROR_CODES)) expect(code).toMatch(/^[a-z][a-z0-9]*(_[a-z0-9]+)*$/);
+  const everyCode = [...Object.keys(ERROR_CODES), ...Object.keys(ADMIN_ERROR_CODES)];
+
+  it("are lowercase snake_case, and each in one list", () => {
+    for (const code of everyCode) expect(code).toMatch(/^[a-z][a-z0-9]*(_[a-z0-9]+)*$/);
+    expect(new Set(everyCode).size).toBe(everyCode.length);
   });
 
   it("are all listed in docs/DEVELOPER-API.md, as the code has them", () => {
-    const listed = listedCodes();
+    const listed = listedCodes("docs/DEVELOPER-API.md", "Next steps");
     expect(listed.map((row) => row.code)).toEqual(Object.keys(ERROR_CODES));
     for (const row of listed) expect(row, row.code).toEqual({ code: row.code, ...ERROR_CODES[row.code as keyof typeof ERROR_CODES] });
+  });
+
+  it("the admin MCP's own are all listed in docs/ADMIN-MCP.md, as the code has them", () => {
+    const listed = listedCodes("docs/ADMIN-MCP.md", "Connect Claude Code");
+    expect(listed.map((row) => row.code)).toEqual(Object.keys(ADMIN_ERROR_CODES));
+    for (const row of listed) expect(row, row.code).toEqual({ code: row.code, ...ADMIN_ERROR_CODES[row.code as keyof typeof ADMIN_ERROR_CODES] });
   });
 
   it("are each one the code can answer with", () => {
@@ -43,6 +52,6 @@ describe("error codes", () => {
     // bad_<field> codes made from the field's name: the field is given where its value is checked.
     const isUsed = (errorCode: string) =>
       code.includes(`"${errorCode}"`) || (errorCode.startsWith("bad_") && new RegExp(`(oneOf|refuse)\\("${errorCode.slice(4)}"|\\["${errorCode.slice(4)}", |field: "${errorCode.slice(4)}"`).test(code));
-    expect(Object.keys(ERROR_CODES).filter((errorCode) => !isUsed(errorCode))).toEqual([]);
+    expect(everyCode.filter((errorCode) => !isUsed(errorCode))).toEqual([]);
   });
 });
