@@ -10,7 +10,7 @@
 import { WebSocketServer } from "ws";
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
-import { CLOSE_REFUSED, ERROR_TEXT, PassError, RoomCore, defineGameServer, errorMessage, isRoomCode, relay, roomData, roomInfo, verifyPass } from "../src/index.ts";
+import { CLOSE_REFUSED, ERROR_TEXT, PassError, RoomCore, clientIdleTimeoutSec, defineGameServer, errorMessage, isRoomCode, relay, roomData, roomNaming, verifyPass } from "../src/index.ts";
 
 const HELLO_MS = 5000;
 /** How often rooms check on their players (idle, hidden, held seats), and drop connections that stopped answering. */
@@ -22,8 +22,8 @@ const RESERVED_MS = 10 * 60 * 1000;
 /** A room that took players from another (room.moveTo) waits this long for them, like its held seats. */
 const SEAT_MS = 60 * 1000;
 
-/** Fetch Zaisma's published pass keys, caching them for an hour. */
-export function keysFrom(jwksUrl) {
+/** Fetch Zaisma's published pass keys, caching them for an hour: a loadPublicKeys for startServer. */
+export function publicKeysFrom(jwksUrl) {
   let cache = null;
   return async (refresh = false) => {
     if (cache && !refresh && Date.now() - cache.at < 3600_000) return cache.keys;
@@ -35,11 +35,16 @@ export function keysFrom(jwksUrl) {
 }
 
 /**
- * Start a server. Options: server (a game server object), game (its Zaisma slug),
- * port, origins (allowed page origins), issuer, keys (async () => public keys).
+ * Start a server. Options: gameServer (a game server object), gameSlug (its Zaisma slug), port,
+ * allowedOrigins (page origins players may connect from; [] for any), issuer, and loadPublicKeys
+ * (async (refresh) => Zaisma's public keys, like publicKeysFrom(jwksUrl)). Anything else is refused.
  */
-export function startServer({ server, game, port, origins, issuer = "https://rooms.zaisma.com", keys }) {
-  const definition = defineGameServer(server);
+export function startServer(options) {
+  const allowed = ["gameServer", "gameSlug", "port", "allowedOrigins", "issuer", "loadPublicKeys"];
+  const unknown = Object.keys(options).filter((name) => !allowed.includes(name));
+  if (unknown.length) throw new Error(`startServer doesn't take ${unknown.join(", ")}. It takes ${allowed.join(", ")}.`);
+  const { gameServer, gameSlug: game, port, allowedOrigins: origins, issuer = "https://rooms.zaisma.com", loadPublicKeys: keys } = options;
+  const definition = defineGameServer(gameServer);
   const rooms = new Map(); // code -> { core, sockets: Map<playerId, ws>, timer }
   const wss = new WebSocketServer({ port, maxPayload: 64 * 1024 });
 
@@ -55,20 +60,20 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
         send: (id, text) => sockets.get(id)?.send(text),
         close: (id, code, reason) => sockets.get(id)?.close(code, reason),
         reserve: (next, how) => {
-          // It waits for its players, then goes like any room once it's empty. It knows where it came from (away: "lobby").
+          // It waits for its players, then goes like any room once it's empty. It knows where it came from (awayMode "send_to_lobby").
           wait(next, roomFor(next, { ...how, lobby: code }), RESERVED_MS);
-          for (const id of how.players) sockets.get(id)?.send(JSON.stringify({ t: "move", code: next }));
+          for (const id of how.players) sockets.get(id)?.send(JSON.stringify({ type: "move", roomCode: next }));
         },
         // Another room here takes the players it wants; they're told to go, and this room hears who went.
         moveTo: (next, ask) => {
           const target = rooms.get(next);
           const answer = target && next !== code
             ? target.core.expect({ ...ask, from: code })
-            : Promise.resolve({ moved: [], refused: ask.players.map((p) => ({ id: p.id, code: "no-room", reason: ERROR_TEXT["no-room"] })) });
+            : Promise.resolve({ moved: [], refused: ask.players.map((p) => ({ id: p.id, code: "no_room", reason: ERROR_TEXT.no_room })) });
           answer
             .then((a) => {
               if (target && a.moved.length) wait(next, target, SEAT_MS);
-              for (const id of a.moved) sockets.get(id)?.send(JSON.stringify({ t: "move", code: next }));
+              for (const id of a.moved) sockets.get(id)?.send(JSON.stringify({ type: "move", roomCode: next }));
               core.moved(next, a, ask.players);
             })
             .catch((err) => console.error("Couldn't move players:", err));
@@ -83,7 +88,7 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
 
   /** A real-time room ticks while someone's playing, and stops while everyone's walked away. */
   function pace(room) {
-    if (!definition.tickRate) return;
+    if (!definition.ticksPerSec) return;
     if (room.core.playing > 0 && !room.core.ended) {
       if (room.timer) return;
       let last = Date.now();
@@ -91,7 +96,7 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
         const now = Date.now();
         room.core.tick((now - last) / 1000);
         last = now;
-      }, 1000 / definition.tickRate);
+      }, 1000 / definition.ticksPerSec);
     } else if (room.timer) {
       clearInterval(room.timer);
       room.timer = null;
@@ -138,7 +143,7 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
     if (origins.length && !origins.includes(req.headers.origin)) return ws.close(CLOSE_REFUSED, "Not allowed from here");
     const code = m[2];
     let playerId = null;
-    const helloTimer = setTimeout(() => playerId || refuse("no-hello"), HELLO_MS);
+    const helloTimer = setTimeout(() => playerId || refuse("no_hello"), HELLO_MS);
     ws.zaismaSeen = Date.now();
 
     ws.on("message", async (data, isBinary) => {
@@ -148,7 +153,7 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
       if (text === "ping") return ws.send("pong");
       if (playerId) {
         const room = rooms.get(code);
-        const err = text === null ? "bad-message" : room?.core.receive(playerId, text);
+        const err = text === null ? "bad_message" : room?.core.receive(playerId, text);
         if (err) ws.send(errorMessage(err));
         if (room) pace(room);
         return;
@@ -156,32 +161,33 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
       let pass;
       let made = {};
       try {
-        const msg = JSON.parse(text ?? "");
-        if (msg.t !== "hello" || typeof msg.pass !== "string") return refuse("no-hello");
-        pass = msg.pass;
-        if (msg.room && typeof msg.room === "object") made = { ...(msg.room.listed === false ? { listed: false } : {}), ...roomInfo(msg.room) };
-        if (msg.idle === false || typeof msg.idle === "number") made.idle = msg.idle;
-        const data = roomData(msg.data);
-        if (!data.ok) return refuse("too-big");
-        made.data = data.data;
+        const hello = JSON.parse(text ?? "");
+        if (hello.type !== "hello" || typeof hello.pass !== "string") return refuse("no_hello");
+        pass = hello.pass;
+        if (hello.newRoom && typeof hello.newRoom === "object") made = { ...(hello.newRoom.isListed === false ? { isListed: false } : {}), ...roomNaming(hello.newRoom) };
+        const idleTimeoutSec = clientIdleTimeoutSec(hello.idleCheck, hello.idleTimeoutSec);
+        if (idleTimeoutSec !== undefined) made.idleTimeoutSec = idleTimeoutSec;
+        const joinData = roomData(hello.joinData);
+        if (!joinData.ok) return refuse("too_big");
+        made.joinData = joinData.data;
       } catch {
-        return refuse("no-hello");
+        return refuse("no_hello");
       }
       let claims;
       try {
-        claims = await verifyPass(pass, await keys(), { game, issuer }).catch(async (err) => {
+        claims = await verifyPass(pass, await keys(), { gameSlug: game, issuer }).catch(async (err) => {
           // A new key may have been published since we cached them.
-          if (err instanceof PassError && err.code === "unknown-key") return verifyPass(pass, await keys(true), { game, issuer });
+          if (err instanceof PassError && err.code === "unknown_key") return verifyPass(pass, await keys(true), { gameSlug: game, issuer });
           throw err;
         });
       } catch (err) {
-        if (err instanceof PassError) return refuse("bad-pass");
+        if (err instanceof PassError) return refuse("bad_pass");
         throw err;
       }
       clearTimeout(helloTimer);
       const room = roomFor(code);
       // The room's rules and the game's canJoin, before anyone hears about this player.
-      const admitted = await room.core.admit({ id: claims.sub, name: claims.name }, made.data);
+      const admitted = await room.core.admit({ id: claims.sub, name: claims.name }, made.joinData);
       if (!admitted.ok) {
         closeIfEmpty(code, room);
         return refuse(admitted.code, admitted.message);
@@ -206,7 +212,7 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
       const room = rooms.get(code);
       if (!room || !playerId || room.sockets.get(playerId) !== ws) return;
       room.sockets.delete(playerId);
-      room.core.leave(playerId, closeCode === 1000 || closeCode === 1001 ? "left" : "lost");
+      room.core.leave(playerId, closeCode === 1000 || closeCode === 1001 ? "left" : "connection_lost");
       pace(room);
       closeIfEmpty(code, room);
     });
@@ -233,9 +239,9 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
     console.log("Usage: node bin/node.js <server.ts | relay> --game <slug> [--port 8080] [--origin https://<slug>.zaismausercontent.com]");
     process.exit(1);
   }
-  const server = file === "relay" ? relay : (await import(pathToFileURL(resolve(file)).href)).default;
+  const gameServer = file === "relay" ? relay : (await import(pathToFileURL(resolve(file)).href)).default;
   const port = Number(arg("port", "8080"));
-  const origins = (arg("origin", `https://${game}.zaismausercontent.com`) ?? "").split(",").filter(Boolean);
-  startServer({ server, game, port, origins, keys: keysFrom(arg("jwks", "https://rooms.zaisma.com/.well-known/jwks.json")) });
+  const allowedOrigins = (arg("origin", `https://${game}.zaismausercontent.com`) ?? "").split(",").filter(Boolean);
+  startServer({ gameServer, gameSlug: game, port, allowedOrigins, loadPublicKeys: publicKeysFrom(arg("jwks", "https://rooms.zaisma.com/.well-known/jwks.json")) });
   console.log(`Game server for "${game}" on port ${port}. Players connect to /v1/rooms/${game}/<code>.`);
 }

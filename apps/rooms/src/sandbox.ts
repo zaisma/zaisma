@@ -1,4 +1,4 @@
-import { defineGameServer, type AwayReason, type GameServer, type JoinInfo, type LeaveInfo, type Player, type Room } from "@zaisma/game-server";
+import { defineGameServer, type AwayReason, type GameServer, type JoinInfo, type Player, type Room } from "@zaisma/game-server";
 import { SANDBOX_GAME_SERVER, manifestKey, serverModules, type Manifest } from "@zaisma/core";
 import type { Env } from "./index.ts";
 
@@ -28,20 +28,21 @@ const FAILURES = 2;
 
 /** What the game asked the room to do during one handler, in order. */
 type Effect =
-  | { do: "broadcast"; msg: unknown; except?: string }
-  | { do: "send"; to: string; msg: unknown }
-  | { do: "end"; reason?: string }
-  | { do: "listed"; value: boolean }
-  | { do: "open"; value: boolean }
-  | { do: "info"; info: unknown }
-  | { do: "reserve"; opts: unknown; code: string }
-  | { do: "kick"; player: unknown; opts: unknown }
-  | { do: "moveTo"; code: unknown; opts: unknown };
+  | { do: "broadcast"; messageData: unknown; options: unknown }
+  | { do: "send"; playerId: unknown; messageData: unknown }
+  | { do: "end"; message: unknown }
+  | { do: "set_listed"; isListed: boolean }
+  | { do: "set_open"; isOpen: boolean }
+  | { do: "set_name"; name: unknown }
+  | { do: "set_labels"; labels: unknown }
+  | { do: "reserve"; options: unknown; roomCode: string }
+  | { do: "kick"; playerId: unknown; options: unknown }
+  | { do: "move_to"; roomCode: unknown; options: unknown };
 
 interface Snapshot {
   players: Player[];
-  listed: boolean;
-  open: boolean;
+  isListed: boolean;
+  isOpen: boolean;
   name: string | null;
   labels: Record<string, string>;
 }
@@ -52,12 +53,16 @@ interface Answer {
   error?: string;
 }
 
+/** Stands in for a handler in the game server's options, as the sandbox describes them (Session.options). */
+const HANDLER = "(handler)";
+
 export interface Session {
-  settings(): Promise<{ maxPlayers?: unknown; tickRate?: unknown; hostControls?: unknown; canJoin?: unknown; idleAfter?: unknown; away?: unknown; holdFor?: unknown; onAway?: unknown; onBack?: unknown }>;
-  setup(data: unknown): Promise<Answer>;
+  /** The game server's options as the developer wrote them, with each handler as HANDLER, so the room checks them like any game server's. */
+  options(): Promise<Record<string, unknown>>;
+  setup(startData: unknown): Promise<Answer>;
   call(hook: string, state: unknown, args: unknown[], room: Snapshot): Promise<Answer>;
-  /** canJoin: the game's verdict on a player coming in. It can't change the state or the room. */
-  check(state: unknown, player: Player, data: unknown, room: Snapshot, info: JoinInfo): Promise<{ verdict?: unknown; error?: string }>;
+  /** canJoin: the game's answer on a player coming in. It can't change the state or the room. */
+  check(state: unknown, player: Player, joinData: unknown, room: Snapshot, joinInfo: JoinInfo): Promise<{ answer?: unknown; error?: string }>;
 }
 
 // Runs inside the sandbox, beside the game's file. Plain JavaScript: nothing here is trusted by the
@@ -67,25 +72,38 @@ import { WorkerEntrypoint, RpcTarget } from "cloudflare:workers";
 import server from "./${entry}";
 
 const ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
-const code = () => Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => ALPHABET[b & 31]).join("");
+const newRoomCode = () => Array.from(crypto.getRandomValues(new Uint8Array(6)), (byte) => ALPHABET[byte & 31]).join("");
 const HOOKS = ["onJoin", "onLeave", "onMessage", "onTick", "onMoved", "onAway", "onBack"];
 
-function recorder(snap, effects) {
+// Options a call doesn't take throw here, inside the game's handler, so the error shows with its line.
+function closed(options, allowed, what) {
+  if (options === undefined || options === null) return;
+  const unknown = typeof options === "object" && !Array.isArray(options) ? Object.keys(options).filter((name) => !allowed.includes(name)) : [];
+  if (unknown.length) throw new Error(what + " doesn't take " + unknown.join(", ") + ". It takes " + allowed.join(", ") + ".");
+}
+
+function recorder(snapshot, effects) {
   const room = {
-    get players() { return snap.players.map((p) => ({ ...p })); },
-    broadcast(msg, o) { effects.push({ do: "broadcast", msg, except: o && o.except }); },
-    send(to, msg) { effects.push({ do: "send", to, msg }); },
-    end(reason) { effects.push({ do: "end", reason }); },
-    get listed() { return snap.listed; },
-    setListed(v) { snap.listed = Boolean(v); effects.push({ do: "listed", value: snap.listed }); },
-    get open() { return snap.open; },
-    setOpen(v) { snap.open = Boolean(v); effects.push({ do: "open", value: snap.open }); },
-    get name() { return snap.name; },
-    get labels() { return { ...snap.labels }; },
-    setInfo(info) { effects.push({ do: "info", info }); },
-    reserve(opts) { const c = code(); effects.push({ do: "reserve", opts, code: c }); return c; },
-    kick(player, opts) { effects.push({ do: "kick", player, opts }); },
-    moveTo(code, opts) { effects.push({ do: "moveTo", code, opts }); },
+    get players() { return snapshot.players.map((player) => ({ ...player })); },
+    broadcast(messageData, options) { closed(options, ["exceptPlayerId"], "room.broadcast"); effects.push({ do: "broadcast", messageData, options }); },
+    send(playerId, messageData) { effects.push({ do: "send", playerId, messageData }); },
+    end(message) { effects.push({ do: "end", message }); },
+    get isListed() { return snapshot.isListed; },
+    setListed(isListed) { snapshot.isListed = Boolean(isListed); effects.push({ do: "set_listed", isListed: snapshot.isListed }); },
+    get isOpen() { return snapshot.isOpen; },
+    setOpen(isOpen) { snapshot.isOpen = Boolean(isOpen); effects.push({ do: "set_open", isOpen: snapshot.isOpen }); },
+    get name() { return snapshot.name; },
+    get labels() { return { ...snapshot.labels }; },
+    setName(name) { effects.push({ do: "set_name", name }); },
+    setLabels(labels) { effects.push({ do: "set_labels", labels }); },
+    reserve(options) {
+      closed(options, ["playerIds", "startData", "isListed", "name", "labels"], "room.reserve");
+      const roomCode = newRoomCode();
+      effects.push({ do: "reserve", options, roomCode });
+      return roomCode;
+    },
+    kick(playerId, options) { closed(options, ["message", "keepOut"], "room.kick"); effects.push({ do: "kick", playerId, options }); },
+    moveTo(roomCode, options) { closed(options, ["playerIds", "joinData"], "room.moveTo"); effects.push({ do: "move_to", roomCode, options }); },
   };
   return room;
 }
@@ -94,49 +112,46 @@ function answer(fn, effects, state) {
   try {
     const next = fn();
     return { state: next === undefined ? state : next, effects };
-  } catch (err) {
-    return { effects, error: String((err && err.stack) || err) };
+  } catch (error) {
+    return { effects, error: String((error && error.stack) || error) };
   }
 }
 
 class Session extends RpcTarget {
-  settings() {
-    return {
-      maxPlayers: server.maxPlayers,
-      tickRate: server.tickRate,
-      hostControls: server.hostControls,
-      canJoin: typeof server.canJoin === "function",
-      idleAfter: server.idleAfter,
-      away: server.away,
-      holdFor: server.holdFor,
-      onAway: typeof server.onAway === "function",
-      onBack: typeof server.onBack === "function",
-    };
+  options() {
+    const options = {};
+    for (const [name, value] of Object.entries(server)) {
+      options[name] = typeof value === "function" ? "${HANDLER}" : ["number", "string", "boolean"].includes(typeof value) || value === null || value === undefined ? value : "(" + typeof value + ")";
+    }
+    // A game server written as a class keeps its handlers on the prototype.
+    for (const name of ["setup", "canJoin", ...HOOKS]) if (typeof server[name] === "function") options[name] = "${HANDLER}";
+    return options;
   }
-  setup(data) {
-    return answer(() => server.setup(data), [], undefined);
+  setup(startData) {
+    return answer(() => server.setup(startData), [], undefined);
   }
-  call(hook, state, args, snap) {
+  call(hook, state, args, snapshot) {
     const effects = [];
     if (!HOOKS.includes(hook) || typeof server[hook] !== "function") return { state, effects };
-    const room = recorder(snap, effects);
-    // onJoin(state, player, room, data, info), onLeave(state, player, room, info), onAway(state, player, room, why),
-    // onMessage(state, player, msg, room), onTick(state, dt, room), onMoved(state, result, room), onBack(state, player, room)
+    const room = recorder(snapshot, effects);
+    // onJoin(state, player, room, joinData, joinInfo), onLeave(state, player, room, leaveInfo), onAway(state, player, room, awayReason),
+    // onMessage(state, player, messageData, room), onTick(state, tickDurationSec, room), onMoved(state, moveResult, room), onBack(state, player, room)
     const full =
-      hook === "onJoin" ? [state, args[0], room, args[1], args[2] || {}]
+      hook === "onJoin" ? [state, args[0], room, args[1], args[2]]
       : hook === "onMessage" ? [state, args[0], args[1], room]
-      : hook === "onLeave" ? [state, args[0], room, args[1] || { why: "left" }]
-      : hook === "onAway" ? [state, args[0], room, args[1]]
+      : hook === "onLeave" || hook === "onAway" ? [state, args[0], room, args[1]]
       : [state, args[0], room];
     return answer(() => server[hook](...full), effects, state);
   }
-  check(state, player, data, snap, info) {
-    if (typeof server.canJoin !== "function") return { verdict: true };
+  check(state, player, joinData, snapshot, joinInfo) {
+    if (typeof server.canJoin !== "function") return { answer: true };
     try {
-      const verdict = server.canJoin(state, player, recorder(snap, []), data, info || {});
-      return { verdict: typeof verdict === "boolean" || typeof verdict === "string" ? verdict : true };
-    } catch (err) {
-      return { error: String((err && err.stack) || err) };
+      const given = server.canJoin(state, player, recorder(snapshot, []), joinData, joinInfo);
+      if (given === true || given === false || given === undefined || given === null) return { answer: given !== false };
+      if (given && typeof given === "object" && typeof given.refusalMessage === "string") return { answer: { refusalMessage: given.refusalMessage } };
+      return { answer: false, error: "canJoin must answer true, false or { refusalMessage }, not " + (typeof given === "string" ? JSON.stringify(given.slice(0, 60)) : typeof given) };
+    } catch (error) {
+      return { error: String((error && error.stack) || error) };
     }
   }
 }
@@ -201,8 +216,10 @@ export async function sandboxServer(env: Env, gameId: string, versionId: string,
  */
 export async function wrapSession(open: () => Promise<Session>, onBroken: () => void): Promise<GameServer & { stats: SandboxStats }> {
   let session = await open();
-  const s = await session.settings();
-  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
+  // The options as the developer wrote them, checked like any game server's: names it doesn't take and values out of range throw.
+  const declared = await session.options();
+  const definition = defineGameServer(Object.fromEntries(Object.entries(declared).map(([name, value]) => [name, value === HANDLER ? () => undefined : value])) as unknown as GameServer);
+  const has = (name: string) => declared[name] === HANDLER;
   const stats: SandboxStats = { calls: 0, ms: 0, failures: 0, crashes: 0, stops: 0, errors: new Map() };
   const record = (kind: "crash" | "stopped", text: string) => {
     const message = errorLine(text);
@@ -219,12 +236,12 @@ export async function wrapSession(open: () => Promise<Session>, onBroken: () => 
     let answer: T;
     try {
       answer = await work();
-    } catch (err) {
+    } catch (error) {
       stats.stops++;
-      record("stopped", /CPU time/i.test(String(err)) ? "Ran on too long and was stopped, like a loop that never ends" : `The game server stopped: ${String(err)}`);
+      record("stopped", /CPU time/i.test(String(error)) ? "Ran on too long and was stopped, like a loop that never ends" : `The game server stopped: ${String(error)}`);
       if (++stats.failures >= FAILURES) onBroken();
       else session = await open();
-      throw err;
+      throw error;
     }
     stats.calls++;
     stats.ms += Date.now() - started;
@@ -240,38 +257,38 @@ export async function wrapSession(open: () => Promise<Session>, onBroken: () => 
     if (answer.error) throw new Error(`Game server error: ${answer.error.slice(0, 2000)}`);
     return answer.state;
   };
-  const snap = (room: Room): Snapshot => ({ players: [...room.players], listed: room.listed, open: room.open, name: room.name, labels: room.labels });
-  const call = (hook: string, state: unknown, args: unknown[], room: Room) => ask(() => session.call(hook, state, args, snap(room)), room);
+  const snapshot = (room: Room): Snapshot => ({ players: [...room.players], isListed: room.isListed, isOpen: room.isOpen, name: room.name, labels: room.labels });
+  const call = (hook: string, state: unknown, args: unknown[], room: Room) => ask(() => session.call(hook, state, args, snapshot(room)), room);
 
-  const server = {
-    maxPlayers: num(s.maxPlayers),
-    tickRate: num(s.tickRate),
-    hostControls: s.hostControls === true,
-    idleAfter: s.idleAfter === false || s.idleAfter === "client" ? s.idleAfter : num(s.idleAfter),
-    away: s.away === "lobby" ? ("lobby" as const) : undefined,
-    holdFor: num(s.holdFor),
+  return {
+    maximumPlayerCount: definition.maximumPlayerCount,
+    ticksPerSec: definition.ticksPerSec,
+    hostControlsEnabled: definition.hostControlsEnabled,
+    idleCheck: definition.idleCheck,
+    idleTimeoutSec: definition.idleTimeoutSec,
+    awayMode: definition.awayMode,
+    seatHoldDurationSec: definition.seatHoldDurationSec,
     stats,
-    setup: (data) => ask(() => session.setup(data), null),
-    onJoin: (state, player, room, data, info) => call("onJoin", state, [player, data, info ?? {}], room),
-    onLeave: (state, player, room, info?: LeaveInfo) => call("onLeave", state, [player, info ?? { why: "left" }], room),
-    onMessage: (state, player, msg, room) => call("onMessage", state, [player, msg], room),
-    onTick: (state, dt, room) => call("onTick", state, [dt], room),
-    onMoved: (state, result, room) => call("onMoved", state, [result], room),
+    setup: (startData) => ask(() => session.setup(startData), null),
+    onJoin: (state, player, room, joinData, joinInfo) => call("onJoin", state, [player, joinData, joinInfo], room),
+    onLeave: (state, player, room, leaveInfo) => call("onLeave", state, [player, leaveInfo], room),
+    onMessage: (state, player, messageData, room) => call("onMessage", state, [player, messageData], room),
+    onTick: (state, tickDurationSec, room) => call("onTick", state, [tickDurationSec], room),
+    onMoved: (state, moveResult, room) => call("onMoved", state, [moveResult], room),
     // Only for game servers that have them: with onAway, players who walk away stay in the room.
-    ...(s.onAway === true ? { onAway: (state: unknown, player: Player, room: Room, why: AwayReason) => call("onAway", state, [player, why], room) } : {}),
-    ...(s.onBack === true ? { onBack: (state: unknown, player: Player, room: Room) => call("onBack", state, [player], room) } : {}),
-    ...(s.canJoin === true
+    ...(has("onAway") ? { onAway: (state: unknown, player: Player, room: Room, awayReason: AwayReason) => call("onAway", state, [player, awayReason], room) } : {}),
+    ...(has("onBack") ? { onBack: (state: unknown, player: Player, room: Room) => call("onBack", state, [player], room) } : {}),
+    ...(has("canJoin")
       ? {
-          canJoin: async (state: unknown, player: Player, room: Room, data: unknown, info?: JoinInfo) => {
-            const answer = await reach(() => session.check(state, player, data, snap(room), info ?? {}));
-            if (answer.error) throw new Error(`Game server error: ${answer.error.slice(0, 2000)}`);
-            return typeof answer.verdict === "boolean" || typeof answer.verdict === "string" ? answer.verdict : true;
+          canJoin: async (state: unknown, player: Player, room: Room, joinData: unknown, joinInfo: JoinInfo) => {
+            const verdict = await reach(() => session.check(state, player, joinData, snapshot(room), joinInfo));
+            if (verdict.error) throw new Error(`Game server error: ${verdict.error.slice(0, 2000)}`);
+            const refusal = verdict.answer as { refusalMessage?: unknown } | boolean;
+            return typeof refusal === "object" && typeof refusal?.refusalMessage === "string" ? { refusalMessage: refusal.refusalMessage } : refusal !== false;
           },
         }
       : {}),
-  } satisfies GameServer & { stats: typeof stats };
-  defineGameServer(server);
-  return server;
+  } satisfies GameServer & { stats: SandboxStats };
 }
 
 export interface SandboxStats {
@@ -302,39 +319,42 @@ export function errorLine(text: string): string {
 /** Do what the game asked, through the same room API built-in game servers use, so the same checks apply. */
 function apply(effects: unknown, room: Room): void {
   if (!Array.isArray(effects)) return;
-  for (const e of effects.slice(0, 1000) as Effect[]) {
+  for (const effect of effects.slice(0, 1000) as Effect[]) {
     try {
-      switch (e?.do) {
+      switch (effect?.do) {
         case "broadcast":
-          room.broadcast(e.msg, typeof e.except === "string" ? { except: e.except } : undefined);
+          room.broadcast(effect.messageData, (effect.options ?? undefined) as never);
           break;
         case "send":
-          if (typeof e.to === "string") room.send(e.to, e.msg);
+          if (typeof effect.playerId === "string") room.send(effect.playerId, effect.messageData);
           break;
         case "end":
-          room.end(typeof e.reason === "string" ? e.reason.slice(0, 200) : undefined);
+          room.end(typeof effect.message === "string" ? effect.message : undefined);
           break;
-        case "listed":
-          room.setListed(e.value === true);
+        case "set_listed":
+          room.setListed(effect.isListed === true);
           break;
-        case "open":
-          room.setOpen(e.value === true);
+        case "set_open":
+          room.setOpen(effect.isOpen === true);
           break;
-        case "info":
-          room.setInfo((e.info ?? {}) as never);
+        case "set_name":
+          room.setName((typeof effect.name === "string" ? effect.name : null) as string | null);
+          break;
+        case "set_labels":
+          room.setLabels((effect.labels && typeof effect.labels === "object" ? effect.labels : null) as never);
           break;
         case "reserve":
-          room.reserve({ ...(e.opts as object), code: e.code } as never);
+          (room.reserve as (options: unknown, chosenRoomCode: string) => string)(effect.options, effect.roomCode);
           break;
         case "kick":
-          if (typeof e.player === "string") room.kick(e.player, (e.opts && typeof e.opts === "object" ? e.opts : {}) as never);
+          if (typeof effect.playerId === "string") room.kick(effect.playerId, (effect.options ?? undefined) as never);
           break;
-        case "moveTo":
-          room.moveTo(e.code as string, (e.opts && typeof e.opts === "object" ? e.opts : {}) as never);
+        case "move_to":
+          room.moveTo(effect.roomCode as string, (effect.options ?? {}) as never);
           break;
       }
-    } catch (err) {
-      console.error("Game server error:", err);
+    } catch (error) {
+      console.error("Game server error:", error);
     }
   }
 }

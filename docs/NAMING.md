@@ -4,7 +4,7 @@ How names, values, inputs, examples, errors and next steps work everywhere an AI
 
 Why: an AI reading `files: 12`, `dt` or `created_at: 1792012345678` has to stop and work out what it means, and sometimes gets it wrong. Every guess costs tokens and some cost a wrong call. A name that says what it holds, what kind of value and in what unit lets the AI predict the right value and the right next call straight away.
 
-The existing API, MCPs, SDK, game server and Zaisma's own code are moving to these names area by area, each a clean change (old names stop working). Until each lands, everything new follows this guide. The messages between the SDK and rooms move too: `type` and `data`, not `t` and `d` (rooms are billed per message, never by its size). Examples in this guide show the pattern; the glossary at the end lists the names that exist.
+The developer API, the developer MCP, the SDK, the game server and the messages between the SDK and rooms follow these names; the admin MCP and the rest of Zaisma's own code are moving to them area by area, each a clean change (old names stop working). Until each lands, everything new follows this guide. Room messages say their `type`, and a game's own message is its `data` (rooms are billed per message, never by its size, so short names save nothing). Examples in this guide show the pattern; the glossary at the end lists the names that exist.
 
 ## The shape of a name
 
@@ -68,7 +68,7 @@ A length of time says so in its name. `duration` is the default; four words say 
 4. **One type and one unit per field.** No "a number or false", no "a string or a number". A setting with modes is a choice plus a separate number: `idle_check: "server" | "client" | "off"` and `idle_timeout_sec: 600`, not `idleAfter: 600 | false | "client"`.
 5. **A field reads right on its own.** If its short name means something else elsewhere in the glossary, use the full name. `code` is an error's code, so a room's is `room_code`; `players` is a list of players, so a number of them is `player_count`. On an object, `id` and `kind` are that object's own; anything else about it says what it is (`scan_status`, `review_status`, `page_url`, `image_url`).
 6. **One name per concept, everywhere.** The glossary below is the list. Check it before naming anything; a new concept goes into it in the same change.
-7. **Same words in each surface's style.** snake_case in the API and MCP (`play_duration_min`), camelCase in the SDK and game server (`playDurationMin`). Choice values and error codes are lowercase snake_case everywhere (`when_approved`, `keyboard_mouse`, `month_limit`); a word that's hyphenated in plain English keeps its hyphen (`co-op`).
+7. **Same words in each surface's style.** snake_case in the API and MCP (`play_duration_min`), camelCase in the SDK, the game server and the room messages and calls between them (`playDurationMin`). Choice values and error codes are lowercase snake_case everywhere (`when_approved`, `keyboard_mouse`, `month_limit`); a word that's hyphenated in plain English keeps its hyphen (`co-op`).
 8. **Keys are always there.** An answer has the same keys every time. `null` means "not set" or "none" and nothing else. In an update, leaving a key out keeps it and `null` clears it.
 9. **A plural is always a list.** A number of things is never a bare plural, and a list names what's in it when that isn't obvious: `image_ids` holds IDs, `images` holds image objects, `images_base64` holds encoded images.
 10. **Times go in and out as ISO 8601.** Out: UTC with `Z`. In: ISO 8601 with `Z` or an offset, nothing else (no epoch numbers).
@@ -119,7 +119,7 @@ Every ID Zaisma makes says its kind in its value: `<kind>_<random>`, the kind in
 | `play_ticket` | `play_ticket_…` |
 | `room_key` | `room_key_…` |
 
-`ID_KINDS` (`packages/core/src/ids.ts`) is this list, and a test keeps the two in step; a new kind is added to both in the same change. Guests' player IDs still start with `g_` until the SDK and game server move to these names. The developer API and MCP still name a game by its `slug`, the link name developers know. Not IDs, and kept as they are: a `slug`, a `room_code` (six letters players type), API keys (`zsk_…`, a format secret scanners know) and file hashes (`sha256`).
+`ID_KINDS` (`packages/core/src/ids.ts`) is this list, and a test keeps the two in step; a new kind is added to both in the same change. Guests' player IDs are `player_…` too, lasting as long as their pass. The developer API and MCP still name a game by its `slug`, the link name developers know. Not IDs, and kept as they are: a `slug`, a `room_code` (six letters players type), API keys (`zsk_…`, a format secret scanners know) and file hashes (`sha256`).
 
 ## Inputs
 
@@ -200,7 +200,7 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 | A cover or screenshot | `image_id` | |
 | A tester link | `tester_id` | |
 | A forum topic, a post in it | `topic_id`, `post_id` | |
-| A game named on something else, like a forum topic | `game_slug` | |
+| A game named on something else, like a forum topic | `game_slug` | `gameSlug` |
 | The known issue a message to Zaisma is about | `known_issue_topic_id` | |
 | Where a forum topic stands | `topic_status`: `new`, `investigating`, `known`, `planned`, `fixing`, `released`, `fixed`, `wont`, `answered` | |
 | Where a topic belongs | `category` (like `rooms`), in a `section` (like `multiplayer`) | |
@@ -230,9 +230,20 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 | Forum topics with something new from Zaisma | `unread_topic_count` | |
 | The calls that usually follow a change | `next_steps` | |
 | Ticks a second, and the time since the last tick | | `ticksPerSec`, `tickDurationSec` |
-| Time without input before "Still there?", and who checks | | `idleTimeoutSec`, `idleCheck` |
-| How long a seat is held for a player who walked away | | `seatHoldDurationSec` |
-| What an error is, and its other parts | `code`; `message`, `field`, `fix`, `retry_after_sec` (inside `error` only) | `code` (on the error only) |
+| Time without input before "Still there?", and who checks | | `idleTimeoutSec`; `idleCheck`: `server`, `client`, `off` in a game server, `on`, `off` in `joinRoom` |
+| How long a seat is held for a player who walked away, and what happens to them | | `seatHoldDurationSec`; `awayMode`: `hold_seat`, `send_to_lobby` |
+| Seats a room holds for players coming back or on their way | | `heldSeatCount` |
+| Why a player walked away, and why they left | | `awayReason`: `idle`, `hidden`; `leaveReason`: `left`, `connection_lost`, `idle`, `hidden`, `kicked` |
+| What a player brings to a room, what a reserved room starts with, and what a message carries | | `joinData`, `startData`, `messageData` (a room message's `data`) |
+| How a player came in | | `joinInfo`: `{ fromRoomCode, isReturning }` |
+| Words a player reads about why (kicked, turned away, the match over) | | `message`; `refusalMessage` from `canJoin` |
+| A room's settings | | `roomSettings`: `{ isListed, isOpen, name, labels }` |
+| The room's host, when the game gives the host controls | | `hostPlayerId`, `hostControlsEnabled` |
+| A room's link for friends | | `inviteUrl` |
+| Where a room runs, and a region to filter by | | `location`: `{ countryCode, countryName, continentCode }`; `regionCode` |
+| Players and rooms right now, in a room list | | `playingNow`: `{ playerCount, roomCount, closedRoomCount }`; `joinableRoomCount`, `openRoomCount`, `moreRoomCount` |
+| Where a connection to a room stands | | `connectionStatus`: `connecting`, `open`, `reconnecting`, `away`, `closed` |
+| What an error is, and its other parts | `code`; `message`, `field`, `fix`, `retry_after_sec` (inside `error` only) | `code`, `message` (on the error only) |
 
 ## Adding a field, option or tool
 

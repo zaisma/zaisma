@@ -5,7 +5,7 @@
  */
 
 export interface PassClaims {
-  /** Player ID. For guests, random and only valid for this pass. */
+  /** The player's ID, player_…. For guests, random and only valid for this pass. */
   sub: string;
   /** Display name. Guests get a generated one. */
   name: string;
@@ -19,7 +19,7 @@ export interface PassClaims {
 
 export type PublicKey = JsonWebKey & { kid: string };
 
-export type PassErrorCode = "malformed" | "unknown-key" | "bad-signature" | "expired" | "wrong-game" | "wrong-issuer";
+export type PassErrorCode = "malformed" | "unknown_key" | "bad_signature" | "expired" | "wrong_game" | "wrong_issuer";
 
 // Plain class fields (no TypeScript-only syntax) so Node can run this file directly.
 export class PassError extends Error {
@@ -85,7 +85,7 @@ export function jwks(keys: PublicKey[]): { keys: PublicKey[] } {
 export async function verifyPass(
   token: string,
   keys: PublicKey[],
-  expect: { game: string; issuer: string; now?: number },
+  expect: { gameSlug: string; issuer: string; nowMs?: number },
 ): Promise<PassClaims> {
   const parts = token.split(".");
   if (parts.length !== 3) throw new PassError("malformed");
@@ -99,7 +99,7 @@ export async function verifyPass(
   }
   if (header.alg !== "EdDSA") throw new PassError("malformed");
   const jwk = keys.find((k) => k.kid === header.kid);
-  if (!jwk) throw new PassError("unknown-key");
+  if (!jwk) throw new PassError("unknown_key");
   const key = await crypto.subtle.importKey("jwk", { kty: "OKP", crv: "Ed25519", x: jwk.x }, ED25519, false, ["verify"]);
   let sig: Uint8Array;
   try {
@@ -107,11 +107,11 @@ export async function verifyPass(
   } catch {
     throw new PassError("malformed");
   }
-  if (!(await crypto.subtle.verify(ED25519, key, sig, enc.encode(`${parts[0]}.${parts[1]}`)))) throw new PassError("bad-signature");
-  const now = Math.floor((expect.now ?? Date.now()) / 1000);
+  if (!(await crypto.subtle.verify(ED25519, key, sig, enc.encode(`${parts[0]}.${parts[1]}`)))) throw new PassError("bad_signature");
+  const now = Math.floor((expect.nowMs ?? Date.now()) / 1000);
   if (typeof claims.exp !== "number" || claims.exp <= now) throw new PassError("expired");
-  if (claims.iss !== expect.issuer) throw new PassError("wrong-issuer");
-  if (claims.aud !== expect.game) throw new PassError("wrong-game");
+  if (claims.iss !== expect.issuer) throw new PassError("wrong_issuer");
+  if (claims.aud !== expect.gameSlug) throw new PassError("wrong_game");
   if (typeof claims.sub !== "string" || typeof claims.name !== "string") throw new PassError("malformed");
   return claims;
 }

@@ -1,4 +1,4 @@
-import { PLAYER_REPORT_REASONS, gameServerOf, type MultiplayerMode, checkText, createReport, leaveOut, listRooms, pastFreeTier, readLabelParam, readLeftParam, tidyText, useRoomKey, type PlayerReportReason } from "@zaisma/core";
+import { PLAYER_REPORT_REASONS, gameServerOf, type MultiplayerMode, checkText, createReport, iso, leaveOut, listRooms, newId, pastFreeTier, readLabelParam, readLeftParam, tidyText, useRoomKey, type PlayerReportReason } from "@zaisma/core";
 import { ERROR_TEXT, guestName, isRoomCode, jwks, loadSigningKey, roomCode, signPass, type SigningKey } from "@zaisma/game-server";
 import { usesRooms } from "./registry.ts";
 
@@ -25,7 +25,12 @@ export interface Env {
 }
 
 /** Guest passes last a day; the SDK keeps them only for the browser tab. */
-const PASS_SECONDS = 24 * 3600;
+const PASS_DURATION_SEC = 24 * 3600;
+
+/** A game's room list when it lists its rooms nowhere (room_browsing off). */
+function emptyRoomList() {
+  return { rooms: [], playingNow: { playerCount: 0, roomCount: 0, closedRoomCount: 0 }, joinableRoomCount: 0, openRoomCount: 0, regions: [], regionCode: null, moreRoomCount: 0, labelFilters: [] };
+}
 
 /** What rooms need of a game: its columns of the same names, and the game server its rooms run (gameServerOf). */
 export interface RoomGame {
@@ -77,6 +82,23 @@ export function signingKey(env: Env): Promise<SigningKey> {
   return signing.key;
 }
 
+/**
+ * What this API answers when it refuses: { error: { code, message } }, code lowercase snake_case
+ * (bad_origin, game_unavailable, slow_down, unchecked, unknown_field, missing_field, bad_reason,
+ * bad_room_code, no_rooms, month_limit), as the SDK's errors carry it (err.code).
+ */
+function refusal(code: string, message: string, httpStatus: number, origin?: string): Response {
+  return json({ error: { code, message } }, httpStatus, origin);
+}
+
+/** The fields each call takes; anything else is refused (unknown_field), never quietly ignored. */
+const FIELDS: Record<string, readonly string[]> = {
+  "/v1/pass": ["gameSlug", "roomKey"],
+  "/v1/rooms": ["gameSlug"],
+  "/v1/report": ["gameSlug", "roomCode", "playerId", "playerName", "reason", "details"],
+  "/v1/filter": ["gameSlug", "text"],
+};
+
 function json(body: unknown, status = 200, origin?: string): Response {
   const headers: Record<string, string> = { "Cache-Control": "no-store" };
   if (origin) {
@@ -90,7 +112,7 @@ function json(body: unknown, status = 200, origin?: string): Response {
 async function readBody(request: Request): Promise<{ slug: string | null; body: Record<string, unknown> }> {
   try {
     const body = JSON.parse(await request.text()) as Record<string, unknown>;
-    return { slug: typeof body.game === "string" && /^[a-z0-9-]{1,40}$/.test(body.game) ? body.game : null, body };
+    return { slug: typeof body.gameSlug === "string" && /^[a-z0-9-]{1,40}$/.test(body.gameSlug) ? body.gameSlug : null, body };
   } catch {
     return { slug: null, body: {} };
   }
@@ -115,50 +137,56 @@ export default {
 
     if (request.method === "POST" && (url.pathname === "/v1/pass" || url.pathname === "/v1/rooms" || url.pathname === "/v1/report" || url.pathname === "/v1/filter")) {
       const { slug, body } = await readBody(request);
-      if (!slug || !(await isGameOrigin(env, slug, origin))) return json({ error: "Not allowed from here." }, 403);
+      if (!slug || !(await isGameOrigin(env, slug, origin))) return refusal("bad_origin", "Not allowed from here: only the game's own pages can call this.", 403);
       const cors = origin!;
+      const unknown = Object.keys(body).filter((name) => !FIELDS[url.pathname]!.includes(name));
+      if (unknown.length) return refusal("unknown_field", `${url.pathname} doesn't take ${unknown.join(", ")}. It takes ${FIELDS[url.pathname]!.join(", ")}.`, 400, cors);
       const game = await playableGame(env.DB, slug);
-      if (!game) return json({ error: "This game isn't available right now." }, 404, cors);
+      if (!game) return refusal("game_unavailable", ERROR_TEXT.game_unavailable, 404, cors);
+      const slowDown = () => refusal("slow_down", "Too many requests. Try again in a minute.", 429, cors);
 
       // Zaisma's text filter, for games that want to check what players type (Zaisma.filterText).
       if (url.pathname === "/v1/filter") {
-        if (await limited(env.FILTER_LIMIT, request)) return json({ error: "Too many requests. Try again in a minute." }, 429, cors);
+        if (await limited(env.FILTER_LIMIT, request)) return slowDown();
         const text = tidyText(body.text, 500);
-        return json({ text, ...checkText(text) }, 200, cors);
+        const checked = checkText(text);
+        return json({ text, isAllowed: checked.ok, reason: checked.reason ?? null }, 200, cors);
       }
 
       if (url.pathname === "/v1/pass") {
-        if (await limited(env.PASS_LIMIT, request)) return json({ error: "Too many requests. Try again in a minute." }, 429, cors);
+        if (await limited(env.PASS_LIMIT, request)) return slowDown();
         // Only for a browser Cloudflare's check on Play said is real: the game page's key, a few passes each.
-        if (!(await useRoomKey(env.DB, game.id, body.key))) return json({ error: "Zaisma couldn't check this browser, so it can't play online. Reload the game to try again.", code: "unchecked" }, 403, cors);
+        if (!(await useRoomKey(env.DB, game.id, body.roomKey))) return refusal("unchecked", "Zaisma couldn't check this browser, so it can't play online. Reload the game to try again.", 403, cors);
         const now = Math.floor(Date.now() / 1000);
-        const player = { id: `g_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`, name: guestName() };
-        const pass = await signPass(await signingKey(env), { sub: player.id, name: player.name, aud: slug, iss: env.ISSUER, kind: "guest", iat: now, exp: now + PASS_SECONDS });
-        return json({ pass, player, expiresAt: (now + PASS_SECONDS) * 1000 }, 200, cors);
+        const player = { id: newId("player"), name: guestName() };
+        const pass = await signPass(await signingKey(env), { sub: player.id, name: player.name, aud: slug, iss: env.ISSUER, kind: "guest", iat: now, exp: now + PASS_DURATION_SEC });
+        return json({ pass, player, passExpiresAt: iso((now + PASS_DURATION_SEC) * 1000) }, 200, cors);
       }
 
       // A player reporting another player. Like every report, nothing about the reporter is kept.
       if (url.pathname === "/v1/report") {
-        if (await limited(env.REPORT_LIMIT, request)) return json({ error: "Too many reports. Try again in a minute." }, 429, cors);
+        if (await limited(env.REPORT_LIMIT, request)) return refusal("slow_down", "Too many reports. Try again in a minute.", 429, cors);
         const reason = str(body.reason, 20) as PlayerReportReason;
-        const code = str(body.code, 6);
-        const player = str(body.player, 40);
-        if (!(reason in PLAYER_REPORT_REASONS) || !isRoomCode(code) || !player) return json({ error: "Choose what happened." }, 400, cors);
+        const reportedRoomCode = str(body.roomCode, 6);
+        const playerId = str(body.playerId, 40);
+        if (!(reason in PLAYER_REPORT_REASONS)) return refusal("bad_reason", `Choose what happened: reason is one of ${Object.keys(PLAYER_REPORT_REASONS).join(", ")}.`, 400, cors);
+        if (!isRoomCode(reportedRoomCode)) return refusal("bad_room_code", "roomCode isn't a room code, like the one room.roomCode holds.", 400, cors);
+        if (!playerId) return refusal("missing_field", "playerId is missing: the ID of the player being reported.", 400, cors);
         await createReport(env.DB, {
           gameId: game.id,
           reason: "player",
           details: str(body.details, 500),
           versionId: game.live_version_id,
-          roomCode: code,
-          player: { id: player, name: str(body.name, 40), reason },
+          roomCode: reportedRoomCode,
+          player: { id: playerId, name: str(body.playerName, 40), reason },
         });
-        return json({ ok: true }, 200, cors);
+        return json({ isSent: true }, 200, cors);
       }
 
-      if (!usesRooms(gameServerOf(game))) return json({ error: "This game doesn't use Zaisma rooms." }, 404, cors);
-      if (await limited(env.ROOM_LIMIT, request)) return json({ error: "Too many requests. Try again in a minute." }, 429, cors);
-      if (await pastFreeTier(env.DB, game.id)) return json({ error: ERROR_TEXT["month-limit"], code: "month-limit" }, 403, cors);
-      return json({ code: roomCode() }, 200, cors);
+      if (!usesRooms(gameServerOf(game))) return refusal("no_rooms", "This game doesn't use Zaisma rooms.", 404, cors);
+      if (await limited(env.ROOM_LIMIT, request)) return slowDown();
+      if (await pastFreeTier(env.DB, game.id)) return refusal("month_limit", ERROR_TEXT.month_limit, 403, cors);
+      return json({ roomCode: roomCode() }, 200, cors);
     }
 
     // The game's listed rooms, for games that show them themselves (Zaisma.rooms.list).
@@ -166,22 +194,24 @@ export default {
     if (list && request.method === "GET") {
       const slug = list[1]!;
       const from = await gameOrigin(env, slug, origin);
-      if (!from) return json({ error: "Not allowed from here." }, 403);
+      if (!from) return refusal("bad_origin", "Not allowed from here: only the game's own pages can call this.", 403);
       const game = await playableGame(env.DB, slug);
-      if (!game || !usesRooms(gameServerOf(game))) return json({ error: "This game doesn't use Zaisma rooms." }, 404, origin!);
-      if (game.room_browsing === "off") return json({ rooms: [], playing: { players: 0, rooms: 0, closed: 0 }, joinable: 0, open: 0, regions: [], region: null, more: 0, filters: [] }, 200, origin!);
+      if (!game || !usesRooms(gameServerOf(game))) return refusal("no_rooms", "This game doesn't use Zaisma rooms.", 404, origin!);
+      const unknown = [...url.searchParams.keys()].filter((name) => !["regionCode", "labels", "left"].includes(name));
+      if (unknown.length) return refusal("unknown_field", `The room list doesn't take ${unknown.join(", ")}. It takes regionCode and labels.`, 400, origin!);
+      if (game.room_browsing === "off") return json(emptyRoomList(), 200, origin!);
       // The SDK says which room this player just left, so they don't see themselves in it while lists catch up.
       const left = readLeftParam(url.searchParams.get("left"));
       const listed = await listRooms(env.DB, game.id, {
         country: request.cf?.country as string | undefined,
         continent: request.cf?.continent as string | undefined,
-        region: url.searchParams.get("region"),
+        region: url.searchParams.get("regionCode"),
         labels: readLabelParam(url.searchParams.get("labels")),
         cacheSeconds: Number(env.ROOM_LIST_CACHE_SECONDS ?? 10),
       });
-      const { changed: _, ...found } = left ? leaveOut(listed, left) : listed;
-      const link = (code: string) => `${env.SITE_ORIGIN}${from.page}?room=${code}`;
-      return json({ ...found, rooms: found.rooms.map((r) => ({ ...r, link: link(r.code) })) }, 200, origin!);
+      const { rowChangedAtMs: _, ...found } = left ? leaveOut(listed, left) : listed;
+      const inviteUrl = (code: string) => `${env.SITE_ORIGIN}${from.page}?room=${code}`;
+      return json({ ...found, rooms: found.rooms.map((room) => ({ ...room, inviteUrl: inviteUrl(room.roomCode) })) }, 200, origin!);
     }
 
     const m = url.pathname.match(/^\/v1\/rooms\/([a-z0-9-]{1,40})\/([A-Z0-9]{6})$/);

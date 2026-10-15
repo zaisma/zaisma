@@ -9,7 +9,7 @@ const BODY = 18;
 const DELAY = 100; // ms behind the newest snapshot
 
 let room = null;
-let snaps = []; // [{ at, bodies: Map(id -> [x, y, score, dashing, out, name, color]) }]
+let snaps = []; // [{ at, bodies: Map(playerId -> { x, y, score, isDashing, isOut, name, color }) }]
 const flashes = [];
 
 function resize() {
@@ -34,9 +34,9 @@ function input() {
   }
   const v = [Math.round(x * 10) / 10, Math.round(y * 10) / 10];
   const key = v.join(",");
-  if (key !== sent && room) { sent = key; room.send({ i: v }); }
+  if (key !== sent && room) { sent = key; room.send({ input: v }); }
 }
-function dash() { if (room) room.send({ d: 1 }); }
+function dash() { if (room) room.send({ dash: true }); }
 addEventListener("keydown", (e) => {
   const k = e.key.toLowerCase();
   if (k === " " || k === "shift") { if (!e.repeat) dash(); e.preventDefault(); return; }
@@ -91,19 +91,19 @@ function draw() {
 
   for (const [id, cur] of b.bodies) {
     const prev = a.bodies.get(id) || cur;
-    if (cur[4]) continue; // out
-    const x = prev[0] + (cur[0] - prev[0]) * k;
-    const y = prev[1] + (cur[1] - prev[1]) * k;
+    if (cur.isOut) continue;
+    const x = prev.x + (cur.x - prev.x) * k;
+    const y = prev.y + (cur.y - prev.y) * k;
     ctx.beginPath();
     ctx.arc(x, y, BODY, 0, Math.PI * 2);
-    ctx.fillStyle = cur[6];
+    ctx.fillStyle = cur.color;
     ctx.fill();
-    if (cur[3]) { ctx.lineWidth = 5; ctx.strokeStyle = "#fff"; ctx.stroke(); }
+    if (cur.isDashing) { ctx.lineWidth = 5; ctx.strokeStyle = "#fff"; ctx.stroke(); }
     if (id === meId) { ctx.lineWidth = 3; ctx.strokeStyle = "#fff"; ctx.beginPath(); ctx.arc(x, y, BODY + 7, 0, Math.PI * 2); ctx.stroke(); }
     ctx.fillStyle = "#ddd";
     ctx.font = "14px system-ui, sans-serif";
     ctx.textAlign = "center";
-    ctx.fillText(cur[5], x, y - BODY - 10);
+    ctx.fillText(cur.name, x, y - BODY - 10);
   }
   for (let i = flashes.length - 1; i >= 0; i--) {
     const f = flashes[i];
@@ -118,17 +118,17 @@ function draw() {
 }
 requestAnimationFrame(draw);
 
-function onSnapshot(list) {
-  const bodies = new Map(list.map((r) => [r[0], r.slice(1)]));
+function onSnapshot(snapshot) {
+  const bodies = new Map(snapshot.map((body) => [body.playerId, body]));
   snaps.push({ at: performance.now(), bodies });
   if (snaps.length > 10) snaps.shift();
-  const rows = [...list].sort((x, y) => y[3] - x[3]);
+  const rows = [...snapshot].sort((first, second) => second.score - first.score);
   boardEl.innerHTML = "";
-  for (const r of rows) {
+  for (const body of rows) {
     const line = document.createElement("div");
-    line.textContent = `${r[6]}  ${r[3]}`;
-    line.style.color = r[7];
-    if (room && room.me && r[0] === room.me.id) line.style.fontWeight = "700";
+    line.textContent = `${body.name}  ${body.score}`;
+    line.style.color = body.color;
+    if (room && room.me && body.playerId === room.me.id) line.style.fontWeight = "700";
     boardEl.append(line);
   }
 }
@@ -146,7 +146,7 @@ colorBtn.onclick = () => {
   color = COLORS[(COLORS.indexOf(color) + 1) % COLORS.length];
   try { localStorage.setItem("arena:color", color); } catch (e) { /* fine */ }
   showColor();
-  if (room) room.send({ c: color });
+  if (room) room.send({ color });
 };
 const inviteBtn = document.getElementById("invite");
 inviteBtn.onclick = async () => {
@@ -158,27 +158,27 @@ inviteBtn.onclick = async () => {
 async function start() {
   try {
     // A drop-in game: the room the player's link points to, else a busy arena with space, else a new one.
-    room = await Zaisma.rooms.quickJoin({ data: color ? { color } : undefined });
+    room = await Zaisma.rooms.quickJoin({ joinData: color ? { color } : undefined });
   } catch (err) {
     statusEl.textContent = err.message;
     return;
   }
   statusEl.textContent = room.players.length < 2 ? "Practice with bots. Tap Invite to bring friends in." : "";
   setTimeout(() => { if (statusEl.textContent.startsWith("Practice")) statusEl.textContent = ""; }, 4000);
-  room.on("message", (m) => {
-    if (m.s) onSnapshot(m.s);
-    if (m.ko) {
+  room.on("message", (messageData) => {
+    if (messageData.snapshot) onSnapshot(messageData.snapshot);
+    if (messageData.knockedOutPlayerId) {
       const last = snaps.at(-1);
-      const body = last && last.bodies.get(m.ko);
-      if (body) flashes.push({ x: body[0], y: body[1], at: performance.now() });
+      const body = last && last.bodies.get(messageData.knockedOutPlayerId);
+      if (body) flashes.push({ x: body.x, y: body.y, at: performance.now() });
     }
   });
   // Walked away (idle, or the tab hidden for a while): out of the match, with the seat kept a few minutes. Any key brings them back.
-  room.on("status", (s) => {
+  room.on("connection_status", (connectionStatus) => {
     statusEl.textContent =
-      s === "reconnecting" ? "Reconnecting…" : s === "away" ? "You stepped away. Press any key to jump back in." : s === "closed" ? "Disconnected. Reload to play again." : "";
+      connectionStatus === "reconnecting" ? "Reconnecting…" : connectionStatus === "away" ? "You stepped away. Press any key to jump back in." : connectionStatus === "closed" ? "Disconnected. Reload to play again." : "";
   });
-  room.on("ended", (reason) => { statusEl.textContent = reason; });
+  room.on("ended", (message) => { statusEl.textContent = message; });
   input();
 }
 start();

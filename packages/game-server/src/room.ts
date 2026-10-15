@@ -10,6 +10,7 @@
 import { isRoomCode, roomCode } from "./names.ts";
 
 export interface Player {
+  /** player_…: a guest's ID lasts as long as their player pass. */
   id: string;
   name: string;
 }
@@ -17,82 +18,92 @@ export interface Player {
 export interface Room {
   /** Players in the room right now, in join order. */
   readonly players: readonly Player[];
-  /** Send a message to every player, or everyone except one. */
-  broadcast(msg: unknown, opts?: { except?: string }): void;
-  /** Send a message to one player. */
-  send(playerId: string, msg: unknown): void;
-  /** End the match: everyone is disconnected and the room closes. */
-  end(reason?: string): void;
+  /** Send messageData (plain JSON) to every player, or everyone except one. */
+  broadcast(messageData: unknown, options?: BroadcastOptions): void;
+  /** Send messageData (plain JSON) to one player. */
+  send(playerId: string, messageData: unknown): void;
+  /** End the match: everyone is told message (or "The match is over."), disconnected, and the room closes. */
+  end(message?: string): void;
   /** Shown in room lists (the game page and Zaisma.rooms.list). A hidden room still works by code and link. */
-  readonly listed: boolean;
-  setListed(listed: boolean): void;
+  readonly isListed: boolean;
+  setListed(isListed: boolean): void;
   /** Taking new players. A closed room lets back only players who were already in it. */
-  readonly open: boolean;
-  setOpen(open: boolean): void;
+  readonly isOpen: boolean;
+  setOpen(isOpen: boolean): void;
   /** The room's name, like "Ana's castle", or null. Up to 40 characters. */
   readonly name: string | null;
   /** Up to 4 labels players can filter by, like { Mode: "Classic", Map: "Docks" }. */
   readonly labels: Readonly<Record<string, string>>;
   /**
-   * Name and label the room, from the game or from what a player typed. Names and labels a player
-   * typed show on zaisma.com only if they pass Zaisma's text filter; your game is responsible for
-   * them inside the game. Leave a field out to keep it; null clears it.
+   * Name the room, from the game or from what a player typed; null clears it. Names and labels a
+   * player typed show on zaisma.com only if they pass Zaisma's text filter; your game is responsible
+   * for them inside the game.
    */
-  setInfo(info: RoomInfo): void;
+  setName(name: string | null): void;
+  /** Label the room, like { Mode: "Classic", Map: "Docks" }: up to 4, each name up to 16 characters and value up to 24. null clears them. */
+  setLabels(labels: Record<string, string | number> | null): void;
   /**
    * Make a new room for some of this room's players, like a lobby starting a match, and move them
-   * there. The new room runs this same game server: its setup(data) gets your data, only the players
-   * named can join it (a closed room, until it opens), and it's hidden from room lists unless you
-   * list it. Each player gets a "move" event in the game and joins when the game says so.
-   * Returns the new room's code. The data is plain JSON, up to 4 KB; players can read it but not change it.
+   * there. The new room runs this same game server: its setup(startData) gets your startData, only
+   * the players named can join it (a closed room, until it opens), and it's hidden from room lists
+   * unless isListed is true. Each player gets a "move" event in the game and joins when the game
+   * says so. Returns the new room's code. startData is plain JSON, up to 4 KB; players can read it
+   * but not change it.
    */
-  reserve(opts: ReserveOptions): string;
+  reserve(options: ReserveOptions): string;
   /**
-   * Remove a player from the room, telling them why (up to 200 characters; your game's words, so
-   * keep them within the content rules). keepOut keeps them out of this room for the rest of the
-   * match, and out of any room it reserves after. onLeave runs once the current handler is done.
+   * Remove a player from the room, telling them why in message (up to 200 characters; your game's
+   * words, so keep them within the content rules). keepOut keeps them out of this room for the rest
+   * of the match, and out of any room it reserves after. onLeave runs once the current handler is done.
    */
-  kick(playerId: string, opts?: KickOptions): void;
+  kick(playerId: string, options?: KickOptions): void;
   /**
    * Send some of this room's players to another room of this game that already exists, like back to
    * their party's match or into the next area of an open world. The other room's canJoin decides with
-   * your data (plain JSON, up to 4 KB) and holds a seat for each player it takes for a minute, even
-   * if it's closed to new players; its onJoin gets the same data. Each player taken gets a "move" event in the game, which follows by
-   * default. onMoved then says who was taken and who was turned away; they stay here.
+   * your joinData (plain JSON, up to 4 KB) and holds a seat for each player it takes for a minute,
+   * even if it's closed to new players; its onJoin gets the same joinData. Each player taken gets a
+   * "move" event in the game, which follows by default. onMoved then says who was taken and who was
+   * turned away; they stay here.
    */
-  moveTo(code: string, opts: MoveOptions): void;
+  moveTo(roomCode: string, options: MoveOptions): void;
+}
+
+export interface BroadcastOptions {
+  exceptPlayerId?: string;
 }
 
 export interface MoveOptions {
-  players: string[];
-  data?: unknown;
+  playerIds: string[];
+  joinData?: unknown;
 }
 
 /** Who another room took (room.moveTo) and who it turned away, and why. */
 export interface MoveResult {
-  code: string;
-  moved: Player[];
-  refused: { player: Player; code: RoomErrorCode; reason: string }[];
+  roomCode: string;
+  movedPlayers: Player[];
+  refusedPlayers: { player: Player; error: { code: RoomErrorCode; message: string } }[];
 }
 
 /**
- * How a player came in: from, the code of the room that sent them (room.moveTo), or undefined.
- * back: they're coming back to the seat the room held for them, after walking away or losing their connection.
+ * How a player came in. fromRoomCode: the room that sent them (room.moveTo), or null. isReturning:
+ * they're coming back to the seat the room held for them, after walking away or losing their connection.
  */
 export interface JoinInfo {
-  from?: string;
-  back?: boolean;
+  fromRoomCode: string | null;
+  isReturning: boolean;
 }
 
 /** Why a player walked away: no input (idle), or the game hidden in a real-time room. */
 export type AwayReason = "idle" | "hidden";
 
 /**
- * Why a player left: left (closed the game or left the room), lost (their connection dropped, and
- * the room holds their seat), idle or hidden (they walked away, and the room holds their seat), kicked.
+ * Why a player left: left (closed the game or left the room), connection_lost (the room holds their
+ * seat), idle or hidden (they walked away, and the room holds their seat), kicked.
  */
+export type LeaveReason = "left" | "connection_lost" | AwayReason | "kicked";
+
 export interface LeaveInfo {
-  why: "left" | "lost" | AwayReason | "kicked";
+  leaveReason: LeaveReason;
 }
 
 /** What one room asks another when moving players there; from is the asking room's code, added by the transport. */
@@ -103,204 +114,296 @@ export interface MoveAsk {
 }
 
 export interface KickOptions {
-  reason?: string;
+  message?: string;
   keepOut?: boolean;
 }
 
-/** A room made for some players: who, the data its game server starts with, and how it shows. */
-export interface ReserveOptions extends RoomInfo {
-  players: string[];
-  data?: unknown;
-  listed?: boolean;
+/** A room made for some players: who, the startData its game server starts with, and how it shows. */
+export interface ReserveOptions {
+  playerIds: string[];
+  startData?: unknown;
+  isListed?: boolean;
+  name?: string | null;
+  labels?: Record<string, string | number> | null;
 }
 
 /** How a reserved room starts, as the room that made it sends it on. */
-export interface RoomStart extends Pick<RoomSettings, "listed" | "name" | "labels"> {
+export interface RoomStart extends Pick<RoomSettings, "isListed" | "name" | "labels"> {
   players: string[];
   data?: unknown;
   /** Players kept out of the room that made this one, and why: they stay out of this one too. */
   keptOut?: Record<string, string>;
-  /** The code of the room that made this one, where away: "lobby" sends players. Added by the transport. */
+  /** The code of the room that made this one, where awayMode "send_to_lobby" sends players. Added by the transport. */
   lobby?: string;
 }
 
-/** A room's name and labels, as a game sets them. */
-export interface RoomInfo {
+/** A room's name and labels, as a game sets them. Leave a field out to keep it; null clears it. */
+export interface RoomNaming {
   name?: string | null;
   labels?: Record<string, string | number> | null;
 }
+
+/** What canJoin answers: true (or nothing) lets the player in, false or { refusalMessage } turns them away. */
+export type JoinAnswer = boolean | { refusalMessage: string } | void;
 
 type Result<S> = void | S;
 
 export interface GameServer<S = any> {
   /** Up to 16. Defaults to 8. */
-  maxPlayers?: number;
-  /** Ticks per second, up to 30. Leave out for turn-based games so the room can sleep between moves. */
-  tickRate?: number;
+  maximumPlayerCount?: number;
+  /** Up to 30. Leave out for turn-based games so the room can sleep between moves. */
+  ticksPerSec?: number;
   /**
    * The room's first player is its host: they may hide, show, open, close and name the room, and
    * kick players, from the game. When the host leaves, the next player takes over. The relay has this on.
    */
-  hostControls?: boolean;
+  hostControlsEnabled?: boolean;
   /**
-   * Seconds without input before a player's game asks "Still there?"; 30 seconds later they walk
-   * away. Defaults to 600 (10 minutes); false turns the idle check off. "client" lets the game in the
-   * player's browser decide (joinRoom({ idle })), as the relay does.
+   * Who checks for players who stopped giving input: "server" (the default) asks "Still there?"
+   * after idleTimeoutSec; "client" lets each player's game decide (joinRoom({ idleCheck,
+   * idleTimeoutSec })), as the relay does; "off" never checks.
    */
-  idleAfter?: number | false | "client";
+  idleCheck?: IdleCheck;
+  /** With idleCheck "server": seconds without input before "Still there?", 30 to 86400. Defaults to 600. 30 seconds later the player walks away. */
+  idleTimeoutSec?: number;
   /**
    * What happens when a player walks away (idle, or the game hidden for 2 minutes in a real-time
-   * room). "hold" (the default) takes them out of the match (onLeave) and holds their seat for
-   * holdFor seconds, so they come straight back to it. "lobby" sends them to the room that made this
-   * one (room.reserve), holding their seat if there isn't one or it won't take them. Give onAway to
-   * handle it yourself instead.
+   * room). "hold_seat" (the default) takes them out of the match (onLeave) and holds their seat for
+   * seatHoldDurationSec, so they come straight back to it. "send_to_lobby" sends them to the room that
+   * made this one (room.reserve), holding their seat if there isn't one or it won't take them. Give
+   * onAway to handle it yourself instead.
    */
-  away?: "hold" | "lobby";
+  awayMode?: AwayMode;
   /**
-   * How long the room holds a seat for a player who walked away or lost their connection, in
-   * seconds: up to 1800, 0 for none. Defaults to 300. Held seats count toward maxPlayers.
+   * How long the room holds a seat for a player who walked away or lost their connection: up to 1800,
+   * 0 for none. Defaults to 300. Held seats count toward maximumPlayerCount.
    */
-  holdFor?: number;
+  seatHoldDurationSec?: number;
   /**
-   * The starting state. It must be plain JSON so a sleeping room can be saved and woken. data is
+   * The starting state. It must be plain JSON so a sleeping room can be saved and woken. startData is
    * what room.reserve() passed when another room made this one, and undefined otherwise.
    */
-  setup(data?: unknown): S;
+  setup(startData?: unknown): S;
   /**
-   * data is what the player's game passed to joinRoom({ data }), like the character they picked, or
-   * undefined. It comes from the player's browser, so check it like any message. For a player another
-   * room sent (room.moveTo), data is what that room's game server passed, and info.from is its code.
+   * joinData is what the player's game passed to joinRoom({ joinData }), like the character they
+   * picked, or undefined. It comes from the player's browser, so check it like any message. For a
+   * player another room sent (room.moveTo), joinData is what that room's game server passed, and
+   * joinInfo.fromRoomCode is its code.
    */
-  onJoin?(state: S, player: Player, room: Room, data?: unknown, info?: JoinInfo): Result<S>;
+  onJoin?(state: S, player: Player, room: Room, joinData: unknown, joinInfo: JoinInfo): Result<S>;
   /**
-   * Say who may come in, before they join: return false, or a reason the player sees (up to 200
-   * characters), to turn them away, like a wrong room password in data or a full team. Anything
-   * else lets them in. Players coming back after a dropped connection don't ask again. Only decide
-   * here; change the state in onJoin. If it throws, the player is turned away. Players another room
-   * sends are asked when it sends them, with its data and info.from, and not again when they arrive.
+   * Say who may come in, before they join: return false, or { refusalMessage } (up to 200 characters,
+   * shown to the player), to turn them away, like a wrong room password in joinData or a full team;
+   * return true, or nothing, to let them in. Anything else turns them away too, as a mistake. Players
+   * coming back after a dropped connection don't ask again. Only decide here; change the state in
+   * onJoin. If it throws, the player is turned away. Players another room sends are asked when it
+   * sends them, with its joinData and joinInfo.fromRoomCode, and not again when they arrive.
    */
-  canJoin?(state: S, player: Player, room: Room, data?: unknown, info?: JoinInfo): boolean | string | void | Promise<boolean | string | void>;
+  canJoin?(state: S, player: Player, room: Room, joinData: unknown, joinInfo: JoinInfo): JoinAnswer | Promise<JoinAnswer>;
   /** After room.moveTo: who the other room took, and who it turned away and why. */
-  onMoved?(state: S, result: MoveResult, room: Room): Result<S>;
-  /** info.why says why they left; a player who lost their connection or walked away gets their seat held. */
-  onLeave?(state: S, player: Player, room: Room, info?: LeaveInfo): Result<S>;
+  onMoved?(state: S, moveResult: MoveResult, room: Room): Result<S>;
+  /** leaveInfo.leaveReason says why they left; a player who lost their connection or walked away gets their seat held. */
+  onLeave?(state: S, player: Player, room: Room, leaveInfo: LeaveInfo): Result<S>;
   /**
    * A player walked away. With onAway, they stay in the room and your game decides what happens:
    * kick them, move them (room.moveTo) or keep them. They don't count as playing meanwhile, and a
    * room where everyone is away stops ticking. onBack runs when they return.
    */
-  onAway?(state: S, player: Player, room: Room, why: AwayReason): Result<S>;
+  onAway?(state: S, player: Player, room: Room, awayReason: AwayReason): Result<S>;
   onBack?(state: S, player: Player, room: Room): Result<S>;
-  onMessage?(state: S, player: Player, msg: unknown, room: Room): Result<S>;
-  onTick?(state: S, dt: number, room: Room): Result<S>;
+  /** messageData is what the player's game sent (room.send), parsed from JSON. Check it: it comes from the player's browser. */
+  onMessage?(state: S, player: Player, messageData: unknown, room: Room): Result<S>;
+  /** tickDurationSec: seconds since the last tick, about 1 / ticksPerSec. */
+  onTick?(state: S, tickDurationSec: number, room: Room): Result<S>;
 }
 
+export type IdleCheck = "server" | "client" | "off";
+export type AwayMode = "hold_seat" | "send_to_lobby";
+
+/** Every option a game server may have, settings and handlers; defineGameServer refuses anything else. */
+export const GAME_SERVER_OPTIONS = [
+  "maximumPlayerCount",
+  "ticksPerSec",
+  "hostControlsEnabled",
+  "idleCheck",
+  "idleTimeoutSec",
+  "awayMode",
+  "seatHoldDurationSec",
+  "setup",
+  "canJoin",
+  "onJoin",
+  "onMoved",
+  "onLeave",
+  "onAway",
+  "onBack",
+  "onMessage",
+  "onTick",
+] as const;
+
+const HANDLERS = new Set<string>(["setup", "canJoin", "onJoin", "onMoved", "onLeave", "onAway", "onBack", "onMessage", "onTick"]);
+
 export const ROOM_LIMITS = {
-  maxPlayers: 16,
-  defaultPlayers: 8,
-  maxTickRate: 30,
-  /** A room's name, its labels, and each label's name and value, in characters. */
-  nameLength: 40,
-  labels: 4,
-  labelName: 16,
-  labelValue: 24,
-  /** Data a player brings to a room, and data a reserved room starts with, in bytes of JSON. */
-  dataBytes: 4 * 1024,
+  maximumPlayerCount: 16,
+  defaultMaximumPlayerCount: 8,
+  maximumTicksPerSec: 30,
+  /** A room's name, its labels, and each label's name and value. */
+  maximumNameCharacterCount: 40,
+  maximumLabelCount: 4,
+  maximumLabelNameCharacterCount: 16,
+  maximumLabelValueCharacterCount: 24,
+  /** joinData a player brings to a room, and startData a reserved room starts with, as JSON. */
+  maximumDataSizeBytes: 4 * 1024,
   /** Rooms one room may reserve or move players to a minute: enough for a full lobby, not for a bug that does it every tick. */
-  reservesPerMinute: 20,
-  /** A kick's or a refusal's reason, in characters. */
-  reasonLength: 200,
-  /** Largest message a client may send, in bytes. */
-  messageBytes: 16 * 1024,
-  /** Sustained messages per second per player, with a short burst allowance. */
-  messagesPerSecond: 30,
-  burst: 60,
-  /** The idle check's default and range, in seconds (idleAfter, joinRoom({ idle })). */
-  idleAfter: 600,
-  idleMin: 30,
-  idleMax: 24 * 3600,
-  /** How long a game hidden in a real-time room counts before its player is away, in seconds. */
-  hiddenAway: 120,
-  /** How long a seat is held by default, and at most, in seconds (holdFor). */
-  holdFor: 300,
-  holdMax: 1800,
+  maximumReservesPerMin: 20,
+  /** A kick's message, a refusal's or an end's. */
+  maximumMessageCharacterCount: 200,
+  /** Largest message a client may send. */
+  maximumMessageSizeBytes: 16 * 1024,
+  /** Sustained messages a second per player, with a short burst allowance. */
+  messagesPerSec: 30,
+  messageBurstCount: 60,
+  /** The idle check's default and range (idleTimeoutSec, joinRoom({ idleTimeoutSec })). */
+  defaultIdleTimeoutSec: 600,
+  minimumIdleTimeoutSec: 30,
+  maximumIdleTimeoutSec: 24 * 3600,
+  /** How long a game hidden in a real-time room counts before its player is away. */
+  hiddenTimeoutSec: 120,
+  /** How long a seat is held by default, and at most (seatHoldDurationSec). */
+  defaultSeatHoldDurationSec: 300,
+  maximumSeatHoldDurationSec: 1800,
 } as const;
 
 /** "Still there?" waits this long for an answer, and the room this much more before it decides for itself. */
 const IDLE_ASK_MS = 30_000;
 const IDLE_GRACE_MS = 60_000;
 
-/** Check a game server's settings once, when it's defined. */
+/**
+ * A mistake in a game server's options or in a call it made, with a stable code: unknown_option (a
+ * name it doesn't take), bad_option (a value it doesn't take), not_available (a call this room can't
+ * make here), room_ended or slow_down (too many reserves and moves a minute).
+ */
+export type GameServerErrorCode = "unknown_option" | "bad_option" | "not_available" | "room_ended" | "slow_down";
+
+// Plain class fields (no TypeScript-only syntax) so Node can run this file directly.
+export class GameServerError extends Error {
+  readonly code: GameServerErrorCode;
+  constructor(code: GameServerErrorCode, message: string) {
+    super(message);
+    this.code = code;
+  }
+}
+
+/** Refuses option names a call doesn't take, listing the ones it does. */
+export function refuseUnknownOptions(given: unknown, allowed: readonly string[], what: string): void {
+  if (given === undefined || given === null) return;
+  if (typeof given !== "object" || Array.isArray(given)) throw new GameServerError("bad_option", `${what} takes an object with ${allowed.join(", ")}.`);
+  const unknown = Object.keys(given).filter((name) => !allowed.includes(name));
+  if (unknown.length) throw new GameServerError("unknown_option", `${what} doesn't take ${unknown.join(", ")}. It takes ${allowed.join(", ")}.`);
+}
+
+/** Check a game server's options once, when it's defined: unknown names and values out of range throw, saying what's allowed. */
 export function defineGameServer<S>(server: GameServer<S>): GameServer<S> {
-  if (typeof server.setup !== "function") throw new Error("A game server needs a setup() function");
-  const max = server.maxPlayers ?? ROOM_LIMITS.defaultPlayers;
-  if (!Number.isInteger(max) || max < 1 || max > ROOM_LIMITS.maxPlayers) throw new Error(`maxPlayers must be 1 to ${ROOM_LIMITS.maxPlayers}`);
-  if (server.tickRate !== undefined && !(server.tickRate > 0 && server.tickRate <= ROOM_LIMITS.maxTickRate)) {
-    throw new Error(`tickRate must be above 0 and at most ${ROOM_LIMITS.maxTickRate}`);
+  refuseUnknownOptions(server, GAME_SERVER_OPTIONS, "A game server");
+  if (typeof server.setup !== "function") throw new GameServerError("bad_option", "A game server needs a setup() function.");
+  for (const name of Object.keys(server)) {
+    const option = (server as unknown as Record<string, unknown>)[name];
+    if (HANDLERS.has(name) && option !== undefined && typeof option !== "function") throw new GameServerError("bad_option", `${name} must be a function.`);
   }
-  const idle = server.idleAfter;
-  if (idle !== undefined && idle !== false && idle !== "client" && !(typeof idle === "number" && idle >= ROOM_LIMITS.idleMin && idle <= ROOM_LIMITS.idleMax)) {
-    throw new Error(`idleAfter must be ${ROOM_LIMITS.idleMin} to ${ROOM_LIMITS.idleMax} seconds, false or "client"`);
+  const maximumPlayerCount = server.maximumPlayerCount ?? ROOM_LIMITS.defaultMaximumPlayerCount;
+  if (!Number.isInteger(maximumPlayerCount) || maximumPlayerCount < 1 || maximumPlayerCount > ROOM_LIMITS.maximumPlayerCount) {
+    throw new GameServerError("bad_option", `maximumPlayerCount must be a whole number from 1 to ${ROOM_LIMITS.maximumPlayerCount}.`);
   }
-  if (server.away !== undefined && server.away !== "hold" && server.away !== "lobby") throw new Error(`away must be "hold" or "lobby"`);
-  if (server.holdFor !== undefined && !(typeof server.holdFor === "number" && server.holdFor >= 0 && server.holdFor <= ROOM_LIMITS.holdMax)) {
-    throw new Error(`holdFor must be 0 to ${ROOM_LIMITS.holdMax} seconds`);
+  if (server.ticksPerSec !== undefined && !(typeof server.ticksPerSec === "number" && server.ticksPerSec > 0 && server.ticksPerSec <= ROOM_LIMITS.maximumTicksPerSec)) {
+    throw new GameServerError("bad_option", `ticksPerSec must be above 0 and at most ${ROOM_LIMITS.maximumTicksPerSec}; leave it out for a turn-based game.`);
+  }
+  if (server.hostControlsEnabled !== undefined && typeof server.hostControlsEnabled !== "boolean") throw new GameServerError("bad_option", "hostControlsEnabled must be true or false.");
+  if (server.idleCheck !== undefined && !["server", "client", "off"].includes(server.idleCheck)) throw new GameServerError("bad_option", `idleCheck must be "server", "client" or "off".`);
+  if (server.idleTimeoutSec !== undefined) {
+    if ((server.idleCheck ?? "server") !== "server") throw new GameServerError("bad_option", `idleTimeoutSec only applies with idleCheck "server".`);
+    if (!(typeof server.idleTimeoutSec === "number" && server.idleTimeoutSec >= ROOM_LIMITS.minimumIdleTimeoutSec && server.idleTimeoutSec <= ROOM_LIMITS.maximumIdleTimeoutSec)) {
+      throw new GameServerError("bad_option", `idleTimeoutSec must be ${ROOM_LIMITS.minimumIdleTimeoutSec} to ${ROOM_LIMITS.maximumIdleTimeoutSec}.`);
+    }
+  }
+  if (server.awayMode !== undefined && server.awayMode !== "hold_seat" && server.awayMode !== "send_to_lobby") throw new GameServerError("bad_option", `awayMode must be "hold_seat" or "send_to_lobby".`);
+  if (server.seatHoldDurationSec !== undefined && !(typeof server.seatHoldDurationSec === "number" && server.seatHoldDurationSec >= 0 && server.seatHoldDurationSec <= ROOM_LIMITS.maximumSeatHoldDurationSec)) {
+    throw new GameServerError("bad_option", `seatHoldDurationSec must be 0 to ${ROOM_LIMITS.maximumSeatHoldDurationSec}.`);
   }
   return server;
 }
 
 /** Whether a room shows in room lists and takes new players, and its name and labels. */
 export interface RoomSettings {
-  listed: boolean;
-  open: boolean;
+  isListed: boolean;
+  isOpen: boolean;
   name: string | null;
   labels: Record<string, string>;
 }
 
 /**
- * Messages from the room to a client. Clients send {t:"hello", pass, data?, room?: {listed, name, labels}, idle?}
- * first (data is for canJoin and onJoin; the room's settings only count from the player who makes it;
- * idle, seconds or false, only where the game server leaves it to the client), then {t:"msg", d}; with
- * hostControls, the host may also send {t:"room", listed?, open?, name?, labels?} and {t:"kick", player, keepOut?}.
- * host is in welcome and players only with hostControls.
+ * Messages between the room and a client, as JSON: each says its type. Clients send hello first:
+ * { type: "hello", pass, joinData?, newRoom?: { isListed?, name?, labels? }, idleCheck?, idleTimeoutSec? }
+ * (joinData is for canJoin and onJoin; newRoom only counts from the player who makes the room;
+ * idleCheck "on" or "off" and idleTimeoutSec only where the game server leaves the idle check to the
+ * client), then { type: "message", data }. With hostControlsEnabled, the host may also send
+ * { type: "update_room", isListed?, isOpen?, name?, labels? } and { type: "kick", playerId, keepOut? }.
+ * hostPlayerId is null without host controls.
  *
  * Players who walk away (docs/DECISIONS.md): clients send the text "ping" every 30 seconds or so (the
  * room answers "pong"; a connection with no ping or message for about a minute is dropped), and
- * {t:"here"} now and then while the player gives input but the game sends nothing. They send
- * {t:"idle"} when the player didn't answer "Still there?", {t:"hidden"} and {t:"shown"} as the game is
- * hidden and shown (where welcome's away.hidden says it counts), and {t:"back", data?} when the player
- * returns. A player out of the match with their seat held gets {t:"away"}, and once the seat is no
+ * { type: "here" } now and then while the player gives input but the game sends nothing. They send
+ * { type: "idle" } when the player didn't answer "Still there?", { type: "hidden" } and
+ * { type: "shown" } as the game is hidden and shown (where welcome's awayChecks.hiddenTimeoutSec says
+ * it counts), and { type: "back", joinData?, idleCheck?, idleTimeoutSec? } when the player returns.
+ * A player out of the match with their seat held gets { type: "away" }, and once the seat is no
  * longer held, their connection closes with CLOSE_SEAT_GONE.
  */
 export type ServerMessage =
-  | { t: "welcome"; me: Player; players: Player[]; room: RoomSettings; host?: string | null; away: AwayChecks }
-  | { t: "players"; players: Player[]; host?: string | null }
-  | { t: "away"; why: AwayReason; seconds: number }
-  | { t: "kicked"; reason: string; keptOut: boolean }
-  | { t: "room"; room: RoomSettings }
-  | { t: "move"; code: string }
-  | { t: "msg"; d: unknown }
-  | { t: "error"; code: RoomErrorCode; message: string }
-  | { t: "ended"; reason: string };
+  | { type: "welcome"; me: Player; players: Player[]; roomSettings: RoomSettings; hostPlayerId: string | null; awayChecks: AwayChecks }
+  | { type: "players"; players: Player[]; hostPlayerId: string | null }
+  | { type: "away"; awayReason: AwayReason; seatHoldDurationSec: number }
+  | { type: "kicked"; message: string; isKeptOut: boolean }
+  | { type: "room_settings"; roomSettings: RoomSettings }
+  | { type: "move"; roomCode: string }
+  | { type: "message"; data: unknown }
+  | { type: "error"; code: RoomErrorCode; message: string }
+  | { type: "ended"; message: string };
 
-export type RoomErrorCode = "full" | "closed" | "ended" | "too-big" | "too-fast" | "bad-message" | "bad-pass" | "no-hello" | "not-allowed" | "game-unavailable" | "busy" | "kept-out" | "refused" | "no-room" | "month-limit";
+/** The types of message a client sends, after hello. */
+export const CLIENT_MESSAGE_TYPES = ["message", "update_room", "kick", "here", "idle", "hidden", "shown", "back"] as const;
+
+export type RoomErrorCode =
+  | "full"
+  | "closed"
+  | "ended"
+  | "too_big"
+  | "too_fast"
+  | "bad_message"
+  | "bad_pass"
+  | "no_hello"
+  | "not_allowed"
+  | "game_unavailable"
+  | "busy"
+  | "kept_out"
+  | "refused"
+  | "no_room"
+  | "month_limit";
 
 export const ERROR_TEXT: Record<RoomErrorCode, string> = {
   full: "This room is full.",
   closed: "This room isn't taking new players.",
   ended: "This match has ended.",
-  "too-big": "Message too big.",
-  "too-fast": "Too many messages. Slow down.",
-  "bad-message": "Messages must be JSON.",
-  "bad-pass": "Your player pass isn't valid for this game.",
-  "no-hello": "Send your player pass first.",
-  "not-allowed": "Only the game server or the room's host can do that.",
-  "game-unavailable": "This game isn't available right now.",
+  too_big: "Message too big.",
+  too_fast: "Too many messages. Slow down.",
+  bad_message: `Messages must be JSON with a type: ${CLIENT_MESSAGE_TYPES.join(", ")}.`,
+  bad_pass: "Your player pass isn't valid for this game.",
+  no_hello: "Send your player pass first.",
+  not_allowed: "Only the game server or the room's host can do that.",
+  game_unavailable: "This game isn't available right now.",
   busy: "Rooms are busy. Try again soon.",
-  "kept-out": "You were removed from this room.",
+  kept_out: "You were removed from this room.",
   refused: "The game didn't let you into this room.",
-  "no-room": "That room isn't running.",
-  "month-limit": "This game has used this month's multiplayer time. New rooms open again next month.",
+  no_room: "That room isn't running.",
+  month_limit: "This game has used this month's multiplayer time. New rooms open again next month.",
 };
 
 /**
@@ -320,14 +423,14 @@ export interface SavedRoom extends RoomSettings {
 /** A seat held for a player out of the match: who, why they're out, and until when. */
 export interface Held {
   player: Player;
-  why: "lost" | AwayReason;
+  why: "connection_lost" | AwayReason;
   until: number;
 }
 
-/** When a room counts its players as away, in seconds, or null when it doesn't: no input (idle), and the game hidden. */
+/** When a room counts its players as away, or null when it doesn't: no input (idle), and the game hidden. */
 export interface AwayChecks {
-  idle: number | null;
-  hidden: number | null;
+  idleTimeoutSec: number | null;
+  hiddenTimeoutSec: number | null;
 }
 
 /** A player another room is sending here: the data it sent, where from, and until when their seat is held. */
@@ -353,7 +456,7 @@ export interface Transport {
   moveTo?(code: string, ask: Omit<MoveAsk, "from">): void;
 }
 
-/** Plain JSON within ROOM_LIMITS.dataBytes, or undefined if it isn't. Players' data that fails this is refused. */
+/** Plain JSON within ROOM_LIMITS.maximumDataSizeBytes, or undefined if it isn't. Players' joinData that fails this is refused. */
 export function roomData(data: unknown): { ok: true; data: unknown } | { ok: false } {
   if (data === undefined) return { ok: true, data: undefined };
   let text: string | undefined;
@@ -362,13 +465,23 @@ export function roomData(data: unknown): { ok: true; data: unknown } | { ok: fal
   } catch {
     return { ok: false };
   }
-  if (text === undefined || new TextEncoder().encode(text).length > ROOM_LIMITS.dataBytes) return { ok: false };
+  if (text === undefined || new TextEncoder().encode(text).length > ROOM_LIMITS.maximumDataSizeBytes) return { ok: false };
   return { ok: true, data: JSON.parse(text) };
 }
 
-/** An error for a client. message replaces the usual text, like the game's reason for turning a player away. */
+/** An error for a client. message replaces the usual text, like the game's refusalMessage for turning a player away. */
 export function errorMessage(code: RoomErrorCode, message?: string): string {
-  return JSON.stringify({ t: "error", code, message: message || ERROR_TEXT[code] } satisfies ServerMessage);
+  return JSON.stringify({ type: "error", code, message: message || ERROR_TEXT[code] } satisfies ServerMessage);
+}
+
+/**
+ * The idle check a player's game asked for (joinRoom({ idleCheck, idleTimeoutSec })), as a hello or
+ * back message says it: seconds within the limits, null for none ("off"), or undefined for the default.
+ */
+export function clientIdleTimeoutSec(idleCheck: unknown, idleTimeoutSec: unknown): number | null | undefined {
+  if (idleCheck === "off") return null;
+  if (typeof idleTimeoutSec !== "number" || !Number.isFinite(idleTimeoutSec)) return undefined;
+  return Math.min(ROOM_LIMITS.maximumIdleTimeoutSec, Math.max(ROOM_LIMITS.minimumIdleTimeoutSec, Math.round(idleTimeoutSec)));
 }
 
 /** Whether a player may come in, and if not, why. */
@@ -386,6 +499,14 @@ export const CLOSE_NO_ANSWER = 4003;
 /** How many past players a room remembers, so they can come back to a closed room, and how many it keeps out. */
 const REMEMBERED = 64;
 
+/** What a player brings when they join: the room settings the player who makes it asks for, their joinData and their game's idle check. */
+export interface JoinOptions extends RoomNaming {
+  isListed?: boolean;
+  joinData?: unknown;
+  /** From clientIdleTimeoutSec: null for none, undefined for the default. */
+  idleTimeoutSec?: number | null;
+}
+
 export class RoomCore<S = any> {
   state: S;
   readonly players = new Map<string, Player>();
@@ -394,15 +515,15 @@ export class RoomCore<S = any> {
   messages = 0;
   /** Set when the state changed and a sleeping room should save it. */
   dirty = false;
-  listed = true;
-  open = true;
+  isListed = true;
+  isOpen = true;
   name: string | null = null;
   labels: Record<string, string> = {};
-  /** Set when the player count, listed or open changed, so the room list can be brought up to date. */
+  /** Set when the player count, isListed or isOpen changed, so the room list can be brought up to date. */
   listingChanged = false;
   /** Players who have been in this room, newest last: they may come back after it closes. */
   readonly known = new Set<string>();
-  /** Players kicked and kept out for the rest of the match, with the reason they were given. */
+  /** Players kicked and kept out for the rest of the match, with the message they were given. */
   readonly keptOut = new Map<string, string>();
   /** Players other rooms are sending here (room.moveTo), with a seat each until they arrive. */
   readonly expected = new Map<string, Expected>();
@@ -410,7 +531,7 @@ export class RoomCore<S = any> {
   readonly held = new Map<string, Held>();
   /** Players who walked away that onAway kept in the room, and why. */
   readonly kept = new Map<string, AwayReason>();
-  /** The room that made this one, where away: "lobby" sends players who walk away. */
+  /** The room that made this one, where awayMode "send_to_lobby" sends players who walk away. */
   lobby: string | null = null;
   /** When each player in the match was last heard from, when their game was hidden, and the idle check their game asked for. */
   private presence = new Map<string, Presence>();
@@ -422,7 +543,7 @@ export class RoomCore<S = any> {
   private reservedAt: number[] = [];
   private buckets = new Map<string, { tokens: number; at: number }>();
   private readonly now: () => number;
-  readonly maxPlayers: number;
+  readonly maximumPlayerCount: number;
   private readonly api: Room;
   readonly server: GameServer<S>;
   private readonly transport: Transport;
@@ -445,20 +566,20 @@ export class RoomCore<S = any> {
   constructor(
     server: GameServer<S>,
     transport: Transport,
-    opts: { state?: S; players?: Player[]; room?: SavedRoom; start?: RoomStart; presence?: Record<string, { seen?: number; idle?: unknown }>; now?: () => number } = {},
+    opts: { state?: S; players?: Player[]; room?: SavedRoom; start?: RoomStart; presence?: Record<string, { seen?: number; idleTimeoutSec?: number | null }>; now?: () => number } = {},
   ) {
     this.server = server;
     this.transport = transport;
     this.now = opts.now ?? Date.now;
-    this.maxPlayers = server.maxPlayers ?? ROOM_LIMITS.defaultPlayers;
+    this.maximumPlayerCount = server.maximumPlayerCount ?? ROOM_LIMITS.defaultMaximumPlayerCount;
     for (const p of opts.players ?? []) {
       this.players.set(p.id, p);
       const was = opts.presence?.[p.id];
-      this.presence.set(p.id, { seen: was?.seen ?? this.now(), idle: clientIdle(was?.idle) });
+      this.presence.set(p.id, { seen: was?.seen ?? this.now(), idleTimeoutSec: was?.idleTimeoutSec });
     }
     if (opts.room) {
-      this.listed = opts.room.listed;
-      this.open = opts.room.open;
+      this.isListed = opts.room.isListed;
+      this.isOpen = opts.room.isOpen;
       this.name = opts.room.name ?? null;
       this.labels = opts.room.labels ?? {};
       for (const id of opts.room.known) this.known.add(id);
@@ -469,8 +590,8 @@ export class RoomCore<S = any> {
       for (const [id, why] of Object.entries(opts.room.kept ?? {})) if (this.players.has(id)) this.kept.set(id, why);
       this.lobby = opts.room.lobby ?? null;
     } else if (opts.start) {
-      this.open = false;
-      this.listed = opts.start.listed;
+      this.isOpen = false;
+      this.isListed = opts.start.isListed;
       this.name = opts.start.name;
       this.labels = opts.start.labels;
       for (const id of opts.start.players) this.known.add(id);
@@ -492,29 +613,34 @@ export class RoomCore<S = any> {
       get players() {
         return [...core.players.values()];
       },
-      broadcast: (msg, o) => this.broadcast(msg, o?.except),
-      send: (id, msg) => {
-        if (this.players.has(id)) this.transport.send(id, JSON.stringify({ t: "msg", d: msg } satisfies ServerMessage));
+      broadcast: (messageData, options) => {
+        refuseUnknownOptions(options, ["exceptPlayerId"], "room.broadcast");
+        this.broadcast(messageData, options?.exceptPlayerId);
       },
-      end: (reason) => this.end(reason ?? "The match is over."),
-      get listed() {
-        return core.listed;
+      send: (id, messageData) => {
+        if (this.players.has(id)) this.transport.send(id, JSON.stringify({ type: "message", data: messageData } satisfies ServerMessage));
       },
-      setListed: (listed) => this.settle({ listed: Boolean(listed) }),
-      get open() {
-        return core.open;
+      end: (message) => this.end(tidy(message, ROOM_LIMITS.maximumMessageCharacterCount) || "The match is over."),
+      get isListed() {
+        return core.isListed;
       },
-      setOpen: (open) => this.settle({ open: Boolean(open) }),
+      setListed: (isListed) => this.settle({ isListed: Boolean(isListed) }),
+      get isOpen() {
+        return core.isOpen;
+      },
+      setOpen: (isOpen) => this.settle({ isOpen: Boolean(isOpen) }),
       get name() {
         return core.name;
       },
       get labels() {
         return { ...core.labels };
       },
-      setInfo: (info) => this.settle(roomInfo(info)),
-      reserve: (o) => this.reserve(o),
-      kick: (id, o) => this.kick(id, o),
-      moveTo: (code, o) => this.moveTo(code, o),
+      setName: (name) => this.settle(roomNaming({ name })),
+      setLabels: (labels) => this.settle(roomNaming({ labels })),
+      // A game server in a sandbox picks the code itself, since it tells the game at once (sandbox.ts).
+      reserve: (options: ReserveOptions, chosenRoomCode?: string) => this.reserve(options, chosenRoomCode),
+      kick: (id, options) => this.kick(id, options),
+      moveTo: (roomCode, options) => this.moveTo(roomCode, options),
     };
   }
 
@@ -553,35 +679,43 @@ export class RoomCore<S = any> {
   }
 
   get ticking(): boolean {
-    return this.server.tickRate !== undefined;
+    return this.server.ticksPerSec !== undefined;
   }
 
   /**
    * Whether a player may come in: the room's own rules (over, kept out, closed, full), then the game
-   * server's canJoin with the data the player brought. Call before join; join checks the room's rules again.
+   * server's canJoin with the joinData the player brought. Call before join; join checks the room's rules again.
    */
-  async admit(player: Player, data?: unknown): Promise<Admission> {
+  async admit(player: Player, joinData?: unknown): Promise<Admission> {
     const door = this.door(player.id);
     if (door) return door;
     // Players already in, players another room sent (asked when it sent them) and players coming back to a held seat don't ask again.
     if (this.players.has(player.id) || this.seat(player.id) || this.holding(player.id)) return { ok: true };
-    return this.ask(player, data, {});
+    return this.ask(player, joinData, { fromRoomCode: null, isReturning: false });
   }
 
   /** The game server's canJoin, then the room's rules again, since things may change while it decides. */
-  private async ask(player: Player, data: unknown, info: JoinInfo): Promise<Admission> {
-    const moving = info.from !== undefined;
+  private async ask(player: Player, joinData: unknown, joinInfo: JoinInfo): Promise<Admission> {
+    const moving = joinInfo.fromRoomCode !== null;
     if (!this.server.canJoin) return this.door(player.id, moving) ?? { ok: true };
     await this.settled();
-    let verdict: unknown;
+    let answer: unknown;
     try {
-      verdict = await this.server.canJoin(this.state, player, this.api, data, info);
-    } catch (err) {
-      console.error("Game server error:", err);
+      answer = await this.server.canJoin(this.state, player, this.api, joinData, joinInfo);
+    } catch (error) {
+      console.error("Game server error:", error);
       return { ok: false, code: "refused" };
     }
-    if (verdict === false) return { ok: false, code: "refused" };
-    if (typeof verdict === "string") return { ok: false, code: "refused", ...(tidy(verdict, ROOM_LIMITS.reasonLength) ? { message: tidy(verdict, ROOM_LIMITS.reasonLength) } : {}) };
+    if (answer === false) return { ok: false, code: "refused" };
+    if (answer !== true && answer !== undefined && answer !== null) {
+      const refusalMessage = (answer as { refusalMessage?: unknown }).refusalMessage;
+      if (typeof answer !== "object" || typeof refusalMessage !== "string") {
+        console.error("Game server error: canJoin must answer true, false or { refusalMessage }, not", answer);
+        return { ok: false, code: "refused" };
+      }
+      const message = tidy(refusalMessage, ROOM_LIMITS.maximumMessageCharacterCount);
+      return { ok: false, code: "refused", ...(message ? { message } : {}) };
+    }
     return this.door(player.id, moving) ?? { ok: true };
   }
 
@@ -594,10 +728,10 @@ export class RoomCore<S = any> {
   private door(id: string, moving = false): Admission | null {
     if (this.ended) return { ok: false, code: "ended" };
     const out = this.keptOut.get(id);
-    if (out !== undefined) return { ok: false, code: "kept-out", message: out };
+    if (out !== undefined) return { ok: false, code: "kept_out", message: out };
     if (this.players.has(id) || this.seat(id) || this.holding(id)) return null;
-    if (!moving && !this.open && !this.known.has(id)) return { ok: false, code: "closed" };
-    if (this.players.size + this.seatsHeld() >= this.maxPlayers) return { ok: false, code: "full" };
+    if (!moving && !this.isOpen && !this.known.has(id)) return { ok: false, code: "closed" };
+    if (this.players.size + this.seatsHeld() >= this.maximumPlayerCount) return { ok: false, code: "full" };
     return null;
   }
 
@@ -636,7 +770,7 @@ export class RoomCore<S = any> {
 
   /**
    * Another room of the game wants to send players here (its room.moveTo). Each is checked like a
-   * newcomer, with the room's rules and canJoin given the sending room's data; those taken get a
+   * newcomer, with the room's rules and canJoin given the sending room's joinData; those taken get a
    * seat for a minute. Says who was taken and who wasn't, and why.
    */
   async expect(ask: MoveAsk): Promise<{ moved: string[]; refused: { id: string; code: RoomErrorCode; reason: string }[] }> {
@@ -644,7 +778,9 @@ export class RoomCore<S = any> {
     const refused: { id: string; code: RoomErrorCode; reason: string }[] = [];
     const data = roomData(ask.data);
     for (const player of ask.players) {
-      const verdict = this.players.has(player.id) ? ({ ok: false, code: "bad-message", message: "Already in that room." } as const) : await this.ask(player, data.ok ? data.data : undefined, { from: ask.from });
+      const verdict = this.players.has(player.id)
+        ? ({ ok: false, code: "bad_message", message: "Already in that room." } as const)
+        : await this.ask(player, data.ok ? data.data : undefined, { fromRoomCode: ask.from, isReturning: false });
       if (verdict.ok) {
         this.expected.set(player.id, { ...(data.ok && data.data !== undefined ? { data: data.data } : {}), from: ask.from, until: this.now() + SEAT_MS });
         moved.push(player.id);
@@ -656,10 +792,11 @@ export class RoomCore<S = any> {
 
   /**
    * A player arrives. Joining again with the same ID (a reconnect) keeps their place. The player who
-   * makes the room can hide it from the start (a private match) and name and label it. data is what
-   * the player's game sent along, for onJoin; idle is the idle check it asked for (idleAfter "client").
+   * makes the room can hide it from the start (a private match) and name and label it. joinData is
+   * what the player's game sent along, for onJoin; idleTimeoutSec is the idle check it asked for
+   * (idleCheck "client").
    */
-  join(player: Player, opts: { listed?: boolean; data?: unknown; idle?: unknown } & RoomInfo = {}): { ok: true; rejoined: boolean } | { ok: false; code: RoomErrorCode; message?: string } {
+  join(player: Player, options: JoinOptions = {}): { ok: true; rejoined: boolean } | { ok: false; code: RoomErrorCode; message?: string } {
     const rejoined = this.players.has(player.id);
     const door = this.door(player.id);
     if (door && !door.ok) return door;
@@ -668,19 +805,19 @@ export class RoomCore<S = any> {
     const back = rejoined || seat ? null : this.holding(player.id);
     this.expected.delete(player.id);
     if (back) this.held.delete(player.id);
-    const data = seat ? seat.data : opts.data;
-    const info: JoinInfo = seat ? { from: seat.from } : back ? { back: true } : {};
+    const joinData = seat ? seat.data : options.joinData;
+    const joinInfo: JoinInfo = { fromRoomCode: seat ? seat.from : null, isReturning: Boolean(back) };
     if (this.known.size === 0) {
-      if (opts.listed === false) this.listed = false;
-      Object.assign(this, roomInfo({ name: opts.name, labels: opts.labels }));
+      if (options.isListed === false) this.isListed = false;
+      Object.assign(this, roomNaming({ name: options.name, labels: options.labels }));
     }
     this.players.set(player.id, player);
     this.remember(player.id);
-    this.presence.set(player.id, { seen: this.now(), idle: opts.idle === undefined ? this.presence.get(player.id)?.idle : clientIdle(opts.idle) });
-    this.transport.send(player.id, JSON.stringify({ t: "welcome", me: player, players: this.list(), room: this.settings(), ...this.hostField(), away: this.checks(player.id) } satisfies ServerMessage));
+    this.presence.set(player.id, { seen: this.now(), idleTimeoutSec: options.idleTimeoutSec === undefined ? this.presence.get(player.id)?.idleTimeoutSec : options.idleTimeoutSec });
+    this.transport.send(player.id, JSON.stringify({ type: "welcome", me: player, players: this.list(), roomSettings: this.settings(), hostPlayerId: this.host, awayChecks: this.checks(player.id) } satisfies ServerMessage));
     if (!rejoined) {
       this.listingChanged = true;
-      this.run(() => this.server.onJoin?.(this.state, player, this.api, data, info));
+      this.run(() => this.server.onJoin?.(this.state, player, this.api, joinData, joinInfo));
       this.broadcastPlayers();
     } else if (this.kept.has(player.id)) this.back(player.id);
     return { ok: true, rejoined };
@@ -690,10 +827,10 @@ export class RoomCore<S = any> {
    * A player's connection closed: they left (closed the game, or followed a move), or it was lost. A
    * lost player's seat is held for a while, so they can come straight back.
    */
-  leave(playerId: string, why: "left" | "lost" = "left"): void {
+  leave(playerId: string, leaveReason: "left" | "connection_lost" = "left"): void {
     if (this.held.has(playerId)) {
       // A player out of the match went for good: their seat is free. A lost connection keeps it held.
-      if (why === "left") {
+      if (leaveReason === "left") {
         this.held.delete(playerId);
         this.listingChanged = true;
         this.dirty = true;
@@ -704,8 +841,8 @@ export class RoomCore<S = any> {
     if (!player) return;
     this.out(playerId);
     if (this.ended) return;
-    if (why === "lost") this.hold(player, "lost");
-    this.run(() => this.server.onLeave?.(this.state, player, this.api, { why }));
+    if (leaveReason === "connection_lost") this.hold(player, "connection_lost");
+    this.run(() => this.server.onLeave?.(this.state, player, this.api, { leaveReason }));
     this.broadcastPlayers();
   }
 
@@ -719,57 +856,59 @@ export class RoomCore<S = any> {
     this.dirty = true;
   }
 
-  /** Hold a seat for a player out of the match, for the game's holdFor. */
+  /** Hold a seat for a player out of the match, for the game's seatHoldDurationSec. Returns that duration. */
   private hold(player: Player, why: Held["why"]): number {
-    const seconds = this.server.holdFor ?? ROOM_LIMITS.holdFor;
-    if (seconds > 0) this.held.set(player.id, { player, why, until: this.now() + seconds * 1000 });
+    const seatHoldDurationSec = this.server.seatHoldDurationSec ?? ROOM_LIMITS.defaultSeatHoldDurationSec;
+    if (seatHoldDurationSec > 0) this.held.set(player.id, { player, why, until: this.now() + seatHoldDurationSec * 1000 });
     this.listingChanged = true;
     this.dirty = true;
-    return seconds;
+    return seatHoldDurationSec;
   }
 
-  /** When this room counts a player as away (welcome's away), by the game's settings and what their game asked for. */
+  /** When this room counts a player as away (welcome's awayChecks), by the game's settings and what their game asked for. */
   private checks(playerId: string): AwayChecks {
-    return { idle: this.idleLimit(playerId), hidden: this.ticking ? ROOM_LIMITS.hiddenAway : null };
+    return { idleTimeoutSec: this.idleLimit(playerId), hiddenTimeoutSec: this.ticking ? ROOM_LIMITS.hiddenTimeoutSec : null };
   }
 
   /** Seconds without input before a player counts as idle, or null if the idle check is off for them. */
   private idleLimit(playerId: string): number | null {
-    const setting = this.server.idleAfter === "client" ? this.presence.get(playerId)?.idle : this.server.idleAfter;
-    if (setting === false) return null;
-    return typeof setting === "number" ? setting : ROOM_LIMITS.idleAfter;
+    const idleCheck = this.server.idleCheck ?? "server";
+    if (idleCheck === "off") return null;
+    if (idleCheck === "server") return this.server.idleTimeoutSec ?? ROOM_LIMITS.defaultIdleTimeoutSec;
+    const chosenIdleTimeoutSec = this.presence.get(playerId)?.idleTimeoutSec;
+    return chosenIdleTimeoutSec === undefined ? ROOM_LIMITS.defaultIdleTimeoutSec : chosenIdleTimeoutSec;
   }
 
   /**
    * A player walked away: idle (they didn't answer "Still there?", or the room heard nothing for
    * longer), or their game hidden too long in a real-time room. The game's onAway decides; otherwise
-   * they leave the match with their seat held, and with away: "lobby" are sent to the lobby.
+   * they leave the match with their seat held, and with awayMode "send_to_lobby" are sent to the lobby.
    */
-  private walkAway(playerId: string, why: AwayReason): void {
+  private walkAway(playerId: string, awayReason: AwayReason): void {
     const player = this.players.get(playerId);
     if (!player || this.ended || this.kept.has(playerId)) return;
     if (this.server.onAway) {
       const p = this.presence.get(playerId);
       if (p) p.hiddenAt = undefined;
-      this.kept.set(playerId, why);
+      this.kept.set(playerId, awayReason);
       this.listingChanged = true;
       this.dirty = true;
-      this.run(() => this.server.onAway!(this.state, player, this.api, why));
+      this.run(() => this.server.onAway!(this.state, player, this.api, awayReason));
       return;
     }
     this.out(playerId);
-    const seconds = this.hold(player, why);
-    this.transport.send(playerId, JSON.stringify({ t: "away", why, seconds } satisfies ServerMessage));
-    this.run(() => this.server.onLeave?.(this.state, player, this.api, { why }));
+    const seatHoldDurationSec = this.hold(player, awayReason);
+    this.transport.send(playerId, JSON.stringify({ type: "away", awayReason, seatHoldDurationSec } satisfies ServerMessage));
+    this.run(() => this.server.onLeave?.(this.state, player, this.api, { leaveReason: awayReason }));
     this.broadcastPlayers();
-    if (this.server.away === "lobby" && this.lobby && this.transport.moveTo) {
+    if (this.server.awayMode === "send_to_lobby" && this.lobby && this.transport.moveTo) {
       this.sentAway.add(playerId);
       this.transport.moveTo(this.lobby, { players: [player] });
-    } else if (!seconds) this.transport.close(playerId, CLOSE_SEAT_GONE, "Seat no longer held");
+    } else if (!seatHoldDurationSec) this.transport.close(playerId, CLOSE_SEAT_GONE, "Seat no longer held");
   }
 
   /** A player who walked away is back: kept in the room by onAway, or coming back to their held seat. */
-  private back(playerId: string, data?: unknown, idle?: unknown): RoomErrorCode | null {
+  private back(playerId: string, joinData?: unknown, idleTimeoutSec?: number | null): RoomErrorCode | null {
     const player = this.players.get(playerId);
     if (player) {
       if (!this.kept.delete(playerId)) return null;
@@ -780,8 +919,8 @@ export class RoomCore<S = any> {
     }
     const held = this.holding(playerId);
     if (!held) return null;
-    const brought = roomData(data);
-    const result = this.join(held.player, { data: brought.ok ? brought.data : undefined, idle });
+    const brought = roomData(joinData);
+    const result = this.join(held.player, { joinData: brought.ok ? brought.data : undefined, idleTimeoutSec });
     return result.ok ? null : result.code;
   }
 
@@ -796,9 +935,9 @@ export class RoomCore<S = any> {
     const now = this.now();
     for (const [id, p] of [...this.presence]) {
       if (this.kept.has(id)) continue;
-      const idle = this.idleLimit(id);
-      if (idle !== null && now - p.seen >= idle * 1000 + IDLE_ASK_MS + IDLE_GRACE_MS) this.walkAway(id, "idle");
-      else if (this.ticking && p.hiddenAt !== undefined && now - p.hiddenAt >= ROOM_LIMITS.hiddenAway * 1000) this.walkAway(id, "hidden");
+      const idleTimeoutSec = this.idleLimit(id);
+      if (idleTimeoutSec !== null && now - p.seen >= idleTimeoutSec * 1000 + IDLE_ASK_MS + IDLE_GRACE_MS) this.walkAway(id, "idle");
+      else if (this.ticking && p.hiddenAt !== undefined && now - p.hiddenAt >= ROOM_LIMITS.hiddenTimeoutSec * 1000) this.walkAway(id, "hidden");
     }
     for (const [id, h] of [...this.held]) {
       if (h.until > now) continue;
@@ -815,21 +954,21 @@ export class RoomCore<S = any> {
     const held = !player && this.held.has(playerId);
     if ((!player && !held) || this.ended) return "ended";
     this.messages++;
-    if (text.length > ROOM_LIMITS.messageBytes || new TextEncoder().encode(text).length > ROOM_LIMITS.messageBytes) return "too-big";
-    if (!this.take(playerId)) return "too-fast";
-    let msg: unknown;
+    if (text.length > ROOM_LIMITS.maximumMessageSizeBytes || new TextEncoder().encode(text).length > ROOM_LIMITS.maximumMessageSizeBytes) return "too_big";
+    if (!this.take(playerId)) return "too_fast";
+    let parsed: unknown;
     try {
-      msg = JSON.parse(text);
+      parsed = JSON.parse(text);
     } catch {
-      return "bad-message";
+      return "bad_message";
     }
-    const m = (msg && typeof msg === "object" ? msg : {}) as Record<string, unknown>;
+    const m = (parsed && typeof parsed === "object" ? parsed : {}) as Record<string, unknown>;
     // Out of the match with their seat held, a player can only come back; anything else waits.
-    if (held) return m.t === "back" ? this.back(playerId, m.data, m.idle) : null;
+    if (held) return m.type === "back" ? this.back(playerId, m.joinData, clientIdleTimeoutSec(m.idleCheck, m.idleTimeoutSec)) : null;
     const p = this.presence.get(playerId);
     if (p) p.seen = this.now();
-    switch (m.t) {
-      case "room":
+    switch (m.type) {
+      case "update_room":
         return this.hostChange(playerId, m);
       case "kick":
         return this.hostKick(playerId, m);
@@ -846,96 +985,93 @@ export class RoomCore<S = any> {
         return this.kept.get(playerId) === "hidden" ? this.back(playerId) : null;
       case "back":
         return this.back(playerId);
-      case "msg":
-        this.run(() => this.server.onMessage?.(this.state, player!, m.d, this.api));
+      case "message":
+        this.run(() => this.server.onMessage?.(this.state, player!, m.data, this.api));
         return null;
       default:
-        return "bad-message";
+        return "bad_message";
     }
   }
 
   /** The host: the room's first player, when the game server has host controls on. */
   get host(): string | null {
-    return this.server.hostControls ? (this.players.keys().next().value ?? null) : null;
-  }
-
-  private hostField(): { host?: string | null } {
-    return this.server.hostControls ? { host: this.host } : {};
+    return this.server.hostControlsEnabled ? (this.players.keys().next().value ?? null) : null;
   }
 
   /**
-   * The host kicks a player, when the game server allows it. Players can't type the reason (no free
+   * The host kicks a player, when the game server allows it. Players can't type the message (no free
    * text between strangers), so the kicked player is told the host removed them.
    */
-  private hostKick(playerId: string, msg: Record<string, unknown>): RoomErrorCode | null {
-    if (this.host !== playerId) return "not-allowed";
-    if (typeof msg.player !== "string" || msg.player === playerId || !this.players.has(msg.player)) return "bad-message";
-    this.kick(msg.player, { reason: "The host removed you from this room.", keepOut: msg.keepOut === true });
+  private hostKick(playerId: string, request: Record<string, unknown>): RoomErrorCode | null {
+    if (this.host !== playerId) return "not_allowed";
+    if (typeof request.playerId !== "string" || request.playerId === playerId || !this.players.has(request.playerId)) return "bad_message";
+    this.kick(request.playerId, { message: "The host removed you from this room.", keepOut: request.keepOut === true });
     return null;
   }
 
   /** The host hides, shows, opens, closes, names or labels the room, when the game server allows it. */
-  private hostChange(playerId: string, msg: Record<string, unknown>): RoomErrorCode | null {
-    if (this.host !== playerId) return "not-allowed";
-    const change: Partial<RoomSettings> = roomInfo(msg as RoomInfo);
-    if (typeof msg.listed === "boolean") change.listed = msg.listed;
-    if (typeof msg.open === "boolean") change.open = msg.open;
+  private hostChange(playerId: string, request: Record<string, unknown>): RoomErrorCode | null {
+    if (this.host !== playerId) return "not_allowed";
+    const change: Partial<RoomSettings> = roomNaming(request as RoomNaming);
+    if (typeof request.isListed === "boolean") change.isListed = request.isListed;
+    if (typeof request.isOpen === "boolean") change.isOpen = request.isOpen;
     this.settle(change);
     this.dirty = true;
     return null;
   }
 
   private settings(): RoomSettings {
-    return { listed: this.listed, open: this.open, name: this.name, labels: { ...this.labels } };
+    return { isListed: this.isListed, isOpen: this.isOpen, name: this.name, labels: { ...this.labels } };
   }
 
-  /** Change listed, open, the name or labels, and tell everyone in the room. */
+  /** Change isListed, isOpen, the name or labels, and tell everyone in the room. */
   private settle(change: Partial<RoomSettings>): void {
     const next = { ...this.settings(), ...change };
     if (JSON.stringify(next) === JSON.stringify(this.settings())) return;
-    this.listed = next.listed;
-    this.open = next.open;
+    this.isListed = next.isListed;
+    this.isOpen = next.isOpen;
     this.name = next.name;
     this.labels = next.labels;
     this.listingChanged = true;
-    const text = JSON.stringify({ t: "room", room: next } satisfies ServerMessage);
+    const text = JSON.stringify({ type: "room_settings", roomSettings: next } satisfies ServerMessage);
     for (const id of this.players.keys()) this.transport.send(id, text);
   }
 
   /** A room made for some of this room's players (room.reserve). Mistakes in the game's call throw. */
-  private reserve(opts: ReserveOptions & { code?: unknown }): string {
-    if (!this.transport.reserve) throw new Error("Reserved rooms aren't available here");
-    if (this.ended) throw new Error("This room has ended");
-    const players = [...new Set(Array.isArray(opts?.players) ? opts.players : [])].filter((id) => this.players.has(id));
-    if (!players.length) throw new Error("room.reserve needs players who are in this room");
-    const data = roomData(opts.data);
-    if (!data.ok) throw new Error(`Reserved room data must be plain JSON up to ${ROOM_LIMITS.dataBytes / 1024} KB`);
+  private reserve(options: ReserveOptions, chosenRoomCode?: string): string {
+    refuseUnknownOptions(options, ["playerIds", "startData", "isListed", "name", "labels"], "room.reserve");
+    if (!this.transport.reserve) throw new GameServerError("not_available", "Reserved rooms aren't available here.");
+    if (this.ended) throw new GameServerError("room_ended", "This room has ended.");
+    const players = [...new Set(Array.isArray(options?.playerIds) ? options.playerIds : [])].filter((id) => this.players.has(id));
+    if (!players.length) throw new GameServerError("bad_option", "room.reserve needs playerIds of players in this room.");
+    const startData = roomData(options.startData);
+    if (!startData.ok) throw new GameServerError("bad_option", `startData must be plain JSON up to ${ROOM_LIMITS.maximumDataSizeBytes / 1024} KB.`);
     this.limit();
-    const info = roomInfo({ name: opts.name ?? null, labels: opts.labels ?? {} });
-    // A game server in a sandbox picks the code itself, since it tells the game at once.
-    const code = typeof opts.code === "string" && isRoomCode(opts.code) ? opts.code : roomCode();
+    const naming = roomNaming({ name: options.name ?? null, labels: options.labels ?? {} });
+    const code = typeof chosenRoomCode === "string" && isRoomCode(chosenRoomCode) ? chosenRoomCode : roomCode();
     this.transport.reserve(code, {
       players,
-      data: data.data,
-      listed: opts.listed === true,
-      name: info.name ?? null,
-      labels: info.labels ?? {},
+      data: startData.data,
+      isListed: options.isListed === true,
+      name: naming.name ?? null,
+      labels: naming.labels ?? {},
       ...(this.keptOut.size ? { keptOut: Object.fromEntries(this.keptOut) } : {}),
     });
     return code;
   }
 
   /** Send players to another room of the game (room.moveTo). Mistakes in the game's call throw. */
-  private moveTo(code: string, opts: MoveOptions): void {
-    if (!this.transport.moveTo) throw new Error("Moving players isn't available here");
-    if (this.ended) throw new Error("This room has ended");
-    if (typeof code !== "string" || !isRoomCode(code)) throw new Error("room.moveTo needs a room code");
-    const players = [...new Set(Array.isArray(opts?.players) ? opts.players : [])].map((id) => this.players.get(id)).filter((p): p is Player => Boolean(p));
-    if (!players.length) throw new Error("room.moveTo needs players who are in this room");
-    const data = roomData(opts.data);
-    if (!data.ok) throw new Error(`Move data must be plain JSON up to ${ROOM_LIMITS.dataBytes / 1024} KB`);
+  private moveTo(code: string, options: MoveOptions): void {
+    refuseUnknownOptions(options, ["playerIds", "joinData"], "room.moveTo");
+    if (!this.transport.moveTo) throw new GameServerError("not_available", "Moving players isn't available here.");
+    if (this.ended) throw new GameServerError("room_ended", "This room has ended.");
+    if (typeof code !== "string" || !isRoomCode(code)) throw new GameServerError("bad_option", "room.moveTo needs a room code, like the one room.reserve gave.");
+    const players = [...new Set(Array.isArray(options?.playerIds) ? options.playerIds : [])].map((id) => this.players.get(id)).filter((p): p is Player => Boolean(p));
+    if (!players.length) throw new GameServerError("bad_option", "room.moveTo needs playerIds of players in this room.");
+    const joinData = roomData(options.joinData);
+    if (!joinData.ok) throw new GameServerError("bad_option", `joinData must be plain JSON up to ${ROOM_LIMITS.maximumDataSizeBytes / 1024} KB.`);
     this.limit();
-    this.transport.moveTo(code, { players, data: data.data });
+    this.transport.moveTo(code, { players, data: joinData.data });
   }
 
   /**
@@ -944,7 +1080,7 @@ export class RoomCore<S = any> {
    */
   moved(code: string, answer: { moved: string[]; refused: { id: string; code: RoomErrorCode; reason: string }[] }, sent: Player[]): void {
     // The room sending a player who walked away to its lobby: if the lobby turned them away, their seat
-    // here stays held, and with no seat held (holdFor: 0) there's nothing to stay connected for.
+    // here stays held, and with no seat held (seatHoldDurationSec: 0) there's nothing to stay connected for.
     if (sent.length === 1 && this.sentAway.delete(sent[0]!.id)) {
       const id = sent[0]!.id;
       if (!answer.moved.includes(id) && !this.players.has(id) && !this.holding(id)) this.transport.close(sent[0]!.id, CLOSE_SEAT_GONE, "Seat no longer held");
@@ -952,32 +1088,33 @@ export class RoomCore<S = any> {
     }
     if (this.ended || !this.server.onMoved) return;
     const who = new Map(sent.map((p) => [p.id, p]));
-    const result: MoveResult = {
-      code,
-      moved: answer.moved.map((id) => who.get(id)).filter((p): p is Player => Boolean(p)),
-      refused: answer.refused.filter((r) => who.has(r.id)).map((r) => ({ player: who.get(r.id)!, code: r.code, reason: r.reason })),
+    const moveResult: MoveResult = {
+      roomCode: code,
+      movedPlayers: answer.moved.map((id) => who.get(id)).filter((p): p is Player => Boolean(p)),
+      refusedPlayers: answer.refused.filter((r) => who.has(r.id)).map((r) => ({ player: who.get(r.id)!, error: { code: r.code, message: r.reason } })),
     };
-    this.run(() => this.server.onMoved!(this.state, result, this.api));
+    this.run(() => this.server.onMoved!(this.state, moveResult, this.api));
   }
 
   /** Reserving rooms and moving players share one limit a minute. */
   private limit(): void {
     const now = this.now();
     this.reservedAt = this.reservedAt.filter((at) => now - at < 60_000);
-    if (this.reservedAt.length >= ROOM_LIMITS.reservesPerMinute) throw new Error(`A room can reserve rooms or move players up to ${ROOM_LIMITS.reservesPerMinute} times a minute`);
+    if (this.reservedAt.length >= ROOM_LIMITS.maximumReservesPerMin) throw new GameServerError("slow_down", `A room can reserve rooms or move players up to ${ROOM_LIMITS.maximumReservesPerMin} times a minute.`);
     this.reservedAt.push(now);
   }
 
   /** Remove a player (room.kick). Their onLeave runs once the handler that kicked them is done. */
-  kick(playerId: string, opts?: KickOptions): void {
+  kick(playerId: string, options?: KickOptions): void {
+    refuseUnknownOptions(options, ["message", "keepOut"], "room.kick");
     const player = this.players.get(playerId);
     const held = this.held.get(playerId);
     if ((!player && !held) || this.ended) return;
-    const reason = tidy(opts?.reason, ROOM_LIMITS.reasonLength) || ERROR_TEXT["kept-out"];
-    const keptOut = opts?.keepOut === true;
+    const message = tidy(options?.message, ROOM_LIMITS.maximumMessageCharacterCount) || ERROR_TEXT.kept_out;
+    const isKeptOut = options?.keepOut === true;
     this.known.delete(playerId);
-    if (keptOut) this.keepOut({ [playerId]: reason });
-    this.transport.send(playerId, JSON.stringify({ t: "kicked", reason, keptOut } satisfies ServerMessage));
+    if (isKeptOut) this.keepOut({ [playerId]: message });
+    this.transport.send(playerId, JSON.stringify({ type: "kicked", message, isKeptOut } satisfies ServerMessage));
     this.transport.close(playerId, CLOSE_REFUSED, "Removed from the room");
     this.held.delete(playerId);
     this.out(playerId);
@@ -985,17 +1122,17 @@ export class RoomCore<S = any> {
     if (!player) return;
     this.soon(() => {
       if (this.ended) return;
-      this.run(() => this.server.onLeave?.(this.state, player, this.api, { why: "kicked" }));
+      this.run(() => this.server.onLeave?.(this.state, player, this.api, { leaveReason: "kicked" }));
       this.broadcastPlayers();
     });
   }
 
   /** Keep players out, newest last, up to as many as the room remembers. */
   private keepOut(players: Record<string, string> | undefined): void {
-    for (const [id, reason] of Object.entries(players ?? {})) {
-      if (typeof reason !== "string") continue;
+    for (const [id, message] of Object.entries(players ?? {})) {
+      if (typeof message !== "string") continue;
       this.keptOut.delete(id);
-      this.keptOut.set(id, reason.slice(0, ROOM_LIMITS.reasonLength));
+      this.keptOut.set(id, message.slice(0, ROOM_LIMITS.maximumMessageCharacterCount));
       if (this.keptOut.size > REMEMBERED) this.keptOut.delete(this.keptOut.keys().next().value!);
     }
   }
@@ -1016,19 +1153,19 @@ export class RoomCore<S = any> {
     if (this.known.size > REMEMBERED) this.known.delete(this.known.values().next().value!);
   }
 
-  tick(dt: number): void {
+  tick(tickDurationSec: number): void {
     // A room where everyone walked away stops running until someone's back.
     if (this.ended || !this.server.onTick || this.playing === 0) return;
-    // A game server that hasn't caught up skips this tick; dt carries the time over to the next one.
+    // A game server that hasn't caught up skips this tick; tickDurationSec carries the time over to the next one.
     if (this.waiting > 1) return;
-    this.run(() => this.server.onTick!(this.state, dt, this.api));
+    this.run(() => this.server.onTick!(this.state, tickDurationSec, this.api));
   }
 
-  end(reason: string): void {
+  end(message: string): void {
     if (this.ended) return;
     this.ended = true;
     this.listingChanged = true;
-    const text = JSON.stringify({ t: "ended", reason } satisfies ServerMessage);
+    const text = JSON.stringify({ type: "ended", message } satisfies ServerMessage);
     for (const id of [...this.players.keys(), ...this.held.keys()]) {
       this.transport.send(id, text);
       this.transport.close(id, CLOSE_ENDED, "Match ended");
@@ -1043,21 +1180,21 @@ export class RoomCore<S = any> {
     return [...this.players.values()];
   }
 
-  private broadcast(msg: unknown, except?: string): void {
-    const text = JSON.stringify({ t: "msg", d: msg } satisfies ServerMessage);
-    for (const id of this.players.keys()) if (id !== except) this.transport.send(id, text);
+  private broadcast(messageData: unknown, exceptPlayerId?: string): void {
+    const text = JSON.stringify({ type: "message", data: messageData } satisfies ServerMessage);
+    for (const id of this.players.keys()) if (id !== exceptPlayerId) this.transport.send(id, text);
   }
 
   private broadcastPlayers(): void {
-    const text = JSON.stringify({ t: "players", players: this.list(), ...this.hostField() } satisfies ServerMessage);
+    const text = JSON.stringify({ type: "players", players: this.list(), hostPlayerId: this.host } satisfies ServerMessage);
     for (const id of this.players.keys()) this.transport.send(id, text);
   }
 
   /** Token bucket per player: a short burst is fine, a flood is dropped. */
   private take(playerId: string): boolean {
     const now = this.now();
-    const b = this.buckets.get(playerId) ?? { tokens: ROOM_LIMITS.burst, at: now };
-    b.tokens = Math.min(ROOM_LIMITS.burst, b.tokens + ((now - b.at) / 1000) * ROOM_LIMITS.messagesPerSecond);
+    const b = this.buckets.get(playerId) ?? { tokens: ROOM_LIMITS.messageBurstCount, at: now };
+    b.tokens = Math.min(ROOM_LIMITS.messageBurstCount, b.tokens + ((now - b.at) / 1000) * ROOM_LIMITS.messagesPerSec);
     b.at = now;
     this.buckets.set(playerId, b);
     if (b.tokens < 1) return false;
@@ -1072,8 +1209,8 @@ export class RoomCore<S = any> {
       this.depth++;
       try {
         next = fn();
-      } catch (err) {
-        console.error("Game server error:", err);
+      } catch (error) {
+        console.error("Game server error:", error);
         this.depth--;
         this.flush();
         return;
@@ -1096,8 +1233,8 @@ export class RoomCore<S = any> {
         const next = await fn();
         if (next !== undefined) this.state = next as S;
         this.dirty = true;
-      } catch (err) {
-        console.error("Game server error:", err);
+      } catch (error) {
+        console.error("Game server error:", error);
       } finally {
         this.waiting--;
         this.depth--;
@@ -1117,19 +1254,12 @@ interface Presence {
   seen: number;
   /** Since when their game has been hidden, as their game said. */
   hiddenAt?: number;
-  /** The idle check their game asked for, for idleAfter "client": seconds, false for none, or undefined for the default. */
-  idle?: number | false;
-}
-
-/** An idle check a player's game asked for (joinRoom({ idle })): seconds within the limits, false, or undefined for the default. */
-function clientIdle(v: unknown): number | false | undefined {
-  if (v === false) return false;
-  if (typeof v !== "number" || !Number.isFinite(v)) return undefined;
-  return Math.min(ROOM_LIMITS.idleMax, Math.max(ROOM_LIMITS.idleMin, Math.round(v)));
+  /** The idle check their game asked for, for idleCheck "client": seconds, null for none, or undefined for the default. */
+  idleTimeoutSec?: number | null;
 }
 
 // Characters that hide text or flip its direction.
-const HIDDEN = /[\u0000-\u001f\u007f-\u009f\u00ad\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g;
+const HIDDEN = /[\u0000-\u001f\u007f-\u009f­​-‏‪-‮⁠-⁤⁦-⁩﻿]/g;
 const tidy = (v: unknown, max: number) =>
   String(v ?? "")
     .normalize("NFKC")
@@ -1140,16 +1270,16 @@ const tidy = (v: unknown, max: number) =>
     .trim();
 
 /** A name and labels within the limits, with hidden characters dropped. Fields left out stay out. */
-export function roomInfo(info: RoomInfo): Partial<Pick<RoomSettings, "name" | "labels">> {
+export function roomNaming(naming: RoomNaming): Partial<Pick<RoomSettings, "name" | "labels">> {
   const out: Partial<Pick<RoomSettings, "name" | "labels">> = {};
-  if (info.name !== undefined) out.name = info.name === null ? null : tidy(info.name, ROOM_LIMITS.nameLength) || null;
-  if (info.labels !== undefined) {
+  if (naming.name !== undefined) out.name = naming.name === null ? null : tidy(naming.name, ROOM_LIMITS.maximumNameCharacterCount) || null;
+  if (naming.labels !== undefined) {
     const labels: Record<string, string> = {};
-    if (info.labels && typeof info.labels === "object") {
-      for (const [k, v] of Object.entries(info.labels)) {
-        const key = tidy(k, ROOM_LIMITS.labelName);
-        const value = typeof v === "string" || typeof v === "number" ? tidy(v, ROOM_LIMITS.labelValue) : "";
-        if (key && value && Object.keys(labels).length < ROOM_LIMITS.labels) labels[key] = value;
+    if (naming.labels && typeof naming.labels === "object") {
+      for (const [k, v] of Object.entries(naming.labels)) {
+        const key = tidy(k, ROOM_LIMITS.maximumLabelNameCharacterCount);
+        const value = typeof v === "string" || typeof v === "number" ? tidy(v, ROOM_LIMITS.maximumLabelValueCharacterCount) : "";
+        if (key && value && Object.keys(labels).length < ROOM_LIMITS.maximumLabelCount) labels[key] = value;
       }
     }
     out.labels = labels;

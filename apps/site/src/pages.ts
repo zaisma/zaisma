@@ -47,7 +47,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
     game.multiplayer_mode !== "none" && !tester ? pageRooms(env, game, request) : null,
   ]);
   const rooms = live && roomsOnPage(game) ? live : null;
-  const playingNow = live ? live.playing.players : 0;
+  const playingNow = live ? live.playingNow.playerCount : 0;
   const shots = pictures.results.map((p) => `/img/${p.id}`);
   const more = [...others.filter((g) => g.slug !== game.slug && g.owner_id && g.owner_id === game.owner_id), ...others.filter((g) => g.slug !== game.slug && (!g.owner_id || g.owner_id !== game.owner_id))].slice(0, 4);
   const devices = game.devices ? game.devices.split(",") : [];
@@ -309,7 +309,7 @@ ${siteHeader(env)}
 </section>
 ${tabs.length > 1
       ? html`<div class="tabs" role="tablist" aria-label="About this game">${tabs.map(
-          (t, i) => html`<button type="button" role="tab" id="tab-${t.id}" aria-controls="${t.id}" aria-selected="${String(i === 0)}">${t.label}${t.id === "rooms" ? html`<span class="tab-count" id="rooms-count"${rooms?.joinable ? "" : raw(" hidden")}>${rooms ? tabCount(rooms) : "0"}</span>` : ""}</button>`,
+          (t, i) => html`<button type="button" role="tab" id="tab-${t.id}" aria-controls="${t.id}" aria-selected="${String(i === 0)}">${t.label}${t.id === "rooms" ? html`<span class="tab-count" id="rooms-count"${rooms?.joinableRoomCount ? "" : raw(" hidden")}>${rooms ? tabCount(rooms) : "0"}</span>` : ""}</button>`,
         )}</div>`
       : html`<div class="tabs"></div>`}
 <section class="about" id="about" role="tabpanel" aria-label="About">
@@ -570,16 +570,16 @@ const gameOrigin = new URL(${raw(JSON.stringify(src))}).origin;
 addEventListener("message", (e) => {
   if (!frame || e.origin !== gameOrigin || e.source !== frame.contentWindow) return;
   const d = e.data;
-  if (d && d.type === "zaisma:room" && typeof d.code === "string" && /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/.test(d.code)) {
-    history.replaceState(null, "", location.pathname + "?room=" + d.code);
-    // The code comes first, for Share; joined once the room let the player in.
-    if (d.joined === true) inRoom = { code: d.code, at: Date.now() };
+  if (d && d.type === "zaisma:room" && typeof d.roomCode === "string" && /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/.test(d.roomCode)) {
+    history.replaceState(null, "", location.pathname + "?room=" + d.roomCode);
+    // The code comes first, for Share; isJoined once the room let the player in.
+    if (d.isJoined === true) inRoom = { code: d.roomCode, at: Date.now() };
   }
   // The game left a room (the player left, walked away, was moved or the match ended).
-  if (d && d.type === "zaisma:left" && inRoom && d.code === inRoom.code) leftRoom();
+  if (d && d.type === "zaisma:left" && inRoom && d.roomCode === inRoom.code) leftRoom();
   // The game asks for its key to player passes: given once the check on Play has answered, only to this game.
   if (d && d.type === "zaisma:room-key") {
-    const reply = (key) => frame.contentWindow.postMessage({ type: "zaisma:room-key", key }, gameOrigin);
+    const reply = (roomKey) => frame.contentWindow.postMessage({ type: "zaisma:room-key", roomKey }, gameOrigin);
     typeof roomKey === "undefined" ? reply(null) : roomKey.then(reply);
   }
 });

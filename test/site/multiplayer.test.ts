@@ -92,6 +92,17 @@ describe("game page controls", () => {
     // A game hands a player report to the plate, and only from its own origin.
     expect(arena).toContain('"gameOrigin":"https://games.zaisma.test"');
   });
+
+  it("talks to the game in the SDK's names", async () => {
+    await addGame("arena", "relay");
+    const page = await (await SELF.fetch("https://zaisma.test/g/arena")).text();
+    // zaisma:room and zaisma:report carry roomCode; the page answers with roomKey and playerId.
+    expect(page).toContain('d.type === "zaisma:room" && typeof d.roomCode === "string"');
+    expect(page).toContain("d.isJoined === true");
+    expect(page).toContain('{ type: "zaisma:room-key", roomKey }');
+    expect(page).toContain('typeof d.roomCode === "string" && /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/.test(d.roomCode) ? d.roomCode');
+    expect(page).toContain('{ type: "zaisma:reported", playerId: about.id }');
+  });
 });
 
 describe("game details", () => {
@@ -179,7 +190,8 @@ describe("room browsing on the game page", () => {
   });
 
   it("lights a seat for anyone in a big room, and every seat only when it's full", () => {
-    expect([lit({ players: 3, max: 8 }), lit({ players: 1, max: 100 }), lit({ players: 99, max: 100 }), lit({ players: 100, max: 100 }), lit({ players: 0, max: 40 })]).toEqual([3, 1, 15, 16, 0]);
+    const seats = (playerCount: number, maximumPlayerCount: number) => lit({ playerCount, maximumPlayerCount });
+    expect([seats(3, 8), seats(1, 100), seats(99, 100), seats(100, 100), seats(0, 40)]).toEqual([3, 1, 15, 16, 0]);
   });
 
   it("shows who's playing now, hidden rooms included, once there are 3 or more", async () => {

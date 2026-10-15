@@ -241,7 +241,7 @@ dialog.sheet::backdrop{background:linear-gradient(90deg,rgba(4,5,7,0) 35%,rgba(4
     $("report-sent-text").textContent = data.hidden ? "The game is hidden while we check it." : data.paused ? "The latest update is paused while we check it." : about && about.fromGame ? about.name + " is muted for you. We'll look at it soon." : "We'll look at it soon.";
     // The game mutes a player once they're reported.
     const f = frame();
-    if (about && f && f.contentWindow) f.contentWindow.postMessage({ type: "zaisma:reported", player: about.id }, C.gameOrigin);
+    if (about && f && f.contentWindow) f.contentWindow.postMessage({ type: "zaisma:reported", playerId: about.id }, C.gameOrigin);
     step("sent");
   });
   // Report links open the plate; without JavaScript they lead to the form page.
@@ -267,7 +267,7 @@ dialog.sheet::backdrop{background:linear-gradient(90deg,rgba(4,5,7,0) 35%,rgba(4
     if (d.type !== "zaisma:report") return;
     const p = d.player || {};
     if (typeof p.id !== "string" || !/^[A-Za-z0-9_-]{1,40}$/.test(p.id)) return;
-    const code = typeof d.code === "string" && /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/.test(d.code) ? d.code : roomCode();
+    const code = typeof d.roomCode === "string" && /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/.test(d.roomCode) ? d.roomCode : roomCode();
     open({ id: p.id, name: typeof p.name === "string" && p.name.trim() ? p.name.trim().slice(0, 40) : "a player", code, fromGame: true });
     e.source.postMessage({ type: "zaisma:report-open" }, C.gameOrigin);
   });
