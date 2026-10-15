@@ -66,6 +66,12 @@ function wrangler(app, args, opts = {}) {
   return spawn("npx", ["wrangler", ...args], { cwd: join(ROOT, "apps", app), stdio: ["ignore", log, log], env: { ...process.env, FORCE_COLOR: "0" } });
 }
 
+// The three servers share one database file, and local D1 fails straight away when another server
+// has it locked. Each runs its Worker through scripts/preview/workers/<app>.mjs, which tries such
+// calls again; the Workers themselves, and production, are unchanged.
+// Wrangler looks for its config beside the entry it's given, so it's named too.
+const dev = (app) => ["dev", join(ROOT, "scripts/preview/workers", `${app}.mjs`), "--config", join(ROOT, "apps", app, "wrangler.jsonc")];
+
 async function waitFor(url) {
   for (let i = 0; i < 240; i++) {
     try {
@@ -83,11 +89,11 @@ children.push(spawn("node", [join(ROOT, "scripts/preview/fake-shield.mjs"), Stri
 console.log("Applying database updates…");
 spawnSync("npx", ["wrangler", "d1", "migrations", "apply", "zaisma", "--local", "--persist-to", STATE], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
 // One at a time: they share the preview's database, and starting together can find it locked.
-children.push(wrangler("games", ["dev", "--port", String(PORTS.games), "--inspector-port", String(9341 + OFFSET), "--persist-to", STATE, "--env-file", join(STATE, "games.env")], { quiet: true }));
+children.push(wrangler("games", [...dev("games"), "--port", String(PORTS.games), "--inspector-port", String(9341 + OFFSET), "--persist-to", STATE, "--env-file", join(STATE, "games.env")], { quiet: true }));
 await waitFor(GAMES);
-children.push(wrangler("site", ["dev", "--port", String(PORTS.site), "--inspector-port", String(9340 + OFFSET), "--local-upstream", `localhost:${PORTS.site}`, "--persist-to", STATE, "--env-file", join(STATE, "site.env"), "--test-scheduled"], { quiet: true }));
+children.push(wrangler("site", [...dev("site"), "--port", String(PORTS.site), "--inspector-port", String(9340 + OFFSET), "--local-upstream", `localhost:${PORTS.site}`, "--persist-to", STATE, "--env-file", join(STATE, "site.env"), "--test-scheduled"], { quiet: true }));
 await waitFor(SITE);
-children.push(wrangler("rooms", ["dev", "--port", String(PORTS.rooms), "--inspector-port", String(9342 + OFFSET), "--persist-to", STATE, "--env-file", join(STATE, "rooms.env")], { quiet: true }));
+children.push(wrangler("rooms", [...dev("rooms"), "--port", String(PORTS.rooms), "--inspector-port", String(9342 + OFFSET), "--persist-to", STATE, "--env-file", join(STATE, "rooms.env")], { quiet: true }));
 await waitFor(ROOMS);
 if (fresh) {
   console.log("Adding test games…");
