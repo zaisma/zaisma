@@ -184,7 +184,7 @@ footer { color: var(--muted); font-size: 13px; border-top: 1px solid var(--line)
     <span class="s-planned"><span class="status">planned</span></span>
     <span class="s-idea"><span class="status">idea</span></span>
   </div>
-  <footer>Built from <code>docs/ROADMAP.md</code> in <a href="https://github.com/zaisma/zaisma/blob/main/docs/ROADMAP.md" target="_blank" rel="noopener">github.com/zaisma/zaisma</a>, the one source of truth. The how behind each item is in <a href="https://github.com/zaisma/zaisma/blob/main/docs/DECISIONS.md" target="_blank" rel="noopener">DECISIONS.md</a>. <span id="source"></span></footer>
+  <footer>Built from <code>docs/ROADMAP.md</code> in <a href="https://github.com/zaisma/zaisma/blob/main/docs/ROADMAP.md" target="_blank" rel="noopener">github.com/zaisma/zaisma</a>, the one source of truth. The how behind each item is in <a href="https://github.com/zaisma/zaisma/blob/main/docs/DECISIONS.md" target="_blank" rel="noopener">DECISIONS.md</a>.</footer>
 </div>
 
 <script>
@@ -440,26 +440,10 @@ document.getElementById("f-full").onclick = (e) => {
   spy();
 };
 
-// The roadmap comes straight from GitHub's main, so the page is never behind and nobody republishes it.
-// Main's newest commit is asked first: a file at a commit is never served stale, while raw main can lag
-// a few minutes. The ROADMAP.md published beside the page is the last resort.
-const REPO = "zaisma/zaisma";
-const getText = (url, init) => fetch(url, { cache: "no-store", ...init }).then((r) => { if (!r.ok) throw new Error(r.status); return r.text(); });
-async function loadRoadmap() {
-  try {
-    const sha = (await getText(`https://api.github.com/repos/${REPO}/commits/main`, { headers: { Accept: "application/vnd.github.sha" } })).trim();
-    if (!/^[0-9a-f]{40}$/.test(sha)) throw new Error("no commit");
-    return { text: await getText(`https://raw.githubusercontent.com/${REPO}/${sha}/docs/ROADMAP.md`), source: `GitHub's main at <a href="https://github.com/${REPO}/commit/${sha}" target="_blank" rel="noopener"><code>${sha.slice(0, 7)}</code></a>` };
-  } catch {}
-  try {
-    return { text: await getText(`https://raw.githubusercontent.com/${REPO}/main/docs/ROADMAP.md`), source: "GitHub's main (may be a few minutes behind)" };
-  } catch {}
-  return { text: await getText("ROADMAP.md"), source: "the copy published with this page, because GitHub couldn't be reached (it may be out of date)" };
-}
-
-loadRoadmap()
-  .then(({ text, source }) => {
-    document.getElementById("source").innerHTML = `Showing ${source}.`;
+// The page can't reach GitHub (the artifact host blocks it), so it reads the ROADMAP.md published beside it.
+fetch("ROADMAP.md", { cache: "no-store" })
+  .then((r) => { if (!r.ok) throw new Error(r.status); return r.text(); })
+  .then((text) => {
     data = parse(text);
     try {
       const f = localStorage.getItem("roadmap-filter"); if (f && ["all", "must", "julius", "gleb"].includes(f)) filter = f;

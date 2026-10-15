@@ -28,7 +28,12 @@ How the roadmap is kept, so nobody has to piece it together or guess:
 - **`next` means the Now list.** Only items in Now are `next`, in Now's order; change Now and the statuses together, with Julius's OK for the order.
 - **Notes stay short:** what the item is, and when it went live. How it works goes in `docs/DECISIONS.md`, the docs or the PR. Item names never contain commas (Needs splits on them) and every name in Needs is an item's exact name.
 
-Keep the roadmap current: when work starts, lands or moves, update its status in `docs/ROADMAP.md` in the same change. The roadmap page (https://claude.ai/artifact/5ES8sV8oDvQqzdg2aGXNzm) reads `docs/ROADMAP.md` from GitHub's main itself, so it's current as soon as the change is on main; never republish it for a roadmap change. Republish it only when `docs/roadmap.html` itself changes: that file as the page, nothing else.
+Keep the roadmap current: when work starts, lands or moves, update its status in `docs/ROADMAP.md` in the same change. The roadmap page (https://claude.ai/artifact/5ES8sV8oDvQqzdg2aGXNzm) can't read GitHub, so it's republished in one step, **only right after a push to main** that changes `docs/ROADMAP.md` or `docs/roadmap.html` (a merge or a direct commit), always from `origin/main`, never from a checkout:
+
+1. `git fetch origin`, then two plain commands into your scratchpad: `git show origin/main:docs/roadmap.html > <scratchpad>/roadmap.html` and `git show origin/main:docs/ROADMAP.md > <scratchpad>/ROADMAP.md`.
+2. Publish `<scratchpad>/roadmap.html` as an Artifact to that URL, with `files: {"ROADMAP.md": {"from": "<scratchpad>/ROADMAP.md", "contentType": "text/plain"}}` (the wordmarks are kept).
+
+If the publish is refused because another session published first, repeat both steps: origin/main is the truth, so never merge rows by hand. Never publish before the push, from a branch, or from the main checkout.
 
 ## Shipping
 
