@@ -41,8 +41,14 @@ header { display: grid; gap: 14px; }
 .logo-black { display: var(--logo-black); }
 .brand span { font: 600 14px var(--display); color: var(--muted); padding-left: 12px; border-left: 1px solid var(--line); }
 h1 { font-size: clamp(30px, 5vw, 44px); font-weight: 600; }
-.now { font-size: 17px; max-width: 62ch; margin: 0; }
-.now b { color: var(--steel); font-weight: 600; }
+.now { font-size: 16px; max-width: 70ch; display: grid; gap: 8px; }
+.now h2 { font-size: 15px; color: var(--steel); font-weight: 600; }
+.now p { margin: 0; color: var(--muted); }
+.now ol { margin: 0; padding-left: 22px; display: grid; gap: 4px; }
+.now ol a { color: var(--fg); text-decoration-color: var(--line); text-underline-offset: 3px; }
+.now ol a:hover { text-decoration-color: var(--steel); }
+.now ol .project { color: var(--muted); font-size: 14px; }
+li.flash { box-shadow: inset 3px 0 0 var(--steel); }
 
 .beta { display: grid; gap: 8px; max-width: 560px; }
 .beta-label { display: flex; justify-content: space-between; gap: 12px; font: 500 13px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -146,7 +152,7 @@ footer { color: var(--muted); font-size: 13px; border-top: 1px solid var(--line)
       <span>Roadmap</span>
     </div>
     <h1>From safe hosting to a full game platform</h1>
-    <p class="now" id="now">Loading the roadmap…</p>
+    <div class="now" id="now"><p>Loading the roadmap…</p></div>
     <div class="beta" id="beta" hidden>
       <div class="beta-label"><span>Beta progress: must items in Phase 1</span><span id="beta-count"></span></div>
       <div class="meter"><i id="beta-bar" style="width:0"></i></div>
@@ -190,11 +196,13 @@ const md = (s) => esc(s)
   .replace(/\[(.+?)\]\((.+?)\)/g, (m, t, u) => /^https?:/.test(u) ? `<a href="${u}" target="_blank" rel="noopener">${t}</a>` : t);
 
 function parse(text) {
-  const phases = []; let now = ""; let phase = null; let group = null; let header = null;
+  const phases = []; const now = []; let isNow = false; let phase = null; let group = null; let header = null;
   for (const raw of text.split("\n")) {
     const line = raw.trim();
-    if (line.startsWith("**Now:**")) { now = line.slice(8).trim(); continue; }
     const h2 = line.match(/^## (.+)$/);
+    // "## Now": what's being built next, in order, as a numbered list with lines around it.
+    if (h2) isNow = h2[1] === "Now";
+    if (isNow) { if (line && !h2) now.push(line); continue; }
     if (h2) {
       const m = h2[1].match(/^Phase (\d+): (.+?)(?: \((.+)\))?$/);
       if (m) phase = { num: m[1], title: m[2], tagline: m[3] || "", intro: [], groups: [] };
@@ -232,6 +240,20 @@ const phaseLabel = (p) => p.num !== "" ? `Phase ${p.num}: ${p.title}` : p.title;
 const groupId = (p, g) => `${phaseId(p)}-${slug(g.title.replace(/\(.*?\)/g, ""))}`;
 const shortTitle = (t) => t.replace(/\s*\(.*?\)\s*/g, "").trim();
 const countDone = (items) => `${items.filter((i) => i.status === "done").length}/${items.length}`;
+const itemId = (name) => `item-${slug(name)}`;
+
+/** The Now section: its numbered lines as a list whose entries jump to their rows, the rest as paragraphs. */
+function nowHtml(lines) {
+  let html = ""; let list = "";
+  const flush = () => { if (list) html += `<ol>${list}</ol>`; list = ""; };
+  for (const line of lines) {
+    const entry = line.match(/^\d+\.\s+(.+?)(?:\s+\((.+)\))?$/);
+    if (!entry) { flush(); html += `<p>${md(line)}</p>`; continue; }
+    list += `<li><a href="#${itemId(entry[1])}">${md(entry[1])}</a>${entry[2] ? ` <span class="project">${esc(entry[2])}</span>` : ""}</li>`;
+  }
+  flush();
+  return lines.length ? `<h2>Now</h2>${html}` : "";
+}
 
 function visible(item) {
   if (hideDone && item.status === "done") return false;
@@ -243,7 +265,7 @@ function visible(item) {
 
 function render() {
   const { now, phases } = data;
-  document.getElementById("now").innerHTML = now ? `<b>Now:</b> ${md(now)}` : "";
+  document.getElementById("now").innerHTML = nowHtml(now);
 
   const p1 = phases.find((p) => p.num === "1");
   if (p1) {
@@ -283,7 +305,7 @@ function render() {
       if (g.items.length && !items.length) return "";
       const rows = items.map((i) => {
         const more = i.note || i.needs.length;
-        return `<li class="s-${esc(i.status)}${more ? " has-more" : ""}">
+        return `<li id="${itemId(i.name)}" class="s-${esc(i.status)}${more ? " has-more" : ""}">
         <span class="status">${esc(i.status)}</span>
         <div>${more ? `<button class="name" type="button" aria-expanded="false">${md(i.name)}</button>` : `<div class="name">${md(i.name)}</div>`}${i.note ? `<div class="note">${md(i.note)}</div>` : ""}${needsHtml(i)}</div>
         <div class="tags">${i.owner ? `<span class="tag ${i.owner.toLowerCase()}">${i.owner}</span>` : ""}${i.must ? '<span class="tag must">Must</span>' : i.nice ? '<span class="tag">Nice</span>' : ""}</div>
@@ -377,8 +399,18 @@ let ticking = false;
 addEventListener("scroll", () => { if (!ticking) { ticking = true; requestAnimationFrame(() => { ticking = false; spy(); }); } }, { passive: true });
 
 document.addEventListener("click", (e) => {
-  const link = e.target.closest('.bar a[href^="#"]');
-  if (link) { e.preventDefault(); history.replaceState(null, "", link.getAttribute("href")); go(link.getAttribute("href").slice(1)); return; }
+  const link = e.target.closest('.bar a[href^="#"], .now a[href^="#"]');
+  if (link) {
+    e.preventDefault();
+    const id = link.getAttribute("href").slice(1);
+    // An item filtered out of view is shown again before jumping to it.
+    if (!document.getElementById(id) && (filter !== "all" || hideDone)) { hideDone = false; document.getElementById("f-open").setAttribute("aria-pressed", "false"); setFilter("all"); }
+    history.replaceState(null, "", `#${id}`);
+    go(id);
+    const row = document.getElementById(id);
+    if (row?.matches("li")) { row.classList.add("open", "flash"); setTimeout(() => row.classList.remove("flash"), 1600); }
+    return;
+  }
   const row = e.target.closest("li.has-more");
   if (row && !e.target.closest("a")) {
     const open = row.classList.toggle("open");
@@ -425,7 +457,7 @@ fetch("ROADMAP.md", { cache: "no-store" })
     if (location.hash) go(location.hash.slice(1));
   })
   .catch(() => {
-    document.getElementById("now").textContent = "";
+    document.getElementById("now").innerHTML = "";
     document.getElementById("phases").innerHTML = '<div class="error">The roadmap file didn\'t load. Reload the page, or read it on GitHub: <a href="https://github.com/zaisma/zaisma/blob/main/docs/ROADMAP.md" target="_blank" rel="noopener">docs/ROADMAP.md</a>.</div>';
   });
 </script>

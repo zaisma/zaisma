@@ -7,7 +7,7 @@ Founder: Julius. Side project, built in public. MIT licensed.
 ## Read first
 
 - [`docs/PLAN.md`](docs/PLAN.md): what we're building, for whom, the money model, the stack, costs, 13+ rules, the build order, targets and competitors.
-- [`docs/ROADMAP.md`](docs/ROADMAP.md): the live roadmap: phases, must/nice items and where each one stands.
+- [`docs/ROADMAP.md`](docs/ROADMAP.md): the live roadmap: the Now list, then phases split into projects, each item with must/nice and where it stands.
 - [`docs/IDEAS.md`](docs/IDEAS.md): ideas waiting for a decision. Not plans; never build from it without Julius deciding.
 - [`docs/DECISIONS.md`](docs/DECISIONS.md): settled calls. Don't contradict them in code, copy or docs. If a task seems to need a change, stop and ask Julius with a short summary of exactly what would change.
 - [`docs/DESIGN.md`](docs/DESIGN.md): Steel, the design system: rules, tokens, the metal hover and components. Follow it for every page.
@@ -18,7 +18,15 @@ Founder: Julius. Side project, built in public. MIT licensed.
 
 ## Current phase
 
-**Phase 1: Beta.** Phase 0 (safe hosting) is live. Next up is multiplayer; see [`docs/ROADMAP.md`](docs/ROADMAP.md) for every item and its status.
+**Phase 1: Beta.** Phase 0 (safe hosting) is live. What's being built next, in order, is the Now list at the top of [`docs/ROADMAP.md`](docs/ROADMAP.md); take work from there unless Julius says otherwise.
+
+How the roadmap is kept, so nobody has to piece it together or guess:
+
+- **Every item belongs to one project** (a `###` heading with a goal and a "Done when" line). New work goes into the project it serves; a new project gets both lines.
+- **One row per slice.** When an item lands and work on it continues, mark the row `done` (with the date, PR and migration) and add the next slice as a new row. Never keep a row `doing` while growing its note.
+- **A project is done only when every row is done** and its "Done when" holds. Say so from the rows, not from memory.
+- **`next` means the Now list.** Only items in Now are `next`, in Now's order; change Now and the statuses together, with Julius's OK for the order.
+- **Notes stay short:** what the item is, and when it went live. How it works goes in `docs/DECISIONS.md`, the docs or the PR. Item names never contain commas (Needs splits on them) and every name in Needs is an item's exact name.
 
 Keep the roadmap current: when work starts, lands or moves, update its status in `docs/ROADMAP.md` in the same change, and republish the roadmap page: publish `docs/roadmap.html` as an Artifact to https://claude.ai/artifact/5ES8sV8oDvQqzdg2aGXNzm with supporting files `ROADMAP.md` (from `docs/ROADMAP.md`, contentType `text/plain`), `zaisma-wordmark-metal.svg` and `zaisma-wordmark-black.svg` (from `brand/`). The page reads `ROADMAP.md` itself, so only the files need republishing.
 
