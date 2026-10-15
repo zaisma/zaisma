@@ -12,6 +12,7 @@ Founder: Julius. Side project, built in public. MIT licensed.
 - [`docs/DECISIONS.md`](docs/DECISIONS.md): settled calls. Don't contradict them in code, copy or docs. If a task seems to need a change, stop and ask Julius with a short summary of exactly what would change.
 - [`docs/DESIGN.md`](docs/DESIGN.md): Steel, the design system: rules, tokens, the metal hover and components. Follow it for every page.
 - [`docs/DEVELOPER-API.md`](docs/DEVELOPER-API.md): the developer API behind the MCP, upload command and dashboard. Keep it in step with `apps/site/src/developer.ts`.
+- [`docs/NAMING.md`](docs/NAMING.md): how names, values, inputs, errors and examples work in the API, MCP, SDK and game server. Follow it for every field, option and tool.
 - [`docs/ADMIN-MCP.md`](docs/ADMIN-MCP.md): the admin MCP for reports and precedents, and how to connect it. Keep it in step with `apps/site/src/admin-mcp.ts`.
 - [`brand/README.md`](brand/README.md): logo files and usage rules.
 
@@ -35,6 +36,7 @@ Keep the roadmap current: when work starts, lands or moves, update its status in
 - **Your game is your game.** Zaisma gives developers building blocks with full access, mostly optional, and charges only for things like hosting; no cut, no ifs or buts beyond misuse. Check every feature against "The direction" in `docs/DECISIONS.md` and prefer a building block over a Zaisma-run feature or screen.
 - **Honest clients make it smooth; the server keeps the backstop.** Let the SDK and pages do extra work so honest players get an instant, seamless experience, but never let safety, fairness or money depend on a client: the server always keeps its own slower check. See "The direction" in `docs/DECISIONS.md`.
 - **What a developer can see, their AI can see.** Anything the dashboard shows or does, and anything public, goes through the developer API and MCP with the same data; never build a feature on a page alone. Exceptions are deliberate and named (making API keys stays on the account page). See "The direction" in `docs/DECISIONS.md`.
+- **Nothing for an AI to guess.** Names in the API, MCP, SDK and game server follow `docs/NAMING.md`: whole words, the kind of value and its unit in the name, one type per field, one name per meaning. Close inputs, add good and bad examples where calls go wrong, and answer with structured errors and the next call. See "The direction" in `docs/DECISIONS.md`.
 - **Game content is untrusted.** Serve games only from the separate game domain, never zaisma.com. Sandbox iframes, strict CSP, no access to platform cookies or tokens.
 - **No secrets in the repo.** It's public. Keys live in Cloudflare/Supabase settings and `.dev.vars` (gitignored).
 - **Guests collect no personal data.** Guest IDs are temporary and only run the session.
