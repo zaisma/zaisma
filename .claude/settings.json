@@ -1,4 +1,10 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(npm run ship)",
+      "Bash(npm run ship -- --dry)"
+    ]
+  },
   "hooks": {
     "SessionStart": [
       {
