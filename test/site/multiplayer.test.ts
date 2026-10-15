@@ -179,7 +179,8 @@ describe("room browsing on the game page", () => {
   });
 
   it("lights a seat for anyone in a big room, and every seat only when it's full", () => {
-    expect([lit({ players: 3, max: 8 }), lit({ players: 1, max: 100 }), lit({ players: 99, max: 100 }), lit({ players: 100, max: 100 }), lit({ players: 0, max: 40 })]).toEqual([3, 1, 15, 16, 0]);
+    const seats = (playerCount: number, maximumPlayerCount: number) => lit({ playerCount, maximumPlayerCount });
+    expect([seats(3, 8), seats(1, 100), seats(99, 100), seats(100, 100), seats(0, 40)]).toEqual([3, 1, 15, 16, 0]);
   });
 
   it("shows who's playing now, hidden rooms included, once there are 3 or more", async () => {

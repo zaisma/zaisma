@@ -1,15 +1,15 @@
 // Arena client: sends input when it changes and draws the game server's
 // snapshots, smoothed by drawing slightly in the past between two snapshots.
-const canvas = document.getElementById("c");
-const ctx = canvas.getContext("2d");
-const statusEl = document.getElementById("status");
-const boardEl = document.getElementById("board");
-const RADIUS = 360;
-const BODY = 18;
-const DELAY = 100; // ms behind the newest snapshot
+const canvas = document.getElementById("arena");
+const context = canvas.getContext("2d");
+const statusElement = document.getElementById("status");
+const boardElement = document.getElementById("board");
+const PLATFORM_RADIUS = 360;
+const BODY_RADIUS = 18;
+const DRAW_DELAY_MS = 100; // behind the newest snapshot
 
 let room = null;
-let snaps = []; // [{ at, bodies: Map(id -> [x, y, score, dashing, out, name, color]) }]
+let snapshots = []; // [{ receivedAtMs, bodies: Map(id -> { x, y, score, isDashing, isOut, name, color }) }]
 const flashes = [];
 
 function resize() {
@@ -22,114 +22,112 @@ resize();
 // Input: keyboard, plus a touch stick on the left half and dash on the right half.
 const keys = new Set();
 let stick = null;
-let sent = "";
-function input() {
-  let x = 0, y = 0;
-  if (stick) { x = stick.x; y = stick.y; }
+let lastSentInput = "";
+function sendInput() {
+  let inputX = 0, inputY = 0;
+  if (stick) { inputX = stick.inputX; inputY = stick.inputY; }
   else {
-    if (keys.has("a") || keys.has("arrowleft")) x -= 1;
-    if (keys.has("d") || keys.has("arrowright")) x += 1;
-    if (keys.has("w") || keys.has("arrowup")) y -= 1;
-    if (keys.has("s") || keys.has("arrowdown")) y += 1;
+    if (keys.has("a") || keys.has("arrowleft")) inputX -= 1;
+    if (keys.has("d") || keys.has("arrowright")) inputX += 1;
+    if (keys.has("w") || keys.has("arrowup")) inputY -= 1;
+    if (keys.has("s") || keys.has("arrowdown")) inputY += 1;
   }
-  const v = [Math.round(x * 10) / 10, Math.round(y * 10) / 10];
-  const key = v.join(",");
-  if (key !== sent && room) { sent = key; room.send({ i: v }); }
+  const input = [Math.round(inputX * 10) / 10, Math.round(inputY * 10) / 10];
+  const key = input.join(",");
+  if (key !== lastSentInput && room) { lastSentInput = key; room.send({ input }); }
 }
-function dash() { if (room) room.send({ d: 1 }); }
-addEventListener("keydown", (e) => {
-  const k = e.key.toLowerCase();
-  if (k === " " || k === "shift") { if (!e.repeat) dash(); e.preventDefault(); return; }
-  keys.add(k); input();
+function dash() { if (room) room.send({ dash: true }); }
+addEventListener("keydown", (event) => {
+  const key = event.key.toLowerCase();
+  if (key === " " || key === "shift") { if (!event.repeat) dash(); event.preventDefault(); return; }
+  keys.add(key); sendInput();
 });
-addEventListener("keyup", (e) => { keys.delete(e.key.toLowerCase()); input(); });
-addEventListener("blur", () => { keys.clear(); input(); });
-canvas.addEventListener("pointerdown", (e) => {
-  if (e.pointerType === "mouse") return;
-  if (e.clientX > innerWidth / 2) return dash();
-  stick = { id: e.pointerId, ox: e.clientX, oy: e.clientY, x: 0, y: 0 };
+addEventListener("keyup", (event) => { keys.delete(event.key.toLowerCase()); sendInput(); });
+addEventListener("blur", () => { keys.clear(); sendInput(); });
+canvas.addEventListener("pointerdown", (event) => {
+  if (event.pointerType === "mouse") return;
+  if (event.clientX > innerWidth / 2) return dash();
+  stick = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, inputX: 0, inputY: 0 };
 });
-canvas.addEventListener("pointermove", (e) => {
-  if (!stick || e.pointerId !== stick.id) return;
-  const dx = e.clientX - stick.ox, dy = e.clientY - stick.oy, d = Math.hypot(dx, dy), max = 50;
-  stick.x = d ? (dx / d) * Math.min(1, d / max) : 0;
-  stick.y = d ? (dy / d) * Math.min(1, d / max) : 0;
-  input();
+canvas.addEventListener("pointermove", (event) => {
+  if (!stick || event.pointerId !== stick.pointerId) return;
+  const offsetX = event.clientX - stick.startX, offsetY = event.clientY - stick.startY, distance = Math.hypot(offsetX, offsetY), fullTiltPx = 50;
+  stick.inputX = distance ? (offsetX / distance) * Math.min(1, distance / fullTiltPx) : 0;
+  stick.inputY = distance ? (offsetY / distance) * Math.min(1, distance / fullTiltPx) : 0;
+  sendInput();
 });
-const endStick = (e) => { if (stick && e.pointerId === stick.id) { stick = null; input(); } };
+const endStick = (event) => { if (stick && event.pointerId === stick.pointerId) { stick = null; sendInput(); } };
 canvas.addEventListener("pointerup", endStick);
 canvas.addEventListener("pointercancel", endStick);
 if (matchMedia("(pointer: coarse)").matches) document.getElementById("help").innerHTML = "Left side: move · Right side: dash<br>Bump players off the edge";
 
 function draw() {
   requestAnimationFrame(draw);
-  const w = canvas.width, h = canvas.height;
-  const scale = Math.min(w, h) / (RADIUS * 2 + 80);
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.fillStyle = "#0d0e10";
-  ctx.fillRect(0, 0, w, h);
-  ctx.setTransform(scale, 0, 0, scale, w / 2, h / 2);
+  const width = canvas.width, height = canvas.height;
+  const scale = Math.min(width, height) / (PLATFORM_RADIUS * 2 + 80);
+  context.setTransform(1, 0, 0, 1, 0, 0);
+  context.fillStyle = "#0d0e10";
+  context.fillRect(0, 0, width, height);
+  context.setTransform(scale, 0, 0, scale, width / 2, height / 2);
 
-  ctx.beginPath();
-  ctx.arc(0, 0, RADIUS, 0, Math.PI * 2);
-  ctx.fillStyle = "#1c1e22";
-  ctx.fill();
-  ctx.lineWidth = 6;
-  ctx.strokeStyle = "#3a3d44";
-  ctx.stroke();
+  context.beginPath();
+  context.arc(0, 0, PLATFORM_RADIUS, 0, Math.PI * 2);
+  context.fillStyle = "#1c1e22";
+  context.fill();
+  context.lineWidth = 6;
+  context.strokeStyle = "#3a3d44";
+  context.stroke();
 
-  // Pick the two snapshots around (now - DELAY) and blend between them.
-  const t = performance.now() - DELAY;
-  let a = snaps[0], b = snaps[0];
-  for (let i = 0; i < snaps.length - 1; i++) {
-    if (snaps[i].at <= t && snaps[i + 1].at >= t) { a = snaps[i]; b = snaps[i + 1]; break; }
-    if (snaps[i + 1].at < t) { a = b = snaps[i + 1]; }
+  // Pick the two snapshots around (now - DRAW_DELAY_MS) and blend between them.
+  const drawAtMs = performance.now() - DRAW_DELAY_MS;
+  let before = snapshots[0], after = snapshots[0];
+  for (let i = 0; i < snapshots.length - 1; i++) {
+    if (snapshots[i].receivedAtMs <= drawAtMs && snapshots[i + 1].receivedAtMs >= drawAtMs) { before = snapshots[i]; after = snapshots[i + 1]; break; }
+    if (snapshots[i + 1].receivedAtMs < drawAtMs) { before = after = snapshots[i + 1]; }
   }
-  if (!a) return;
-  const k = b === a ? 0 : Math.min(1, Math.max(0, (t - a.at) / (b.at - a.at)));
-  const meId = room && room.me && room.me.id;
+  if (!before) return;
+  const blend = after === before ? 0 : Math.min(1, Math.max(0, (drawAtMs - before.receivedAtMs) / (after.receivedAtMs - before.receivedAtMs)));
+  const myId = room && room.me && room.me.id;
 
-  for (const [id, cur] of b.bodies) {
-    const prev = a.bodies.get(id) || cur;
-    if (cur[4]) continue; // out
-    const x = prev[0] + (cur[0] - prev[0]) * k;
-    const y = prev[1] + (cur[1] - prev[1]) * k;
-    ctx.beginPath();
-    ctx.arc(x, y, BODY, 0, Math.PI * 2);
-    ctx.fillStyle = cur[6];
-    ctx.fill();
-    if (cur[3]) { ctx.lineWidth = 5; ctx.strokeStyle = "#fff"; ctx.stroke(); }
-    if (id === meId) { ctx.lineWidth = 3; ctx.strokeStyle = "#fff"; ctx.beginPath(); ctx.arc(x, y, BODY + 7, 0, Math.PI * 2); ctx.stroke(); }
-    ctx.fillStyle = "#ddd";
-    ctx.font = "14px system-ui, sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillText(cur[5], x, y - BODY - 10);
+  for (const [id, now] of after.bodies) {
+    const then = before.bodies.get(id) || now;
+    if (now.isOut) continue;
+    const x = then.x + (now.x - then.x) * blend;
+    const y = then.y + (now.y - then.y) * blend;
+    context.beginPath();
+    context.arc(x, y, BODY_RADIUS, 0, Math.PI * 2);
+    context.fillStyle = now.color;
+    context.fill();
+    if (now.isDashing) { context.lineWidth = 5; context.strokeStyle = "#fff"; context.stroke(); }
+    if (id === myId) { context.lineWidth = 3; context.strokeStyle = "#fff"; context.beginPath(); context.arc(x, y, BODY_RADIUS + 7, 0, Math.PI * 2); context.stroke(); }
+    context.fillStyle = "#ddd";
+    context.font = "14px system-ui, sans-serif";
+    context.textAlign = "center";
+    context.fillText(now.name, x, y - BODY_RADIUS - 10);
   }
   for (let i = flashes.length - 1; i >= 0; i--) {
-    const f = flashes[i];
-    const age = (performance.now() - f.at) / 600;
+    const flash = flashes[i];
+    const age = (performance.now() - flash.startedAtMs) / 600;
     if (age > 1) { flashes.splice(i, 1); continue; }
-    ctx.beginPath();
-    ctx.arc(f.x, f.y, BODY + age * 60, 0, Math.PI * 2);
-    ctx.lineWidth = 4;
-    ctx.strokeStyle = `rgba(255,255,255,${1 - age})`;
-    ctx.stroke();
+    context.beginPath();
+    context.arc(flash.x, flash.y, BODY_RADIUS + age * 60, 0, Math.PI * 2);
+    context.lineWidth = 4;
+    context.strokeStyle = `rgba(255,255,255,${1 - age})`;
+    context.stroke();
   }
 }
 requestAnimationFrame(draw);
 
-function onSnapshot(list) {
-  const bodies = new Map(list.map((r) => [r[0], r.slice(1)]));
-  snaps.push({ at: performance.now(), bodies });
-  if (snaps.length > 10) snaps.shift();
-  const rows = [...list].sort((x, y) => y[3] - x[3]);
-  boardEl.innerHTML = "";
-  for (const r of rows) {
+function onSnapshot(bodies) {
+  snapshots.push({ receivedAtMs: performance.now(), bodies: new Map(bodies.map((body) => [body.id, body])) });
+  if (snapshots.length > 10) snapshots.shift();
+  boardElement.innerHTML = "";
+  for (const body of [...bodies].sort((first, second) => second.score - first.score)) {
     const line = document.createElement("div");
-    line.textContent = `${r[6]}  ${r[3]}`;
-    line.style.color = r[7];
-    if (room && room.me && r[0] === room.me.id) line.style.fontWeight = "700";
-    boardEl.append(line);
+    line.textContent = `${body.name}  ${body.score}`;
+    line.style.color = body.color;
+    if (room && room.me && body.id === room.me.id) line.style.fontWeight = "700";
+    boardElement.append(line);
   }
 }
 
@@ -137,48 +135,48 @@ function onSnapshot(list) {
 document.getElementById("players").onclick = () => room && Zaisma.openSafetyPanel(room);
 // Your color: picked with the Color button, kept for next time and brought into each room as join data.
 const COLORS = ["#ff5d5d", "#4fc3ff", "#ffd84f", "#7dff8a", "#d07bff", "#ff9e4f", "#4fffe1", "#ff7bc4"];
-const colorBtn = document.getElementById("color");
+const colorButton = document.getElementById("color");
 let color = null;
-try { color = localStorage.getItem("arena:color"); } catch (e) { /* storage off */ }
-function showColor() { colorBtn.style.borderColor = color || "#444"; }
+try { color = localStorage.getItem("arena:color"); } catch { /* storage off */ }
+function showColor() { colorButton.style.borderColor = color || "#444"; }
 showColor();
-colorBtn.onclick = () => {
+colorButton.onclick = () => {
   color = COLORS[(COLORS.indexOf(color) + 1) % COLORS.length];
-  try { localStorage.setItem("arena:color", color); } catch (e) { /* fine */ }
+  try { localStorage.setItem("arena:color", color); } catch { /* fine */ }
   showColor();
-  if (room) room.send({ c: color });
+  if (room) room.send({ color });
 };
-const inviteBtn = document.getElementById("invite");
-inviteBtn.onclick = async () => {
+const inviteButton = document.getElementById("invite");
+inviteButton.onclick = async () => {
   if (!room) return;
-  const result = await Zaisma.invite(room);
-  if (result === "copied") { inviteBtn.textContent = "Link copied"; setTimeout(() => (inviteBtn.textContent = "Invite"), 1500); }
+  const shared = await Zaisma.invite(room);
+  if (shared === "copied") { inviteButton.textContent = "Link copied"; setTimeout(() => (inviteButton.textContent = "Invite"), 1500); }
 };
 
 async function start() {
   try {
     // A drop-in game: the room the player's link points to, else a busy arena with space, else a new one.
-    room = await Zaisma.rooms.quickJoin({ data: color ? { color } : undefined });
-  } catch (err) {
-    statusEl.textContent = err.message;
+    room = await Zaisma.rooms.quickJoin({ joinData: color ? { color } : null });
+  } catch (error) {
+    statusElement.textContent = error.message;
     return;
   }
-  statusEl.textContent = room.players.length < 2 ? "Practice with bots. Tap Invite to bring friends in." : "";
-  setTimeout(() => { if (statusEl.textContent.startsWith("Practice")) statusEl.textContent = ""; }, 4000);
-  room.on("message", (m) => {
-    if (m.s) onSnapshot(m.s);
-    if (m.ko) {
-      const last = snaps.at(-1);
-      const body = last && last.bodies.get(m.ko);
-      if (body) flashes.push({ x: body[0], y: body[1], at: performance.now() });
+  statusElement.textContent = room.players.length < 2 ? "Practice with bots. Tap Invite to bring friends in." : "";
+  setTimeout(() => { if (statusElement.textContent.startsWith("Practice")) statusElement.textContent = ""; }, 4000);
+  room.on("message", (message) => {
+    if (message.snapshot) onSnapshot(message.snapshot);
+    if (message.knockedOutId) {
+      const latest = snapshots.at(-1);
+      const body = latest && latest.bodies.get(message.knockedOutId);
+      if (body) flashes.push({ x: body.x, y: body.y, startedAtMs: performance.now() });
     }
   });
   // Walked away (idle, or the tab hidden for a while): out of the match, with the seat kept a few minutes. Any key brings them back.
-  room.on("status", (s) => {
-    statusEl.textContent =
-      s === "reconnecting" ? "Reconnecting…" : s === "away" ? "You stepped away. Press any key to jump back in." : s === "closed" ? "Disconnected. Reload to play again." : "";
+  room.on("connectionStatus", (connectionStatus) => {
+    statusElement.textContent =
+      connectionStatus === "reconnecting" ? "Reconnecting…" : connectionStatus === "away" ? "You stepped away. Press any key to jump back in." : connectionStatus === "closed" ? "Disconnected. Reload to play again." : "";
   });
-  room.on("ended", (reason) => { statusEl.textContent = reason; });
-  input();
+  room.on("ended", (message) => { statusElement.textContent = message; });
+  sendInput();
 }
 start();

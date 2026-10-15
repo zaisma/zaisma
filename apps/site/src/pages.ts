@@ -47,7 +47,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
     game.multiplayer_mode !== "none" && !tester ? pageRooms(env, game, request) : null,
   ]);
   const rooms = live && roomsOnPage(game) ? live : null;
-  const playingNow = live ? live.playing.players : 0;
+  const playingNow = live ? live.playing.playerCount : 0;
   const shots = pictures.results.map((p) => `/img/${p.id}`);
   const more = [...others.filter((g) => g.slug !== game.slug && g.owner_id && g.owner_id === game.owner_id), ...others.filter((g) => g.slug !== game.slug && (!g.owner_id || g.owner_id !== game.owner_id))].slice(0, 4);
   const devices = game.devices ? game.devices.split(",") : [];
@@ -309,7 +309,7 @@ ${siteHeader(env)}
 </section>
 ${tabs.length > 1
       ? html`<div class="tabs" role="tablist" aria-label="About this game">${tabs.map(
-          (t, i) => html`<button type="button" role="tab" id="tab-${t.id}" aria-controls="${t.id}" aria-selected="${String(i === 0)}">${t.label}${t.id === "rooms" ? html`<span class="tab-count" id="rooms-count"${rooms?.joinable ? "" : raw(" hidden")}>${rooms ? tabCount(rooms) : "0"}</span>` : ""}</button>`,
+          (t, i) => html`<button type="button" role="tab" id="tab-${t.id}" aria-controls="${t.id}" aria-selected="${String(i === 0)}">${t.label}${t.id === "rooms" ? html`<span class="tab-count" id="rooms-count"${rooms?.joinableRoomCount ? "" : raw(" hidden")}>${rooms ? tabCount(rooms) : "0"}</span>` : ""}</button>`,
         )}</div>`
       : html`<div class="tabs"></div>`}
 <section class="about" id="about" role="tabpanel" aria-label="About">

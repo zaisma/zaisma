@@ -22,7 +22,7 @@ async function addGame(slug: string, opts: { status?: string; server?: string | 
 // Each request comes from its own made-up address, so the tests don't run into the per-address limits.
 let address = 0;
 async function post(path: string, game: string, origin = ORIGIN, extra: Record<string, unknown> = {}) {
-  return SELF.fetch(`${R}${path}`, { method: "POST", headers: { Origin: origin, "Content-Type": "text/plain", "cf-connecting-ip": `198.51.100.${++address % 250}` }, body: JSON.stringify({ game, ...extra }) });
+  return SELF.fetch(`${R}${path}`, { method: "POST", headers: { Origin: origin, "Content-Type": "text/plain", "cf-connecting-ip": `198.51.100.${++address % 250}` }, body: JSON.stringify({ gameSlug: game, ...extra }) });
 }
 
 /** The key the game page gets when Cloudflare's check on Play passes (apps/site/src/plays.ts). */
@@ -31,8 +31,8 @@ async function keyFor(game: string) {
   return issueRoomKey(e.DB, row?.id ?? "none");
 }
 
-async function getPass(game: string): Promise<{ pass: string; player: { id: string; name: string } }> {
-  const res = await post("/v1/pass", game, ORIGIN, { key: await keyFor(game) });
+async function getPass(game: string): Promise<{ pass: string; player: { id: string; name: string }; expiresAt: string }> {
+  const res = await post("/v1/pass", game, ORIGIN, { roomKey: await keyFor(game) });
   expect(res.status).toBe(200);
   return res.json();
 }
@@ -70,9 +70,9 @@ async function until(c: { next: () => Promise<any> }, want: (m: any) => boolean)
 async function join(game: string, code: string, opts: { listed?: false; from?: { country: string; continent: string } } = {}) {
   const { pass, player } = await getPass(game);
   const c = await connect(game, code, ORIGIN, opts.from);
-  c.ws.send(JSON.stringify({ t: "hello", pass, room: opts.listed === false ? { listed: false } : undefined }));
+  c.ws.send(JSON.stringify({ type: "hello", pass, room: opts.listed === false ? { isListed: false } : undefined }));
   const welcome = await c.next();
-  expect(welcome.t).toBe("welcome");
+  expect(welcome.type).toBe("welcome");
   return { ...c, player, pass };
 }
 
@@ -83,9 +83,12 @@ describe("rooms", () => {
 
   it("issues guest passes only to the game's own origin", async () => {
     await addGame("arena");
-    const { pass, player } = await getPass("arena");
+    const { pass, player, expiresAt } = await getPass("arena");
     expect(pass.split(".")).toHaveLength(3);
     expect(player.name).toMatch(/ \d\d$/);
+    // A guest's ID says its kind, and the pass's expiry is an ISO time a day ahead.
+    expect(player.id).toMatch(/^player_[a-z0-9]{20}$/);
+    expect(Date.parse(expiresAt) - Date.now()).toBeGreaterThan(23 * 3_600_000);
     expect((await post("/v1/pass", "arena", "https://evil.example")).status).toBe(403);
     expect((await post("/v1/pass", "arena", "https://zaisma.test")).status).toBe(403);
     await addGame("held-one", { status: "held" });
@@ -97,18 +100,18 @@ describe("rooms", () => {
     await addGame("other");
     const none = await post("/v1/pass", "arena");
     expect(none.status).toBe(403);
-    expect(await none.json()).toMatchObject({ code: "unchecked" });
-    expect((await post("/v1/pass", "arena", ORIGIN, { key: "madeupkey123" })).status).toBe(403);
-    expect((await post("/v1/pass", "arena", ORIGIN, { key: await keyFor("other") })).status).toBe(403);
+    expect(await none.json()).toEqual({ error: { code: "unchecked", message: "Zaisma couldn't check this browser, so it can't play online. Reload the game to try again." } });
+    expect((await post("/v1/pass", "arena", ORIGIN, { roomKey: "madeupkey123" })).status).toBe(403);
+    expect((await post("/v1/pass", "arena", ORIGIN, { roomKey: await keyFor("other") })).status).toBe(403);
 
     const key = await keyFor("arena");
-    for (let i = 0; i < 5; i++) expect((await post("/v1/pass", "arena", ORIGIN, { key })).status).toBe(200);
-    expect((await post("/v1/pass", "arena", ORIGIN, { key })).status).toBe(403);
+    for (let i = 0; i < 5; i++) expect((await post("/v1/pass", "arena", ORIGIN, { roomKey: key })).status).toBe(200);
+    expect((await post("/v1/pass", "arena", ORIGIN, { roomKey: key })).status).toBe(403);
 
     // A key is good for 6 hours.
     const old = await keyFor("arena");
     await e.DB.prepare("UPDATE room_keys SET issued_at = ? WHERE id = ?").bind(Date.now() - 6 * 3_600_000 - 1000, old).run();
-    expect((await post("/v1/pass", "arena", ORIGIN, { key: old })).status).toBe(403);
+    expect((await post("/v1/pass", "arena", ORIGIN, { roomKey: old })).status).toBe(403);
   });
 
   it("limits how many room connections one address opens in a minute", async () => {
@@ -147,22 +150,22 @@ describe("rooms", () => {
     const said: any[] = [];
     tester.addEventListener("message", (ev) => said.push(JSON.parse(ev.data as string)));
     const testerClosed = new Promise<number>((r) => tester.addEventListener("close", (ev) => r(ev.code)));
-    tester.send(JSON.stringify({ t: "hello", pass: (await getPass("arena")).pass }));
+    tester.send(JSON.stringify({ type: "hello", pass: (await getPass("arena")).pass }));
     const other = await join("arena", "TSTRMS");
     expect((await other.next()).players).toHaveLength(2);
 
     // Still on: nothing happens.
-    other.ws.send(JSON.stringify({ t: "msg", d: 1 }));
+    other.ws.send(JSON.stringify({ type: "message", data: 1 }));
     await new Promise((r) => setTimeout(r, 50));
-    expect(said.some((m) => m.t === "error")).toBe(false);
+    expect(said.some((m) => m.type === "error")).toBe(false);
 
     await revokeTesterLink(e.DB, id, link.id);
     await runInDurableObject(e.ROOMS.get(e.ROOMS.idFromName("arena:TSTRMS")), (room: Room) => {
       (room as unknown as { lastTesterCheck: number }).lastTesterCheck = 0;
     });
-    other.ws.send(JSON.stringify({ t: "msg", d: 2 }));
+    other.ws.send(JSON.stringify({ type: "message", data: 2 }));
     expect(await testerClosed).toBe(4001);
-    expect(said).toContainEqual(expect.objectContaining({ t: "error", code: "game-unavailable" }));
+    expect(said).toContainEqual(expect.objectContaining({ type: "error", code: "game_unavailable" }));
     // Everyone else plays on without them.
     let left: any;
     do left = await other.next();
@@ -181,8 +184,8 @@ describe("rooms", () => {
   it("makes room codes only for games with a game server", async () => {
     await addGame("arena");
     await addGame("solo", { server: null });
-    const { code } = await (await post("/v1/rooms", "arena")).json<{ code: string }>();
-    expect(code).toMatch(/^[2-9A-HJ-NP-Z]{6}$/);
+    const { roomCode } = await (await post("/v1/rooms", "arena")).json<{ roomCode: string }>();
+    expect(roomCode).toMatch(/^[2-9A-HJ-NP-Z]{6}$/);
     expect((await post("/v1/rooms", "solo")).status).toBe(404);
   });
 
@@ -194,8 +197,8 @@ describe("rooms", () => {
     expect((await a.next()).players.map((p: any) => p.id)).toEqual([a.player.id, b.player.id]);
     await b.next(); // b's player list
 
-    a.ws.send(JSON.stringify({ t: "msg", d: { x: 3 } }));
-    expect(await b.next()).toEqual({ t: "msg", d: { from: a.player.id, data: { x: 3 } } });
+    a.ws.send(JSON.stringify({ type: "message", data: { x: 3 } }));
+    expect(await b.next()).toEqual({ type: "message", data: { fromPlayerId: a.player.id, data: { x: 3 } } });
 
     b.ws.close(1000);
     expect((await a.next()).players.map((p: any) => p.id)).toEqual([a.player.id]);
@@ -208,20 +211,20 @@ describe("rooms", () => {
     expect(wrongOrigin.res.status).toBe(403);
 
     const noHello = await connect("arena", "ABCDEF");
-    noHello.ws.send(JSON.stringify({ t: "msg", d: 1 }));
-    expect(await noHello.next()).toMatchObject({ t: "error", code: "no-hello" });
+    noHello.ws.send(JSON.stringify({ type: "message", data: 1 }));
+    expect(await noHello.next()).toMatchObject({ type: "error", code: "no_hello" });
 
     const { pass } = await getPass("other");
     const wrongGame = await connect("arena", "ABCDEF");
-    wrongGame.ws.send(JSON.stringify({ t: "hello", pass }));
-    expect(await wrongGame.next()).toMatchObject({ t: "error", code: "bad-pass" });
+    wrongGame.ws.send(JSON.stringify({ type: "hello", pass }));
+    expect(await wrongGame.next()).toMatchObject({ type: "error", code: "bad_pass" });
   });
 
   it("a reconnect with the same pass keeps the same player", async () => {
     await addGame("arena");
     const a = await join("arena", "QRSTUV");
     const again = await connect("arena", "QRSTUV");
-    again.ws.send(JSON.stringify({ t: "hello", pass: a.pass }));
+    again.ws.send(JSON.stringify({ type: "hello", pass: a.pass }));
     expect((await again.next()).me.id).toBe(a.player.id);
     expect(await a.closed).toBe(4001);
   });
@@ -234,16 +237,16 @@ describe("rooms", () => {
     await runInDurableObject(e.ROOMS.get(e.ROOMS.idFromName("arena:HJKLMN")), async (room: Room) => {
       (room as any).lastCheck = 0;
     });
-    expect((await a.next()).t).toBe("players");
-    a.ws.send(JSON.stringify({ t: "msg", d: 1 }));
-    expect(await a.next()).toMatchObject({ t: "ended" });
+    expect((await a.next()).type).toBe("players");
+    a.ws.send(JSON.stringify({ type: "message", data: 1 }));
+    expect(await a.next()).toMatchObject({ type: "ended" });
     expect((await connect("arena", "HJKLMN")).res.status).toBe(404);
   });
 
   it("records usage when the room empties, with nothing about players", async () => {
     const id = await addGame("arena");
     const a = await join("arena", "WXYZ23");
-    a.ws.send(JSON.stringify({ t: "msg", d: 1 }));
+    a.ws.send(JSON.stringify({ type: "message", data: 1 }));
     a.ws.close(1000);
     await a.closed;
     let row: any = null;
@@ -268,14 +271,14 @@ describe("rooms", () => {
 
     const made = await post("/v1/rooms", "arena");
     expect(made.status).toBe(403);
-    expect(await made.json()).toMatchObject({ code: "month-limit" });
+    expect(await made.json()).toMatchObject({ error: { code: "month_limit" } });
     const fresh = await connect("arena", "NEWRMA");
-    fresh.ws.send(JSON.stringify({ t: "hello", pass: (await getPass("arena")).pass }));
-    expect(await fresh.next()).toMatchObject({ t: "error", code: "month-limit" });
+    fresh.ws.send(JSON.stringify({ type: "hello", pass: (await getPass("arena")).pass }));
+    expect(await fresh.next()).toMatchObject({ type: "error", code: "month_limit" });
     const reserve = await e.ROOMS.get(e.ROOMS.idFromName("arena:RSRVDA")).fetch("https://room/reserve", {
       method: "POST",
       headers: { "x-game-id": id, "x-game-slug": "arena", "x-game-server": "relay", "x-room-code": "RSRVDA" },
-      body: JSON.stringify({ players: [a.player.id] }),
+      body: JSON.stringify({ playerIds: [a.player.id], setupData: null }),
     });
     expect(reserve.status).toBe(403);
 
@@ -285,11 +288,11 @@ describe("rooms", () => {
     b.ws.close(1000);
     await Promise.all([a.closed, b.closed]);
     const stranger = await connect("arena", "CAPPDA");
-    stranger.ws.send(JSON.stringify({ t: "hello", pass: (await getPass("arena")).pass }));
-    expect(await stranger.next()).toMatchObject({ t: "error", code: "month-limit" });
+    stranger.ws.send(JSON.stringify({ type: "hello", pass: (await getPass("arena")).pass }));
+    expect(await stranger.next()).toMatchObject({ type: "error", code: "month_limit" });
     const back = await connect("arena", "CAPPDA");
-    back.ws.send(JSON.stringify({ t: "hello", pass: a.pass }));
-    expect(await back.next()).toMatchObject({ t: "welcome", me: { id: a.player.id } });
+    back.ws.send(JSON.stringify({ type: "hello", pass: a.pass }));
+    expect(await back.next()).toMatchObject({ type: "welcome", me: { id: a.player.id } });
   });
 });
 
@@ -309,14 +312,14 @@ describe("reserved rooms", () => {
   const until = async (c: { next: () => Promise<any> }, t: string) => {
     for (;;) {
       const m = await c.next();
-      if (m.t === t) return m;
+      if (m.type === t) return m;
     }
   };
 
   async function hello(game: string, code: string, msg: Record<string, unknown>, pass?: { pass: string; player: { id: string; name: string } }) {
     const p = pass ?? (await getPass(game));
     const c = await connect(game, code);
-    c.ws.send(JSON.stringify({ t: "hello", pass: p.pass, ...msg }));
+    c.ws.send(JSON.stringify({ type: "hello", pass: p.pass, ...msg }));
     return { ...c, pass: p.pass, player: p.player, first: await c.next() };
   }
 
@@ -324,31 +327,31 @@ describe("reserved rooms", () => {
     await addGame("four", { server: "four-in-a-row" });
     const a = await hello("four", "LBBYAA", { room: { labels: { Room: "Lobby" } } });
     const b = await hello("four", "LBBYAA", {});
-    expect([a.first.t, b.first.t]).toEqual(["welcome", "welcome"]);
+    expect([a.first.type, b.first.type]).toEqual(["welcome", "welcome"]);
     const [ma, mb] = [await until(a, "move"), await until(b, "move")];
-    expect(ma.code).toBe(mb.code);
+    expect(ma.roomCode).toBe(mb.roomCode);
 
     // The room is waiting for them before they hear its code, so nobody else can start it first.
-    const stranger = await hello("four", ma.code, {});
-    expect(stranger.first).toMatchObject({ t: "error", code: "closed" });
+    const stranger = await hello("four", ma.roomCode, {});
+    expect(stranger.first).toMatchObject({ type: "error", code: "closed" });
 
-    const bIn = await hello("four", ma.code, {}, b);
-    expect(bIn.first).toMatchObject({ t: "welcome", room: { listed: false, open: false } });
-    const board = await until(bIn, "msg");
-    expect(board.d.seats).toEqual([a.player.id, b.player.id]);
-    expect(board.d.names).toEqual([a.player.name, b.player.name]);
-    const aIn = await hello("four", ma.code, {}, a);
-    expect(aIn.first.t).toBe("welcome");
+    const bIn = await hello("four", ma.roomCode, {}, b);
+    expect(bIn.first).toMatchObject({ type: "welcome", room: { isListed: false, isOpen: false } });
+    const board = await until(bIn, "message");
+    expect(board.data.seatPlayerIds).toEqual([a.player.id, b.player.id]);
+    expect(board.data.seatNames).toEqual([a.player.name, b.player.name]);
+    const aIn = await hello("four", ma.roomCode, {}, a);
+    expect(aIn.first.type).toBe("welcome");
     // Hidden from the game's room list.
-    const live = async () => e.DB.prepare("SELECT listed, open, players FROM live_rooms WHERE code = ?").bind(ma.code).first();
+    const live = async () => e.DB.prepare("SELECT listed, open, players FROM live_rooms WHERE code = ?").bind(ma.roomCode).first();
     for (let i = 0; i < 40 && (await live())?.players !== 2; i++) await new Promise((r) => setTimeout(r, 20));
     expect(await live()).toEqual({ listed: 0, open: 0, players: 2 });
   });
 
   it("refuse join data that's too big", async () => {
     await addGame("four", { server: "four-in-a-row" });
-    const c = await hello("four", "DATAAA", { data: "x".repeat(5000) });
-    expect(c.first).toMatchObject({ t: "error", code: "too-big" });
+    const c = await hello("four", "DATAAA", { joinData: "x".repeat(5000) });
+    expect(c.first).toMatchObject({ type: "error", code: "too_big" });
   });
 });
 
@@ -362,11 +365,11 @@ describe("turn-based rooms", () => {
     const a = await join("four", "MNPQRS");
     const b = await join("four", "MNPQRS");
     const stub = e.ROOMS.get(e.ROOMS.idFromName("four:MNPQRS"));
-    a.ws.send(JSON.stringify({ t: "msg", d: { col: 3 } }));
+    a.ws.send(JSON.stringify({ type: "message", data: { column: 3 } }));
     let board: number[] = [];
     for (let i = 0; i < 20 && board[38] !== 1; i++) {
       const m = await b.next();
-      if (m.t === "msg") board = m.d.board;
+      if (m.type === "message") board = m.data.board;
     }
     expect(board[38]).toBe(1);
 
@@ -377,10 +380,10 @@ describe("turn-based rooms", () => {
       (room as any).core = null;
       (room as any).saved = saved!.state;
     });
-    b.ws.send(JSON.stringify({ t: "msg", d: { col: 4 } }));
+    b.ws.send(JSON.stringify({ type: "message", data: { column: 4 } }));
     for (let i = 0; i < 20 && board[39] !== 2; i++) {
       const m = await a.next();
-      if (m.t === "msg") board = m.d.board;
+      if (m.type === "message") board = m.data.board;
     }
     expect(board[38]).toBe(1);
     expect(board[39]).toBe(2);
@@ -393,21 +396,29 @@ describe("reporting a player", () => {
   });
 
   const report = (body: Record<string, unknown>, origin = ORIGIN) =>
-    SELF.fetch(`${R}/v1/report`, { method: "POST", headers: { Origin: origin, "Content-Type": "text/plain" }, body: JSON.stringify({ game: "arena", ...body }) });
+    SELF.fetch(`${R}/v1/report`, { method: "POST", headers: { Origin: origin, "Content-Type": "text/plain" }, body: JSON.stringify({ gameSlug: "arena", ...body }) });
 
   it("files a report with the room and the player's temporary ID, nothing about the reporter", async () => {
     const id = await addGame("arena");
-    const res = await report({ code: "ABCDEF", player: "g_123", name: "Swift Fox 42", reason: "harassment", details: "kept spamming" });
+    const res = await report({ roomCode: "ABCDEF", playerId: "player_123abc", playerName: "Swift Fox 42", reason: "harassment", details: "kept spamming" });
+    expect(await res.json()).toEqual({ isReported: true });
     expect(res.status).toBe(200);
     const row = await e.DB.prepare("SELECT * FROM reports WHERE game_id = ?").bind(id).first<Record<string, unknown>>();
-    expect(row).toMatchObject({ reason: "player", player_reason: "harassment", player_id: "g_123", player_name: "Swift Fox 42", room_code: "ABCDEF", details: "kept spamming" });
+    expect(row).toMatchObject({ reason: "player", player_reason: "harassment", player_id: "player_123abc", player_name: "Swift Fox 42", room_code: "ABCDEF", details: "kept spamming" });
   });
 
   it("refuses bad reasons, codes and other sites", async () => {
     await addGame("arena");
-    expect((await report({ code: "ABCDEF", player: "g_1", reason: "spam" })).status).toBe(400);
-    expect((await report({ code: "nope", player: "g_1", reason: "other" })).status).toBe(400);
-    expect((await report({ code: "ABCDEF", player: "g_1", reason: "other" }, "https://evil.example")).status).toBe(403);
+    const refused = await report({ roomCode: "ABCDEF", playerId: "player_1", reason: "spam" });
+    expect(refused.status).toBe(400);
+    expect(await refused.json()).toMatchObject({ error: { code: "bad_report" } });
+    expect((await report({ roomCode: "nope", playerId: "player_1", reason: "other" })).status).toBe(400);
+    // A player ID of another kind, or an old guest ID, isn't a player.
+    expect((await report({ roomCode: "ABCDEF", playerId: "game_1", reason: "other" })).status).toBe(400);
+    expect((await report({ roomCode: "ABCDEF", playerId: "g_1", reason: "other" })).status).toBe(400);
+    const elsewhere = await report({ roomCode: "ABCDEF", playerId: "player_1", reason: "other" }, "https://evil.example");
+    expect(elsewhere.status).toBe(403);
+    expect(await elsewhere.json()).toMatchObject({ error: { code: "bad_origin" } });
   });
 });
 
@@ -444,16 +455,25 @@ describe("room browsing", () => {
     const id = await addGame("party");
     const a = await join("party", "JKMN3P", { listed: false });
     await join("party", "JKMN3P");
-    a.ws.send(JSON.stringify({ t: "msg", d: 1 }));
+    a.ws.send(JSON.stringify({ type: "message", data: 1 }));
     expect(await rows(id, (r) => r[0]?.players === 2)).toMatchObject([{ code: "JKMN3P", players: 2, listed: 0 }]);
     const party = await (await SELF.fetch(`${R}/v1/rooms/party`, { headers: { Origin: ORIGIN } })).json<any>();
-    expect(party).toMatchObject({ rooms: [], playing: { players: 2, rooms: 1, closed: 0 }, joinable: 0, regions: [] });
+    expect(party).toMatchObject({ rooms: [], playing: { playerCount: 2, roomCount: 1, closedRoomCount: 0 }, joinableRoomCount: 0, regions: [] });
 
     const off = await addGame("quiet", { browsing: "off" });
     await join("quiet", "QRSTVW");
     expect(await rows(off, (r) => r.length === 1)).toMatchObject([{ listed: 0 }]);
     const list = await SELF.fetch(`${R}/v1/rooms/quiet`, { headers: { Origin: ORIGIN } });
-    expect(await list.json()).toMatchObject({ rooms: [], joinable: 0, regions: [] });
+    expect(await list.json()).toEqual({
+      rooms: [],
+      playing: { playerCount: 0, roomCount: 0, closedRoomCount: 0 },
+      joinableRoomCount: 0,
+      openRoomCount: 0,
+      regions: [],
+      region: null,
+      moreOpenRoomCount: 0,
+      filters: [],
+    });
   });
 
   it("lets the first player close a relay room: it's listed as closed, and newcomers are refused", async () => {
@@ -463,25 +483,25 @@ describe("room browsing", () => {
     const next = async (c: { next: () => Promise<any> }, t: string) => {
       for (;;) {
         const m = await c.next();
-        if (m.t === t) return m;
+        if (m.type === t) return m;
       }
     };
-    b.ws.send(JSON.stringify({ t: "room", open: false }));
-    expect(await next(b, "error")).toMatchObject({ code: "not-allowed" });
-    a.ws.send(JSON.stringify({ t: "room", open: false }));
-    expect(await next(a, "room")).toEqual({ t: "room", room: { listed: true, open: false, name: null, labels: {} } });
+    b.ws.send(JSON.stringify({ type: "room", isOpen: false }));
+    expect(await next(b, "error")).toMatchObject({ code: "not_allowed" });
+    a.ws.send(JSON.stringify({ type: "room", isOpen: false }));
+    expect(await next(a, "room")).toEqual({ type: "room", room: { isListed: true, isOpen: false, name: null, labels: {} } });
     expect((await rows(id, (r) => r[0]?.open === 0))[0]).toMatchObject({ players: 2, open: 0 });
 
     const { pass } = await getPass("party");
     const c = await connect("party", "XYZ234");
-    c.ws.send(JSON.stringify({ t: "hello", pass }));
-    expect(await c.next()).toMatchObject({ t: "error", code: "closed" });
+    c.ws.send(JSON.stringify({ type: "hello", pass }));
+    expect(await c.next()).toMatchObject({ type: "error", code: "closed" });
     // b drops out and comes back: they were in the match.
     b.ws.close(1000);
     await b.closed;
     const again = await connect("party", "XYZ234");
-    again.ws.send(JSON.stringify({ t: "hello", pass: b.pass }));
-    expect((await again.next()).t).toBe("welcome");
+    again.ws.send(JSON.stringify({ type: "hello", pass: b.pass }));
+    expect((await again.next()).type).toBe("welcome");
   });
 
   it("lists rooms to the game itself: with space first, the player's country and continent first, then the busiest, never who's in them", async () => {
@@ -504,19 +524,30 @@ describe("room browsing", () => {
     const res = await SELF.fetch(`${R}/v1/rooms/lister`, { headers: { Origin: ORIGIN }, cf: { country: "DE", continent: "EU" } } as RequestInit);
     expect(res.headers.get("access-control-allow-origin")).toBe(ORIGIN);
     const body = await res.json<{ rooms: any[]; playing: unknown }>();
-    expect(body.rooms.map((r) => r.code)).toEqual(["GGGGGG", "DDDDDD", "CCCCCC", "BBBBBB", "HHHHHH", "AAAAAA", "EEEEEE"]);
-    expect(body.rooms[0]).toEqual({ code: "GGGGGG", players: 1, held: 0, max: 8, open: true, location: { country: "DE", name: "Germany", continent: "EU" }, near: true, name: null, labels: {}, link: "https://zaisma.test/g/lister?room=GGGGGG" });
-    expect(body.rooms.find((r) => r.code === "HHHHHH").location).toBeNull();
-    expect(body.playing).toEqual({ players: 23, rooms: 7, closed: 1 });
-    expect(body).toMatchObject({ joinable: 5, region: null, more: 0 });
+    expect(body.rooms.map((r) => r.roomCode)).toEqual(["GGGGGG", "DDDDDD", "CCCCCC", "BBBBBB", "HHHHHH", "AAAAAA", "EEEEEE"]);
+    expect(body.rooms[0]).toEqual({
+      roomCode: "GGGGGG",
+      playerCount: 1,
+      heldSeatCount: 0,
+      maximumPlayerCount: 8,
+      isOpen: true,
+      location: { countryCode: "DE", countryName: "Germany", region: "EU" },
+      isNear: true,
+      name: null,
+      labels: {},
+      inviteUrl: "https://zaisma.test/g/lister?room=GGGGGG",
+    });
+    expect(body.rooms.find((r) => r.roomCode === "HHHHHH").location).toBeNull();
+    expect(body.playing).toEqual({ playerCount: 23, roomCount: 7, closedRoomCount: 1 });
+    expect(body).toMatchObject({ joinableRoomCount: 5, openRoomCount: 6, region: null, moreOpenRoomCount: 0 });
     // Regions to filter by, busiest first; a room whose region isn't known only counts in All.
     expect((body as any).regions).toEqual([
-      { code: "EU", name: "Europe", rooms: 4, players: 14 },
-      { code: "NA", name: "North America", rooms: 2, players: 7 },
+      { region: "EU", name: "Europe", roomCount: 4, playerCount: 14 },
+      { region: "NA", name: "North America", roomCount: 2, playerCount: 7 },
     ]);
     const na = await (await SELF.fetch(`${R}/v1/rooms/lister?region=NA`, { headers: { Origin: ORIGIN } })).json<any>();
-    expect(na.rooms.map((r: any) => r.code)).toEqual(["CCCCCC", "BBBBBB"]);
-    expect(na).toMatchObject({ region: "NA", playing: { rooms: 7 }, joinable: 5 });
+    expect(na.rooms.map((r: any) => r.roomCode)).toEqual(["CCCCCC", "BBBBBB"]);
+    expect(na).toMatchObject({ region: "NA", playing: { roomCount: 7 }, joinableRoomCount: 5 });
     expect((await SELF.fetch(`${R}/v1/rooms/lister`, { headers: { Origin: "https://evil.example" } })).status).toBe(403);
   });
 
@@ -524,7 +555,7 @@ describe("room browsing", () => {
     const id = await addGame("named");
     const { pass } = await getPass("named");
     const c = await connect("named", "NMDRM2");
-    c.ws.send(JSON.stringify({ t: "hello", pass, room: { name: "Ana's castle", labels: { Mode: "Classic", Map: "Docks" } } }));
+    c.ws.send(JSON.stringify({ type: "hello", pass, room: { name: "Ana's castle", labels: { Mode: "Classic", Map: "Docks" } } }));
     expect((await c.next()).room).toMatchObject({ name: "Ana's castle", labels: { Mode: "Classic", Map: "Docks" } });
     expect((await rows(id, (r) => r.length === 1))[0]).toMatchObject({ name: "Ana's castle", labels: '{"Mode":"Classic","Map":"Docks"}' });
     const add = (code: string, labels: string) =>
@@ -533,31 +564,31 @@ describe("room browsing", () => {
     await add("NMDRM4", '{"Mode":"classic"}');
     const list = (q = "") => SELF.fetch(`${R}/v1/rooms/named${q}`, { headers: { Origin: ORIGIN } }).then((r) => r.json<any>());
     const all = await list();
-    expect(all.rooms.find((r: any) => r.code === "NMDRM2")).toMatchObject({ name: "Ana's castle", labels: { Mode: "Classic", Map: "Docks" } });
+    expect(all.rooms.find((r: any) => r.roomCode === "NMDRM2")).toMatchObject({ name: "Ana's castle", labels: { Mode: "Classic", Map: "Docks" } });
     // "Classic" and "classic" are one choice.
     expect(all.filters.map((f: any) => [f.label, f.values.map((v: string) => v.toLowerCase())])).toEqual([["Mode", ["classic", "hardcore"]]]);
     const classic = await list(`?labels=${encodeURIComponent(JSON.stringify({ Mode: "Classic" }))}`);
-    expect(classic.rooms.map((r: any) => r.code).sort()).toEqual(["NMDRM2", "NMDRM4"]);
+    expect(classic.rooms.map((r: any) => r.roomCode).sort()).toEqual(["NMDRM2", "NMDRM4"]);
     await e.DB.prepare("UPDATE live_rooms SET name_hidden = 1 WHERE code = 'NMDRM2'").run();
-    expect((await list()).rooms.find((r: any) => r.code === "NMDRM2")).toMatchObject({ name: null, labels: {} });
+    expect((await list()).rooms.find((r: any) => r.roomCode === "NMDRM2")).toMatchObject({ name: null, labels: {} });
     // A room renaming itself doesn't bring back a name a person hid.
-    c.ws.send(JSON.stringify({ t: "room", name: "Ana's castle 2" }));
+    c.ws.send(JSON.stringify({ type: "room", name: "Ana's castle 2" }));
     await rows(id, (r) => r.find((x) => x.code === "NMDRM2")?.name === "Ana's castle 2");
-    expect((await list()).rooms.find((r: any) => r.code === "NMDRM2").name).toBeNull();
+    expect((await list()).rooms.find((r: any) => r.roomCode === "NMDRM2").name).toBeNull();
   });
 
   it("offers games Zaisma's text filter", async () => {
     await addGame("named");
-    const check = (text: string) => SELF.fetch(`${R}/v1/filter`, { method: "POST", headers: { Origin: ORIGIN, "Content-Type": "text/plain" }, body: JSON.stringify({ game: "named", text }) }).then((r) => r.json<any>());
-    expect(await check(" Ana's\u200b castle ")).toEqual({ text: "Ana's castle", ok: true });
-    expect(await check("add me on snap")).toMatchObject({ ok: false, reason: "contact" });
+    const check = (text: string) => SELF.fetch(`${R}/v1/filter`, { method: "POST", headers: { Origin: ORIGIN, "Content-Type": "text/plain" }, body: JSON.stringify({ gameSlug: "named", text }) }).then((r) => r.json<any>());
+    expect(await check(" Ana's\u200b castle ")).toEqual({ isAllowed: true, reason: null, text: "Ana's castle" });
+    expect(await check("add me on snap")).toEqual({ isAllowed: false, reason: "contact", text: "add me on snap" });
   });
 
   it("answers pings without waking the room, and drops a connection that stops answering, holding its seat", async () => {
     const id = await addGame("pinger");
     const a = await join("pinger", "PNGRMA");
     const b = await join("pinger", "PNGRMA");
-    await until(a, (m) => m.t === "players" && m.players.length === 2);
+    await until(a, (m) => m.type === "players" && m.players.length === 2);
     await rows(id, (r) => r[0]?.players === 2);
     a.ws.send("ping");
     for (let i = 0; i < 40 && !a.pongs.length; i++) await new Promise((r) => setTimeout(r, 20));
@@ -574,12 +605,12 @@ describe("room browsing", () => {
     });
     await runDurableObjectAlarm(stub);
     expect(await b.closed).toBe(4003);
-    await until(a, (m) => m.t === "players" && m.players.length === 1 && m.players[0].id === a.player.id);
+    await until(a, (m) => m.type === "players" && m.players.length === 1 && m.players[0].id === a.player.id);
     // Not playing now, but their seat is held for when they reconnect.
     expect((await rows(id, (r) => r[0]?.players === 1))[0]).toMatchObject({ players: 1, held: 1 });
     const back = await connect("pinger", "PNGRMA");
-    back.ws.send(JSON.stringify({ t: "hello", pass: b.pass }));
-    expect((await back.next()).t).toBe("welcome");
+    back.ws.send(JSON.stringify({ type: "hello", pass: b.pass }));
+    expect((await back.next()).type).toBe("welcome");
     expect((await rows(id, (r) => r[0]?.players === 2))[0]).toMatchObject({ players: 2, held: 0 });
     a.ws.close(1000);
     back.ws.close(1000);
@@ -589,38 +620,38 @@ describe("room browsing", () => {
     const id = await addGame("idler");
     const a = await join("idler", "DLRRMA");
     const b = await join("idler", "DLRRMA");
-    await until(a, (m) => m.t === "players" && m.players.length === 2);
-    b.ws.send(JSON.stringify({ t: "idle" }));
-    expect(await until(b, (m) => m.t === "away")).toEqual({ t: "away", why: "idle", seconds: 300 });
-    await until(a, (m) => m.t === "players" && m.players.length === 1);
+    await until(a, (m) => m.type === "players" && m.players.length === 2);
+    b.ws.send(JSON.stringify({ type: "idle" }));
+    expect(await until(b, (m) => m.type === "away")).toEqual({ type: "away", reason: "idle", seatHoldDurationSec: 300 });
+    await until(a, (m) => m.type === "players" && m.players.length === 1);
     expect((await rows(id, (r) => r[0]?.players === 1))[0]).toMatchObject({ players: 1, held: 1 });
     const list = await SELF.fetch(`${R}/v1/rooms/idler`, { headers: { Origin: ORIGIN } }).then((r) => r.json<any>());
-    expect(list.playing.players).toBe(1);
-    expect(list.rooms[0]).toMatchObject({ players: 1, held: 1 });
+    expect(list.playing.playerCount).toBe(1);
+    expect(list.rooms[0]).toMatchObject({ playerCount: 1, heldSeatCount: 1 });
 
-    b.ws.send(JSON.stringify({ t: "back" }));
-    await until(b, (m) => m.t === "welcome");
+    b.ws.send(JSON.stringify({ type: "back" }));
+    await until(b, (m) => m.type === "welcome");
     expect((await rows(id, (r) => r[0]?.players === 2))[0]).toMatchObject({ players: 2, held: 0 });
 
     // Out again, and this time the seat runs out: the room's check frees it and closes b's connection.
-    b.ws.send(JSON.stringify({ t: "idle" }));
-    await until(b, (m) => m.t === "away");
+    b.ws.send(JSON.stringify({ type: "idle" }));
+    await until(b, (m) => m.type === "away");
     await rows(id, (r) => r[0]?.held === 1);
     const stub = e.ROOMS.get(e.ROOMS.idFromName("idler:DLRRMA"));
     await runInDurableObject(stub, async (room: Room, state) => {
-      for (const h of (room as any).core.held.values()) h.until = Date.now() - 1;
+      for (const held of (room as any).core.held.values()) held.untilMs = Date.now() - 1;
       await state.storage.setAlarm(Date.now());
     });
     await runDurableObjectAlarm(stub);
     expect(await b.closed).toBe(4002);
     expect((await rows(id, (r) => r[0]?.held === 0))[0]).toMatchObject({ players: 1, held: 0 });
     const back = await connect("idler", "DLRRMA");
-    back.ws.send(JSON.stringify({ t: "hello", pass: b.pass }));
-    expect((await back.next()).t).toBe("welcome");
+    back.ws.send(JSON.stringify({ type: "hello", pass: b.pass }));
+    expect((await back.next()).type).toBe("welcome");
 
     // A room where everyone walked away has no row: nobody's playing in it.
-    a.ws.send(JSON.stringify({ t: "idle" }));
-    back.ws.send(JSON.stringify({ t: "idle" }));
+    a.ws.send(JSON.stringify({ type: "idle" }));
+    back.ws.send(JSON.stringify({ type: "idle" }));
     expect(await rows(id, (r) => r.length === 0)).toEqual([]);
     a.ws.close(1000);
     back.ws.close(1000);
@@ -635,18 +666,18 @@ describe("room browsing", () => {
     }
     const list = (left = "") => SELF.fetch(`${R}/v1/rooms/leaver${left ? `?left=${left}` : ""}`, { headers: { Origin: ORIGIN } }).then((r) => r.json<any>());
     const all = await list();
-    expect(all.playing).toEqual({ players: 4, rooms: 2, closed: 0 });
-    expect(all.changed).toBeUndefined();
+    expect(all.playing).toEqual({ playerCount: 4, roomCount: 2, closedRoomCount: 0 });
+    expect(all.changedAtMs).toBeUndefined();
     // Joined 25 seconds ago (so the rows count them) and left the room on its own 3 seconds ago: it's gone from their list.
     const alone = await list("LVRRMA.3000.25000");
-    expect(alone.rooms.map((r: any) => r.code)).toEqual(["LVRRMB"]);
-    expect(alone).toMatchObject({ playing: { players: 3, rooms: 1, closed: 0 }, joinable: 1, open: 1, regions: [{ code: "EU", rooms: 1, players: 3 }] });
-    expect((await list("LVRRMB.3000.25000")).rooms.find((r: any) => r.code === "LVRRMB").players).toBe(2);
+    expect(alone.rooms.map((r: any) => r.roomCode)).toEqual(["LVRRMB"]);
+    expect(alone).toMatchObject({ playing: { playerCount: 3, roomCount: 1, closedRoomCount: 0 }, joinableRoomCount: 1, openRoomCount: 1, regions: [{ region: "EU", roomCount: 1, playerCount: 3 }] });
+    expect((await list("LVRRMB.3000.25000")).rooms.find((r: any) => r.roomCode === "LVRRMB").playerCount).toBe(2);
     // Rows from before they joined never counted them, so nothing comes off.
-    expect((await list("LVRRMB.3000.10000")).rooms.find((r: any) => r.code === "LVRRMB").players).toBe(3);
+    expect((await list("LVRRMB.3000.10000")).rooms.find((r: any) => r.roomCode === "LVRRMB").playerCount).toBe(3);
     // A row the room wrote as the player went already counts them out; so does a list long after.
     await e.DB.prepare("UPDATE live_rooms SET players = 2, updated_at = ? WHERE code = 'LVRRMB'").bind(Date.now() - 2_500).run();
-    expect((await list("LVRRMB.3000.25000")).rooms.find((r: any) => r.code === "LVRRMB").players).toBe(2);
+    expect((await list("LVRRMB.3000.25000")).rooms.find((r: any) => r.roomCode === "LVRRMB").playerCount).toBe(2);
     expect((await list("LVRRMA.40000.50000")).rooms).toHaveLength(2);
     expect((await list("LVRRMA.3000")).rooms).toHaveLength(2);
     expect((await list("nope")).rooms).toHaveLength(2);

@@ -12,7 +12,7 @@
   .dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; vertical-align: -1px; margin-right: 5px; }
   #board { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; background: #2346a8; padding: 8px; border-radius: 14px; }
   .cell { aspect-ratio: 1; border-radius: 50%; background: #0d0e10; border: 0; padding: 0; cursor: pointer; }
-  .p1 { background: #ff5d5d; } .p2 { background: #ffd84f; }
+  .seat1 { background: #ff5d5d; } .seat2 { background: #ffd84f; }
   .win { box-shadow: 0 0 0 4px #fff inset; }
   button.again { margin-top: 14px; font: inherit; padding: 8px 16px; border-radius: 8px; border: 0; background: #eee; color: #111; font-weight: 600; cursor: pointer; }
 </style>
@@ -23,7 +23,7 @@
   <div id="info">Connecting…</div>
   <div id="board"></div>
   <div id="after"></div>
-  <button id="players-btn" class="again" type="button" style="background:transparent;color:#aaa;border:1px solid #444;font-weight:400">Players</button>
+  <button id="players-button" class="again" type="button" style="background:transparent;color:#aaa;border:1px solid #444;font-weight:400">Players</button>
 </main>
 <script src="_zaisma/v1.js"></script>
 <script src="game.js"></script>

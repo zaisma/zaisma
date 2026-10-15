@@ -28,16 +28,16 @@ describe("player passes", () => {
     const reason = async (token: string, game = "arena") => verifyPass(token, keys, { game, issuer: ISS }).then(() => "ok", (e: PassError) => e.code);
 
     expect(await reason(await signPass(signing, { ...claims, exp: claims.iat - 1 }))).toBe("expired");
-    expect(await reason(await signPass(signing, claims), "other-game")).toBe("wrong-game");
-    expect(await reason(await signPass(signing, { ...claims, iss: "https://evil.example" }))).toBe("wrong-issuer");
+    expect(await reason(await signPass(signing, claims), "other-game")).toBe("wrong_game");
+    expect(await reason(await signPass(signing, { ...claims, iss: "https://evil.example" }))).toBe("wrong_issuer");
 
     const [h, , s] = (await signPass(signing, claims)).split(".");
     const forged = btoa(JSON.stringify({ ...claims, name: "Admin" })).replace(/=+$/, "");
-    expect(await reason(`${h}.${forged}.${s}`)).toBe("bad-signature");
+    expect(await reason(`${h}.${forged}.${s}`)).toBe("bad_signature");
     expect(await reason("not-a-pass")).toBe("malformed");
 
     const other = await loadSigningKey(await generateSigningKey());
-    expect(await reason(await signPass(other, claims))).toBe("unknown-key");
+    expect(await reason(await signPass(other, claims))).toBe("unknown_key");
   });
 });
 
