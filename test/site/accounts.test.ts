@@ -1,7 +1,7 @@
 import { env, SELF } from "cloudflare:test";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { accountById, ageBand, ageOn, canonicalSave, checkName, createApiKey, gameById, gameBySlug, gameOwner, saveKey, sha256Hex } from "@zaisma/core";
-import { decideFeedback } from "../../apps/site/src/feedback.ts";
+import { decideTopic } from "../../apps/site/src/forum-posts.ts";
 import { checkForumPosts, type CheckDeps } from "../../apps/site/src/forum-check.ts";
 import { scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
 
@@ -120,7 +120,7 @@ beforeEach(async () => {
     const url = new URL(input instanceof Request ? input.url : String(input));
     return url.origin === SUPABASE ? fakeSupabase(url, init) : realFetch(input, init);
   });
-  await env.DB.exec("DELETE FROM feedback_posts; DELETE FROM feedback_tags; DELETE FROM feedback_votes; DELETE FROM feedback_follows; DELETE FROM feedback_media; DELETE FROM feedback_mentions; DELETE FROM feedback; DELETE FROM played; DELETE FROM game_images; DELETE FROM api_keys; DELETE FROM passkeys; DELETE FROM save_history; DELETE FROM saves; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
+  await env.DB.exec("DELETE FROM forum_posts; DELETE FROM forum_topic_tags; DELETE FROM forum_votes; DELETE FROM forum_follows; DELETE FROM forum_media; DELETE FROM forum_mentions; DELETE FROM forum_topics; DELETE FROM played; DELETE FROM game_images; DELETE FROM api_keys; DELETE FROM passkeys; DELETE FROM save_history; DELETE FROM saves; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -790,20 +790,20 @@ describe("the dashboard", () => {
     expect((await new Browser().go("/forum/new")).headers.get("location")).toBe("/signin?next=%2Fforum%2Fnew");
 
     // A refusal keeps what was typed.
-    const refused = await b.go("/forum/messages/new", { kind: "bug", title: "", text: "Kept text" });
+    const refused = await b.go("/forum/messages/new", { kind: "bug", title: "", text_markdown: "Kept text" });
     expect(refused.status).toBe(400);
     expect(await refused.text()).toContain("Kept text");
 
-    const sent = await b.go("/forum/messages/new", { kind: "bug", title: "Upload stalls at 99%", text: "My 300 MB build stops near the end.", game: "sky-hopper", category: "publishing" });
+    const sent = await b.go("/forum/messages/new", { kind: "bug", title: "Upload stalls at 99%", text_markdown: "My 300 MB build stops near the end.", game_slug: "sky-hopper", category: "publishing" });
     const id = sent.headers.get("location")!.match(/^\/forum\/([a-z0-9]+)\?done=posted-private$/)![1]!;
-    expect(await env.DB.prepare("SELECT author, via, check_state FROM feedback_posts WHERE feedback_id = ?").bind(id).first()).toEqual({ author: "person", via: "dashboard", check_state: null });
+    expect(await env.DB.prepare("SELECT author_kind, posted_via, check_status FROM forum_posts WHERE topic_id = ?").bind(id).first()).toEqual({ author_kind: "developer", posted_via: "dashboard", check_status: null });
 
     // Their AI adds to it through the API, with a screenshot; the page names them, marks the AI's post, and shows it.
     const account = (await env.DB.prepare("SELECT id FROM accounts WHERE name = ?").bind("Night Owl").first<{ id: string }>())!;
     const { token } = await createApiKey(env.DB, account.id, "claude");
     const png = new Uint8Array(64);
     png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);
-    const added = await SELF.fetch(`${SITE}/api/dev/forum/${id}/posts`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ text: "It fails at the last 4 MB part.", picture: btoa(String.fromCharCode(...png)) }) });
+    const added = await SELF.fetch(`${SITE}/api/dev/forum/${id}/posts`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ text_markdown: "It fails at the last 4 MB part.", images_base64: [btoa(String.fromCharCode(...png))] }) });
     const aiPost = ((await added.json()) as { post: { id: string; media: { id: string }[] } }).post;
     const image = aiPost.media[0]!.id;
     const thread = await (await b.go(`/forum/${id}?done=posted-private`)).text();
@@ -816,7 +816,7 @@ describe("the dashboard", () => {
     expect(await (await b.go("/forum?tab=yours")).text()).not.toContain("Upload stalls at 99%");
 
     // Zaisma's reply is news on Your games until the topic is opened, and is marked as Zaisma's.
-    await decideFeedback(env, id, { reply: "We are on it." });
+    await decideTopic(env, id, { reply: "We are on it." });
     expect(await (await b.go("/dashboard")).text()).toContain("Zaisma replied to one of your forum topics");
     const replied = await (await b.go(`/forum/${id}`)).text();
     expect(replied).toContain("We are on it.");
@@ -824,11 +824,11 @@ describe("the dashboard", () => {
     expect(await (await b.go("/dashboard")).text()).not.toContain("Zaisma replied");
 
     // Closed, it offers reopening.
-    await decideFeedback(env, id, { status: "fixed" });
+    await decideTopic(env, id, { topicStatus: "fixed" });
     expect(await (await b.go(`/forum/${id}`)).text()).toContain('name="reopen" value="1"');
-    const reopened = await b.go(`/forum/${id}/reply`, { text: "Back again.", reopen: "1" });
+    const reopened = await b.go(`/forum/${id}/reply`, { text_markdown: "Back again.", reopen: "1" });
     expect(reopened.headers.get("location")).toMatch(new RegExp(`^/forum/${id}\\?done=reopened#p-[a-z0-9]+$`));
-    expect((await env.DB.prepare("SELECT status FROM feedback WHERE id = ?").bind(id).first<{ status: string }>())!.status).toBe("new");
+    expect((await env.DB.prepare("SELECT topic_status FROM forum_topics WHERE id = ?").bind(id).first<{ topic_status: string }>())!.topic_status).toBe("new");
 
     // Someone else's private topic looks like no topic, and so do its pictures; the old addresses lead here.
     const other = new Browser();
@@ -840,11 +840,11 @@ describe("the dashboard", () => {
   });
 
   it("shows public topics to everyone once checked, with replies to one post, votes and answers", async () => {
-    const pass: CheckDeps = { ai: async (_k, _m, text) => ({ verdict: /discord/i.test(text) ? "hold" : "ok", reason: "Asks to move to another app.", inputTokens: 100, outputTokens: 10 }) };
+    const pass: CheckDeps = { ai: async (_k, _m, text) => ({ verdict: /discord/i.test(text) ? "hold" : "ok", reason: "Asks to move to another app.", inputTokenCount: 100, outputTokenCount: 10 }) };
     const check = () => checkForumPosts({ ...env, ANTHROPIC_API_KEY: "test-key" }, pass);
     const first = new Browser();
     await join(first);
-    const sent = await first.go("/forum/new", { kind: "question", title: "How do rooms pick a region?", text: "Players in Europe get a US room.", category: "rooms", tags: "mobile" });
+    const sent = await first.go("/forum/new", { kind: "question", title: "How do rooms pick a region?", text_markdown: "Players in Europe get a US room.", category: "rooms", tags: "mobile" });
     const id = sent.headers.get("location")!.match(/^\/forum\/([a-z0-9]+)\?done=checking$/)![1]!;
 
     // Until it's checked only its developer sees it.
@@ -861,42 +861,42 @@ describe("the dashboard", () => {
     // Another developer replies; the first answers that one post.
     const other = new Browser();
     await join(other, "other@example.com", "Other Owl");
-    await other.go(`/forum/${id}/reply`, { text: "The one closest to the first player who joins." });
+    await other.go(`/forum/${id}/reply`, { text_markdown: "The one closest to the first player who joins." });
     await check();
-    const answer = (await env.DB.prepare("SELECT id FROM feedback_posts WHERE feedback_id = ? AND text LIKE 'The one closest%'").bind(id).first<{ id: string }>())!.id;
-    await first.go(`/forum/${id}/reply`, { text: "Thanks, that explains it.", reply_to: answer });
+    const answer = (await env.DB.prepare("SELECT id FROM forum_posts WHERE topic_id = ? AND text_markdown LIKE 'The one closest%'").bind(id).first<{ id: string }>())!.id;
+    await first.go(`/forum/${id}/reply`, { text_markdown: "Thanks, that explains it.", reply_to_post_id: answer });
     await check();
     const page = await (await reader.go(`/forum/${id}`)).text();
     expect(page).toContain('class="quote"');
     expect(page).toContain("<strong>Other Owl</strong>");
 
     // Me too counts once per developer, never for your own topic.
-    await other.go(`/forum/${id}/vote`, { on: "1" });
-    await other.go(`/forum/${id}/vote`, { on: "1" });
-    expect((await first.go(`/forum/${id}/vote`, { on: "1" })).status).toBe(400);
-    expect((await env.DB.prepare("SELECT votes, replies FROM feedback WHERE id = ?").bind(id).first())).toEqual({ votes: 1, replies: 2 });
+    await other.go(`/forum/${id}/vote`, {});
+    await other.go(`/forum/${id}/vote`, {});
+    expect((await first.go(`/forum/${id}/vote`, {})).status).toBe(400);
+    expect(await env.DB.prepare("SELECT vote_count, reply_count FROM forum_topics WHERE id = ?").bind(id).first()).toEqual({ vote_count: 1, reply_count: 2 });
 
     // Only the asker marks the answer.
-    expect((await other.go(`/forum/${id}/answer`, { post: answer })).status).toBe(403);
-    await first.go(`/forum/${id}/answer`, { post: answer });
+    expect((await other.go(`/forum/${id}/answer`, { answer_post_id: answer })).status).toBe(403);
+    await first.go(`/forum/${id}/answer`, { answer_post_id: answer });
     expect(await (await reader.go(`/forum/${id}`)).text()).toContain("Answered by Other Owl");
     expect(await (await reader.go("/forum?tab=unanswered")).text()).not.toContain("How do rooms pick a region?");
 
     // A post the check holds stays with its writer until a person looks.
-    await other.go(`/forum/${id}/reply`, { text: "Add me on discord to talk more." });
+    await other.go(`/forum/${id}/reply`, { text_markdown: "Add me on discord to talk more." });
     await check();
     expect(await (await other.go(`/forum/${id}`)).text()).toContain("Waiting for a person at Zaisma");
     expect(await (await reader.go(`/forum/${id}`)).text()).not.toContain("discord");
 
-    // Filters: kind, category and its parent, tag.
-    for (const [q, shown] of [["kind=question", true], ["kind=bug", false], ["category=rooms", true], ["category=multiplayer", true], ["category=publish", false], ["tag=mobile", true], ["q=region", true], ["q=nothing+like+it", false]] as const) {
+    // Filters: kind, category and its section, tag.
+    for (const [q, shown] of [["kind=question", true], ["kind=bug", false], ["category=rooms", true], ["section=multiplayer", true], ["section=publish", false], ["tag=mobile", true], ["q=region", true], ["q=nothing+like+it", false]] as const) {
       expect((await (await reader.go(`/forum?${q}`)).text()).includes("How do rooms pick a region?"), q).toBe(shown);
     }
 
     // A known issue is pinned at the top of its category.
-    const bug = await first.go("/forum/messages/new", { kind: "bug", title: "Rooms drop at 50", text: "Everyone is disconnected.", category: "rooms" });
-    await decideFeedback(env, bug.headers.get("location")!.split("/")[2]!.split("?")[0]!, { status: "known", known_issue: { title: "Rooms drop every player at 50", workaround: "Cap rooms at 40." } });
-    const rooms = await (await reader.go("/forum?category=multiplayer")).text();
+    const bug = await first.go("/forum/messages/new", { kind: "bug", title: "Rooms drop at 50", text_markdown: "Everyone is disconnected.", category: "rooms" });
+    await decideTopic(env, bug.headers.get("location")!.split("/")[2]!.split("?")[0]!, { topicStatus: "known", knownIssue: { title: "Rooms drop every player at 50", workaround: "Cap rooms at 40." } });
+    const rooms = await (await reader.go("/forum?section=multiplayer")).text();
     expect(rooms).toContain("Known issues here");
     expect(rooms).toContain("Rooms drop every player at 50");
     expect(rooms).not.toContain("Everyone is disconnected.");

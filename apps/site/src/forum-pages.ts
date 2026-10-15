@@ -1,23 +1,24 @@
 import {
-  FEEDBACK_KINDS,
-  FEEDBACK_LIMITS,
   FORUM_CATEGORIES,
+  FORUM_LIMITS,
   FORUM_REPORT_REASONS,
+  FORUM_SECTIONS,
   FORUM_TAGS,
-  forumAreaName,
-  forumCategoryOf,
-  type FeedbackKind,
-  type FeedbackStatus,
+  TOPIC_KINDS,
+  forumCategoryName,
+  forumSectionOf,
+  type DebugContext,
+  type TopicKind,
+  type TopicStatus,
 } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
-import { ApiError, apiCall, callerFor, route, type Caller } from "./developer.ts";
+import { ApiError, apiCall, callerFor, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { esc, html, layout, raw, type Raw } from "./html.ts";
 import { forumPeople, previewMentions } from "./forum-mentions.ts";
-import { uploadDraftMedia } from "./feedback.ts";
+import { uploadDraftMedia } from "./forum-posts.ts";
 import { renderMarkdown, VIDEO_FRAMES } from "./forum-markdown.ts";
 import {
-  areasOf,
   createTopic,
   flagMisplaced,
   follow,
@@ -28,12 +29,10 @@ import {
   getTopic,
   listTopics,
   markAnswer,
-  queryFrom,
   replyTo,
   similarTopics,
   unreadCount,
   vote,
-  type ForumQuery,
   type Person,
   type PostJson,
   type TopicRow,
@@ -41,21 +40,23 @@ import {
 } from "./forum.ts";
 
 /**
- * The developer forum's pages (docs/DECISIONS.md): the topic list with its category rail, a topic,
+ * The developer forum's pages (docs/DECISIONS.md): the topic list with its section rail, a topic,
  * and a new topic. Anyone can read what's public; posting needs an account. Every read and change is
  * the same function the API and MCP call (forum.ts), so a developer and their AI see the same forum.
+ * Forms use the API's field names.
  */
 
 type Topic = Awaited<ReturnType<typeof getTopic>>;
+type TopicDetail = Topic["topic"];
 
-export const KINDS: Record<FeedbackKind, { label: string; plural: string; hint: string }> = {
+export const KINDS: Record<TopicKind, { label: string; plural: string; hint: string }> = {
   bug: { label: "Bug", plural: "Bugs", hint: "Something in Zaisma doesn't work as it should." },
   gap: { label: "Missing", plural: "Missing", hint: "A limit, or a missing piece, blocks you." },
   feature: { label: "Idea", plural: "Ideas", hint: "Something that would make Zaisma better for you." },
   question: { label: "Question", plural: "Questions", hint: "How something works, or how to do something." },
   talk: { label: "Discussion", plural: "Discussions", hint: "Anything else about making games on Zaisma." },
 };
-const STATUS: Record<FeedbackStatus, { label: string; pill: string }> = {
+const STATUS: Record<TopicStatus, { label: string; pill: string }> = {
   new: { label: "Open", pill: "" },
   investigating: { label: "Investigating", pill: "pending" },
   known: { label: "Confirmed", pill: "held" },
@@ -79,8 +80,8 @@ const DONE: Record<string, string> = {
   reopened: "Reopened. A person at Zaisma looks at it again.",
 };
 
-const stroke = (paths: string, fill = false) =>
-  raw(`<svg viewBox="0 0 20 20" fill="${fill ? "currentColor" : "none"}" stroke="${fill ? "none" : "currentColor"}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`);
+const stroke = (paths: string, isFilled = false) =>
+  raw(`<svg viewBox="0 0 20 20" fill="${isFilled ? "currentColor" : "none"}" stroke="${isFilled ? "none" : "currentColor"}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`);
 const ICONS = {
   bug: stroke('<path d="M7.2 6.4a2.8 2.8 0 0 1 5.6 0"/><rect x="5.6" y="6.4" width="8.8" height="10.2" rx="4.4"/><path d="M10 9.2v7.2M2.8 9.6h2.8M14.4 9.6h2.8M2.8 14h2.8M14.4 14h2.8M5 3.6l2 2M15 3.6l-2 2"/>'),
   gap: stroke('<rect x="3.5" y="3.5" width="13" height="13" stroke-dasharray="3 2.6"/><path d="M10 7v6M7 10h6"/>'),
@@ -105,146 +106,158 @@ const ICONS = {
   cross: stroke('<path d="M5 5l10 10M15 5L5 15"/>'),
 };
 /** What a vote means on each kind of topic. Discussions take replies, not votes. */
-function voteOf(t: { kind: FeedbackKind; known_issue: boolean }): { ask: string; done: string; icon: Raw; count: (n: number) => string } | null {
-  if (t.kind === "talk" && !t.known_issue) return null;
-  if (t.kind === "feature" && !t.known_issue) return { ask: "I want this", done: "You want this", icon: ICONS.want, count: (n) => (n === 1 ? "developer wants this" : "developers want this") };
-  if (t.kind === "question" && !t.known_issue) return { ask: "Same question", done: "You have this question too", icon: ICONS.same, count: (n) => (n === 1 ? "developer has this question" : "developers have this question") };
-  return { ask: "Affects me too", done: "It affects you too", icon: ICONS.affects, count: (n) => (n === 1 ? "developer affected" : "developers affected") };
+function voteOf(topic: { kind: TopicKind; is_known_issue: boolean }): { ask: string; done: string; icon: Raw; countLabel: (voteCount: number) => string } | null {
+  if (topic.kind === "talk" && !topic.is_known_issue) return null;
+  if (topic.kind === "feature" && !topic.is_known_issue) return { ask: "I want this", done: "You want this", icon: ICONS.want, countLabel: (voteCount) => (voteCount === 1 ? "developer wants this" : "developers want this") };
+  if (topic.kind === "question" && !topic.is_known_issue) {
+    return { ask: "Same question", done: "You have this question too", icon: ICONS.same, countLabel: (voteCount) => (voteCount === 1 ? "developer has this question" : "developers have this question") };
+  }
+  return { ask: "Affects me too", done: "It affects you too", icon: ICONS.affects, countLabel: (voteCount) => (voteCount === 1 ? "developer affected" : "developers affected") };
 }
-const kindIcon = (t: { kind: FeedbackKind; known_issue: boolean }) => (t.known_issue ? ICONS.known : ICONS[t.kind]);
+const kindIcon = (topic: { kind: TopicKind; is_known_issue: boolean }) => (topic.is_known_issue ? ICONS.known : ICONS[topic.kind]);
+/** Your own post others can't see yet: still being checked, or held for a person. */
+const isWaiting = (post: PostJson) => post.check_status === "pending" || post.check_status === "held";
 
 export async function handleForum(request: Request, env: Env, path: string): Promise<Response | null> {
   if (path !== "/forum" && !path.startsWith("/forum/")) return null;
-  const post = request.method === "POST";
-  if (post && request.headers.get("origin") && request.headers.get("origin") !== new URL(request.url).origin) return new Response("Bad origin", { status: 403 });
+  const isPost = request.method === "POST";
+  if (isPost && request.headers.get("origin") && request.headers.get("origin") !== new URL(request.url).origin) return new Response("Bad origin", { status: 403 });
   const url = new URL(request.url);
   const session = await currentSession(request, env);
   const caller = session ? await callerFor(env, session.userId, session.cookies) : null;
-  const done = (res: Response) => withCookies(res, session?.cookies ?? []);
+  const done = (response: Response) => withCookies(response, session?.cookies ?? []);
   const signIn = () => done(redirect(`/signin?next=${encodeURIComponent(path + url.search)}`));
   const ctx: Ctx = { env, viewer: caller, me: caller ? await mePerson(env, caller) : null, url };
 
   try {
-    if (path === "/forum/similar") return done(await similarFragment(ctx, url.searchParams.get("q") ?? ""));
+    if (path === "/forum/similar") return done(await similarFragment(ctx, url.searchParams.get("search_text") ?? ""));
     const media = path.match(/^\/forum\/media\/([a-z0-9]{1,40})$/);
-    if (media && !post) return done(await serveMedia(env, caller, media[1]!));
-    if (path === "/forum/people" && !post) {
+    if (media && !isPost) return done(await serveMedia(env, caller, media[1]!));
+    if (path === "/forum/people" && !isPost) {
       if (!caller) return new Response("[]", { status: 401, headers: { "Content-Type": "application/json" } });
-      const people = await forumPeople(env, url.searchParams.get("q") ?? "", url.searchParams.get("topic") || null, caller.accountId);
+      const people = await forumPeople(env, url.searchParams.get("name_prefix") ?? "", url.searchParams.get("topic_id") || null, caller.accountId);
       return done(new Response(JSON.stringify(people), { headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } }));
     }
-    if (path === "/forum/out" && !post) return done(outPage(ctx, url.searchParams.get("to") ?? ""));
+    if (path === "/forum/out" && !isPost) return done(outPage(ctx, url.searchParams.get("to") ?? ""));
     // An image to place in a post's text, uploaded while it's written.
-    if (path === "/forum/media" && post) {
+    if (path === "/forum/media" && isPost) {
       if (!caller) return new Response(JSON.stringify({ error: "Sign in to add images." }), { status: 401, headers: { "Content-Type": "application/json" } });
       const file = (await request.formData()).get("file");
       try {
         if (!(file instanceof File)) throw new ApiError(400, "no_file", "Choose an image.");
-        const up = await uploadDraftMedia(env, caller, new Uint8Array(await file.arrayBuffer()));
-        return done(new Response(JSON.stringify(up), { headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } }));
-      } catch (err) {
-        if (err instanceof ApiError) return new Response(JSON.stringify({ error: err.message }), { status: err.httpStatus, headers: { "Content-Type": "application/json" } });
-        throw err;
+        const uploaded = await uploadDraftMedia(env, caller, new Uint8Array(await file.arrayBuffer()));
+        return done(new Response(JSON.stringify(uploaded), { headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } }));
+      } catch (error) {
+        if (error instanceof ApiError) return new Response(JSON.stringify({ error: error.message }), { status: error.httpStatus, headers: { "Content-Type": "application/json" } });
+        throw error;
       }
     }
     // What a draft will look like, rendered exactly as a post is.
-    if (path === "/forum/preview" && post) {
+    if (path === "/forum/preview" && isPost) {
       if (!caller) return new Response("", { status: 401 });
-      const text = String((await request.formData()).get("text") ?? "").slice(0, FEEDBACK_LIMITS.text);
+      const text = String((await request.formData()).get("text_markdown") ?? "").slice(0, FORUM_LIMITS.textCharacterCount);
       const body = text.trim() ? renderMarkdown(text, { siteOrigin: env.SITE_ORIGIN, mentions: await previewMentions(env, text) }) : `<p class="muted">Nothing to preview yet.</p>`;
       return done(new Response(body, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } }));
     }
     if (path === "/forum" || path === "/forum/messages") {
-      const query = queryFrom(url.searchParams);
+      const query = pageQueryFrom(url.searchParams);
       if (path === "/forum/messages") query.tab = "messages";
       if ((query.tab === "yours" || query.tab === "messages") && !caller) return signIn();
       return done(await listPage(ctx, query));
     }
-    // A private report under a known issue is a message to Zaisma now.
-    if (path === "/forum/new" && !post && url.searchParams.get("known_issue")) return done(redirect(`/forum/messages/new${url.search}`));
+    // A private message about a known issue is a message to Zaisma.
+    if (path === "/forum/new" && !isPost && url.searchParams.get("known_issue_topic_id")) return done(redirect(`/forum/messages/new${url.search}`));
     if (path === "/forum/new" || path === "/forum/messages/new") {
-      const message = path === "/forum/messages/new";
+      const isMessage = path === "/forum/messages/new";
       if (!caller) return signIn();
-      if (!post) return done(await newPage(ctx, Object.fromEntries(url.searchParams), message));
+      if (!isPost) return done(await newPage(ctx, Object.fromEntries(url.searchParams), isMessage));
       const form = await request.formData();
       const field = (name: string) => String(form.get(name) ?? "").trim();
       try {
-        const res = (await createTopic(env, caller, {
+        const created = await createTopic(env, caller, {
           kind: field("kind"),
           title: field("title"),
-          text: field("text"),
+          text_markdown: field("text_markdown"),
           ...(field("category") ? { category: field("category") } : {}),
-          tags: message ? [] : form.getAll("tags").map(String),
-          public: !message,
-          ...(field("game") ? { game: field("game") } : {}),
-          ...(field("known_issue") ? { known_issue: field("known_issue") } : {}),
-          ...(await mediaFrom(form)),
-        })) as Topic & { note?: string };
-        const t = res.topic;
-        const state = !t.public ? "posted-private" : t.shown ? "posted" : res.posts[0]?.state === "held" ? "held" : "checking";
-        return done(redirect(`/forum/${t.id}?done=${state}`));
-      } catch (err) {
-        if (err instanceof ApiError) return done(await newPage(ctx, Object.fromEntries([...form].filter(([, v]) => typeof v === "string")) as Record<string, string>, message, err.message, err.httpStatus, form.getAll("tags").map(String)));
-        throw err;
+          tags: isMessage ? [] : form.getAll("tags").map(String),
+          is_public: !isMessage,
+          ...(field("game_slug") ? { game_slug: field("game_slug") } : {}),
+          ...(field("known_issue_topic_id") ? { known_issue_topic_id: field("known_issue_topic_id") } : {}),
+          ...(await imagesFrom(form)),
+        });
+        const topic = created.topic;
+        const state = !topic.is_public ? "posted-private" : topic.is_shown ? "posted" : created.posts[0]?.check_status === "held" ? "held" : "checking";
+        return done(redirect(`/forum/${topic.id}?done=${state}`));
+      } catch (error) {
+        if (error instanceof ApiError) {
+          const given = Object.fromEntries([...form].filter(([, entry]) => typeof entry === "string")) as Record<string, string>;
+          return done(await newPage(ctx, given, isMessage, error.message, error.httpStatus, form.getAll("tags").map(String)));
+        }
+        throw error;
       }
     }
 
-    const m = path.match(/^\/forum\/([a-z0-9]{1,40})(?:\/(reply|vote|follow|answer|misplaced|still-happening|helpful|report|pictures\/([a-z0-9]{1,40})))?$/);
-    if (!m) return null;
-    const [, id, sub, postId] = m as unknown as [string, string, string | undefined, string | undefined];
-    if (!sub && !post) return done(await topicPage(ctx, id, { done: url.searchParams.get("done") ?? undefined, to: url.searchParams.get("to") ?? undefined }));
+    const topicPath = path.match(/^\/forum\/([a-z0-9]{1,40})(?:\/(reply|vote|follow|answer|misplaced|still-happening|helpful|report))?$/);
+    if (!topicPath) return null;
+    const [, id, action] = topicPath as unknown as [string, string, string | undefined];
+    if (!action && !isPost) return done(await topicPage(ctx, id, { done: url.searchParams.get("done") ?? undefined, replyToPostId: url.searchParams.get("reply_to_post_id") ?? undefined }));
     if (!caller) return signIn();
-    if (postId && !post) {
-      try {
-        return done(await route(new Request(`${env.SITE_ORIGIN}/api/dev/forum/${id}/pictures/${postId}`), env, `/forum/${id}/pictures/${postId}`, caller));
-      } catch (err) {
-        if (err instanceof ApiError) return new Response(err.message, { status: err.httpStatus });
-        throw err;
-      }
-    }
-    if (sub === "report" && !post) return done(await reportPage(ctx, id, url.searchParams.get("post") ?? ""));
-    if (!post) return done(redirect(`/forum/${id}`));
+    if (action === "report" && !isPost) return done(await reportPage(ctx, id, url.searchParams.get("post_id") ?? ""));
+    if (!isPost) return done(redirect(`/forum/${id}`));
     const form = await request.formData();
     const field = (name: string) => String(form.get(name) ?? "").trim();
-    if (sub === "reply") {
+    // A toggle's form says undo when it takes back what's on.
+    const isUndo = form.get("undo") === "1";
+    if (action === "reply") {
       const reopen = form.get("reopen") === "1";
       try {
-        const res = await replyTo(env, caller, id, { text: field("text"), ...(field("reply_to") ? { reply_to: field("reply_to") } : {}), ...(reopen ? { reopen: true } : {}), ...(await mediaFrom(form)) });
-        const state = reopen ? "reopened" : res.post?.state === "checking" ? "checking" : res.post?.state === "held" ? "held" : "replied";
-        return done(redirect(`/forum/${id}?done=${state}#${res.post ? `p-${res.post.id}` : "reply"}`));
-      } catch (err) {
-        if (err instanceof ApiError) return done(await topicPage(ctx, id, { error: err.message, text: field("text"), to: field("reply_to") || undefined }, err.httpStatus));
-        throw err;
+        const replied = await replyTo(env, caller, id, {
+          text_markdown: field("text_markdown"),
+          ...(field("reply_to_post_id") ? { reply_to_post_id: field("reply_to_post_id") } : {}),
+          ...(reopen ? { reopen: true } : {}),
+          ...(await imagesFrom(form)),
+        });
+        const state = reopen ? "reopened" : replied.post.check_status === "pending" ? "checking" : replied.post.check_status === "held" ? "held" : "replied";
+        return done(redirect(`/forum/${id}?done=${state}#p-${replied.post.id}`));
+      } catch (error) {
+        if (error instanceof ApiError) return done(await topicPage(ctx, id, { error: error.message, textMarkdown: field("text_markdown"), replyToPostId: field("reply_to_post_id") || undefined }, error.httpStatus));
+        throw error;
       }
     }
     try {
-      if (sub === "vote") await vote(env, caller, id, form.get("on") === "1");
-      if (sub === "follow") await follow(env, caller, id, form.get("on") === "1");
-      if (sub === "answer") await markAnswer(env, caller, id, field("post") || null);
-      if (sub === "helpful") {
-        await markHelpful(env, caller, id, field("post"), form.get("on") === "1");
-        return done(redirect(`/forum/${id}#p-${field("post")}`));
+      if (action === "vote") await vote(env, caller, id, !isUndo);
+      if (action === "follow") await follow(env, caller, id, !isUndo);
+      if (action === "answer") await markAnswer(env, caller, id, field("answer_post_id") || null);
+      if (action === "helpful") {
+        await markHelpful(env, caller, id, field("post_id"), !isUndo);
+        return done(redirect(`/forum/${id}#p-${field("post_id")}`));
       }
-      if (sub === "report") {
-        const res = await reportPost(env, caller, id, field("post"), { reason: field("reason"), details: field("details") });
-        return done(redirect(`/forum/${id}?done=${res.hidden ? "reported-hidden" : "reported"}`));
+      if (action === "report") {
+        const reported = await reportPost(env, caller, id, field("post_id"), { reason: field("reason"), details: field("details") });
+        return done(redirect(`/forum/${id}?done=${reported.is_hidden ? "reported-hidden" : "reported"}`));
       }
-      if (sub === "still-happening") {
-        await stillHappening(env, caller, id, { text: field("text") });
+      if (action === "still-happening") {
+        await stillHappening(env, caller, id, {});
         return done(redirect(`/forum/${id}?done=still`));
       }
-      if (sub === "misplaced") {
+      if (action === "misplaced") {
         await flagMisplaced(env, caller, id);
         return done(redirect(`/forum/${id}?done=misplaced`));
       }
-    } catch (err) {
-      if (err instanceof ApiError) return done(await topicPage(ctx, id, { error: err.message }, err.httpStatus));
-      throw err;
+    } catch (error) {
+      if (error instanceof ApiError) return done(await topicPage(ctx, id, { error: error.message }, error.httpStatus));
+      throw error;
     }
-    return done(redirect(`/forum/${id}${sub === "answer" && field("post") ? `#p-${field("post")}` : ""}`));
-  } catch (err) {
-    if (err instanceof ApiError && err.httpStatus === 404) return done(forumPage(ctx, "Not found", html`<div class="gone"><h1>Not found</h1><p class="lead">There's no topic here you can see. It may be private, or still being checked.</p><a class="btn ghost" href="/forum">Back to the forum</a></div>`, { status: 404 }));
-    throw err;
+    return done(redirect(`/forum/${id}${action === "answer" && field("answer_post_id") ? `#p-${field("answer_post_id")}` : ""}`));
+  } catch (error) {
+    if (error instanceof ApiError && error.httpStatus === 404) {
+      return done(
+        forumPage(ctx, "Not found", html`<div class="gone"><h1>Not found</h1><p class="lead">There's no topic here you can see. It may be private, or still being checked.</p><a class="btn ghost" href="/forum">Back to the forum</a></div>`, {
+          httpStatus: 404,
+        }),
+      );
+    }
+    throw error;
   }
 }
 
@@ -255,58 +268,86 @@ interface Ctx {
   url: URL;
 }
 
+/** What a forum page's address asks for. q is the site header's search box. */
+interface PageQuery {
+  q?: string;
+  section?: string;
+  category?: string;
+  kind?: string;
+  tag?: string;
+  tab?: string;
+  topic_status?: string;
+  page_number?: number;
+}
+
+const PAGE_TOPIC_COUNT = 30;
+
+function pageQueryFrom(queryParameters: URLSearchParams): PageQuery {
+  return {
+    q: queryParameters.get("q") ?? "",
+    section: queryParameters.get("section") ?? "",
+    category: queryParameters.get("category") ?? "",
+    kind: queryParameters.get("kind") ?? "",
+    tag: queryParameters.get("tag") ?? "",
+    tab: queryParameters.get("tab") ?? "",
+    topic_status: queryParameters.get("topic_status") ?? "",
+    page_number: Math.max(1, Math.min(1000, Math.floor(Number(queryParameters.get("page_number")) || 1))),
+  };
+}
+
 async function mePerson(env: Env, caller: Caller): Promise<Person> {
   const row = await env.DB.prepare("SELECT name FROM accounts WHERE id = ?").bind(caller.accountId).first<{ name: string }>();
-  return { name: row?.name ?? "You", by: "developer", you: true };
+  return { name: row?.name ?? "You", kind: "developer", is_you: true };
 }
 
 function redirect(to: string): Response {
   return new Response(null, { status: 303, headers: { Location: to, "Cache-Control": "no-store" } });
 }
 
-function withCookies(res: Response, cookies: string[]): Response {
-  if (!cookies.length) return res;
-  const out = new Response(res.body, res);
-  for (const c of cookies) out.headers.append("Set-Cookie", c);
-  return out;
+function withCookies(response: Response, cookies: string[]): Response {
+  if (!cookies.length) return response;
+  const withSet = new Response(response.body, response);
+  for (const cookie of cookies) withSet.headers.append("Set-Cookie", cookie);
+  return withSet;
 }
 
 /** The images from a form, as the API takes them. */
-async function mediaFrom(form: FormData): Promise<{ media?: string[] }> {
-  const files = form.getAll("media").filter((f): f is File => f instanceof File && f.size > 0);
+async function imagesFrom(form: FormData): Promise<{ images_base64?: string[] }> {
+  const files = form.getAll("images").filter((file): file is File => file instanceof File && file.size > 0);
   if (!files.length) return {};
-  if (files.length > FEEDBACK_LIMITS.media) throw new ApiError(400, "too_much_media", `A post can carry up to ${FEEDBACK_LIMITS.media} images.`);
-  const media: string[] = [];
+  if (files.length > FORUM_LIMITS.imageCountPerPost) throw new ApiError(400, "too_much_media", `A post can carry up to ${FORUM_LIMITS.imageCountPerPost} images.`);
+  const images: string[] = [];
   for (const file of files) {
-    if (file.size > FEEDBACK_LIMITS.pictureBytes) throw new ApiError(413, "picture_too_big", `Images can be up to ${FEEDBACK_LIMITS.pictureBytes / 1048576} MB each.`);
+    if (file.size > FORUM_LIMITS.imageSizeBytes) throw new ApiError(413, "picture_too_big", `Images can be up to ${FORUM_LIMITS.imageSizeBytes / 1048576} MB each.`);
     const bytes = new Uint8Array(await file.arrayBuffer());
-    let s = "";
-    for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-    media.push(btoa(s));
+    let binary = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    images.push(btoa(binary));
   }
-  return { media };
+  return { images_base64: images };
 }
 
 /** The site's page with the forum's search and New topic in the header. */
-function forumPage(ctx: Ctx, title: string, body: Raw, opts: { status?: number; q?: string; keep?: Record<string, string> } = {}): Response {
-  const res = layout(ctx.env, {
+function forumPage(ctx: Ctx, title: string, body: Raw, options: { httpStatus?: number; q?: string; keep?: Record<string, string> } = {}): Response {
+  const category = ctx.url.searchParams.get("category");
+  const page = layout(ctx.env, {
     title: `${title} · Zaisma forum`,
     body: html`<style>${raw(FORUM_STYLES)}</style>${body}<script>${raw(FORUM_SCRIPT)}${raw(POSTS_SCRIPT)}</script>`,
     private: true,
     nav: "forum",
-    search: { action: "/forum", q: opts.q ?? "", placeholder: "Search the forum", label: "Search the forum", keep: opts.keep },
+    search: { action: "/forum", q: options.q ?? "", placeholder: "Search the forum", label: "Search the forum", keep: options.keep },
     frames: VIDEO_FRAMES,
-    action: html`<a class="btn light new-topic" href="/forum/new${ctx.url.searchParams.get("category") ? `?category=${encodeURIComponent(ctx.url.searchParams.get("category")!)}` : ""}">${ICONS.plus}<span>New topic</span></a>`,
+    action: html`<a class="btn light new-topic" href="/forum/new${category ? `?category=${encodeURIComponent(category)}` : ""}">${ICONS.plus}<span>New topic</span></a>`,
   });
-  return new Response(res.body, { status: opts.status ?? 200, headers: res.headers });
+  return new Response(page.body, { status: options.httpStatus ?? 200, headers: page.headers });
 }
 
 // --- Bits every page uses ---
 
 function hue(name: string): number {
-  let h = 7;
-  for (const c of name) h = (h * 31 + c.codePointAt(0)!) % 360;
-  return h;
+  let hueDeg = 7;
+  for (const character of name) hueDeg = (hueDeg * 31 + character.codePointAt(0)!) % 360;
+  return hueDeg;
 }
 
 function initials(name: string): string {
@@ -316,43 +357,55 @@ function initials(name: string): string {
 }
 
 /** An account's picture: for now its initials on a plate in its own color. An AI's post shows its developer's, with the AI mark. */
-export function avatar(p: Person, size: "xs" | "sm" | "md" = "md"): Raw {
-  if (p.by === "zaisma") return html`<span class="av ${size} z" title="Zaisma"><img src="/zaisma-mark-small-black.svg" alt=""></span>`;
-  return html`<span class="av ${size}" style="--h:${hue(p.name)}" title="${p.by === "ai" ? `${p.name}'s AI` : p.name}" aria-hidden="true">${initials(p.name)}${p.by === "ai" ? html`<i class="ai-mark">${ICONS.ai}</i>` : ""}</span>`;
+export function avatar(person: Person, avatarSize: "xs" | "sm" | "md" = "md"): Raw {
+  if (person.kind === "zaisma") return html`<span class="av ${avatarSize} z" title="Zaisma"><img src="/zaisma-mark-small-black.svg" alt=""></span>`;
+  return html`<span class="av ${avatarSize}" style="--h:${hue(person.name)}" title="${person.kind === "ai" ? `${person.name}'s AI` : person.name}" aria-hidden="true">${initials(person.name)}${person.kind === "ai" ? html`<i class="ai-mark">${ICONS.ai}</i>` : ""}</span>`;
 }
 
 /** A name as posts show it: the developer, an AI mark for their AI, a Team mark for Zaisma. */
-function nameOf(p: Person): Raw {
-  return html`<span class="who"><strong>${p.name}</strong>${p.by === "ai" ? html`<span class="mark ai" title="Written by ${p.you ? "your" : `${p.name}'s`} AI assistant">${ICONS.ai}AI</span>` : ""}${p.by === "zaisma" ? html`<span class="mark team">Team</span>` : ""}${p.you ? html`<span class="you">you</span>` : ""}</span>`;
+function nameOf(person: Person): Raw {
+  return html`<span class="who"><strong>${person.name}</strong>${person.kind === "ai" ? html`<span class="mark ai" title="Written by ${person.is_you ? "your" : `${person.name}'s`} AI assistant">${ICONS.ai}AI</span>` : ""}${person.kind === "zaisma" ? html`<span class="mark team">Team</span>` : ""}${person.is_you ? html`<span class="you">you</span>` : ""}</span>`;
 }
 
-function ago(ms: number): Raw {
-  const s = Math.max(0, (Date.now() - ms) / 1000);
-  const text = s < 60 ? "now" : s < 3600 ? `${Math.floor(s / 60)}m` : s < 86400 ? `${Math.floor(s / 3600)}h` : s < 86400 * 30 ? `${Math.floor(s / 86400)}d` : new Date(ms).toLocaleDateString("en", { month: "short", day: "numeric", year: s > 86400 * 300 ? "numeric" : undefined });
-  return html`<time datetime="${new Date(ms).toISOString()}" title="${new Date(ms).toISOString().slice(0, 16).replace("T", " ")} UTC">${text}</time>`;
+function ago(isoTime: string): Raw {
+  const atMs = Date.parse(isoTime);
+  const ageSec = Math.max(0, (Date.now() - atMs) / 1000);
+  const text =
+    ageSec < 60
+      ? "now"
+      : ageSec < 3600
+        ? `${Math.floor(ageSec / 60)}m`
+        : ageSec < 86400
+          ? `${Math.floor(ageSec / 3600)}h`
+          : ageSec < 86400 * 30
+            ? `${Math.floor(ageSec / 86400)}d`
+            : new Date(atMs).toLocaleDateString("en", { month: "short", day: "numeric", year: ageSec > 86400 * 300 ? "numeric" : undefined });
+  return html`<time datetime="${isoTime}" title="${isoTime.slice(0, 16).replace("T", " ")} UTC">${text}</time>`;
 }
 
-const statusPill = (s: FeedbackStatus, isPublic: boolean) => (s === "new" ? (isPublic ? "" : html`<span class="pill pending">Waiting for Zaisma</span>`) : html`<span class="pill ${STATUS[s].pill}">${STATUS[s].label}</span>`);
+const statusPill = (status: TopicStatus, isPublic: boolean) =>
+  status === "new" ? (isPublic ? "" : html`<span class="pill pending">Waiting for Zaisma</span>`) : html`<span class="pill ${STATUS[status].pill}">${STATUS[status].label}</span>`;
 
-function link(q: ForumQuery, change: Partial<ForumQuery>): string {
-  const next = { ...q, ...change };
-  const p = new URLSearchParams();
-  for (const k of ["q", "category", "kind", "tag", "tab", "status"] as const) if (next[k]) p.set(k, String(next[k]));
-  if (next.page && next.page > 1) p.set("page", String(next.page));
-  const s = p.toString();
-  return `/forum${s ? `?${s}` : ""}`;
+function link(query: PageQuery, change: Partial<PageQuery>): string {
+  const next = { ...query, ...change };
+  const queryParameters = new URLSearchParams();
+  for (const key of ["q", "section", "category", "kind", "tag", "tab", "topic_status"] as const) if (next[key]) queryParameters.set(key, String(next[key]));
+  if (next.page_number && next.page_number > 1) queryParameters.set("page_number", String(next.page_number));
+  const search = queryParameters.toString();
+  return `/forum${search ? `?${search}` : ""}`;
 }
 
-function placeOf(area: string | null): { category: string; name: string; sub: string } | null {
-  if (!area) return null;
-  const c = forumCategoryOf(area);
-  return c ? { category: c.id, name: c.name, sub: forumAreaName(area)! } : null;
+/** Where a category sits: its section and its own name. */
+function placeOf(category: string | null): { section: string; sectionName: string; categoryName: string } | null {
+  if (!category) return null;
+  const section = forumSectionOf(category);
+  return section ? { section: section.id, sectionName: section.name, categoryName: forumCategoryName(category)! } : null;
 }
 
-const tagChip = (t: string) => html`<a class="tag" href="/forum?tag=${t}">${(FORUM_TAGS as Record<string, string>)[t] ?? t}</a>`;
+const tagChip = (tag: string) => html`<a class="tag" href="/forum?tag=${tag}">${(FORUM_TAGS as Record<string, string>)[tag] ?? tag}</a>`;
 
 /** A post as one line of plain words, for quoting it: code, links and markdown's marks taken out. */
-function plain(text: string, max = 140): string {
+function plain(text: string, maximumCharacterCount = 140): string {
   const words = text
     .replace(/```[\s\S]*?(```|$)/g, " [code] ")
     .replace(/!?\[([^\]\n]*)\]\([^)\s]*\)/g, "$1")
@@ -361,19 +414,33 @@ function plain(text: string, max = 140): string {
     .replace(/(\*\*|__|~~|`|\*|_(?=\S)|(?<=\S)_)/g, "")
     .replace(/\s+/g, " ")
     .trim();
-  return words.length > max ? `${words.slice(0, max - 1).trimEnd()}…` : words;
+  return words.length > maximumCharacterCount ? `${words.slice(0, maximumCharacterCount - 1).trimEnd()}…` : words;
 }
 
 /** Post text: markdown, with the people it mentions (forum-markdown.ts). */
-function richText(ctx: Ctx, p: PostJson): Raw {
-  return raw(renderMarkdown(p.text, { siteOrigin: ctx.env.SITE_ORIGIN, mentions: new Set(p.mentions.map((n) => n.toLowerCase())) }));
+function richText(ctx: Ctx, post: PostJson): Raw {
+  return raw(renderMarkdown(post.text_markdown, { siteOrigin: ctx.env.SITE_ORIGIN, mentions: new Set(post.mentioned_names.map((name) => name.toLowerCase())) }));
 }
 
 /** A post's images, opening full size. */
-function mediaGrid(p: PostJson): Raw {
-  const rest = p.media.filter((m) => !p.text.includes(`/forum/media/${m.id}`));
+function mediaGrid(post: PostJson): Raw {
+  const rest = post.media.filter((image) => !post.text_markdown.includes(`/forum/media/${image.id}`));
   if (!rest.length) return html``;
-  return html`<div class="p-media${rest.length === 1 ? " one" : ""}">${rest.map((m, i) => html`<a href="/forum/media/${m.id}" target="_blank" rel="noopener"><img src="/forum/media/${m.id}" alt="Image ${i + 1} from ${p.by.name}" loading="lazy"></a>`)}</div>`;
+  return html`<div class="p-media${rest.length === 1 ? " one" : ""}">${rest.map(
+    (image, i) => html`<a href="/forum/media/${image.id}" target="_blank" rel="noopener"><img src="/forum/media/${image.id}" alt="Image ${i + 1} from ${post.author.name}" loading="lazy"></a>`,
+  )}</div>`;
+}
+
+const DEBUG_CONTEXT_LABELS: Record<keyof DebugContext, string> = { call: "Call", error_code: "Error code", error_message: "Error", request_json: "What was sent", notes: "Notes" };
+
+/** What the poster's AI attached for whoever fixes it: only they and Zaisma see it. */
+function attached(post: PostJson): Raw {
+  const debugContext = post.debug_context;
+  if (!debugContext) return html``;
+  const fields = (Object.keys(DEBUG_CONTEXT_LABELS) as (keyof DebugContext)[]).filter((key) => debugContext[key]);
+  return html`<details class="p-att"><summary>What ${post.author.kind === "ai" ? "your AI" : "you"} attached (only you and Zaisma see it)</summary><dl>${fields.map(
+    (key) => html`<dt>${DEBUG_CONTEXT_LABELS[key]}</dt><dd><pre>${debugContext[key]}</pre></dd>`,
+  )}</dl></details>`;
 }
 
 /** Formatting, in the bar and over a selection in the text (the script wires them up). */
@@ -394,161 +461,180 @@ const FORMAT_TOOLS: [string, string, string][] = [
 function editorBar(): Raw {
   return html`<div class="ed-bar" role="toolbar" aria-label="Writing tools">
   <span class="ed-tabs"><button type="button" data-tab="write" aria-pressed="true">Write</button><button type="button" data-tab="preview" aria-pressed="false">Preview</button></span>
-  <span class="ed-tools"><button type="button" class="ed-insert" data-insert-menu aria-haspopup="menu" aria-expanded="false">${ICONS.plus}Insert</button><span class="ed-format">${raw(FORMAT_TOOLS.map(([cmd, label, title]) => `<button type="button" data-md="${cmd}" title="${title}" aria-label="${title}">${label}</button>`).join(""))}</span></span>
+  <span class="ed-tools"><button type="button" class="ed-insert" data-insert-menu aria-haspopup="menu" aria-expanded="false">${ICONS.plus}Insert</button><span class="ed-format">${raw(FORMAT_TOOLS.map(([command, label, title]) => `<button type="button" data-md="${command}" title="${title}" aria-label="${title}">${label}</button>`).join(""))}</span></span>
   <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden data-upload>
 </div><p class="ed-error error" hidden></p>`;
 }
 
 // --- The topic list ---
 
-async function listPage(ctx: Ctx, query: ForumQuery): Promise<Response> {
-  const data = await listTopics(ctx.env, ctx.viewer, query);
-  const unread = ctx.viewer ? { topics: await unreadCount(ctx.env, ctx.viewer), messages: await unreadCount(ctx.env, ctx.viewer, true) } : { topics: 0, messages: 0 };
-  const messages = data.tab === "messages";
-  const cat = query.category ? FORUM_CATEGORIES.find((c) => c.id === query.category) : undefined;
-  const area = query.category && !cat ? placeOf(query.category) : null;
-  const heading = messages ? "Messages to Zaisma" : data.tab === "yours" ? "Your topics" : data.tab === "known" && !query.category ? "Known issues" : area ? area.sub : cat ? cat.name : "All topics";
+async function listPage(ctx: Ctx, query: PageQuery): Promise<Response> {
+  const pageNumber = query.page_number ?? 1;
+  const listing = await listTopics(ctx.env, ctx.viewer, {
+    searchText: query.q,
+    section: query.section,
+    category: query.category,
+    kind: query.kind,
+    tag: query.tag,
+    tab: query.tab,
+    topicStatus: query.topic_status,
+    startIndex: (pageNumber - 1) * PAGE_TOPIC_COUNT,
+  });
+  const unread = ctx.viewer ? { topicCount: await unreadCount(ctx.env, ctx.viewer), messageCount: await unreadCount(ctx.env, ctx.viewer, true) } : { topicCount: 0, messageCount: 0 };
+  const isMessages = listing.tab === "messages";
+  const section = query.section && !query.category ? FORUM_SECTIONS.find((candidate) => candidate.id === query.section) : undefined;
+  const place = query.category ? placeOf(query.category) : null;
+  const heading = isMessages ? "Messages to Zaisma" : listing.tab === "yours" ? "Your topics" : listing.tab === "known" && !section && !place ? "Known issues" : place ? place.categoryName : section ? section.name : "All topics";
   const tabs = [
     ["latest", "Latest"],
     ["top", "Top"],
     ["unanswered", "Unanswered"],
     ["known", "Known issues"],
   ] as const;
-  const filters = [["", "Everything"], ...FEEDBACK_KINDS.filter((k) => !(messages && k === "talk")).map((k) => [k, KINDS[k].plural])] as const;
+  const filters = [["", "Everything"], ...TOPIC_KINDS.filter((kind) => !(isMessages && kind === "talk")).map((kind) => [kind, KINDS[kind].plural])] as const;
   const keep: Record<string, string> = {};
-  for (const k of ["category", "kind", "tag", "tab", "status"] as const) if (query[k]) keep[k] = String(query[k]);
-  const phases = [["", "Every phase"], ...(["investigating", "known", "planned", "fixing", "released", "fixed", "wont"] as const).map((st) => [st, STATUS[st].label])] as const;
+  for (const key of ["section", "category", "kind", "tag", "tab", "topic_status"] as const) if (query[key]) keep[key] = String(query[key]);
+  const phases = [["", "Every phase"], ...(["investigating", "known", "planned", "fixing", "released", "fixed", "wont"] as const).map((status) => [status, STATUS[status].label])] as const;
+  const hasMore = listing.next_cursor !== null;
   return forumPage(
     ctx,
     heading,
     html`<div class="forum">
-${rail(ctx, query, data.tab, unread)}
+${rail(ctx, query, listing.tab, unread)}
 <section class="board" aria-labelledby="board-h">
   <div class="board-head">
-    <h1 id="board-h">${area ? html`<a class="up" href="${link(query, { category: area.category, page: 1 })}">${area.name}</a><span class="sep">/</span>` : ""}${heading}</h1>
-    ${messages ? html`<a class="btn ghost" href="/forum/messages/new">New message</a>` : ""}
-    ${data.tab === "yours" || messages ? "" : html`<nav class="seg tabs" aria-label="Sort">${tabs.map(([t, label]) => html`<a href="${link(query, { tab: t === "latest" ? "" : t, page: 1 })}"${data.tab === t ? raw(' aria-current="page"') : ""}>${label}</a>`)}</nav>`}
+    <h1 id="board-h">${place ? html`<a class="up" href="${link(query, { section: place.section, category: "", page_number: 1 })}">${place.sectionName}</a><span class="sep">/</span>` : ""}${heading}</h1>
+    ${isMessages ? html`<a class="btn ghost" href="/forum/messages/new">New message</a>` : ""}
+    ${listing.tab === "yours" || isMessages ? "" : html`<nav class="seg tabs" aria-label="Sort">${tabs.map(([tab, label]) => html`<a href="${link(query, { tab: tab === "latest" ? "" : tab, page_number: 1 })}"${listing.tab === tab ? raw(' aria-current="page"') : ""}>${label}</a>`)}</nav>`}
   </div>
-  ${messages ? html`<p class="board-note muted">Private conversations with the people who build Zaisma: logs, unreleased games, anything you'd rather not post. Only you and Zaisma see them. When others hit the same problem, Zaisma posts a public known issue, without your words.</p>` : ""}
+  ${isMessages ? html`<p class="board-note muted">Private conversations with the people who build Zaisma: logs, unreleased games, anything you'd rather not post. Only you and Zaisma see them. When others hit the same problem, Zaisma posts a public known issue, without your words.</p>` : ""}
   <div class="filters">
-    ${data.tab === "known"
-      ? html`<nav class="chips" aria-label="Which phase">${phases.map(([st, label]) => html`<a href="${link(query, { status: st, page: 1 })}"${(query.status ?? "") === st ? raw(' aria-current="true"') : ""}>${label}</a>`)}</nav>`
-      : html`<nav class="chips" aria-label="What kind">${filters.map(([k, label]) => html`<a href="${link(query, { kind: k, page: 1 })}"${(query.kind ?? "") === k ? raw(' aria-current="true"') : ""}>${label}</a>`)}</nav>`}
-    ${query.tag ? html`<a class="tag on" href="${link(query, { tag: "", page: 1 })}" title="Show every tag">${(FORUM_TAGS as Record<string, string>)[query.tag] ?? query.tag} ×</a>` : ""}
-    ${query.q ? html`<span class="muted">Matching “${query.q}” · <a href="${link(query, { q: "", page: 1 })}">Clear</a></span>` : ""}
+    ${listing.tab === "known"
+      ? html`<nav class="chips" aria-label="Which phase">${phases.map(([status, label]) => html`<a href="${link(query, { topic_status: status, page_number: 1 })}"${(query.topic_status ?? "") === status ? raw(' aria-current="true"') : ""}>${label}</a>`)}</nav>`
+      : html`<nav class="chips" aria-label="What kind">${filters.map(([kind, label]) => html`<a href="${link(query, { kind, page_number: 1 })}"${(query.kind ?? "") === kind ? raw(' aria-current="true"') : ""}>${label}</a>`)}</nav>`}
+    ${query.tag ? html`<a class="tag on" href="${link(query, { tag: "", page_number: 1 })}" title="Show every tag">${(FORUM_TAGS as Record<string, string>)[query.tag] ?? query.tag} ×</a>` : ""}
+    ${query.q ? html`<span class="muted">Matching “${query.q}” · <a href="${link(query, { q: "", page_number: 1 })}">Clear</a></span>` : ""}
   </div>
-  ${data.pinned.length
-    ? html`<details class="pinned" open><summary>${ICONS.known}<span>Known issues${cat || area ? " here" : ""}</span><small>${data.pinned.length}</small></summary>
-  <ol class="topics">${data.pinned.map((t) => topicRow(t, query))}</ol></details>`
+  ${listing.pinned_topics.length
+    ? html`<details class="pinned" open><summary>${ICONS.known}<span>Known issues${section || place ? " here" : ""}</span><small>${listing.pinned_topics.length}</small></summary>
+  <ol class="topics">${listing.pinned_topics.map((topic) => topicRow(topic, query))}</ol></details>`
     : ""}
-  ${data.topics.length
+  ${listing.topics.length
     ? html`<div class="topics-head" aria-hidden="true"><span>Topic</span><span>People</span><span>Replies</span><span>Votes</span><span>Active</span></div>
-  <ol class="topics">${data.topics.map((t) => topicRow(t, query))}</ol>`
-    : html`<div class="empty-board"><p>${query.q ? "Nothing matches that." : messages ? "No messages yet. Message Zaisma about anything you'd rather not post in public." : data.tab === "yours" ? "You haven't posted yet. Topics you post, reply to or vote on show here." : data.tab === "unanswered" ? "Every question here has an answer." : "No topics here yet."}</p>${ctx.viewer ? (messages ? html`<a class="btn ghost" href="/forum/messages/new">Message Zaisma</a>` : html`<a class="btn ghost" href="/forum/new${query.category ? `?category=${query.category}` : ""}">Start a topic</a>`) : ""}</div>`}
-  ${data.page > 1 || data.more
-    ? html`<nav class="pager" aria-label="Pages">${data.page > 1 ? html`<a class="btn ghost" href="${link(query, { page: data.page - 1 })}">Newer</a>` : ""}<span class="muted">Page ${data.page}</span>${data.more ? html`<a class="btn ghost" href="${link(query, { page: data.page + 1 })}">Older</a>` : ""}</nav>`
+  <ol class="topics">${listing.topics.map((topic) => topicRow(topic, query))}</ol>`
+    : html`<div class="empty-board"><p>${query.q ? "Nothing matches that." : isMessages ? "No messages yet. Message Zaisma about anything you'd rather not post in public." : listing.tab === "yours" ? "You haven't posted yet. Topics you post, reply to or vote on show here." : listing.tab === "unanswered" ? "Every question here has an answer." : "No topics here yet."}</p>${ctx.viewer ? (isMessages ? html`<a class="btn ghost" href="/forum/messages/new">Message Zaisma</a>` : html`<a class="btn ghost" href="/forum/new${query.category ? `?category=${query.category}` : ""}">Start a topic</a>`) : ""}</div>`}
+  ${pageNumber > 1 || hasMore
+    ? html`<nav class="pager" aria-label="Pages">${pageNumber > 1 ? html`<a class="btn ghost" href="${link(query, { page_number: pageNumber - 1 })}">Newer</a>` : ""}<span class="muted">Page ${pageNumber}</span>${hasMore ? html`<a class="btn ghost" href="${link(query, { page_number: pageNumber + 1 })}">Older</a>` : ""}</nav>`
     : ""}
 </section>
 </div>`,
-    { q: query.q, keep: messages ? {} : keep },
+    { q: query.q, keep: isMessages ? {} : keep },
   );
 }
 
-function rail(ctx: Ctx, query: ForumQuery, tab: string, unread: { topics: number; messages: number }): Raw {
-  const current = query.category ?? "";
-  const openCat = FORUM_CATEGORIES.find((c) => c.id === current || current in c.areas)?.id;
-  const here = (on: boolean) => (on ? raw(' aria-current="page"') : "");
-  const all = !current && tab !== "yours" && tab !== "known" && tab !== "messages";
+function rail(ctx: Ctx, query: PageQuery, tab: string, unread: { topicCount: number; messageCount: number }): Raw {
+  const category = query.category ?? "";
+  const openSection = category ? forumSectionOf(category)?.id : query.section;
+  const here = (isHere: boolean) => (isHere ? raw(' aria-current="page"') : "");
+  const isAll = !category && !query.section && tab !== "yours" && tab !== "known" && tab !== "messages";
+  const summary = category
+    ? (placeOf(category)?.categoryName ?? category)
+    : query.section
+      ? (FORUM_SECTIONS.find((section) => section.id === query.section)?.name ?? "All topics")
+      : tab === "yours"
+        ? "Your topics"
+        : tab === "messages"
+          ? "Messages to Zaisma"
+          : "All topics";
   return html`<details class="rail" open>
-<summary>${current ? (placeOf(current)?.sub ?? FORUM_CATEGORIES.find((c) => c.id === current)?.name) : tab === "yours" ? "Your topics" : tab === "messages" ? "Messages to Zaisma" : "All topics"}</summary>
+<summary>${summary}</summary>
 <nav aria-label="Forum">
-  <a class="r-top" href="/forum"${here(all)}>All topics</a>
+  <a class="r-top" href="/forum"${here(isAll)}>All topics</a>
   ${ctx.viewer
-    ? html`<a class="r-top" href="/forum?tab=yours"${here(tab === "yours")}>Your topics${unread.topics ? html`<span class="count" title="Topics with something new">${unread.topics}</span>` : ""}</a>
-  <a class="r-top" href="/forum/messages"${here(tab === "messages")}>Messages to Zaisma${unread.messages ? html`<span class="count" title="Messages with a reply">${unread.messages}</span>` : ""}</a>`
+    ? html`<a class="r-top" href="/forum?tab=yours"${here(tab === "yours")}>Your topics${unread.topicCount ? html`<span class="count" title="Topics with something new">${unread.topicCount}</span>` : ""}</a>
+  <a class="r-top" href="/forum/messages"${here(tab === "messages")}>Messages to Zaisma${unread.messageCount ? html`<span class="count" title="Messages with a reply">${unread.messageCount}</span>` : ""}</a>`
     : ""}
-  <a class="r-top" href="/forum?tab=known"${here(tab === "known" && !current)}>Known issues</a>
+  <a class="r-top" href="/forum?tab=known"${here(tab === "known" && !category && !query.section)}>Known issues</a>
   <p class="r-head">Categories</p>
-  ${FORUM_CATEGORIES.map(
-    (c) => html`<div class="r-cat${openCat === c.id ? " open" : ""}"><a href="/forum?category=${c.id}"${here(current === c.id)}>${c.name}</a>${openCat === c.id
-      ? html`<div class="r-subs">${Object.entries(c.areas).map(([a, name]) => html`<a href="/forum?category=${a}"${here(current === a)}>${name}</a>`)}</div>`
+  ${FORUM_SECTIONS.map(
+    (section) => html`<div class="r-cat${openSection === section.id ? " open" : ""}"><a href="/forum?section=${section.id}"${here(!category && query.section === section.id)}>${section.name}</a>${openSection === section.id
+      ? html`<div class="r-subs">${Object.entries(section.categories).map(([categoryId, name]) => html`<a href="/forum?category=${categoryId}"${here(category === categoryId)}>${name}</a>`)}</div>`
       : ""}</div>`,
   )}
   <p class="r-head">Tags</p>
-  <div class="r-tags">${Object.entries(FORUM_TAGS).map(([t, name]) => html`<a class="tag${query.tag === t ? " on" : ""}" href="${link({ ...query, page: 1 }, { tag: query.tag === t ? "" : t })}">${name}</a>`)}</div>
+  <div class="r-tags">${Object.entries(FORUM_TAGS).map(([tag, name]) => html`<a class="tag${query.tag === tag ? " on" : ""}" href="${link({ ...query, page_number: 1 }, { tag: query.tag === tag ? "" : tag })}">${name}</a>`)}</div>
   ${ctx.viewer ? "" : html`<p class="r-note">Anyone can read the forum. <a href="/signin?next=/forum">Sign in</a> to post, reply and vote.</p>`}
   <p class="r-note">Your AI reads and posts here too, through the Zaisma MCP. Its posts carry an ${ICONS.ai} AI mark.</p>
 </nav>
 </details>`;
 }
 
-function topicRow(t: TopicRow, q: ForumQuery): Raw {
-  const place = placeOf(t.category);
-  const kindLabel = t.known_issue ? "Known issue" : KINDS[t.kind].label;
-  return html`<li class="trow${t.unread ? " unread" : ""}${t.known_issue ? " known" : ""}">
-  <span class="ticon k-${t.known_issue ? "known" : t.kind}" title="${kindLabel}">${kindIcon(t)}<span class="sr">${kindLabel}</span></span>
+function topicRow(topic: TopicRow, query: PageQuery): Raw {
+  const place = placeOf(topic.category);
+  const kindLabel = topic.is_known_issue ? "Known issue" : KINDS[topic.kind].label;
+  const pill =
+    topic.topic_status !== "new" && topic.topic_status !== "answered" ? statusPill(topic.topic_status, topic.is_public) : topic.topic_status === "new" && !topic.is_public ? statusPill(topic.topic_status, false) : "";
+  const voteMeaning = topic.is_public ? voteOf(topic) : null;
+  const voteCount = topic.is_known_issue ? (topic.affected_developer_count ?? 0) : topic.vote_count;
+  return html`<li class="trow${topic.is_unread ? " unread" : ""}${topic.is_known_issue ? " known" : ""}">
+  <span class="ticon k-${topic.is_known_issue ? "known" : topic.kind}" title="${kindLabel}">${kindIcon(topic)}<span class="sr">${kindLabel}</span></span>
   <div class="tmain">
-    <p class="tline"><a class="ttitle" href="/forum/${t.id}">${t.title}</a>${t.answered && !t.known_issue ? html`<span class="flag ok" title="Answered">${ICONS.check}Answered</span>` : ""}${t.public || q.tab === "messages" ? "" : html`<span class="flag" title="Only you and Zaisma can see it">${ICONS.lock}Message to Zaisma</span>`}${t.public && !t.shown ? html`<span class="flag warn">Being checked</span>` : ""}${t.status !== "new" && t.status !== "answered" ? statusPill(t.status, t.public) : t.status === "new" && !t.public ? statusPill(t.status, false) : ""}${t.merged_into ? html`<a class="flag" href="/forum/${t.merged_into}">Part of a known issue</a>` : ""}</p>
-    ${t.match ? html`<p class="tmatch">${raw(esc(t.match).replace(/«/g, "<mark>").replace(/»/g, "</mark>"))}</p>` : ""}
-    <p class="tmeta">${place ? html`<a class="cat" href="${link({}, { category: t.category ?? "" })}">${place.name} · ${place.sub}</a>` : ""}${t.tags.map(tagChip)}<span class="by">${avatar(t.author, "xs")}${t.author.name}${t.author.by === "ai" ? html`<span class="mark ai">${ICONS.ai}AI</span>` : ""}${t.author.by === "zaisma" ? html`<span class="mark team">Team</span>` : ""}</span><span class="when">${ago(t.created_at)}</span></p>
+    <p class="tline"><a class="ttitle" href="/forum/${topic.id}">${topic.title}</a>${topic.is_answered && !topic.is_known_issue ? html`<span class="flag ok" title="Answered">${ICONS.check}Answered</span>` : ""}${topic.is_public || query.tab === "messages" ? "" : html`<span class="flag" title="Only you and Zaisma can see it">${ICONS.lock}Message to Zaisma</span>`}${topic.is_public && !topic.is_shown ? html`<span class="flag warn">Being checked</span>` : ""}${pill}${topic.merged_into_topic_id ? html`<a class="flag" href="/forum/${topic.merged_into_topic_id}">Part of a known issue</a>` : ""}</p>
+    ${topic.search_match ? html`<p class="tmatch">${raw(esc(topic.search_match).replace(/«/g, "<mark>").replace(/»/g, "</mark>"))}</p>` : ""}
+    <p class="tmeta">${place ? html`<a class="cat" href="${link({}, { category: topic.category ?? "" })}">${place.sectionName} · ${place.categoryName}</a>` : ""}${topic.tags.map(tagChip)}<span class="by">${avatar(topic.author, "xs")}${topic.author.name}${topic.author.kind === "ai" ? html`<span class="mark ai">${ICONS.ai}AI</span>` : ""}${topic.author.kind === "zaisma" ? html`<span class="mark team">Team</span>` : ""}</span><span class="when">${ago(topic.created_at)}</span></p>
   </div>
-  <div class="tpeople">${t.people.slice(0, 3).map((p) => avatar(p, "sm"))}${t.people_count > 3 ? html`<span class="more" title="${t.people_count} people in it">+${t.people_count - 3 > 99 ? "99" : t.people_count - 3}</span>` : ""}</div>
-  <div class="tstat" title="${t.replies === 1 ? "1 reply" : `${t.replies} replies`}">${ICONS.replies}<span>${t.replies}</span></div>
-  ${(() => {
-    const v = t.public ? voteOf(t) : null;
-    const n = t.known_issue ? (t.developers ?? 0) : t.votes;
-    return v ? html`<div class="tstat${t.voted ? " mine" : ""}" title="${n} ${v.count(n)}">${v.icon}<span>${n}</span></div>` : html`<div class="tstat none" aria-hidden="true"></div>`;
-  })()}
-  <div class="tage">${ago(t.active_at)}</div>
+  <div class="tpeople">${topic.recent_participants.slice(0, 3).map((person) => avatar(person, "sm"))}${topic.participant_count > 3 ? html`<span class="more" title="${topic.participant_count} people in it">+${topic.participant_count - 3 > 99 ? "99" : topic.participant_count - 3}</span>` : ""}</div>
+  <div class="tstat" title="${topic.reply_count === 1 ? "1 reply" : `${topic.reply_count} replies`}">${ICONS.replies}<span>${topic.reply_count}</span></div>
+  ${voteMeaning ? html`<div class="tstat${topic.has_voted ? " mine" : ""}" title="${voteCount} ${voteMeaning.countLabel(voteCount)}">${voteMeaning.icon}<span>${voteCount}</span></div>` : html`<div class="tstat none" aria-hidden="true"></div>`}
+  <div class="tage">${ago(topic.last_activity_at)}</div>
 </li>`;
 }
 
-async function similarFragment(ctx: Ctx, q: string): Promise<Response> {
-  const found = await similarTopics(ctx.env, ctx.viewer, q);
-  const body = found.length
-    ? html`<p><strong>Already here?</strong> If one of these is the same, vote or reply there instead.</p><ol class="topics">${found.map((t) => topicRow(t, {}))}</ol>`
-    : html``;
+async function similarFragment(ctx: Ctx, searchText: string): Promise<Response> {
+  const found = await similarTopics(ctx.env, ctx.viewer, searchText);
+  const body = found.length ? html`<p><strong>Already here?</strong> If one of these is the same, vote or reply there instead.</p><ol class="topics">${found.map((topic) => topicRow(topic, {}))}</ol>` : html``;
   return new Response(body.html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
 }
 
 // --- A topic ---
 
-async function topicPage(ctx: Ctx, id: string, opts: { done?: string; error?: string; text?: string; to?: string }, status = 200): Promise<Response> {
-  const data = await getTopic(ctx.env, ctx.viewer, id);
-  const t = data.topic;
-  const place = placeOf(t.category);
-  const first = data.posts[0];
-  const opening = t.author.by !== "zaisma" && first && !t.known_issue ? first : null;
-  const rest = opening ? data.posts.slice(1) : data.posts;
-  const answer = data.posts.find((p) => p.answer);
+async function topicPage(ctx: Ctx, id: string, options: { done?: string; error?: string; textMarkdown?: string; replyToPostId?: string }, httpStatus = 200): Promise<Response> {
+  const thread = await getTopic(ctx.env, ctx.viewer, id);
+  const topic = thread.topic;
+  const place = placeOf(topic.category);
+  const first = thread.posts[0];
+  const opening = topic.author.kind !== "zaisma" && first && !topic.is_known_issue ? first : null;
+  const rest = opening ? thread.posts.slice(1) : thread.posts;
+  const answer = thread.posts.find((post) => post.is_answer);
   // The reply most people found helpful, when at least two did and there's a choice (and it isn't the answer already).
-  const best = rest.length > 1 ? rest.reduce<PostJson | null>((b, p) => (p.helpful >= 2 && !p.answer && (!b || p.helpful > b.helpful) ? p : b), null) : null;
-  const mostHelpful = best?.id ?? "";
-  const to = opts.to ? data.posts.find((p) => p.id === opts.to) : undefined;
-  const notice = opts.error ? html`<p class="error" role="alert">${opts.error}</p>` : opts.done && DONE[opts.done] ? html`<p class="done" role="status">${DONE[opts.done]}</p>` : "";
+  const best = rest.length > 1 ? rest.reduce<PostJson | null>((leader, post) => (post.helpful_count >= 2 && !post.is_answer && (!leader || post.helpful_count > leader.helpful_count) ? post : leader), null) : null;
+  const mostHelpfulId = best?.id ?? "";
+  const repliedTo = options.replyToPostId ? thread.posts.find((post) => post.id === options.replyToPostId) : undefined;
+  const notice = options.error ? html`<p class="error" role="alert">${options.error}</p>` : options.done && DONE[options.done] ? html`<p class="done" role="status">${DONE[options.done]}</p>` : "";
+  const replyCount = rest.filter((post) => post.kind !== "status" || post.text_markdown.length > 60).length;
   return forumPage(
     ctx,
-    t.title,
+    topic.title,
     html`<div class="topic">
 <article class="t-main">
-  <p class="crumbs"><a href="/forum">Forum</a>${!t.public ? html`<span>/</span><a href="/forum/messages">Messages to Zaisma</a>` : place ? html`<span>/</span><a href="/forum?category=${place.category}">${place.name}</a><span>/</span><a href="/forum?category=${t.category}">${place.sub}</a>` : ""}</p>
+  <p class="crumbs"><a href="/forum">Forum</a>${!topic.is_public ? html`<span>/</span><a href="/forum/messages">Messages to Zaisma</a>` : place ? html`<span>/</span><a href="/forum?section=${place.section}">${place.sectionName}</a><span>/</span><a href="/forum?category=${topic.category}">${place.categoryName}</a>` : ""}</p>
   ${notice}
-  ${t.public && !t.shown ? html`<p class="note warn-note">Others see this topic once its first post is checked${first?.state === "held" ? ": a person at Zaisma looks at it, usually within a day" : ", usually within minutes"}.</p>` : ""}
-  ${opPost(ctx, t, opening, answer)}
+  ${topic.is_public && !topic.is_shown ? html`<p class="note warn-note">Others see this topic once its first post is checked${first?.check_status === "held" ? ": a person at Zaisma looks at it, usually within a day" : ", usually within minutes"}.</p>` : ""}
+  ${opPost(ctx, topic, opening, answer)}
   ${rest.length
-    ? html`<h2 class="replies-h">${rest.filter((p) => p.kind !== "status" || p.text.length > 60).length === 1 ? "1 reply" : `${rest.filter((p) => p.kind !== "status" || p.text.length > 60).length} replies`}</h2>
-  <ol class="posts">${rest.map((p) => postItem(ctx, t, p, data.posts, false, p.id === mostHelpful))}</ol>`
+    ? html`<h2 class="replies-h">${replyCount === 1 ? "1 reply" : `${replyCount} replies`}</h2>
+  <ol class="posts">${rest.map((post) => postItem(ctx, topic, post, thread.posts, false, post.id === mostHelpfulId))}</ol>`
     : html`<p class="no-replies muted">No replies yet.</p>`}
-  ${composer(ctx, t, opts.text ?? "", to)}
+  ${composer(ctx, topic, options.textMarkdown ?? "", repliedTo)}
 </article>
-${sidePanel(ctx, t, data.posts)}
+${sidePanel(ctx, topic, thread.posts)}
 </div>`,
-    { status },
+    { httpStatus },
   );
 }
 
 /** Where a known issue stands, in a sentence. */
-const PHASE_WORDS: Partial<Record<FeedbackStatus, string>> = {
+const PHASE_WORDS: Partial<Record<TopicStatus, string>> = {
   investigating: "Zaisma is looking into this.",
   known: "Zaisma has confirmed this.",
   planned: "This is on Zaisma's roadmap.",
@@ -557,123 +643,129 @@ const PHASE_WORDS: Partial<Record<FeedbackStatus, string>> = {
   fixed: "This is fixed.",
   wont: "Zaisma won't fix this.",
 };
-const TRACK: FeedbackStatus[] = ["investigating", "known", "planned", "fixing", "released", "fixed"];
+const TRACK: TopicStatus[] = ["investigating", "known", "planned", "fixing", "released", "fixed"];
 
 /** A known issue's phases as a track, the current one lit; won't fix stands alone. */
-function phaseTrack(status: FeedbackStatus): Raw {
+function phaseTrack(status: TopicStatus): Raw {
   if (status === "wont" || !TRACK.includes(status)) return html``;
-  const at = TRACK.indexOf(status);
-  return html`<ol class="phases" aria-label="Phase">${TRACK.map((st, i) => html`<li class="${i < at ? "past" : i === at ? "now" : ""}"${i === at ? raw(' aria-current="step"') : ""}>${STATUS[st].label}</li>`)}</ol>`;
+  const currentIndex = TRACK.indexOf(status);
+  return html`<ol class="phases" aria-label="Phase">${TRACK.map((phase, i) => html`<li class="${i < currentIndex ? "past" : i === currentIndex ? "now" : ""}"${i === currentIndex ? raw(' aria-current="step"') : ""}>${STATUS[phase].label}</li>`)}</ol>`;
 }
+
+/** A label for your own post others can't see yet. */
+const waitingFlag = (post: PostJson | null | undefined) =>
+  post?.check_status === "pending" ? html`<span class="flag warn">Being checked: only you see it yet</span>` : post?.check_status === "held" ? html`<span class="flag warn">Waiting for a person at Zaisma: only you see it yet</span>` : "";
 
 /**
  * The opening post is the topic: its title, who started it and when, what it is, the post itself in
  * larger type, and the topic's actions. A known issue opens with Zaisma's summary instead.
  */
-function opPost(ctx: Ctx, t: Topic["topic"], p: PostJson | null, answer: PostJson | undefined): Raw {
-  const v = voteOf(t);
-  const count = t.known_issue ? (t.developers ?? 0) : t.votes;
-  return html`<article class="op plate bevel-s"${p ? raw(` id="p-${p.id}"`) : ""} data-by="${t.author.name}">
-  <h1 class="t-title"><span class="ticon k-${t.known_issue ? "known" : t.kind}" title="${t.known_issue ? "Known issue" : KINDS[t.kind].label}">${kindIcon(t)}</span>${t.title}</h1>
-  <p class="t-meta"><span class="kind">${t.known_issue ? "Known issue" : KINDS[t.kind].label}</span>${statusPill(t.status, t.public)}${t.tags.map(tagChip)}${t.public ? "" : html`<span class="flag">${ICONS.lock}A message to Zaisma: only you and Zaisma see it</span>`}${t.game ? html`<span class="muted">About <a href="/dashboard/${t.game}">${t.game}</a>, which only you and Zaisma see</span>` : ""}</p>
-  <div class="op-by">${avatar(t.author, "md")}<div><p class="op-name">${nameOf(t.author)}${p?.state === "checking" ? html`<span class="flag warn">Being checked: only you see it yet</span>` : p?.state === "held" ? html`<span class="flag warn">Waiting for a person at Zaisma: only you see it yet</span>` : ""}</p><p class="muted">${t.known_issue ? "Known issue" : t.public ? "Started this" : "Sent this"} ${ago(t.created_at)}</p></div>${p ? html`<span class="op-report">${reportLink(ctx, t, p)}</span>` : ""}</div>
-  ${t.known_issue
-    ? html`${phaseTrack(t.status)}<div class="op-text"><p>${PHASE_WORDS[t.status] ?? "Zaisma knows about this."} ${t.developers === 1 ? "1 developer has" : `${t.developers} developers have`} hit it${t.roadmap ? html`; it's part of <strong>${t.roadmap}</strong> on the roadmap` : ""}.</p>${t.workaround && t.status !== "fixed" ? html`<p class="kb-work"><strong>Until it's fixed:</strong> ${t.workaround}</p>` : ""}</div>`
-    : p
-      ? html`<div class="op-text p-text">${richText(ctx, p)}</div>
-  ${mediaGrid(p)}
-  ${p.context ? html`<details class="p-att"><summary>What ${p.by.by === "ai" ? "your AI" : "you"} attached (only you and Zaisma see it)</summary><pre>${JSON.stringify(p.context, null, 2)}</pre></details>` : ""}
-  ${p.picture_url ? html`<a class="p-pic" href="/forum/${t.id}/pictures/${p.id}" target="_blank" rel="noopener"><img src="/forum/${t.id}/pictures/${p.id}" alt="Your screenshot" loading="lazy"><small>Only you and Zaisma see your screenshot</small></a>` : ""}`
+function opPost(ctx: Ctx, topic: TopicDetail, post: PostJson | null, answer: PostJson | undefined): Raw {
+  const voteMeaning = voteOf(topic);
+  const voteCount = topic.is_known_issue ? (topic.affected_developer_count ?? 0) : topic.vote_count;
+  const developerCount = topic.affected_developer_count ?? 0;
+  return html`<article class="op plate bevel-s"${post ? raw(` id="p-${post.id}"`) : ""} data-by="${topic.author.name}">
+  <h1 class="t-title"><span class="ticon k-${topic.is_known_issue ? "known" : topic.kind}" title="${topic.is_known_issue ? "Known issue" : KINDS[topic.kind].label}">${kindIcon(topic)}</span>${topic.title}</h1>
+  <p class="t-meta"><span class="kind">${topic.is_known_issue ? "Known issue" : KINDS[topic.kind].label}</span>${statusPill(topic.topic_status, topic.is_public)}${topic.tags.map(tagChip)}${topic.is_public ? "" : html`<span class="flag">${ICONS.lock}A message to Zaisma: only you and Zaisma see it</span>`}${topic.game_slug ? html`<span class="muted">About <a href="/dashboard/${topic.game_slug}">${topic.game_slug}</a>, which only you and Zaisma see</span>` : ""}</p>
+  <div class="op-by">${avatar(topic.author, "md")}<div><p class="op-name">${nameOf(topic.author)}${waitingFlag(post)}</p><p class="muted">${topic.is_known_issue ? "Known issue" : topic.is_public ? "Started this" : "Sent this"} ${ago(topic.created_at)}</p></div>${post ? html`<span class="op-report">${reportLink(ctx, topic, post)}</span>` : ""}</div>
+  ${topic.is_known_issue
+    ? html`${phaseTrack(topic.topic_status)}<div class="op-text"><p>${PHASE_WORDS[topic.topic_status] ?? "Zaisma knows about this."} ${developerCount === 1 ? "1 developer has" : `${developerCount} developers have`} hit it${topic.roadmap_item ? html`; it's part of <strong>${topic.roadmap_item}</strong> on the roadmap` : ""}.</p>${topic.workaround && topic.topic_status !== "fixed" ? html`<p class="kb-work"><strong>Until it's fixed:</strong> ${topic.workaround}</p>` : ""}</div>`
+    : post
+      ? html`<div class="op-text p-text">${richText(ctx, post)}</div>
+  ${mediaGrid(post)}
+  ${attached(post)}`
       : ""}
-  ${t.merged_into ? html`<div class="known-box"><p class="kb-head">${ICONS.known}<span>Part of the known issue <a href="/forum/${t.merged_into.id}"><strong>${t.merged_into.title}</strong></a>.</span></p>${t.merged_into.workaround ? html`<p class="kb-work"><strong>Until it's fixed:</strong> ${t.merged_into.workaround}</p>` : ""}</div>` : ""}
-  ${answer ? html`<p class="jump">${ICONS.check}<a href="#p-${answer.id}">Answered by ${answer.by.name}${answer.by.by === "ai" ? "'s AI" : ""}</a></p>` : ""}
+  ${topic.merged_into_topic ? html`<div class="known-box"><p class="kb-head">${ICONS.known}<span>Part of the known issue <a href="/forum/${topic.merged_into_topic.id}"><strong>${topic.merged_into_topic.title}</strong></a>.</span></p>${topic.merged_into_topic.workaround ? html`<p class="kb-work"><strong>Until it's fixed:</strong> ${topic.merged_into_topic.workaround}</p>` : ""}</div>` : ""}
+  ${answer ? html`<p class="jump">${ICONS.check}<a href="#p-${answer.id}">Answered by ${answer.author.name}${answer.author.kind === "ai" ? "'s AI" : ""}</a></p>` : ""}
   <div class="op-actions">
-    ${v && t.can.vote
-      ? html`<form method="post" action="/forum/${t.id}/vote"><input type="hidden" name="on" value="${t.voted ? "0" : "1"}"><button class="btn${t.voted ? " ghost" : " light"} vote" type="submit" aria-pressed="${t.voted ? "true" : "false"}" title="${t.voted ? "Press to take it back" : ""}">${v.icon}<span>${t.voted ? v.done : v.ask}</span></button></form>`
+    ${voteMeaning && topic.can_vote
+      ? html`<form method="post" action="/forum/${topic.id}/vote">${topic.has_voted ? html`<input type="hidden" name="undo" value="1">` : ""}<button class="btn${topic.has_voted ? " ghost" : " light"} vote" type="submit" aria-pressed="${topic.has_voted ? "true" : "false"}" title="${topic.has_voted ? "Press to take it back" : ""}">${voteMeaning.icon}<span>${topic.has_voted ? voteMeaning.done : voteMeaning.ask}</span></button></form>`
       : ""}
-    ${v && t.public && t.shown && count > 0 ? html`<span class="op-count"><strong>${count}</strong> ${v.count(count)}</span>` : ""}
-    ${t.known_issue && t.status === "released" && ctx.viewer
-      ? html`<form method="post" action="/forum/${t.id}/still-happening"><button class="btn ghost" type="submit" title="Puts it back to fixing and tells Zaisma">${ICONS.again}It still happens</button></form>`
+    ${voteMeaning && topic.is_public && topic.is_shown && voteCount > 0 ? html`<span class="op-count"><strong>${voteCount}</strong> ${voteMeaning.countLabel(voteCount)}</span>` : ""}
+    ${topic.is_known_issue && topic.topic_status === "released" && ctx.viewer
+      ? html`<form method="post" action="/forum/${topic.id}/still-happening"><button class="btn ghost" type="submit" title="Puts it back to fixing and tells Zaisma">${ICONS.again}It still happens</button></form>`
       : ""}
     <span class="op-gap"></span>
-    ${t.can.reply && p?.state !== "checking" && p?.state !== "held" ? html`<a class="btn ghost" href="#reply" data-reply-top>${ICONS.reply}Reply</a>` : ""}
-    ${ctx.viewer ? html`<form method="post" action="/forum/${t.id}/follow"><input type="hidden" name="on" value="${t.following ? "0" : "1"}"><button class="btn ghost" type="submit" title="${t.following ? "New replies show in Your topics. Press to stop." : "Hear about new replies in Your topics."}">${t.following ? "Following" : "Follow"}</button></form>` : ""}
+    ${topic.can_reply && !(post && isWaiting(post)) ? html`<a class="btn ghost" href="#reply" data-reply-top>${ICONS.reply}Reply</a>` : ""}
+    ${ctx.viewer
+      ? html`<form method="post" action="/forum/${topic.id}/follow">${topic.is_following ? html`<input type="hidden" name="undo" value="1">` : ""}<button class="btn ghost" type="submit" title="${topic.is_following ? "New replies show in Your topics. Press to stop." : "Hear about new replies in Your topics."}">${topic.is_following ? "Following" : "Follow"}</button></form>`
+      : ""}
   </div>
 </article>`;
 }
 
 /** Report a post, for anyone signed in who didn't write it. */
-function reportLink(ctx: Ctx, t: Topic["topic"], p: PostJson): Raw {
-  if (!ctx.viewer || !t.public || p.by.you || p.by.by === "zaisma" || p.state !== null) return html``;
-  return p.reported_by_you ? html`<span class="muted reported">${ICONS.flag}Reported</span>` : html`<a class="report" href="/forum/${t.id}/report?post=${p.id}" rel="nofollow">${ICONS.flag}Report</a>`;
+function reportLink(ctx: Ctx, topic: TopicDetail, post: PostJson): Raw {
+  if (!ctx.viewer || !topic.is_public || post.author.is_you || post.author.kind === "zaisma" || isWaiting(post)) return html``;
+  return post.has_reported ? html`<span class="muted reported">${ICONS.flag}Reported</span>` : html`<a class="report" href="/forum/${topic.id}/report?post_id=${post.id}" rel="nofollow">${ICONS.flag}Report</a>`;
 }
 
-function postItem(ctx: Ctx, t: Topic["topic"], p: PostJson, all: PostJson[], opening: boolean, mostHelpful = false): Raw {
+function postItem(ctx: Ctx, topic: TopicDetail, post: PostJson, all: PostJson[], isOpening: boolean, isMostHelpful = false): Raw {
   // A bare status change reads as a line in the thread; one with Zaisma's words is a post.
-  if (p.kind === "status" && p.text.length <= 60) {
-    return html`<li class="event" id="p-${p.id}">${avatar(p.by, "xs")}<p>${p.text}</p>${ago(p.at)}</li>`;
+  if (post.kind === "status" && post.text_markdown.length <= 60) {
+    return html`<li class="event" id="p-${post.id}">${avatar(post.author, "xs")}<p>${post.text_markdown}</p>${ago(post.created_at)}</li>`;
   }
-  const canAnswer = t.can.answer && !opening && p.state === null && !p.by.you;
-  return html`<li data-by="${p.by.name}" class="post${p.by.by === "zaisma" ? " z" : ""}${p.answer ? " answer" : ""}${opening ? " opening" : ""}${p.state ? " pending" : ""}" id="p-${p.id}">
-  <div class="p-side">${avatar(p.by, "md")}</div>
+  const canMarkAnswer = topic.can_mark_answer && !isOpening && !isWaiting(post) && !post.author.is_you;
+  const isByAuthor = post.author.kind !== "zaisma" && topic.author.kind !== "zaisma" && post.author.name === topic.author.name;
+  return html`<li data-by="${post.author.name}" class="post${post.author.kind === "zaisma" ? " z" : ""}${post.is_answer ? " answer" : ""}${isOpening ? " opening" : ""}${isWaiting(post) ? " pending" : ""}" id="p-${post.id}">
+  <div class="p-side">${avatar(post.author, "md")}</div>
   <div class="p-body">
-    <header class="p-head">${nameOf(p.by)}${p.by.by !== "zaisma" && t.author.by !== "zaisma" && p.by.name === t.author.name ? html`<span class="mark op-mark" title="Started this topic">Author</span>` : ""}${p.kind === "reopen" ? html`<span class="pill pending">Reopened</span>` : ""}${p.answer ? html`<span class="flag ok">${ICONS.check}Answer</span>` : ""}${mostHelpful ? html`<span class="flag">${ICONS.helpful}Most helpful</span>` : ""}${p.state === "checking" ? html`<span class="flag warn">Being checked: only you see it yet</span>` : p.state === "held" ? html`<span class="flag warn">Waiting for a person at Zaisma: only you see it yet</span>` : ""}<a class="p-when" href="#p-${p.id}">${ago(p.at)}</a></header>
-    ${p.reply_to ? html`<a class="quote" href="#p-${p.reply_to.id}">${ICONS.reply}<span><strong>${p.reply_to.name}</strong> ${plain(p.reply_to.excerpt)}${p.reply_to.excerpt.length >= 140 ? "…" : ""}</span></a>` : ""}
-    <div class="p-text">${richText(ctx, p)}</div>
-    ${mediaGrid(p)}
-    ${p.context ? html`<details class="p-att"><summary>What ${p.by.by === "ai" ? "your AI" : "you"} attached (only you and Zaisma see it)</summary><pre>${JSON.stringify(p.context, null, 2)}</pre></details>` : ""}
-    ${p.picture_url ? html`<a class="p-pic" href="/forum/${t.id}/pictures/${p.id}" target="_blank" rel="noopener"><img src="/forum/${t.id}/pictures/${p.id}" alt="Your screenshot" loading="lazy"><small>Only you and Zaisma see your screenshot</small></a>` : ""}
+    <header class="p-head">${nameOf(post.author)}${isByAuthor ? html`<span class="mark op-mark" title="Started this topic">Author</span>` : ""}${post.kind === "reopen" ? html`<span class="pill pending">Reopened</span>` : ""}${post.is_answer ? html`<span class="flag ok">${ICONS.check}Answer</span>` : ""}${isMostHelpful ? html`<span class="flag">${ICONS.helpful}Most helpful</span>` : ""}${waitingFlag(post)}<a class="p-when" href="#p-${post.id}">${ago(post.created_at)}</a></header>
+    ${post.reply_to_post ? html`<a class="quote" href="#p-${post.reply_to_post.id}">${ICONS.reply}<span><strong>${post.reply_to_post.author_name}</strong> ${plain(post.reply_to_post.excerpt)}${post.reply_to_post.excerpt.length >= 140 ? "…" : ""}</span></a>` : ""}
+    <div class="p-text">${richText(ctx, post)}</div>
+    ${mediaGrid(post)}
+    ${attached(post)}
     <div class="p-foot">
-      ${t.can.reply && p.state === null ? html`<a href="?to=${p.id}#reply" data-reply="${p.id}" data-name="${p.by.name}" data-excerpt="${plain(p.text)}">${ICONS.reply}Reply</a><button type="button" data-quote-post="${p.id}">${ICONS.quote}Quote</button>` : ""}
-      ${canAnswer ? html`<form method="post" action="/forum/${t.id}/answer"><input type="hidden" name="post" value="${p.answer ? "" : p.id}"><button type="submit">${p.answer ? ICONS.cross : ICONS.check}${p.answer ? "Not the answer" : "Mark as the answer"}</button></form>` : ""}
-      ${opening && all.length > 1 ? html`<span class="muted">${all.length === 2 ? "1 reply" : `${all.length - 1} replies`}</span>` : ""}
-      ${t.public && p.state === null && p.kind !== "status"
-        ? t.can.reply && !p.by.you
-          ? html`<form method="post" action="/forum/${t.id}/helpful"><input type="hidden" name="post" value="${p.id}"><input type="hidden" name="on" value="${p.helpful_by_you ? "0" : "1"}"><button type="submit" class="${p.helpful_by_you ? "on" : ""}" aria-pressed="${p.helpful_by_you ? "true" : "false"}">${ICONS.helpful}Helpful${p.helpful ? html` <span class="n">${p.helpful}</span>` : ""}</button></form>`
-          : p.helpful
-            ? html`<span class="muted">${ICONS.helpful}${p.helpful} found it helpful</span>`
+      ${topic.can_reply && !isWaiting(post) ? html`<a href="?reply_to_post_id=${post.id}#reply" data-reply="${post.id}" data-name="${post.author.name}" data-excerpt="${plain(post.text_markdown)}">${ICONS.reply}Reply</a><button type="button" data-quote-post="${post.id}">${ICONS.quote}Quote</button>` : ""}
+      ${canMarkAnswer ? html`<form method="post" action="/forum/${topic.id}/answer"><input type="hidden" name="answer_post_id" value="${post.is_answer ? "" : post.id}"><button type="submit">${post.is_answer ? ICONS.cross : ICONS.check}${post.is_answer ? "Not the answer" : "Mark as the answer"}</button></form>` : ""}
+      ${isOpening && all.length > 1 ? html`<span class="muted">${all.length === 2 ? "1 reply" : `${all.length - 1} replies`}</span>` : ""}
+      ${topic.is_public && !isWaiting(post) && post.kind !== "status"
+        ? topic.can_reply && !post.author.is_you
+          ? html`<form method="post" action="/forum/${topic.id}/helpful"><input type="hidden" name="post_id" value="${post.id}">${post.has_marked_helpful ? html`<input type="hidden" name="undo" value="1">` : ""}<button type="submit" class="${post.has_marked_helpful ? "on" : ""}" aria-pressed="${post.has_marked_helpful ? "true" : "false"}">${ICONS.helpful}Helpful${post.helpful_count ? html` <span class="n">${post.helpful_count}</span>` : ""}</button></form>`
+          : post.helpful_count
+            ? html`<span class="muted">${ICONS.helpful}${post.helpful_count} found it helpful</span>`
             : ""
         : ""}
       <span class="p-gap"></span>
-      ${reportLink(ctx, t, p)}
+      ${reportLink(ctx, topic, post)}
     </div>
   </div>
 </li>`;
 }
 
-function composer(ctx: Ctx, t: Topic["topic"], text: string, to: PostJson | undefined): Raw {
-  if (!ctx.viewer || !ctx.me) return html`<div class="composer plate bevel-s signed-out" id="reply"><p>Sign in to reply, vote or follow this topic.</p><a class="btn light" href="/signin?next=/forum/${t.id}">Sign in</a></div>`;
-  return html`<form class="composer plate bevel-s" id="reply" method="post" action="/forum/${t.id}/reply" enctype="multipart/form-data">
-  <input type="hidden" name="reply_to" value="${to?.id ?? ""}">
-  <p class="replying"${to ? "" : raw(" hidden")}>${ICONS.reply}<span>Replying to <strong data-to-name>${to?.by.name ?? ""}</strong>: <span data-to-excerpt>${to ? plain(to.text) : ""}</span></span><button type="button" class="x" data-unreply aria-label="Reply to the whole topic instead">×</button></p>
-  <div class="c-row">${avatar(ctx.me, "md")}<label class="c-text editor"><span class="sr">Your reply</span>${editorBar()}<textarea data-editor name="text" required maxlength="${FEEDBACK_LIMITS.text}" rows="4" data-mentions data-topic="${t.public ? t.id : ""}" placeholder="${t.public ? "Write a reply. Markdown works; @ mentions someone; put code between ``` lines." : "Add what you found since, another case, or reply to Zaisma."}">${text}</textarea></label></div>
+function composer(ctx: Ctx, topic: TopicDetail, textMarkdown: string, repliedTo: PostJson | undefined): Raw {
+  if (!ctx.viewer || !ctx.me) return html`<div class="composer plate bevel-s signed-out" id="reply"><p>Sign in to reply, vote or follow this topic.</p><a class="btn light" href="/signin?next=/forum/${topic.id}">Sign in</a></div>`;
+  return html`<form class="composer plate bevel-s" id="reply" method="post" action="/forum/${topic.id}/reply" enctype="multipart/form-data">
+  <input type="hidden" name="reply_to_post_id" value="${repliedTo?.id ?? ""}">
+  <p class="replying"${repliedTo ? "" : raw(" hidden")}>${ICONS.reply}<span>Replying to <strong data-to-name>${repliedTo?.author.name ?? ""}</strong>: <span data-to-excerpt>${repliedTo ? plain(repliedTo.text_markdown) : ""}</span></span><button type="button" class="x" data-unreply aria-label="Reply to the whole topic instead">×</button></p>
+  <div class="c-row">${avatar(ctx.me, "md")}<label class="c-text editor"><span class="sr">Your reply</span>${editorBar()}<textarea data-editor name="text_markdown" required maxlength="${FORUM_LIMITS.textCharacterCount}" rows="4" data-mentions data-topic="${topic.is_public ? topic.id : ""}" placeholder="${topic.is_public ? "Write a reply. Markdown works; @ mentions someone; put code between ``` lines." : "Add what you found since, another case, or reply to Zaisma."}">${textMarkdown}</textarea></label></div>
   <div class="c-foot">
-    ${t.can.reopen ? html`<label class="check"><input type="checkbox" name="reopen" value="1"> It's back: reopen it</label>` : ""}
+    ${topic.can_reopen ? html`<label class="check"><input type="checkbox" name="reopen" value="1"> It's back: reopen it</label>` : ""}
     <button class="btn light" type="submit">Post reply</button>
   </div>
 </form>`;
 }
 
-function sidePanel(ctx: Ctx, t: Topic["topic"], posts: PostJson[]): Raw {
-  const place = placeOf(t.category);
+function sidePanel(ctx: Ctx, topic: TopicDetail, posts: PostJson[]): Raw {
+  const place = placeOf(topic.category);
   const seen = new Set<string>();
-  const people = posts.map((p) => p.by).filter((p) => (seen.has(`${p.name}:${p.by}`) ? false : (seen.add(`${p.name}:${p.by}`), true)));
+  const people = posts.map((post) => post.author).filter((person) => (seen.has(`${person.name}:${person.kind}`) ? false : (seen.add(`${person.name}:${person.kind}`), true)));
   return html`<aside class="t-side">
   <dl class="facts plate bevel-s">
-    <dt>Status</dt><dd>${t.status === "new" ? (t.public ? "Open" : "Waiting for Zaisma") : STATUS[t.status].label}</dd>
+    <dt>Status</dt><dd>${topic.topic_status === "new" ? (topic.is_public ? "Open" : "Waiting for Zaisma") : STATUS[topic.topic_status].label}</dd>
     ${place
-      ? html`<dt>Category</dt><dd><a href="/forum?category=${place.category}">${place.name}</a> · <a href="/forum?category=${t.category}">${place.sub}</a>${t.can.flag
-          ? t.flagged_misplaced
+      ? html`<dt>Category</dt><dd><a href="/forum?section=${place.section}">${place.sectionName}</a> · <a href="/forum?category=${topic.category}">${place.categoryName}</a>${topic.can_flag_misplaced
+          ? topic.has_flagged_misplaced
             ? html`<p class="hint flagged">You flagged it as in the wrong category. Zaisma's AI moves it if it is.</p>`
-            : html`<form method="post" action="/forum/${t.id}/misplaced"><button class="link-btn" type="submit">Wrong category?</button></form>`
+            : html`<form method="post" action="/forum/${topic.id}/misplaced"><button class="link-btn" type="submit">Wrong category?</button></form>`
           : ""}</dd>`
       : ""}
-    ${t.tags.length ? html`<dt>Tags</dt><dd class="tags">${t.tags.map(tagChip)}</dd>` : ""}
-    ${people.length > 1 ? html`<dt>In this topic</dt><dd class="people">${people.slice(0, 8).map((p) => html`<span class="person">${avatar(p, "sm")}${nameOf(p)}</span>`)}${people.length > 8 ? html`<span class="muted">and ${people.length - 8} more</span>` : ""}</dd>` : ""}
-    <dt>Who can see it</dt><dd>${t.public ? "Every developer and their AI" : "Only you and Zaisma"}</dd>
+    ${topic.tags.length ? html`<dt>Tags</dt><dd class="tags">${topic.tags.map(tagChip)}</dd>` : ""}
+    ${people.length > 1 ? html`<dt>In this topic</dt><dd class="people">${people.slice(0, 8).map((person) => html`<span class="person">${avatar(person, "sm")}${nameOf(person)}</span>`)}${people.length > 8 ? html`<span class="muted">and ${people.length - 8} more</span>` : ""}</dd>` : ""}
+    <dt>Who can see it</dt><dd>${topic.is_public ? "Every developer and their AI" : "Only you and Zaisma"}</dd>
   </dl>
-  ${t.known_issue && ctx.viewer
-    ? html`<div class="side plate bevel-s"><p>${t.yours ? html`You've messaged Zaisma about this. <a href="/forum/${t.yours}">Open your message</a>` : html`Have logs, a screenshot or a game to point at? <a href="/forum/messages/new?known_issue=${t.id}&kind=${t.kind}">Message Zaisma about your case</a>: only Zaisma sees it, and it counts here.`}</p></div>`
+  ${topic.is_known_issue && ctx.viewer
+    ? html`<div class="side plate bevel-s"><p>${topic.your_message_topic_id ? html`You've messaged Zaisma about this. <a href="/forum/${topic.your_message_topic_id}">Open your message</a>` : html`Have logs, a screenshot or a game to point at? <a href="/forum/messages/new?known_issue_topic_id=${topic.id}&kind=${topic.kind}">Message Zaisma about your case</a>: only Zaisma sees it, and it counts here.`}</p></div>`
     : ""}
 </aside>`;
 }
@@ -682,20 +774,22 @@ function sidePanel(ctx: Ctx, t: Topic["topic"], posts: PostJson[]): Raw {
 
 /** A link out of Zaisma says where it goes first; a viewer can trust a site in their browser. */
 function outPage(ctx: Ctx, to: string): Response {
-  let u: URL | null = null;
+  let destination: URL | null = null;
   try {
-    u = new URL(to);
+    destination = new URL(to);
   } catch {}
-  if (!u || (u.protocol !== "https:" && u.protocol !== "http:")) return forumPage(ctx, "Not a link", html`<div class="gone"><h1>That isn't a link we can open</h1><a class="btn ghost" href="/forum">Back to the forum</a></div>`, { status: 400 });
+  if (!destination || (destination.protocol !== "https:" && destination.protocol !== "http:")) {
+    return forumPage(ctx, "Not a link", html`<div class="gone"><h1>That isn't a link we can open</h1><a class="btn ghost" href="/forum">Back to the forum</a></div>`, { httpStatus: 400 });
+  }
   return forumPage(
     ctx,
     "Leaving Zaisma",
     html`<div class="leaving plate bevel-s">
   <h1>You're leaving Zaisma</h1>
-  <p class="lead">This link goes to <strong>${u.hostname}</strong>, a site Zaisma doesn't run.</p>
-  <p class="out-url">${u.href}</p>
-  <label class="check"><input type="checkbox" id="trust" data-host="${u.hostname}"> Open links to ${u.hostname} straight away from now on, in this browser</label>
-  <div class="row"><a class="btn light" id="go" href="${u.href}" rel="noopener noreferrer nofollow">Continue to ${u.hostname}</a><a class="btn ghost" href="/forum" onclick="if(history.length>1){history.back();return false}">Go back</a></div>
+  <p class="lead">This link goes to <strong>${destination.hostname}</strong>, a site Zaisma doesn't run.</p>
+  <p class="out-url">${destination.href}</p>
+  <label class="check"><input type="checkbox" id="trust" data-host="${destination.hostname}"> Open links to ${destination.hostname} straight away from now on, in this browser</label>
+  <div class="row"><a class="btn light" id="go" href="${destination.href}" rel="noopener noreferrer nofollow">Continue to ${destination.hostname}</a><a class="btn ghost" href="/forum" onclick="if(history.length>1){history.back();return false}">Go back</a></div>
 </div>`,
   );
 }
@@ -703,19 +797,19 @@ function outPage(ctx: Ctx, to: string): Response {
 // --- Reporting a post ---
 
 async function reportPage(ctx: Ctx, topicId: string, postId: string): Promise<Response> {
-  const data = await getTopic(ctx.env, ctx.viewer, topicId);
-  const post = data.posts.find((p) => p.id === postId);
-  if (!post || post.by.by === "zaisma" || post.by.you) throw new ApiError(404, "no_post", "There's no post here you can report.");
+  const thread = await getTopic(ctx.env, ctx.viewer, topicId);
+  const post = thread.posts.find((candidate) => candidate.id === postId);
+  if (!post || post.author.kind === "zaisma" || post.author.is_you) throw new ApiError(404, "no_post", "There's no post here you can report.");
   return forumPage(
     ctx,
     "Report a post",
     html`<div class="newtopic">
 <form class="np plate bevel-s" method="post" action="/forum/${topicId}/report">
   <h1>Report a post</h1>
-  <input type="hidden" name="post" value="${post.id}">
-  <blockquote class="quote">${avatar(post.by, "xs")}<span><strong>${post.by.name}</strong> ${plain(post.text, 300)}</span></blockquote>
+  <input type="hidden" name="post_id" value="${post.id}">
+  <blockquote class="quote">${avatar(post.author, "xs")}<span><strong>${post.author.name}</strong> ${plain(post.text_markdown, 300)}</span></blockquote>
   <fieldset class="seen"><legend>What's wrong with it?</legend>
-    ${Object.entries(FORUM_REPORT_REASONS).map(([k, label], i) => html`<label class="check"><input type="radio" name="reason" value="${k}" required${i === 0 ? "" : ""}><span><strong>${label}</strong>${k === "child_safety" ? html`<small>It's hidden straight away while a person looks.</small>` : ""}</span></label>`)}
+    ${Object.entries(FORUM_REPORT_REASONS).map(([reason, label]) => html`<label class="check"><input type="radio" name="reason" value="${reason}" required><span><strong>${label}</strong>${reason === "child_safety" ? html`<small>It's hidden straight away while a person looks.</small>` : ""}</span></label>`)}
   </fieldset>
   <label>Anything else Zaisma should know (optional) <textarea name="details" maxlength="1000" rows="3"></textarea></label>
   <div class="np-foot"><button class="btn light" type="submit">Send report</button><a class="btn ghost" href="/forum/${topicId}#p-${post.id}">Cancel</a></div>
@@ -727,49 +821,50 @@ async function reportPage(ctx: Ctx, topicId: string, postId: string): Promise<Re
 
 // --- A new topic ---
 
-async function newPage(ctx: Ctx, f: Record<string, string>, message: boolean, error = "", status = 200, tags: string[] = []): Promise<Response> {
+async function newPage(ctx: Ctx, given: Record<string, string>, isMessage: boolean, error = "", httpStatus = 200, tags: string[] = []): Promise<Response> {
   const { games } = (await apiCall(ctx.env, ctx.viewer!, "GET", "/games")) as { games: { slug: string; title: string }[] };
-  const kinds = message ? FEEDBACK_KINDS.filter((k) => k !== "talk") : FEEDBACK_KINDS;
-  const kind = (kinds as readonly string[]).includes(f.kind ?? "") ? (f.kind as FeedbackKind) : message ? "bug" : "question";
-  const known = f.known_issue ? await getTopic(ctx.env, ctx.viewer, f.known_issue).catch(() => null) : null;
-  const category = f.category && !FORUM_CATEGORIES.some((c) => c.id === f.category) ? f.category : (f.category ? areasOf(f.category)[0] : "") || known?.topic.category || "";
+  const kinds = isMessage ? TOPIC_KINDS.filter((kind) => kind !== "talk") : TOPIC_KINDS;
+  const kind = (kinds as readonly string[]).includes(given.kind ?? "") ? (given.kind as TopicKind) : isMessage ? "bug" : "question";
+  const known = given.known_issue_topic_id ? await getTopic(ctx.env, ctx.viewer, given.known_issue_topic_id).catch(() => null) : null;
+  const sectionCategories = given.section ? Object.keys(FORUM_SECTIONS.find((section) => section.id === given.section)?.categories ?? {}) : [];
+  const category = (given.category && (FORUM_CATEGORIES as string[]).includes(given.category) ? given.category : sectionCategories[0]) || known?.topic.category || "";
   return forumPage(
     ctx,
-    message ? "Message Zaisma" : "New topic",
+    isMessage ? "Message Zaisma" : "New topic",
     html`<div class="newtopic">
-<form class="np plate bevel-s" method="post" action="${message ? "/forum/messages/new" : "/forum/new"}" enctype="multipart/form-data">
-  <h1>${message ? "Message Zaisma" : "New topic"}</h1>
-  ${message && !known ? html`<p class="note">Only you and the people who build Zaisma see this: share logs, an unreleased game, anything private. If others hit the same problem, Zaisma posts a public known issue without your words.</p>` : ""}
+<form class="np plate bevel-s" method="post" action="${isMessage ? "/forum/messages/new" : "/forum/new"}" enctype="multipart/form-data">
+  <h1>${isMessage ? "Message Zaisma" : "New topic"}</h1>
+  ${isMessage && !known ? html`<p class="note">Only you and the people who build Zaisma see this: share logs, an unreleased game, anything private. If others hit the same problem, Zaisma posts a public known issue without your words.</p>` : ""}
   ${error ? html`<p class="error" role="alert">${error}</p>` : ""}
   ${known
-    ? html`<input type="hidden" name="known_issue" value="${known.topic.id}"><input type="hidden" name="kind" value="${kind}"><p class="note">About the known issue <a href="/forum/${known.topic.id}"><strong>${known.topic.title}</strong></a>. Only you and Zaisma see what you write here; it counts toward the developers affected, and you hear when it's fixed.</p>`
+    ? html`<input type="hidden" name="known_issue_topic_id" value="${known.topic.id}"><input type="hidden" name="kind" value="${kind}"><p class="note">About the known issue <a href="/forum/${known.topic.id}"><strong>${known.topic.title}</strong></a>. Only you and Zaisma see what you write here; it counts toward the developers affected, and you hear when it's fixed.</p>`
     : html`<fieldset class="kinds"><legend>What is it?</legend>${kinds.map(
-        (k) => html`<label class="kind-opt"><input type="radio" name="kind" value="${k}"${k === kind ? raw(" checked") : ""}><span class="ticon k-${k}">${ICONS[k]}</span><span><strong>${KINDS[k].label}</strong><small>${KINDS[k].hint}</small></span></label>`,
+        (option) => html`<label class="kind-opt"><input type="radio" name="kind" value="${option}"${option === kind ? raw(" checked") : ""}><span class="ticon k-${option}">${ICONS[option]}</span><span><strong>${KINDS[option].label}</strong><small>${KINDS[option].hint}</small></span></label>`,
       )}</fieldset>`}
-  <label>Title <input name="title" required maxlength="${FEEDBACK_LIMITS.title}" value="${f.title ?? known?.topic.title ?? ""}" placeholder="Upload stops at 99% for a 300 MB build" autocomplete="off"></label>
+  <label>Title <input name="title" required maxlength="${FORUM_LIMITS.titleCharacterCount}" value="${given.title ?? known?.topic.title ?? ""}" placeholder="Upload stops at 99% for a 300 MB build" autocomplete="off"></label>
   <div id="similar" class="similar" aria-live="polite"></div>
-  <label class="editor">What happened, or what you'd like ${editorBar()}<textarea data-editor name="text" required maxlength="${FEEDBACK_LIMITS.text}" rows="9"${message ? "" : raw(" data-mentions")} placeholder="What you did, what you expected and what happened instead. Markdown works: **bold**, lists, links, and code and errors between \`\`\` lines.">${f.text ?? ""}</textarea></label>
+  <label class="editor">What happened, or what you'd like ${editorBar()}<textarea data-editor name="text_markdown" required maxlength="${FORUM_LIMITS.textCharacterCount}" rows="9"${isMessage ? "" : raw(" data-mentions")} placeholder="What you did, what you expected and what happened instead. Markdown works: **bold**, lists, links, and code and errors between \`\`\` lines.">${given.text_markdown ?? ""}</textarea></label>
   <div class="np-row">
-    <label>Category${message ? " (optional)" : ""} <select name="category"${message ? "" : raw(" required")}><option value=""${category ? "" : raw(" selected")}${message ? "" : raw(" disabled")}>${message ? "Not sure" : "Pick where it belongs"}</option>${FORUM_CATEGORIES.map(
-      (c) => html`<optgroup label="${c.name}">${Object.entries(c.areas).map(([a, name]) => html`<option value="${a}"${a === category ? raw(" selected") : ""}>${name}</option>`)}</optgroup>`,
+    <label>Category${isMessage ? " (optional)" : ""} <select name="category"${isMessage ? "" : raw(" required")}><option value=""${category ? "" : raw(" selected")}${isMessage ? "" : raw(" disabled")}>${isMessage ? "Not sure" : "Pick where it belongs"}</option>${FORUM_SECTIONS.map(
+      (section) => html`<optgroup label="${section.name}">${Object.entries(section.categories).map(([categoryId, name]) => html`<option value="${categoryId}"${categoryId === category ? raw(" selected") : ""}>${name}</option>`)}</optgroup>`,
     )}</select></label>
-    ${games.length ? html`<label>Which game (optional) <select name="game"><option value="">None</option>${games.map((g) => html`<option value="${g.slug}"${g.slug === f.game ? raw(" selected") : ""}>${g.title}</option>`)}</select><small class="hint">Only you and Zaisma see which game.</small></label>` : ""}
+    ${games.length ? html`<label>Which game (optional) <select name="game_slug"><option value="">None</option>${games.map((game) => html`<option value="${game.slug}"${game.slug === given.game_slug ? raw(" selected") : ""}>${game.title}</option>`)}</select><small class="hint">Only you and Zaisma see which game.</small></label>` : ""}
   </div>
-  ${known || message
+  ${known || isMessage
     ? ""
-    : html`<fieldset class="np-tags"><legend>Tags (up to ${FEEDBACK_LIMITS.tags})</legend><div class="r-tags">${Object.entries(FORUM_TAGS).map(
-        ([t, name]) => html`<label class="tag pick"><input type="checkbox" name="tags" value="${t}"${tags.includes(t) ? raw(" checked") : ""}><span>${name}</span></label>`,
+    : html`<fieldset class="np-tags"><legend>Tags (up to ${FORUM_LIMITS.tagCountPerTopic})</legend><div class="r-tags">${Object.entries(FORUM_TAGS).map(
+        ([tag, name]) => html`<label class="tag pick"><input type="checkbox" name="tags" value="${tag}"${tags.includes(tag) ? raw(" checked") : ""}><span>${name}</span></label>`,
       )}</div></fieldset>`}
-  <div class="np-foot"><button class="btn light" type="submit">${message ? "Send to Zaisma" : "Post topic"}</button><span class="hint">Keys and passwords are blanked before anything is saved.</span></div>
+  <div class="np-foot"><button class="btn light" type="submit">${isMessage ? "Send to Zaisma" : "Post topic"}</button><span class="hint">Keys and passwords are blanked before anything is saved.</span></div>
 </form>
 <aside class="np-side">
-  ${message
+  ${isMessage
     ? html`<div class="side plate bevel-s"><h2>Private</h2><p>Messages are only between you and Zaisma. To ask other developers too, <a href="/forum/new">start a public topic</a> instead.</p></div>`
     : html`<div class="side plate bevel-s"><h2>Before you post</h2><p>Search first: if someone has posted it, vote there. It counts, and you hear when it changes.</p><p>For logs, an unreleased game or anything private, <a href="/forum/messages/new">message Zaisma</a> instead.</p></div>`}
   <div class="side plate bevel-s"><h2>From your AI</h2><p>With the Zaisma MCP, your AI searches the forum, posts what it hits with the exact error, and replies. Its posts show your name with an ${ICONS.ai} AI mark.</p></div>
 </aside>
 </div>`,
-    { status },
+    { httpStatus },
   );
 }
 
@@ -1051,9 +1146,10 @@ figure.code.wrap pre{white-space:pre-wrap;word-break:break-word}
 .quote svg{width:14px;height:14px;flex:none;margin-top:2px}
 .quote span{overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
 .quote strong{color:var(--text-2)}
-.p-att pre{margin:6px 0 0;max-height:300px;overflow:auto}
-.p-pic{display:grid;gap:4px;justify-items:start;text-decoration:none;color:var(--muted)}
-.p-pic img{max-width:100%;max-height:300px;display:block;background:var(--pic)}
+.p-att pre{margin:6px 0 0;max-height:300px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}
+.p-att dl{margin:4px 0 0}
+.p-att dt{margin-top:10px;font-size:12px;color:var(--muted)}
+.p-att dd{margin:0}
 .p-foot{display:flex;flex-wrap:wrap;align-items:center;gap:4px 16px;font-size:13px}
 .p-foot a,.p-foot button{display:inline-flex;align-items:center;gap:5px;padding:0;border:0;background:none;color:var(--muted);font:inherit;font-family:var(--display);font-weight:500;text-decoration:none;cursor:pointer}
 .p-foot a:hover,.p-foot button:hover{color:var(--text)}
@@ -1205,7 +1301,7 @@ const MAX=+(document.body.dataset.mediaMax||10),BYTES=+(document.body.dataset.me
 const err=(ta,msg)=>{const e=ta.closest(".editor").parentElement.querySelector(".ed-error")||ta.closest(".editor").querySelector(".ed-error");if(!e)return;e.textContent=msg;e.hidden=!msg};
 const upload=(ta,file)=>{if(!/^image\/(png|jpeg|webp|gif)$/.test(file.type)){err(ta,file.name+" isn't a PNG, JPEG, WebP or GIF.");return}if(file.size>BYTES){err(ta,file.name+" is over "+Math.round(BYTES/1048576)+" MB.");return}if((ta.value.match(/\(\/forum\/media\/[a-z0-9]+\)/g)||[]).length>=MAX){err(ta,"A post can carry up to "+MAX+" images.");return}err(ta,"");
 const tag="![Uploading "+file.name.replace(/[\[\]\n]/g,"")+"…]()";insertAt(ta,tag,true);const fd=new FormData();fd.set("file",file);
-fetch("/forum/media",{method:"POST",body:fd}).then(r=>r.json().then(j=>({ok:r.ok,j}))).then(({ok,j})=>{const at=ta.value.indexOf(tag);if(at<0)return;if(ok){ta.setRangeText(j.markdown,at,at+tag.length,"preserve")}else{ta.setRangeText("",at,at+tag.length,"preserve");err(ta,j.error||"That image didn't upload.")}ta.dispatchEvent(new Event("input"))}).catch(()=>{const at=ta.value.indexOf(tag);if(at>=0)ta.setRangeText("",at,at+tag.length,"preserve");err(ta,"That image didn't upload. Try again.")})};
+fetch("/forum/media",{method:"POST",body:fd}).then(r=>r.json().then(j=>({ok:r.ok,j}))).then(({ok,j})=>{const at=ta.value.indexOf(tag);if(at<0)return;if(ok){ta.setRangeText(j.image_markdown,at,at+tag.length,"preserve")}else{ta.setRangeText("",at,at+tag.length,"preserve");err(ta,j.error||"That image didn't upload.")}ta.dispatchEvent(new Event("input"))}).catch(()=>{const at=ta.value.indexOf(tag);if(at>=0)ta.setRangeText("",at,at+tag.length,"preserve");err(ta,"That image didn't upload. Try again.")})};
 // The link panel: add a link, or edit or remove the one the cursor is in. Video: a link on its own line.
 const linkAt=ta=>{const re=/\[([^\]\n]*)\]\(([^)\s]*)\)/g;let m;while((m=re.exec(ta.value))){const a=m.index,b=a+m[0].length;if(ta.selectionStart>=a&&ta.selectionEnd<=b&&ta.value[a-1]!=="!")return{a,b,text:m[1],url:m[2]}}return null};
 const openPanel=(ta,kind)=>{active=ta;const found=kind==="link"?linkAt(ta):null,sel=ta.value.slice(ta.selectionStart,ta.selectionEnd);
@@ -1231,7 +1327,7 @@ bar.addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return
 if(b.dataset.md)run(ta,b.dataset.md);
 if(b.hasAttribute("data-insert-menu")){if(!menu.hidden&&menuFor===ta){menu.hidden=true;b.setAttribute("aria-expanded","false");return}menuFor=ta;active=ta;const r=b.getBoundingClientRect();near(menu,r.left,r.bottom+4);b.setAttribute("aria-expanded","true");menu.querySelector("button").focus()}
 if(b.dataset.tab){const show=b.dataset.tab==="preview";bar.querySelectorAll("[data-tab]").forEach(x=>x.setAttribute("aria-pressed",x===b?"true":"false"));ed.classList.toggle("previewing",show);ta.hidden=show;pv.hidden=!show;
-if(!show)setTimeout(grow,0);if(show){pv.innerHTML='<p class="muted">Loading the preview…</p>';const fd=new FormData();fd.set("text",ta.value);fetch("/forum/preview",{method:"POST",body:fd}).then(r=>r.text()).then(h=>pv.innerHTML=h).catch(()=>pv.innerHTML='<p class="muted">The preview didn\'t load.</p>')}else ta.focus()}});
+if(!show)setTimeout(grow,0);if(show){pv.innerHTML='<p class="muted">Loading the preview…</p>';const fd=new FormData();fd.set("text_markdown",ta.value);fetch("/forum/preview",{method:"POST",body:fd}).then(r=>r.text()).then(h=>pv.innerHTML=h).catch(()=>pv.innerHTML='<p class="muted">The preview didn\'t load.</p>')}else ta.focus()}});
 file.addEventListener("change",()=>{[...file.files].forEach(f=>upload(ta,f));file.value=""});
 ta.addEventListener("dragover",e=>{if([...e.dataTransfer.items].some(i=>i.kind==="file")){e.preventDefault();ta.classList.add("over")}});ta.addEventListener("dragleave",()=>ta.classList.remove("over"));
 ta.addEventListener("drop",e=>{const files=[...e.dataTransfer.files].filter(f=>f.type.startsWith("image/"));ta.classList.remove("over");if(!files.length)return;e.preventDefault();files.forEach(f=>upload(ta,f))});
@@ -1266,8 +1362,8 @@ const place=()=>{const r=ta.getBoundingClientRect(),h=list.offsetHeight,below=in
 addEventListener("scroll",()=>{if(!list.hidden)place()},{passive:true});addEventListener("resize",()=>{if(!list.hidden)place()});
 const close=()=>{list.hidden=true;items=[];at=-1};
 const pick=p=>{const before=ta.value.slice(0,ta.selectionStart),after=ta.value.slice(ta.selectionStart),start=before.length-token.length-1,text=/^[\p{L}\p{N}_]+$/u.test(p.name)?"@"+p.name+" ":"@["+p.name+"] ";ta.value=before.slice(0,start)+text+after;const c=start+text.length;ta.setSelectionRange(c,c);ta.focus();close()};
-const show=()=>{list.textContent="";items.forEach((p,i)=>{const li=document.createElement("li");li.setAttribute("role","option");li.setAttribute("aria-selected",i===at?"true":"false");li.textContent="@"+p.name;if(p.in_topic||p.zaisma){const s=document.createElement("small");s.textContent=p.zaisma?"the team":"in this topic";li.append(s)}li.onmousedown=e=>{e.preventDefault();pick(p)};list.append(li)});list.hidden=!items.length;if(!list.hidden)place()};
-ta.addEventListener("input",()=>{const m=ta.value.slice(0,ta.selectionStart).match(/(?:^|\s)@(\[[^\]\n]{0,40}|[\p{L}\p{N}_]{0,40})$/u);if(!m){close();return}token=m[1];const q=token.replace(/^\[/,"");clearTimeout(timer);timer=setTimeout(()=>fetch("/forum/people?q="+encodeURIComponent(q)+"&topic="+encodeURIComponent(ta.dataset.topic||"")).then(r=>r.ok?r.json():[]).then(p=>{items=p;at=items.length?0:-1;show()}).catch(close),120)});
+const show=()=>{list.textContent="";items.forEach((p,i)=>{const li=document.createElement("li");li.setAttribute("role","option");li.setAttribute("aria-selected",i===at?"true":"false");li.textContent="@"+p.name;if(p.is_in_topic||p.is_zaisma){const s=document.createElement("small");s.textContent=p.is_zaisma?"the team":"in this topic";li.append(s)}li.onmousedown=e=>{e.preventDefault();pick(p)};list.append(li)});list.hidden=!items.length;if(!list.hidden)place()};
+ta.addEventListener("input",()=>{const m=ta.value.slice(0,ta.selectionStart).match(/(?:^|\s)@(\[[^\]\n]{0,40}|[\p{L}\p{N}_]{0,40})$/u);if(!m){close();return}token=m[1];const q=token.replace(/^\[/,"");clearTimeout(timer);timer=setTimeout(()=>fetch("/forum/people?name_prefix="+encodeURIComponent(q)+"&topic_id="+encodeURIComponent(ta.dataset.topic||"")).then(r=>r.ok?r.json():[]).then(p=>{items=p;at=items.length?0:-1;show()}).catch(close),120)});
 ta.addEventListener("keydown",e=>{if(list.hidden)return;if(e.key==="ArrowDown"||e.key==="ArrowUp"){e.preventDefault();at=(at+(e.key==="ArrowDown"?1:items.length-1))%items.length;show()}else if((e.key==="Enter"||e.key==="Tab")&&at>=0){e.preventDefault();pick(items[at])}else if(e.key==="Escape")close()});
 ta.addEventListener("blur",()=>setTimeout(close,150));
 });
@@ -1278,12 +1374,12 @@ ta.addEventListener("blur",()=>setTimeout(close,150));
 const FORUM_SCRIPT = `(()=>{
 const rail=document.querySelector(".rail");if(rail&&matchMedia("(max-width:900px)").matches)rail.open=false;
 const c=document.getElementById("reply");
-if(c&&c.tagName==="FORM"){const box=c.querySelector(".replying"),to=c.elements.reply_to;
-document.addEventListener("click",e=>{const a=e.target.closest("[data-reply]");if(a){e.preventDefault();to.value=a.dataset.reply;box.querySelector("[data-to-name]").textContent=a.dataset.name;box.querySelector("[data-to-excerpt]").textContent=a.dataset.excerpt;box.hidden=false;c.scrollIntoView({behavior:"smooth",block:"center"});c.elements.text.focus({preventScroll:true})}
-if(e.target.closest("[data-unreply]")||e.target.closest("[data-reply-top]")){to.value="";box.hidden=true;if(e.target.closest("[data-reply-top]")){e.preventDefault();c.scrollIntoView({behavior:"smooth",block:"center"});c.elements.text.focus({preventScroll:true})}}})}
+if(c&&c.tagName==="FORM"){const box=c.querySelector(".replying"),to=c.elements.reply_to_post_id;
+document.addEventListener("click",e=>{const a=e.target.closest("[data-reply]");if(a){e.preventDefault();to.value=a.dataset.reply;box.querySelector("[data-to-name]").textContent=a.dataset.name;box.querySelector("[data-to-excerpt]").textContent=a.dataset.excerpt;box.hidden=false;c.scrollIntoView({behavior:"smooth",block:"center"});c.elements.text_markdown.focus({preventScroll:true})}
+if(e.target.closest("[data-unreply]")||e.target.closest("[data-reply-top]")){to.value="";box.hidden=true;if(e.target.closest("[data-reply-top]")){e.preventDefault();c.scrollIntoView({behavior:"smooth",block:"center"});c.elements.text_markdown.focus({preventScroll:true})}}})}
 const f=document.querySelector("form.np");if(!f||!f.elements.title)return;
 const t=f.elements.title,sim=document.getElementById("similar");let timer=0,last="";
-const look=()=>{const q=t.value.trim();if(q===last)return;last=q;if(q.length<6){sim.innerHTML="";return}fetch("/forum/similar?q="+encodeURIComponent(q)).then(r=>r.text()).then(h=>{if(t.value.trim()===q)sim.innerHTML=h}).catch(()=>{})};
+const look=()=>{const q=t.value.trim();if(q===last)return;last=q;if(q.length<6){sim.innerHTML="";return}fetch("/forum/similar?search_text="+encodeURIComponent(q)).then(r=>r.text()).then(h=>{if(t.value.trim()===q)sim.innerHTML=h}).catch(()=>{})};
 t.addEventListener("input",()=>{clearTimeout(timer);timer=setTimeout(look,350)});
-const tags=[...f.querySelectorAll("input[name=tags]")],cap=()=>{const n=tags.filter(x=>x.checked).length;tags.forEach(x=>x.disabled=!x.checked&&n>=${FEEDBACK_LIMITS.tags})};tags.forEach(x=>x.addEventListener("change",cap));cap();
+const tags=[...f.querySelectorAll("input[name=tags]")],cap=()=>{const n=tags.filter(x=>x.checked).length;tags.forEach(x=>x.disabled=!x.checked&&n>=${FORUM_LIMITS.tagCountPerTopic})};tags.forEach(x=>x.addEventListener("change",cap));cap();
 })();`;

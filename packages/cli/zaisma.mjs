@@ -24,13 +24,17 @@ const HELP = `Usage:
         [--scheduled-publish-at "2026-11-01 17:00"]  Publish later, at this time (your computer's time zone)
   zaisma unschedule <slug> <version>        Cancel a publish-later
   zaisma show <slug> [--visibility listed|unlisted|private|draft]
-  zaisma feedback [--search "words"]       Your feedback to Zaisma, and the known issues
-  zaisma feedback <id>                      One item with every post, or a known issue
-  zaisma feedback send --kind bug|gap|feature|question --title "…" --text "…" [--game <slug>]
-                                            Tell Zaisma about a bug, a gap, an idea or a question
-  zaisma feedback add <id> --text "…" [--reopen]
-                                            Add to an item, reopen it, or add your case to a known issue
+  zaisma forum [--search "words"]          Your forum topics and messages to Zaisma, or search the forum
+  zaisma forum <topic id>                   A topic with every post you can see
+  zaisma forum post --kind bug|gap|feature|question|talk --title "…" --category <category> --text "…"
+                                            Start a public topic in the developer forum
+  zaisma forum message --kind bug|gap|feature|question --title "…" --text "…" [--category <category>] [--game <slug>]
+                                            A private message: only you and Zaisma see it
+  zaisma forum reply <topic id> --text "…" [--reopen]
+                                            Reply, or reopen your topic when something fixed is back
         [--by-me]                           Mark a post as written by you; otherwise it says your AI wrote it
+  Categories: publishing, scans, pages, rooms, servers, passes, sdk, saves, stats, mcp, api, cli,
+  accounts, dashboard, reports, rules, docs, other. Markdown works in --text, or pipe the text in.
 
 Set ZAISMA_KEY to an API key from https://zaisma.com/account (under Game developers).
 Without installing: npx @zaisma/cli <command>. Installed (npm i -g @zaisma/cli): zaisma <command>.`;
@@ -168,11 +172,11 @@ async function upload(folder, opts) {
   console.log(`Still scanning. Check later with: zaisma versions ${slug}`);
 }
 
-const day = (ms) => new Date(ms).toISOString().slice(0, 10);
+const day = (at) => at.slice(0, 10);
 
-function printKnown(k) {
-  console.log(`${k.id}  ${k.status.padEnd(8)} ${k.title}  (${k.developers} developer${k.developers === 1 ? "" : "s"}${k.roadmap ? `, roadmap: ${k.roadmap}` : ""})`);
-  if (k.workaround) console.log(`    Until it's fixed: ${k.workaround}`);
+function printTopic(topic) {
+  const count = topic.is_known_issue ? `, ${topic.affected_developer_count} developer${topic.affected_developer_count === 1 ? "" : "s"} affected` : topic.vote_count ? `, ${topic.vote_count} vote${topic.vote_count === 1 ? "" : "s"}` : "";
+  console.log(`${topic.id}  ${topic.topic_status.padEnd(13)} ${topic.is_unread ? "* " : "  "}${topic.title}  (${topic.is_known_issue ? "known issue" : topic.kind}${count})`);
 }
 
 /** Text from --text, or piped in. */
@@ -184,45 +188,70 @@ async function readText(opts) {
   return Buffer.concat(chunks).toString("utf8").trim();
 }
 
-/** Feedback to Zaisma. Posts say an AI wrote them unless --by-me says the developer did. */
-async function feedback(opts) {
+/** The developer forum. Posts say an AI wrote them unless --by-me says the developer did. */
+async function forum(opts) {
   const [sub, id] = opts._;
-  const by = opts["by-me"] ? { author: "person" } : {};
-  if (sub === "send") {
+  const by = opts["by-me"] ? { author_kind: "developer" } : {};
+  const sent = (out) => {
+    if (out.check_note) console.log(out.check_note);
+    if (out.removed_secret_count) console.log(`${out.removed_secret_count} secret${out.removed_secret_count === 1 ? " was" : "s were"} blanked before it was stored.`);
+  };
+  if (sub === "post" || sub === "message") {
     const text = await readText(opts);
-    if (typeof opts.kind !== "string" || typeof opts.title !== "string" || !text) fail('usage: zaisma feedback send --kind bug|gap|feature|question --title "…" --text "…" [--game <slug>]');
-    const out = await api("POST", "/feedback", { kind: opts.kind, title: opts.title, text, ...(typeof opts.game === "string" ? { game: opts.game } : {}), ...by });
-    console.log(`Sent (${out.feedback.id}). Zaisma will reply here: zaisma feedback ${out.feedback.id}`);
-    if (out.secrets_removed) console.log(`${out.secrets_removed} secret${out.secrets_removed === 1 ? " was" : "s were"} blanked before it was stored.`);
-    if (out.matches.length) {
-      console.log("\nKnown issues that look like the same problem:");
-      for (const k of out.matches) printKnown(k);
+    const isMessage = sub === "message";
+    const usage = isMessage
+      ? 'usage: zaisma forum message --kind bug|gap|feature|question --title "…" --text "…" [--category <category>] [--game <slug>]'
+      : 'usage: zaisma forum post --kind bug|gap|feature|question|talk --title "…" --category <category> --text "…"';
+    if (typeof opts.kind !== "string" || typeof opts.title !== "string" || !text || (!isMessage && typeof opts.category !== "string")) fail(usage);
+    const out = await api("POST", "/forum", {
+      kind: opts.kind,
+      title: opts.title,
+      text_markdown: text,
+      ...(typeof opts.category === "string" ? { category: opts.category } : {}),
+      ...(isMessage ? { is_public: false, ...(typeof opts.game === "string" ? { game_slug: opts.game } : {}) } : {}),
+      ...by,
+    });
+    console.log(`${isMessage ? "Sent to Zaisma" : "Posted"} (${out.topic.id}). Replies show here: zaisma forum ${out.topic.id}`);
+    sent(out);
+    if (out.similar_topics.length) {
+      console.log("\nTopics that look like the same thing (vote or reply there if one is):");
+      for (const topic of out.similar_topics) printTopic(topic);
     }
     return;
   }
-  if (sub === "add") {
+  if (sub === "reply") {
     const text = await readText(opts);
-    if (!id || !text) fail('usage: zaisma feedback add <id> --text "…" [--reopen]');
-    const out = await api("POST", `/feedback/${id}/posts`, { text, ...(opts.reopen ? { reopen: true } : {}), ...by });
-    console.log(`Added to ${out.feedback.id} (${out.feedback.status}).`);
+    if (!id || !text) fail('usage: zaisma forum reply <topic id> --text "…" [--reopen]');
+    const out = await api("POST", `/forum/${id}/posts`, { text_markdown: text, ...(opts.reopen ? { reopen: true } : {}), ...by });
+    console.log(`Replied in ${id}.`);
+    sent(out);
     return;
   }
   if (sub) {
-    const out = await api("GET", `/feedback/${sub}`);
-    if (!out.feedback) return printKnown(out.known_issue);
-    const f = out.feedback;
-    console.log(`${f.title}\n${f.kind}, ${f.status}${f.game ? `, ${f.game}` : ""}`);
-    if (f.known_issue) printKnown(f.known_issue);
-    for (const p of f.posts) console.log(`\n${day(p.at)}  ${p.by}${p.kind === "reopen" ? " (reopened)" : ""}:\n${p.text}${p.picture_url ? `\n[screenshot] ${p.picture_url}` : ""}`);
+    const { topic, posts } = await api("GET", `/forum/${sub}`);
+    console.log(`${topic.title}\n${topic.is_known_issue ? "known issue" : topic.kind}, ${topic.topic_status}${topic.is_public ? "" : ", a message to Zaisma"}${topic.game_slug ? `, ${topic.game_slug}` : ""}`);
+    if (topic.workaround) console.log(`Until it's fixed: ${topic.workaround}`);
+    if (topic.merged_into_topic) console.log(`Part of the known issue ${topic.merged_into_topic.id}: ${topic.merged_into_topic.title}`);
+    const names = { developer: "", ai: "'s AI", zaisma: "" };
+    for (const post of posts) {
+      const waiting = post.check_status === "pending" ? " (being checked)" : post.check_status === "held" ? " (waiting for a person at Zaisma)" : "";
+      console.log(`\n${day(post.created_at)}  ${post.author.name}${names[post.author.kind]}${post.kind === "reopen" ? " (reopened)" : ""}${post.is_answer ? " (the answer)" : ""}${waiting}:\n${post.text_markdown}`);
+      for (const image of post.media) console.log(`[image] ${image.image_url}`);
+    }
     return;
   }
-  const q = typeof opts.search === "string" ? `?q=${encodeURIComponent(opts.search)}` : "";
-  const { mine, known_issues } = await api("GET", `/feedback${q}`);
-  console.log(mine.length ? "Yours (* has a reply you haven't read):" : "You haven't sent any feedback yet.");
-  for (const f of mine) console.log(`${f.id}  ${f.status.padEnd(8)} ${f.news ? "* " : "  "}${f.title}`);
-  if (known_issues.length) {
-    console.log("\nKnown issues:");
-    for (const k of known_issues) printKnown(k);
+  if (typeof opts.search === "string") {
+    const { topics } = await api("GET", `/forum?detail=brief&search_text=${encodeURIComponent(opts.search)}`);
+    if (!topics.length) console.log("Nothing matches that. Post it with: zaisma forum post");
+    for (const topic of topics) printTopic(topic);
+    return;
+  }
+  const [yours, messages] = await Promise.all([api("GET", "/forum?detail=brief&tab=yours"), api("GET", "/forum?detail=brief&tab=messages")]);
+  console.log(yours.topics.length ? "Your topics (* has something new):" : "You haven't posted in the forum yet.");
+  for (const topic of yours.topics) printTopic(topic);
+  if (messages.topics.length) {
+    console.log("\nYour messages to Zaisma:");
+    for (const topic of messages.topics) printTopic(topic);
   }
 }
 
@@ -238,7 +267,7 @@ async function main() {
     const { games, unread_topic_count } = await api("GET", "/games");
     if (!games.length) return console.log('No games yet. Make one with: zaisma new "My Game"');
     for (const g of games) console.log(`${g.slug.padEnd(28)} ${g.visibility.padEnd(9)} ${g.review_status.padEnd(8)} ${g.title}`);
-    if (unread_topic_count) console.log(`\nZaisma replied to ${unread_topic_count} of your forum topics. See them with: zaisma feedback`);
+    if (unread_topic_count) console.log(`\nZaisma replied to ${unread_topic_count} of your forum topics. See them with: zaisma forum`);
     return;
   }
   if (command === "new") {
@@ -283,7 +312,8 @@ async function main() {
     const { game } = await api("PATCH", `/games/${slug}`, { visibility: opts.visibility });
     return console.log(`${game.title} is now ${game.visibility}.`);
   }
-  if (command === "feedback") return feedback(opts);
+  if (command === "forum") return forum(opts);
+  if (command === "feedback") fail("zaisma feedback is now zaisma forum: zaisma forum lists your topics, zaisma forum message sends Zaisma a private message.");
   fail(`unknown command "${command}". Run zaisma help.`);
 }
 

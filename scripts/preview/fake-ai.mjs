@@ -46,7 +46,7 @@ function sortReport(text, system) {
   return { severity: kind.severity, category: kind.category, summary: kind.summary(details), recommendation: kind.recommendation, why: kind.why, same_as: same?.[1] ?? "", ...precedentFor(system, kind) };
 }
 
-const AREAS = [
+const CATEGORIES = [
   ["publishing", /upload|publish|version|build|MB\b/i],
   ["rooms", /room|multiplayer|player.*join|disconnect/i],
   ["saves", /save/i],
@@ -56,24 +56,24 @@ const AREAS = [
 ];
 const WORDS = (s) => new Set(s.toLowerCase().match(/[a-z0-9]{4,}/g) ?? []);
 
-// Feedback is sorted by its words: urgent for data loss or security, high when it blocks publishing,
-// low for questions. A candidate sharing four or more words is the same problem; otherwise it drafts
-// a known issue from the title, unless it's a question.
-function sortFeedback(text) {
-  const item = text.match(/<item[^>]*>([\s\S]*?)<\/item>/)?.[1] ?? "";
+// Forum topics are sorted by their words: urgent for data loss or security, high when it blocks
+// publishing, low for questions. A candidate sharing four or more words is the same problem;
+// otherwise it drafts a known issue from the title, unless it's a question.
+function sortTopic(text) {
+  const item = text.match(/<topic[^>]*>([\s\S]*?)<\/topic>/)?.[1] ?? "";
   const kind = item.match(/^Kind: (.*)$/m)?.[1] ?? "bug";
   const title = item.match(/^Title: (.*)$/m)?.[1] ?? "";
   const severity = /lost|leak|security|everyone/i.test(item) ? "urgent" : /can.?t publish|blocks|stuck|fails/i.test(item) ? "high" : kind === "question" ? "low" : "normal";
-  const area = AREAS.find(([, re]) => re.test(item))?.[0] ?? "other";
+  const category = CATEGORIES.find(([, re]) => re.test(item))?.[0] ?? "other";
   const words = WORDS(`${title} ${item}`);
   const same = [...text.matchAll(/^id ([a-z0-9]+), (.*)$/gm)].find(([, , line]) => [...WORDS(line)].filter((w) => words.has(w)).length >= 4);
   return {
     severity,
-    area,
+    category,
     summary: `${kind === "question" ? "Asks" : kind === "bug" ? "Reports" : "Asks for"}: ${title}. (Preview stand-in AI.)`,
     why: same ? `Same words as ${same[1]}.` : `Looks ${severity}; nothing like it yet.`,
-    same_as: same?.[1] ?? "",
-    draft: same || kind === "question" ? { title: "", workaround: "" } : { title, workaround: "" },
+    same_as_topic_id: same?.[1] ?? "",
+    known_issue_draft: same || kind === "question" ? { title: "", workaround: "" } : { title, workaround: "" },
   };
 }
 
@@ -102,7 +102,7 @@ export function startFakeAi(port) {
         const request = JSON.parse(body || "{}");
         const text = (request.messages?.[0]?.content ?? []).map((b) => b.text ?? "").join("\n");
         const system = String(request.system ?? "");
-        const answer = system.startsWith("You sort reports") ? sortReport(text, system) : system.startsWith("You sort feedback") ? sortFeedback(text) : system.startsWith("You check forum posts") ? checkPost(text) : scan(text);
+        const answer = system.startsWith("You sort reports") ? sortReport(text, system) : system.startsWith("You sort topics") ? sortTopic(text) : system.startsWith("You check forum posts") ? checkPost(text) : scan(text);
         res.writeHead(200, { "content-type": "application/json" });
         res.end(
           JSON.stringify({

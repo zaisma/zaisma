@@ -227,3 +227,130 @@ export const HISTORY = object({
     "Newest first.",
   ),
 });
+
+// --- The developer forum ---
+
+const TOPIC_KIND = choice({ bug: "something in Zaisma doesn't work", gap: "a limit or missing piece blocks the developer", feature: "an idea", question: "a question", talk: "a discussion" });
+export const TOPIC_STATUS = choice(
+  {
+    new: "open, or waiting for Zaisma on a message",
+    investigating: "Zaisma is looking",
+    known: "confirmed",
+    planned: "on the roadmap",
+    fixing: "being worked on",
+    released: "a fix is out and Zaisma is watching that it holds",
+    fixed: "resolved",
+    wont: "won't fix, with why",
+    answered: "a question with an answer",
+  },
+  "Where it stands: a known issue's phase, or answered.",
+);
+const PERSON = object({
+  name: text("The account's name; an AI's posts carry its developer's name."),
+  kind: choice({ developer: "the developer wrote it", ai: "the developer's AI assistant wrote it", zaisma: "the people who build Zaisma" }),
+  is_you: yes(),
+});
+const TOPIC_FIELDS = {
+  id: text(),
+  kind: TOPIC_KIND,
+  title: text(),
+  category: nullable(text("Where in Zaisma it belongs, like rooms or mcp.")),
+  tags: list(text()),
+  topic_status: TOPIC_STATUS,
+  is_public: yes("false: a private message to Zaisma, only the developer and Zaisma see it."),
+  is_shown: yes("Others can see it: public, and its first post passed the check."),
+  is_known_issue: yes("Zaisma's own topic about a problem many developers hit."),
+  author: PERSON,
+  recent_participants: list(PERSON, "The latest few people in it, newest first, without the author."),
+  participant_count: countOf("Everyone in it besides the author."),
+  reply_count: countOf(),
+  vote_count: countOf("Affects me too, I want this or same question."),
+  has_voted: yes(),
+  affected_developer_count: nullable(countOf("For a known issue: the developers it affects, with their messages and votes; null otherwise.")),
+  is_answered: yes(),
+  merged_into_topic_id: nullable(text("Your message's known issue, when Zaisma merged it into one.")),
+  is_unread: yes("Something new since you last opened it."),
+  created_at: isoTime(),
+  last_activity_at: isoTime(),
+  search_match: nullable(text("With search_text: the words that matched, marked «like this».")),
+};
+export const TOPIC_ROW = object(TOPIC_FIELDS);
+export const BRIEF_TOPIC = object(
+  {
+    id: text(),
+    title: text(),
+    kind: TOPIC_KIND,
+    topic_status: TOPIC_STATUS,
+    is_known_issue: yes(),
+    is_answered: yes(),
+    vote_count: countOf(),
+    affected_developer_count: nullable(countOf("For a known issue: the developers it affects; null otherwise.")),
+    reply_count: countOf(),
+    category: nullable(text()),
+    search_match: nullable(text("The words that matched, marked «like this»; null without search_text.")),
+    is_unread: yes(),
+    last_activity_at: isoTime(),
+  },
+  "A topic in a few fields: open it with get_topic.",
+);
+export const TOPIC = object({
+  ...TOPIC_FIELDS,
+  workaround: nullable(text("A known issue's: what to do until it's fixed.")),
+  roadmap_item: nullable(text("A known issue's roadmap item, as in docs/ROADMAP.md.")),
+  game_slug: nullable(text("The game a message is about, for its developer only.")),
+  merged_into_topic: nullable(object({ id: text(), title: text(), topic_status: TOPIC_STATUS, workaround: nullable(text()) }, "The known issue your message is part of.")),
+  your_message_topic_id: nullable(text("On a known issue: your own private message about it.")),
+  is_following: yes("What's new in it shows as unread in search_forum's yours tab."),
+  has_flagged_misplaced: yes("You flagged it as in the wrong category, and Zaisma hasn't looked yet."),
+  can_reply: yes(),
+  can_vote: yes(),
+  can_flag_misplaced: yes(),
+  can_mark_answer: yes(),
+  can_reopen: yes(),
+});
+const DEBUG_CONTEXT = object(
+  { call: nullable(text()), error_code: nullable(text()), error_message: nullable(text()), request_json: nullable(text()), notes: nullable(text()) },
+  "What was attached for whoever fixes it; only its poster and Zaisma see it.",
+);
+export const POST = object({
+  id: text(),
+  author: PERSON,
+  kind: choice({ post: "a post", reopen: "its developer reopened the topic", status: "Zaisma changed where it stands" }),
+  text_markdown: text(),
+  reply_to_post: nullable(object({ id: text(), author_name: text(), excerpt: text() }, "The post it answers, if it answers one.")),
+  is_answer: yes("The question's marked answer."),
+  check_status: nullable(choice({ pending: "being checked: only you see it yet", passed: "others see it", held: "waiting for a person at Zaisma: only you see it yet" }, "null in a message to Zaisma.")),
+  posted_via: choice(["mcp", "api", "cli", "dashboard", "admin"]),
+  helpful_count: countOf(),
+  has_marked_helpful: yes(),
+  has_reported: yes("You reported it, and Zaisma hasn't looked yet."),
+  debug_context: nullable(DEBUG_CONTEXT),
+  media: list(object({ id: text(), image_url: url() }), "Its images."),
+  mentioned_names: list(text(), "The people it @mentions."),
+  created_at: isoTime(),
+});
+const CHECK_NOTE = nullable(text("While others can't see it yet: how long the check takes. null once they can."));
+const REMOVED_SECRET_COUNT = countOf("Keys and passwords blanked before it was stored.");
+export const TOPIC_PAGE = object({
+  topics: list(BRIEF_TOPIC),
+  pinned_topics: list(BRIEF_TOPIC, "Open known issues, above the latest topics on the first page."),
+  tab: choice(["latest", "top", "unanswered", "known", "yours", "messages"]),
+  next_cursor: nullable(text("Pass as cursor for the next topics; null on the last page.")),
+  remaining_post_count: countOf("Posts the developer can still make today."),
+});
+export const TOPIC_WITH_POSTS = object({
+  topic: TOPIC,
+  posts: list(POST),
+  post_count: countOf("Posts you can see in all, whichever were sent."),
+  remaining_post_count: countOf("Posts the developer can still make today."),
+});
+export const NEW_TOPIC = object({
+  topic: TOPIC,
+  posts: list(POST),
+  post_count: countOf(),
+  remaining_post_count: countOf(),
+  similar_topics: list(TOPIC_ROW, "Topics and known issues that look like the same thing: if one is, vote or reply there."),
+  check_note: CHECK_NOTE,
+  removed_secret_count: REMOVED_SECRET_COUNT,
+});
+export const NEW_REPLY = object({ post: POST, check_note: CHECK_NOTE, removed_secret_count: REMOVED_SECRET_COUNT });

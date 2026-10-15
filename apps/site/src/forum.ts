@@ -1,245 +1,285 @@
 import {
-  FEEDBACK_AREAS,
-  FEEDBACK_CLOSED,
-  FEEDBACK_KINDS,
-  FEEDBACK_LIMITS,
-  FEEDBACK_OPEN_PHASES,
-  FEEDBACK_STATUSES,
+  CLOSED_TOPIC_STATUSES,
+  DEBUG_CONTEXT_KEYS,
   FORUM_CATEGORIES,
+  FORUM_LIMITS,
+  FORUM_HIDING_REPORT_COUNT,
   FORUM_REPORT_REASONS,
-  FORUM_REPORTS_TO_HIDE,
+  FORUM_SECTIONS,
+  FORUM_TABS,
   FORUM_TAGS,
-  type ForumReportReason,
-  feedbackMediaKey,
-  feedbackPictureKey,
+  OPEN_KNOWN_ISSUE_STATUSES,
+  POST_SELECTIONS,
+  TOPIC_KINDS,
+  TOPIC_STATUSES,
   gameById,
+  iso,
   newId,
-  type Feedback,
-  type FeedbackAuthor,
-  type FeedbackKind,
-  type FeedbackPost,
-  type FeedbackStatus,
+  type AuthorKind,
+  type DebugContext,
+  type ForumPost,
+  type ForumReportReason,
+  type ForumTab,
+  type ForumTopic,
+  type PostSelection,
+  type TopicKind,
+  type TopicStatus,
 } from "@zaisma/core";
 import { ApiError, ownGame, readJson, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
-import { decideFeedback, developersIn, feedbackById, hasNews, KNOWN, mediaOf, postsLeft, readPost, readTitle, storePost, uploadDraftMedia } from "./feedback.ts";
+import { affectedDeveloperCounts, decideTopic, hasNews, KNOWN_ISSUES, mediaOf, readPost, readTitle, remainingPostCount, storePost, topicById, uploadDraftMedia } from "./forum-posts.ts";
 import { forumPeople, mentionsOf } from "./forum-mentions.ts";
 import { searchTerms, searchTopics } from "./forum-search.ts";
 import { hidePost } from "./forum-check.ts";
 import { sendAlert } from "./email.ts";
 
 /**
- * The developer forum (docs/DECISIONS.md): every feedback item is a topic. Topics are public; anything
- * private is a message to Zaisma (public: false), which only the developer and Zaisma see. Known
- * issues are public topics of Zaisma's own. The forum pages, the MCP and API callers all use these:
+ * The developer forum (docs/DECISIONS.md). Topics are public; anything private is a message to Zaisma
+ * (is_public: false), which only the developer and Zaisma see. Known issues are public topics of
+ * Zaisma's own. The forum pages, the MCP and API callers all use these:
  *
- *   GET  /api/dev/forum?q=&category=&kind=&tag=&tab=&status=&answered=&page=&limit=&fields=brief
- *                                                           topics (tab: latest, top, unanswered, known, yours, messages); q ranks by relevance
- *   GET  /api/dev/forum/similar?q=                          topics and known issues like a title, while writing one
- *   POST /api/dev/forum                                     a topic: { kind, title, text, category, tags?, game?, context?, author?, picture? }, or with
- *                                                           public: false (or known_issue) a private message to Zaisma
- *   GET  /api/dev/forum/:id?posts=all|answer|latest|none   a topic with its posts (or just the answer, the latest few, or none)
- *   POST /api/dev/forum/:id/posts                           reply: { text, reply_to?, reopen?, context?, author?, picture? }
- *   POST /api/dev/forum/:id/vote                            a vote (affects me too, I want this, same question): { on }
- *   POST /api/dev/forum/:id/follow                          { on }
- *   POST /api/dev/forum/:id/answer                          your question's answer: { post } (null to clear)
- *   POST /api/dev/forum/:id/misplaced                       it's in the wrong category: Zaisma's AI moves it
- *   POST /api/dev/forum/:id/still-happening                 a known issue whose fix is out still happens: { text? }
- *   POST /api/dev/forum/:id/posts/:post/helpful             someone else's reply helped: { on }
- *   POST /api/dev/forum/:id/posts/:post/report              it shouldn't be here: { reason, details? }
- *   GET  /api/dev/forum/:id/pictures/:post                  a screenshot you attached (the first calls)
- *   POST /api/dev/forum/media                               upload an image (the bytes) to place in a post's text as ![image](/forum/media/ID)
- *   GET  /api/dev/forum/:id/media/:media                    an image in a post you can see
- *   GET  /api/dev/forum/people?q=&topic=                    names to @mention: Zaisma, people in the topic, then anyone in the forum
+ *   GET    /api/dev/forum?search_text=&section=&category=&kind=&tag=&tab=&topic_status=&is_answered=&cursor=&maximum_topic_count=&detail=brief
+ *                                                              topics (tab: latest, top, unanswered, known, yours, messages); search_text ranks by relevance
+ *   GET    /api/dev/forum/similar?search_text=                  topics and known issues like a title, while writing one
+ *   POST   /api/dev/forum                                       a topic: { kind, title, text_markdown, category, tags?, debug_context?, author_kind?, images_base64? },
+ *                                                              or with is_public: false (or known_issue_topic_id) a private message to Zaisma (game_slug?)
+ *   GET    /api/dev/forum/:id?post_selection=all|answer|latest|none   a topic with its posts (or just the answer, the latest few, or none)
+ *   POST   /api/dev/forum/:id/posts                             reply: { text_markdown, reply_to_post_id?, reopen?, debug_context?, author_kind?, images_base64? }
+ *   POST   /api/dev/forum/:id/vote, DELETE to take it back     a vote (affects me too, I want this, same question)
+ *   POST   /api/dev/forum/:id/follow, DELETE to stop
+ *   POST   /api/dev/forum/:id/answer                            your question's answer: { answer_post_id } (null clears it)
+ *   POST   /api/dev/forum/:id/misplaced                         it's in the wrong category: Zaisma's AI moves it
+ *   POST   /api/dev/forum/:id/still-happening                   a known issue whose fix is out still happens: { text_markdown? }
+ *   POST   /api/dev/forum/:id/posts/:post/helpful, DELETE       someone else's reply helped
+ *   POST   /api/dev/forum/:id/posts/:post/report                it shouldn't be here: { reason, details? }
+ *   POST   /api/dev/forum/media                                 upload an image (the bytes) to place in a post's text as ![image](/forum/media/ID)
+ *   GET    /api/dev/forum/:id/media/:media                      an image in a post you can see
+ *   GET    /api/dev/forum/people?name_prefix=&topic_id=         names to @mention: Zaisma, people in the topic, then anyone in the forum
  *
- * Others see a public post once it passes the check (forum-check.ts). Screenshots and what an AI
- * attaches stay private to whoever posted them and Zaisma. Reading needs no account on the pages;
- * the API reads as the caller.
+ * Others see a public post once it passes the check (forum-check.ts). What an AI attaches stays
+ * private to whoever posted it and Zaisma. Reading needs no account on the pages; the API reads as
+ * the caller.
  */
 
 /** Who's reading: an account, or nobody signed in (the pages only). */
 export type Viewer = Caller | null;
 
-/** yours: your public topics and the ones you follow. messages: your private messages to Zaisma. */
-export const FORUM_TABS = ["latest", "top", "unanswered", "known", "yours", "messages"] as const;
-export type ForumTab = (typeof FORUM_TABS)[number];
-const PAGE = 30;
+const PAGE_TOPIC_COUNT = 30;
 
 export interface Person {
   name: string;
-  /** developer: written by the developer; ai: by their AI assistant; zaisma: by Zaisma. */
-  by: "developer" | "ai" | "zaisma";
-  you: boolean;
+  /** developer: the developer wrote it; ai: their AI assistant; zaisma: the people who build Zaisma. */
+  kind: AuthorKind;
+  is_you: boolean;
 }
 
 export interface TopicRow {
   id: string;
-  kind: FeedbackKind;
+  kind: TopicKind;
   title: string;
   category: string | null;
   tags: string[];
-  status: FeedbackStatus;
-  public: boolean;
+  topic_status: TopicStatus;
+  is_public: boolean;
   /** Others can see it: public, and its first post passed the check. */
-  shown: boolean;
-  known_issue: boolean;
+  is_shown: boolean;
+  is_known_issue: boolean;
   author: Person;
   /** The latest few people in it, newest first, without the author. */
-  people: Person[];
-  /** Everyone in it besides the author, however many: people shows the latest few. */
-  people_count: number;
-  replies: number;
-  votes: number;
-  voted: boolean;
+  recent_participants: Person[];
+  /** Everyone in it besides the author, however many: recent_participants shows the latest few. */
+  participant_count: number;
+  reply_count: number;
+  vote_count: number;
+  has_voted: boolean;
   /** For a known issue: the developers it affects. */
-  developers: number | null;
-  answered: boolean;
-  /** Merged into another topic (yours only). */
-  merged_into: string | null;
+  affected_developer_count: number | null;
+  is_answered: boolean;
+  /** The known issue your message was merged into (yours only). */
+  merged_into_topic_id: string | null;
   /** Something new since you last opened it. */
-  unread: boolean;
-  created_at: number;
-  active_at: number;
+  is_unread: boolean;
+  created_at: string;
+  last_activity_at: string;
   /** With a search: the words that matched, marked «like this». */
-  match?: string;
+  search_match: string | null;
 }
 
 /** A topic in a few fields, for an AI scanning results: open one with get_topic for more. */
-export interface BriefRow {
+export interface BriefTopicRow {
   id: string;
   title: string;
-  kind: FeedbackKind;
-  status: FeedbackStatus;
-  known_issue: boolean;
-  answered: boolean;
-  /** Votes, or for a known issue the developers it affects. */
-  count: number;
-  replies: number;
+  kind: TopicKind;
+  topic_status: TopicStatus;
+  is_known_issue: boolean;
+  is_answered: boolean;
+  vote_count: number;
+  affected_developer_count: number | null;
+  reply_count: number;
   category: string | null;
-  match?: string;
-  unread?: true;
-  active_at: number;
+  search_match: string | null;
+  is_unread: boolean;
+  last_activity_at: string;
 }
 
-const brief = (t: TopicRow): BriefRow => ({
-  id: t.id,
-  title: t.title,
-  kind: t.kind,
-  status: t.status,
-  known_issue: t.known_issue,
-  answered: t.answered,
-  count: t.known_issue ? (t.developers ?? 0) : t.votes,
-  replies: t.replies,
-  category: t.category,
-  ...(t.match ? { match: t.match } : {}),
-  ...(t.unread ? { unread: true as const } : {}),
-  active_at: t.active_at,
+const brief = (topic: TopicRow): BriefTopicRow => ({
+  id: topic.id,
+  title: topic.title,
+  kind: topic.kind,
+  topic_status: topic.topic_status,
+  is_known_issue: topic.is_known_issue,
+  is_answered: topic.is_answered,
+  vote_count: topic.vote_count,
+  affected_developer_count: topic.affected_developer_count,
+  reply_count: topic.reply_count,
+  category: topic.category,
+  search_match: topic.search_match,
+  is_unread: topic.is_unread,
+  last_activity_at: topic.last_activity_at,
 });
 
 export interface PostJson {
   id: string;
-  by: Person;
-  kind: FeedbackPost["kind"];
-  text: string;
-  reply_to: { id: string; name: string; excerpt: string } | null;
-  answer: boolean;
-  /** Your own post that others can't see yet: checking, or held for a person. */
-  state: "checking" | "held" | null;
-  via: FeedbackPost["via"];
-  /** How many developers found it helpful, and whether you did. */
-  helpful: number;
-  helpful_by_you: boolean;
+  author: Person;
+  kind: ForumPost["kind"];
+  text_markdown: string;
+  reply_to_post: { id: string; author_name: string; excerpt: string } | null;
+  is_answer: boolean;
+  /** On a public topic: pending (being checked), passed (others see it) or held (waits for a person). null in a message to Zaisma. */
+  check_status: ForumPost["check_status"];
+  posted_via: ForumPost["posted_via"];
+  helpful_count: number;
+  has_marked_helpful: boolean;
   /** You reported it, and Zaisma hasn't looked yet. */
-  reported_by_you: boolean;
+  has_reported: boolean;
   /** Only for whoever posted it (and Zaisma). */
-  context: unknown;
-  /** The first calls' screenshot, for whoever posted it. */
-  picture_url: string | null;
+  debug_context: DebugContext | null;
   /** Its images: public with the post, or private to you and Zaisma in a message. */
-  media: { id: string; url: string }[];
+  media: { id: string; image_url: string }[];
   /** The people it @mentions, by name. */
-  mentions: string[];
-  at: number;
+  mentioned_names: string[];
+  created_at: string;
 }
 
 export async function forumRoute(request: Request, env: Env, path: string, caller: Caller): Promise<[unknown, number?] | Response> {
   const method = request.method;
   const url = new URL(request.url);
   if (path === "/forum" && method === "GET") {
-    const list = await listTopics(env, caller, queryFrom(url.searchParams));
-    // fields=brief: a few fields per topic, so an AI scanning results spends few tokens.
-    if (url.searchParams.get("fields") === "brief") return [{ topics: list.topics.map(brief), pinned: list.pinned.map(brief), tab: list.tab, page: list.page, more: list.more }];
+    const queryParameters = url.searchParams;
+    closedQuery(queryParameters, ["search_text", "section", "category", "kind", "tag", "tab", "topic_status", "is_answered", "cursor", "maximum_topic_count", "detail"]);
+    const list = await listTopics(env, caller, queryFrom(queryParameters));
+    // detail=brief: a few fields per topic, so an AI scanning results spends few tokens.
+    if (queryParameters.get("detail") === "brief") return [{ ...list, topics: list.topics.map(brief), pinned_topics: list.pinned_topics.map(brief) }];
     return [list];
   }
-  if (path === "/forum/similar" && method === "GET") return [{ topics: await similarTopics(env, caller, url.searchParams.get("q") ?? "") }];
+  if (path === "/forum/similar" && method === "GET") return [{ topics: await similarTopics(env, caller, url.searchParams.get("search_text") ?? "") }];
   if (path === "/forum/media" && method === "POST") {
     const bytes = new Uint8Array(await request.arrayBuffer());
     return [await uploadDraftMedia(env, caller, bytes), 201];
   }
-  if (path === "/forum/people" && method === "GET") return [{ people: await forumPeople(env, url.searchParams.get("q") ?? "", url.searchParams.get("topic") || null, caller.accountId) }];
+  if (path === "/forum/people" && method === "GET") return [{ people: await forumPeople(env, url.searchParams.get("name_prefix") ?? "", url.searchParams.get("topic_id") || null, caller.accountId) }];
   const mediaPath = path.match(/^\/forum\/[a-z0-9]{1,40}\/media\/([a-z0-9]{1,40})$/);
   if (mediaPath && method === "GET") return serveMedia(env, caller, mediaPath[1]!);
   if (path === "/forum" && method === "POST") return [await createTopic(env, caller, await readJson(request, 72 * 1024 * 1024)), 201];
   const onPost = path.match(/^\/forum\/([a-z0-9]{1,40})\/posts\/([a-z0-9]{1,40})\/(helpful|report)$/);
   if (onPost) {
-    if (method !== "POST") throw new ApiError(405, "bad_method", `${method} isn't used here.`);
-    const body = await readJson(request, 8192);
-    if (onPost[3] === "helpful") return [await markHelpful(env, caller, onPost[1]!, onPost[2]!, body.on !== false)];
-    return [await reportPost(env, caller, onPost[1]!, onPost[2]!, body)];
+    const [, topicId, postId, action] = onPost as unknown as [string, string, string, string];
+    if (action === "helpful" && (method === "POST" || method === "DELETE")) return [await markHelpful(env, caller, topicId, postId, method === "POST")];
+    if (action === "report" && method === "POST") return [await reportPost(env, caller, topicId, postId, await readJson(request, 8192))];
+    throw new ApiError(405, "bad_method", `${method} isn't used here.`);
   }
-  const m = path.match(/^\/forum\/([a-z0-9]{1,40})(?:\/(posts|vote|follow|answer|misplaced|still-happening|pictures)(?:\/([a-z0-9]{1,40}))?)?$/);
-  if (!m) throw new ApiError(404, "not_found", "No such API path.");
-  const [, id, sub, postId] = m as unknown as [string, string, string | undefined, string | undefined];
-  if (!sub && method === "GET") return [await getTopic(env, caller, id, { posts: url.searchParams.get("posts") ?? "all" })];
-  if (sub === "pictures" && postId && method === "GET") return topicPicture(env, caller, id, postId);
-  if (method !== "POST" || postId) throw new ApiError(405, "bad_method", `${method} isn't used here.`);
-  const body = await readJson(request, sub === "posts" ? 72 * 1024 * 1024 : 4096);
-  if (sub === "posts") return [await replyTo(env, caller, id, body), 201];
-  if (sub === "vote") return [await vote(env, caller, id, body.on !== false)];
-  if (sub === "follow") return [await follow(env, caller, id, body.on !== false)];
-  if (sub === "answer") return [await markAnswer(env, caller, id, typeof body.post === "string" ? body.post : null)];
-  if (sub === "misplaced") return [await flagMisplaced(env, caller, id)];
-  if (sub === "still-happening") return [await stillHappening(env, caller, id, body)];
-  throw new ApiError(404, "not_found", "No such API path.");
+  const match = path.match(/^\/forum\/([a-z0-9]{1,40})(?:\/(posts|vote|follow|answer|misplaced|still-happening))?$/);
+  if (!match) throw new ApiError(404, "not_found", "No such API path.");
+  const [, id, action] = match as unknown as [string, string, string | undefined];
+  if (!action && method === "GET") {
+    closedQuery(url.searchParams, ["post_selection"]);
+    return [await getTopic(env, caller, id, { postSelection: readPostSelection(url.searchParams.get("post_selection")) })];
+  }
+  if ((action === "vote" || action === "follow") && (method === "POST" || method === "DELETE")) {
+    return [action === "vote" ? await vote(env, caller, id, method === "POST") : await follow(env, caller, id, method === "POST")];
+  }
+  if (method !== "POST" || !action) throw new ApiError(405, "bad_method", `${method} isn't used here.`);
+  const body = await readJson(request, action === "posts" ? 72 * 1024 * 1024 : 16 * 1024);
+  if (action === "posts") return [await replyTo(env, caller, id, body), 201];
+  if (action === "answer") {
+    closedBody(body, ["answer_post_id"]);
+    if (body.answer_post_id !== null && typeof body.answer_post_id !== "string") throw new ApiError(400, "bad_answer", "answer_post_id is a post id in the topic, or null to clear the answer.");
+    return [await markAnswer(env, caller, id, body.answer_post_id || null)];
+  }
+  if (action === "misplaced") return [await flagMisplaced(env, caller, id)];
+  return [await stillHappening(env, caller, id, body)];
+}
+
+/** Inputs are closed: a field we don't take is an error, never quietly ignored (docs/NAMING.md). */
+export function closedBody(body: Record<string, unknown>, fields: string[]): void {
+  for (const key of Object.keys(body)) {
+    if (!fields.includes(key)) throw new ApiError(400, "unknown_field", `${key} isn't a field here. The fields are: ${fields.join(", ")}.`);
+  }
+}
+
+function closedQuery(queryParameters: URLSearchParams, fields: string[]): void {
+  for (const key of queryParameters.keys()) {
+    if (!fields.includes(key)) throw new ApiError(400, "unknown_field", `${key} isn't a query parameter here. The parameters are: ${fields.join(", ")}.`);
+  }
+}
+
+function readPostSelection(given: string | null): PostSelection {
+  if (given === null) return "all";
+  if (!(POST_SELECTIONS as readonly string[]).includes(given)) throw new ApiError(400, "bad_post_selection", `post_selection is one of: ${POST_SELECTIONS.join(", ")}.`);
+  return given as PostSelection;
 }
 
 export interface ForumQuery {
-  q?: string;
+  searchText?: string;
+  /** A section of the forum: every category in it. */
+  section?: string;
   category?: string;
   kind?: string;
   tag?: string;
   tab?: string;
   /** A status or known-issue phase. */
-  status?: string;
+  topicStatus?: string;
   /** Only questions with an answer (true), or without (false). */
-  answered?: boolean;
-  page?: number;
-  limit?: number;
+  isAnswered?: boolean;
+  /** Where to start: the cursor, or the page on the forum's pages. */
+  startIndex?: number;
+  maximumTopicCount?: number;
 }
 
-export function queryFrom(p: URLSearchParams): ForumQuery {
-  const answered = p.get("answered");
+/** Where the next page starts, as an opaque cursor (docs/NAMING.md, rule 11). */
+const cursorFor = (startIndex: number) => `cursor_${startIndex.toString(36)}`;
+function readCursor(cursor: string | null): number {
+  if (!cursor) return 0;
+  if (!/^cursor_[0-9a-z]{1,6}$/.test(cursor)) throw new ApiError(400, "bad_cursor", "Pass the next_cursor from your last call as cursor, as it came.");
+  return parseInt(cursor.slice(7), 36);
+}
+
+export function queryFrom(queryParameters: URLSearchParams): ForumQuery {
+  const isAnswered = queryParameters.get("is_answered");
+  if (isAnswered !== null && isAnswered !== "true" && isAnswered !== "false") throw new ApiError(400, "bad_is_answered", "is_answered is true or false.");
+  const maximumTopicCount = queryParameters.get("maximum_topic_count");
   return {
-    q: p.get("q") ?? "",
-    category: p.get("category") ?? "",
-    kind: p.get("kind") ?? "",
-    tag: p.get("tag") ?? "",
-    tab: p.get("tab") ?? "",
-    status: p.get("status") ?? "",
-    ...(answered === "true" || answered === "false" ? { answered: answered === "true" } : {}),
-    page: Number(p.get("page") ?? 1),
-    ...(p.get("limit") ? { limit: Number(p.get("limit")) } : {}),
+    searchText: queryParameters.get("search_text") ?? "",
+    section: queryParameters.get("section") ?? "",
+    category: queryParameters.get("category") ?? "",
+    kind: queryParameters.get("kind") ?? "",
+    tag: queryParameters.get("tag") ?? "",
+    tab: queryParameters.get("tab") ?? "",
+    topicStatus: queryParameters.get("topic_status") ?? "",
+    ...(isAnswered !== null ? { isAnswered: isAnswered === "true" } : {}),
+    startIndex: readCursor(queryParameters.get("cursor")),
+    ...(maximumTopicCount ? { maximumTopicCount: Number(maximumTopicCount) } : {}),
   };
 }
 
-/** The areas a category id stands for: a sub-category, or every one in a category. */
-export function areasOf(category: string): string[] {
-  if ((FEEDBACK_AREAS as string[]).includes(category)) return [category];
-  const c = FORUM_CATEGORIES.find((c) => c.id === category);
-  return c ? Object.keys(c.areas) : [];
+/** The categories a query covers: one category, or every one in a section. */
+export function categoriesOf(query: Pick<ForumQuery, "section" | "category">): string[] {
+  if (query.category) return (FORUM_CATEGORIES as string[]).includes(query.category) ? [query.category] : [];
+  const section = FORUM_SECTIONS.find((candidate) => candidate.id === query.section);
+  return section ? Object.keys(section.categories) : [];
 }
 
-const like = (word: string) => `%${word.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+const like = (word: string) => `%${word.replace(/[\\%_]/g, (special) => `\\${special}`)}%`;
 
 /**
  * Topics, a page at a time. Everyone sees public topics that passed their check; "yours" is the
@@ -249,466 +289,507 @@ const like = (word: string) => `%${word.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
 export async function listTopics(env: Env, viewer: Viewer, query: ForumQuery) {
   const tab: ForumTab = (FORUM_TABS as readonly string[]).includes(query.tab ?? "") ? (query.tab as ForumTab) : "latest";
   if ((tab === "yours" || tab === "messages") && !viewer) throw new ApiError(401, "signed_out", "Sign in to see your topics and messages.");
-  const page = Math.max(1, Math.min(1000, Math.floor(Number(query.page) || 1)));
-  const size = Math.max(1, Math.min(PAGE, Math.floor(Number(query.limit) || PAGE)));
+  const startIndex = Math.max(0, Math.min(30000, Math.floor(Number(query.startIndex) || 0)));
+  const pageTopicCount = Math.max(1, Math.min(PAGE_TOPIC_COUNT, Math.floor(Number(query.maximumTopicCount) || PAGE_TOPIC_COUNT)));
   const where: string[] = [];
   const binds: unknown[] = [];
   if (tab === "yours") {
-    where.push("f.public = 1 AND (f.account_id = ? OR f.id IN (SELECT feedback_id FROM feedback_follows WHERE account_id = ?))");
+    where.push("topic.is_public = 1 AND (topic.account_id = ? OR topic.id IN (SELECT topic_id FROM forum_follows WHERE account_id = ?))");
     binds.push(viewer!.accountId, viewer!.accountId);
   } else if (tab === "messages") {
-    where.push("f.public = 0 AND f.account_id = ?");
+    where.push("topic.is_public = 0 AND topic.account_id = ?");
     binds.push(viewer!.accountId);
-  } else where.push("f.shown = 1 AND f.group_id IS NULL");
-  const areas = query.category ? areasOf(query.category) : [];
-  if (areas.length) {
-    where.push(`f.area IN (${areas.map(() => "?").join(", ")})`);
-    binds.push(...areas);
+  } else where.push("topic.is_shown = 1 AND topic.merged_into_topic_id IS NULL");
+  const categories = query.section || query.category ? categoriesOf(query) : [];
+  if (categories.length) {
+    where.push(`topic.category IN (${categories.map(() => "?").join(", ")})`);
+    binds.push(...categories);
   }
-  if (query.kind && (FEEDBACK_KINDS as readonly string[]).includes(query.kind)) {
-    where.push("f.kind = ?");
+  if (query.kind && (TOPIC_KINDS as readonly string[]).includes(query.kind)) {
+    where.push("topic.kind = ?");
     binds.push(query.kind);
   }
   if (query.tag && query.tag in FORUM_TAGS) {
-    where.push("f.id IN (SELECT feedback_id FROM feedback_tags WHERE tag = ?)");
+    where.push("topic.id IN (SELECT topic_id FROM forum_topic_tags WHERE tag = ?)");
     binds.push(query.tag);
   }
-  if (tab === "unanswered") where.push("f.kind = 'question' AND f.answer_post IS NULL AND f.status NOT IN ('answered', 'fixed', 'wont') AND f.known_title IS NULL");
-  if (tab === "known") where.push("f.known_title IS NOT NULL");
-  if (query.status && (FEEDBACK_STATUSES as readonly string[]).includes(query.status)) {
-    where.push("f.status = ?");
-    binds.push(query.status);
+  if (tab === "unanswered") where.push("topic.kind = 'question' AND topic.answer_post_id IS NULL AND topic.topic_status NOT IN ('answered', 'fixed', 'wont') AND topic.known_issue_title IS NULL");
+  if (tab === "known") where.push("topic.known_issue_title IS NOT NULL");
+  if (query.topicStatus && (TOPIC_STATUSES as readonly string[]).includes(query.topicStatus)) {
+    where.push("topic.topic_status = ?");
+    binds.push(query.topicStatus);
   }
-  if (query.answered !== undefined) where.push(query.answered ? "(f.answer_post IS NOT NULL OR f.status = 'answered')" : "f.kind = 'question' AND f.answer_post IS NULL AND f.status != 'answered'");
-  const q = (query.q ?? "").trim().slice(0, 200);
+  if (query.isAnswered !== undefined) {
+    where.push(query.isAnswered ? "(topic.answer_post_id IS NOT NULL OR topic.topic_status = 'answered')" : "topic.kind = 'question' AND topic.answer_post_id IS NULL AND topic.topic_status != 'answered'");
+  }
+  const searchText = (query.searchText ?? "").trim().slice(0, 200);
   // Open known issues are pinned above the latest topics, so they aren't listed again below them.
-  const open = FEEDBACK_OPEN_PHASES.map((s) => `'${s}'`).join(", ");
-  const pins = tab === "latest" && !q && !query.tag && !query.status && query.answered === undefined && (!query.kind || query.kind === "bug" || query.kind === "gap");
-  if (pins) where.push(`NOT (f.known_title IS NOT NULL AND f.status IN (${open}))`);
-  let rows: (Feedback & { search_match?: string })[];
-  const terms = q ? searchTerms(q) : null;
+  const openStatuses = OPEN_KNOWN_ISSUE_STATUSES.map((status) => `'${status}'`).join(", ");
+  const hasPins = tab === "latest" && !searchText && !query.tag && !query.topicStatus && query.isAnswered === undefined && (!query.kind || query.kind === "bug" || query.kind === "gap");
+  if (hasPins) where.push(`NOT (topic.known_issue_title IS NOT NULL AND topic.topic_status IN (${openStatuses}))`);
+  let rows: (ForumTopic & { search_match?: string })[];
+  const terms = searchText ? searchTerms(searchText) : null;
   if (terms && tab !== "yours" && tab !== "messages") {
     // Ranked full-text search over what's public; all the words, or any of them when all finds nothing.
-    rows = await searchTopics(env, terms.all, { where, binds }, size + 1, (page - 1) * size);
-    if (!rows.length && page === 1 && terms.any !== terms.all) rows = await searchTopics(env, terms.any, { where, binds }, size + 1, 0);
+    rows = await searchTopics(env, terms.all, { where, binds }, pageTopicCount + 1, startIndex);
+    if (!rows.length && startIndex === 0 && terms.any !== terms.all) rows = await searchTopics(env, terms.any, { where, binds }, pageTopicCount + 1, 0);
   } else {
     // Your own topics and messages: every word, in the title or a post.
-    for (const word of q.split(/\s+/).filter((w) => w.length >= 2).slice(0, 6)) {
-      where.push("(f.title LIKE ? ESCAPE '\\' OR f.known_title LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM feedback_posts p WHERE p.feedback_id = f.id AND p.text LIKE ? ESCAPE '\\'))");
+    for (const word of searchText.split(/\s+/).filter((word) => word.length >= 2).slice(0, 6)) {
+      where.push("(topic.title LIKE ? ESCAPE '\\' OR topic.known_issue_title LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM forum_posts post WHERE post.topic_id = topic.id AND post.text_markdown LIKE ? ESCAPE '\\'))");
       binds.push(like(word), like(word), like(word));
     }
     const order =
       tab === "top"
-        ? "f.votes DESC, f.replies DESC, f.active_at DESC"
+        ? "topic.vote_count DESC, topic.reply_count DESC, topic.last_activity_at_ms DESC"
         : tab === "known"
-          ? `CASE f.status ${FEEDBACK_OPEN_PHASES.map((s, i) => `WHEN '${s}' THEN ${i}`).join(" ")} ELSE 9 END, f.active_at DESC`
-          : "COALESCE(f.active_at, f.updated_at) DESC";
-    rows = (await env.DB.prepare(`SELECT f.* FROM feedback f WHERE ${where.join(" AND ")} ORDER BY ${order} LIMIT ? OFFSET ?`).bind(...binds, size + 1, (page - 1) * size).all<Feedback>()).results;
+          ? `CASE topic.topic_status ${OPEN_KNOWN_ISSUE_STATUSES.map((status, i) => `WHEN '${status}' THEN ${i}`).join(" ")} ELSE 9 END, topic.last_activity_at_ms DESC`
+          : "COALESCE(topic.last_activity_at_ms, topic.updated_at_ms) DESC";
+    rows = (
+      await env.DB.prepare(`SELECT topic.* FROM forum_topics topic WHERE ${where.join(" AND ")} ORDER BY ${order} LIMIT ? OFFSET ?`)
+        .bind(...binds, pageTopicCount + 1, startIndex)
+        .all<ForumTopic>()
+    ).results;
   }
-  const more = rows.length > size;
-  const shown = rows.slice(0, size);
+  const hasMore = rows.length > pageTopicCount;
+  const shown = rows.slice(0, pageTopicCount);
   // What matched, unless it's just the title again.
-  const topics = (await rowsJson(env, viewer, shown)).map((t, i) => {
-    const match = shown[i]!.search_match;
-    return match && match.replace(/[«»]/g, "") !== t.title ? { ...t, match } : t;
+  const topics = (await rowsJson(env, viewer, shown)).map((topic, i) => {
+    const searchMatch = shown[i]!.search_match;
+    return searchMatch && searchMatch.replace(/[«»]/g, "") !== topic.title ? { ...topic, search_match: searchMatch } : topic;
   });
   // Known issues in the category, pinned above the latest topics.
-  let pinned: TopicRow[] = [];
-  if (pins && page === 1) {
+  let pinnedTopics: TopicRow[] = [];
+  if (hasPins && startIndex === 0) {
     const { results: known } = await env.DB.prepare(
-      `SELECT * FROM feedback f WHERE f.shown = 1 AND f.group_id IS NULL AND f.known_title IS NOT NULL AND f.status IN (${open})${areas.length ? ` AND f.area IN (${areas.map(() => "?").join(", ")})` : ""} ORDER BY f.votes DESC, f.active_at DESC LIMIT 5`,
+      `SELECT * FROM forum_topics topic WHERE topic.is_shown = 1 AND topic.merged_into_topic_id IS NULL AND topic.known_issue_title IS NOT NULL AND topic.topic_status IN (${openStatuses})${categories.length ? ` AND topic.category IN (${categories.map(() => "?").join(", ")})` : ""} ORDER BY topic.vote_count DESC, topic.last_activity_at_ms DESC LIMIT 5`,
     )
-      .bind(...areas)
-      .all<Feedback>();
-    pinned = await rowsJson(env, viewer, known);
+      .bind(...categories)
+      .all<ForumTopic>();
+    pinnedTopics = await rowsJson(env, viewer, known);
   }
-  return { topics, pinned, tab, page, more, posts_left_today: viewer ? await postsLeft(env, viewer) : null };
+  return {
+    topics,
+    pinned_topics: pinnedTopics,
+    tab,
+    next_cursor: hasMore ? cursorFor(startIndex + pageTopicCount) : null,
+    remaining_post_count: viewer ? await remainingPostCount(env, viewer) : null,
+  };
 }
 
 /** Topics and known issues that look like the same thing, while a title is being written. */
 export async function similarTopics(env: Env, viewer: Viewer, text: string): Promise<TopicRow[]> {
-  const q = text.trim().slice(0, 500);
-  if (q.length < 4) return [];
-  const terms = searchTerms(q);
+  const searchText = text.trim().slice(0, 500);
+  if (searchText.length < 4) return [];
+  const terms = searchTerms(searchText);
   if (!terms) return [];
-  const found = await searchTopics(env, terms.any, { where: ["f.shown = 1", "f.group_id IS NULL"], binds: [] }, 5, 0);
+  const found = await searchTopics(env, terms.any, { where: ["topic.is_shown = 1", "topic.merged_into_topic_id IS NULL"], binds: [] }, 5, 0);
   return rowsJson(env, viewer, found);
 }
 
-const BY: Record<FeedbackAuthor, Person["by"]> = { person: "developer", ai: "ai", zaisma: "zaisma" };
-
-function personOf(accountId: string | null, author: FeedbackAuthor, names: Map<string, string>, viewer: Viewer): Person {
-  if (author === "zaisma") return { name: "Zaisma", by: "zaisma", you: false };
-  return { name: (accountId && names.get(accountId)) || "Deleted account", by: BY[author], you: Boolean(viewer && accountId === viewer.accountId) };
+function personOf(accountId: string | null, authorKind: AuthorKind, names: Map<string, string>, viewer: Viewer): Person {
+  if (authorKind === "zaisma") return { name: "Zaisma", kind: "zaisma", is_you: false };
+  return { name: (accountId && names.get(accountId)) || "Deleted account", kind: authorKind, is_you: Boolean(viewer && accountId === viewer.accountId) };
 }
 
-async function namesOf(env: Env, ids: Iterable<string | null>): Promise<Map<string, string>> {
-  const all = [...new Set([...ids].filter((id): id is string => Boolean(id)))];
+async function namesOf(env: Env, accountIds: Iterable<string | null>): Promise<Map<string, string>> {
+  const all = [...new Set([...accountIds].filter((accountId): accountId is string => Boolean(accountId)))];
   const names = new Map<string, string>();
   for (let i = 0; i < all.length; i += 90) {
     const chunk = all.slice(i, i + 90);
     const { results } = await env.DB.prepare(`SELECT id, name FROM accounts WHERE id IN (${chunk.map(() => "?").join(", ")})`).bind(...chunk).all<{ id: string; name: string }>();
-    for (const r of results) names.set(r.id, r.name);
+    for (const account of results) names.set(account.id, account.name);
   }
   return names;
 }
 
 /** Topics as lists show them, with everything each row needs fetched in a few queries. */
-async function rowsJson(env: Env, viewer: Viewer, rows: Feedback[]): Promise<TopicRow[]> {
+async function rowsJson(env: Env, viewer: Viewer, rows: ForumTopic[]): Promise<TopicRow[]> {
   if (!rows.length) return [];
-  const ids = rows.map((r) => r.id);
-  const marks = ids.map(() => "?").join(", ");
-  const me = viewer?.accountId ?? "";
-  const [tags, posters, firsts, votes, follows, developers, counts] = await Promise.all([
-    env.DB.prepare(`SELECT feedback_id, tag FROM feedback_tags WHERE feedback_id IN (${marks})`).bind(...ids).all<{ feedback_id: string; tag: string }>(),
+  const topicIds = rows.map((row) => row.id);
+  const marks = topicIds.map(() => "?").join(", ");
+  const viewerId = viewer?.accountId ?? "";
+  const mergedIntoIds = [...new Set(rows.map((row) => row.merged_into_topic_id).filter((mergedId): mergedId is string => Boolean(mergedId)))];
+  const [tags, posters, openers, votes, follows, affected, postCounts, knownIssues] = await Promise.all([
+    env.DB.prepare(`SELECT topic_id, tag FROM forum_topic_tags WHERE topic_id IN (${marks})`).bind(...topicIds).all<{ topic_id: string; tag: string }>(),
     env.DB.prepare(
-      `SELECT feedback_id, account_id, author, at, everyone FROM (
-         SELECT feedback_id, account_id, author, MAX(created_at) AS at,
-           ROW_NUMBER() OVER (PARTITION BY feedback_id ORDER BY MAX(created_at) DESC) AS place,
-           COUNT(*) OVER (PARTITION BY feedback_id) AS everyone
-         FROM feedback_posts WHERE feedback_id IN (${marks}) AND (check_state = 'ok' OR check_state IS NULL OR account_id = ?) GROUP BY feedback_id, account_id, author
-       ) WHERE place <= 6 ORDER BY at DESC`,
+      `SELECT topic_id, account_id, author_kind, last_posted_at_ms, poster_count FROM (
+         SELECT topic_id, account_id, author_kind, MAX(created_at_ms) AS last_posted_at_ms,
+           ROW_NUMBER() OVER (PARTITION BY topic_id ORDER BY MAX(created_at_ms) DESC) AS place_number,
+           COUNT(*) OVER (PARTITION BY topic_id) AS poster_count
+         FROM forum_posts WHERE topic_id IN (${marks}) AND (check_status = 'passed' OR check_status IS NULL OR account_id = ?) GROUP BY topic_id, account_id, author_kind
+       ) WHERE place_number <= 6 ORDER BY last_posted_at_ms DESC`,
     )
-      .bind(...ids, me)
-      .all<{ feedback_id: string; account_id: string | null; author: FeedbackAuthor; everyone: number }>(),
-    env.DB.prepare(`SELECT p.feedback_id, p.author FROM feedback_posts p WHERE p.feedback_id IN (${marks}) AND p.rowid = (SELECT q.rowid FROM feedback_posts q WHERE q.feedback_id = p.feedback_id ORDER BY q.created_at, q.rowid LIMIT 1)`)
-      .bind(...ids)
-      .all<{ feedback_id: string; author: FeedbackAuthor }>(),
-    me ? env.DB.prepare(`SELECT feedback_id FROM feedback_votes WHERE account_id = ? AND feedback_id IN (${marks})`).bind(me, ...ids).all<{ feedback_id: string }>() : { results: [] },
-    me ? env.DB.prepare(`SELECT feedback_id, seen_at FROM feedback_follows WHERE account_id = ? AND feedback_id IN (${marks})`).bind(me, ...ids).all<{ feedback_id: string; seen_at: number }>() : { results: [] },
-    developersIn(env, rows.filter((r) => r.known_title).map((r) => r.id)),
+      .bind(...topicIds, viewerId)
+      .all<{ topic_id: string; account_id: string | null; author_kind: AuthorKind; poster_count: number }>(),
+    env.DB.prepare(
+      `SELECT post.topic_id, post.author_kind FROM forum_posts post WHERE post.topic_id IN (${marks}) AND post.rowid = (SELECT earliest.rowid FROM forum_posts earliest WHERE earliest.topic_id = post.topic_id ORDER BY earliest.created_at_ms, earliest.rowid LIMIT 1)`,
+    )
+      .bind(...topicIds)
+      .all<{ topic_id: string; author_kind: AuthorKind }>(),
+    viewerId ? env.DB.prepare(`SELECT topic_id FROM forum_votes WHERE account_id = ? AND topic_id IN (${marks})`).bind(viewerId, ...topicIds).all<{ topic_id: string }>() : { results: [] },
+    viewerId ? env.DB.prepare(`SELECT topic_id, seen_at_ms FROM forum_follows WHERE account_id = ? AND topic_id IN (${marks})`).bind(viewerId, ...topicIds).all<{ topic_id: string; seen_at_ms: number }>() : { results: [] },
+    affectedDeveloperCounts(env, rows.filter((row) => row.known_issue_title).map((row) => row.id)),
     // A private message's replies aren't counted as it goes (only public ones are): count them here.
-    rows.some((r) => !r.public)
-      ? env.DB.prepare(`SELECT feedback_id, COUNT(*) AS n FROM feedback_posts WHERE feedback_id IN (${marks}) GROUP BY feedback_id`).bind(...ids).all<{ feedback_id: string; n: number }>()
-      : { results: [] as { feedback_id: string; n: number }[] },
+    rows.some((row) => !row.is_public)
+      ? env.DB.prepare(`SELECT topic_id, COUNT(*) AS post_count FROM forum_posts WHERE topic_id IN (${marks}) GROUP BY topic_id`).bind(...topicIds).all<{ topic_id: string; post_count: number }>()
+      : { results: [] as { topic_id: string; post_count: number }[] },
+    // Only a merge into a known issue is shown: another developer's private message stays theirs.
+    mergedIntoIds.length
+      ? env.DB.prepare(`SELECT id FROM forum_topics WHERE known_issue_title IS NOT NULL AND id IN (${mergedIntoIds.map(() => "?").join(", ")})`).bind(...mergedIntoIds).all<{ id: string }>()
+      : { results: [] as { id: string }[] },
   ]);
-  const names = await namesOf(env, [...rows.map((r) => r.account_id), ...posters.results.map((p) => p.account_id)]);
-  const voted = new Set(votes.results.map((v) => v.feedback_id));
-  const seen = new Map(follows.results.map((f) => [f.feedback_id, f.seen_at]));
-  return rows.map((f) => {
-    const firstBy = firsts.results.find((p) => p.feedback_id === f.id)?.author ?? (f.account_id ? "person" : "zaisma");
-    const author = personOf(f.account_id, f.account_id ? firstBy : "zaisma", names, viewer);
-    const mine = posters.results.filter((p) => p.feedback_id === f.id);
-    const isAuthor = (p: { account_id: string | null; author: FeedbackAuthor }) => Boolean(f.account_id && p.account_id === f.account_id && p.author === firstBy);
-    const people = mine
-      .filter((p) => !isAuthor(p))
+  const knownIssueIds = new Set(knownIssues.results.map((knownIssue) => knownIssue.id));
+  const names = await namesOf(env, [...rows.map((row) => row.account_id), ...posters.results.map((poster) => poster.account_id)]);
+  const voted = new Set(votes.results.map((voteRow) => voteRow.topic_id));
+  const seenAtMs = new Map(follows.results.map((followRow) => [followRow.topic_id, followRow.seen_at_ms]));
+  return rows.map((topic) => {
+    const openerKind = openers.results.find((opener) => opener.topic_id === topic.id)?.author_kind ?? (topic.account_id ? "developer" : "zaisma");
+    const author = personOf(topic.account_id, topic.account_id ? openerKind : "zaisma", names, viewer);
+    const topicPosters = posters.results.filter((poster) => poster.topic_id === topic.id);
+    const isAuthor = (poster: { account_id: string | null; author_kind: AuthorKind }) => Boolean(topic.account_id && poster.account_id === topic.account_id && poster.author_kind === openerKind);
+    const recentParticipants = topicPosters
+      .filter((poster) => !isAuthor(poster))
       .slice(0, 4)
-      .map((p) => personOf(p.account_id, p.author, names, viewer));
+      .map((poster) => personOf(poster.account_id, poster.author_kind, names, viewer));
     // Everyone who posted, less the author (whose opening post is always there).
-    const peopleCount = Math.max(people.length, (mine[0]?.everyone ?? 0) - (f.account_id ? 1 : 0));
-    const active = f.active_at ?? f.updated_at;
-    const lastSeen = seen.get(f.id);
+    const participantCount = Math.max(recentParticipants.length, (topicPosters[0]?.poster_count ?? 0) - (topic.account_id ? 1 : 0));
+    const lastActivityAtMs = topic.last_activity_at_ms ?? topic.updated_at_ms;
+    const lastSeenAtMs = seenAtMs.get(topic.id);
+    const isOwn = Boolean(viewer && topic.account_id === viewer.accountId);
     return {
-      id: f.id,
-      kind: f.kind,
-      title: f.known_title ?? f.title,
-      category: f.area || null,
-      tags: tags.results.filter((t) => t.feedback_id === f.id).map((t) => t.tag),
-      status: f.status,
-      public: f.public === 1,
-      shown: f.shown === 1,
-      known_issue: Boolean(f.known_title),
+      id: topic.id,
+      kind: topic.kind,
+      title: topic.known_issue_title ?? topic.title,
+      category: topic.category || null,
+      tags: tags.results.filter((tag) => tag.topic_id === topic.id).map((tag) => tag.tag),
+      topic_status: topic.topic_status,
+      is_public: topic.is_public === 1,
+      is_shown: topic.is_shown === 1,
+      is_known_issue: Boolean(topic.known_issue_title),
       author,
-      people,
-      people_count: peopleCount,
-      replies: f.public ? f.replies : Math.max(0, (counts.results.find((c) => c.feedback_id === f.id)?.n ?? 1) - 1),
-      votes: f.votes,
-      voted: voted.has(f.id),
-      developers: f.known_title ? (developers.get(f.id) ?? 0) : null,
-      answered: Boolean(f.answer_post) || f.status === "answered",
-      merged_into: viewer && f.account_id === viewer.accountId ? f.group_id : null,
-      unread: (lastSeen !== undefined && active > lastSeen) || Boolean(viewer && f.account_id === viewer.accountId && hasNews(f)),
-      created_at: f.created_at,
-      active_at: active,
+      recent_participants: recentParticipants,
+      participant_count: participantCount,
+      reply_count: topic.is_public ? topic.reply_count : Math.max(0, (postCounts.results.find((postCountRow) => postCountRow.topic_id === topic.id)?.post_count ?? 1) - 1),
+      vote_count: topic.vote_count,
+      has_voted: voted.has(topic.id),
+      affected_developer_count: topic.known_issue_title ? (affected.get(topic.id) ?? 0) : null,
+      is_answered: Boolean(topic.answer_post_id) || topic.topic_status === "answered",
+      merged_into_topic_id: isOwn && topic.merged_into_topic_id && knownIssueIds.has(topic.merged_into_topic_id) ? topic.merged_into_topic_id : null,
+      is_unread: (lastSeenAtMs !== undefined && lastActivityAtMs > lastSeenAtMs) || (isOwn && hasNews(topic)),
+      created_at: iso(topic.created_at_ms)!,
+      last_activity_at: iso(lastActivityAtMs)!,
+      search_match: null,
     };
   });
 }
 
 /** Whether the viewer may read the topic: it's public and checked, or it's theirs. */
-function canRead(f: Feedback, viewer: Viewer): boolean {
-  return f.shown === 1 || Boolean(viewer && f.account_id === viewer.accountId);
+function canRead(topic: ForumTopic, viewer: Viewer): boolean {
+  return topic.is_shown === 1 || Boolean(viewer && topic.account_id === viewer.accountId);
 }
 
-async function readable(env: Env, viewer: Viewer, id: string): Promise<Feedback> {
-  const f = await feedbackById(env, id);
-  if (!f || !canRead(f, viewer)) throw new ApiError(404, "no_topic", "There's no topic with that id you can see. GET /forum lists them.");
-  return f;
+async function readable(env: Env, viewer: Viewer, topicId: string): Promise<ForumTopic> {
+  const topic = await topicById(env, topicId);
+  if (!topic || !canRead(topic, viewer)) throw new ApiError(404, "no_topic", "There's no topic with that id you can see. GET /forum lists them.");
+  return topic;
 }
 
 /** A post others can see, or the viewer's own (still being checked, or held). */
-function canSeePost(f: Feedback, p: FeedbackPost, viewer: Viewer): boolean {
-  if (p.check_state === "ok" || p.author === "zaisma") return true;
-  if (viewer && p.account_id === viewer.accountId) return true;
+function canSeePost(topic: ForumTopic, post: ForumPost, viewer: Viewer): boolean {
+  if (post.check_status === "passed" || post.author_kind === "zaisma") return true;
+  if (viewer && post.account_id === viewer.accountId) return true;
   // A private topic's posts, for its developer.
-  return p.check_state === null && Boolean(viewer && f.account_id === viewer.accountId);
+  return post.check_status === null && Boolean(viewer && topic.account_id === viewer.accountId);
+}
+
+/** What an AI attached, with every key there, as an answer gives it. */
+export function debugContextOf(stored: string | null): DebugContext | null {
+  if (!stored) return null;
+  const parsed = JSON.parse(stored) as Partial<DebugContext>;
+  return Object.fromEntries(DEBUG_CONTEXT_KEYS.map((key) => [key, typeof parsed[key] === "string" ? parsed[key] : null])) as unknown as DebugContext;
 }
 
 /** A topic with its posts. Opening it counts as having seen what's in it. */
-export async function getTopic(env: Env, viewer: Viewer, id: string, opts: { posts?: string } = {}) {
-  const f = await readable(env, viewer, id);
-  const { results: all } = await env.DB.prepare("SELECT * FROM feedback_posts WHERE feedback_id = ? ORDER BY created_at, rowid LIMIT 1000").bind(f.id).all<FeedbackPost>();
-  const visible = all.filter((p) => canSeePost(f, p, viewer));
+export async function getTopic(env: Env, viewer: Viewer, topicId: string, options: { postSelection?: PostSelection } = {}) {
+  const topic = await readable(env, viewer, topicId);
+  const { results: all } = await env.DB.prepare("SELECT * FROM forum_posts WHERE topic_id = ? ORDER BY created_at_ms, rowid LIMIT 1000").bind(topic.id).all<ForumPost>();
+  const visible = all.filter((post) => canSeePost(topic, post, viewer));
   // To save an AI's tokens: answer is the opening post and the marked answer; latest is the opening
   // post and the last five; none is the topic alone (a known issue's phase and workaround).
-  const opening = f.account_id ? visible.slice(0, 1) : [];
-  const which = opts.posts ?? "all";
+  const opening = topic.account_id ? visible.slice(0, 1) : [];
+  const postSelection = options.postSelection ?? "all";
   const posts =
-    which === "none"
+    postSelection === "none"
       ? []
-      : which === "answer"
-        ? [...opening, ...visible.filter((p) => p.id === f.answer_post && !opening.includes(p))]
-        : which === "latest"
-          ? [...opening, ...visible.slice(-5).filter((p) => !opening.includes(p))]
+      : postSelection === "answer"
+        ? [...opening, ...visible.filter((post) => post.id === topic.answer_post_id && !opening.includes(post))]
+        : postSelection === "latest"
+          ? [...opening, ...visible.slice(-5).filter((post) => !opening.includes(post))]
           : visible;
-  const names = await namesOf(env, posts.map((p) => p.account_id));
-  const byId = new Map(posts.map((p) => [p.id, p]));
-  const [media, mentions] = await Promise.all([mediaOf(env, posts.map((p) => p.id)), mentionsOf(env, posts.map((p) => p.id))]);
-  const [row] = await rowsJson(env, viewer, [f]);
-  const own = Boolean(viewer && f.account_id === viewer.accountId);
-  const group = f.group_id ? await feedbackById(env, f.group_id) : null;
-  const game = own && f.game_id ? await gameById(env.DB, f.game_id) : null;
-  // Your own private report under a known issue.
-  const yours = viewer && f.known_title ? await env.DB.prepare("SELECT id FROM feedback WHERE group_id = ? AND account_id = ? ORDER BY created_at LIMIT 1").bind(f.id, viewer.accountId).first<{ id: string }>() : null;
-  const following = viewer ? await env.DB.prepare("SELECT seen_at FROM feedback_follows WHERE feedback_id = ? AND account_id = ?").bind(f.id, viewer.accountId).first<{ seen_at: number }>() : null;
-  const flagged = viewer ? await env.DB.prepare("SELECT 1 AS y FROM feedback_misplaced WHERE feedback_id = ? AND account_id = ?").bind(f.id, viewer.accountId).first() : null;
-  const [helped, reported]: [Set<string>, Set<string>] = viewer
+  const names = await namesOf(env, posts.map((post) => post.account_id));
+  const postsById = new Map(posts.map((post) => [post.id, post]));
+  const [media, mentions] = await Promise.all([mediaOf(env, posts.map((post) => post.id)), mentionsOf(env, posts.map((post) => post.id))]);
+  const [row] = await rowsJson(env, viewer, [topic]);
+  const isOwn = Boolean(viewer && topic.account_id === viewer.accountId);
+  const mergedInto = row!.merged_into_topic_id ? await topicById(env, row!.merged_into_topic_id) : null;
+  const game = isOwn && topic.game_id ? await gameById(env.DB, topic.game_id) : null;
+  // Your own private message about a known issue.
+  const yourMessage = viewer && topic.known_issue_title ? await env.DB.prepare("SELECT id FROM forum_topics WHERE merged_into_topic_id = ? AND account_id = ? ORDER BY created_at_ms LIMIT 1").bind(topic.id, viewer.accountId).first<{ id: string }>() : null;
+  const following = viewer ? await env.DB.prepare("SELECT seen_at_ms FROM forum_follows WHERE topic_id = ? AND account_id = ?").bind(topic.id, viewer.accountId).first<{ seen_at_ms: number }>() : null;
+  const flagged = viewer ? await env.DB.prepare("SELECT 1 AS is_flagged FROM forum_misplaced_flags WHERE topic_id = ? AND account_id = ?").bind(topic.id, viewer.accountId).first() : null;
+  const [markedHelpful, reported]: [Set<string>, Set<string>] = viewer
     ? await Promise.all([
-        env.DB.prepare("SELECT post_id FROM feedback_helpful WHERE account_id = ? AND post_id IN (SELECT id FROM feedback_posts WHERE feedback_id = ?)").bind(viewer.accountId, f.id).all<{ post_id: string }>(),
-        env.DB.prepare("SELECT post_id FROM forum_reports WHERE account_id = ? AND post_id IN (SELECT id FROM feedback_posts WHERE feedback_id = ?)").bind(viewer.accountId, f.id).all<{ post_id: string }>(),
-      ]).then(([h, r]) => [new Set(h.results.map((x) => x.post_id)), new Set(r.results.map((x) => x.post_id))] as [Set<string>, Set<string>])
+        env.DB.prepare("SELECT post_id FROM forum_helpful_marks WHERE account_id = ? AND post_id IN (SELECT id FROM forum_posts WHERE topic_id = ?)").bind(viewer.accountId, topic.id).all<{ post_id: string }>(),
+        env.DB.prepare("SELECT post_id FROM forum_reports WHERE account_id = ? AND post_id IN (SELECT id FROM forum_posts WHERE topic_id = ?)").bind(viewer.accountId, topic.id).all<{ post_id: string }>(),
+      ]).then(([helpfulRows, reportRows]) => [new Set(helpfulRows.results.map((mark) => mark.post_id)), new Set(reportRows.results.map((report) => report.post_id))] as [Set<string>, Set<string>])
     : [new Set<string>(), new Set<string>()];
   if (viewer) {
-    const now = Date.now();
-    if (following) await env.DB.prepare("UPDATE feedback_follows SET seen_at = ? WHERE feedback_id = ? AND account_id = ?").bind(now, f.id, viewer.accountId).run();
-    if (own && hasNews(f)) await env.DB.prepare("UPDATE feedback SET seen_at = ? WHERE id = ?").bind(now, f.id).run();
+    const nowMs = Date.now();
+    if (following) await env.DB.prepare("UPDATE forum_follows SET seen_at_ms = ? WHERE topic_id = ? AND account_id = ?").bind(nowMs, topic.id, viewer.accountId).run();
+    if (isOwn && hasNews(topic)) await env.DB.prepare("UPDATE forum_topics SET seen_at_ms = ? WHERE id = ?").bind(nowMs, topic.id).run();
   }
   return {
     topic: {
       ...row!,
-      unread: false,
-      workaround: f.workaround,
-      roadmap: f.roadmap,
-      game: game ? game.slug : null,
-      merged_into: group ? { id: group.id, title: group.known_title ?? group.title, status: group.status, workaround: group.workaround } : null,
-      yours: yours?.id ?? null,
-      following: Boolean(following),
+      is_unread: false,
+      workaround: topic.workaround,
+      roadmap_item: topic.roadmap_item,
+      game_slug: game ? game.slug : null,
+      merged_into_topic: mergedInto ? { id: mergedInto.id, title: mergedInto.known_issue_title ?? mergedInto.title, topic_status: mergedInto.topic_status, workaround: mergedInto.workaround } : null,
+      your_message_topic_id: yourMessage?.id ?? null,
+      is_following: Boolean(following),
       // You flagged it as in the wrong category, and Zaisma hasn't looked yet.
-      flagged_misplaced: Boolean(flagged),
-      can: {
-        reply: Boolean(viewer),
-        vote: Boolean(viewer && f.public && !own && f.kind !== "talk"),
-        flag: Boolean(viewer && f.shown && !f.group_id),
-        answer: own && f.kind === "question",
-        reopen: own && FEEDBACK_CLOSED.includes(f.status),
-      },
+      has_flagged_misplaced: Boolean(flagged),
+      can_reply: Boolean(viewer),
+      can_vote: Boolean(viewer && topic.is_public && !isOwn && topic.kind !== "talk"),
+      can_flag_misplaced: Boolean(viewer && topic.is_shown && !topic.merged_into_topic_id),
+      can_mark_answer: isOwn && topic.kind === "question",
+      can_reopen: isOwn && CLOSED_TOPIC_STATUSES.includes(topic.topic_status),
     },
-    posts: posts.map((p) => {
-      const mine = Boolean(viewer && p.account_id === viewer.accountId && p.author !== "zaisma");
-      const to = p.reply_to ? byId.get(p.reply_to) : undefined;
+    posts: posts.map((post) => {
+      const isMine = Boolean(viewer && post.account_id === viewer.accountId && post.author_kind !== "zaisma");
+      const repliedTo = post.reply_to_post_id ? postsById.get(post.reply_to_post_id) : undefined;
       return {
-        id: p.id,
-        by: personOf(p.account_id, p.author, names, viewer),
-        kind: p.kind,
-        text: p.text,
-        reply_to: to ? { id: to.id, name: personOf(to.account_id, to.author, names, viewer).name, excerpt: to.text.slice(0, 140) } : null,
-        answer: f.answer_post === p.id,
-        state: mine && p.check_state === "pending" ? "checking" : mine && p.check_state === "held" ? "held" : null,
-        via: p.via,
-        helpful: p.helpful,
-        helpful_by_you: helped.has(p.id),
-        reported_by_you: reported.has(p.id),
-        context: mine && p.context ? JSON.parse(p.context) : null,
-        picture_url: mine && p.picture ? `${env.SITE_ORIGIN}/api/dev/forum/${f.id}/pictures/${p.id}` : null,
-        media: (media.get(p.id) ?? []).map((m) => ({ id: m.id, url: `${env.SITE_ORIGIN}/api/dev/forum/${f.id}/media/${m.id}` })),
-        mentions: mentions.get(p.id) ?? [],
-        at: p.created_at,
+        id: post.id,
+        author: personOf(post.account_id, post.author_kind, names, viewer),
+        kind: post.kind,
+        text_markdown: post.text_markdown,
+        reply_to_post: repliedTo ? { id: repliedTo.id, author_name: personOf(repliedTo.account_id, repliedTo.author_kind, names, viewer).name, excerpt: repliedTo.text_markdown.slice(0, 140) } : null,
+        is_answer: topic.answer_post_id === post.id,
+        check_status: post.check_status,
+        posted_via: post.posted_via,
+        helpful_count: post.helpful_count,
+        has_marked_helpful: markedHelpful.has(post.id),
+        has_reported: reported.has(post.id),
+        debug_context: isMine ? debugContextOf(post.debug_context) : null,
+        media: (media.get(post.id) ?? []).map((image) => ({ id: image.id, image_url: `${env.SITE_ORIGIN}/api/dev/forum/${topic.id}/media/${image.id}` })),
+        mentioned_names: mentions.get(post.id) ?? [],
+        created_at: iso(post.created_at_ms)!,
       } satisfies PostJson;
     }),
     // How many posts you can see in all, whichever were sent.
-    posts_total: visible.length,
-    posts_left_today: viewer ? await postsLeft(env, viewer) : null,
+    post_count: visible.length,
+    remaining_post_count: viewer ? await remainingPostCount(env, viewer) : null,
   };
 }
 
 function readTags(body: Record<string, unknown>): string[] {
   if (body.tags === undefined || body.tags === null) return [];
   const tags = Array.isArray(body.tags) ? [...new Set(body.tags.map(String))] : null;
-  if (!tags || tags.length > FEEDBACK_LIMITS.tags || tags.some((t) => !(t in FORUM_TAGS))) {
-    throw new ApiError(400, "bad_tags", `tags: up to ${FEEDBACK_LIMITS.tags} of ${Object.keys(FORUM_TAGS).join(", ")}.`);
+  if (!tags || tags.length > FORUM_LIMITS.tagCountPerTopic || tags.some((tag) => !(tag in FORUM_TAGS))) {
+    throw new ApiError(400, "bad_tags", `tags: up to ${FORUM_LIMITS.tagCountPerTopic} of ${Object.keys(FORUM_TAGS).join(", ")}.`);
   }
   return tags;
 }
 
+/** What it says while a post waits for its check, or null once others can see it. */
+const checkNote = (checkStatus: ForumPost["check_status"]) =>
+  checkStatus === "pending" ? "Others see it once it's checked, usually within minutes." : checkStatus === "held" ? "A person at Zaisma checks it before others see it, usually within a day." : null;
+
+const POST_FIELDS = ["text_markdown", "debug_context", "author_kind", "images_base64"];
+
 /**
- * A new topic. Ideas, questions and discussions are public unless public: false; bugs and gaps are
- * private unless public: true. With known_issue it's your own private report under that known issue.
- * Answers with topics and known issues that look like the same thing.
+ * A new topic: public, or with is_public: false (or a known_issue_topic_id) a private message to
+ * Zaisma. Answers with topics and known issues that look like the same thing.
  */
 export async function createTopic(env: Env, caller: Caller, body: Record<string, unknown>) {
-  const kind = body.kind as FeedbackKind;
-  if (!FEEDBACK_KINDS.includes(kind)) throw new ApiError(400, "bad_kind", `kind is one of: ${FEEDBACK_KINDS.join(", ")}.`);
+  closedBody(body, ["kind", "title", "category", "tags", "is_public", "game_slug", "known_issue_topic_id", ...POST_FIELDS]);
+  const kind = body.kind as TopicKind;
+  if (!TOPIC_KINDS.includes(kind)) throw new ApiError(400, "bad_kind", `kind is one of: ${TOPIC_KINDS.join(", ")}.`);
   const title = readTitle(body);
-  // Whoever posts picks the sub-category; Zaisma only moves a topic someone flags as misplaced.
-  const area = typeof body.category === "string" ? body.category : "";
-  if (area && !(FEEDBACK_AREAS as string[]).includes(area)) throw new ApiError(400, "bad_category", `category is a sub-category: ${FEEDBACK_AREAS.join(", ")}.`);
+  // Whoever posts picks the category; Zaisma only moves a topic someone flags as misplaced.
+  const category = typeof body.category === "string" ? body.category : "";
+  if (category && !(FORUM_CATEGORIES as string[]).includes(category)) throw new ApiError(400, "bad_category", `category is one of: ${FORUM_CATEGORIES.join(", ")}.`);
   const tags = readTags(body);
-  let group: Feedback | null = null;
-  if (typeof body.known_issue === "string" && body.known_issue) {
-    group = await feedbackById(env, body.known_issue);
-    if (!group?.known_title || !group.shown) throw new ApiError(404, "no_known_issue", "There's no known issue with that id. GET /forum?tab=known lists them.");
+  if (body.is_public !== undefined && typeof body.is_public !== "boolean") throw new ApiError(400, "bad_is_public", "is_public is true (a public topic, the default) or false (a private message to Zaisma).");
+  let knownIssue: ForumTopic | null = null;
+  if (typeof body.known_issue_topic_id === "string" && body.known_issue_topic_id) {
+    knownIssue = await topicById(env, body.known_issue_topic_id);
+    if (!knownIssue?.known_issue_title || !knownIssue.is_shown) throw new ApiError(404, "no_known_issue", "There's no known issue with that id. GET /forum?tab=known lists them.");
   }
-  // Every forum topic is public; public: false (or a known_issue) makes it a private message to Zaisma instead.
-  const isPublic = group ? false : body.public !== false;
-  if (!area && isPublic) throw new ApiError(400, "no_category", `Pick a category: one of ${FEEDBACK_AREAS.join(", ")} (other for anything else).`);
-  const game = typeof body.game === "string" && body.game ? await ownGame(env, body.game, caller) : null;
+  // Every forum topic is public; is_public: false (or a known issue) makes it a private message to Zaisma instead.
+  const isPublic = knownIssue ? false : body.is_public !== false;
+  if (!category && isPublic) throw new ApiError(400, "no_category", `Pick a category: one of ${FORUM_CATEGORIES.join(", ")} (other for anything else).`);
+  const game = typeof body.game_slug === "string" && body.game_slug ? await ownGame(env, body.game_slug, caller) : null;
   const post = await readPost(env, caller, body);
   const id = newId();
-  const now = Date.now();
+  const nowMs = Date.now();
   await env.DB.batch([
-    env.DB.prepare("INSERT INTO feedback (id, account_id, kind, title, game_id, status, group_id, area, public, created_at, updated_at, active_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(
+    env.DB.prepare(
+      "INSERT INTO forum_topics (id, account_id, kind, title, game_id, topic_status, merged_into_topic_id, category, is_public, created_at_ms, updated_at_ms, last_activity_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).bind(
       id,
       caller.accountId,
       kind,
       title,
       game?.id ?? null,
-      group && FEEDBACK_OPEN_PHASES.includes(group.status) ? group.status : "new",
-      group?.id ?? null,
-      area || group?.area || "",
+      knownIssue && OPEN_KNOWN_ISSUE_STATUSES.includes(knownIssue.topic_status) ? knownIssue.topic_status : "new",
+      knownIssue?.id ?? null,
+      category || knownIssue?.category || "",
       isPublic ? 1 : 0,
-      now,
-      now,
-      now,
+      nowMs,
+      nowMs,
+      nowMs,
     ),
-    ...tags.map((t) => env.DB.prepare("INSERT INTO feedback_tags (feedback_id, tag) VALUES (?, ?)").bind(id, t)),
+    ...tags.map((tag) => env.DB.prepare("INSERT INTO forum_topic_tags (topic_id, tag) VALUES (?, ?)").bind(id, tag)),
   ]);
-  const stored = await storePost(env, (await feedbackById(env, id))!, caller, post, "post");
-  const similar = group ? [] : (await similarTopics(env, caller, `${title} ${post.text}`)).filter((t) => t.id !== id);
+  const stored = await storePost(env, (await topicById(env, id))!, caller, post, "post");
+  const similar = knownIssue ? [] : (await similarTopics(env, caller, `${title} ${post.textMarkdown}`)).filter((topic) => topic.id !== id);
   return {
     ...(await getTopic(env, caller, id)),
     // Topics and known issues that look like the same thing: if one is, vote there or reply.
-    similar,
-    ...(stored.check === "pending" ? { note: "Others see it once it's checked, usually within minutes." } : stored.check === "held" ? { note: "A person at Zaisma checks it before others see it, usually within a day." } : {}),
-    ...(post.blanked ? { secrets_removed: post.blanked } : {}),
+    similar_topics: similar,
+    check_note: checkNote(stored.checkStatus),
+    removed_secret_count: post.blankedCount,
   };
 }
 
-/** A reply to the topic, or to one post in it (reply_to). reopen: true reopens your own closed topic. */
-export async function replyTo(env: Env, caller: Caller, id: string, body: Record<string, unknown>) {
-  const f = await readable(env, caller, id);
+/** A reply to the topic, or to one post in it (reply_to_post_id). reopen: true reopens your own closed topic. */
+export async function replyTo(env: Env, caller: Caller, topicId: string, body: Record<string, unknown>) {
+  closedBody(body, ["reply_to_post_id", "reopen", ...POST_FIELDS]);
+  const topic = await readable(env, caller, topicId);
+  if (body.reopen !== undefined && typeof body.reopen !== "boolean") throw new ApiError(400, "bad_reopen", "reopen is true or false.");
   const reopen = body.reopen === true;
-  if (reopen && f.account_id !== caller.accountId) throw new ApiError(403, "not_yours", "Only the developer who posted a topic can reopen it. Reply, or vote.");
-  if (reopen && !FEEDBACK_CLOSED.includes(f.status)) throw new ApiError(400, "not_closed", `It's ${f.status}, not closed, so there's nothing to reopen. Just reply.`);
-  let replyTo: string | null = null;
-  if (typeof body.reply_to === "string" && body.reply_to) {
-    const to = await env.DB.prepare("SELECT * FROM feedback_posts WHERE id = ? AND feedback_id = ?").bind(body.reply_to, f.id).first<FeedbackPost>();
-    if (!to || !canSeePost(f, to, caller)) throw new ApiError(404, "no_post", "reply_to is a post in this topic.");
-    replyTo = to.id;
+  if (reopen && topic.account_id !== caller.accountId) throw new ApiError(403, "not_yours", "Only the developer who posted a topic can reopen it. Reply, or vote.");
+  if (reopen && !CLOSED_TOPIC_STATUSES.includes(topic.topic_status)) throw new ApiError(400, "not_closed", `It's ${topic.topic_status}, not closed, so there's nothing to reopen. Just reply.`);
+  let replyToPostId: string | null = null;
+  if (typeof body.reply_to_post_id === "string" && body.reply_to_post_id) {
+    const repliedTo = await env.DB.prepare("SELECT * FROM forum_posts WHERE id = ? AND topic_id = ?").bind(body.reply_to_post_id, topic.id).first<ForumPost>();
+    if (!repliedTo || !canSeePost(topic, repliedTo, caller)) throw new ApiError(404, "no_post", "reply_to_post_id is a post in this topic, from get_topic.");
+    replyToPostId = repliedTo.id;
   }
   const post = await readPost(env, caller, body);
-  const stored = await storePost(env, f, caller, post, reopen ? "reopen" : "post", replyTo);
-  await env.DB.prepare(`UPDATE feedback SET updated_at = ?${reopen ? ", status = 'new'" : ""} WHERE id = ?`).bind(Date.now(), f.id).run();
-  const { posts } = await getTopic(env, caller, f.id);
-  return {
-    post: posts.find((p) => p.id === stored.id) ?? null,
-    ...(stored.check === "pending" ? { note: "Others see it once it's checked, usually within minutes." } : stored.check === "held" ? { note: "A person at Zaisma checks it before others see it, usually within a day." } : {}),
-    ...(post.blanked ? { secrets_removed: post.blanked } : {}),
-  };
+  const stored = await storePost(env, topic, caller, post, reopen ? "reopen" : "post", replyToPostId);
+  await env.DB.prepare(`UPDATE forum_topics SET updated_at_ms = ?${reopen ? ", topic_status = 'new'" : ""} WHERE id = ?`).bind(Date.now(), topic.id).run();
+  const { posts } = await getTopic(env, caller, topic.id);
+  const reply = posts.find((candidate) => candidate.id === stored.id);
+  if (!reply) throw new Error(`The reply ${stored.id} isn't in its topic.`);
+  return { post: reply, check_note: checkNote(stored.checkStatus), removed_secret_count: post.blankedCount };
 }
 
 /** A vote on someone else's public topic: it affects you too, you want it, or you have the question too. You follow it. */
-export async function vote(env: Env, caller: Caller, id: string, on: boolean) {
-  const f = await readable(env, caller, id);
-  if (!f.public || f.account_id === caller.accountId) throw new ApiError(400, "cant_vote", "Votes are for public topics someone else started.");
-  if (f.kind === "talk") throw new ApiError(400, "cant_vote", "Discussions take replies, not votes.");
-  const now = Date.now();
-  const change = on
-    ? await env.DB.prepare("INSERT OR IGNORE INTO feedback_votes (feedback_id, account_id, created_at) VALUES (?, ?, ?)").bind(f.id, caller.accountId, now).run()
-    : await env.DB.prepare("DELETE FROM feedback_votes WHERE feedback_id = ? AND account_id = ?").bind(f.id, caller.accountId).run();
-  if (change.meta.changes) await env.DB.prepare(`UPDATE feedback SET votes = MAX(0, votes ${on ? "+" : "-"} 1) WHERE id = ?`).bind(f.id).run();
-  if (on) await env.DB.prepare("INSERT OR IGNORE INTO feedback_follows (feedback_id, account_id, seen_at) VALUES (?, ?, ?)").bind(f.id, caller.accountId, now).run();
-  const row = await env.DB.prepare("SELECT votes FROM feedback WHERE id = ?").bind(f.id).first<{ votes: number }>();
-  return { votes: row?.votes ?? 0, voted: on };
+export async function vote(env: Env, caller: Caller, topicId: string, isVoting: boolean) {
+  const topic = await readable(env, caller, topicId);
+  if (!topic.is_public || topic.account_id === caller.accountId) throw new ApiError(400, "cant_vote", "Votes are for public topics someone else started.");
+  if (topic.kind === "talk") throw new ApiError(400, "cant_vote", "Discussions take replies, not votes.");
+  const nowMs = Date.now();
+  const change = isVoting
+    ? await env.DB.prepare("INSERT OR IGNORE INTO forum_votes (topic_id, account_id, created_at_ms) VALUES (?, ?, ?)").bind(topic.id, caller.accountId, nowMs).run()
+    : await env.DB.prepare("DELETE FROM forum_votes WHERE topic_id = ? AND account_id = ?").bind(topic.id, caller.accountId).run();
+  if (change.meta.changes) await env.DB.prepare(`UPDATE forum_topics SET vote_count = MAX(0, vote_count ${isVoting ? "+" : "-"} 1) WHERE id = ?`).bind(topic.id).run();
+  if (isVoting) await env.DB.prepare("INSERT OR IGNORE INTO forum_follows (topic_id, account_id, seen_at_ms) VALUES (?, ?, ?)").bind(topic.id, caller.accountId, nowMs).run();
+  const row = await env.DB.prepare("SELECT vote_count FROM forum_topics WHERE id = ?").bind(topic.id).first<{ vote_count: number }>();
+  return { vote_count: row?.vote_count ?? 0, has_voted: isVoting };
 }
 
 /** It's in the wrong category: Zaisma's AI looks at where it belongs on its next run and moves it, saying so in the topic. */
-export async function flagMisplaced(env: Env, caller: Caller, id: string) {
-  const f = await readable(env, caller, id);
-  if (!f.shown || f.group_id) throw new ApiError(400, "cant_flag", "Only public topics others can see can be flagged as misplaced.");
-  await env.DB.prepare("INSERT OR IGNORE INTO feedback_misplaced (feedback_id, account_id, created_at) VALUES (?, ?, ?)").bind(f.id, caller.accountId, Date.now()).run();
-  return { flagged: true };
+export async function flagMisplaced(env: Env, caller: Caller, topicId: string) {
+  const topic = await readable(env, caller, topicId);
+  if (!topic.is_shown || topic.merged_into_topic_id) throw new ApiError(400, "cant_flag", "Only public topics others can see can be flagged as misplaced.");
+  await env.DB.prepare("INSERT OR IGNORE INTO forum_misplaced_flags (topic_id, account_id, created_at_ms) VALUES (?, ?, ?)").bind(topic.id, caller.accountId, Date.now()).run();
+  return { has_flagged_misplaced: true };
 }
 
 /**
  * A known issue whose fix is out (released) still happens: it goes back to fixing, everyone in it
  * hears, and Zaisma gets an alert. Once per fix, however many say so; with text, it's also a reply.
  */
-export async function stillHappening(env: Env, caller: Caller, id: string, body: Record<string, unknown>) {
-  const f = await readable(env, caller, id);
-  if (!f.known_title || f.status !== "released") throw new ApiError(400, "not_released", "Only a known issue whose fix is out (released) can be reported as still happening. Reply, or message Zaisma.");
-  const reply = typeof body.text === "string" && body.text.trim() ? await replyTo(env, caller, f.id, { text: body.text, ...(body.context ? { context: body.context } : {}) }) : null;
-  await decideFeedback(env, f.id, { status: "fixing", reply: "A developer says it still happens after the fix, so Zaisma is working on it again." });
-  await sendAlert(env, `Still happening after the fix: ${f.known_title}`, `A developer says the known issue still happens after its fix was released. It's back to fixing.\n\nOpen: ${env.SITE_ORIGIN}/admin/feedback/${f.id}`);
-  return { status: "fixing", ...(reply?.post ? { post: reply.post } : {}) };
+export async function stillHappening(env: Env, caller: Caller, topicId: string, body: Record<string, unknown>) {
+  closedBody(body, ["text_markdown"]);
+  const topic = await readable(env, caller, topicId);
+  if (!topic.known_issue_title || topic.topic_status !== "released") {
+    throw new ApiError(400, "not_released", "Only a known issue whose fix is out (released) can be reported as still happening. Reply, or message Zaisma.");
+  }
+  const reply = typeof body.text_markdown === "string" && body.text_markdown.trim() ? await replyTo(env, caller, topic.id, { text_markdown: body.text_markdown }) : null;
+  await decideTopic(env, topic.id, { topicStatus: "fixing", reply: "A developer says it still happens after the fix, so Zaisma is working on it again." });
+  await sendAlert(env, `Still happening after the fix: ${topic.known_issue_title}`, `A developer says the known issue still happens after its fix was released. It's back to fixing.\n\nOpen: ${env.SITE_ORIGIN}/admin/feedback/${topic.id}`);
+  return { topic_status: "fixing" as const, post: reply?.post ?? null };
 }
 
-async function visiblePost(env: Env, caller: Caller, topicId: string, postId: string): Promise<{ f: Feedback; p: FeedbackPost }> {
-  const f = await readable(env, caller, topicId);
-  const p = await env.DB.prepare("SELECT * FROM feedback_posts WHERE id = ? AND feedback_id = ?").bind(postId, f.id).first<FeedbackPost>();
-  if (!p || p.check_state !== "ok") throw new ApiError(404, "no_post", "There's no post with that id others can see in this topic.");
-  return { f, p };
+async function visiblePost(env: Env, caller: Caller, topicId: string, postId: string): Promise<ForumPost> {
+  const topic = await readable(env, caller, topicId);
+  const post = await env.DB.prepare("SELECT * FROM forum_posts WHERE id = ? AND topic_id = ?").bind(postId, topic.id).first<ForumPost>();
+  if (!post || post.check_status !== "passed") throw new ApiError(404, "no_post", "There's no post with that id others can see in this topic.");
+  return post;
 }
 
 /** Someone else's reply helped: it shows how many found it helpful. No dislikes: a wrong reply gets a better one, a harmful one a report. */
-export async function markHelpful(env: Env, caller: Caller, topicId: string, postId: string, on: boolean) {
-  const { p } = await visiblePost(env, caller, topicId, postId);
-  if (p.account_id === caller.accountId && p.author !== "zaisma") throw new ApiError(400, "cant_mark", "Helpful is for other people's posts.");
-  const change = on
-    ? await env.DB.prepare("INSERT OR IGNORE INTO feedback_helpful (post_id, account_id, created_at) VALUES (?, ?, ?)").bind(p.id, caller.accountId, Date.now()).run()
-    : await env.DB.prepare("DELETE FROM feedback_helpful WHERE post_id = ? AND account_id = ?").bind(p.id, caller.accountId).run();
-  if (change.meta.changes) await env.DB.prepare(`UPDATE feedback_posts SET helpful = MAX(0, helpful ${on ? "+" : "-"} 1) WHERE id = ?`).bind(p.id).run();
-  const row = await env.DB.prepare("SELECT helpful FROM feedback_posts WHERE id = ?").bind(p.id).first<{ helpful: number }>();
-  return { helpful: row?.helpful ?? 0, helpful_by_you: on };
+export async function markHelpful(env: Env, caller: Caller, topicId: string, postId: string, isMarking: boolean) {
+  const post = await visiblePost(env, caller, topicId, postId);
+  if (post.account_id === caller.accountId && post.author_kind !== "zaisma") throw new ApiError(400, "cant_mark", "Helpful is for other people's posts.");
+  const change = isMarking
+    ? await env.DB.prepare("INSERT OR IGNORE INTO forum_helpful_marks (post_id, account_id, created_at_ms) VALUES (?, ?, ?)").bind(post.id, caller.accountId, Date.now()).run()
+    : await env.DB.prepare("DELETE FROM forum_helpful_marks WHERE post_id = ? AND account_id = ?").bind(post.id, caller.accountId).run();
+  if (change.meta.changes) await env.DB.prepare(`UPDATE forum_posts SET helpful_count = MAX(0, helpful_count ${isMarking ? "+" : "-"} 1) WHERE id = ?`).bind(post.id).run();
+  const row = await env.DB.prepare("SELECT helpful_count FROM forum_posts WHERE id = ?").bind(post.id).first<{ helpful_count: number }>();
+  return { helpful_count: row?.helpful_count ?? 0, has_marked_helpful: isMarking };
 }
 
 /**
  * A post that shouldn't be here. A person at Zaisma looks; it's hidden at once when it puts a young
- * person at risk (and Zaisma is alerted), or once FORUM_REPORTS_TO_HIDE developers have reported it.
+ * person at risk (and Zaisma is alerted), or once FORUM_HIDING_REPORT_COUNT developers have reported it.
  */
 export async function reportPost(env: Env, caller: Caller, topicId: string, postId: string, body: Record<string, unknown>) {
-  const { p } = await visiblePost(env, caller, topicId, postId);
+  closedBody(body, ["reason", "details"]);
+  const post = await visiblePost(env, caller, topicId, postId);
   const reason = String(body.reason ?? "") as ForumReportReason;
   if (!(reason in FORUM_REPORT_REASONS)) throw new ApiError(400, "bad_reason", `reason is one of: ${Object.keys(FORUM_REPORT_REASONS).join(", ")}.`);
-  if (p.author === "zaisma") throw new ApiError(400, "cant_report", "Zaisma's own posts can't be reported here. Message Zaisma instead.");
-  if (p.account_id === caller.accountId) throw new ApiError(400, "cant_report", "That's your own post.");
+  if (post.author_kind === "zaisma") throw new ApiError(400, "cant_report", "Zaisma's own posts can't be reported here. Message Zaisma instead.");
+  if (post.account_id === caller.accountId) throw new ApiError(400, "cant_report", "That's your own post.");
   const details = typeof body.details === "string" ? body.details.trim().slice(0, 1000) : "";
-  await env.DB.prepare("INSERT OR REPLACE INTO forum_reports (post_id, account_id, reason, details, created_at) VALUES (?, ?, ?, ?, ?)").bind(p.id, caller.accountId, reason, details || null, Date.now()).run();
-  const count = (await env.DB.prepare("SELECT COUNT(*) AS n FROM forum_reports WHERE post_id = ?").bind(p.id).first<{ n: number }>())?.n ?? 0;
-  const hidden = reason === "child_safety" || count >= FORUM_REPORTS_TO_HIDE;
-  if (hidden) await hidePost(env, p.id, `Reported: ${FORUM_REPORT_REASONS[reason]}${count > 1 ? ` (${count} reports)` : ""}`);
-  if (reason === "child_safety") await sendAlert(env, "Forum post reported: puts a young person at risk", `A forum post was reported as putting a young person at risk. It's hidden until you look.\n\nOpen: ${env.SITE_ORIGIN}/admin/feedback/${p.feedback_id}`);
-  return { reported: true, hidden };
+  await env.DB.prepare("INSERT OR REPLACE INTO forum_reports (post_id, account_id, reason, details, created_at_ms) VALUES (?, ?, ?, ?, ?)").bind(post.id, caller.accountId, reason, details || null, Date.now()).run();
+  const reportCount = (await env.DB.prepare("SELECT COUNT(*) AS report_count FROM forum_reports WHERE post_id = ?").bind(post.id).first<{ report_count: number }>())?.report_count ?? 0;
+  const isHidden = reason === "child_safety" || reportCount >= FORUM_HIDING_REPORT_COUNT;
+  if (isHidden) await hidePost(env, post.id, `Reported: ${FORUM_REPORT_REASONS[reason]}${reportCount > 1 ? ` (${reportCount} reports)` : ""}`);
+  if (reason === "child_safety") {
+    await sendAlert(env, "Forum post reported: puts a young person at risk", `A forum post was reported as putting a young person at risk. It's hidden until you look.\n\nOpen: ${env.SITE_ORIGIN}/admin/feedback/${post.topic_id}`);
+  }
+  return { has_reported: true, is_hidden: isHidden };
 }
 
 /** Follow a topic to hear about what's new in it (yours, ones you replied to and voted on are followed already). */
-export async function follow(env: Env, caller: Caller, id: string, on: boolean) {
-  const f = await readable(env, caller, id);
-  if (on) await env.DB.prepare("INSERT OR IGNORE INTO feedback_follows (feedback_id, account_id, seen_at) VALUES (?, ?, ?)").bind(f.id, caller.accountId, Date.now()).run();
-  else await env.DB.prepare("DELETE FROM feedback_follows WHERE feedback_id = ? AND account_id = ?").bind(f.id, caller.accountId).run();
-  return { following: on };
+export async function follow(env: Env, caller: Caller, topicId: string, isFollowing: boolean) {
+  const topic = await readable(env, caller, topicId);
+  if (isFollowing) await env.DB.prepare("INSERT OR IGNORE INTO forum_follows (topic_id, account_id, seen_at_ms) VALUES (?, ?, ?)").bind(topic.id, caller.accountId, Date.now()).run();
+  else await env.DB.prepare("DELETE FROM forum_follows WHERE topic_id = ? AND account_id = ?").bind(topic.id, caller.accountId).run();
+  return { is_following: isFollowing };
 }
 
 /** The developer who asked marks the reply that answered their question (null clears it). */
-export async function markAnswer(env: Env, caller: Caller, id: string, postId: string | null) {
-  const f = await readable(env, caller, id);
-  if (f.account_id !== caller.accountId || f.kind !== "question") throw new ApiError(403, "not_yours", "Only the developer who asked a question marks its answer.");
+export async function markAnswer(env: Env, caller: Caller, topicId: string, postId: string | null) {
+  const topic = await readable(env, caller, topicId);
+  if (topic.account_id !== caller.accountId || topic.kind !== "question") throw new ApiError(403, "not_yours", "Only the developer who asked a question marks its answer.");
   if (postId) {
-    const p = await env.DB.prepare("SELECT * FROM feedback_posts WHERE id = ? AND feedback_id = ?").bind(postId, f.id).first<FeedbackPost>();
-    if (!p || p.check_state !== "ok") throw new ApiError(404, "no_post", "post is a reply in this topic that others can see.");
+    const post = await env.DB.prepare("SELECT * FROM forum_posts WHERE id = ? AND topic_id = ?").bind(postId, topic.id).first<ForumPost>();
+    if (!post || post.check_status !== "passed") throw new ApiError(404, "no_post", "answer_post_id is a reply in this topic that others can see.");
   }
-  await env.DB.prepare("UPDATE feedback SET answer_post = ?, status = CASE WHEN ? IS NOT NULL THEN 'answered' WHEN status = 'answered' THEN 'new' ELSE status END, updated_at = ? WHERE id = ?")
-    .bind(postId, postId, Date.now(), f.id)
+  await env.DB.prepare(
+    "UPDATE forum_topics SET answer_post_id = ?, topic_status = CASE WHEN ? IS NOT NULL THEN 'answered' WHEN topic_status = 'answered' THEN 'new' ELSE topic_status END, updated_at_ms = ? WHERE id = ?",
+  )
+    .bind(postId, postId, Date.now(), topic.id)
     .run();
-  return { answer: postId };
+  return { answer_post_id: postId };
 }
 
 /**
@@ -716,46 +797,41 @@ export async function markAnswer(env: Env, caller: Caller, id: string, postId: s
  * passed its check, in a message only the developer (and Zaisma, on the admin pages).
  */
 export async function serveMedia(env: Env, viewer: Viewer, mediaId: string): Promise<Response> {
-  const m = await env.DB.prepare(
-    "SELECT m.id, m.type, m.post_id, m.account_id AS uploader, p.check_state, p.account_id AS poster, f.shown, f.account_id AS owner FROM feedback_media m LEFT JOIN feedback_posts p ON p.id = m.post_id LEFT JOIN feedback f ON f.id = p.feedback_id WHERE m.id = ?",
+  const image = await env.DB.prepare(
+    "SELECT media.id, media.content_type, media.storage_key, media.post_id, media.account_id AS uploader_id, post.check_status, post.account_id AS poster_id, topic.is_shown, topic.account_id AS owner_id FROM forum_media media LEFT JOIN forum_posts post ON post.id = media.post_id LEFT JOIN forum_topics topic ON topic.id = post.topic_id WHERE media.id = ?",
   )
     .bind(mediaId)
-    .first<{ id: string; type: string; post_id: string | null; uploader: string | null; check_state: string | null; poster: string | null; shown: number; owner: string | null }>();
-  const open = Boolean(m?.post_id && m.check_state === "ok" && m.shown);
+    .first<{ id: string; content_type: string; storage_key: string; post_id: string | null; uploader_id: string | null; check_status: string | null; poster_id: string | null; is_shown: number; owner_id: string | null }>();
+  const isOpen = Boolean(image?.post_id && image.check_status === "passed" && image.is_shown);
   // Not posted yet: its uploader's alone.
-  const own = Boolean(m && viewer && (m.post_id ? m.poster === viewer.accountId || (m.check_state === null && m.owner === viewer.accountId) : m.uploader === viewer.accountId));
-  const object = m && (open || own) ? await env.GAMES.get(feedbackMediaKey(m.id)) : null;
-  if (!m || !object) throw new ApiError(404, "no_media", "There's no image there you can see.");
+  const isOwn = Boolean(
+    image && viewer && (image.post_id ? image.poster_id === viewer.accountId || (image.check_status === null && image.owner_id === viewer.accountId) : image.uploader_id === viewer.accountId),
+  );
+  const object = image && (isOpen || isOwn) ? await env.GAMES.get(image.storage_key) : null;
+  if (!image || !object) throw new ApiError(404, "no_media", "There's no image there you can see.");
   return new Response(object.body, {
     headers: {
-      "Content-Type": m.type,
+      "Content-Type": image.content_type,
       // Public images are cached briefly, so one taken down stops showing soon after.
-      "Cache-Control": open ? "public, max-age=300" : "private, no-store",
+      "Cache-Control": isOpen ? "public, max-age=300" : "private, no-store",
       "X-Content-Type-Options": "nosniff",
       "Content-Security-Policy": "default-src 'none'; sandbox",
     },
   });
 }
 
-async function topicPicture(env: Env, caller: Caller, id: string, postId: string): Promise<Response> {
-  const post = await env.DB.prepare("SELECT * FROM feedback_posts WHERE id = ? AND feedback_id = ?").bind(postId, id).first<FeedbackPost>();
-  const object = post?.picture && post.account_id === caller.accountId ? await env.GAMES.get(feedbackPictureKey(post.id)) : null;
-  if (!post?.picture || !object) throw new ApiError(404, "no_picture", "You have no screenshot there.");
-  return new Response(object.body, {
-    headers: { "Content-Type": post.picture, "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; sandbox" },
-  });
-}
-
 /** How many topics the caller follows have something new since they last opened them. */
-export async function unreadCount(env: Env, caller: Caller, messages = false): Promise<number> {
-  const row = await env.DB.prepare(`SELECT COUNT(*) AS n FROM feedback_follows w JOIN feedback f ON f.id = w.feedback_id WHERE w.account_id = ? AND f.public = ${messages ? 0 : 1} AND COALESCE(f.active_at, f.updated_at) > w.seen_at`)
+export async function unreadCount(env: Env, caller: Caller, isMessages = false): Promise<number> {
+  const row = await env.DB.prepare(
+    `SELECT COUNT(*) AS topic_count FROM forum_follows followed JOIN forum_topics topic ON topic.id = followed.topic_id WHERE followed.account_id = ? AND topic.is_public = ${isMessages ? 0 : 1} AND COALESCE(topic.last_activity_at_ms, topic.updated_at_ms) > followed.seen_at_ms`,
+  )
     .bind(caller.accountId)
-    .first<{ n: number }>();
-  return row?.n ?? 0;
+    .first<{ topic_count: number }>();
+  return row?.topic_count ?? 0;
 }
 
-/** For the pages: the known issues, newest first (the picker on a private report). */
+/** For the pages: the known issues, newest first (the picker on a private message). */
 export async function knownIssueTitles(env: Env): Promise<{ id: string; title: string }[]> {
-  const { results } = await env.DB.prepare(`${KNOWN} AND shown = 1 ORDER BY active_at DESC LIMIT 200`).all<Feedback>();
-  return results.map((k) => ({ id: k.id, title: k.known_title! }));
+  const { results } = await env.DB.prepare(`${KNOWN_ISSUES} AND is_shown = 1 ORDER BY last_activity_at_ms DESC LIMIT 200`).all<ForumTopic>();
+  return results.map((knownIssue) => ({ id: knownIssue.id, title: knownIssue.known_issue_title! }));
 }
