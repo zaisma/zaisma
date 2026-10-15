@@ -14,6 +14,7 @@
     "db:migrate:local": "npm run db:migrate:local -w apps/site",
     "dev:rooms": "npm run dev -w apps/rooms",
     "preview": "node scripts/preview/run.mjs",
+    "ship": "node scripts/ship.mjs",
     "naming:baseline": "NAMING_WRITE_BASELINE=1 vitest run --project node test/node/naming.test.ts"
   },
   "devDependencies": {

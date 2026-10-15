@@ -28,7 +28,17 @@ How the roadmap is kept, so nobody has to piece it together or guess:
 - **`next` means the Now list.** Only items in Now are `next`, in Now's order; change Now and the statuses together, with Julius's OK for the order.
 - **Notes stay short:** what the item is, and when it went live. How it works goes in `docs/DECISIONS.md`, the docs or the PR. Item names never contain commas (Needs splits on them) and every name in Needs is an item's exact name.
 
-Keep the roadmap current: when work starts, lands or moves, update its status in `docs/ROADMAP.md` in the same change, and republish the roadmap page: publish `docs/roadmap.html` as an Artifact to https://claude.ai/artifact/5ES8sV8oDvQqzdg2aGXNzm with supporting files `ROADMAP.md` (from `docs/ROADMAP.md`, contentType `text/plain`), `zaisma-wordmark-metal.svg` and `zaisma-wordmark-black.svg` (from `brand/`). The page reads `ROADMAP.md` itself, so only the files need republishing.
+Keep the roadmap current: when work starts, lands or moves, update its status in `docs/ROADMAP.md` in the same change. The roadmap page (https://claude.ai/artifact/5ES8sV8oDvQqzdg2aGXNzm) reads `docs/ROADMAP.md` from GitHub's main itself, so it's current as soon as the change is on main; never republish it for a roadmap change. Republish it only when `docs/roadmap.html` itself changes: that file as the page, nothing else.
+
+## Shipping
+
+`npm run ship`, from any checkout, after a PR merges. It deploys exactly GitHub's main from its own clean copy (`.claude/ship` in the main checkout), never the checkout it's run from, so never deploy with `wrangler deploy` or `npm run deploy` yourself. In order: pending D1 migrations, then rooms, games and site, then the CLI to npm when its version is new, then a live check of a game page, the MCP, game files and rooms. It also pulls the main checkout's `main` when that's a clean fast-forward. Its last line is one of:
+
+- `SHIP PASS …`: live and checked.
+- `SHIP WAITING …`: a migration is pending and nothing was deployed. Migrations need Julius: start `npm run ship` in a Terminal tab (`run_in_terminal`), where wrangler asks him before applying; read the tab for the ✅ and the `SHIP PASS`. A CLI release waiting for npm sign-in works the same way.
+- `SHIP FAIL …`: what failed and what's live; fix it, don't work around it.
+
+Claude runs `npm run ship` itself when no migration is pending (Julius, 15 Oct 2026). `npm run ship -- --dry` says what would ship without changing anything.
 
 ## Stack
 
@@ -59,4 +69,5 @@ Keep the roadmap current: when work starts, lands or moves, update its status in
 - Flag only hard blockers in one line (illegal, would get accounts or the domain banned, clearly loses money), then keep going.
 - Replies: concise, little jargon, no recap. End with the next step and anything you need from him.
 - Commit messages: plain English, say what changed and why.
-- **Preview before live.** Large or important UI changes and features run in the local preview first (`npm run preview`: site, games and a stand-in sign-in on localhost:8800, filled with test games; `-- --reset` for fresh data; `PREVIEW_PORT_OFFSET=100` runs it on localhost:8900 when another checkout has 8800). Give Julius direct links to the pages and states to look at, iterate with him there, and only then merge and ask to deploy. Small fixes he asks for directly can ship as before.
+- **Preview before live.** Large or important UI changes and features run in the local preview first (`npm run preview`: site, games and a stand-in sign-in on localhost:8800, filled with test games; `-- --reset` for fresh data; `PREVIEW_PORT_OFFSET=100` runs it on localhost:8900 when another checkout has 8800). Give Julius direct links to the pages and states to look at, iterate with him there, and only then merge and ship. Small fixes he asks for directly can ship as before.
+- **Merging is Julius's call.** He clicks merge, or says "merge" in chat for that PR; never merge on your own (a migration he ran isn't approval). Then `npm run ship`.
