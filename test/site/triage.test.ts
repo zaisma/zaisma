@@ -81,7 +81,7 @@ describe("report triage", () => {
     await send({ reason: "other", details: "a boss says slurs in level 3" });
     await triageReports(testEnv, ai({ severity: "high", category: "hate", summary: "Hateful words in level 3." }).deps);
     await send({ reason: "hate", details: "level 3 boss is racist" });
-    const second = ai((input) => ({ severity: "high", category: "hate", same_as: input.text.match(/id ([a-z0-9]+), sent/)![1] }));
+    const second = ai((input) => ({ severity: "high", category: "hate", same_as: input.text.match(/id (report_[a-z0-9]+), sent/)![1] }));
     expect(await triageReports(testEnv, second.deps)).toBe(1);
 
     const [first, dup] = await reports();
@@ -251,37 +251,37 @@ describe("report triage", () => {
 describe("precedents", () => {
   it("dismisses a case that fits a precedent the AI may apply alone, and records it", async () => {
     await liveGame();
-    await inForce("hard-or-boring", true);
+    await inForce("precedent_hard-or-boring", true);
     await send({ reason: "other", details: "way too hard" });
-    const { deps, seen } = ai({ severity: "low", recommendation: "dismiss", precedent: "hard-or-boring", fit: "fits" });
+    const { deps, seen } = ai({ severity: "low", recommendation: "dismiss", precedent: "precedent_hard-or-boring", fit: "fits" });
     await triageReports(testEnv, deps);
     // The AI was given the precedents in force.
-    expect(seen[0]!.precedents.map((p) => p.id)).toEqual(["hard-or-boring"]);
+    expect(seen[0]!.precedents.map((p) => p.id)).toEqual(["precedent_hard-or-boring"]);
     const [r] = await reports();
-    expect(r).toMatchObject({ status: "dismissed", precedent_id: "hard-or-boring" });
+    expect(r).toMatchObject({ status: "dismissed", precedent_id: "precedent_hard-or-boring" });
     expect(triageOf(r!).actions).toEqual(["Dismissed under precedent “Too hard, boring or not fun”"]);
     expect(await (await SELF.fetch(`${LOCAL}/admin/reports`)).text()).toContain("Handled without you this week (1)");
   });
 
   it("keeps 1 in 20 for a person as a spot-check", async () => {
     await liveGame();
-    await inForce("hard-or-boring", true);
+    await inForce("precedent_hard-or-boring", true);
     await send({ reason: "other", details: "boring" });
-    const { deps } = ai({ severity: "low", precedent: "hard-or-boring", fit: "fits" });
+    const { deps } = ai({ severity: "low", precedent: "precedent_hard-or-boring", fit: "fits" });
     await triageReports(testEnv, { ...deps, random: () => 0.01 });
     const [r] = await reports();
-    expect(r).toMatchObject({ status: "open", precedent_id: "hard-or-boring" });
+    expect(r).toMatchObject({ status: "open", precedent_id: "precedent_hard-or-boring" });
     expect(triageOf(r!)).toMatchObject({ spot_check: true, recommendation: "dismiss" });
   });
 
   it("only recommends when the precedent isn't for the AI alone, or the report is urgent", async () => {
     await liveGame();
-    await inForce("cartoon-violence");
+    await inForce("precedent_cartoon-violence");
     await send({ reason: "other", details: "too much blood" });
-    await triageReports(testEnv, ai({ precedent: "cartoon-violence", fit: "fits", recommendation: "person" }).deps);
-    await inForce("cartoon-violence", true);
+    await triageReports(testEnv, ai({ precedent: "precedent_cartoon-violence", fit: "fits", recommendation: "person" }).deps);
+    await inForce("precedent_cartoon-violence", true);
     await send({ reason: "other", details: "someone gets shot" });
-    await triageReports(testEnv, ai({ severity: "urgent", precedent: "cartoon-violence", fit: "fits" }).deps);
+    await triageReports(testEnv, ai({ severity: "urgent", precedent: "precedent_cartoon-violence", fit: "fits" }).deps);
     const all = await reports();
     expect(all.map((r) => r.status)).toEqual(["open", "open"]);
     expect(all.map((r) => triageOf(r).recommendation)).toEqual(["dismiss", "dismiss"]);
@@ -290,13 +290,13 @@ describe("precedents", () => {
 
   it("sends a case that challenges a precedent to a person, with a drafted change", async () => {
     await liveGame();
-    await inForce("cartoon-violence", true);
+    await inForce("precedent_cartoon-violence", true);
     await send({ reason: "other", details: "realistic beheadings" });
     const draft = { title: "Realistic gore", applies_when: "Realistic, detailed gore.", decision: "take_down" as const, why: "Extreme gore isn't fine for 13+." };
-    await triageReports(testEnv, ai({ severity: "high", precedent: "cartoon-violence", fit: "challenges", draft }).deps);
+    await triageReports(testEnv, ai({ severity: "high", precedent: "precedent_cartoon-violence", fit: "challenges", draft }).deps);
     const [r] = await reports();
     expect(r!.status).toBe("open");
-    expect(triageOf(r!)).toMatchObject({ recommendation: "person", precedent: { id: "cartoon-violence", fit: "challenges" }, draft });
+    expect(triageOf(r!)).toMatchObject({ recommendation: "person", precedent: { id: "precedent_cartoon-violence", fit: "challenges" }, draft });
     const page = await (await SELF.fetch(`${LOCAL}/admin/reports`)).text();
     expect(page).toContain("Challenges the precedent");
     expect(page).toContain("Change the precedent “Cartoon and fantasy violence”");
@@ -304,15 +304,15 @@ describe("precedents", () => {
 
   it("sets a precedent while deciding, replacing the one it changes", async () => {
     await liveGame();
-    await inForce("cartoon-violence", true);
+    await inForce("precedent_cartoon-violence", true);
     await send({ reason: "other", details: "realistic beheadings" });
-    await triageReports(testEnv, ai({ fit: "challenges", precedent: "cartoon-violence" }).deps);
+    await triageReports(testEnv, ai({ fit: "challenges", precedent: "precedent_cartoon-violence" }).deps);
     const form = new FormData();
-    for (const [k, v] of Object.entries({ back: "queue", group: (await reports())[0]!.id, precedent: "1", p_replaces: "cartoon-violence", p_title: "Violence", p_when: "Fighting or cartoon blood; realistic gore is different.", p_why: "Fine for 13+.", p_alone: "1", reason: "Fine" })) form.set(k, v);
+    for (const [k, v] of Object.entries({ back: "queue", group: (await reports())[0]!.id, precedent: "1", p_replaces: "precedent_cartoon-violence", p_title: "Violence", p_when: "Fighting or cartoon blood; realistic gore is different.", p_why: "Fine for 13+.", p_alone: "1", reason: "Fine" })) form.set(k, v);
     await SELF.fetch(`${LOCAL}/admin/report-groups/${(await reports())[0]!.id}/dismiss`, { method: "POST", body: form, redirect: "manual" });
-    const made = await env.DB.prepare("SELECT * FROM precedents WHERE replaces = 'cartoon-violence'").first<Record<string, unknown>>();
+    const made = await env.DB.prepare("SELECT * FROM precedents WHERE replaces = 'precedent_cartoon-violence'").first<Record<string, unknown>>();
     expect(made).toMatchObject({ title: "Violence", decision: "dismiss", ai_alone: 1, status: "active", created_by: "dev@localhost" });
-    expect(await env.DB.prepare("SELECT status FROM precedents WHERE id = 'cartoon-violence'").first("status")).toBe("retired");
+    expect(await env.DB.prepare("SELECT status FROM precedents WHERE id = 'precedent_cartoon-violence'").first("status")).toBe("retired");
     expect((await reports())[0]).toMatchObject({ status: "dismissed", precedent_id: made!.id });
   });
 
@@ -329,8 +329,8 @@ describe("precedents", () => {
     expect(page).toContain("Waiting for you (10)");
     const form = new FormData();
     for (const [k, v] of Object.entries({ p_title: "Too hard or boring", p_when: "The player just doesn't like it.", p_why: "Taste.", p_decision: "dismiss", p_alone: "1" })) form.set(k, v);
-    await SELF.fetch(`${LOCAL}/admin/precedents/hard-or-boring/activate`, { method: "POST", body: form, redirect: "manual" });
-    expect(await env.DB.prepare("SELECT title, status, ai_alone FROM precedents WHERE id = 'hard-or-boring'").first()).toEqual({ title: "Too hard or boring", status: "active", ai_alone: 1 });
+    await SELF.fetch(`${LOCAL}/admin/precedents/precedent_hard-or-boring/activate`, { method: "POST", body: form, redirect: "manual" });
+    expect(await env.DB.prepare("SELECT title, status, ai_alone FROM precedents WHERE id = 'precedent_hard-or-boring'").first()).toEqual({ title: "Too hard or boring", status: "active", ai_alone: 1 });
   });
 });
 
@@ -343,7 +343,7 @@ describe("the report queue", () => {
     // Reports sent in the same millisecond can list each other in any order, so the stand-in goes by words, never by position.
     const sorter = ai((input) => {
       const [own, others] = input.text.split("<other_reports>") as [string, string];
-      return own.includes("nudity") ? { severity: "high", summary: "Says there's nudity." } : { summary: "Stuck on level 2.", same_as: others.match(/id ([a-z0-9]+), sent [^\n]*level 2/)?.[1] ?? "" };
+      return own.includes("nudity") ? { severity: "high", summary: "Says there's nudity." } : { summary: "Stuck on level 2.", same_as: others.match(/id (report_[a-z0-9]+), sent [^\n]*level 2/)?.[1] ?? "" };
     });
     await triageReports(testEnv, sorter.deps);
 

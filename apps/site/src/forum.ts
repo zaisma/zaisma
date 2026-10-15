@@ -13,6 +13,7 @@ import {
   TOPIC_KINDS,
   TOPIC_STATUSES,
   ApiError,
+  checkIdKind,
   gameById,
   iso,
   newId,
@@ -183,7 +184,11 @@ export async function forumRoute(request: Request, env: Env, path: string, calle
     const bytes = new Uint8Array(await request.arrayBuffer());
     return [await uploadDraftMedia(env, caller, bytes), 201];
   }
-  if (path === "/forum/people" && method === "GET") return [{ people: await forumPeople(env, url.searchParams.get("name_prefix") ?? "", url.searchParams.get("topic_id") || null, caller.accountId) }];
+  if (path === "/forum/people" && method === "GET") {
+    const topicId = url.searchParams.get("topic_id") || null;
+    checkIdKind("topic", topicId, "topic_id", "search_forum lists topics with their IDs; leave topic_id out for anyone in the forum.");
+    return [{ people: await forumPeople(env, url.searchParams.get("name_prefix") ?? "", topicId, caller.accountId) }];
+  }
   const mediaPath = path.match(/^\/forum\/[^/]+\/media\/([^/]+)$/);
   if (mediaPath && method === "GET") return serveMedia(env, caller, mediaPath[1]!);
   if (path === "/forum" && method === "POST") return [await createTopic(env, caller, await readJson(request, 72 * 1024 * 1024)), 201];
@@ -518,6 +523,7 @@ function canRead(topic: ForumTopic, viewer: Viewer): boolean {
 }
 
 async function readable(env: Env, viewer: Viewer, topicId: string): Promise<ForumTopic> {
+  checkIdKind("topic", topicId, "topic_id", "search_forum (GET /forum) lists topics with their IDs.");
   const topic = await topicById(env, topicId);
   if (!topic || !canRead(topic, viewer)) throw new ApiError("no_topic", { message: `There's no topic with the ID ${topicId.slice(0, 60)} you can see.`, field: "topic_id", fix: "search_forum (GET /forum) lists topics with their IDs; a public topic shows to others once its first post is checked." });
   return topic;
@@ -664,6 +670,7 @@ export async function createTopic(env: Env, caller: Caller, body: Record<string,
   }
   let knownIssue: ForumTopic | null = null;
   if (typeof body.known_issue_topic_id === "string" && body.known_issue_topic_id) {
+    checkIdKind("topic", body.known_issue_topic_id, "known_issue_topic_id", "search_forum with tab known (GET /forum?tab=known) lists the known issues with their IDs.");
     knownIssue = await topicById(env, body.known_issue_topic_id);
     if (!knownIssue?.known_issue_title || !knownIssue.is_shown) {
       throw new ApiError("no_known_issue", { message: `There's no known issue with the ID ${body.known_issue_topic_id.slice(0, 60)}.`, field: "known_issue_topic_id", fix: "search_forum with tab known (GET /forum?tab=known) lists the known issues with their IDs; leave it out for a message of your own." });
@@ -674,7 +681,7 @@ export async function createTopic(env: Env, caller: Caller, body: Record<string,
   if (!category && isPublic) throw new ApiError("no_category", { message: "A public topic needs its category.", field: "category", fix: `Give one of: ${FORUM_CATEGORIES.join(", ")} (other for anything else).` });
   const game = typeof body.game_slug === "string" && body.game_slug ? await ownGame(env, body.game_slug, caller, "game_slug") : null;
   const post = await readPost(env, caller, body);
-  const id = newId();
+  const id = newId("topic");
   const nowMs = Date.now();
   await env.DB.batch([
     env.DB.prepare(
@@ -721,6 +728,7 @@ export async function replyTo(env: Env, caller: Caller, topicId: string, body: R
   }
   let replyToPostId: string | null = null;
   if (typeof body.reply_to_post_id === "string" && body.reply_to_post_id) {
+    checkIdKind("post", body.reply_to_post_id, "reply_to_post_id", "get_topic lists the topic's posts with their IDs; leave reply_to_post_id out to reply to the topic.");
     const repliedTo = await env.DB.prepare("SELECT * FROM forum_posts WHERE id = ? AND topic_id = ?").bind(body.reply_to_post_id, topic.id).first<ForumPost>();
     if (!repliedTo || !canSeePost(topic, repliedTo, caller)) {
       throw new ApiError("no_post", { message: `There's no post with the ID ${body.reply_to_post_id.slice(0, 60)} you can see in this topic.`, field: "reply_to_post_id", fix: "get_topic lists the topic's posts with their IDs; leave reply_to_post_id out to reply to the topic." });
@@ -785,6 +793,7 @@ export async function stillHappening(env: Env, caller: Caller, topicId: string, 
 
 async function visiblePost(env: Env, caller: Caller, topicId: string, postId: string): Promise<ForumPost> {
   const topic = await readable(env, caller, topicId);
+  checkIdKind("post", postId, "post_id", "get_topic lists the topic's posts with their IDs.");
   const post = await env.DB.prepare("SELECT * FROM forum_posts WHERE id = ? AND topic_id = ?").bind(postId, topic.id).first<ForumPost>();
   if (!post || post.check_status !== "passed") {
     throw new ApiError("no_post", { message: `There's no post with the ID ${postId.slice(0, 60)} others can see in this topic.`, field: "post_id", fix: "get_topic lists the topic's posts with their IDs; posts still being checked can't be marked or reported yet." });
@@ -844,6 +853,7 @@ export async function markAnswer(env: Env, caller: Caller, topicId: string, post
   if (topic.account_id !== caller.accountId) throw new ApiError("not_yours", { message: "Only the developer who asked a question marks its answer.", field: "topic_id", fix: "Mark the reply helpful instead (mark_helpful)." });
   if (topic.kind !== "question") throw new ApiError("not_a_question", { message: `This topic is a ${topic.kind}, not a question, so it has no answer to mark.`, field: "topic_id", fix: "Reply to say what solved it; reopen or a reply keeps everyone posted." });
   if (postId) {
+    checkIdKind("post", postId, "answer_post_id", "get_topic lists the topic's posts with their IDs.");
     const post = await env.DB.prepare("SELECT * FROM forum_posts WHERE id = ? AND topic_id = ?").bind(postId, topic.id).first<ForumPost>();
     if (!post || post.check_status !== "passed") {
       throw new ApiError("no_post", { message: `There's no reply with the ID ${postId.slice(0, 60)} others can see in this topic.`, field: "answer_post_id", fix: "get_topic lists the topic's posts with their IDs; a reply still being checked can't be the answer yet." });

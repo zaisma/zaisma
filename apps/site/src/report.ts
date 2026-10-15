@@ -411,7 +411,7 @@ export async function pauseForReport(env: Env, game: Game, label: string): Promi
       env.DB.prepare("UPDATE versions SET scan_status = 'held', publish_when_approved_enabled = 1, report_held_at_ms = ? WHERE id = ?").bind(now, live.id),
       env.DB.prepare("UPDATE versions SET cleared_at_ms = ? WHERE id = ?").bind(now, before.id),
     ]);
-    await audit(env.DB, game.id, "report-paused-update", `Report: ${label}. Version ${live.id} held; players are back on version ${before.id}`);
+    await audit(env.DB, game.id, "report-paused-update", `Report: ${label}. ${live.id} held; players are back on ${before.id}`);
     return "update";
   }
   await setReviewStatus(env.DB, game.id, "held");

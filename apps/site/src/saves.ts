@@ -114,7 +114,7 @@ async function keepCopy(
   const reason = copy.reason ?? why?.(copies[0]?.at ?? null) ?? null;
   const data = reason ? await text() : null;
   if (!reason || data === null) return;
-  const full: SaveCopy = { ...copy, id: newId(), reason };
+  const full: SaveCopy = { ...copy, id: newId("save_copy"), reason };
   await env.SAVES.put(saveCopyKey(full.account_id, full.game_id, full.id), data, { httpMetadata: { contentType: "application/json" } });
   const dropped = await addSaveCopy(env.DB, full, copies);
   if (dropped.length) await env.SAVES.delete(dropped.map((c) => saveCopyKey(c.account_id, c.game_id, c.id)));

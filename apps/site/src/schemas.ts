@@ -1,4 +1,4 @@
-import { CONTROLS, DEVICES, PLAY_STYLES, ROOM_BROWSING, SCREENS, VISIBILITIES } from "@zaisma/core";
+import { CONTROLS, DEVICES, PLAY_STYLES, ROOM_BROWSING, SCREENS, VISIBILITIES, type IdKind } from "@zaisma/core";
 
 /**
  * The developer API's answers as JSON Schema: the MCP's output schemas, and what the tests check
@@ -19,6 +19,8 @@ export const url = (description?: string) => describe({ type: "string", format: 
 export const date = (description?: string) => describe({ type: "string", format: "date" }, description);
 /** A point in time: ISO 8601 in UTC, named <event>_at. */
 export const isoTime = (description?: string) => describe({ type: "string", format: "date-time" }, description);
+/** An ID of one kind: <kind>_<random> (docs/NAMING.md, IDs). */
+export const idOf = (kind: IdKind, description?: string) => describe({ type: "string", pattern: `^${kind}_[a-z0-9]+$` }, description);
 export const countOf = (description?: string) => describe({ type: "integer", minimum: 0 }, description);
 export const number = (description?: string) => describe({ type: "number", minimum: 0 }, description);
 export const yes = (description?: string) => describe({ type: "boolean" }, description);
@@ -85,7 +87,7 @@ export const FINDING = object({
 });
 
 export const VERSION = object({
-  id: text(),
+  id: idOf("version"),
   file_count: countOf(),
   size_bytes: countOf(),
   scan_status: choice({ scanning: "being scanned, usually under a minute", held: "waiting for a person at Zaisma", approved: "passed; it can be previewed and published", rejected: "can't be published; see findings" }),
@@ -99,7 +101,7 @@ export const VERSION = object({
 });
 
 export const IMAGE = object({
-  id: text(),
+  id: idOf("image"),
   kind: choice({ cover: "landscape cover", square: "square cover, shown on phones", screenshot: "a screenshot" }),
   review_status: choice({ pending: "only you see it until it's reviewed", approved: "shown to players", rejected: "not shown" }),
   width_px: countOf(),
@@ -110,7 +112,7 @@ export const IMAGE = object({
 });
 
 export const TESTER = object({
-  id: text(),
+  id: idOf("tester"),
   name: text("Who it's for."),
   link_url: url("The secret link to share."),
   created_at: isoTime(),
@@ -204,7 +206,7 @@ export const STATS = object({
       kind: choice({ crash: "a handler threw", stopped: "a call ran on too long" }),
       message: text("The error, with the file and line it came from."),
       occurrence_count: countOf(),
-      version_id: text(),
+      version_id: idOf("version"),
       first_at: isoTime(),
       last_at: isoTime(),
     }),
@@ -224,10 +226,10 @@ export const REPORTS = object({
   ),
   bug_reports: list(
     object({
-      id: text(),
+      id: idOf("report"),
       player_text: text("What the player wrote."),
       summary: nullable(text()),
-      version_id: nullable(text("The version they played.")),
+      version_id: nullable(idOf("version", "The version they played.")),
       reported_at: isoTime(),
     }),
   ),
@@ -238,7 +240,7 @@ export const HISTORY = object({
   events: list(
     object({
       description: text(),
-      version_id: nullable(text()),
+      version_id: nullable(idOf("version")),
       done_by: choice({ you: "the developer", zaisma: "Zaisma" }),
       happened_at: isoTime(),
     }),
@@ -269,7 +271,7 @@ const PERSON = object({
   is_you: yes(),
 });
 const TOPIC_FIELDS = {
-  id: text(),
+  id: idOf("topic"),
   kind: TOPIC_KIND,
   title: text(),
   category: nullable(text("Where in Zaisma it belongs, like rooms or mcp.")),
@@ -286,7 +288,7 @@ const TOPIC_FIELDS = {
   has_voted: yes(),
   affected_developer_count: nullable(countOf("For a known issue: the developers it affects, with their messages and votes; null otherwise.")),
   is_answered: yes(),
-  merged_into_topic_id: nullable(text("Your message's known issue, when Zaisma merged it into one.")),
+  merged_into_topic_id: nullable(idOf("topic", "Your message's known issue, when Zaisma merged it into one.")),
   is_unread: yes("Something new since you last opened it."),
   created_at: isoTime(),
   last_activity_at: isoTime(),
@@ -295,7 +297,7 @@ const TOPIC_FIELDS = {
 export const TOPIC_ROW = object(TOPIC_FIELDS);
 export const BRIEF_TOPIC = object(
   {
-    id: text(),
+    id: idOf("topic"),
     title: text(),
     kind: TOPIC_KIND,
     topic_status: TOPIC_STATUS,
@@ -316,8 +318,8 @@ export const TOPIC = object({
   workaround: nullable(text("A known issue's: what to do until it's fixed.")),
   roadmap_item: nullable(text("A known issue's roadmap item, as in docs/ROADMAP.md.")),
   game_slug: nullable(text("The game a message is about, for its developer only.")),
-  merged_into_topic: nullable(object({ id: text(), title: text(), topic_status: TOPIC_STATUS, workaround: nullable(text()) }, "The known issue your message is part of.")),
-  your_message_topic_id: nullable(text("On a known issue: your own private message about it.")),
+  merged_into_topic: nullable(object({ id: idOf("topic"), title: text(), topic_status: TOPIC_STATUS, workaround: nullable(text()) }, "The known issue your message is part of.")),
+  your_message_topic_id: nullable(idOf("topic", "On a known issue: your own private message about it.")),
   is_following: yes("What's new in it shows as unread in search_forum's yours tab."),
   has_flagged_misplaced: yes("You flagged it as in the wrong category, and Zaisma hasn't looked yet."),
   can_reply: yes(),
@@ -331,11 +333,11 @@ const DEBUG_CONTEXT = object(
   "What was attached for whoever fixes it; only its poster and Zaisma see it.",
 );
 export const POST = object({
-  id: text(),
+  id: idOf("post"),
   author: PERSON,
   kind: choice({ post: "a post", reopen: "its developer reopened the topic", status: "Zaisma changed where it stands" }),
   text_markdown: text(),
-  reply_to_post: nullable(object({ id: text(), author_name: text(), excerpt: text() }, "The post it answers, if it answers one.")),
+  reply_to_post: nullable(object({ id: idOf("post"), author_name: text(), excerpt: text() }, "The post it answers, if it answers one.")),
   is_answer: yes("The question's marked answer."),
   check_status: nullable(choice({ pending: "being checked: only you see it yet", passed: "others see it", held: "waiting for a person at Zaisma: only you see it yet" }, "null in a message to Zaisma.")),
   posted_via: choice(["mcp", "api", "cli", "dashboard", "admin"]),
@@ -343,7 +345,7 @@ export const POST = object({
   has_marked_helpful: yes(),
   has_reported: yes("You reported it, and Zaisma hasn't looked yet."),
   debug_context: nullable(DEBUG_CONTEXT),
-  media: list(object({ id: text(), image_url: url() }), "Its images."),
+  media: list(object({ id: idOf("media"), image_url: url() }), "Its images."),
   mentioned_names: list(text(), "The people it @mentions."),
   created_at: isoTime(),
 });

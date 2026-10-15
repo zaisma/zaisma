@@ -17,6 +17,7 @@ import { handleSaveHistory, handleSaves } from "./saves.ts";
 import { handleScanBatch, queueImageChecks } from "./scan.ts";
 import { triageReports } from "./triage.ts";
 import { sortMisplaced, sortTopics } from "./forum-sort.ts";
+import { moveFiles } from "./file-moves.ts";
 import { checkForumPosts } from "./forum-check.ts";
 import { handleForum } from "./forum-pages.ts";
 
@@ -91,7 +92,7 @@ export default {
 
   async scheduled(event, env): Promise<void> {
     // One failing job mustn't stop the others.
-    const jobs = await Promise.allSettled([publishDue(env), triageReports(env), sortTopics(env), sortMisplaced(env), checkForumPosts(env), ...(event.cron === DAILY ? [dailyCleanup(env), queueImageChecks(env)] : [])]);
+    const jobs = await Promise.allSettled([moveFiles(env), publishDue(env), triageReports(env), sortTopics(env), sortMisplaced(env), checkForumPosts(env), ...(event.cron === DAILY ? [dailyCleanup(env), queueImageChecks(env)] : [])]);
     for (const job of jobs) if (job.status === "rejected") console.error("scheduled job failed", job.reason);
   },
 } satisfies ExportedHandler<Env, ScanJob>;

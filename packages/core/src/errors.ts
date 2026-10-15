@@ -19,6 +19,7 @@ export const ERROR_CODES = {
   json_too_big: { httpStatus: 413, meaning: "The JSON body is over the call's size limit." },
   unknown_field: { httpStatus: 400, meaning: "A field, argument or query parameter the call doesn't take." },
   missing_field: { httpStatus: 400, meaning: "A field the call needs wasn't sent." },
+  wrong_id_kind: { httpStatus: 400, meaning: "An ID of another kind was sent, like an image ID as version_id." },
   internal_error: { httpStatus: 500, meaning: "Something broke on Zaisma's side." },
 
   // Games

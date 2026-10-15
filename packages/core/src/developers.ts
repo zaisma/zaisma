@@ -1,4 +1,4 @@
-import { newId, sha256Hex } from "./ids.ts";
+import { newRandomPart, sha256Hex } from "./ids.ts";
 import { MULTIPLAYER_MODES, ROOM_BROWSING, type Game, type RoomBrowsing, type Visibility } from "./types.ts";
 
 /**
@@ -27,7 +27,7 @@ function b64url(bytes: Uint8Array): string {
 
 /** Make a key. The full key is returned once; we keep only a hash of its secret part. */
 export async function createApiKey(db: D1Database, accountId: string, name: string): Promise<{ key: ApiKey; token: string }> {
-  const id = newId();
+  const id = newRandomPart();
   const secret = b64url(crypto.getRandomValues(new Uint8Array(32)));
   const key: ApiKey = { id, account_id: accountId, name, created_at: now(), last_used_at: null };
   await db

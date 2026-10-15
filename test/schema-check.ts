@@ -2,7 +2,7 @@
  * Checks for docs/NAMING.md: that schemas follow the naming rules, and that answers match their
  * schemas exactly. A small JSON Schema reader, only the parts our schemas use, so no dependency.
  */
-import { ERROR_CODES, type ErrorAnswer } from "@zaisma/core";
+import { ERROR_CODES, ID_KINDS, type ErrorAnswer } from "@zaisma/core";
 import { ERROR } from "../apps/site/src/schemas.ts";
 
 type Schema = Record<string, unknown>;
@@ -21,6 +21,8 @@ const VERBS = new Set(["confirm", "reopen", "publish_when_approved", "undo"]);
 const IRREGULAR_PLURALS = new Set(["people", "media"]);
 /** Formats a list of values can be sent in, after the plural: images_base64 (docs/NAMING.md). */
 const FORMATS = new Set(["base64", "markdown"]);
+/** A pattern that says an ID's kind (docs/NAMING.md, IDs). */
+const ID_PATTERN = new RegExp(`^\\^(${ID_KINDS.join("|")})_`);
 /** Objects whose keys are the caller's own, not ours: next steps' arguments. */
 const OPEN_OBJECTS = new Set(["arguments"]);
 
@@ -73,6 +75,7 @@ export function namingProblems(schema: Schema, where: string, input: boolean): s
     const unitSuffix = tokens.length > 1 && UNITS.includes(last);
     if (!types.includes("array") && PLURALS.has(last) && !unitSuffix) say("a plural names a list; a number of things is <thing>_count");
     if ((name === "id" || name.endsWith("_id")) && !types.includes("string")) say("an ID is a string");
+    if ((name === "id" || name.endsWith("_id")) && !(typeof s.pattern === "string" && ID_PATTERN.test(s.pattern))) say("an ID says its kind: give it a pattern like ^version_");
     walk(s, path);
   };
   walk(schema, where);
@@ -96,6 +99,7 @@ export function schemaProblems(schema: Schema, value: unknown, path = "answer"):
     if (schema.format === "date-time" && !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/.test(value)) out.push(`${path}: ${value} isn't an ISO time in UTC`);
     if (schema.format === "date" && !/^\d{4}-\d{2}-\d{2}$/.test(value)) out.push(`${path}: ${value} isn't YYYY-MM-DD`);
     if (schema.format === "uri" && !/^https?:\/\//.test(value)) out.push(`${path}: ${value} isn't a link`);
+    if (typeof schema.pattern === "string" && !new RegExp(schema.pattern).test(value)) out.push(`${path}: ${value} doesn't match ${schema.pattern}`);
   }
   if (typeof value === "number" && typeof schema.minimum === "number" && value < schema.minimum) out.push(`${path}: below ${schema.minimum}`);
   if (Array.isArray(value) && schema.items) value.forEach((v, i) => out.push(...schemaProblems(schema.items as Schema, v, `${path}[${i}]`)));

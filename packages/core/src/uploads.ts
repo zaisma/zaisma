@@ -29,9 +29,9 @@ export interface UploadFile {
   size_bytes: number;
 }
 
-/** A version's files, stored as JSON. owner is set for big files sent in parts, which only that owner's versions can use. */
+/** A version's files, stored as JSON. owner_id is set for big files sent in parts, which only that owner's versions can use. */
 export interface Manifest {
-  files: Record<string, { sha256: string; owner?: string }>;
+  files: Record<string, { sha256: string; owner_id?: string }>;
 }
 
 export const blobKey = (sha256: string) => `blobs/${sha256}`;
@@ -166,7 +166,7 @@ export async function blobSizes(db: D1Database, hashes: string[]): Promise<Map<s
 
 export function toManifest(files: UploadFile[], found: Map<string, "shared" | "owned">, ownerId: string): Manifest {
   const manifest: Manifest = { files: {} };
-  for (const file of files) manifest.files[file.path] = { sha256: file.sha256, ...(found.get(file.sha256) === "owned" ? { owner: ownerId } : {}) };
+  for (const file of files) manifest.files[file.path] = { sha256: file.sha256, ...(found.get(file.sha256) === "owned" ? { owner_id: ownerId } : {}) };
   return manifest;
 }
 
@@ -174,7 +174,7 @@ export function toManifest(files: UploadFile[], found: Map<string, "shared" | "o
 export function fileKey(version: Pick<Version, "kind" | "r2_prefix">, manifest: Manifest | null, path: string): string | null {
   if (version.kind !== "files") return `${version.r2_prefix}/${path}`;
   const file = manifest?.files[path];
-  return file ? (file.owner ? ownedBlobKey(file.owner, file.sha256) : blobKey(file.sha256)) : null;
+  return file ? (file.owner_id ? ownedBlobKey(file.owner_id, file.sha256) : blobKey(file.sha256)) : null;
 }
 
 function megabytes(sizeBytes: number): string {

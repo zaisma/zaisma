@@ -57,6 +57,8 @@ import {
   FREE_PLAYER_HOURS,
   monthPlayerSeconds,
   ApiError,
+  checkIdKind,
+  isIdOf,
   secondsUntilDayPasses,
   type ErrorCode,
 } from "@zaisma/core";
@@ -369,7 +371,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     // If matching fails, the picture waits for a person as usual.
     const matched = await imageMatcher(env).check([{ path: `${kind} image`, type: sniffed.type, id: "upload", body: async () => bytes }]);
     if (matched.findings.some((finding) => finding.rule === KNOWN_IMAGE_RULE)) {
-      const id = newId();
+      const id = newId("image");
       await env.GAMES.put(heldImageKey(game.id, id), bytes, { httpMetadata: { contentType: sniffed.type } });
       await audit(env.DB, game.id, "image-held", `A ${kind} upload matched known abuse material. Kept at ${heldImageKey(game.id, id)}; never shown.`, caller.actor);
       await sendAlert(env, `URGENT: known abuse image uploaded to ${game.slug}`, `${KNOWN_IMAGE_ALERT}\n\nA ${kind} upload, kept at ${heldImageKey(game.id, id)} in the games bucket.\n\nGame: ${env.SITE_ORIGIN}/admin/games/${game.id}`);
@@ -387,7 +389,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
         await deleteImageRow(env.DB, old.id);
       }
     }
-    const id = newId();
+    const id = newId("image");
     await env.GAMES.put(imageKey({ game_id: game.id, id }), bytes, { httpMetadata: { contentType: sniffed.type } });
     const image = await addImage(env.DB, { id, game_id: game.id, kind, content_type: sniffed.type, width_px: widthPx, height_px: heightPx, size_bytes: bytes.byteLength });
     await audit(env.DB, game.id, "image-added", `${kind} ${id}`, caller.actor);
@@ -395,8 +397,10 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
   }
 
   if (isImages && gamePath[3] && method === "DELETE") {
+    const imageFix = "get_game lists the game's images with their IDs.";
+    checkIdKind("image", gamePath[3], "image_id", imageFix);
     const image = await imageById(env.DB, gamePath[3]);
-    if (!image || image.game_id !== game.id) throw new ApiError("no_image", { message: `${game.slug} has no image with the ID ${gamePath[3]}.`, field: "image_id", fix: "get_game lists the game's images with their IDs." });
+    if (!image || image.game_id !== game.id) throw new ApiError("no_image", { message: `${game.slug} has no image with the ID ${gamePath[3]}.`, field: "image_id", fix: imageFix });
     await env.GAMES.delete(imageKey(image));
     await deleteImageRow(env.DB, image.id);
     await audit(env.DB, game.id, "image-removed", `${image.kind} ${image.id}`, caller.actor);
@@ -576,7 +580,7 @@ async function versionRoute(request: Request, env: Env, game: Game, what: string
         retryAfterSec: secondsUntilDayPasses(today?.oldest_at_ms),
       });
     }
-    const versionId = newId();
+    const versionId = newId("version");
     await env.GAMES.put(manifestKey(versionId), JSON.stringify(toManifest(files, found, caller.ownerId)), { httpMetadata: { contentType: "application/json" } });
     await createVersion(env.DB, {
       id: versionId,
@@ -588,14 +592,16 @@ async function versionRoute(request: Request, env: Env, game: Game, what: string
       patchNotes,
       publishWhenApprovedEnabled: body.publish_when_approved === true,
     });
-    await audit(env.DB, game.id, "upload", `Version ${versionId}, ${files.length} files`, caller.actor);
+    await audit(env.DB, game.id, "upload", `${versionId}, ${files.length} files`, caller.actor);
     await env.SCAN_QUEUE.send({ versionId });
     const reason = body.publish_when_approved === true ? "It goes live by itself once it passes; the scan usually takes under a minute." : "The scan usually takes under a minute; once it passes, show the developer its preview_url.";
     return [{ version: versionJson(env, game, (await versionById(env.DB, versionId))!), next_steps: [{ tool: "get_version", arguments: { slug: game.slug, version_id: versionId }, after_sec: 30, reason }] satisfies NextStep[] }, 201];
   }
 
+  const versionFix = "get_game lists the game's versions with their IDs, newest first.";
+  checkIdKind("version", id, "version_id", versionFix);
   const version = id ? await versionById(env.DB, id) : null;
-  if (id && (!version || version.game_id !== game.id)) throw new ApiError("no_version", { message: `${game.slug} has no version with the ID ${id}.`, field: "version_id", fix: "get_game lists the game's versions with their IDs, newest first." });
+  if (id && (!version || version.game_id !== game.id)) throw new ApiError("no_version", { message: `${game.slug} has no version with the ID ${id}.`, field: "version_id", fix: versionFix });
 
   if (version && !isPublish && method === "GET") return [{ version: versionJson(env, game, version) }];
 
@@ -614,14 +620,14 @@ async function versionRoute(request: Request, env: Env, game: Game, what: string
     }
     if (version.scan_status !== "approved" && version.scan_status !== "scanning") throw notApproved(game, version);
     await env.DB.prepare("UPDATE versions SET scheduled_publish_at_ms = ? WHERE id = ?").bind(scheduledAtMs, version.id).run();
-    await audit(env.DB, game.id, "publish-scheduled", `Version ${version.id} at ${iso(scheduledAtMs)}`, caller.actor);
+    await audit(env.DB, game.id, "publish-scheduled", `${version.id} at ${iso(scheduledAtMs)}`, caller.actor);
     const nextSteps: NextStep[] =
       version.scan_status === "scanning" ? [{ tool: "get_version", arguments: { slug: game.slug, version_id: version.id }, after_sec: 30, reason: "It goes live at scheduled_publish_at only if it has passed the scan by then." }] : [];
     return [{ game: gameJson(env, game), version: versionJson(env, game, (await versionById(env.DB, version.id))!), next_steps: nextSteps }];
   }
   if (version && isPublish && method === "DELETE") {
     await env.DB.prepare("UPDATE versions SET scheduled_publish_at_ms = NULL WHERE id = ?").bind(version.id).run();
-    await audit(env.DB, game.id, "publish-unscheduled", `Version ${version.id}`, caller.actor);
+    await audit(env.DB, game.id, "publish-unscheduled", version.id, caller.actor);
     return [{ game: gameJson(env, game), version: versionJson(env, game, (await versionById(env.DB, version.id))!), next_steps: [] satisfies NextStep[] }];
   }
 
@@ -637,7 +643,7 @@ async function versionRoute(request: Request, env: Env, game: Game, what: string
     }
     if (version.scan_status !== "approved") throw notApproved(game, version);
     await publishVersion(env.DB, version);
-    await audit(env.DB, game.id, version.published_at_ms ? "rolled-back" : "published", `Version ${version.id}`, caller.actor);
+    await audit(env.DB, game.id, version.published_at_ms ? "rolled-back" : "published", version.id, caller.actor);
     await pruneVersions(env, game.id);
     const published = (await gameBySlug(env.DB, game.slug))!;
     const isHidden = published.visibility === "draft" || published.visibility === "private";
@@ -838,7 +844,7 @@ async function historyFor(env: Env, game: Game, caller: Caller) {
   for (const entry of results) {
     const description = HISTORY[entry.action];
     if (!description) continue;
-    events.push({ description, version_id: entry.reason.match(/[Vv]ersion ([a-z0-9]+)/)?.[1] ?? null, done_by: entry.actor === caller.actor ? "you" : "zaisma", happened_at: iso(entry.happened_at_ms) });
+    events.push({ description, version_id: entry.reason.match(/\bversion_[a-z0-9]+/)?.[0] ?? null, done_by: entry.actor === caller.actor ? "you" : "zaisma", happened_at: iso(entry.happened_at_ms) });
   }
   return { events };
 }
@@ -875,9 +881,11 @@ async function testerRoute(request: Request, env: Env, game: Game, id: string | 
     return [{ tester: testerJson(env, link), next_steps: [] satisfies NextStep[] }, 201];
   }
   if (id && request.method === "DELETE") {
+    const testerFix = "get_game lists the tester links that are on, with their IDs.";
+    checkIdKind("tester", id, "tester_id", testerFix);
     const link = (await testerLinks(env.DB, game.id)).find((candidate) => candidate.id === id);
     if (!link || !(await revokeTesterLink(env.DB, game.id, id))) {
-      throw new ApiError("no_tester_link", { message: `${game.slug} has no tester link on with the ID ${id}.`, field: "tester_id", fix: "get_game lists the tester links that are on, with their IDs." });
+      throw new ApiError("no_tester_link", { message: `${game.slug} has no tester link on with the ID ${id}.`, field: "tester_id", fix: testerFix });
     }
     await audit(env.DB, game.id, "tester-link-removed", link.name, caller.actor);
     return [{ removed_tester_id: link.id, next_steps: [] satisfies NextStep[] }];
@@ -995,7 +1003,7 @@ function imageJson(env: Env, image: GameImage) {
  */
 async function serveImage(request: Request, env: Env, id: string): Promise<Response> {
   const notFound = () => new Response("Not found", { status: 404, headers: { "Cache-Control": "no-store" } });
-  if (!/^[a-z0-9]{1,40}$/.test(id) || (request.method !== "GET" && request.method !== "HEAD")) return notFound();
+  if (!isIdOf("image", id) || (request.method !== "GET" && request.method !== "HEAD")) return notFound();
   const image = await imageById(env.DB, id);
   if (!image || image.review_status === "rejected") return notFound();
   const game = await env.DB.prepare("SELECT review_status, owner_id FROM games WHERE id = ?").bind(image.game_id).first<{ review_status: string; owner_id: string | null }>();

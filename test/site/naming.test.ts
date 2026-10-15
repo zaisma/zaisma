@@ -31,6 +31,8 @@ describe("the naming check itself", () => {
     expect(answers({ live: { type: "boolean" } }).join()).toContain("yes/no");
     expect(answers({ next: { type: "array", items: { type: "string" } } }).join()).toContain("plural");
     expect(answers({ data: { type: "string" } }).join()).toContain("doesn't say what it is");
+    expect(answers({ version_id: { type: "string" } }).join()).toContain("an ID says its kind");
+    expect(inputs({ topic_id: { type: "string", pattern: "^[a-z0-9]+$" } }).join()).toContain("an ID says its kind");
     expect(inputs({ context: { type: "object" } }).join()).toContain("free-form");
     expect(answers({ game: { type: "object", properties: { slug: { type: "string" } }, additionalProperties: false } }).join()).toContain("every key every time");
   });
@@ -46,7 +48,7 @@ describe("the naming check itself", () => {
         date: { type: "string", format: "date" },
         is_live: { type: "boolean" },
         cloud_saves_enabled: { type: "boolean" },
-        version_id: { type: "string" },
+        version_id: { type: "string", pattern: "^version_[a-z0-9]+$" },
         files: { type: "array", items: { type: "string" } },
       }),
     ).toEqual([]);
@@ -63,5 +65,8 @@ describe("the naming check itself", () => {
     expect(schemaProblems(schema, { at: 1792012345678, n: 2 })).toEqual(["answer.at: is integer, expected string"]);
     expect(schemaProblems(schema, { at: "2026-10-14T09:30:00.000Z" })).toEqual(["answer.n: missing"]);
     expect(schemaProblems(schema, { at: "2026-10-14T09:30:00.000Z", n: 2, extra: true })).toEqual(["answer.extra: not in the schema"]);
+    const withId = { type: "object", properties: { id: { type: "string", pattern: "^version_[a-z0-9]+$" } }, required: ["id"], additionalProperties: false };
+    expect(schemaProblems(withId, { id: "version_8f3k2m9q1x7c4v6b0n5z" })).toEqual([]);
+    expect(schemaProblems(withId, { id: "8f3k2m9q1x7c4v6b0n5z" })).toEqual(["answer.id: 8f3k2m9q1x7c4v6b0n5z doesn't match ^version_[a-z0-9]+$"]);
   });
 });

@@ -230,6 +230,18 @@ describe("publishing a game through the MCP", () => {
     // A slug or ID of the wrong form says which game or version it didn't find, not that the path is unknown.
     expect(await tool("get_game", { slug: "Hop Game" })).toMatchObject({ code: "no_game" });
     expect(await tool("get_version", { slug: "hop", version_id: "version_8f3k2m" })).toMatchObject({ code: "no_version", field: "version_id" });
+    // IDs say their kind, so one of another kind says what it is and where the right one comes from.
+    const { version } = await tool("upload_files", { slug: "hop", files: [{ path: "index.html", content_text: "<p>hi</p>" }] });
+    expect(version.id).toMatch(/^version_[a-z0-9]{20}$/);
+    expect(await tool("get_version", { slug: "hop", version_id: "image_8f3k2m9q1x7c4v6b0n5z" })).toMatchObject({
+      code: "wrong_id_kind",
+      field: "version_id",
+      message: "That's an image ID; version_id takes a version ID.",
+      fix: expect.stringContaining("get_game"),
+    });
+    expect(await tool("publish_version", { slug: "hop", version_id: "tester_8f3k2m9q1x7c4v6b0n5z" })).toMatchObject({ code: "wrong_id_kind", field: "version_id" });
+    expect(await tool("remove_image", { slug: "hop", image_id: version.id })).toMatchObject({ code: "wrong_id_kind", field: "image_id", message: "That's a version ID; image_id takes an image ID." });
+    expect(await tool("remove_tester_link", { slug: "hop", tester_id: version.id })).toMatchObject({ code: "wrong_id_kind", field: "tester_id" });
   });
 });
 
@@ -276,11 +288,11 @@ describe("reports, stats and history", () => {
     await env.DB.prepare("UPDATE games SET multiplayer_mode = 'own' WHERE id = ?").bind(game.id).run();
     const today = new Date().toISOString().slice(0, 10);
     await env.DB.prepare("INSERT INTO room_usage (game_id, day, rooms, player_seconds, messages, server_calls, server_crashes, server_stops, server_broken_rooms) VALUES (?, ?, 2, 600, 42, 900, 5, 2, 1)").bind(game.id, today).run();
-    await env.DB.prepare("INSERT INTO game_server_errors (game_id, version_id, kind, message, count, first_at, last_at) VALUES (?, 'v1', 'crash', 'oops (zaisma-server.js:3:9)', 5, 1792000000000, 1792003600000)").bind(game.id).run();
+    await env.DB.prepare("INSERT INTO game_server_errors (game_id, version_id, kind, message, count, first_at, last_at) VALUES (?, 'version_8f3k2m9q1x7c4v6b0n5z', 'crash', 'oops (zaisma-server.js:3:9)', 5, 1792000000000, 1792003600000)").bind(game.id).run();
     const stats = await tool("get_stats", { slug: "hop", period_duration_days: 7 });
     expect(stats.multiplayer_days[0].game_server).toEqual({ call_count: 900, crash_count: 5, stopped_count: 2, ended_match_count: 1 });
     expect(stats.game_server_errors).toEqual([
-      { kind: "crash", message: "oops (zaisma-server.js:3:9)", occurrence_count: 5, version_id: "v1", first_at: "2026-10-14T17:46:40.000Z", last_at: "2026-10-14T18:46:40.000Z" },
+      { kind: "crash", message: "oops (zaisma-server.js:3:9)", occurrence_count: 5, version_id: "version_8f3k2m9q1x7c4v6b0n5z", first_at: "2026-10-14T17:46:40.000Z", last_at: "2026-10-14T18:46:40.000Z" },
     ]);
   });
 

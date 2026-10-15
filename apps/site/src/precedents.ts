@@ -26,7 +26,7 @@ function fields(form: FormData, decision: PrecedentDecision) {
 export async function savePrecedent(env: Env, form: FormData, decision: PrecedentDecision, actor: string): Promise<string | null> {
   const p = fields(form, decision);
   if (!p.title || !p.applies_when) return null;
-  const id = newId();
+  const id = newId("precedent");
   const now = Date.now();
   const replaces = text(form.get("p_replaces"), 40) || null;
   const group = text(form.get("group"), 40);
@@ -48,7 +48,7 @@ export async function precedentAction(env: Env, path: string, form: FormData, ac
     if (decision in PRECEDENT_DECISIONS) await savePrecedent(env, form, decision, actor);
     return redirect();
   }
-  const m = path.match(/^\/admin\/precedents\/([a-z0-9-]+)\/(activate|change|retire)$/);
+  const m = path.match(/^\/admin\/precedents\/([a-z0-9_-]+)\/(activate|change|retire)$/);
   if (!m) return null;
   const precedent = await env.DB.prepare("SELECT * FROM precedents WHERE id = ?").bind(m[1]!).first<Precedent>();
   if (!precedent) return new Response("Not found", { status: 404 });

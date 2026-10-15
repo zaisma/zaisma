@@ -795,7 +795,7 @@ describe("the dashboard", () => {
     expect(await refused.text()).toContain("Kept text");
 
     const sent = await b.go("/forum/messages/new", { kind: "bug", title: "Upload stalls at 99%", text_markdown: "My 300 MB build stops near the end.", game_slug: "sky-hopper", category: "publishing" });
-    const id = sent.headers.get("location")!.match(/^\/forum\/([a-z0-9]+)\?done=posted-private$/)![1]!;
+    const id = sent.headers.get("location")!.match(/^\/forum\/(topic_[a-z0-9]+)\?done=posted-private$/)![1]!;
     expect(await env.DB.prepare("SELECT author_kind, posted_via, check_status FROM forum_posts WHERE topic_id = ?").bind(id).first()).toEqual({ author_kind: "developer", posted_via: "dashboard", check_status: null });
 
     // Their AI adds to it through the API, with a screenshot; the page names them, marks the AI's post, and shows it.
@@ -827,7 +827,7 @@ describe("the dashboard", () => {
     await decideTopic(env, id, { topicStatus: "fixed" });
     expect(await (await b.go(`/forum/${id}`)).text()).toContain('name="reopen" value="1"');
     const reopened = await b.go(`/forum/${id}/reply`, { text_markdown: "Back again.", reopen: "1" });
-    expect(reopened.headers.get("location")).toMatch(new RegExp(`^/forum/${id}\\?done=reopened#p-[a-z0-9]+$`));
+    expect(reopened.headers.get("location")).toMatch(new RegExp(`^/forum/${id}\\?done=reopened#p-post_[a-z0-9]+$`));
     expect((await env.DB.prepare("SELECT topic_status FROM forum_topics WHERE id = ?").bind(id).first<{ topic_status: string }>())!.topic_status).toBe("new");
 
     // Someone else's private topic looks like no topic, and so do its pictures; the old addresses lead here.
@@ -845,7 +845,7 @@ describe("the dashboard", () => {
     const first = new Browser();
     await join(first);
     const sent = await first.go("/forum/new", { kind: "question", title: "How do rooms pick a region?", text_markdown: "Players in Europe get a US room.", category: "rooms", tags: "mobile" });
-    const id = sent.headers.get("location")!.match(/^\/forum\/([a-z0-9]+)\?done=checking$/)![1]!;
+    const id = sent.headers.get("location")!.match(/^\/forum\/(topic_[a-z0-9]+)\?done=checking$/)![1]!;
 
     // Until it's checked only its developer sees it.
     const reader = new Browser();

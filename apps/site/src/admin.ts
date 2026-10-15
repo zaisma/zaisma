@@ -93,11 +93,11 @@ export async function handleAdmin(request: Request, env: Env, path: string): Pro
   if (path === "/admin/precedents") return page(env, "Precedents", await precedentsPage(env));
   const feedback = path === "/admin/feedback" || path.startsWith("/admin/feedback/") ? await adminFeedbackPage(env, path, new URL(request.url)) : null;
   if (feedback) return feedback;
-  const m = path.match(/^\/admin\/games\/([a-z0-9]+)$/);
+  const m = path.match(/^\/admin\/games\/([a-z0-9_]+)$/);
   if (m) return gameDetail(env, m[1]!);
-  const img = path.match(/^\/admin\/images\/([a-z0-9]+)$/);
+  const img = path.match(/^\/admin\/images\/([a-z0-9_]+)$/);
   if (img) return adminImage(env, img[1]!);
-  const pic = path.match(/^\/admin\/reports\/([a-z0-9]+)\/picture$/);
+  const pic = path.match(/^\/admin\/reports\/([a-z0-9_]+)\/picture$/);
   if (pic) return reportPicture(env, pic[1]!);
   return new Response("Not found", { status: 404 });
 }
@@ -134,7 +134,7 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
   const decided = precedentDecision(path);
   if (decided && form.get("precedent") === "1") await savePrecedent(env, form, decided, actor);
 
-  let m = path.match(/^\/admin\/versions\/([a-z0-9]+)\/(approve|reject)$/);
+  let m = path.match(/^\/admin\/versions\/([a-z0-9_]+)\/(approve|reject)$/);
   if (m) {
     const version = await versionById(env.DB, m[1]!);
     if (!version) return new Response("Not found", { status: 404 });
@@ -144,18 +144,18 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
       await publishVersion(env.DB, version);
       await clearVersion(env.DB, version.id);
       await closeReports(env.DB, version.game_id, "dismissed");
-      await audit(env.DB, version.game_id, "report-cleared", reason || `Version ${version.id} is back`, actor);
+      await audit(env.DB, version.game_id, "report-cleared", reason || `${version.id} is back`, actor);
     } else if (m[2] === "approve") {
       await passVersion(env, version, reason || "Approved by a person", actor);
     } else {
       await saveScan(env.DB, version.id, "rejected", null);
       if (version.report_held_at_ms) await closeReports(env.DB, version.game_id, "actioned");
-      await audit(env.DB, version.game_id, "rejected", reason || `Version ${version.id}`, actor);
+      await audit(env.DB, version.game_id, "rejected", reason || version.id, actor);
     }
     return back(`/admin/games/${version.game_id}`);
   }
 
-  m = path.match(/^\/admin\/images\/([a-z0-9]+)\/(approve|reject)$/);
+  m = path.match(/^\/admin\/images\/([a-z0-9_]+)\/(approve|reject)$/);
   if (m) {
     const img = await imageById(env.DB, m[1]!);
     if (!img) return new Response("Not found", { status: 404 });
@@ -165,7 +165,7 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     return redirect(String(form.get("back") ?? "") === "game" ? `/admin/games/${img.game_id}` : "/admin");
   }
 
-  m = path.match(/^\/admin\/games\/([a-z0-9]+)\/details\/(approve|reject)$/);
+  m = path.match(/^\/admin\/games\/([a-z0-9_]+)\/details\/(approve|reject)$/);
   if (m) {
     const game = await gameById(env.DB, m[1]!);
     if (!game) return new Response("Not found", { status: 404 });
@@ -174,7 +174,7 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     return redirect("/admin");
   }
 
-  m = path.match(/^\/admin\/games\/([a-z0-9]+)\/plays\/(\d{4}-\d{2}-\d{2})\/clear$/);
+  m = path.match(/^\/admin\/games\/([a-z0-9_]+)\/plays\/(\d{4}-\d{2}-\d{2})\/clear$/);
   if (m) {
     const game = await gameById(env.DB, m[1]!);
     if (!game) return new Response("Not found", { status: 404 });
@@ -183,7 +183,7 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     return redirect("/admin#plays");
   }
 
-  m = path.match(/^\/admin\/games\/([a-z0-9]+)\/shelves$/);
+  m = path.match(/^\/admin\/games\/([a-z0-9_]+)\/shelves$/);
   if (m) {
     const game = await gameById(env.DB, m[1]!);
     if (!game) return new Response("Not found", { status: 404 });
@@ -193,7 +193,7 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     return redirect(form.get("back") === "game" ? `/admin/games/${game.id}` : "/admin#plays");
   }
 
-  m = path.match(/^\/admin\/games\/([a-z0-9]+)\/multiplayer$/);
+  m = path.match(/^\/admin\/games\/([a-z0-9_]+)\/multiplayer$/);
   if (m) {
     const game = await gameById(env.DB, m[1]!);
     if (!game) return new Response("Not found", { status: 404 });
@@ -211,7 +211,7 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     return redirect(`/admin/games/${game.id}`);
   }
 
-  m = path.match(/^\/admin\/games\/([a-z0-9]+)\/saves$/);
+  m = path.match(/^\/admin\/games\/([a-z0-9_]+)\/saves$/);
   if (m) {
     const game = await gameById(env.DB, m[1]!);
     if (!game) return new Response("Not found", { status: 404 });
@@ -221,7 +221,7 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     return redirect(`/admin/games/${game.id}`);
   }
 
-  m = path.match(/^\/admin\/games\/([a-z0-9]+)\/owner$/);
+  m = path.match(/^\/admin\/games\/([a-z0-9_]+)\/owner$/);
   if (m) {
     const game = await gameById(env.DB, m[1]!);
     if (!game) return new Response("Not found", { status: 404 });
@@ -239,7 +239,7 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     return redirect(`/admin/games/${game.id}`);
   }
 
-  m = path.match(/^\/admin\/games\/([a-z0-9]+)\/(takedown|restore|dismiss)$/);
+  m = path.match(/^\/admin\/games\/([a-z0-9_]+)\/(takedown|restore|dismiss)$/);
   if (m) {
     const game = await gameById(env.DB, m[1]!);
     if (!game) return new Response("Not found", { status: 404 });
@@ -265,7 +265,7 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
   }
 
   // One group of reports about the same problem, from the queue.
-  m = path.match(/^\/admin\/report-groups\/([a-z0-9]+)\/(dismiss|bug|hide-name)$/);
+  m = path.match(/^\/admin\/report-groups\/([a-z0-9_]+)\/(dismiss|bug|hide-name)$/);
   if (m) {
     const { results: group } = await env.DB.prepare("SELECT * FROM reports WHERE (id = ? OR group_id = ?) AND status = 'open'").bind(m[1]!, m[1]!).all<Report>();
     if (!group.length) return back("/admin/reports");
@@ -649,9 +649,9 @@ function groupCard(g: ReportGroup, pausedUpdate: string | undefined): Raw {
 
 /** What a decision in the queue means as a precedent: putting a game back means the report was wrong. */
 function precedentDecision(path: string): PrecedentDecision | null {
-  if (/^\/admin\/(report-groups\/[a-z0-9]+\/dismiss|games\/[a-z0-9]+\/restore|versions\/[a-z0-9]+\/approve)$/.test(path)) return "dismiss";
-  if (/^\/admin\/report-groups\/[a-z0-9]+\/bug$/.test(path)) return "bug";
-  if (/^\/admin\/(games\/[a-z0-9]+\/takedown|versions\/[a-z0-9]+\/reject)$/.test(path)) return "take_down";
+  if (/^\/admin\/(report-groups\/[a-z0-9_]+\/dismiss|games\/[a-z0-9_]+\/restore|versions\/[a-z0-9_]+\/approve)$/.test(path)) return "dismiss";
+  if (/^\/admin\/report-groups\/[a-z0-9_]+\/bug$/.test(path)) return "bug";
+  if (/^\/admin\/(games\/[a-z0-9_]+\/takedown|versions\/[a-z0-9_]+\/reject)$/.test(path)) return "take_down";
   return null;
 }
 

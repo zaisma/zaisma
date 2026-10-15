@@ -1,4 +1,4 @@
-import { gameBySlug, issueRoomKey, newId, testerLinkByToken, type Game } from "@zaisma/core";
+import { gameBySlug, isIdOf, issueRoomKey, newId, testerLinkByToken, type Game } from "@zaisma/core";
 import { checkAccessToken, readCookie } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { playable } from "./home.ts";
@@ -29,7 +29,6 @@ import { playable } from "./home.ts";
 
 const DAY = 86_400_000;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
-const TICKET = /^[a-z0-9]{10,40}$/;
 /** The page reports time at least every 5 minutes, so anything past this isn't real. */
 const MAX_SECONDS = 600;
 /** How long after their first play a player coming back is counted. */
@@ -68,7 +67,7 @@ export async function handlePlays(request: Request, env: Env, path: string): Pro
   if (!game || !playable(game)) return new Response(null, { status: 404 });
 
   if (typeof body.ticket === "string") {
-    if (!TICKET.test(body.ticket)) return new Response(null, { status: 400 });
+    if (!isIdOf("play_ticket", body.ticket)) return new Response(null, { status: 400 });
     if (body.counted === true) await countTicket(env.DB, game.id, body.ticket, network(request));
     else await addTime(env.DB, game.id, body.ticket, body.seconds);
     return ok();
@@ -119,7 +118,7 @@ export async function countStart(db: D1Database, gameId: string, f: StartFacts, 
 
 /** A checked play's ticket, with what it will count once it's been on screen for a minute. */
 export async function issueTicket(db: D1Database, gameId: string, f: StartFacts, now = Date.now()): Promise<string> {
-  const id = newId();
+  const id = newId("play_ticket");
   const day = today(now);
   await db
     .prepare("INSERT INTO play_tickets (id, game_id, issued_at, day, player, new_player, first_day) VALUES (?, ?, ?, ?, ?, ?, ?)")
