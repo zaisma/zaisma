@@ -1,4 +1,4 @@
-import { GAME_SERVER_OPTIONS, defineGameServer, unknownOptionError, type AwayReason, type GameServer, type JoinInfo, type LeaveInfo, type Player, type Room } from "@zaisma/game-server";
+import { GAME_SERVER_OPTIONS, defineGameServer, readJoinAnswer, unknownOptionError, type AwayReason, type GameServer, type JoinAnswer, type JoinInfo, type LeaveInfo, type Player, type Room } from "@zaisma/game-server";
 import { SANDBOX_GAME_SERVER, manifestKey, serverModules, type Manifest } from "@zaisma/core";
 import type { Env } from "./index.ts";
 
@@ -69,8 +69,8 @@ export interface Session {
   settings(): Promise<Settings>;
   setup(setupData: unknown): Promise<Answer>;
   call(hook: string, state: unknown, handlerArguments: unknown[], room: Snapshot): Promise<Answer>;
-  /** canJoin: the game's verdict on a player coming in. It can't change the state or the room. */
-  check(state: unknown, player: Player, joinData: unknown, room: Snapshot, joinInfo: JoinInfo): Promise<{ verdict?: unknown; error?: string }>;
+  /** canJoin: the game's answer on a player coming in, as plain JSON. It can't change the state or the room. */
+  check(state: unknown, player: Player, joinData: unknown, room: Snapshot, joinInfo: JoinInfo): Promise<{ answer?: unknown; error?: string }>;
 }
 
 // Runs inside the sandbox, beside the game's file. Plain JavaScript: nothing here is trusted by the
@@ -142,13 +142,19 @@ class Session extends RpcTarget {
       : [state, handlerArguments[0], room];
     return answer(() => server[hook](...full), effects, state);
   }
-  check(state, player, joinData, snapshot, joinInfo) {
-    if (typeof server.canJoin !== "function") return { verdict: true };
+  async check(state, player, joinData, snapshot, joinInfo) {
+    if (typeof server.canJoin !== "function") return { answer: true };
+    let answer;
     try {
-      const verdict = server.canJoin(state, player, recorder(snapshot, []), joinData, joinInfo);
-      return { verdict: typeof verdict === "boolean" || typeof verdict === "string" ? verdict : true };
+      answer = await server.canJoin(state, player, recorder(snapshot, []), joinData, joinInfo);
     } catch (error) {
       return { error: String((error && error.stack) || error) };
+    }
+    // Handed back as plain JSON; the room reads it like any game server's answer (true, false or { refusalMessage }).
+    try {
+      return { answer: answer === undefined ? null : JSON.parse(JSON.stringify(answer)) };
+    } catch {
+      return { answer: "(an answer that isn't plain JSON)" };
     }
   }
 }
@@ -279,9 +285,16 @@ export async function wrapSession(open: () => Promise<Session>, onBroken: () => 
     ...(handlerNames.has("canJoin")
       ? {
           canJoin: async (state: unknown, player: Player, room: Room, joinData: unknown, joinInfo: JoinInfo) => {
-            const answer = await reach(() => session.check(state, player, joinData, snapshot(room), joinInfo));
-            if (answer.error) throw new Error(`Game server error: ${answer.error.slice(0, 2000)}`);
-            return typeof answer.verdict === "boolean" || typeof answer.verdict === "string" ? answer.verdict : true;
+            const checked = await reach(() => session.check(state, player, joinData, snapshot(room), joinInfo));
+            if (checked.error) throw new Error(`Game server error: ${checked.error.slice(0, 2000)}`);
+            // A wrong answer (like a string) turns the player away, and its developer sees why with the game's server errors.
+            const read = readJoinAnswer(checked.answer);
+            if ("mistake" in read) {
+              stats.crashes++;
+              record("crash", read.mistake);
+              throw new Error(`Game server error: ${read.mistake}`);
+            }
+            return checked.answer as JoinAnswer;
           },
         }
       : {}),

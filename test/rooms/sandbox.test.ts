@@ -178,6 +178,27 @@ describe("sandboxed game servers", () => {
     );
   });
 
+  it("turns a player away when canJoin answers a string, and tells the developer what to answer instead", async () => {
+    // A string used to mean "no, with this reason": a truthy "no" an AI could write meaning yes.
+    await addSandboxGame("texty", `export default { setup: () => ({}), canJoin() { return "Welcome!"; } };`);
+    expect(await knock("texty", "ABCDEF")).toEqual({ type: "error", code: "refused", message: "The game didn't let you into this room." });
+    // Recorded at once, though nobody ever gets in for the room to empty.
+    let row: { kind: string; message: string } | null = null;
+    for (let i = 0; i < 50 && !row; i++) {
+      row = await e.DB.prepare("SELECT kind, message FROM game_server_errors WHERE game_id = 'gtexty'").first<{ kind: string; message: string }>();
+      if (!row) await new Promise((r) => setTimeout(r, 20));
+    }
+    expect(row).toMatchObject({ kind: "crash" });
+    expect(row!.message).toContain('canJoin answered the text "Welcome!", so the player was turned away. Answer true (or nothing) to let them in');
+  });
+
+  it("waits for an async canJoin, and lets in a player when it answers nothing", async () => {
+    await addSandboxGame("asyncy", `export default { setup: () => ({}), async canJoin(state, player, room, joinData) { if (!joinData) return { refusalMessage: "Pick a team." }; }, onJoin(state, player, room, joinData) { room.send(player.id, joinData); } };`);
+    expect(await knock("asyncy", "ABCDEF")).toEqual({ type: "error", code: "refused", message: "Pick a team." });
+    const a = await join("asyncy", "ABCDEF", { team: "red" });
+    expect((await a.next()).data).toEqual({ team: "red" });
+  });
+
   it("runs a game server split into files in a zaisma-server/ folder", async () => {
     await addSandboxGame("split", COUNTER);
     await e.GAMES.delete("games/vsplit/zaisma-server.js");
@@ -207,7 +228,7 @@ describe("sandboxed game servers", () => {
       "guarded",
       `export default {
         setup: () => ({}),
-        canJoin(state, player, room, joinData) { return (joinData && joinData.password === "docks") || "Wrong password."; },
+        canJoin(state, player, room, joinData) { return (joinData && joinData.password === "docks") || { refusalMessage: "Wrong password." }; },
         onMessage(state, player, message, room) {
           const other = room.players.find((p) => p.id !== player.id);
           if (message === "kick" && other) room.kick(other.id, { message: "Too rough.", keepOut: true });
@@ -244,7 +265,7 @@ describe("sandboxed game servers", () => {
       "world",
       `export default {
         setup: () => ({ locked: false }),
-        canJoin(state, player, room, joinData, joinInfo) { return !(state.locked && joinInfo.fromRoomCode) || "This area is locked."; },
+        canJoin(state, player, room, joinData, joinInfo) { return !(state.locked && joinInfo.fromRoomCode) || { refusalMessage: "This area is locked." }; },
         onJoin(state, player, room, joinData, joinInfo) { if (joinInfo.fromRoomCode) room.send(player.id, { arrived: joinData, fromRoomCode: joinInfo.fromRoomCode }); },
         onMessage(state, player, message, room) {
           if (message === "lock") state.locked = true;
