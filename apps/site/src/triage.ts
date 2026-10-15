@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import {
+  gameServerOf,
   AUTO_HOLD_REASONS,
   KNOWN_IMAGE_RULE,
   PRECEDENT_DECISIONS,
@@ -211,14 +212,14 @@ async function act(env: Env, report: Report, game: Game, others: Report[], answe
     const version = report.version_id ? await versionById(env.DB, report.version_id) : null;
     if (report.player_id) {
       triage.recommendation = "person";
-    } else if (!version || game.current_version_id !== version.id || game.status !== "live") {
+    } else if (!version || game.live_version_id !== version.id || game.review_status !== "live") {
       triage.recommendation = "person";
       triage.why = `${triage.why} Players aren't on the reported version any more, so it wasn't checked again.`;
-    } else if (version.cleared_at || version.rechecked_at) {
+    } else if (version.cleared_at_ms || version.rechecked_at_ms) {
       triage.recommendation = "person";
-      triage.why = `${triage.why} This version was already ${version.cleared_at ? "checked by a person" : "checked again after a report"}, so it wasn't checked again.`;
+      triage.why = `${triage.why} This version was already ${version.cleared_at_ms ? "checked by a person" : "checked again after a report"}, so it wasn't checked again.`;
     } else {
-      await env.DB.prepare("UPDATE versions SET rechecked_at = ? WHERE id = ?").bind(Date.now(), version.id).run();
+      await env.DB.prepare("UPDATE versions SET rechecked_at_ms = ? WHERE id = ?").bind(Date.now(), version.id).run();
       outcome.recheck = version.id;
       triage.recheck = { status: "waiting" };
       triage.actions.push(CHECKING);
@@ -246,9 +247,9 @@ function sameRule(report: Report, others: Report[]): string | null {
 /** Whether this report paused the game ("game") or its latest update ("update"), so the recommendation can undo it. */
 async function pausedBy(env: Env, game: Game, report: Report): Promise<string | null> {
   if (report.player_id || !(AUTO_HOLD_REASONS as string[]).includes(report.reason)) return null;
-  if (game.status === "held" && report.version_id === game.current_version_id) return "game";
+  if (game.review_status === "held" && report.version_id === game.live_version_id) return "game";
   const version = report.version_id ? await versionById(env.DB, report.version_id) : null;
-  return version?.report_held_at && version.scan_status === "held" ? "update" : null;
+  return version?.report_held_at_ms && version.scan_status === "held" ? "update" : null;
 }
 
 /**
@@ -295,10 +296,10 @@ async function triageInput(env: Env, report: Report, game: Game, others: Report[
     "<game>",
     `Title: ${untrusted(game.title)}`,
     `Description: ${untrusted(game.description) || "(none)"}`,
-    `Status: ${game.status}, ${game.visibility}. Made ${day(game.created_at)}.`,
-    `Multiplayer: ${game.game_server ? `Zaisma rooms (${game.game_server})` : game.connect_hosts ? "the developer's own servers" : "none"}`,
+    `Status: ${game.review_status}, ${game.visibility}. Made ${day(game.created_at_ms)}.`,
+    `Multiplayer: ${game.multiplayer_mode !== "none" ? `Zaisma rooms (${gameServerOf(game)})` : game.connect_hosts ? "the developer's own servers" : "none"}`,
     version
-      ? `Version reported: went live ${day(version.published_at)}, ${game.current_version_id === version.id ? "players still get it" : "no longer the one players get"}. Its scan: ${scan ? `${scan.decision}. ${untrusted(scan.ai?.summary ?? "")} ${findings.length ? `Findings: ${untrusted(findings.join("; "))}` : "No findings."}` : "none"}`
+      ? `Version reported: went live ${day(version.published_at_ms)}, ${game.live_version_id === version.id ? "players still get it" : "no longer the one players get"}. Its scan: ${scan ? `${scan.decision}. ${untrusted(scan.ai?.summary ?? "")} ${findings.length ? `Findings: ${untrusted(findings.join("; "))}` : "No findings."}` : "none"}`
       : "Version reported: unknown",
     "</game>",
     `<report id="${report.id}">`,
@@ -459,7 +460,7 @@ export async function recheckVersion(env: Env, versionId: string, reportId: stri
   } else if (clear) {
     severity = Math.min(severity, result.childSafety ? SEVERITY.child_safety : SEVERITY.urgent);
     // The same rule as a child-safety or illegal-content report: no single report takes an established game offline.
-    const paused = game.current_version_id === version.id ? await pauseForReport(env, game, `Re-check after a report found: ${summarize(news)}`) : null;
+    const paused = game.live_version_id === version.id ? await pauseForReport(env, game, `Re-check after a report found: ${summarize(news)}`) : null;
     triage.actions.push(
       paused === "game" ? "Hid the new game until a person looks" : paused === "update" ? "Put players back on the version before the latest update" : "Left the game up: it's established, so a person decides",
     );

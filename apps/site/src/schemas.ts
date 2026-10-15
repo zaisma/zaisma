@@ -7,10 +7,10 @@ import { CONTROLS, DEVICES, PLAY_STYLES, ROOM_BROWSING, SCREENS, VISIBILITIES } 
 
 export type Schema = Record<string, unknown>;
 
-const describe = (s: Schema, description?: string): Schema => (description ? { ...s, description } : s);
-const orNull = (s: Schema): Schema => {
-  const type = s.type as string | string[];
-  return { ...s, type: [...(Array.isArray(type) ? type : [type]), "null"], ...(s.enum ? { enum: [...(s.enum as unknown[]), null] } : {}) };
+const describe = (schema: Schema, description?: string): Schema => (description ? { ...schema, description } : schema);
+const orNull = (schema: Schema): Schema => {
+  const type = schema.type as string | string[];
+  return { ...schema, type: [...(Array.isArray(type) ? type : [type]), "null"], ...(schema.enum ? { enum: [...(schema.enum as unknown[]), null] } : {}) };
 };
 
 export const text = (description?: string) => describe({ type: "string" }, description);
@@ -18,8 +18,8 @@ export const url = (description?: string) => describe({ type: "string", format: 
 /** A calendar day: YYYY-MM-DD in UTC. */
 export const date = (description?: string) => describe({ type: "string", format: "date" }, description);
 /** A point in time: ISO 8601 in UTC, named <event>_at. */
-export const time = (description?: string) => describe({ type: "string", format: "date-time" }, description);
-export const count = (description?: string) => describe({ type: "integer", minimum: 0 }, description);
+export const isoTime = (description?: string) => describe({ type: "string", format: "date-time" }, description);
+export const countOf = (description?: string) => describe({ type: "integer", minimum: 0 }, description);
 export const number = (description?: string) => describe({ type: "number", minimum: 0 }, description);
 export const yes = (description?: string) => describe({ type: "boolean" }, description);
 export const list = (items: Schema, description?: string) => describe({ type: "array", items }, description);
@@ -28,7 +28,7 @@ export const nullable = orNull;
 export function choice(values: Record<string, string> | readonly string[], lead?: string): Schema {
   const meanings = Array.isArray(values) ? null : (values as Record<string, string>);
   const keys = meanings ? Object.keys(meanings) : [...(values as readonly string[])];
-  const said = meanings ? keys.map((k) => `${k}: ${meanings[k]}`).join(". ") : "";
+  const said = meanings ? keys.map((key) => `${key}: ${meanings[key]}`).join(". ") : "";
   return describe({ type: "string", enum: keys }, [lead, said].filter(Boolean).join(" ") || undefined);
 }
 /** An object whose keys are always all there. */
@@ -54,8 +54,8 @@ export const ROOM_BROWSING_CHOICE = choice(
 );
 export const PLAY_MODE = object({
   mode: choice({ single: "single-player", local: "together on one device or screen", online: "each on their own device" }),
-  minimum_player_count: nullable(count("2 or more; null for single")),
-  maximum_player_count: nullable(count("null for no limit, or for single")),
+  minimum_player_count: nullable(countOf("2 or more; null for single")),
+  maximum_player_count: nullable(countOf("null for no limit, or for single")),
   play_style: nullable(choice(PLAY_STYLES, "null for single.")),
 });
 
@@ -74,7 +74,7 @@ export const GAME = object({
   multiplayer_mode: MULTIPLAYER_MODE,
   room_browsing: ROOM_BROWSING_CHOICE,
   details_waiting_for_review: nullable(object({ title: nullable(text()), description: nullable(text()) }, "A new title or description waiting for review before players see it.")),
-  updated_at: time(),
+  updated_at: isoTime(),
 });
 
 export const FINDING = object({
@@ -86,15 +86,15 @@ export const FINDING = object({
 
 export const VERSION = object({
   id: text(),
-  file_count: count(),
-  size_bytes: count(),
+  file_count: countOf(),
+  size_bytes: countOf(),
   scan_status: choice({ scanning: "being scanned, usually under a minute", held: "waiting for a person at Zaisma", approved: "passed; it can be previewed and published", rejected: "can't be published; see findings" }),
   is_live: yes("This is the version players get."),
   patch_notes: text(),
   preview_url: nullable(url("A private link to play this version, once it's approved.")),
-  published_at: nullable(time("When it last went live.")),
-  scheduled_publish_at: nullable(time("When it goes live by itself, if it's scheduled.")),
-  created_at: time(),
+  published_at: nullable(isoTime("When it last went live.")),
+  scheduled_publish_at: nullable(isoTime("When it goes live by itself, if it's scheduled.")),
+  created_at: isoTime(),
   findings: list(FINDING, "Why it was held or rejected."),
 });
 
@@ -102,19 +102,19 @@ export const IMAGE = object({
   id: text(),
   kind: choice({ cover: "landscape cover", square: "square cover, shown on phones", screenshot: "a screenshot" }),
   review_status: choice({ pending: "only you see it until it's reviewed", approved: "shown to players", rejected: "not shown" }),
-  width_px: count(),
-  height_px: count(),
-  size_bytes: count(),
+  width_px: countOf(),
+  height_px: countOf(),
+  size_bytes: countOf(),
   image_url: url(),
-  created_at: time(),
+  created_at: isoTime(),
 });
 
 export const TESTER = object({
   id: text(),
   name: text("Who it's for."),
   link_url: url("The secret link to share."),
-  created_at: time(),
-  last_opened_at: nullable(time("To the hour.")),
+  created_at: isoTime(),
+  last_opened_at: nullable(isoTime("To the hour.")),
 });
 
 /** The calls that usually follow a change, ready to make (docs/NAMING.md, Next steps). */
@@ -122,32 +122,32 @@ export const NEXT = list(
   object({
     tool: text("The MCP tool to call."),
     arguments: { type: "object", description: "What to send it, filled in." },
-    after_sec: nullable(count("How long to wait first; null for straight away.")),
+    after_sec: nullable(countOf("How long to wait first; null for straight away.")),
     reason: text(),
   }),
 );
 
 const DAY_PLAYS = object({
   date: date(),
-  play_count: count("Counted plays: the official number."),
-  player_count: count("Browsers with a counted play that day."),
-  new_player_count: count("Browsers with their first counted play."),
-  play_duration_min: count("Time on screen in counted plays."),
-  started_play_count: count("Every play started, counted or not."),
+  play_count: countOf("Counted plays: the official number."),
+  player_count: countOf("Browsers with a counted play that day."),
+  new_player_count: countOf("Browsers with their first counted play."),
+  play_duration_min: countOf("Time on screen in counted plays."),
+  started_play_count: countOf("Every play started, counted or not."),
 });
 const CAME_BACK = object({
-  returned_pct: nullable(count("null until enough days are over.")),
-  returned_player_count: count(),
-  new_player_count: count("New players in the 30 days before."),
+  returned_pct: nullable(countOf("null until enough days are over.")),
+  returned_player_count: countOf(),
+  new_player_count: countOf("New players in the 30 days before."),
 });
 
 export const PLAY_STATS = object(
   {
     days: list(DAY_PLAYS),
-    play_count: count(),
-    started_play_count: count(),
-    new_player_count: count(),
-    play_duration_min: count(),
+    play_count: countOf(),
+    started_play_count: countOf(),
+    new_player_count: countOf(),
+    play_duration_min: countOf(),
     average_play_duration_min: nullable(number("Per counted play; null before any.")),
     came_back: object({ after_1_day: CAME_BACK, after_7_days: CAME_BACK, after_30_days: CAME_BACK }),
   },
@@ -155,21 +155,21 @@ export const PLAY_STATS = object(
 );
 
 export const STATS = object({
-  period_duration_days: count(),
+  period_duration_days: countOf(),
   play_stats: PLAY_STATS,
   multiplayer_days: list(
     object({
       date: date(),
-      room_count: count(),
-      room_play_duration_min: count("Player time in rooms."),
-      message_count: count(),
+      room_count: countOf(),
+      room_play_duration_min: countOf("Player time in rooms."),
+      message_count: countOf(),
       game_server: nullable(
         object(
           {
-            call_count: count(),
-            crash_count: count("A handler threw; that call is lost."),
-            stopped_count: count("A call ran on too long, about 2 seconds of CPU; the match froze meanwhile."),
-            ended_match_count: count("Matches ended because their game server was stopped twice."),
+            call_count: countOf(),
+            crash_count: countOf("A handler threw; that call is lost."),
+            stopped_count: countOf("A call ran on too long, about 2 seconds of CPU; the match froze meanwhile."),
+            ended_match_count: countOf("Matches ended because their game server was stopped twice."),
           },
           "Only for games running their own game server; otherwise null.",
         ),
@@ -178,30 +178,30 @@ export const STATS = object({
   ),
   room_use_this_month: object({
     room_play_duration_hours: number("Player time on Zaisma rooms this month, UTC."),
-    free_room_play_duration_hours: count(),
+    free_room_play_duration_hours: countOf(),
     has_reached_free_hours: yes("Until hosting billing is ready, no new rooms open until the month resets; matches already running carry on."),
   }),
   game_server_errors: list(
     object({
       kind: choice({ crash: "a handler threw", stopped: "a call ran on too long" }),
       message: text("The error, with the file and line it came from."),
-      occurrence_count: count(),
+      occurrence_count: countOf(),
       version_id: text(),
-      first_at: time(),
-      last_at: time(),
+      first_at: isoTime(),
+      last_at: isoTime(),
     }),
     "The 20 most recent distinct errors of the game's own game server; empty for other games.",
   ),
 });
 
 export const REPORTS = object({
-  period_duration_days: count(),
+  period_duration_days: countOf(),
   reasons: list(
     object({
       reason: text(),
       label: text(),
-      open_count: count("Waiting for Zaisma."),
-      closed_count: count("Zaisma looked and dismissed it or acted on it."),
+      open_count: countOf("Waiting for Zaisma."),
+      closed_count: countOf("Zaisma looked and dismissed it or acted on it."),
     }),
   ),
   bug_reports: list(
@@ -210,7 +210,7 @@ export const REPORTS = object({
       player_text: text("What the player wrote."),
       summary: nullable(text()),
       version_id: nullable(text("The version they played.")),
-      reported_at: time(),
+      reported_at: isoTime(),
     }),
   ),
   next_cursor: text("Pass as cursor next time to get only bug reports that arrived after this call."),
@@ -222,7 +222,7 @@ export const HISTORY = object({
       description: text(),
       version_id: nullable(text()),
       done_by: choice({ you: "the developer", zaisma: "Zaisma" }),
-      happened_at: time(),
+      happened_at: isoTime(),
     }),
     "Newest first.",
   ),

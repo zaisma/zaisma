@@ -1,4 +1,4 @@
-import { describePlayers, type Players } from "@zaisma/core";
+import { describePlayModes, type PlayMode } from "@zaisma/core";
 import { gameFrameSource, type Env } from "./env.ts";
 
 /** Escape text for HTML. Every value from a user or a game goes through this. */
@@ -437,13 +437,13 @@ const MODE_ICONS = {
  * How a game is played, as icons with words: "Single-player", "Local co-op · 2–4 players".
  * Games that haven't said but run on our servers show "Online multiplayer".
  */
-export function playerModes(players: Players | null, onlineServer: boolean): Raw {
-  const modes = players ? describePlayers(players) : onlineServer ? [{ mode: "online" as const, label: "Online multiplayer", count: null }] : [];
-  if (!modes.length) return html``;
-  return html`<ul class="modes">${modes.map((m) => html`<li>${raw(MODE_ICONS[m.mode])}<span>${m.label}</span>${m.count ? html`<small>${m.count}</small>` : ""}</li>`)}</ul>`;
+export function playerModes(playModes: PlayMode[] | null, onlineServer: boolean): Raw {
+  const described = playModes ? describePlayModes(playModes) : onlineServer ? [{ mode: "online" as const, label: "Online multiplayer", playerCount: null }] : [];
+  if (!described.length) return html``;
+  return html`<ul class="modes">${described.map((playMode) => html`<li>${raw(MODE_ICONS[playMode.mode])}<span>${playMode.label}</span>${playMode.playerCount ? html`<small>${playMode.playerCount}</small>` : ""}</li>`)}</ul>`;
 }
 
 /** The same, as one short line for cards: "Single-player · Online co-op". */
-export function playerLine(players: Players | null, onlineServer: boolean): string {
-  return players ? describePlayers(players).map((m) => m.label).join(" · ") : onlineServer ? "Online multiplayer" : "";
+export function playerLine(playModes: PlayMode[] | null, onlineServer: boolean): string {
+  return playModes ? describePlayModes(playModes).map((playMode) => playMode.label).join(" · ") : onlineServer ? "Online multiplayer" : "";
 }

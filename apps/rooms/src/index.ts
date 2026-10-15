@@ -1,4 +1,4 @@
-import { PLAYER_REPORT_REASONS, checkText, createReport, leaveOut, listRooms, pastFreeTier, readLabelParam, readLeftParam, tidyText, useRoomKey, type PlayerReportReason } from "@zaisma/core";
+import { PLAYER_REPORT_REASONS, gameServerOf, type MultiplayerMode, checkText, createReport, leaveOut, listRooms, pastFreeTier, readLabelParam, readLeftParam, tidyText, useRoomKey, type PlayerReportReason } from "@zaisma/core";
 import { ERROR_TEXT, guestName, isRoomCode, jwks, loadSigningKey, roomCode, signPass, type SigningKey } from "@zaisma/game-server";
 import { usesRooms } from "./registry.ts";
 
@@ -27,18 +27,20 @@ export interface Env {
 /** Guest passes last a day; the SDK keeps them only for the browser tab. */
 const PASS_SECONDS = 24 * 3600;
 
+/** What rooms need of a game: its columns of the same names, and the game server its rooms run (gameServerOf). */
 export interface RoomGame {
   id: string;
   slug: string;
-  status: string;
-  current_version_id: string | null;
-  game_server: string | null;
+  review_status: string;
+  live_version_id: string | null;
+  multiplayer_mode: MultiplayerMode;
+  built_in_server: string | null;
   room_browsing: string;
 }
 
 export async function playableGame(db: D1Database, slug: string): Promise<RoomGame | null> {
-  const game = await db.prepare("SELECT id, slug, status, current_version_id, game_server, room_browsing FROM games WHERE slug = ?").bind(slug).first<RoomGame>();
-  return game && game.status === "live" && game.current_version_id ? game : null;
+  const game = await db.prepare("SELECT id, slug, review_status, live_version_id, multiplayer_mode, built_in_server, room_browsing FROM games WHERE slug = ?").bind(slug).first<RoomGame>();
+  return game && game.review_status === "live" && game.live_version_id ? game : null;
 }
 
 /** The origin a game is served from. Only that origin may get passes or join its rooms. */
@@ -60,7 +62,7 @@ export async function gameOrigin(env: Env, slug: string, origin: string | null):
     const tester = origin === `https://${host}` ? host.match(/^([a-z0-9-]+?)--([a-z0-9]{20})\./) : null;
     if (tester) {
       if (tester[1] !== slug || host !== `${tester[1]}--${tester[2]}.${env.GAME_DOMAIN}`) return null;
-      const link = await env.DB.prepare("SELECT tester_links.id FROM tester_links JOIN games ON games.id = tester_links.game_id WHERE tester_links.token = ? AND tester_links.revoked_at IS NULL AND games.slug = ?").bind(tester[2], slug).first<{ id: string }>();
+      const link = await env.DB.prepare("SELECT tester_links.id FROM tester_links JOIN games ON games.id = tester_links.game_id WHERE tester_links.token = ? AND tester_links.revoked_at_ms IS NULL AND games.slug = ?").bind(tester[2], slug).first<{ id: string }>();
       return link ? { page: `/t/${tester[2]}`, tester: link.id } : null;
     }
     const custom = await env.DB.prepare("SELECT 1 FROM domains JOIN games ON games.id = domains.game_id WHERE domains.hostname = ? AND games.slug = ?").bind(host, slug).first();
@@ -146,14 +148,14 @@ export default {
           gameId: game.id,
           reason: "player",
           details: str(body.details, 500),
-          versionId: game.current_version_id,
+          versionId: game.live_version_id,
           roomCode: code,
           player: { id: player, name: str(body.name, 40), reason },
         });
         return json({ ok: true }, 200, cors);
       }
 
-      if (!usesRooms(game.game_server)) return json({ error: "This game doesn't use Zaisma rooms." }, 404, cors);
+      if (!usesRooms(gameServerOf(game))) return json({ error: "This game doesn't use Zaisma rooms." }, 404, cors);
       if (await limited(env.ROOM_LIMIT, request)) return json({ error: "Too many requests. Try again in a minute." }, 429, cors);
       if (await pastFreeTier(env.DB, game.id)) return json({ error: ERROR_TEXT["month-limit"], code: "month-limit" }, 403, cors);
       return json({ code: roomCode() }, 200, cors);
@@ -166,7 +168,7 @@ export default {
       const from = await gameOrigin(env, slug, origin);
       if (!from) return json({ error: "Not allowed from here." }, 403);
       const game = await playableGame(env.DB, slug);
-      if (!game || !usesRooms(game.game_server)) return json({ error: "This game doesn't use Zaisma rooms." }, 404, origin!);
+      if (!game || !usesRooms(gameServerOf(game))) return json({ error: "This game doesn't use Zaisma rooms." }, 404, origin!);
       if (game.room_browsing === "off") return json({ rooms: [], playing: { players: 0, rooms: 0, closed: 0 }, joinable: 0, open: 0, regions: [], region: null, more: 0, filters: [] }, 200, origin!);
       // The SDK says which room this player just left, so they don't see themselves in it while lists catch up.
       const left = readLeftParam(url.searchParams.get("left"));
@@ -191,13 +193,13 @@ export default {
       const from = isRoomCode(code) ? await gameOrigin(env, slug, origin) : null;
       if (!from) return new Response("Not allowed from here", { status: 403 });
       const game = await playableGame(env.DB, slug);
-      if (!game || !usesRooms(game.game_server)) return new Response("This game isn't available right now", { status: 404 });
+      if (!game || !usesRooms(gameServerOf(game))) return new Response("This game isn't available right now", { status: 404 });
 
       const headers = new Headers(request.headers);
       headers.set("x-game-id", game.id);
       headers.set("x-game-slug", game.slug);
-      headers.set("x-game-server", game.game_server!);
-      headers.set("x-game-version", game.current_version_id!);
+      headers.set("x-game-server", gameServerOf(game)!);
+      headers.set("x-game-version", game.live_version_id!);
       headers.set("x-room-code", code);
       // Players who came through a tester link leave when it's turned off. Never taken from the player.
       if (from.tester) headers.set("x-tester-link", from.tester);

@@ -13,7 +13,8 @@
     "dev:games": "npm run dev -w apps/games",
     "db:migrate:local": "npm run db:migrate:local -w apps/site",
     "dev:rooms": "npm run dev -w apps/rooms",
-    "preview": "node scripts/preview/run.mjs"
+    "preview": "node scripts/preview/run.mjs",
+    "naming:baseline": "NAMING_WRITE_BASELINE=1 vitest run --project node test/node/naming.test.ts"
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "^1.4.0",

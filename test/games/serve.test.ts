@@ -9,11 +9,11 @@ async function addGame(slug: string, status: string, withVersion = true) {
   const id = `g${slug.replace(/-/g, "")}`;
   const versionId = `v${id}`;
   const prefix = `games/${id}/${versionId}`;
-  await env.DB.prepare("INSERT INTO games (id, slug, title, status, current_version_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 0, 0)")
+  await env.DB.prepare("INSERT INTO games (id, slug, title, review_status, live_version_id, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, 0, 0)")
     .bind(id, slug, slug, status, withVersion ? versionId : null)
     .run();
   if (withVersion) {
-    await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, bytes, scan_status, created_at) VALUES (?, ?, ?, 2, 0, 'approved', 0)").bind(versionId, id, prefix).run();
+    await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, created_at_ms) VALUES (?, ?, ?, 2, 0, 'approved', 0)").bind(versionId, id, prefix).run();
     await env.GAMES.put(`${prefix}/index.html`, "<!doctype html><p>game</p>");
     await env.GAMES.put(`${prefix}/sfx/beep.mp3`, new Uint8Array(1000).fill(7));
   }
@@ -100,8 +100,8 @@ describe("game server", () => {
       manifest[path] = { sha256: sha, bytes: enc(text).byteLength };
     }
     await env.GAMES.put(manifestKey("vhop2"), JSON.stringify({ files: manifest }));
-    await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, bytes, scan_status, kind, created_at) VALUES ('vhop2', ?, 'manifests/vhop2', 2, 0, 'approved', 'files', 0)").bind(id).run();
-    await env.DB.prepare("UPDATE games SET current_version_id = 'vhop2' WHERE id = ?").bind(id).run();
+    await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, kind, created_at_ms) VALUES ('vhop2', ?, 'manifests/vhop2', 2, 0, 'approved', 'files', 0)").bind(id).run();
+    await env.DB.prepare("UPDATE games SET live_version_id = 'vhop2' WHERE id = ?").bind(id).run();
     expect(await (await SELF.fetch(`${G}/hop/`)).text()).toContain("hop v2");
     expect(await (await SELF.fetch(`${G}/hop/js/game.js`)).text()).toBe("let x = 2;");
     expect((await SELF.fetch(`${G}/hop/js/other.js`)).status).toBe(404);
@@ -110,7 +110,7 @@ describe("game server", () => {
   it("opens a draft only through its preview link", async () => {
     const id = await addGame("drafty", "pending", false);
     await env.DB.prepare("UPDATE games SET visibility = 'draft' WHERE id = ?").bind(id).run();
-    await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, bytes, scan_status, preview_token, created_at) VALUES ('vd', ?, 'games/d/vd', 1, 0, 'approved', 'abcdefghij0123456789', 0)").bind(id).run();
+    await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, preview_token, created_at_ms) VALUES ('vd', ?, 'games/d/vd', 1, 0, 'approved', 'abcdefghij0123456789', 0)").bind(id).run();
     await env.GAMES.put("games/d/vd/index.html", "<!doctype html><p>draft</p>");
     expect((await SELF.fetch(`${G}/drafty/`)).status).toBe(404);
     const res = await SELF.fetch(`${G}/drafty--abcdefghij0123456789/`);
@@ -119,13 +119,13 @@ describe("game server", () => {
     expect(res.headers.get("x-robots-tag")).toBe("noindex");
     expect((await SELF.fetch(`${G}/drafty--abcdefghij0123456780/`)).status).toBe(404);
     // A takedown closes previews too.
-    await env.DB.prepare("UPDATE games SET status = 'removed' WHERE id = ?").bind(id).run();
+    await env.DB.prepare("UPDATE games SET review_status = 'removed' WHERE id = ?").bind(id).run();
     expect((await SELF.fetch(`${G}/drafty--abcdefghij0123456789/`)).status).toBe(410);
   });
 
   it("opens the live version through a tester link, whatever the visibility", async () => {
     const id = await addGame("secret-game", "live");
-    await env.DB.prepare("UPDATE games SET visibility = 'private', cloud_saves = 1 WHERE id = ?").bind(id).run();
+    await env.DB.prepare("UPDATE games SET visibility = 'private', cloud_saves_enabled = 1 WHERE id = ?").bind(id).run();
     const link = await addTesterLink(env.DB, id, "Playtesters");
     expect((await SELF.fetch(`${G}/secret-game/`)).status).toBe(404);
     const res = await SELF.fetch(`${G}/secret-game--${link.token}/`);

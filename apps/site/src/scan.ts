@@ -10,7 +10,7 @@ import {
   notConnected,
   publishVersion,
   saveScan,
-  setGameStatus,
+  setReviewStatus,
   sha256Hex,
   staticScan,
   versionById,
@@ -22,7 +22,7 @@ import {
   type Manifest,
   type Version,
   type Game,
-  KEEP_VERSIONS,
+  KEPT_VERSION_COUNT,
   KNOWN_IMAGE_RULE,
   MATCH_TYPES,
   MATROSKA_HEAD_BYTES,
@@ -34,6 +34,7 @@ import {
   sniffMedia,
   type MediaForMatching,
   blobKey,
+  blobSizes,
   ownedBlobKey,
   manifestKey,
 } from "@zaisma/core";
@@ -265,7 +266,7 @@ async function readStart(env: Env, key: string, length: number): Promise<Uint8Ar
 export async function queueImageChecks(env: Env, matcher = imageMatcher(env)): Promise<number> {
   if (matcher === notConnected) return 0;
   const { results } = await env.DB
-    .prepare("SELECT id FROM versions WHERE scan_status = 'approved' AND (scan_report IS NULL OR json_extract(scan_report, '$.images.connected') IS NOT 1) ORDER BY created_at DESC LIMIT 1000")
+    .prepare("SELECT id FROM versions WHERE scan_status = 'approved' AND (scan_report IS NULL OR json_extract(scan_report, '$.images.connected') IS NOT 1) ORDER BY created_at_ms DESC LIMIT 1000")
     .all<{ id: string }>();
   for (let i = 0; i < results.length; i += 100) await env.SCAN_QUEUE.sendBatch(results.slice(i, i + 100).map((v) => ({ body: { versionId: v.id, images: true } })));
   return results.length;
@@ -309,9 +310,9 @@ export async function holdKnownImages(env: Env, game: Game, version: Version, im
   report.decision = "held";
   report.childSafety = true;
   report.images = { provider: images.provider, connected: images.connected, checked: images.checked };
-  await env.DB.prepare("UPDATE versions SET scan_status = 'held', preview_token = NULL, publish_at = NULL, scan_report = ? WHERE id = ?").bind(JSON.stringify(report), version.id).run();
-  const hide = game.current_version_id === version.id && game.status === "live";
-  if (hide) await setGameStatus(env.DB, game.id, "held");
+  await env.DB.prepare("UPDATE versions SET scan_status = 'held', preview_token = NULL, scheduled_publish_at_ms = NULL, scan_report = ? WHERE id = ?").bind(JSON.stringify(report), version.id).run();
+  const hide = game.live_version_id === version.id && game.review_status === "live";
+  if (hide) await setReviewStatus(env.DB, game.id, "held");
   await audit(env.DB, game.id, "image-match-hold", `${why}: version ${version.id} is held${hide ? " and the game is hidden" : ""}\n${summarize(known)}`);
   await sendAlert(env, `URGENT: known abuse images in ${game.slug}${hide ? " (game hidden)" : ""}`, `${why}.\n\n${KNOWN_IMAGE_ALERT}${hide ? " The game is hidden from players." : ""}\n\n${summarize(known)}\n\nGame: ${env.SITE_ORIGIN}/admin/games/${game.id}`);
   return hide;
@@ -396,7 +397,9 @@ export async function versionFiles(env: Env, version: Version): Promise<FileRef[
     const manifest = await env.GAMES.get(manifestKey(version.id));
     if (!manifest) throw new Error(`No manifest for version ${version.id}`);
     const { files } = (await manifest.json()) as Manifest;
-    return Object.entries(files).map(([path, f]) => ({ path, key: f.owner ? ownedBlobKey(f.owner, f.sha256) : blobKey(f.sha256), size: f.bytes }));
+    // A manifest lists where each file is; the blobs tables know their sizes.
+    const sizes = await blobSizes(env.DB, Object.values(files).map((file) => file.sha256));
+    return Object.entries(files).map(([path, file]) => ({ path, key: file.owner ? ownedBlobKey(file.owner, file.sha256) : blobKey(file.sha256), size: sizes.get(file.sha256) ?? 0 }));
   }
   const out: FileRef[] = [];
   let cursor: string | undefined;
@@ -413,7 +416,7 @@ export async function versionFiles(env: Env, version: Version): Promise<FileRef[
  * "publish when approved" go live; developers' drafts get a private preview link and wait.
  */
 export async function passVersion(env: Env, version: Version, why: string, actor = "system"): Promise<void> {
-  if (version.publish_when_approved) {
+  if (version.publish_when_approved_enabled) {
     await publishVersion(env.DB, version);
     await audit(env.DB, version.game_id, "published", `${why}: version ${version.id}`, actor);
     await pruneVersions(env, version.game_id);
@@ -426,8 +429,8 @@ export async function passVersion(env: Env, version: Version, why: string, actor
 /** Keep the live version plus the last few approved ones for rolling back; delete older approved versions. */
 export async function pruneVersions(env: Env, gameId: string): Promise<void> {
   const game = await gameById(env.DB, gameId);
-  const { results } = await env.DB.prepare("SELECT * FROM versions WHERE game_id = ? AND scan_status = 'approved' ORDER BY created_at DESC").bind(gameId).all<Version>();
-  const old = results.filter((v) => v.id !== game?.current_version_id).slice(KEEP_VERSIONS);
+  const { results } = await env.DB.prepare("SELECT * FROM versions WHERE game_id = ? AND scan_status = 'approved' ORDER BY created_at_ms DESC").bind(gameId).all<Version>();
+  const old = results.filter((v) => v.id !== game?.live_version_id).slice(KEPT_VERSION_COUNT);
   for (const v of old) await deleteVersion(env, v);
 }
 

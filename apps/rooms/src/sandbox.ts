@@ -4,7 +4,7 @@ import type { Env } from "./index.ts";
 
 /**
  * Developers' own game servers, run in a Dynamic Worker: a sealed sandbox with no internet, no
- * bindings and a CPU limit. A game opts in with game_server "sandbox" and its game server in its
+ * bindings and a CPU limit. A game opts in with multiplayer_mode "own" and its game server in its
  * upload: a zaisma-server/ folder (index.js, importing the folder's other .js files by relative
  * path) or one zaisma-server.js. ES modules whose default export is the game server.
  *

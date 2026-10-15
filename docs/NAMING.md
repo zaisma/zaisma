@@ -1,10 +1,10 @@
 # Naming
 
-How names, values, inputs, examples, errors and next steps work everywhere an AI or a developer reads or writes Zaisma: the developer API, the developer and admin MCPs, the SDK, the game server API, and the docs and examples that show them. It's the working half of "Nothing for an AI to guess" in `docs/DECISIONS.md`.
+How names, values, inputs, examples, errors and next steps work everywhere an AI or a developer reads or writes Zaisma: the developer API, the developer and admin MCPs, the SDK, the game server API, the docs and examples that show them, and Zaisma's own code (database columns, types, functions and variables). It's the working half of "Nothing for an AI to guess" in `docs/DECISIONS.md`. The inside uses the same names as the outside, so nothing needs translating between them.
 
 Why: an AI reading `files: 12`, `dt` or `created_at: 1792012345678` has to stop and work out what it means, and sometimes gets it wrong. Every guess costs tokens and some cost a wrong call. A name that says what it holds, what kind of value and in what unit lets the AI predict the right value and the right next call straight away.
 
-The existing API, MCPs, SDK and game server are moving to these names in one clean change (old names stop working). Until that lands, everything new follows this guide. Examples in this guide show the pattern; the glossary at the end lists the names that exist.
+The existing API, MCPs, SDK, game server and Zaisma's own code are moving to these names area by area, each a clean change (old names stop working). Until each lands, everything new follows this guide. The messages between the SDK and rooms move too: `type` and `data`, not `t` and `d` (rooms are billed per message, never by its size). Examples in this guide show the pattern; the glossary at the end lists the names that exist.
 
 ## The shape of a name
 
@@ -62,7 +62,7 @@ A length of time says so in its name. `duration` is the default; four words say 
 
 ## Rules
 
-1. **Whole words.** The only short forms are the units above, `id`/`ids`, `url` and `sha256`. Not `dt`, `dx`, `msg`, `opts`, `pos`, `t`, `num`, `max`, `min`, `cfg`.
+1. **Whole words.** The only short forms are the units above, `id`/`ids`, `url` and `sha256`, plus `i` for a loop index in code. Not `dt`, `dx`, `msg`, `opts`, `pos`, `t`, `num`, `max`, `min`, `cfg`, `res`, `err`, `e`.
 2. **Minimum and maximum are spelled out**, as the first word: `minimum_player_count`, `maximum_player_count`. `_min` at the end always means minutes.
 3. **Vague nouns get a subject.** `data`, `info`, `value`, `result` and `context` never stand alone: `join_data`, `failure_context`.
 4. **One type and one unit per field.** No "a number or false", no "a string or a number". A setting with modes is a choice plus a separate number: `idle_check: "server" | "client" | "off"` and `idle_timeout_sec: 600`, not `idleAfter: 600 | false | "client"`.
@@ -85,6 +85,18 @@ Good and not:
 | `maximum_player_count: 8` | `max: 8` | `max` of what, and `min` clashes with minutes |
 | `returned_pct: 42` | `percent: 42` | Percent of what |
 | `vote_count` and `affected_developer_count` | `count`, meaning one or the other by kind | One name, one meaning |
+
+## Zaisma's own code
+
+The same rules hold inside, with these on top. `test/node/naming.test.ts` checks identifiers, type fields and the database columns the migrations make.
+
+- **Same words, two styles.** Database rows and API data are snake_case (`review_status`, `size_bytes`); variables, functions and types are camelCase or PascalCase (`reviewStatus`, `sizeBytes`). Never mix them in one shape: a stored JSON object is snake_case all the way down.
+- **Columns take the API's names**, so the API passes data through instead of renaming it: `games.review_status`, `versions.patch_notes`, `game_images.width_px`. When the API shows something differently (an ISO time, a list made from text), only the value's form changes, never its name.
+- **Stored times are `<event>_at_ms`**: epoch milliseconds, in columns and in variables (`createdAtMs`). `_at` always means an ISO string. `iso()` (`packages/core/src/time.ts`) is the only conversion between them.
+- **Yes/no columns are named like booleans** (`cloud_saves_enabled`, `is_listed`), even though D1 stores them as 0 or 1. Every other number column ends in `_count`, a unit, `_ms` or `_per_<unit>`.
+- **Whole words everywhere**, callback parameters included: `games.map((game) => …)`, `catch (error)`, `(first, second) => …` in a sort. `i` is the one short name, for a loop index.
+- **Names the platform sets keep its spelling**: Worker bindings and secrets in `Env` (`DB`, `GAMES`), `env` and `ctx` in Worker handlers, and Web and Cloudflare API fields (`httpMetadata`, `etag`). Our own variables holding them still get whole words (`response`, not `res`).
+- **Old names are paid down area by area.** `test/naming-baseline.json` lists the names not yet moved over, per file and per table. The check fails on any new one, and on any listed one that's gone, so the list only ever shrinks: fix a name, then run `npm run naming:baseline` to update it.
 
 ## IDs
 
@@ -174,7 +186,6 @@ Every call that changes something answers with `next_steps`: the calls that usua
 
 Deliberate, and only these:
 
-- **The message format between the SDK and rooms** (`{ "t": "welcome", … }`) keeps its short keys: the SDK and the game server runner read and write it, never developers or their AI.
 - **Standard formats keep their own names**: HTTP headers, JSON-RPC and MCP fields (`inputSchema`, `isError`, `structuredContent`) and JSON Schema keywords (`maxLength`).
 - **API keys** keep `zsk_`.
 

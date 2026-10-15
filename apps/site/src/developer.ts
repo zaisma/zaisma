@@ -1,7 +1,7 @@
 import {
   IMAGE_LIMITS,
   isSquare,
-  MAX_GAMES_PER_OWNER,
+  MAXIMUM_GAME_COUNT_PER_OWNER,
   accountById,
   accountForApiKey,
   addImage,
@@ -15,10 +15,12 @@ import {
   imageById,
   imageKey,
   heldImageKey,
+  iso,
   KNOWN_IMAGE_RULE,
   imagesForGame,
   newId,
   personOwner,
+  readPlayModes,
   slugify,
   sniffImage,
   versionsForGame,
@@ -33,7 +35,6 @@ import {
   createVersion,
   forbiddenContent,
   manifestKey,
-  multiplayerOf,
   serverModules,
   type Manifest,
   missingBlobs,
@@ -47,14 +48,11 @@ import {
   type UploadFile,
   type Version,
   REPORT_REASONS,
-  SANDBOX_GAME_SERVER,
-  MAX_TESTER_LINKS,
+  MAXIMUM_TESTER_LINK_COUNT,
   addTesterLink,
   revokeTesterLink,
   testerLinks,
   type TesterLink,
-  readPlayers,
-  playModesOf,
   type ReportReason,
   FREE_PLAYER_HOURS,
   monthPlayerSeconds,
@@ -70,11 +68,13 @@ import { KNOWN_IMAGE_ALERT, imageMatcher, pruneVersions } from "./scan.ts";
 /**
  * The developer API: one API for the MCP, the upload command and the dashboard, so they always agree.
  * Callers sign in with an API key (Authorization: Bearer zsk_…) or, from our own pages, the session cookie.
+ * Rows are stored with the names the API shows (docs/NAMING.md), so answers pass them through and only
+ * change a value's form: times become ISO, 0 and 1 become false and true, stored JSON becomes objects.
  *
  *   GET    /api/dev/games                      your games
  *   POST   /api/dev/games                      make a game (starts as a draft)
- *   GET    /api/dev/games/:slug                one game, with its images and versions
- *   PATCH  /api/dev/games/:slug                title, description, visibility, devices, controls, screen, players, cloud_saves, room_browsing, multiplayer
+ *   GET    /api/dev/games/:slug                one game, with its images, versions and tester links
+ *   PATCH  /api/dev/games/:slug                title, description, visibility, devices, controls, screen_orientation, play_modes, cloud_saves_enabled, room_browsing, multiplayer_mode
  *   POST   /api/dev/games/:slug/images?kind=   add a cover or screenshot (the image bytes as the body)
  *   DELETE /api/dev/games/:slug/images/:id     remove one
  *   POST   /api/dev/games/:slug/uploads        which of these files still need sending
@@ -107,9 +107,10 @@ export interface Caller {
   client?: string;
 }
 
+/** A refusal with its HTTP status, a stable code and a message for whoever called. */
 export class ApiError extends Error {
   constructor(
-    readonly status: number,
+    readonly httpStatus: number,
     readonly code: string,
     message: string,
   ) {
@@ -117,10 +118,10 @@ export class ApiError extends Error {
   }
 }
 
-const json = (data: unknown, status = 200, cookies: string[] = []) => {
-  const res = Response.json(data, { status, headers: { "Cache-Control": "no-store" } });
-  for (const c of cookies) res.headers.append("Set-Cookie", c);
-  return res;
+const json = (body: unknown, httpStatus = 200, cookies: string[] = []) => {
+  const response = Response.json(body, { status: httpStatus, headers: { "Cache-Control": "no-store" } });
+  for (const cookie of cookies) response.headers.append("Set-Cookie", cookie);
+  return response;
 };
 
 export async function handleDeveloper(request: Request, env: Env, path: string): Promise<Response | null> {
@@ -129,9 +130,9 @@ export async function handleDeveloper(request: Request, env: Env, path: string):
   try {
     const caller = await authenticate(request, env);
     return await route(request, env, path.slice("/api/dev".length) || "/", caller);
-  } catch (err) {
-    if (err instanceof ApiError) return json({ error: { code: err.code, message: err.message } }, err.status);
-    throw err;
+  } catch (error) {
+    if (error instanceof ApiError) return json({ error: { code: error.code, message: error.message } }, error.httpStatus);
+    throw error;
   }
 }
 
@@ -152,8 +153,8 @@ export async function authenticate(request: Request, env: Env): Promise<Caller> 
     cookies = session.cookies;
   }
   // Sending a game's files is many small requests, so it has its own, bigger allowance.
-  const limit = new URL(request.url).pathname.startsWith("/api/dev/files/") ? env.FILE_LIMIT : env.DEV_LIMIT;
-  if (limit && !(await limit.limit({ key: accountId })).success) throw new ApiError(429, "slow_down", "Too many requests. Wait a minute and try again.");
+  const rateLimit = new URL(request.url).pathname.startsWith("/api/dev/files/") ? env.FILE_LIMIT : env.DEV_LIMIT;
+  if (rateLimit && !(await rateLimit.limit({ key: accountId })).success) throw new ApiError(429, "slow_down", "Too many requests. Wait a minute and try again.");
   const caller = await callerFor(env, accountId, cookies);
   if (!caller) throw new ApiError(401, "no_account", "Finish making your account first.");
   if (header) caller.via = "api";
@@ -174,37 +175,37 @@ export async function callerFor(env: Env, accountId: string, cookies: string[] =
  * refusals throw ApiError with the same codes and messages API callers get.
  */
 export async function apiCall(env: Env, caller: Caller, method: string, path: string, payload?: unknown): Promise<Record<string, unknown>> {
-  const raw = payload instanceof Uint8Array;
-  const data = raw ? payload : payload === undefined ? undefined : new TextEncoder().encode(JSON.stringify(payload));
-  const req = new Request(`${env.SITE_ORIGIN}/api/dev${path}`, {
+  const isRaw = payload instanceof Uint8Array;
+  const body = isRaw ? payload : payload === undefined ? undefined : new TextEncoder().encode(JSON.stringify(payload));
+  const request = new Request(`${env.SITE_ORIGIN}/api/dev${path}`, {
     method,
-    headers: { ...(data ? { "content-length": String(data.byteLength) } : {}), ...(data && !raw ? { "content-type": "application/json" } : {}) },
-    body: data,
+    headers: { ...(body ? { "content-length": String(body.byteLength) } : {}), ...(body && !isRaw ? { "content-type": "application/json" } : {}) },
+    body,
   });
-  const res = await route(req, env, path.split("?")[0]!, caller);
-  return (await res.json()) as Record<string, unknown>;
+  const response = await route(request, env, path.split("?")[0]!, caller);
+  return (await response.json()) as Record<string, unknown>;
 }
 
 export async function route(request: Request, env: Env, path: string, caller: Caller): Promise<Response> {
   const method = request.method;
-  const ok = (data: unknown, status = 200) => json(data, status, caller.cookies);
+  const answer = (body: unknown, httpStatus = 200) => json(body, httpStatus, caller.cookies);
 
   if (path === "/games" && method === "GET") {
-    const [{ results }, news] = await Promise.all([
-      env.DB.prepare("SELECT * FROM games WHERE owner_id = ? ORDER BY updated_at DESC").bind(caller.ownerId).all<Game>(),
-      env.DB.prepare("SELECT COUNT(*) AS n FROM feedback WHERE account_id = ? AND news_at > COALESCE(seen_at, 0)").bind(caller.accountId).first<{ n: number }>(),
+    const [{ results: games }, unread] = await Promise.all([
+      env.DB.prepare("SELECT * FROM games WHERE owner_id = ? ORDER BY updated_at_ms DESC").bind(caller.ownerId).all<Game>(),
+      env.DB.prepare("SELECT COUNT(*) AS topic_count FROM feedback WHERE account_id = ? AND news_at > COALESCE(seen_at, 0)").bind(caller.accountId).first<{ topic_count: number }>(),
     ]);
     // Your forum topics with a reply or change from Zaisma you haven't opened yet.
-    return ok({ games: results.map((g) => gameJson(env, g)), unread_topic_count: news?.n ?? 0 });
+    return answer({ games: games.map((game) => gameJson(env, game)), unread_topic_count: unread?.topic_count ?? 0 });
   }
 
   if (path === "/feedback" || path.startsWith("/feedback/")) {
-    const out = await feedbackRoute(request, env, path, caller);
-    return out instanceof Response ? out : ok(...out);
+    const routed = await feedbackRoute(request, env, path, caller);
+    return routed instanceof Response ? routed : answer(...routed);
   }
   if (path === "/forum" || path.startsWith("/forum/")) {
-    const out = await forumRoute(request, env, path, caller);
-    return out instanceof Response ? out : ok(...out);
+    const routed = await forumRoute(request, env, path, caller);
+    return routed instanceof Response ? routed : answer(...routed);
   }
 
   if (path === "/games" && method === "POST") {
@@ -215,134 +216,134 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     const slugError = checkSlug(slug);
     if (slugError) throw new ApiError(400, "bad_slug", `Link name: ${slugError}`);
     if (await gameBySlug(env.DB, slug)) throw new ApiError(409, "slug_taken", `zaisma.com/g/${slug} is taken. Pick another link name.`);
-    const count = await env.DB.prepare("SELECT COUNT(*) AS n FROM games WHERE owner_id = ?").bind(caller.ownerId).first<{ n: number }>();
-    if ((count?.n ?? 0) >= MAX_GAMES_PER_OWNER) throw new ApiError(403, "too_many_games", `You can have up to ${MAX_GAMES_PER_OWNER} games. Ask us if you need more.`);
+    const owned = await env.DB.prepare("SELECT COUNT(*) AS game_count FROM games WHERE owner_id = ?").bind(caller.ownerId).first<{ game_count: number }>();
+    if ((owned?.game_count ?? 0) >= MAXIMUM_GAME_COUNT_PER_OWNER) throw new ApiError(403, "too_many_games", `You can have up to ${MAXIMUM_GAME_COUNT_PER_OWNER} games. Ask us if you need more.`);
     const checked = checkDetails({ ...body, title });
     if ("error" in checked) throw new ApiError(400, "bad_details", checked.error);
     let game = await createGame(env.DB, { slug, title, description: checked.change.description ?? "", ownerId: caller.ownerId, visibility: "draft" });
     await applyDetails(env.DB, game, { ...checked.change, title: undefined, description: undefined });
     game = (await gameBySlug(env.DB, slug))!;
     await audit(env.DB, game.id, "created", "Made through the developer API", caller.actor);
-    return ok({ game: gameJson(env, game) }, 201);
+    return answer({ game: gameJson(env, game) }, 201);
   }
 
   // One file of a game, by its SHA-256. Storage checks the hash, so a file can't claim to be another.
-  const blob = path.match(/^\/files\/([0-9a-f]{64})$/);
-  if (blob && method === "PUT") return ok(await putBlob(request, env, blob[1]!));
-  const parts = path.match(/^\/files\/([0-9a-f]{64})\/parts(?:\/(\d{1,5}|done))?$/);
-  if (parts) return ok(await bigFile(request, env, parts[1]!, parts[2], caller));
+  const blobPath = path.match(/^\/files\/([0-9a-f]{64})$/);
+  if (blobPath && method === "PUT") return answer(await putBlob(request, env, blobPath[1]!));
+  const partsPath = path.match(/^\/files\/([0-9a-f]{64})\/parts(?:\/(\d{1,5}|done))?$/);
+  if (partsPath) return answer(await bigFile(request, env, partsPath[1]!, partsPath[2], caller));
 
-  const v = path.match(/^\/games\/([a-z0-9-]+)\/(uploads|versions)(?:\/([a-z0-9]+)(\/publish)?)?$/);
-  if (v) return ok(...(await versionRoute(request, env, await ownGame(env, v[1]!, caller), v[2]!, v[3], Boolean(v[4]), caller)));
+  const versionPath = path.match(/^\/games\/([a-z0-9-]+)\/(uploads|versions)(?:\/([a-z0-9]+)(\/publish)?)?$/);
+  if (versionPath) return answer(...(await versionRoute(request, env, await ownGame(env, versionPath[1]!, caller), versionPath[2]!, versionPath[3], Boolean(versionPath[4]), caller)));
 
-  const facts = path.match(/^\/games\/([a-z0-9-]+)\/(reports|stats|history)$/);
-  if (facts && method === "GET") {
-    const game = await ownGame(env, facts[1]!, caller);
+  const factsPath = path.match(/^\/games\/([a-z0-9-]+)\/(reports|stats|history)$/);
+  if (factsPath && method === "GET") {
+    const game = await ownGame(env, factsPath[1]!, caller);
     const query = new URL(request.url).searchParams;
-    if (facts[2] === "reports") return ok(await reportsFor(env, game, query.get("cursor")));
-    if (facts[2] === "stats") return ok(await statsFor(env, game, Number(query.get("period_duration_days") ?? 30)));
-    return ok(await historyFor(env, game, caller));
+    if (factsPath[2] === "reports") return answer(await reportsFor(env, game, query.get("cursor")));
+    if (factsPath[2] === "stats") return answer(await statsFor(env, game, Number(query.get("period_duration_days") ?? 30)));
+    return answer(await historyFor(env, game, caller));
   }
 
-  const t = path.match(/^\/games\/([a-z0-9-]+)\/testers(?:\/([a-z0-9]+))?$/);
-  if (t) return ok(...(await testerRoute(request, env, await ownGame(env, t[1]!, caller), t[2], caller)));
+  const testerPath = path.match(/^\/games\/([a-z0-9-]+)\/testers(?:\/([a-z0-9]+))?$/);
+  if (testerPath) return answer(...(await testerRoute(request, env, await ownGame(env, testerPath[1]!, caller), testerPath[2], caller)));
 
-  const m = path.match(/^\/games\/([a-z0-9-]+)(?:\/images(?:\/([a-z0-9]+))?)?$/);
-  if (!m) throw new ApiError(404, "not_found", "No such API path.");
-  const game = await ownGame(env, m[1]!, caller);
-  const images = path.includes("/images");
+  const gamePath = path.match(/^\/games\/([a-z0-9-]+)(?:\/images(?:\/([a-z0-9]+))?)?$/);
+  if (!gamePath) throw new ApiError(404, "not_found", "No such API path.");
+  const game = await ownGame(env, gamePath[1]!, caller);
+  const isImages = path.includes("/images");
 
-  if (!images && method === "GET") {
-    const [imgs, versions, testers] = await Promise.all([imagesForGame(env.DB, game.id), versionsForGame(env.DB, game.id), testerLinks(env.DB, game.id)]);
-    return ok({
+  if (!isImages && method === "GET") {
+    const [images, versions, testers] = await Promise.all([imagesForGame(env.DB, game.id), versionsForGame(env.DB, game.id), testerLinks(env.DB, game.id)]);
+    return answer({
       game: gameJson(env, game),
-      images: imgs.map((i) => imageJson(env, i)),
-      versions: versions.map((v) => versionJson(env, game, v)),
-      testers: testers.map((l) => testerJson(env, l)),
+      images: images.map((image) => imageJson(env, image)),
+      versions: versions.map((version) => versionJson(env, game, version)),
+      testers: testers.map((link) => testerJson(env, link)),
     });
   }
 
-  if (!images && method === "PATCH") {
+  if (!isImages && method === "PATCH") {
     const checked = checkDetails(await readJson(request));
     if ("error" in checked) throw new ApiError(400, "bad_details", checked.error);
-    if (game.status === "removed" && checked.change.visibility) throw new ApiError(403, "removed", "This game was taken down, so its visibility can't change.");
-    const { multiplayer, ...details } = checked.change;
-    const changesMultiplayer = multiplayer !== undefined && multiplayer !== multiplayerOf(game.game_server);
-    if (changesMultiplayer && multiplayerOf(game.game_server) === "built-in") {
+    if (game.review_status === "removed" && checked.change.visibility) throw new ApiError(403, "removed", "This game was taken down, so its visibility can't change.");
+    const { multiplayer_mode: multiplayerMode, ...details } = checked.change;
+    const changesMultiplayer = multiplayerMode !== undefined && multiplayerMode !== game.multiplayer_mode;
+    if (changesMultiplayer && game.multiplayer_mode === "built-in") {
       throw new ApiError(403, "built_in_server", "This game runs a game server built into Zaisma; ask us to change its multiplayer.");
     }
-    const { waiting } = await applyDetails(env.DB, game, { ...details, ...(changesMultiplayer ? { multiplayer } : {}) });
-    if (Object.keys(details).length) await audit(env.DB, game.id, "details", Object.keys(details).join(", ") + (waiting ? " (words waiting for review)" : ""), caller.actor);
-    if (changesMultiplayer) await audit(env.DB, game.id, "multiplayer", `Multiplayer: ${multiplayer}`, caller.actor);
-    const problem = multiplayer === "own" ? await liveServerProblem(env, game) : null;
-    return ok({
+    const { isWaitingForReview } = await applyDetails(env.DB, game, { ...details, ...(changesMultiplayer ? { multiplayer_mode: multiplayerMode } : {}) });
+    if (Object.keys(details).length) await audit(env.DB, game.id, "details", Object.keys(details).join(", ") + (isWaitingForReview ? " (words waiting for review)" : ""), caller.actor);
+    if (changesMultiplayer) await audit(env.DB, game.id, "multiplayer", `Multiplayer: ${multiplayerMode}`, caller.actor);
+    const gameServerProblem = multiplayerMode === "own" ? await liveServerProblem(env, game) : null;
+    return answer({
       game: gameJson(env, (await gameBySlug(env.DB, game.slug))!),
-      review_message: waiting ? "The new title or description shows once it's reviewed." : null,
-      game_server_problem: problem,
+      review_message: isWaitingForReview ? "The new title or description shows once it's reviewed." : null,
+      game_server_problem: gameServerProblem,
     });
   }
 
-  if (images && !m[2] && method === "POST") {
+  if (isImages && !gamePath[2] && method === "POST") {
     const kind = new URL(request.url).searchParams.get("kind") as ImageKind;
     if (kind !== "cover" && kind !== "square" && kind !== "screenshot") throw new ApiError(400, "bad_kind", "Add ?kind=cover, ?kind=square or ?kind=screenshot.");
-    const length = Number(request.headers.get("content-length") ?? 0);
-    if (length > IMAGE_LIMITS.bytes) throw new ApiError(413, "image_too_big", "Images can be up to 5 MB.");
+    const declaredSizeBytes = Number(request.headers.get("content-length") ?? 0);
+    if (declaredSizeBytes > IMAGE_LIMITS.maximumSizeBytes) throw new ApiError(413, "image_too_big", "Images can be up to 5 MB.");
     const bytes = new Uint8Array(await request.arrayBuffer());
-    if (bytes.byteLength > IMAGE_LIMITS.bytes) throw new ApiError(413, "image_too_big", "Images can be up to 5 MB.");
-    const kindOf = sniffImage(bytes);
-    if (!kindOf) throw new ApiError(415, "not_an_image", "Send a PNG, JPEG or WebP image as the request body.");
-    const { width, height } = kindOf;
-    if (Math.min(width, height) < IMAGE_LIMITS.minSide || Math.max(width, height) > IMAGE_LIMITS.maxSide) {
-      throw new ApiError(400, "bad_size", `Images need to be at least ${IMAGE_LIMITS.minSide} px on each side and at most ${IMAGE_LIMITS.maxSide} px.`);
+    if (bytes.byteLength > IMAGE_LIMITS.maximumSizeBytes) throw new ApiError(413, "image_too_big", "Images can be up to 5 MB.");
+    const sniffed = sniffImage(bytes);
+    if (!sniffed) throw new ApiError(415, "not_an_image", "Send a PNG, JPEG or WebP image as the request body.");
+    const { widthPx, heightPx } = sniffed;
+    if (Math.min(widthPx, heightPx) < IMAGE_LIMITS.minimumSidePx || Math.max(widthPx, heightPx) > IMAGE_LIMITS.maximumSidePx) {
+      throw new ApiError(400, "bad_size", `Images need to be at least ${IMAGE_LIMITS.minimumSidePx} px on each side and at most ${IMAGE_LIMITS.maximumSidePx} px.`);
     }
-    if (kind === "square" && (!isSquare(width, height) || width < IMAGE_LIMITS.squareMinSide)) {
-      throw new ApiError(400, "not_square", `A square cover needs to be as wide as it is tall, at least ${IMAGE_LIMITS.squareMinSide} px.`);
+    if (kind === "square" && (!isSquare(widthPx, heightPx) || widthPx < IMAGE_LIMITS.minimumSquareSidePx)) {
+      throw new ApiError(400, "not_square", `A square cover needs to be as wide as it is tall, at least ${IMAGE_LIMITS.minimumSquareSidePx} px.`);
     }
     // Matched against known abuse material before anyone sees it. A match is kept for reporting, never shown.
     // If matching fails, the picture waits for a person as usual.
-    const matched = await imageMatcher(env).check([{ path: `${kind} image`, type: kindOf.type, id: "upload", body: async () => bytes }]);
-    if (matched.findings.some((f) => f.rule === KNOWN_IMAGE_RULE)) {
+    const matched = await imageMatcher(env).check([{ path: `${kind} image`, type: sniffed.type, id: "upload", body: async () => bytes }]);
+    if (matched.findings.some((finding) => finding.rule === KNOWN_IMAGE_RULE)) {
       const id = newId();
-      await env.GAMES.put(heldImageKey(game.id, id), bytes, { httpMetadata: { contentType: kindOf.type } });
+      await env.GAMES.put(heldImageKey(game.id, id), bytes, { httpMetadata: { contentType: sniffed.type } });
       await audit(env.DB, game.id, "image-held", `A ${kind} upload matched known abuse material. Kept at ${heldImageKey(game.id, id)}; never shown.`, caller.actor);
       await sendAlert(env, `URGENT: known abuse image uploaded to ${game.slug}`, `${KNOWN_IMAGE_ALERT}\n\nA ${kind} upload, kept at ${heldImageKey(game.id, id)} in the games bucket.\n\nGame: ${env.SITE_ORIGIN}/admin/games/${game.id}`);
       throw new ApiError(422, "image_refused", "This image can't be used.");
     }
     const existing = await imagesForGame(env.DB, game.id);
-    const waiting = existing.filter((i) => i.kind === kind && i.status === "pending");
-    if (kind === "screenshot" && existing.filter((i) => i.kind === "screenshot" && i.status !== "rejected").length >= IMAGE_LIMITS.screenshots) {
-      throw new ApiError(400, "too_many_screenshots", `A game can have ${IMAGE_LIMITS.screenshots} screenshots. Remove one first.`);
+    const waitingImages = existing.filter((image) => image.kind === kind && image.review_status === "pending");
+    if (kind === "screenshot" && existing.filter((image) => image.kind === "screenshot" && image.review_status !== "rejected").length >= IMAGE_LIMITS.maximumScreenshotCount) {
+      throw new ApiError(400, "too_many_screenshots", `A game can have ${IMAGE_LIMITS.maximumScreenshotCount} screenshots. Remove one first.`);
     }
-    if (kind !== "screenshot" && waiting.length) {
+    if (kind !== "screenshot" && waitingImages.length) {
       // Only the newest cover of each kind waits for review.
-      for (const old of waiting) {
+      for (const old of waitingImages) {
         await env.GAMES.delete(imageKey(old));
         await deleteImageRow(env.DB, old.id);
       }
     }
     const id = newId();
-    await env.GAMES.put(imageKey({ game_id: game.id, id }), bytes, { httpMetadata: { contentType: kindOf.type } });
-    const img = await addImage(env.DB, { id, game_id: game.id, kind, content_type: kindOf.type, width, height, bytes: bytes.byteLength });
+    await env.GAMES.put(imageKey({ game_id: game.id, id }), bytes, { httpMetadata: { contentType: sniffed.type } });
+    const image = await addImage(env.DB, { id, game_id: game.id, kind, content_type: sniffed.type, width_px: widthPx, height_px: heightPx, size_bytes: bytes.byteLength });
     await audit(env.DB, game.id, "image-added", `${kind} ${id}`, caller.actor);
-    return ok({ image: imageJson(env, img), review_message: "It shows on the game page once it's reviewed." }, 201);
+    return answer({ image: imageJson(env, image), review_message: "It shows on the game page once it's reviewed." }, 201);
   }
 
-  if (images && m[2] && method === "DELETE") {
-    const img = await imageById(env.DB, m[2]);
-    if (!img || img.game_id !== game.id) throw new ApiError(404, "no_image", "This game has no image with that ID.");
-    await env.GAMES.delete(imageKey(img));
-    await deleteImageRow(env.DB, img.id);
-    await audit(env.DB, game.id, "image-removed", `${img.kind} ${img.id}`, caller.actor);
-    return ok({ removed_image_id: img.id });
+  if (isImages && gamePath[2] && method === "DELETE") {
+    const image = await imageById(env.DB, gamePath[2]);
+    if (!image || image.game_id !== game.id) throw new ApiError(404, "no_image", "This game has no image with that ID.");
+    await env.GAMES.delete(imageKey(image));
+    await deleteImageRow(env.DB, image.id);
+    await audit(env.DB, game.id, "image-removed", `${image.kind} ${image.id}`, caller.actor);
+    return answer({ removed_image_id: image.id });
   }
 
   throw new ApiError(405, "bad_method", `${method} isn't used here.`);
 }
 
 async function putBlob(request: Request, env: Env, sha256: string): Promise<unknown> {
-  const length = Number(request.headers.get("content-length") ?? -1);
-  if (!Number.isSafeInteger(length) || length < 0) throw new ApiError(411, "no_length", "Send the file with a Content-Length header.");
-  if (length > FILE_LIMITS.directBytes) throw new ApiError(413, "file_too_big", `Send files over ${FILE_LIMITS.directBytes / 1048576} MB in parts: POST /api/dev/files/<sha256>/parts.`);
+  const sizeBytes = Number(request.headers.get("content-length") ?? -1);
+  if (!Number.isSafeInteger(sizeBytes) || sizeBytes < 0) throw new ApiError(411, "no_length", "Send the file with a Content-Length header.");
+  if (sizeBytes > FILE_LIMITS.maximumDirectSizeBytes) throw new ApiError(413, "file_too_big", `Send files over ${FILE_LIMITS.maximumDirectSizeBytes / 1048576} MB in parts: POST /api/dev/files/<sha256>/parts.`);
   if ((await missingBlobs(env.DB, [sha256])).length === 0) {
     await request.body?.cancel();
     return { sha256, storage_status: "already_stored" };
@@ -354,13 +355,13 @@ async function putBlob(request: Request, env: Env, sha256: string): Promise<unkn
     throw new ApiError(400, "hash_mismatch", "The file doesn't match its SHA-256. Hash the file again and resend it.");
   }
   // Programs and archives aren't allowed in games, whatever they're called.
-  const head = await env.GAMES.get(blobKey(sha256), { range: { offset: 0, length: 16 } });
-  const bad = head ? forbiddenContent(new Uint8Array(await head.arrayBuffer())) : null;
-  if (bad) {
+  const start = await env.GAMES.get(blobKey(sha256), { range: { offset: 0, length: 16 } });
+  const forbidden = start ? forbiddenContent(new Uint8Array(await start.arrayBuffer())) : null;
+  if (forbidden) {
     await env.GAMES.delete(blobKey(sha256));
-    throw new ApiError(400, "forbidden_file", `That file looks like ${bad}, which isn't allowed in games.`);
+    throw new ApiError(400, "forbidden_file", `That file looks like ${forbidden}, which isn't allowed in games.`);
   }
-  await addBlob(env.DB, sha256, length);
+  await addBlob(env.DB, sha256, sizeBytes);
   return { sha256, storage_status: "stored_now" };
 }
 
@@ -375,21 +376,21 @@ async function putBlob(request: Request, env: Env, sha256: string): Promise<unkn
 async function bigFile(request: Request, env: Env, sha256: string, step: string | undefined, caller: Caller): Promise<unknown> {
   const key = ownedBlobKey(caller.ownerId, sha256);
   if (!step && request.method === "POST") {
-    const bytes = (await readJson(request)).size_bytes;
-    if (!Number.isSafeInteger(bytes) || (bytes as number) <= 0) throw new ApiError(400, "bad_size", 'Send { "size_bytes": <the file\'s size> }.');
-    if ((bytes as number) > FILE_LIMITS.fileBytes) throw new ApiError(413, "file_too_big", `Files can be up to ${FILE_LIMITS.fileBytes / 1048576} MB.`);
+    const sizeBytes = (await readJson(request)).size_bytes;
+    if (!Number.isSafeInteger(sizeBytes) || (sizeBytes as number) <= 0) throw new ApiError(400, "bad_size", 'Send { "size_bytes": <the file\'s size> }.');
+    if ((sizeBytes as number) > FILE_LIMITS.maximumFileSizeBytes) throw new ApiError(413, "file_too_big", `Files can be up to ${FILE_LIMITS.maximumFileSizeBytes / 1048576} MB.`);
     if ((await missingBlobs(env.DB, [sha256], caller.ownerId)).length === 0) return { sha256, storage_status: "already_stored", upload_id: null, part_size_bytes: null, part_count: null };
     const upload = await env.GAMES.createMultipartUpload(key);
-    return { sha256, storage_status: "upload_started", upload_id: upload.uploadId, part_size_bytes: FILE_LIMITS.partBytes, part_count: Math.ceil((bytes as number) / FILE_LIMITS.partBytes) };
+    return { sha256, storage_status: "upload_started", upload_id: upload.uploadId, part_size_bytes: FILE_LIMITS.partSizeBytes, part_count: Math.ceil((sizeBytes as number) / FILE_LIMITS.partSizeBytes) };
   }
   if (step && step !== "done" && request.method === "PUT") {
-    const n = Number(step);
+    const partNumber = Number(step);
     const uploadId = new URL(request.url).searchParams.get("upload_id") ?? "";
-    const length = Number(request.headers.get("content-length") ?? -1);
-    if (n < 1 || n > 10_000 || !uploadId) throw new ApiError(400, "bad_part", "Send parts numbered from 1, with ?upload_id=<the upload_id>.");
-    if (!(length > 0 && length <= FILE_LIMITS.partBytes) || !request.body) throw new ApiError(400, "bad_part", `Each part is up to ${FILE_LIMITS.partBytes / 1048576} MB, with a Content-Length header.`);
+    const sizeBytes = Number(request.headers.get("content-length") ?? -1);
+    if (partNumber < 1 || partNumber > 10_000 || !uploadId) throw new ApiError(400, "bad_part", "Send parts numbered from 1, with ?upload_id=<the upload_id>.");
+    if (!(sizeBytes > 0 && sizeBytes <= FILE_LIMITS.partSizeBytes) || !request.body) throw new ApiError(400, "bad_part", `Each part is up to ${FILE_LIMITS.partSizeBytes / 1048576} MB, with a Content-Length header.`);
     try {
-      const part = await env.GAMES.resumeMultipartUpload(key, uploadId).uploadPart(n, request.body);
+      const part = await env.GAMES.resumeMultipartUpload(key, uploadId).uploadPart(partNumber, request.body);
       return { part_number: part.partNumber, etag: part.etag };
     } catch {
       throw new ApiError(400, "bad_upload", "That upload isn't open any more. Start again.");
@@ -397,41 +398,41 @@ async function bigFile(request: Request, env: Env, sha256: string, step: string 
   }
   if (step === "done" && request.method === "POST") {
     const body = await readJson(request, 1024 * 1024);
-    const list = Array.isArray(body.parts) ? (body.parts as { part_number?: unknown; etag?: unknown }[]) : [];
-    if (typeof body.upload_id !== "string" || !list.length || !list.every((p) => Number.isInteger(p.part_number) && typeof p.etag === "string")) {
+    const parts = Array.isArray(body.parts) ? (body.parts as { part_number?: unknown; etag?: unknown }[]) : [];
+    if (typeof body.upload_id !== "string" || !parts.length || !parts.every((part) => Number.isInteger(part.part_number) && typeof part.etag === "string")) {
       throw new ApiError(400, "bad_parts", 'Send { "upload_id", "parts": [{ "part_number", "etag" }] }.');
     }
-    let object: R2Object;
+    let stored: R2Object;
     try {
-      object = await env.GAMES.resumeMultipartUpload(key, body.upload_id).complete(list.map((p) => ({ partNumber: p.part_number as number, etag: p.etag as string })));
+      stored = await env.GAMES.resumeMultipartUpload(key, body.upload_id).complete(parts.map((part) => ({ partNumber: part.part_number as number, etag: part.etag as string })));
     } catch {
       throw new ApiError(400, "bad_parts", "Those parts don't make a whole file. Check every part was sent, then try again.");
     }
-    if (object.size > FILE_LIMITS.fileBytes) {
+    if (stored.size > FILE_LIMITS.maximumFileSizeBytes) {
       await env.GAMES.delete(key);
-      throw new ApiError(413, "file_too_big", `Files can be up to ${FILE_LIMITS.fileBytes / 1048576} MB.`);
+      throw new ApiError(413, "file_too_big", `Files can be up to ${FILE_LIMITS.maximumFileSizeBytes / 1048576} MB.`);
     }
-    const head = await env.GAMES.get(key, { range: { offset: 0, length: 16 } });
-    const bad = head ? forbiddenContent(new Uint8Array(await head.arrayBuffer())) : null;
-    if (bad) {
+    const start = await env.GAMES.get(key, { range: { offset: 0, length: 16 } });
+    const forbidden = start ? forbiddenContent(new Uint8Array(await start.arrayBuffer())) : null;
+    if (forbidden) {
       await env.GAMES.delete(key);
-      throw new ApiError(400, "forbidden_file", `That file looks like ${bad}, which isn't allowed in games.`);
+      throw new ApiError(400, "forbidden_file", `That file looks like ${forbidden}, which isn't allowed in games.`);
     }
-    await addOwnedBlob(env.DB, caller.ownerId, sha256, object.size);
-    return { sha256, storage_status: "stored_now", size_bytes: object.size };
+    await addOwnedBlob(env.DB, caller.ownerId, sha256, stored.size);
+    return { sha256, storage_status: "stored_now", size_bytes: stored.size };
   }
   throw new ApiError(405, "bad_method", `${request.method} isn't used here.`);
 }
 
-async function versionRoute(request: Request, env: Env, game: Game, what: string, id: string | undefined, publish: boolean, caller: Caller): Promise<[unknown, number?]> {
+async function versionRoute(request: Request, env: Env, game: Game, what: string, id: string | undefined, isPublish: boolean, caller: Caller): Promise<[unknown, number?]> {
   const method = request.method;
-  if (game.status === "removed" && method !== "GET") throw new ApiError(403, "removed", "This game was taken down, so it can't get new versions.");
+  if (game.review_status === "removed" && method !== "GET") throw new ApiError(403, "removed", "This game was taken down, so it can't get new versions.");
 
   // Step 1: which of these files do you still need to send?
   if (what === "uploads" && !id && method === "POST") {
     const files = listOrThrow((await readJson(request, 4 * 1024 * 1024)).files);
-    const missing = await missingBlobs(env.DB, files.map((f) => f.sha256), caller.ownerId);
-    return [{ file_count: files.length, size_bytes: files.reduce((n, f) => n + f.bytes, 0), missing_file_hashes: missing }];
+    const missing = await missingBlobs(env.DB, files.map((file) => file.sha256), caller.ownerId);
+    return [{ file_count: files.length, size_bytes: files.reduce((totalSizeBytes, file) => totalSizeBytes + file.size_bytes, 0), missing_file_hashes: missing }];
   }
 
   // Step 2: make the version once every file is stored. It's scanned, then waits as a draft.
@@ -439,24 +440,24 @@ async function versionRoute(request: Request, env: Env, game: Game, what: string
     const body = await readJson(request, 4 * 1024 * 1024);
     const files = listOrThrow(body.files);
     if (body.publish_when_approved !== undefined && typeof body.publish_when_approved !== "boolean") throw new ApiError(400, "bad_publish", "publish_when_approved is true or false.");
-    const notes = typeof body.patch_notes === "string" ? body.patch_notes.trim() : "";
-    if (notes.length > FILE_LIMITS.notes) throw new ApiError(400, "notes_too_long", `Patch notes can be up to ${FILE_LIMITS.notes} characters.`);
-    const found = await locateBlobs(env.DB, files.map((f) => f.sha256), caller.ownerId);
-    const missing = files.filter((f) => !found.has(f.sha256)).length;
-    if (missing) throw new ApiError(409, "files_missing", `${missing} file(s) haven't been sent yet. Send them to PUT /api/dev/files/<sha256> first.`);
-    const today = await env.DB.prepare("SELECT COUNT(*) AS n FROM versions WHERE game_id = ? AND created_at > ?").bind(game.id, Date.now() - 86400_000).first<{ n: number }>();
-    if ((today?.n ?? 0) >= FILE_LIMITS.versionsPerDay) throw new ApiError(429, "too_many_versions", `A game can get ${FILE_LIMITS.versionsPerDay} versions a day. Try again tomorrow.`);
+    const patchNotes = typeof body.patch_notes === "string" ? body.patch_notes.trim() : "";
+    if (patchNotes.length > FILE_LIMITS.maximumPatchNotesCharacterCount) throw new ApiError(400, "notes_too_long", `Patch notes can be up to ${FILE_LIMITS.maximumPatchNotesCharacterCount} characters.`);
+    const found = await locateBlobs(env.DB, files.map((file) => file.sha256), caller.ownerId);
+    const missingCount = files.filter((file) => !found.has(file.sha256)).length;
+    if (missingCount) throw new ApiError(409, "files_missing", `${missingCount} file(s) haven't been sent yet. Send them to PUT /api/dev/files/<sha256> first.`);
+    const today = await env.DB.prepare("SELECT COUNT(*) AS version_count FROM versions WHERE game_id = ? AND created_at_ms > ?").bind(game.id, Date.now() - DAY_MS).first<{ version_count: number }>();
+    if ((today?.version_count ?? 0) >= FILE_LIMITS.maximumVersionsPerDay) throw new ApiError(429, "too_many_versions", `A game can get ${FILE_LIMITS.maximumVersionsPerDay} versions a day. Try again tomorrow.`);
     const versionId = newId();
     await env.GAMES.put(manifestKey(versionId), JSON.stringify(toManifest(files, found, caller.ownerId)), { httpMetadata: { contentType: "application/json" } });
     await createVersion(env.DB, {
       id: versionId,
       gameId: game.id,
-      prefix: `manifests/${versionId}`,
-      files: files.length,
-      bytes: files.reduce((n, f) => n + f.bytes, 0),
+      r2Prefix: `manifests/${versionId}`,
+      fileCount: files.length,
+      sizeBytes: files.reduce((totalSizeBytes, file) => totalSizeBytes + file.size_bytes, 0),
       kind: "files",
-      notes,
-      publishWhenApproved: body.publish_when_approved === true,
+      patchNotes,
+      publishWhenApprovedEnabled: body.publish_when_approved === true,
     });
     await audit(env.DB, game.id, "upload", `Version ${versionId}, ${files.length} files`, caller.actor);
     await env.SCAN_QUEUE.send({ versionId });
@@ -466,47 +467,45 @@ async function versionRoute(request: Request, env: Env, game: Game, what: string
   const version = id ? await versionById(env.DB, id) : null;
   if (id && (!version || version.game_id !== game.id)) throw new ApiError(404, "no_version", "This game has no version with that ID.");
 
-  if (version && !publish && method === "GET") return [{ version: versionJson(env, game, version) }];
+  if (version && !isPublish && method === "GET") return [{ version: versionJson(env, game, version) }];
 
   // Publish later: { "scheduled_publish_at": "2026-11-01T17:00:00Z" }. It goes live then if it has passed review.
-  const body = version && publish && method === "POST" ? await readJson(request).catch(() => ({}) as Record<string, unknown>) : {};
-  if (version && publish && method === "POST" && body.scheduled_publish_at !== undefined) {
-    const at = typeof body.scheduled_publish_at === "string" && ISO_TIME.test(body.scheduled_publish_at) ? Date.parse(body.scheduled_publish_at) : NaN;
-    if (!Number.isFinite(at) || at <= Date.now() + 60_000 || at > Date.now() + 90 * 86400_000) {
+  const body = version && isPublish && method === "POST" ? await readJson(request).catch(() => ({}) as Record<string, unknown>) : {};
+  if (version && isPublish && method === "POST" && body.scheduled_publish_at !== undefined) {
+    const scheduledAtMs = typeof body.scheduled_publish_at === "string" && ISO_TIME.test(body.scheduled_publish_at) ? Date.parse(body.scheduled_publish_at) : NaN;
+    if (!Number.isFinite(scheduledAtMs) || scheduledAtMs <= Date.now() + 60_000 || scheduledAtMs > Date.now() + 90 * DAY_MS) {
       throw new ApiError(400, "bad_time", 'Give "scheduled_publish_at" as an ISO time from a few minutes to 90 days from now, like "2026-11-01T17:00:00Z".');
     }
     if (version.scan_status !== "approved" && version.scan_status !== "scanning") throw new ApiError(409, "not_approved", "Only versions that passed review can be published.");
-    await env.DB.prepare("UPDATE versions SET publish_at = ? WHERE id = ?").bind(at, version.id).run();
-    await audit(env.DB, game.id, "publish-scheduled", `Version ${version.id} at ${new Date(at).toISOString()}`, caller.actor);
+    await env.DB.prepare("UPDATE versions SET scheduled_publish_at_ms = ? WHERE id = ?").bind(scheduledAtMs, version.id).run();
+    await audit(env.DB, game.id, "publish-scheduled", `Version ${version.id} at ${iso(scheduledAtMs)}`, caller.actor);
     return [{ game: gameJson(env, game), version: versionJson(env, game, (await versionById(env.DB, version.id))!) }];
   }
-  if (version && publish && method === "DELETE") {
-    await env.DB.prepare("UPDATE versions SET publish_at = NULL WHERE id = ?").bind(version.id).run();
+  if (version && isPublish && method === "DELETE") {
+    await env.DB.prepare("UPDATE versions SET scheduled_publish_at_ms = NULL WHERE id = ?").bind(version.id).run();
     await audit(env.DB, game.id, "publish-unscheduled", `Version ${version.id}`, caller.actor);
     return [{ game: gameJson(env, game), version: versionJson(env, game, (await versionById(env.DB, version.id))!) }];
   }
 
   // Publish a draft now, or roll back to any version we've kept.
-  if (version && publish && method === "POST") {
+  if (version && isPublish && method === "POST") {
     if (version.scan_status !== "approved") throw new ApiError(409, "not_approved", version.scan_status === "scanning" ? "This version is still being scanned." : "Only versions that passed review can be published.");
     await publishVersion(env.DB, version);
-    await audit(env.DB, game.id, version.published_at ? "rolled-back" : "published", `Version ${version.id}`, caller.actor);
+    await audit(env.DB, game.id, version.published_at_ms ? "rolled-back" : "published", `Version ${version.id}`, caller.actor);
     await pruneVersions(env, game.id);
-    const fresh = (await gameBySlug(env.DB, game.slug))!;
-    return [{ game: gameJson(env, fresh), version: versionJson(env, fresh, (await versionById(env.DB, version.id))!) }];
+    const published = (await gameBySlug(env.DB, game.slug))!;
+    return [{ game: gameJson(env, published), version: versionJson(env, published, (await versionById(env.DB, version.id))!) }];
   }
 
   throw new ApiError(405, "bad_method", `${method} isn't used here.`);
 }
 
-const DAY = 86400_000;
+const DAY_MS = 86400_000;
 /** An ISO 8601 time with Z or an offset: the only form times come in (docs/NAMING.md). */
 const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
-/** A stored time (milliseconds) as the API shows it: ISO 8601 in UTC, or null. */
-export const iso = (ms: number | null | undefined): string | null => (ms ? new Date(ms).toISOString() : null);
 
 /** Opaque cursors for lists that continue: they say where the last answer ended. */
-const cursorOf = (ms: number) => `cursor_${ms.toString(36)}`;
+const cursorFor = (atMs: number) => `cursor_${atMs.toString(36)}`;
 function readCursor(cursor: string | null): number {
   if (!cursor) return 0;
   if (!/^cursor_[0-9a-z]{1,12}$/.test(cursor)) throw new ApiError(400, "bad_cursor", "Pass the next_cursor from your last call as cursor, as it came.");
@@ -521,42 +520,42 @@ function readCursor(cursor: string | null): number {
  * counted here: telling the developer could warn someone abusing a child.
  */
 async function reportsFor(env: Env, game: Game, cursor: string | null) {
-  const since = readCursor(cursor);
-  const from = Date.now() - 90 * DAY;
+  const sinceMs = readCursor(cursor);
+  const fromMs = Date.now() - 90 * DAY_MS;
   const { results: counts } = await env.DB
-    .prepare("SELECT reason, status, COUNT(*) AS n FROM reports WHERE game_id = ? AND created_at > ? AND reason != 'child_safety' AND severity > 0 GROUP BY reason, status")
-    .bind(game.id, from)
-    .all<{ reason: string; status: string; n: number }>();
+    .prepare("SELECT reason, status, COUNT(*) AS report_count FROM reports WHERE game_id = ? AND created_at > ? AND reason != 'child_safety' AND severity > 0 GROUP BY reason, status")
+    .bind(game.id, fromMs)
+    .all<{ reason: string; status: string; report_count: number }>();
   const byReason = new Map<string, { reason: string; label: string; open_count: number; closed_count: number }>();
-  for (const c of counts) {
-    const r = byReason.get(c.reason) ?? { reason: c.reason, label: REPORT_REASONS[c.reason as ReportReason] ?? c.reason, open_count: 0, closed_count: 0 };
-    byReason.set(c.reason, r);
-    if (c.status === "open") r.open_count += c.n;
-    else r.closed_count += c.n;
+  for (const row of counts) {
+    const reason = byReason.get(row.reason) ?? { reason: row.reason, label: REPORT_REASONS[row.reason as ReportReason] ?? row.reason, open_count: 0, closed_count: 0 };
+    byReason.set(row.reason, reason);
+    if (row.status === "open") reason.open_count += row.report_count;
+    else reason.closed_count += row.report_count;
   }
   const { results: bugs } = await env.DB
     .prepare("SELECT id, details, triage, version_id, created_at, bug_at FROM reports WHERE game_id = ? AND bug = 1 AND severity > 0 AND bug_at > ? AND details != '' ORDER BY bug_at DESC LIMIT 50")
-    .bind(game.id, Math.max(since, from))
+    .bind(game.id, Math.max(sinceMs, fromMs))
     .all<{ id: string; details: string; triage: string | null; version_id: string | null; created_at: number; bug_at: number }>();
   return {
     period_duration_days: 90,
     // Open: waiting for us. Closed: we looked and either dismissed it or acted on it.
     reasons: [...byReason.values()],
-    bug_reports: bugs.map((b) => ({
-      id: b.id,
-      player_text: b.details,
-      summary: b.triage ? (JSON.parse(b.triage) as { summary: string }).summary : null,
-      version_id: b.version_id,
-      reported_at: iso(b.created_at),
+    bug_reports: bugs.map((bug) => ({
+      id: bug.id,
+      player_text: bug.details,
+      summary: bug.triage ? (JSON.parse(bug.triage) as { summary: string }).summary : null,
+      version_id: bug.version_id,
+      reported_at: iso(bug.created_at),
     })),
     // Pass this as `cursor` next time to get only bug reports that arrived after this call.
-    next_cursor: cursorOf(Math.max(since, ...bugs.map((b) => b.bug_at))),
+    next_cursor: cursorFor(Math.max(sinceMs, ...bugs.map((bug) => bug.bug_at))),
   };
 }
 
 /** Why the live version's game server can't run yet (none, or too big), or null when it can or nothing is live. */
 async function liveServerProblem(env: Env, game: Game): Promise<string | null> {
-  const version = game.current_version_id ? await versionById(env.DB, game.current_version_id) : null;
+  const version = game.live_version_id ? await versionById(env.DB, game.live_version_id) : null;
   if (!version) return null;
   const manifest = version.kind === "files" ? ((await (await env.GAMES.get(manifestKey(version.id)))?.json()) as Manifest | null) : null;
   const found = await serverModules(env.GAMES, version, manifest);
@@ -571,14 +570,14 @@ async function liveServerProblem(env: Env, game: Game): Promise<string | null> {
  * calls, errors, loops we stopped and matches that ended for it, plus its recent errors. Only
  * counts: nothing about who played.
  */
-async function statsFor(env: Env, game: Game, days: number) {
-  const n = Number.isInteger(days) && days > 0 ? Math.min(days, 90) : 30;
-  const from = new Date(Date.now() - (n - 1) * DAY).toISOString().slice(0, 10);
-  const [plays, { results }, { results: errors }, month] = await Promise.all([
-    playStats(env.DB, game.id, n),
+async function statsFor(env: Env, game: Game, periodDurationDays: number) {
+  const dayCount = Number.isInteger(periodDurationDays) && periodDurationDays > 0 ? Math.min(periodDurationDays, 90) : 30;
+  const fromDate = new Date(Date.now() - (dayCount - 1) * DAY_MS).toISOString().slice(0, 10);
+  const [plays, { results: roomDays }, { results: errors }, monthSeconds] = await Promise.all([
+    playStats(env.DB, game.id, dayCount),
     env.DB
       .prepare("SELECT day, rooms, player_seconds, messages, server_calls, server_crashes, server_stops, server_broken_rooms FROM room_usage WHERE game_id = ? AND day >= ? ORDER BY day")
-      .bind(game.id, from)
+      .bind(game.id, fromDate)
       .all<{ day: string; rooms: number; player_seconds: number; messages: number; server_calls: number; server_crashes: number; server_stops: number; server_broken_rooms: number }>(),
     env.DB
       .prepare("SELECT version_id, kind, message, count, first_at, last_at FROM game_server_errors WHERE game_id = ? ORDER BY last_at DESC LIMIT 20")
@@ -586,34 +585,34 @@ async function statsFor(env: Env, game: Game, days: number) {
       .all<{ version_id: string; kind: "crash" | "stopped"; message: string; count: number; first_at: number; last_at: number }>(),
     monthPlayerSeconds(env.DB, game.id),
   ]);
-  const ownServer = game.game_server === SANDBOX_GAME_SERVER;
+  const hasOwnServer = game.multiplayer_mode === "own";
   return {
-    period_duration_days: n,
+    period_duration_days: dayCount,
     play_stats: {
-      days: plays.days.map((d) => ({ date: d.day, play_count: d.plays, player_count: d.players, new_player_count: d.new_players, play_duration_min: d.minutes_played, started_play_count: d.all_plays })),
+      days: plays.days.map((day) => ({ date: day.day, play_count: day.plays, player_count: day.players, new_player_count: day.new_players, play_duration_min: day.minutes_played, started_play_count: day.all_plays })),
       play_count: plays.plays,
       started_play_count: plays.all_plays,
       new_player_count: plays.new_players,
       play_duration_min: plays.minutes_played,
       average_play_duration_min: plays.minutes_per_play,
       came_back: Object.fromEntries(
-        Object.entries(plays.came_back).map(([after, c]) => [after, { returned_pct: c.percent, returned_player_count: c.players, new_player_count: c.of }]),
+        Object.entries(plays.came_back).map(([after, cameBack]) => [after, { returned_pct: cameBack.percent, returned_player_count: cameBack.players, new_player_count: cameBack.of }]),
       ),
     },
-    multiplayer_days: results.map((r) => ({
-      date: r.day,
-      room_count: r.rooms,
-      room_play_duration_min: Math.round(r.player_seconds / 60),
-      message_count: r.messages,
-      game_server: ownServer ? { call_count: r.server_calls, crash_count: r.server_crashes, stopped_count: r.server_stops, ended_match_count: r.server_broken_rooms } : null,
+    multiplayer_days: roomDays.map((day) => ({
+      date: day.day,
+      room_count: day.rooms,
+      room_play_duration_min: Math.round(day.player_seconds / 60),
+      message_count: day.messages,
+      game_server: hasOwnServer ? { call_count: day.server_calls, crash_count: day.server_crashes, stopped_count: day.server_stops, ended_match_count: day.server_broken_rooms } : null,
     })),
     // Until Hosting billing exists, new rooms stop opening at the free tier until the month resets (UTC).
-    room_use_this_month: { room_play_duration_hours: Math.round(month / 360) / 10, free_room_play_duration_hours: FREE_PLAYER_HOURS, has_reached_free_hours: month >= FREE_PLAYER_HOURS * 3600 },
+    room_use_this_month: { room_play_duration_hours: Math.round(monthSeconds / 360) / 10, free_room_play_duration_hours: FREE_PLAYER_HOURS, has_reached_free_hours: monthSeconds >= FREE_PLAYER_HOURS * 3600 },
     // Crashes lose one call each and the match carries on. "stopped" is a call that ran on too long
     // (about 2 seconds of CPU, like a loop that never ends): it freezes the match while it runs,
     // and a match whose game server is stopped twice ends.
-    game_server_errors: ownServer
-      ? errors.map((e) => ({ kind: e.kind, message: e.message, occurrence_count: e.count, version_id: e.version_id, first_at: iso(e.first_at), last_at: iso(e.last_at) }))
+    game_server_errors: hasOwnServer
+      ? errors.map((error) => ({ kind: error.kind, message: error.message, occurrence_count: error.count, version_id: error.version_id, first_at: iso(error.first_at), last_at: iso(error.last_at) }))
       : [],
   };
 }
@@ -660,14 +659,14 @@ const HISTORY: Record<string, string | null> = {
 
 async function historyFor(env: Env, game: Game, caller: Caller) {
   const { results } = await env.DB
-    .prepare("SELECT action, reason, actor, at FROM audit_log WHERE game_id = ? ORDER BY at DESC, id DESC LIMIT 100")
+    .prepare("SELECT action, reason, actor, happened_at_ms FROM audit_log WHERE game_id = ? ORDER BY happened_at_ms DESC, id DESC LIMIT 100")
     .bind(game.id)
-    .all<{ action: string; reason: string; actor: string; at: number }>();
+    .all<{ action: string; reason: string; actor: string; happened_at_ms: number }>();
   const events: { description: string; version_id: string | null; done_by: "you" | "zaisma"; happened_at: string | null }[] = [];
-  for (const r of results) {
-    const description = HISTORY[r.action];
+  for (const entry of results) {
+    const description = HISTORY[entry.action];
     if (!description) continue;
-    events.push({ description, version_id: r.reason.match(/[Vv]ersion ([a-z0-9]+)/)?.[1] ?? null, done_by: r.actor === caller.actor ? "you" : "zaisma", happened_at: iso(r.at) });
+    events.push({ description, version_id: entry.reason.match(/[Vv]ersion ([a-z0-9]+)/)?.[1] ?? null, done_by: entry.actor === caller.actor ? "you" : "zaisma", happened_at: iso(entry.happened_at_ms) });
   }
   return { events };
 }
@@ -675,9 +674,9 @@ async function historyFor(env: Env, game: Game, caller: Caller) {
 function listOrThrow(files: unknown): UploadFile[] {
   try {
     return checkUploadList(files);
-  } catch (err) {
-    if (err instanceof UploadError) throw new ApiError(400, "bad_files", err.message);
-    throw err;
+  } catch (error) {
+    if (error instanceof UploadError) throw new ApiError(400, "bad_files", error.message);
+    throw error;
   }
 }
 
@@ -686,20 +685,20 @@ function listOrThrow(files: unknown): UploadFile[] {
  * too. One per group (team, playtesters, a streamer), so one can be turned off without the others.
  */
 async function testerRoute(request: Request, env: Env, game: Game, id: string | undefined, caller: Caller): Promise<[unknown, number?]> {
-  if (!id && request.method === "GET") return [{ testers: (await testerLinks(env.DB, game.id)).map((l) => testerJson(env, l)) }];
+  if (!id && request.method === "GET") return [{ testers: (await testerLinks(env.DB, game.id)).map((link) => testerJson(env, link)) }];
   if (!id && request.method === "POST") {
-    if (game.status === "removed") throw new ApiError(403, "removed", "This game was taken down, so it can't get tester links.");
+    if (game.review_status === "removed") throw new ApiError(403, "removed", "This game was taken down, so it can't get tester links.");
     const body = await readJson(request);
     const name = typeof body.name === "string" ? body.name.trim().replace(/\s+/g, " ") : "";
     if (!name || name.length > 60) throw new ApiError(400, "bad_name", "Name the link for who it's for, in 1 to 60 characters, like \"Playtesters\" or \"My team\".");
-    const on = await testerLinks(env.DB, game.id);
-    if (on.length >= MAX_TESTER_LINKS) throw new ApiError(403, "too_many_testers", `A game can have up to ${MAX_TESTER_LINKS} tester links. Turn one off first.`);
+    const links = await testerLinks(env.DB, game.id);
+    if (links.length >= MAXIMUM_TESTER_LINK_COUNT) throw new ApiError(403, "too_many_testers", `A game can have up to ${MAXIMUM_TESTER_LINK_COUNT} tester links. Turn one off first.`);
     const link = await addTesterLink(env.DB, game.id, name);
     await audit(env.DB, game.id, "tester-link-added", name, caller.actor);
     return [{ tester: testerJson(env, link) }, 201];
   }
   if (id && request.method === "DELETE") {
-    const link = (await testerLinks(env.DB, game.id)).find((l) => l.id === id);
+    const link = (await testerLinks(env.DB, game.id)).find((candidate) => candidate.id === id);
     if (!link || !(await revokeTesterLink(env.DB, game.id, id))) throw new ApiError(404, "no_tester_link", "That tester link isn't on.");
     await audit(env.DB, game.id, "tester-link-removed", link.name, caller.actor);
     return [{ removed_tester_id: link.id }];
@@ -707,36 +706,37 @@ async function testerRoute(request: Request, env: Env, game: Game, id: string | 
   throw new ApiError(405, "bad_method", "Tester links take GET, POST and DELETE.");
 }
 
-// The JSON for each kind of thing, as schemas.ts describes it (names from docs/NAMING.md).
+// The JSON for each kind of thing, as schemas.ts describes it: the row's own names, with values in
+// the API's form (ISO times, true and false, lists and objects instead of stored text).
 
-function testerJson(env: Env, l: TesterLink) {
-  return { id: l.id, name: l.name, link_url: `${env.SITE_ORIGIN}/t/${l.token}`, created_at: iso(l.created_at), last_opened_at: iso(l.opened_at) };
+function testerJson(env: Env, link: TesterLink) {
+  return { id: link.id, name: link.name, link_url: `${env.SITE_ORIGIN}/t/${link.token}`, created_at: iso(link.created_at_ms), last_opened_at: iso(link.last_opened_at_ms) };
 }
 
 function previewUrl(env: Env, slug: string, token: string): string {
   return gameUrl(env, `${slug}--${token}`);
 }
 
-function versionJson(env: Env, game: Game, v: Version) {
-  const report: ScanReport | null = v.scan_report ? JSON.parse(v.scan_report) : null;
+function versionJson(env: Env, game: Game, version: Version) {
+  const report: ScanReport | null = version.scan_report ? JSON.parse(version.scan_report) : null;
   return {
-    id: v.id,
-    file_count: v.file_count,
-    size_bytes: v.bytes,
+    id: version.id,
+    file_count: version.file_count,
+    size_bytes: version.size_bytes,
     // scanning, held (a person will look), approved or rejected.
-    scan_status: v.scan_status,
-    is_live: v.id === game.current_version_id,
-    patch_notes: v.notes,
-    preview_url: v.preview_token && v.scan_status === "approved" ? previewUrl(env, game.slug, v.preview_token) : null,
-    published_at: iso(v.published_at),
-    scheduled_publish_at: iso(v.publish_at),
-    created_at: iso(v.created_at),
+    scan_status: version.scan_status,
+    is_live: version.id === game.live_version_id,
+    patch_notes: version.patch_notes,
+    preview_url: version.preview_token && version.scan_status === "approved" ? previewUrl(env, game.slug, version.preview_token) : null,
+    published_at: iso(version.published_at_ms),
+    scheduled_publish_at: iso(version.scheduled_publish_at_ms),
+    created_at: iso(version.created_at_ms),
     // Why a version was held or rejected. Child-safety findings are never described.
     findings: !report
       ? []
       : report.childSafety
         ? [{ severity: "hold", rule: "review", explanation: "A person needs to look at this version.", path: null }]
-        : report.findings.filter((f) => f.severity !== "info").map((f) => ({ severity: f.severity, rule: f.rule, explanation: f.detail, path: f.path ?? null })),
+        : report.findings.filter((finding) => finding.severity !== "info").map((finding) => ({ severity: finding.severity, rule: finding.rule, explanation: finding.detail, path: finding.path ?? null })),
   };
 }
 
@@ -747,8 +747,8 @@ export async function ownGame(env: Env, slug: string, caller: Caller): Promise<G
   return game;
 }
 
-export async function readJson(request: Request, max = 64 * 1024): Promise<Record<string, unknown>> {
-  if (Number(request.headers.get("content-length") ?? 0) > max) throw new ApiError(413, "too_big", `Send less than ${max / 1024} KB of JSON.`);
+export async function readJson(request: Request, maximumSizeBytes = 64 * 1024): Promise<Record<string, unknown>> {
+  if (Number(request.headers.get("content-length") ?? 0) > maximumSizeBytes) throw new ApiError(413, "too_big", `Send less than ${maximumSizeBytes / 1024} KB of JSON.`);
   try {
     const body = await request.json();
     if (body && typeof body === "object" && !Array.isArray(body)) return body as Record<string, unknown>;
@@ -756,36 +756,41 @@ export async function readJson(request: Request, max = 64 * 1024): Promise<Recor
   throw new ApiError(400, "bad_json", "Send a JSON object.");
 }
 
-const list = (s: string) => (s ? s.split(",") : []);
+const splitLabels = (labels: string) => (labels ? labels.split(",") : []);
 
-function gameJson(env: Env, g: Game) {
-  const draft = g.details_draft ? (JSON.parse(g.details_draft) as { title?: string; description?: string }) : null;
+function gameJson(env: Env, game: Game) {
+  const waitingWords = game.details_waiting_for_review ? (JSON.parse(game.details_waiting_for_review) as { title?: string; description?: string }) : null;
   return {
-    slug: g.slug,
-    page_url: `${env.SITE_ORIGIN}/g/${g.slug}`,
-    title: g.title,
-    description: g.description,
-    visibility: g.visibility,
+    slug: game.slug,
+    page_url: `${env.SITE_ORIGIN}/g/${game.slug}`,
+    title: game.title,
+    description: game.description,
+    visibility: game.visibility,
     // Ours, separate from visibility: pending (no version has passed review yet), live, held or removed.
-    review_status: g.status,
-    devices: list(g.devices),
-    controls: list(g.controls),
-    screen_orientation: g.screen || null,
-    // How it's played: a list of ways to play, or null when not set.
-    play_modes: playModesOf(readPlayers(g.players)),
-    // Signed-in players' browser saves are copied to their account.
-    cloud_saves_enabled: Boolean(g.cloud_saves),
-    // Multiplayer on Zaisma rooms: none, relay, own (its zaisma-server.js in a sandbox) or built-in
-    // (one of ours, set by Zaisma), and where its open rooms are listed: page, game or off.
-    multiplayer_mode: multiplayerOf(g.game_server),
-    room_browsing: g.room_browsing,
-    details_waiting_for_review: draft ? { title: draft.title ?? null, description: draft.description ?? null } : null,
-    updated_at: iso(g.updated_at),
+    review_status: game.review_status,
+    devices: splitLabels(game.devices),
+    controls: splitLabels(game.controls),
+    screen_orientation: game.screen_orientation || null,
+    play_modes: readPlayModes(game.play_modes),
+    cloud_saves_enabled: Boolean(game.cloud_saves_enabled),
+    multiplayer_mode: game.multiplayer_mode,
+    room_browsing: game.room_browsing,
+    details_waiting_for_review: waitingWords ? { title: waitingWords.title ?? null, description: waitingWords.description ?? null } : null,
+    updated_at: iso(game.updated_at_ms),
   };
 }
 
-function imageJson(env: Env, i: GameImage) {
-  return { id: i.id, kind: i.kind, review_status: i.status, width_px: i.width, height_px: i.height, size_bytes: i.bytes, image_url: `${env.SITE_ORIGIN}/img/${i.id}`, created_at: iso(i.created_at) };
+function imageJson(env: Env, image: GameImage) {
+  return {
+    id: image.id,
+    kind: image.kind,
+    review_status: image.review_status,
+    width_px: image.width_px,
+    height_px: image.height_px,
+    size_bytes: image.size_bytes,
+    image_url: `${env.SITE_ORIGIN}/img/${image.id}`,
+    created_at: iso(image.created_at_ms),
+  };
 }
 
 /**
@@ -795,25 +800,25 @@ function imageJson(env: Env, i: GameImage) {
 async function serveImage(request: Request, env: Env, id: string): Promise<Response> {
   const notFound = () => new Response("Not found", { status: 404, headers: { "Cache-Control": "no-store" } });
   if (!/^[a-z0-9]{1,40}$/.test(id) || (request.method !== "GET" && request.method !== "HEAD")) return notFound();
-  const img = await imageById(env.DB, id);
-  if (!img || img.status === "rejected") return notFound();
-  const game = await env.DB.prepare("SELECT status, owner_id FROM games WHERE id = ?").bind(img.game_id).first<{ status: string; owner_id: string | null }>();
+  const image = await imageById(env.DB, id);
+  if (!image || image.review_status === "rejected") return notFound();
+  const game = await env.DB.prepare("SELECT review_status, owner_id FROM games WHERE id = ?").bind(image.game_id).first<{ review_status: string; owner_id: string | null }>();
   if (!game) return notFound();
-  let cache = "public, max-age=3600";
-  if (img.status !== "approved" || game.status === "removed") {
+  let cacheControl = "public, max-age=3600";
+  if (image.review_status !== "approved" || game.review_status === "removed") {
     // Before review only the owner sees it.
     const session = await currentSession(request, env);
     const owner = session ? await env.DB.prepare("SELECT id FROM owners WHERE account_id = ?").bind(session.userId).first<{ id: string }>() : null;
     if (!owner || owner.id !== game.owner_id) return notFound();
-    cache = "private, no-store";
+    cacheControl = "private, no-store";
   }
-  const object = await env.GAMES.get(imageKey(img));
-  if (!object) return notFound();
-  return new Response(request.method === "HEAD" ? null : object.body, {
+  const stored = await env.GAMES.get(imageKey(image));
+  if (!stored) return notFound();
+  return new Response(request.method === "HEAD" ? null : stored.body, {
     headers: {
-      "Content-Type": img.content_type,
-      "Content-Length": String(object.size),
-      "Cache-Control": cache,
+      "Content-Type": image.content_type,
+      "Content-Length": String(stored.size),
+      "Cache-Control": cacheControl,
       "X-Content-Type-Options": "nosniff",
       "Content-Security-Policy": "default-src 'none'; sandbox",
       "Content-Disposition": "inline",

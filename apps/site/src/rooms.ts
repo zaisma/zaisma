@@ -11,7 +11,7 @@ import { html, raw, type Raw } from "./html.ts";
  */
 
 /** The game runs on Zaisma rooms and its developer lists them on the page. */
-export const roomsOnPage = (game: Game) => Boolean(game.game_server) && game.room_browsing === "page";
+export const roomsOnPage = (game: Game) => game.multiplayer_mode !== "none" && game.room_browsing === "page";
 
 export function pageRooms(env: Env, game: Game, request: Request, pick: { region?: string | null; labels?: Record<string, string> | null } = {}): Promise<RoomList> {
   return listRooms(env.DB, game.id, {
@@ -137,7 +137,7 @@ export function codeBox(slug: string): Raw {
 /** GET /g/:slug/rooms: the Rooms panel on its own, for the page to refresh while it's on screen. */
 export async function roomsFragment(env: Env, slug: string, request: Request): Promise<Response> {
   const game = await gameBySlug(env.DB, slug);
-  const shown = game && game.status === "live" && game.current_version_id && game.visibility !== "draft" && game.visibility !== "private" && roomsOnPage(game);
+  const shown = game && game.review_status === "live" && game.live_version_id && game.visibility !== "draft" && game.visibility !== "private" && roomsOnPage(game);
   if (!shown) return new Response("", { status: 404, headers: { "Cache-Control": "no-store" } });
   const query = new URL(request.url).searchParams;
   const picked = readLabelParam(query.get("labels")) ?? {};

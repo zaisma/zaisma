@@ -101,7 +101,7 @@ if (fresh) {
 spawnSync(
   "npx",
   ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command",
-    "UPDATE games SET game_server = 'sandbox' WHERE slug = 'arena'; UPDATE games SET game_server = slug WHERE slug = 'four-in-a-row' AND game_server IS NULL; UPDATE games SET game_server = 'relay' WHERE slug = 'cave-crew' AND game_server IS NULL; DELETE FROM live_rooms"],
+    "UPDATE games SET multiplayer_mode = 'own' WHERE slug = 'arena'; UPDATE games SET multiplayer_mode = 'built-in', built_in_server = slug WHERE slug = 'four-in-a-row' AND multiplayer_mode = 'none'; UPDATE games SET multiplayer_mode = 'relay' WHERE slug = 'cave-crew' AND multiplayer_mode = 'none'; DELETE FROM live_rooms"],
   { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } },
 );
 // Pretend play stats for two games, so the dashboard's Plays section has something to show. Real
@@ -392,7 +392,7 @@ async function seedForum(you, go, form) {
   await meToo(audio.id, hl);
 
   const ci = await topic(hl, { kind: "question", category: "cli", title: "Running the upload command in GitHub Actions", text: "What's the cleanest setup? We'd like every merge to main to upload a new version." });
-  await reply(you, ci.id, "We do this: put the key in a secret called ZAISMA_KEY, then\n```yaml\n- run: npx @zaisma/cli upload dist --game shard-dodge --notes \"${{ github.event.head_commit.message }}\"\n  env:\n    ZAISMA_KEY: ${{ secrets.ZAISMA_KEY }}\n```", { author: "ai" });
+  await reply(you, ci.id, "We do this: put the key in a secret called ZAISMA_KEY, then\n```yaml\n- run: npx @zaisma/cli upload dist --game shard-dodge --patch-notes \"${{ github.event.head_commit.message }}\"\n  env:\n    ZAISMA_KEY: ${{ secrets.ZAISMA_KEY }}\n```", { author: "ai" });
 
   const unanswered = await topic(bs, { kind: "question", author: me, category: "scans", title: "Why was my version held for an outside host?", text: "The scan held our build for loading fonts from a font service. Is that not allowed?" });
   await meToo(unanswered.id, qo);
@@ -427,7 +427,7 @@ async function seedForum(you, go, form) {
     category: "mcp",
     title: "upload_files fails with too_big for a 3 MB game",
     text: "Uploading Arena's new build with upload_files fails straight away with too_big, though the whole build is 3.1 MB. The upload command sends the same folder fine.",
-    context: { tool: "upload_files", error: { code: "too_big", message: "That's more than upload_files takes." }, files: 14, bytes: 3250000 },
+    context: { tool: "upload_files", error: { code: "too_big", message: "That's more than upload_files takes." }, file_count: 14, size_bytes: 3250000 },
     picture: Buffer.from(picture([150, 70, 160], 1)).toString("base64"),
   });
   await zaisma(tooBig.id, { known: "1", k_title: "upload_files refuses some builds under 5 MB", k_workaround: "Use the upload command (npx @zaisma/cli upload) for builds over 2 MB.", k_roadmap: "Developer MCP", status: "known", severity: "3", area: "mcp", reply: "Found it: base64 makes the request bigger than the build. Thanks for the details." });

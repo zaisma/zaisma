@@ -143,7 +143,7 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
         const up = await uploadDraftMedia(env, caller, new Uint8Array(await file.arrayBuffer()));
         return done(new Response(JSON.stringify(up), { headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } }));
       } catch (err) {
-        if (err instanceof ApiError) return new Response(JSON.stringify({ error: err.message }), { status: err.status, headers: { "Content-Type": "application/json" } });
+        if (err instanceof ApiError) return new Response(JSON.stringify({ error: err.message }), { status: err.httpStatus, headers: { "Content-Type": "application/json" } });
         throw err;
       }
     }
@@ -184,7 +184,7 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
         const state = !t.public ? "posted-private" : t.shown ? "posted" : res.posts[0]?.state === "held" ? "held" : "checking";
         return done(redirect(`/forum/${t.id}?done=${state}`));
       } catch (err) {
-        if (err instanceof ApiError) return done(await newPage(ctx, Object.fromEntries([...form].filter(([, v]) => typeof v === "string")) as Record<string, string>, message, err.message, err.status, form.getAll("tags").map(String)));
+        if (err instanceof ApiError) return done(await newPage(ctx, Object.fromEntries([...form].filter(([, v]) => typeof v === "string")) as Record<string, string>, message, err.message, err.httpStatus, form.getAll("tags").map(String)));
         throw err;
       }
     }
@@ -198,7 +198,7 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
       try {
         return done(await route(new Request(`${env.SITE_ORIGIN}/api/dev/forum/${id}/pictures/${postId}`), env, `/forum/${id}/pictures/${postId}`, caller));
       } catch (err) {
-        if (err instanceof ApiError) return new Response(err.message, { status: err.status });
+        if (err instanceof ApiError) return new Response(err.message, { status: err.httpStatus });
         throw err;
       }
     }
@@ -213,7 +213,7 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
         const state = reopen ? "reopened" : res.post?.state === "checking" ? "checking" : res.post?.state === "held" ? "held" : "replied";
         return done(redirect(`/forum/${id}?done=${state}#${res.post ? `p-${res.post.id}` : "reply"}`));
       } catch (err) {
-        if (err instanceof ApiError) return done(await topicPage(ctx, id, { error: err.message, text: field("text"), to: field("reply_to") || undefined }, err.status));
+        if (err instanceof ApiError) return done(await topicPage(ctx, id, { error: err.message, text: field("text"), to: field("reply_to") || undefined }, err.httpStatus));
         throw err;
       }
     }
@@ -238,12 +238,12 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
         return done(redirect(`/forum/${id}?done=misplaced`));
       }
     } catch (err) {
-      if (err instanceof ApiError) return done(await topicPage(ctx, id, { error: err.message }, err.status));
+      if (err instanceof ApiError) return done(await topicPage(ctx, id, { error: err.message }, err.httpStatus));
       throw err;
     }
     return done(redirect(`/forum/${id}${sub === "answer" && field("post") ? `#p-${field("post")}` : ""}`));
   } catch (err) {
-    if (err instanceof ApiError && err.status === 404) return done(forumPage(ctx, "Not found", html`<div class="gone"><h1>Not found</h1><p class="lead">There's no topic here you can see. It may be private, or still being checked.</p><a class="btn ghost" href="/forum">Back to the forum</a></div>`, { status: 404 }));
+    if (err instanceof ApiError && err.httpStatus === 404) return done(forumPage(ctx, "Not found", html`<div class="gone"><h1>Not found</h1><p class="lead">There's no topic here you can see. It may be private, or still being checked.</p><a class="btn ghost" href="/forum">Back to the forum</a></div>`, { status: 404 }));
     throw err;
   }
 }

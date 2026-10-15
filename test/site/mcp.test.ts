@@ -103,7 +103,7 @@ describe("publishing a game through the MCP", () => {
     const back = await tool("publish_version", { slug: "tiny-jump", version_id: first.version.id });
     expect(back.version.is_live).toBe(true);
     expect(back.game.review_status).toBe("live");
-    expect((await gameBySlug(env.DB, "tiny-jump"))!.current_version_id).toBe(first.version.id);
+    expect((await gameBySlug(env.DB, "tiny-jump"))!.live_version_id).toBe(first.version.id);
 
     const { events } = await tool("get_history", { slug: "tiny-jump" });
     expect(events[0]).toMatchObject({ description: "Rolled back to an earlier version", version_id: first.version.id, done_by: "you" });
@@ -206,7 +206,7 @@ describe("reports, stats and history", () => {
   it("shows how a game's own game server is doing, with its recent errors", async () => {
     await tool("create_game", { title: "Hop" });
     const game = (await gameBySlug(env.DB, "hop"))!;
-    await env.DB.prepare("UPDATE games SET game_server = 'sandbox' WHERE id = ?").bind(game.id).run();
+    await env.DB.prepare("UPDATE games SET multiplayer_mode = 'own' WHERE id = ?").bind(game.id).run();
     const today = new Date().toISOString().slice(0, 10);
     await env.DB.prepare("INSERT INTO room_usage (game_id, day, rooms, player_seconds, messages, server_calls, server_crashes, server_stops, server_broken_rooms) VALUES (?, ?, 2, 600, 42, 900, 5, 2, 1)").bind(game.id, today).run();
     await env.DB.prepare("INSERT INTO game_server_errors (game_id, version_id, kind, message, count, first_at, last_at) VALUES (?, 'v1', 'crash', 'oops (zaisma-server.js:3:9)', 5, 1792000000000, 1792003600000)").bind(game.id).run();

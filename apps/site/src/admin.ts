@@ -22,24 +22,24 @@ import {
   parseConnectHosts,
   publishVersion,
   saveScan,
-  setGameStatus,
+  setReviewStatus,
   setMultiplayer,
-  setCloudSaves,
+  setCloudSavesEnabled,
   accountById,
   gameOwner,
   personOwner,
   setGameOwner,
   versionById,
   versionsForGame,
-  gamesWithDetailsDrafts,
+  gamesWithDetailsWaitingForReview,
   imageById,
   imageKey,
   imagesForGame,
   pendingImages,
-  settleDetailsDraft,
+  settleDetailsWaitingForReview,
   settleImage,
   type GameImage,
-  type GameStatus,
+  type ReviewStatus,
   type PrecedentDecision,
   type Report,
   type ScanReport,
@@ -139,7 +139,7 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     const version = await versionById(env.DB, m[1]!);
     if (!version) return new Response("Not found", { status: 404 });
     if (m[2] === "approve" && knownImages(version)) return new Response("This version matched known abuse material, so it can't be approved.", { status: 409 });
-    if (version.report_held_at && m[2] === "approve") {
+    if (version.report_held_at_ms && m[2] === "approve") {
       // A report paused this update: put it back, and later reports can't pause it again.
       await publishVersion(env.DB, version);
       await clearVersion(env.DB, version.id);
@@ -149,7 +149,7 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
       await passVersion(env, version, reason || "Approved by a person", actor);
     } else {
       await saveScan(env.DB, version.id, "rejected", null);
-      if (version.report_held_at) await closeReports(env.DB, version.game_id, "actioned");
+      if (version.report_held_at_ms) await closeReports(env.DB, version.game_id, "actioned");
       await audit(env.DB, version.game_id, "rejected", reason || `Version ${version.id}`, actor);
     }
     return back(`/admin/games/${version.game_id}`);
@@ -169,8 +169,8 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
   if (m) {
     const game = await gameById(env.DB, m[1]!);
     if (!game) return new Response("Not found", { status: 404 });
-    await settleDetailsDraft(env.DB, game, m[2] === "approve");
-    await audit(env.DB, game.id, m[2] === "approve" ? "details-approved" : "details-rejected", reason || game.details_draft || "", actor);
+    await settleDetailsWaitingForReview(env.DB, game, m[2] === "approve");
+    await audit(env.DB, game.id, m[2] === "approve" ? "details-approved" : "details-rejected", reason || game.details_waiting_for_review || "", actor);
     return redirect("/admin");
   }
 
@@ -188,7 +188,7 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     const game = await gameById(env.DB, m[1]!);
     if (!game) return new Response("Not found", { status: 404 });
     const off = form.get("off") === "1";
-    await env.DB.prepare("UPDATE games SET off_shelves = ? WHERE id = ?").bind(off ? 1 : 0, game.id).run();
+    await env.DB.prepare("UPDATE games SET is_off_shelves = ? WHERE id = ?").bind(off ? 1 : 0, game.id).run();
     await audit(env.DB, game.id, off ? "off-shelves" : "on-shelves", off ? "Kept off Popular, Trending and New" : "Back on Popular, Trending and New", actor);
     return redirect(form.get("back") === "game" ? `/admin/games/${game.id}` : "/admin#plays");
   }
@@ -198,14 +198,15 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     const game = await gameById(env.DB, m[1]!);
     if (!game) return new Response("Not found", { status: 404 });
     const server = String(form.get("game_server") ?? "");
-    if (server && server !== SANDBOX_GAME_SERVER && !(BUILT_IN_GAME_SERVERS as readonly string[]).includes(server)) return gameDetail(env, game.id, "Pick a game server from the list.");
+    if (server && server !== "relay" && server !== SANDBOX_GAME_SERVER && !(BUILT_IN_GAME_SERVERS as readonly string[]).includes(server)) return gameDetail(env, game.id, "Pick a game server from the list.");
+    const multiplayerMode = !server ? "none" : server === "relay" ? "relay" : server === SANDBOX_GAME_SERVER ? "own" : "built-in";
     let hosts: string[];
     try {
       hosts = parseConnectHosts(String(form.get("connect_hosts") ?? ""));
     } catch (err) {
       return gameDetail(env, game.id, (err as Error).message);
     }
-    await setMultiplayer(env.DB, game.id, { gameServer: server || null, connectHosts: hosts });
+    await setMultiplayer(env.DB, game.id, { multiplayerMode, builtInServer: multiplayerMode === "built-in" ? server : null, connectHosts: hosts });
     await audit(env.DB, game.id, "multiplayer", `Game server: ${server || "none"}. Own servers: ${hosts.join(", ") || "none"}`, actor);
     return redirect(`/admin/games/${game.id}`);
   }
@@ -215,7 +216,7 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     const game = await gameById(env.DB, m[1]!);
     if (!game) return new Response("Not found", { status: 404 });
     const on = form.get("cloud_saves") === "on";
-    await setCloudSaves(env.DB, game.id, on);
+    await setCloudSavesEnabled(env.DB, game.id, on);
     await audit(env.DB, game.id, "cloud-saves", on ? "On" : "Off", actor);
     return redirect(`/admin/games/${game.id}`);
   }
@@ -244,19 +245,19 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     if (!game) return new Response("Not found", { status: 404 });
     if (m[2] === "takedown") {
       if (!reason) return gameDetail(env, game.id, "Give a reason for the takedown. It goes in the audit log.");
-      await setGameStatus(env.DB, game.id, "removed");
+      await setReviewStatus(env.DB, game.id, "removed");
       await closeReports(env.DB, game.id, "actioned");
       await audit(env.DB, game.id, "takedown", reason, actor);
     } else if (m[2] === "restore") {
-      const current = game.current_version_id ? await versionById(env.DB, game.current_version_id) : null;
+      const current = game.live_version_id ? await versionById(env.DB, game.live_version_id) : null;
       if (current && knownImages(current)) return gameDetail(env, game.id, "Players would get the version that matched known abuse material. Once the developer publishes a clean version, the game can be shown again.");
-      await setGameStatus(env.DB, game.id, game.current_version_id ? "live" : "pending");
+      await setReviewStatus(env.DB, game.id, game.live_version_id ? "live" : "pending");
       // A person checked it: reports can't hide this version again.
-      if (game.current_version_id) await clearVersion(env.DB, game.current_version_id);
+      if (game.live_version_id) await clearVersion(env.DB, game.live_version_id);
       await closeReports(env.DB, game.id, "dismissed");
       await audit(env.DB, game.id, "restored", reason, actor);
     } else {
-      if (game.current_version_id) await clearVersion(env.DB, game.current_version_id);
+      if (game.live_version_id) await clearVersion(env.DB, game.live_version_id);
       await closeReports(env.DB, game.id, "dismissed");
       await audit(env.DB, game.id, "reports-dismissed", reason, actor);
     }
@@ -299,11 +300,11 @@ async function dashboard(env: Env, error = ""): Promise<Response> {
     allGames(env.DB),
     aiUsage(env.DB),
     pendingImages(env.DB),
-    gamesWithDetailsDrafts(env.DB),
+    gamesWithDetailsWaitingForReview(env.DB),
     playSpikes(env.DB),
     feedbackSummary(env),
   ]);
-  const offShelves = games.filter((g) => g.off_shelves);
+  const offShelves = games.filter((g) => g.is_off_shelves);
   const groups = groupReports(reports);
   return page(
     env,
@@ -314,7 +315,7 @@ async function dashboard(env: Env, error = ""): Promise<Response> {
 <h2>Waiting for review (${queue.length})</h2>
 ${queue.length
       ? html`<table><tr><th>Game</th><th>Version</th><th>Status</th><th>Uploaded</th></tr>${queue.map(
-          (v) => html`<tr><td><a href="/admin/games/${v.game_id}">${v.title}</a></td><td>${v.id}</td><td>${pill(v.scan_status)}${v.report_held_at ? " paused by a report" : ""}${knownImages(v) ? html` <strong style="color:var(--danger)">known abuse images</strong>` : ""}</td><td>${when(v.created_at)}</td></tr>`,
+          (v) => html`<tr><td><a href="/admin/games/${v.game_id}">${v.title}</a></td><td>${v.id}</td><td>${pill(v.scan_status)}${v.report_held_at_ms ? " paused by a report" : ""}${knownImages(v) ? html` <strong style="color:var(--danger)">known abuse images</strong>` : ""}</td><td>${when(v.created_at_ms)}</td></tr>`,
         )}</table>`
       : html`<p class="note">Nothing waiting.</p>`}
 
@@ -327,7 +328,7 @@ ${images.length
 <h2>New titles and descriptions (${words.length})</h2>
 ${words.length
       ? html`<table><tr><th>Game</th><th>Now</th><th>New</th><th></th></tr>${words.map((g) => {
-          const d = JSON.parse(g.details_draft!) as { title?: string; description?: string };
+          const d = JSON.parse(g.details_waiting_for_review!) as { title?: string; description?: string };
           return html`<tr><td><a href="/admin/games/${g.id}">${g.slug}</a></td><td><strong>${g.title}</strong><br>${g.description}</td><td><strong>${d.title ?? g.title}</strong><br>${d.description ?? g.description}</td>
 <td><div class="row"><form method="post" action="/admin/games/${g.id}/details/approve"><button class="btn" type="submit">Approve</button></form><form method="post" action="/admin/games/${g.id}/details/reject"><button class="btn ghost" type="submit">Reject</button></form></div></td></tr>`;
         })}</table>`
@@ -347,8 +348,8 @@ ${feedback}
 ${spikes.length
       ? html`<p class="muted">Counted players at least 5 times the week before. Faked plays tend to come from few networks, or from cloud servers. Removing a day's counts keeps every play started; keeping a game off the shelves hides it from Popular, Trending and New until you put it back.</p>
 <table><tr><th>Game</th><th>Day</th><th>Players</th><th>Usual</th><th>Networks</th><th>Biggest network</th><th>Cloud</th><th></th></tr>${spikes.map(
-          (p) => html`<tr><td><a href="/admin/games/${p.game_id}">${p.title}</a>${p.off_shelves ? html` ${pill("off shelves")}` : ""}</td><td>${p.day}</td><td>${p.players}</td><td>${p.usual}</td><td>${p.networks}</td><td>${p.top_share}%</td><td>${p.hosting_share}%</td>
-<td><div class="row"><form method="post" action="/admin/games/${p.game_id}/plays/${p.day}/clear"><button class="btn ghost" type="submit">Remove this day's counts</button></form>${p.off_shelves ? "" : html`<form method="post" action="/admin/games/${p.game_id}/shelves"><input type="hidden" name="off" value="1"><button class="btn ghost" type="submit">Keep off the shelves</button></form>`}</div></td></tr>`,
+          (p) => html`<tr><td><a href="/admin/games/${p.game_id}">${p.title}</a>${p.is_off_shelves ? html` ${pill("off shelves")}` : ""}</td><td>${p.day}</td><td>${p.players}</td><td>${p.usual}</td><td>${p.networks}</td><td>${p.top_share}%</td><td>${p.hosting_share}%</td>
+<td><div class="row"><form method="post" action="/admin/games/${p.game_id}/plays/${p.day}/clear"><button class="btn ghost" type="submit">Remove this day's counts</button></form>${p.is_off_shelves ? "" : html`<form method="post" action="/admin/games/${p.game_id}/shelves"><input type="hidden" name="off" value="1"><button class="btn ghost" type="submit">Keep off the shelves</button></form>`}</div></td></tr>`,
         )}</table>`
       : html`<p class="note">No spikes.</p>`}
 ${offShelves.length
@@ -368,7 +369,7 @@ ${error ? html`<p class="note" style="color:var(--danger)">${error}</p>` : ""}
 
 <h2>All games (${games.length})</h2>
 <table><tr><th>Game</th><th>Status</th><th>Updated</th></tr>${games.map(
-      (g) => html`<tr><td><a href="/admin/games/${g.id}">${g.title}</a> <span style="color:var(--muted)">/g/${g.slug}</span></td><td>${pill(g.status)}</td><td>${when(g.updated_at)}</td></tr>`,
+      (g) => html`<tr><td><a href="/admin/games/${g.id}">${g.title}</a> <span style="color:var(--muted)">/g/${g.slug}</span></td><td>${pill(g.review_status)}</td><td>${when(g.updated_at_ms)}</td></tr>`,
     )}</table>`,
   );
 }
@@ -388,7 +389,7 @@ async function gameDetail(env: Env, id: string, error = ""): Promise<Response> {
   return page(
     env,
     game.title,
-    html`<h1>${game.title} ${pill(game.status)}</h1>
+    html`<h1>${game.title} ${pill(game.review_status)}</h1>
 <p class="lead">${game.description}</p>
 <div class="row">
   <a class="btn ghost" href="/g/${game.slug}">Game page</a>
@@ -397,12 +398,12 @@ async function gameDetail(env: Env, id: string, error = ""): Promise<Response> {
 ${error ? html`<p class="note" style="color:var(--danger)">${error}</p>` : ""}
 
 <h2>Takedown</h2>
-${game.status === "removed" || game.status === "held"
-      ? html`<form method="post" action="/admin/games/${game.id}/restore" class="row"><input name="reason" placeholder="Why (optional)"><button class="btn" type="submit">${game.status === "held" ? "Clear and show again" : "Restore"}</button></form>`
+${game.review_status === "removed" || game.review_status === "held"
+      ? html`<form method="post" action="/admin/games/${game.id}/restore" class="row"><input name="reason" placeholder="Why (optional)"><button class="btn" type="submit">${game.review_status === "held" ? "Clear and show again" : "Restore"}</button></form>`
       : html`<form method="post" action="/admin/games/${game.id}/takedown" class="row"><input name="reason" placeholder="Reason (required, goes in the audit log)" required size="40"><button class="btn danger" type="submit">Take down now</button></form>`}
 
 <h2>Details</h2>
-<p>Visibility: ${pill(game.visibility)} · Devices: ${game.devices || "not set"} · Controls: ${game.controls || "not set"} · Screen: ${game.screen || "not set"}</p>
+<p>Visibility: ${pill(game.visibility)} · Devices: ${game.devices || "not set"} · Controls: ${game.controls || "not set"} · Screen: ${game.screen_orientation || "not set"}</p>
 ${images.length ? html`<div class="shots">${images.map((i) => html`<div>${imageReview(i, true)}</div>`)}</div>` : html`<p class="note">No cover or screenshots yet.</p>`}
 
 <h2>Owner</h2>
@@ -414,14 +415,14 @@ ${images.length ? html`<div class="shots">${images.map((i) => html`<div>${imageR
 
 <h2>Shelves</h2>
 <form method="post" action="/admin/games/${game.id}/shelves" class="row">
-  <input type="hidden" name="off" value="${game.off_shelves ? "0" : "1"}"><input type="hidden" name="back" value="game">
-  <span>${game.off_shelves ? "Kept off Popular, Trending and New." : "Can show on Popular, Trending and New."}</span>
-  <button class="btn ghost" type="submit">${game.off_shelves ? "Put back on the shelves" : "Keep off the shelves"}</button>
+  <input type="hidden" name="off" value="${game.is_off_shelves ? "0" : "1"}"><input type="hidden" name="back" value="game">
+  <span>${game.is_off_shelves ? "Kept off Popular, Trending and New." : "Can show on Popular, Trending and New."}</span>
+  <button class="btn ghost" type="submit">${game.is_off_shelves ? "Put back on the shelves" : "Keep off the shelves"}</button>
 </form>
 
 <h2>Cloud saves</h2>
 <form method="post" action="/admin/games/${game.id}/saves" class="row">
-  <label class="row"><input type="checkbox" name="cloud_saves" ${game.cloud_saves ? "checked" : ""}> Copy signed-in players' browser saves to their account. Turn off for games that keep their own saves.</label>
+  <label class="row"><input type="checkbox" name="cloud_saves" ${game.cloud_saves_enabled ? "checked" : ""}> Copy signed-in players' browser saves to their account. Turn off for games that keep their own saves.</label>
   <button class="btn ghost" type="submit">Save</button>
 </form>
 
@@ -430,8 +431,9 @@ ${images.length ? html`<div class="shots">${images.map((i) => html`<div>${imageR
   <label>Game server
     <select name="game_server">
       <option value="">None (single-player)</option>
-      ${BUILT_IN_GAME_SERVERS.map((s) => html`<option value="${s}" ${game.game_server === s ? "selected" : ""}>${s}</option>`)}
-      <option value="${SANDBOX_GAME_SERVER}" ${game.game_server === SANDBOX_GAME_SERVER ? "selected" : ""}>The game's own (zaisma-server.js, in a sandbox)</option>
+      <option value="relay" ${game.multiplayer_mode === "relay" ? "selected" : ""}>The relay</option>
+      ${BUILT_IN_GAME_SERVERS.map((server) => html`<option value="${server}" ${game.multiplayer_mode === "built-in" && game.built_in_server === server ? "selected" : ""}>${server}</option>`)}
+      <option value="${SANDBOX_GAME_SERVER}" ${game.multiplayer_mode === "own" ? "selected" : ""}>The game's own (zaisma-server.js, in a sandbox)</option>
     </select></label>
   <label>The game's own servers, one per line, like wss://play.example.com (at most 5). The game may connect to them, and they're listed on the game page.
     <textarea name="connect_hosts" rows="3">${game.connect_hosts}</textarea></label>
@@ -447,16 +449,16 @@ ${mine.length
 <h2>Versions</h2>
 ${versions.map((v) => {
       const report: ScanReport | null = v.scan_report ? JSON.parse(v.scan_report) : null;
-      const current = v.id === game.current_version_id;
+      const current = v.id === game.live_version_id;
       return html`<div class="note" style="margin-bottom:12px">
   <div class="row"><strong>${v.id}</strong> ${pill(v.scan_status)} ${current ? html`<span class="pill live">players get this one</span>` : ""}
-    <span>${v.file_count} files · ${(v.bytes / 1048576).toFixed(1)} MB · ${when(v.created_at)}</span></div>
-  ${v.report_held_at && v.scan_status === "held" ? html`<p><strong>A report paused this update.</strong> Players are on the version before it. Put it back if the report was wrong.</p>` : ""}
+    <span>${v.file_count} files · ${(v.size_bytes / 1048576).toFixed(1)} MB · ${when(v.created_at_ms)}</span></div>
+  ${v.report_held_at_ms && v.scan_status === "held" ? html`<p><strong>A report paused this update.</strong> Players are on the version before it. Put it back if the report was wrong.</p>` : ""}
   ${report ? scanReport(report) : html`<p>Scan in progress…</p>`}
   ${v.scan_status !== "approved" || !current
         ? html`<div class="row">
-    ${v.scan_status !== "approved" && !knownImages(v) ? html`<form method="post" action="/admin/versions/${v.id}/approve"><button class="btn" type="submit">${v.report_held_at ? "Put the update back" : v.publish_when_approved ? "Approve and publish" : "Approve as a draft"}</button></form>` : ""}
-    ${v.scan_status !== "rejected" ? html`<form method="post" action="/admin/versions/${v.id}/reject"><button class="btn ghost" type="submit">${v.report_held_at ? "Keep it off" : "Reject"}</button></form>` : ""}
+    ${v.scan_status !== "approved" && !knownImages(v) ? html`<form method="post" action="/admin/versions/${v.id}/approve"><button class="btn" type="submit">${v.report_held_at_ms ? "Put the update back" : v.publish_when_approved_enabled ? "Approve and publish" : "Approve as a draft"}</button></form>` : ""}
+    ${v.scan_status !== "rejected" ? html`<form method="post" action="/admin/versions/${v.id}/reject"><button class="btn ghost" type="submit">${v.report_held_at_ms ? "Keep it off" : "Reject"}</button></form>` : ""}
   </div>`
         : ""}
 </div>`;
@@ -487,7 +489,7 @@ ${r.outsideHosts.length ? html`<p>Outside sites referenced: ${r.outsideHosts.joi
 function auditTable(log: Awaited<ReturnType<typeof auditLog>>): Raw {
   return log.length
     ? html`<table><tr><th>When</th><th>Game</th><th>Action</th><th>Reason</th><th>By</th></tr>${log.map(
-        (e) => html`<tr><td>${when(e.at)}</td><td>${e.slug ?? ""}</td><td>${e.action}</td><td>${e.reason}</td><td>${e.actor}</td></tr>`,
+        (e) => html`<tr><td>${when(e.happened_at_ms)}</td><td>${e.slug ?? ""}</td><td>${e.action}</td><td>${e.reason}</td><td>${e.actor}</td></tr>`,
       )}</table>`
     : html`<p class="note">Nothing yet.</p>`;
 }
@@ -498,14 +500,14 @@ async function auditPage(env: Env): Promise<Response> {
 
 function imageReview(i: GameImage, fromGame = false): Raw {
   return html`<a href="/admin/images/${i.id}"><img src="/admin/images/${i.id}" alt="${i.kind}" loading="lazy"></a>
-<p>${i.kind} ${pill(i.status)} <span class="muted">${i.width}×${i.height}</span></p>
-${i.status === "pending"
+<p>${i.kind} ${pill(i.review_status)} <span class="muted">${i.width_px}×${i.height_px}</span></p>
+${i.review_status === "pending"
     ? html`<div class="row"><form method="post" action="/admin/images/${i.id}/approve"><input type="hidden" name="back" value="${fromGame ? "game" : ""}"><button class="btn" type="submit">Approve</button></form>
 <form method="post" action="/admin/images/${i.id}/reject"><input type="hidden" name="back" value="${fromGame ? "game" : ""}"><button class="btn ghost" type="submit">Reject</button></form></div>`
     : ""}`;
 }
 
-export type QueueRow = Report & { slug: string; title: string; game_status: GameStatus };
+export type QueueRow = Report & { slug: string; title: string; game_review_status: ReviewStatus };
 
 export interface ReportGroup {
   /** The first report's id: group actions close it and every report merged into it. */
@@ -561,14 +563,14 @@ async function reportQueue(env: Env): Promise<Response> {
   const week = Date.now() - 7 * 86400_000;
   const [{ results: open }, { results: handled }, { results: paused }] = await Promise.all([
     env.DB
-      .prepare("SELECT reports.*, games.slug, games.title, games.status AS game_status FROM reports JOIN games ON games.id = reports.game_id WHERE reports.status = 'open' ORDER BY reports.created_at LIMIT 500")
+      .prepare("SELECT reports.*, games.slug, games.title, games.review_status AS game_review_status FROM reports JOIN games ON games.id = reports.game_id WHERE reports.status = 'open' ORDER BY reports.created_at LIMIT 500")
       .all<QueueRow>(),
     // Closed by triage itself (bugs passed to the developer, dismissals under a precedent), to look over.
     env.DB
-      .prepare("SELECT reports.*, games.slug, games.title, games.status AS game_status FROM reports JOIN games ON games.id = reports.game_id WHERE reports.status != 'open' AND reports.closed_at = reports.triaged_at AND reports.closed_at > ? ORDER BY reports.closed_at DESC LIMIT 100")
+      .prepare("SELECT reports.*, games.slug, games.title, games.review_status AS game_review_status FROM reports JOIN games ON games.id = reports.game_id WHERE reports.status != 'open' AND reports.closed_at = reports.triaged_at AND reports.closed_at > ? ORDER BY reports.closed_at DESC LIMIT 100")
       .bind(week)
       .all<QueueRow>(),
-    env.DB.prepare("SELECT id, game_id FROM versions WHERE report_held_at IS NOT NULL AND scan_status = 'held'").all<{ id: string; game_id: string }>(),
+    env.DB.prepare("SELECT id, game_id FROM versions WHERE report_held_at_ms IS NOT NULL AND scan_status = 'held'").all<{ id: string; game_id: string }>(),
   ]);
   const groups = groupReports(open);
   const pausedUpdate = new Map(paused.map((v) => [v.game_id, v.id]));
@@ -595,13 +597,13 @@ function groupCard(g: ReportGroup, pausedUpdate: string | undefined): Raw {
   const rec = t?.recommendation;
   const button = (label: string, action: string, recommended: boolean, danger = false) =>
     html`<button class="btn${recommended ? (danger ? " danger" : "") : " ghost"}" type="submit" formaction="${action}">${label}</button>`;
-  const gameHeld = game.game_status === "held";
-  const gameRemoved = game.game_status === "removed";
+  const gameHeld = game.game_review_status === "held";
+  const gameRemoved = game.game_review_status === "removed";
   const prefill = t?.summary && t.ai ? t.summary : reportLabel(game);
   const challenged = t?.precedent?.fit === "challenges" ? t.precedent : null;
   const draft = t?.draft;
   return html`<article class="note case sev${g.severity}">
-  <div class="row">${severityPill(g.severity)}${t?.spot_check ? html` <span class="pill spot">Spot-check</span>` : ""} <a href="/admin/games/${game.game_id}"><strong>${game.title}</strong></a> ${game.game_status !== "live" ? pill(game.game_status) : ""}
+  <div class="row">${severityPill(g.severity)}${t?.spot_check ? html` <span class="pill spot">Spot-check</span>` : ""} <a href="/admin/games/${game.game_id}"><strong>${game.title}</strong></a> ${game.game_review_status !== "live" ? pill(game.game_review_status) : ""}
     <span class="muted">${g.rows.length > 1 ? `${g.rows.length} reports · first ${ago(g.rows[0]!.created_at)}` : ago(game.created_at)}</span></div>
   ${t ? html`<p class="said">${t.summary}</p>` : html`<p class="said">${reportLabel(game)}${game.details ? html`: “${game.details}”` : ""}</p><p class="muted">Waiting to be sorted.</p>`}
   ${t ? html`<p class="muted">Recommended: <strong>${RECOMMENDED[t.recommendation]}</strong>. ${t.why}${t.ai ? "" : " (Not sorted by AI.)"}</p>` : ""}

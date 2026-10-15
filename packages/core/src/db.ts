@@ -1,4 +1,4 @@
-import { AUTO_HOLD_REASONS, PLAYER_REPORT_REASONS, REPORT_REASONS, SEVERITY, type Game, type GameStatus, type PlayerReportReason, type ReportReason, type ScanReport, type ScanStatus, type Version, type Visibility } from "./types.ts";
+import { AUTO_HOLD_REASONS, PLAYER_REPORT_REASONS, REPORT_REASONS, SEVERITY, type Game, type MultiplayerMode, type PlayerReportReason, type ReportReason, type ReviewStatus, type ScanReport, type ScanStatus, type Version, type Visibility } from "./types.ts";
 import { newId } from "./ids.ts";
 
 const now = () => Date.now();
@@ -25,68 +25,72 @@ export async function servableGame(
 ): Promise<(Game & { r2_prefix: string | null; version_kind: "zip" | "files" | null }) | null> {
   const where = "slug" in by ? "games.slug = ?" : "games.id = (SELECT game_id FROM domains WHERE hostname = ?)";
   return db
-    .prepare(`SELECT games.*, versions.r2_prefix, versions.kind AS version_kind FROM games LEFT JOIN versions ON versions.id = games.current_version_id WHERE ${where}`)
+    .prepare(`SELECT games.*, versions.r2_prefix, versions.kind AS version_kind FROM games LEFT JOIN versions ON versions.id = games.live_version_id WHERE ${where}`)
     .bind("slug" in by ? by.slug : by.hostname)
     .first();
 }
 
 export async function liveGames(db: D1Database): Promise<Game[]> {
   const { results } = await db
-    .prepare("SELECT * FROM games WHERE status = 'live' AND visibility = 'listed' AND current_version_id IS NOT NULL ORDER BY updated_at DESC LIMIT 200")
+    .prepare("SELECT * FROM games WHERE review_status = 'live' AND visibility = 'listed' AND live_version_id IS NOT NULL ORDER BY updated_at_ms DESC LIMIT 200")
     .all<Game>();
   return results;
 }
 
 export async function allGames(db: D1Database): Promise<Game[]> {
-  const { results } = await db.prepare("SELECT * FROM games ORDER BY updated_at DESC LIMIT 500").all<Game>();
+  const { results } = await db.prepare("SELECT * FROM games ORDER BY updated_at_ms DESC LIMIT 500").all<Game>();
   return results;
 }
 
 export async function createGame(
   db: D1Database,
-  g: { slug: string; title: string; description: string; ownerId?: string; visibility?: Visibility },
+  details: { slug: string; title: string; description: string; ownerId?: string; visibility?: Visibility },
 ): Promise<Game> {
-  const { ownerId, visibility, ...info } = g;
+  const { ownerId, visibility, ...words } = details;
   const game: Game = {
-    id: newId(), ...info, status: "pending", current_version_id: null, game_server: null, connect_hosts: "", owner_id: ownerId ?? null, cloud_saves: 1,
-    visibility: visibility ?? "listed", devices: "", controls: "", screen: "", players: "", room_browsing: "page", off_shelves: 0, details_draft: null, created_at: now(), updated_at: now(),
+    id: newId(), ...words, review_status: "pending", live_version_id: null, multiplayer_mode: "none", built_in_server: null, connect_hosts: "", owner_id: ownerId ?? null, cloud_saves_enabled: 1,
+    visibility: visibility ?? "listed", devices: "", controls: "", screen_orientation: "", play_modes: "", room_browsing: "page", is_off_shelves: 0, details_waiting_for_review: null, created_at_ms: now(), updated_at_ms: now(),
   };
   await db
-    .prepare("INSERT INTO games (id, slug, title, description, status, current_version_id, owner_id, visibility, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    .bind(game.id, game.slug, game.title, game.description, game.status, null, game.owner_id, game.visibility, game.created_at, game.updated_at)
+    .prepare("INSERT INTO games (id, slug, title, description, review_status, live_version_id, owner_id, visibility, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .bind(game.id, game.slug, game.title, game.description, game.review_status, null, game.owner_id, game.visibility, game.created_at_ms, game.updated_at_ms)
     .run();
   return game;
 }
 
-export async function updateGameInfo(db: D1Database, id: string, g: { title: string; description: string }): Promise<void> {
-  await db.prepare("UPDATE games SET title = ?, description = ?, updated_at = ? WHERE id = ?").bind(g.title, g.description, now(), id).run();
+export async function updateGameInfo(db: D1Database, id: string, words: { title: string; description: string }): Promise<void> {
+  await db.prepare("UPDATE games SET title = ?, description = ?, updated_at_ms = ? WHERE id = ?").bind(words.title, words.description, now(), id).run();
 }
 
-export async function setCloudSaves(db: D1Database, id: string, on: boolean): Promise<void> {
-  await db.prepare("UPDATE games SET cloud_saves = ?, updated_at = ? WHERE id = ?").bind(on ? 1 : 0, now(), id).run();
+export async function setCloudSavesEnabled(db: D1Database, id: string, enabled: boolean): Promise<void> {
+  await db.prepare("UPDATE games SET cloud_saves_enabled = ?, updated_at_ms = ? WHERE id = ?").bind(enabled ? 1 : 0, now(), id).run();
 }
 
-export async function setMultiplayer(db: D1Database, id: string, m: { gameServer: string | null; connectHosts: string[] }): Promise<void> {
-  await db.prepare("UPDATE games SET game_server = ?, connect_hosts = ?, updated_at = ? WHERE id = ?").bind(m.gameServer, m.connectHosts.join("\n"), now(), id).run();
+/** Admin: multiplayer, including one of Zaisma's own game servers, and the game's own servers it may connect to. */
+export async function setMultiplayer(db: D1Database, id: string, multiplayer: { multiplayerMode: MultiplayerMode; builtInServer: string | null; connectHosts: string[] }): Promise<void> {
+  await db
+    .prepare("UPDATE games SET multiplayer_mode = ?, built_in_server = ?, connect_hosts = ?, updated_at_ms = ? WHERE id = ?")
+    .bind(multiplayer.multiplayerMode, multiplayer.multiplayerMode === "built-in" ? multiplayer.builtInServer : null, multiplayer.connectHosts.join("\n"), now(), id)
+    .run();
 }
 
-export async function setGameStatus(db: D1Database, id: string, status: GameStatus): Promise<void> {
-  await db.prepare("UPDATE games SET status = ?, updated_at = ? WHERE id = ?").bind(status, now(), id).run();
+export async function setReviewStatus(db: D1Database, id: string, reviewStatus: ReviewStatus): Promise<void> {
+  await db.prepare("UPDATE games SET review_status = ?, updated_at_ms = ? WHERE id = ?").bind(reviewStatus, now(), id).run();
 }
 
 export async function createVersion(
   db: D1Database,
-  v: { id: string; gameId: string; prefix: string; files: number; bytes: number; kind?: "zip" | "files"; notes?: string; publishWhenApproved?: boolean },
+  version: { id: string; gameId: string; r2Prefix: string; fileCount: number; sizeBytes: number; kind?: "zip" | "files"; patchNotes?: string; publishWhenApprovedEnabled?: boolean },
 ): Promise<void> {
   await db
-    .prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, bytes, scan_status, kind, notes, publish_when_approved, created_at) VALUES (?, ?, ?, ?, ?, 'scanning', ?, ?, ?, ?)")
-    .bind(v.id, v.gameId, v.prefix, v.files, v.bytes, v.kind ?? "zip", v.notes ?? "", v.publishWhenApproved === false ? 0 : 1, now())
+    .prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, kind, patch_notes, publish_when_approved_enabled, created_at_ms) VALUES (?, ?, ?, ?, ?, 'scanning', ?, ?, ?, ?)")
+    .bind(version.id, version.gameId, version.r2Prefix, version.fileCount, version.sizeBytes, version.kind ?? "zip", version.patchNotes ?? "", version.publishWhenApprovedEnabled === false ? 0 : 1, now())
     .run();
 }
 
 /** A secret for a link on the game domain (<slug>--<token>): 20 lowercase letters and digits. */
 export function linkToken(): string {
-  return Array.from(crypto.getRandomValues(new Uint8Array(20)), (b) => "abcdefghijklmnopqrstuvwxyz0123456789"[b % 36]).join("");
+  return Array.from(crypto.getRandomValues(new Uint8Array(20)), (byte) => "abcdefghijklmnopqrstuvwxyz0123456789"[byte % 36]).join("");
 }
 
 /** A passed version that isn't published yet gets a private preview link. */
@@ -105,40 +109,41 @@ export async function versionById(db: D1Database, id: string): Promise<Version |
 }
 
 export async function versionsForGame(db: D1Database, gameId: string): Promise<Version[]> {
-  const { results } = await db.prepare("SELECT * FROM versions WHERE game_id = ? ORDER BY created_at DESC LIMIT 20").bind(gameId).all<Version>();
+  const { results } = await db.prepare("SELECT * FROM versions WHERE game_id = ? ORDER BY created_at_ms DESC LIMIT 20").bind(gameId).all<Version>();
   return results;
 }
 
 export async function heldVersions(db: D1Database): Promise<(Version & { slug: string; title: string })[]> {
   const { results } = await db
-    .prepare("SELECT versions.*, games.slug, games.title FROM versions JOIN games ON games.id = versions.game_id WHERE versions.scan_status IN ('held', 'scanning') ORDER BY versions.created_at DESC")
+    .prepare("SELECT versions.*, games.slug, games.title FROM versions JOIN games ON games.id = versions.game_id WHERE versions.scan_status IN ('held', 'scanning') ORDER BY versions.created_at_ms DESC")
     .all<Version & { slug: string; title: string }>();
   return results;
 }
 
-export async function saveScan(db: D1Database, versionId: string, status: ScanStatus, report: ScanReport | null): Promise<void> {
-  await db.prepare("UPDATE versions SET scan_status = ?, scan_report = COALESCE(?, scan_report) WHERE id = ?").bind(status, report ? JSON.stringify(report) : null, versionId).run();
+export async function saveScan(db: D1Database, versionId: string, scanStatus: ScanStatus, report: ScanReport | null): Promise<void> {
+  await db.prepare("UPDATE versions SET scan_status = ?, scan_report = COALESCE(?, scan_report) WHERE id = ?").bind(scanStatus, report ? JSON.stringify(report) : null, versionId).run();
 }
 
 /** Make a version the one players get. A removed or held game stays hidden. */
 export async function publishVersion(db: D1Database, version: Version): Promise<void> {
   await db.batch([
-    db.prepare("UPDATE versions SET scan_status = 'approved', published_at = ?, publish_at = NULL WHERE id = ?").bind(now(), version.id),
+    db.prepare("UPDATE versions SET scan_status = 'approved', published_at_ms = ?, scheduled_publish_at_ms = NULL WHERE id = ?").bind(now(), version.id),
     db
-      .prepare("UPDATE games SET current_version_id = ?, status = CASE WHEN status IN ('removed', 'held') THEN status ELSE 'live' END, updated_at = ? WHERE id = ?")
+      .prepare("UPDATE games SET live_version_id = ?, review_status = CASE WHEN review_status IN ('removed', 'held') THEN review_status ELSE 'live' END, updated_at_ms = ? WHERE id = ?")
       .bind(version.id, now(), version.game_id),
   ]);
 }
 
 /** A person checked this version after a report: later reports can't pause it. */
 export async function clearVersion(db: D1Database, versionId: string): Promise<void> {
-  await db.prepare("UPDATE versions SET cleared_at = ?, report_held_at = NULL WHERE id = ?").bind(now(), versionId).run();
+  await db.prepare("UPDATE versions SET cleared_at_ms = ?, report_held_at_ms = NULL WHERE id = ?").bind(now(), versionId).run();
 }
 
 export async function audit(db: D1Database, gameId: string | null, action: string, reason = "", actor = "system"): Promise<void> {
-  await db.prepare("INSERT INTO audit_log (game_id, action, reason, actor, at) VALUES (?, ?, ?, ?, ?)").bind(gameId, action, reason, actor, now()).run();
+  await db.prepare("INSERT INTO audit_log (game_id, action, reason, actor, happened_at_ms) VALUES (?, ?, ?, ?, ?)").bind(gameId, action, reason, actor, now()).run();
 }
 
+/** A row of the audit log: what happened to a game, and who did it. */
 export interface AuditEntry {
   id: number;
   game_id: string | null;
@@ -146,13 +151,13 @@ export interface AuditEntry {
   action: string;
   reason: string;
   actor: string;
-  at: number;
+  happened_at_ms: number;
 }
 
 export async function auditLog(db: D1Database, gameId?: string): Promise<AuditEntry[]> {
-  const sql = `SELECT audit_log.*, games.slug FROM audit_log LEFT JOIN games ON games.id = audit_log.game_id ${gameId ? "WHERE audit_log.game_id = ?" : ""} ORDER BY at DESC LIMIT 200`;
-  const stmt = gameId ? db.prepare(sql).bind(gameId) : db.prepare(sql);
-  return (await stmt.all<AuditEntry>()).results;
+  const sql = `SELECT audit_log.*, games.slug FROM audit_log LEFT JOIN games ON games.id = audit_log.game_id ${gameId ? "WHERE audit_log.game_id = ?" : ""} ORDER BY happened_at_ms DESC LIMIT 200`;
+  const statement = gameId ? db.prepare(sql).bind(gameId) : db.prepare(sql);
+  return (await statement.all<AuditEntry>()).results;
 }
 
 export interface Report {
@@ -230,10 +235,10 @@ export function reportLabel(r: Pick<Report, "reason" | "room_code" | "player_nam
   return where ? `${label} (${where})` : label;
 }
 
-export async function openReports(db: D1Database): Promise<(Report & { slug: string; title: string; game_status: GameStatus })[]> {
+export async function openReports(db: D1Database): Promise<(Report & { slug: string; title: string; game_review_status: ReviewStatus })[]> {
   const { results } = await db
-    .prepare("SELECT reports.*, games.slug, games.title, games.status AS game_status FROM reports JOIN games ON games.id = reports.game_id WHERE reports.status = 'open' ORDER BY reports.created_at DESC LIMIT 200")
-    .all<Report & { slug: string; title: string; game_status: GameStatus }>();
+    .prepare("SELECT reports.*, games.slug, games.title, games.review_status AS game_review_status FROM reports JOIN games ON games.id = reports.game_id WHERE reports.status = 'open' ORDER BY reports.created_at DESC LIMIT 200")
+    .all<Report & { slug: string; title: string; game_review_status: ReviewStatus }>();
   return results;
 }
 
@@ -266,20 +271,21 @@ export async function addAiUsage(db: D1Database, input: number, output: number, 
 }
 
 /** Tester links a developer can have turned on per game. */
-export const MAX_TESTER_LINKS = 50;
+export const MAXIMUM_TESTER_LINK_COUNT = 50;
 
+/** A row of the tester_links table: the same names the developer API shows. */
 export interface TesterLink {
   id: string;
   game_id: string;
   name: string;
   token: string;
-  created_at: number;
-  opened_at: number | null;
-  revoked_at: number | null;
+  created_at_ms: number;
+  last_opened_at_ms: number | null;
+  revoked_at_ms: number | null;
 }
 
 export async function testerLinks(db: D1Database, gameId: string): Promise<TesterLink[]> {
-  const { results } = await db.prepare("SELECT * FROM tester_links WHERE game_id = ? AND revoked_at IS NULL ORDER BY created_at DESC").bind(gameId).all<TesterLink>();
+  const { results } = await db.prepare("SELECT * FROM tester_links WHERE game_id = ? AND revoked_at_ms IS NULL ORDER BY created_at_ms DESC").bind(gameId).all<TesterLink>();
   return results;
 }
 
@@ -287,25 +293,25 @@ export async function testerLinks(db: D1Database, gameId: string): Promise<Teste
 export async function testerLinkByToken(db: D1Database, token: string): Promise<(TesterLink & { slug: string }) | null> {
   if (!/^[a-z0-9]{20}$/.test(token)) return null;
   return db
-    .prepare("SELECT tester_links.*, games.slug FROM tester_links JOIN games ON games.id = tester_links.game_id WHERE tester_links.token = ? AND tester_links.revoked_at IS NULL")
+    .prepare("SELECT tester_links.*, games.slug FROM tester_links JOIN games ON games.id = tester_links.game_id WHERE tester_links.token = ? AND tester_links.revoked_at_ms IS NULL")
     .bind(token)
     .first();
 }
 
 export async function addTesterLink(db: D1Database, gameId: string, name: string): Promise<TesterLink> {
-  const link: TesterLink = { id: newId(), game_id: gameId, name, token: linkToken(), created_at: now(), opened_at: null, revoked_at: null };
-  await db.prepare("INSERT INTO tester_links (id, game_id, name, token, created_at) VALUES (?, ?, ?, ?, ?)").bind(link.id, gameId, name, link.token, link.created_at).run();
+  const link: TesterLink = { id: newId(), game_id: gameId, name, token: linkToken(), created_at_ms: now(), last_opened_at_ms: null, revoked_at_ms: null };
+  await db.prepare("INSERT INTO tester_links (id, game_id, name, token, created_at_ms) VALUES (?, ?, ?, ?, ?)").bind(link.id, gameId, name, link.token, link.created_at_ms).run();
   return link;
 }
 
 /** Turn a link off for good. False if it wasn't on. */
 export async function revokeTesterLink(db: D1Database, gameId: string, id: string): Promise<boolean> {
-  const res = await db.prepare("UPDATE tester_links SET revoked_at = ? WHERE id = ? AND game_id = ? AND revoked_at IS NULL").bind(now(), id, gameId).run();
-  return res.meta.changes > 0;
+  const result = await db.prepare("UPDATE tester_links SET revoked_at_ms = ? WHERE id = ? AND game_id = ? AND revoked_at_ms IS NULL").bind(now(), id, gameId).run();
+  return result.meta.changes > 0;
 }
 
 /** Note that a tester link was opened, at most once an hour so a busy link costs no extra writes. */
 export async function testerLinkOpened(db: D1Database, id: string): Promise<void> {
-  const at = now();
-  await db.prepare("UPDATE tester_links SET opened_at = ? WHERE id = ? AND (opened_at IS NULL OR opened_at < ?)").bind(at, id, at - 3600_000).run();
+  const openedAtMs = now();
+  await db.prepare("UPDATE tester_links SET last_opened_at_ms = ? WHERE id = ? AND (last_opened_at_ms IS NULL OR last_opened_at_ms < ?)").bind(openedAtMs, id, openedAtMs - 3600_000).run();
 }

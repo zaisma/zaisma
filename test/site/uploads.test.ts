@@ -1,6 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { KEEP_VERSIONS, ownedBlobKey, personOwner, blobKey, createAccount, createApiKey, gameBySlug, manifestKey, notConnected, sha256Hex, versionById, type ImageMatcher } from "@zaisma/core";
+import { KEPT_VERSION_COUNT, ownedBlobKey, personOwner, blobKey, createAccount, createApiKey, gameBySlug, manifestKey, notConnected, sha256Hex, versionById, type ImageMatcher } from "@zaisma/core";
 import { scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
 import { dailyCleanup, publishDue } from "../../apps/site/src/cleanup.ts";
 
@@ -63,7 +63,7 @@ describe("file-by-file uploads", () => {
     const first = await push(GAME, { patch_notes: "First version." });
     expect(first.sent).toBe(3);
     const v = (await versionById(env.DB, first.version.id))!;
-    expect(v).toMatchObject({ kind: "files", file_count: 3, notes: "First version.", publish_when_approved: 0 });
+    expect(v).toMatchObject({ kind: "files", file_count: 3, patch_notes: "First version.", publish_when_approved_enabled: 0 });
     const manifest = (await (await env.GAMES.get(manifestKey(v.id)))!.json()) as { files: Record<string, { sha256: string }> };
     expect(Object.keys(manifest.files).sort()).toEqual(["art/sky.json", "game.js", "index.html"]);
     expect(await env.GAMES.head(blobKey(manifest.files["game.js"]!.sha256))).not.toBeNull();
@@ -97,11 +97,11 @@ describe("file-by-file uploads", () => {
     const draft = (await (await api(`/games/hop/versions/${version.id}`)).json()) as { version: { scan_status: string; is_live: boolean; preview_url: string } };
     expect(draft.version).toMatchObject({ scan_status: "approved", is_live: false });
     expect(draft.version.preview_url).toMatch(/^https:\/\/games\.zaisma\.test\/hop--[a-z0-9]{20}\/$/);
-    expect((await gameBySlug(env.DB, "hop"))!.current_version_id).toBeNull();
+    expect((await gameBySlug(env.DB, "hop"))!.live_version_id).toBeNull();
 
     const res = await api(`/games/hop/versions/${version.id}/publish`, { method: "POST" });
     expect(res.status).toBe(200);
-    expect((await gameBySlug(env.DB, "hop"))!).toMatchObject({ current_version_id: version.id, status: "live" });
+    expect((await gameBySlug(env.DB, "hop"))!).toMatchObject({ live_version_id: version.id, review_status: "live" });
   });
 
   it("explains why a version was held and won't publish it", async () => {
@@ -117,21 +117,21 @@ describe("file-by-file uploads", () => {
   it("can go live by itself when asked to", async () => {
     const { version } = await push(GAME, { publish_when_approved: true });
     await scan(version.id, pass);
-    expect((await gameBySlug(env.DB, "hop"))!.current_version_id).toBe(version.id);
+    expect((await gameBySlug(env.DB, "hop"))!.live_version_id).toBe(version.id);
   });
 
   it("rolls back, and keeps the live version plus the last five", async () => {
     const ids: string[] = [];
-    for (let i = 0; i < KEEP_VERSIONS + 2; i++) {
+    for (let i = 0; i < KEPT_VERSION_COUNT + 2; i++) {
       const { version } = await push({ ...GAME, "game.js": `let x = ${i};` }, { publish_when_approved: true });
       await scan(version.id, pass);
       ids.push(version.id);
     }
     // Back to an older one.
     expect((await api(`/games/hop/versions/${ids[2]}/publish`, { method: "POST" })).status).toBe(200);
-    expect((await gameBySlug(env.DB, "hop"))!.current_version_id).toBe(ids[2]);
+    expect((await gameBySlug(env.DB, "hop"))!.live_version_id).toBe(ids[2]);
     const { results } = await env.DB.prepare("SELECT id FROM versions WHERE game_id = (SELECT id FROM games WHERE slug = 'hop')").all<{ id: string }>();
-    expect(results.length).toBeLessThanOrEqual(KEEP_VERSIONS + 1);
+    expect(results.length).toBeLessThanOrEqual(KEPT_VERSION_COUNT + 1);
     expect(results.map((r) => r.id)).toContain(ids[2]);
     expect(results.map((r) => r.id)).not.toContain(ids[0]);
     expect(await env.GAMES.head(manifestKey(ids[0]!))).toBeNull();
@@ -154,14 +154,14 @@ describe("publish later", () => {
     const res = await api(`/games/hop/versions/${version.id}/publish`, { body: { scheduled_publish_at: new Date(at).toISOString() } });
     expect(((await res.json()) as { version: { scheduled_publish_at: string } }).version.scheduled_publish_at).toBe(new Date(at).toISOString());
     expect(await publishDue(env, Date.now())).toBe(0);
-    expect((await gameBySlug(env.DB, "hop"))!.current_version_id).toBeNull();
+    expect((await gameBySlug(env.DB, "hop"))!.live_version_id).toBeNull();
 
     await api(`/games/hop/versions/${version.id}/publish`, { method: "DELETE" });
     expect(await publishDue(env, at + 1)).toBe(0);
     await api(`/games/hop/versions/${version.id}/publish`, { body: { scheduled_publish_at: new Date(at).toISOString() } });
     expect(await publishDue(env, at + 1)).toBe(1);
-    expect((await gameBySlug(env.DB, "hop"))!.current_version_id).toBe(version.id);
-    expect((await versionById(env.DB, version.id))!.publish_at).toBeNull();
+    expect((await gameBySlug(env.DB, "hop"))!.live_version_id).toBe(version.id);
+    expect((await versionById(env.DB, version.id))!.scheduled_publish_at_ms).toBeNull();
   });
 
   it("refuses times in the past, and drops versions that don't pass", async () => {
@@ -169,9 +169,9 @@ describe("publish later", () => {
     expect((await api(`/games/hop/versions/${version.id}/publish`, { body: { scheduled_publish_at: new Date(Date.now() - 1000).toISOString() } })).status).toBe(400);
     expect((await api(`/games/hop/versions/${version.id}/publish`, { body: { scheduled_publish_at: "soon" } })).status).toBe(400);
     await scan(version.id, hold);
-    await env.DB.prepare("UPDATE versions SET publish_at = ? WHERE id = ?").bind(Date.now() - 1, version.id).run();
+    await env.DB.prepare("UPDATE versions SET scheduled_publish_at_ms = ? WHERE id = ?").bind(Date.now() - 1, version.id).run();
     expect(await publishDue(env)).toBe(0);
-    expect((await versionById(env.DB, version.id))!.publish_at).toBeNull();
+    expect((await versionById(env.DB, version.id))!.scheduled_publish_at_ms).toBeNull();
   });
 });
 

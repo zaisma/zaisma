@@ -7,10 +7,10 @@ const G = "https://games.example";
 async function addGame(slug: string, cloudSaves = 1) {
   const id = `g${slug.replace(/-/g, "")}`;
   const prefix = `games/${id}/v1`;
-  await env.DB.prepare("INSERT INTO games (id, slug, title, status, current_version_id, cloud_saves, created_at, updated_at) VALUES (?, ?, ?, 'live', 'v1', ?, 0, 0)")
+  await env.DB.prepare("INSERT INTO games (id, slug, title, review_status, live_version_id, cloud_saves_enabled, created_at_ms, updated_at_ms) VALUES (?, ?, ?, 'live', 'v1', ?, 0, 0)")
     .bind(id, slug, slug, cloudSaves)
     .run();
-  await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, bytes, scan_status, created_at) VALUES ('v1', ?, ?, 1, 0, 'approved', 0)").bind(id, prefix).run();
+  await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, created_at_ms) VALUES ('v1', ?, ?, 1, 0, 'approved', 0)").bind(id, prefix).run();
   await env.GAMES.put(`${prefix}/index.html`, '<!doctype html><html><head><title>t</title><script src="game.js"></script></head><p>game</p>');
   await env.GAMES.put(`${prefix}/levels/two.html`, "<p>no head</p>");
 }

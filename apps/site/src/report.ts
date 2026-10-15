@@ -1,4 +1,4 @@
-import { AUTO_HOLD_REASONS, PLAYER_REPORT_REASONS, REPORT_REASONS, audit, createReport, gameBySlug, reportLabel, reportPictureKey, setGameStatus, versionById, type Game, type PlayerReportReason, type ReportReason, type Version } from "@zaisma/core";
+import { AUTO_HOLD_REASONS, PLAYER_REPORT_REASONS, REPORT_REASONS, audit, createReport, gameBySlug, reportLabel, reportPictureKey, setReviewStatus, versionById, type Game, type PlayerReportReason, type ReportReason, type Version } from "@zaisma/core";
 import type { Env } from "./env.ts";
 import { sendAlert } from "./email.ts";
 import { html, layout, metalButton, raw } from "./html.ts";
@@ -276,7 +276,7 @@ dialog.sheet::backdrop{background:linear-gradient(90deg,rgba(4,5,7,0) 35%,rgba(4
 }
 
 /** Private, draft and not-yet-published games can be reported too, but the form never shows their name. */
-const isPublic = (game: Game) => game.status !== "pending" && game.visibility !== "draft" && game.visibility !== "private";
+const isPublic = (game: Game) => game.review_status !== "pending" && game.visibility !== "draft" && game.visibility !== "private";
 
 /** The form without JavaScript. */
 export async function reportForm(env: Env, slug: string, error = "", status = 200): Promise<Response> {
@@ -344,7 +344,7 @@ export async function submitReport(env: Env, request: Request, slug: string, ctx
   // The room's name and labels as they are now, from the room itself: a room can rename itself later.
   const named = roomCode ? await env.DB.prepare("SELECT name, labels FROM live_rooms WHERE game_id = ? AND code = ?").bind(game.id, roomCode).first<{ name: string | null; labels: string }>() : null;
   const roomName = named ? describeRoom(named.name, named.labels) : null;
-  const report = { gameId: game.id, reason, details, versionId: game.current_version_id, roomCode, roomName, ...(player ? { player } : {}) };
+  const report = { gameId: game.id, reason, details, versionId: game.live_version_id, roomCode, roomName, ...(player ? { player } : {}) };
   // A report about what a room is called is about players' words, not the game: it never pauses the game.
   const aboutRoom = input.about === "room" && Boolean(roomCode);
   const id = await createReport(env.DB, report);
@@ -396,26 +396,26 @@ const RECENT_MS = 7 * 86400_000;
  * - anything else stays up. The alert goes out either way, marked URGENT.
  */
 export async function pauseForReport(env: Env, game: Game, label: string): Promise<"game" | "update" | null> {
-  if (game.status !== "live" || !game.current_version_id) return null;
-  const live = await versionById(env.DB, game.current_version_id);
+  if (game.review_status !== "live" || !game.live_version_id) return null;
+  const live = await versionById(env.DB, game.live_version_id);
   const now = Date.now();
-  if (!live || live.cleared_at || !live.published_at || live.published_at < now - RECENT_MS) return null;
+  if (!live || live.cleared_at_ms || !live.published_at_ms || live.published_at_ms < now - RECENT_MS) return null;
   const before = await env.DB
-    .prepare("SELECT * FROM versions WHERE game_id = ? AND id != ? AND scan_status = 'approved' AND published_at IS NOT NULL AND published_at < ? ORDER BY published_at DESC LIMIT 1")
-    .bind(game.id, live.id, live.published_at)
+    .prepare("SELECT * FROM versions WHERE game_id = ? AND id != ? AND scan_status = 'approved' AND published_at_ms IS NOT NULL AND published_at_ms < ? ORDER BY published_at_ms DESC LIMIT 1")
+    .bind(game.id, live.id, live.published_at_ms)
     .first<Version>();
   if (before) {
     // Approving the held update (in admin) puts it straight back.
     await env.DB.batch([
-      env.DB.prepare("UPDATE games SET current_version_id = ?, updated_at = ? WHERE id = ?").bind(before.id, now, game.id),
-      env.DB.prepare("UPDATE versions SET scan_status = 'held', publish_when_approved = 1, report_held_at = ? WHERE id = ?").bind(now, live.id),
-      env.DB.prepare("UPDATE versions SET cleared_at = ? WHERE id = ?").bind(now, before.id),
+      env.DB.prepare("UPDATE games SET live_version_id = ?, updated_at_ms = ? WHERE id = ?").bind(before.id, now, game.id),
+      env.DB.prepare("UPDATE versions SET scan_status = 'held', publish_when_approved_enabled = 1, report_held_at_ms = ? WHERE id = ?").bind(now, live.id),
+      env.DB.prepare("UPDATE versions SET cleared_at_ms = ? WHERE id = ?").bind(now, before.id),
     ]);
     await audit(env.DB, game.id, "report-paused-update", `Report: ${label}. Version ${live.id} held; players are back on version ${before.id}`);
     return "update";
   }
-  await setGameStatus(env.DB, game.id, "held");
-  await env.DB.prepare("UPDATE versions SET report_held_at = ? WHERE id = ?").bind(now, live.id).run();
+  await setReviewStatus(env.DB, game.id, "held");
+  await env.DB.prepare("UPDATE versions SET report_held_at_ms = ? WHERE id = ?").bind(now, live.id).run();
   await audit(env.DB, game.id, "auto-hold", `Report: ${label}`);
   return "game";
 }

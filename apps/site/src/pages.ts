@@ -1,4 +1,4 @@
-import { gameBySlug, readPlayers, testerLinkByToken, testerLinkOpened, type TesterLink } from "@zaisma/core";
+import { gameBySlug, readPlayModes, testerLinkByToken, testerLinkOpened, type TesterLink } from "@zaisma/core";
 import { gameUrl, type Env } from "./env.ts";
 import { html, layout, message, metalButton, playerModes, raw, siteFooter, siteHeader, type Raw } from "./html.ts";
 import { showcase, tile } from "./home.ts";
@@ -16,10 +16,10 @@ const ROOM_CODE = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/;
 export async function gamePage(env: Env, slug: string, request: Request, tester?: TesterLink): Promise<Response> {
   const url = new URL(request.url);
   const game = await gameBySlug(env.DB, slug);
-  if (!game || (!tester && (game.status === "pending" || game.visibility === "draft" || game.visibility === "private"))) return message(env, "Game not found", "Check the link and try again.", 404);
-  if (game.status === "removed") return message(env, "This game was removed", "It broke Zaisma's content rules or was taken down on request.", 410);
-  if (game.status === "held") return message(env, "This game is being reviewed", "Someone reported it and we're taking a look. Try again later.", 404);
-  if (tester && (game.status === "pending" || !game.current_version_id)) return message(env, "Nothing to play yet", "The developer hasn't published a version of this game yet. Try the link again later.", 404);
+  if (!game || (!tester && (game.review_status === "pending" || game.visibility === "draft" || game.visibility === "private"))) return message(env, "Game not found", "Check the link and try again.", 404);
+  if (game.review_status === "removed") return message(env, "This game was removed", "It broke Zaisma's content rules or was taken down on request.", 410);
+  if (game.review_status === "held") return message(env, "This game is being reviewed", "Someone reported it and we're taking a look. Try again later.", 404);
+  if (tester && (game.review_status === "pending" || !game.live_version_id)) return message(env, "Nothing to play yet", "The developer hasn't published a version of this game yet. Try the link again later.", 404);
   const here = tester ? `/t/${tester.token}` : `/g/${game.slug}`;
   const hidden = game.visibility === "draft" || game.visibility === "private";
 
@@ -27,24 +27,24 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   const code = url.searchParams.get("room")?.toUpperCase() ?? "";
   const inRoom = ROOM_CODE.test(code);
   const src = gameUrl(env, tester ? `${game.slug}--${tester.token}` : game.slug) + (inRoom ? `?room=${code}` : "");
-  const saves = Boolean(game.cloud_saves && env.SUPABASE_URL && !tester);
+  const saves = Boolean(game.cloud_saves_enabled && env.SUPABASE_URL && !tester);
   // Without a new tab, making an account or signing in comes back to the game.
   const joinHere = `/join?next=${encodeURIComponent(`${here}?play`)}`;
   const signinHere = `/signin?next=${encodeURIComponent(`${here}?play`)}`;
-  const multiplayer = Boolean(game.game_server || game.connect_hosts);
+  const multiplayer = game.multiplayer_mode !== "none" || Boolean(game.connect_hosts);
   const ownServers = game.connect_hosts.split("\n").filter(Boolean).map((o) => o.replace(/^[a-z]+:\/\//, ""));
   const autoplay = inRoom || url.searchParams.has("play");
   const [developer, pictures, updates, others, live] = await Promise.all([
     game.owner_id
-      ? env.DB.prepare("SELECT accounts.name, (SELECT COUNT(*) FROM games WHERE owner_id = ? AND status = 'live' AND visibility = 'listed') AS games FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE owners.id = ?").bind(game.owner_id, game.owner_id).first<{ name: string; games: number }>()
+      ? env.DB.prepare("SELECT accounts.name, (SELECT COUNT(*) FROM games WHERE owner_id = ? AND review_status = 'live' AND visibility = 'listed') AS games FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE owners.id = ?").bind(game.owner_id, game.owner_id).first<{ name: string; games: number }>()
       : null,
     // The square cover is only for phones' game cards, not one of the game's pictures.
-    env.DB.prepare("SELECT id, kind FROM game_images WHERE game_id = ? AND status = 'approved' AND kind != 'square' ORDER BY kind = 'cover' DESC, created_at").bind(game.id).all<{ id: string; kind: string }>(),
-    env.DB.prepare("SELECT id, notes, published_at FROM versions WHERE game_id = ? AND published_at IS NOT NULL AND notes != '' ORDER BY published_at DESC LIMIT 10").bind(game.id).all<{ id: string; notes: string; published_at: number }>(),
+    env.DB.prepare("SELECT id, kind FROM game_images WHERE game_id = ? AND review_status = 'approved' AND kind != 'square' ORDER BY kind = 'cover' DESC, created_at_ms").bind(game.id).all<{ id: string; kind: string }>(),
+    env.DB.prepare("SELECT id, patch_notes, published_at_ms FROM versions WHERE game_id = ? AND published_at_ms IS NOT NULL AND patch_notes != '' ORDER BY published_at_ms DESC LIMIT 10").bind(game.id).all<{ id: string; patch_notes: string; published_at_ms: number }>(),
     showcase(env, 60),
     // Games on Zaisma rooms: who's playing now, and the rooms to list if the developer shows them here.
     // Not on tester links: their rooms are reached by code and invite link.
-    game.game_server && !tester ? pageRooms(env, game, request) : null,
+    game.multiplayer_mode !== "none" && !tester ? pageRooms(env, game, request) : null,
   ]);
   const rooms = live && roomsOnPage(game) ? live : null;
   const playingNow = live ? live.playing.players : 0;
@@ -52,7 +52,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   const more = [...others.filter((g) => g.slug !== game.slug && g.owner_id && g.owner_id === game.owner_id), ...others.filter((g) => g.slug !== game.slug && (!g.owner_id || g.owner_id !== game.owner_id))].slice(0, 4);
   const devices = game.devices ? game.devices.split(",") : [];
   const controls = game.controls ? game.controls.split(",") : [];
-  const modes = playerModes(readPlayers(game.players), Boolean(game.game_server));
+  const modes = playerModes(readPlayModes(game.play_modes), game.multiplayer_mode !== "none");
   const specRows = [
     modes.html ? html`<div><dt>Players</dt><dd>${modes}</dd></div>` : "",
     devices.length ? html`<div><dt>Works on</dt><dd class="icons">${devices.map((d) => html`<span>${raw(DEVICE_ICONS[d] ?? "")}${DEVICE_LABELS[d] ?? d}</span>`)}</dd></div>` : "",
@@ -322,7 +322,7 @@ ${tabs.length > 1
 ${rooms ? html`<section id="rooms" role="tabpanel" aria-label="Rooms" hidden>${codeBox(game.slug)}<div id="rooms-list">${roomsPanel(game.slug, rooms)}</div></section>` : ""}
 ${updates.results.length
       ? html`<section id="updates" role="tabpanel" aria-label="Updates" hidden><ol class="updates">${updates.results.map(
-          (u) => html`<li><h3>${day(u.published_at)}</h3><p>${u.notes}</p></li>`,
+          (u) => html`<li><h3>${day(u.published_at_ms)}</h3><p>${u.patch_notes}</p></li>`,
         )}</ol></section>`
       : ""}
 ${more.length ? html`<section class="more" aria-labelledby="more-title"><h2 class="rule-h" id="more-title">More games</h2><div class="grid">${more.map((g) => tile(g))}</div></section>` : ""}

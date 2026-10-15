@@ -83,12 +83,12 @@ export async function handlePlays(request: Request, env: Env, path: string): Pro
 }
 
 /** Multiplayer with Zaisma's player passes: on Zaisma rooms or the game's own servers. */
-const multiplayer = (game: Game) => Boolean(game.game_server || game.connect_hosts);
+const multiplayer = (game: Game) => game.multiplayer_mode !== "none" || Boolean(game.connect_hosts);
 
 /** A play through a tester link: never counted, but a checked browser still gets its key to multiplayer. */
 async function testerPlay(env: Env, game: Game | null, body: Record<string, unknown>): Promise<Response> {
   const link = typeof body.tester === "string" ? await testerLinkByToken(env.DB, body.tester) : null;
-  if (!game || !link || link.slug !== game.slug || game.status !== "live" || !game.current_version_id) return new Response(null, { status: 404 });
+  if (!game || !link || link.slug !== game.slug || game.review_status !== "live" || !game.live_version_id) return new Response(null, { status: 404 });
   if (!multiplayer(game) || !(await checked(env, body.token))) return ok();
   return ok({ key: await issueRoomKey(env.DB, game.id) });
 }
@@ -392,7 +392,7 @@ return () => {
 export interface PlaySpike {
   game_id: string;
   title: string;
-  off_shelves: number;
+  is_off_shelves: number;
   day: string;
   players: number;
   /** Counted players a day in the week before, on average. */
@@ -409,9 +409,9 @@ export interface PlaySpike {
  */
 export async function playSpikes(db: D1Database, now = Date.now()): Promise<PlaySpike[]> {
   const { results } = await db
-    .prepare("SELECT play_days.game_id, games.title, games.off_shelves, play_days.day, play_days.counted_players FROM play_days JOIN games ON games.id = play_days.game_id WHERE play_days.day >= ?")
+    .prepare("SELECT play_days.game_id, games.title, games.is_off_shelves, play_days.day, play_days.counted_players FROM play_days JOIN games ON games.id = play_days.game_id WHERE play_days.day >= ?")
     .bind(today(now - 8 * DAY))
-    .all<{ game_id: string; title: string; off_shelves: number; day: string; counted_players: number }>();
+    .all<{ game_id: string; title: string; is_off_shelves: number; day: string; counted_players: number }>();
   const spikes: PlaySpike[] = [];
   for (const d of [today(now), today(now - DAY)]) {
     for (const r of results.filter((x) => x.day === d && x.counted_players >= 30)) {
@@ -423,7 +423,7 @@ export async function playSpikes(db: D1Database, now = Date.now()): Promise<Play
       spikes.push({
         game_id: r.game_id,
         title: r.title,
-        off_shelves: r.off_shelves,
+        is_off_shelves: r.is_off_shelves,
         day: d,
         players: r.counted_players,
         usual: Math.round(usual * 10) / 10,

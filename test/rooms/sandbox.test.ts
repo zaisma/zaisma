@@ -13,10 +13,10 @@ const e = env as unknown as Env;
 async function addSandboxGame(slug: string, server: string) {
   const id = `g${slug.replace(/-/g, "")}`;
   const version = `v${slug.replace(/-/g, "")}`;
-  await e.DB.prepare("INSERT INTO games (id, slug, title, status, current_version_id, game_server, room_browsing, created_at, updated_at) VALUES (?, ?, ?, 'live', ?, 'sandbox', 'page', 0, 0)")
+  await e.DB.prepare("INSERT INTO games (id, slug, title, review_status, live_version_id, multiplayer_mode, room_browsing, created_at_ms, updated_at_ms) VALUES (?, ?, ?, 'live', ?, 'own', 'page', 0, 0)")
     .bind(id, slug, slug, version)
     .run();
-  await e.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, bytes, scan_status, created_at) VALUES (?, ?, ?, 2, 0, 'approved', 0)").bind(version, id, `games/${version}`).run();
+  await e.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, created_at_ms) VALUES (?, ?, ?, 2, 0, 'approved', 0)").bind(version, id, `games/${version}`).run();
   await e.GAMES.put(`games/${version}/zaisma-server.js`, server);
 }
 

@@ -24,8 +24,8 @@ beforeEach(async () => {
   });
   await env.DB.exec("DELETE FROM play_days; DELETE FROM play_returns; DELETE FROM play_tickets; DELETE FROM play_networks; DELETE FROM room_keys; DELETE FROM tester_links; DELETE FROM games WHERE id LIKE 'g-play%';");
   const now = Date.now();
-  await env.DB.prepare("INSERT INTO games (id, slug, title, status, visibility, current_version_id, created_at, updated_at) VALUES ('g-play', 'play-game', 'Play Game', 'live', 'listed', 'v1', ?, ?)").bind(now, now).run();
-  await env.DB.prepare("INSERT INTO games (id, slug, title, status, visibility, current_version_id, created_at, updated_at) VALUES ('g-play-hidden', 'play-hidden', 'Hidden', 'live', 'private', 'v1', ?, ?)").bind(now, now).run();
+  await env.DB.prepare("INSERT INTO games (id, slug, title, review_status, visibility, live_version_id, created_at_ms, updated_at_ms) VALUES ('g-play', 'play-game', 'Play Game', 'live', 'listed', 'v1', ?, ?)").bind(now, now).run();
+  await env.DB.prepare("INSERT INTO games (id, slug, title, review_status, visibility, live_version_id, created_at_ms, updated_at_ms) VALUES ('g-play-hidden', 'play-hidden', 'Hidden', 'live', 'private', 'v1', ?, ?)").bind(now, now).run();
 });
 afterEach(() => vi.unstubAllGlobals());
 
@@ -103,7 +103,7 @@ describe("counted plays", () => {
   it("gives a checked browser in a multiplayer game its key to player passes", async () => {
     // A single-player game: no key.
     expect(await (await send("play-game", { ...NEW, token: "good" })).json()).not.toHaveProperty("key");
-    await env.DB.prepare("UPDATE games SET game_server = 'relay' WHERE id LIKE 'g-play%'").run();
+    await env.DB.prepare("UPDATE games SET multiplayer_mode = 'relay' WHERE id LIKE 'g-play%'").run();
     const both = await (await send("play-game", { ...NEW, token: "good" })).json<{ ticket: string; key: string }>();
     expect(both.ticket).toMatch(/^[a-z0-9]+$/);
     expect(await env.DB.prepare("SELECT game_id, passes FROM room_keys WHERE id = ?").bind(both.key).first()).toEqual({ game_id: "g-play", passes: 0 });
@@ -111,11 +111,11 @@ describe("counted plays", () => {
   });
 
   it("gives a tester link's checked browser a key, never counting the play", async () => {
-    await env.DB.prepare("INSERT INTO tester_links (id, game_id, name, token, created_at) VALUES ('t1', 'g-play-hidden', 'Team', 'abcdefghij0123456789', ?)").bind(Date.now()).run();
+    await env.DB.prepare("INSERT INTO tester_links (id, game_id, name, token, created_at_ms) VALUES ('t1', 'g-play-hidden', 'Team', 'abcdefghij0123456789', ?)").bind(Date.now()).run();
     const tester = { tester: "abcdefghij0123456789", token: "good" };
     // A single-player game has nothing to check for.
     expect((await send("play-hidden", tester)).status).toBe(204);
-    await env.DB.prepare("UPDATE games SET game_server = 'relay' WHERE id = 'g-play-hidden'").run();
+    await env.DB.prepare("UPDATE games SET multiplayer_mode = 'relay' WHERE id = 'g-play-hidden'").run();
     const { key } = await (await send("play-hidden", tester)).json<{ key: string }>();
     expect(key).toMatch(/^[a-z0-9]+$/);
     expect((await send("play-hidden", { ...tester, token: "forged" })).status).toBe(204);
@@ -132,13 +132,13 @@ describe("counted plays", () => {
     expect(page).toContain('"/api/plays/play-game"');
     expect(page).toContain('id="play-check"');
     expect(page).toMatch(/remember\(\);\s*countPlay\(\);/);
-    await env.DB.prepare("INSERT INTO tester_links (id, game_id, name, token, created_at) VALUES ('t1', 'g-play-hidden', 'Team', 'abcdefghij0123456789', ?)").bind(Date.now()).run();
+    await env.DB.prepare("INSERT INTO tester_links (id, game_id, name, token, created_at_ms) VALUES ('t1', 'g-play-hidden', 'Team', 'abcdefghij0123456789', ?)").bind(Date.now()).run();
     const tester = await SELF.fetch(`${SITE}/t/abcdefghij0123456789`);
     expect(tester.status).toBe(200);
     expect(tester.headers.get("content-security-policy")).not.toContain("challenges.cloudflare.com");
     expect(await tester.text()).not.toContain("/api/plays/");
     // A multiplayer game checks the browser for its player passes, without counting the play.
-    await env.DB.prepare("UPDATE games SET game_server = 'relay' WHERE id = 'g-play-hidden'").run();
+    await env.DB.prepare("UPDATE games SET multiplayer_mode = 'relay' WHERE id = 'g-play-hidden'").run();
     const multi = await SELF.fetch(`${SITE}/t/abcdefghij0123456789`);
     expect(multi.headers.get("content-security-policy")).toContain("https://challenges.cloudflare.com");
     const text = await multi.text();
@@ -190,7 +190,7 @@ describe("home page shelves", () => {
 
   it("ranks popular by players this week and trending by players above the usual", async () => {
     const t = Date.now();
-    for (const id of ["a", "b", "c", "d"]) await env.DB.prepare("INSERT INTO games (id, slug, title, status, visibility, current_version_id, created_at, updated_at) VALUES (?, ?, ?, 'live', 'listed', 'v1', ?, ?)").bind(`g-play-${id}`, `play-${id}`, id, t, t).run();
+    for (const id of ["a", "b", "c", "d"]) await env.DB.prepare("INSERT INTO games (id, slug, title, review_status, visibility, live_version_id, created_at_ms, updated_at_ms) VALUES (?, ?, ?, 'live', 'listed', 'v1', ?, ?)").bind(`g-play-${id}`, `play-${id}`, id, t, t).run();
     // a: steady and big. b: steady and smaller. c: quiet, then a lot of players in the last 3 days.
     // d: only played two weeks ago.
     for (let i = 0; i < 17; i++) {
@@ -211,7 +211,7 @@ describe("home page shelves", () => {
     expect((await shelves(env, games, now)).trending.map((g) => g.slug)).toEqual(["play-b", "play-c"]);
     expect(fresh.map((g) => g.slug)).toEqual(["play-d", "play-c"]);
     // Admin can keep a game off every shelf.
-    await env.DB.prepare("UPDATE games SET off_shelves = 1 WHERE id IN ('g-play-b', 'g-play-d')").run();
+    await env.DB.prepare("UPDATE games SET is_off_shelves = 1 WHERE id IN ('g-play-b', 'g-play-d')").run();
     const after = await shelves(env, games, now);
     expect(after.popular.map((g) => g.slug)).toEqual(["play-a", "play-c"]);
     expect(after.fresh).toEqual([]);
