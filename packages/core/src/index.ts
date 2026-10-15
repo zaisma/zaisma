@@ -18,3 +18,4 @@ export * from "./uploads.ts";
 export * from "./rooms.ts";
 export * from "./text-filter.ts";
 export * from "./forum.ts";
+export * from "./errors.ts";

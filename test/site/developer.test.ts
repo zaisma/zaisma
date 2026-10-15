@@ -2,6 +2,7 @@ import { createExecutionContext, env, SELF } from "cloudflare:test";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { accountForApiKey, createAccount, createApiKey, createGame, describePlayModes, gameBySlug, imageKey, personOwner, sniffImage } from "@zaisma/core";
 import worker from "../../apps/site/src/index.ts";
+import { errorProblems } from "../schema-check.ts";
 
 const SITE = "https://zaisma.test";
 
@@ -31,14 +32,20 @@ function webp(w: number, h: number): Uint8Array {
 let token = "";
 let other = "";
 
+/** Call the developer API; every refusal must have the error's shape, a listed code and that code's HTTP status. */
 async function api(path: string, init: { method?: string; body?: unknown; raw?: Uint8Array; key?: string | null } = {}) {
   const key = init.key === undefined ? token : init.key;
-  return SELF.fetch(`${SITE}/api/dev${path}`, {
+  const res = await SELF.fetch(`${SITE}/api/dev${path}`, {
     method: init.method ?? (init.body || init.raw ? "POST" : "GET"),
     headers: { ...(key ? { authorization: `Bearer ${key}` } : {}), ...(init.body ? { "content-type": "application/json" } : {}) },
     body: init.raw ?? (init.body ? JSON.stringify(init.body) : undefined),
   });
+  if (!res.ok) expect(errorProblems(await res.clone().json(), res.status)).toEqual([]);
+  return res;
 }
+
+/** An error answer's error object. */
+const refusal = async (res: Response) => ((await res.json()) as { error: { code: string; field: string | null; fix: string } }).error;
 
 beforeEach(async () => {
   await env.DB.exec(
@@ -94,6 +101,26 @@ describe("games", () => {
     expect((await api("/games", { body: { title: "Hop", screen_orientation: "sideways" } })).status).toBe(400);
     await api("/games", { body: { title: "Hop" } });
     expect((await api("/games", { body: { title: "Hop" } })).status).toBe(409);
+  });
+
+  it("says which input is wrong and what to do, with one code per problem", async () => {
+    expect(await refusal(await api("/games", { body: { title: "" } }))).toMatchObject({ code: "bad_title", field: "title" });
+    expect(await refusal(await api("/games", { body: { title: "Hop", devices: ["toaster"] } }))).toMatchObject({ code: "bad_devices", field: "devices", fix: expect.stringContaining("phone, tablet, computer") });
+    expect(await refusal(await api("/games", { body: { title: "Hop", screen_orientation: "sideways" } }))).toMatchObject({ code: "bad_screen_orientation", field: "screen_orientation" });
+    // Inputs are closed: a field the call doesn't take is an error, never quietly ignored.
+    expect(await refusal(await api("/games", { body: { title: "Hop", players: 4 } }))).toMatchObject({ code: "unknown_field", field: "players" });
+    const made = (await (await api("/games", { body: { title: "Hop" } })).json()) as { next_steps: { tool: string }[] };
+    expect(made.next_steps.map((step) => step.tool)).toEqual(["upload_files"]);
+    expect(await refusal(await api("/games/hop", { method: "PATCH", body: { visibility: "public" } }))).toMatchObject({ code: "bad_visibility", field: "visibility", fix: expect.stringContaining("listed") });
+    expect(await refusal(await api("/games/hop", { method: "PATCH", body: { play_modes: [{ mode: "online", minimum_player_count: 1, play_style: "co-op" }] } }))).toMatchObject({
+      code: "bad_play_modes",
+      field: "play_modes[0].minimum_player_count",
+    });
+    expect(await refusal(await api("/games/hop/stats?period_duration_days=120"))).toMatchObject({ code: "bad_period_duration_days", field: "period_duration_days" });
+    expect(await refusal(await api("/games/hop/reports?since=yesterday"))).toMatchObject({ code: "unknown_field", field: "since" });
+    expect(await refusal(await api("/games/hop/versions/version_8f3k2m"))).toMatchObject({ code: "no_version", field: "version_id" });
+    expect(await refusal(await api("/games/hop/versions", { body: { files: [{ path: "game/index.html", sha256: "a".repeat(64), size_bytes: 10 }] } }))).toMatchObject({ code: "no_index_html", field: "files" });
+    expect(await refusal(await api("/nowhere"))).toMatchObject({ code: "not_found" });
   });
 
   it("keeps other people's games out of reach", async () => {

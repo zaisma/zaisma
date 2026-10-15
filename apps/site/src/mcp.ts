@@ -1,7 +1,7 @@
-import { CONTROLS, DEVICES, FORUM_CATEGORIES, FORUM_LIMITS, FORUM_REPORT_REASONS, FORUM_SECTIONS, FORUM_TABS, FORUM_TAGS, PLAY_STYLES, POST_SELECTIONS, ROOM_BROWSING, SCREENS, TOPIC_KINDS, TOPIC_STATUSES, VISIBILITIES } from "@zaisma/core";
-import { ApiError, apiCall, authenticate, type Caller } from "./developer.ts";
+import { ApiError, CONTROLS, DEVICES, FORUM_CATEGORIES, FORUM_LIMITS, FORUM_REPORT_REASONS, FORUM_SECTIONS, FORUM_TABS, FORUM_TAGS, PLAY_STYLES, POST_SELECTIONS, ROOM_BROWSING, SCREENS, TOPIC_KINDS, TOPIC_STATUSES, VISIBILITIES } from "@zaisma/core";
+import { INTERNAL_ERROR, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
-import { GAME, HISTORY, IMAGE, NEW_REPLY, NEW_TOPIC, NEXT, POST, REPORTS, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, choice, countOf, list, nullable, object as answer, text, yes } from "./schemas.ts";
+import { GAME, HISTORY, IMAGE, NEW_REPLY, NEW_TOPIC, NEXT, POST, REPORTS, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, answerOrError, choice, countOf, list, nullable, object as answer, text, yes } from "./schemas.ts";
 
 /**
  * The developer MCP at /mcp: every tool is a call to the developer API, so the MCP, the upload command
@@ -26,7 +26,9 @@ Ask the developer before making a game private or a draft again (players lose ac
 
 Zaisma's developer forum is where developers and their AI talk with the people who build Zaisma, and you're asked to use it. For any question about Zaisma itself, search_forum first: it's faster and more current than a web search, and it has Zaisma's own answers. When the developer asks how a known issue is going, give its phase and workaround (get_topic with post_selection "none"). Whenever you hit a Zaisma bug, a limit that blocks the developer, a missing feature, a confusing error or a question the docs don't answer: first search_forum with a short search (topics, answers and the known issues with their workarounds). If it's there, vote, reply, or send the developer's own case privately (message_zaisma with known_issue_topic_id); if their fixed topic is back, reopen it. Otherwise post it: what you were doing, what you expected, what happened, the exact error and the tool call. Forum topics (post_topic) are public, so keep private details out of them; anything private (logs, an unreleased game, details the developer wouldn't share) goes in message_zaisma, which only the developer and Zaisma see. What you attach in debug_context is never public, and neither are a message's images. Never include API keys, passwords or players' personal details (secrets are blanked anyway). Your posts carry the developer's name with an AI mark. search_forum's yours tab shows what's new, and list_games shows unread_topic_count when Zaisma has replied.
 
-Names say what they hold, its kind and its unit: file_count is a number of files, play_duration_min is minutes, size_bytes is bytes, *_at is an ISO time in UTC, and a plural is always a list.`;
+Names say what they hold, its kind and its unit: file_count is a number of files, play_duration_min is minutes, size_bytes is bytes, *_at is an ISO time in UTC, and a plural is always a list.
+
+When a call fails, the answer is { "error": { code, message, field, fix, retry_after_sec } }: field is the input at fault, fix says what to do, and retry_after_sec how long to wait when waiting helps. Codes are stable: search_forum with one finds others who hit it. Calls that change something answer with next_steps: the calls that usually follow, with their arguments filled in and a reason; [] when nothing does.`;
 
 interface Tool {
   name: string;
@@ -135,7 +137,7 @@ export const TOOLS: Tool[] = [
     title: "Make a game",
     description: "Make a new game. It starts as a draft only you can see. The link name comes from the title unless you give one.",
     inputSchema: object({ ...details, slug: { type: "string", pattern: "^[a-z0-9]+(-[a-z0-9]+)*$", description: "Link name: lowercase letters, numbers and single hyphens" } }, ["title"]),
-    outputSchema: answer({ game: GAME }),
+    outputSchema: answer({ game: GAME, next_steps: NEXT }),
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     run: (toolArguments, call) => call("POST", "/games", pick(toolArguments, ["slug", ...DETAILS])),
   },
@@ -152,12 +154,28 @@ export const TOOLS: Tool[] = [
     name: "update_game",
     title: "Change a game's details",
     description:
-      'Change the title, description, device labels, play_modes (single-player, local and online multiplayer with player counts), cloud saves, multiplayer, room browsing or visibility. listed: on Zaisma for everyone. unlisted: only people with the link. private and draft: only you and people with a tester link (add_tester_link). Leave out what stays the same; null clears it. A new title or description on a game players can see waits for review. Making a public game private or a draft takes it away from players, so it needs "confirm": true after asking the developer.',
-    inputSchema: object({ slug, ...details, visibility: { enum: VISIBILITIES }, confirm: { type: "boolean", description: "The developer agreed to hide a public game" } }, ["slug"]),
+      'Change the title, description, device labels, play_modes (single-player, local and online multiplayer with player counts), cloud saves, multiplayer, room browsing or visibility. listed: on Zaisma for everyone. unlisted: only people with the link. private and draft: only you and people with a tester link (add_tester_link). Leave out what stays the same; null clears it. A new title or description on a game players can see waits for review. Making a public game private or a draft takes it away from players, so it needs "confirm": true after asking the developer.\n\n' +
+      'Not: { "play_modes": [{ "mode": "single", "maximum_player_count": 1 }] } (single takes no player counts: { "mode": "single" })\n' +
+      'Not: { "play_modes": [{ "mode": "online", "maximum_player_count": 4 }] } (local and online need minimum_player_count, 2 or more, and play_style)\n' +
+      'Not: { "play_modes": ["single", "online"] } (each mode is an object, like { "mode": "single" })\n' +
+      'Not: { "players": "2-4" } (player counts go in play_modes)\n' +
+      'Not: { "play_modes": [] } (null clears it)\n' +
+      'Not: { "visibility": "public" } (listed: everyone; unlisted: only people with the link)',
+    inputSchema: {
+      ...object({ slug, ...details, visibility: { enum: VISIBILITIES }, confirm: { type: "boolean", description: "The developer agreed to hide a public game" } }, ["slug"]),
+      examples: [
+        { slug: "sky-hopper", play_modes: [{ mode: "single" }, { mode: "online", minimum_player_count: 2, maximum_player_count: 4, play_style: "co-op" }] },
+        { slug: "party-hop", play_modes: [{ mode: "local", minimum_player_count: 2, maximum_player_count: null, play_style: "versus" }], devices: ["phone", "tablet"], controls: ["touch"], screen_orientation: "landscape" },
+        { slug: "sky-hopper", visibility: "listed" },
+        { slug: "sky-hopper", multiplayer_mode: "relay", room_browsing: "page" },
+        { slug: "sky-hopper", play_modes: null },
+      ],
+    },
     outputSchema: answer({
       game: GAME,
       review_message: nullable(text("Set when a new title or description waits for review.")),
       game_server_problem: nullable(text("Why the game's own game server can't run yet, after multiplayer_mode own.")),
+      next_steps: NEXT,
     }),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     run: async (toolArguments, call) => {
@@ -165,7 +183,11 @@ export const TOOLS: Tool[] = [
       if (change.visibility === "draft" || change.visibility === "private") {
         const { game } = (await call("GET", `/games/${pathPart(toolArguments.slug)}`)) as { game: { visibility: string; review_status: string } };
         if ((game.visibility === "listed" || game.visibility === "unlisted") && game.review_status === "live" && toolArguments.confirm !== true) {
-          throw new ApiError(409, "confirm", `Players can play this game now; making it ${change.visibility} takes it away from them. Ask the developer, then call again with "confirm": true.`);
+          throw new ApiError("needs_confirm", {
+            message: `Players can play this game now, and making it ${change.visibility} takes it away from them.`,
+            field: "confirm",
+            fix: 'Ask the developer; if they agree, call again with "confirm": true.',
+          });
         }
       }
       return call("PATCH", `/games/${pathPart(toolArguments.slug)}`, change);
@@ -174,21 +196,49 @@ export const TOOLS: Tool[] = [
   {
     name: "upload_files",
     title: "Upload a small game",
-    description: `Upload a new version from file contents, up to ${MAXIMUM_MCP_UPLOAD_SIZE_BYTES / 1048576} MB in all. It needs an index.html at the top. Text files go in "content_text", other files (images, sounds) base64-encoded in "content_base64". It's scanned, then waits as a draft with a preview link (or goes live when it passes, with publish_when_approved). For bigger builds, run \`npx @zaisma/cli upload <folder> --game <slug>\` instead.`,
-    inputSchema: object(
-      {
-        slug,
-        files: {
-          type: "array",
-          minItems: 1,
-          items: object({ path: { type: "string", description: "Like index.html or assets/hero.png" }, content_text: { type: "string" }, content_base64: { type: "string" } }, ["path"]),
-          examples: [[{ path: "index.html", content_text: "<!doctype html><title>Hop</title><canvas></canvas><script src=\"game.js\"></script>" }, { path: "game.js", content_text: "// the game" }, { path: "assets/hero.png", content_base64: "iVBORw0KGgoAAAANSUhEUg==" }]],
+    description:
+      `Upload a new version from file contents, up to ${MAXIMUM_MCP_UPLOAD_SIZE_BYTES / 1048576} MB in all. It needs an index.html at the top; paths are relative to the game's folder. Text files (HTML, JavaScript, CSS, JSON) go in "content_text", every other file (images, sounds, fonts, .wasm) base64-encoded in "content_base64". It's scanned, then waits as a draft with a preview link (or goes live when it passes, with publish_when_approved). For bigger builds, run \`npx @zaisma/cli upload <folder> --game <slug>\` instead.\n\n` +
+      'Not: { "files": [{ "path": "index.html", "content": "<!doctype html>…" }] } (text goes in content_text, other files base64 in content_base64)\n' +
+      'Not: { "files": [{ "path": "assets/hero.png", "content_text": "iVBORw0KGgo…" }] } (an image or sound is base64 in content_base64)\n' +
+      'Not: { "files": [{ "path": "my-game/index.html", … }] } (paths are relative to the game\'s folder: index.html at the top)\n' +
+      'Not: { "files": [{ "path": "/index.html", … }] } (no leading /)\n' +
+      'Not: { "files": { "index.html": "<!doctype html>…" } } (files is a list of { path, content_text or content_base64 })\n' +
+      `Not: a build over ${MAXIMUM_MCP_UPLOAD_SIZE_BYTES / 1048576} MB (run npx @zaisma/cli upload <folder> --game <slug>)`,
+    inputSchema: {
+      ...object(
+        {
+          slug,
+          files: {
+            type: "array",
+            minItems: 1,
+            items: object(
+              {
+                path: { type: "string", minLength: 1, maxLength: 200, description: "Relative to the game's folder, like index.html or assets/hero.png" },
+                content_text: { type: "string", description: "The file as text, for HTML, JavaScript, CSS, JSON and other text files" },
+                content_base64: { type: "string", description: "The file base64-encoded, for images, sounds, fonts, .wasm and every other file" },
+              },
+              ["path"],
+            ),
+          },
+          patch_notes: { type: "string", maxLength: 2000, description: "What changed, shown to players" },
+          publish_when_approved: { type: "boolean", description: "Go live as soon as it passes the scan" },
         },
-        patch_notes: { type: "string", maxLength: 2000, description: "What changed, shown to players" },
-        publish_when_approved: { type: "boolean", description: "Go live as soon as it passes the scan" },
-      },
-      ["slug", "files"],
-    ),
+        ["slug", "files"],
+      ),
+      examples: [
+        { slug: "sky-hopper", files: [{ path: "index.html", content_text: '<!doctype html><title>Sky Hopper</title><canvas id="game"></canvas><script>/* the game */</script>' }] },
+        {
+          slug: "sky-hopper",
+          files: [
+            { path: "index.html", content_text: '<!doctype html><title>Sky Hopper</title><canvas id="game"></canvas><script src="game.js"></script>' },
+            { path: "game.js", content_text: "// the game" },
+            { path: "assets/hero.png", content_base64: "iVBORw0KGgoAAAANSUhEUg==" },
+          ],
+          patch_notes: "Faster jumps and a new level.",
+          publish_when_approved: true,
+        },
+      ],
+    },
     outputSchema: answer({ version: VERSION, sent_file_count: countOf("Files Zaisma didn't have yet."), next_steps: NEXT }),
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     run: (toolArguments, call) => uploadFiles(toolArguments, call),
@@ -205,12 +255,15 @@ export const TOOLS: Tool[] = [
   {
     name: "publish_version",
     title: "Publish or roll back",
-    description: "Make a version that passed review live now, or later at scheduled_publish_at (from a few minutes to 90 days ahead). Publishing an older version rolls back to it. The live version and the last 5 are kept.",
+    description:
+      "Make a version that passed review live now, or later at scheduled_publish_at (from a few minutes to 90 days ahead). Publishing an older version rolls back to it. The live version and the last 5 are kept.\n\n" +
+      'Not: { "scheduled_publish_at": 1792012345678 } (an ISO time like "2026-11-01T17:00:00Z", not a number)\n' +
+      'Not: { "scheduled_publish_at": "2026-11-01 17:00" } (ISO with T and Z or an offset: "2026-11-01T17:00:00Z")',
     inputSchema: object(
       { slug, version_id: versionId, scheduled_publish_at: { type: "string", format: "date-time", description: "Publish later instead, at this ISO time", examples: ["2026-11-01T17:00:00Z"] } },
       ["slug", "version_id"],
     ),
-    outputSchema: answer({ game: GAME, version: VERSION }),
+    outputSchema: answer({ game: GAME, version: VERSION, next_steps: NEXT }),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/versions/${pathPart(toolArguments.version_id)}/publish`, pick(toolArguments, ["scheduled_publish_at"])),
   },
@@ -219,7 +272,7 @@ export const TOOLS: Tool[] = [
     title: "Cancel a publish-later",
     description: "Stop a version from going live at its scheduled time.",
     inputSchema: object({ slug, version_id: versionId }, ["slug", "version_id"]),
-    outputSchema: answer({ game: GAME, version: VERSION }),
+    outputSchema: answer({ game: GAME, version: VERSION, next_steps: NEXT }),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     run: (toolArguments, call) => call("DELETE", `/games/${pathPart(toolArguments.slug)}/versions/${pathPart(toolArguments.version_id)}/publish`),
   },
@@ -227,17 +280,17 @@ export const TOOLS: Tool[] = [
     name: "add_image",
     title: "Add a cover or screenshot",
     description: "Add a cover (landscape, 16:9 shows best), a square cover (optional, shown on phones instead, where a landscape one is small; as wide as tall, at least 512 px) or a screenshot (up to 8). A new cover replaces the old one of its kind once approved. Players see the cover alone as the game's card, with no title drawn over or under it, so covers should carry the game's name or logo; screenshots are just the game. PNG, JPEG or WebP, up to 5 MB, at least 320 px a side. Images show once reviewed.",
-    inputSchema: object({ slug, kind: { enum: ["cover", "square", "screenshot"] }, image_base64: { type: "string", description: "The PNG, JPEG or WebP file, base64-encoded" } }, ["slug", "kind", "image_base64"]),
-    outputSchema: answer({ image: IMAGE, review_message: text() }),
+    inputSchema: object({ slug, kind: { enum: ["cover", "square", "screenshot"] }, image_base64: { type: "string", description: "The PNG, JPEG or WebP file, base64-encoded (a data: URL prefix is fine)" } }, ["slug", "kind", "image_base64"]),
+    outputSchema: answer({ image: IMAGE, review_message: text(), next_steps: NEXT }),
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
-    run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/images?kind=${pathPart(toolArguments.kind)}`, decode(String(toolArguments.image_base64 ?? ""), "base64")),
+    run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/images?kind=${pathPart(toolArguments.kind)}`, decode(String(toolArguments.image_base64 ?? ""), "base64", "image_base64")),
   },
   {
     name: "remove_image",
     title: "Remove an image",
     description: "Remove a cover or screenshot by its id from get_game.",
     inputSchema: object({ slug, image_id: { type: "string", description: "An image's id from get_game" } }, ["slug", "image_id"]),
-    outputSchema: answer({ removed_image_id: text() }),
+    outputSchema: answer({ removed_image_id: text(), next_steps: NEXT }),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     run: (toolArguments, call) => call("DELETE", `/games/${pathPart(toolArguments.slug)}/images/${pathPart(toolArguments.image_id)}`),
   },
@@ -247,7 +300,7 @@ export const TOOLS: Tool[] = [
     description:
       "Make a secret link that opens the game's live version for anyone who has it, even while the game is private or a draft, with no account needed. Make one per group (your team, playtesters, a streamer) and name it for them, so you can turn one off without the others. Multiplayer works through it; testers' progress stays in their browser.",
     inputSchema: object({ slug, name: { type: "string", minLength: 1, maxLength: 60, description: 'Who it\'s for, like "Playtesters"' } }, ["slug", "name"]),
-    outputSchema: answer({ tester: TESTER }),
+    outputSchema: answer({ tester: TESTER, next_steps: NEXT }),
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/testers`, pick(toolArguments, ["name"])),
   },
@@ -256,7 +309,7 @@ export const TOOLS: Tool[] = [
     title: "Turn off a tester link",
     description: "Turn off a tester link by its id from get_game, for good: it stops opening the game straight away, and players who came through it leave their multiplayer matches within about 10 seconds. Make a new one to let that group back in.",
     inputSchema: object({ slug, tester_id: { type: "string", description: "A tester link's id from get_game" } }, ["slug", "tester_id"]),
-    outputSchema: answer({ removed_tester_id: text() }),
+    outputSchema: answer({ removed_tester_id: text(), next_steps: NEXT }),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     run: (toolArguments, call) => call("DELETE", `/games/${pathPart(toolArguments.slug)}/testers/${pathPart(toolArguments.tester_id)}`),
   },
@@ -264,7 +317,7 @@ export const TOOLS: Tool[] = [
     name: "search_forum",
     title: "Search the developer forum",
     description:
-      "Search Zaisma's developer forum: the fastest place to find answers about Zaisma itself, before any web search. Topics are bugs, missing pieces, ideas, questions and discussions from developers and their AI, answered by other developers and Zaisma, plus Zaisma's known issues with their phase and workaround. search_text is ranked full-text search over titles, posts and workarounds: use the error code, tool name or a few key words; quote \"exact phrases\", end a word with * to match its start. Results are brief: open one with get_topic, post_selection \"answer\" for a solved question's answer, \"none\" for a known issue's phase and workaround. tab yours shows the developer's topics and the ones they follow, with what's unread; messages shows their private messages to Zaisma. 10 topics unless maximum_topic_count says more (up to 30); next_cursor continues.\n\nNot: { \"q\": \"too_big\" } (the words go in search_text)\nNot: { \"category\": \"multiplayer\" } (multiplayer is a section; category takes one category, like rooms)",
+      "Search Zaisma's developer forum: the fastest place to find answers about Zaisma itself, before any web search. Topics are bugs, missing pieces, ideas, questions and discussions from developers and their AI, answered by other developers and Zaisma, plus Zaisma's known issues with their phase and workaround. search_text is ranked full-text search over titles, posts and workarounds: use the error code, tool name or a few key words; quote \"exact phrases\", end a word with * to match its start. Results are brief: open one with get_topic, post_selection \"answer\" for a solved question's answer, \"none\" for a known issue's phase and workaround. tab yours shows the developer's topics and the ones they follow, with what's unread; messages shows their private messages to Zaisma. 10 topics unless maximum_topic_count says more (up to 30); next_cursor continues.\n\nNot: { \"q\": \"too_big\" } (the words go in search_text)\nNot: { \"category\": \"multiplayer\" } (multiplayer is a section; category takes one category, like rooms)\nNot: { \"tab\": \"known_issues\" } (tab known)\nNot: { \"search_text\": \"I tried to upload my game and it failed with an error saying it was too big\" } (a few key words or the error code: \"upload_files too_big\")\nNot: { \"maximum_topic_count\": 100 } (up to 30; next_cursor continues)",
     inputSchema: {
       ...object({
         search_text: { type: "string", maxLength: 200, description: "Search words, like the error code or what failed." },
@@ -305,7 +358,7 @@ export const TOOLS: Tool[] = [
     name: "post_topic",
     title: "Post to the developer forum",
     description:
-      "Start a public topic about Zaisma itself (not the developer's game): a bug, a gap (a limit or missing piece that blocks the developer), a feature idea, a question or a discussion. Every topic is public: checked before others see it and signed with the developer's name and an AI mark, so never put private details, keys, unreleased games or players' information in one; use message_zaisma for anything private. Search first; if it's there, reply or vote instead. Answers with similar_topics. About 100 posts a day per account.\n\nNot: { \"text\": \"…\" } (the post goes in text_markdown)\nNot: { \"category\": \"Rooms\" } (category is an id, like rooms)\nNot: { \"debug_context\": \"upload_files said too_big\" } (debug_context is an object: { \"call\": \"upload_files\", \"error_code\": \"too_big\" })",
+      "Start a public topic about Zaisma itself (not the developer's game): a bug, a gap (a limit or missing piece that blocks the developer), a feature idea, a question or a discussion. Every topic is public: checked before others see it and signed with the developer's name and an AI mark, so never put private details, keys, unreleased games or players' information in one; use message_zaisma for anything private. Search first; if it's there, reply or vote instead. Answers with similar_topics. About 100 posts a day per account.\n\nNot: { \"text\": \"…\" } (the post goes in text_markdown)\nNot: { \"category\": \"Rooms\" } (category is an id, like rooms)\nNot: { \"debug_context\": \"upload_files said too_big\" } (debug_context is an object: { \"call\": \"upload_files\", \"error_code\": \"too_big\" })\nNot: { \"kind\": \"bug report\" } (kind is bug, gap, feature, question or talk)\nNot: { \"tags\": \"godot\" } (tags is a list: [\"godot\"])",
     inputSchema: {
       ...object(
         {
@@ -382,7 +435,7 @@ export const TOOLS: Tool[] = [
     description:
       "On someone else's public bug, gap or known issue (it affects the developer too), idea (they want it) or question (they have it too); discussions take replies, not votes. It counts (on a known issue, toward the developers affected) and the developer follows the topic. undo: true takes the vote back.",
     inputSchema: object({ topic_id: topicId, undo: { type: "boolean", description: "Take the vote back." } }, ["topic_id"]),
-    outputSchema: answer({ vote_count: countOf(), has_voted: yes() }),
+    outputSchema: answer({ vote_count: countOf(), has_voted: yes(), next_steps: NEXT }),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     run: (toolArguments, call) => call(toolArguments.undo === true ? "DELETE" : "POST", `/forum/${pathPart(toolArguments.topic_id)}/vote`),
   },
@@ -400,7 +453,7 @@ export const TOOLS: Tool[] = [
     title: "Mark a reply helpful",
     description: "A reply in a public topic helped the developer (or you, on their behalf): it counts toward how many found it helpful, so useful answers stand out. Not for their own posts. undo: true takes it back.",
     inputSchema: object({ topic_id: topicId, post_id: postId, undo: { type: "boolean", description: "Take the mark back." } }, ["topic_id", "post_id"]),
-    outputSchema: answer({ helpful_count: countOf(), has_marked_helpful: yes() }),
+    outputSchema: answer({ helpful_count: countOf(), has_marked_helpful: yes(), next_steps: NEXT }),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     run: (toolArguments, call) => call(toolArguments.undo === true ? "DELETE" : "POST", `/forum/${pathPart(toolArguments.topic_id)}/posts/${pathPart(toolArguments.post_id)}/helpful`),
   },
@@ -409,7 +462,7 @@ export const TOOLS: Tool[] = [
     title: "Report a forum post",
     description: `A public post that shouldn't be there: a person at Zaisma looks. reason: ${Object.entries(FORUM_REPORT_REASONS).map(([reason, label]) => `${reason} (${label.toLowerCase()})`).join(", ")}. child_safety hides it at once. Ask the developer first; a reply that's just wrong needs a better reply, not a report.`,
     inputSchema: object({ topic_id: topicId, post_id: postId, reason: { enum: Object.keys(FORUM_REPORT_REASONS) }, details: { type: "string", maxLength: 1000 } }, ["topic_id", "post_id", "reason"]),
-    outputSchema: answer({ has_reported: yes(), is_hidden: yes("Hidden until a person at Zaisma looks.") }),
+    outputSchema: answer({ has_reported: yes(), is_hidden: yes("Hidden until a person at Zaisma looks."), next_steps: NEXT }),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     run: (toolArguments, call) => call("POST", `/forum/${pathPart(toolArguments.topic_id)}/posts/${pathPart(toolArguments.post_id)}/report`, pick(toolArguments, ["reason", "details"])),
   },
@@ -418,7 +471,7 @@ export const TOOLS: Tool[] = [
     title: "A fixed known issue still happens",
     description: "When a known issue's fix is out (topic_status released) but it still happens to the developer: it goes back to fixing, Zaisma is alerted and everyone in it hears. text_markdown adds what you saw as a public reply (no private details). Ask the developer first.",
     inputSchema: object({ topic_id: topicId, text_markdown: { type: "string", maxLength: FORUM_LIMITS.textCharacterCount } }, ["topic_id"]),
-    outputSchema: answer({ topic_status: choice({ fixing: "back to being worked on" }), post: nullable(POST) }),
+    outputSchema: answer({ topic_status: choice({ fixing: "back to being worked on" }), post: nullable(POST), next_steps: NEXT }),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     run: (toolArguments, call) => call("POST", `/forum/${pathPart(toolArguments.topic_id)}/still-happening`, pick(toolArguments, ["text_markdown"])),
   },
@@ -427,7 +480,7 @@ export const TOOLS: Tool[] = [
     title: "Flag a topic as in the wrong category",
     description: "When a public topic sits in a category it doesn't belong in, flag it: Zaisma's AI then moves it to the right one and says so in the topic.",
     inputSchema: object({ topic_id: topicId }, ["topic_id"]),
-    outputSchema: answer({ has_flagged_misplaced: yes() }),
+    outputSchema: answer({ has_flagged_misplaced: yes(), next_steps: NEXT }),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     run: (toolArguments, call) => call("POST", `/forum/${pathPart(toolArguments.topic_id)}/misplaced`, {}),
   },
@@ -436,7 +489,7 @@ export const TOOLS: Tool[] = [
     title: "Follow a forum topic",
     description: "Follow a topic, so what's new in it shows as unread in search_forum's yours tab (the developer's own topics, ones they replied to and voted on are followed already). undo: true stops following.",
     inputSchema: object({ topic_id: topicId, undo: { type: "boolean", description: "Stop following it." } }, ["topic_id"]),
-    outputSchema: answer({ is_following: yes() }),
+    outputSchema: answer({ is_following: yes(), next_steps: NEXT }),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     run: (toolArguments, call) => call(toolArguments.undo === true ? "DELETE" : "POST", `/forum/${pathPart(toolArguments.topic_id)}/follow`),
   },
@@ -445,7 +498,7 @@ export const TOOLS: Tool[] = [
     title: "Mark a question's answer",
     description: "On the developer's own question: mark the reply that answered it (answer_post_id: null clears it). Ask the developer first.",
     inputSchema: object({ topic_id: topicId, answer_post_id: { type: ["string", "null"], description: "A reply's id from get_topic, or null to clear the answer." } }, ["topic_id", "answer_post_id"]),
-    outputSchema: answer({ answer_post_id: nullable(text()) }),
+    outputSchema: answer({ answer_post_id: nullable(text()), next_steps: NEXT }),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     run: (toolArguments, call) => call("POST", `/forum/${pathPart(toolArguments.topic_id)}/answer`, { answer_post_id: toolArguments.answer_post_id ?? null }),
   },
@@ -480,26 +533,45 @@ export const TOOLS: Tool[] = [
   },
 ];
 
-function decode(given: string, encoding: "text" | "base64"): Uint8Array {
+/** Text as UTF-8, or base64 (a data: URL prefix is fine) as the bytes it holds. */
+function decode(given: string, encoding: "text" | "base64", field: string): Uint8Array {
   if (encoding === "text") return new TextEncoder().encode(given);
   try {
-    return Uint8Array.from(atob(given.replace(/\s+/g, "")), (character) => character.charCodeAt(0));
+    return Uint8Array.from(atob(given.replace(/^data:[^,]*,/, "").replace(/\s+/g, "")), (character) => character.charCodeAt(0));
   } catch {
-    throw new ApiError(400, "bad_base64", "That isn't valid base64.");
+    throw new ApiError("bad_base64", { message: `${field} isn't valid base64.`, field, fix: "Send the file's bytes base64-encoded, with nothing around them." });
   }
 }
 
+/** Files that are never text, so content_text for one is a mistake that would store a broken file. */
+const BINARY_FILE = /\.(png|jpe?g|gif|webp|avif|ico|bmp|mp3|ogg|oga|opus|wav|m4a|aac|flac|mp4|webm|woff2?|ttf|otf|glb|ktx2|basis|hdr|wasm|bin|pck|data|dat)$/i;
+const FILE_SHAPE_FIX = 'Give each file as { "path": "index.html", "content_text": "…" } for a text file, or { "path": "assets/hero.png", "content_base64": "…" } for any other.';
+
 async function uploadFiles(toolArguments: Record<string, unknown>, call: ApiCall): Promise<unknown> {
-  const given = Array.isArray(toolArguments.files) ? (toolArguments.files as { path?: unknown; content_text?: unknown; content_base64?: unknown }[]) : [];
+  if (!Array.isArray(toolArguments.files) || toolArguments.files.length === 0) {
+    throw new ApiError("bad_files", { message: "files isn't a list with at least one file.", field: "files", fix: `${FILE_SHAPE_FIX} One of them is index.html.` });
+  }
+  const given = toolArguments.files as { path?: unknown; content_text?: unknown; content_base64?: unknown }[];
   const files: { path: string; sha256: string; sizeBytes: number; bytes: Uint8Array }[] = [];
   let totalSizeBytes = 0;
-  for (const file of given) {
+  for (const [i, file] of given.entries()) {
+    const extraKey = file && typeof file === "object" ? Object.keys(file).find((key) => key !== "path" && key !== "content_text" && key !== "content_base64") : undefined;
+    if (extraKey) throw new ApiError("unknown_field", { message: `files[${i}].${extraKey} isn't a field of a file.`, field: `files[${i}].${extraKey}`, fix: FILE_SHAPE_FIX });
     if (typeof file?.path !== "string" || (typeof file.content_text === "string") === (typeof file.content_base64 === "string")) {
-      throw new ApiError(400, "bad_files", 'Each file needs a "path" and either "content_text" or "content_base64".');
+      throw new ApiError("bad_files", { message: `files[${i}] needs a path and one of content_text or content_base64.`, field: `files[${i}]`, fix: FILE_SHAPE_FIX });
     }
-    const bytes = typeof file.content_text === "string" ? decode(file.content_text, "text") : decode(file.content_base64 as string, "base64");
+    if (typeof file.content_text === "string" && BINARY_FILE.test(file.path)) {
+      throw new ApiError("bad_files", { message: `${file.path} isn't a text file, so content_text would store it broken.`, field: `files[${i}].content_text`, fix: "Send it base64-encoded in content_base64 instead." });
+    }
+    const bytes = typeof file.content_text === "string" ? decode(file.content_text, "text", `files[${i}].content_text`) : decode(file.content_base64 as string, "base64", `files[${i}].content_base64`);
     totalSizeBytes += bytes.byteLength;
-    if (totalSizeBytes > MAXIMUM_MCP_UPLOAD_SIZE_BYTES) throw new ApiError(413, "too_big_for_mcp", `Uploads through the MCP can be up to ${MAXIMUM_MCP_UPLOAD_SIZE_BYTES / 1048576} MB. Run \`npx @zaisma/cli upload <folder> --game ${toolArguments.slug}\` for bigger games.`);
+    if (totalSizeBytes > MAXIMUM_MCP_UPLOAD_SIZE_BYTES) {
+      throw new ApiError("too_big_for_mcp", {
+        message: `The files are over ${MAXIMUM_MCP_UPLOAD_SIZE_BYTES / 1048576} MB, the most upload_files takes.`,
+        field: "files",
+        fix: `Run \`npx @zaisma/cli upload <folder> --game ${toolArguments.slug}\` in a terminal with ZAISMA_KEY set to the same API key; it only sends changed files.`,
+      });
+    }
     const sha256 = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map((byte) => byte.toString(16).padStart(2, "0")).join("");
     files.push({ path: file.path, sha256, sizeBytes: bytes.byteLength, bytes });
   }
@@ -511,16 +583,33 @@ async function uploadFiles(toolArguments: Record<string, unknown>, call: ApiCall
     await call("PUT", `/files/${file.sha256}`, file.bytes);
     sent.add(file.sha256);
   }
-  const { version } = (await call("POST", `/games/${pathPart(toolArguments.slug)}/versions`, {
+  const { version, next_steps: nextSteps } = await call("POST", `/games/${pathPart(toolArguments.slug)}/versions`, {
     files: list,
     patch_notes: typeof toolArguments.patch_notes === "string" ? toolArguments.patch_notes : "",
     publish_when_approved: toolArguments.publish_when_approved === true,
-  })) as { version: { id: string } };
-  return {
-    version,
-    sent_file_count: sent.size,
-    next_steps: [{ tool: "get_version", arguments: { slug: toolArguments.slug, version_id: version.id }, after_sec: 30, reason: "The scan usually takes under a minute." }],
-  };
+  });
+  return { version, sent_file_count: sent.size, next_steps: nextSteps };
+}
+
+/** Words an AI often sends for an argument a tool names otherwise. */
+const MEANT: Record<string, string> = { q: "search_text", query: "search_text", search: "search_text", text: "text_markdown", body: "text_markdown", content: "text_markdown", players: "play_modes", publish_at: "scheduled_publish_at", at: "scheduled_publish_at", images: "images_base64", image: "image_base64", game: "slug" };
+
+/**
+ * Arguments are closed and the required ones must be there: a misnamed argument is an error, never
+ * quietly dropped (docs/NAMING.md, Inputs). Values are checked by the API.
+ */
+function checkArguments(tool: Tool, toolArguments: Record<string, unknown>): void {
+  const properties = (tool.inputSchema.properties ?? {}) as Record<string, { description?: string }>;
+  const names = Object.keys(properties);
+  for (const key of Object.keys(toolArguments)) {
+    if (key in properties) continue;
+    const meant = MEANT[key] && MEANT[key] in properties ? `Did you mean ${MEANT[key]}? ` : "";
+    throw new ApiError("unknown_field", { message: `${key} isn't an argument of ${tool.name}.`, field: key, fix: `${meant}${tool.name} takes: ${names.join(", ") || "no arguments"}.` });
+  }
+  for (const key of (tool.inputSchema.required ?? []) as string[]) {
+    if (toolArguments[key] !== undefined) continue;
+    throw new ApiError("missing_field", { message: `${tool.name} needs ${key}.`, field: key, fix: `Add ${key}${properties[key]?.description ? `: ${properties[key]!.description}` : ""}.` });
+  }
 }
 
 /** A JSON-RPC 2.0 message, in the standard's own names. */
@@ -531,29 +620,41 @@ interface RpcMessage {
   params?: Record<string, unknown>;
 }
 
-const rpcError = (id: RpcMessage["id"], errorCode: number, message: string) => ({ jsonrpc: "2.0", id: id ?? null, error: { code: errorCode, message } });
+/** A JSON-RPC error; `data` carries Zaisma's own error object when there is one. */
+const rpcError = (id: RpcMessage["id"], errorCode: number, message: string, zaismaError?: unknown) => ({ jsonrpc: "2.0", id: id ?? null, error: { code: errorCode, message, ...(zaismaError === undefined ? {} : { data: zaismaError }) } });
 
 export async function handleMcp(request: Request, env: Env): Promise<Response> {
   if (request.method !== "POST") return new Response("Send MCP messages as POST requests.", { status: 405, headers: { Allow: "POST" } });
   let caller: Caller;
   try {
-    if (!request.headers.get("authorization")) throw new ApiError(401, "no_key", "Send an API key from zaisma.com/account as: Authorization: Bearer zsk_…");
+    if (!request.headers.get("authorization")) {
+      throw new ApiError("no_key", { message: "The MCP was called without an API key.", field: "Authorization", fix: "Make a key on zaisma.com/account (under Game developers) and send it as: Authorization: Bearer zsk_…" });
+    }
     caller = await authenticate(request, env);
     caller.via = "mcp";
   } catch (error) {
     if (!(error instanceof ApiError)) throw error;
-    return Response.json(rpcError(null, -32001, error.message), { status: error.httpStatus, headers: error.httpStatus === 401 ? { "WWW-Authenticate": 'Bearer realm="zaisma"' } : {} });
+    const headers: Record<string, string> = error.httpStatus === 401 ? { "WWW-Authenticate": 'Bearer realm="zaisma"' } : {};
+    if (error.retryAfterSec !== null) headers["Retry-After"] = String(error.retryAfterSec);
+    return Response.json(rpcError(null, -32001, `${error.message} ${error.fix}`, error.toAnswer()), { status: error.httpStatus, headers });
   }
   const call: ApiCall = (method, path, payload) => apiCall(env, caller, method, path, payload);
   return serveMcp(
     request,
     { name: "zaisma", title: "Zaisma", instructions: INSTRUCTIONS },
-    TOOLS.map((tool) => ({ ...tool, run: (toolArguments: Record<string, unknown>) => tool.run(toolArguments, call) })),
+    TOOLS.map((tool) => ({
+      ...tool,
+      ...(tool.outputSchema ? { outputSchema: answerOrError(tool.outputSchema) } : {}),
+      run: (toolArguments: Record<string, unknown>) => {
+        checkArguments(tool, toolArguments);
+        return tool.run(toolArguments, call);
+      },
+    })),
     (error) => {
-      if (error instanceof ApiError) return `${error.message} (${error.code})`;
-      // Our bug, not the AI's: say so, and ask for feedback so it reaches us with the details.
-      console.error("MCP tool failed", error);
-      return "Something went wrong on Zaisma's side (internal_error). Try once more; if it happens again, tell Zaisma with post_topic (kind bug): the tool, what you sent and this error.";
+      // Anything else is our bug, not the AI's: it says so, with what to do.
+      if (!(error instanceof ApiError)) console.error("MCP tool failed", error);
+      const refusal = error instanceof ApiError ? error : INTERNAL_ERROR();
+      return { text: `${refusal.message} ${refusal.fix} (${refusal.code})`, structuredContent: refusal.toAnswer() };
     },
   );
 }
@@ -584,10 +685,15 @@ export class WithImages {
 
 /**
  * Answers MCP messages for a set of tools: Streamable HTTP without sessions or streaming, each POST
- * one JSON-RPC message (or a batch). `userError` turns a tool's refusal into words for the AI, or
- * returns null for a real failure.
+ * one JSON-RPC message (or a batch). `userError` turns a tool's refusal into words for the AI (with
+ * its error object as structuredContent, when it has one), or returns null for a real failure.
  */
-export async function serveMcp(request: Request, server: { name: string; title: string; instructions: string }, tools: McpTool[], userError: (error: unknown) => string | null): Promise<Response> {
+export async function serveMcp(
+  request: Request,
+  server: { name: string; title: string; instructions: string },
+  tools: McpTool[],
+  userError: (error: unknown) => string | { text: string; structuredContent: unknown } | null,
+): Promise<Response> {
   if (request.method !== "POST") return new Response("Send MCP messages as POST requests.", { status: 405, headers: { Allow: "POST" } });
   if (Number(request.headers.get("content-length") ?? 0) > MAXIMUM_BODY_SIZE_BYTES) return Response.json(rpcError(null, -32600, "That message is too big."), { status: 413 });
   let body: unknown;
@@ -628,7 +734,8 @@ export async function serveMcp(request: Request, server: { name: string; title: 
         } catch (error) {
           const said = userError(error);
           if (said === null) throw error;
-          return succeed({ content: [{ type: "text", text: said }], isError: true });
+          if (typeof said === "string") return succeed({ content: [{ type: "text", text: said }], isError: true });
+          return succeed({ content: [{ type: "text", text: said.text }], structuredContent: said.structuredContent, isError: true });
         }
       }
       default:

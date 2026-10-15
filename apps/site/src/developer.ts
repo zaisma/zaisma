@@ -56,6 +56,9 @@ import {
   type ReportReason,
   FREE_PLAYER_HOURS,
   monthPlayerSeconds,
+  ApiError,
+  secondsUntilDayPasses,
+  type ErrorCode,
 } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import { gameUrl, type Env } from "./env.ts";
@@ -91,6 +94,10 @@ import { KNOWN_IMAGE_ALERT, imageMatcher, pruneVersions } from "./scan.ts";
  *   DELETE /api/dev/games/:slug/testers/:id    turn one off for good
  *   …/api/dev/forum                            the developer forum: topics, replies, Me too (see forum.ts)
  *
+ * Every refusal answers { "error": { code, message, field, fix, retry_after_sec } }, its code from
+ * ERROR_CODES (@zaisma/core), and every call that changes something answers with next_steps
+ * (docs/NAMING.md), except the steps of sending files, whose next call is always the one that uses them.
+ *
  * Images are served from /img/:id once approved; owners can see their own before that.
  */
 
@@ -105,15 +112,14 @@ export interface Caller {
   client?: string;
 }
 
-/** A refusal with its HTTP status, a stable code and a message for whoever called. */
-export class ApiError extends Error {
-  constructor(
-    readonly httpStatus: number,
-    readonly code: string,
-    message: string,
-  ) {
-    super(message);
-  }
+/** A call that usually follows a change, ready to make (docs/NAMING.md, Next steps). */
+export interface NextStep {
+  /** The MCP tool's name. */
+  tool: string;
+  /** What to send it, filled in as far as Zaisma knows. */
+  arguments: Record<string, unknown>;
+  after_sec: number | null;
+  reason: string;
 }
 
 const json = (body: unknown, httpStatus = 200, cookies: string[] = []) => {
@@ -122,6 +128,20 @@ const json = (body: unknown, httpStatus = 200, cookies: string[] = []) => {
   return response;
 };
 
+/** An error as the API answers it, with Retry-After when waiting helps. */
+export function errorResponse(error: ApiError): Response {
+  const response = json(error.toAnswer(), error.httpStatus);
+  if (error.retryAfterSec !== null) response.headers.set("Retry-After", String(error.retryAfterSec));
+  return response;
+}
+
+/** Our own failure, as an error answer: the caller can tell it isn't their mistake, and what to do. */
+export const INTERNAL_ERROR = () =>
+  new ApiError("internal_error", {
+    message: "Something went wrong on Zaisma's side.",
+    fix: "Try once more. If it happens again, tell Zaisma with post_topic (kind bug, category api or mcp): the call, what you sent and this error.",
+  });
+
 export async function handleDeveloper(request: Request, env: Env, path: string): Promise<Response | null> {
   if (path.startsWith("/img/")) return serveImage(request, env, path.slice(5));
   if (path !== "/api/dev" && !path.startsWith("/api/dev/")) return null;
@@ -129,8 +149,9 @@ export async function handleDeveloper(request: Request, env: Env, path: string):
     const caller = await authenticate(request, env);
     return await route(request, env, path.slice("/api/dev".length) || "/", caller);
   } catch (error) {
-    if (error instanceof ApiError) return json({ error: { code: error.code, message: error.message } }, error.httpStatus);
-    throw error;
+    if (error instanceof ApiError) return errorResponse(error);
+    console.error("Developer API call failed", error);
+    return errorResponse(INTERNAL_ERROR());
   }
 }
 
@@ -141,20 +162,24 @@ export async function authenticate(request: Request, env: Env): Promise<Caller> 
   if (header) {
     const token = header.match(/^Bearer\s+(\S+)$/i)?.[1] ?? "";
     accountId = await accountForApiKey(env.DB, token);
-    if (!accountId) throw new ApiError(401, "bad_key", "That API key isn't valid. Make a new one on your account page.");
+    if (!accountId) throw new ApiError("bad_key", { message: "That API key isn't valid: it was removed, mistyped or never made.", field: "Authorization", fix: "Make a new key on zaisma.com/account (under Game developers) and send it as: Authorization: Bearer zsk_…" });
   } else {
     // From our own pages only: other sites can't use a signed-in player's cookie.
-    if (request.method !== "GET" && request.headers.get("origin") !== new URL(request.url).origin) throw new ApiError(403, "bad_origin", "Requests with a session must come from zaisma.com.");
+    if (request.method !== "GET" && request.headers.get("origin") !== new URL(request.url).origin) {
+      throw new ApiError("bad_origin", { message: "A call with a session came from another site.", fix: "Call from zaisma.com, or send an API key as: Authorization: Bearer zsk_…" });
+    }
     const session = await currentSession(request, env);
-    if (!session) throw new ApiError(401, "signed_out", "Sign in, or send an API key as: Authorization: Bearer zsk_…");
+    if (!session) throw new ApiError("signed_out", { message: "There's no API key and no signed-in session.", field: "Authorization", fix: "Send an API key from zaisma.com/account as: Authorization: Bearer zsk_…" });
     accountId = session.userId;
     cookies = session.cookies;
   }
   // Sending a game's files is many small requests, so it has its own, bigger allowance.
   const rateLimit = new URL(request.url).pathname.startsWith("/api/dev/files/") ? env.FILE_LIMIT : env.DEV_LIMIT;
-  if (rateLimit && !(await rateLimit.limit({ key: accountId })).success) throw new ApiError(429, "slow_down", "Too many requests. Wait a minute and try again.");
+  if (rateLimit && !(await rateLimit.limit({ key: accountId })).success) {
+    throw new ApiError("slow_down", { message: "Too many calls in the last minute.", fix: "Wait a minute, then carry on; up to 120 calls a minute (1,000 for sending files).", retryAfterSec: 60 });
+  }
   const caller = await callerFor(env, accountId, cookies);
-  if (!caller) throw new ApiError(401, "no_account", "Finish making your account first.");
+  if (!caller) throw new ApiError("no_account", { message: "The account isn't finished yet.", fix: "Finish making it at zaisma.com/account, then call again." });
   if (header) caller.via = "api";
   const client = request.headers.get("x-zaisma-client");
   if (client) caller.client = client.slice(0, 20);
@@ -199,7 +224,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
 
   // The first feedback calls are gone: everything they did is in the forum.
   if (path === "/feedback" || path.startsWith("/feedback/")) {
-    throw new ApiError(410, "gone", "The feedback calls are gone. Your topics and messages are in the forum: GET /forum?tab=yours, GET /forum?tab=messages, and POST /forum to post.");
+    throw new ApiError("gone", { message: "The feedback calls are gone; everything they did is in the developer forum.", fix: "Use search_forum (GET /forum?tab=yours or ?tab=messages) for your topics and messages, and post_topic or message_zaisma (POST /forum) to post." });
   }
   if (path === "/forum" || path.startsWith("/forum/")) {
     const routed = await forumRoute(request, env, path, caller);
@@ -208,48 +233,77 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
 
   if (path === "/games" && method === "POST") {
     const body = await readJson(request);
+    closedBody(body, ["title", "slug", "description", "devices", "controls", "screen_orientation", "play_modes", "cloud_saves_enabled", "multiplayer_mode", "room_browsing"]);
     const title = typeof body.title === "string" ? body.title.trim().replace(/\s+/g, " ") : "";
-    if (!title || title.length > 80) throw new ApiError(400, "bad_title", "The title needs 1 to 80 characters.");
+    if (!title || title.length > 80) throw new ApiError("bad_title", { message: "title is empty or over 80 characters.", field: "title", fix: "Give the game a title of 1 to 80 characters." });
     const slug = typeof body.slug === "string" && body.slug ? body.slug.trim().toLowerCase() : slugify(title);
     const slugError = checkSlug(slug);
-    if (slugError) throw new ApiError(400, "bad_slug", `Link name: ${slugError}`);
-    if (await gameBySlug(env.DB, slug)) throw new ApiError(409, "slug_taken", `zaisma.com/g/${slug} is taken. Pick another link name.`);
+    if (slugError) throw new ApiError("bad_slug", { message: `The link name ${JSON.stringify(slug)} can't be used: ${slugError}`, field: "slug", fix: 'Give a slug of lowercase letters, numbers and single hyphens, like "sky-hopper", or leave it out to make one from the title.' });
+    if (await gameBySlug(env.DB, slug)) {
+      const isFromTitle = !(typeof body.slug === "string" && body.slug);
+      throw new ApiError("slug_taken", {
+        message: `zaisma.com/g/${slug} is taken.`,
+        field: isFromTitle ? "title" : "slug",
+        fix: isFromTitle ? `The link name comes from the title: give another title, or a slug of your own, like "${slug}-game".` : `Pick another slug, like "${slug}-game".`,
+      });
+    }
     const owned = await env.DB.prepare("SELECT COUNT(*) AS game_count FROM games WHERE owner_id = ?").bind(caller.ownerId).first<{ game_count: number }>();
-    if ((owned?.game_count ?? 0) >= MAXIMUM_GAME_COUNT_PER_OWNER) throw new ApiError(403, "too_many_games", `You can have up to ${MAXIMUM_GAME_COUNT_PER_OWNER} games. Ask us if you need more.`);
-    const checked = checkDetails({ ...body, title });
-    if ("error" in checked) throw new ApiError(400, "bad_details", checked.error);
-    let game = await createGame(env.DB, { slug, title, description: checked.change.description ?? "", ownerId: caller.ownerId, visibility: "draft" });
-    await applyDetails(env.DB, game, { ...checked.change, title: undefined, description: undefined });
+    if ((owned?.game_count ?? 0) >= MAXIMUM_GAME_COUNT_PER_OWNER) {
+      throw new ApiError("too_many_games", { message: `You have ${MAXIMUM_GAME_COUNT_PER_OWNER} games, the most an account can have.`, fix: "Ask Zaisma (message_zaisma, kind gap) if you need more." });
+    }
+    const checked = checkDetailsOrThrow({ ...body, title });
+    let game = await createGame(env.DB, { slug, title, description: checked.description ?? "", ownerId: caller.ownerId, visibility: "draft" });
+    await applyDetails(env.DB, game, { ...checked, title: undefined, description: undefined });
     game = (await gameBySlug(env.DB, slug))!;
     await audit(env.DB, game.id, "created", "Made through the developer API", caller.actor);
-    return answer({ game: gameJson(env, game) }, 201);
+    return answer(
+      {
+        game: gameJson(env, game),
+        next_steps: [
+          {
+            tool: "upload_files",
+            arguments: { slug: game.slug },
+            after_sec: null,
+            reason: `Upload the game next: upload_files with its files for a small game (under 5 MB), or npx @zaisma/cli upload <folder> --game ${game.slug} in a terminal.`,
+          },
+        ] satisfies NextStep[],
+      },
+      201,
+    );
   }
 
   // One file of a game, by its SHA-256. Storage checks the hash, so a file can't claim to be another.
   const blobPath = path.match(/^\/files\/([0-9a-f]{64})$/);
   if (blobPath && method === "PUT") return answer(await putBlob(request, env, blobPath[1]!));
-  const partsPath = path.match(/^\/files\/([0-9a-f]{64})\/parts(?:\/(\d{1,5}|done))?$/);
+  const partsPath = path.match(/^\/files\/([0-9a-f]{64})\/parts(?:\/([^/]+))?$/);
   if (partsPath) return answer(await bigFile(request, env, partsPath[1]!, partsPath[2], caller));
 
-  const versionPath = path.match(/^\/games\/([a-z0-9-]+)\/(uploads|versions)(?:\/([a-z0-9]+)(\/publish)?)?$/);
+  // Slugs and IDs match anything here, so a wrong one says which game or version it didn't find.
+  const versionPath = path.match(/^\/games\/([^/]+)\/(uploads|versions)(?:\/([^/]+)(\/publish)?)?$/);
   if (versionPath) return answer(...(await versionRoute(request, env, await ownGame(env, versionPath[1]!, caller), versionPath[2]!, versionPath[3], Boolean(versionPath[4]), caller)));
 
-  const factsPath = path.match(/^\/games\/([a-z0-9-]+)\/(reports|stats|history)$/);
+  const factsPath = path.match(/^\/games\/([^/]+)\/(reports|stats|history)$/);
   if (factsPath && method === "GET") {
     const game = await ownGame(env, factsPath[1]!, caller);
     const query = new URL(request.url).searchParams;
-    if (factsPath[2] === "reports") return answer(await reportsFor(env, game, query.get("cursor")));
-    if (factsPath[2] === "stats") return answer(await statsFor(env, game, Number(query.get("period_duration_days") ?? 30)));
+    if (factsPath[2] === "reports") {
+      closedQuery(query, ["cursor"]);
+      return answer(await reportsFor(env, game, query.get("cursor")));
+    }
+    if (factsPath[2] === "stats") {
+      closedQuery(query, ["period_duration_days"]);
+      return answer(await statsFor(env, game, readPeriodDurationDays(query.get("period_duration_days"))));
+    }
     return answer(await historyFor(env, game, caller));
   }
 
-  const testerPath = path.match(/^\/games\/([a-z0-9-]+)\/testers(?:\/([a-z0-9]+))?$/);
+  const testerPath = path.match(/^\/games\/([^/]+)\/testers(?:\/([^/]+))?$/);
   if (testerPath) return answer(...(await testerRoute(request, env, await ownGame(env, testerPath[1]!, caller), testerPath[2], caller)));
 
-  const gamePath = path.match(/^\/games\/([a-z0-9-]+)(?:\/images(?:\/([a-z0-9]+))?)?$/);
-  if (!gamePath) throw new ApiError(404, "not_found", "No such API path.");
+  const gamePath = path.match(/^\/games\/([^/]+)(\/images(?:\/([^/]+))?)?$/);
+  if (!gamePath) throw new ApiError("not_found", { message: `There's no API call at ${path}.`, fix: "docs/DEVELOPER-API.md lists every call; paths start with /api/dev, like GET /api/dev/games." });
   const game = await ownGame(env, gamePath[1]!, caller);
-  const isImages = path.includes("/images");
+  const isImages = Boolean(gamePath[2]);
 
   if (!isImages && method === "GET") {
     const [images, versions, testers] = await Promise.all([imagesForGame(env.DB, game.id), versionsForGame(env.DB, game.id), testerLinks(env.DB, game.id)]);
@@ -262,40 +316,54 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
   }
 
   if (!isImages && method === "PATCH") {
-    const checked = checkDetails(await readJson(request));
-    if ("error" in checked) throw new ApiError(400, "bad_details", checked.error);
-    if (game.review_status === "removed" && checked.change.visibility) throw new ApiError(403, "removed", "This game was taken down, so its visibility can't change.");
-    const { multiplayer_mode: multiplayerMode, ...details } = checked.change;
+    const body = await readJson(request);
+    closedBody(body, ["title", "description", "visibility", "devices", "controls", "screen_orientation", "play_modes", "cloud_saves_enabled", "room_browsing", "multiplayer_mode"]);
+    const change = checkDetailsOrThrow(body);
+    if (game.review_status === "removed" && change.visibility) {
+      throw new ApiError("game_removed", { message: "Zaisma took this game down, so its visibility can't change.", field: "visibility", fix: "get_history says when and why; reply to Zaisma's message about it, or message_zaisma, to ask about it." });
+    }
+    const { multiplayer_mode: multiplayerMode, ...details } = change;
     const changesMultiplayer = multiplayerMode !== undefined && multiplayerMode !== game.multiplayer_mode;
     if (changesMultiplayer && game.multiplayer_mode === "built-in") {
-      throw new ApiError(403, "built_in_server", "This game runs a game server built into Zaisma; ask us to change its multiplayer.");
+      throw new ApiError("built_in_server", { message: "This game runs a game server built into Zaisma, which only Zaisma changes.", field: "multiplayer_mode", fix: "Leave multiplayer_mode out, or ask Zaisma with message_zaisma to change it." });
     }
     const { isWaitingForReview } = await applyDetails(env.DB, game, { ...details, ...(changesMultiplayer ? { multiplayer_mode: multiplayerMode } : {}) });
     if (Object.keys(details).length) await audit(env.DB, game.id, "details", Object.keys(details).join(", ") + (isWaitingForReview ? " (words waiting for review)" : ""), caller.actor);
     if (changesMultiplayer) await audit(env.DB, game.id, "multiplayer", `Multiplayer: ${multiplayerMode}`, caller.actor);
     const gameServerProblem = multiplayerMode === "own" ? await liveServerProblem(env, game) : null;
+    const changed = (await gameBySlug(env.DB, game.slug))!;
     return answer({
-      game: gameJson(env, (await gameBySlug(env.DB, game.slug))!),
+      game: gameJson(env, changed),
       review_message: isWaitingForReview ? "The new title or description shows once it's reviewed." : null,
       game_server_problem: gameServerProblem,
+      next_steps: await nextStepsAfterDetails(env, changed, gameServerProblem),
     });
   }
 
-  if (isImages && !gamePath[2] && method === "POST") {
-    const kind = new URL(request.url).searchParams.get("kind") as ImageKind;
-    if (kind !== "cover" && kind !== "square" && kind !== "screenshot") throw new ApiError(400, "bad_kind", "Add ?kind=cover, ?kind=square or ?kind=screenshot.");
+  if (isImages && !gamePath[3] && method === "POST") {
+    const query = new URL(request.url).searchParams;
+    closedQuery(query, ["kind"]);
+    const kind = query.get("kind") as ImageKind;
+    if (kind !== "cover" && kind !== "square" && kind !== "screenshot") {
+      throw new ApiError("bad_kind", { message: `kind ${JSON.stringify(kind)} isn't cover, square or screenshot.`, field: "kind", fix: "Give kind cover (landscape, 16:9 shows best), square (as wide as tall, shown on phones) or screenshot (?kind= in the API)." });
+    }
+    const tooBig = () => new ApiError("image_too_big", { message: "The image is over 5 MB.", field: "image_base64", fix: "Save it smaller (a JPEG or WebP, or fewer pixels) and send it again." });
     const declaredSizeBytes = Number(request.headers.get("content-length") ?? 0);
-    if (declaredSizeBytes > IMAGE_LIMITS.maximumSizeBytes) throw new ApiError(413, "image_too_big", "Images can be up to 5 MB.");
+    if (declaredSizeBytes > IMAGE_LIMITS.maximumSizeBytes) throw tooBig();
     const bytes = new Uint8Array(await request.arrayBuffer());
-    if (bytes.byteLength > IMAGE_LIMITS.maximumSizeBytes) throw new ApiError(413, "image_too_big", "Images can be up to 5 MB.");
+    if (bytes.byteLength > IMAGE_LIMITS.maximumSizeBytes) throw tooBig();
     const sniffed = sniffImage(bytes);
-    if (!sniffed) throw new ApiError(415, "not_an_image", "Send a PNG, JPEG or WebP image as the request body.");
+    if (!sniffed) throw new ApiError("not_an_image", { message: "That isn't a PNG, JPEG or WebP image.", field: "image_base64", fix: "Send a PNG, JPEG or WebP file (the image itself as the body in the API); SVG and other types aren't taken." });
     const { widthPx, heightPx } = sniffed;
     if (Math.min(widthPx, heightPx) < IMAGE_LIMITS.minimumSidePx || Math.max(widthPx, heightPx) > IMAGE_LIMITS.maximumSidePx) {
-      throw new ApiError(400, "bad_size", `Images need to be at least ${IMAGE_LIMITS.minimumSidePx} px on each side and at most ${IMAGE_LIMITS.maximumSidePx} px.`);
+      throw new ApiError("bad_image_dimensions", {
+        message: `The image is ${widthPx} by ${heightPx} px.`,
+        field: "image_base64",
+        fix: `Make it at least ${IMAGE_LIMITS.minimumSidePx} px on each side and at most ${IMAGE_LIMITS.maximumSidePx.toLocaleString("en-US")} px, like 1920 by 1080 for a cover.`,
+      });
     }
     if (kind === "square" && (!isSquare(widthPx, heightPx) || widthPx < IMAGE_LIMITS.minimumSquareSidePx)) {
-      throw new ApiError(400, "not_square", `A square cover needs to be as wide as it is tall, at least ${IMAGE_LIMITS.minimumSquareSidePx} px.`);
+      throw new ApiError("not_square", { message: `The square cover is ${widthPx} by ${heightPx} px.`, field: "image_base64", fix: `Make it as wide as it is tall, at least ${IMAGE_LIMITS.minimumSquareSidePx} px, like 1024 by 1024; or send it as kind cover.` });
     }
     // Matched against known abuse material before anyone sees it. A match is kept for reporting, never shown.
     // If matching fails, the picture waits for a person as usual.
@@ -305,12 +373,12 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
       await env.GAMES.put(heldImageKey(game.id, id), bytes, { httpMetadata: { contentType: sniffed.type } });
       await audit(env.DB, game.id, "image-held", `A ${kind} upload matched known abuse material. Kept at ${heldImageKey(game.id, id)}; never shown.`, caller.actor);
       await sendAlert(env, `URGENT: known abuse image uploaded to ${game.slug}`, `${KNOWN_IMAGE_ALERT}\n\nA ${kind} upload, kept at ${heldImageKey(game.id, id)} in the games bucket.\n\nGame: ${env.SITE_ORIGIN}/admin/games/${game.id}`);
-      throw new ApiError(422, "image_refused", "This image can't be used.");
+      throw new ApiError("image_refused", { message: "This image can't be used.", field: "image_base64", fix: "Use a different image." });
     }
     const existing = await imagesForGame(env.DB, game.id);
     const waitingImages = existing.filter((image) => image.kind === kind && image.review_status === "pending");
     if (kind === "screenshot" && existing.filter((image) => image.kind === "screenshot" && image.review_status !== "rejected").length >= IMAGE_LIMITS.maximumScreenshotCount) {
-      throw new ApiError(400, "too_many_screenshots", `A game can have ${IMAGE_LIMITS.maximumScreenshotCount} screenshots. Remove one first.`);
+      throw new ApiError("too_many_screenshots", { message: `The game has ${IMAGE_LIMITS.maximumScreenshotCount} screenshots, the most it can have.`, fix: "Remove one with remove_image (its image_id from get_game) first." });
     }
     if (kind !== "screenshot" && waitingImages.length) {
       // Only the newest cover of each kind waits for review.
@@ -323,41 +391,74 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     await env.GAMES.put(imageKey({ game_id: game.id, id }), bytes, { httpMetadata: { contentType: sniffed.type } });
     const image = await addImage(env.DB, { id, game_id: game.id, kind, content_type: sniffed.type, width_px: widthPx, height_px: heightPx, size_bytes: bytes.byteLength });
     await audit(env.DB, game.id, "image-added", `${kind} ${id}`, caller.actor);
-    return answer({ image: imageJson(env, image), review_message: "It shows on the game page once it's reviewed." }, 201);
+    return answer({ image: imageJson(env, image), review_message: "It shows on the game page once it's reviewed.", next_steps: [] satisfies NextStep[] }, 201);
   }
 
-  if (isImages && gamePath[2] && method === "DELETE") {
-    const image = await imageById(env.DB, gamePath[2]);
-    if (!image || image.game_id !== game.id) throw new ApiError(404, "no_image", "This game has no image with that ID.");
+  if (isImages && gamePath[3] && method === "DELETE") {
+    const image = await imageById(env.DB, gamePath[3]);
+    if (!image || image.game_id !== game.id) throw new ApiError("no_image", { message: `${game.slug} has no image with the ID ${gamePath[3]}.`, field: "image_id", fix: "get_game lists the game's images with their IDs." });
     await env.GAMES.delete(imageKey(image));
     await deleteImageRow(env.DB, image.id);
     await audit(env.DB, game.id, "image-removed", `${image.kind} ${image.id}`, caller.actor);
-    return answer({ removed_image_id: image.id });
+    return answer({ removed_image_id: image.id, next_steps: [] satisfies NextStep[] });
   }
 
-  throw new ApiError(405, "bad_method", `${method} isn't used here.`);
+  throw badMethod(method, path);
+}
+
+/** A method the path doesn't take. */
+function badMethod(method: string, path: string): ApiError {
+  return new ApiError("bad_method", { message: `${method} isn't a call at ${path}.`, fix: "docs/DEVELOPER-API.md lists the methods each path takes." });
+}
+
+/** A game's new details, checked, or the error answer for the first input that's wrong. */
+function checkDetailsOrThrow(body: Record<string, unknown>) {
+  const checked = checkDetails(body);
+  if ("problem" in checked) {
+    const { field, message, fix } = checked.problem;
+    // bad_<field>, for the field's own name: play_modes[1].play_style is a bad_play_modes.
+    const code = `bad_${field.split(/[.[]/)[0]}` as ErrorCode;
+    throw new ApiError(code, { message, field, fix });
+  }
+  return checked.change;
+}
+
+/** What usually follows a change of details: publishing, when the game is now meant for players but nothing is live, or a game server. */
+async function nextStepsAfterDetails(env: Env, game: Game, gameServerProblem: string | null): Promise<NextStep[]> {
+  if (gameServerProblem) {
+    return [{ tool: "upload_files", arguments: { slug: game.slug }, after_sec: null, reason: "Upload a version with its game server (a zaisma-server/ folder with index.js, or zaisma-server.js), then publish it: rooms open once it's live." }];
+  }
+  if ((game.visibility !== "listed" && game.visibility !== "unlisted") || game.live_version_id) return [];
+  const versions = await versionsForGame(env.DB, game.id);
+  const approved = versions.find((version) => version.scan_status === "approved");
+  if (approved) return [{ tool: "publish_version", arguments: { slug: game.slug, version_id: approved.id }, after_sec: null, reason: "Players see the game once a version is live; this one passed review. Show the developer its preview_url first." }];
+  const scanning = versions.find((version) => version.scan_status === "scanning");
+  if (scanning) return [{ tool: "get_version", arguments: { slug: game.slug, version_id: scanning.id }, after_sec: 30, reason: "Players see the game once a version is live; this one is still being scanned." }];
+  return [{ tool: "upload_files", arguments: { slug: game.slug }, after_sec: null, reason: "Players see the game once a version is live, and it has none yet." }];
 }
 
 async function putBlob(request: Request, env: Env, sha256: string): Promise<unknown> {
   const sizeBytes = Number(request.headers.get("content-length") ?? -1);
-  if (!Number.isSafeInteger(sizeBytes) || sizeBytes < 0) throw new ApiError(411, "no_length", "Send the file with a Content-Length header.");
-  if (sizeBytes > FILE_LIMITS.maximumDirectSizeBytes) throw new ApiError(413, "file_too_big", `Send files over ${FILE_LIMITS.maximumDirectSizeBytes / 1048576} MB in parts: POST /api/dev/files/<sha256>/parts.`);
+  if (!Number.isSafeInteger(sizeBytes) || sizeBytes < 0) throw new ApiError("no_content_length", { message: "The file came without a Content-Length header.", field: "Content-Length", fix: "Send its size in bytes as Content-Length." });
+  if (sizeBytes > FILE_LIMITS.maximumDirectSizeBytes) {
+    throw new ApiError("file_needs_parts", { message: `The file is over ${FILE_LIMITS.maximumDirectSizeBytes / 1048576} MB, too big to send in one go.`, fix: `Send it in parts: POST /api/dev/files/${sha256}/parts with { "size_bytes" }.` });
+  }
   if ((await missingBlobs(env.DB, [sha256])).length === 0) {
     await request.body?.cancel();
     return { sha256, storage_status: "already_stored" };
   }
-  if (!request.body) throw new ApiError(400, "no_body", "Send the file as the request body.");
+  if (!request.body) throw new ApiError("no_body", { message: "The file came without a body.", fix: "Send the file's bytes as the request body." });
   try {
     await env.GAMES.put(blobKey(sha256), request.body, { sha256 });
   } catch {
-    throw new ApiError(400, "hash_mismatch", "The file doesn't match its SHA-256. Hash the file again and resend it.");
+    throw new ApiError("hash_mismatch", { message: `The file doesn't match the SHA-256 ${sha256}.`, fix: "Hash the file again (SHA-256, lowercase hex) and send it to that hash; check it didn't change since you listed it." });
   }
   // Programs and archives aren't allowed in games, whatever they're called.
   const start = await env.GAMES.get(blobKey(sha256), { range: { offset: 0, length: 16 } });
   const forbidden = start ? forbiddenContent(new Uint8Array(await start.arrayBuffer())) : null;
   if (forbidden) {
     await env.GAMES.delete(blobKey(sha256));
-    throw new ApiError(400, "forbidden_file", `That file looks like ${forbidden}, which isn't allowed in games.`);
+    throw new ApiError("forbidden_file", { message: `The file ${sha256} looks like ${forbidden}, which games can't have whatever it's called.`, fix: "Leave it out of the game." });
   }
   await addBlob(env.DB, sha256, sizeBytes);
   return { sha256, storage_status: "stored_now" };
@@ -374,9 +475,13 @@ async function putBlob(request: Request, env: Env, sha256: string): Promise<unkn
 async function bigFile(request: Request, env: Env, sha256: string, step: string | undefined, caller: Caller): Promise<unknown> {
   const key = ownedBlobKey(caller.ownerId, sha256);
   if (!step && request.method === "POST") {
-    const sizeBytes = (await readJson(request)).size_bytes;
-    if (!Number.isSafeInteger(sizeBytes) || (sizeBytes as number) <= 0) throw new ApiError(400, "bad_size", 'Send { "size_bytes": <the file\'s size> }.');
-    if ((sizeBytes as number) > FILE_LIMITS.maximumFileSizeBytes) throw new ApiError(413, "file_too_big", `Files can be up to ${FILE_LIMITS.maximumFileSizeBytes / 1048576} MB.`);
+    const body = await readJson(request);
+    closedBody(body, ["size_bytes"]);
+    const sizeBytes = body.size_bytes;
+    if (!Number.isSafeInteger(sizeBytes) || (sizeBytes as number) <= 0) throw new ApiError("bad_size_bytes", { message: "size_bytes isn't a whole number above 0.", field: "size_bytes", fix: 'Send { "size_bytes": <the file\'s size in bytes> }.' });
+    if ((sizeBytes as number) > FILE_LIMITS.maximumFileSizeBytes) {
+      throw new ApiError("file_too_big", { message: `The file is over ${FILE_LIMITS.maximumFileSizeBytes / 1048576} MB.`, field: "size_bytes", fix: "Split it into smaller files, or ask Zaisma (message_zaisma, kind gap) if the game needs bigger ones." });
+    }
     if ((await missingBlobs(env.DB, [sha256], caller.ownerId)).length === 0) return { sha256, storage_status: "already_stored", upload_id: null, part_size_bytes: null, part_count: null };
     const upload = await env.GAMES.createMultipartUpload(key);
     return { sha256, storage_status: "upload_started", upload_id: upload.uploadId, part_size_bytes: FILE_LIMITS.partSizeBytes, part_count: Math.ceil((sizeBytes as number) / FILE_LIMITS.partSizeBytes) };
@@ -385,50 +490,60 @@ async function bigFile(request: Request, env: Env, sha256: string, step: string 
     const partNumber = Number(step);
     const uploadId = new URL(request.url).searchParams.get("upload_id") ?? "";
     const sizeBytes = Number(request.headers.get("content-length") ?? -1);
-    if (partNumber < 1 || partNumber > 10_000 || !uploadId) throw new ApiError(400, "bad_part", "Send parts numbered from 1, with ?upload_id=<the upload_id>.");
-    if (!(sizeBytes > 0 && sizeBytes <= FILE_LIMITS.partSizeBytes) || !request.body) throw new ApiError(400, "bad_part", `Each part is up to ${FILE_LIMITS.partSizeBytes / 1048576} MB, with a Content-Length header.`);
+    if (!Number.isInteger(partNumber) || partNumber < 1 || partNumber > 10_000) {
+      throw new ApiError("bad_part_number", { message: `${JSON.stringify(step)} isn't a part number from 1 to 10,000.`, field: "part_number", fix: `Number the parts from 1: PUT /api/dev/files/${sha256}/parts/1?upload_id=…` });
+    }
+    if (!uploadId) throw new ApiError("no_upload_id", { message: "The part came without its upload_id.", field: "upload_id", fix: `Add ?upload_id= with the upload_id from POST /api/dev/files/${sha256}/parts.` });
+    if (!(sizeBytes > 0 && sizeBytes <= FILE_LIMITS.partSizeBytes) || !request.body) {
+      throw new ApiError("bad_part_size", { message: `Part ${partNumber} is empty, over ${FILE_LIMITS.partSizeBytes / 1048576} MB or has no Content-Length header.`, field: "Content-Length", fix: `Send each part but the last as exactly part_size_bytes (${FILE_LIMITS.partSizeBytes} bytes), with its Content-Length.` });
+    }
     try {
       const part = await env.GAMES.resumeMultipartUpload(key, uploadId).uploadPart(partNumber, request.body);
       return { part_number: part.partNumber, etag: part.etag };
     } catch {
-      throw new ApiError(400, "bad_upload", "That upload isn't open any more. Start again.");
+      throw new ApiError("upload_closed", { message: "That upload_id isn't an open upload any more.", field: "upload_id", fix: `Start again with POST /api/dev/files/${sha256}/parts.` });
     }
   }
   if (step === "done" && request.method === "POST") {
     const body = await readJson(request, 1024 * 1024);
+    closedBody(body, ["upload_id", "parts"]);
     const parts = Array.isArray(body.parts) ? (body.parts as { part_number?: unknown; etag?: unknown }[]) : [];
     if (typeof body.upload_id !== "string" || !parts.length || !parts.every((part) => Number.isInteger(part.part_number) && typeof part.etag === "string")) {
-      throw new ApiError(400, "bad_parts", 'Send { "upload_id", "parts": [{ "part_number", "etag" }] }.');
+      throw new ApiError("bad_parts", { message: 'The body isn\'t { "upload_id", "parts": [{ "part_number", "etag" }] }.', field: typeof body.upload_id === "string" ? "parts" : "upload_id", fix: "Send the upload_id and every part's part_number and etag, as each part's answer gave them." });
     }
     let stored: R2Object;
     try {
       stored = await env.GAMES.resumeMultipartUpload(key, body.upload_id).complete(parts.map((part) => ({ partNumber: part.part_number as number, etag: part.etag as string })));
     } catch {
-      throw new ApiError(400, "bad_parts", "Those parts don't make a whole file. Check every part was sent, then try again.");
+      throw new ApiError("parts_incomplete", { message: "Those parts don't make a whole file.", field: "parts", fix: "Check every part was sent and each etag is the one its answer gave, then finish again; or start again if the upload_id is old." });
     }
     if (stored.size > FILE_LIMITS.maximumFileSizeBytes) {
       await env.GAMES.delete(key);
-      throw new ApiError(413, "file_too_big", `Files can be up to ${FILE_LIMITS.maximumFileSizeBytes / 1048576} MB.`);
+      throw new ApiError("file_too_big", { message: `The file is over ${FILE_LIMITS.maximumFileSizeBytes / 1048576} MB.`, fix: "Split it into smaller files, or ask Zaisma (message_zaisma, kind gap) if the game needs bigger ones." });
     }
     const start = await env.GAMES.get(key, { range: { offset: 0, length: 16 } });
     const forbidden = start ? forbiddenContent(new Uint8Array(await start.arrayBuffer())) : null;
     if (forbidden) {
       await env.GAMES.delete(key);
-      throw new ApiError(400, "forbidden_file", `That file looks like ${forbidden}, which isn't allowed in games.`);
+      throw new ApiError("forbidden_file", { message: `The file ${sha256} looks like ${forbidden}, which games can't have whatever it's called.`, fix: "Leave it out of the game." });
     }
     await addOwnedBlob(env.DB, caller.ownerId, sha256, stored.size);
     return { sha256, storage_status: "stored_now", size_bytes: stored.size };
   }
-  throw new ApiError(405, "bad_method", `${request.method} isn't used here.`);
+  throw badMethod(request.method, new URL(request.url).pathname);
 }
 
 async function versionRoute(request: Request, env: Env, game: Game, what: string, id: string | undefined, isPublish: boolean, caller: Caller): Promise<[unknown, number?]> {
   const method = request.method;
-  if (game.review_status === "removed" && method !== "GET") throw new ApiError(403, "removed", "This game was taken down, so it can't get new versions.");
+  if (game.review_status === "removed" && method !== "GET") {
+    throw new ApiError("game_removed", { message: "Zaisma took this game down, so it can't get new versions or publish.", fix: "get_history says when and why; reply to Zaisma's message about it, or message_zaisma, to ask about it." });
+  }
 
   // Step 1: which of these files do you still need to send?
   if (what === "uploads" && !id && method === "POST") {
-    const files = listOrThrow((await readJson(request, 4 * 1024 * 1024)).files);
+    const body = await readJson(request, 4 * 1024 * 1024);
+    closedBody(body, ["files"]);
+    const files = listOrThrow(body.files);
     const missing = await missingBlobs(env.DB, files.map((file) => file.sha256), caller.ownerId);
     return [{ file_count: files.length, size_bytes: files.reduce((totalSizeBytes, file) => totalSizeBytes + file.size_bytes, 0), missing_file_hashes: missing }];
   }
@@ -436,15 +551,31 @@ async function versionRoute(request: Request, env: Env, game: Game, what: string
   // Step 2: make the version once every file is stored. It's scanned, then waits as a draft.
   if (what === "versions" && !id && method === "POST") {
     const body = await readJson(request, 4 * 1024 * 1024);
+    closedBody(body, ["files", "patch_notes", "publish_when_approved"]);
     const files = listOrThrow(body.files);
-    if (body.publish_when_approved !== undefined && typeof body.publish_when_approved !== "boolean") throw new ApiError(400, "bad_publish", "publish_when_approved is true or false.");
+    if (body.publish_when_approved !== undefined && typeof body.publish_when_approved !== "boolean") {
+      throw new ApiError("bad_publish_when_approved", { message: "publish_when_approved isn't true or false.", field: "publish_when_approved", fix: "Send true to go live as soon as it passes the scan, or leave it out to publish yourself." });
+    }
+    if (body.patch_notes !== undefined && typeof body.patch_notes !== "string") throw new ApiError("bad_patch_notes", { message: "patch_notes isn't text.", field: "patch_notes", fix: "Send what changed as text, or leave it out." });
     const patchNotes = typeof body.patch_notes === "string" ? body.patch_notes.trim() : "";
-    if (patchNotes.length > FILE_LIMITS.maximumPatchNotesCharacterCount) throw new ApiError(400, "notes_too_long", `Patch notes can be up to ${FILE_LIMITS.maximumPatchNotesCharacterCount} characters.`);
+    if (patchNotes.length > FILE_LIMITS.maximumPatchNotesCharacterCount) {
+      throw new ApiError("bad_patch_notes", { message: `patch_notes is ${patchNotes.length} characters, over ${FILE_LIMITS.maximumPatchNotesCharacterCount}.`, field: "patch_notes", fix: `Shorten them to ${FILE_LIMITS.maximumPatchNotesCharacterCount} characters; players see them.` });
+    }
     const found = await locateBlobs(env.DB, files.map((file) => file.sha256), caller.ownerId);
     const missingCount = files.filter((file) => !found.has(file.sha256)).length;
-    if (missingCount) throw new ApiError(409, "files_missing", `${missingCount} file(s) haven't been sent yet. Send them to PUT /api/dev/files/<sha256> first.`);
-    const today = await env.DB.prepare("SELECT COUNT(*) AS version_count FROM versions WHERE game_id = ? AND created_at_ms > ?").bind(game.id, Date.now() - DAY_MS).first<{ version_count: number }>();
-    if ((today?.version_count ?? 0) >= FILE_LIMITS.maximumVersionsPerDay) throw new ApiError(429, "too_many_versions", `A game can get ${FILE_LIMITS.maximumVersionsPerDay} versions a day. Try again tomorrow.`);
+    if (missingCount) {
+      throw new ApiError("files_missing", { message: `${missingCount} of the files haven't been sent yet.`, field: "files", fix: "POST /api/dev/games/<slug>/uploads lists the missing_file_hashes; send each to PUT /api/dev/files/<sha256>, then call again." });
+    }
+    const today = await env.DB.prepare("SELECT COUNT(*) AS version_count, MIN(created_at_ms) AS oldest_at_ms FROM versions WHERE game_id = ? AND created_at_ms > ?")
+      .bind(game.id, Date.now() - DAY_MS)
+      .first<{ version_count: number; oldest_at_ms: number | null }>();
+    if ((today?.version_count ?? 0) >= FILE_LIMITS.maximumVersionsPerDay) {
+      throw new ApiError("version_limit", {
+        message: `${game.slug} has had ${FILE_LIMITS.maximumVersionsPerDay} versions in the last day, the most a game can.`,
+        fix: "Wait until the oldest is a day old, then upload again; meanwhile test with the latest version's preview_url.",
+        retryAfterSec: secondsUntilDayPasses(today?.oldest_at_ms),
+      });
+    }
     const versionId = newId();
     await env.GAMES.put(manifestKey(versionId), JSON.stringify(toManifest(files, found, caller.ownerId)), { httpMetadata: { contentType: "application/json" } });
     await createVersion(env.DB, {
@@ -459,43 +590,76 @@ async function versionRoute(request: Request, env: Env, game: Game, what: string
     });
     await audit(env.DB, game.id, "upload", `Version ${versionId}, ${files.length} files`, caller.actor);
     await env.SCAN_QUEUE.send({ versionId });
-    return [{ version: versionJson(env, game, (await versionById(env.DB, versionId))!) }, 201];
+    const reason = body.publish_when_approved === true ? "It goes live by itself once it passes; the scan usually takes under a minute." : "The scan usually takes under a minute; once it passes, show the developer its preview_url.";
+    return [{ version: versionJson(env, game, (await versionById(env.DB, versionId))!), next_steps: [{ tool: "get_version", arguments: { slug: game.slug, version_id: versionId }, after_sec: 30, reason }] satisfies NextStep[] }, 201];
   }
 
   const version = id ? await versionById(env.DB, id) : null;
-  if (id && (!version || version.game_id !== game.id)) throw new ApiError(404, "no_version", "This game has no version with that ID.");
+  if (id && (!version || version.game_id !== game.id)) throw new ApiError("no_version", { message: `${game.slug} has no version with the ID ${id}.`, field: "version_id", fix: "get_game lists the game's versions with their IDs, newest first." });
 
   if (version && !isPublish && method === "GET") return [{ version: versionJson(env, game, version) }];
 
   // Publish later: { "scheduled_publish_at": "2026-11-01T17:00:00Z" }. It goes live then if it has passed review.
   const body = version && isPublish && method === "POST" ? await readJson(request).catch(() => ({}) as Record<string, unknown>) : {};
+  if (version && isPublish && method === "POST") closedBody(body, ["scheduled_publish_at"]);
   if (version && isPublish && method === "POST" && body.scheduled_publish_at !== undefined) {
     const scheduledAtMs = typeof body.scheduled_publish_at === "string" && ISO_TIME.test(body.scheduled_publish_at) ? Date.parse(body.scheduled_publish_at) : NaN;
     if (!Number.isFinite(scheduledAtMs) || scheduledAtMs <= Date.now() + 60_000 || scheduledAtMs > Date.now() + 90 * DAY_MS) {
-      throw new ApiError(400, "bad_time", 'Give "scheduled_publish_at" as an ISO time from a few minutes to 90 days from now, like "2026-11-01T17:00:00Z".');
+      const said = typeof body.scheduled_publish_at === "string" ? `"${body.scheduled_publish_at.slice(0, 40)}"` : `a ${typeof body.scheduled_publish_at}`;
+      throw new ApiError("bad_time", {
+        message: Number.isFinite(scheduledAtMs) ? `scheduled_publish_at ${said} isn't from a few minutes to 90 days ahead.` : `scheduled_publish_at is ${said}, not an ISO time.`,
+        field: "scheduled_publish_at",
+        fix: `Give an ISO time with Z or an offset, from 2 minutes to 90 days ahead, like "${new Date(Date.now() + DAY_MS).toISOString().slice(0, 14)}00:00Z". Leave it out to publish now.`,
+      });
     }
-    if (version.scan_status !== "approved" && version.scan_status !== "scanning") throw new ApiError(409, "not_approved", "Only versions that passed review can be published.");
+    if (version.scan_status !== "approved" && version.scan_status !== "scanning") throw notApproved(game, version);
     await env.DB.prepare("UPDATE versions SET scheduled_publish_at_ms = ? WHERE id = ?").bind(scheduledAtMs, version.id).run();
     await audit(env.DB, game.id, "publish-scheduled", `Version ${version.id} at ${iso(scheduledAtMs)}`, caller.actor);
-    return [{ game: gameJson(env, game), version: versionJson(env, game, (await versionById(env.DB, version.id))!) }];
+    const nextSteps: NextStep[] =
+      version.scan_status === "scanning" ? [{ tool: "get_version", arguments: { slug: game.slug, version_id: version.id }, after_sec: 30, reason: "It goes live at scheduled_publish_at only if it has passed the scan by then." }] : [];
+    return [{ game: gameJson(env, game), version: versionJson(env, game, (await versionById(env.DB, version.id))!), next_steps: nextSteps }];
   }
   if (version && isPublish && method === "DELETE") {
     await env.DB.prepare("UPDATE versions SET scheduled_publish_at_ms = NULL WHERE id = ?").bind(version.id).run();
     await audit(env.DB, game.id, "publish-unscheduled", `Version ${version.id}`, caller.actor);
-    return [{ game: gameJson(env, game), version: versionJson(env, game, (await versionById(env.DB, version.id))!) }];
+    return [{ game: gameJson(env, game), version: versionJson(env, game, (await versionById(env.DB, version.id))!), next_steps: [] satisfies NextStep[] }];
   }
 
   // Publish a draft now, or roll back to any version we've kept.
   if (version && isPublish && method === "POST") {
-    if (version.scan_status !== "approved") throw new ApiError(409, "not_approved", version.scan_status === "scanning" ? "This version is still being scanned." : "Only versions that passed review can be published.");
+    if (version.scan_status === "scanning") {
+      throw new ApiError("still_scanning", {
+        message: "This version is still being scanned.",
+        field: "version_id",
+        fix: "Wait for scan_status approved (get_version), then publish; or give scheduled_publish_at to publish it later once it passes.",
+        retryAfterSec: 30,
+      });
+    }
+    if (version.scan_status !== "approved") throw notApproved(game, version);
     await publishVersion(env.DB, version);
     await audit(env.DB, game.id, version.published_at_ms ? "rolled-back" : "published", `Version ${version.id}`, caller.actor);
     await pruneVersions(env, game.id);
     const published = (await gameBySlug(env.DB, game.slug))!;
-    return [{ game: gameJson(env, published), version: versionJson(env, published, (await versionById(env.DB, version.id))!) }];
+    const isHidden = published.visibility === "draft" || published.visibility === "private";
+    const nextSteps: NextStep[] = isHidden
+      ? [{ tool: "update_game", arguments: { slug: game.slug, visibility: "listed" }, after_sec: null, reason: `It's live, but the game is ${published.visibility}, so only the developer and tester links see it. When the developer wants players in: listed for everyone, or unlisted for people with the link.` }]
+      : [];
+    return [{ game: gameJson(env, published), version: versionJson(env, published, (await versionById(env.DB, version.id))!), next_steps: nextSteps }];
   }
 
-  throw new ApiError(405, "bad_method", `${method} isn't used here.`);
+  throw badMethod(method, new URL(request.url).pathname);
+}
+
+/** A held or rejected version, which can't be published. */
+function notApproved(game: Game, version: Version): ApiError {
+  return new ApiError("not_approved", {
+    message: `This version is ${version.scan_status}, so it can't be published.`,
+    field: "version_id",
+    fix:
+      version.scan_status === "held"
+        ? "A person at Zaisma looks at held versions, usually within a day; get_version shows its findings meanwhile."
+        : `get_version shows its findings and how to fix them; upload a fixed version (upload_files with slug ${game.slug}).`,
+  });
 }
 
 const DAY_MS = 86400_000;
@@ -506,8 +670,18 @@ const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d
 const cursorFor = (atMs: number) => `cursor_${atMs.toString(36)}`;
 function readCursor(cursor: string | null): number {
   if (!cursor) return 0;
-  if (!/^cursor_[0-9a-z]{1,12}$/.test(cursor)) throw new ApiError(400, "bad_cursor", "Pass the next_cursor from your last call as cursor, as it came.");
+  if (!/^cursor_[0-9a-z]{1,12}$/.test(cursor)) throw new ApiError("bad_cursor", { message: `cursor ${JSON.stringify(cursor.slice(0, 40))} isn't a next_cursor Zaisma gave.`, field: "cursor", fix: "Pass the next_cursor from your last answer as it came, or leave cursor out to start from the beginning." });
   return parseInt(cursor.slice(7), 36);
+}
+
+/** How many days back stats go: a whole number from 1 to 90, 30 when it's left out. */
+function readPeriodDurationDays(given: string | null): number {
+  if (given === null) return 30;
+  const dayCount = Number(given);
+  if (!/^\d+$/.test(given) || dayCount < 1 || dayCount > 90) {
+    throw new ApiError("bad_period_duration_days", { message: `period_duration_days ${JSON.stringify(given.slice(0, 20))} isn't a whole number from 1 to 90.`, field: "period_duration_days", fix: "Give how many days back, today included, from 1 to 90; leave it out for 30." });
+  }
+  return dayCount;
 }
 
 /**
@@ -673,7 +847,7 @@ function listOrThrow(files: unknown): UploadFile[] {
   try {
     return checkUploadList(files);
   } catch (error) {
-    if (error instanceof UploadError) throw new ApiError(400, "bad_files", error.message);
+    if (error instanceof UploadError) throw new ApiError(error.problem?.code ?? "bad_files", { message: error.message, field: error.problem?.field ?? "files", fix: error.problem?.fix ?? "Check the file list against docs/DEVELOPER-API.md, Uploading versions." });
     throw error;
   }
 }
@@ -685,23 +859,30 @@ function listOrThrow(files: unknown): UploadFile[] {
 async function testerRoute(request: Request, env: Env, game: Game, id: string | undefined, caller: Caller): Promise<[unknown, number?]> {
   if (!id && request.method === "GET") return [{ testers: (await testerLinks(env.DB, game.id)).map((link) => testerJson(env, link)) }];
   if (!id && request.method === "POST") {
-    if (game.review_status === "removed") throw new ApiError(403, "removed", "This game was taken down, so it can't get tester links.");
+    if (game.review_status === "removed") {
+      throw new ApiError("game_removed", { message: "Zaisma took this game down, so it can't get tester links.", fix: "get_history says when and why; reply to Zaisma's message about it, or message_zaisma, to ask about it." });
+    }
     const body = await readJson(request);
+    closedBody(body, ["name"]);
     const name = typeof body.name === "string" ? body.name.trim().replace(/\s+/g, " ") : "";
-    if (!name || name.length > 60) throw new ApiError(400, "bad_name", "Name the link for who it's for, in 1 to 60 characters, like \"Playtesters\" or \"My team\".");
+    if (!name || name.length > 60) throw new ApiError("bad_name", { message: "name is empty or over 60 characters.", field: "name", fix: 'Name the link for who it\'s for, in 1 to 60 characters, like "Playtesters" or "My team".' });
     const links = await testerLinks(env.DB, game.id);
-    if (links.length >= MAXIMUM_TESTER_LINK_COUNT) throw new ApiError(403, "too_many_testers", `A game can have up to ${MAXIMUM_TESTER_LINK_COUNT} tester links. Turn one off first.`);
+    if (links.length >= MAXIMUM_TESTER_LINK_COUNT) {
+      throw new ApiError("too_many_tester_links", { message: `${game.slug} has ${MAXIMUM_TESTER_LINK_COUNT} tester links on, the most a game can.`, fix: "Turn one off with remove_tester_link (its tester_id from get_game) first." });
+    }
     const link = await addTesterLink(env.DB, game.id, name);
     await audit(env.DB, game.id, "tester-link-added", name, caller.actor);
-    return [{ tester: testerJson(env, link) }, 201];
+    return [{ tester: testerJson(env, link), next_steps: [] satisfies NextStep[] }, 201];
   }
   if (id && request.method === "DELETE") {
     const link = (await testerLinks(env.DB, game.id)).find((candidate) => candidate.id === id);
-    if (!link || !(await revokeTesterLink(env.DB, game.id, id))) throw new ApiError(404, "no_tester_link", "That tester link isn't on.");
+    if (!link || !(await revokeTesterLink(env.DB, game.id, id))) {
+      throw new ApiError("no_tester_link", { message: `${game.slug} has no tester link on with the ID ${id}.`, field: "tester_id", fix: "get_game lists the tester links that are on, with their IDs." });
+    }
     await audit(env.DB, game.id, "tester-link-removed", link.name, caller.actor);
-    return [{ removed_tester_id: link.id }];
+    return [{ removed_tester_id: link.id, next_steps: [] satisfies NextStep[] }];
   }
-  throw new ApiError(405, "bad_method", "Tester links take GET, POST and DELETE.");
+  throw badMethod(request.method, new URL(request.url).pathname);
 }
 
 // The JSON for each kind of thing, as schemas.ts describes it: the row's own names, with values in
@@ -738,20 +919,37 @@ function versionJson(env: Env, game: Game, version: Version) {
   };
 }
 
-/** A game this caller owns. Someone else's game looks the same as no game. */
-export async function ownGame(env: Env, slug: string, caller: Caller): Promise<Game> {
+/** A game this caller owns, by its slug (or the input named by `field`). Someone else's game looks the same as no game. */
+export async function ownGame(env: Env, slug: string, caller: Caller, field = "slug"): Promise<Game> {
   const game = await gameBySlug(env.DB, slug);
-  if (!game || game.owner_id !== caller.ownerId) throw new ApiError(404, "no_game", `You don't have a game at zaisma.com/g/${slug}.`);
+  if (!game || game.owner_id !== caller.ownerId) {
+    throw new ApiError("no_game", { message: `You don't have a game at zaisma.com/g/${slug}.`, field, fix: "list_games (GET /games) lists your games with their slugs; create_game makes a new one." });
+  }
   return game;
 }
 
 export async function readJson(request: Request, maximumSizeBytes = 64 * 1024): Promise<Record<string, unknown>> {
-  if (Number(request.headers.get("content-length") ?? 0) > maximumSizeBytes) throw new ApiError(413, "too_big", `Send less than ${maximumSizeBytes / 1024} KB of JSON.`);
+  if (Number(request.headers.get("content-length") ?? 0) > maximumSizeBytes) {
+    throw new ApiError("json_too_big", { message: `The JSON body is over ${maximumSizeBytes / 1024} KB, the most this call takes.`, fix: "Send less: big games go through the upload command (npx @zaisma/cli upload), and long text can be shortened." });
+  }
   try {
     const body = await request.json();
     if (body && typeof body === "object" && !Array.isArray(body)) return body as Record<string, unknown>;
   } catch {}
-  throw new ApiError(400, "bad_json", "Send a JSON object.");
+  throw new ApiError("bad_json", { message: "The body isn't a JSON object.", fix: 'Send a JSON object, like { "title": "Sky Hopper" }, with Content-Type: application/json.' });
+}
+
+/** Inputs are closed: a field we don't take is an error, never quietly ignored (docs/NAMING.md). */
+export function closedBody(body: Record<string, unknown>, fields: string[]): void {
+  for (const key of Object.keys(body)) {
+    if (!fields.includes(key)) throw new ApiError("unknown_field", { message: `${key} isn't a field of this call.`, field: key, fix: `Leave it out. The fields are: ${fields.join(", ")}.` });
+  }
+}
+
+export function closedQuery(queryParameters: URLSearchParams, fields: string[]): void {
+  for (const key of queryParameters.keys()) {
+    if (!fields.includes(key)) throw new ApiError("unknown_field", { message: `${key} isn't a query parameter of this call.`, field: key, fix: `Leave it out. The parameters are: ${fields.join(", ")}.` });
+  }
 }
 
 const splitLabels = (labels: string) => (labels ? labels.split(",") : []);

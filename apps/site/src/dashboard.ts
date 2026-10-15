@@ -1,6 +1,6 @@
-import { CONTROLS, DEVICES, PLAY_STYLES, ROOM_BROWSING, SCREENS, type PlayMode, type RoomBrowsing } from "@zaisma/core";
+import { ApiError, CONTROLS, DEVICES, PLAY_STYLES, ROOM_BROWSING, SCREENS, type PlayMode, type RoomBrowsing } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
-import { ApiError, apiCall, callerFor, type Caller } from "./developer.ts";
+import { apiCall, callerFor, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { html, layout, metalButton, raw, type Raw } from "./html.ts";
 
@@ -103,7 +103,7 @@ export async function handleDashboard(request: Request, env: Env, path: string):
       const { game } = (await call("POST", "/games", { title: String(form.get("title") ?? "") })) as { game: GameJson };
       return done(redirect(`/dashboard/${game.slug}?done=made`));
     } catch (error) {
-      if (error instanceof ApiError) return done(await gamesPage(env, call, error.message, String(form.get("title") ?? "")));
+      if (error instanceof ApiError) return done(await gamesPage(env, call, error.messageWithFix, String(form.get("title") ?? "")));
       throw error;
     }
   }
@@ -145,7 +145,7 @@ export async function handleDashboard(request: Request, env: Env, path: string):
     }
     if (action === "/images") {
       const file = form.get("file");
-      if (!(file instanceof File) || file.size === 0) throw new ApiError(400, "no_file", "Choose an image first.");
+      if (!(file instanceof File) || file.size === 0) throw new ApiError("no_file", { message: "No image was chosen.", field: "file", fix: "Choose an image first." });
       const kind = field("kind") === "screenshot" ? "screenshot" : field("kind") === "square" ? "square" : "cover";
       await call("POST", `/games/${slug}/images?kind=${kind}`, new Uint8Array(await file.arrayBuffer()));
       return back("image", "#images");
@@ -173,7 +173,7 @@ export async function handleDashboard(request: Request, env: Env, path: string):
       return back(what === "publish" ? "published" : `${what}d`, "#versions");
     }
   } catch (error) {
-    if (error instanceof ApiError) return done(await managerPage(env, call, slug, { error: error.message }, error.httpStatus));
+    if (error instanceof ApiError) return done(await managerPage(env, call, slug, { error: error.messageWithFix }, error.httpStatus));
     throw error;
   }
   return done(redirect(`/dashboard/${slug}`));
@@ -671,7 +671,7 @@ const JUNK=new Set([".DS_Store","Thumbs.db","desktop.ini","__MACOSX",".git","nod
 const say=t=>{status.textContent=t};
 const api=async(method,path,body,raw)=>{for(let i=0;;i++){const r=await fetch("/api/dev"+path,{method,headers:raw?{}:{"content-type":"application/json"},body:raw?body:body&&JSON.stringify(body)});
 if(r.status===429&&i<6){say("Waiting a moment before sending more…");await new Promise(s=>setTimeout(s,10000));continue}
-const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error&&d.error.message||"The upload failed ("+r.status+").");return d}};
+const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error?d.error.message+" "+d.error.fix:"The upload failed ("+r.status+").");return d}};
 const hex=b=>[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,"0")).join("");
 const fromEntry=(entry,path,out)=>new Promise((ok,no)=>{if(JUNK.has(entry.name))return ok();if(entry.isFile)return entry.file(f=>{out.push({file:f,path:path+entry.name});ok()},no);
 const reader=entry.createReader(),all=[];const more=()=>reader.readEntries(async es=>{if(!es.length){for(const e of all)await fromEntry(e,path+entry.name+"/",out);return ok()}all.push(...es);more()},no);more()});

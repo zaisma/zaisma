@@ -2,6 +2,8 @@
  * Checks for docs/NAMING.md: that schemas follow the naming rules, and that answers match their
  * schemas exactly. A small JSON Schema reader, only the parts our schemas use, so no dependency.
  */
+import { ERROR_CODES, type ErrorAnswer } from "@zaisma/core";
+import { ERROR } from "../apps/site/src/schemas.ts";
 
 type Schema = Record<string, unknown>;
 
@@ -79,6 +81,11 @@ export function namingProblems(schema: Schema, where: string, input: boolean): s
 
 /** Where a value doesn't match its schema, as "path: problem" lines. */
 export function schemaProblems(schema: Schema, value: unknown, path = "answer"): string[] {
+  // anyOf: it fits when one of them fits; otherwise say how it misses the nearest.
+  if (Array.isArray(schema.anyOf)) {
+    const misses = (schema.anyOf as Schema[]).map((option) => schemaProblems(option, value, path));
+    return misses.some((problems) => problems.length === 0) ? [] : misses.sort((first, second) => first.length - second.length)[0]!;
+  }
   const out: string[] = [];
   const types = typesOf(schema);
   const actual = value === null ? "null" : Array.isArray(value) ? "array" : Number.isInteger(value) ? "integer" : typeof value;
@@ -99,5 +106,19 @@ export function schemaProblems(schema: Schema, value: unknown, path = "answer"):
     if (schema.additionalProperties === false) for (const k of Object.keys(obj)) if (!(k in props)) out.push(`${path}.${k}: not in the schema`);
     for (const [k, p] of Object.entries(props)) if (k in obj) out.push(...schemaProblems(p, obj[k], `${path}.${k}`));
   }
+  return out;
+}
+
+/**
+ * Where an error answer breaks docs/NAMING.md, Errors: the shape, a listed code with the HTTP status
+ * it's listed with, and a fix that says more than the message.
+ */
+export function errorProblems(answer: unknown, httpStatus?: number): string[] {
+  const out = schemaProblems(ERROR, answer, "error answer");
+  if (out.length) return out;
+  const { code, message, fix } = (answer as ErrorAnswer).error;
+  if (!(code in ERROR_CODES)) return [`error answer: ${code} isn't in ERROR_CODES`];
+  if (httpStatus !== undefined && ERROR_CODES[code].httpStatus !== httpStatus) out.push(`error answer: ${code} came with HTTP ${httpStatus}, listed as ${ERROR_CODES[code].httpStatus}`);
+  if (!message.trim() || !fix.trim() || fix === message) out.push(`error answer: ${code} needs a message and a different fix`);
   return out;
 }

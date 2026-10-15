@@ -65,7 +65,7 @@ async function api(method, path, body) {
     body: body instanceof Uint8Array ? body : body ? JSON.stringify(body) : undefined,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) fail(data.error?.message ?? `the server answered ${res.status}.`);
+  if (!res.ok) fail(data.error ? `${data.error.message} ${data.error.fix} (${data.error.code})` : `the server answered ${res.status}.`);
   return data;
 }
 

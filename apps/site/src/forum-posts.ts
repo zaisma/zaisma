@@ -3,7 +3,9 @@ import {
   FORUM_LIMITS,
   TOPIC_SEVERITIES,
   TOPIC_STATUSES,
+  ApiError,
   blankSecrets,
+  secondsUntilDayPasses,
   forumMediaKey,
   newId,
   sniffImage,
@@ -14,7 +16,7 @@ import {
   type TopicSeverity,
   type TopicStatus,
 } from "@zaisma/core";
-import { ApiError, type Caller } from "./developer.ts";
+import type { Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { checkPost } from "./forum-check.ts";
 import { notifyMentions, saveMentions } from "./forum-mentions.ts";
@@ -36,7 +38,7 @@ export function authorOf(caller: Caller, body: Record<string, unknown>): { autho
   if (caller.via === "mcp") return { authorKind: "ai", postedVia: "mcp" };
   if (caller.via === "dashboard") return { authorKind: "developer", postedVia: "dashboard" };
   if (body.author_kind !== undefined && body.author_kind !== "developer" && body.author_kind !== "ai") {
-    throw new ApiError(400, "bad_author_kind", "author_kind is developer (you wrote it yourself) or ai (your AI wrote it, the default).");
+    throw new ApiError("bad_author_kind", { message: `author_kind ${JSON.stringify(body.author_kind)} isn't developer or ai.`, field: "author_kind", fix: "Give developer (you wrote it yourself) or ai (your AI wrote it, the default), or leave it out." });
   }
   return { authorKind: body.author_kind === "developer" ? "developer" : "ai", postedVia: caller.client === "cli" ? "cli" : "api" };
 }
@@ -83,8 +85,15 @@ export async function mediaOf(env: Env, postIds: string[]): Promise<Map<string, 
 
 /** How many more posts the account can make today (FORUM_LIMITS.postsPerDay over the last 24 hours). */
 export async function remainingPostCount(env: Env, caller: Caller): Promise<number> {
-  const row = await env.DB.prepare("SELECT COUNT(*) AS post_count FROM forum_posts WHERE account_id = ? AND created_at_ms > ?").bind(caller.accountId, Date.now() - DAY_MS).first<{ post_count: number }>();
-  return Math.max(0, FORUM_LIMITS.postsPerDay - (row?.post_count ?? 0));
+  return (await postAllowance(env, caller)).remainingPostCount;
+}
+
+/** How many more posts the account can make today, and when the oldest post of the last day was made. */
+async function postAllowance(env: Env, caller: Caller): Promise<{ remainingPostCount: number; oldestAtMs: number | null }> {
+  const row = await env.DB.prepare("SELECT COUNT(*) AS post_count, MIN(created_at_ms) AS oldest_at_ms FROM forum_posts WHERE account_id = ? AND created_at_ms > ?")
+    .bind(caller.accountId, Date.now() - DAY_MS)
+    .first<{ post_count: number; oldest_at_ms: number | null }>();
+  return { remainingPostCount: Math.max(0, FORUM_LIMITS.postsPerDay - (row?.post_count ?? 0)), oldestAtMs: row?.oldest_at_ms ?? null };
 }
 
 /** A post as it was sent, checked and with its secrets blanked, ready to store. */
@@ -101,10 +110,12 @@ export interface PostDraft {
 
 /** An image someone sent: PNG, JPEG, WebP or GIF, up to FORUM_LIMITS.imageSizeBytes. */
 export function readImage(bytes: Uint8Array): { bytes: Uint8Array; contentType: string } {
-  if (bytes.byteLength > FORUM_LIMITS.imageSizeBytes) throw new ApiError(413, "picture_too_big", `Images can be up to ${FORUM_LIMITS.imageSizeBytes / 1048576} MB each.`);
+  if (bytes.byteLength > FORUM_LIMITS.imageSizeBytes) {
+    throw new ApiError("image_too_big", { message: `An image is over ${FORUM_LIMITS.imageSizeBytes / 1048576} MB.`, field: "images_base64", fix: "Save it smaller (a JPEG or WebP, or fewer pixels) and send it again." });
+  }
   const isGif = bytes.length > 6 && /^GIF8[79]a$/.test(String.fromCharCode(...bytes.subarray(0, 6)));
   const sniffed = isGif ? { type: "image/gif" } : sniffImage(bytes);
-  if (!sniffed) throw new ApiError(415, "not_an_image", "Images can be PNG, JPEG, WebP or GIF.");
+  if (!sniffed) throw new ApiError("not_an_image", { message: "An image isn't a PNG, JPEG, WebP or GIF.", field: "images_base64", fix: "Send PNG, JPEG, WebP or GIF images; take a screenshot of anything else." });
   return { bytes, contentType: sniffed.type };
 }
 
@@ -114,48 +125,77 @@ export const placedMedia = (text: string) => [...new Set([...text.matchAll(/\(\/
 /** debug_context as it's stored: the template's keys only, each a string or null, secrets blanked. */
 function readDebugContext(given: unknown): { json: string | null; blankedCount: number } {
   if (given === undefined || given === null) return { json: null, blankedCount: 0 };
-  if (typeof given !== "object" || Array.isArray(given)) throw new ApiError(400, "bad_debug_context", `debug_context is an object with any of: ${DEBUG_CONTEXT_KEYS.join(", ")}.`);
+  if (typeof given !== "object" || Array.isArray(given)) {
+    throw new ApiError("bad_debug_context", {
+      message: `debug_context is ${Array.isArray(given) ? "a list" : `a ${typeof given}`}, not an object.`,
+      field: "debug_context",
+      fix: `Send an object with any of: ${DEBUG_CONTEXT_KEYS.join(", ")}, each text, like { "call": "upload_files", "error_code": "too_big" }.`,
+    });
+  }
   const fields = given as Record<string, unknown>;
   let blankedCount = 0;
   const stored: Record<string, string | null> = {};
   for (const key of Object.keys(fields)) {
-    if (!(DEBUG_CONTEXT_KEYS as readonly string[]).includes(key)) throw new ApiError(400, "bad_debug_context", `debug_context.${key} isn't a field. The fields are: ${DEBUG_CONTEXT_KEYS.join(", ")}.`);
+    if (!(DEBUG_CONTEXT_KEYS as readonly string[]).includes(key)) {
+      throw new ApiError("bad_debug_context", { message: `debug_context.${key} isn't one of its fields.`, field: `debug_context.${key}`, fix: `Use only: ${DEBUG_CONTEXT_KEYS.join(", ")}; put anything else in notes.` });
+    }
   }
   for (const key of DEBUG_CONTEXT_KEYS) {
     const field = fields[key];
-    if (field !== undefined && field !== null && typeof field !== "string") throw new ApiError(400, "bad_debug_context", `debug_context.${key} is text.`);
+    if (field !== undefined && field !== null && typeof field !== "string") {
+      throw new ApiError("bad_debug_context", { message: `debug_context.${key} isn't text.`, field: `debug_context.${key}`, fix: "Send it as a string; JSON goes in request_json as text." });
+    }
     const cleaned = typeof field === "string" && field.trim() ? blankSecrets(field.trim()) : null;
     blankedCount += cleaned?.blankedCount ?? 0;
     stored[key] = cleaned?.text ?? null;
   }
   const json = JSON.stringify(stored);
   if (json.length > FORUM_LIMITS.debugContextCharacterCount) {
-    throw new ApiError(400, "bad_debug_context", `debug_context can be up to ${FORUM_LIMITS.debugContextCharacterCount} characters in all. Keep the error and the call that failed; leave out whole files.`);
+    throw new ApiError("bad_debug_context", {
+      message: `debug_context is over ${FORUM_LIMITS.debugContextCharacterCount} characters in all.`,
+      field: "debug_context",
+      fix: "Keep the call that failed and its error; leave out whole files and long logs.",
+    });
   }
   return { json, blankedCount };
 }
 
+const tooManyImages = (imageCount: number) =>
+  new ApiError("too_many_images", { message: `The post carries ${imageCount} images, over ${FORUM_LIMITS.imageCountPerPost}.`, field: "images_base64", fix: `Send up to ${FORUM_LIMITS.imageCountPerPost} images a post (4 through the MCP); put the rest in a reply.` });
+
 /** Checks a post and blanks its secrets, before anything is stored. */
 export async function readPost(env: Env, caller: Caller, body: Record<string, unknown>): Promise<PostDraft> {
-  if ((await remainingPostCount(env, caller)) <= 0) {
-    throw new ApiError(429, "feedback_limit", `You've posted ${FORUM_LIMITS.postsPerDay} times in the last day, the most for one account. Reply to an existing topic tomorrow, or write to us if something is urgent.`);
+  const allowance = await postAllowance(env, caller);
+  if (allowance.remainingPostCount <= 0) {
+    throw new ApiError("post_limit", {
+      message: `The account has posted ${FORUM_LIMITS.postsPerDay} times in the last day, the most it can.`,
+      fix: "Wait until the oldest of those posts is a day old; if something is urgent, write to Zaisma by email.",
+      retryAfterSec: secondsUntilDayPasses(allowance.oldestAtMs),
+    });
   }
   const given = typeof body.text_markdown === "string" ? body.text_markdown.trim() : "";
-  if (!given || given.length > FORUM_LIMITS.textCharacterCount) throw new ApiError(400, "bad_text", `text_markdown says what happened in 1 to ${FORUM_LIMITS.textCharacterCount} characters.`);
+  if (!given || given.length > FORUM_LIMITS.textCharacterCount) {
+    throw new ApiError("bad_text_markdown", {
+      message: given ? `text_markdown is ${given.length} characters, over ${FORUM_LIMITS.textCharacterCount}.` : "text_markdown is empty or missing.",
+      field: "text_markdown",
+      fix: `Say what happened in 1 to ${FORUM_LIMITS.textCharacterCount} characters of markdown; long logs go in debug_context, shortened.`,
+    });
+  }
   const text = blankSecrets(given);
   const debugContext = readDebugContext(body.debug_context);
   // Images as base64: PNG, JPEG, WebP or GIF.
   const sent = body.images_base64 === undefined ? [] : body.images_base64;
-  if (!Array.isArray(sent)) throw new ApiError(400, "bad_picture", "images_base64 is a list of images, each as base64.");
-  if (sent.length > FORUM_LIMITS.imageCountPerPost) throw new ApiError(400, "too_much_media", `A post can carry up to ${FORUM_LIMITS.imageCountPerPost} images.`);
+  if (!Array.isArray(sent)) throw new ApiError("bad_images_base64", { message: "images_base64 isn't a list.", field: "images_base64", fix: 'Send a list of images, each base64-encoded, like ["iVBORw0KGgo…"].' });
+  if (sent.length > FORUM_LIMITS.imageCountPerPost) throw tooManyImages(sent.length);
   const images: PostDraft["images"] = [];
-  for (const encoded of sent) {
-    if (typeof encoded !== "string" || !encoded) throw new ApiError(400, "bad_picture", "Send each image as base64.");
+  for (const [i, encoded] of sent.entries()) {
+    const notBase64 = () => new ApiError("bad_base64", { message: `images_base64[${i}] isn't valid base64.`, field: `images_base64[${i}]`, fix: "Send the image file's bytes base64-encoded, nothing else around them." });
+    if (typeof encoded !== "string" || !encoded) throw notBase64();
     let bytes: Uint8Array;
     try {
       bytes = Uint8Array.from(atob(encoded.replace(/^data:[^,]*,/, "").replace(/\s+/g, "")), (character) => character.charCodeAt(0));
     } catch {
-      throw new ApiError(400, "bad_picture", "Send each image as base64.");
+      throw notBase64();
     }
     images.push(readImage(bytes));
   }
@@ -185,7 +225,7 @@ export async function storePost(
           .all<{ id: string }>()
       ).results.map((draft) => draft.id)
     : [];
-  if (drafts.length + post.images.length > FORUM_LIMITS.imageCountPerPost) throw new ApiError(400, "too_much_media", `A post can carry up to ${FORUM_LIMITS.imageCountPerPost} images.`);
+  if (drafts.length + post.images.length > FORUM_LIMITS.imageCountPerPost) throw tooManyImages(drafts.length + post.images.length);
   for (const [positionIndex, mediaId] of placed.filter((placedId) => drafts.includes(placedId)).entries()) {
     await env.DB.prepare("UPDATE forum_media SET post_id = ?, position_index = ? WHERE id = ? AND account_id = ? AND post_id IS NULL").bind(id, positionIndex, mediaId, caller.accountId).run();
   }
@@ -222,7 +262,9 @@ export async function storePost(
 
 export function readTitle(body: Record<string, unknown>): string {
   const title = typeof body.title === "string" ? body.title.trim().replace(/\s+/g, " ") : "";
-  if (!title || title.length > FORUM_LIMITS.titleCharacterCount) throw new ApiError(400, "bad_title", `Give it a title of 1 to ${FORUM_LIMITS.titleCharacterCount} characters.`);
+  if (!title || title.length > FORUM_LIMITS.titleCharacterCount) {
+    throw new ApiError("bad_title", { message: `title is empty or over ${FORUM_LIMITS.titleCharacterCount} characters.`, field: "title", fix: `Give one specific line of 1 to ${FORUM_LIMITS.titleCharacterCount} characters, like "upload_files fails with too_big for a 3 MB game".` });
+  }
   return blankSecrets(title).text;
 }
 
@@ -231,8 +273,16 @@ export function readTitle(body: Record<string, unknown>): string {
  * the post that places it is made; one never posted goes after a day (dailyCleanup).
  */
 export async function uploadDraftMedia(env: Env, caller: Caller, bytes: Uint8Array) {
-  const today = await env.DB.prepare("SELECT COUNT(*) AS image_count FROM forum_media WHERE account_id = ? AND created_at_ms > ?").bind(caller.accountId, Date.now() - DAY_MS).first<{ image_count: number }>();
-  if ((today?.image_count ?? 0) >= FORUM_LIMITS.imagesPerDay) throw new ApiError(429, "media_limit", `You've uploaded ${FORUM_LIMITS.imagesPerDay} images in the last day, the most for one account.`);
+  const today = await env.DB.prepare("SELECT COUNT(*) AS image_count, MIN(created_at_ms) AS oldest_at_ms FROM forum_media WHERE account_id = ? AND created_at_ms > ?")
+    .bind(caller.accountId, Date.now() - DAY_MS)
+    .first<{ image_count: number; oldest_at_ms: number | null }>();
+  if ((today?.image_count ?? 0) >= FORUM_LIMITS.imagesPerDay) {
+    throw new ApiError("image_limit", {
+      message: `The account has uploaded ${FORUM_LIMITS.imagesPerDay} forum images in the last day, the most it can.`,
+      fix: "Wait until the oldest is a day old, or post without images meanwhile.",
+      retryAfterSec: secondsUntilDayPasses(today?.oldest_at_ms),
+    });
+  }
   const image = readImage(bytes);
   const id = newId();
   const outcome = await matchUpload(env, id, image.bytes, image.contentType, caller.accountId);

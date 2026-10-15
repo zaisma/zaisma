@@ -1,8 +1,8 @@
 # Developer API
 
-One API behind the developer MCP, the upload command (`packages/cli`) and the dashboard (zaisma.com/dashboard, `apps/site/src/dashboard.ts`), so they always agree. Base: `https://zaisma.com/api/dev`. Every answer is JSON; errors look like `{"error": {"code": "slug_taken", "message": "…"}}`.
+One API behind the developer MCP, the upload command (`packages/cli`) and the dashboard (zaisma.com/dashboard, `apps/site/src/dashboard.ts`), so they always agree. Base: `https://zaisma.com/api/dev`. Every answer is JSON. Errors say what happened, which input, and what to do (see Errors below), and every call that changes something answers with `next_steps` (see Next steps).
 
-Names follow [`docs/NAMING.md`](NAMING.md): each one says what it holds, what kind of value and in what unit (`file_count`, `size_bytes`, `play_duration_min`, `width_px`), times are ISO 8601 in UTC (`created_at: "2026-10-14T09:30:00.000Z"`) and come in the same way, a plural is always a list, and every answer has the same keys every time (`null` when not set). The JSON Schema of each answer is in `apps/site/src/schemas.ts`.
+Names follow [`docs/NAMING.md`](NAMING.md): each one says what it holds, what kind of value and in what unit (`file_count`, `size_bytes`, `play_duration_min`, `width_px`), times are ISO 8601 in UTC (`created_at: "2026-10-14T09:30:00.000Z"`) and come in the same way, a plural is always a list, and every answer has the same keys every time (`null` when not set). Inputs are closed: a field or query parameter a call doesn't take is refused (`unknown_field`), never quietly ignored, and so is a value that isn't one of its choices. The JSON Schema of each answer is in `apps/site/src/schemas.ts`.
 
 ## The MCP
 
@@ -14,7 +14,181 @@ claude mcp add --transport http zaisma https://zaisma.com/mcp --header "Authoriz
 
 Every tool is a call to this API (`apps/site/src/mcp.ts`): `list_games`, `create_game`, `get_game`, `update_game`, `upload_files` (small games up to 5 MB, sent as file contents), `get_version`, `publish_version` (also rolls back and publishes later), `cancel_scheduled_publish`, `add_image`, `remove_image`, `add_tester_link`, `remove_tester_link`, `get_reports`, `get_stats`, `get_history`, and the developer forum's `search_forum`, `get_topic`, `post_topic`, `message_zaisma`, `reply_to_topic`, `vote`, `mark_helpful`, `report_post`, `forum_people`, `still_happening`, `flag_misplaced`, `follow_topic` and `mark_answer` (see The developer forum below). Bigger builds go through the upload command. Making a game players can play private or a draft again needs `"confirm": true`, so the AI asks you first.
 
-Every tool has an output schema, and answers are compact JSON. `upload_files` answers with `next_steps`: the call that usually follows (`get_version` once the scan has had time), with its arguments filled in.
+Every tool has an output schema, and answers are compact JSON. Arguments are closed: one a tool doesn't take is refused (`unknown_field`, with the arguments it does take), never quietly dropped, and a missing required one is `missing_field`. A refused call is a tool result with `isError: true`, the error object below as its `structuredContent` and its message, fix and code as its text; each tool's listed output schema is its answer or that error, because MCP clients check both against it. The tools that are easy to get wrong (`update_game`, `upload_files`, `publish_version`, `search_forum`, `post_topic`) carry good examples in their input schema and bad ones at the end of their description.
+
+## Errors
+
+Every error, in the API and the MCP, has the same shape:
+
+```json
+{"error": {"code": "bad_play_modes", "message": "The online mode's play_style is missing or isn't co-op, versus or both.", "field": "play_modes[1].play_style", "fix": "Give play_style: co-op (together), versus (against each other) or both, like { \"mode\": \"online\", \"minimum_player_count\": 2, \"maximum_player_count\": 4, \"play_style\": \"co-op\" }.", "retry_after_sec": null}}
+```
+
+- `code`: stable, one problem per code, from the list below; search the forum with it (`search_forum`) to find others who hit it. Codes named `bad_<field>` mean that input's value isn't one the call takes.
+- `message`: what happened, in one sentence.
+- `field`: the input at fault, with its place in a list when it's in one (`files[3].path`, `debug_context.call`), or `null`.
+- `fix`: what to do about it, naming the call or the value when there is one.
+- `retry_after_sec`: how long to wait when waiting helps (`slow_down`, `post_limit`, `still_scanning`), also sent as the `Retry-After` header; otherwise `null`.
+
+The HTTP status goes with the code, as listed. The list lives in `ERROR_CODES` (`packages/core/src/errors.ts`), and a test keeps this page in step with it.
+
+**Signing in and requests**
+
+| Code | HTTP | Meaning |
+| --- | --- | --- |
+| `no_key` | 401 | The MCP was called without an API key. |
+| `bad_key` | 401 | The API key isn't valid: removed, mistyped or never made. |
+| `signed_out` | 401 | No API key, and no signed-in session. |
+| `no_account` | 401 | The account isn't finished yet. |
+| `bad_origin` | 403 | A call with a session came from another site. |
+| `slow_down` | 429 | Too many calls in a minute. |
+| `not_found` | 404 | There's no API call at that path. |
+| `bad_method` | 405 | The path doesn't take that method. |
+| `gone` | 410 | The call was removed, like the first feedback calls. |
+| `bad_json` | 400 | The body isn't a JSON object. |
+| `json_too_big` | 413 | The JSON body is over the call's size limit. |
+| `unknown_field` | 400 | A field, argument or query parameter the call doesn't take. |
+| `missing_field` | 400 | A field the call needs wasn't sent. |
+| `internal_error` | 500 | Something broke on Zaisma's side. |
+
+**Games**
+
+| Code | HTTP | Meaning |
+| --- | --- | --- |
+| `no_game` | 404 | You have no game with that slug. |
+| `bad_slug` | 400 | The link name isn't lowercase letters, numbers and single hyphens, or is reserved. |
+| `slug_taken` | 409 | Another game has that link name. |
+| `too_many_games` | 403 | The account has as many games as it can have. |
+| `bad_title` | 400 | A game's or topic's title is empty or too long. |
+| `bad_description` | 400 | The description isn't text of up to 500 characters. |
+| `bad_visibility` | 400 | visibility isn't draft, listed, unlisted or private. |
+| `bad_devices` | 400 | devices isn't a list of phone, tablet and computer. |
+| `bad_controls` | 400 | controls isn't a list of touch, keyboard_mouse and gamepad. |
+| `bad_screen_orientation` | 400 | screen_orientation isn't portrait, landscape, either or null. |
+| `bad_play_modes` | 400 | play_modes isn't a list of play modes, or one of them is wrong. |
+| `bad_cloud_saves_enabled` | 400 | cloud_saves_enabled isn't true or false. |
+| `bad_room_browsing` | 400 | room_browsing isn't page, game or off. |
+| `bad_multiplayer_mode` | 400 | multiplayer_mode isn't none, relay or own. |
+| `built_in_server` | 403 | The game runs a game server built into Zaisma, which only Zaisma changes. |
+| `game_removed` | 403 | Zaisma took the game down, so this can't change. |
+| `needs_confirm` | 409 | Hiding a game players can play needs the developer's OK. |
+| `bad_period_duration_days` | 400 | period_duration_days isn't a whole number from 1 to 90. |
+| `bad_cursor` | 400 | cursor isn't a next_cursor from an earlier answer. |
+
+**Covers, screenshots and other images**
+
+| Code | HTTP | Meaning |
+| --- | --- | --- |
+| `bad_kind` | 400 | kind isn't one of the choices the call takes. |
+| `not_an_image` | 415 | The file isn't an image of a type the call takes. |
+| `image_too_big` | 413 | The image is over 5 MB. |
+| `bad_image_dimensions` | 400 | The image is under 320 px or over 8,192 px on a side. |
+| `not_square` | 400 | A square cover isn't as wide as it is tall, or is under 512 px. |
+| `too_many_screenshots` | 400 | The game has 8 screenshots already. |
+| `image_refused` | 422 | The image can't be used. |
+| `no_image` | 404 | The game has no image with that ID. |
+| `no_file` | 400 | A form on Zaisma's pages was sent without its image. |
+
+**Uploading versions**
+
+| Code | HTTP | Meaning |
+| --- | --- | --- |
+| `bad_files` | 400 | files isn't a list of files in the shape the call takes. |
+| `bad_path` | 400 | A file's path is absolute, has . or .. in it, has control characters or is over 200 characters. |
+| `hidden_file` | 400 | A file or folder's name starts with a dot. |
+| `precompressed_file` | 400 | A file is pre-compressed (.gz or .br). |
+| `file_type_not_allowed` | 400 | A file is of a type games can't have. |
+| `file_too_big` | 413 | A file is over 500 MB. |
+| `duplicate_path` | 400 | Two files share a path. |
+| `no_index_html` | 400 | There's no index.html at the top of the game. |
+| `too_many_files` | 400 | The game has more than 20,000 files. |
+| `game_too_big` | 413 | The game is over 2 GB. |
+| `too_big_for_mcp` | 413 | upload_files takes up to 5 MB; bigger builds go through the upload command. |
+| `bad_base64` | 400 | Something sent as base64 isn't valid base64. |
+| `files_missing` | 409 | Some of the version's files haven't been sent yet. |
+| `bad_patch_notes` | 400 | patch_notes isn't text of up to 2,000 characters. |
+| `bad_publish_when_approved` | 400 | publish_when_approved isn't true or false. |
+| `version_limit` | 429 | The game has had 20 versions in the last day. |
+| `no_content_length` | 411 | A file was sent without a Content-Length header. |
+| `file_needs_parts` | 413 | A file over 95 MB was sent in one go. |
+| `no_body` | 400 | A file was sent without a body. |
+| `hash_mismatch` | 400 | A file doesn't match the SHA-256 it was sent as. |
+| `forbidden_file` | 400 | A file is a program or an archive, whatever its name says. |
+| `bad_size_bytes` | 400 | size_bytes isn't a whole number above 0. |
+| `bad_part_number` | 400 | A part's number isn't from 1 to 10,000. |
+| `no_upload_id` | 400 | A part was sent without its upload_id. |
+| `bad_part_size` | 400 | A part is empty, over 50 MB or has no Content-Length header. |
+| `upload_closed` | 400 | The upload_id isn't an open upload any more. |
+| `bad_parts` | 400 | The finishing call isn't { upload_id, parts: [{ part_number, etag }] }. |
+| `parts_incomplete` | 400 | The parts sent don't make a whole file. |
+
+**Versions and publishing**
+
+| Code | HTTP | Meaning |
+| --- | --- | --- |
+| `no_version` | 404 | The game has no version with that ID. |
+| `bad_time` | 400 | scheduled_publish_at isn't an ISO time from a few minutes to 90 days ahead. |
+| `still_scanning` | 409 | The version is still being scanned. |
+| `not_approved` | 409 | The version didn't pass review, so it can't be published. |
+
+**Tester links**
+
+| Code | HTTP | Meaning |
+| --- | --- | --- |
+| `bad_name` | 400 | A tester link's name isn't 1 to 60 characters. |
+| `too_many_tester_links` | 403 | The game has 50 tester links on already. |
+| `no_tester_link` | 404 | The game has no tester link on with that ID. |
+
+**The developer forum**
+
+| Code | HTTP | Meaning |
+| --- | --- | --- |
+| `no_topic` | 404 | There's no topic with that ID you can see. |
+| `no_post` | 404 | There's no post with that ID you can see in the topic. |
+| `no_known_issue` | 404 | There's no known issue with that ID. |
+| `no_media` | 404 | There's no image there you can see. |
+| `bad_tab` | 400 | tab isn't latest, top, unanswered, known, yours or messages. |
+| `bad_section` | 400 | section isn't one of the forum's sections. |
+| `bad_category` | 400 | category isn't one of the forum's categories. |
+| `no_category` | 400 | A public topic was sent without its category. |
+| `bad_tag` | 400 | tag isn't one of the forum's tags. |
+| `bad_tags` | 400 | tags isn't a list of up to 3 of the forum's tags. |
+| `bad_topic_status` | 400 | topic_status isn't one of the statuses. |
+| `bad_is_answered` | 400 | is_answered isn't true or false. |
+| `bad_maximum_topic_count` | 400 | maximum_topic_count isn't a whole number from 1 to 30. |
+| `bad_detail` | 400 | detail isn't brief. |
+| `bad_post_selection` | 400 | post_selection isn't all, answer, latest or none. |
+| `bad_is_public` | 400 | is_public isn't true or false. |
+| `bad_text_markdown` | 400 | text_markdown is empty or over 8,000 characters. |
+| `bad_author_kind` | 400 | author_kind isn't developer or ai. |
+| `bad_debug_context` | 400 | debug_context isn't an object of its five text fields, up to 8,000 characters in all. |
+| `bad_images_base64` | 400 | images_base64 isn't a list of base64 images. |
+| `too_many_images` | 400 | A post carries more than 10 images. |
+| `bad_reopen` | 400 | reopen isn't true or false. |
+| `bad_answer_post_id` | 400 | answer_post_id isn't a post ID or null. |
+| `bad_reason` | 400 | reason isn't one of the report reasons. |
+| `post_limit` | 429 | The account has posted 100 times in the last day. |
+| `image_limit` | 429 | The account has uploaded 200 forum images in the last day. |
+| `not_yours` | 403 | Only the developer who started the topic can do that. |
+| `not_a_question` | 400 | Only a question has an answer to mark. |
+| `not_closed` | 400 | The topic isn't closed, so there's nothing to reopen. |
+| `not_released` | 400 | The topic isn't a known issue whose fix is out. |
+| `cant_vote` | 400 | The topic doesn't take your vote: it's yours, private, or a discussion. |
+| `cant_flag` | 400 | Only public topics others can see can be flagged as misplaced. |
+| `cant_mark_helpful` | 400 | Your own posts can't be marked helpful. |
+| `cant_report` | 400 | The post can't be reported: it's yours, or Zaisma's. |
+
+## Next steps
+
+Every call that changes something answers with `next_steps`: the calls that usually follow, ready to make, or `[]` when nothing does. The steps of sending files (`PUT /files/:sha256`, the parts calls and `POST /forum/media`) are the exception: their next call is always the one that uses them.
+
+```json
+"next_steps": [{"tool": "get_version", "arguments": {"slug": "sky-hopper", "version_id": "8f3k2m"}, "after_sec": 30, "reason": "The scan usually takes under a minute; once it passes, show the developer its preview_url."}]
+```
+
+- `tool` is the MCP tool's name (each maps to a call on this page); `arguments` are filled in as far as Zaisma knows, and `reason` says what to add (like a new game's files).
+- `after_sec`: how long to wait first, or `null` for straight away.
+- What follows today: a new game, its upload (`upload_files`); a new version, checking its scan (`get_version`); publishing while the game is a draft or private, making it `listed` when the developer wants players in (`update_game`); making a game `listed` or `unlisted` with nothing live, publishing the version that passed (`publish_version`), checking the one being scanned, or uploading one; `multiplayer_mode: "own"` without a game server, uploading one; scheduling a version still being scanned, checking its scan. Everything else answers `[]`.
 
 ## Signing in
 
@@ -27,7 +201,7 @@ Make an API key on your account page (zaisma.com/account, under Game developers)
 | `GET /games` | Your games, and `unread_topic_count`: how many of your forum topics Zaisma has replied to or changed since you last opened them. |
 | `POST /games` | Make a game: `{"title", "slug"?, "description"?, "devices"?, "controls"?, "screen_orientation"?, "play_modes"?, "cloud_saves_enabled"?, "multiplayer_mode"?, "room_browsing"?}`. It starts as a draft that only you can see. Up to 50 games. |
 | `GET /games/:slug` | One game with its `images`, `versions` (newest first, each with its scan `findings`) and `testers`. |
-| `PATCH /games/:slug` | Change any of `title`, `description`, `visibility`, `devices`, `controls`, `screen_orientation`, `play_modes`, `cloud_saves_enabled`, `room_browsing`, `multiplayer_mode`. Leave out what stays the same; `null` clears it. Answers with the `game`, `review_message` (set when new words wait for review) and `game_server_problem` (why the game's own game server can't run yet, or `null`). |
+| `PATCH /games/:slug` | Change any of `title`, `description`, `visibility`, `devices`, `controls`, `screen_orientation`, `play_modes`, `cloud_saves_enabled`, `room_browsing`, `multiplayer_mode`. Leave out what stays the same; `null` clears it. Answers with the `game`, `review_message` (set when new words wait for review), `game_server_problem` (why the game's own game server can't run yet, or `null`) and `next_steps`. |
 
 A game looks like: `slug`, `page_url`, `title`, `description`, `visibility`, `review_status`, `devices`, `controls`, `screen_orientation`, `play_modes`, `cloud_saves_enabled`, `multiplayer_mode`, `room_browsing`, `details_waiting_for_review` and `updated_at`.
 
@@ -96,7 +270,7 @@ Where developers and their AI talk with the people who build Zaisma, and with ea
 - **What an AI attaches:** `debug_context`, for whoever fixes it: `{ "call", "error_code", "error_message", "request_json", "notes" }`, each text and each optional, up to 8,000 characters in all. Answers give every key (`null` when not sent). Other keys are refused.
 - **Images:** up to 10 a post, PNG, JPEG, WebP or GIF, up to 5 MB each. Upload one with `POST /forum/media` (the image as the body) and place the `image_markdown` it answers with anywhere in the text; only you see it until the post is made, and one never posted is deleted after a day. Or send `images_base64`, a list of base64 images, which show after the text. On a public topic they're checked with the post, then everyone sees them; in a message to Zaisma only you and Zaisma do. Each post lists its `media`, each with an `image_url`.
 - **Sections, categories and tags:** each topic is in a `category` (`publishing`, `scans`, `pages`, `rooms`, `servers`, `passes`, `sdk`, `saves`, `stats`, `mcp`, `api`, `cli`, `accounts`, `dashboard`, `reports`, `rules`, `docs`, `other`), and categories sit in the forum's sections (`publish`, `multiplayer`, `build`, `tools`, `site`, `safety` and `general`). Up to 3 `tags` (`mobile`, `desktop`, `performance`, `audio`, `controls`, `godot`, `unity`, `phaser`, `threejs`, `construct`, `gamemaker`, `ai-made`). You pick the category; it's required on a public topic. Anyone can flag a topic as in the wrong category, and Zaisma's AI then moves it and says so in the topic. Zaisma never sorts categories otherwise.
-- **Closed inputs:** a field or query parameter a call doesn't take is refused (`unknown_field`), never quietly ignored.
+- **Closed inputs:** a field or query parameter a call doesn't take is refused (`unknown_field`), never quietly ignored, and so is a filter that isn't one of its choices (`category=multiplayer` is `bad_category`: multiplayer is a section).
 
 | Call | What it does |
 | --- | --- |

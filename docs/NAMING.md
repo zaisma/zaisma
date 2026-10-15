@@ -165,7 +165,7 @@ Every error, in the API and the MCP, has the same shape:
 - `fix`: what to do about it, naming the call or value when there is one.
 - `retry_after_sec`: how long to wait when waiting helps (like `slow_down`), else `null`.
 
-In the MCP the same object is the tool result's `structuredContent`, with `isError: true` and the message and fix as its text. Every code is listed in the docs.
+In the MCP the same object is the tool result's `structuredContent`, with `isError: true` and its message, fix and code as its text (`<message> <fix> (<code>)`), and each tool's listed output schema is its answer or the error (`anyOf`), because MCP clients check an error's `structuredContent` against it too. Every code is in `ERROR_CODES` (`packages/core/src/errors.ts`) and listed in `docs/DEVELOPER-API.md`, which a test keeps in step.
 
 ## Next steps
 
@@ -232,7 +232,7 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 | Ticks a second, and the time since the last tick | | `ticksPerSec`, `tickDurationSec` |
 | Time without input before "Still there?", and who checks | | `idleTimeoutSec`, `idleCheck` |
 | How long a seat is held for a player who walked away | | `seatHoldDurationSec` |
-| What an error is | `code` (inside `error` only) | `code` (on the error only) |
+| What an error is, and its other parts | `code`; `message`, `field`, `fix`, `retry_after_sec` (inside `error` only) | `code` (on the error only) |
 
 ## Adding a field, option or tool
 
