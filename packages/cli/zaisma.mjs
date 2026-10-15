@@ -17,11 +17,11 @@ const HELP = `Usage:
   zaisma games                              List your games
   zaisma new <title> [--slug link-name]     Make a game (it starts as a draft)
   zaisma upload <folder> --game <slug>      Upload a version; only changed files are sent
-        [--notes "What changed"]            Patch notes, shown with the update
-        [--publish]                         Go live as soon as it passes review
+        [--patch-notes "What changed"]      Patch notes, shown with the update
+        [--publish-when-approved]           Go live as soon as it passes review
   zaisma versions <slug>                    List versions and preview links
   zaisma publish <slug> <version>           Publish a draft, or roll back to an older version
-        [--at "2026-11-01 17:00"]           Publish later, at this time (your computer's time zone)
+        [--scheduled-publish-at "2026-11-01 17:00"]  Publish later, at this time (your computer's time zone)
   zaisma unschedule <slug> <version>        Cancel a publish-later
   zaisma show <slug> [--visibility listed|unlisted|private|draft]
   zaisma feedback [--search "words"]       Your feedback to Zaisma, and the known issues
@@ -93,22 +93,22 @@ function sha256(file) {
 }
 
 async function sendInParts(f, progress) {
-  const start = await api("POST", `/files/${f.sha256}/parts`, { bytes: f.bytes });
-  if (start.stored === "already") return;
+  const start = await api("POST", `/files/${f.sha256}/parts`, { size_bytes: f.size_bytes });
+  if (start.storage_status === "already_stored") return;
   const file = await open(f.full);
   const parts = [];
   try {
-    for (let n = 1, offset = 0; offset < f.bytes; n++, offset += start.part_bytes) {
-      const chunk = new Uint8Array(Math.min(start.part_bytes, f.bytes - offset));
+    for (let n = 1, offset = 0; offset < f.size_bytes; n++, offset += start.part_size_bytes) {
+      const chunk = new Uint8Array(Math.min(start.part_size_bytes, f.size_bytes - offset));
       await file.read(chunk, 0, chunk.length, offset);
-      const part = await api("PUT", `/files/${f.sha256}/parts/${n}?upload=${encodeURIComponent(start.upload)}`, chunk);
-      parts.push({ part: part.part, etag: part.etag });
+      const part = await api("PUT", `/files/${f.sha256}/parts/${n}?upload_id=${encodeURIComponent(start.upload_id)}`, chunk);
+      parts.push({ part_number: part.part_number, etag: part.etag });
       progress(offset + chunk.length);
     }
   } finally {
     await file.close();
   }
-  await api("POST", `/files/${f.sha256}/parts/done`, { upload: start.upload, parts });
+  await api("POST", `/files/${f.sha256}/parts/done`, { upload_id: start.upload_id, parts });
 }
 
 const size = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.ceil(n / 1024)} KB`);
@@ -123,12 +123,12 @@ async function upload(folder, opts) {
   console.log(`Checking ${paths.length} files…`);
   const files = [];
   for (const full of paths) {
-    files.push({ path: relative(folder, full).split(sep).join("/"), sha256: await sha256(full), bytes: (await stat(full)).size, full });
+    files.push({ path: relative(folder, full).split(sep).join("/"), sha256: await sha256(full), size_bytes: (await stat(full)).size, full });
   }
   const list = files.map(({ full: _, ...f }) => f);
   const plan = await api("POST", `/games/${slug}/uploads`, { files: list });
-  const todo = files.filter((f, i) => plan.missing.includes(f.sha256) && files.findIndex((g) => g.sha256 === f.sha256) === i);
-  const total = todo.reduce((n, f) => n + f.bytes, 0);
+  const todo = files.filter((f, i) => plan.missing_file_hashes.includes(f.sha256) && files.findIndex((g) => g.sha256 === f.sha256) === i);
+  const total = todo.reduce((n, f) => n + f.size_bytes, 0);
   console.log(todo.length ? `Sending ${todo.length} new or changed files (${size(total)})…` : "Nothing changed since your last upload; making a version from the stored files.");
 
   let sent = 0;
@@ -136,32 +136,32 @@ async function upload(folder, opts) {
   await Promise.all(
     Array.from({ length: 4 }, async () => {
       for (let f = queue.shift(); f; f = queue.shift()) {
-        if (f.bytes > DIRECT_BYTES) await sendInParts(f, (n) => process.stdout.write(`\r  ${size(sent + n)} of ${size(total)}   `));
+        if (f.size_bytes > DIRECT_BYTES) await sendInParts(f, (n) => process.stdout.write(`\r  ${size(sent + n)} of ${size(total)}   `));
         else await api("PUT", `/files/${f.sha256}`, new Uint8Array(await readFile(f.full)));
-        sent += f.bytes;
+        sent += f.size_bytes;
         process.stdout.write(`\r  ${size(sent)} of ${size(total)}   `);
       }
     }),
   );
   if (todo.length) process.stdout.write("\n");
 
-  const { version } = await api("POST", `/games/${slug}/versions`, { files: list, notes: typeof opts.notes === "string" ? opts.notes : "", publish: opts.publish ? "when-approved" : undefined });
+  const { version } = await api("POST", `/games/${slug}/versions`, { files: list, patch_notes: typeof opts["patch-notes"] === "string" ? opts["patch-notes"] : "", publish_when_approved: opts["publish-when-approved"] === true });
   console.log(`Version ${version.id} is being scanned. This usually takes under a minute…`);
 
   for (let i = 0; i < 200; i++) {
     await sleep(3000);
     const { version: v } = await api("GET", `/games/${slug}/versions/${version.id}`);
-    if (v.scan === "scanning") continue;
-    if (v.scan === "approved") {
-      if (v.live) console.log(`Passed and live: ${API}/g/${slug}`);
+    if (v.scan_status === "scanning") continue;
+    if (v.scan_status === "approved") {
+      if (v.is_live) console.log(`Passed and live: ${API}/g/${slug}`);
       else {
         console.log(`Passed. Your private preview: ${v.preview_url}`);
         console.log(`Publish it with: zaisma publish ${slug} ${v.id}`);
       }
     } else {
-      console.log(v.scan === "held" ? "Held: a person will look at it, usually within a day. What the scan found:" : "Rejected. What the scan found:");
-      for (const f of v.findings ?? []) console.log(`  - ${f.detail}${f.path ? ` (${f.path})` : ""}`);
-      if (v.scan === "rejected") process.exit(1);
+      console.log(v.scan_status === "held" ? "Held: a person will look at it, usually within a day. What the scan found:" : "Rejected. What the scan found:");
+      for (const f of v.findings) console.log(`  - ${f.explanation}${f.path ? ` (${f.path})` : ""}`);
+      if (v.scan_status === "rejected") process.exit(1);
     }
     return;
   }
@@ -230,40 +230,44 @@ async function main() {
   const [command, ...rest] = process.argv.slice(2);
   const opts = args(rest);
   if (!command || command === "help" || command === "--help" || command === "-h") return console.log(HELP);
+  // Flags renamed to match the API's names (docs/NAMING.md). Said out loud, so an old one isn't quietly ignored.
+  const renamed = { notes: "patch-notes", publish: "publish-when-approved", at: "scheduled-publish-at" };
+  for (const [old, now] of Object.entries(renamed)) if (old in opts) fail(`--${old} is now --${now}.`);
 
   if (command === "games") {
-    const { games, feedback_news } = await api("GET", "/games");
+    const { games, unread_topic_count } = await api("GET", "/games");
     if (!games.length) return console.log('No games yet. Make one with: zaisma new "My Game"');
-    for (const g of games) console.log(`${g.slug.padEnd(28)} ${g.visibility.padEnd(9)} ${g.review.padEnd(8)} ${g.title}`);
-    if (feedback_news) console.log(`\nZaisma replied to ${feedback_news} of your feedback items. See them with: zaisma feedback`);
+    for (const g of games) console.log(`${g.slug.padEnd(28)} ${g.visibility.padEnd(9)} ${g.review_status.padEnd(8)} ${g.title}`);
+    if (unread_topic_count) console.log(`\nZaisma replied to ${unread_topic_count} of your forum topics. See them with: zaisma feedback`);
     return;
   }
   if (command === "new") {
     const title = opts._.join(" ");
     if (!title) fail('usage: zaisma new "My Game" [--slug my-game]');
     const { game } = await api("POST", "/games", { title, ...(typeof opts.slug === "string" ? { slug: opts.slug } : {}) });
-    return console.log(`Made ${game.url} (a draft). Upload it with: zaisma upload <folder> --game ${game.slug}`);
+    return console.log(`Made ${game.page_url} (a draft). Upload it with: zaisma upload <folder> --game ${game.slug}`);
   }
   if (command === "upload") return upload(opts._[0], opts);
   if (command === "versions") {
     const slug = opts._[0];
     if (!slug) fail("usage: zaisma versions <slug>");
     const { versions } = await api("GET", `/games/${slug}`);
-    for (const v of versions) console.log(`${v.id}  ${new Date(v.created_at).toISOString().slice(0, 16).replace("T", " ")}  ${(v.live ? "live" : v.scan).padEnd(9)} ${v.preview_url ?? ""}${v.publish_at ? `  goes live ${new Date(v.publish_at).toLocaleString()}` : ""}`);
+    for (const v of versions) console.log(`${v.id}  ${v.created_at.slice(0, 16).replace("T", " ")}  ${(v.is_live ? "live" : v.scan_status).padEnd(9)} ${v.preview_url ?? ""}${v.scheduled_publish_at ? `  goes live ${new Date(v.scheduled_publish_at).toLocaleString()}` : ""}`);
     return;
   }
   if (command === "publish") {
     const [slug, id] = opts._;
     if (!slug || !id) fail("usage: zaisma publish <slug> <version>");
-    if (typeof opts.at === "string") {
-      const at = new Date(opts.at.includes("T") || /z$|[+-]\d\d:?\d\d$/i.test(opts.at) ? opts.at : opts.at.replace(" ", "T"));
-      if (Number.isNaN(at.getTime())) fail('give --at as a date and time, like "2026-11-01 17:00".');
-      const { version } = await api("POST", `/games/${slug}/versions/${id}/publish`, { at: at.getTime() });
-      console.log(`Version ${id} will go live at ${new Date(version.publish_at).toLocaleString()}${version.scan === "scanning" ? ", if it has passed the scan by then" : ""}.`);
+    const later = opts["scheduled-publish-at"];
+    if (typeof later === "string") {
+      const at = new Date(later.includes("T") || /z$|[+-]\d\d:?\d\d$/i.test(later) ? later : later.replace(" ", "T"));
+      if (Number.isNaN(at.getTime())) fail('give --scheduled-publish-at as a date and time, like "2026-11-01 17:00".');
+      const { version } = await api("POST", `/games/${slug}/versions/${id}/publish`, { scheduled_publish_at: at.toISOString() });
+      console.log(`Version ${id} will go live at ${new Date(version.scheduled_publish_at).toLocaleString()}${version.scan_status === "scanning" ? ", if it has passed the scan by then" : ""}.`);
       return;
     }
     const { game } = await api("POST", `/games/${slug}/versions/${id}/publish`);
-    console.log(`Version ${id} is live at ${game.url}`);
+    console.log(`Version ${id} is live at ${game.page_url}`);
     if (game.visibility === "draft") console.log(`The game is still a draft, so only you can see it. Show it with: zaisma show ${slug} --visibility listed`);
     return;
   }

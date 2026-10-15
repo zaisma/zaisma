@@ -113,8 +113,8 @@ export default {
 
     // Read status on every request so a takedown applies straight away.
     const game = await servableGame(env.DB, by);
-    if (game?.status === "removed") return page(410, "This game was removed", "It broke Zaisma's rules or was taken down on request.", env);
-    if (game?.status === "held") return page(404, "This game is being reviewed", "Try again later.", env);
+    if (game?.review_status === "removed") return page(410, "This game was removed", "It broke Zaisma's rules or was taken down on request.", env);
+    if (game?.review_status === "held") return page(404, "This game is being reviewed", "Try again later.", env);
     if (!game) return page(404, "Game not found", "Check the link and try again.", env);
 
     let version: { id: string; kind: "zip" | "files"; r2_prefix: string };
@@ -126,14 +126,14 @@ export default {
     if (draft) version = draft;
     else {
       // Drafts and private games open only through preview and tester links; a tester link opens the live version.
-      if (game.status !== "live" || !game.r2_prefix || !game.current_version_id) {
+      if (game.review_status !== "live" || !game.r2_prefix || !game.live_version_id) {
         return tester ? page(404, "Nothing to play yet", "The developer hasn't published a version of this game yet.", env) : page(404, "Game not found", "Check the link and try again.", env);
       }
       if (!tester && (game.visibility === "draft" || game.visibility === "private")) return page(404, "Game not found", "Check the link and try again.", env);
-      version = { id: game.current_version_id, kind: game.version_kind ?? "zip", r2_prefix: game.r2_prefix };
+      version = { id: game.live_version_id, kind: game.version_kind ?? "zip", r2_prefix: game.r2_prefix };
     }
     // Previews and tester links keep their saves in their own browser storage, never the player's account.
-    const cloudSaves = Boolean(game.cloud_saves) && !secret;
+    const cloudSaves = Boolean(game.cloud_saves_enabled) && !secret;
 
     // /<slug> -> /<slug>/ so the game's relative links work.
     if (env.GAME_HOST_MODE === "path" && !url.pathname.endsWith("/") && target.path === "") {

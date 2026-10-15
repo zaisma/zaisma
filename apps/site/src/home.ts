@@ -1,4 +1,4 @@
-import { PLAYED_KEEP, gameBySlug, mergePlayed, readPlayers, recentlyPlayed, recordPlayed, type Game } from "@zaisma/core";
+import { PLAYED_KEEP, gameBySlug, mergePlayed, readPlayModes, recentlyPlayed, recordPlayed, type Game, type MultiplayerMode } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { esc, html, layout, metalButton, playerLine, raw, type Raw } from "./html.ts";
@@ -32,20 +32,20 @@ export interface ShowGame {
 export async function showcase(env: Env, limit = 200): Promise<ShowGame[]> {
   const { results } = await env.DB
     .prepare(
-      `SELECT games.slug, games.title, games.description, games.owner_id, games.devices, games.players, games.game_server, games.connect_hosts,
-         accounts.name AS developer, versions.published_at,
-         (SELECT MIN(published_at) FROM versions WHERE game_id = games.id) AS since,
-         (SELECT id FROM game_images WHERE game_id = games.id AND kind = 'cover' AND status = 'approved' ORDER BY created_at DESC LIMIT 1) AS cover,
-         (SELECT id FROM game_images WHERE game_id = games.id AND kind = 'square' AND status = 'approved' ORDER BY created_at DESC LIMIT 1) AS square
+      `SELECT games.slug, games.title, games.description, games.owner_id, games.devices, games.play_modes, games.multiplayer_mode, games.connect_hosts,
+         accounts.name AS developer, versions.published_at_ms,
+         (SELECT MIN(published_at_ms) FROM versions WHERE game_id = games.id) AS since,
+         (SELECT id FROM game_images WHERE game_id = games.id AND kind = 'cover' AND review_status = 'approved' ORDER BY created_at_ms DESC LIMIT 1) AS cover,
+         (SELECT id FROM game_images WHERE game_id = games.id AND kind = 'square' AND review_status = 'approved' ORDER BY created_at_ms DESC LIMIT 1) AS square
        FROM games
        LEFT JOIN owners ON owners.id = games.owner_id
        LEFT JOIN accounts ON accounts.id = owners.account_id
-       LEFT JOIN versions ON versions.id = games.current_version_id
-       WHERE games.status = 'live' AND games.visibility = 'listed' AND games.current_version_id IS NOT NULL
-       ORDER BY COALESCE(versions.published_at, games.updated_at) DESC LIMIT ?`,
+       LEFT JOIN versions ON versions.id = games.live_version_id
+       WHERE games.review_status = 'live' AND games.visibility = 'listed' AND games.live_version_id IS NOT NULL
+       ORDER BY COALESCE(versions.published_at_ms, games.updated_at_ms) DESC LIMIT ?`,
     )
     .bind(limit)
-    .all<{ slug: string; title: string; description: string; owner_id: string | null; devices: string; players: string; game_server: string | null; connect_hosts: string; developer: string | null; published_at: number | null; since: number | null; cover: string | null; square: string | null }>();
+    .all<{ slug: string; title: string; description: string; owner_id: string | null; devices: string; play_modes: string; multiplayer_mode: MultiplayerMode; connect_hosts: string; developer: string | null; published_at_ms: number | null; since: number | null; cover: string | null; square: string | null }>();
   return results.map((r) => ({
     slug: r.slug,
     title: r.title,
@@ -54,9 +54,9 @@ export async function showcase(env: Env, limit = 200): Promise<ShowGame[]> {
     owner_id: r.owner_id,
     cover: r.cover ? `/img/${r.cover}` : null,
     square: r.square ? `/img/${r.square}` : null,
-    updated: r.published_at,
+    updated: r.published_at_ms,
     since: r.since,
-    modes: playerLine(readPlayers(r.players), Boolean(r.game_server)),
+    modes: playerLine(readPlayModes(r.play_modes), r.multiplayer_mode !== "none"),
     devices: r.devices ? r.devices.split(",") : [],
   }));
 }
@@ -79,11 +79,11 @@ export async function shelves(env: Env, games: ShowGame[], now = Date.now()): Pr
       .prepare(
         `SELECT games.slug, play_networks.day, play_networks.asn, play_networks.players
          FROM play_networks JOIN games ON games.id = play_networks.game_id
-         WHERE play_networks.day >= ? AND games.status = 'live' AND games.visibility = 'listed' AND games.off_shelves = 0`,
+         WHERE play_networks.day >= ? AND games.review_status = 'live' AND games.visibility = 'listed' AND games.is_off_shelves = 0`,
       )
       .bind(day(16))
       .all<{ slug: string; day: string; asn: number; players: number }>(),
-    env.DB.prepare("SELECT slug FROM games WHERE off_shelves = 1").all<{ slug: string }>(),
+    env.DB.prepare("SELECT slug FROM games WHERE is_off_shelves = 1").all<{ slug: string }>(),
   ]);
   // Each game's days, as the shelves count them (plays.ts: no cloud networks, no one network carrying it).
   const byDay = new Map<string, Map<string, { asn: number; players: number }[]>>();
@@ -235,7 +235,7 @@ export async function handlePlayed(request: Request, env: Env, path: string): Pr
 
 /** Games players can open by their link. */
 export function playable(g: Game): boolean {
-  return g.status === "live" && Boolean(g.current_version_id) && (g.visibility === "listed" || g.visibility === "unlisted");
+  return g.review_status === "live" && Boolean(g.live_version_id) && (g.visibility === "listed" || g.visibility === "unlisted");
 }
 
 const HOME_STYLES = `

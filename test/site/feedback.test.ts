@@ -162,13 +162,13 @@ describe("threads and known issues", () => {
 
     await decideFeedback(env, k, { status: "fixed", reply: "Fixed in today's release." });
     // Both developers hear, through list_games and their topics.
-    expect((await mcp("list_games")).feedback_news).toBe(1);
-    expect((await mcp("list_games", {}, other)).feedback_news).toBe(1);
+    expect((await mcp("list_games")).unread_topic_count).toBe(1);
+    expect((await mcp("list_games", {}, other)).unread_topic_count).toBe(1);
     const theirs = await mcp("get_topic", { id: second.id }, other);
     expect(theirs.topic.status).toBe("fixed");
     expect(theirs.posts.at(-1)).toMatchObject({ by: { by: "zaisma" }, text: "Zaisma fixed this. Fixed in today's release." });
     // Opening it reads the news.
-    expect((await mcp("list_games", {}, other)).feedback_news).toBe(0);
+    expect((await mcp("list_games", {}, other)).unread_topic_count).toBe(0);
 
     // It's back: the other developer's AI reopens their report.
     const reopened = await mcp("reply_to_topic", { id: second.id, text: "Still happens on iOS 19.", reopen: true }, other);

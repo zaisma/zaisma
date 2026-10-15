@@ -41,7 +41,7 @@ export async function handleSaves(request: Request, env: Env, slug: string): Pro
   const account = session ? await accountById(env.DB, session.userId) : null;
   if (!session || !account) return json({ error: "Sign in to save to your account." }, 401);
   const game = await gameBySlug(env.DB, slug);
-  if (!game || game.status !== "live" || !game.cloud_saves) return json({ error: "This game doesn't save to accounts." }, 404);
+  if (!game || game.review_status !== "live" || !game.cloud_saves_enabled) return json({ error: "This game doesn't save to accounts." }, 404);
   const withCookies = (res: Response) => {
     for (const c of session.cookies) res.headers.append("Set-Cookie", c);
     return res;
@@ -160,7 +160,7 @@ export async function handleSaveHistory(request: Request, env: Env, path: string
 
   if (!slug) return done(page(env, "Your saves", await listPage(env, account.id)));
   const game = await gameBySlug(env.DB, slug);
-  if (!game || game.status !== "live" || !game.cloud_saves) return done(page(env, "Your saves", html`<h1>No saves here</h1><p class="lead">This game doesn't save to accounts.</p><a class="btn ghost" href="/account/saves">Your saves</a>`, 404));
+  if (!game || game.review_status !== "live" || !game.cloud_saves_enabled) return done(page(env, "Your saves", html`<h1>No saves here</h1><p class="lead">This game doesn't save to accounts.</p><a class="btn ghost" href="/account/saves">Your saves</a>`, 404));
 
   if (restore && post) {
     const id = String((await request.formData()).get("id") ?? "");

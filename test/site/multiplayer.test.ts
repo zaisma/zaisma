@@ -5,10 +5,10 @@ import { lit } from "../../apps/site/src/rooms.ts";
 
 const LOCAL = "http://localhost";
 
-async function addGame(slug: string, gameServer: string | null = null) {
+async function addGame(slug: string, multiplayerMode: "none" | "relay" | "own" = "none") {
   const id = `g${slug.replace(/-/g, "")}`;
-  await env.DB.prepare("INSERT INTO games (id, slug, title, status, current_version_id, game_server, created_at, updated_at) VALUES (?, ?, ?, 'live', 'v1', ?, 0, 0)")
-    .bind(id, slug, slug, gameServer)
+  await env.DB.prepare("INSERT INTO games (id, slug, title, review_status, live_version_id, multiplayer_mode, created_at_ms, updated_at_ms) VALUES (?, ?, ?, 'live', 'v1', ?, 0, 0)")
+    .bind(id, slug, slug, multiplayerMode)
     .run();
   return id;
 }
@@ -44,7 +44,7 @@ describe("multiplayer on the site", () => {
     const id = await addGame("arena");
     expect((await saveMultiplayer(id, "relay", "wss://play.example.com/")).status).toBe(303);
     const game = await gameById(env.DB, id);
-    expect(game).toMatchObject({ game_server: "relay", connect_hosts: "wss://play.example.com" });
+    expect(game).toMatchObject({ multiplayer_mode: "relay", connect_hosts: "wss://play.example.com" });
     expect((await auditLog(env.DB, id))[0]).toMatchObject({ action: "multiplayer", actor: "dev@localhost" });
     expect(await (await SELF.fetch("https://zaisma.test/g/arena")).text()).toContain("connects to its own servers: play.example.com");
   });
@@ -52,14 +52,14 @@ describe("multiplayer on the site", () => {
   it("can set a game to run its own game server in a sandbox", async () => {
     const id = await addGame("arena");
     expect((await saveMultiplayer(id, "sandbox", "")).status).toBe(303);
-    expect((await gameById(env.DB, id))?.game_server).toBe("sandbox");
+    expect((await gameById(env.DB, id))?.multiplayer_mode).toBe("own");
   });
 
   it("refuses unknown game servers and bad server addresses", async () => {
     const id = await addGame("arena");
     expect(await (await saveMultiplayer(id, "my-evil-server", "")).text()).toContain("Pick a game server");
     expect(await (await saveMultiplayer(id, "", "http://insecure.example")).text()).toContain("a server address like wss://play.example.com");
-    expect((await gameById(env.DB, id))?.game_server).toBeNull();
+    expect((await gameById(env.DB, id))?.multiplayer_mode).toBe("none");
   });
 });
 
@@ -235,7 +235,7 @@ describe("room browsing on the game page", () => {
       body: JSON.stringify({ reason: "child_safety", room: "BCDFGH", about: "room", details: "the room name" }),
     });
     expect(await res.json()).toMatchObject({ hidden: false, paused: false });
-    expect((await gameById(env.DB, id))?.status).toBe("live");
+    expect((await gameById(env.DB, id))?.review_status).toBe("live");
     const report = await env.DB.prepare("SELECT id, room_code, room_name FROM reports WHERE game_id = ?").bind(id).first<{ id: string; room_code: string; room_name: string }>();
     expect(report).toMatchObject({ room_code: "BCDFGH", room_name: "Bad name (Mode: Classic)" });
 

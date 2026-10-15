@@ -1,66 +1,72 @@
-export type GameStatus = "pending" | "live" | "held" | "removed";
+/** Zaisma's review of a game, separate from its visibility: no version has passed yet, live, paused while checked, or taken down. */
+export type ReviewStatus = "pending" | "live" | "held" | "removed";
 export type Visibility = "draft" | "listed" | "unlisted" | "private";
 /** Where a game's rooms are listed: the game page and inside the game, only inside the game, or nowhere. */
 export const ROOM_BROWSING = ["page", "game", "off"] as const;
 export type RoomBrowsing = (typeof ROOM_BROWSING)[number];
 export type ScanStatus = "scanning" | "held" | "approved" | "rejected";
 
+/** A row of the games table: the same names the developer API shows (docs/NAMING.md). */
 export interface Game {
   id: string;
   slug: string;
   title: string;
   description: string;
-  status: GameStatus;
-  current_version_id: string | null;
-  /** NULL for single-player, "relay", or a built-in game server name. */
-  game_server: string | null;
+  review_status: ReviewStatus;
+  live_version_id: string | null;
+  /** Multiplayer on Zaisma rooms (see MULTIPLAYER_MODES). */
+  multiplayer_mode: MultiplayerMode;
+  /** Which of Zaisma's own game servers it runs, when multiplayer_mode is "built-in". */
+  built_in_server: string | null;
   /** The game's own servers, one origin per line. */
   connect_hosts: string;
   /** Who owns the game: a person now, a team later. NULL until it's assigned. */
   owner_id: string | null;
   /** 1 when signed-in players' browser saves are copied to their account. */
-  cloud_saves: number;
-  /** The developer's choice; separate from status, which is ours. */
+  cloud_saves_enabled: number;
+  /** The developer's choice; separate from review_status, which is ours. */
   visibility: Visibility;
   /** Device labels, comma-separated (see DEVICES, CONTROLS, SCREENS). */
   devices: string;
   controls: string;
-  screen: string;
-  /** How it's played (Players as JSON), or '' when the developer hasn't said. */
-  players: string;
+  screen_orientation: string;
+  /** How it's played: a list of PlayMode as JSON, or '' when the developer hasn't said. */
+  play_modes: string;
   /** Where its rooms on Zaisma are listed. */
   room_browsing: RoomBrowsing;
   /** 1 when Zaisma keeps it off Popular, Trending and New (faked plays, or while a spike is checked). */
-  off_shelves: number;
+  is_off_shelves: number;
   /** A new title or description waiting for review, as JSON, for games players can already see. */
-  details_draft: string | null;
-  created_at: number;
-  updated_at: number;
+  details_waiting_for_review: string | null;
+  created_at_ms: number;
+  updated_at_ms: number;
 }
 
+/** A row of the versions table: the same names the developer API shows. */
 export interface Version {
   id: string;
   game_id: string;
   r2_prefix: string;
   file_count: number;
-  bytes: number;
+  size_bytes: number;
   scan_status: ScanStatus;
   scan_report: string | null;
   /** "zip": files under r2_prefix. "files": uploaded file by file, listed in a manifest. */
   kind: "zip" | "files";
-  notes: string;
-  publish_when_approved: number;
+  patch_notes: string;
+  /** 1 when it goes live by itself as soon as it passes review. */
+  publish_when_approved_enabled: number;
   /** Publish later: when this draft goes live by itself. */
-  publish_at: number | null;
+  scheduled_publish_at_ms: number | null;
   preview_token: string | null;
-  published_at: number | null;
-  created_at: number;
+  published_at_ms: number | null;
+  created_at_ms: number;
   /** When a child-safety or illegal-content report paused this version, until a person looks. */
-  report_held_at: number | null;
+  report_held_at_ms: number | null;
   /** When reports stopped pausing this version: a person checked it, or a report already went back to it. */
-  cleared_at: number | null;
+  cleared_at_ms: number | null;
   /** When report triage had this version's files checked again. Once per version. */
-  rechecked_at: number | null;
+  rechecked_at_ms: number | null;
 }
 
 export type Severity = "reject" | "hold" | "info";
@@ -150,13 +156,17 @@ export function isServerPath(path: string): boolean {
 
 /**
  * Multiplayer as developers set it: none, the relay, or their own game server (zaisma-server.js,
- * run in a sandbox on our rooms). "built-in" is one of ours, set in admin; developers can't pick it.
+ * run in a sandbox on our rooms). "built-in" is one of ours (built_in_server), set in admin; developers can't pick it.
  */
-export const MULTIPLAYER = ["none", "relay", "own"] as const;
-export type Multiplayer = (typeof MULTIPLAYER)[number] | "built-in";
+export const MULTIPLAYER_MODES = ["none", "relay", "own"] as const;
+export type MultiplayerMode = (typeof MULTIPLAYER_MODES)[number] | "built-in";
 
-export function multiplayerOf(gameServer: string | null): Multiplayer {
-  return gameServer === null ? "none" : gameServer === "relay" ? "relay" : gameServer === SANDBOX_GAME_SERVER ? "own" : "built-in";
+/** The game server a game's rooms run: the relay, its own (in the sandbox), one built into Zaisma, or none. */
+export function gameServerOf(game: Pick<Game, "multiplayer_mode" | "built_in_server">): string | null {
+  if (game.multiplayer_mode === "relay") return "relay";
+  if (game.multiplayer_mode === "own") return SANDBOX_GAME_SERVER;
+  if (game.multiplayer_mode === "built-in") return game.built_in_server;
+  return null;
 }
 
 export const REPORT_REASONS = {

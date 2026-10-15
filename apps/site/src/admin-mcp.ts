@@ -1,5 +1,6 @@
 import {
   FEEDBACK_STATUSES,
+  gameServerOf,
   PRECEDENT_DECISIONS,
   SEVERITIES,
   aiUsage,
@@ -56,16 +57,16 @@ const change = { readOnlyHint: false, destructiveHint: true, idempotentHint: fal
 const object = (properties: Record<string, unknown>, required: string[] = []) => ({ type: "object", properties, required, additionalProperties: false });
 const str = (v: unknown, max = 500) => String(v ?? "").trim().slice(0, max);
 
-const QUEUE = "SELECT reports.*, games.slug, games.title, games.status AS game_status FROM reports JOIN games ON games.id = reports.game_id";
+const QUEUE = "SELECT reports.*, games.slug, games.title, games.review_status AS game_review_status FROM reports JOIN games ON games.id = reports.game_id";
 const childSafety = (g: ReportGroup) => g.severity === 0 || g.rows.some((r) => r.reason === "child_safety");
 const NCMEC = "Child-safety report. Don't delete anything. If it's confirmed, the law requires a report to NCMEC's CyberTipline (report.cybertip.org).";
 const triageOf = (raw: string | null): Triage | null => (raw ? JSON.parse(raw) : null);
 
 /** What can be decided for a group right now, as in the queue. */
 async function choices(env: Env, g: ReportGroup): Promise<{ options: string[]; pausedUpdate: string | null }> {
-  if (g.lead.game_status === "removed") return { options: ["dismiss"], pausedUpdate: null };
-  if (g.lead.game_status === "held") return { options: ["restore", "take_down"], pausedUpdate: null };
-  const paused = await env.DB.prepare("SELECT id FROM versions WHERE game_id = ? AND report_held_at IS NOT NULL AND scan_status = 'held' LIMIT 1").bind(g.lead.game_id).first<{ id: string }>();
+  if (g.lead.game_review_status === "removed") return { options: ["dismiss"], pausedUpdate: null };
+  if (g.lead.game_review_status === "held") return { options: ["restore", "take_down"], pausedUpdate: null };
+  const paused = await env.DB.prepare("SELECT id FROM versions WHERE game_id = ? AND report_held_at_ms IS NOT NULL AND scan_status = 'held' LIMIT 1").bind(g.lead.game_id).first<{ id: string }>();
   if (paused) return { options: ["put_update_back", "keep_update_off", "take_down"], pausedUpdate: paused.id };
   // Never passed to the developer: telling them could warn someone abusing a child.
   const named = g.rows.some((r) => r.room_name) ? ["hide_name"] : [];
@@ -77,7 +78,7 @@ function summary(g: ReportGroup) {
   return {
     group: g.id,
     severity: SEVERITIES[g.severity],
-    game: { title: g.lead.title, slug: g.lead.slug, status: g.lead.game_status },
+    game: { title: g.lead.title, slug: g.lead.slug, status: g.lead.game_review_status },
     reports: g.rows.length,
     waiting_since: iso(g.rows[0]!.created_at),
     summary: t?.summary ?? "Not sorted yet.",
@@ -153,7 +154,7 @@ function tools(env: Env, actor: string): McpTool[] {
           open: g.rows.some((r) => r.status === "open"),
           severity: SEVERITIES[g.severity],
           ...(childSafety(g) ? { child_safety: NCMEC } : {}),
-          game: { id: game.id, title: game.title, slug: game.slug, description: game.description, status: game.status, visibility: game.visibility, made: iso(game.created_at), multiplayer: game.game_server ?? (game.connect_hosts ? "own servers" : null) },
+          game: { id: game.id, title: game.title, slug: game.slug, description: game.description, status: game.review_status, visibility: game.visibility, made: iso(game.created_at_ms), multiplayer: gameServerOf(game) ?? (game.connect_hosts ? "own servers" : null) },
           reports: g.rows.map((r) => ({
             id: r.id,
             sent: iso(r.created_at),
@@ -174,12 +175,12 @@ function tools(env: Env, actor: string): McpTool[] {
             const scan: ScanReport | null = v!.scan_report ? JSON.parse(v!.scan_report) : null;
             return {
               id: v!.id,
-              players_get_it: game.current_version_id === v!.id,
-              went_live: iso(v!.published_at),
+              players_get_it: game.live_version_id === v!.id,
+              went_live: iso(v!.published_at_ms),
               scan: scan ? { decision: scan.decision, summary: scan.ai?.summary ?? null, findings: scan.findings.filter((f) => f.severity !== "info").map((f) => `${f.rule}: ${f.detail}${f.path ? ` (${f.path})` : ""}`) } : null,
             };
           }),
-          history: (await auditLog(env.DB, game.id)).slice(0, 15).map((e) => ({ at: iso(e.at), action: e.action, reason: e.reason, by: e.actor })),
+          history: (await auditLog(env.DB, game.id)).slice(0, 15).map((e) => ({ at: iso(e.happened_at_ms), action: e.action, reason: e.reason, by: e.actor })),
           can_decide: (await choices(env, g)).options,
         };
         const images = pictures.filter((p): p is { data: string; mimeType: string } => p !== null);
@@ -410,13 +411,13 @@ function tools(env: Env, actor: string): McpTool[] {
         const { results } = await env.DB.prepare(`${QUEUE} WHERE reports.status = 'open' AND reports.game_id = ? ORDER BY reports.created_at`).bind(game.id).all<QueueRow>();
         const groups = groupReports(results);
         return {
-          game: { id: game.id, title: game.title, slug: game.slug, description: game.description, status: game.status, visibility: game.visibility, made: iso(game.created_at), multiplayer: game.game_server ?? (game.connect_hosts ? "own servers" : null) },
+          game: { id: game.id, title: game.title, slug: game.slug, description: game.description, status: game.review_status, visibility: game.visibility, made: iso(game.created_at_ms), multiplayer: gameServerOf(game) ?? (game.connect_hosts ? "own servers" : null) },
           versions: (await versionsForGame(env.DB, game.id)).map((v) => {
             const scan: ScanReport | null = v.scan_report ? JSON.parse(v.scan_report) : null;
-            return { id: v.id, status: v.scan_status, players_get_it: game.current_version_id === v.id, went_live: iso(v.published_at), notes: v.notes, scan: scan ? { decision: scan.decision, summary: scan.ai?.summary ?? null } : null };
+            return { id: v.id, status: v.scan_status, players_get_it: game.live_version_id === v.id, went_live: iso(v.published_at_ms), notes: v.patch_notes, scan: scan ? { decision: scan.decision, summary: scan.ai?.summary ?? null } : null };
           }),
           open_reports: groups.map(summary),
-          history: (await auditLog(env.DB, game.id)).slice(0, 20).map((e) => ({ at: iso(e.at), action: e.action, reason: e.reason, by: e.actor })),
+          history: (await auditLog(env.DB, game.id)).slice(0, 20).map((e) => ({ at: iso(e.happened_at_ms), action: e.action, reason: e.reason, by: e.actor })),
         };
       },
     },

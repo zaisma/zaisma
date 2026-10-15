@@ -31,7 +31,7 @@ async function liveGame(daysOld = 30) {
   form.set("zip", new File([makeZip(CLEAN_GAME)], "game.zip", { type: "application/zip" }));
   const { versionId, gameId } = (await (await SELF.fetch(`${LOCAL}/admin/api/games`, { method: "POST", body: form })).json()) as { versionId: string; gameId: string };
   await scanVersion(testEnv, versionId, scanSays("pass"));
-  await env.DB.prepare("UPDATE versions SET published_at = ? WHERE id = ?").bind(Date.now() - daysOld * DAY, versionId).run();
+  await env.DB.prepare("UPDATE versions SET published_at_ms = ? WHERE id = ?").bind(Date.now() - daysOld * DAY, versionId).run();
   return { versionId, gameId };
 }
 
@@ -123,7 +123,7 @@ describe("report triage", () => {
     const [r] = await reports();
     expect(r).toMatchObject({ severity: 0, status: "open" });
     expect(triageOf(r!).actions).toContain("Hid the new game until a person looks");
-    expect((await gameBySlug(env.DB, "test-game"))?.status).toBe("held");
+    expect((await gameBySlug(env.DB, "test-game"))?.review_status).toBe("held");
   });
 
   it("checks the game's files again once, and never takes an established game offline over it", async () => {
@@ -132,9 +132,9 @@ describe("report triage", () => {
     await triageReports(testEnv, ai({ severity: "high", category: "malware", recommendation: "recheck" }).deps);
     let [r] = await reports();
     expect(triageOf(r!).recheck).toEqual({ status: "waiting" });
-    expect((await versionById(env.DB, versionId))?.rechecked_at).toBeTypeOf("number");
+    expect((await versionById(env.DB, versionId))?.rechecked_at_ms).toBeTypeOf("number");
     // Nothing happens to the game until the files are checked.
-    expect((await gameBySlug(env.DB, "test-game"))?.status).toBe("live");
+    expect((await gameBySlug(env.DB, "test-game"))?.review_status).toBe("live");
 
     await recheckVersion(testEnv, versionId, r!.id, scanSays("reject", { path: "game.js", quote: "let score = 0;" }));
     [r] = await reports();
@@ -142,7 +142,7 @@ describe("report triage", () => {
     expect(triageOf(r!)).toMatchObject({ recommendation: "take_down", recheck: { status: "done", decision: "rejected" } });
     // The files haven't changed since its scan: a person decides.
     expect(triageOf(r!).actions).toContain("Left the game up: it's established, so a person decides");
-    expect((await gameBySlug(env.DB, "test-game"))?.status).toBe("live");
+    expect((await gameBySlug(env.DB, "test-game"))?.review_status).toBe("live");
     // The version's own scan stays as it was.
     expect((await versionById(env.DB, versionId))?.scan_status).toBe("approved");
 
@@ -163,7 +163,7 @@ describe("report triage", () => {
     const [r] = await reports();
     expect(r!.severity).toBe(0);
     expect(triageOf(r!).actions).toContain("Hid the game: its files match known abuse material");
-    expect((await gameBySlug(env.DB, "test-game"))?.status).toBe("held");
+    expect((await gameBySlug(env.DB, "test-game"))?.review_status).toBe("held");
     expect((await versionById(env.DB, versionId))?.scan_status).toBe("held");
   });
 
@@ -175,7 +175,7 @@ describe("report triage", () => {
     const t = triageOf((await reports())[0]!);
     expect(t.actions).toContain("Hid the new game until a person looks");
     expect(t.recheck?.findings?.[0]).toContain("game.js");
-    expect((await gameBySlug(env.DB, "test-game"))?.status).toBe("held");
+    expect((await gameBySlug(env.DB, "test-game"))?.review_status).toBe("held");
   });
 
   it("pauses nothing when the check can't point to the problem in the files", async () => {
@@ -185,9 +185,9 @@ describe("report triage", () => {
     // An unquoted claim, then a quote that isn't in the file: the AI's word alone pauses nothing.
     await recheckVersion(testEnv, versionId, (await reports())[0]!.id, scanSays("reject"));
     expect(triageOf((await reports())[0]!)).toMatchObject({ recommendation: "person" });
-    await env.DB.exec("UPDATE versions SET rechecked_at = NULL");
+    await env.DB.exec("UPDATE versions SET rechecked_at_ms = NULL");
     await recheckVersion(testEnv, versionId, (await reports())[0]!.id, scanSays("reject", { path: "game.js", quote: "window.location = 'https://phish.example'" }));
-    expect((await gameBySlug(env.DB, "test-game"))?.status).toBe("live");
+    expect((await gameBySlug(env.DB, "test-game"))?.review_status).toBe("live");
   });
 
   it("leaves the game up when the check finds nothing, and recommends dismissing", async () => {
@@ -197,7 +197,7 @@ describe("report triage", () => {
     await recheckVersion(testEnv, versionId, (await reports())[0]!.id, scanSays("pass"));
     const [r] = await reports();
     expect(triageOf(r!)).toMatchObject({ recommendation: "dismiss", recheck: { decision: "approved" } });
-    expect((await gameBySlug(env.DB, "test-game"))?.status).toBe("live");
+    expect((await gameBySlug(env.DB, "test-game"))?.review_status).toBe("live");
   });
 
   it("asks a person when the check finds something new that isn't clear-cut", async () => {
@@ -208,13 +208,13 @@ describe("report triage", () => {
     const [r] = await reports();
     expect(r!.severity).toBe(2);
     expect(triageOf(r!)).toMatchObject({ recommendation: "person", recheck: { decision: "held", findings: ["ai-test: test concern"] } });
-    expect((await gameBySlug(env.DB, "test-game"))?.status).toBe("live");
+    expect((await gameBySlug(env.DB, "test-game"))?.review_status).toBe("live");
   });
 
   it("recommends putting back a game a wrong report paused", async () => {
     await liveGame(1);
     await send({ reason: "illegal", details: "this game is illegal because it is too hard" });
-    expect((await gameBySlug(env.DB, "test-game"))?.status).toBe("held");
+    expect((await gameBySlug(env.DB, "test-game"))?.review_status).toBe("held");
     await triageReports(testEnv, ai({ severity: "low", category: "other", recommendation: "dismiss" }).deps);
     const [r] = await reports();
     expect(r!.severity).toBe(2); // Paused games stay near the top.

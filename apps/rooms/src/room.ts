@@ -18,7 +18,7 @@ import {
   type SavedRoom,
   type ServerMessage,
 } from "@zaisma/game-server";
-import { pastFreeTier } from "@zaisma/core";
+import { gameServerOf, pastFreeTier, type MultiplayerMode } from "@zaisma/core";
 import { gameServer } from "./registry.ts";
 import { SANDBOX, sandboxServer, type SandboxStats } from "./sandbox.ts";
 import { signingKey, type Env } from "./index.ts";
@@ -655,10 +655,10 @@ export class Room extends DurableObject<Env> {
   /** A takedown or a changed game server ends the match. Also picks up the game's room browsing setting. */
   private async gameStillLive(): Promise<boolean> {
     this.lastCheck = Date.now();
-    const row = await this.env.DB.prepare("SELECT status, current_version_id, game_server, room_browsing FROM games WHERE id = ?")
+    const row = await this.env.DB.prepare("SELECT review_status, live_version_id, multiplayer_mode, built_in_server, room_browsing FROM games WHERE id = ?")
       .bind(this.meta!.gameId)
-      .first<{ status: string; current_version_id: string | null; game_server: string | null; room_browsing: string }>();
-    if (row && row.status === "live" && row.current_version_id && row.game_server === this.meta!.server) {
+      .first<{ review_status: string; live_version_id: string | null; multiplayer_mode: MultiplayerMode; built_in_server: string | null; room_browsing: string }>();
+    if (row && row.review_status === "live" && row.live_version_id && gameServerOf(row) === this.meta!.server) {
       if (row.room_browsing !== this.browsing) {
         this.browsing = row.room_browsing;
         if (this.core) this.core.listingChanged = true;
@@ -682,7 +682,7 @@ export class Room extends DurableObject<Env> {
     this.lastTesterCheck = Date.now();
     const links = [...new Set(this.sockets().map((ws) => (ws.deserializeAttachment() as Attachment & { stage: "in" }).tester).filter((t): t is string => Boolean(t)))];
     if (!links.length) return;
-    const { results } = await this.env.DB.prepare(`SELECT id FROM tester_links WHERE id IN (${links.map(() => "?").join(", ")}) AND revoked_at IS NULL`)
+    const { results } = await this.env.DB.prepare(`SELECT id FROM tester_links WHERE id IN (${links.map(() => "?").join(", ")}) AND revoked_at_ms IS NULL`)
       .bind(...links)
       .all<{ id: string }>();
     const on = new Set(results.map((r) => r.id));

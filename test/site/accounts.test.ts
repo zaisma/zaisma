@@ -413,7 +413,7 @@ describe("game owners", () => {
     await join(b);
     const id = users.get("fox@example.com")!;
     const now = Date.now();
-    await env.DB.prepare("INSERT INTO games (id, slug, title, status, created_at, updated_at) VALUES ('g1', 'owl-game', 'Owl Game', 'live', ?, ?)").bind(now, now).run();
+    await env.DB.prepare("INSERT INTO games (id, slug, title, review_status, created_at_ms, updated_at_ms) VALUES ('g1', 'owl-game', 'Owl Game', 'live', ?, ?)").bind(now, now).run();
 
     const bad = await SELF.fetch("http://localhost/admin/games/g1/owner", { method: "POST", body: new URLSearchParams({ account_id: "nope" }) });
     expect(await bad.text()).toContain("No account with that ID");
@@ -425,7 +425,7 @@ describe("game owners", () => {
     // Deleting the account leaves the game up, with no owner.
     await b.go("/account/delete", { confirm: "delete" });
     expect((await gameById(env.DB, "g1"))?.owner_id).toBeNull();
-    expect((await gameById(env.DB, "g1"))?.status).toBe("live");
+    expect((await gameById(env.DB, "g1"))?.review_status).toBe("live");
   });
 });
 
@@ -443,7 +443,7 @@ describe("pages", () => {
 describe("cloud saves", () => {
   async function liveGame(slug = "owl-game", cloudSaves = 1) {
     const now = Date.now();
-    await env.DB.prepare("INSERT INTO games (id, slug, title, status, cloud_saves, created_at, updated_at) VALUES (?, ?, 'Owl Game', 'live', ?, ?, ?)")
+    await env.DB.prepare("INSERT INTO games (id, slug, title, review_status, cloud_saves_enabled, created_at_ms, updated_at_ms) VALUES (?, ?, 'Owl Game', 'live', ?, ?, ?)")
       .bind(`g-${slug}`, slug, cloudSaves, now, now)
       .run();
     return `g-${slug}`;
@@ -680,7 +680,7 @@ describe("API keys on the account page", () => {
     const token = made.match(/zsk_[a-z0-9]{20}_[A-Za-z0-9_-]{43}/)?.[0];
     expect(token).toBeTruthy();
     const api = await SELF.fetch(`${SITE}/api/dev/games`, { headers: { authorization: `Bearer ${token}` } });
-    expect(await api.json()).toEqual({ games: [], feedback_news: 0 });
+    expect(await api.json()).toEqual({ games: [], unread_topic_count: 0 });
 
     const page = await (await b.go("/account")).text();
     expect(page).toContain("My laptop");
@@ -710,7 +710,7 @@ describe("the dashboard", () => {
   /** Upload a one-file game through the API with the browser's session, then pass its scan. */
   async function uploadAndPass(b: Browser, slug: string, text: string): Promise<string> {
     const sha256 = await sha256Hex(new TextEncoder().encode(text));
-    const files = [{ path: "index.html", sha256, bytes: new TextEncoder().encode(text).byteLength }];
+    const files = [{ path: "index.html", sha256, size_bytes: new TextEncoder().encode(text).byteLength }];
     await b.go(`/api/dev/games/${slug}/uploads`, undefined, { method: "POST", body: JSON.stringify({ files }) });
     expect((await b.go(`/api/dev/files/${sha256}`, undefined, { method: "PUT", body: text })).status).toBe(200);
     const { version } = (await (await b.go(`/api/dev/games/${slug}/versions`, undefined, { method: "POST", body: JSON.stringify({ files }) })).json()) as { version: { id: string } };
@@ -757,9 +757,9 @@ describe("the dashboard", () => {
     expect(saved.headers.get("location")).toContain("done=details");
     expect(await gameBySlug(env.DB, "hop-hop")).toBeNull();
     // An unticked Cloud saves box turns them off; ticking it turns them back on.
-    expect((await gameBySlug(env.DB, "hop"))!).toMatchObject({ title: "Hop Hop", devices: "phone", screen: "portrait", cloud_saves: 0 });
+    expect((await gameBySlug(env.DB, "hop"))!).toMatchObject({ title: "Hop Hop", devices: "phone", screen_orientation: "portrait", cloud_saves_enabled: 0 });
     await b.go("/dashboard/hop/details", { title: "Hop Hop", cloud_saves: "on" });
-    expect((await gameBySlug(env.DB, "hop"))!.cloud_saves).toBe(1);
+    expect((await gameBySlug(env.DB, "hop"))!.cloud_saves_enabled).toBe(1);
     expect(await (await b.go("/dashboard/hop")).text()).toContain('name="cloud_saves" checked');
 
     const refused = await b.go("/dashboard/hop/details", { title: "" });
@@ -906,9 +906,9 @@ describe("the dashboard", () => {
 describe("recently played", () => {
   async function liveGame(slug: string, title: string) {
     const id = `g-${slug}`;
-    await env.DB.prepare("INSERT INTO games (id, slug, title, description, status, visibility, created_at, updated_at) VALUES (?, ?, ?, '', 'live', 'listed', 1, 1)").bind(id, slug, title).run();
-    await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, bytes, scan_status, created_at, published_at, notes) VALUES (?, ?, 'x', 1, 1, 'approved', 1, ?, ?)").bind(`v-${slug}`, id, Date.now(), "New levels.").run();
-    await env.DB.prepare("UPDATE games SET current_version_id = ? WHERE id = ?").bind(`v-${slug}`, id).run();
+    await env.DB.prepare("INSERT INTO games (id, slug, title, description, review_status, visibility, created_at_ms, updated_at_ms) VALUES (?, ?, ?, '', 'live', 'listed', 1, 1)").bind(id, slug, title).run();
+    await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, created_at_ms, published_at_ms, patch_notes) VALUES (?, ?, 'x', 1, 1, 'approved', 1, ?, ?)").bind(`v-${slug}`, id, Date.now(), "New levels.").run();
+    await env.DB.prepare("UPDATE games SET live_version_id = ? WHERE id = ?").bind(`v-${slug}`, id).run();
   }
 
   it("remembers games for signed-in players, newest first, and forgets them with the account", async () => {

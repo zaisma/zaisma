@@ -63,7 +63,7 @@ export async function uploadGame(env: Env, form: FormData, actor: string): Promi
     throw err;
   }
 
-  await createVersion(env.DB, { id: versionId, gameId: game.id, prefix, files: entries.length, bytes });
+  await createVersion(env.DB, { id: versionId, gameId: game.id, r2Prefix: prefix, fileCount: entries.length, sizeBytes: bytes });
   await audit(env.DB, game.id, "upload", `Version ${versionId}, ${entries.length} files`, actor);
   await env.SCAN_QUEUE.send({ versionId });
   return { game: { ...game, title, description }, versionId, files: entries.length, bytes };

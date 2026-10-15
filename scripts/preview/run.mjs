@@ -101,7 +101,7 @@ if (fresh) {
 spawnSync(
   "npx",
   ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command",
-    "UPDATE games SET game_server = 'sandbox' WHERE slug = 'arena'; UPDATE games SET game_server = slug WHERE slug = 'four-in-a-row' AND game_server IS NULL; UPDATE games SET game_server = 'relay' WHERE slug = 'cave-crew' AND game_server IS NULL; DELETE FROM live_rooms"],
+    "UPDATE games SET multiplayer_mode = 'own' WHERE slug = 'arena'; UPDATE games SET multiplayer_mode = 'built-in', built_in_server = slug WHERE slug = 'four-in-a-row' AND multiplayer_mode = 'none'; UPDATE games SET multiplayer_mode = 'relay' WHERE slug = 'cave-crew' AND multiplayer_mode = 'none'; DELETE FROM live_rooms"],
   { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } },
 );
 // Pretend play stats for two games, so the dashboard's Plays section has something to show. Real
@@ -193,7 +193,7 @@ async function seed() {
     return data;
   };
   const upload = (folder, slug, notes) =>
-    spawnSync("node", [join(ROOT, "packages/cli/zaisma.mjs"), "upload", resolve(ROOT, folder), "--game", slug, "--notes", notes], {
+    spawnSync("node", [join(ROOT, "packages/cli/zaisma.mjs"), "upload", resolve(ROOT, folder), "--game", slug, "--patch-notes", notes], {
       env: { ...process.env, ZAISMA_API: SITE, ZAISMA_KEY: key },
       stdio: "ignore",
     });
@@ -205,15 +205,15 @@ async function seed() {
   };
 
   const games = [
-    { title: "Shard Dodge", folder: "examples/hello-game", color: [70, 140, 220], description: "Dodge the falling shards for as long as you can. Arrow keys, mouse or finger.", devices: ["phone", "tablet", "computer"], controls: ["touch", "keyboard-mouse"], players: { single: true, local: null, online: null } },
-    { title: "Arena", folder: withServer("examples/arena", "arena"), color: [150, 70, 160], description: "Bump your friends off the platform. Last one standing wins the round.", devices: ["computer"], controls: ["keyboard-mouse", "gamepad"], players: { single: false, local: { min: 2, max: 4, style: "versus" }, online: { min: 2, max: 8, style: "versus" } } },
-    { title: "Four in a Row", folder: "examples/four-in-a-row/game", color: [200, 140, 50], description: "The classic: drop your pieces and line up four before your friend does.", devices: ["phone", "tablet", "computer"], controls: ["touch", "keyboard-mouse"], players: { single: false, local: { min: 2, max: 2, style: "versus" }, online: { min: 2, max: 2, style: "versus" } } },
+    { title: "Shard Dodge", folder: "examples/hello-game", color: [70, 140, 220], description: "Dodge the falling shards for as long as you can. Arrow keys, mouse or finger.", devices: ["phone", "tablet", "computer"], controls: ["touch", "keyboard_mouse"], play_modes: [{ mode: "single" }] },
+    { title: "Arena", folder: withServer("examples/arena", "arena"), color: [150, 70, 160], description: "Bump your friends off the platform. Last one standing wins the round.", devices: ["computer"], controls: ["keyboard_mouse", "gamepad"], play_modes: [{ mode: "local", minimum_player_count: 2, maximum_player_count: 4, play_style: "versus" }, { mode: "online", minimum_player_count: 2, maximum_player_count: 8, play_style: "versus" }] },
+    { title: "Four in a Row", folder: "examples/four-in-a-row/game", color: [200, 140, 50], description: "The classic: drop your pieces and line up four before your friend does.", devices: ["phone", "tablet", "computer"], controls: ["touch", "keyboard_mouse"], play_modes: [{ mode: "local", minimum_player_count: 2, maximum_player_count: 2, play_style: "versus" }, { mode: "online", minimum_player_count: 2, maximum_player_count: 2, play_style: "versus" }] },
     { title: "Night Drive", folder: "examples/hello-game", color: [40, 50, 90], description: "", devices: [], controls: [] },
-    { title: "Tiny Farm", folder: "scripts/preview/tiny-farm", color: [90, 140, 60], description: "Harvest carrots. It saves like a Unity game does (in IndexedDB), to try cloud saves.", devices: ["phone", "tablet", "computer"], controls: ["touch", "keyboard-mouse"], players: { single: true, local: null, online: null } },
-    { title: "Cave Crew", folder: "examples/hello-game", color: [60, 120, 90], description: "Dig, build and explore together. Bring the whole crew.", devices: ["computer"], controls: ["keyboard-mouse", "gamepad"], players: { single: true, local: { min: 2, max: 4, style: "co-op" }, online: { min: 2, max: null, style: "co-op" } } },
+    { title: "Tiny Farm", folder: "scripts/preview/tiny-farm", color: [90, 140, 60], description: "Harvest carrots. It saves like a Unity game does (in IndexedDB), to try cloud saves.", devices: ["phone", "tablet", "computer"], controls: ["touch", "keyboard_mouse"], play_modes: [{ mode: "single" }] },
+    { title: "Cave Crew", folder: "examples/hello-game", color: [60, 120, 90], description: "Dig, build and explore together. Bring the whole crew.", devices: ["computer"], controls: ["keyboard_mouse", "gamepad"], play_modes: [{ mode: "single" }, { mode: "local", minimum_player_count: 2, maximum_player_count: 4, play_style: "co-op" }, { mode: "online", minimum_player_count: 2, maximum_player_count: null, play_style: "co-op" }] },
   ];
   for (const g of games) {
-    const { game } = await api("POST", "/games", { title: g.title, description: g.description, devices: g.devices, controls: g.controls, ...(g.players ? { players: g.players } : {}) });
+    const { game } = await api("POST", "/games", { title: g.title, description: g.description, devices: g.devices, controls: g.controls, ...(g.play_modes ? { play_modes: g.play_modes } : {}) });
     upload(g.folder, game.slug, "First version.");
     await api("POST", `/games/${game.slug}/versions/${await approveNewest(game.slug)}/publish`);
     await api("PATCH", `/games/${game.slug}`, { visibility: "listed" });
@@ -256,7 +256,7 @@ async function seed() {
 
   // A game that passed before image matching was connected, with a picture the stand-in only learns
   // about later: the daily check (run once here) matches it and hides the game.
-  const { game: garden } = await api("POST", "/games", { title: "Pixel Garden", description: "Grow a tiny garden, one pixel at a time.", devices: ["computer"], controls: ["keyboard-mouse"], players: { single: true, local: null, online: null } });
+  const { game: garden } = await api("POST", "/games", { title: "Pixel Garden", description: "Grow a tiny garden, one pixel at a time.", devices: ["computer"], controls: ["keyboard_mouse"], play_modes: [{ mode: "single" }] });
   const gardenFolder = join(STATE, "uploads", "pixel-garden");
   rmSync(gardenFolder, { recursive: true, force: true });
   cpSync(join(ROOT, "examples/hello-game"), gardenFolder, { recursive: true });
@@ -265,10 +265,10 @@ async function seed() {
   let gardenVersion;
   for (let i = 0; i < 60; i++) {
     gardenVersion = (await api("GET", `/games/${garden.slug}`)).versions[0];
-    if (gardenVersion.scan !== "scanning") break;
+    if (gardenVersion.scan_status !== "scanning") break;
     await new Promise((r) => setTimeout(r, 1000));
   }
-  if (gardenVersion.scan !== "approved") await go(`/admin/versions/${gardenVersion.id}/approve`, form({ reason: "Preview test data" }));
+  if (gardenVersion.scan_status !== "approved") await go(`/admin/versions/${gardenVersion.id}/approve`, form({ reason: "Preview test data" }));
   await api("POST", `/games/${garden.slug}/versions/${gardenVersion.id}/publish`);
   await api("PATCH", `/games/${garden.slug}`, { visibility: "unlisted" });
   spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", `UPDATE versions SET scan_report = json_set(scan_report, '$.images.connected', json('false')) WHERE id = '${gardenVersion.id}'`], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
@@ -290,14 +290,14 @@ async function seed() {
   }
 
   // A private game that only opens through tester links, and a tester link for Arena to try multiplayer through one.
-  const { game: secret } = await api("POST", "/games", { title: "Rocket Lab", description: "Build a rocket from scrap and see how high it goes. Still in testing.", devices: ["computer"], controls: ["keyboard-mouse"], players: { single: true, local: null, online: null } });
+  const { game: secret } = await api("POST", "/games", { title: "Rocket Lab", description: "Build a rocket from scrap and see how high it goes. Still in testing.", devices: ["computer"], controls: ["keyboard_mouse"], play_modes: [{ mode: "single" }] });
   upload("examples/hello-game", secret.slug, "First test build.");
   await api("POST", `/games/${secret.slug}/versions/${await approveNewest(secret.slug)}/publish`);
   await api("PATCH", `/games/${secret.slug}`, { visibility: "private" });
   const { tester } = await api("POST", `/games/${secret.slug}/testers`, { name: "Playtesters" });
   await api("POST", `/games/${secret.slug}/testers`, { name: "My team" });
   const { tester: arena } = await api("POST", "/games/arena/testers", { name: "Streamer" });
-  writeFileSync(join(STATE, "testers.json"), JSON.stringify({ secret: tester.url, arena: arena.url }));
+  writeFileSync(join(STATE, "testers.json"), JSON.stringify({ secret: tester.link_url, arena: arena.link_url }));
 
   // The developer forum, as it might look a few weeks in: developers and their AI posting ideas,
   // questions and discussions, bugs sent to Zaisma privately, known issues, answers and Me too.
@@ -392,7 +392,7 @@ async function seedForum(you, go, form) {
   await meToo(audio.id, hl);
 
   const ci = await topic(hl, { kind: "question", category: "cli", title: "Running the upload command in GitHub Actions", text: "What's the cleanest setup? We'd like every merge to main to upload a new version." });
-  await reply(you, ci.id, "We do this: put the key in a secret called ZAISMA_KEY, then\n```yaml\n- run: npx @zaisma/cli upload dist --game shard-dodge --notes \"${{ github.event.head_commit.message }}\"\n  env:\n    ZAISMA_KEY: ${{ secrets.ZAISMA_KEY }}\n```", { author: "ai" });
+  await reply(you, ci.id, "We do this: put the key in a secret called ZAISMA_KEY, then\n```yaml\n- run: npx @zaisma/cli upload dist --game shard-dodge --patch-notes \"${{ github.event.head_commit.message }}\"\n  env:\n    ZAISMA_KEY: ${{ secrets.ZAISMA_KEY }}\n```", { author: "ai" });
 
   const unanswered = await topic(bs, { kind: "question", author: me, category: "scans", title: "Why was my version held for an outside host?", text: "The scan held our build for loading fonts from a font service. Is that not allowed?" });
   await meToo(unanswered.id, qo);
@@ -427,7 +427,7 @@ async function seedForum(you, go, form) {
     category: "mcp",
     title: "upload_files fails with too_big for a 3 MB game",
     text: "Uploading Arena's new build with upload_files fails straight away with too_big, though the whole build is 3.1 MB. The upload command sends the same folder fine.",
-    context: { tool: "upload_files", error: { code: "too_big", message: "That's more than upload_files takes." }, files: 14, bytes: 3250000 },
+    context: { tool: "upload_files", error: { code: "too_big", message: "That's more than upload_files takes." }, file_count: 14, size_bytes: 3250000 },
     picture: Buffer.from(picture([150, 70, 160], 1)).toString("base64"),
   });
   await zaisma(tooBig.id, { known: "1", k_title: "upload_files refuses some builds under 5 MB", k_workaround: "Use the upload command (npx @zaisma/cli upload) for builds over 2 MB.", k_roadmap: "Developer MCP", status: "known", severity: "3", area: "mcp", reply: "Found it: base64 makes the request bigger than the build. Thanks for the details." });

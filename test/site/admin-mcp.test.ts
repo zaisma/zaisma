@@ -17,7 +17,7 @@ async function liveGame() {
   form.set("zip", new File([makeZip(CLEAN_GAME)], "game.zip", { type: "application/zip" }));
   const { versionId } = (await (await SELF.fetch(`${LOCAL}/admin/api/games`, { method: "POST", body: form })).json()) as { versionId: string };
   await scanVersion(testEnv, versionId, { images: connected, ai: async () => ({ report: { model: "t", verdict: "pass", summary: "fine", inputTokens: 1, outputTokens: 1 }, findings: [], childSafety: false }) });
-  await env.DB.prepare("UPDATE versions SET published_at = ?").bind(Date.now() - 30 * 86400_000).run();
+  await env.DB.prepare("UPDATE versions SET published_at_ms = ?").bind(Date.now() - 30 * 86400_000).run();
 }
 
 let address = 10;

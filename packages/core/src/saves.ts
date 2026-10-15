@@ -83,7 +83,7 @@ export async function bumpSave(db: D1Database, s: { accountId: string; gameId: s
 export async function savedGames(db: D1Database, accountId: string): Promise<{ slug: string; title: string; updated_at: number; copies: number }[]> {
   const { results } = await db
     .prepare(
-      "SELECT g.slug, g.title, s.updated_at, (SELECT COUNT(*) FROM save_history h WHERE h.account_id = s.account_id AND h.game_id = s.game_id) AS copies FROM saves s JOIN games g ON g.id = s.game_id WHERE s.account_id = ? AND g.status = 'live' AND g.cloud_saves = 1 ORDER BY s.updated_at DESC",
+      "SELECT g.slug, g.title, s.updated_at, (SELECT COUNT(*) FROM save_history h WHERE h.account_id = s.account_id AND h.game_id = s.game_id) AS copies FROM saves s JOIN games g ON g.id = s.game_id WHERE s.account_id = ? AND g.review_status = 'live' AND g.cloud_saves_enabled = 1 ORDER BY s.updated_at DESC",
     )
     .bind(accountId)
     .all<{ slug: string; title: string; updated_at: number; copies: number }>();

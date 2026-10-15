@@ -64,7 +64,7 @@ describe("upload", () => {
     expect(v?.scan_status).toBe("scanning");
     expect(v?.file_count).toBe(3);
     expect(await env.GAMES.head(`games/${gameId}/${versionId}/index.html`)).not.toBeNull();
-    expect((await gameBySlug(env.DB, "test-game"))?.status).toBe("pending");
+    expect((await gameBySlug(env.DB, "test-game"))?.review_status).toBe("pending");
   });
 
   it("explains bad zips and leaves nothing behind", async () => {
@@ -102,14 +102,14 @@ describe("scan and publish", () => {
     const { report } = await uploadAndScan(CLEAN_GAME, { images: notConnected, ai: aiSays("pass") });
     expect(report.decision).toBe("held");
     expect(report.findings.map((f) => f.rule)).toContain("image-matching-not-connected");
-    expect((await gameBySlug(env.DB, "test-game"))?.status).toBe("pending");
+    expect((await gameBySlug(env.DB, "test-game"))?.review_status).toBe("pending");
   });
 
   it("publishes a clean game automatically once every check is connected", async () => {
     const { report } = await uploadAndScan(CLEAN_GAME, { images: connected, ai: aiSays("pass") });
     expect(report.decision).toBe("approved");
     const game = await gameBySlug(env.DB, "test-game");
-    expect(game?.status).toBe("live");
+    expect(game?.review_status).toBe("live");
 
     const home = await (await SELF.fetch(`${LOCAL}/`)).text();
     expect(home).toContain("/g/test-game");
@@ -150,7 +150,7 @@ describe("scan and publish", () => {
     const { versionId, gameId } = await uploadAndScan(CLEAN_GAME, { images: notConnected, ai: aiSays("pass") });
     const res = await SELF.fetch(`${LOCAL}/admin/versions/${versionId}/approve`, { method: "POST", body: new FormData(), redirect: "manual" });
     expect(res.status).toBe(303);
-    expect((await gameBySlug(env.DB, "test-game"))?.status).toBe("live");
+    expect((await gameBySlug(env.DB, "test-game"))?.review_status).toBe("live");
     const detail = await (await SELF.fetch(`${LOCAL}/admin/games/${gameId}`)).text();
     expect(detail).toContain("approved");
     expect(detail).toContain("dev@localhost");
@@ -182,7 +182,7 @@ describe("scan and publish", () => {
     const approve = await SELF.fetch(`${LOCAL}/admin/versions/${versionId}/approve`, { method: "POST", body: new FormData(), redirect: "manual" });
     expect(approve.status).toBe(409);
     expect((await versionById(env.DB, versionId))?.scan_status).toBe("held");
-    expect((await gameBySlug(env.DB, "test-game"))?.status).toBe("pending");
+    expect((await gameBySlug(env.DB, "test-game"))?.review_status).toBe("pending");
   });
 
   it("finds pictures and videos under other names, inside code, and in videos, but not in sound", async () => {
@@ -208,7 +208,7 @@ describe("scan and publish", () => {
     const clean = await uploadAndScan(CLEAN_GAME, { images: notConnected, ai: aiSays("pass") }, "clean-game");
     const bad = await uploadAndScan({ ...CLEAN_GAME, "art/pic.bin": picture("BAD") }, { images: notConnected, ai: aiSays("pass") }, "bad-game");
     for (const v of [clean, bad]) await SELF.fetch(`${LOCAL}/admin/versions/${v.versionId}/approve`, { method: "POST", body: new FormData(), redirect: "manual" });
-    expect((await gameBySlug(env.DB, "bad-game"))?.status).toBe("live");
+    expect((await gameBySlug(env.DB, "bad-game"))?.review_status).toBe("live");
 
     expect(await queueImageChecks(env, notConnected)).toBe(0);
     expect(await queueImageChecks(env, shield)).toBe(2);
@@ -217,7 +217,7 @@ describe("scan and publish", () => {
     await recheckImages(testEnv, bad.versionId, deps);
 
     // The clean one is noted as checked and stays up; it isn't queued again.
-    expect((await gameBySlug(env.DB, "clean-game"))?.status).toBe("live");
+    expect((await gameBySlug(env.DB, "clean-game"))?.review_status).toBe("live");
     expect(JSON.parse((await versionById(env.DB, clean.versionId))!.scan_report!).images).toMatchObject({ provider: "arachnid-shield", connected: true });
     expect(await queueImageChecks(env, shield)).toBe(0);
 
@@ -226,11 +226,11 @@ describe("scan and publish", () => {
     expect(v.scan_status).toBe("held");
     expect(v.preview_token).toBeNull();
     expect((JSON.parse(v.scan_report!) as ScanReport).childSafety).toBe(true);
-    expect((await gameBySlug(env.DB, "bad-game"))?.status).toBe("held");
+    expect((await gameBySlug(env.DB, "bad-game"))?.review_status).toBe("held");
     expect(await env.GAMES.head(`games/${bad.gameId}/${bad.versionId}/art/pic.bin`)).not.toBeNull();
     const restore = await (await SELF.fetch(`${LOCAL}/admin/games/${bad.gameId}/restore`, { method: "POST", body: new FormData() })).text();
     expect(restore).toContain("matched known abuse material");
-    expect((await gameBySlug(env.DB, "bad-game"))?.status).toBe("held");
+    expect((await gameBySlug(env.DB, "bad-game"))?.review_status).toBe("held");
     const game = await SELF.fetch(`${LOCAL}/g/bad-game`);
     expect(game.status).not.toBe(200);
   });
@@ -246,8 +246,8 @@ describe("scan and publish", () => {
     const first = await uploadAndScan(CLEAN_GAME, { images: connected, ai: aiSays("pass") });
     await uploadAndScan({ ...CLEAN_GAME, "index.html": "<p>v2</p>" }, { images: connected, ai: aiSays("hold") });
     const game = await gameBySlug(env.DB, "test-game");
-    expect(game?.status).toBe("live");
-    expect(game?.current_version_id).toBe(first.versionId);
+    expect(game?.review_status).toBe("live");
+    expect(game?.live_version_id).toBe(first.versionId);
   });
 });
 
@@ -270,13 +270,13 @@ describe("reports and takedowns", () => {
     expect(JSON.stringify(row)).not.toContain("203.0.113.9");
     const cols = (await env.DB.prepare("PRAGMA table_info(reports)").all<{ name: string }>()).results.map((c) => c.name);
     expect(cols.sort()).toEqual(["bug", "bug_at", "closed_at", "created_at", "details", "game_id", "group_id", "id", "picture", "player_id", "player_name", "player_reason", "precedent_id", "reason", "room_code", "room_name", "severity", "status", "triage", "triage_tries", "triaged_at", "version_id"]);
-    expect((await gameBySlug(env.DB, "test-game"))?.status).toBe("live");
+    expect((await gameBySlug(env.DB, "test-game"))?.review_status).toBe("live");
   });
 
   it("hides a game straight away on a child-safety report", async () => {
     await liveGame();
     await report("child_safety");
-    expect((await gameBySlug(env.DB, "test-game"))?.status).toBe("held");
+    expect((await gameBySlug(env.DB, "test-game"))?.review_status).toBe("held");
     expect((await SELF.fetch(`${LOCAL}/g/test-game`)).status).toBe(404);
   });
 
@@ -301,14 +301,14 @@ describe("reports and takedowns", () => {
     expect(await res.json()).toEqual({ ok: true, hidden: false, paused: false });
     const row = await env.DB.prepare("SELECT * FROM reports").first<Record<string, unknown>>();
     expect(row).toMatchObject({ reason: "player", player_reason: "sexual", player_id: "g_0123456789abcdef", player_name: "Swift Fox 42", room_code: "ABCDEF" });
-    expect((await gameBySlug(env.DB, "test-game"))?.status).toBe("live");
+    expect((await gameBySlug(env.DB, "test-game"))?.review_status).toBe("live");
     expect((await fromPlate({ reason: "cheating", player: { id: "<script>", name: "x" } })).status).toBe(400);
   });
 
   it("says when a report hid the game", async () => {
     await liveGame();
     expect(await (await fromPlate({ reason: "child_safety" })).json()).toEqual({ ok: true, hidden: true, paused: false });
-    expect((await gameBySlug(env.DB, "test-game"))?.status).toBe("held");
+    expect((await gameBySlug(env.DB, "test-game"))?.review_status).toBe("held");
   });
 
   const DAY = 86400_000;
@@ -316,31 +316,31 @@ describe("reports and takedowns", () => {
 
   it("pauses a recent update instead of hiding an established game, once", async () => {
     const first = await liveGame();
-    await env.DB.prepare("UPDATE versions SET published_at = ? WHERE id = ?").bind(Date.now() - 30 * DAY, first.versionId).run();
+    await env.DB.prepare("UPDATE versions SET published_at_ms = ? WHERE id = ?").bind(Date.now() - 30 * DAY, first.versionId).run();
     const update = await uploadAndScan({ ...CLEAN_GAME, "index.html": "<p>v2</p>" }, { images: connected, ai: aiSays("pass") });
-    expect((await live()).current_version_id).toBe(update.versionId);
+    expect((await live()).live_version_id).toBe(update.versionId);
 
     expect(await (await fromPlate({ reason: "child_safety" })).json()).toEqual({ ok: true, hidden: false, paused: true });
-    expect(await live()).toMatchObject({ status: "live", current_version_id: first.versionId });
+    expect(await live()).toMatchObject({ review_status: "live", live_version_id: first.versionId });
     expect((await versionById(env.DB, update.versionId))?.scan_status).toBe("held");
 
     // The version players went back to can't be paused again by reports.
     expect(await (await fromPlate({ reason: "illegal" })).json()).toEqual({ ok: true, hidden: false, paused: false });
-    expect(await live()).toMatchObject({ status: "live", current_version_id: first.versionId });
+    expect(await live()).toMatchObject({ review_status: "live", live_version_id: first.versionId });
 
     // A person puts the update back in one click, and then reports can't pause it either.
     await SELF.fetch(`${LOCAL}/admin/versions/${update.versionId}/approve`, { method: "POST", body: new FormData(), redirect: "manual" });
-    expect((await live()).current_version_id).toBe(update.versionId);
+    expect((await live()).live_version_id).toBe(update.versionId);
     expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM reports WHERE status = 'open'").first("n")).toBe(0);
     expect(await (await fromPlate({ reason: "child_safety" })).json()).toEqual({ ok: true, hidden: false, paused: false });
-    expect((await live()).current_version_id).toBe(update.versionId);
+    expect((await live()).live_version_id).toBe(update.versionId);
   });
 
   it("leaves an established game up when its version is more than a week old", async () => {
     const { versionId } = await liveGame();
-    await env.DB.prepare("UPDATE versions SET published_at = ? WHERE id = ?").bind(Date.now() - 8 * DAY, versionId).run();
+    await env.DB.prepare("UPDATE versions SET published_at_ms = ? WHERE id = ?").bind(Date.now() - 8 * DAY, versionId).run();
     expect(await (await fromPlate({ reason: "child_safety" })).json()).toEqual({ ok: true, hidden: false, paused: false });
-    expect((await live()).status).toBe("live");
+    expect((await live()).review_status).toBe("live");
     expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM reports").first("n")).toBe(1);
   });
 
@@ -348,9 +348,9 @@ describe("reports and takedowns", () => {
     const { gameId } = await liveGame();
     expect(await (await fromPlate({ reason: "illegal" })).json()).toEqual({ ok: true, hidden: true, paused: false });
     await SELF.fetch(`${LOCAL}/admin/games/${gameId}/restore`, { method: "POST", body: new FormData(), redirect: "manual" });
-    expect((await live()).status).toBe("live");
+    expect((await live()).review_status).toBe("live");
     expect(await (await fromPlate({ reason: "child_safety" })).json()).toEqual({ ok: true, hidden: false, paused: false });
-    expect((await live()).status).toBe("live");
+    expect((await live()).review_status).toBe("live");
   });
 
   it("refuses plate reports sent from other sites", async () => {
@@ -430,7 +430,7 @@ describe("reports and takedowns", () => {
 
 describe("pages", () => {
   it("escapes game text", async () => {
-    await env.DB.prepare("INSERT INTO games (id, slug, title, description, status, current_version_id, created_at, updated_at) VALUES ('x1', 'xss-game', '<script>alert(1)</script>', '\"><img onerror=1>', 'live', 'v1', 0, 0)").run();
+    await env.DB.prepare("INSERT INTO games (id, slug, title, description, review_status, live_version_id, created_at_ms, updated_at_ms) VALUES ('x1', 'xss-game', '<script>alert(1)</script>', '\"><img onerror=1>', 'live', 'v1', 0, 0)").run();
     const home = await (await SELF.fetch(`${LOCAL}/`)).text();
     expect(home).not.toContain("<script>alert(1)");
     expect(home).toContain("&lt;script&gt;");

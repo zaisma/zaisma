@@ -1,5 +1,5 @@
 import { newId, sha256Hex } from "./ids.ts";
-import { MULTIPLAYER, ROOM_BROWSING, SANDBOX_GAME_SERVER, type Game, type RoomBrowsing, type Visibility } from "./types.ts";
+import { MULTIPLAYER_MODES, ROOM_BROWSING, type Game, type RoomBrowsing, type Visibility } from "./types.ts";
 
 /**
  * Developer accounts: API keys, game details, device labels and images.
@@ -70,76 +70,96 @@ export async function accountForApiKey(db: D1Database, token: string): Promise<s
 
 export const VISIBILITIES: Visibility[] = ["draft", "listed", "unlisted", "private"];
 export const DEVICES = ["phone", "tablet", "computer"] as const;
-export const CONTROLS = ["touch", "keyboard-mouse", "gamepad"] as const;
+export const CONTROLS = ["touch", "keyboard_mouse", "gamepad"] as const;
 export const SCREENS = ["portrait", "landscape", "either"] as const;
-export const MAX_GAMES_PER_OWNER = 50;
+export const MAXIMUM_GAME_COUNT_PER_OWNER = 50;
 export const PLAY_STYLES = ["co-op", "versus", "both"] as const;
 /** The most players we name; more than that shows as "<n>+". */
-export const MAX_PLAYERS = 1000;
+export const MAXIMUM_PLAYER_COUNT = 1000;
 
-export interface PlayerCount {
-  min: number;
-  /** null: no upper limit, shown as "<min>+ players". */
-  max: number | null;
-  style: (typeof PLAY_STYLES)[number];
+/** One way to play, stored in games.play_modes and shown by the API as it is (docs/NAMING.md). */
+export interface PlayMode {
+  mode: "single" | "local" | "online";
+  /** null for single. */
+  minimum_player_count: number | null;
+  /** null: no upper limit, shown as "<minimum>+ players", and for single. */
+  maximum_player_count: number | null;
+  play_style: (typeof PLAY_STYLES)[number] | null;
 }
 
-/** How a game is played. Any mix: a game can be single-player and online co-op. */
-export interface Players {
-  single: boolean;
-  /** Together on one device or screen. */
-  local: PlayerCount | null;
-  online: PlayerCount | null;
-}
-
-export function readPlayers(json: string): Players | null {
+/** A game's play modes from its column, or null when the developer hasn't said. */
+export function readPlayModes(json: string): PlayMode[] | null {
   if (!json) return null;
   try {
-    return JSON.parse(json) as Players;
+    return JSON.parse(json) as PlayMode[];
   } catch {
     return null;
   }
 }
 
 /** Plain words for each way to play, like "Local co-op" and "2–4 players". */
-export function describePlayers(p: Players): { mode: "single" | "local" | "online"; label: string; count: string | null }[] {
-  const out: { mode: "single" | "local" | "online"; label: string; count: string | null }[] = [];
-  if (p.single) out.push({ mode: "single", label: "Single-player", count: null });
-  const style = (s: PlayerCount["style"]) => (s === "both" ? "co-op and versus" : s);
-  const count = (c: PlayerCount) => (c.max === null ? `${c.min}+ players` : c.min === c.max ? `${c.min} players` : `${c.min}–${c.max} players`);
-  if (p.local) out.push({ mode: "local", label: `Local ${style(p.local.style)}`, count: count(p.local) });
-  if (p.online) out.push({ mode: "online", label: `Online ${style(p.online.style)}`, count: count(p.online) });
-  return out;
+export function describePlayModes(playModes: PlayMode[]): { mode: PlayMode["mode"]; label: string; playerCount: string | null }[] {
+  const styleWords = (style: PlayMode["play_style"]) => (style === "both" ? "co-op and versus" : style);
+  const playerCount = (playMode: PlayMode) =>
+    playMode.maximum_player_count === null
+      ? `${playMode.minimum_player_count}+ players`
+      : playMode.minimum_player_count === playMode.maximum_player_count
+        ? `${playMode.minimum_player_count} players`
+        : `${playMode.minimum_player_count}–${playMode.maximum_player_count} players`;
+  return playModes.map((playMode) =>
+    playMode.mode === "single"
+      ? { mode: "single", label: "Single-player", playerCount: null }
+      : { mode: playMode.mode, label: `${playMode.mode === "local" ? "Local" : "Online"} ${styleWords(playMode.play_style)}`, playerCount: playerCount(playMode) },
+  );
 }
 
-function checkCount(name: "local" | "online", v: unknown): PlayerCount | null | string {
-  if (v === null || v === undefined || v === false) return null;
-  const c = v as Partial<PlayerCount>;
-  const max = c.max === null || c.max === undefined ? null : c.max;
-  if (typeof c !== "object" || !Number.isInteger(c.min) || c.min! < 2 || c.min! > MAX_PLAYERS || (max !== null && (!Number.isInteger(max) || max < c.min! || max > MAX_PLAYERS))) {
-    return `players.${name} needs "min" (2 or more) and "max" (at least min, or null for no limit).`;
+const PLAY_MODES_HELP = 'play_modes is a list like [{ "mode": "single" }, { "mode": "online", "minimum_player_count": 2, "maximum_player_count": 4, "play_style": "co-op" }], or null to clear it.';
+const MODE_ORDER = ["single", "local", "online"] as const;
+
+/** Check play modes from the API: each mode once, in a fixed order, with every key. Returns them, null to clear, or a plain error. */
+function checkPlayModes(given: unknown): PlayMode[] | null | string {
+  if (given === null) return null;
+  if (!Array.isArray(given) || given.length === 0) return PLAY_MODES_HELP;
+  const playModes: PlayMode[] = [];
+  for (const givenPlayMode of given) {
+    const playMode = givenPlayMode as Partial<PlayMode> | null;
+    if (!playMode || typeof playMode !== "object" || !MODE_ORDER.includes(playMode.mode as PlayMode["mode"])) return `Each play mode needs "mode": single, local or online. ${PLAY_MODES_HELP}`;
+    if (playModes.some((other) => other.mode === playMode.mode)) return `play_modes has ${playMode.mode} twice.`;
+    if (playMode.mode === "single") {
+      if ((playMode.minimum_player_count ?? null) !== null || (playMode.maximum_player_count ?? null) !== null || (playMode.play_style ?? null) !== null) return "The single mode takes no player counts or play_style.";
+      playModes.push({ mode: "single", minimum_player_count: null, maximum_player_count: null, play_style: null });
+      continue;
+    }
+    const minimumPlayerCount = playMode.minimum_player_count;
+    const maximumPlayerCount = playMode.maximum_player_count ?? null;
+    if (!Number.isInteger(minimumPlayerCount) || minimumPlayerCount! < 2 || minimumPlayerCount! > MAXIMUM_PLAYER_COUNT || (maximumPlayerCount !== null && (!Number.isInteger(maximumPlayerCount) || maximumPlayerCount < minimumPlayerCount! || maximumPlayerCount > MAXIMUM_PLAYER_COUNT))) {
+      return `The ${playMode.mode} mode needs minimum_player_count (2 or more) and maximum_player_count (at least the minimum, or null for no limit).`;
+    }
+    if (!PLAY_STYLES.includes(playMode.play_style as (typeof PLAY_STYLES)[number])) return `The ${playMode.mode} mode's play_style is one of: ${PLAY_STYLES.join(", ")}.`;
+    playModes.push({ mode: playMode.mode!, minimum_player_count: minimumPlayerCount!, maximum_player_count: maximumPlayerCount, play_style: playMode.play_style! });
   }
-  if (!PLAY_STYLES.includes(c.style as PlayerCount["style"])) return `players.${name}.style is one of: ${PLAY_STYLES.join(", ")}.`;
-  return { min: c.min!, max, style: c.style as PlayerCount["style"] };
+  return playModes.sort((first, second) => MODE_ORDER.indexOf(first.mode) - MODE_ORDER.indexOf(second.mode));
 }
 
+/** A change to a game's details, in the games table's own names, so it's stored as it is. */
 export interface DetailsChange {
   title?: string;
   description?: string;
   visibility?: Visibility;
   devices?: string[];
   controls?: string[];
-  screen?: string;
+  /** null: not set. */
+  screen_orientation?: (typeof SCREENS)[number] | null;
   /** null clears it. */
-  players?: Players | null;
+  play_modes?: PlayMode[] | null;
   /** Copy signed-in players' browser saves to their account. Off for games that keep their own saves. */
-  cloud_saves?: boolean;
+  cloud_saves_enabled?: boolean;
   room_browsing?: RoomBrowsing;
   /** none, relay, or own (the game's zaisma-server.js in a sandbox on our rooms). */
-  multiplayer?: (typeof MULTIPLAYER)[number];
+  multiplayer_mode?: (typeof MULTIPLAYER_MODES)[number];
 }
 
-/** Check a change from the API. Returns the tidied change or a plain error. */
+/** Check a change from the API (docs/NAMING.md). Returns the tidied change or a plain error. */
 export function checkDetails(input: Record<string, unknown>): { change: DetailsChange } | { error: string } {
   const change: DetailsChange = {};
   if ("title" in input) {
@@ -155,72 +175,64 @@ export function checkDetails(input: Record<string, unknown>): { change: DetailsC
     if (!VISIBILITIES.includes(input.visibility as Visibility)) return { error: `Visibility is one of: ${VISIBILITIES.join(", ")}.` };
     change.visibility = input.visibility as Visibility;
   }
-  const list = (field: "devices" | "controls", allowed: readonly string[]): string | null => {
+  const checkLabels = (field: "devices" | "controls", allowed: readonly string[]): string | null => {
     if (!(field in input)) return null;
-    const value = input[field];
-    if (!Array.isArray(value) || !value.every((v) => typeof v === "string" && allowed.includes(v))) return `${field} is a list of: ${allowed.join(", ")}.`;
-    change[field] = allowed.filter((a) => value.includes(a));
+    const given = input[field];
+    if (!Array.isArray(given) || !given.every((label) => typeof label === "string" && allowed.includes(label))) return `${field} is a list of: ${allowed.join(", ")}.`;
+    change[field] = allowed.filter((label) => given.includes(label));
     return null;
   };
-  const listError = list("devices", DEVICES) ?? list("controls", CONTROLS);
-  if (listError) return { error: listError };
-  if ("screen" in input) {
-    if (input.screen !== "" && !SCREENS.includes(input.screen as (typeof SCREENS)[number])) return { error: `screen is one of: ${SCREENS.join(", ")} (or "" for not set).` };
-    change.screen = input.screen as string;
+  const labelError = checkLabels("devices", DEVICES) ?? checkLabels("controls", CONTROLS);
+  if (labelError) return { error: labelError };
+  if ("screen_orientation" in input) {
+    if (input.screen_orientation !== null && !SCREENS.includes(input.screen_orientation as (typeof SCREENS)[number])) return { error: `screen_orientation is one of: ${SCREENS.join(", ")}, or null for not set.` };
+    change.screen_orientation = input.screen_orientation as (typeof SCREENS)[number] | null;
   }
-  if ("players" in input) {
-    const p = input.players as Partial<Players> | null;
-    if (p === null) change.players = null;
-    else {
-      if (typeof p !== "object" || typeof p.single !== "boolean") return { error: 'players needs "single" (true or false), plus "local" and "online" ({ "min", "max", "style" } or null).' };
-      const local = checkCount("local", p.local);
-      if (typeof local === "string") return { error: local };
-      const online = checkCount("online", p.online);
-      if (typeof online === "string") return { error: online };
-      if (!p.single && !local && !online) return { error: "players needs at least one way to play: single, local or online." };
-      change.players = { single: p.single, local, online };
-    }
+  if ("play_modes" in input) {
+    const playModes = checkPlayModes(input.play_modes);
+    if (typeof playModes === "string") return { error: playModes };
+    change.play_modes = playModes;
   }
-  if ("cloud_saves" in input) {
-    if (typeof input.cloud_saves !== "boolean") return { error: "cloud_saves is true or false." };
-    change.cloud_saves = input.cloud_saves;
+  if ("cloud_saves_enabled" in input) {
+    if (typeof input.cloud_saves_enabled !== "boolean") return { error: "cloud_saves_enabled is true or false." };
+    change.cloud_saves_enabled = input.cloud_saves_enabled;
   }
   if ("room_browsing" in input) {
     if (!ROOM_BROWSING.includes(input.room_browsing as RoomBrowsing)) return { error: `room_browsing is one of: ${ROOM_BROWSING.join(", ")}.` };
     change.room_browsing = input.room_browsing as RoomBrowsing;
   }
-  if ("multiplayer" in input) {
-    if (!MULTIPLAYER.includes(input.multiplayer as (typeof MULTIPLAYER)[number])) return { error: `multiplayer is one of: ${MULTIPLAYER.join(", ")}.` };
-    change.multiplayer = input.multiplayer as (typeof MULTIPLAYER)[number];
+  if ("multiplayer_mode" in input) {
+    if (!MULTIPLAYER_MODES.includes(input.multiplayer_mode as (typeof MULTIPLAYER_MODES)[number])) return { error: `multiplayer_mode is one of: ${MULTIPLAYER_MODES.join(", ")}.` };
+    change.multiplayer_mode = input.multiplayer_mode as (typeof MULTIPLAYER_MODES)[number];
   }
   return { change };
 }
 
 /** Players can already see this game, so new words on it wait for review. */
 export function shownToPlayers(game: Game): boolean {
-  return Boolean(game.current_version_id) && game.visibility !== "draft" && game.status !== "pending";
+  return Boolean(game.live_version_id) && game.visibility !== "draft" && game.review_status !== "pending";
 }
 
 /**
- * Apply a change. A new title or description on a game players can see is kept as a draft for review;
- * everything else applies straight away. Returns whether words are waiting for review.
+ * Apply a change. A new title or description on a game players can see waits for review in
+ * details_waiting_for_review; everything else applies straight away. Returns whether words are waiting.
  */
-export async function applyDetails(db: D1Database, game: Game, change: DetailsChange): Promise<{ waiting: boolean }> {
-  const sets: string[] = [];
-  const binds: unknown[] = [];
-  const set = (col: string, value: unknown) => {
-    sets.push(`${col} = ?`);
-    binds.push(value);
+export async function applyDetails(db: D1Database, game: Game, change: DetailsChange): Promise<{ isWaitingForReview: boolean }> {
+  const assignments: string[] = [];
+  const values: unknown[] = [];
+  const set = (column: string, columnValue: unknown) => {
+    assignments.push(`${column} = ?`);
+    values.push(columnValue);
   };
   const words: { title?: string; description?: string } = {};
   if (change.title !== undefined && change.title !== game.title) words.title = change.title;
   if (change.description !== undefined && change.description !== game.description) words.description = change.description;
-  let waiting = false;
+  let isWaitingForReview = false;
   if (Object.keys(words).length) {
     if (shownToPlayers(game)) {
-      const draft = { ...(game.details_draft ? (JSON.parse(game.details_draft) as object) : {}), ...words };
-      set("details_draft", JSON.stringify(draft));
-      waiting = true;
+      const waitingWords = { ...(game.details_waiting_for_review ? (JSON.parse(game.details_waiting_for_review) as object) : {}), ...words };
+      set("details_waiting_for_review", JSON.stringify(waitingWords));
+      isWaitingForReview = true;
     } else {
       if (words.title !== undefined) set("title", words.title);
       if (words.description !== undefined) set("description", words.description);
@@ -229,32 +241,32 @@ export async function applyDetails(db: D1Database, game: Game, change: DetailsCh
   if (change.visibility) set("visibility", change.visibility);
   if (change.devices) set("devices", change.devices.join(","));
   if (change.controls) set("controls", change.controls.join(","));
-  if (change.screen !== undefined) set("screen", change.screen);
-  if (change.players !== undefined) set("players", change.players ? JSON.stringify(change.players) : "");
-  if (change.cloud_saves !== undefined) set("cloud_saves", change.cloud_saves ? 1 : 0);
+  if (change.screen_orientation !== undefined) set("screen_orientation", change.screen_orientation ?? "");
+  if (change.play_modes !== undefined) set("play_modes", change.play_modes ? JSON.stringify(change.play_modes) : "");
+  if (change.cloud_saves_enabled !== undefined) set("cloud_saves_enabled", change.cloud_saves_enabled ? 1 : 0);
   if (change.room_browsing !== undefined) set("room_browsing", change.room_browsing);
   // Rooms running the old setting end within a minute, when they next check the game.
-  if (change.multiplayer !== undefined) set("game_server", { none: null, relay: "relay", own: SANDBOX_GAME_SERVER }[change.multiplayer]);
-  if (sets.length) {
-    set("updated_at", now());
-    await db.prepare(`UPDATE games SET ${sets.join(", ")} WHERE id = ?`).bind(...binds, game.id).run();
+  if (change.multiplayer_mode !== undefined) set("multiplayer_mode", change.multiplayer_mode);
+  if (assignments.length) {
+    set("updated_at_ms", now());
+    await db.prepare(`UPDATE games SET ${assignments.join(", ")} WHERE id = ?`).bind(...values, game.id).run();
   }
   // Rooms update their own rows when they next check in; turning listing off takes them off lists at once.
   if (change.room_browsing === "off") await db.prepare("UPDATE live_rooms SET listed = 0 WHERE game_id = ?").bind(game.id).run();
-  return { waiting };
+  return { isWaitingForReview };
 }
 
 /** Admin: accept or drop the words waiting for review. */
-export async function settleDetailsDraft(db: D1Database, game: Game, accept: boolean): Promise<void> {
-  const draft = game.details_draft ? (JSON.parse(game.details_draft) as { title?: string; description?: string }) : {};
+export async function settleDetailsWaitingForReview(db: D1Database, game: Game, accept: boolean): Promise<void> {
+  const waitingWords = game.details_waiting_for_review ? (JSON.parse(game.details_waiting_for_review) as { title?: string; description?: string }) : {};
   await db
-    .prepare("UPDATE games SET title = ?, description = ?, details_draft = NULL, updated_at = ? WHERE id = ?")
-    .bind(accept ? (draft.title ?? game.title) : game.title, accept ? (draft.description ?? game.description) : game.description, now(), game.id)
+    .prepare("UPDATE games SET title = ?, description = ?, details_waiting_for_review = NULL, updated_at_ms = ? WHERE id = ?")
+    .bind(accept ? (waitingWords.title ?? game.title) : game.title, accept ? (waitingWords.description ?? game.description) : game.description, now(), game.id)
     .run();
 }
 
-export async function gamesWithDetailsDrafts(db: D1Database): Promise<Game[]> {
-  const { results } = await db.prepare("SELECT * FROM games WHERE details_draft IS NOT NULL ORDER BY updated_at").all<Game>();
+export async function gamesWithDetailsWaitingForReview(db: D1Database): Promise<Game[]> {
+  const { results } = await db.prepare("SELECT * FROM games WHERE details_waiting_for_review IS NOT NULL ORDER BY updated_at_ms").all<Game>();
   return results;
 }
 
@@ -262,27 +274,28 @@ export async function gamesWithDetailsDrafts(db: D1Database): Promise<Game[]> {
 
 /** cover: landscape, the game's card and picture. square: an optional second cover for phones. */
 export type ImageKind = "cover" | "square" | "screenshot";
-export type ImageStatus = "pending" | "approved" | "rejected";
+export type ImageReviewStatus = "pending" | "approved" | "rejected";
 
+/** A row of the game_images table: the same names the developer API shows. */
 export interface GameImage {
   id: string;
   game_id: string;
   kind: ImageKind;
   content_type: string;
-  width: number;
-  height: number;
-  bytes: number;
-  status: ImageStatus;
-  created_at: number;
+  width_px: number;
+  height_px: number;
+  size_bytes: number;
+  review_status: ImageReviewStatus;
+  created_at_ms: number;
 }
 
-export const IMAGE_LIMITS = { bytes: 5 * 1024 * 1024, minSide: 320, maxSide: 8192, screenshots: 8, squareMinSide: 512 };
+export const IMAGE_LIMITS = { maximumSizeBytes: 5 * 1024 * 1024, minimumSidePx: 320, maximumSidePx: 8192, maximumScreenshotCount: 8, minimumSquareSidePx: 512 };
 
 /** A square cover is as wide as it is tall, give or take 1%. */
-export const isSquare = (width: number, height: number) => Math.abs(width - height) <= Math.max(width, height) * 0.01;
+export const isSquare = (widthPx: number, heightPx: number) => Math.abs(widthPx - heightPx) <= Math.max(widthPx, heightPx) * 0.01;
 
 /** Where an image's file lives in the games bucket. */
-export const imageKey = (img: Pick<GameImage, "game_id" | "id">) => `images/${img.game_id}/${img.id}`;
+export const imageKey = (image: Pick<GameImage, "game_id" | "id">) => `images/${image.game_id}/${image.id}`;
 /** Where a cover or screenshot that matched known abuse material is kept for reporting. Never served or listed. */
 export const heldImageKey = (gameId: string, id: string) => `held-images/${gameId}/${id}`;
 
@@ -290,52 +303,52 @@ export const heldImageKey = (gameId: string, id: string) => `held-images/${gameI
  * What an image really is, read from its bytes (never the name or the type it claims):
  * PNG, JPEG or WebP with its size, or null. SVG and everything else is refused.
  */
-export function sniffImage(b: Uint8Array): { type: "image/png" | "image/jpeg" | "image/webp"; width: number; height: number } | null {
-  const u16be = (i: number) => (b[i]! << 8) | b[i + 1]!;
-  const u32be = (i: number) => ((b[i]! << 24) >>> 0) + (b[i + 1]! << 16) + (b[i + 2]! << 8) + b[i + 3]!;
-  const u24le = (i: number) => b[i]! | (b[i + 1]! << 8) | (b[i + 2]! << 16);
-  const ascii = (i: number, n: number) => String.fromCharCode(...b.subarray(i, i + n));
-  if (b.length < 30) return null;
+export function sniffImage(bytes: Uint8Array): { type: "image/png" | "image/jpeg" | "image/webp"; widthPx: number; heightPx: number } | null {
+  const uint16BigEndian = (byteIndex: number) => (bytes[byteIndex]! << 8) | bytes[byteIndex + 1]!;
+  const uint32BigEndian = (byteIndex: number) => ((bytes[byteIndex]! << 24) >>> 0) + (bytes[byteIndex + 1]! << 16) + (bytes[byteIndex + 2]! << 8) + bytes[byteIndex + 3]!;
+  const uint24LittleEndian = (byteIndex: number) => bytes[byteIndex]! | (bytes[byteIndex + 1]! << 8) | (bytes[byteIndex + 2]! << 16);
+  const ascii = (byteIndex: number, characterCount: number) => String.fromCharCode(...bytes.subarray(byteIndex, byteIndex + characterCount));
+  if (bytes.length < 30) return null;
 
-  if (b[0] === 0x89 && ascii(1, 3) === "PNG" && b[4] === 0x0d && b[5] === 0x0a && b[6] === 0x1a && b[7] === 0x0a && ascii(12, 4) === "IHDR") {
-    return { type: "image/png", width: u32be(16), height: u32be(20) };
+  if (bytes[0] === 0x89 && ascii(1, 3) === "PNG" && bytes[4] === 0x0d && bytes[5] === 0x0a && bytes[6] === 0x1a && bytes[7] === 0x0a && ascii(12, 4) === "IHDR") {
+    return { type: "image/png", widthPx: uint32BigEndian(16), heightPx: uint32BigEndian(20) };
   }
-  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) {
-    let i = 2;
-    while (i + 9 < b.length) {
-      if (b[i] !== 0xff) return null;
-      const marker = b[i + 1]!;
-      if (marker === 0xff) {
-        i++;
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    let byteIndex = 2;
+    while (byteIndex + 9 < bytes.length) {
+      if (bytes[byteIndex] !== 0xff) return null;
+      const markerCode = bytes[byteIndex + 1]!;
+      if (markerCode === 0xff) {
+        byteIndex++;
         continue;
       }
       // Start-of-frame markers carry the size; C4, C8 and CC are other tables.
-      if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
-        return { type: "image/jpeg", width: u16be(i + 7), height: u16be(i + 5) };
+      if (markerCode >= 0xc0 && markerCode <= 0xcf && markerCode !== 0xc4 && markerCode !== 0xc8 && markerCode !== 0xcc) {
+        return { type: "image/jpeg", widthPx: uint16BigEndian(byteIndex + 7), heightPx: uint16BigEndian(byteIndex + 5) };
       }
-      i += 2 + u16be(i + 2);
+      byteIndex += 2 + uint16BigEndian(byteIndex + 2);
     }
     return null;
   }
   if (ascii(0, 4) === "RIFF" && ascii(8, 4) === "WEBP") {
     const chunk = ascii(12, 4);
-    if (chunk === "VP8 " && b[23] === 0x9d && b[24] === 0x01 && b[25] === 0x2a) {
-      return { type: "image/webp", width: (b[26]! | (b[27]! << 8)) & 0x3fff, height: (b[28]! | (b[29]! << 8)) & 0x3fff };
+    if (chunk === "VP8 " && bytes[23] === 0x9d && bytes[24] === 0x01 && bytes[25] === 0x2a) {
+      return { type: "image/webp", widthPx: (bytes[26]! | (bytes[27]! << 8)) & 0x3fff, heightPx: (bytes[28]! | (bytes[29]! << 8)) & 0x3fff };
     }
-    if (chunk === "VP8L" && b[20] === 0x2f) {
-      const bits = b[21]! | (b[22]! << 8) | (b[23]! << 16) | (b[24]! << 24);
-      return { type: "image/webp", width: (bits & 0x3fff) + 1, height: ((bits >>> 14) & 0x3fff) + 1 };
+    if (chunk === "VP8L" && bytes[20] === 0x2f) {
+      const packedSizeNumber = bytes[21]! | (bytes[22]! << 8) | (bytes[23]! << 16) | (bytes[24]! << 24);
+      return { type: "image/webp", widthPx: (packedSizeNumber & 0x3fff) + 1, heightPx: ((packedSizeNumber >>> 14) & 0x3fff) + 1 };
     }
-    if (chunk === "VP8X") return { type: "image/webp", width: u24le(24) + 1, height: u24le(27) + 1 };
+    if (chunk === "VP8X") return { type: "image/webp", widthPx: uint24LittleEndian(24) + 1, heightPx: uint24LittleEndian(27) + 1 };
   }
   return null;
 }
 
-export async function addImage(db: D1Database, img: Omit<GameImage, "status" | "created_at">): Promise<GameImage> {
-  const row: GameImage = { ...img, status: "pending", created_at: now() };
+export async function addImage(db: D1Database, image: Omit<GameImage, "review_status" | "created_at_ms">): Promise<GameImage> {
+  const row: GameImage = { ...image, review_status: "pending", created_at_ms: now() };
   await db
-    .prepare("INSERT INTO game_images (id, game_id, kind, content_type, width, height, bytes, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    .bind(row.id, row.game_id, row.kind, row.content_type, row.width, row.height, row.bytes, row.status, row.created_at)
+    .prepare("INSERT INTO game_images (id, game_id, kind, content_type, width_px, height_px, size_bytes, review_status, created_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .bind(row.id, row.game_id, row.kind, row.content_type, row.width_px, row.height_px, row.size_bytes, row.review_status, row.created_at_ms)
     .run();
   return row;
 }
@@ -345,13 +358,13 @@ export async function imageById(db: D1Database, id: string): Promise<GameImage |
 }
 
 export async function imagesForGame(db: D1Database, gameId: string): Promise<GameImage[]> {
-  const { results } = await db.prepare("SELECT * FROM game_images WHERE game_id = ? ORDER BY kind, created_at").bind(gameId).all<GameImage>();
+  const { results } = await db.prepare("SELECT * FROM game_images WHERE game_id = ? ORDER BY kind, created_at_ms").bind(gameId).all<GameImage>();
   return results;
 }
 
 export async function pendingImages(db: D1Database): Promise<(GameImage & { slug: string; title: string })[]> {
   const { results } = await db
-    .prepare("SELECT game_images.*, games.slug, games.title FROM game_images JOIN games ON games.id = game_images.game_id WHERE game_images.status = 'pending' ORDER BY game_images.created_at LIMIT 100")
+    .prepare("SELECT game_images.*, games.slug, games.title FROM game_images JOIN games ON games.id = game_images.game_id WHERE game_images.review_status = 'pending' ORDER BY game_images.created_at_ms LIMIT 100")
     .all<GameImage & { slug: string; title: string }>();
   return results;
 }
@@ -360,18 +373,18 @@ export async function pendingImages(db: D1Database): Promise<(GameImage & { slug
  * Approve or reject an image. An approved cover (landscape or square) replaces the game's old one of that kind; the old files
  * to delete from storage are returned. Rejected files are kept, in case they need reporting.
  */
-export async function settleImage(db: D1Database, img: GameImage, approve: boolean): Promise<GameImage[]> {
+export async function settleImage(db: D1Database, image: GameImage, approve: boolean): Promise<GameImage[]> {
   if (!approve) {
-    await db.prepare("UPDATE game_images SET status = 'rejected' WHERE id = ?").bind(img.id).run();
+    await db.prepare("UPDATE game_images SET review_status = 'rejected' WHERE id = ?").bind(image.id).run();
     return [];
   }
   const { results: replaced } =
-    img.kind !== "screenshot"
-      ? await db.prepare("SELECT * FROM game_images WHERE game_id = ? AND kind = ? AND status = 'approved' AND id != ?").bind(img.game_id, img.kind, img.id).all<GameImage>()
+    image.kind !== "screenshot"
+      ? await db.prepare("SELECT * FROM game_images WHERE game_id = ? AND kind = ? AND review_status = 'approved' AND id != ?").bind(image.game_id, image.kind, image.id).all<GameImage>()
       : { results: [] as GameImage[] };
   await db.batch([
-    db.prepare("UPDATE game_images SET status = 'approved' WHERE id = ?").bind(img.id),
-    ...replaced.map((r) => db.prepare("DELETE FROM game_images WHERE id = ?").bind(r.id)),
+    db.prepare("UPDATE game_images SET review_status = 'approved' WHERE id = ?").bind(image.id),
+    ...replaced.map((old) => db.prepare("DELETE FROM game_images WHERE id = ?").bind(old.id)),
   ]);
   return replaced;
 }

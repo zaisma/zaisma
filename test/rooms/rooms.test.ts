@@ -10,8 +10,11 @@ const e = env as unknown as Env;
 
 async function addGame(slug: string, opts: { status?: string; server?: string | null; browsing?: string } = {}) {
   const id = `g${slug.replace(/-/g, "")}`;
-  await e.DB.prepare("INSERT INTO games (id, slug, title, status, current_version_id, game_server, room_browsing, created_at, updated_at) VALUES (?, ?, ?, ?, 'v1', ?, ?, 0, 0)")
-    .bind(id, slug, slug, opts.status ?? "live", opts.server === undefined ? "relay" : opts.server, opts.browsing ?? "page")
+  // The game server its rooms run, as the games table keeps it: a multiplayer mode, and which built-in server.
+  const server = opts.server === undefined ? "relay" : opts.server;
+  const mode = server === null ? "none" : server === "relay" ? "relay" : server === "sandbox" ? "own" : "built-in";
+  await e.DB.prepare("INSERT INTO games (id, slug, title, review_status, live_version_id, multiplayer_mode, built_in_server, room_browsing, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, 'v1', ?, ?, ?, 0, 0)")
+    .bind(id, slug, slug, opts.status ?? "live", mode, mode === "built-in" ? server : null, opts.browsing ?? "page")
     .run();
   return id;
 }
@@ -226,7 +229,7 @@ describe("rooms", () => {
   it("a takedown ends running rooms and refuses new players", async () => {
     const id = await addGame("arena");
     const a = await join("arena", "HJKLMN");
-    await e.DB.prepare("UPDATE games SET status = 'removed' WHERE id = ?").bind(id).run();
+    await e.DB.prepare("UPDATE games SET review_status = 'removed' WHERE id = ?").bind(id).run();
     // Make the room's once-a-minute check due now.
     await runInDurableObject(e.ROOMS.get(e.ROOMS.idFromName("arena:HJKLMN")), async (room: Room) => {
       (room as any).lastCheck = 0;

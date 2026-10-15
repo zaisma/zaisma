@@ -1,6 +1,6 @@
 import { createExecutionContext, env, SELF } from "cloudflare:test";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { accountForApiKey, createAccount, createApiKey, createGame, describePlayers, gameBySlug, imageKey, personOwner, sniffImage } from "@zaisma/core";
+import { accountForApiKey, createAccount, createApiKey, createGame, describePlayModes, gameBySlug, imageKey, personOwner, sniffImage } from "@zaisma/core";
 import worker from "../../apps/site/src/index.ts";
 
 const SITE = "https://zaisma.test";
@@ -73,10 +73,10 @@ describe("API keys", () => {
 
 describe("games", () => {
   it("makes a draft game owned by the caller, hidden from players", async () => {
-    const res = await api("/games", { body: { title: "Sky  Hopper", description: "Jump between clouds.", devices: ["phone", "computer"], controls: ["touch"], screen: "portrait" } });
+    const res = await api("/games", { body: { title: "Sky  Hopper", description: "Jump between clouds.", devices: ["phone", "computer"], controls: ["touch"], screen_orientation: "portrait" } });
     expect(res.status).toBe(201);
     const { game } = (await res.json()) as { game: Record<string, unknown> };
-    expect(game).toMatchObject({ slug: "sky-hopper", title: "Sky Hopper", visibility: "draft", review: "pending", devices: ["phone", "computer"], controls: ["touch"], screen: "portrait" });
+    expect(game).toMatchObject({ slug: "sky-hopper", title: "Sky Hopper", visibility: "draft", review_status: "pending", devices: ["phone", "computer"], controls: ["touch"], screen_orientation: "portrait" });
 
     const row = (await gameBySlug(env.DB, "sky-hopper"))!;
     expect(row.owner_id).toBe((await personOwner(env.DB, "dev-1")).id);
@@ -91,7 +91,7 @@ describe("games", () => {
     expect((await api("/games", { body: { title: "" } })).status).toBe(400);
     expect((await api("/games", { body: { title: "Admin", slug: "admin" } })).status).toBe(400);
     expect((await api("/games", { body: { title: "Hop", devices: ["toaster"] } })).status).toBe(400);
-    expect((await api("/games", { body: { title: "Hop", screen: "sideways" } })).status).toBe(400);
+    expect((await api("/games", { body: { title: "Hop", screen_orientation: "sideways" } })).status).toBe(400);
     await api("/games", { body: { title: "Hop" } });
     expect((await api("/games", { body: { title: "Hop" } })).status).toBe(409);
   });
@@ -107,17 +107,17 @@ describe("games", () => {
 
   it("changes details straight away until players can see the game", async () => {
     await api("/games", { body: { title: "Draft One" } });
-    const res = await api("/games/draft-one", { method: "PATCH", body: { title: "Better Name", visibility: "unlisted", devices: ["computer"], controls: ["gamepad", "keyboard-mouse"] } });
-    const { game, review } = (await res.json()) as { game: Record<string, unknown>; review: string | null };
+    const res = await api("/games/draft-one", { method: "PATCH", body: { title: "Better Name", visibility: "unlisted", devices: ["computer"], controls: ["gamepad", "keyboard_mouse"] } });
+    const { game, review_message: review } = (await res.json()) as { game: Record<string, unknown>; review_message: string | null };
     expect(review).toBeNull();
     // Labels come back in a fixed order.
-    expect(game).toMatchObject({ title: "Better Name", visibility: "unlisted", devices: ["computer"], controls: ["keyboard-mouse", "gamepad"] });
+    expect(game).toMatchObject({ title: "Better Name", visibility: "unlisted", devices: ["computer"], controls: ["keyboard_mouse", "gamepad"] });
   });
 
   it("sets where a game's rooms are listed, and turning it off takes them off lists at once", async () => {
     await api("/games", { body: { title: "Party Game" } });
     const g = (await gameBySlug(env.DB, "party-game"))!;
-    expect((await (await api("/games/party-game")).json<{ game: Record<string, unknown> }>()).game).toMatchObject({ zaisma_rooms: false, room_browsing: "page" });
+    expect((await (await api("/games/party-game")).json<{ game: Record<string, unknown> }>()).game).toMatchObject({ multiplayer_mode: "none", room_browsing: "page" });
     expect((await api("/games/party-game", { method: "PATCH", body: { room_browsing: "everywhere" } })).status).toBe(400);
     await env.DB.prepare("INSERT INTO live_rooms (game_id, code, players, max_players, open, created_at, updated_at) VALUES (?, 'BCDFGH', 2, 8, 1, 0, 0)").bind(g.id).run();
     const res = await api("/games/party-game", { method: "PATCH", body: { room_browsing: "off" } });
@@ -126,59 +126,59 @@ describe("games", () => {
   });
 
   it("lets developers pick multiplayer: none, the relay or their own game server", async () => {
-    await api("/games", { body: { title: "Own Server", multiplayer: "relay" } });
+    await api("/games", { body: { title: "Own Server", multiplayer_mode: "relay" } });
     const g = (await gameBySlug(env.DB, "own-server"))!;
-    expect(g.game_server).toBe("relay");
-    expect((await api("/games/own-server", { method: "PATCH", body: { multiplayer: "arena" } })).status).toBe(400);
+    expect(g.multiplayer_mode).toBe("relay");
+    expect((await api("/games/own-server", { method: "PATCH", body: { multiplayer_mode: "arena" } })).status).toBe(400);
 
     // A live version without zaisma-server.js: saved, with a note saying rooms wait for one.
-    await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, bytes, scan_status, created_at) VALUES ('vown', ?, 'games/vown', 1, 0, 'approved', 0)").bind(g.id).run();
-    await env.DB.prepare("UPDATE games SET status = 'live', current_version_id = 'vown' WHERE id = ?").bind(g.id).run();
-    let res = await (await api("/games/own-server", { method: "PATCH", body: { multiplayer: "own" } })).json<{ game: Record<string, unknown>; note?: string }>();
-    expect(res.game).toMatchObject({ multiplayer: "own", zaisma_rooms: true });
-    expect(res.note).toContain("no game server");
-    expect((await gameBySlug(env.DB, "own-server"))!.game_server).toBe("sandbox");
+    await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, created_at_ms) VALUES ('vown', ?, 'games/vown', 1, 0, 'approved', 0)").bind(g.id).run();
+    await env.DB.prepare("UPDATE games SET review_status = 'live', live_version_id = 'vown' WHERE id = ?").bind(g.id).run();
+    let res = await (await api("/games/own-server", { method: "PATCH", body: { multiplayer_mode: "own" } })).json<{ game: Record<string, unknown>; game_server_problem: string | null }>();
+    expect(res.game).toMatchObject({ multiplayer_mode: "own" });
+    expect(res.game_server_problem).toContain("no game server");
+    expect((await gameBySlug(env.DB, "own-server"))!.multiplayer_mode).toBe("own");
     await env.GAMES.put("games/vown/zaisma-server.js", "export default { setup: () => ({}) }");
-    res = await (await api("/games/own-server", { method: "PATCH", body: { multiplayer: "own" } })).json();
-    expect(res.note).toBeUndefined();
+    res = await (await api("/games/own-server", { method: "PATCH", body: { multiplayer_mode: "own" } })).json();
+    expect(res.game_server_problem).toBeNull();
 
-    res = await (await api("/games/own-server", { method: "PATCH", body: { multiplayer: "none" } })).json();
-    expect(res.game).toMatchObject({ multiplayer: "none", zaisma_rooms: false });
-    const { history } = await (await api("/games/own-server/history")).json<{ history: { what: string }[] }>();
-    expect(history.filter((h) => h.what === "Multiplayer settings changed")).toHaveLength(2);
+    res = await (await api("/games/own-server", { method: "PATCH", body: { multiplayer_mode: "none" } })).json();
+    expect(res.game).toMatchObject({ multiplayer_mode: "none" });
+    const { events } = await (await api("/games/own-server/history")).json<{ events: { description: string }[] }>();
+    expect(events.filter((e) => e.description === "Multiplayer settings changed")).toHaveLength(2);
   });
 
   it("keeps a game server built into Zaisma for us to change", async () => {
     await api("/games", { body: { title: "Built In" } });
-    await env.DB.prepare("UPDATE games SET game_server = 'arena' WHERE slug = 'built-in'").run();
-    expect((await (await api("/games/built-in")).json<{ game: Record<string, unknown> }>()).game.multiplayer).toBe("built-in");
-    expect((await api("/games/built-in", { method: "PATCH", body: { multiplayer: "relay" } })).status).toBe(403);
+    await env.DB.prepare("UPDATE games SET multiplayer_mode = 'built-in', built_in_server = 'arena' WHERE slug = 'built-in'").run();
+    expect((await (await api("/games/built-in")).json<{ game: Record<string, unknown> }>()).game.multiplayer_mode).toBe("built-in");
+    expect((await api("/games/built-in", { method: "PATCH", body: { multiplayer_mode: "relay" } })).status).toBe(403);
     // Saving other details (the dashboard sends everything) leaves it alone.
-    expect((await api("/games/built-in", { method: "PATCH", body: { screen: "landscape" } })).status).toBe(200);
-    expect((await gameBySlug(env.DB, "built-in"))!.game_server).toBe("arena");
+    expect((await api("/games/built-in", { method: "PATCH", body: { screen_orientation: "landscape" } })).status).toBe(200);
+    expect(await gameBySlug(env.DB, "built-in")).toMatchObject({ multiplayer_mode: "built-in", built_in_server: "arena" });
   });
 
   it("holds new words on a game players can see until they're reviewed", async () => {
     await api("/games", { body: { title: "Live One", description: "Old words." } });
-    await env.DB.prepare("UPDATE games SET status = 'live', current_version_id = 'v1', visibility = 'listed' WHERE slug = 'live-one'").run();
-    const res = await api("/games/live-one", { method: "PATCH", body: { title: "Free Coins Now", screen: "landscape" } });
-    const { game, review } = (await res.json()) as { game: Record<string, unknown>; review: string | null };
+    await env.DB.prepare("UPDATE games SET review_status = 'live', live_version_id = 'v1', visibility = 'listed' WHERE slug = 'live-one'").run();
+    const res = await api("/games/live-one", { method: "PATCH", body: { title: "Free Coins Now", screen_orientation: "landscape" } });
+    const { game, review_message: review } = (await res.json()) as { game: Record<string, unknown>; review_message: string | null };
     expect(review).toContain("reviewed");
-    expect(game).toMatchObject({ title: "Live One", screen: "landscape", waiting_for_review: { title: "Free Coins Now" } });
+    expect(game).toMatchObject({ title: "Live One", screen_orientation: "landscape", details_waiting_for_review: { title: "Free Coins Now", description: null } });
 
     // An admin rejects it; the old title stays.
     const g = (await gameBySlug(env.DB, "live-one"))!;
     await SELF.fetch(`http://localhost/admin/games/${g.id}/details/reject`, { method: "POST", body: new URLSearchParams({}) });
-    expect((await gameBySlug(env.DB, "live-one"))!).toMatchObject({ title: "Live One", details_draft: null });
+    expect((await gameBySlug(env.DB, "live-one"))!).toMatchObject({ title: "Live One", details_waiting_for_review: null });
 
     await api("/games/live-one", { method: "PATCH", body: { description: "New words." } });
     await SELF.fetch(`http://localhost/admin/games/${g.id}/details/approve`, { method: "POST", body: new URLSearchParams({}) });
-    expect((await gameBySlug(env.DB, "live-one"))!).toMatchObject({ title: "Live One", description: "New words.", details_draft: null });
+    expect((await gameBySlug(env.DB, "live-one"))!).toMatchObject({ title: "Live One", description: "New words.", details_waiting_for_review: null });
   });
 
   it("keeps unlisted games out of the home page and search engines, and private ones closed", async () => {
     await api("/games", { body: { title: "Quiet Game" } });
-    await env.DB.prepare("UPDATE games SET status = 'live', current_version_id = 'v1' WHERE slug = 'quiet-game'").run();
+    await env.DB.prepare("UPDATE games SET review_status = 'live', live_version_id = 'v1' WHERE slug = 'quiet-game'").run();
     await api("/games/quiet-game", { method: "PATCH", body: { visibility: "unlisted" } });
     const page = await SELF.fetch(`${SITE}/g/quiet-game`);
     expect(page.status).toBe(200);
@@ -194,9 +194,9 @@ describe("games", () => {
 
 describe("covers and screenshots", () => {
   it("reads the real type and size from the bytes", () => {
-    expect(sniffImage(png(1280, 720))).toEqual({ type: "image/png", width: 1280, height: 720 });
-    expect(sniffImage(jpeg(1920, 1080))).toEqual({ type: "image/jpeg", width: 1920, height: 1080 });
-    expect(sniffImage(webp(800, 600))).toEqual({ type: "image/webp", width: 800, height: 600 });
+    expect(sniffImage(png(1280, 720))).toEqual({ type: "image/png", widthPx: 1280, heightPx: 720 });
+    expect(sniffImage(jpeg(1920, 1080))).toEqual({ type: "image/jpeg", widthPx: 1920, heightPx: 1080 });
+    expect(sniffImage(webp(800, 600))).toEqual({ type: "image/webp", widthPx: 800, heightPx: 600 });
     expect(sniffImage(new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'))).toBeNull();
     expect(sniffImage(new TextEncoder().encode("GIF89a" + " ".repeat(40)))).toBeNull();
   });
@@ -209,8 +209,8 @@ describe("covers and screenshots", () => {
 
     const res = await api("/games/pics/images?kind=cover", { raw: png(1280, 720) });
     expect(res.status).toBe(201);
-    const { image } = (await res.json()) as { image: { id: string; status: string; url: string } };
-    expect(image.status).toBe("pending");
+    const { image } = (await res.json()) as { image: { id: string; review_status: string; image_url: string; width_px: number } };
+    expect(image).toMatchObject({ review_status: "pending", width_px: 1280 });
     expect(await env.GAMES.head(imageKey({ game_id: (await gameBySlug(env.DB, "pics"))!.id, id: image.id }))).not.toBeNull();
 
     // Nobody else sees it before review, and other developers can't remove it.
@@ -302,32 +302,38 @@ describe("image matching on covers and screenshots", () => {
 
 describe("players", () => {
   it("stores how a game is played and refuses nonsense", async () => {
-    await api("/games", { body: { title: "Cave Crew", players: { single: true, local: { min: 2, max: 4, style: "co-op" }, online: { min: 2, max: null, style: "co-op" } } } });
-    const { game } = (await (await api("/games/cave-crew")).json()) as { game: { players: unknown } };
-    expect(game.players).toEqual({ single: true, local: { min: 2, max: 4, style: "co-op" }, online: { min: 2, max: null, style: "co-op" } });
+    await api("/games", { body: { title: "Cave Crew", play_modes: [{ mode: "single" }, { mode: "local", minimum_player_count: 2, maximum_player_count: 4, play_style: "co-op" }, { mode: "online", minimum_player_count: 2, maximum_player_count: null, play_style: "co-op" }] } });
+    const { game } = (await (await api("/games/cave-crew")).json()) as { game: { play_modes: unknown } };
+    expect(game.play_modes).toEqual([{ mode: "single", minimum_player_count: null, maximum_player_count: null, play_style: null }, { mode: "local", minimum_player_count: 2, maximum_player_count: 4, play_style: "co-op" }, { mode: "online", minimum_player_count: 2, maximum_player_count: null, play_style: "co-op" }]);
 
-    for (const bad of [{ single: false }, { single: true, local: { min: 1, max: 4, style: "co-op" } }, { single: true, online: { min: 4, max: 2, style: "versus" } }, { single: true, online: { min: 2, max: 8, style: "party" } }]) {
-      expect((await api("/games/cave-crew", { method: "PATCH", body: { players: bad } })).status).toBe(400);
+    for (const bad of [[], [{ mode: "solo" }], [{ mode: "single" }, { mode: "single" }], [{ mode: "local", minimum_player_count: 1, maximum_player_count: 4, play_style: "co-op" }], [{ mode: "online", minimum_player_count: 4, maximum_player_count: 2, play_style: "versus" }], [{ mode: "online", minimum_player_count: 2, maximum_player_count: 8, play_style: "party" }], { single: true }]) {
+      expect((await api("/games/cave-crew", { method: "PATCH", body: { play_modes: bad } })).status).toBe(400);
     }
-    expect(((await (await api("/games/cave-crew", { method: "PATCH", body: { players: null } })).json()) as { game: { players: unknown } }).game.players).toBeNull();
+    expect(((await (await api("/games/cave-crew", { method: "PATCH", body: { play_modes: null } })).json()) as { game: { play_modes: unknown } }).game.play_modes).toBeNull();
   });
 
   it("turns cloud saves off and on for games that keep their own", async () => {
     await api("/games", { body: { title: "Own Saves" } });
-    expect(((await (await api("/games/own-saves")).json()) as { game: { cloud_saves: boolean } }).game.cloud_saves).toBe(true);
-    const off = (await (await api("/games/own-saves", { method: "PATCH", body: { cloud_saves: false } })).json()) as { game: { cloud_saves: boolean } };
-    expect(off.game.cloud_saves).toBe(false);
-    expect((await gameBySlug(env.DB, "own-saves"))!.cloud_saves).toBe(0);
-    expect((await api("/games/own-saves", { method: "PATCH", body: { cloud_saves: "yes" } })).status).toBe(400);
+    expect(((await (await api("/games/own-saves")).json()) as { game: { cloud_saves_enabled: boolean } }).game.cloud_saves_enabled).toBe(true);
+    const off = (await (await api("/games/own-saves", { method: "PATCH", body: { cloud_saves_enabled: false } })).json()) as { game: { cloud_saves_enabled: boolean } };
+    expect(off.game.cloud_saves_enabled).toBe(false);
+    expect((await gameBySlug(env.DB, "own-saves"))!.cloud_saves_enabled).toBe(0);
+    expect((await api("/games/own-saves", { method: "PATCH", body: { cloud_saves_enabled: "yes" } })).status).toBe(400);
   });
 
   it("describes each way to play in plain words", () => {
-    expect(describePlayers({ single: true, local: { min: 2, max: 4, style: "co-op" }, online: { min: 8, max: null, style: "both" } })).toEqual([
-      { mode: "single", label: "Single-player", count: null },
-      { mode: "local", label: "Local co-op", count: "2–4 players" },
-      { mode: "online", label: "Online co-op and versus", count: "8+ players" },
+    expect(
+      describePlayModes([
+        { mode: "single", minimum_player_count: null, maximum_player_count: null, play_style: null },
+        { mode: "local", minimum_player_count: 2, maximum_player_count: 4, play_style: "co-op" },
+        { mode: "online", minimum_player_count: 8, maximum_player_count: null, play_style: "both" },
+      ]),
+    ).toEqual([
+      { mode: "single", label: "Single-player", playerCount: null },
+      { mode: "local", label: "Local co-op", playerCount: "2–4 players" },
+      { mode: "online", label: "Online co-op and versus", playerCount: "8+ players" },
     ]);
-    expect(describePlayers({ single: false, local: null, online: { min: 2, max: 2, style: "versus" } })[0]!.count).toBe("2 players");
+    expect(describePlayModes([{ mode: "online", minimum_player_count: 2, maximum_player_count: 2, play_style: "versus" }])[0]!.playerCount).toBe("2 players");
   });
 });
 
@@ -339,18 +345,18 @@ describe("tester links", () => {
   it("open a private game for anyone with the link, until it's turned off", async () => {
     await api("/games", { body: { title: "Secret Hop" } });
     const game = (await gameBySlug(env.DB, "secret-hop"))!;
-    await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, bytes, scan_status, created_at) VALUES ('vsh', ?, 'games/sh/vsh', 1, 0, 'approved', 0)").bind(game.id).run();
+    await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, created_at_ms) VALUES ('vsh', ?, 'games/sh/vsh', 1, 0, 'approved', 0)").bind(game.id).run();
 
     // Nothing published yet: the link works but there's nothing to play.
     const made = await api("/games/secret-hop/testers", { body: { name: "  Play   testers " } });
     expect(made.status).toBe(201);
-    const { tester } = (await made.json()) as { tester: { id: string; name: string; url: string; opened_at: number | null } };
+    const { tester } = (await made.json()) as { tester: { id: string; name: string; link_url: string; last_opened_at: string | null } };
     expect(tester.name).toBe("Play testers");
-    expect(tester.url).toMatch(/^https:\/\/zaisma\.test\/t\/[a-z0-9]{20}$/);
-    const path = new URL(tester.url).pathname;
+    expect(tester.link_url).toMatch(/^https:\/\/zaisma\.test\/t\/[a-z0-9]{20}$/);
+    const path = new URL(tester.link_url).pathname;
     expect(await (await SELF.fetch(`${SITE}${path}`)).text()).toContain("Nothing to play yet");
 
-    await env.DB.prepare("UPDATE games SET status = 'live', current_version_id = 'vsh', visibility = 'private' WHERE id = ?").bind(game.id).run();
+    await env.DB.prepare("UPDATE games SET review_status = 'live', live_version_id = 'vsh', visibility = 'private' WHERE id = ?").bind(game.id).run();
     expect((await SELF.fetch(`${SITE}/g/secret-hop`)).status).toBe(404);
     const page = await SELF.fetch(`${SITE}${path}`);
     expect(page.status).toBe(200);
@@ -360,7 +366,7 @@ describe("tester links", () => {
     expect(body).toContain("It isn&#39;t public yet");
     // Private games stay off Continue playing.
     expect(body).not.toMatch(/if \(frame\) return;\s*remember\(\);/);
-    expect(((await (await api("/games/secret-hop")).json()) as { testers: { opened_at: number | null }[] }).testers[0]!.opened_at).toBeGreaterThan(0);
+    expect(((await (await api("/games/secret-hop")).json()) as { testers: { last_opened_at: string | null }[] }).testers[0]!.last_opened_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
 
     // Checks, and other people can't see or turn off the links.
     expect((await api("/games/secret-hop/testers", { body: { name: "" } })).status).toBe(400);
@@ -372,7 +378,7 @@ describe("tester links", () => {
     expect((await api(`/games/secret-hop/testers/${tester.id}`, { method: "DELETE" })).status).toBe(404);
     expect((await SELF.fetch(`${SITE}${path}`)).status).toBe(404);
     expect(((await (await api("/games/secret-hop/testers")).json()) as { testers: unknown[] }).testers).toEqual([]);
-    const history = (await (await api("/games/secret-hop/history")).json()) as { history: { what: string }[] };
-    expect(history.history.map((h) => h.what)).toEqual(expect.arrayContaining(["Made a tester link", "Turned off a tester link"]));
+    const history = (await (await api("/games/secret-hop/history")).json()) as { events: { description: string }[] };
+    expect(history.events.map((e) => e.description)).toEqual(expect.arrayContaining(["Made a tester link", "Turned off a tester link"]));
   });
 });

@@ -6,10 +6,10 @@ const G = "https://games.example";
 
 async function addGame(slug: string, connectHosts = "") {
   const id = `g${slug.replace(/-/g, "")}`;
-  await env.DB.prepare("INSERT INTO games (id, slug, title, status, current_version_id, game_server, connect_hosts, created_at, updated_at) VALUES (?, ?, ?, 'live', ?, 'relay', ?, 0, 0)")
+  await env.DB.prepare("INSERT INTO games (id, slug, title, review_status, live_version_id, multiplayer_mode, connect_hosts, created_at_ms, updated_at_ms) VALUES (?, ?, ?, 'live', ?, 'relay', ?, 0, 0)")
     .bind(id, slug, slug, `v${id}`, connectHosts)
     .run();
-  await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, bytes, scan_status, created_at) VALUES (?, ?, ?, 1, 0, 'approved', 0)").bind(`v${id}`, id, `games/${id}`).run();
+  await env.DB.prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, created_at_ms) VALUES (?, ?, ?, 1, 0, 'approved', 0)").bind(`v${id}`, id, `games/${id}`).run();
   await env.GAMES.put(`games/${id}/index.html`, "<!doctype html><p>game</p>");
 }
 

@@ -134,7 +134,7 @@ export async function personOwner(db: D1Database, accountId: string): Promise<Ow
 }
 
 export async function setGameOwner(db: D1Database, gameId: string, ownerId: string | null): Promise<void> {
-  await db.prepare("UPDATE games SET owner_id = ?, updated_at = ? WHERE id = ?").bind(ownerId, now(), gameId).run();
+  await db.prepare("UPDATE games SET owner_id = ?, updated_at_ms = ? WHERE id = ?").bind(ownerId, now(), gameId).run();
 }
 
 /** Who a game belongs to, for the admin and (later) the game page. */
@@ -151,7 +151,7 @@ export async function gameOwner(db: D1Database, ownerId: string | null): Promise
 
 export async function gamesOwnedBy(db: D1Database, accountId: string): Promise<{ id: string; slug: string; title: string; status: string }[]> {
   const { results } = await db
-    .prepare("SELECT games.id, games.slug, games.title, games.status FROM games JOIN owners ON owners.id = games.owner_id WHERE owners.account_id = ? ORDER BY games.updated_at DESC")
+    .prepare("SELECT games.id, games.slug, games.title, games.review_status FROM games JOIN owners ON owners.id = games.owner_id WHERE owners.account_id = ? ORDER BY games.updated_at_ms DESC")
     .bind(accountId)
     .all<{ id: string; slug: string; title: string; status: string }>();
   return results;

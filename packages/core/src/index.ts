@@ -2,6 +2,7 @@ export * from "./types.ts";
 export * from "./slug.ts";
 export * from "./mime.ts";
 export * from "./ids.ts";
+export * from "./time.ts";
 export * from "./zip.ts";
 export * from "./headers.ts";
 export * from "./db.ts";
