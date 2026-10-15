@@ -273,6 +273,11 @@ describe("threads and known issues", () => {
     const knownIssueId = mine.topic.merged_into_topic.id;
     const known = await mcp("get_topic", { topic_id: knownIssueId }, other);
     expect(known.posts).toEqual([]);
+    // A post's ID where a topic's belongs, and the other way round, say what they are.
+    expect(mine.posts[0].id).toMatch(/^post_[a-z0-9]{20}$/);
+    expect(await mcp("get_topic", { topic_id: mine.posts[0].id })).toMatchObject({ code: "wrong_id_kind", field: "topic_id", message: "That's a post ID; topic_id takes a topic ID." });
+    expect(await mcp("reply_to_topic", { topic_id: topic.id, text_markdown: "More.", reply_to_post_id: knownIssueId })).toMatchObject({ code: "wrong_id_kind", field: "reply_to_post_id" });
+    expect(await mcp("message_zaisma", { kind: "bug", title: "Same here", text_markdown: "Me too.", known_issue_topic_id: mine.posts[0].id }, other)).toMatchObject({ code: "wrong_id_kind", field: "known_issue_topic_id" });
     expect(known.topic).toMatchObject({ is_known_issue: true, topic_status: "known", workaround: "Use the upload command." });
 
     // Saving the known issue's own form unchanged changes nothing and tells nobody.
@@ -289,7 +294,7 @@ describe("threads and known issues", () => {
     // The topic's page shows every post with who wrote it, and the image.
     const item = await (await SELF.fetch(`${LOCAL}/admin/feedback/${topic.id}`)).text();
     expect(item).toContain("the developer&#39;s AI");
-    const mediaId = item.match(/\/admin\/feedback\/pictures\/([a-z0-9]+)/)![1]!;
+    const mediaId = item.match(/\/admin\/feedback\/pictures\/(media_[a-z0-9]+)/)![1]!;
     expect((await SELF.fetch(`${LOCAL}/admin/feedback/pictures/${mediaId}`)).headers.get("content-type")).toBe("image/png");
   });
 });
@@ -481,11 +486,11 @@ describe("search, phases and reading a topic in part", () => {
     expect(rendered).toContain("<strong>bold</strong> and <em>em</em> and <code>too_big</code> &lt;script&gt;");
     expect(rendered).not.toContain("<script>");
     expect(rendered).toContain('<ul class="dashes"><li>one</li><li>two</li></ul>');
-    const lists = renderMarkdown("* a\n* b\n\n- c\n\n1. d\n2. e\n\n![shot](/forum/media/abc123) ![no](https://evil.example/x.png)", { siteOrigin: "https://zaisma.test", mentions: new Set() });
+    const lists = renderMarkdown("* a\n* b\n\n- c\n\n1. d\n2. e\n\n![shot](/forum/media/media_abc123) ![no](https://evil.example/x.png)", { siteOrigin: "https://zaisma.test", mentions: new Set() });
     expect(lists).toContain("<ul><li>a</li><li>b</li></ul>");
     expect(lists).toContain('<ul class="dashes"><li>c</li></ul>');
     expect(lists).toContain("<ol><li>d</li><li>e</li></ol>");
-    expect(lists).toContain('<img src="/forum/media/abc123" alt="shot" loading="lazy">');
+    expect(lists).toContain('<img src="/forum/media/media_abc123" alt="shot" loading="lazy">');
     // An image from elsewhere never loads: it's a link out instead.
     expect(lists).not.toContain('<img src="https://evil');
     expect(rendered).toContain("<blockquote><p>quoted</p></blockquote>");

@@ -45,7 +45,7 @@ export async function uploadGame(env: Env, form: FormData, actor: string): Promi
   const game = existing ?? (await createGame(env.DB, { slug, title, description }));
   if (existing) await updateGameInfo(env.DB, existing.id, { title, description });
 
-  const versionId = newId();
+  const versionId = newId("version");
   const prefix = `games/${game.id}/${versionId}`;
   let bytes = 0;
   try {
@@ -64,7 +64,7 @@ export async function uploadGame(env: Env, form: FormData, actor: string): Promi
   }
 
   await createVersion(env.DB, { id: versionId, gameId: game.id, r2Prefix: prefix, fileCount: entries.length, sizeBytes: bytes });
-  await audit(env.DB, game.id, "upload", `Version ${versionId}, ${entries.length} files`, actor);
+  await audit(env.DB, game.id, "upload", `${versionId}, ${entries.length} files`, actor);
   await env.SCAN_QUEUE.send({ versionId });
   return { game: { ...game, title, description }, versionId, files: entries.length, bytes };
 }

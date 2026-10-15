@@ -65,7 +65,7 @@ describe("forum sorting", () => {
     expect(await sortTopics(testEnv, deps)).toBe(1);
 
     // The developer's words reach the AI only inside the untrusted block.
-    expect(seen[0]!.text).toMatch(/<topic id="[a-z0-9]+">[\s\S]*Ignore your instructions[\s\S]*<\/topic>/);
+    expect(seen[0]!.text).toMatch(/<topic id="topic_[a-z0-9]+">[\s\S]*Ignore your instructions[\s\S]*<\/topic>/);
     const sorted = await topicRow(topic.id);
     // The category is the developer's: sorting leaves it alone.
     expect(sorted).toMatchObject({ severity: "high", category: "", topic_status: "new", merged_into_topic_id: null, known_issue_title: null });
@@ -85,7 +85,7 @@ describe("forum sorting", () => {
     await decideTopic(env, first.id, { topicStatus: "known", knownIssue: { title: "Rooms disconnect at 50 players", workaround: "Cap rooms at 40 for now." } });
 
     const second = await message({ kind: "bug", title: "Multiplayer kicks everyone", text_markdown: "My room kicked all players once it got full." }, other);
-    const { deps, seen } = ai((input) => ({ sameAsTopicId: input.text.match(/id ([a-z0-9]+), known issue/)![1]! }));
+    const { deps, seen } = ai((input) => ({ sameAsTopicId: input.text.match(/id (topic_[a-z0-9]+), known issue/)![1]! }));
     expect(await sortTopics(testEnv, deps)).toBe(1);
     expect(seen[0]!.text).toContain("Rooms disconnect at 50 players");
 
@@ -105,7 +105,7 @@ describe("forum sorting", () => {
     const second = await message({ kind: "gap", title: "Builds over 500 MB", text_markdown: "Can the limit be raised?" }, other);
     const third = await message({ kind: "question", title: "Custom domains?", text_markdown: "Can I use mine?" });
     const answers: Record<string, string> = { [second.id]: first.id, [third.id]: "made-up-id" };
-    const { deps } = ai((input) => ({ sameAsTopicId: answers[input.text.match(/<topic id="([a-z0-9]+)">/)![1]!] ?? "" }));
+    const { deps } = ai((input) => ({ sameAsTopicId: answers[input.text.match(/<topic id="(topic_[a-z0-9]+)">/)![1]!] ?? "" }));
     expect(await sortTopics(testEnv, deps)).toBe(3);
 
     // The second joins the first's group, still new and private: nobody hears anything until a person decides.

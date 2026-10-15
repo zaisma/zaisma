@@ -100,7 +100,7 @@ The same rules hold inside, with these on top. `test/node/naming.test.ts` checks
 
 ## IDs
 
-Every ID Zaisma makes says its kind in its value: `<kind>_<random>`, the kind in whole words (`play_ticket_…` for a kind of two words; the random part never has an underscore). An object's own ID is `id`, because the value already says what it is; an ID that points at another object is `<kind>_id` (`{ "id": "post_4k…", "topic_id": "topic_9x…" }`). An AI always knows what it's holding, and passing one where another kind belongs gets a clear error ("That's an image ID; version_id takes a version ID from get_game").
+Every ID Zaisma makes says its kind in its value: `<kind>_<random>`, the kind in whole words (`play_ticket_…` for a kind of two words; the random part never has an underscore). An object's own ID is `id`, because the value already says what it is; an ID that points at another object is `<kind>_id` (`{ "id": "post_4k…", "topic_id": "topic_9x…" }`). An AI always knows what it's holding, and passing one where another kind belongs gets a clear error: `wrong_id_kind`, "That's an image ID; version_id takes a version ID.", with a fix naming the call that lists the right ones. Schemas give every ID its kind as a pattern (`^version_[a-z0-9]+$`), and `test/site/naming.test.ts` checks that they do.
 
 | Kind | Example |
 | --- | --- |
@@ -119,7 +119,7 @@ Every ID Zaisma makes says its kind in its value: `<kind>_<random>`, the kind in
 | `play_ticket` | `play_ticket_…` |
 | `room_key` | `room_key_…` |
 
-A new kind is added here in the same change. The developer API and MCP still name a game by its `slug`, the link name developers know. Not IDs, and kept as they are: a `slug`, a `room_code` (six letters players type), API keys (`zsk_…`, a format secret scanners know) and file hashes (`sha256`).
+`ID_KINDS` (`packages/core/src/ids.ts`) is this list, and a test keeps the two in step; a new kind is added to both in the same change. Guests' player IDs still start with `g_` until the SDK and game server move to these names. The developer API and MCP still name a game by its `slug`, the link name developers know. Not IDs, and kept as they are: a `slug`, a `room_code` (six letters players type), API keys (`zsk_…`, a format secret scanners know) and file hashes (`sha256`).
 
 ## Inputs
 

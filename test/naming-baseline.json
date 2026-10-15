@@ -213,7 +213,6 @@
       "files: a number's name ends in a count, a unit, index or number": 1,
       "pictures: a number's name ends in a count, a unit, index or number": 1,
       "forumDrafts: a number's name ends in a count, a unit, index or number": 1,
-      "b: a short form, not a whole word": 6,
       "p: a short form, not a whole word": 2,
       "forumDrafts: a number's name ends in Count, a unit, Index or Number": 1
     },
@@ -567,8 +566,6 @@
       "h: a short form, not a whole word": 1
     },
     "packages/core/src/ids.ts": {
-      "b: a short form, not a whole word": 2,
-      "b: a number's name ends in Count, a unit, Index or Number": 2,
       "data: \"data\" alone doesn't say what it is": 1
     },
     "packages/core/src/mime.ts": {

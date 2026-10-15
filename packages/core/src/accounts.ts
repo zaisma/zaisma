@@ -128,7 +128,7 @@ export async function deleteAccount(db: D1Database, id: string): Promise<void> {
 export async function personOwner(db: D1Database, accountId: string): Promise<Owner> {
   await db
     .prepare("INSERT INTO owners (id, kind, account_id, created_at) VALUES (?, 'person', ?, ?) ON CONFLICT (account_id) DO NOTHING")
-    .bind(newId(), accountId, now())
+    .bind(newId("owner"), accountId, now())
     .run();
   return (await db.prepare("SELECT * FROM owners WHERE account_id = ?").bind(accountId).first<Owner>())!;
 }

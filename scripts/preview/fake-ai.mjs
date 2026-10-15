@@ -34,7 +34,7 @@ function sortReport(text, system) {
   const kindOf = (s) => KINDS.find((k) => k.test.test(s));
   const kind = kindOf(details);
   // The same problem: an earlier open report with the same kind of words.
-  const same = [...text.matchAll(/^id ([a-z0-9]+), sent [^:]*: (.*)$/gm)].find(([, , line]) => (player ? line.includes(`player ${playerId}`) : kindOf(line) && kindOf(line) === kind));
+  const same = [...text.matchAll(/^id ([a-z0-9_]+), sent [^:]*: (.*)$/gm)].find(([, , line]) => (player ? line.includes(`player ${playerId}`) : kindOf(line) && kindOf(line) === kind));
   if (player) {
     const reason = report.match(/Reason picked: [^:]*: (.*)/)?.[1] ?? "Something else";
     const serious = !/Cheating|Something else/.test(reason);
@@ -66,7 +66,7 @@ function sortTopic(text) {
   const severity = /lost|leak|security|everyone/i.test(item) ? "urgent" : /can.?t publish|blocks|stuck|fails/i.test(item) ? "high" : kind === "question" ? "low" : "normal";
   const category = CATEGORIES.find(([, re]) => re.test(item))?.[0] ?? "other";
   const words = WORDS(`${title} ${item}`);
-  const same = [...text.matchAll(/^id ([a-z0-9]+), (.*)$/gm)].find(([, , line]) => [...WORDS(line)].filter((w) => words.has(w)).length >= 4);
+  const same = [...text.matchAll(/^id ([a-z0-9_]+), (.*)$/gm)].find(([, , line]) => [...WORDS(line)].filter((w) => words.has(w)).length >= 4);
   return {
     severity,
     category,

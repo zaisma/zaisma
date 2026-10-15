@@ -11,12 +11,12 @@ export async function publishDue(env: Env, nowMs = Date.now()): Promise<number> 
     if (version.scan_status === "scanning") continue; // Goes live as soon as it passes.
     if (version.scan_status === "approved") {
       await publishVersion(env.DB, version);
-      await audit(env.DB, version.game_id, "published", `Version ${version.id}, at its scheduled time`);
+      await audit(env.DB, version.game_id, "published", `${version.id}, at its scheduled time`);
       await pruneVersions(env, version.game_id);
       publishedCount++;
     } else {
       await env.DB.prepare("UPDATE versions SET scheduled_publish_at_ms = NULL WHERE id = ?").bind(version.id).run();
-      await audit(env.DB, version.game_id, "publish-dropped", `Version ${version.id} didn't pass review, so it wasn't published at its scheduled time`);
+      await audit(env.DB, version.game_id, "publish-dropped", `${version.id} didn't pass review, so it wasn't published at its scheduled time`);
     }
   }
   return publishedCount;
@@ -40,29 +40,13 @@ export async function dailyCleanup(env: Env, now = Date.now()): Promise<{ drafts
     .all<Version>();
   for (const draft of drafts) {
     await deleteVersion(env, draft);
-    await audit(env.DB, draft.game_id, "draft-deleted", `Version ${draft.id} was never published, so it was deleted after 30 days`);
+    await audit(env.DB, draft.game_id, "draft-deleted", `${draft.id} was never published, so it was deleted after 30 days`);
   }
 
-  // Files any remaining version uses. A day's grace covers uploads still in progress.
-  const used = new Set<string>();
-  const { results: versions } = await env.DB.prepare("SELECT id FROM versions WHERE kind = 'files'").all<{ id: string }>();
-  for (const version of versions) {
-    const stored = await env.GAMES.get(manifestKey(version.id));
-    if (!stored) continue;
-    for (const file of Object.values(((await stored.json()) as Manifest).files)) used.add(file.owner ? ownedBlobKey(file.owner, file.sha256) : blobKey(file.sha256));
-  }
-  const cutoffMs = now - DAY;
-  const { results: shared } = await env.DB.prepare("SELECT sha256 FROM blobs WHERE created_at_ms < ?").bind(cutoffMs).all<{ sha256: string }>();
-  const { results: owned } = await env.DB.prepare("SELECT owner_id, sha256 FROM owned_blobs WHERE created_at_ms < ?").bind(cutoffMs).all<{ owner_id: string; sha256: string }>();
-  const unusedShared = shared.filter((b) => !used.has(blobKey(b.sha256)));
-  const unusedOwned = owned.filter((b) => !used.has(ownedBlobKey(b.owner_id, b.sha256)));
-  const keys = [...unusedShared.map((b) => blobKey(b.sha256)), ...unusedOwned.map((b) => ownedBlobKey(b.owner_id, b.sha256))];
-  for (let i = 0; i < keys.length; i += 1000) await env.GAMES.delete(keys.slice(i, i + 1000));
-  const statements = [
-    ...unusedShared.map((b) => env.DB.prepare("DELETE FROM blobs WHERE sha256 = ?").bind(b.sha256)),
-    ...unusedOwned.map((b) => env.DB.prepare("DELETE FROM owned_blobs WHERE owner_id = ? AND sha256 = ?").bind(b.owner_id, b.sha256)),
-  ];
-  for (let i = 0; i < statements.length; i += 100) await env.DB.batch(statements.slice(i, i + 100));
+  // Files no version uses, after a day's grace for uploads still in progress. While files are still
+  // moving to new names (file_moves), a version's file list may not be where it looks, so they wait.
+  const isMovingFiles = (await env.DB.prepare("SELECT 1 AS found FROM file_moves LIMIT 1").first()) !== null;
+  const unusedKeys = isMovingFiles ? [] : await deleteUnusedFiles(env, now - DAY);
 
   const { results: pictures } = await env.DB.prepare("SELECT id FROM reports WHERE picture = 1 AND status != 'open' AND closed_at < ? LIMIT 1000").bind(now - 30 * DAY).all<{ id: string }>();
   if (pictures.length) {
@@ -79,5 +63,28 @@ export async function dailyCleanup(env: Env, now = Date.now()): Promise<{ drafts
   await env.DB.prepare("DELETE FROM room_keys WHERE issued_at < ?").bind(now - DAY).run();
   // Images uploaded for a forum post that was never posted.
   const forumDrafts = await deleteStaleDraftMedia(env, now);
-  return { drafts: drafts.length, files: keys.length, pictures: pictures.length, forumDrafts };
+  return { drafts: drafts.length, files: unusedKeys.length, pictures: pictures.length, forumDrafts };
+}
+
+/** Deletes shared and owned files older than the cutoff that no version's file list uses, and answers their keys. */
+async function deleteUnusedFiles(env: Env, cutoffMs: number): Promise<string[]> {
+  const used = new Set<string>();
+  const { results: versions } = await env.DB.prepare("SELECT id FROM versions WHERE kind = 'files'").all<{ id: string }>();
+  for (const version of versions) {
+    const stored = await env.GAMES.get(manifestKey(version.id));
+    if (!stored) continue;
+    for (const file of Object.values(((await stored.json()) as Manifest).files)) used.add(file.owner_id ? ownedBlobKey(file.owner_id, file.sha256) : blobKey(file.sha256));
+  }
+  const { results: shared } = await env.DB.prepare("SELECT sha256 FROM blobs WHERE created_at_ms < ?").bind(cutoffMs).all<{ sha256: string }>();
+  const { results: owned } = await env.DB.prepare("SELECT owner_id, sha256 FROM owned_blobs WHERE created_at_ms < ?").bind(cutoffMs).all<{ owner_id: string; sha256: string }>();
+  const unusedShared = shared.filter((blob) => !used.has(blobKey(blob.sha256)));
+  const unusedOwned = owned.filter((blob) => !used.has(ownedBlobKey(blob.owner_id, blob.sha256)));
+  const keys = [...unusedShared.map((blob) => blobKey(blob.sha256)), ...unusedOwned.map((blob) => ownedBlobKey(blob.owner_id, blob.sha256))];
+  for (let i = 0; i < keys.length; i += 1000) await env.GAMES.delete(keys.slice(i, i + 1000));
+  const statements = [
+    ...unusedShared.map((blob) => env.DB.prepare("DELETE FROM blobs WHERE sha256 = ?").bind(blob.sha256)),
+    ...unusedOwned.map((blob) => env.DB.prepare("DELETE FROM owned_blobs WHERE owner_id = ? AND sha256 = ?").bind(blob.owner_id, blob.sha256)),
+  ];
+  for (let i = 0; i < statements.length; i += 100) await env.DB.batch(statements.slice(i, i + 100));
+  return keys;
 }

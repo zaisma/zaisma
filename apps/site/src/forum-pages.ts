@@ -132,7 +132,7 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
 
   try {
     if (path === "/forum/similar") return done(await similarFragment(ctx, url.searchParams.get("search_text") ?? ""));
-    const media = path.match(/^\/forum\/media\/([a-z0-9]{1,40})$/);
+    const media = path.match(/^\/forum\/media\/(media_[a-z0-9]{1,40})$/);
     if (media && !isPost) return done(await serveMedia(env, caller, media[1]!));
     if (path === "/forum/people" && !isPost) {
       if (!caller) return new Response("[]", { status: 401, headers: { "Content-Type": "application/json" } });
@@ -198,7 +198,7 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
       }
     }
 
-    const topicPath = path.match(/^\/forum\/([a-z0-9]{1,40})(?:\/(reply|vote|follow|answer|misplaced|still-happening|helpful|report))?$/);
+    const topicPath = path.match(/^\/forum\/(topic_[a-z0-9]{1,40})(?:\/(reply|vote|follow|answer|misplaced|still-happening|helpful|report))?$/);
     if (!topicPath) return null;
     const [, id, action] = topicPath as unknown as [string, string, string | undefined];
     if (!action && !isPost) return done(await topicPage(ctx, id, { done: url.searchParams.get("done") ?? undefined, replyToPostId: url.searchParams.get("reply_to_post_id") ?? undefined }));
@@ -1300,7 +1300,7 @@ menu.innerHTML='<button type="button" role="menuitem" data-insert="image"><svg v
 let active=null,menuFor=null;
 const MAX=+(document.body.dataset.mediaMax||10),BYTES=+(document.body.dataset.mediaBytes||5242880);
 const err=(ta,msg)=>{const e=ta.closest(".editor").parentElement.querySelector(".ed-error")||ta.closest(".editor").querySelector(".ed-error");if(!e)return;e.textContent=msg;e.hidden=!msg};
-const upload=(ta,file)=>{if(!/^image\/(png|jpeg|webp|gif)$/.test(file.type)){err(ta,file.name+" isn't a PNG, JPEG, WebP or GIF.");return}if(file.size>BYTES){err(ta,file.name+" is over "+Math.round(BYTES/1048576)+" MB.");return}if((ta.value.match(/\(\/forum\/media\/[a-z0-9]+\)/g)||[]).length>=MAX){err(ta,"A post can carry up to "+MAX+" images.");return}err(ta,"");
+const upload=(ta,file)=>{if(!/^image\/(png|jpeg|webp|gif)$/.test(file.type)){err(ta,file.name+" isn't a PNG, JPEG, WebP or GIF.");return}if(file.size>BYTES){err(ta,file.name+" is over "+Math.round(BYTES/1048576)+" MB.");return}if((ta.value.match(/\(\/forum\/media\/media_[a-z0-9]+\)/g)||[]).length>=MAX){err(ta,"A post can carry up to "+MAX+" images.");return}err(ta,"");
 const tag="![Uploading "+file.name.replace(/[\[\]\n]/g,"")+"…]()";insertAt(ta,tag,true);const fd=new FormData();fd.set("file",file);
 fetch("/forum/media",{method:"POST",body:fd}).then(r=>r.json().then(j=>({ok:r.ok,j}))).then(({ok,j})=>{const at=ta.value.indexOf(tag);if(at<0)return;if(ok){ta.setRangeText(j.image_markdown,at,at+tag.length,"preserve")}else{ta.setRangeText("",at,at+tag.length,"preserve");err(ta,j.error||"That image didn't upload.")}ta.dispatchEvent(new Event("input"))}).catch(()=>{const at=ta.value.indexOf(tag);if(at>=0)ta.setRangeText("",at,at+tag.length,"preserve");err(ta,"That image didn't upload. Try again.")})};
 // The link panel: add a link, or edit or remove the one the cursor is in. Video: a link on its own line.

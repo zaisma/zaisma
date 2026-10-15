@@ -48,7 +48,7 @@ export async function createGame(
 ): Promise<Game> {
   const { ownerId, visibility, ...words } = details;
   const game: Game = {
-    id: newId(), ...words, review_status: "pending", live_version_id: null, multiplayer_mode: "none", built_in_server: null, connect_hosts: "", owner_id: ownerId ?? null, cloud_saves_enabled: 1,
+    id: newId("game"), ...words, review_status: "pending", live_version_id: null, multiplayer_mode: "none", built_in_server: null, connect_hosts: "", owner_id: ownerId ?? null, cloud_saves_enabled: 1,
     visibility: visibility ?? "listed", devices: "", controls: "", screen_orientation: "", play_modes: "", room_browsing: "page", is_off_shelves: 0, details_waiting_for_review: null, created_at_ms: now(), updated_at_ms: now(),
   };
   await db
@@ -219,7 +219,7 @@ export function reportSeverity(reason: string, playerReason = ""): number {
 
 /** Nothing about the person reporting is ever passed in or stored. */
 export async function createReport(db: D1Database, r: NewReport): Promise<string> {
-  const id = newId();
+  const id = newId("report");
   await db
     .prepare("INSERT INTO reports (id, game_id, reason, details, created_at, version_id, room_code, room_name, player_id, player_name, player_reason, severity) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
     .bind(id, r.gameId, r.reason, r.details, now(), r.versionId ?? null, r.roomCode ?? "", r.roomName ?? null, r.player?.id ?? "", r.player?.name ?? "", r.player?.reason ?? "", reportSeverity(r.reason, r.player?.reason))
@@ -299,7 +299,7 @@ export async function testerLinkByToken(db: D1Database, token: string): Promise<
 }
 
 export async function addTesterLink(db: D1Database, gameId: string, name: string): Promise<TesterLink> {
-  const link: TesterLink = { id: newId(), game_id: gameId, name, token: linkToken(), created_at_ms: now(), last_opened_at_ms: null, revoked_at_ms: null };
+  const link: TesterLink = { id: newId("tester"), game_id: gameId, name, token: linkToken(), created_at_ms: now(), last_opened_at_ms: null, revoked_at_ms: null };
   await db.prepare("INSERT INTO tester_links (id, game_id, name, token, created_at_ms) VALUES (?, ?, ?, ?, ?)").bind(link.id, gameId, name, link.token, link.created_at_ms).run();
   return link;
 }

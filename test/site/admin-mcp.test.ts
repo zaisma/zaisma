@@ -123,12 +123,12 @@ describe("admin MCP", () => {
 
   it("lists, approves and sets precedents", async () => {
     expect((await data("list_precedents")).precedents).toHaveLength(10);
-    await data("approve_precedent", { id: "hard-or-boring", action: "approve", ai_alone: true });
+    await data("approve_precedent", { id: "precedent_hard-or-boring", action: "approve", ai_alone: true });
     const set = await data("set_precedent", { title: "Fake stores", applies_when: "Copies a store's login.", decision: "take_down", why: "Phishing.", ai_alone: true });
     expect(set.precedent).toMatchObject({ status: "active", ai_alone: 0 });
     const active = (await data("list_precedents", { status: "active" })).precedents;
-    expect(active.map((p: { id: string; ai_alone: boolean }) => [p.id === "hard-or-boring" ? p.id : "new", p.ai_alone])).toEqual([
-      ["hard-or-boring", true],
+    expect(active.map((p: { id: string; ai_alone: boolean }) => [p.id === "precedent_hard-or-boring" ? p.id : "new", p.ai_alone])).toEqual([
+      ["precedent_hard-or-boring", true],
       ["new", false],
     ]);
   });

@@ -1,7 +1,7 @@
-import { ApiError, CONTROLS, DEVICES, FORUM_CATEGORIES, FORUM_LIMITS, FORUM_REPORT_REASONS, FORUM_SECTIONS, FORUM_TABS, FORUM_TAGS, PLAY_STYLES, POST_SELECTIONS, ROOM_BROWSING, SCREENS, TOPIC_KINDS, TOPIC_STATUSES, VISIBILITIES } from "@zaisma/core";
+import { ApiError, CONTROLS, DEVICES, FORUM_CATEGORIES, FORUM_LIMITS, FORUM_REPORT_REASONS, FORUM_SECTIONS, FORUM_TABS, FORUM_TAGS, PLAY_STYLES, POST_SELECTIONS, ROOM_BROWSING, SCREENS, TOPIC_KINDS, TOPIC_STATUSES, VISIBILITIES, type IdKind } from "@zaisma/core";
 import { INTERNAL_ERROR, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
-import { GAME, HISTORY, IMAGE, NEW_REPLY, NEW_TOPIC, NEXT, POST, REPORTS, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, answerOrError, choice, countOf, list, nullable, object as answer, text, yes } from "./schemas.ts";
+import { GAME, HISTORY, IMAGE, NEW_REPLY, NEW_TOPIC, NEXT, POST, REPORTS, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes } from "./schemas.ts";
 
 /**
  * The developer MCP at /mcp: every tool is a call to the developer API, so the MCP, the upload command
@@ -26,7 +26,7 @@ Ask the developer before making a game private or a draft again (players lose ac
 
 Zaisma's developer forum is where developers and their AI talk with the people who build Zaisma, and you're asked to use it. For any question about Zaisma itself, search_forum first: it's faster and more current than a web search, and it has Zaisma's own answers. When the developer asks how a known issue is going, give its phase and workaround (get_topic with post_selection "none"). Whenever you hit a Zaisma bug, a limit that blocks the developer, a missing feature, a confusing error or a question the docs don't answer: first search_forum with a short search (topics, answers and the known issues with their workarounds). If it's there, vote, reply, or send the developer's own case privately (message_zaisma with known_issue_topic_id); if their fixed topic is back, reopen it. Otherwise post it: what you were doing, what you expected, what happened, the exact error and the tool call. Forum topics (post_topic) are public, so keep private details out of them; anything private (logs, an unreleased game, details the developer wouldn't share) goes in message_zaisma, which only the developer and Zaisma see. What you attach in debug_context is never public, and neither are a message's images. Never include API keys, passwords or players' personal details (secrets are blanked anyway). Your posts carry the developer's name with an AI mark. search_forum's yours tab shows what's new, and list_games shows unread_topic_count when Zaisma has replied.
 
-Names say what they hold, its kind and its unit: file_count is a number of files, play_duration_min is minutes, size_bytes is bytes, *_at is an ISO time in UTC, and a plural is always a list.
+Names say what they hold, its kind and its unit: file_count is a number of files, play_duration_min is minutes, size_bytes is bytes, *_at is an ISO time in UTC, an ID says its kind (version_…, topic_…, post_…), and a plural is always a list.
 
 When a call fails, the answer is { "error": { code, message, field, fix, retry_after_sec } }: field is the input at fault, fix says what to do, and retry_after_sec how long to wait when waiting helps. Codes are stable: search_forum with one finds others who hit it. Calls that change something answer with next_steps: the calls that usually follow, with their arguments filled in and a reason; [] when nothing does.`;
 
@@ -44,9 +44,11 @@ interface Tool {
 type ApiCall = (method: string, path: string, body?: unknown) => Promise<Record<string, unknown>>;
 
 const slug = { type: "string", description: "The game's link name, as in zaisma.com/g/<slug>, from list_games or create_game" };
-const versionId = { type: "string", description: "A version's id from get_game or upload_files" };
-const topicId = { type: "string", description: "A topic's id from search_forum" };
-const postId = { type: "string", description: "A post's id from get_topic" };
+/** An ID input: its kind is in its value, like version_8f3k2m9q1x7c4v6b0n5z (docs/NAMING.md, IDs). */
+const idInput = (kind: IdKind, description: string) => ({ type: "string", pattern: `^${kind}_[a-z0-9]+$`, description, examples: [`${kind}_8f3k2m9q1x7c4v6b0n5z`] });
+const versionId = idInput("version", "A version's id from get_game or upload_files");
+const topicId = idInput("topic", "A topic's id from search_forum");
+const postId = idInput("post", "A post's id from get_topic");
 const textMarkdown = {
   type: "string",
   minLength: 1,
@@ -289,8 +291,8 @@ export const TOOLS: Tool[] = [
     name: "remove_image",
     title: "Remove an image",
     description: "Remove a cover or screenshot by its id from get_game.",
-    inputSchema: object({ slug, image_id: { type: "string", description: "An image's id from get_game" } }, ["slug", "image_id"]),
-    outputSchema: answer({ removed_image_id: text(), next_steps: NEXT }),
+    inputSchema: object({ slug, image_id: idInput("image", "An image's id from get_game") }, ["slug", "image_id"]),
+    outputSchema: answer({ removed_image_id: idOf("image"), next_steps: NEXT }),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     run: (toolArguments, call) => call("DELETE", `/games/${pathPart(toolArguments.slug)}/images/${pathPart(toolArguments.image_id)}`),
   },
@@ -308,8 +310,8 @@ export const TOOLS: Tool[] = [
     name: "remove_tester_link",
     title: "Turn off a tester link",
     description: "Turn off a tester link by its id from get_game, for good: it stops opening the game straight away, and players who came through it leave their multiplayer matches within about 10 seconds. Make a new one to let that group back in.",
-    inputSchema: object({ slug, tester_id: { type: "string", description: "A tester link's id from get_game" } }, ["slug", "tester_id"]),
-    outputSchema: answer({ removed_tester_id: text(), next_steps: NEXT }),
+    inputSchema: object({ slug, tester_id: idInput("tester", "A tester link's id from get_game") }, ["slug", "tester_id"]),
+    outputSchema: answer({ removed_tester_id: idOf("tester"), next_steps: NEXT }),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     run: (toolArguments, call) => call("DELETE", `/games/${pathPart(toolArguments.slug)}/testers/${pathPart(toolArguments.tester_id)}`),
   },
@@ -398,7 +400,7 @@ export const TOOLS: Tool[] = [
         title: { type: "string", minLength: 1, maxLength: FORUM_LIMITS.titleCharacterCount },
         text_markdown: { type: "string", minLength: 1, maxLength: FORUM_LIMITS.textCharacterCount, description: "What you were doing, what you expected, what happened and how to make it happen again." },
         category: { enum: FORUM_CATEGORIES, description: "Where it belongs, if you know." },
-        known_issue_topic_id: { type: "string", description: "A known issue's id from search_forum (tab known): the developer's own case about it." },
+        known_issue_topic_id: idInput("topic", "A known issue's id from search_forum (tab known): the developer's own case about it."),
         game_slug: { ...slug, description: "The game it happened with, if any: one of the developer's, from list_games." },
         debug_context: debugContext,
         images_base64: images("Only the developer and Zaisma see them."),
@@ -418,7 +420,7 @@ export const TOOLS: Tool[] = [
       {
         topic_id: topicId,
         text_markdown: textMarkdown,
-        reply_to_post_id: { type: "string", description: "A post's id in the topic, from get_topic, to answer that post." },
+        reply_to_post_id: idInput("post", "A post's id in the topic, from get_topic, to answer that post."),
         reopen: { type: "boolean", description: "Reopen the developer's own fixed, answered or closed topic." },
         debug_context: debugContext,
         images_base64: images("On a public topic everyone sees them once they're checked."),
@@ -497,8 +499,8 @@ export const TOOLS: Tool[] = [
     name: "mark_answer",
     title: "Mark a question's answer",
     description: "On the developer's own question: mark the reply that answered it (answer_post_id: null clears it). Ask the developer first.",
-    inputSchema: object({ topic_id: topicId, answer_post_id: { type: ["string", "null"], description: "A reply's id from get_topic, or null to clear the answer." } }, ["topic_id", "answer_post_id"]),
-    outputSchema: answer({ answer_post_id: nullable(text()), next_steps: NEXT }),
+    inputSchema: object({ topic_id: topicId, answer_post_id: { ...idInput("post", "A reply's id from get_topic, or null to clear the answer."), type: ["string", "null"] } }, ["topic_id", "answer_post_id"]),
+    outputSchema: answer({ answer_post_id: nullable(idOf("post")), next_steps: NEXT }),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     run: (toolArguments, call) => call("POST", `/forum/${pathPart(toolArguments.topic_id)}/answer`, { answer_post_id: toolArguments.answer_post_id ?? null }),
   },

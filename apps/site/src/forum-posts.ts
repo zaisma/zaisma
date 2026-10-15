@@ -120,7 +120,7 @@ export function readImage(bytes: Uint8Array): { bytes: Uint8Array; contentType: 
 }
 
 /** The images placed in a post's text: ![…](/forum/media/ID). */
-export const placedMedia = (text: string) => [...new Set([...text.matchAll(/\(\/forum\/media\/([a-z0-9]{1,40})\)/g)].map((placed) => placed[1]!))];
+export const placedMedia = (text: string) => [...new Set([...text.matchAll(/\(\/forum\/media\/(media_[a-z0-9]{1,40})\)/g)].map((placed) => placed[1]!))];
 
 /** debug_context as it's stored: the template's keys only, each a string or null, secrets blanked. */
 function readDebugContext(given: unknown): { json: string | null; blankedCount: number } {
@@ -214,7 +214,7 @@ export async function storePost(
   kind: "post" | "reopen",
   replyToPostId: string | null = null,
 ): Promise<{ id: string; checkStatus: ForumPost["check_status"] }> {
-  const id = newId();
+  const id = newId("post");
   const nowMs = Date.now();
   // Images placed in the text were uploaded while it was written: the writer's own, not posted yet.
   const placed = placedMedia(post.textMarkdown);
@@ -232,7 +232,7 @@ export async function storePost(
   // Every image is matched against known abuse material as it comes in; a match refuses the post.
   const matched: { mediaId: string; isClean: boolean }[] = [];
   for (const image of post.images) {
-    const mediaId = newId();
+    const mediaId = newId("media");
     const outcome = await matchUpload(env, mediaId, image.bytes, image.contentType, caller.accountId);
     if (outcome === "match") refuse();
     matched.push({ mediaId, isClean: outcome === "clean" });
@@ -284,7 +284,7 @@ export async function uploadDraftMedia(env: Env, caller: Caller, bytes: Uint8Arr
     });
   }
   const image = readImage(bytes);
-  const id = newId();
+  const id = newId("media");
   const outcome = await matchUpload(env, id, image.bytes, image.contentType, caller.accountId);
   if (outcome === "match") refuse();
   await env.GAMES.put(forumMediaKey(id), image.bytes, { httpMetadata: { contentType: image.contentType } });
@@ -337,7 +337,7 @@ export class TopicRefusal extends Error {}
 
 /** Zaisma's own posts need no check: on a public topic everyone sees them at once. */
 export async function zaismaPost(env: Env, topicId: string, kind: "post" | "status", text: string, atMs: number) {
-  const id = newId();
+  const id = newId("post");
   await env.DB.batch([
     env.DB.prepare(
       "INSERT INTO forum_posts (id, topic_id, account_id, author_kind, posted_via, kind, text_markdown, created_at_ms, check_status) SELECT ?, id, NULL, 'zaisma', 'admin', ?, ?, ?, CASE WHEN is_public = 1 THEN 'passed' END FROM forum_topics WHERE id = ?",
@@ -409,7 +409,7 @@ export async function decideTopic(env: Env, topicId: string, decision: TopicDeci
     const workaround = knownIssue?.workaround?.trim().slice(0, 2000) || null;
     const roadmapItem = knownIssue?.roadmapItem?.trim().slice(0, 200) || null;
     if (knownIssue && !topic.is_public) {
-      const knownIssueId = newId();
+      const knownIssueId = newId("topic");
       const knownIssueStatus = topicStatus && topicStatus !== "new" ? topicStatus : topic.topic_status === "new" ? "known" : topic.topic_status;
       await env.DB.batch([
         env.DB.prepare(

@@ -65,7 +65,7 @@ function stripCode(text: string): string {
 
 function linkHtml(url: string, label: string, ctx: MarkdownContext): string {
   // A post on the same page, as a quote's "wrote:" links to it.
-  if (/^#p-[a-z0-9]{1,40}$/.test(url)) return `<a href="${url}">${label}</a>`;
+  if (/^#p-post_[a-z0-9]{1,40}$/.test(url)) return `<a href="${url}">${label}</a>`;
   let u: URL;
   try {
     u = new URL(url, ctx.siteOrigin);
@@ -86,7 +86,7 @@ function inline(text: string, ctx: MarkdownContext): string {
   let s = text.replace(/\u0000/g, "");
   s = s.replace(/`([^`\n]+)`/g, (_m, code: string) => hold(`<code>${esc(code)}</code>`));
   // Images uploaded to the forum only: an image from anywhere else stays its words.
-  s = s.replace(/!\[([^\]\n]{0,200})\]\((\/forum\/media\/[a-z0-9]{1,40})\)/g, (_m, alt: string, src: string) => hold(`<a class="p-img" href="${src}" target="_blank" rel="noopener"><img src="${src}" alt="${esc(alt || "Image")}" loading="lazy"></a>`));
+  s = s.replace(/!\[([^\]\n]{0,200})\]\((\/forum\/media\/media_[a-z0-9]{1,40})\)/g, (_m, alt: string, src: string) => hold(`<a class="p-img" href="${src}" target="_blank" rel="noopener"><img src="${src}" alt="${esc(alt || "Image")}" loading="lazy"></a>`));
   s = s.replace(/\[([^\]\n]{1,200})\]\(([^)\s]{1,2000})\)/g, (_m, label: string, url: string) => hold(linkHtml(url, inlineText(label), ctx)));
   s = s.replace(/\bhttps?:\/\/[^\s<>()]+[^\s<>().,;:!?'"]/g, (url) => hold(linkHtml(url, esc(url), ctx)));
   s = s.replace(MENTION, (m, bracketed: string | undefined, word: string | undefined) => {

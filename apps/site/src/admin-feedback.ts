@@ -216,9 +216,9 @@ const FILTERS = ["new", "investigating", "known", "planned", "fixing", "released
 
 export async function adminFeedbackPage(env: Env, path: string, url: URL): Promise<Response | null> {
   if (path === "/admin/feedback") return queue(env, url.searchParams.get("status") ?? "new");
-  const image = path.match(/^\/admin\/feedback\/pictures\/([a-z0-9]{1,40})$/);
+  const image = path.match(/^\/admin\/feedback\/pictures\/([a-z0-9_]{1,40})$/);
   if (image) return picture(env, image[1]!);
-  const topicPath = path.match(/^\/admin\/feedback\/([a-z0-9]{1,40})$/);
+  const topicPath = path.match(/^\/admin\/feedback\/([a-z0-9_]{1,40})$/);
   if (topicPath) return itemPage(env, topicPath[1]!, url.searchParams.get("error") ?? "");
   return null;
 }
@@ -226,14 +226,14 @@ export async function adminFeedbackPage(env: Env, path: string, url: URL): Promi
 /** A decision from the queue or a topic's page: only what the form changed goes to decideTopic. */
 export async function adminFeedbackAction(env: Env, path: string, form: FormData): Promise<Response | null> {
   // A forum post the check held: show it, or remove it (check_post in the admin MCP).
-  const check = path.match(/^\/admin\/feedback\/posts\/([a-z0-9]{1,40})\/(show|remove)$/);
+  const check = path.match(/^\/admin\/feedback\/posts\/([a-z0-9_]{1,40})\/(show|remove)$/);
   if (check) {
     if (check[2] === "show") await showPost(env, check[1]!);
     else await removePost(env, check[1]!);
     const back = String(form.get("back") ?? "");
-    return new Response(null, { status: 303, headers: { Location: /^\/admin\/feedback(\/[a-z0-9]{1,40})?$/.test(back) ? back : "/admin/feedback" } });
+    return new Response(null, { status: 303, headers: { Location: /^\/admin\/feedback(\/[a-z0-9_]{1,40})?$/.test(back) ? back : "/admin/feedback" } });
   }
-  const decidePath = path.match(/^\/admin\/feedback\/([a-z0-9]{1,40})\/decide$/);
+  const decidePath = path.match(/^\/admin\/feedback\/([a-z0-9_]{1,40})\/decide$/);
   if (!decidePath) return null;
   const id = decidePath[1]!;
   const back = form.get("back") === "queue" ? `/admin/feedback?status=${encodeURIComponent(String(form.get("status_filter") ?? "new"))}#f-${id}` : `/admin/feedback/${id}`;

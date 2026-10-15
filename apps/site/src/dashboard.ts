@@ -95,8 +95,8 @@ export async function handleDashboard(request: Request, env: Env, path: string):
   if (path === "/dashboard" && !post) return done(await gamesPage(env, call, url.searchParams.get("error") ?? undefined));
   // Feedback moved into the developer forum.
   if (path === "/dashboard/feedback") return done(redirect("/forum?tab=yours"));
-  const moved = path.match(/^\/dashboard\/feedback\/([a-z0-9]{1,40})/);
-  if (moved) return done(redirect(`/forum/${moved[1]}`));
+  const moved = path.match(/^\/dashboard\/feedback\/(?:topic_)?([a-z0-9]{1,40})$/);
+  if (moved) return done(redirect(`/forum/topic_${moved[1]}`));
   if (path === "/dashboard/new" && post) {
     const form = await request.formData();
     try {
@@ -150,7 +150,7 @@ export async function handleDashboard(request: Request, env: Env, path: string):
       await call("POST", `/games/${slug}/images?kind=${kind}`, new Uint8Array(await file.arrayBuffer()));
       return back("image", "#images");
     }
-    const imagePath = action.match(/^\/images\/([a-z0-9]+)\/remove$/);
+    const imagePath = action.match(/^\/images\/([a-z0-9_]+)\/remove$/);
     if (imagePath) {
       await call("DELETE", `/games/${slug}/images/${imagePath[1]}`);
       return back("image-removed", "#images");
@@ -159,12 +159,12 @@ export async function handleDashboard(request: Request, env: Env, path: string):
       await call("POST", `/games/${slug}/testers`, { name: field("name") });
       return back("tester-added", "#testers");
     }
-    const tester = action.match(/^\/testers\/([a-z0-9]+)\/remove$/);
+    const tester = action.match(/^\/testers\/([a-z0-9_]+)\/remove$/);
     if (tester) {
       await call("DELETE", `/games/${slug}/testers/${tester[1]}`);
       return back("tester-removed", "#testers");
     }
-    const versionPath = action.match(/^\/versions\/([a-z0-9]+)\/(publish|schedule|unschedule)$/);
+    const versionPath = action.match(/^\/versions\/([a-z0-9_]+)\/(publish|schedule|unschedule)$/);
     if (versionPath) {
       const [, id, what] = versionPath;
       if (what === "publish") await call("POST", `/games/${slug}/versions/${id}/publish`, {});
@@ -333,7 +333,7 @@ ${imagesPanel(slug, images)}
 <details open><summary><h2>Plays</h2><span class="muted">Last 30 days</span></summary>${playsPanel(stats.play_stats)}</details>
 <details${openReportCount ? raw(" open") : ""}><summary><h2>Player reports${openReportCount ? ` (${openReportCount} open)` : ""}</h2></summary>${reportsPanel(reports)}</details>
 <details${stats.room_use_this_month.has_reached_free_hours ? raw(" open") : ""}><summary><h2>Multiplayer use${stats.room_use_this_month.has_reached_free_hours ? " (new rooms paused)" : ""}</h2></summary>${statsPanel(stats, game.multiplayer_mode === "own")}</details>
-<details><summary><h2>History</h2></summary>${history.events.length ? html`<table><tbody>${history.events.map((event) => html`<tr><td class="nowrap">${when(event.happened_at)}</td><td>${event.description}${event.version_id ? html` <span class="muted">(${event.version_id.slice(0, 8)})</span>` : ""}</td><td class="muted">${event.done_by === "you" ? "You" : "Zaisma"}</td></tr>`)}</tbody></table>` : html`<p class="muted">Nothing yet.</p>`}</details>
+<details><summary><h2>History</h2></summary>${history.events.length ? html`<table><tbody>${history.events.map((event) => html`<tr><td class="nowrap">${when(event.happened_at)}</td><td>${event.description}${event.version_id ? html` <span class="muted">(${event.version_id.slice(0, 16)})</span>` : ""}</td><td class="muted">${event.done_by === "you" ? "You" : "Zaisma"}</td></tr>`)}</tbody></table>` : html`<p class="muted">Nothing yet.</p>`}</details>
 </div>`,
     httpStatus,
     cover?.image_url ?? null,
@@ -395,7 +395,7 @@ ${version.scheduled_publish_at ? "" : html`<details class="later"><summary>Publi
   // Held and rejected versions come with what the scan found.
   const findings = version.scan_status === "held" || version.scan_status === "rejected" ? version.findings : [];
   return html`<li class="${version.is_live ? "live edge" : ""}">
-<div class="version-head"><strong>${version.is_live ? html`<span class="badge">Live</span> ` : ""}${version.id.slice(0, 8)}</strong><span class="muted">${when(version.created_at)} · ${version.file_count} files, ${sizeText(version.size_bytes)}</span>${version.is_live ? "" : html`<span class="pill ${version.scan_status}">${version.scan_status === "approved" ? (version.published_at ? "Was live" : "Ready") : version.scan_status[0]!.toUpperCase() + version.scan_status.slice(1)}</span>`}</div>
+<div class="version-head"><strong>${version.is_live ? html`<span class="badge">Live</span> ` : ""}${version.id.slice(0, 16)}</strong><span class="muted">${when(version.created_at)} · ${version.file_count} files, ${sizeText(version.size_bytes)}</span>${version.is_live ? "" : html`<span class="pill ${version.scan_status}">${version.scan_status === "approved" ? (version.published_at ? "Was live" : "Ready") : version.scan_status[0]!.toUpperCase() + version.scan_status.slice(1)}</span>`}</div>
 ${version.patch_notes ? html`<p class="version-notes">${version.patch_notes}</p>` : ""}
 ${findings.length ? html`<ul class="findings">${findings.map((finding) => html`<li>${finding.explanation}${finding.path ? html` <span class="muted">(${finding.path})</span>` : ""}</li>`)}</ul>` : ""}
 ${scheduled}${acts}

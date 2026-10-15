@@ -104,7 +104,7 @@ export async function scanVersion(env: Env, versionId: string, deps: ScanDeps = 
   if (decision === "approved") {
     await passVersion(env, version, "Passed the scan");
   } else {
-    await audit(env.DB, game.id, decision === "held" ? "scan-held" : "scan-rejected", `Version ${version.id}\n${summarize(findings)}`);
+    await audit(env.DB, game.id, decision === "held" ? "scan-held" : "scan-rejected", `${version.id}\n${summarize(findings)}`);
     const known = findings.some((f) => f.rule === KNOWN_IMAGE_RULE);
     if (known) {
       await sendAlert(
@@ -294,7 +294,7 @@ export async function recheckImages(env: Env, versionId: string, deps: ScanDeps 
   report.images = { provider: result.provider, connected: true, checked: result.checked };
   await env.DB.prepare("UPDATE versions SET scan_report = ? WHERE id = ?").bind(JSON.stringify(report), version.id).run();
   const loose = [...result.findings, ...(tooMuch ? [{ stage: "static", severity: "hold", rule: "too-much-code", detail: "More code than the checks read." } as Finding] : [])];
-  await audit(env.DB, game.id, "images-checked", `Version ${version.id}: ${result.checked} pictures and videos matched, no known abuse material${loose.length ? `\nNot fully checked:\n${summarize(loose)}` : ""}`);
+  await audit(env.DB, game.id, "images-checked", `${version.id}: ${result.checked} pictures and videos matched, no known abuse material${loose.length ? `\nNot fully checked:\n${summarize(loose)}` : ""}`);
   if (loose.length) await sendAlert(env, `${game.slug}: some files couldn't be image-matched`, `Version ${version.id} passed before image matching was connected. It was matched now and nothing known was found, but:\n\n${summarize(loose)}\n\nGame: ${env.SITE_ORIGIN}/admin/games/${game.id}`);
 }
 
@@ -313,7 +313,7 @@ export async function holdKnownImages(env: Env, game: Game, version: Version, im
   await env.DB.prepare("UPDATE versions SET scan_status = 'held', preview_token = NULL, scheduled_publish_at_ms = NULL, scan_report = ? WHERE id = ?").bind(JSON.stringify(report), version.id).run();
   const hide = game.live_version_id === version.id && game.review_status === "live";
   if (hide) await setReviewStatus(env.DB, game.id, "held");
-  await audit(env.DB, game.id, "image-match-hold", `${why}: version ${version.id} is held${hide ? " and the game is hidden" : ""}\n${summarize(known)}`);
+  await audit(env.DB, game.id, "image-match-hold", `${why}: ${version.id} is held${hide ? " and the game is hidden" : ""}\n${summarize(known)}`);
   await sendAlert(env, `URGENT: known abuse images in ${game.slug}${hide ? " (game hidden)" : ""}`, `${why}.\n\n${KNOWN_IMAGE_ALERT}${hide ? " The game is hidden from players." : ""}\n\n${summarize(known)}\n\nGame: ${env.SITE_ORIGIN}/admin/games/${game.id}`);
   return hide;
 }
@@ -399,7 +399,7 @@ export async function versionFiles(env: Env, version: Version): Promise<FileRef[
     const { files } = (await manifest.json()) as Manifest;
     // A manifest lists where each file is; the blobs tables know their sizes.
     const sizes = await blobSizes(env.DB, Object.values(files).map((file) => file.sha256));
-    return Object.entries(files).map(([path, file]) => ({ path, key: file.owner ? ownedBlobKey(file.owner, file.sha256) : blobKey(file.sha256), size: sizes.get(file.sha256) ?? 0 }));
+    return Object.entries(files).map(([path, file]) => ({ path, key: file.owner_id ? ownedBlobKey(file.owner_id, file.sha256) : blobKey(file.sha256), size: sizes.get(file.sha256) ?? 0 }));
   }
   const out: FileRef[] = [];
   let cursor: string | undefined;
@@ -418,11 +418,11 @@ export async function versionFiles(env: Env, version: Version): Promise<FileRef[
 export async function passVersion(env: Env, version: Version, why: string, actor = "system"): Promise<void> {
   if (version.publish_when_approved_enabled) {
     await publishVersion(env.DB, version);
-    await audit(env.DB, version.game_id, "published", `${why}: version ${version.id}`, actor);
+    await audit(env.DB, version.game_id, "published", `${why}: ${version.id}`, actor);
     await pruneVersions(env, version.game_id);
   } else {
     await approveDraft(env.DB, version.id);
-    await audit(env.DB, version.game_id, "draft-ready", `${why}: version ${version.id} is ready to preview and publish`, actor);
+    await audit(env.DB, version.game_id, "draft-ready", `${why}: ${version.id} is ready to preview and publish`, actor);
   }
 }
 

@@ -41,7 +41,7 @@ describe("counted plays", () => {
     const res = await send("play-game", { ...NEW, token: "good" });
     expect(res.status).toBe(200);
     const { ticket } = await res.json<{ ticket: string }>();
-    expect(ticket).toMatch(/^[a-z0-9]+$/);
+    expect(ticket).toMatch(/^play_ticket_[a-z0-9]+$/);
     expect(verified).toEqual(["forged", "good"]);
     // Three plays started, none counted yet: a play counts after a minute on screen.
     expect(await row()).toMatchObject({ plays: 3, counted: 0 });
@@ -105,7 +105,7 @@ describe("counted plays", () => {
     expect(await (await send("play-game", { ...NEW, token: "good" })).json()).not.toHaveProperty("key");
     await env.DB.prepare("UPDATE games SET multiplayer_mode = 'relay' WHERE id LIKE 'g-play%'").run();
     const both = await (await send("play-game", { ...NEW, token: "good" })).json<{ ticket: string; key: string }>();
-    expect(both.ticket).toMatch(/^[a-z0-9]+$/);
+    expect(both.ticket).toMatch(/^play_ticket_[a-z0-9]+$/);
     expect(await env.DB.prepare("SELECT game_id, passes FROM room_keys WHERE id = ?").bind(both.key).first()).toEqual({ game_id: "g-play", passes: 0 });
     expect((await send("play-game", { ...NEW, token: "forged" })).status).toBe(204);
   });
@@ -117,7 +117,7 @@ describe("counted plays", () => {
     expect((await send("play-hidden", tester)).status).toBe(204);
     await env.DB.prepare("UPDATE games SET multiplayer_mode = 'relay' WHERE id = 'g-play-hidden'").run();
     const { key } = await (await send("play-hidden", tester)).json<{ key: string }>();
-    expect(key).toMatch(/^[a-z0-9]+$/);
+    expect(key).toMatch(/^room_key_[a-z0-9]+$/);
     expect((await send("play-hidden", { ...tester, token: "forged" })).status).toBe(204);
     expect((await send("play-game", tester)).status).toBe(404);
     expect((await send("play-hidden", { ...tester, tester: "abcdefghij0123456780" })).status).toBe(404);
