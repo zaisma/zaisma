@@ -6,10 +6,9 @@ The live plan of what gets built, in what order. `docs/DECISIONS.md` says *how* 
 
 Build, in this order:
 
-1. Names: SDK and game server (Nothing for an AI to guess)
-2. Names: the admin MCP (Nothing for an AI to guess)
-3. Names: last sweep of the insides (Nothing for an AI to guess)
-4. Errors: holds and takedowns (Nothing for an AI to guess)
+1. Names: the admin MCP (Nothing for an AI to guess)
+2. Names: last sweep of the insides (Nothing for an AI to guess)
+3. Errors: holds and takedowns (Nothing for an AI to guess)
 
 Nothing for an AI to guess comes first: everything else builds on the codebase, so its names get corrected before more code piles on. Waiting on people: Gleb: register with NCMEC, Gleb: register the DMCA agent, Julius: send PhotoDNA the LLC's records.
 
@@ -72,7 +71,7 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | done | Must | Names: the forum | | Live Oct 15, 2026 (#134, migration 0031, CLI 0.3.0): forum topics and posts with the API's column names, closed inputs, and the first feedback calls retired |
 | done | Must | Errors: developer API and MCP | | Live Oct 15, 2026 (#135, CLI 0.3.1): every error answers `{ code, message, field, fix, retry_after_sec }` from one list of codes (`ERROR_CODES`, listed in docs/DEVELOPER-API.md); every change answers with `next_steps`; closed inputs and arguments everywhere; good and bad examples on the tools that are easy to get wrong |
 | done | Must | IDs that say their kind | | Live Oct 15, 2026 (#138, migration 0032): every ID Zaisma makes says its kind (`version_…`, `topic_…`, `game_…`), existing IDs and the files named by them moved, and an ID of the wrong kind gets `wrong_id_kind`. Guests' player IDs move with Names: SDK and game server |
-| doing | Must | Names: SDK and game server | | The SDK and game server API follow docs/NAMING.md: `ticksPerSec`, `seatHoldDurationSec`, `idleTimeoutSec` with `idleCheck`, `onTick(state, tickDurationSec)`, `playerCount` in room lists, snake_case error codes and `player_…` IDs. Room messages say `type` and `data` (rooms are billed per message, not by size). Unknown options are refused with the list of valid ones. The example games, README and tests move with it; the test games are remade |
+| done | Must | Names: SDK and game server | | Live Oct 15, 2026 (#139): the SDK, game server API, room lists and room messages (`type` and `data`) follow docs/NAMING.md, error codes are snake_case, guests' IDs are `player_…`, and unknown options and events are refused with the valid ones (a game server with one doesn't start and says why in its errors) |
 | next | Must | Names: the admin MCP | | The admin MCP's tools, inputs and answers for reports, precedents and the forum queue, with output schemas (docs/ADMIN-MCP.md) |
 | next | Must | Names: last sweep of the insides | | Rooms, scans, triage, accounts, saves, plays and the game server's insides, until the naming baseline is empty |
 | next | Must | Errors: holds and takedowns | Errors: developer API and MCP | Every hold and takedown has a plain reason, the rule it broke and a fix, with an error code; the same in the dashboard, API and MCP. Bills get the same when Hosting billing ships |
