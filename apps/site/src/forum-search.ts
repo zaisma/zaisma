@@ -1,4 +1,4 @@
-import type { Feedback, FeedbackPost } from "@zaisma/core";
+import type { ForumPost, ForumTopic } from "@zaisma/core";
 import type { Env } from "./env.ts";
 
 /**
@@ -9,20 +9,20 @@ import type { Env } from "./env.ts";
 
 /** A topic's own row: its title, and what a known issue says to do. Gone when it stops being public. */
 export async function indexTopic(env: Env, topicId: string): Promise<void> {
-  const f = await env.DB.prepare("SELECT * FROM feedback WHERE id = ?").bind(topicId).first<Feedback>();
+  const topic = await env.DB.prepare("SELECT * FROM forum_topics WHERE id = ?").bind(topicId).first<ForumTopic>();
   await env.DB.prepare("DELETE FROM forum_search WHERE topic_id = ? AND post_id = ''").bind(topicId).run();
-  if (!f?.shown) return;
+  if (!topic?.is_shown) return;
   await env.DB.prepare("INSERT INTO forum_search (title, body, topic_id, post_id) VALUES (?, ?, ?, '')")
-    .bind(f.known_title ?? f.title, [f.workaround, f.roadmap].filter(Boolean).join(" "), f.id)
+    .bind(topic.known_issue_title ?? topic.title, [topic.workaround, topic.roadmap_item].filter(Boolean).join(" "), topic.id)
     .run();
 }
 
 /** A post others can see now. Bare status lines ("Zaisma fixed this.") aren't worth finding. */
-export async function indexPost(env: Env, post: Pick<FeedbackPost, "id" | "feedback_id" | "text" | "kind">): Promise<void> {
-  if (post.kind === "status" && post.text.length <= 60) return;
+export async function indexPost(env: Env, post: Pick<ForumPost, "id" | "topic_id" | "text_markdown" | "kind">): Promise<void> {
+  if (post.kind === "status" && post.text_markdown.length <= 60) return;
   await env.DB.batch([
     env.DB.prepare("DELETE FROM forum_search WHERE post_id = ?").bind(post.id),
-    env.DB.prepare("INSERT INTO forum_search (title, body, topic_id, post_id) VALUES ('', ?, ?, ?)").bind(post.text, post.feedback_id, post.id),
+    env.DB.prepare("INSERT INTO forum_search (title, body, topic_id, post_id) VALUES ('', ?, ?, ?)").bind(post.text_markdown, post.topic_id, post.id),
   ]);
 }
 
@@ -34,7 +34,7 @@ export async function unindexTopic(env: Env, topicId: string): Promise<void> {
   await env.DB.prepare("DELETE FROM forum_search WHERE topic_id = ?").bind(topicId).run();
 }
 
-const STOP = new Set(
+const STOP_WORDS = new Set(
   "a an and are as at be but by can do does for from has have how i if in into is it its my no not of on or our so than that the their them then there these they this to too was we were what when where which who why will with you your".split(" "),
 );
 
@@ -43,18 +43,18 @@ const STOP = new Set(
  * start of a word, codes like too_big and upload_files stay whole, and small words are dropped.
  * Every term must match (all), or any of them (any) when all finds nothing.
  */
-export function searchTerms(q: string): { all: string; any: string } | null {
+export function searchTerms(searchText: string): { all: string; any: string } | null {
   const terms: string[] = [];
-  const phrases = [...q.matchAll(/"([^"]+)"/g)];
+  const phrases = [...searchText.matchAll(/"([^"]+)"/g)];
   for (const [, phrase] of phrases) {
     const words = phrase!.match(/[\p{L}\p{N}_]+/gu) ?? [];
     if (words.length) terms.push(`"${words.join(" ")}"`);
   }
-  const rest = q.replace(/"[^"]*"/g, " ");
-  for (const m of rest.matchAll(/([\p{L}\p{N}_]+)(\*)?/gu)) {
-    const word = m[1]!.toLowerCase();
-    if (STOP.has(word) || (word.length < 2 && !/\d/.test(word))) continue;
-    terms.push(`"${word}"${m[2] ? "*" : ""}`);
+  const rest = searchText.replace(/"[^"]*"/g, " ");
+  for (const found of rest.matchAll(/([\p{L}\p{N}_]+)(\*)?/gu)) {
+    const word = found[1]!.toLowerCase();
+    if (STOP_WORDS.has(word) || (word.length < 2 && !/\d/.test(word))) continue;
+    terms.push(`"${word}"${found[2] ? "*" : ""}`);
   }
   const unique = [...new Set(terms)].slice(0, 12);
   if (!unique.length) return null;
@@ -62,17 +62,17 @@ export function searchTerms(q: string): { all: string; any: string } | null {
 }
 
 /** The best match per topic: its score (lower is better, as bm25 gives it) and a snippet with the matching words marked «like this». */
-export async function searchTopics(env: Env, match: string, filters: { where: string[]; binds: unknown[] }, limit: number, offset: number) {
+export async function searchTopics(env: Env, match: string, filters: { where: string[]; binds: unknown[] }, maximumTopicCount: number, startIndex: number) {
   const { results } = await env.DB.prepare(
     // The matches are worked out first (MATERIALIZED), since bm25 can't run inside the grouping.
     `WITH hits AS MATERIALIZED (
-       SELECT topic_id, bm25(forum_search, 4.0, 1.0) AS score, snippet(forum_search, -1, '«', '»', '…', 14) AS snip FROM forum_search WHERE forum_search MATCH ?
-     ), best AS (SELECT topic_id, MIN(score) AS score, snip FROM hits GROUP BY topic_id)
-     SELECT f.*, s.score AS search_score, s.snip AS search_match FROM best s JOIN feedback f ON f.id = s.topic_id
+       SELECT topic_id, bm25(forum_search, 4.0, 1.0) AS rank_score, snippet(forum_search, -1, '«', '»', '…', 14) AS snippet_text FROM forum_search WHERE forum_search MATCH ?
+     ), best AS (SELECT topic_id, MIN(rank_score) AS rank_score, snippet_text FROM hits GROUP BY topic_id)
+     SELECT topic.*, best.snippet_text AS search_match FROM best JOIN forum_topics topic ON topic.id = best.topic_id
      WHERE ${filters.where.join(" AND ")}
-     ORDER BY s.score * (1.0 + 0.4 * (f.answer_post IS NOT NULL OR f.status = 'answered') + 0.4 * (f.known_title IS NOT NULL) + 0.03 * MIN(f.votes, 20)) LIMIT ? OFFSET ?`,
+     ORDER BY best.rank_score * (1.0 + 0.4 * (topic.answer_post_id IS NOT NULL OR topic.topic_status = 'answered') + 0.4 * (topic.known_issue_title IS NOT NULL) + 0.03 * MIN(topic.vote_count, 20)) LIMIT ? OFFSET ?`,
   )
-    .bind(match, ...filters.binds, limit, offset)
-    .all<Feedback & { search_score: number; search_match: string }>();
+    .bind(match, ...filters.binds, maximumTopicCount, startIndex)
+    .all<ForumTopic & { search_match: string }>();
   return results;
 }

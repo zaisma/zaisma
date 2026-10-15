@@ -200,6 +200,18 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 | A cover or screenshot | `image_id` | |
 | A tester link | `tester_id` | |
 | A forum topic, a post in it | `topic_id`, `post_id` | |
+| A game named on something else, like a forum topic | `game_slug` | |
+| The known issue a message to Zaisma is about | `known_issue_topic_id` | |
+| Where a forum topic stands | `topic_status`: `new`, `investigating`, `known`, `planned`, `fixing`, `released`, `fixed`, `wont`, `answered` | |
+| Where a topic belongs | `category` (like `rooms`), in a `section` (like `multiplayer`) | |
+| Words to search for | `search_text` | |
+| A post's words, and the images sent with it | `text_markdown`, `images_base64`; a post's images are `media`, each with an `image_url` | |
+| Who wrote a post | `author`: `{ name, kind, is_you }`, `kind` one of `developer`, `ai`, `zaisma`; `author_kind` when sending | |
+| What an AI attaches for whoever fixes a problem | `debug_context`: `{ call, error_code, error_message, request_json, notes }` | |
+| The check a public post passes before others see it | `check_status`: `pending`, `passed`, `held` | |
+| Votes on a topic, and the developers a known issue affects | `vote_count`, `affected_developer_count` | |
+| Taking back a vote, a helpful mark or a follow | `undo: true` in the MCP; `DELETE` in the API | |
+| Posts an account can still make today | `remaining_post_count` | |
 | A room players join by typing it | `room_code` | `roomCode` |
 | A player | `player_id` | `playerId` |
 | How many players, and the most and fewest allowed | `player_count`, `maximum_player_count`, `minimum_player_count` | `playerCount`, `maximumPlayerCount`, `minimumPlayerCount` |

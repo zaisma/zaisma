@@ -1,5 +1,6 @@
 import {
-  FEEDBACK_STATUSES,
+  TOPIC_SEVERITIES,
+  TOPIC_STATUSES,
   gameServerOf,
   PRECEDENT_DECISIONS,
   SEVERITIES,
@@ -18,7 +19,8 @@ import {
 } from "@zaisma/core";
 import { adminForm, groupReports, type QueueRow, type ReportGroup } from "./admin.ts";
 import type { Env } from "./env.ts";
-import { adminFeedbackItem, adminFeedbackList, decideFeedback, FeedbackRefusal, postsToCheck } from "./feedback.ts";
+import { adminFeedbackItem, adminFeedbackList, postsToCheck } from "./admin-feedback.ts";
+import { decideTopic, TopicRefusal } from "./forum-posts.ts";
 import { removePost, showPost } from "./forum-check.ts";
 import { serveMcp, WithImages, type McpTool } from "./mcp.ts";
 import { savePrecedent } from "./precedents.ts";
@@ -320,7 +322,7 @@ function tools(env: Env, actor: string): McpTool[] {
       name: "list_feedback",
       title: "Feedback from developers",
       description: "Feedback about Zaisma from developers and their AI (topics in the developer forum), most serious first: items on their own and known issues, with how many developers each affects, whether it's public, and the latest post. Default: new ones, plus items added to or reopened inside a known issue, and posts_to_check: forum posts the check held or couldn't check yet.",
-      inputSchema: object({ status: { enum: [...FEEDBACK_STATUSES, "all"] }, limit: { type: "integer", minimum: 1, maximum: 100 } }),
+      inputSchema: object({ status: { enum: [...TOPIC_STATUSES, "all"] }, limit: { type: "integer", minimum: 1, maximum: 100 } }),
       annotations: read,
       run: (args) => adminFeedbackList(env, str(args.status, 10) || "new", Number(args.limit) || 30),
     },
@@ -333,7 +335,7 @@ function tools(env: Env, actor: string): McpTool[] {
       run: async (args) => {
         const found = await adminFeedbackItem(env, str(args.id, 40));
         if (!found) throw new Refusal("No feedback with that id.");
-        return found.pictures.length ? new WithImages(found.data, found.pictures) : found.data;
+        return found.pictures.length ? new WithImages(found.topicDetails, found.pictures) : found.topicDetails;
       },
     },
     {
@@ -345,7 +347,7 @@ function tools(env: Env, actor: string): McpTool[] {
         {
           id: { type: "string" },
           reply: { type: "string", maxLength: 8000 },
-          status: { enum: [...FEEDBACK_STATUSES] },
+          status: { enum: [...TOPIC_STATUSES] },
           merge_into: { type: "string", description: "The id of the known issue (or first item) it duplicates." },
           known_issue: {
             type: ["object", "null"],
@@ -367,20 +369,21 @@ function tools(env: Env, actor: string): McpTool[] {
       run: async (args) => {
         const id = str(args.id, 40);
         try {
-          await decideFeedback(env, id, {
+          const knownIssue = args.known_issue as { title: string; workaround?: string; roadmap?: string } | null | undefined;
+          await decideTopic(env, id, {
             ...(args.reply !== undefined ? { reply: str(args.reply, 8000) } : {}),
-            ...(args.status !== undefined ? { status: str(args.status, 10) } : {}),
-            ...(args.merge_into ? { merge_into: str(args.merge_into, 40) } : {}),
-            ...(args.known_issue !== undefined ? { known_issue: args.known_issue as { title: string } | null } : {}),
-            ...(args.severity !== undefined ? { severity: Number(args.severity) } : {}),
-            ...(args.area !== undefined ? { area: str(args.area, 40) } : {}),
-            ...(args.answer !== undefined ? { answer: args.answer === null ? null : str(args.answer, 40) } : {}),
+            ...(args.status !== undefined ? { topicStatus: str(args.status, 10) } : {}),
+            ...(args.merge_into ? { mergeIntoTopicId: str(args.merge_into, 40) } : {}),
+            ...(knownIssue !== undefined ? { knownIssue: knownIssue && { title: knownIssue.title, workaround: knownIssue.workaround, roadmapItem: knownIssue.roadmap } } : {}),
+            ...(args.severity !== undefined ? { severity: TOPIC_SEVERITIES[Math.min(4, Math.max(1, Math.round(Number(args.severity)))) - 1] } : {}),
+            ...(args.area !== undefined ? { category: str(args.area, 40) } : {}),
+            ...(args.answer !== undefined ? { answerPostId: args.answer === null ? null : str(args.answer, 40) } : {}),
           });
-        } catch (err) {
-          if (err instanceof FeedbackRefusal) throw new Refusal(err.message);
-          throw err;
+        } catch (error) {
+          if (error instanceof TopicRefusal) throw new Refusal(error.message);
+          throw error;
         }
-        return (await adminFeedbackItem(env, id))!.data;
+        return (await adminFeedbackItem(env, id))!.topicDetails;
       },
     },
     {
@@ -391,7 +394,7 @@ function tools(env: Env, actor: string): McpTool[] {
       annotations: change,
       run: async (args) => {
         const id = str(args.id, 40);
-        const post = await env.DB.prepare("SELECT check_state FROM feedback_posts WHERE id = ?").bind(id).first<{ check_state: string | null }>();
+        const post = await env.DB.prepare("SELECT check_status FROM forum_posts WHERE id = ?").bind(id).first<{ check_status: string | null }>();
         if (!post) throw new Refusal("No forum post with that id.");
         if (args.decision === "show") await showPost(env, id);
         else await removePost(env, id);

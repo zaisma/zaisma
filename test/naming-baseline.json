@@ -120,24 +120,6 @@
       "k: a short form, not a whole word": 2,
       "g: a short form, not a whole word": 1
     },
-    "apps/site/src/admin-feedback.ts": {
-      "Item: \"Item\" alone doesn't say what it is": 1,
-      "m: a short form, not a whole word": 4,
-      "f: a short form, not a whole word": 6,
-      "d: a short form, not a whole word": 2,
-      "k: a short form, not a whole word": 3,
-      "severity: a number's name ends in Count, a unit, Index or Number": 1,
-      "err: a short form, not a whole word": 1,
-      "count: \"count\" alone doesn't say what it is": 1,
-      "n: a short form, not a whole word": 3,
-      "n: a number's name ends in a count, a unit, index or number": 2,
-      "r: a short form, not a whole word": 5,
-      "s: a short form, not a whole word": 3,
-      "a: a short form, not a whole word": 2,
-      "p: a short form, not a whole word": 2,
-      "sev: a number's name ends in Count, a unit, Index or Number": 2,
-      "n: a number's name ends in Count, a unit, Index or Number": 1
-    },
     "apps/site/src/admin-mcp.ts": {
       "DAY: a number's name ends in Count, a unit, Index or Number": 1,
       "str: a short form, not a whole word": 1,
@@ -156,8 +138,8 @@
       "res: a short form, not a whole word": 1,
       "stmt: a short form, not a whole word": 1,
       "followed: a number's name ends in a count, a unit, index or number": 1,
-      "err: a short form, not a whole word": 2,
-      "s: a short form, not a whole word": 1
+      "s: a short form, not a whole word": 1,
+      "err: a short form, not a whole word": 1
     },
     "apps/site/src/admin.ts": {
       "s: a short form, not a whole word": 1,
@@ -252,90 +234,6 @@
     "apps/site/src/email.ts": {
       "err: a short form, not a whole word": 1
     },
-    "apps/site/src/feedback-sort.ts": {
-      "severity,area,summary,why,same_as,draft,inputTokens,outputTokens: mixes snake_case and camelCase in one shape": 1,
-      "inputTokens: a number's name ends in a count, a unit, index or number": 1,
-      "outputTokens: a number's name ends in a count, a unit, index or number": 1,
-      "BATCH: a number's name ends in Count, a unit, Index or Number": 1,
-      "MAX_TRIES: spell out maximum or minimum": 1,
-      "MAX_TRIES: a number's name ends in Count, a unit, Index or Number": 1,
-      "sorted: a number's name ends in Count, a unit, Index or Number": 1,
-      "item: \"item\" alone doesn't say what it is": 6,
-      "err: a short form, not a whole word": 3,
-      "now: a number's name ends in Count, a unit, Index or Number": 1,
-      "c: a short form, not a whole word": 3,
-      "severity: a number's name ends in Count, a unit, Index or Number": 1,
-      "moved: a number's name ends in Count, a unit, Index or Number": 1,
-      "s: a short form, not a whole word": 1,
-      "p: a short form, not a whole word": 1,
-      "b: a short form, not a whole word": 1,
-      "a: a short form, not a whole word": 1
-    },
-    "apps/site/src/feedback.ts": {
-      "DAY: a number's name ends in Count, a unit, Index or Number": 1,
-      "m: a short form, not a whole word": 9,
-      "f: a short form, not a whole word": 18,
-      "n: a short form, not a whole word": 3,
-      "n: a number's name ends in a count, a unit, index or number": 3,
-      "r: a short form, not a whole word": 6,
-      "k: a short form, not a whole word": 5,
-      "developers: a number's name ends in Count, a unit, Index or Number": 1,
-      "q: a short form, not a whole word": 1,
-      "since: \"since\" alone doesn't say what it is": 1,
-      "since: a number's name ends in Count, a unit, Index or Number": 1,
-      "after: a number's name ends in Count, a unit, Index or Number": 1,
-      "g: a short form, not a whole word": 4,
-      "p: a short form, not a whole word": 13,
-      "context: \"context\" alone doesn't say what it is": 2,
-      "blanked: a number's name ends in a count, a unit, index or number": 1,
-      "blanked: a number's name ends in Count, a unit, Index or Number": 1,
-      "item: \"item\" alone doesn't say what it is": 1,
-      "c: a short form, not a whole word": 1,
-      "now: a number's name ends in Count, a unit, Index or Number": 3,
-      "ord: a number's name ends in Count, a unit, Index or Number": 1,
-      "ok: a yes/no field starts with is, has or can, or ends in enabled": 1,
-      "max: \"max\" alone doesn't say what it is": 1,
-      "max: a number's name ends in Count, a unit, Index or Number": 1,
-      "limit: a number's name ends in Count, a unit, Index or Number": 2,
-      "stmt: a short form, not a whole word": 1,
-      "l: a short form, not a whole word": 1,
-      "posts: a number's name ends in a count, a unit, index or number": 1,
-      "last: a number's name ends in a count, a unit, index or number": 1,
-      "created_at: a number's name ends in a count, a unit, index or number": 1,
-      "t: \"t\" alone doesn't say what it is": 1,
-      "t: a short form, not a whole word": 1,
-      "data: \"data\" alone doesn't say what it is": 1,
-      "severity: a number's name ends in a count, a unit, index or number": 1,
-      "by_ai: a yes/no field starts with is, has or can, or ends in enabled": 1,
-      "at: \"at\" alone doesn't say what it is": 2,
-      "at: a number's name ends in Count, a unit, Index or Number": 2,
-      "shown: a number's name ends in a count, a unit, index or number": 1,
-      "d: a short form, not a whole word": 1,
-      "kStatus: a short form, not a whole word": 1,
-      "severity: a number's name ends in Count, a unit, Index or Number": 1,
-      "s: a short form, not a whole word": 1
-    },
-    "apps/site/src/forum-check.ts": {
-      "inputTokens: a number's name ends in a count, a unit, index or number": 1,
-      "outputTokens: a number's name ends in a count, a unit, index or number": 1,
-      "BATCH: a number's name ends in Count, a unit, Index or Number": 1,
-      "MAX_TRIES: spell out maximum or minimum": 1,
-      "MAX_TRIES: a number's name ends in Count, a unit, Index or Number": 1,
-      "m: a short form, not a whole word": 2,
-      "err: a short form, not a whole word": 1,
-      "check_tries: a number's name ends in a count, a unit, index or number": 1,
-      "checked: a number's name ends in Count, a unit, Index or Number": 1,
-      "p: a short form, not a whole word": 1,
-      "s: a short form, not a whole word": 2,
-      "a: a short form, not a whole word": 1,
-      "b: a short form, not a whole word": 1
-    },
-    "apps/site/src/forum-images.ts": {
-      "result: \"result\" alone doesn't say what it is": 2,
-      "f: a short form, not a whole word": 1,
-      "limit: a number's name ends in a count, a unit, index or number": 1,
-      "m: a short form, not a whole word": 1
-    },
     "apps/site/src/forum-markdown.ts": {
       "u: a short form, not a whole word": 2,
       "s: a short form, not a whole word": 2,
@@ -347,109 +245,8 @@
       "l: a short form, not a whole word": 1,
       "k: a short form, not a whole word": 1
     },
-    "apps/site/src/forum-mentions.ts": {
-      "at: \"at\" alone doesn't say what it is": 1,
-      "at: a number's name ends in Count, a unit, Index or Number": 1,
-      "m: a short form, not a whole word": 1,
-      "r: a short form, not a whole word": 3,
-      "q: a short form, not a whole word": 1,
-      "zaisma: a yes/no field starts with is, has or can, or ends in enabled": 2,
-      "in_topic: a yes/no field starts with is, has or can, or ends in enabled": 2,
-      "c: a short form, not a whole word": 1
-    },
     "apps/site/src/forum-pages.ts": {
-      "t: \"t\" alone doesn't say what it is": 17,
-      "t: a short form, not a whole word": 17,
-      "known_issue: a yes/no field starts with is, has or can, or ends in enabled": 2,
-      "count: \"count\" alone doesn't say what it is": 2,
-      "n: a short form, not a whole word": 6,
-      "n: a number's name ends in Count, a unit, Index or Number": 5,
-      "res: a short form, not a whole word": 6,
-      "err: a short form, not a whole word": 6,
-      "v: a short form, not a whole word": 3,
-      "m: a short form, not a whole word": 3,
-      "c: a short form, not a whole word": 9,
-      "f: a short form, not a whole word": 2,
-      "s: a short form, not a whole word": 4,
-      "opts: a short form, not a whole word": 2,
-      "status: a number's name ends in a count, a unit, index or number": 1,
-      "q: a short form, not a whole word": 4,
-      "h: a short form, not a whole word": 1,
-      "h: a number's name ends in Count, a unit, Index or Number": 1,
-      "p: a short form, not a whole word": 19,
-      "size: \"size\" alone doesn't say what it is": 1,
-      "s: a number's name ends in Count, a unit, Index or Number": 1,
-      "k: a short form, not a whole word": 8,
-      "max: \"max\" alone doesn't say what it is": 1,
-      "max: a number's name ends in Count, a unit, Index or Number": 1,
-      "data: \"data\" alone doesn't say what it is": 3,
-      "topics: a number's name ends in a count, a unit, index or number": 1,
-      "messages: a number's name ends in a count, a unit, index or number": 1,
-      "a: a short form, not a whole word": 2,
-      "status: a number's name ends in Count, a unit, Index or Number": 2,
-      "b: a short form, not a whole word": 1,
-      "at: \"at\" alone doesn't say what it is": 1,
-      "at: a number's name ends in Count, a unit, Index or Number": 1,
-      "u: a short form, not a whole word": 1,
-      "g: a short form, not a whole word": 1
-    },
-    "apps/site/src/forum-search.ts": {
-      "f: a short form, not a whole word": 1,
-      "q: a short form, not a whole word": 1,
-      "m: a short form, not a whole word": 1,
-      "limit: a number's name ends in Count, a unit, Index or Number": 1,
-      "offset: a number's name ends in Count, a unit, Index or Number": 1,
-      "search_score: a number's name ends in a count, a unit, index or number": 1
-    },
-    "apps/site/src/forum.ts": {
-      "PAGE: a number's name ends in Count, a unit, Index or Number": 1,
-      "you: a yes/no field starts with is, has or can, or ends in enabled": 1,
-      "public: a yes/no field starts with is, has or can, or ends in enabled": 1,
-      "shown: a yes/no field starts with is, has or can, or ends in enabled": 1,
-      "known_issue: a yes/no field starts with is, has or can, or ends in enabled": 2,
-      "replies: a number's name ends in a count, a unit, index or number": 2,
-      "votes: a number's name ends in a count, a unit, index or number": 2,
-      "voted: a yes/no field starts with is, has or can, or ends in enabled": 1,
-      "developers: a number's name ends in a count, a unit, index or number": 1,
-      "answered: a yes/no field starts with is, has or can, or ends in enabled": 3,
-      "unread: a yes/no field starts with is, has or can, or ends in enabled": 2,
-      "created_at: a number's name ends in a count, a unit, index or number": 1,
-      "active_at: a number's name ends in a count, a unit, index or number": 2,
-      "count: \"count\" alone doesn't say what it is": 2,
-      "t: \"t\" alone doesn't say what it is": 7,
-      "t: a short form, not a whole word": 7,
-      "answer: a yes/no field starts with is, has or can, or ends in enabled": 1,
-      "helpful: a number's name ends in a count, a unit, index or number": 2,
-      "helpful_by_you: a yes/no field starts with is, has or can, or ends in enabled": 1,
-      "reported_by_you: a yes/no field starts with is, has or can, or ends in enabled": 1,
-      "context: \"context\" alone doesn't say what it is": 1,
-      "at: \"at\" alone doesn't say what it is": 1,
-      "at: a number's name ends in a count, a unit, index or number": 1,
-      "m: a short form, not a whole word": 3,
-      "q: a short form, not a whole word": 3,
-      "page: a number's name ends in a count, a unit, index or number": 1,
-      "limit: a number's name ends in a count, a unit, index or number": 1,
-      "p: a short form, not a whole word": 22,
-      "c: a short form, not a whole word": 4,
-      "page: a number's name ends in Count, a unit, Index or Number": 1,
-      "size: \"size\" alone doesn't say what it is": 1,
-      "size: a number's name ends in Count, a unit, Index or Number": 1,
-      "s: a short form, not a whole word": 2,
-      "w: a short form, not a whole word": 1,
-      "r: a short form, not a whole word": 7,
-      "everyone: a number's name ends in a count, a unit, index or number": 1,
-      "seen_at: a number's name ends in a count, a unit, index or number": 2,
-      "n: a short form, not a whole word": 4,
-      "n: a number's name ends in a count, a unit, index or number": 4,
-      "v: a short form, not a whole word": 1,
-      "f: a short form, not a whole word": 14,
-      "active: a number's name ends in Count, a unit, Index or Number": 1,
-      "opts: a short form, not a whole word": 1,
-      "h: a short form, not a whole word": 1,
-      "x: a short form, not a whole word": 2,
-      "now: a number's name ends in Count, a unit, Index or Number": 3,
-      "shown: a number's name ends in a count, a unit, index or number": 1,
-      "k: a short form, not a whole word": 1
+      "q: a short form, not a whole word": 2
     },
     "apps/site/src/home.ts": {
       "updated: a number's name ends in a count, a unit, index or number": 1,
@@ -765,41 +562,6 @@
       "m: a short form, not a whole word": 1,
       "diff: a number's name ends in Count, a unit, Index or Number": 1
     },
-    "packages/core/src/feedback.ts": {
-      "c: a short form, not a whole word": 3,
-      "ai: a yes/no field starts with is, has or can, or ends in enabled": 1,
-      "severity: a number's name ends in a count, a unit, index or number": 1,
-      "created_at: a number's name ends in a count, a unit, index or number": 2,
-      "updated_at: a number's name ends in a count, a unit, index or number": 1,
-      "news_at: a number's name ends in a count, a unit, index or number": 1,
-      "seen_at: a number's name ends in a count, a unit, index or number": 1,
-      "triaged_at: a number's name ends in a count, a unit, index or number": 1,
-      "triage_tries: a number's name ends in a count, a unit, index or number": 1,
-      "public: a number's name ends in a count, a unit, index or number": 1,
-      "shown: a number's name ends in a count, a unit, index or number": 1,
-      "votes: a number's name ends in a count, a unit, index or number": 1,
-      "replies: a number's name ends in a count, a unit, index or number": 1,
-      "active_at: a number's name ends in a count, a unit, index or number": 1,
-      "context: \"context\" alone doesn't say what it is": 1,
-      "check_tries: a number's name ends in a count, a unit, index or number": 1,
-      "helpful: a number's name ends in a count, a unit, index or number": 1,
-      "FORUM_REPORTS_TO_HIDE: a number's name ends in Count, a unit, Index or Number": 1,
-      "blanked: a number's name ends in a count, a unit, index or number": 1,
-      "blanked: a number's name ends in Count, a unit, Index or Number": 1,
-      "_m: a short form, not a whole word": 2,
-      "_m: variables and functions are camelCase": 2,
-      "m: a short form, not a whole word": 4,
-      "value: \"value\" alone doesn't say what it is": 1,
-      "w: a short form, not a whole word": 3,
-      "at: \"at\" alone doesn't say what it is": 1,
-      "at: a number's name ends in Count, a unit, Index or Number": 1,
-      "max: \"max\" alone doesn't say what it is": 1,
-      "max: a number's name ends in Count, a unit, Index or Number": 1,
-      "k: a short form, not a whole word": 1,
-      "score: a number's name ends in Count, a unit, Index or Number": 1,
-      "a: a short form, not a whole word": 1,
-      "b: a short form, not a whole word": 1
-    },
     "packages/core/src/headers.ts": {
       "l: a short form, not a whole word": 1,
       "h: a short form, not a whole word": 1
@@ -1104,91 +866,6 @@
     "api_keys.last_used_at": {
       "last_used_at: a stored time is <event>_at_ms": 1,
       "last_used_at: a number column ends in _count, a unit or _ms; a yes/no column starts with is_, has_ or can_ or ends in _enabled": 1
-    },
-    "feedback.severity": {
-      "severity: a number column ends in _count, a unit or _ms; a yes/no column starts with is_, has_ or can_ or ends in _enabled": 1
-    },
-    "feedback.created_at": {
-      "created_at: a stored time is <event>_at_ms": 1,
-      "created_at: a number column ends in _count, a unit or _ms; a yes/no column starts with is_, has_ or can_ or ends in _enabled": 1
-    },
-    "feedback.updated_at": {
-      "updated_at: a stored time is <event>_at_ms": 1,
-      "updated_at: a number column ends in _count, a unit or _ms; a yes/no column starts with is_, has_ or can_ or ends in _enabled": 1
-    },
-    "feedback.news_at": {
-      "news_at: a stored time is <event>_at_ms": 1,
-      "news_at: a number column ends in _count, a unit or _ms; a yes/no column starts with is_, has_ or can_ or ends in _enabled": 1
-    },
-    "feedback.seen_at": {
-      "seen_at: a stored time is <event>_at_ms": 1,
-      "seen_at: a number column ends in _count, a unit or _ms; a yes/no column starts with is_, has_ or can_ or ends in _enabled": 1
-    },
-    "feedback.triaged_at": {
-      "triaged_at: a stored time is <event>_at_ms": 1,
-      "triaged_at: a number column ends in _count, a unit or _ms; a yes/no column starts with is_, has_ or can_ or ends in _enabled": 1
-    },
-    "feedback.triage_tries": {
-      "triage_tries: a number column ends in _count, a unit or _ms; a yes/no column starts with is_, has_ or can_ or ends in _enabled": 1
-    },
-    "feedback.public": {
-      "public: a number column ends in _count, a unit or _ms; a yes/no column starts with is_, has_ or can_ or ends in _enabled": 1
-    },
-    "feedback.shown": {
-      "shown: a number column ends in _count, a unit or _ms; a yes/no column starts with is_, has_ or can_ or ends in _enabled": 1
-    },
-    "feedback.votes": {
-      "votes: a number column ends in _count, a unit or _ms; a yes/no column starts with is_, has_ or can_ or ends in _enabled": 1
-    },
-    "feedback.replies": {
-      "replies: a number column ends in _count, a unit or _ms; a yes/no column starts with is_, has_ or can_ or ends in _enabled": 1
-    },
-    "feedback.active_at": {
-      "active_at: a stored time is <event>_at_ms": 1,
-      "active_at: a number column ends in _count, a unit or _ms; a yes/no column starts with is_, has_ or can_ or ends in _enabled": 1
-    },
-    "feedback_follows.seen_at": {
-      "seen_at: a stored time is <event>_at_ms": 1,
-      "seen_at: a number column ends in _count, a unit or _ms; a yes/no column starts with is_, has_ or can_ or ends in _enabled": 1
-    },
-    "feedback_helpful.created_at": {
-      "created_at: a stored time is <event>_at_ms": 1,
-      "created_at: a number column ends in _count, a unit or _ms; a yes/no column starts with is_, has_ or can_ or ends in _enabled": 1
-    },
-    "feedback_media.ord": {
-      "ord: a number column ends in _count, a unit or _ms; a yes/no column starts with is_, has_ or can_ or ends in _enabled": 1
-    },
-    "feedback_media.created_at": {
-      "created_at: a stored time is <event>_at_ms": 1,
-      "created_at: a number column ends in _count, a unit or _ms; a yes/no column starts with is_, has_ or can_ or ends in _enabled": 1
-    },
-    "feedback_media.matched": {
-      "matched: a number column ends in _count, a unit or _ms; a yes/no column starts with is_, has_ or can_ or ends in _enabled": 1
-    },
-    "feedback_misplaced.created_at": {
-      "created_at: a stored time is <event>_at_ms": 1,
-      "created_at: a number column ends in _count, a unit or _ms; a yes/no column starts with is_, has_ or can_ or ends in _enabled": 1
-    },
-    "feedback_posts.context": {
-      "context: \"context\" alone doesn't say what it is": 1
-    },
-    "feedback_posts.created_at": {
-      "created_at: a stored time is <event>_at_ms": 1,
-      "created_at: a number column ends in _count, a unit or _ms; a yes/no column starts with is_, has_ or can_ or ends in _enabled": 1
-    },
-    "feedback_posts.check_tries": {
-      "check_tries: a number column ends in _count, a unit or _ms; a yes/no column starts with is_, has_ or can_ or ends in _enabled": 1
-    },
-    "feedback_posts.helpful": {
-      "helpful: a number column ends in _count, a unit or _ms; a yes/no column starts with is_, has_ or can_ or ends in _enabled": 1
-    },
-    "feedback_votes.created_at": {
-      "created_at: a stored time is <event>_at_ms": 1,
-      "created_at: a number column ends in _count, a unit or _ms; a yes/no column starts with is_, has_ or can_ or ends in _enabled": 1
-    },
-    "forum_reports.created_at": {
-      "created_at: a stored time is <event>_at_ms": 1,
-      "created_at: a number column ends in _count, a unit or _ms; a yes/no column starts with is_, has_ or can_ or ends in _enabled": 1
     },
     "game_server_errors.count": {
       "count: \"count\" alone doesn't say what it is": 1

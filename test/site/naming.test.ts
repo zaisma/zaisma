@@ -2,16 +2,12 @@ import { describe, expect, it } from "vitest";
 import { TOOLS } from "../../apps/site/src/mcp.ts";
 import { namingProblems, schemaProblems } from "../schema-check.ts";
 
-// The forum's tools move to docs/NAMING.md in the next slice; until then they're left out here.
-const NOT_YET = new Set(["search_forum", "get_topic", "post_topic", "message_zaisma", "reply_to_topic", "vote", "forum_people", "mark_helpful", "report_post", "still_happening", "flag_misplaced", "follow_topic", "mark_answer"]);
-const checked = TOOLS.filter((t) => !NOT_YET.has(t.name));
-
 describe("names in the developer MCP follow docs/NAMING.md", () => {
-  it("checks the tools it should", () => {
-    expect(checked.map((t) => t.name)).toEqual(expect.arrayContaining(["list_games", "get_game", "update_game", "upload_files", "get_stats", "get_reports", "get_history"]));
+  it("checks every tool", () => {
+    expect(TOOLS.map((tool) => tool.name)).toEqual(expect.arrayContaining(["list_games", "get_game", "update_game", "upload_files", "get_stats", "get_reports", "get_history", "search_forum", "get_topic", "post_topic", "message_zaisma"]));
   });
 
-  for (const tool of checked) {
+  for (const tool of TOOLS) {
     it(tool.name, () => {
       expect(namingProblems(tool.inputSchema, `${tool.name} input`, true)).toEqual([]);
       expect(tool.outputSchema, `${tool.name} needs an output schema`).toBeDefined();
@@ -54,7 +50,11 @@ describe("the naming check itself", () => {
         files: { type: "array", items: { type: "string" } },
       }),
     ).toEqual([]);
-    expect(inputs({ confirm: { type: "boolean" } })).toEqual([]);
+    expect(inputs({ confirm: { type: "boolean" }, undo: { type: "boolean" } })).toEqual([]);
+    // Plurals without an s, and a list sent in a format.
+    expect(answers({ people: { type: "array", items: { type: "string" } }, media: { type: "array", items: { type: "string" } } })).toEqual([]);
+    expect(inputs({ images_base64: { type: "array", items: { type: "string" } } })).toEqual([]);
+    expect(inputs({ image_base64: { type: "array", items: { type: "string" } } }).join()).toContain("plural");
   });
 
   it("checks answers against their schema", () => {

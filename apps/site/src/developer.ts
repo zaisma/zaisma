@@ -59,7 +59,6 @@ import {
 } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import { gameUrl, type Env } from "./env.ts";
-import { feedbackRoute } from "./feedback.ts";
 import { forumRoute } from "./forum.ts";
 import { playStats } from "./plays.ts";
 import { sendAlert } from "./email.ts";
@@ -91,7 +90,6 @@ import { KNOWN_IMAGE_ALERT, imageMatcher, pruneVersions } from "./scan.ts";
  *   POST   /api/dev/games/:slug/testers        make a tester link: { "name" }
  *   DELETE /api/dev/games/:slug/testers/:id    turn one off for good
  *   …/api/dev/forum                            the developer forum: topics, replies, Me too (see forum.ts)
- *   …/api/dev/feedback                         the first feedback calls, kept for older clients (see feedback.ts)
  *
  * Images are served from /img/:id once approved; owners can see their own before that.
  */
@@ -193,15 +191,15 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
   if (path === "/games" && method === "GET") {
     const [{ results: games }, unread] = await Promise.all([
       env.DB.prepare("SELECT * FROM games WHERE owner_id = ? ORDER BY updated_at_ms DESC").bind(caller.ownerId).all<Game>(),
-      env.DB.prepare("SELECT COUNT(*) AS topic_count FROM feedback WHERE account_id = ? AND news_at > COALESCE(seen_at, 0)").bind(caller.accountId).first<{ topic_count: number }>(),
+      env.DB.prepare("SELECT COUNT(*) AS topic_count FROM forum_topics WHERE account_id = ? AND news_at_ms > COALESCE(seen_at_ms, 0)").bind(caller.accountId).first<{ topic_count: number }>(),
     ]);
     // Your forum topics with a reply or change from Zaisma you haven't opened yet.
     return answer({ games: games.map((game) => gameJson(env, game)), unread_topic_count: unread?.topic_count ?? 0 });
   }
 
+  // The first feedback calls are gone: everything they did is in the forum.
   if (path === "/feedback" || path.startsWith("/feedback/")) {
-    const routed = await feedbackRoute(request, env, path, caller);
-    return routed instanceof Response ? routed : answer(...routed);
+    throw new ApiError(410, "gone", "The feedback calls are gone. Your topics and messages are in the forum: GET /forum?tab=yours, GET /forum?tab=messages, and POST /forum to post.");
   }
   if (path === "/forum" || path.startsWith("/forum/")) {
     const routed = await forumRoute(request, env, path, caller);

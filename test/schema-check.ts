@@ -14,7 +14,11 @@ const SHORT = new Set(["dt", "dx", "dy", "msg", "opts", "pos", "num", "cfg"]);
 /** Plurals that would read as a list, so they can't name a number or an object (rule 9). */
 const PLURALS = new Set(["files", "players", "images", "versions", "rooms", "plays", "messages", "days", "testers", "topics", "posts", "reports", "games", "events"]);
 /** Yes/no inputs that ask for an action are verbs, and these are the ones in use. */
-const VERBS = new Set(["confirm", "reopen", "publish_when_approved"]);
+const VERBS = new Set(["confirm", "reopen", "publish_when_approved", "undo"]);
+/** Plurals that don't end in s. */
+const IRREGULAR_PLURALS = new Set(["people", "media"]);
+/** Formats a list of values can be sent in, after the plural: images_base64 (docs/NAMING.md). */
+const FORMATS = new Set(["base64", "markdown"]);
 /** Objects whose keys are the caller's own, not ours: next steps' arguments. */
 const OPEN_OBJECTS = new Set(["arguments"]);
 
@@ -61,7 +65,8 @@ export function namingProblems(schema: Schema, where: string, input: boolean): s
       const shaped = /^(is|has|can)_/.test(name) || name.endsWith("_enabled") || (input && VERBS.has(name));
       if (!shaped) say("a yes/no starts with is_, has_ or can_, ends in _enabled, or (an input asking for an action) is a verb");
     }
-    if (types.includes("array") && !name.endsWith("s")) say("a list is named with a plural");
+    const listWord = tokens.length > 1 && FORMATS.has(tokens[tokens.length - 1]!) ? tokens[tokens.length - 2]! : tokens[tokens.length - 1]!;
+    if (types.includes("array") && !listWord.endsWith("s") && !IRREGULAR_PLURALS.has(listWord)) say("a list is named with a plural");
     const last = tokens[tokens.length - 1]!;
     const unitSuffix = tokens.length > 1 && UNITS.includes(last);
     if (!types.includes("array") && PLURALS.has(last) && !unitSuffix) say("a plural names a list; a number of things is <thing>_count");

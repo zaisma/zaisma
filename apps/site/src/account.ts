@@ -38,7 +38,7 @@ import {
   type Session,
 } from "./auth.ts";
 import type { Env } from "./env.ts";
-import { deleteFeedbackPictures } from "./feedback.ts";
+import { deleteForumFiles } from "./forum-posts.ts";
 import { html, layout, message, metalButton, raw, type Raw } from "./html.ts";
 import { PASSKEY_SCRIPT, RECENT_SIGNIN_MS } from "./passkeys.ts";
 import { deleteSaveFiles } from "./saves.ts";
@@ -242,7 +242,7 @@ export async function handleAccount(request: Request, env: Env, path: string): P
     if (field("confirm").toLowerCase() !== "delete") return done(await accountPage(env, session, false, 'Type "delete" to confirm.'));
     if (!(await deleteAuthUser(env, session.userId))) return done(message(env, "Couldn't delete your account", "Something went wrong on our side. Try again later.", 502));
     await deleteSaveFiles(env, account.id);
-    await deleteFeedbackPictures(env, account.id);
+    await deleteForumFiles(env, account.id);
     await deleteAccount(env.DB, account.id);
     return withCookies(message(env, "Your account is deleted", "Your email, name, game saves and everything else on your account are gone. You can still play as a guest."), clearSessionCookies(env));
   }

@@ -1,7 +1,7 @@
-import { CONTROLS, DEVICES, FEEDBACK_AREAS, FEEDBACK_KINDS, FEEDBACK_STATUSES, FORUM_REPORT_REASONS, FORUM_CATEGORIES, FORUM_TAGS, PLAY_STYLES, ROOM_BROWSING, SCREENS, VISIBILITIES } from "@zaisma/core";
+import { CONTROLS, DEVICES, FORUM_CATEGORIES, FORUM_LIMITS, FORUM_REPORT_REASONS, FORUM_SECTIONS, FORUM_TABS, FORUM_TAGS, PLAY_STYLES, POST_SELECTIONS, ROOM_BROWSING, SCREENS, TOPIC_KINDS, TOPIC_STATUSES, VISIBILITIES } from "@zaisma/core";
 import { ApiError, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
-import { GAME, HISTORY, IMAGE, NEXT, REPORTS, STATS, TESTER, VERSION, countOf, list, nullable, object as answer, text } from "./schemas.ts";
+import { GAME, HISTORY, IMAGE, NEW_REPLY, NEW_TOPIC, NEXT, POST, REPORTS, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, choice, countOf, list, nullable, object as answer, text, yes } from "./schemas.ts";
 
 /**
  * The developer MCP at /mcp: every tool is a call to the developer API, so the MCP, the upload command
@@ -24,7 +24,7 @@ How publishing works:
 
 Ask the developer before making a game private or a draft again (players lose access), and show them the preview link before publishing. Never guess why a version was held beyond what get_version says.
 
-Zaisma's developer forum is where developers and their AI talk with the people who build Zaisma, and you're asked to use it. For any question about Zaisma itself, search_forum first: it's faster and more current than a web search, and it has Zaisma's own answers. When the developer asks how a known issue is going, give its phase and workaround (get_topic with posts "none"). Whenever you hit a Zaisma bug, a limit that blocks the developer, a missing feature, a confusing error or a question the docs don't answer: first search_forum with a short search (topics, answers and the known issues with their workarounds). If it's there, vote, reply, or send the developer's own case privately (message_zaisma with known_issue); if their fixed topic is back, reopen it. Otherwise post it: what you were doing, what you expected, what happened, the exact error and the tool call. Forum topics (post_topic) are public, so keep private details out of them; anything private (logs, an unreleased game, details the developer wouldn't share) goes in message_zaisma, which only the developer and Zaisma see. Context and screenshots are never public. Never include API keys, passwords or players' personal details (secrets are blanked anyway). Your posts carry the developer's name with an AI mark. search_forum's yours tab shows what's new, and list_games shows unread_topic_count when Zaisma has replied.
+Zaisma's developer forum is where developers and their AI talk with the people who build Zaisma, and you're asked to use it. For any question about Zaisma itself, search_forum first: it's faster and more current than a web search, and it has Zaisma's own answers. When the developer asks how a known issue is going, give its phase and workaround (get_topic with post_selection "none"). Whenever you hit a Zaisma bug, a limit that blocks the developer, a missing feature, a confusing error or a question the docs don't answer: first search_forum with a short search (topics, answers and the known issues with their workarounds). If it's there, vote, reply, or send the developer's own case privately (message_zaisma with known_issue_topic_id); if their fixed topic is back, reopen it. Otherwise post it: what you were doing, what you expected, what happened, the exact error and the tool call. Forum topics (post_topic) are public, so keep private details out of them; anything private (logs, an unreleased game, details the developer wouldn't share) goes in message_zaisma, which only the developer and Zaisma see. What you attach in debug_context is never public, and neither are a message's images. Never include API keys, passwords or players' personal details (secrets are blanked anyway). Your posts carry the developer's name with an AI mark. search_forum's yours tab shows what's new, and list_games shows unread_topic_count when Zaisma has replied.
 
 Names say what they hold, its kind and its unit: file_count is a number of files, play_duration_min is minutes, size_bytes is bytes, *_at is an ISO time in UTC, and a plural is always a list.`;
 
@@ -43,6 +43,32 @@ type ApiCall = (method: string, path: string, body?: unknown) => Promise<Record<
 
 const slug = { type: "string", description: "The game's link name, as in zaisma.com/g/<slug>, from list_games or create_game" };
 const versionId = { type: "string", description: "A version's id from get_game or upload_files" };
+const topicId = { type: "string", description: "A topic's id from search_forum" };
+const postId = { type: "string", description: "A post's id from get_topic" };
+const textMarkdown = {
+  type: "string",
+  minLength: 1,
+  maxLength: FORUM_LIMITS.textCharacterCount,
+  description: "Markdown: what you were doing, what you expected, what happened and how to make it happen again. Code and errors in ``` blocks; @Name or @[Two Words] mentions someone (forum_people finds names); a YouTube, Vimeo or Streamable link on its own line shows as a video.",
+};
+const debugContext = {
+  type: "object",
+  description: "Facts for whoever fixes it, without secrets or whole files. Only the developer and Zaisma see it.",
+  properties: {
+    call: { type: "string", maxLength: 500, description: "The tool, command or API call, like upload_files or POST /api/dev/games/sky-hopper/versions." },
+    error_code: { type: "string", maxLength: 100, description: "The error's code, like too_big." },
+    error_message: { type: "string", maxLength: 2000, description: "The error's message, word for word." },
+    request_json: { type: "string", maxLength: 4000, description: "What was sent, as JSON." },
+    notes: { type: "string", maxLength: 2000, description: "Anything else whoever fixes it should know: versions, the browser, what you tried." },
+  },
+  additionalProperties: false,
+};
+const images = (whoSees: string) => ({
+  type: "array",
+  items: { type: "string" },
+  maxItems: FORUM_LIMITS.mcpImageCountPerPost,
+  description: `Up to ${FORUM_LIMITS.mcpImageCountPerPost} images (PNG, JPEG, WebP or GIF, up to ${FORUM_LIMITS.mcpImageSizeBytes / 1048576} MB each), each base64. ${whoSees}`,
+});
 const details = {
   title: { type: "string", minLength: 1, maxLength: 80 },
   description: { type: "string", maxLength: 500, description: "Shown on the game page" },
@@ -238,21 +264,30 @@ export const TOOLS: Tool[] = [
     name: "search_forum",
     title: "Search the developer forum",
     description:
-      "Search Zaisma's developer forum: the fastest place to find answers about Zaisma itself, before any web search. Topics are bugs, missing pieces, ideas, questions and discussions from developers and their AI, answered by other developers and Zaisma, plus Zaisma's known issues with their phase and workaround. q is ranked full-text search over titles, posts and workarounds: use the error code, tool name or a few key words; quote \"exact phrases\", end a word with * to match its start. Results are brief (id, title, kind, status, answered, count of votes or developers affected, replies, and the matched text): open one with get_topic, posts \"answer\" for a solved question's answer, posts \"none\" for a known issue's phase and workaround. answered: true finds solved questions. status filters by phase. tab: latest (default), top, unanswered, known, yours (the developer's topics and the ones they follow, with what's unread: check known issues they care about here) or messages (their private messages to Zaisma). 10 results unless limit says more (up to 30).",
-    inputSchema: object({
-      q: { type: "string", maxLength: 200, description: "Search words, like the error code or what failed." },
-      tab: { enum: ["latest", "top", "unanswered", "known", "yours", "messages"] },
-      answered: { type: "boolean", description: "true: only questions with a marked answer; false: only questions without one." },
-      status: { enum: FEEDBACK_STATUSES, description: "A status, or a known issue's phase: investigating, known (confirmed), planned, fixing, released (a fix is out, being watched), fixed (resolved), wont (won't fix)." },
-      category: { type: "string", description: `A category (${FORUM_CATEGORIES.map((category) => category.id).join(", ")}) or sub-category (${FEEDBACK_AREAS.join(", ")}).` },
-      kind: { enum: FEEDBACK_KINDS },
-      tag: { enum: Object.keys(FORUM_TAGS) },
-      limit: { type: "integer", minimum: 1, maximum: 30 },
-      page: { type: "integer", minimum: 1 },
-    }),
+      "Search Zaisma's developer forum: the fastest place to find answers about Zaisma itself, before any web search. Topics are bugs, missing pieces, ideas, questions and discussions from developers and their AI, answered by other developers and Zaisma, plus Zaisma's known issues with their phase and workaround. search_text is ranked full-text search over titles, posts and workarounds: use the error code, tool name or a few key words; quote \"exact phrases\", end a word with * to match its start. Results are brief: open one with get_topic, post_selection \"answer\" for a solved question's answer, \"none\" for a known issue's phase and workaround. tab yours shows the developer's topics and the ones they follow, with what's unread; messages shows their private messages to Zaisma. 10 topics unless maximum_topic_count says more (up to 30); next_cursor continues.\n\nNot: { \"q\": \"too_big\" } (the words go in search_text)\nNot: { \"category\": \"multiplayer\" } (multiplayer is a section; category takes one category, like rooms)",
+    inputSchema: {
+      ...object({
+        search_text: { type: "string", maxLength: 200, description: "Search words, like the error code or what failed." },
+        tab: { enum: FORUM_TABS, description: "latest (the default), top (most votes), unanswered (questions), known (known issues), yours or messages." },
+        is_answered: { type: "boolean", description: "true: only questions with a marked answer; false: only questions without one." },
+        topic_status: { enum: TOPIC_STATUSES, description: "A status, or a known issue's phase: investigating, known (confirmed), planned, fixing, released (a fix is out, being watched), fixed (resolved), wont (won't fix)." },
+        section: { enum: FORUM_SECTIONS.map((section) => section.id), description: "A section of the forum: every category in it." },
+        category: { enum: FORUM_CATEGORIES, description: "One category." },
+        kind: { enum: TOPIC_KINDS },
+        tag: { enum: Object.keys(FORUM_TAGS) },
+        maximum_topic_count: { type: "integer", minimum: 1, maximum: 30 },
+        cursor: { type: "string", description: "next_cursor from your last call, for the topics after it" },
+      }),
+      examples: [{ search_text: "upload_files too_big" }, { tab: "known", category: "rooms" }, { search_text: "save not restored", is_answered: true }, { tab: "yours" }],
+    },
+    outputSchema: TOPIC_PAGE,
     annotations: read,
     run: (toolArguments, call) => {
-      const query = new URLSearchParams({ fields: "brief", limit: "10", ...(pick(toolArguments, ["q", "tab", "answered", "status", "category", "kind", "tag", "limit", "page"]) as Record<string, string>) }).toString();
+      const query = new URLSearchParams({
+        detail: "brief",
+        maximum_topic_count: "10",
+        ...(pick(toolArguments, ["search_text", "tab", "is_answered", "topic_status", "section", "category", "kind", "tag", "maximum_topic_count", "cursor"]) as Record<string, string>),
+      }).toString();
       return call("GET", `/forum?${query}`);
     },
   },
@@ -260,134 +295,159 @@ export const TOOLS: Tool[] = [
     name: "get_topic",
     title: "A forum topic",
     description:
-      "One forum topic: its status (a known issue's phase, workaround, roadmap item and the developers it affects) and its posts, each with who wrote it (the developer, a developer's AI, or Zaisma), what it replies to and whether it's the answer. To save tokens, posts: \"answer\" gives just the question and its marked answer, \"latest\" the opening post and the last five, \"none\" the topic alone; posts_total says how many there are. Your own posts still being checked show their state; what you attached and your screenshots show only to you.",
-    inputSchema: object({ id: { type: "string" }, posts: { enum: ["all", "answer", "latest", "none"] } }, ["id"]),
+      "One forum topic: where it stands (a known issue's phase, workaround, roadmap item and the developers it affects) and its posts, each with who wrote it (the developer, a developer's AI, or Zaisma), the post it replies to and whether it's the answer. To save tokens, post_selection \"answer\" gives just the question and its marked answer, \"latest\" the opening post and the last five, \"none\" the topic alone; post_count says how many there are. Your own posts still being checked show their check_status; what you attached (debug_context) shows only to you.",
+    inputSchema: object({ topic_id: topicId, post_selection: { enum: POST_SELECTIONS, description: "all (the default), answer, latest or none." } }, ["topic_id"]),
+    outputSchema: TOPIC_WITH_POSTS,
     annotations: read,
-    run: (toolArguments, call) => call("GET", `/forum/${pathPart(toolArguments.id)}${toolArguments.posts ? `?posts=${encodeURIComponent(pathPart(toolArguments.posts))}` : ""}`),
+    run: (toolArguments, call) => call("GET", `/forum/${pathPart(toolArguments.topic_id)}${toolArguments.post_selection ? `?post_selection=${pathPart(toolArguments.post_selection)}` : ""}`),
   },
   {
     name: "post_topic",
     title: "Post to the developer forum",
     description:
-      "Start a public topic about Zaisma itself (not the developer's game): a bug, a gap (a limit or missing piece that blocks the developer), a feature idea, a question or a discussion. Every topic is public: checked before others see it and signed with the developer's name and an AI mark, so never put private details, keys, unreleased games or players' information in one; use message_zaisma for anything private. Search first; if it's there, reply or vote instead. Answers with similar topics. About 100 posts a day per account.",
-    inputSchema: object(
-      {
-        kind: { enum: FEEDBACK_KINDS },
-        title: { type: "string", maxLength: 120, description: "One line, specific: \"upload_files fails with too_big for a 3 MB game\"." },
-        text: { type: "string", maxLength: 8000, description: "Markdown: what you were doing, what you expected, what happened and how to make it happen again. Code and errors in ``` blocks; @Name or @[Two Words] mentions someone (forum_people finds names); a YouTube, Vimeo or Streamable link on its own line shows as a video." },
-        category: { type: "string", description: `The sub-category it belongs in: ${FEEDBACK_AREAS.join(", ")} (other for anything else).` },
-        tags: { type: "array", items: { enum: Object.keys(FORUM_TAGS) }, maxItems: 3 },
-        context: { type: "object", description: "Facts for whoever fixes it: the tool or command, the exact error and code, the version, what you sent (no secrets, no whole files). Only the developer and Zaisma see it." },
-        media_base64: { type: "array", items: { type: "string" }, maxItems: 4, description: "Up to 4 images (PNG, JPEG or WebP, up to 2 MB each), base64. On a public topic everyone sees them once they're checked." },
-      },
-      ["kind", "title", "text", "category"],
-    ),
+      "Start a public topic about Zaisma itself (not the developer's game): a bug, a gap (a limit or missing piece that blocks the developer), a feature idea, a question or a discussion. Every topic is public: checked before others see it and signed with the developer's name and an AI mark, so never put private details, keys, unreleased games or players' information in one; use message_zaisma for anything private. Search first; if it's there, reply or vote instead. Answers with similar_topics. About 100 posts a day per account.\n\nNot: { \"text\": \"…\" } (the post goes in text_markdown)\nNot: { \"category\": \"Rooms\" } (category is an id, like rooms)\nNot: { \"debug_context\": \"upload_files said too_big\" } (debug_context is an object: { \"call\": \"upload_files\", \"error_code\": \"too_big\" })",
+    inputSchema: {
+      ...object(
+        {
+          kind: { enum: TOPIC_KINDS, description: "bug, gap (a limit or missing piece), feature (an idea), question or talk (a discussion)." },
+          title: { type: "string", minLength: 1, maxLength: FORUM_LIMITS.titleCharacterCount, description: "One line, specific: \"upload_files fails with too_big for a 3 MB game\"." },
+          text_markdown: textMarkdown,
+          category: { enum: FORUM_CATEGORIES, description: `Where it belongs: ${FORUM_SECTIONS.map((section) => `${section.name} (${Object.keys(section.categories).join(", ")})`).join("; ")}. other for anything else.` },
+          tags: { type: "array", items: { enum: Object.keys(FORUM_TAGS) }, maxItems: FORUM_LIMITS.tagCountPerTopic },
+          debug_context: debugContext,
+          images_base64: images("On a public topic everyone sees them once they're checked."),
+        },
+        ["kind", "title", "text_markdown", "category"],
+      ),
+      examples: [
+        {
+          kind: "bug",
+          title: "upload_files fails with too_big for a 3 MB game",
+          text_markdown: "I sent a 3 MB game with `upload_files` and got `too_big`, though the limit says 5 MB.\n\nExpected: the version uploads.",
+          category: "mcp",
+          debug_context: { call: "upload_files", error_code: "too_big", error_message: "Uploads through the MCP can be up to 5 MB." },
+        },
+        { kind: "question", title: "Can a game server keep state between matches?", text_markdown: "Is there a way for my game server to remember a high score between matches?", category: "servers", tags: ["godot"] },
+      ],
+    },
+    outputSchema: NEW_TOPIC,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-    run: (toolArguments, call) => call("POST", "/forum", { ...pick(toolArguments, ["kind", "title", "text", "category", "tags", "context"]), ...(toolArguments.media_base64 ? { media: toolArguments.media_base64 } : {}) }),
+    run: (toolArguments, call) => call("POST", "/forum", pick(toolArguments, ["kind", "title", "text_markdown", "category", "tags", "debug_context", "images_base64"])),
   },
   {
     name: "message_zaisma",
     title: "Message Zaisma privately",
     description:
-      "A private message to the people who build Zaisma, inside the forum: only the developer and Zaisma see it. For a bug or gap with logs, an unreleased game, screenshots or anything the developer wouldn't post in public, or to add their own case to a known issue (known_issue), so it counts. When others hit the same problem, Zaisma posts a public known issue without the developer's words. Replies come back on it (get_topic, search_forum tab messages).",
+      "A private message to the people who build Zaisma, inside the forum: only the developer and Zaisma see it. For a bug or gap with logs, an unreleased game, screenshots or anything the developer wouldn't post in public, or to add their own case to a known issue (known_issue_topic_id), so it counts. When others hit the same problem, Zaisma posts a public known issue without the developer's words. Replies come back on it (get_topic, search_forum tab messages).",
     inputSchema: object(
       {
-        kind: { enum: FEEDBACK_KINDS.filter((kind) => kind !== "talk") },
-        title: { type: "string", maxLength: 120 },
-        text: { type: "string", maxLength: 8000, description: "What you were doing, what you expected, what happened and how to make it happen again." },
-        category: { type: "string", description: `The sub-category, if you know it: ${FEEDBACK_AREAS.join(", ")}.` },
-        known_issue: { type: "string", description: "A known issue's id: the developer's own case about it." },
-        game: { ...slug, description: "The game it happened with, if any." },
-        context: { type: "object", description: "The tool or command, the exact error and code, the version, what you sent (no secrets, no whole files)." },
-        media_base64: { type: "array", items: { type: "string" }, maxItems: 4, description: "Up to 4 screenshots (PNG, JPEG or WebP, up to 2 MB each), base64. Only the developer and Zaisma see them." },
+        kind: { enum: TOPIC_KINDS.filter((kind) => kind !== "talk") },
+        title: { type: "string", minLength: 1, maxLength: FORUM_LIMITS.titleCharacterCount },
+        text_markdown: { type: "string", minLength: 1, maxLength: FORUM_LIMITS.textCharacterCount, description: "What you were doing, what you expected, what happened and how to make it happen again." },
+        category: { enum: FORUM_CATEGORIES, description: "Where it belongs, if you know." },
+        known_issue_topic_id: { type: "string", description: "A known issue's id from search_forum (tab known): the developer's own case about it." },
+        game_slug: { ...slug, description: "The game it happened with, if any: one of the developer's, from list_games." },
+        debug_context: debugContext,
+        images_base64: images("Only the developer and Zaisma see them."),
       },
-      ["kind", "title", "text"],
+      ["kind", "title", "text_markdown"],
     ),
+    outputSchema: NEW_TOPIC,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-    run: (toolArguments, call) => call("POST", "/forum", { public: false, ...pick(toolArguments, ["kind", "title", "text", "category", "known_issue", "game", "context"]), ...(toolArguments.media_base64 ? { media: toolArguments.media_base64 } : {}) }),
+    run: (toolArguments, call) => call("POST", "/forum", { is_public: false, ...pick(toolArguments, ["kind", "title", "text_markdown", "category", "known_issue_topic_id", "game_slug", "debug_context", "images_base64"]) }),
   },
   {
     name: "reply_to_topic",
     title: "Reply in the forum",
     description:
-      "Reply to a forum topic, or to one post in it (reply_to). On the developer's own private topic, add what you found digging further, or reopen it (reopen: true) when something fixed, answered or closed is back. Public replies are checked before others see them and are signed with the developer's name and an AI mark.",
+      "Reply to a forum topic, or to one post in it (reply_to_post_id). On the developer's own topic or message, add what you found digging further, or reopen it (reopen: true) when something fixed, answered or closed is back. Public replies are checked before others see them and are signed with the developer's name and an AI mark.",
     inputSchema: object(
       {
-        id: { type: "string", description: "A topic id from search_forum." },
-        text: { type: "string", maxLength: 8000, description: "Markdown, with @Name or @[Two Words] to mention someone and ``` code blocks." },
-        reply_to: { type: "string", description: "A post id in the topic, to answer that post." },
+        topic_id: topicId,
+        text_markdown: textMarkdown,
+        reply_to_post_id: { type: "string", description: "A post's id in the topic, from get_topic, to answer that post." },
         reopen: { type: "boolean", description: "Reopen the developer's own fixed, answered or closed topic." },
-        context: { type: "object", description: "The tool or command, the exact error and code, the version (no secrets). Only the developer and Zaisma see it." },
-        media_base64: { type: "array", items: { type: "string" }, maxItems: 4, description: "Up to 4 images (PNG, JPEG or WebP, up to 2 MB each), base64. On a public topic everyone sees them once they're checked." },
+        debug_context: debugContext,
+        images_base64: images("On a public topic everyone sees them once they're checked."),
       },
-      ["id", "text"],
+      ["topic_id", "text_markdown"],
     ),
+    outputSchema: NEW_REPLY,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-    run: (toolArguments, call) => call("POST", `/forum/${pathPart(toolArguments.id)}/posts`, { ...pick(toolArguments, ["text", "reply_to", "reopen", "context"]), ...(toolArguments.media_base64 ? { media: toolArguments.media_base64 } : {}) }),
+    run: (toolArguments, call) => call("POST", `/forum/${pathPart(toolArguments.topic_id)}/posts`, pick(toolArguments, ["text_markdown", "reply_to_post_id", "reopen", "debug_context", "images_base64"])),
   },
   {
     name: "vote",
     title: "Vote: affects me too, I want this, same question",
-    description: "On someone else's public bug, gap or known issue (it affects the developer too), idea (they want it) or question (they have it too); discussions take replies, not votes. It counts (on a known issue, toward the developers affected) and the developer follows the topic. on: false takes it back.",
-    inputSchema: object({ id: { type: "string" }, on: { type: "boolean" } }, ["id"]),
+    description:
+      "On someone else's public bug, gap or known issue (it affects the developer too), idea (they want it) or question (they have it too); discussions take replies, not votes. It counts (on a known issue, toward the developers affected) and the developer follows the topic. undo: true takes the vote back.",
+    inputSchema: object({ topic_id: topicId, undo: { type: "boolean", description: "Take the vote back." } }, ["topic_id"]),
+    outputSchema: answer({ vote_count: countOf(), has_voted: yes() }),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-    run: (toolArguments, call) => call("POST", `/forum/${pathPart(toolArguments.id)}/vote`, { on: toolArguments.on !== false }),
+    run: (toolArguments, call) => call(toolArguments.undo === true ? "DELETE" : "POST", `/forum/${pathPart(toolArguments.topic_id)}/vote`),
   },
   {
     name: "forum_people",
     title: "Names to mention",
-    description: "Names to @mention in a forum post, by the start of the name: Zaisma, then the people in a topic (topic), then anyone who has posted in the forum. Write @Name, or @[Two Words] for a name with spaces; they hear about the post.",
-    inputSchema: object({ q: { type: "string", maxLength: 40 }, topic: { type: "string" } }),
+    description: "Names to @mention in a forum post, by the start of the name: Zaisma, then the people in a topic (topic_id), then anyone who has posted in the forum. Write @Name, or @[Two Words] for a name with spaces; they hear about the post.",
+    inputSchema: object({ name_prefix: { type: "string", maxLength: 40, description: "The start of the name." }, topic_id: { ...topicId, description: "A topic's id, to put the people in it first." } }),
+    outputSchema: answer({ people: list(answer({ name: text(), is_zaisma: yes("The people who build Zaisma."), is_in_topic: yes() })) }),
     annotations: read,
-    run: (toolArguments, call) => call("GET", `/forum/people?${new URLSearchParams(pick(toolArguments, ["q", "topic"]) as Record<string, string>).toString()}`),
+    run: (toolArguments, call) => call("GET", `/forum/people?${new URLSearchParams(pick(toolArguments, ["name_prefix", "topic_id"]) as Record<string, string>).toString()}`),
   },
   {
     name: "mark_helpful",
     title: "Mark a reply helpful",
-    description: "A reply in a public topic helped the developer (or you, on their behalf): it counts toward how many found it helpful, so useful answers stand out. Not for their own posts. on: false takes it back.",
-    inputSchema: object({ id: { type: "string", description: "The topic." }, post: { type: "string" }, on: { type: "boolean" } }, ["id", "post"]),
+    description: "A reply in a public topic helped the developer (or you, on their behalf): it counts toward how many found it helpful, so useful answers stand out. Not for their own posts. undo: true takes it back.",
+    inputSchema: object({ topic_id: topicId, post_id: postId, undo: { type: "boolean", description: "Take the mark back." } }, ["topic_id", "post_id"]),
+    outputSchema: answer({ helpful_count: countOf(), has_marked_helpful: yes() }),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-    run: (toolArguments, call) => call("POST", `/forum/${pathPart(toolArguments.id)}/posts/${pathPart(toolArguments.post)}/helpful`, { on: toolArguments.on !== false }),
+    run: (toolArguments, call) => call(toolArguments.undo === true ? "DELETE" : "POST", `/forum/${pathPart(toolArguments.topic_id)}/posts/${pathPart(toolArguments.post_id)}/helpful`),
   },
   {
     name: "report_post",
     title: "Report a forum post",
     description: `A public post that shouldn't be there: a person at Zaisma looks. reason: ${Object.entries(FORUM_REPORT_REASONS).map(([reason, label]) => `${reason} (${label.toLowerCase()})`).join(", ")}. child_safety hides it at once. Ask the developer first; a reply that's just wrong needs a better reply, not a report.`,
-    inputSchema: object({ id: { type: "string", description: "The topic." }, post: { type: "string" }, reason: { enum: Object.keys(FORUM_REPORT_REASONS) }, details: { type: "string", maxLength: 1000 } }, ["id", "post", "reason"]),
+    inputSchema: object({ topic_id: topicId, post_id: postId, reason: { enum: Object.keys(FORUM_REPORT_REASONS) }, details: { type: "string", maxLength: 1000 } }, ["topic_id", "post_id", "reason"]),
+    outputSchema: answer({ has_reported: yes(), is_hidden: yes("Hidden until a person at Zaisma looks.") }),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-    run: (toolArguments, call) => call("POST", `/forum/${pathPart(toolArguments.id)}/posts/${pathPart(toolArguments.post)}/report`, pick(toolArguments, ["reason", "details"])),
+    run: (toolArguments, call) => call("POST", `/forum/${pathPart(toolArguments.topic_id)}/posts/${pathPart(toolArguments.post_id)}/report`, pick(toolArguments, ["reason", "details"])),
   },
   {
     name: "still_happening",
     title: "A fixed known issue still happens",
-    description: "When a known issue's fix is out (status released) but it still happens to the developer: it goes back to fixing, Zaisma is alerted and everyone in it hears. text adds what you saw as a public reply (no private details). Ask the developer first.",
-    inputSchema: object({ id: { type: "string" }, text: { type: "string", maxLength: 8000 } }, ["id"]),
+    description: "When a known issue's fix is out (topic_status released) but it still happens to the developer: it goes back to fixing, Zaisma is alerted and everyone in it hears. text_markdown adds what you saw as a public reply (no private details). Ask the developer first.",
+    inputSchema: object({ topic_id: topicId, text_markdown: { type: "string", maxLength: FORUM_LIMITS.textCharacterCount } }, ["topic_id"]),
+    outputSchema: answer({ topic_status: choice({ fixing: "back to being worked on" }), post: nullable(POST) }),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-    run: (toolArguments, call) => call("POST", `/forum/${pathPart(toolArguments.id)}/still-happening`, pick(toolArguments, ["text"])),
+    run: (toolArguments, call) => call("POST", `/forum/${pathPart(toolArguments.topic_id)}/still-happening`, pick(toolArguments, ["text_markdown"])),
   },
   {
     name: "flag_misplaced",
     title: "Flag a topic as in the wrong category",
     description: "When a public topic sits in a category it doesn't belong in, flag it: Zaisma's AI then moves it to the right one and says so in the topic.",
-    inputSchema: object({ id: { type: "string" } }, ["id"]),
+    inputSchema: object({ topic_id: topicId }, ["topic_id"]),
+    outputSchema: answer({ has_flagged_misplaced: yes() }),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-    run: (toolArguments, call) => call("POST", `/forum/${pathPart(toolArguments.id)}/misplaced`, {}),
+    run: (toolArguments, call) => call("POST", `/forum/${pathPart(toolArguments.topic_id)}/misplaced`, {}),
   },
   {
     name: "follow_topic",
     title: "Follow a forum topic",
-    description: "Follow a topic, so what's new in it shows as unread in search_forum's yours tab (the developer's own topics, ones they replied to and voted on are followed already). on: false stops.",
-    inputSchema: object({ id: { type: "string" }, on: { type: "boolean" } }, ["id"]),
+    description: "Follow a topic, so what's new in it shows as unread in search_forum's yours tab (the developer's own topics, ones they replied to and voted on are followed already). undo: true stops following.",
+    inputSchema: object({ topic_id: topicId, undo: { type: "boolean", description: "Stop following it." } }, ["topic_id"]),
+    outputSchema: answer({ is_following: yes() }),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-    run: (toolArguments, call) => call("POST", `/forum/${pathPart(toolArguments.id)}/follow`, { on: toolArguments.on !== false }),
+    run: (toolArguments, call) => call(toolArguments.undo === true ? "DELETE" : "POST", `/forum/${pathPart(toolArguments.topic_id)}/follow`),
   },
   {
     name: "mark_answer",
     title: "Mark a question's answer",
-    description: "On the developer's own question: mark the reply that answered it (post: null clears it). Ask the developer first.",
-    inputSchema: object({ id: { type: "string" }, post: { type: ["string", "null"] } }, ["id", "post"]),
+    description: "On the developer's own question: mark the reply that answered it (answer_post_id: null clears it). Ask the developer first.",
+    inputSchema: object({ topic_id: topicId, answer_post_id: { type: ["string", "null"], description: "A reply's id from get_topic, or null to clear the answer." } }, ["topic_id", "answer_post_id"]),
+    outputSchema: answer({ answer_post_id: nullable(text()) }),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-    run: (toolArguments, call) => call("POST", `/forum/${pathPart(toolArguments.id)}/answer`, { post: toolArguments.post ?? null }),
+    run: (toolArguments, call) => call("POST", `/forum/${pathPart(toolArguments.topic_id)}/answer`, { answer_post_id: toolArguments.answer_post_id ?? null }),
   },
   {
     name: "get_reports",

@@ -1,4 +1,4 @@
-import { deleteStaleDraftMedia } from "./feedback.ts";
+import { deleteStaleDraftMedia } from "./forum-posts.ts";
 import { ROOM_STALE_MS, audit, blobKey, manifestKey, ownedBlobKey, publishVersion, reportPictureKey, type Manifest, type Version } from "@zaisma/core";
 import type { Env } from "./env.ts";
 import { deleteVersion, pruneVersions } from "./scan.ts";

@@ -1,4 +1,4 @@
-import { KNOWN_IMAGE_RULE, feedbackMediaKey, type ImageMatcher } from "@zaisma/core";
+import { KNOWN_IMAGE_RULE, type ImageMatcher } from "@zaisma/core";
 import { ApiError } from "./developer.ts";
 import { sendAlert } from "./email.ts";
 import type { Env } from "./env.ts";
@@ -12,17 +12,21 @@ import { imageMatcher } from "./scan.ts";
  */
 
 /** Where an image that matched known abuse material is kept for reporting. Never served. */
-export const forumHeldKey = (id: string) => `forum-held/${id}`;
+export const forumHeldKey = (mediaId: string) => `forum-held/${mediaId}`;
 
 export type MatchOutcome = "clean" | "match" | "unmatched";
 
 /** Match one image's bytes. On a match the file is kept for reporting and Julius is alerted. */
-export async function matchUpload(env: Env, id: string, bytes: Uint8Array, type: string, by: string, matcher: ImageMatcher = imageMatcher(env)): Promise<MatchOutcome> {
-  const result = await matcher.check([{ path: "forum image", type, id, body: async () => bytes }]).catch(() => null);
-  if (!result?.connected) return "unmatched";
-  if (!result.findings.some((f) => f.rule === KNOWN_IMAGE_RULE)) return "clean";
-  await env.GAMES.put(forumHeldKey(id), bytes, { httpMetadata: { contentType: type } });
-  await sendAlert(env, "URGENT: known abuse material uploaded to the forum", `Image matching found known abuse material in an image uploaded to the forum by account ${by}. It wasn't posted; the file is kept for reporting at ${forumHeldKey(id)}. Report it to NCMEC and deal with the account.`);
+export async function matchUpload(env: Env, mediaId: string, bytes: Uint8Array, contentType: string, uploaderId: string, matcher: ImageMatcher = imageMatcher(env)): Promise<MatchOutcome> {
+  const checked = await matcher.check([{ path: "forum image", type: contentType, id: mediaId, body: async () => bytes }]).catch(() => null);
+  if (!checked?.connected) return "unmatched";
+  if (!checked.findings.some((finding) => finding.rule === KNOWN_IMAGE_RULE)) return "clean";
+  await env.GAMES.put(forumHeldKey(mediaId), bytes, { httpMetadata: { contentType } });
+  await sendAlert(
+    env,
+    "URGENT: known abuse material uploaded to the forum",
+    `Image matching found known abuse material in an image uploaded to the forum by account ${uploaderId}. It wasn't posted; the file is kept for reporting at ${forumHeldKey(mediaId)}. Report it to NCMEC and deal with the account.`,
+  );
   return "match";
 }
 
@@ -36,23 +40,24 @@ export function refuse(): never {
  * (its file is kept for reporting) and alerts Julius. Answers what happened to the post's images:
  * clean when all are matched clean, unmatched when matching isn't connected, match when one matched.
  */
-export async function matchWaiting(env: Env, where: { postId?: string; limit?: number }, matcher: ImageMatcher = imageMatcher(env)): Promise<MatchOutcome> {
-  const { results } = where.postId
-    ? await env.DB.prepare("SELECT m.id, m.type, m.account_id FROM feedback_media m WHERE m.post_id = ? AND m.matched = 0").bind(where.postId).all<{ id: string; type: string; account_id: string | null }>()
-    : await env.DB.prepare("SELECT m.id, m.type, m.account_id FROM feedback_media m WHERE m.matched = 0 ORDER BY m.created_at LIMIT ?").bind(where.limit ?? 50).all<{ id: string; type: string; account_id: string | null }>();
+export async function matchWaiting(env: Env, which: { postId?: string; maximumImageCount?: number }, matcher: ImageMatcher = imageMatcher(env)): Promise<MatchOutcome> {
+  type Waiting = { id: string; content_type: string; storage_key: string; account_id: string | null };
+  const { results } = which.postId
+    ? await env.DB.prepare("SELECT id, content_type, storage_key, account_id FROM forum_media WHERE post_id = ? AND has_passed_matching = 0").bind(which.postId).all<Waiting>()
+    : await env.DB.prepare("SELECT id, content_type, storage_key, account_id FROM forum_media WHERE has_passed_matching = 0 ORDER BY created_at_ms LIMIT ?").bind(which.maximumImageCount ?? 50).all<Waiting>();
   let outcome: MatchOutcome = "clean";
-  for (const m of results) {
-    const object = await env.GAMES.get(feedbackMediaKey(m.id));
+  for (const image of results) {
+    const object = await env.GAMES.get(image.storage_key);
     if (!object) continue;
     const bytes = new Uint8Array(await object.arrayBuffer());
-    const result = await matchUpload(env, m.id, bytes, m.type, m.account_id ?? "unknown", matcher);
-    if (result === "unmatched") return "unmatched";
-    if (result === "match") {
+    const matched = await matchUpload(env, image.id, bytes, image.content_type, image.account_id ?? "unknown", matcher);
+    if (matched === "unmatched") return "unmatched";
+    if (matched === "match") {
       // That one image comes down; its file is kept for reporting under forumHeldKey.
-      await env.DB.prepare("DELETE FROM feedback_media WHERE id = ?").bind(m.id).run();
-      await env.GAMES.delete(feedbackMediaKey(m.id));
+      await env.DB.prepare("DELETE FROM forum_media WHERE id = ?").bind(image.id).run();
+      await env.GAMES.delete(image.storage_key);
       outcome = "match";
-    } else await env.DB.prepare("UPDATE feedback_media SET matched = 1 WHERE id = ?").bind(m.id).run();
+    } else await env.DB.prepare("UPDATE forum_media SET has_passed_matching = 1 WHERE id = ?").bind(image.id).run();
   }
   return outcome;
 }
