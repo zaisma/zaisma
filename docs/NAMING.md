@@ -236,7 +236,7 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 | A message between a game and its room, and the game's own message in it | | `type`, `data` |
 | What a player's game brings into a room, and what a room another room made starts with | | `joinData`, `setupData` |
 | How a player came into a room, and why they left or walked away | | `joinInfo: { fromRoomCode, isReturning }`; `leaveInfo: { reason }`, `reason` one of `left`, `lost`, `idle`, `hidden`, `kicked` |
-| Words a person reads about what happened: an error's, a kick's, a refusal's, a match's end | `message` | `message` |
+| Words a person reads about what happened: an error's, a kick's, a refusal's, a match's end | `message` | `message`; `refusalMessage` in what `canJoin` answers (`true`, `false` or `{ refusalMessage }`) |
 | The room's host, who can run it from the game, and whether a game server has one | | `hostPlayerId`, `hostControlsEnabled` |
 | Whether a room shows in room lists, and takes new players | | `isListed`, `isOpen` |
 | Rooms in a room list: all of a game's, ones with space, ones taking players, the ones past the list, and seats held | | `roomCount`, `joinableRoomCount`, `openRoomCount`, `moreOpenRoomCount`, `heldSeatCount` |

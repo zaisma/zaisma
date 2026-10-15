@@ -60,6 +60,7 @@ export default {
   setup: (setupData) => ({ players: {} }),  // setupData: what room.reserve() passed, for a room another room made, else null
   onJoin(state, player, room, joinData, joinInfo) {}, // joinData: what the player's game passed to joinRoom({ joinData }), else null;
                                                        // joinInfo: { fromRoomCode, isReturning } (isReturning: back to a held seat)
+  canJoin(state, player, room, joinData, joinInfo) {}, // true (or nothing) lets them in; false or { refusalMessage } turns them away
   onLeave(state, player, room, leaveInfo) {},  // leaveInfo.reason: left, lost, idle, hidden or kicked
   onMessage(state, player, message, room) {},
   onTick(state, tickDurationSec, room) {},     // tickDurationSec: seconds since the last tick
@@ -69,6 +70,14 @@ export default {
 ```
 
 Names follow [`docs/NAMING.md`](docs/NAMING.md): whole words, with the unit in the name. A game server with an option it doesn't take doesn't start, and says which ones it does take (`unknown_option`); the SDK refuses options and events it doesn't take the same way. Every message between a game and its room says its `type`, and a game's own messages travel in `data`; rooms count messages, not their size, so whole words cost nothing.
+
+`canJoin` decides who comes in, before they join: answer `true` (or nothing) to let them in, `false` to turn them away, or `{ refusalMessage: "Wrong room password." }` to turn them away with a message they see (up to 200 characters). Any other answer, like a string, turns them away too, and shows in your game server's errors with what to answer instead. Only decide there; change the state in `onJoin`.
+
+```ts
+canJoin(state, player, room, joinData) {
+  return joinData?.password === state.password || { refusalMessage: "Wrong room password." };
+},
+```
 
 Games without server code can use the built-in `relay`, which passes each message to everyone else as `{ fromPlayerId, data }`. See `examples/arena` (real-time) and `examples/four-in-a-row` (turn-based).
 

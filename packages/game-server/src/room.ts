@@ -203,14 +203,15 @@ export interface GameServer<S = any> {
    */
   onJoin?(state: S, player: Player, room: Room, joinData: unknown, joinInfo: JoinInfo): HandlerResult<S>;
   /**
-   * Say who may come in, before they join: return false, or a message the player sees (up to 200
-   * characters), to turn them away, like a wrong room password in joinData or a full team. Anything
-   * else lets them in. Players coming back after a dropped connection don't ask again. Only decide
-   * here; change the state in onJoin. If it throws, the player is turned away. Players another room
-   * sends are asked when it sends them, with its joinData and joinInfo.fromRoomCode, and not again
-   * when they arrive.
+   * Say who may come in, before they join: answer true (or nothing) to let them in, false to turn them
+   * away, or { refusalMessage } to turn them away with a message they see (up to 200 characters), like
+   * a wrong room password in joinData or a full team. Anything else is a mistake and turns them away
+   * too, logged as a game server error. Players coming back after a dropped connection don't ask
+   * again. Only decide here; change the state in onJoin. If it throws, the player is turned away.
+   * Players another room sends are asked when it sends them, with its joinData and
+   * joinInfo.fromRoomCode, and not again when they arrive.
    */
-  canJoin?(state: S, player: Player, room: Room, joinData: unknown, joinInfo: JoinInfo): boolean | string | void | Promise<boolean | string | void>;
+  canJoin?(state: S, player: Player, room: Room, joinData: unknown, joinInfo: JoinInfo): JoinAnswer | Promise<JoinAnswer>;
   /** After room.moveTo: who the other room took, and who it turned away and why. */
   onMoved?(state: S, moveResult: MoveResult, room: Room): HandlerResult<S>;
   /** leaveInfo.reason says why they left; a player who lost their connection or walked away gets their seat held. */
@@ -225,6 +226,33 @@ export interface GameServer<S = any> {
   onMessage?(state: S, player: Player, message: unknown, room: Room): HandlerResult<S>;
   /** tickDurationSec: seconds since the last tick, about 1 / ticksPerSec (more when a tick was skipped). */
   onTick?(state: S, tickDurationSec: number, room: Room): HandlerResult<S>;
+}
+
+/**
+ * What canJoin answers: true, or nothing (undefined or null), lets the player in; false turns them
+ * away; { refusalMessage } turns them away with that message.
+ */
+export type JoinAnswer = boolean | { refusalMessage: string } | null | void;
+
+function describeObject(given: object): string {
+  try {
+    return (JSON.stringify(given) ?? "an object").slice(0, 80);
+  } catch {
+    return "an object";
+  }
+}
+
+/**
+ * canJoin's answer as the room acts on it: let in, or turn away with a refusalMessage (null for the
+ * usual one). Any other answer, like a string, is a mistake, described for the game server's errors.
+ */
+export function readJoinAnswer(answer: unknown): { isAllowed: true } | { isAllowed: false; refusalMessage: string | null } | { mistake: string } {
+  if (answer === true || answer === undefined || answer === null) return { isAllowed: true };
+  if (answer === false) return { isAllowed: false, refusalMessage: null };
+  const refusalMessage = typeof answer === "object" && !Array.isArray(answer) ? (answer as { refusalMessage?: unknown }).refusalMessage : undefined;
+  if (typeof refusalMessage === "string" && Object.keys(answer as object).length === 1) return { isAllowed: false, refusalMessage };
+  const given = typeof answer === "string" ? `the text ${JSON.stringify(answer.slice(0, 60))}` : typeof answer === "object" ? describeObject(answer) : String(answer);
+  return { mistake: `canJoin answered ${given}, so the player was turned away. Answer true (or nothing) to let them in, false to turn them away, or { refusalMessage: "Wrong room password." } to turn them away with a message.` };
 }
 
 /** Everything a game server object may have, in the order the docs give them. Anything else is refused. */
@@ -691,16 +719,20 @@ export class RoomCore<S = any> {
     const isMoving = joinInfo.fromRoomCode !== null;
     if (!this.server.canJoin) return this.door(player.id, isMoving) ?? { isAllowed: true };
     await this.settled();
-    let verdict: unknown;
+    let answer: unknown;
     try {
-      verdict = await this.server.canJoin(this.state, player, this.api, joinData, joinInfo);
+      answer = await this.server.canJoin(this.state, player, this.api, joinData, joinInfo);
     } catch (error) {
       console.error("Game server error:", error);
       return { isAllowed: false, code: "refused" };
     }
-    if (verdict === false) return { isAllowed: false, code: "refused" };
-    if (typeof verdict === "string") {
-      const message = tidy(verdict, ROOM_LIMITS.maximumMessageCharacterCount);
+    const read = readJoinAnswer(answer);
+    if ("mistake" in read) {
+      console.error(`Game server error: ${read.mistake}`);
+      return { isAllowed: false, code: "refused" };
+    }
+    if (!read.isAllowed) {
+      const message = tidy(read.refusalMessage, ROOM_LIMITS.maximumMessageCharacterCount);
       return { isAllowed: false, code: "refused", ...(message ? { message } : {}) };
     }
     return this.door(player.id, isMoving) ?? { isAllowed: true };

@@ -374,7 +374,12 @@ export class Room extends DurableObject<Env> {
     if (core.players.size === 0 && !core.expects(player.id) && (await pastFreeTier(this.env.DB, this.meta.gameId))) return this.refuse(ws, "month_limit");
     // The room's rules and the game's canJoin, before anyone hears about this player.
     const admitted = await core.admit(player, made.joinData);
-    if (!admitted.isAllowed) return this.refuse(ws, admitted.code, admitted.message);
+    if (!admitted.isAllowed) {
+      this.refuse(ws, admitted.code, admitted.message);
+      // A canJoin that crashed or answered wrongly turns everyone away, so the room may never fill and empty: record it now, for its developer.
+      if ((this.server as { stats?: SandboxStats } | null)?.stats?.errors.size) await this.recordUsage(false);
+      return;
+    }
     if ((ws.deserializeAttachment() as Attachment).stage !== "hello") return;
 
     // The same player connecting again (a reconnect or a second tab) replaces the old connection.

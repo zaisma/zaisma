@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { GameServerError, RoomCore, defineGameServer, isRoomCode, relay, ROOM_LIMITS, type GameServer, type MoveAnswer, type RoomStart, type Transport } from "../../packages/game-server/src/index.ts";
+import { describe, expect, it, vi } from "vitest";
+import { GameServerError, RoomCore, defineGameServer, isRoomCode, readJoinAnswer, relay, ROOM_LIMITS, type GameServer, type MoveAnswer, type RoomStart, type Transport } from "../../packages/game-server/src/index.ts";
 
 function transport() {
   const sent: Record<string, any[]> = {};
@@ -296,7 +296,9 @@ describe("kicking and turning players away", () => {
       s.asked.push(p.id);
       if (p.id === "boom") throw new Error("game bug");
       if (p.id === "nobody") return false;
-      return (joinData as { password?: string } | null)?.password === "docks" || "Wrong password.";
+      // An answer canJoin doesn't take: a string reads like a reason, but isn't one.
+      if (p.id === "texter") return "Wrong password." as never;
+      return (joinData as { password?: string } | null)?.password === "docks" || { refusalMessage: "Wrong password." };
     },
     onLeave: (s, p) => void s.left.push(p.id),
     onMessage(s, _p, message, room) {
@@ -315,6 +317,11 @@ describe("kicking and turning players away", () => {
     expect(await room.admit({ id: "nobody", name: "N" }, pw)).toEqual({ isAllowed: false, code: "refused" });
     // A game server that crashes deciding turns the player away rather than letting them past it.
     expect(await room.admit({ id: "boom", name: "X" }, pw)).toEqual({ isAllowed: false, code: "refused" });
+    // So does an answer canJoin doesn't take, like a string, logged for the developer with what to answer instead.
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(await room.admit({ id: "texter", name: "T" }, pw)).toEqual({ isAllowed: false, code: "refused" });
+    expect(String(logged.mock.calls.at(-1)?.[0])).toContain('canJoin answered the text "Wrong password.", so the player was turned away. Answer true (or nothing) to let them in');
+    logged.mockRestore();
     room.join({ id: "a", name: "A" }, { joinData: pw });
     // A player already in the room (a reconnect) isn't asked again.
     room.state.asked = [];
@@ -396,7 +403,7 @@ describe("moving players to a room that's already running", () => {
   const area = defineGameServer({
     maximumPlayerCount: 3,
     setup: () => ({ locked: false, arrived: [] as unknown[], results: [] as unknown[] }),
-    canJoin: (s, _p, _room, _joinData, joinInfo) => !(s.locked && joinInfo.fromRoomCode) || "This area is locked.",
+    canJoin: (s, _p, _room, _joinData, joinInfo) => !(s.locked && joinInfo.fromRoomCode) || { refusalMessage: "This area is locked." },
     onJoin: (s, p, _room, joinData, joinInfo) => void s.arrived.push({ id: p.id, joinData, fromRoomCode: joinInfo.fromRoomCode }),
     onMessage(s, p, message, room) {
       if (message === "lock") s.locked = true;
@@ -711,5 +718,30 @@ describe("players who walk away", () => {
     expect(() => defineGameServer({ setup: () => ({}), awayMode: "home" as never })).toThrow("awayMode");
     expect(() => defineGameServer({ setup: () => ({}), seatHoldDurationSec: 4000 })).toThrow("seatHoldDurationSec");
     expect(() => defineGameServer({ setup: () => ({}), idleCheck: "off", awayMode: "lobby", seatHoldDurationSec: 0 })).not.toThrow();
+  });
+});
+
+describe("canJoin's answer", () => {
+  it("lets in on true or nothing, turns away on false or { refusalMessage }, and calls anything else a mistake", () => {
+    expect(readJoinAnswer(true)).toEqual({ isAllowed: true });
+    expect(readJoinAnswer(undefined)).toEqual({ isAllowed: true });
+    expect(readJoinAnswer(null)).toEqual({ isAllowed: true });
+    expect(readJoinAnswer(false)).toEqual({ isAllowed: false, refusalMessage: null });
+    expect(readJoinAnswer({ refusalMessage: "Wrong room password." })).toEqual({ isAllowed: false, refusalMessage: "Wrong room password." });
+    // A truthy string used to mean "no, with this reason"; now it's a mistake, never a yes.
+    for (const wrong of ["Wrong password.", "ok", 1, {}, { refusalMessage: 7 }, { refusalMessage: "No.", isAllowed: false }, ["no"]]) {
+      expect(readJoinAnswer(wrong)).toEqual({ mistake: expect.stringContaining("so the player was turned away") });
+    }
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    expect(readJoinAnswer(circular)).toEqual({ mistake: expect.stringContaining("canJoin answered an object") });
+  });
+
+  it("shows the player the refusalMessage, tidied and cut to 200 characters", async () => {
+    const room = new RoomCore(defineGameServer({ setup: () => ({}), canJoin: () => ({ refusalMessage: `  ${"No ".repeat(100)}\u200b ` }) }), transport().t);
+    const admission = await room.admit({ id: "a", name: "A" });
+    expect(admission).toMatchObject({ isAllowed: false, code: "refused" });
+    expect((admission as { message: string }).message).toHaveLength(ROOM_LIMITS.maximumMessageCharacterCount);
+    expect((admission as { message: string }).message.startsWith("No No")).toBe(true);
   });
 });
