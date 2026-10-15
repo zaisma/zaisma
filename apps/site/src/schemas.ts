@@ -121,11 +121,29 @@ export const TESTER = object({
 export const NEXT = list(
   object({
     tool: text("The MCP tool to call."),
-    arguments: { type: "object", description: "What to send it, filled in." },
+    arguments: { type: "object", description: "What to send it, filled in as far as Zaisma knows; the reason says what to add." },
     after_sec: nullable(countOf("How long to wait first; null for straight away.")),
     reason: text(),
   }),
+  "The calls that usually follow; empty when nothing does.",
 );
+
+/** Every error, in the API and the MCP (docs/NAMING.md, Errors). */
+export const ERROR = object({
+  error: object({
+    code: text("Stable, one problem per code; docs/DEVELOPER-API.md lists every code."),
+    message: text("What happened."),
+    field: nullable(text("The input at fault, like play_modes[1].play_style; null when no one input is.")),
+    fix: text("What to do about it."),
+    retry_after_sec: nullable(countOf("How long to wait before trying again, when waiting helps; else null.")),
+  }),
+});
+
+/**
+ * A tool's output schema as the MCP lists it: its answer, or an error. MCP clients check a result's
+ * structuredContent against the output schema even when isError is set, so the error has to fit too.
+ */
+export const answerOrError = (answerSchema: Schema): Schema => ({ type: "object", anyOf: [answerSchema, ERROR] });
 
 const DAY_PLAYS = object({
   date: date(),
@@ -352,5 +370,6 @@ export const NEW_TOPIC = object({
   similar_topics: list(TOPIC_ROW, "Topics and known issues that look like the same thing: if one is, vote or reply there."),
   check_note: CHECK_NOTE,
   removed_secret_count: REMOVED_SECRET_COUNT,
+  next_steps: NEXT,
 });
-export const NEW_REPLY = object({ post: POST, check_note: CHECK_NOTE, removed_secret_count: REMOVED_SECRET_COUNT });
+export const NEW_REPLY = object({ post: POST, check_note: CHECK_NOTE, removed_secret_count: REMOVED_SECRET_COUNT, next_steps: NEXT });

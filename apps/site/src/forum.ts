@@ -12,9 +12,11 @@ import {
   POST_SELECTIONS,
   TOPIC_KINDS,
   TOPIC_STATUSES,
+  ApiError,
   gameById,
   iso,
   newId,
+  secondsUntilDayPasses,
   type AuthorKind,
   type DebugContext,
   type ForumPost,
@@ -24,8 +26,9 @@ import {
   type PostSelection,
   type TopicKind,
   type TopicStatus,
+  type ErrorCode,
 } from "@zaisma/core";
-import { ApiError, ownGame, readJson, type Caller } from "./developer.ts";
+import { closedBody, closedQuery, ownGame, readJson, type Caller, type NextStep } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { affectedDeveloperCounts, decideTopic, hasNews, KNOWN_ISSUES, mediaOf, readPost, readTitle, remainingPostCount, storePost, topicById, uploadDraftMedia } from "./forum-posts.ts";
 import { forumPeople, mentionsOf } from "./forum-mentions.ts";
@@ -161,6 +164,9 @@ export interface PostJson {
   created_at: string;
 }
 
+/** Forum changes: nothing usually follows them, and replies show as unread (search_forum, tab yours). */
+const NO_NEXT_STEPS: NextStep[] = [];
+
 export async function forumRoute(request: Request, env: Env, path: string, caller: Caller): Promise<[unknown, number?] | Response> {
   const method = request.method;
   const url = new URL(request.url);
@@ -178,18 +184,19 @@ export async function forumRoute(request: Request, env: Env, path: string, calle
     return [await uploadDraftMedia(env, caller, bytes), 201];
   }
   if (path === "/forum/people" && method === "GET") return [{ people: await forumPeople(env, url.searchParams.get("name_prefix") ?? "", url.searchParams.get("topic_id") || null, caller.accountId) }];
-  const mediaPath = path.match(/^\/forum\/[a-z0-9]{1,40}\/media\/([a-z0-9]{1,40})$/);
+  const mediaPath = path.match(/^\/forum\/[^/]+\/media\/([^/]+)$/);
   if (mediaPath && method === "GET") return serveMedia(env, caller, mediaPath[1]!);
   if (path === "/forum" && method === "POST") return [await createTopic(env, caller, await readJson(request, 72 * 1024 * 1024)), 201];
-  const onPost = path.match(/^\/forum\/([a-z0-9]{1,40})\/posts\/([a-z0-9]{1,40})\/(helpful|report)$/);
+  // IDs match anything here, so a wrong one says which topic or post it didn't find.
+  const onPost = path.match(/^\/forum\/([^/]+)\/posts\/([^/]+)\/(helpful|report)$/);
   if (onPost) {
     const [, topicId, postId, action] = onPost as unknown as [string, string, string, string];
     if (action === "helpful" && (method === "POST" || method === "DELETE")) return [await markHelpful(env, caller, topicId, postId, method === "POST")];
     if (action === "report" && method === "POST") return [await reportPost(env, caller, topicId, postId, await readJson(request, 8192))];
-    throw new ApiError(405, "bad_method", `${method} isn't used here.`);
+    throw badMethod(method, path);
   }
-  const match = path.match(/^\/forum\/([a-z0-9]{1,40})(?:\/(posts|vote|follow|answer|misplaced|still-happening))?$/);
-  if (!match) throw new ApiError(404, "not_found", "No such API path.");
+  const match = path.match(/^\/forum\/([^/]+)(?:\/(posts|vote|follow|answer|misplaced|still-happening))?$/);
+  if (!match) throw new ApiError("not_found", { message: `There's no API call at ${path}.`, fix: "docs/DEVELOPER-API.md lists the forum's calls, under The developer forum." });
   const [, id, action] = match as unknown as [string, string, string | undefined];
   if (!action && method === "GET") {
     closedQuery(url.searchParams, ["post_selection"]);
@@ -198,34 +205,37 @@ export async function forumRoute(request: Request, env: Env, path: string, calle
   if ((action === "vote" || action === "follow") && (method === "POST" || method === "DELETE")) {
     return [action === "vote" ? await vote(env, caller, id, method === "POST") : await follow(env, caller, id, method === "POST")];
   }
-  if (method !== "POST" || !action) throw new ApiError(405, "bad_method", `${method} isn't used here.`);
+  if (method !== "POST" || !action) throw badMethod(method, path);
   const body = await readJson(request, action === "posts" ? 72 * 1024 * 1024 : 16 * 1024);
   if (action === "posts") return [await replyTo(env, caller, id, body), 201];
   if (action === "answer") {
     closedBody(body, ["answer_post_id"]);
-    if (body.answer_post_id !== null && typeof body.answer_post_id !== "string") throw new ApiError(400, "bad_answer", "answer_post_id is a post id in the topic, or null to clear the answer.");
+    if (body.answer_post_id !== null && typeof body.answer_post_id !== "string") {
+      throw new ApiError("bad_answer_post_id", { message: "answer_post_id isn't a post ID or null.", field: "answer_post_id", fix: "Give the ID of the reply that answered it, from get_topic, or null to clear the answer." });
+    }
     return [await markAnswer(env, caller, id, body.answer_post_id || null)];
   }
-  if (action === "misplaced") return [await flagMisplaced(env, caller, id)];
+  if (action === "misplaced") {
+    closedBody(body, []);
+    return [await flagMisplaced(env, caller, id)];
+  }
   return [await stillHappening(env, caller, id, body)];
 }
 
-/** Inputs are closed: a field we don't take is an error, never quietly ignored (docs/NAMING.md). */
-export function closedBody(body: Record<string, unknown>, fields: string[]): void {
-  for (const key of Object.keys(body)) {
-    if (!fields.includes(key)) throw new ApiError(400, "unknown_field", `${key} isn't a field here. The fields are: ${fields.join(", ")}.`);
-  }
+function badMethod(method: string, path: string): ApiError {
+  return new ApiError("bad_method", { message: `${method} isn't a call at ${path}.`, fix: "docs/DEVELOPER-API.md lists the methods each forum path takes." });
 }
 
-function closedQuery(queryParameters: URLSearchParams, fields: string[]): void {
-  for (const key of queryParameters.keys()) {
-    if (!fields.includes(key)) throw new ApiError(400, "unknown_field", `${key} isn't a query parameter here. The parameters are: ${fields.join(", ")}.`);
+/** A value from a fixed list, or the error answer that names the list. */
+function oneOf(field: string, given: string, allowed: readonly string[], fix?: string): void {
+  if (given && !allowed.includes(given)) {
+    throw new ApiError(`bad_${field}` as ErrorCode, { message: `${field} ${JSON.stringify(given.slice(0, 40))} isn't one of the choices.`, field, fix: fix ?? `Give one of: ${allowed.join(", ")}; or leave it out.` });
   }
 }
 
 function readPostSelection(given: string | null): PostSelection {
   if (given === null) return "all";
-  if (!(POST_SELECTIONS as readonly string[]).includes(given)) throw new ApiError(400, "bad_post_selection", `post_selection is one of: ${POST_SELECTIONS.join(", ")}.`);
+  oneOf("post_selection", given, POST_SELECTIONS, "Give all (the default), answer (the question and its answer), latest (the opening post and the last five) or none (the topic alone).");
   return given as PostSelection;
 }
 
@@ -250,14 +260,32 @@ export interface ForumQuery {
 const cursorFor = (startIndex: number) => `cursor_${startIndex.toString(36)}`;
 function readCursor(cursor: string | null): number {
   if (!cursor) return 0;
-  if (!/^cursor_[0-9a-z]{1,6}$/.test(cursor)) throw new ApiError(400, "bad_cursor", "Pass the next_cursor from your last call as cursor, as it came.");
+  if (!/^cursor_[0-9a-z]{1,6}$/.test(cursor)) {
+    throw new ApiError("bad_cursor", { message: `cursor ${JSON.stringify(cursor.slice(0, 40))} isn't a next_cursor Zaisma gave.`, field: "cursor", fix: "Pass the next_cursor from your last answer as it came, or leave cursor out for the first page." });
+  }
   return parseInt(cursor.slice(7), 36);
 }
 
+/** A forum query from the API, checked: a value that isn't one of the choices is an error, never quietly ignored. */
 export function queryFrom(queryParameters: URLSearchParams): ForumQuery {
+  const get = (name: string) => queryParameters.get(name) ?? "";
+  oneOf("tab", get("tab"), FORUM_TABS, "Give latest (the default), top (most votes), unanswered (questions), known (known issues), yours (your topics and the ones you follow) or messages (yours to Zaisma).");
+  const sectionIds: string[] = FORUM_SECTIONS.map((section) => section.id);
+  oneOf("section", get("section"), sectionIds, `Give one of: ${sectionIds.join(", ")}; or a single category with category.`);
+  const isSection = sectionIds.includes(get("category"));
+  oneOf("category", get("category"), FORUM_CATEGORIES, isSection ? `${get("category")} is a section: give section=${get("category")}, or one of its categories, like ${Object.keys(FORUM_SECTIONS.find((section) => section.id === get("category"))!.categories)[0]}.` : undefined);
+  oneOf("kind", get("kind"), TOPIC_KINDS);
+  oneOf("tag", get("tag"), Object.keys(FORUM_TAGS));
+  oneOf("topic_status", get("topic_status"), TOPIC_STATUSES);
+  oneOf("detail", get("detail"), ["brief"], "Give brief for a few fields per topic, or leave it out for every field.");
   const isAnswered = queryParameters.get("is_answered");
-  if (isAnswered !== null && isAnswered !== "true" && isAnswered !== "false") throw new ApiError(400, "bad_is_answered", "is_answered is true or false.");
+  if (isAnswered !== null && isAnswered !== "true" && isAnswered !== "false") {
+    throw new ApiError("bad_is_answered", { message: `is_answered ${JSON.stringify(isAnswered.slice(0, 20))} isn't true or false.`, field: "is_answered", fix: "Give true (questions with a marked answer) or false (questions without one), or leave it out." });
+  }
   const maximumTopicCount = queryParameters.get("maximum_topic_count");
+  if (maximumTopicCount !== null && (!/^\d+$/.test(maximumTopicCount) || Number(maximumTopicCount) < 1 || Number(maximumTopicCount) > PAGE_TOPIC_COUNT)) {
+    throw new ApiError("bad_maximum_topic_count", { message: `maximum_topic_count ${JSON.stringify(maximumTopicCount.slice(0, 20))} isn't a whole number from 1 to ${PAGE_TOPIC_COUNT}.`, field: "maximum_topic_count", fix: `Give 1 to ${PAGE_TOPIC_COUNT}, and use next_cursor for more.` });
+  }
   return {
     searchText: queryParameters.get("search_text") ?? "",
     section: queryParameters.get("section") ?? "",
@@ -288,7 +316,7 @@ const like = (word: string) => `%${word.replace(/[\\%_]/g, (special) => `\\${spe
  */
 export async function listTopics(env: Env, viewer: Viewer, query: ForumQuery) {
   const tab: ForumTab = (FORUM_TABS as readonly string[]).includes(query.tab ?? "") ? (query.tab as ForumTab) : "latest";
-  if ((tab === "yours" || tab === "messages") && !viewer) throw new ApiError(401, "signed_out", "Sign in to see your topics and messages.");
+  if ((tab === "yours" || tab === "messages") && !viewer) throw new ApiError("signed_out", { message: "Your topics and messages need you signed in.", fix: "Sign in on zaisma.com, or call with an API key." });
   const startIndex = Math.max(0, Math.min(30000, Math.floor(Number(query.startIndex) || 0)));
   const pageTopicCount = Math.max(1, Math.min(PAGE_TOPIC_COUNT, Math.floor(Number(query.maximumTopicCount) || PAGE_TOPIC_COUNT)));
   const where: string[] = [];
@@ -491,7 +519,7 @@ function canRead(topic: ForumTopic, viewer: Viewer): boolean {
 
 async function readable(env: Env, viewer: Viewer, topicId: string): Promise<ForumTopic> {
   const topic = await topicById(env, topicId);
-  if (!topic || !canRead(topic, viewer)) throw new ApiError(404, "no_topic", "There's no topic with that id you can see. GET /forum lists them.");
+  if (!topic || !canRead(topic, viewer)) throw new ApiError("no_topic", { message: `There's no topic with the ID ${topicId.slice(0, 60)} you can see.`, field: "topic_id", fix: "search_forum (GET /forum) lists topics with their IDs; a public topic shows to others once its first post is checked." });
   return topic;
 }
 
@@ -598,7 +626,7 @@ function readTags(body: Record<string, unknown>): string[] {
   if (body.tags === undefined || body.tags === null) return [];
   const tags = Array.isArray(body.tags) ? [...new Set(body.tags.map(String))] : null;
   if (!tags || tags.length > FORUM_LIMITS.tagCountPerTopic || tags.some((tag) => !(tag in FORUM_TAGS))) {
-    throw new ApiError(400, "bad_tags", `tags: up to ${FORUM_LIMITS.tagCountPerTopic} of ${Object.keys(FORUM_TAGS).join(", ")}.`);
+    throw new ApiError("bad_tags", { message: `tags isn't a list of up to ${FORUM_LIMITS.tagCountPerTopic} of the forum's tags.`, field: "tags", fix: `Give up to ${FORUM_LIMITS.tagCountPerTopic} of: ${Object.keys(FORUM_TAGS).join(", ")}, like ["godot"]; or leave tags out.` });
   }
   return tags;
 }
@@ -616,22 +644,35 @@ const POST_FIELDS = ["text_markdown", "debug_context", "author_kind", "images_ba
 export async function createTopic(env: Env, caller: Caller, body: Record<string, unknown>) {
   closedBody(body, ["kind", "title", "category", "tags", "is_public", "game_slug", "known_issue_topic_id", ...POST_FIELDS]);
   const kind = body.kind as TopicKind;
-  if (!TOPIC_KINDS.includes(kind)) throw new ApiError(400, "bad_kind", `kind is one of: ${TOPIC_KINDS.join(", ")}.`);
+  if (!TOPIC_KINDS.includes(kind)) {
+    throw new ApiError("bad_kind", { message: `kind ${JSON.stringify(body.kind)} isn't one of the choices.`, field: "kind", fix: "Give bug (something doesn't work), gap (a limit or missing piece blocks you), feature (an idea), question or talk (a discussion)." });
+  }
   const title = readTitle(body);
   // Whoever posts picks the category; Zaisma only moves a topic someone flags as misplaced.
   const category = typeof body.category === "string" ? body.category : "";
-  if (category && !(FORUM_CATEGORIES as string[]).includes(category)) throw new ApiError(400, "bad_category", `category is one of: ${FORUM_CATEGORIES.join(", ")}.`);
+  const section = FORUM_SECTIONS.find((candidate) => candidate.id === category);
+  if (category && !(FORUM_CATEGORIES as string[]).includes(category)) {
+    throw new ApiError("bad_category", {
+      message: `category ${JSON.stringify(category.slice(0, 40))} isn't one of the forum's categories.`,
+      field: "category",
+      fix: section ? `${category} is a section; give one of its categories: ${Object.keys(section.categories).join(", ")}.` : `Give one of: ${FORUM_CATEGORIES.join(", ")} (other for anything else).`,
+    });
+  }
   const tags = readTags(body);
-  if (body.is_public !== undefined && typeof body.is_public !== "boolean") throw new ApiError(400, "bad_is_public", "is_public is true (a public topic, the default) or false (a private message to Zaisma).");
+  if (body.is_public !== undefined && typeof body.is_public !== "boolean") {
+    throw new ApiError("bad_is_public", { message: "is_public isn't true or false.", field: "is_public", fix: "Give true (a public topic, the default) or false (a private message to Zaisma)." });
+  }
   let knownIssue: ForumTopic | null = null;
   if (typeof body.known_issue_topic_id === "string" && body.known_issue_topic_id) {
     knownIssue = await topicById(env, body.known_issue_topic_id);
-    if (!knownIssue?.known_issue_title || !knownIssue.is_shown) throw new ApiError(404, "no_known_issue", "There's no known issue with that id. GET /forum?tab=known lists them.");
+    if (!knownIssue?.known_issue_title || !knownIssue.is_shown) {
+      throw new ApiError("no_known_issue", { message: `There's no known issue with the ID ${body.known_issue_topic_id.slice(0, 60)}.`, field: "known_issue_topic_id", fix: "search_forum with tab known (GET /forum?tab=known) lists the known issues with their IDs; leave it out for a message of your own." });
+    }
   }
   // Every forum topic is public; is_public: false (or a known issue) makes it a private message to Zaisma instead.
   const isPublic = knownIssue ? false : body.is_public !== false;
-  if (!category && isPublic) throw new ApiError(400, "no_category", `Pick a category: one of ${FORUM_CATEGORIES.join(", ")} (other for anything else).`);
-  const game = typeof body.game_slug === "string" && body.game_slug ? await ownGame(env, body.game_slug, caller) : null;
+  if (!category && isPublic) throw new ApiError("no_category", { message: "A public topic needs its category.", field: "category", fix: `Give one of: ${FORUM_CATEGORIES.join(", ")} (other for anything else).` });
+  const game = typeof body.game_slug === "string" && body.game_slug ? await ownGame(env, body.game_slug, caller, "game_slug") : null;
   const post = await readPost(env, caller, body);
   const id = newId();
   const nowMs = Date.now();
@@ -662,6 +703,7 @@ export async function createTopic(env: Env, caller: Caller, body: Record<string,
     similar_topics: similar,
     check_note: checkNote(stored.checkStatus),
     removed_secret_count: post.blankedCount,
+    next_steps: NO_NEXT_STEPS,
   };
 }
 
@@ -669,14 +711,20 @@ export async function createTopic(env: Env, caller: Caller, body: Record<string,
 export async function replyTo(env: Env, caller: Caller, topicId: string, body: Record<string, unknown>) {
   closedBody(body, ["reply_to_post_id", "reopen", ...POST_FIELDS]);
   const topic = await readable(env, caller, topicId);
-  if (body.reopen !== undefined && typeof body.reopen !== "boolean") throw new ApiError(400, "bad_reopen", "reopen is true or false.");
+  if (body.reopen !== undefined && typeof body.reopen !== "boolean") throw new ApiError("bad_reopen", { message: "reopen isn't true or false.", field: "reopen", fix: "Give true to reopen your own closed topic, or leave it out." });
   const reopen = body.reopen === true;
-  if (reopen && topic.account_id !== caller.accountId) throw new ApiError(403, "not_yours", "Only the developer who posted a topic can reopen it. Reply, or vote.");
-  if (reopen && !CLOSED_TOPIC_STATUSES.includes(topic.topic_status)) throw new ApiError(400, "not_closed", `It's ${topic.topic_status}, not closed, so there's nothing to reopen. Just reply.`);
+  if (reopen && topic.account_id !== caller.accountId) {
+    throw new ApiError("not_yours", { message: "Only the developer who started a topic can reopen it.", field: "reopen", fix: "Leave reopen out and reply, or vote (it affects you too); still_happening is for a known issue whose fix is out." });
+  }
+  if (reopen && !CLOSED_TOPIC_STATUSES.includes(topic.topic_status)) {
+    throw new ApiError("not_closed", { message: `The topic is ${topic.topic_status}, not closed, so there's nothing to reopen.`, field: "reopen", fix: "Leave reopen out and just reply." });
+  }
   let replyToPostId: string | null = null;
   if (typeof body.reply_to_post_id === "string" && body.reply_to_post_id) {
     const repliedTo = await env.DB.prepare("SELECT * FROM forum_posts WHERE id = ? AND topic_id = ?").bind(body.reply_to_post_id, topic.id).first<ForumPost>();
-    if (!repliedTo || !canSeePost(topic, repliedTo, caller)) throw new ApiError(404, "no_post", "reply_to_post_id is a post in this topic, from get_topic.");
+    if (!repliedTo || !canSeePost(topic, repliedTo, caller)) {
+      throw new ApiError("no_post", { message: `There's no post with the ID ${body.reply_to_post_id.slice(0, 60)} you can see in this topic.`, field: "reply_to_post_id", fix: "get_topic lists the topic's posts with their IDs; leave reply_to_post_id out to reply to the topic." });
+    }
     replyToPostId = repliedTo.id;
   }
   const post = await readPost(env, caller, body);
@@ -685,14 +733,16 @@ export async function replyTo(env: Env, caller: Caller, topicId: string, body: R
   const { posts } = await getTopic(env, caller, topic.id);
   const reply = posts.find((candidate) => candidate.id === stored.id);
   if (!reply) throw new Error(`The reply ${stored.id} isn't in its topic.`);
-  return { post: reply, check_note: checkNote(stored.checkStatus), removed_secret_count: post.blankedCount };
+  return { post: reply, check_note: checkNote(stored.checkStatus), removed_secret_count: post.blankedCount, next_steps: NO_NEXT_STEPS };
 }
 
 /** A vote on someone else's public topic: it affects you too, you want it, or you have the question too. You follow it. */
 export async function vote(env: Env, caller: Caller, topicId: string, isVoting: boolean) {
   const topic = await readable(env, caller, topicId);
-  if (!topic.is_public || topic.account_id === caller.accountId) throw new ApiError(400, "cant_vote", "Votes are for public topics someone else started.");
-  if (topic.kind === "talk") throw new ApiError(400, "cant_vote", "Discussions take replies, not votes.");
+  if (!topic.is_public || topic.account_id === caller.accountId) {
+    throw new ApiError("cant_vote", { message: topic.is_public ? "That's your own topic, so it takes no vote from you." : "That's a private message, which takes no votes.", field: "topic_id", fix: "Reply to it instead (reply_to_topic)." });
+  }
+  if (topic.kind === "talk") throw new ApiError("cant_vote", { message: "Discussions take replies, not votes.", field: "topic_id", fix: "Reply to it instead (reply_to_topic)." });
   const nowMs = Date.now();
   const change = isVoting
     ? await env.DB.prepare("INSERT OR IGNORE INTO forum_votes (topic_id, account_id, created_at_ms) VALUES (?, ?, ?)").bind(topic.id, caller.accountId, nowMs).run()
@@ -700,15 +750,17 @@ export async function vote(env: Env, caller: Caller, topicId: string, isVoting: 
   if (change.meta.changes) await env.DB.prepare(`UPDATE forum_topics SET vote_count = MAX(0, vote_count ${isVoting ? "+" : "-"} 1) WHERE id = ?`).bind(topic.id).run();
   if (isVoting) await env.DB.prepare("INSERT OR IGNORE INTO forum_follows (topic_id, account_id, seen_at_ms) VALUES (?, ?, ?)").bind(topic.id, caller.accountId, nowMs).run();
   const row = await env.DB.prepare("SELECT vote_count FROM forum_topics WHERE id = ?").bind(topic.id).first<{ vote_count: number }>();
-  return { vote_count: row?.vote_count ?? 0, has_voted: isVoting };
+  return { vote_count: row?.vote_count ?? 0, has_voted: isVoting, next_steps: NO_NEXT_STEPS };
 }
 
 /** It's in the wrong category: Zaisma's AI looks at where it belongs on its next run and moves it, saying so in the topic. */
 export async function flagMisplaced(env: Env, caller: Caller, topicId: string) {
   const topic = await readable(env, caller, topicId);
-  if (!topic.is_shown || topic.merged_into_topic_id) throw new ApiError(400, "cant_flag", "Only public topics others can see can be flagged as misplaced.");
+  if (!topic.is_shown || topic.merged_into_topic_id) {
+    throw new ApiError("cant_flag", { message: "Only public topics others can see can be flagged as misplaced.", field: "topic_id", fix: "Wait until it passes its check (get_topic shows check_status), or leave it: private messages aren't sorted into categories." });
+  }
   await env.DB.prepare("INSERT OR IGNORE INTO forum_misplaced_flags (topic_id, account_id, created_at_ms) VALUES (?, ?, ?)").bind(topic.id, caller.accountId, Date.now()).run();
-  return { has_flagged_misplaced: true };
+  return { has_flagged_misplaced: true, next_steps: NO_NEXT_STEPS };
 }
 
 /**
@@ -719,31 +771,39 @@ export async function stillHappening(env: Env, caller: Caller, topicId: string, 
   closedBody(body, ["text_markdown"]);
   const topic = await readable(env, caller, topicId);
   if (!topic.known_issue_title || topic.topic_status !== "released") {
-    throw new ApiError(400, "not_released", "Only a known issue whose fix is out (released) can be reported as still happening. Reply, or message Zaisma.");
+    throw new ApiError("not_released", {
+      message: topic.known_issue_title ? `This known issue is ${topic.topic_status}, not released, so there's no fix out to say it still happens after.` : "This isn't a known issue.",
+      field: "topic_id",
+      fix: "Reply to it with what you saw (reply_to_topic), or send your own case privately (message_zaisma with known_issue_topic_id).",
+    });
   }
   const reply = typeof body.text_markdown === "string" && body.text_markdown.trim() ? await replyTo(env, caller, topic.id, { text_markdown: body.text_markdown }) : null;
   await decideTopic(env, topic.id, { topicStatus: "fixing", reply: "A developer says it still happens after the fix, so Zaisma is working on it again." });
   await sendAlert(env, `Still happening after the fix: ${topic.known_issue_title}`, `A developer says the known issue still happens after its fix was released. It's back to fixing.\n\nOpen: ${env.SITE_ORIGIN}/admin/feedback/${topic.id}`);
-  return { topic_status: "fixing" as const, post: reply?.post ?? null };
+  return { topic_status: "fixing" as const, post: reply?.post ?? null, next_steps: NO_NEXT_STEPS };
 }
 
 async function visiblePost(env: Env, caller: Caller, topicId: string, postId: string): Promise<ForumPost> {
   const topic = await readable(env, caller, topicId);
   const post = await env.DB.prepare("SELECT * FROM forum_posts WHERE id = ? AND topic_id = ?").bind(postId, topic.id).first<ForumPost>();
-  if (!post || post.check_status !== "passed") throw new ApiError(404, "no_post", "There's no post with that id others can see in this topic.");
+  if (!post || post.check_status !== "passed") {
+    throw new ApiError("no_post", { message: `There's no post with the ID ${postId.slice(0, 60)} others can see in this topic.`, field: "post_id", fix: "get_topic lists the topic's posts with their IDs; posts still being checked can't be marked or reported yet." });
+  }
   return post;
 }
 
 /** Someone else's reply helped: it shows how many found it helpful. No dislikes: a wrong reply gets a better one, a harmful one a report. */
 export async function markHelpful(env: Env, caller: Caller, topicId: string, postId: string, isMarking: boolean) {
   const post = await visiblePost(env, caller, topicId, postId);
-  if (post.account_id === caller.accountId && post.author_kind !== "zaisma") throw new ApiError(400, "cant_mark", "Helpful is for other people's posts.");
+  if (post.account_id === caller.accountId && post.author_kind !== "zaisma") {
+    throw new ApiError("cant_mark_helpful", { message: "That's the developer's own post, and helpful is for other people's.", field: "post_id", fix: "Mark a reply someone else wrote." });
+  }
   const change = isMarking
     ? await env.DB.prepare("INSERT OR IGNORE INTO forum_helpful_marks (post_id, account_id, created_at_ms) VALUES (?, ?, ?)").bind(post.id, caller.accountId, Date.now()).run()
     : await env.DB.prepare("DELETE FROM forum_helpful_marks WHERE post_id = ? AND account_id = ?").bind(post.id, caller.accountId).run();
   if (change.meta.changes) await env.DB.prepare(`UPDATE forum_posts SET helpful_count = MAX(0, helpful_count ${isMarking ? "+" : "-"} 1) WHERE id = ?`).bind(post.id).run();
   const row = await env.DB.prepare("SELECT helpful_count FROM forum_posts WHERE id = ?").bind(post.id).first<{ helpful_count: number }>();
-  return { helpful_count: row?.helpful_count ?? 0, has_marked_helpful: isMarking };
+  return { helpful_count: row?.helpful_count ?? 0, has_marked_helpful: isMarking, next_steps: NO_NEXT_STEPS };
 }
 
 /**
@@ -754,9 +814,11 @@ export async function reportPost(env: Env, caller: Caller, topicId: string, post
   closedBody(body, ["reason", "details"]);
   const post = await visiblePost(env, caller, topicId, postId);
   const reason = String(body.reason ?? "") as ForumReportReason;
-  if (!(reason in FORUM_REPORT_REASONS)) throw new ApiError(400, "bad_reason", `reason is one of: ${Object.keys(FORUM_REPORT_REASONS).join(", ")}.`);
-  if (post.author_kind === "zaisma") throw new ApiError(400, "cant_report", "Zaisma's own posts can't be reported here. Message Zaisma instead.");
-  if (post.account_id === caller.accountId) throw new ApiError(400, "cant_report", "That's your own post.");
+  if (!(reason in FORUM_REPORT_REASONS)) {
+    throw new ApiError("bad_reason", { message: `reason ${JSON.stringify(String(body.reason ?? "").slice(0, 40))} isn't one of the report reasons.`, field: "reason", fix: `Give one of: ${Object.keys(FORUM_REPORT_REASONS).join(", ")}.` });
+  }
+  if (post.author_kind === "zaisma") throw new ApiError("cant_report", { message: "Zaisma's own posts can't be reported.", field: "post_id", fix: "Tell Zaisma what's wrong with message_zaisma instead." });
+  if (post.account_id === caller.accountId) throw new ApiError("cant_report", { message: "That's the developer's own post.", field: "post_id", fix: "Reply to correct it instead." });
   const details = typeof body.details === "string" ? body.details.trim().slice(0, 1000) : "";
   await env.DB.prepare("INSERT OR REPLACE INTO forum_reports (post_id, account_id, reason, details, created_at_ms) VALUES (?, ?, ?, ?, ?)").bind(post.id, caller.accountId, reason, details || null, Date.now()).run();
   const reportCount = (await env.DB.prepare("SELECT COUNT(*) AS report_count FROM forum_reports WHERE post_id = ?").bind(post.id).first<{ report_count: number }>())?.report_count ?? 0;
@@ -765,7 +827,7 @@ export async function reportPost(env: Env, caller: Caller, topicId: string, post
   if (reason === "child_safety") {
     await sendAlert(env, "Forum post reported: puts a young person at risk", `A forum post was reported as putting a young person at risk. It's hidden until you look.\n\nOpen: ${env.SITE_ORIGIN}/admin/feedback/${post.topic_id}`);
   }
-  return { has_reported: true, is_hidden: isHidden };
+  return { has_reported: true, is_hidden: isHidden, next_steps: NO_NEXT_STEPS };
 }
 
 /** Follow a topic to hear about what's new in it (yours, ones you replied to and voted on are followed already). */
@@ -773,23 +835,26 @@ export async function follow(env: Env, caller: Caller, topicId: string, isFollow
   const topic = await readable(env, caller, topicId);
   if (isFollowing) await env.DB.prepare("INSERT OR IGNORE INTO forum_follows (topic_id, account_id, seen_at_ms) VALUES (?, ?, ?)").bind(topic.id, caller.accountId, Date.now()).run();
   else await env.DB.prepare("DELETE FROM forum_follows WHERE topic_id = ? AND account_id = ?").bind(topic.id, caller.accountId).run();
-  return { is_following: isFollowing };
+  return { is_following: isFollowing, next_steps: NO_NEXT_STEPS };
 }
 
 /** The developer who asked marks the reply that answered their question (null clears it). */
 export async function markAnswer(env: Env, caller: Caller, topicId: string, postId: string | null) {
   const topic = await readable(env, caller, topicId);
-  if (topic.account_id !== caller.accountId || topic.kind !== "question") throw new ApiError(403, "not_yours", "Only the developer who asked a question marks its answer.");
+  if (topic.account_id !== caller.accountId) throw new ApiError("not_yours", { message: "Only the developer who asked a question marks its answer.", field: "topic_id", fix: "Mark the reply helpful instead (mark_helpful)." });
+  if (topic.kind !== "question") throw new ApiError("not_a_question", { message: `This topic is a ${topic.kind}, not a question, so it has no answer to mark.`, field: "topic_id", fix: "Reply to say what solved it; reopen or a reply keeps everyone posted." });
   if (postId) {
     const post = await env.DB.prepare("SELECT * FROM forum_posts WHERE id = ? AND topic_id = ?").bind(postId, topic.id).first<ForumPost>();
-    if (!post || post.check_status !== "passed") throw new ApiError(404, "no_post", "answer_post_id is a reply in this topic that others can see.");
+    if (!post || post.check_status !== "passed") {
+      throw new ApiError("no_post", { message: `There's no reply with the ID ${postId.slice(0, 60)} others can see in this topic.`, field: "answer_post_id", fix: "get_topic lists the topic's posts with their IDs; a reply still being checked can't be the answer yet." });
+    }
   }
   await env.DB.prepare(
     "UPDATE forum_topics SET answer_post_id = ?, topic_status = CASE WHEN ? IS NOT NULL THEN 'answered' WHEN topic_status = 'answered' THEN 'new' ELSE topic_status END, updated_at_ms = ? WHERE id = ?",
   )
     .bind(postId, postId, Date.now(), topic.id)
     .run();
-  return { answer_post_id: postId };
+  return { answer_post_id: postId, next_steps: NO_NEXT_STEPS };
 }
 
 /**
@@ -808,7 +873,7 @@ export async function serveMedia(env: Env, viewer: Viewer, mediaId: string): Pro
     image && viewer && (image.post_id ? image.poster_id === viewer.accountId || (image.check_status === null && image.owner_id === viewer.accountId) : image.uploader_id === viewer.accountId),
   );
   const object = image && (isOpen || isOwn) ? await env.GAMES.get(image.storage_key) : null;
-  if (!image || !object) throw new ApiError(404, "no_media", "There's no image there you can see.");
+  if (!image || !object) throw new ApiError("no_media", { message: "There's no image there you can see.", fix: "Use the image_url a post's media gives, while you can see the post." });
   return new Response(object.body, {
     headers: {
       "Content-Type": image.content_type,

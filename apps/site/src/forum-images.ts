@@ -1,5 +1,4 @@
-import { KNOWN_IMAGE_RULE, type ImageMatcher } from "@zaisma/core";
-import { ApiError } from "./developer.ts";
+import { ApiError, KNOWN_IMAGE_RULE, type ImageMatcher } from "@zaisma/core";
 import { sendAlert } from "./email.ts";
 import type { Env } from "./env.ts";
 import { imageMatcher } from "./scan.ts";
@@ -32,7 +31,7 @@ export async function matchUpload(env: Env, mediaId: string, bytes: Uint8Array, 
 
 /** Refuse an upload that matched. */
 export function refuse(): never {
-  throw new ApiError(422, "image_refused", "This image can't be posted. A person at Zaisma will look at it.");
+  throw new ApiError("image_refused", { message: "An image can't be posted.", field: "images_base64", fix: "Post without it, or with a different image. A person at Zaisma will look at it." });
 }
 
 /**

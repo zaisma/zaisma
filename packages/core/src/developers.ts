@@ -113,29 +113,48 @@ export function describePlayModes(playModes: PlayMode[]): { mode: PlayMode["mode
   );
 }
 
-const PLAY_MODES_HELP = 'play_modes is a list like [{ "mode": "single" }, { "mode": "online", "minimum_player_count": 2, "maximum_player_count": 4, "play_style": "co-op" }], or null to clear it.';
+const PLAY_MODES_EXAMPLE = '[{ "mode": "single" }, { "mode": "online", "minimum_player_count": 2, "maximum_player_count": 4, "play_style": "co-op" }]';
 const MODE_ORDER = ["single", "local", "online"] as const;
 
-/** Check play modes from the API: each mode once, in a fixed order, with every key. Returns them, null to clear, or a plain error. */
-function checkPlayModes(given: unknown): PlayMode[] | null | string {
+/** Why an input was refused, before it becomes an error answer: the input at fault, what happened and what to do. */
+export interface InputProblem {
+  field: string;
+  message: string;
+  fix: string;
+}
+
+/** Check play modes from the API: each mode once, in a fixed order, with every key. Returns them, null to clear, or what's wrong. */
+function checkPlayModes(given: unknown): PlayMode[] | null | InputProblem {
   if (given === null) return null;
-  if (!Array.isArray(given) || given.length === 0) return PLAY_MODES_HELP;
+  if (!Array.isArray(given) || given.length === 0) {
+    return { field: "play_modes", message: "play_modes isn't a list with at least one play mode.", fix: `Send a list like ${PLAY_MODES_EXAMPLE}, or null to clear it.` };
+  }
   const playModes: PlayMode[] = [];
-  for (const givenPlayMode of given) {
+  for (const [i, givenPlayMode] of given.entries()) {
     const playMode = givenPlayMode as Partial<PlayMode> | null;
-    if (!playMode || typeof playMode !== "object" || !MODE_ORDER.includes(playMode.mode as PlayMode["mode"])) return `Each play mode needs "mode": single, local or online. ${PLAY_MODES_HELP}`;
-    if (playModes.some((other) => other.mode === playMode.mode)) return `play_modes has ${playMode.mode} twice.`;
+    if (!playMode || typeof playMode !== "object" || !MODE_ORDER.includes(playMode.mode as PlayMode["mode"])) {
+      return { field: `play_modes[${i}].mode`, message: `play_modes[${i}] has no mode, or one that isn't single, local or online.`, fix: `Make each entry an object with its mode, like { "mode": "single" }: ${PLAY_MODES_EXAMPLE}.` };
+    }
+    if (playModes.some((other) => other.mode === playMode.mode)) return { field: `play_modes[${i}].mode`, message: `play_modes has ${playMode.mode} twice.`, fix: "List each mode once." };
     if (playMode.mode === "single") {
-      if ((playMode.minimum_player_count ?? null) !== null || (playMode.maximum_player_count ?? null) !== null || (playMode.play_style ?? null) !== null) return "The single mode takes no player counts or play_style.";
+      if ((playMode.minimum_player_count ?? null) !== null || (playMode.maximum_player_count ?? null) !== null || (playMode.play_style ?? null) !== null) {
+        return { field: `play_modes[${i}]`, message: "The single mode takes no player counts or play_style.", fix: 'Send it as { "mode": "single" }.' };
+      }
       playModes.push({ mode: "single", minimum_player_count: null, maximum_player_count: null, play_style: null });
       continue;
     }
     const minimumPlayerCount = playMode.minimum_player_count;
     const maximumPlayerCount = playMode.maximum_player_count ?? null;
-    if (!Number.isInteger(minimumPlayerCount) || minimumPlayerCount! < 2 || minimumPlayerCount! > MAXIMUM_PLAYER_COUNT || (maximumPlayerCount !== null && (!Number.isInteger(maximumPlayerCount) || maximumPlayerCount < minimumPlayerCount! || maximumPlayerCount > MAXIMUM_PLAYER_COUNT))) {
-      return `The ${playMode.mode} mode needs minimum_player_count (2 or more) and maximum_player_count (at least the minimum, or null for no limit).`;
+    const example = `{ "mode": "${playMode.mode}", "minimum_player_count": 2, "maximum_player_count": 4, "play_style": "co-op" }`;
+    if (!Number.isInteger(minimumPlayerCount) || minimumPlayerCount! < 2 || minimumPlayerCount! > MAXIMUM_PLAYER_COUNT) {
+      return { field: `play_modes[${i}].minimum_player_count`, message: `The ${playMode.mode} mode's minimum_player_count is missing or isn't a whole number from 2 to ${MAXIMUM_PLAYER_COUNT}.`, fix: `Give the fewest players it takes, 2 or more, like ${example}.` };
     }
-    if (!PLAY_STYLES.includes(playMode.play_style as (typeof PLAY_STYLES)[number])) return `The ${playMode.mode} mode's play_style is one of: ${PLAY_STYLES.join(", ")}.`;
+    if (maximumPlayerCount !== null && (!Number.isInteger(maximumPlayerCount) || maximumPlayerCount < minimumPlayerCount! || maximumPlayerCount > MAXIMUM_PLAYER_COUNT)) {
+      return { field: `play_modes[${i}].maximum_player_count`, message: `The ${playMode.mode} mode's maximum_player_count is under its minimum_player_count or isn't a whole number up to ${MAXIMUM_PLAYER_COUNT}.`, fix: "Give the most players it takes, at least the minimum, or null for no limit." };
+    }
+    if (!PLAY_STYLES.includes(playMode.play_style as (typeof PLAY_STYLES)[number])) {
+      return { field: `play_modes[${i}].play_style`, message: `The ${playMode.mode} mode's play_style is missing or isn't co-op, versus or both.`, fix: `Give play_style: co-op (together), versus (against each other) or both, like ${example}.` };
+    }
     playModes.push({ mode: playMode.mode!, minimum_player_count: minimumPlayerCount!, maximum_player_count: maximumPlayerCount, play_style: playMode.play_style! });
   }
   return playModes.sort((first, second) => MODE_ORDER.indexOf(first.mode) - MODE_ORDER.indexOf(second.mode));
@@ -160,49 +179,57 @@ export interface DetailsChange {
 }
 
 /** Check a change from the API (docs/NAMING.md). Returns the tidied change or a plain error. */
-export function checkDetails(input: Record<string, unknown>): { change: DetailsChange } | { error: string } {
+export function checkDetails(input: Record<string, unknown>): { change: DetailsChange } | { problem: InputProblem } {
   const change: DetailsChange = {};
+  const refuse = (field: string, message: string, fix: string) => ({ problem: { field, message, fix } });
   if ("title" in input) {
     const title = typeof input.title === "string" ? input.title.trim().replace(/\s+/g, " ") : "";
-    if (!title || title.length > 80) return { error: "The title needs 1 to 80 characters." };
+    if (!title || title.length > 80) return refuse("title", "title is empty or over 80 characters.", "Give a title of 1 to 80 characters.");
     change.title = title;
   }
   if ("description" in input) {
-    if (typeof input.description !== "string" || input.description.trim().length > 500) return { error: "The description can be up to 500 characters." };
+    if (typeof input.description !== "string" || input.description.trim().length > 500) return refuse("description", "description isn't text of up to 500 characters.", "Shorten it to 500 characters; it's shown on the game page.");
     change.description = input.description.trim();
   }
   if ("visibility" in input) {
-    if (!VISIBILITIES.includes(input.visibility as Visibility)) return { error: `Visibility is one of: ${VISIBILITIES.join(", ")}.` };
+    if (!VISIBILITIES.includes(input.visibility as Visibility)) {
+      return refuse("visibility", `visibility ${JSON.stringify(input.visibility)} isn't one of the choices.`, "Give listed (on Zaisma for everyone), unlisted (only people with the link), or private or draft (only you and tester links).");
+    }
     change.visibility = input.visibility as Visibility;
   }
-  const checkLabels = (field: "devices" | "controls", allowed: readonly string[]): string | null => {
-    if (!(field in input)) return null;
+  for (const [field, allowed] of [["devices", DEVICES], ["controls", CONTROLS]] as const) {
+    if (!(field in input)) continue;
     const given = input[field];
-    if (!Array.isArray(given) || !given.every((label) => typeof label === "string" && allowed.includes(label))) return `${field} is a list of: ${allowed.join(", ")}.`;
+    if (!Array.isArray(given) || !given.every((label) => typeof label === "string" && (allowed as readonly string[]).includes(label))) {
+      return refuse(field, `${field} isn't a list of ${allowed.join(", ")}.`, `Send a list of any of: ${allowed.join(", ")}, like ["${allowed[0]}"].`);
+    }
     change[field] = allowed.filter((label) => given.includes(label));
-    return null;
-  };
-  const labelError = checkLabels("devices", DEVICES) ?? checkLabels("controls", CONTROLS);
-  if (labelError) return { error: labelError };
+  }
   if ("screen_orientation" in input) {
-    if (input.screen_orientation !== null && !SCREENS.includes(input.screen_orientation as (typeof SCREENS)[number])) return { error: `screen_orientation is one of: ${SCREENS.join(", ")}, or null for not set.` };
+    if (input.screen_orientation !== null && !SCREENS.includes(input.screen_orientation as (typeof SCREENS)[number])) {
+      return refuse("screen_orientation", `screen_orientation ${JSON.stringify(input.screen_orientation)} isn't one of the choices.`, `Give one of ${SCREENS.join(", ")}, or null for not set.`);
+    }
     change.screen_orientation = input.screen_orientation as (typeof SCREENS)[number] | null;
   }
   if ("play_modes" in input) {
     const playModes = checkPlayModes(input.play_modes);
-    if (typeof playModes === "string") return { error: playModes };
+    if (playModes && !Array.isArray(playModes)) return { problem: playModes };
     change.play_modes = playModes;
   }
   if ("cloud_saves_enabled" in input) {
-    if (typeof input.cloud_saves_enabled !== "boolean") return { error: "cloud_saves_enabled is true or false." };
+    if (typeof input.cloud_saves_enabled !== "boolean") return refuse("cloud_saves_enabled", "cloud_saves_enabled isn't true or false.", "Send true (players' saves follow them to any device) or false (the game keeps its own saves).");
     change.cloud_saves_enabled = input.cloud_saves_enabled;
   }
   if ("room_browsing" in input) {
-    if (!ROOM_BROWSING.includes(input.room_browsing as RoomBrowsing)) return { error: `room_browsing is one of: ${ROOM_BROWSING.join(", ")}.` };
+    if (!ROOM_BROWSING.includes(input.room_browsing as RoomBrowsing)) {
+      return refuse("room_browsing", `room_browsing ${JSON.stringify(input.room_browsing)} isn't one of the choices.`, "Give page (open rooms listed on the game page and to the game), game (only to the game) or off.");
+    }
     change.room_browsing = input.room_browsing as RoomBrowsing;
   }
   if ("multiplayer_mode" in input) {
-    if (!MULTIPLAYER_MODES.includes(input.multiplayer_mode as (typeof MULTIPLAYER_MODES)[number])) return { error: `multiplayer_mode is one of: ${MULTIPLAYER_MODES.join(", ")}.` };
+    if (!MULTIPLAYER_MODES.includes(input.multiplayer_mode as (typeof MULTIPLAYER_MODES)[number])) {
+      return refuse("multiplayer_mode", `multiplayer_mode ${JSON.stringify(input.multiplayer_mode)} isn't one of the choices.`, "Give none (no Zaisma rooms), relay (Zaisma passes messages, no server code) or own (your game server from zaisma-server/).");
+    }
     change.multiplayer_mode = input.multiplayer_mode as (typeof MULTIPLAYER_MODES)[number];
   }
   return { change };

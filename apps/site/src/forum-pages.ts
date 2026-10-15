@@ -1,4 +1,5 @@
 import {
+  ApiError,
   FORUM_CATEGORIES,
   FORUM_LIMITS,
   FORUM_REPORT_REASONS,
@@ -12,7 +13,7 @@ import {
   type TopicStatus,
 } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
-import { ApiError, apiCall, callerFor, type Caller } from "./developer.ts";
+import { apiCall, callerFor, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { esc, html, layout, raw, type Raw } from "./html.ts";
 import { forumPeople, previewMentions } from "./forum-mentions.ts";
@@ -144,11 +145,11 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
       if (!caller) return new Response(JSON.stringify({ error: "Sign in to add images." }), { status: 401, headers: { "Content-Type": "application/json" } });
       const file = (await request.formData()).get("file");
       try {
-        if (!(file instanceof File)) throw new ApiError(400, "no_file", "Choose an image.");
+        if (!(file instanceof File)) throw new ApiError("no_file", { message: "No image was chosen.", field: "image", fix: "Choose an image." });
         const uploaded = await uploadDraftMedia(env, caller, new Uint8Array(await file.arrayBuffer()));
         return done(new Response(JSON.stringify(uploaded), { headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } }));
       } catch (error) {
-        if (error instanceof ApiError) return new Response(JSON.stringify({ error: error.message }), { status: error.httpStatus, headers: { "Content-Type": "application/json" } });
+        if (error instanceof ApiError) return new Response(JSON.stringify({ error: error.messageWithFix }), { status: error.httpStatus, headers: { "Content-Type": "application/json" } });
         throw error;
       }
     }
@@ -191,7 +192,7 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
       } catch (error) {
         if (error instanceof ApiError) {
           const given = Object.fromEntries([...form].filter(([, entry]) => typeof entry === "string")) as Record<string, string>;
-          return done(await newPage(ctx, given, isMessage, error.message, error.httpStatus, form.getAll("tags").map(String)));
+          return done(await newPage(ctx, given, isMessage, error.messageWithFix, error.httpStatus, form.getAll("tags").map(String)));
         }
         throw error;
       }
@@ -220,7 +221,7 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
         const state = reopen ? "reopened" : replied.post.check_status === "pending" ? "checking" : replied.post.check_status === "held" ? "held" : "replied";
         return done(redirect(`/forum/${id}?done=${state}#p-${replied.post.id}`));
       } catch (error) {
-        if (error instanceof ApiError) return done(await topicPage(ctx, id, { error: error.message, textMarkdown: field("text_markdown"), replyToPostId: field("reply_to_post_id") || undefined }, error.httpStatus));
+        if (error instanceof ApiError) return done(await topicPage(ctx, id, { error: error.messageWithFix, textMarkdown: field("text_markdown"), replyToPostId: field("reply_to_post_id") || undefined }, error.httpStatus));
         throw error;
       }
     }
@@ -245,7 +246,7 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
         return done(redirect(`/forum/${id}?done=misplaced`));
       }
     } catch (error) {
-      if (error instanceof ApiError) return done(await topicPage(ctx, id, { error: error.message }, error.httpStatus));
+      if (error instanceof ApiError) return done(await topicPage(ctx, id, { error: error.messageWithFix }, error.httpStatus));
       throw error;
     }
     return done(redirect(`/forum/${id}${action === "answer" && field("answer_post_id") ? `#p-${field("answer_post_id")}` : ""}`));
@@ -315,10 +316,10 @@ function withCookies(response: Response, cookies: string[]): Response {
 async function imagesFrom(form: FormData): Promise<{ images_base64?: string[] }> {
   const files = form.getAll("images").filter((file): file is File => file instanceof File && file.size > 0);
   if (!files.length) return {};
-  if (files.length > FORUM_LIMITS.imageCountPerPost) throw new ApiError(400, "too_much_media", `A post can carry up to ${FORUM_LIMITS.imageCountPerPost} images.`);
+  if (files.length > FORUM_LIMITS.imageCountPerPost) throw new ApiError("too_many_images", { message: `That's ${files.length} images, over ${FORUM_LIMITS.imageCountPerPost}.`, field: "images", fix: `Attach up to ${FORUM_LIMITS.imageCountPerPost} images a post; put the rest in a reply.` });
   const images: string[] = [];
   for (const file of files) {
-    if (file.size > FORUM_LIMITS.imageSizeBytes) throw new ApiError(413, "picture_too_big", `Images can be up to ${FORUM_LIMITS.imageSizeBytes / 1048576} MB each.`);
+    if (file.size > FORUM_LIMITS.imageSizeBytes) throw new ApiError("image_too_big", { message: `${file.name || "An image"} is over ${FORUM_LIMITS.imageSizeBytes / 1048576} MB.`, field: "images", fix: "Save it smaller (a JPEG or WebP, or fewer pixels) and attach it again." });
     const bytes = new Uint8Array(await file.arrayBuffer());
     let binary = "";
     for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
@@ -799,7 +800,7 @@ function outPage(ctx: Ctx, to: string): Response {
 async function reportPage(ctx: Ctx, topicId: string, postId: string): Promise<Response> {
   const thread = await getTopic(ctx.env, ctx.viewer, topicId);
   const post = thread.posts.find((candidate) => candidate.id === postId);
-  if (!post || post.author.kind === "zaisma" || post.author.is_you) throw new ApiError(404, "no_post", "There's no post here you can report.");
+  if (!post || post.author.kind === "zaisma" || post.author.is_you) throw new ApiError("no_post", { message: "There's no post here you can report.", field: "post_id", fix: "Open the topic again and report a post someone else wrote." });
   return forumPage(
     ctx,
     "Report a post",

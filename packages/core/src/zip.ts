@@ -1,5 +1,6 @@
 import { unzipSync } from "fflate";
 import { CONTENT_TYPES, extensionOf } from "./mime.ts";
+import type { ErrorCode } from "./errors.ts";
 
 export const LIMITS = {
   zipBytes: 25 * 1024 * 1024,
@@ -9,7 +10,15 @@ export const LIMITS = {
   pathLength: 200,
 };
 
-export class UploadError extends Error {}
+/** Why an upload was refused. From the developer API's file list it also says its error code, the input at fault and the fix. */
+export class UploadError extends Error {
+  constructor(
+    message: string,
+    readonly problem?: { code: ErrorCode; field: string | null; fix: string },
+  ) {
+    super(message);
+  }
+}
 
 export interface ZipEntry {
   /** Path inside the zip, as stored. */

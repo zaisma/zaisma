@@ -7,7 +7,7 @@ import { checkForumPosts, type CheckImage } from "../../apps/site/src/forum-chec
 import { forumHeldKey } from "../../apps/site/src/forum-images.ts";
 import { renderMarkdown } from "../../apps/site/src/forum-markdown.ts";
 import { TOOLS } from "../../apps/site/src/mcp.ts";
-import { schemaProblems } from "../schema-check.ts";
+import { errorProblems, schemaProblems } from "../schema-check.ts";
 
 const SITE = "https://zaisma.test";
 const LOCAL = "http://localhost";
@@ -17,16 +17,22 @@ let other = "";
 let nextId = 1;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function api(path: string, init: { body?: unknown; key?: string; cli?: boolean; method?: string } = {}): Promise<{ status: number; data: any }> {
+/** Call the developer API; every error answer must have the error's shape and a listed code. */
+async function api(path: string, init: { body?: unknown; key?: string; cli?: boolean; method?: string } = {}): Promise<{ status: number; data: any; headers: Headers }> {
   const res = await SELF.fetch(`${SITE}/api/dev${path}`, {
     method: init.method ?? (init.body ? "POST" : "GET"),
     headers: { authorization: `Bearer ${init.key ?? token}`, ...(init.body ? { "content-type": "application/json" } : {}), ...(init.cli ? { "x-zaisma-client": "cli" } : {}) },
     body: init.body ? JSON.stringify(init.body) : undefined,
   });
-  return { status: res.status, data: await res.json() };
+  const data = await res.json();
+  if (!res.ok) expect(errorProblems(data, res.status)).toEqual([]);
+  return { status: res.status, data, headers: res.headers };
 }
 
-/** Call a developer MCP tool; every answer must match the tool's output schema exactly. */
+/**
+ * Call a developer MCP tool; every answer must match the tool's output schema exactly, and every
+ * error the error's shape. A refusal comes back as { error: its text, code, message, field, fix, retry_after_sec }.
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function mcp(name: string, args: Record<string, unknown> = {}, key = token): Promise<any> {
   const res = await SELF.fetch(`${SITE}/mcp`, {
@@ -34,8 +40,11 @@ async function mcp(name: string, args: Record<string, unknown> = {}, key = token
     headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
     body: JSON.stringify({ jsonrpc: "2.0", id: nextId++, method: "tools/call", params: { name, arguments: args } }),
   });
-  const { result } = (await res.json()) as { result: { content: { text: string }[]; isError?: boolean; structuredContent?: unknown } };
-  if (result.isError) return { error: result.content[0]!.text };
+  const { result } = (await res.json()) as { result: { content: { text: string }[]; isError?: boolean; structuredContent?: { error: Record<string, unknown> } } };
+  if (result.isError) {
+    expect(errorProblems(result.structuredContent)).toEqual([]);
+    return { error: result.content[0]!.text, ...result.structuredContent!.error };
+  }
   const schema = TOOLS.find((tool) => tool.name === name)?.outputSchema;
   expect(schema, `${name} has an output schema`).toBeDefined();
   expect(schemaProblems(schema!, result.structuredContent, name)).toEqual([]);
@@ -112,12 +121,14 @@ describe("posting", () => {
   it("answers the first feedback calls with where they went", async () => {
     const { status, data } = await api("/feedback");
     expect([status, data.error.code]).toEqual([410, "gone"]);
-    expect(data.error.message).toContain("/forum");
+    expect(data.error.fix).toContain("/forum");
     expect((await api("/feedback", { body: { kind: "bug", title: "x", text: "y" } })).status).toBe(410);
   });
 
   it("marks posts through the MCP as an AI's, whatever they claim", async () => {
-    const sent = await mcp("message_zaisma", { kind: "gap", title: "No way to delete a game", text_markdown: "I need to remove a test game.", author_kind: "developer", images_base64: [PNG] });
+    // The MCP takes no author_kind at all: arguments are closed.
+    expect(await mcp("message_zaisma", { kind: "gap", title: "No way to delete a game", text_markdown: "x", author_kind: "developer" })).toMatchObject({ code: "unknown_field", field: "author_kind" });
+    const sent = await mcp("message_zaisma", { kind: "gap", title: "No way to delete a game", text_markdown: "I need to remove a test game.", images_base64: [PNG] });
     expect(sent.topic.is_public).toBe(false);
     expect(sent.posts[0]).toMatchObject({ author: { kind: "ai", name: "Pixel Smith", is_you: true }, posted_via: "mcp" });
     expect(sent.posts[0].media[0].image_url).toContain(`/api/dev/forum/${sent.topic.id}/media/`);
@@ -131,9 +142,12 @@ describe("posting", () => {
     const nowMs = Date.now();
     const rows = Array.from({ length: 100 }, (_, i) => `('p${i}', 'f', 'dev-1', 'ai', 'api', 'post', 'x', ${nowMs - 1000})`).join(",");
     await env.DB.exec(`INSERT INTO forum_posts (id, topic_id, account_id, author_kind, posted_via, kind, text_markdown, created_at_ms) VALUES ${rows}`);
-    const { status, data } = await api("/forum", { body: { is_public: false, kind: "bug", title: "x", text_markdown: "y" } });
+    const { status, data, headers } = await api("/forum", { body: { is_public: false, kind: "bug", title: "x", text_markdown: "y" } });
     expect(status).toBe(429);
-    expect(data.error.code).toBe("feedback_limit");
+    expect(data.error.code).toBe("post_limit");
+    // The oldest of those posts is a second old, so the allowance frees up in about a day.
+    expect(data.error.retry_after_sec).toBeGreaterThan(86000);
+    expect(headers.get("retry-after")).toBe(String(data.error.retry_after_sec));
     expect((await api("/forum", { body: { kind: "bug", category: "other", title: "x", text_markdown: "y" } })).status).toBe(429);
     expect((await api("/forum", { body: { is_public: false, kind: "bug", title: "x", text_markdown: "y" }, key: other })).status).toBe(201);
     expect((await mcp("search_forum", { tab: "yours" })).remaining_post_count).toBe(0);
@@ -175,11 +189,11 @@ describe("threads and known issues", () => {
     expect(added.topic).toMatchObject({ is_public: false, merged_into_topic: { id: knownIssue.id } });
     const third = await createAccount(env.DB, { id: "dev-3", name: "Third", ageBand: "18+" });
     const thirdKey = (await createApiKey(env.DB, third.id, "ai")).token;
-    expect(await mcp("vote", { topic_id: knownIssue.id }, thirdKey)).toEqual({ vote_count: 1, has_voted: true });
+    expect(await mcp("vote", { topic_id: knownIssue.id }, thirdKey)).toEqual({ vote_count: 1, has_voted: true, next_steps: [] });
     expect((await mcp("get_topic", { topic_id: knownIssue.id }, thirdKey)).topic).toMatchObject({ affected_developer_count: 3, has_voted: true, your_message_topic_id: null });
     expect((await mcp("get_topic", { topic_id: knownIssue.id }, other)).topic.your_message_topic_id).toBe(added.topic.id);
     // Taking the vote back.
-    expect(await mcp("vote", { topic_id: knownIssue.id, undo: true }, thirdKey)).toEqual({ vote_count: 0, has_voted: false });
+    expect(await mcp("vote", { topic_id: knownIssue.id, undo: true }, thirdKey)).toEqual({ vote_count: 0, has_voted: false, next_steps: [] });
   });
 
   it("tells developers about replies and fixes, and lets them reopen", async () => {
@@ -297,7 +311,7 @@ describe("categories and votes", () => {
     expect(await env.DB.prepare("SELECT category, severity FROM forum_topics WHERE id = ?").bind(topic.id).first()).toEqual({ category: "rooms", severity: "low" });
 
     // Someone flags it; on the next run the AI moves it and says so in the topic.
-    expect(await mcp("flag_misplaced", { topic_id: topic.id }, other)).toEqual({ has_flagged_misplaced: true });
+    expect(await mcp("flag_misplaced", { topic_id: topic.id }, other)).toEqual({ has_flagged_misplaced: true, next_steps: [] });
     expect((await mcp("get_topic", { topic_id: topic.id }, other)).topic.has_flagged_misplaced).toBe(true);
     expect(await sortMisplaced(testEnv, sorter("saves"))).toBe(1);
     const moved = await mcp("get_topic", { topic_id: topic.id }, other);
@@ -315,9 +329,9 @@ describe("categories and votes", () => {
     await checkForumPosts({ ...env, ANTHROPIC_API_KEY: "test-key" }, { ai: async () => ({ verdict: "ok", reason: "", inputTokenCount: 10, outputTokenCount: 2 }) });
     expect((await mcp("vote", { topic_id: talk.id }, other)).error).toContain("Discussions take replies");
     expect((await mcp("get_topic", { topic_id: talk.id }, other)).topic.can_vote).toBe(false);
-    expect(await mcp("vote", { topic_id: idea.id }, other)).toEqual({ vote_count: 1, has_voted: true });
+    expect(await mcp("vote", { topic_id: idea.id }, other)).toEqual({ vote_count: 1, has_voted: true, next_steps: [] });
     // The API takes a vote back with DELETE.
-    expect((await api(`/forum/${idea.id}/vote`, { key: other, method: "DELETE" })).data).toEqual({ vote_count: 0, has_voted: false });
+    expect((await api(`/forum/${idea.id}/vote`, { key: other, method: "DELETE" })).data).toEqual({ vote_count: 0, has_voted: false, next_steps: [] });
   });
 });
 
@@ -335,7 +349,7 @@ describe("search, phases and reading a topic in part", () => {
     await mcp("message_zaisma", { kind: "bug", title: "too_big again", text_markdown: "Private logs: too_big." });
     const answer = await mcp("reply_to_topic", { topic_id: upload.id, text_markdown: "Base64 makes the request bigger than the build: use the upload command for builds over 2 MB." }, other);
     await passAll();
-    expect(await mcp("mark_answer", { topic_id: upload.id, answer_post_id: answer.post.id })).toEqual({ answer_post_id: answer.post.id });
+    expect(await mcp("mark_answer", { topic_id: upload.id, answer_post_id: answer.post.id })).toEqual({ answer_post_id: answer.post.id, next_steps: [] });
 
     const ids = async (args: Record<string, unknown>, key = other) => (await mcp("search_forum", args, key)).topics.map((topic: { id: string }) => topic.id);
     expect(await ids({ search_text: "too_big" })).toEqual([upload.id]);
@@ -406,7 +420,7 @@ describe("search, phases and reading a topic in part", () => {
     const mine = await mcp("get_topic", { topic_id: topic.id });
     expect(mine.posts.at(-1).text_markdown).toContain("A fix is out. Zaisma is watching that it holds");
 
-    expect(await mcp("still_happening", { topic_id: knownIssueId }, other)).toEqual({ topic_status: "fixing", post: null });
+    expect(await mcp("still_happening", { topic_id: knownIssueId }, other)).toEqual({ topic_status: "fixing", post: null, next_steps: [] });
     expect((await mcp("get_topic", { topic_id: knownIssueId, post_selection: "none" })).topic.topic_status).toBe("fixing");
     expect((await mcp("get_topic", { topic_id: topic.id })).topic.topic_status).toBe("fixing");
     // Once per fix: it's fixing now, so no more.
@@ -418,15 +432,15 @@ describe("search, phases and reading a topic in part", () => {
     await passAll();
     const reply = (await mcp("reply_to_topic", { topic_id: topic.id, text_markdown: "Yes, for signed-in players." }, other)).post;
     await passAll();
-    expect(await mcp("mark_helpful", { topic_id: topic.id, post_id: reply.id })).toEqual({ helpful_count: 1, has_marked_helpful: true });
-    expect(await mcp("mark_helpful", { topic_id: topic.id, post_id: reply.id })).toEqual({ helpful_count: 1, has_marked_helpful: true });
-    expect((await mcp("mark_helpful", { topic_id: topic.id, post_id: reply.id }, other)).error).toContain("other people's posts");
+    expect(await mcp("mark_helpful", { topic_id: topic.id, post_id: reply.id })).toEqual({ helpful_count: 1, has_marked_helpful: true, next_steps: [] });
+    expect(await mcp("mark_helpful", { topic_id: topic.id, post_id: reply.id })).toEqual({ helpful_count: 1, has_marked_helpful: true, next_steps: [] });
+    expect((await mcp("mark_helpful", { topic_id: topic.id, post_id: reply.id }, other)).code).toBe("cant_mark_helpful");
     expect((await mcp("get_topic", { topic_id: topic.id })).posts[1]).toMatchObject({ helpful_count: 1, has_marked_helpful: true, check_status: "passed" });
-    expect(await mcp("mark_helpful", { topic_id: topic.id, post_id: reply.id, undo: true })).toEqual({ helpful_count: 0, has_marked_helpful: false });
+    expect(await mcp("mark_helpful", { topic_id: topic.id, post_id: reply.id, undo: true })).toEqual({ helpful_count: 0, has_marked_helpful: false, next_steps: [] });
 
     // Reports: who reported stays with Zaisma; three hide it until a person looks.
     expect((await mcp("report_post", { topic_id: topic.id, post_id: reply.id, reason: "nope" })).error).toContain("bad_reason");
-    expect(await mcp("report_post", { topic_id: topic.id, post_id: reply.id, reason: "scam" })).toEqual({ has_reported: true, is_hidden: false });
+    expect(await mcp("report_post", { topic_id: topic.id, post_id: reply.id, reason: "scam" })).toEqual({ has_reported: true, is_hidden: false, next_steps: [] });
     for (const number of [3, 4]) {
       await createAccount(env.DB, { id: `dev-${number}`, name: `Dev ${number}`, ageBand: "18+" });
       const key = (await createApiKey(env.DB, `dev-${number}`, "ai")).token;
@@ -442,7 +456,7 @@ describe("search, phases and reading a topic in part", () => {
     expect((await admin("list_feedback")).posts_to_check).toEqual([]);
 
     // A child-safety report hides it at once.
-    expect(await mcp("report_post", { topic_id: topic.id, post_id: reply.id, reason: "child_safety" })).toEqual({ has_reported: true, is_hidden: true });
+    expect(await mcp("report_post", { topic_id: topic.id, post_id: reply.id, reason: "child_safety" })).toEqual({ has_reported: true, is_hidden: true, next_steps: [] });
     expect((await mcp("get_topic", { topic_id: topic.id })).posts).toHaveLength(1);
   });
 
@@ -522,7 +536,7 @@ describe("search, phases and reading a topic in part", () => {
     expect(open.headers.get("content-type")).toBe("image/png");
     expect(open.headers.get("cache-control")).toBe("public, max-age=300");
     expect((await mcp("get_topic", { topic_id: topic.id }, other)).posts[0].media).toHaveLength(2);
-    expect((await mcp("post_topic", { kind: "bug", category: "pages", title: "x", text_markdown: "y", images_base64: Array(11).fill(PNG) })).error).toContain("too_much_media");
+    expect((await mcp("post_topic", { kind: "bug", category: "pages", title: "x", text_markdown: "y", images_base64: Array(11).fill(PNG) })).code).toBe("too_many_images");
 
     const message = await mcp("message_zaisma", { kind: "bug", title: "Private", text_markdown: "Mine.", images_base64: [PNG] });
     expect((await SELF.fetch(`${SITE}/forum/media/${message.posts[0].media[0].id}`)).status).toBe(404);

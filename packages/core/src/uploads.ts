@@ -39,34 +39,71 @@ export const ownedBlobKey = (ownerId: string, sha256: string) => `owned/${ownerI
 export const manifestKey = (versionId: string) => `manifests/${versionId}.json`;
 export const SHA256 = /^[0-9a-f]{64}$/;
 
-/** Check a version's file list against the same rules as zips, with the bigger limits. Throws UploadError. */
+const PATH_FIX = "Give paths relative to the game's folder, like index.html or assets/hero.png: no leading /, no . or .. parts, up to 200 characters.";
+
+/** Check a version's file list against the same rules as zips, with the bigger limits. Throws UploadError with its code, field and fix. */
 export function checkUploadList(input: unknown): UploadFile[] {
-  if (!Array.isArray(input) || input.length === 0) throw new UploadError("Send the game's files as a list of { path, sha256, size_bytes }.");
-  if (input.length > FILE_LIMITS.maximumFileCount) throw new UploadError(`The game has ${input.length} files; the limit is ${FILE_LIMITS.maximumFileCount.toLocaleString("en-US")}.`);
+  if (!Array.isArray(input) || input.length === 0) {
+    throw new UploadError("files isn't a list of files.", { code: "bad_files", field: "files", fix: 'Send the game\'s files as a list of { "path", "sha256", "size_bytes" }, with index.html among them.' });
+  }
+  if (input.length > FILE_LIMITS.maximumFileCount) {
+    throw new UploadError(`The game has ${input.length} files; the limit is ${FILE_LIMITS.maximumFileCount.toLocaleString("en-US")}.`, {
+      code: "too_many_files",
+      field: "files",
+      fix: "Leave out files the game doesn't load, or pack small ones together (like sprites into an atlas).",
+    });
+  }
   const seen = new Set<string>();
   let totalSizeBytes = 0;
   const files: UploadFile[] = [];
-  for (const givenFile of input) {
+  for (const [i, givenFile] of input.entries()) {
     const file = givenFile as Partial<UploadFile> | null;
     if (typeof file?.path !== "string" || typeof file.sha256 !== "string" || !SHA256.test(file.sha256) || !Number.isSafeInteger(file.size_bytes) || file.size_bytes! < 0) {
-      throw new UploadError("Each file needs a path, its sha256 in lowercase hex and its size_bytes.");
+      throw new UploadError(`files[${i}] isn't { "path", "sha256", "size_bytes" }.`, { code: "bad_files", field: `files[${i}]`, fix: "Give each file its path, its SHA-256 in lowercase hex and its size_bytes." });
     }
-    const path = cleanPath(file.path);
-    if (path.split("/").some((part) => part.startsWith("."))) throw new UploadError(`Hidden files aren't allowed: ${path}`);
+    const field = `files[${i}].path`;
+    let path: string;
+    try {
+      path = cleanPath(file.path);
+    } catch (error) {
+      if (error instanceof UploadError) throw new UploadError(`${JSON.stringify(file.path.slice(0, 80))} isn't a path a game can have.`, { code: "bad_path", field, fix: PATH_FIX });
+      throw error;
+    }
+    if (path.split("/").some((part) => part.startsWith("."))) throw new UploadError(`${path} is hidden: a name in it starts with a dot.`, { code: "hidden_file", field, fix: "Leave hidden files and folders out of the upload." });
     const extension = extensionOf(path);
     if (extension === "gz" || extension === "br") {
-      throw new UploadError(`${path} is pre-compressed. Turn off compression in your engine's build settings; Zaisma compresses files for you.`);
+      throw new UploadError(`${path} is pre-compressed.`, { code: "precompressed_file", field, fix: "Turn off compression in your engine's build settings and upload again; Zaisma compresses files for you." });
     }
-    if (!(extension in CONTENT_TYPES)) throw new UploadError(`${path}: .${extension || "(no extension)"} files aren't allowed in games.`);
-    if (file.size_bytes! > FILE_LIMITS.maximumFileSizeBytes) throw new UploadError(`${path} is over ${megabytes(FILE_LIMITS.maximumFileSizeBytes)}. Split it into smaller files, or ask us if you need bigger ones.`);
+    if (!(extension in CONTENT_TYPES)) {
+      throw new UploadError(`${path}: .${extension || "(no extension)"} files aren't allowed in games.`, { code: "file_type_not_allowed", field, fix: `Leave it out. Games can have: ${Object.keys(CONTENT_TYPES).join(", ")}.` });
+    }
+    if (file.size_bytes! > FILE_LIMITS.maximumFileSizeBytes) {
+      throw new UploadError(`${path} is over ${megabytes(FILE_LIMITS.maximumFileSizeBytes)}.`, {
+        code: "file_too_big",
+        field: `files[${i}].size_bytes`,
+        fix: "Split it into smaller files, or ask Zaisma (message_zaisma, kind gap) if the game needs bigger ones.",
+      });
+    }
     const key = path.toLowerCase();
-    if (seen.has(key)) throw new UploadError(`Two files share the path ${path}.`);
+    if (seen.has(key)) throw new UploadError(`Two files share the path ${path} (paths don't depend on case).`, { code: "duplicate_path", field, fix: "Give each file its own path." });
     seen.add(key);
     totalSizeBytes += file.size_bytes!;
     files.push({ path, sha256: file.sha256, size_bytes: file.size_bytes! });
   }
-  if (!seen.has("index.html")) throw new UploadError("The game needs an index.html at the top level.");
-  if (totalSizeBytes > FILE_LIMITS.maximumGameSizeBytes) throw new UploadError(`The game is ${megabytes(totalSizeBytes)}; the limit is ${megabytes(FILE_LIMITS.maximumGameSizeBytes)}. Ask us if you need more.`);
+  if (!seen.has("index.html")) {
+    throw new UploadError("There's no index.html at the top of the game.", {
+      code: "no_index_html",
+      field: "files",
+      fix: "Send the game's start page with the path index.html, not game/index.html: paths are relative to the folder players get.",
+    });
+  }
+  if (totalSizeBytes > FILE_LIMITS.maximumGameSizeBytes) {
+    throw new UploadError(`The game is ${megabytes(totalSizeBytes)}; the limit is ${megabytes(FILE_LIMITS.maximumGameSizeBytes)}.`, {
+      code: "game_too_big",
+      field: "files",
+      fix: "Leave out files the game doesn't load, or ask Zaisma (message_zaisma, kind gap) for more.",
+    });
+  }
   return files;
 }
 

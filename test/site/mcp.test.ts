@@ -3,7 +3,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { audit, createAccount, createApiKey, createReport, gameBySlug, notConnected, type ImageMatcher } from "@zaisma/core";
 import { scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
 import { TOOLS } from "../../apps/site/src/mcp.ts";
-import { schemaProblems } from "../schema-check.ts";
+import { ERROR } from "../../apps/site/src/schemas.ts";
+import { errorProblems, schemaProblems } from "../schema-check.ts";
 
 const SITE = "https://zaisma.test";
 const testEnv = { ...env, ANTHROPIC_API_KEY: "test-key" };
@@ -25,12 +26,20 @@ async function rpc(body: unknown, key: string | null = token) {
   });
 }
 
-/** Call a tool; returns its result as data, or { error } when the tool said no. Every answer must match the tool's output schema exactly. */
+/**
+ * Call a tool; returns its result as data, or { error: its text, code, message, field, fix, retry_after_sec }
+ * when the tool said no. Every answer must match the tool's output schema exactly, and every error the error's shape.
+ */
 async function tool(name: string, args: Record<string, unknown> = {}, key = token): Promise<any> {
   const res = await rpc({ jsonrpc: "2.0", id: nextId++, method: "tools/call", params: { name, arguments: args } }, key);
   expect(res.status).toBe(200);
-  const { result } = (await res.json()) as { result: { content: { text: string }[]; isError?: boolean; structuredContent?: unknown } };
-  if (result.isError) return { error: result.content[0]!.text };
+  const { result } = (await res.json()) as { result: { content: { text: string }[]; isError?: boolean; structuredContent?: { error: Record<string, unknown> } } };
+  if (result.isError) {
+    expect(errorProblems(result.structuredContent)).toEqual([]);
+    const { message, fix, code } = result.structuredContent!.error;
+    expect(result.content[0]!.text).toBe(`${message} ${fix} (${code})`);
+    return { error: result.content[0]!.text, ...result.structuredContent!.error };
+  }
   const schema = TOOLS.find((t) => t.name === name)?.outputSchema;
   if (schema) expect(schemaProblems(schema, result.structuredContent, name)).toEqual([]);
   return result.structuredContent;
@@ -43,7 +52,7 @@ async function passScan(id: string) {
 
 beforeEach(async () => {
   await env.DB.exec(
-    "DELETE FROM reports; DELETE FROM room_usage; DELETE FROM game_server_errors; DELETE FROM blobs; DELETE FROM game_images; DELETE FROM api_keys; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;",
+    "DELETE FROM reports; DELETE FROM room_usage; DELETE FROM game_server_errors; DELETE FROM blobs; DELETE FROM game_images; DELETE FROM tester_links; DELETE FROM api_keys; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;",
   );
   await createAccount(env.DB, { id: "dev-1", name: "Pixel Smith", ageBand: "18+" });
   await createAccount(env.DB, { id: "dev-2", name: "Other Dev", ageBand: "18+" });
@@ -56,7 +65,14 @@ describe("the MCP protocol", () => {
     const res = await rpc({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }, null);
     expect(res.status).toBe(401);
     expect(res.headers.get("www-authenticate")).toContain("Bearer");
-    expect((await rpc({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }, "zsk_nope")).status).toBe(401);
+    // The JSON-RPC error carries Zaisma's own error object.
+    const refused = (await res.json()) as any;
+    expect(refused.error.code).toBe(-32001);
+    expect(refused.error.data.error).toMatchObject({ code: "no_key", field: "Authorization" });
+    expect(errorProblems(refused.error.data, 401)).toEqual([]);
+    const badKey = await rpc({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }, "zsk_nope");
+    expect(badKey.status).toBe(401);
+    expect(((await badKey.json()) as any).error.data.error.code).toBe("bad_key");
     expect((await SELF.fetch(`${SITE}/mcp`)).status).toBe(405);
   });
 
@@ -71,6 +87,11 @@ describe("the MCP protocol", () => {
     const names = list.result.tools.map((t: { name: string }) => t.name);
     expect(names).toEqual(expect.arrayContaining(["list_games", "create_game", "upload_files", "publish_version", "get_reports", "get_stats", "get_history", "add_tester_link", "remove_tester_link"]));
     for (const t of list.result.tools) expect(t.inputSchema.type).toBe("object");
+    // Clients check an error's structuredContent against the output schema too, so each lists its answer or an error.
+    for (const t of list.result.tools) {
+      expect(t.outputSchema).toEqual({ type: "object", anyOf: [TOOLS.find((listed) => listed.name === t.name)!.outputSchema, ERROR] });
+      expect(schemaProblems(t.outputSchema, { error: { code: "no_game", message: "x", field: "slug", fix: "y", retry_after_sec: null } })).toEqual([]);
+    }
 
     const batch = (await (await rpc([{ jsonrpc: "2.0", id: 3, method: "ping" }, { jsonrpc: "2.0", id: 4, method: "nope" }])).json()) as any[];
     expect(batch[0].result).toEqual({});
@@ -124,7 +145,9 @@ describe("publishing a game through the MCP", () => {
     const later = await tool("publish_version", { slug: "hop", version_id: up.version.id, scheduled_publish_at: at });
     expect(later.version.scheduled_publish_at).toBe(at);
     expect(later.version.is_live).toBe(false);
-    expect((await tool("publish_version", { slug: "hop", version_id: up.version.id, scheduled_publish_at: Date.now() + 3 * 3600_000 })).error).toContain("ISO time");
+    const numeric = await tool("publish_version", { slug: "hop", version_id: up.version.id, scheduled_publish_at: Date.now() + 3 * 3600_000 });
+    expect(numeric).toMatchObject({ code: "bad_time", field: "scheduled_publish_at", retry_after_sec: null });
+    expect(numeric.fix).toMatch(/like "\d{4}-\d{2}-\d{2}T\d{2}:00:00Z"/);
     expect((await tool("cancel_scheduled_publish", { slug: "hop", version_id: up.version.id })).version.scheduled_publish_at).toBeNull();
   });
 
@@ -140,7 +163,8 @@ describe("publishing a game through the MCP", () => {
       { mode: "online", minimum_player_count: 2, maximum_player_count: 4, play_style: "co-op" },
     ]);
     expect(game).toMatchObject({ screen_orientation: "landscape", controls: ["keyboard_mouse"] });
-    expect((await tool("update_game", { slug: "party-hop", play_modes: [{ mode: "single", minimum_player_count: 2 }] })).error).toContain("single mode takes no player counts");
+    expect(await tool("update_game", { slug: "party-hop", play_modes: [{ mode: "single", minimum_player_count: 2 }] })).toMatchObject({ code: "bad_play_modes", field: "play_modes[0]", fix: expect.stringContaining(`{ "mode": "single" }`) });
+    expect(await tool("update_game", { slug: "party-hop", play_modes: [{ mode: "single" }, { mode: "online", minimum_player_count: 2 }] })).toMatchObject({ code: "bad_play_modes", field: "play_modes[1].play_style" });
     expect((await tool("update_game", { slug: "party-hop", play_modes: null, screen_orientation: null })).game).toMatchObject({ play_modes: null, screen_orientation: null });
   });
 
@@ -152,9 +176,49 @@ describe("publishing a game through the MCP", () => {
     await tool("update_game", { slug: "hop", visibility: "listed" });
 
     const asked = await tool("update_game", { slug: "hop", visibility: "private" });
-    expect(asked.error).toContain("confirm");
+    expect(asked).toMatchObject({ code: "needs_confirm", field: "confirm" });
     expect((await gameBySlug(env.DB, "hop"))!.visibility).toBe("listed");
     expect((await tool("update_game", { slug: "hop", visibility: "private", confirm: true })).game.visibility).toBe("private");
+  });
+
+  it("answers every change with the calls that usually follow", async () => {
+    const made = await tool("create_game", { title: "Hop" });
+    expect(made.next_steps).toEqual([{ tool: "upload_files", arguments: { slug: "hop" }, after_sec: null, reason: expect.stringContaining("npx @zaisma/cli upload") }]);
+    const up = await tool("upload_files", { slug: "hop", files: [{ path: "index.html", content_text: "<p>hop</p>" }] });
+    // Publishing while it's still scanning says to wait, and how long.
+    expect(await tool("publish_version", { slug: "hop", version_id: up.version.id })).toMatchObject({ code: "still_scanning", retry_after_sec: 30 });
+    await passScan(up.version.id);
+    // Listed with nothing live: publish the version that passed.
+    const listed = await tool("update_game", { slug: "hop", visibility: "listed" });
+    expect(listed.next_steps).toEqual([{ tool: "publish_version", arguments: { slug: "hop", version_id: up.version.id }, after_sec: null, reason: expect.any(String) }]);
+    await tool("update_game", { slug: "hop", visibility: "draft" });
+    // Live but still a draft: players can't see it until it's listed or unlisted.
+    const published = await tool("publish_version", { slug: "hop", version_id: up.version.id });
+    expect(published.next_steps).toEqual([{ tool: "update_game", arguments: { slug: "hop", visibility: "listed" }, after_sec: null, reason: expect.stringContaining("draft") }]);
+    expect((await tool("update_game", { slug: "hop", visibility: "unlisted" })).next_steps).toEqual([]);
+    expect((await tool("add_tester_link", { slug: "hop", name: "Playtesters" })).next_steps).toEqual([]);
+    // Every next step names a tool the MCP has.
+    for (const step of [...made.next_steps, ...listed.next_steps, ...published.next_steps]) expect(TOOLS.map((listedTool) => listedTool.name)).toContain(step.tool);
+  });
+
+  it("refuses arguments it doesn't take, and says which it does", async () => {
+    expect(await tool("search_forum", { q: "too_big" })).toMatchObject({ code: "unknown_field", field: "q", fix: expect.stringContaining("Did you mean search_text?") });
+    expect(await tool("update_game", { slug: "hop", players: "2-4" })).toMatchObject({ code: "unknown_field", field: "players", fix: expect.stringContaining("Did you mean play_modes?") });
+    expect(await tool("get_game", {})).toMatchObject({ code: "missing_field", field: "slug" });
+    expect(await tool("search_forum", { category: "multiplayer" })).toMatchObject({ code: "bad_category", field: "category", fix: expect.stringContaining("multiplayer is a section") });
+    expect(await tool("search_forum", { tab: "known_issues" })).toMatchObject({ code: "bad_tab", field: "tab" });
+  });
+
+  it("explains what's wrong with an upload, file by file", async () => {
+    await tool("create_game", { title: "Hop" });
+    const page = { path: "index.html", content_text: "<p>hop</p>" };
+    expect(await tool("upload_files", { slug: "hop", files: [page, { path: "hero.png", content_text: "iVBORw0KGgo" }] })).toMatchObject({ code: "bad_files", field: "files[1].content_text" });
+    expect(await tool("upload_files", { slug: "hop", files: [{ ...page, path: "/index.html" }] })).toMatchObject({ code: "bad_path", field: "files[0].path" });
+    expect(await tool("upload_files", { slug: "hop", files: [{ ...page, path: "my-game/index.html" }] })).toMatchObject({ code: "no_index_html", fix: expect.stringContaining("not game/index.html") });
+    expect(await tool("upload_files", { slug: "hop", files: [page, { path: "build.js.gz", content_base64: "H4sI" }] })).toMatchObject({ code: "precompressed_file", field: "files[1].path" });
+    expect(await tool("upload_files", { slug: "hop", files: [page, { path: "tool.exe", content_base64: "TVo=" }] })).toMatchObject({ code: "file_type_not_allowed", field: "files[1].path" });
+    expect(await tool("upload_files", { slug: "hop", files: [page, { path: "a.png", content_base64: "not base64!" }] })).toMatchObject({ code: "bad_base64", field: "files[1].content_base64" });
+    expect(await tool("upload_files", { slug: "hop", files: { "index.html": "<p>hop</p>" } })).toMatchObject({ code: "bad_files", field: "files" });
   });
 
   it("explains what it can't do", async () => {
@@ -162,7 +226,10 @@ describe("publishing a game through the MCP", () => {
     expect((await tool("upload_files", { slug: "hop", files: [{ path: "game.js", content_text: "1" }] })).error).toContain("index.html");
     expect((await tool("upload_files", { slug: "hop", files: [{ path: "index.html", text: "<p>old name</p>" }] })).error).toContain("content_text");
     expect((await tool("upload_files", { slug: "hop", files: [{ path: "index.html", content_text: "x".repeat(5 * 1024 * 1024 + 1) }] })).error).toContain("npx @zaisma/cli upload");
-    expect((await tool("get_game", { slug: "hop" }, other)).error).toContain("You don't have a game");
+    expect(await tool("get_game", { slug: "hop" }, other)).toMatchObject({ code: "no_game", field: "slug", message: expect.stringContaining("You don't have a game"), fix: expect.stringContaining("list_games") });
+    // A slug or ID of the wrong form says which game or version it didn't find, not that the path is unknown.
+    expect(await tool("get_game", { slug: "Hop Game" })).toMatchObject({ code: "no_game" });
+    expect(await tool("get_version", { slug: "hop", version_id: "version_8f3k2m" })).toMatchObject({ code: "no_version", field: "version_id" });
   });
 });
 

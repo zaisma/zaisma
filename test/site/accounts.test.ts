@@ -764,7 +764,7 @@ describe("the dashboard", () => {
 
     const refused = await b.go("/dashboard/hop/details", { title: "" });
     expect(refused.status).toBe(400);
-    expect(await refused.text()).toContain("The title needs 1 to 80 characters.");
+    expect(await refused.text()).toContain("title is empty or over 80 characters. Give a title of 1 to 80 characters.");
   });
 
   it("keeps other people's games and other sites out", async () => {
