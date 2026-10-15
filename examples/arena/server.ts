@@ -3,14 +3,15 @@
 // Only plain JavaScript plus type annotations, so Node can run it as-is.
 import type { GameServer, Player, Room } from "@zaisma/game-server";
 
-const RADIUS = 360; // platform
-const BODY = 18; // player
-const ACCEL = 1400;
+const PLATFORM_RADIUS = 360;
+const BODY_RADIUS = 18;
+const ACCELERATION = 1400;
 const FRICTION = 4;
 const DASH_SPEED = 720;
-const DASH_COOLDOWN = 1.2;
-const RESPAWN = 1.5;
-const BOTS_WHEN_ALONE = 2;
+const DASH_COOLDOWN_SEC = 1.2;
+const DASH_DURATION_SEC = 0.25;
+const RESPAWN_DELAY_SEC = 1.5;
+const BOT_COUNT_WHEN_ALONE = 2;
 const COLORS = ["#ff5d5d", "#4fc3ff", "#ffd84f", "#7dff8a", "#d07bff", "#ff9e4f", "#4fffe1", "#ff7bc4"];
 
 interface Body {
@@ -18,16 +19,18 @@ interface Body {
   color: string;
   x: number;
   y: number;
-  vx: number;
-  vy: number;
-  ix: number;
-  iy: number;
-  dash: number; // cooldown left
-  dashing: number; // seconds of dash left
-  out: number; // seconds until respawn, 0 if in play
+  velocityX: number;
+  velocityY: number;
+  /** Where the player is steering, from -1 to 1 on each axis. */
+  inputX: number;
+  inputY: number;
+  dashCooldownSec: number;
+  dashLeftSec: number;
+  /** Seconds until respawn, 0 while in play. */
+  respawnInSec: number;
   score: number;
-  lastHit: string | null;
-  bot: boolean;
+  lastHitById: string | null;
+  isBot: boolean;
 }
 
 interface State {
@@ -36,73 +39,79 @@ interface State {
   botCount: number;
 }
 
-function spawn(b: Body): void {
-  const a = Math.random() * Math.PI * 2;
-  const r = Math.random() * RADIUS * 0.5;
-  b.x = Math.cos(a) * r;
-  b.y = Math.sin(a) * r;
-  b.vx = b.vy = 0;
-  b.out = 0;
-  b.lastHit = null;
+/** What players send: where they steer, a dash, or a new color. */
+interface PlayerMessage {
+  input?: unknown;
+  dash?: unknown;
+  color?: unknown;
 }
 
-function newBody(state: State, name: string, bot: boolean, color?: string): Body {
-  const b: Body = { name, color: color ?? COLORS[state.colorIndex++ % COLORS.length]!, x: 0, y: 0, vx: 0, vy: 0, ix: 0, iy: 0, dash: 0, dashing: 0, out: 0, score: 0, lastHit: null, bot };
-  spawn(b);
-  return b;
+function spawn(body: Body): void {
+  const angle = Math.random() * Math.PI * 2;
+  const distance = Math.random() * PLATFORM_RADIUS * 0.5;
+  body.x = Math.cos(angle) * distance;
+  body.y = Math.sin(angle) * distance;
+  body.velocityX = body.velocityY = 0;
+  body.respawnInSec = 0;
+  body.lastHitById = null;
+}
+
+function newBody(state: State, name: string, isBot: boolean, color?: string): Body {
+  const body: Body = { name, color: color ?? COLORS[state.colorIndex++ % COLORS.length]!, x: 0, y: 0, velocityX: 0, velocityY: 0, inputX: 0, inputY: 0, dashCooldownSec: 0, dashLeftSec: 0, respawnInSec: 0, score: 0, lastHitById: null, isBot };
+  spawn(body);
+  return body;
 }
 
 /** Bots keep a lone player company until friends arrive. */
 function fillBots(state: State, room: Room): void {
-  const humans = room.players.length;
-  const want = humans >= 2 ? 0 : BOTS_WHEN_ALONE;
-  const bots = Object.keys(state.bodies).filter((id) => state.bodies[id]!.bot);
-  for (let i = bots.length; i < want; i++) state.bodies[`bot${++state.botCount}`] = newBody(state, `Bot ${state.botCount}`, true);
-  for (const id of bots.slice(want)) delete state.bodies[id];
+  const wantedBotCount = room.players.length >= 2 ? 0 : BOT_COUNT_WHEN_ALONE;
+  const botIds = Object.keys(state.bodies).filter((id) => state.bodies[id]!.isBot);
+  for (let i = botIds.length; i < wantedBotCount; i++) state.bodies[`bot${++state.botCount}`] = newBody(state, `Bot ${state.botCount}`, true);
+  for (const id of botIds.slice(wantedBotCount)) delete state.bodies[id];
 }
 
-function startDash(b: Body): void {
-  if (b.dash > 0 || b.out > 0) return;
-  let dx = b.ix;
-  let dy = b.iy;
-  if (!dx && !dy) {
-    const s = Math.hypot(b.vx, b.vy) || 1;
-    dx = b.vx / s;
-    dy = b.vy / s;
+function startDash(body: Body): void {
+  if (body.dashCooldownSec > 0 || body.respawnInSec > 0) return;
+  let directionX = body.inputX;
+  let directionY = body.inputY;
+  if (!directionX && !directionY) {
+    const speed = Math.hypot(body.velocityX, body.velocityY) || 1;
+    directionX = body.velocityX / speed;
+    directionY = body.velocityY / speed;
   }
-  b.vx = dx * DASH_SPEED;
-  b.vy = dy * DASH_SPEED;
-  b.dash = DASH_COOLDOWN;
-  b.dashing = 0.25;
+  body.velocityX = directionX * DASH_SPEED;
+  body.velocityY = directionY * DASH_SPEED;
+  body.dashCooldownSec = DASH_COOLDOWN_SEC;
+  body.dashLeftSec = DASH_DURATION_SEC;
 }
 
-function steerBot(state: State, id: string, b: Body): void {
+function steerBot(state: State, id: string, bot: Body): void {
   let target: Body | null = null;
-  let best = Infinity;
-  for (const [oid, o] of Object.entries(state.bodies)) {
-    if (oid === id || o.out) continue;
-    const d = Math.hypot(o.x - b.x, o.y - b.y);
-    if (d < best) [best, target] = [d, o];
+  let nearest = Infinity;
+  for (const [otherId, other] of Object.entries(state.bodies)) {
+    if (otherId === id || other.respawnInSec) continue;
+    const distance = Math.hypot(other.x - bot.x, other.y - bot.y);
+    if (distance < nearest) [nearest, target] = [distance, other];
   }
   // Head for the nearest player, but back away from the edge.
-  let dx = target ? target.x - b.x : -b.x;
-  let dy = target ? target.y - b.y : -b.y;
-  if (Math.hypot(b.x, b.y) > RADIUS * 0.75) [dx, dy] = [-b.x, -b.y];
-  const s = Math.hypot(dx, dy) || 1;
-  b.ix = (dx / s) * 0.7;
-  b.iy = (dy / s) * 0.7;
-  if (target && best < 90 && Math.random() < 0.04) startDash(b);
+  let towardX = target ? target.x - bot.x : -bot.x;
+  let towardY = target ? target.y - bot.y : -bot.y;
+  if (Math.hypot(bot.x, bot.y) > PLATFORM_RADIUS * 0.75) [towardX, towardY] = [-bot.x, -bot.y];
+  const length = Math.hypot(towardX, towardY) || 1;
+  bot.inputX = (towardX / length) * 0.7;
+  bot.inputY = (towardY / length) * 0.7;
+  if (target && nearest < 90 && Math.random() < 0.04) startDash(bot);
 }
 
 const arena: GameServer<State> = {
-  maxPlayers: 8,
-  tickRate: 20,
+  maximumPlayerCount: 8,
+  ticksPerSec: 20,
 
   setup: () => ({ bodies: {}, colorIndex: 0, botCount: 0 }),
 
   // The player's game sends the color they picked last time as join data.
-  onJoin(state, player: Player, room, data) {
-    const color = (data as { color?: unknown } | undefined)?.color;
+  onJoin(state, player: Player, room, joinData) {
+    const color = (joinData as { color?: unknown } | null)?.color;
     state.bodies[player.id] = newBody(state, player.name, false, typeof color === "string" && COLORS.includes(color) ? color : undefined);
     fillBots(state, room);
   },
@@ -112,90 +121,91 @@ const arena: GameServer<State> = {
     fillBots(state, room);
   },
 
-  onMessage(state, player, msg) {
-    const b = state.bodies[player.id];
-    if (!b || !msg || typeof msg !== "object") return;
-    const m = msg as { i?: unknown; d?: unknown; c?: unknown };
-    if (typeof m.c === "string" && COLORS.includes(m.c)) b.color = m.c;
-    if (Array.isArray(m.i) && m.i.length === 2) {
-      let [x, y] = m.i.map(Number) as [number, number];
-      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
-      const s = Math.hypot(x, y);
-      if (s > 1) [x, y] = [x / s, y / s];
-      b.ix = x;
-      b.iy = y;
+  onMessage(state, player, message) {
+    const body = state.bodies[player.id];
+    if (!body || !message || typeof message !== "object") return;
+    const sent = message as PlayerMessage;
+    if (typeof sent.color === "string" && COLORS.includes(sent.color)) body.color = sent.color;
+    if (Array.isArray(sent.input) && sent.input.length === 2) {
+      let [inputX, inputY] = sent.input.map(Number) as [number, number];
+      if (!Number.isFinite(inputX) || !Number.isFinite(inputY)) return;
+      const length = Math.hypot(inputX, inputY);
+      if (length > 1) [inputX, inputY] = [inputX / length, inputY / length];
+      body.inputX = inputX;
+      body.inputY = inputY;
     }
-    if (m.d) startDash(b);
+    if (sent.dash === true) startDash(body);
   },
 
-  onTick(state, dt, room) {
-    dt = Math.min(dt, 0.1);
+  onTick(state, tickDurationSec, room) {
+    // A late tick moves things at most a tenth of a second, so nobody jumps through a wall.
+    const stepSec = Math.min(tickDurationSec, 0.1);
     const ids = Object.keys(state.bodies);
     for (const id of ids) {
-      const b = state.bodies[id]!;
-      if (b.out > 0) {
-        b.out -= dt;
-        if (b.out <= 0) spawn(b);
+      const body = state.bodies[id]!;
+      if (body.respawnInSec > 0) {
+        body.respawnInSec -= stepSec;
+        if (body.respawnInSec <= 0) spawn(body);
         continue;
       }
-      if (b.bot) steerBot(state, id, b);
-      b.dash = Math.max(0, b.dash - dt);
-      b.dashing = Math.max(0, b.dashing - dt);
-      b.vx += b.ix * ACCEL * dt;
-      b.vy += b.iy * ACCEL * dt;
-      const f = Math.exp(-FRICTION * dt);
-      b.vx *= f;
-      b.vy *= f;
-      b.x += b.vx * dt;
-      b.y += b.vy * dt;
+      if (body.isBot) steerBot(state, id, body);
+      body.dashCooldownSec = Math.max(0, body.dashCooldownSec - stepSec);
+      body.dashLeftSec = Math.max(0, body.dashLeftSec - stepSec);
+      body.velocityX += body.inputX * ACCELERATION * stepSec;
+      body.velocityY += body.inputY * ACCELERATION * stepSec;
+      const slowdown = Math.exp(-FRICTION * stepSec);
+      body.velocityX *= slowdown;
+      body.velocityY *= slowdown;
+      body.x += body.velocityX * stepSec;
+      body.y += body.velocityY * stepSec;
     }
     // Bumps: push overlapping players apart; a dashing player hits much harder.
     for (let i = 0; i < ids.length; i++) {
       for (let j = i + 1; j < ids.length; j++) {
-        const a = state.bodies[ids[i]!]!;
-        const c = state.bodies[ids[j]!]!;
-        if (a.out || c.out) continue;
-        const dx = c.x - a.x;
-        const dy = c.y - a.y;
-        const d = Math.hypot(dx, dy);
-        if (d === 0 || d >= BODY * 2) continue;
-        const nx = dx / d;
-        const ny = dy / d;
-        const overlap = BODY * 2 - d;
-        a.x -= (nx * overlap) / 2;
-        a.y -= (ny * overlap) / 2;
-        c.x += (nx * overlap) / 2;
-        c.y += (ny * overlap) / 2;
-        const push = 260 + (a.dashing ? 520 : 0) + (c.dashing ? 520 : 0);
-        const aHits = a.dashing >= c.dashing;
-        if (aHits) {
-          c.vx += nx * push;
-          c.vy += ny * push;
-          a.vx -= nx * push * 0.3;
-          a.vy -= ny * push * 0.3;
-          c.lastHit = ids[i]!;
+        const first = state.bodies[ids[i]!]!;
+        const second = state.bodies[ids[j]!]!;
+        if (first.respawnInSec || second.respawnInSec) continue;
+        const gapX = second.x - first.x;
+        const gapY = second.y - first.y;
+        const distance = Math.hypot(gapX, gapY);
+        if (distance === 0 || distance >= BODY_RADIUS * 2) continue;
+        const normalX = gapX / distance;
+        const normalY = gapY / distance;
+        const overlap = BODY_RADIUS * 2 - distance;
+        first.x -= (normalX * overlap) / 2;
+        first.y -= (normalY * overlap) / 2;
+        second.x += (normalX * overlap) / 2;
+        second.y += (normalY * overlap) / 2;
+        const push = 260 + (first.dashLeftSec ? 520 : 0) + (second.dashLeftSec ? 520 : 0);
+        if (first.dashLeftSec >= second.dashLeftSec) {
+          second.velocityX += normalX * push;
+          second.velocityY += normalY * push;
+          first.velocityX -= normalX * push * 0.3;
+          first.velocityY -= normalY * push * 0.3;
+          second.lastHitById = ids[i]!;
         } else {
-          a.vx -= nx * push;
-          a.vy -= ny * push;
-          c.vx += nx * push * 0.3;
-          c.vy += ny * push * 0.3;
-          a.lastHit = ids[j]!;
+          first.velocityX -= normalX * push;
+          first.velocityY -= normalY * push;
+          second.velocityX += normalX * push * 0.3;
+          second.velocityY += normalY * push * 0.3;
+          first.lastHitById = ids[j]!;
         }
       }
     }
     // Off the edge: whoever bumped them last scores.
     for (const id of ids) {
-      const b = state.bodies[id]!;
-      if (b.out || Math.hypot(b.x, b.y) <= RADIUS) continue;
-      b.out = RESPAWN;
-      const hitter = b.lastHit && state.bodies[b.lastHit];
+      const body = state.bodies[id]!;
+      if (body.respawnInSec || Math.hypot(body.x, body.y) <= PLATFORM_RADIUS) continue;
+      body.respawnInSec = RESPAWN_DELAY_SEC;
+      const hitter = body.lastHitById && state.bodies[body.lastHitById];
       if (hitter) hitter.score++;
-      room.broadcast({ ko: id, by: b.lastHit });
+      room.broadcast({ knockedOutId: id, byId: body.lastHitById });
     }
+    // Everyone's place. Rooms count messages, not their size, so whole words cost nothing extra.
     room.broadcast({
-      s: ids.map((id) => {
-        const b = state.bodies[id]!;
-        return [id, Math.round(b.x), Math.round(b.y), b.score, b.dashing > 0 ? 1 : 0, b.out > 0 ? 1 : 0, b.name, b.color];
+      snapshot: ids.map((id) => {
+        const body = state.bodies[id]!;
+        return { id, x: Math.round(body.x), y: Math.round(body.y), score: body.score, isDashing: body.dashLeftSec > 0, isOut: body.respawnInSec > 0, name: body.name, color: body.color };
       }),
     });
   },

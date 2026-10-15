@@ -297,10 +297,10 @@ describe("reports and takedowns", () => {
 
   it("takes a report about a player, with their temporary ID, and leaves the game up", async () => {
     await liveGame();
-    const res = await fromPlate({ reason: "sexual", details: "", room: "ABCDEF", player: { id: "g_0123456789abcdef", name: "Swift Fox 42" } });
+    const res = await fromPlate({ reason: "sexual", details: "", room: "ABCDEF", player: { id: "player_0123456789abcdef", name: "Swift Fox 42" } });
     expect(await res.json()).toEqual({ ok: true, hidden: false, paused: false });
     const row = await env.DB.prepare("SELECT * FROM reports").first<Record<string, unknown>>();
-    expect(row).toMatchObject({ reason: "player", player_reason: "sexual", player_id: "g_0123456789abcdef", player_name: "Swift Fox 42", room_code: "ABCDEF" });
+    expect(row).toMatchObject({ reason: "player", player_reason: "sexual", player_id: "player_0123456789abcdef", player_name: "Swift Fox 42", room_code: "ABCDEF" });
     expect((await gameBySlug(env.DB, "test-game"))?.review_status).toBe("live");
     expect((await fromPlate({ reason: "cheating", player: { id: "<script>", name: "x" } })).status).toBe(400);
   });

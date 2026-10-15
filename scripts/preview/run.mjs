@@ -155,7 +155,7 @@ function withServer(example, name) {
   cpSync(join(ROOT, example, "game"), out, { recursive: true });
   const code = transformSync(readFileSync(join(ROOT, example, "server.ts"), "utf8"), { loader: "ts", format: "esm" }).code;
   // In the preview, players who walk away are quick to try: "Still there?" after a minute, seats held for two.
-  const quick = code.replace(/export\s*\{\s*(\w+) as default\s*\};?\s*$/, "export default { ...$1, idleAfter: 60, holdFor: 120 };");
+  const quick = code.replace(/export\s*\{\s*(\w+) as default\s*\};?\s*$/, "export default { ...$1, idleTimeoutSec: 60, seatHoldDurationSec: 120 };");
   if (quick === code) throw new Error(`Couldn't give the preview's ${name} game server quick away settings`);
   writeFileSync(join(out, "zaisma-server.js"), quick);
   return out;
@@ -281,8 +281,8 @@ async function seed() {
     ["shard-dodge", { reason: "other", details: "stuck after a double jump on the night level, can't move" }],
     ["night-drive", { reason: "other", details: "it asks for my steam login to unlock level 2" }],
     ["cave-crew", { reason: "sexual", details: "naked characters in the second cave" }],
-    ["arena", { reason: "harassment", room: "ABCDEF", player: { id: "g_preview000000001", name: "Swift Fox 42" }, details: "keeps following me and spamming insults" }],
-    ["arena", { reason: "harassment", room: "ABCDEF", player: { id: "g_preview000000001", name: "Swift Fox 42" }, details: "same player again, won't leave me alone" }],
+    ["arena", { reason: "harassment", room: "ABCDEF", player: { id: "player_preview000000001", name: "Swift Fox 42" }, details: "keeps following me and spamming insults" }],
+    ["arena", { reason: "harassment", room: "ABCDEF", player: { id: "player_preview000000001", name: "Swift Fox 42" }, details: "same player again, won't leave me alone" }],
     ["four-in-a-row", { reason: "other", details: "boring, my friend always wins" }],
   ];
   for (const [i, [slug, body]] of reports.entries()) {
@@ -325,7 +325,7 @@ async function seedForum(you, go, form) {
 
   // A rooms bug, sent privately, that Zaisma makes a public known issue; others hit it too.
   const { topic: roomsBug } = await os("POST", "/forum", { is_public: false, kind: "bug", author_kind: me, category: "rooms", title: "Rooms disconnect everyone when the 50th player joins", text_markdown: "Every time a room reaches 50 players, every player in it is disconnected at once. Under 50 it's fine." });
-  await zaisma(roomsBug.id, { is_known_issue: "1", known_issue_title: "Rooms drop every player at 50", workaround: "Cap rooms at 40 players for now: Zaisma.rooms.create({ max: 40 }).", roadmap_item: "Multiplayer", topic_status: "known", severity: "high", category: "rooms", reply: "Thanks, we can see it happening. We've made it a known issue so others find the workaround." });
+  await zaisma(roomsBug.id, { is_known_issue: "1", known_issue_title: "Rooms drop every player at 50", workaround: "Cap rooms at 40 players for now: maximumPlayerCount: 40 on your game server.", roadmap_item: "Multiplayer", topic_status: "known", severity: "high", category: "rooms", reply: "Thanks, we can see it happening. We've made it a known issue so others find the workaround." });
   const known = (await you("GET", "/forum?tab=known")).topics;
   const roomsKnown = known.find((k) => k.title === "Rooms drop every player at 50").id;
   await meToo(roomsKnown, pf, lw, ca);

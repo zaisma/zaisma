@@ -49,25 +49,28 @@ To run your own Zaisma, create a D1 database, two R2 buckets (game files and clo
 
 ### Multiplayer
 
-Games include the SDK with `<script src="_zaisma/v1.js"></script>` and call `await Zaisma.joinRoom()`. A room link (`zaisma.com/g/<game>?room=CODE`) drops friends into the same match as guests. Player passes come from the game's zaisma.com page, which checks that a real browser opened it (Cloudflare's invisible check, started as the page opens so Play doesn't wait), so bots can't fill rooms: a game opened anywhere else, or a browser the check can't confirm, can't join (`err.code === "unchecked"`).
+Games include the SDK with `<script src="_zaisma/v1.js"></script>` and call `await Zaisma.joinRoom()`. A room link (`zaisma.com/g/<game>?room=CODE`) drops friends into the same match as guests. Player passes come from the game's zaisma.com page, which checks that a real browser opened it (Cloudflare's invisible check, started as the page opens so Play doesn't wait), so bots can't fill rooms: a game opened anywhere else, or a browser the check can't confirm, can't join (`error.code === "unchecked"`).
 
 Multiplayer is server-client: the *client* is the game in the browser, the *game server* holds the official state and checks every move, and a *room* is one live match running one copy of the game server. A game server is a plain object:
 
 ```ts
 export default {
-  maxPlayers: 8,           // up to 16
-  tickRate: 20,            // leave out for turn-based games so the room sleeps between moves
-  setup: (data) => ({ players: {} }),   // data: what room.reserve() passed, for a room another room made
-  onJoin(state, player, room, data, info) {}, // data: what the player's game passed to joinRoom({ data }); info.back: back to a held seat
-  onLeave(state, player, room, info) {},      // info.why: left, lost, idle, hidden or kicked
-  onMessage(state, player, msg, room) {},
-  onTick(state, dt, room) {},
+  maximumPlayerCount: 8,   // up to 16
+  ticksPerSec: 20,         // leave out for turn-based games so the room sleeps between moves
+  setup: (setupData) => ({ players: {} }),  // setupData: what room.reserve() passed, for a room another room made, else null
+  onJoin(state, player, room, joinData, joinInfo) {}, // joinData: what the player's game passed to joinRoom({ joinData }), else null;
+                                                       // joinInfo: { fromRoomCode, isReturning } (isReturning: back to a held seat)
+  onLeave(state, player, room, leaveInfo) {},  // leaveInfo.reason: left, lost, idle, hidden or kicked
+  onMessage(state, player, message, room) {},
+  onTick(state, tickDurationSec, room) {},     // tickDurationSec: seconds since the last tick
 };
-// room.broadcast(msg), room.send(playerId, msg), room.players, room.end(),
-// room.setListed(false), room.setOpen(false), room.reserve({ players, data })
+// room.broadcast(message, { exceptPlayerId }), room.send(playerId, message), room.players, room.end(message),
+// room.setListed(false), room.setOpen(false), room.reserve({ playerIds, setupData })
 ```
 
-Games without server code can use the built-in `relay`, which passes each message to everyone else. See `examples/arena` (real-time) and `examples/four-in-a-row` (turn-based).
+Names follow [`docs/NAMING.md`](docs/NAMING.md): whole words, with the unit in the name. A game server with an option it doesn't take doesn't start, and says which ones it does take (`unknown_option`); the SDK refuses options and events it doesn't take the same way. Every message between a game and its room says its `type`, and a game's own messages travel in `data`; rooms count messages, not their size, so whole words cost nothing.
+
+Games without server code can use the built-in `relay`, which passes each message to everyone else as `{ fromPlayerId, data }`. See `examples/arena` (real-time) and `examples/four-in-a-row` (turn-based).
 
 #### Your game server on Zaisma
 
@@ -94,14 +97,16 @@ The same file runs on your own machine too (below), so you can test it there or 
 Open rooms are listed on the game's page (how full each is and where it runs, never who's in it), with "playing now" under the title (every room counts, hidden ones too), and the game gets the same list to show its own way:
 
 ```js
-Zaisma.rooms.linked;                          // the room code the player's link points to, or null
-const { rooms, playing, regions } = await Zaisma.rooms.list();  // rooms: [{ code, players, max, open, location, near, link }]
+Zaisma.rooms.linkedRoomCode;                  // the room code the player's link points to, or null
+const { rooms, playing, regions } = await Zaisma.rooms.list();
+// rooms: [{ roomCode, playerCount, heldSeatCount, maximumPlayerCount, isOpen, location, isNear, name, labels, inviteUrl }]
+// playing: { playerCount, roomCount, closedRoomCount }; regions: [{ region, name, roomCount, playerCount }]
 Zaisma.rooms.list({ region: "EU" });          // one region (continent codes, as in regions)
 const room = await Zaisma.rooms.quickJoin();  // the linked room, else a busy room with space nearby, else a new one
-Zaisma.joinRoom({ listed: false });           // a new room that's never listed: a private match
+Zaisma.joinRoom({ isListed: false });         // a new room that's never listed: a private match
 Zaisma.joinRoom({ name: "Ana's castle", labels: { Mode: "Classic", Map: "Docks" } });  // name and label a new room
 Zaisma.rooms.list({ labels: { Mode: "Classic" } });  // rooms with those labels; quickJoin takes the same
-await Zaisma.filterText(typed);              // { ok, reason, text }: Zaisma's text filter, if you want it
+await Zaisma.filterText(typed);              // { isAllowed, reason, text }: Zaisma's text filter, if you want it
 ```
 
 Rooms can have a name and up to 4 labels (like Mode and Map), set by your game server with `room.setInfo({ name, labels })`, by the room's first player with the relay, or when the room is made. Names and labels players type are fine; on zaisma.com they show only if they pass Zaisma's text filter (no links, handles, emails, phone numbers or contact apps; no slurs or sexual words), and players can report them. Inside your game they're yours to look after, under the content rules.
@@ -111,7 +116,7 @@ On the game server, `room.setListed(false)` hides a room (its code and links sti
 Join on the game page is an ordinary room link, so the game decides what comes first:
 
 - **Straight in:** call `joinRoom()` or `quickJoin()` when the game starts; both follow the link.
-- **A menu or character customizer first:** check `Zaisma.rooms.linked`, show your screen, then join with what the player picked: `joinRoom({ data: { character: "knight" } })` hands it to your game server's `onJoin` (plain JSON, up to 4 KB; it comes from the player's browser, so check it like any message). If the room filled up meanwhile, `joinRoom` fails with `err.code === "full"` and `quickJoin` finds another.
+- **A menu or character customizer first:** check `Zaisma.rooms.linkedRoomCode`, show your screen, then join with what the player picked: `joinRoom({ joinData: { character: "knight" } })` hands it to your game server's `canJoin` and `onJoin` (plain JSON, up to 4 KB; it comes from the player's browser, so check it like any message). If the room filled up meanwhile, `joinRoom` fails with `error.code === "full"` and `quickJoin` finds another.
 - **Your own lobby:** list rooms only in the game and draw them yourself from `Zaisma.rooms.list()`.
 
 #### Lobbies and matches
@@ -119,16 +124,16 @@ Join on the game page is an ordinary room link, so the game decides what comes f
 A room can make a room for some of its players and send them there, like a lobby starting a match:
 
 ```ts
-const code = room.reserve({ players: [a.id, b.id], data: { map: "Docks", teams } });  // in your game server
+const roomCode = room.reserve({ playerIds: [a.id, b.id], setupData: { map: "Docks", teams } });  // in your game server
 ```
 
 ```js
 room.on("move", (move) => { room.leave(); move.join(); });  // in the game: go to the new room
 ```
 
-The new room runs the same game server, and its `setup(data)` gets your data, so it can start the match already set up (players can read the data but can't change it; up to 4 KB). It's ready before anyone hears its code, only the players named can join it (it's a closed room, until your server opens it), and it's hidden from room lists unless you pass `listed: true` (with a `name` and `labels` if you like). A room can reserve up to 20 rooms a minute. See `examples/four-in-a-row`: its "Find an opponent" waits in a lobby room until there's someone to play.
+The new room runs the same game server, and its `setup(setupData)` gets your setup data, so it can start the match already set up (players can read it but can't change it; up to 4 KB). It's ready before anyone hears its code, only the players named can join it (it's a closed room, until your server opens it), and it's hidden from room lists unless you pass `isListed: true` (with a `name` and `labels` if you like). To send players to a room that's already running instead, like the next area of an open world, use `room.moveTo(roomCode, { playerIds, joinData })`: the other room's `canJoin` decides, and `onMoved(state, moveResult, room)` hears `{ roomCode, movedPlayers, refusals }`. A room can reserve up to 20 rooms a minute. See `examples/four-in-a-row`: its "Find an opponent" waits in a lobby room until there's someone to play.
 
-Playing alone needs no room, so don't make one until others can join: time in a room counts toward hosting even with one player. Each game gets 1,000 player-hours a month on Zaisma rooms free (the dashboard shows how much it has used). Until hosting billing is ready, that's also the most it can use: past it, new rooms don't open until the month resets (UTC) and joining fails with `err.code === "month-limit"`, while matches already running carry on.
+Playing alone needs no room, so don't make one until others can join: time in a room counts toward hosting even with one player. Each game gets 1,000 player-hours a month on Zaisma rooms free (the dashboard shows how much it has used). Until hosting billing is ready, that's also the most it can use: past it, new rooms don't open until the month resets (UTC) and joining fails with `error.code === "month_limit"`, while matches already running carry on.
 
 #### Players who walk away
 
@@ -136,33 +141,34 @@ Players who walk away stop holding seats and running matches, in every game, wit
 
 - **Lost connections** (a closed laptop, lost signal): the SDK pings the room every 25 seconds without waking it, and a connection that stops answering is dropped about a minute later. The SDK says goodbye as the page closes, so most players leave at once.
 - **Idle:** after 10 minutes without input the SDK asks "Still there?" with a small plate at the top of the game for 30 seconds; no answer, and the player walks away. Rooms check for themselves too: a game that sends nothing at all for a minute past that counts as idle.
-- **Hidden:** in a real-time room (one with a `tickRate`), a game hidden for 2 minutes counts as away.
+- **Hidden:** in a real-time room (one with `ticksPerSec`), a game hidden for 2 minutes counts as away.
 
-A player who walks away or loses their connection leaves the match (`onLeave` with `info.why`) and the room holds their seat for 5 minutes: they come straight back to it with any input, or by reconnecting, and `onJoin` gets `info.back`. Held seats count toward `maxPlayers`, but players who walked away don't count as playing now or toward how full a room looks, and a room where everyone's away stops ticking. Once the seat runs out, the SDK offers their old room again if it has space. Zaisma never covers your game or sends anyone away from it for being idle.
+A player who walks away or loses their connection leaves the match (`onLeave` with `leaveInfo.reason`) and the room holds their seat for 5 minutes: they come straight back to it with any input, or by reconnecting, and `onJoin` gets `joinInfo.isReturning`. Held seats count toward `maximumPlayerCount`, but players who walked away don't count as playing now or toward how full a room looks, and a room where everyone's away stops ticking. Once the seat runs out, the SDK offers their old room again if it has space. Zaisma never covers your game or sends anyone away from it for being idle.
 
 Your game server picks what happens:
 
 ```ts
 export default {
-  idleAfter: 300,   // seconds without input before "Still there?" (default 600); false: no idle check
-  holdFor: 120,     // seconds a seat stays held (default 300, up to 1800; 0 for none)
-  away: "lobby",    // send players who walk away back to the room that made this one (room.reserve)
-  onAway(state, player, room, why) {},  // or decide yourself: the player stays in the room, you kick, move or keep them
-  onBack(state, player, room) {},       // a player onAway kept came back
+  idleCheck: "server",       // who checks: "server" (the default), "client" (each player's game decides), or "off"
+  idleTimeoutSec: 300,       // seconds without input before "Still there?" (default 600)
+  seatHoldDurationSec: 120,  // seconds a seat stays held (default 300, up to 1800; 0 for none)
+  awayMode: "lobby",         // send players who walk away back to the room that made this one (room.reserve); "hold" is the default
+  onAway(state, player, room, reason) {},  // or decide yourself: the player stays in the room, you kick, move or keep them
+  onBack(state, player, room) {},          // a player onAway kept came back
 };
 ```
 
 In the game, all of it is optional:
 
 ```js
-room.on("status", (s) => {});              // "away" while out of the match
-room.on("away", ({ why, seconds }) => {});  // why: "idle" or "hidden"; the seat is held for seconds
-room.on("idle", (asking) => {});           // ask "Still there?" your way: true to show it, false when answered or over
-room.on("back", (back) => back.rejoin());  // back after the seat ran out: listening turns off rejoining by itself
-Zaisma.joinRoom({ idle: false });          // no "Still there?" in this game (with the relay, the room follows this)
+room.on("connectionStatus", (connectionStatus) => {});        // "away" while out of the match
+room.on("away", ({ reason, seatHoldDurationSec }) => {});     // reason: "idle" or "hidden"; the seat is held that long
+room.on("idle", (isAsking) => {});            // ask "Still there?" your way: true to show it, false when answered or over
+room.on("back", (back) => back.rejoin());     // back after the seat ran out: listening turns off rejoining by itself
+Zaisma.joinRoom({ idleCheckEnabled: false }); // no "Still there?" in this game (where idleCheck is "client", as with the relay, the room follows this)
 ```
 
-Your own clients follow the same protocol: send the text `ping` every 30 seconds or so (the room answers `pong`), `{"t":"idle"}`, `{"t":"hidden"}` and `{"t":"shown"}` as they happen, and `{"t":"back"}` when the player returns.
+Your own clients follow the same protocol: send the text `ping` every 30 seconds or so (the room answers `pong`), `{"type":"idle"}`, `{"type":"hidden"}` and `{"type":"shown"}` as they happen, and `{"type":"back"}` when the player returns. Errors from the room are `{"type":"error","code":"full","message":"This room is full."}`, with codes in lowercase snake_case: `full`, `closed`, `ended`, `kept_out`, `refused`, `month_limit`, `bad_pass`, `no_hello`, `bad_message`, `too_big`, `too_fast`, `not_allowed`, `game_unavailable`, `busy` and `no_room`.
 
 #### Run your game server yourself
 
@@ -172,7 +178,7 @@ The same game server runs on your own machine with Node 23.6 or later:
 node packages/game-server/bin/node.js ./server.ts --game <your-game> --port 8080
 ```
 
-Put it behind HTTPS, add its address (like `wss://play.example.com`) to the game's own servers on Zaisma, and join with `Zaisma.joinRoom({ server: "wss://play.example.com" })`. Players still arrive with Zaisma player passes: standard EdDSA JWTs your server checks against the keys at `https://rooms.zaisma.com/.well-known/jwks.json`, so any language's JWT library can check them too.
+Put it behind HTTPS, add its address (like `wss://play.example.com`) to the game's own servers on Zaisma, and join with `Zaisma.joinRoom({ serverUrl: "wss://play.example.com" })`. Players still arrive with Zaisma player passes: standard EdDSA JWTs your server checks against the keys at `https://rooms.zaisma.com/.well-known/jwks.json`, so any language's JWT library can check them too. A pass's `sub` is the player's ID (`player_…`).
 
 ### Cloud saves
 

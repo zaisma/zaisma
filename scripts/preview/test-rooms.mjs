@@ -21,7 +21,7 @@ async function guestPass(rooms, origin, game) {
     key = check?.status === 200 ? (await check.json()).key : undefined;
     if (!key) await new Promise((r) => setTimeout(r, 1000));
   }
-  const res = await fetch(`${rooms}/v1/pass`, { method: "POST", headers: { ...headers, origin }, body: JSON.stringify({ game, key }) });
+  const res = await fetch(`${rooms}/v1/pass`, { method: "POST", headers: { ...headers, origin }, body: JSON.stringify({ gameSlug: game, roomKey: key }) });
   if (!res.ok) throw new Error(`No pass for ${game}: ${res.status}`);
   return (await res.json()).pass;
 }
@@ -34,7 +34,7 @@ function keepUp(ws) {
   const timer = setInterval(() => {
     if (ws.readyState !== 1) return clearInterval(timer);
     ws.send("ping");
-    ws.send(JSON.stringify({ t: "here" }));
+    ws.send(JSON.stringify({ type: "here" }));
   }, 20_000);
   ws.on("close", () => clearInterval(timer));
 }
@@ -45,12 +45,12 @@ const read = (data) => (String(data) === "pong" ? null : JSON.parse(String(data)
 function stayIn(rooms, origin, game, code, pass, first) {
   const ws = new WebSocket(`${rooms.replace(/^http/, "ws")}/v1/rooms/${game}/${code}`, { origin });
   keepUp(ws);
-  ws.on("open", () => ws.send(JSON.stringify({ t: "hello", pass, room: { listed: first.listed, name: first.name, labels: first.labels } })));
+  ws.on("open", () => ws.send(JSON.stringify({ type: "hello", pass, room: { isListed: first.isListed, name: first.name, labels: first.labels } })));
   ws.on("message", (data) => {
     const m = read(data);
     if (!m) return;
     // Once everyone's in, the room's first player closes it, as a game's host does when the match starts.
-    if (m.t === "players" && first.closeAt && m.players.length >= first.closeAt) ws.send(JSON.stringify({ t: "room", open: false }));
+    if (m.type === "players" && first.closeAt && m.players.length >= first.closeAt) ws.send(JSON.stringify({ type: "room", isOpen: false }));
   });
   ws.on("error", () => {});
   // Back in after a restart; a refusal (4001) or an ended match (4000) is final.
@@ -73,13 +73,13 @@ async function lobbyBot(rooms, origin, code) {
   const ws = new WebSocket(`${rooms.replace(/^http/, "ws")}/v1/rooms/${game}/${code}`, { origin });
   keepUp(ws);
   let moved = false;
-  ws.on("open", () => ws.send(JSON.stringify({ t: "hello", pass, room: { labels: { Room: "Lobby" } } })));
+  ws.on("open", () => ws.send(JSON.stringify({ type: "hello", pass, room: { labels: { Room: "Lobby" } } })));
   ws.on("message", (data) => {
     const m = read(data);
-    if (!m || m.t !== "move" || moved) return;
+    if (!m || m.type !== "move" || moved) return;
     moved = true;
     ws.close(1000);
-    play(rooms, origin, game, m.code, pass);
+    play(rooms, origin, game, m.roomCode, pass);
     lobbyAgain(rooms, origin, code, 1000);
   });
   ws.on("error", () => {});
@@ -91,20 +91,21 @@ function play(rooms, origin, game, code, pass) {
   keepUp(ws);
   let me = null;
   let met = false;
-  ws.on("open", () => ws.send(JSON.stringify({ t: "hello", pass })));
+  ws.on("open", () => ws.send(JSON.stringify({ type: "hello", pass })));
   ws.on("message", (data) => {
     const m = read(data);
     if (!m) return;
-    if (m.t === "welcome") me = m.me.id;
+    if (m.type === "welcome") me = m.me.id;
     // Once you've arrived, it leaves when you do.
-    if (m.t === "players") met = met || m.players.length >= 2;
-    if (m.t === "players" && met && m.players.length < 2) ws.close(1000);
-    if (m.t !== "msg" || !m.d.board) return;
-    const seat = m.d.seats.indexOf(me) + 1;
-    if (m.d.winner) return void setTimeout(() => ws.readyState === 1 && ws.send(JSON.stringify({ t: "msg", d: { again: true } })), 3000);
-    if (m.d.turn !== seat) return;
-    const open = [0, 1, 2, 3, 4, 5, 6].filter((c) => m.d.board[c] === 0);
-    setTimeout(() => ws.readyState === 1 && ws.send(JSON.stringify({ t: "msg", d: { col: open[Math.floor(Math.random() * open.length)] } })), 700);
+    if (m.type === "players") met = met || m.players.length >= 2;
+    if (m.type === "players" && met && m.players.length < 2) ws.close(1000);
+    if (m.type !== "message" || !m.data.board) return;
+    const match = m.data;
+    const mySeat = match.seatPlayerIds.indexOf(me) + 1;
+    if (match.winnerSeat || match.isDraw) return void setTimeout(() => ws.readyState === 1 && ws.send(JSON.stringify({ type: "message", data: { playAgain: true } })), 3000);
+    if (match.turnSeat !== mySeat) return;
+    const open = [0, 1, 2, 3, 4, 5, 6].filter((column) => match.board[column] === 0);
+    setTimeout(() => ws.readyState === 1 && ws.send(JSON.stringify({ type: "message", data: { column: open[Math.floor(Math.random() * open.length)] } })), 700);
   });
   ws.on("error", () => {});
 }
@@ -119,7 +120,7 @@ export async function openTestRooms(rooms, origin, siteOrigin) {
     ["four-in-a-row", 1],
     ["cave-crew", 2],
     ["cave-crew", 5, { closeAt: 5 }],
-    ["cave-crew", 3, { listed: false }],
+    ["cave-crew", 3, { isListed: false }],
   ];
   for (const [game, players, first = {}] of plan) {
     const code = newCode();

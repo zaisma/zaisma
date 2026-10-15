@@ -119,7 +119,7 @@ Every ID Zaisma makes says its kind in its value: `<kind>_<random>`, the kind in
 | `play_ticket` | `play_ticket_…` |
 | `room_key` | `room_key_…` |
 
-`ID_KINDS` (`packages/core/src/ids.ts`) is this list, and a test keeps the two in step; a new kind is added to both in the same change. Guests' player IDs still start with `g_` until the SDK and game server move to these names. The developer API and MCP still name a game by its `slug`, the link name developers know. Not IDs, and kept as they are: a `slug`, a `room_code` (six letters players type), API keys (`zsk_…`, a format secret scanners know) and file hashes (`sha256`).
+`ID_KINDS` (`packages/core/src/ids.ts`) is this list, and a test keeps the two in step; a new kind is added to both in the same change. Guests' player IDs are `player_…` too, in their passes and everywhere the SDK and game server show them. The developer API and MCP still name a game by its `slug`, the link name developers know. Not IDs, and kept as they are: a `slug`, a `room_code` (six letters players type), API keys (`zsk_…`, a format secret scanners know) and file hashes (`sha256`).
 
 ## Inputs
 
@@ -213,7 +213,7 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 | Taking back a vote, a helpful mark or a follow | `undo: true` in the MCP; `DELETE` in the API | |
 | Posts an account can still make today | `remaining_post_count` | |
 | A room players join by typing it | `room_code` | `roomCode` |
-| A player | `player_id` | `playerId` |
+| A player, and the players a call is for or leaves out | `player_id` | `playerId`; `playerIds`, `exceptPlayerId` |
 | How many players, and the most and fewest allowed | `player_count`, `maximum_player_count`, `minimum_player_count` | `playerCount`, `maximumPlayerCount`, `minimumPlayerCount` |
 | How many files, and their total size | `file_count`, `size_bytes` | |
 | An image's size on screen | `width_px`, `height_px` | |
@@ -226,12 +226,23 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 | Where to continue a list | `cursor` in, `next_cursor` out | |
 | How a game is played | `play_modes`: a list of `{ mode, minimum_player_count, maximum_player_count, play_style }` | |
 | A version's notes for players, and when it goes live by itself | `patch_notes`, `scheduled_publish_at` | |
-| Links, by what they open | `page_url` (a game's page), `preview_url` (a version), `image_url`, `link_url` (a tester link) | |
+| Links, by what they open | `page_url` (a game's page), `preview_url` (a version), `image_url`, `link_url` (a tester link) | `inviteUrl` (a room's invite link), `serverUrl` (a game server of the developer's own) |
 | Forum topics with something new from Zaisma | `unread_topic_count` | |
 | The calls that usually follow a change | `next_steps` | |
 | Ticks a second, and the time since the last tick | | `ticksPerSec`, `tickDurationSec` |
-| Time without input before "Still there?", and who checks | | `idleTimeoutSec`, `idleCheck` |
+| Time without input before "Still there?", and who checks | | `idleTimeoutSec`, `idleCheck`: `server`, `client`, `off`; a player's game turns its own off with `idleCheckEnabled: false` |
 | How long a seat is held for a player who walked away | | `seatHoldDurationSec` |
+| What happens to a player who walks away | | `awayMode`: `hold`, `lobby` |
+| A message between a game and its room, and the game's own message in it | | `type`, `data` |
+| What a player's game brings into a room, and what a room another room made starts with | | `joinData`, `setupData` |
+| How a player came into a room, and why they left or walked away | | `joinInfo: { fromRoomCode, isReturning }`; `leaveInfo: { reason }`, `reason` one of `left`, `lost`, `idle`, `hidden`, `kicked` |
+| Words a person reads about what happened: an error's, a kick's, a refusal's, a match's end | `message` | `message` |
+| The room's host, who can run it from the game, and whether a game server has one | | `hostPlayerId`, `hostControlsEnabled` |
+| Whether a room shows in room lists, and takes new players | | `isListed`, `isOpen` |
+| Rooms in a room list: all of a game's, ones with space, ones taking players, the ones past the list, and seats held | | `roomCount`, `joinableRoomCount`, `openRoomCount`, `moreOpenRoomCount`, `heldSeatCount` |
+| A part of the world rooms run in: a continent code, like `EU` | | `region` |
+| Where a room's connection stands | | `connectionStatus`: `connecting`, `open`, `reconnecting`, `away`, `closed` |
+| Keeping a kicked player out, as asked and as told | | `keepOut` (asked), `isKeptOut` (told) |
 | What an error is, and its other parts | `code`; `message`, `field`, `fix`, `retry_after_sec` (inside `error` only) | `code` (on the error only) |
 
 ## Adding a field, option or tool

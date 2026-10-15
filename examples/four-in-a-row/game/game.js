@@ -1,89 +1,94 @@
 // Four in a row client: shows the game server's board and sends the column you pick.
 // "Find an opponent" waits in a lobby room until the game server pairs you with someone
 // and moves you both to a match room of your own.
-const boardEl = document.getElementById("board");
-const infoEl = document.getElementById("info");
-const playersEl = document.getElementById("players");
-const afterEl = document.getElementById("after");
+const boardElement = document.getElementById("board");
+const infoElement = document.getElementById("info");
+const playersElement = document.getElementById("players");
+const afterElement = document.getElementById("after");
 let room = null;
-let state = null;
-let lobby = null; // players waiting in the lobby with you, while you're in it
+let game = null; // the game server's latest board and seats
+let lobbyWaitingCount = null; // players waiting in the lobby with you, while you're in it
 
 const cells = [];
 for (let i = 0; i < 42; i++) {
-  const b = document.createElement("button");
-  b.className = "cell";
-  b.setAttribute("aria-label", `Column ${(i % 7) + 1}`);
-  b.onclick = () => room && room.send({ col: i % 7 });
-  boardEl.append(b);
-  cells.push(b);
+  const cell = document.createElement("button");
+  cell.className = "cell";
+  cell.setAttribute("aria-label", `Column ${(i % 7) + 1}`);
+  cell.onclick = () => room && room.send({ column: i % 7 });
+  boardElement.append(cell);
+  cells.push(cell);
 }
 
 function render() {
-  if (lobby !== null) {
-    boardEl.style.opacity = 0.35;
-    playersEl.innerHTML = "";
-    infoEl.textContent = "Looking for an opponent…";
-    afterEl.innerHTML = "";
+  if (lobbyWaitingCount !== null) {
+    boardElement.style.opacity = 0.35;
+    playersElement.innerHTML = "";
+    infoElement.textContent = "Looking for an opponent…";
+    afterElement.innerHTML = "";
     return;
   }
-  boardEl.style.opacity = 1;
-  if (!state || !room) return;
-  const mySeat = state.seats.indexOf(room.me.id) + 1;
-  cells.forEach((c, i) => {
-    c.className = "cell" + (state.board[i] ? ` p${state.board[i]}` : "") + (state.line.includes(i) ? " win" : "");
+  boardElement.style.opacity = 1;
+  if (!game || !room) return;
+  const mySeat = game.seatPlayerIds.indexOf(room.me.id) + 1;
+  cells.forEach((cell, i) => {
+    cell.className = "cell" + (game.board[i] ? ` seat${game.board[i]}` : "") + (game.winningCells.includes(i) ? " win" : "");
   });
-  playersEl.innerHTML = "";
-  state.names.forEach((name, i) => {
+  playersElement.innerHTML = "";
+  game.seatNames.forEach((name, i) => {
     const span = document.createElement("span");
-    span.innerHTML = `<span class="dot p${i + 1}"></span>`;
-    span.append(name ? name + (state.present[i] ? "" : " (away)") : "Waiting…");
+    span.innerHTML = `<span class="dot seat${i + 1}"></span>`;
+    span.append(name ? name + (game.isSeatPlayerHere[i] ? "" : " (away)") : "Waiting…");
     if (mySeat === i + 1) span.style.color = "#fff";
-    playersEl.append(span);
+    playersElement.append(span);
   });
-  const color = (n) => (n === 1 ? "Red" : "Yellow");
-  if (!state.seats[1]) infoEl.textContent = "Waiting for a second player.";
-  else if (state.winner === 3) infoEl.textContent = "It's a draw.";
-  else if (state.winner) infoEl.textContent = state.winner === mySeat ? "You win!" : `${color(state.winner)} wins.`;
-  else if (!mySeat) infoEl.textContent = `Watching. ${color(state.turn)} to play.`;
-  else infoEl.textContent = state.turn === mySeat ? "Your turn" : `${state.names[state.turn - 1]} is thinking…`;
-  afterEl.innerHTML = "";
-  if (!state.seats[1]) {
-    const inv = document.createElement("button");
-    inv.className = "again";
-    inv.textContent = "Invite a friend";
-    inv.onclick = async () => { if ((await Zaisma.invite(room)) === "copied") inv.textContent = "Link copied"; };
-    afterEl.append(inv);
+  const color = (seat) => (seat === 1 ? "Red" : "Yellow");
+  const isOver = game.winnerSeat !== 0 || game.isDraw;
+  if (!game.seatPlayerIds[1]) infoElement.textContent = "Waiting for a second player.";
+  else if (game.isDraw) infoElement.textContent = "It's a draw.";
+  else if (game.winnerSeat) infoElement.textContent = game.winnerSeat === mySeat ? "You win!" : `${color(game.winnerSeat)} wins.`;
+  else if (!mySeat) infoElement.textContent = `Watching. ${color(game.turnSeat)} to play.`;
+  else infoElement.textContent = game.turnSeat === mySeat ? "Your turn" : `${game.seatNames[game.turnSeat - 1]} is thinking…`;
+  afterElement.innerHTML = "";
+  if (!game.seatPlayerIds[1]) {
+    const invite = document.createElement("button");
+    invite.className = "again";
+    invite.textContent = "Invite a friend";
+    invite.onclick = async () => { if ((await Zaisma.invite(room)) === "copied") invite.textContent = "Link copied"; };
+    afterElement.append(invite);
     const find = document.createElement("button");
     find.className = "again";
     find.textContent = "Find an opponent";
     find.onclick = findOpponent;
-    afterEl.append(" ", find);
+    afterElement.append(" ", find);
   }
-  if (state.winner && mySeat) {
+  if (isOver && mySeat) {
     const again = document.createElement("button");
     again.className = "again";
     again.textContent = "Play again";
-    again.onclick = () => room.send({ again: true });
-    afterEl.append(again);
+    again.onclick = () => room.send({ playAgain: true });
+    afterElement.append(again);
   }
 }
 
 // Mute, block and report, from the game's own menu.
-document.getElementById("players-btn").onclick = () => room && Zaisma.openSafetyPanel(room);
+document.getElementById("players-button").onclick = () => room && Zaisma.openSafetyPanel(room);
 
 function use(next) {
   room = next;
-  state = null;
-  lobby = room.labels.Room === "Lobby" ? 0 : null;
+  game = null;
+  lobbyWaitingCount = room.labels.Room === "Lobby" ? 0 : null;
   render();
-  room.on("message", (m) => {
-    if (m.lobby !== undefined) lobby = m.lobby;
-    else state = m;
+  room.on("message", (message) => {
+    if (message.lobbyWaitingCount !== undefined) lobbyWaitingCount = message.lobbyWaitingCount;
+    else game = message;
     render();
   });
-  room.on("status", (s) => { if (room !== next) return; if (s !== "open") infoEl.textContent = s === "reconnecting" ? "Reconnecting…" : "Disconnected. Reload to play again."; else render(); });
-  room.on("ended", (reason) => { infoEl.textContent = reason; });
+  room.on("connectionStatus", (connectionStatus) => {
+    if (room !== next) return;
+    if (connectionStatus !== "open") infoElement.textContent = connectionStatus === "reconnecting" ? "Reconnecting…" : "Disconnected. Reload to play again.";
+    else render();
+  });
+  room.on("ended", (message) => { infoElement.textContent = message; });
   // The lobby found an opponent: leave it and join the match room it made for you both.
   room.on("move", (move) => {
     leave();
@@ -92,11 +97,11 @@ function use(next) {
 }
 
 async function join(how) {
-  infoEl.textContent = "Connecting…";
+  infoElement.textContent = "Connecting…";
   try {
     use(await how());
-  } catch (err) {
-    infoEl.textContent = err.message;
+  } catch (error) {
+    infoElement.textContent = error.message;
   }
 }
 
@@ -108,7 +113,7 @@ function leave() {
 
 function findOpponent() {
   leave();
-  lobby = 0;
+  lobbyWaitingCount = 0;
   render();
   join(() => Zaisma.rooms.quickJoin({ labels: { Room: "Lobby" } }));
 }

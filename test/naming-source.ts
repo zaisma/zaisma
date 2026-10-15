@@ -23,6 +23,16 @@ const PLATFORM = new Set(["env", "ctx"]);
 const STANDARD_FIELDS = new Set(["readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint"]);
 /** Shapes a standard or the platform names: Worker bindings, JSON-RPC messages, MCP images. */
 const STANDARD_SHAPES = new Set(["Env", "RpcMessage", "McpImage"]);
+/** Room messages say type and data (docs/NAMING.md): there, data is the game's own message. */
+const MESSAGE_SHAPES = new Set(["ServerMessage"]);
+
+/** The name of the interface or type a type literal belongs to, or "" for one on its own. */
+function shapeName(node: ts.Node): string {
+  for (let parent = node.parent; parent; parent = parent.parent) {
+    if (ts.isTypeAliasDeclaration(parent) || ts.isInterfaceDeclaration(parent)) return parent.name.text;
+  }
+  return "";
+}
 
 export interface Problem {
   /** The file, or table.column for a column. */
@@ -126,9 +136,10 @@ export function sourceProblems(root: string): Problem[] {
         const names = fields.map((field) => (field.name as ts.Identifier | ts.StringLiteral).text);
         if (!isEnv && names.some((name) => /_/.test(name)) && names.some((name) => /[a-z][A-Z]/.test(name))) report(names.join(","), "mixes snake_case and camelCase in one shape");
         if (!isEnv) {
+          const isMessage = MESSAGE_SHAPES.has(shapeName(node));
           for (const field of fields) {
             const name = (field.name as ts.Identifier | ts.StringLiteral).text;
-            if (/[^A-Za-z0-9_]/.test(name) || STANDARD_FIELDS.has(name)) continue;
+            if (/[^A-Za-z0-9_]/.test(name) || STANDARD_FIELDS.has(name) || (isMessage && name === "data")) continue;
             for (const problem of wordProblems(name)) report(name, problem);
             if (field.type && isNumber(field.name) && !isNumberShaped(name)) report(name, "a number's name ends in a count, a unit, index or number");
             if (field.type && isBoolean(field.name) && !isBooleanShaped(name)) report(name, "a yes/no field starts with is, has or can, or ends in enabled");

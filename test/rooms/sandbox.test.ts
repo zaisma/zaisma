@@ -23,38 +23,38 @@ async function addSandboxGame(slug: string, server: string) {
 let address = 0;
 async function newPass(game: string) {
   // The key the game page gets when Cloudflare's check on Play passes.
-  const key = await issueRoomKey(e.DB, `g${game.replace(/-/g, "")}`);
-  const res = await SELF.fetch(`${R}/v1/pass`, { method: "POST", headers: { Origin: ORIGIN, "Content-Type": "text/plain", "cf-connecting-ip": `198.51.100.${++address % 250}` }, body: JSON.stringify({ game, key }) });
+  const roomKey = await issueRoomKey(e.DB, `g${game.replace(/-/g, "")}`);
+  const res = await SELF.fetch(`${R}/v1/pass`, { method: "POST", headers: { Origin: ORIGIN, "Content-Type": "text/plain", "cf-connecting-ip": `198.51.100.${++address % 250}` }, body: JSON.stringify({ gameSlug: game, roomKey }) });
   return res.json<{ pass: string; player: { id: string; name: string } }>();
 }
 
 /** Try to join, and say what the room answered first. */
-async function knock(game: string, code: string, data?: unknown, pass?: string) {
+async function knock(game: string, code: string, joinData?: unknown, pass?: string) {
   pass ??= (await newPass(game)).pass;
   const up = await SELF.fetch(`${R}/v1/rooms/${game}/${code}`, { headers: { Upgrade: "websocket", Origin: ORIGIN, "cf-connecting-ip": `198.51.100.${++address % 250}` } });
   const ws = up.webSocket!;
   ws.accept();
   const first = new Promise<any>((r) => ws.addEventListener("message", (ev) => r(JSON.parse(ev.data as string)), { once: true }));
-  ws.send(JSON.stringify({ t: "hello", pass, data }));
+  ws.send(JSON.stringify({ type: "hello", pass, joinData }));
   return first;
 }
 
-/** Join with a pass and data, and say the first thing the game itself sends (or the room's error). */
-async function arrive(game: string, code: string, data: unknown, pass: string) {
+/** Join with a pass and join data, and say the first thing the game itself sends (or the room's error). */
+async function arrive(game: string, code: string, joinData: unknown, pass: string) {
   const up = await SELF.fetch(`${R}/v1/rooms/${game}/${code}`, { headers: { Upgrade: "websocket", Origin: ORIGIN, "cf-connecting-ip": `198.51.100.${++address % 250}` } });
   const ws = up.webSocket!;
   ws.accept();
   const got = new Promise<any>((r) =>
     ws.addEventListener("message", (ev) => {
       const m = JSON.parse(ev.data as string);
-      if (m.t === "msg" || m.t === "error") r(m);
+      if (m.type === "message" || m.type === "error") r(m);
     }),
   );
-  ws.send(JSON.stringify({ t: "hello", pass, data }));
+  ws.send(JSON.stringify({ type: "hello", pass, joinData }));
   return got;
 }
 
-async function join(game: string, code: string, data?: unknown) {
+async function join(game: string, code: string, joinData?: unknown) {
   const { pass, player } = await newPass(game);
   const up = await SELF.fetch(`${R}/v1/rooms/${game}/${code}`, { headers: { Upgrade: "websocket", Origin: ORIGIN, "cf-connecting-ip": `198.51.100.${++address % 250}` } });
   expect(up.status).toBe(101);
@@ -69,29 +69,30 @@ async function join(game: string, code: string, data?: unknown) {
   });
   const next = () => (inbox.length ? Promise.resolve(inbox.shift()) : new Promise<any>((r) => waiters.push(r)));
   /** The next message from the game (skipping the room's own player lists). */
-  const game_ = async () => {
+  const fromGame = async () => {
     for (;;) {
       const m = await next();
-      if (m.t === "msg" || m.t === "ended" || m.t === "error" || m.t === "kicked" || m.t === "move") return m;
+      if (["message", "ended", "error", "kicked", "move"].includes(m.type)) return m;
     }
   };
-  ws.send(JSON.stringify({ t: "hello", pass, ...(data !== undefined ? { data } : {}) }));
-  expect((await next()).t).toBe("welcome");
-  return { ws, player, pass, next: game_ };
+  const say = (data: unknown) => ws.send(JSON.stringify({ type: "message", data }));
+  ws.send(JSON.stringify({ type: "hello", pass, ...(joinData !== undefined ? { joinData } : {}) }));
+  expect((await next()).type).toBe("welcome");
+  return { ws, player, pass, say, next: fromGame };
 }
 
 const COUNTER = `
 export default {
-  maxPlayers: 4,
-  setup: (data) => ({ count: 0 }),
+  maximumPlayerCount: 4,
+  setup: (setupData) => ({ count: 0 }),
   onJoin(state, player, room) { room.send(player.id, { hi: player.name, players: room.players.length }); },
-  onMessage(state, player, msg, room) {
-    if (msg === "add") { state.count++; room.broadcast({ count: state.count }); }
-    if (msg === "fetch") fetch("https://example.com").then(() => room.broadcast("reached the internet"), () => {});
-    if (msg === "spin") for (;;) {}
-    if (msg === "crash") throw new Error("oops");
-    if (msg === "who") room.send(player.id, { globals: typeof env, keys: Object.keys(globalThis).filter((k) => /zaisma|DB|GAMES/i.test(k)) });
-    if (msg === "end") room.end("Game over");
+  onMessage(state, player, message, room) {
+    if (message === "add") { state.count++; room.broadcast({ count: state.count }); }
+    if (message === "fetch") fetch("https://example.com").then(() => room.broadcast("reached the internet"), () => {});
+    if (message === "spin") for (;;) {}
+    if (message === "crash") throw new Error("oops");
+    if (message === "who") room.send(player.id, { globals: typeof env, keys: Object.keys(globalThis).filter((k) => /zaisma|DB|GAMES/i.test(k)) });
+    if (message === "end") room.end("Game over");
     return state;
   },
 };
@@ -105,23 +106,26 @@ describe("sandboxed game servers", () => {
   it("runs the game's own server: state, messages and the room API", async () => {
     await addSandboxGame("counter", COUNTER);
     const a = await join("counter", "ABCDEF");
-    expect(await a.next()).toEqual({ t: "msg", d: { hi: a.player.name, players: 1 } });
+    expect(await a.next()).toEqual({ type: "message", data: { hi: a.player.name, players: 1 } });
     const b = await join("counter", "ABCDEF");
-    expect(await b.next()).toEqual({ t: "msg", d: { hi: b.player.name, players: 2 } });
+    expect(await b.next()).toEqual({ type: "message", data: { hi: b.player.name, players: 2 } });
 
-    a.ws.send(JSON.stringify({ t: "msg", d: "add" }));
-    a.ws.send(JSON.stringify({ t: "msg", d: "add" }));
-    expect((await b.next()).d).toEqual({ count: 1 });
-    expect((await b.next()).d).toEqual({ count: 2 });
+    a.say("add");
+    a.say("add");
+    expect((await b.next()).data).toEqual({ count: 1 });
+    expect((await b.next()).data).toEqual({ count: 2 });
 
-    a.ws.send(JSON.stringify({ t: "msg", d: "end" }));
-    expect(await b.next()).toMatchObject({ t: "ended", reason: "Game over" });
+    a.say("end");
+    expect(await b.next()).toMatchObject({ type: "ended", message: "Game over" });
   });
 
   it("ticks", async () => {
-    await addSandboxGame("ticker", `export default { tickRate: 20, setup: () => ({ n: 0 }), onTick(state, dt, room) { state.n++; if (state.n === 3) room.broadcast({ n: state.n, dt: dt > 0 }); return state; } };`);
+    await addSandboxGame(
+      "ticker",
+      `export default { ticksPerSec: 20, setup: () => ({ tickCount: 0 }), onTick(state, tickDurationSec, room) { state.tickCount++; if (state.tickCount === 3) room.broadcast({ tickCount: state.tickCount, isTimed: tickDurationSec > 0 }); return state; } };`,
+    );
     const a = await join("ticker", "ABCDEF");
-    expect((await a.next()).d).toEqual({ n: 3, dt: true });
+    expect((await a.next()).data).toEqual({ tickCount: 3, isTimed: true });
   });
 
   it("keeps the game server off the internet, away from our data, and within its limits", async () => {
@@ -130,26 +134,26 @@ describe("sandboxed game servers", () => {
     await a.next(); // hi
 
     // No internet: the fetch fails, so nothing is broadcast.
-    a.ws.send(JSON.stringify({ t: "msg", d: "fetch" }));
+    a.say("fetch");
     // Nothing of ours inside the sandbox.
-    a.ws.send(JSON.stringify({ t: "msg", d: "who" }));
-    expect((await a.next()).d).toEqual({ globals: "undefined", keys: [] });
+    a.say("who");
+    expect((await a.next()).data).toEqual({ globals: "undefined", keys: [] });
 
     // A crash loses that one message; the room and its state carry on. (So does a loop that never
     // ends, cut off by the CPU limit, but only Cloudflare enforces that: locally it would hang the test.)
-    a.ws.send(JSON.stringify({ t: "msg", d: "crash" }));
-    a.ws.send(JSON.stringify({ t: "msg", d: "add" }));
-    expect((await a.next()).d).toEqual({ count: 1 });
+    a.say("crash");
+    a.say("add");
+    expect((await a.next()).data).toEqual({ count: 1 });
   });
 
   it("records the game server's work and errors for its developer, saying where in the file", async () => {
     await addSandboxGame("oops", COUNTER);
     const a = await join("oops", "ABCDEF");
     await a.next(); // hi
-    a.ws.send(JSON.stringify({ t: "msg", d: "crash" }));
-    a.ws.send(JSON.stringify({ t: "msg", d: "crash" }));
-    a.ws.send(JSON.stringify({ t: "msg", d: "add" }));
-    expect((await a.next()).d).toEqual({ count: 1 });
+    a.say("crash");
+    a.say("crash");
+    a.say("add");
+    expect((await a.next()).data).toEqual({ count: 1 });
     a.ws.close(1000);
     let row: any = null;
     for (let i = 0; i < 50 && !row; i++) {
@@ -163,13 +167,24 @@ describe("sandboxed game servers", () => {
     expect(err!.message).toMatch(/^oops \(zaisma-server\.js:\d+:\d+\)$/);
   });
 
+  it("won't start a game server with an option it doesn't take, and tells its developer which ones it does", async () => {
+    await addSandboxGame("old-names", `export default { tickRate: 20, setup: () => ({}) };`);
+    const up = await SELF.fetch(`${R}/v1/rooms/old-names/ABCDEF`, { headers: { Upgrade: "websocket", Origin: ORIGIN, "cf-connecting-ip": `198.51.100.${++address % 250}` } });
+    expect(up.status).toBe(404);
+    const err = await e.DB.prepare("SELECT kind, message, count, version_id FROM game_server_errors WHERE game_id = 'goldnames'").first<{ message: string }>();
+    expect(err).toMatchObject({ kind: "crash", count: 1, version_id: "voldnames" });
+    expect(err!.message).toBe(
+      "Didn't start: tickRate isn't a game server option. A game server takes: maximumPlayerCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, setup, onJoin, canJoin, onMoved, onLeave, onAway, onBack, onMessage, onTick. (unknown_option)",
+    );
+  });
+
   it("runs a game server split into files in a zaisma-server/ folder", async () => {
     await addSandboxGame("split", COUNTER);
     await e.GAMES.delete("games/vsplit/zaisma-server.js");
     await e.GAMES.put("games/vsplit/zaisma-server/index.js", `import { greet } from "./lib/words.js";\nexport default { setup: () => ({}), onJoin(state, player, room) { room.send(player.id, greet(player.name)); } };`);
     await e.GAMES.put("games/vsplit/zaisma-server/lib/words.js", `export const greet = (name) => "Hello " + name;`);
     const a = await join("split", "ABCDEF");
-    expect((await a.next()).d).toBe(`Hello ${a.player.name}`);
+    expect((await a.next()).data).toBe(`Hello ${a.player.name}`);
   });
 
   it("loads data and WebAssembly from the folder", async () => {
@@ -184,7 +199,7 @@ describe("sandboxed game servers", () => {
       `import mod from "./answer.wasm";\nimport levels from "./levels.json";\nconst wasm = new WebAssembly.Instance(mod);\nexport default { setup: () => ({}), onJoin(state, player, room) { room.send(player.id, { answer: wasm.exports.answer(), level: levels.first }); } };`,
     );
     const a = await join("wasm", "ABCDEF");
-    expect((await a.next()).d).toEqual({ answer: 42, level: "Docks" });
+    expect((await a.next()).data).toEqual({ answer: 42, level: "Docks" });
   });
 
   it("lets the game's own server turn players away and kick them, keeping kicked players out", async () => {
@@ -192,30 +207,30 @@ describe("sandboxed game servers", () => {
       "guarded",
       `export default {
         setup: () => ({}),
-        canJoin(state, player, room, data) { return (data && data.password === "docks") || "Wrong password."; },
-        onMessage(state, player, msg, room) {
+        canJoin(state, player, room, joinData) { return (joinData && joinData.password === "docks") || "Wrong password."; },
+        onMessage(state, player, message, room) {
           const other = room.players.find((p) => p.id !== player.id);
-          if (msg === "kick" && other) room.kick(other.id, { reason: "Too rough.", keepOut: true });
-          if (msg === "out") room.kick(player.id);
+          if (message === "kick" && other) room.kick(other.id, { message: "Too rough.", keepOut: true });
+          if (message === "out") room.kick(player.id);
         },
       };`,
     );
     const turnedAway = await knock("guarded", "ABCDEF", { password: "nope" });
-    expect(turnedAway).toEqual({ t: "error", code: "refused", message: "Wrong password." });
+    expect(turnedAway).toEqual({ type: "error", code: "refused", message: "Wrong password." });
 
     const a = await join("guarded", "ABCDEF", { password: "docks" });
     const b = await join("guarded", "ABCDEF", { password: "docks" });
-    a.ws.send(JSON.stringify({ t: "msg", d: "kick" }));
-    expect(await b.next()).toEqual({ t: "kicked", reason: "Too rough.", keptOut: true });
+    a.say("kick");
+    expect(await b.next()).toEqual({ type: "kicked", message: "Too rough.", isKeptOut: true });
 
     // Kept out, even with the password and a fresh connection under the same pass.
     const again = await knock("guarded", "ABCDEF", { password: "docks" }, b.pass);
-    expect(again).toEqual({ t: "error", code: "kept-out", message: "Too rough." });
+    expect(again).toEqual({ type: "error", code: "kept_out", message: "Too rough." });
 
     // Kicking the last player empties the room like everyone leaving: it drops out of the room list.
     expect(await e.DB.prepare("SELECT players FROM live_rooms WHERE game_id = 'gguarded'").first()).toEqual({ players: 1 });
-    a.ws.send(JSON.stringify({ t: "msg", d: "out" }));
-    expect(await a.next()).toEqual({ t: "kicked", reason: "You were removed from this room.", keptOut: false });
+    a.say("out");
+    expect(await a.next()).toEqual({ type: "kicked", message: "You were removed from this room.", isKeptOut: false });
     let row: unknown = {};
     for (let i = 0; i < 50 && row; i++) {
       row = await e.DB.prepare("SELECT players FROM live_rooms WHERE game_id = 'gguarded'").first();
@@ -229,33 +244,33 @@ describe("sandboxed game servers", () => {
       "world",
       `export default {
         setup: () => ({ locked: false }),
-        canJoin(state, player, room, data, info) { return !(state.locked && info.from) || "This area is locked."; },
-        onJoin(state, player, room, data, info) { if (info.from) room.send(player.id, { arrived: data, from: info.from }); },
-        onMessage(state, player, msg, room) {
-          if (msg === "lock") state.locked = true;
-          if (typeof msg === "string" && msg.startsWith("go ")) room.moveTo(msg.slice(3), { players: [player.id], data: { door: "north" } });
+        canJoin(state, player, room, joinData, joinInfo) { return !(state.locked && joinInfo.fromRoomCode) || "This area is locked."; },
+        onJoin(state, player, room, joinData, joinInfo) { if (joinInfo.fromRoomCode) room.send(player.id, { arrived: joinData, fromRoomCode: joinInfo.fromRoomCode }); },
+        onMessage(state, player, message, room) {
+          if (message === "lock") state.locked = true;
+          if (typeof message === "string" && message.startsWith("go ")) room.moveTo(message.slice(3), { playerIds: [player.id], joinData: { door: "north" } });
           return state;
         },
-        onMoved(state, result, room) {
-          for (const r of result.refused) room.send(r.player.id, { stayed: r.reason, code: r.code });
+        onMoved(state, moveResult, room) {
+          for (const refusal of moveResult.refusals) room.send(refusal.player.id, { stayed: refusal.message, code: refusal.code });
         },
       };`,
     );
     const forest = await join("world", "FRSTAA");
     const town = await join("world", "TWNAAA");
-    town.ws.send(JSON.stringify({ t: "msg", d: "go FRSTAA" }));
-    expect(await town.next()).toEqual({ t: "move", code: "FRSTAA" });
+    town.say("go FRSTAA");
+    expect(await town.next()).toEqual({ type: "move", roomCode: "FRSTAA" });
 
-    // Same pass, the forest room: it gets the town's data, not anything the browser sends.
-    expect(await arrive("world", "FRSTAA", { door: "cheat" }, town.pass)).toEqual({ t: "msg", d: { arrived: { door: "north" }, from: "TWNAAA" } });
+    // Same pass, the forest room: it gets the town's join data, not anything the browser sends.
+    expect(await arrive("world", "FRSTAA", { door: "cheat" }, town.pass)).toEqual({ type: "message", data: { arrived: { door: "north" }, fromRoomCode: "TWNAAA" } });
 
     // A room that's locked, and one that isn't running, both say no; the player stays put.
-    forest.ws.send(JSON.stringify({ t: "msg", d: "lock" }));
+    forest.say("lock");
     const other = await join("world", "THRDAA");
-    other.ws.send(JSON.stringify({ t: "msg", d: "go FRSTAA" }));
-    expect(await other.next()).toEqual({ t: "msg", d: { stayed: "This area is locked.", code: "refused" } });
-    other.ws.send(JSON.stringify({ t: "msg", d: "go ZZZZZZ" }));
-    expect(await other.next()).toEqual({ t: "msg", d: { stayed: "That room isn't running.", code: "no-room" } });
+    other.say("go FRSTAA");
+    expect(await other.next()).toEqual({ type: "message", data: { stayed: "This area is locked.", code: "refused" } });
+    other.say("go ZZZZZZ");
+    expect(await other.next()).toEqual({ type: "message", data: { stayed: "That room isn't running.", code: "no_room" } });
   });
 
   it("leaves a game without a game server file unavailable", async () => {
@@ -273,25 +288,25 @@ describe("a game server whose sandbox keeps failing", () => {
     let fail = false;
     let broken = 0;
     const session = {
-      settings: async () => ({ tickRate: 10 }),
-      setup: async () => ({ state: { n: 0 }, effects: [] }),
+      settings: async () => ({ optionNames: ["ticksPerSec", "setup", "onTick"], ticksPerSec: 10, handlerNames: ["setup", "onTick"] }),
+      setup: async () => ({ state: { tickCount: 0 }, effects: [] }),
       call: async (_hook: string, state: any) => {
         if (fail) throw new Error("Worker exceeded CPU time limit.");
-        return { state: { n: state.n + 1 }, effects: [] };
+        return { state: { tickCount: state.tickCount + 1 }, effects: [] };
       },
     };
     const server = await wrapSession(async () => (opened++, session as never), () => broken++);
-    const room = { players: [], listed: true, open: true, name: null, labels: {} } as never;
+    const room = { players: [], isListed: true, isOpen: true, name: null, labels: {} } as never;
 
-    expect(await server.onTick!({ n: 0 }, 0.1, room)).toEqual({ n: 1 });
+    expect(await server.onTick!({ tickCount: 0 }, 0.1, room)).toEqual({ tickCount: 1 });
     fail = true;
-    await expect(server.onTick!({ n: 1 }, 0.1, room)).rejects.toThrow("CPU time limit");
+    await expect(server.onTick!({ tickCount: 1 }, 0.1, room)).rejects.toThrow("CPU time limit");
     expect([opened, broken]).toEqual([2, 0]);
-    await expect(server.onTick!({ n: 1 }, 0.1, room)).rejects.toThrow("CPU time limit");
+    await expect(server.onTick!({ tickCount: 1 }, 0.1, room)).rejects.toThrow("CPU time limit");
     expect([opened, broken]).toEqual([2, 1]);
     // From then on it fails at once, without asking the sandbox again.
     fail = false;
-    await expect(server.onTick!({ n: 1 }, 0.1, room)).rejects.toThrow("stopped working");
+    await expect(server.onTick!({ tickCount: 1 }, 0.1, room)).rejects.toThrow("stopped working");
     expect(server.stats.failures).toBe(2);
   });
 });
