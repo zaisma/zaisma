@@ -680,7 +680,7 @@ describe("API keys on the account page", () => {
     const token = made.match(/zsk_[a-z0-9]{20}_[A-Za-z0-9_-]{43}/)?.[0];
     expect(token).toBeTruthy();
     const api = await SELF.fetch(`${SITE}/api/dev/games`, { headers: { authorization: `Bearer ${token}` } });
-    expect(await api.json()).toEqual({ games: [], feedback_news: 0 });
+    expect(await api.json()).toEqual({ games: [], unread_topic_count: 0 });
 
     const page = await (await b.go("/account")).text();
     expect(page).toContain("My laptop");
@@ -710,7 +710,7 @@ describe("the dashboard", () => {
   /** Upload a one-file game through the API with the browser's session, then pass its scan. */
   async function uploadAndPass(b: Browser, slug: string, text: string): Promise<string> {
     const sha256 = await sha256Hex(new TextEncoder().encode(text));
-    const files = [{ path: "index.html", sha256, bytes: new TextEncoder().encode(text).byteLength }];
+    const files = [{ path: "index.html", sha256, size_bytes: new TextEncoder().encode(text).byteLength }];
     await b.go(`/api/dev/games/${slug}/uploads`, undefined, { method: "POST", body: JSON.stringify({ files }) });
     expect((await b.go(`/api/dev/files/${sha256}`, undefined, { method: "PUT", body: text })).status).toBe(200);
     const { version } = (await (await b.go(`/api/dev/games/${slug}/versions`, undefined, { method: "POST", body: JSON.stringify({ files }) })).json()) as { version: { id: string } };

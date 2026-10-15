@@ -1,4 +1,4 @@
-import { CONTROLS, DEVICES, PLAY_STYLES, ROOM_BROWSING, SCREENS, type PlayerCount, type Players, type RoomBrowsing } from "@zaisma/core";
+import { CONTROLS, DEVICES, PLAY_STYLES, ROOM_BROWSING, SCREENS, type PlayMode, type RoomBrowsing } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import { ApiError, apiCall, callerFor, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
@@ -10,42 +10,42 @@ import { html, layout, metalButton, raw, type Raw } from "./html.ts";
  * command always agree. Uploads run in the browser against the API directly, file by file.
  */
 
+// The API's answers, as apps/site/src/schemas.ts describes them.
 interface GameJson {
   slug: string;
-  url: string;
+  page_url: string;
   title: string;
   description: string;
   visibility: "draft" | "listed" | "unlisted" | "private";
-  review: "pending" | "live" | "held" | "removed";
+  review_status: "pending" | "live" | "held" | "removed";
   devices: string[];
   controls: string[];
-  screen: string;
-  players: Players | null;
-  cloud_saves: boolean;
-  zaisma_rooms: boolean;
-  multiplayer: "none" | "relay" | "own" | "built-in";
+  screen_orientation: string | null;
+  play_modes: PlayMode[] | null;
+  cloud_saves_enabled: boolean;
+  multiplayer_mode: "none" | "relay" | "own" | "built-in";
   room_browsing: RoomBrowsing;
-  waiting_for_review: { title?: string; description?: string } | null;
-  updated_at: number;
+  details_waiting_for_review: { title: string | null; description: string | null } | null;
+  updated_at: string;
 }
 interface ImageJson {
   id: string;
   kind: "cover" | "square" | "screenshot";
-  status: "pending" | "approved" | "rejected";
-  url: string;
+  review_status: "pending" | "approved" | "rejected";
+  image_url: string;
 }
 interface VersionJson {
   id: string;
-  files: number;
-  bytes: number;
-  scan: "scanning" | "held" | "approved" | "rejected";
-  live: boolean;
-  notes: string;
+  file_count: number;
+  size_bytes: number;
+  scan_status: "scanning" | "held" | "approved" | "rejected";
+  is_live: boolean;
+  patch_notes: string;
   preview_url: string | null;
-  published_at: number | null;
-  publish_at: number | null;
-  created_at: number;
-  findings?: { rule: string; detail: string; path?: string | null }[];
+  published_at: string | null;
+  scheduled_publish_at: string | null;
+  created_at: string;
+  findings: { severity: string; rule: string; explanation: string; path: string | null }[];
 }
 
 const VISIBILITY: Record<GameJson["visibility"], { label: string; hint: string }> = {
@@ -54,9 +54,9 @@ const VISIBILITY: Record<GameJson["visibility"], { label: string; hint: string }
   private: { label: "Only me", hint: "Only you and your testers, through preview and tester links" },
   draft: { label: "Draft", hint: "Not ready yet; only you and your testers, through preview and tester links" },
 };
-const REVIEW: Record<GameJson["review"], string> = { pending: "Not live yet", live: "Live", held: "Held", removed: "Taken down" };
+const REVIEW: Record<GameJson["review_status"], string> = { pending: "Not live yet", live: "Live", held: "Held", removed: "Taken down" };
 const DEVICE_LABELS: Record<string, string> = { phone: "Phone", tablet: "Tablet", computer: "Computer" };
-const CONTROL_LABELS: Record<string, string> = { touch: "Touch", "keyboard-mouse": "Keyboard and mouse", gamepad: "Gamepad" };
+const CONTROL_LABELS: Record<string, string> = { touch: "Touch", keyboard_mouse: "Keyboard and mouse", gamepad: "Gamepad" };
 const SCREEN_LABELS: Record<string, string> = { "": "Not set", portrait: "Portrait", landscape: "Landscape", either: "Either way" };
 const ROOM_BROWSING_LABELS: Record<RoomBrowsing, { label: string; hint: string }> = {
   page: { label: "On the game page and in the game", hint: "Players see open rooms on your game's page and can jump in. Your game can list them too, with Zaisma.rooms.list()." },
@@ -126,19 +126,19 @@ export async function handleDashboard(request: Request, env: Env, path: string):
         description: field("description"),
         devices: form.getAll("devices").map(String),
         controls: form.getAll("controls").map(String),
-        screen: field("screen"),
-        players: playersFrom(form),
-        cloud_saves: form.get("cloud_saves") === "on",
+        screen_orientation: field("screen") || null,
+        play_modes: playModesFrom(form),
+        cloud_saves_enabled: form.get("cloud_saves") === "on",
         ...(form.has("room_browsing") ? { room_browsing: field("room_browsing") } : {}),
-        ...(form.has("multiplayer") ? { multiplayer: field("multiplayer") } : {}),
-      })) as { review: string | null; note?: string };
-      if (res.note) return back("multiplayer-no-file", "#details");
-      return back(res.review ? "details-review" : "details", "#details");
+        ...(form.has("multiplayer") ? { multiplayer_mode: field("multiplayer") } : {}),
+      })) as { review_message: string | null; game_server_problem: string | null };
+      if (res.game_server_problem) return back("multiplayer-no-file", "#details");
+      return back(res.review_message ? "details-review" : "details", "#details");
     }
     if (action === "/visibility") {
       const visibility = field("visibility");
       const { game } = (await call("GET", `/games/${slug}`)) as { game: GameJson };
-      const hiding = (visibility === "private" || visibility === "draft") && (game.visibility === "listed" || game.visibility === "unlisted") && game.review === "live";
+      const hiding = (visibility === "private" || visibility === "draft") && (game.visibility === "listed" || game.visibility === "unlisted") && game.review_status === "live";
       if (hiding && field("confirm") !== "yes") return done(await managerPage(env, call, slug, { confirmHide: visibility as GameJson["visibility"] }));
       await call("PATCH", `/games/${slug}`, { visibility });
       return back("visibility");
@@ -168,7 +168,7 @@ export async function handleDashboard(request: Request, env: Env, path: string):
     if (ver) {
       const [, id, what] = ver;
       if (what === "publish") await call("POST", `/games/${slug}/versions/${id}/publish`, {});
-      if (what === "schedule") await call("POST", `/games/${slug}/versions/${id}/publish`, { at: field("at") });
+      if (what === "schedule") await call("POST", `/games/${slug}/versions/${id}/publish`, { scheduled_publish_at: field("at") });
       if (what === "unschedule") await call("DELETE", `/games/${slug}/versions/${id}/publish`);
       return back(what === "publish" ? "published" : `${what}d`, "#versions");
     }
@@ -179,15 +179,16 @@ export async function handleDashboard(request: Request, env: Env, path: string):
   return done(redirect(`/dashboard/${slug}`));
 }
 
-/** The Players fields of the details form, as the API takes them. Nothing ticked clears it. */
-function playersFrom(form: FormData): Players | null {
-  const count = (mode: "local" | "online") => {
-    if (form.get(mode) !== "on") return null;
+/** The Players fields of the details form, as the API's play_modes. Nothing ticked clears it. */
+function playModesFrom(form: FormData): PlayMode[] | null {
+  const modes: PlayMode[] = [];
+  if (form.get("single") === "on") modes.push({ mode: "single", minimum_player_count: null, maximum_player_count: null, play_style: null });
+  for (const mode of ["local", "online"] as const) {
+    if (form.get(mode) !== "on") continue;
     const max = String(form.get(`${mode}_max`) ?? "").trim();
-    return { min: Number(form.get(`${mode}_min`) || 2), max: max ? Number(max) : null, style: String(form.get(`${mode}_style`) ?? "co-op") } as PlayerCount;
-  };
-  const players = { single: form.get("single") === "on", local: count("local"), online: count("online") };
-  return players.single || players.local || players.online ? players : null;
+    modes.push({ mode, minimum_player_count: Number(form.get(`${mode}_min`) || 2), maximum_player_count: max ? Number(max) : null, play_style: String(form.get(`${mode}_style`) ?? "co-op") as PlayMode["play_style"] });
+  }
+  return modes.length ? modes : null;
 }
 
 export type Call = (method: string, path: string, body?: unknown) => Promise<Record<string, unknown>>;
@@ -213,19 +214,20 @@ export function page(env: Env, title: string, body: Raw, status = 200, art: stri
 export const notice = (opts: { done?: string; error?: string }) =>
   opts.error ? html`<p class="error" role="alert">${opts.error}</p>` : opts.done ? html`<p class="done" role="status">${opts.done}</p>` : "";
 
-export const when = (ms: number) => html`<time datetime="${new Date(ms).toISOString()}" data-local>${new Date(ms).toISOString().slice(0, 16).replace("T", " ")} UTC</time>`;
+/** A time, from the API (ISO) or the database (milliseconds), shown in the reader's own time zone. */
+export const when = (at: string | number) => html`<time datetime="${new Date(at).toISOString()}" data-local>${new Date(at).toISOString().slice(0, 16).replace("T", " ")} UTC</time>`;
 
 const size = (n: number) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.ceil(n / 1024))} KB`);
 
 function coverOf(images: ImageJson[]): ImageJson | undefined {
-  const covers = images.filter((i) => i.kind === "cover" && i.status !== "rejected");
-  return covers.find((i) => i.status === "approved") ?? covers[0];
+  const covers = images.filter((i) => i.kind === "cover" && i.review_status !== "rejected");
+  return covers.find((i) => i.review_status === "approved") ?? covers[0];
 }
 
 // --- Your games ---
 
 async function gamesPage(env: Env, call: Call, error?: string, title = ""): Promise<Response> {
-  const { games, feedback_news: news } = (await call("GET", "/games")) as { games: GameJson[]; feedback_news: number };
+  const { games, unread_topic_count: news } = (await call("GET", "/games")) as { games: GameJson[]; unread_topic_count: number };
   const details = await Promise.all(games.map((g) => call("GET", `/games/${g.slug}`) as Promise<{ images: ImageJson[]; versions: VersionJson[] }>));
   const make = html`<form class="make" method="post" action="/dashboard/new">
 <input name="title" maxlength="80" required placeholder="Your game's name" aria-label="Your game's name" value="${title}">
@@ -240,11 +242,11 @@ ${news ? html`<p class="done" role="status">Zaisma replied to ${news === 1 ? "on
 ${games.length
       ? html`<div class="grid">${games.map((g, i) => {
           const cover = coverOf(details[i]!.images);
-          const live = details[i]!.versions.find((v) => v.live);
-          const waiting = details[i]!.versions.filter((v) => !v.live && v.scan === "approved" && !v.published_at).length;
-          return html`<div class="hit block"${cover ? raw(` data-art="${cover.url.replace(/"/g, "")}"`) : ""}><div class="tile">
-<a class="pic" href="/dashboard/${g.slug}" tabindex="-1" aria-hidden="true">${cover ? html`<img src="${cover.url}" alt="" loading="lazy">` : ""}</a>
-<div class="body"><a class="name" href="/dashboard/${g.slug}"><span>${g.title}</span><small>${VISIBILITY[g.visibility].label} · ${REVIEW[g.review]}${live ? "" : " · no live version"}</small></a>
+          const live = details[i]!.versions.find((v) => v.is_live);
+          const waiting = details[i]!.versions.filter((v) => !v.is_live && v.scan_status === "approved" && !v.published_at).length;
+          return html`<div class="hit block"${cover ? raw(` data-art="${cover.image_url.replace(/"/g, "")}"`) : ""}><div class="tile">
+<a class="pic" href="/dashboard/${g.slug}" tabindex="-1" aria-hidden="true">${cover ? html`<img src="${cover.image_url}" alt="" loading="lazy">` : ""}</a>
+<div class="body"><a class="name" href="/dashboard/${g.slug}"><span>${g.title}</span><small>${VISIBILITY[g.visibility].label} · ${REVIEW[g.review_status]}${live ? "" : " · no live version"}</small></a>
 ${waiting ? html`<span class="badge">${waiting === 1 ? "Draft ready" : `${waiting} drafts ready`}</span>` : ""}</div>
 </div></div>`;
         })}</div>`
@@ -276,37 +278,26 @@ async function managerPage(
     if (err instanceof ApiError && err.status === 404) return page(env, "Game not found", html`<h1>Game not found</h1><p class="lead">${err.message}</p><a class="btn ghost" href="/dashboard">Your games</a>`, 404);
     throw err;
   }
-  const { game, images, versions, testers } = data;
   // Held and rejected versions come with what the scan found.
-  const findings = new Map<string, VersionJson["findings"]>();
-  await Promise.all(
-    versions
-      .filter((v) => v.scan === "held" || v.scan === "rejected")
-      .slice(0, 5)
-      .map(async (v) => findings.set(v.id, ((await call("GET", `/games/${slug}/versions/${v.id}`)) as { version: VersionJson }).version.findings)),
-  );
+  const { game, images, versions, testers } = data;
   const [reports, stats, history] = (await Promise.all([
     call("GET", `/games/${slug}/reports`),
-    call("GET", `/games/${slug}/stats?days=30`),
+    call("GET", `/games/${slug}/stats?period_duration_days=30`),
     call("GET", `/games/${slug}/history`),
-  ])) as unknown as [
-    { reasons: Record<string, { label: string; open: number; closed: number }>; bug_reports: { said: string; at: number }[] },
-    Stats,
-    { history: { what: string; version: string | null; by: string; at: number }[] },
-  ];
+  ])) as unknown as [Reports, Stats, { events: { description: string; version_id: string | null; done_by: "you" | "zaisma"; happened_at: string }[] }];
   const cover = coverOf(images);
-  const removed = game.review === "removed";
-  const openReports = Object.values(reports.reasons).reduce((n, r) => n + r.open, 0);
+  const removed = game.review_status === "removed";
+  const openReports = reports.reasons.reduce((n, r) => n + r.open_count, 0);
 
   return page(
     env,
     game.title,
     html`<p class="crumbs"><a href="/dashboard">Your games</a></p>
 <div class="game-head">
-<div class="cover pic bevel">${cover ? html`<img src="${cover.url}" alt="">` : ""}</div>
+<div class="cover pic bevel">${cover ? html`<img src="${cover.image_url}" alt="">` : ""}</div>
 <div class="who">
 <h1>${game.title}</h1>
-<p class="muted"><span class="pill ${game.review}">${REVIEW[game.review]}</span> ${game.visibility === "listed" || game.visibility === "unlisted" ? html`<a href="${game.url}">${game.url.replace(/^https?:\/\//, "")}</a>` : html`zaisma.com/g/${game.slug}`}</p>
+<p class="muted"><span class="pill ${game.review_status}">${REVIEW[game.review_status]}</span> ${game.visibility === "listed" || game.visibility === "unlisted" ? html`<a href="${game.page_url}">${game.page_url.replace(/^https?:\/\//, "")}</a>` : html`zaisma.com/g/${game.slug}`}</p>
 </div>
 <form class="vis" method="post" action="/dashboard/${slug}/visibility" aria-label="Who can play">
 <div class="seg">${(["listed", "unlisted", "private", "draft"] as const).map(
@@ -326,10 +317,10 @@ ${notice(opts)}
 <section class="main">
 ${removed ? "" : uploadPanel(slug)}
 <h2 class="rule-h" id="versions">Versions</h2>
-${versions.length ? html`<ol class="track">${versions.map((v) => versionRow(slug, v, findings.get(v.id)))}</ol>` : html`<p class="muted">No versions yet.</p>`}
+${versions.length ? html`<ol class="track">${versions.map((v) => versionRow(slug, v))}</ol>` : html`<p class="muted">No versions yet.</p>`}
 <p class="hint">Zaisma keeps the live version and the last 5 that passed, for rolling back. Drafts nobody publishes are deleted after 30 days.</p>
 <h2 class="rule-h" id="testers">Tester links</h2>
-${testersPanel(slug, game, testers, versions.some((v) => v.live))}
+${testersPanel(slug, game, testers, versions.some((v) => v.is_live))}
 </section>
 <aside>
 <h2 id="details">Details</h2>
@@ -339,33 +330,33 @@ ${imagesPanel(slug, images)}
 </aside>
 </div>
 <div class="facts">
-<details open><summary><h2>Plays</h2><span class="muted">Last 30 days</span></summary>${playsPanel(stats.plays)}</details>
+<details open><summary><h2>Plays</h2><span class="muted">Last 30 days</span></summary>${playsPanel(stats.play_stats)}</details>
 <details${openReports ? raw(" open") : ""}><summary><h2>Player reports${openReports ? ` (${openReports} open)` : ""}</h2></summary>${reportsPanel(reports)}</details>
-<details${stats.rooms_this_month.new_rooms_paused ? raw(" open") : ""}><summary><h2>Multiplayer use${stats.rooms_this_month.new_rooms_paused ? " (new rooms paused)" : ""}</h2></summary>${statsPanel(stats)}</details>
-<details><summary><h2>History</h2></summary>${history.history.length ? html`<table><tbody>${history.history.map((h) => html`<tr><td class="nowrap">${when(h.at)}</td><td>${h.what}${h.version ? html` <span class="muted">(${h.version.slice(0, 8)})</span>` : ""}</td><td class="muted">${h.by}</td></tr>`)}</tbody></table>` : html`<p class="muted">Nothing yet.</p>`}</details>
+<details${stats.room_use_this_month.has_reached_free_hours ? raw(" open") : ""}><summary><h2>Multiplayer use${stats.room_use_this_month.has_reached_free_hours ? " (new rooms paused)" : ""}</h2></summary>${statsPanel(stats, game.multiplayer_mode === "own")}</details>
+<details><summary><h2>History</h2></summary>${history.events.length ? html`<table><tbody>${history.events.map((e) => html`<tr><td class="nowrap">${when(e.happened_at)}</td><td>${e.description}${e.version_id ? html` <span class="muted">(${e.version_id.slice(0, 8)})</span>` : ""}</td><td class="muted">${e.done_by === "you" ? "You" : "Zaisma"}</td></tr>`)}</tbody></table>` : html`<p class="muted">Nothing yet.</p>`}</details>
 </div>`,
     status,
-    cover?.url ?? null,
+    cover?.image_url ?? null,
   );
 }
 
 interface TesterJson {
   id: string;
   name: string;
-  url: string;
-  created_at: number;
-  opened_at: number | null;
+  link_url: string;
+  created_at: string;
+  last_opened_at: string | null;
 }
 
 /** Secret links that open the live version whatever the visibility: one per group, each turned off on its own. */
 function testersPanel(slug: string, game: GameJson, testers: TesterJson[], live: boolean): Raw {
-  const removed = game.review === "removed";
+  const removed = game.review_status === "removed";
   return html`<p class="hint">Anyone with a tester link plays your live version, even while the game is private or a draft, with no account needed. Make one for each group, like your team or a streamer, so you can turn one off without the others.${live ? "" : " Publish a version first: the links open the live version."}</p>
 ${testers.length
       ? html`<ul class="testers">${testers.map(
           (t) => html`<li class="plate">
-<div class="t-head"><strong>${t.name}</strong><span class="muted">${t.opened_at ? html`Last opened ${when(t.opened_at)}` : "Not opened yet"}</span></div>
-<div class="row"><input readonly value="${t.url}" aria-label="Tester link for ${t.name}"><button class="btn ghost" type="button" data-copy="${t.url}">Copy</button>
+<div class="t-head"><strong>${t.name}</strong><span class="muted">${t.last_opened_at ? html`Last opened ${when(t.last_opened_at)}` : "Not opened yet"}</span></div>
+<div class="row"><input readonly value="${t.link_url}" aria-label="Tester link for ${t.name}"><button class="btn ghost" type="button" data-copy="${t.link_url}">Copy</button>
 <form method="post" action="/dashboard/${slug}/testers/${t.id}/remove"><button class="btn ghost" type="submit">Turn off</button></form></div>
 </li>`,
         )}</ul>`
@@ -382,47 +373,49 @@ function uploadPanel(slug: string): Raw {
 <script>${raw(UPLOAD_SCRIPT)}</script>`;
 }
 
-function versionRow(slug: string, v: VersionJson, findings?: VersionJson["findings"]): Raw {
+function versionRow(slug: string, v: VersionJson): Raw {
   const action = (what: string) => `/dashboard/${slug}/versions/${v.id}/${what}`;
-  const scheduled = v.publish_at
-    ? html`<form class="row" method="post" action="${action("unschedule")}"><span>Goes live ${when(v.publish_at)}${v.scan === "scanning" ? " if it has passed by then" : ""}.</span><button class="btn ghost" type="submit">Cancel</button></form>`
+  const scheduled = v.scheduled_publish_at
+    ? html`<form class="row" method="post" action="${action("unschedule")}"><span>Goes live ${when(v.scheduled_publish_at)}${v.scan_status === "scanning" ? " if it has passed by then" : ""}.</span><button class="btn ghost" type="submit">Cancel</button></form>`
     : "";
   let acts: Raw | string = "";
-  if (v.scan === "approved" && !v.live) {
+  if (v.scan_status === "approved" && !v.is_live) {
     acts = html`<div class="row">
 ${v.preview_url ? html`<a class="btn ghost" href="${v.preview_url}" target="_blank" rel="noopener">Preview</a>` : ""}
 <form method="post" action="${action("publish")}"><button class="btn light" type="submit">${v.published_at ? "Roll back to this" : "Publish"}</button></form>
-${v.publish_at ? "" : html`<details class="later"><summary>Publish later</summary><form class="row" method="post" action="${action("schedule")}"><input type="datetime-local" name="local" required aria-label="When"><input type="hidden" name="at"><button class="btn ghost" type="submit">Schedule</button></form></details>`}
+${v.scheduled_publish_at ? "" : html`<details class="later"><summary>Publish later</summary><form class="row" method="post" action="${action("schedule")}"><input type="datetime-local" name="local" required aria-label="When"><input type="hidden" name="at"><button class="btn ghost" type="submit">Schedule</button></form></details>`}
 </div>`;
-  } else if (v.scan === "scanning") {
+  } else if (v.scan_status === "scanning") {
     acts = html`<p class="muted">Being scanned. This usually takes under a minute.</p>`;
-  } else if (v.scan === "held") {
+  } else if (v.scan_status === "held") {
     acts = html`<p class="muted">A person will look at it, usually within a day.</p>`;
-  } else if (v.scan === "rejected") {
+  } else if (v.scan_status === "rejected") {
     acts = html`<p class="muted">This version can't be published. Fix what's below and upload again.</p>`;
   }
-  return html`<li class="${v.live ? "live edge" : ""}">
-<div class="v-head"><strong>${v.live ? html`<span class="badge">Live</span> ` : ""}${v.id.slice(0, 8)}</strong><span class="muted">${when(v.created_at)} · ${v.files} files, ${size(v.bytes)}</span>${v.live ? "" : html`<span class="pill ${v.scan}">${v.scan === "approved" ? (v.published_at ? "Was live" : "Ready") : v.scan[0]!.toUpperCase() + v.scan.slice(1)}</span>`}</div>
-${v.notes ? html`<p class="v-notes">${v.notes}</p>` : ""}
-${findings?.length ? html`<ul class="findings">${findings.map((f) => html`<li>${f.detail}${f.path ? html` <span class="muted">(${f.path})</span>` : ""}</li>`)}</ul>` : ""}
+  // Held and rejected versions come with what the scan found.
+  const findings = v.scan_status === "held" || v.scan_status === "rejected" ? v.findings : [];
+  return html`<li class="${v.is_live ? "live edge" : ""}">
+<div class="v-head"><strong>${v.is_live ? html`<span class="badge">Live</span> ` : ""}${v.id.slice(0, 8)}</strong><span class="muted">${when(v.created_at)} · ${v.file_count} files, ${size(v.size_bytes)}</span>${v.is_live ? "" : html`<span class="pill ${v.scan_status}">${v.scan_status === "approved" ? (v.published_at ? "Was live" : "Ready") : v.scan_status[0]!.toUpperCase() + v.scan_status.slice(1)}</span>`}</div>
+${v.patch_notes ? html`<p class="v-notes">${v.patch_notes}</p>` : ""}
+${findings.length ? html`<ul class="findings">${findings.map((f) => html`<li>${f.explanation}${f.path ? html` <span class="muted">(${f.path})</span>` : ""}</li>`)}</ul>` : ""}
 ${scheduled}${acts}
 </li>`;
 }
 
 function detailsForm(slug: string, g: GameJson): Raw {
-  const waiting = g.waiting_for_review;
+  const waiting = g.details_waiting_for_review;
   return html`<form class="stack" method="post" action="/dashboard/${slug}/details">
 ${waiting ? html`<p class="note small">Waiting for review: ${[waiting.title ? `title "${waiting.title}"` : "", waiting.description ? "a new description" : ""].filter(Boolean).join(" and ")}.</p>` : ""}
 <label>Title<input name="title" maxlength="80" required value="${waiting?.title ?? g.title}"></label>
 <label>Description<textarea name="description" maxlength="500">${waiting?.description ?? g.description}</textarea></label>
 <fieldset><legend>Works on</legend><div class="row">${DEVICES.map((d) => html`<label class="check"><input type="checkbox" name="devices" value="${d}"${g.devices.includes(d) ? raw(" checked") : ""}> ${DEVICE_LABELS[d]}</label>`)}</div></fieldset>
 <fieldset><legend>Controls</legend><div class="row">${CONTROLS.map((c) => html`<label class="check"><input type="checkbox" name="controls" value="${c}"${g.controls.includes(c) ? raw(" checked") : ""}> ${CONTROL_LABELS[c]}</label>`)}</div></fieldset>
-${playersFields(g.players)}
-<label>Screen<select name="screen">${["", ...SCREENS].map((s) => html`<option value="${s}"${g.screen === s ? raw(" selected") : ""}>${SCREEN_LABELS[s]}</option>`)}</select></label>
-${multiplayerFields(g.multiplayer)}
-${g.zaisma_rooms ? roomBrowsingFields(g.room_browsing) : ""}
+${playersFields(g.play_modes)}
+<label>Screen<select name="screen">${["", ...SCREENS].map((s) => html`<option value="${s}"${(g.screen_orientation ?? "") === s ? raw(" selected") : ""}>${SCREEN_LABELS[s]}</option>`)}</select></label>
+${multiplayerFields(g.multiplayer_mode)}
+${g.multiplayer_mode !== "none" ? roomBrowsingFields(g.room_browsing) : ""}
 <fieldset><legend>Saves</legend>
-<label class="check"><input type="checkbox" name="cloud_saves"${g.cloud_saves ? raw(" checked") : ""}> Cloud saves</label>
+<label class="check"><input type="checkbox" name="cloud_saves"${g.cloud_saves_enabled ? raw(" checked") : ""}> Cloud saves</label>
 <p class="hint">Signed-in players' progress follows them to any device. It copies the game's own browser saves, so there's nothing to add to your game. Turn it off if your game keeps its own saves on a server.</p>
 </fieldset>
 <button class="btn" type="submit">Save details</button>
@@ -436,7 +429,7 @@ const MULTIPLAYER_LABELS = {
 } as const;
 
 /** Multiplayer on Zaisma rooms, as the developer sets it. A game server built into Zaisma is set by us. */
-function multiplayerFields(current: GameJson["multiplayer"]): Raw {
+function multiplayerFields(current: GameJson["multiplayer_mode"]): Raw {
   if (current === "built-in") return html`<fieldset><legend>Multiplayer</legend><p class="hint">Runs a game server built into Zaisma. Ask us to change it.</p></fieldset>`;
   return html`<fieldset class="choices"><legend>Multiplayer</legend>
 ${(["none", "relay", "own"] as const).map(
@@ -455,26 +448,27 @@ ${ROOM_BROWSING.map(
 </fieldset>`;
 }
 
-function playersFields(p: Players | null): Raw {
-  const mode = (name: "local" | "online", label: string, hint: string, c: PlayerCount | null) => html`<div class="mode">
+function playersFields(modes: PlayMode[] | null): Raw {
+  const of = (m: PlayMode["mode"]) => modes?.find((x) => x.mode === m) ?? null;
+  const mode = (name: "local" | "online", label: string, hint: string, c: PlayMode | null) => html`<div class="mode">
 <label class="check"><input type="checkbox" name="${name}"${c ? raw(" checked") : ""}> ${label}</label>
-<div class="mode-detail"><select name="${name}_style" aria-label="${label}: how">${PLAY_STYLES.map((st) => html`<option value="${st}"${c?.style === st ? raw(" selected") : ""}>${st === "both" ? "Both" : st === "co-op" ? "Co-op" : "Versus"}</option>`)}</select>
-<input type="number" name="${name}_min" min="2" max="1000" value="${c?.min ?? 2}" aria-label="${label}: fewest players"><span class="muted">to</span><input type="number" name="${name}_max" min="2" max="1000" value="${c?.max ?? ""}" placeholder="any" aria-label="${label}: most players (empty for no limit)"><span class="muted">players</span></div>
+<div class="mode-detail"><select name="${name}_style" aria-label="${label}: how">${PLAY_STYLES.map((st) => html`<option value="${st}"${c?.play_style === st ? raw(" selected") : ""}>${st === "both" ? "Both" : st === "co-op" ? "Co-op" : "Versus"}</option>`)}</select>
+<input type="number" name="${name}_min" min="2" max="1000" value="${c?.minimum_player_count ?? 2}" aria-label="${label}: fewest players"><span class="muted">to</span><input type="number" name="${name}_max" min="2" max="1000" value="${c?.maximum_player_count ?? ""}" placeholder="any" aria-label="${label}: most players (empty for no limit)"><span class="muted">players</span></div>
 <p class="hint">${hint}</p></div>`;
   return html`<fieldset class="players"><legend>Players</legend>
-<label class="check"><input type="checkbox" name="single"${p?.single ? raw(" checked") : ""}> Single-player</label>
-${mode("local", "Local multiplayer", "Together on one device or screen.", p?.local ?? null)}
-${mode("online", "Online multiplayer", "Each on their own device. Leave the most empty for no limit.", p?.online ?? null)}
+<label class="check"><input type="checkbox" name="single"${of("single") ? raw(" checked") : ""}> Single-player</label>
+${mode("local", "Local multiplayer", "Together on one device or screen.", of("local"))}
+${mode("online", "Online multiplayer", "Each on their own device. Leave the most empty for no limit.", of("online"))}
 </fieldset>`;
 }
 
 const KIND_LABELS: Record<ImageJson["kind"], string> = { cover: "Cover", square: "Square cover", screenshot: "Screenshot" };
 
 function imagesPanel(slug: string, images: ImageJson[]): Raw {
-  const shown = images.filter((i) => i.status !== "rejected");
+  const shown = images.filter((i) => i.review_status !== "rejected");
   return html`${shown.length
     ? html`<div class="thumbs">${shown.map(
-        (i) => html`<figure><img class="bevel-s${i.kind === "square" ? " sq" : ""}" src="${i.url}" alt="" loading="lazy"><figcaption><span>${KIND_LABELS[i.kind]}${i.status === "pending" ? html` <span class="pill pending">In review</span>` : ""}</span>
+        (i) => html`<figure><img class="bevel-s${i.kind === "square" ? " sq" : ""}" src="${i.image_url}" alt="" loading="lazy"><figcaption><span>${KIND_LABELS[i.kind]}${i.review_status === "pending" ? html` <span class="pill pending">In review</span>` : ""}</span>
 <form method="post" action="/dashboard/${slug}/images/${i.id}/remove"><button class="link" type="submit">Remove</button></form></figcaption></figure>`,
       )}</div>`
     : html`<p class="muted">No cover yet. Players see it on the game page and in lists.</p>`}
@@ -485,77 +479,86 @@ function imagesPanel(slug: string, images: ImageJson[]): Raw {
 </form>`;
 }
 
-function reportsPanel(r: { reasons: Record<string, { label: string; open: number; closed: number }>; bug_reports: { said: string; at: number }[] }): Raw {
-  const rows = Object.values(r.reasons);
-  if (!rows.length) return html`<p class="muted">No reports in the last 90 days.</p>`;
-  return html`<table><thead><tr><th>Reason</th><th>Waiting for us</th><th>Looked at</th></tr></thead><tbody>${rows.map((x) => html`<tr><td>${x.label}</td><td>${x.open}</td><td>${x.closed}</td></tr>`)}</tbody></table>
-${r.bug_reports.length ? html`<h3>What players said about bugs</h3><ul class="said">${r.bug_reports.map((b) => html`<li>${b.said} <span class="muted">${when(b.at)}</span></li>`)}</ul>` : ""}`;
+interface Reports {
+  reasons: { reason: string; label: string; open_count: number; closed_count: number }[];
+  bug_reports: { player_text: string; reported_at: string }[];
+}
+
+function reportsPanel(r: Reports): Raw {
+  if (!r.reasons.length) return html`<p class="muted">No reports in the last 90 days.</p>`;
+  return html`<table><thead><tr><th>Reason</th><th>Waiting for us</th><th>Looked at</th></tr></thead><tbody>${r.reasons.map((x) => html`<tr><td>${x.label}</td><td>${x.open_count}</td><td>${x.closed_count}</td></tr>`)}</tbody></table>
+${r.bug_reports.length ? html`<h3>What players said about bugs</h3><ul class="said">${r.bug_reports.map((b) => html`<li>${b.player_text} <span class="muted">${when(b.reported_at)}</span></li>`)}</ul>` : ""}`;
 }
 
 interface Stats {
-  plays: {
-    days: { day: string; plays: number; players: number; new_players: number; minutes_played: number; all_plays: number }[];
-    plays: number;
-    all_plays: number;
-    new_players: number;
-    minutes_played: number;
-    minutes_per_play: number | null;
-    came_back: Record<"after_1_day" | "after_7_days" | "after_30_days", { percent: number | null; players: number; of: number }>;
+  play_stats: {
+    days: { date: string; play_count: number; player_count: number; new_player_count: number; play_duration_min: number; started_play_count: number }[];
+    play_count: number;
+    started_play_count: number;
+    new_player_count: number;
+    play_duration_min: number;
+    average_play_duration_min: number | null;
+    came_back: Record<"after_1_day" | "after_7_days" | "after_30_days", { returned_pct: number | null; returned_player_count: number; new_player_count: number }>;
   };
-  multiplayer: { day: string; rooms: number; player_minutes: number; messages: number; game_server?: { calls: number; crashes: number; stopped: number; matches_ended: number } }[];
-  rooms_this_month: { player_hours: number; free_player_hours: number; new_rooms_paused: boolean };
-  game_server_errors?: { kind: "crash" | "stopped"; error: string; times: number; version: string; last: number }[];
+  multiplayer_days: {
+    date: string;
+    room_count: number;
+    room_play_duration_min: number;
+    message_count: number;
+    game_server: { call_count: number; crash_count: number; stopped_count: number; ended_match_count: number } | null;
+  }[];
+  room_use_this_month: { room_play_duration_hours: number; free_room_play_duration_hours: number; has_reached_free_hours: boolean };
+  game_server_errors: { kind: "crash" | "stopped"; message: string; occurrence_count: number; version_id: string; last_at: string }[];
 }
 
 const n = (x: number) => x.toLocaleString("en-US");
 
 /** Plays, time played and players coming back, as the game page counts them. */
-function playsPanel(p: Stats["plays"]): Raw {
+function playsPanel(p: Stats["play_stats"]): Raw {
   const how = html`<p class="hint">A play counts once the game has been on screen for a minute, in a browser Cloudflare checked is real. Plays through tester and preview links, and your own while signed in, don't count. A player is a browser: one person on two devices counts twice. Time counts only while the game is on screen.</p>`;
-  if (!p.plays) return html`<p class="muted">No counted plays in the last 30 days${p.all_plays ? html` (${n(p.all_plays)} started in all)` : ""}.</p>${how}`;
-  const back = (label: string, b: Stats["plays"]["came_back"]["after_1_day"]) =>
-    html`<div class="num plate"><strong>${b.percent === null ? "–" : `${b.percent}%`}</strong><span>${label}</span><small>${b.of ? `${n(b.players)} of ${n(b.of)} new players` : "Not enough days yet"}</small></div>`;
-  const top = Math.max(...p.days.map((d) => d.plays), 1);
+  if (!p.play_count) return html`<p class="muted">No counted plays in the last 30 days${p.started_play_count ? html` (${n(p.started_play_count)} started in all)` : ""}.</p>${how}`;
+  const back = (label: string, b: Stats["play_stats"]["came_back"]["after_1_day"]) =>
+    html`<div class="num plate"><strong>${b.returned_pct === null ? "–" : `${b.returned_pct}%`}</strong><span>${label}</span><small>${b.new_player_count ? `${n(b.returned_player_count)} of ${n(b.new_player_count)} new players` : "Not enough days yet"}</small></div>`;
+  const top = Math.max(...p.days.map((d) => d.play_count), 1);
   // Every one of the 30 days, including those with no plays.
-  const by = new Map(p.days.map((d) => [d.day, d.plays]));
+  const by = new Map(p.days.map((d) => [d.date, d.play_count]));
   const all = Array.from({ length: 30 }, (_, i) => new Date(Date.now() - (29 - i) * 86_400_000).toISOString().slice(0, 10));
   return html`<div class="numbers">
-<div class="num plate"><strong>${n(p.plays)}</strong><span>Plays</span><small>${n(p.all_plays)} started in all</small></div>
-<div class="num plate"><strong>${n(p.new_players)}</strong><span>New players</span></div>
-<div class="num plate"><strong>${p.minutes_per_play === null ? "–" : `${p.minutes_per_play} min`}</strong><span>Per play</span><small>${n(p.minutes_played)} minutes in all</small></div>
+<div class="num plate"><strong>${n(p.play_count)}</strong><span>Plays</span><small>${n(p.started_play_count)} started in all</small></div>
+<div class="num plate"><strong>${n(p.new_player_count)}</strong><span>New players</span></div>
+<div class="num plate"><strong>${p.average_play_duration_min === null ? "–" : `${p.average_play_duration_min} min`}</strong><span>Per play</span><small>${n(p.play_duration_min)} minutes in all</small></div>
 ${back("Back the next day", p.came_back.after_1_day)}
 ${back("Back a week later", p.came_back.after_7_days)}
 </div>
 <figure class="chart"><div class="cols" role="img" aria-label="Plays per day">${all.map((d) => html`<span title="${d}: ${n(by.get(d) ?? 0)} plays" style="height:${Math.max(Math.round(((by.get(d) ?? 0) / top) * 100), 1)}%"></span>`)}</div>
 <figcaption><span>${all[0]}</span><span>Plays per day</span><span>Today</span></figcaption></figure>
 <details class="later"><summary>Day by day</summary><table><thead><tr><th>Day</th><th>Plays</th><th>Players</th><th>New</th><th>Minutes</th><th>Started in all</th></tr></thead><tbody>${[...p.days].reverse().map(
-    (d) => html`<tr><td class="nowrap">${d.day}</td><td>${n(d.plays)}</td><td>${n(d.players)}</td><td>${n(d.new_players)}</td><td>${n(d.minutes_played)}</td><td class="muted">${n(d.all_plays)}</td></tr>`,
+    (d) => html`<tr><td class="nowrap">${d.date}</td><td>${n(d.play_count)}</td><td>${n(d.player_count)}</td><td>${n(d.new_player_count)}</td><td>${n(d.play_duration_min)}</td><td class="muted">${n(d.started_play_count)}</td></tr>`,
   )}</tbody></table></details>${how}`;
 }
 
-function statsPanel(stats: Stats): Raw {
-  const days = stats.multiplayer;
-  const m = stats.rooms_this_month;
-  const month = m.new_rooms_paused
-    ? html`<p class="hint">Your game has used this month's ${n(m.free_player_hours)} free player-hours on Zaisma rooms, so new rooms don't open until the month resets (UTC). Matches already running carry on. Until hosting billing is ready, that's the most a game can use. Rooms on a server you run yourself are never limited.</p>`
-    : html`<p class="hint">${n(m.player_hours)} of ${n(m.free_player_hours)} free player-hours on Zaisma rooms this month. Until hosting billing is ready, new rooms stop opening at ${n(m.free_player_hours)} until the month resets (UTC); matches already running carry on.</p>`;
-  if (!days.length) return html`<p class="muted">No multiplayer rooms in the last 30 days.</p>${m.player_hours || m.new_rooms_paused ? month : ""}`;
-  const top = Math.max(...days.map((d) => d.player_minutes), 1);
-  const own = stats.game_server_errors !== undefined;
+function statsPanel(stats: Stats, own: boolean): Raw {
+  const days = stats.multiplayer_days;
+  const m = stats.room_use_this_month;
+  const month = m.has_reached_free_hours
+    ? html`<p class="hint">Your game has used this month's ${n(m.free_room_play_duration_hours)} free player-hours on Zaisma rooms, so new rooms don't open until the month resets (UTC). Matches already running carry on. Until hosting billing is ready, that's the most a game can use. Rooms on a server you run yourself are never limited.</p>`
+    : html`<p class="hint">${n(m.room_play_duration_hours)} of ${n(m.free_room_play_duration_hours)} free player-hours on Zaisma rooms this month. Until hosting billing is ready, new rooms stop opening at ${n(m.free_room_play_duration_hours)} until the month resets (UTC); matches already running carry on.</p>`;
+  if (!days.length) return html`<p class="muted">No multiplayer rooms in the last 30 days.</p>${m.room_play_duration_hours || m.has_reached_free_hours ? month : ""}`;
+  const top = Math.max(...days.map((d) => d.room_play_duration_min), 1);
   return html`<table><thead><tr><th>Day</th><th>Rooms</th><th>Player minutes</th>${own ? html`<th>Game server errors</th><th>Stopped</th><th>Matches ended</th>` : ""}</tr></thead><tbody>${days.map(
-    (d) => html`<tr><td class="nowrap">${d.day}</td><td>${d.rooms}</td><td><span class="bar" style="width:${Math.round((d.player_minutes / top) * 100)}%"></span>${d.player_minutes}</td>${
-      own ? html`<td>${d.game_server?.crashes ?? 0}</td><td>${d.game_server?.stopped ?? 0}</td><td>${d.game_server?.matches_ended ?? 0}</td>` : ""
+    (d) => html`<tr><td class="nowrap">${d.date}</td><td>${d.room_count}</td><td><span class="bar" style="width:${Math.round((d.room_play_duration_min / top) * 100)}%"></span>${d.room_play_duration_min}</td>${
+      own ? html`<td>${d.game_server?.crash_count ?? 0}</td><td>${d.game_server?.stopped_count ?? 0}</td><td>${d.game_server?.ended_match_count ?? 0}</td>` : ""
     }</tr>`,
-  )}</tbody></table>${month}${own ? serverErrors(stats.game_server_errors!) : ""}`;
+  )}</tbody></table>${month}${own ? serverErrors(stats.game_server_errors) : ""}`;
 }
 
 /** A game server's recent errors, so its developer can fix what wastes their players' time and our work. */
-function serverErrors(errors: NonNullable<Stats["game_server_errors"]>): Raw {
+function serverErrors(errors: Stats["game_server_errors"]): Raw {
   if (!errors.length) return html`<p class="muted">No errors from your game server in the last 30 days.</p>`;
   return html`<h3>Your game server's errors</h3>
 <p class="hint">An error loses that one message or tick and the match carries on. Stopped means it ran on too long, like a loop that never ends: the match froze for about 2 seconds, and a match stopped twice ends.</p>
 <table><thead><tr><th>What happened</th><th>Times</th><th>Last</th></tr></thead><tbody>${errors.map(
-    (e) => html`<tr><td>${e.kind === "stopped" ? e.error : html`<code>${e.error}</code>`}</td><td>${e.times}</td><td class="nowrap">${when(e.last)}</td></tr>`,
+    (e) => html`<tr><td>${e.kind === "stopped" ? e.message : html`<code>${e.message}</code>`}</td><td>${e.occurrence_count}</td><td class="nowrap">${when(e.last_at)}</td></tr>`,
   )}</tbody></table>`;
 }
 
@@ -680,12 +683,12 @@ while(strip());
 const hidden=files.filter(f=>f.path.split("/").some(p=>p.startsWith(".")));files=files.filter(f=>!hidden.includes(f));
 if(!files.length)throw new Error("That folder is empty.");
 const big=files.find(f=>f.file.size>DIRECT);if(big)throw new Error(big.path+" is over 95 MB. Upload this game with: npx @zaisma/cli upload <folder> --game "+slug);
-const list=[];for(let i=0;i<files.length;i++){say("Checking files… "+(i+1)+" of "+files.length);const f=files[i];f.sha256=hex(await crypto.subtle.digest("SHA-256",await f.file.arrayBuffer()));list.push({path:f.path,sha256:f.sha256,bytes:f.file.size})}
-const plan=await api("POST","/games/"+slug+"/uploads",{files:list});const seen=new Set(),todo=files.filter(f=>plan.missing.includes(f.sha256)&&!seen.has(f.sha256)&&seen.add(f.sha256));
+const list=[];for(let i=0;i<files.length;i++){say("Checking files… "+(i+1)+" of "+files.length);const f=files[i];f.sha256=hex(await crypto.subtle.digest("SHA-256",await f.file.arrayBuffer()));list.push({path:f.path,sha256:f.sha256,size_bytes:f.file.size})}
+const plan=await api("POST","/games/"+slug+"/uploads",{files:list});const seen=new Set(),todo=files.filter(f=>plan.missing_file_hashes.includes(f.sha256)&&!seen.has(f.sha256)&&seen.add(f.sha256));
 const total=todo.reduce((n,f)=>n+f.file.size,0);let sent=0;const mb=n=>(n/1048576).toFixed(1)+" MB";
 const queue=[...todo];await Promise.all(Array.from({length:4},async()=>{for(let f=queue.shift();f;f=queue.shift()){await api("PUT","/files/"+f.sha256,f.file,true);sent+=f.file.size;say("Sending "+todo.length+" new or changed files… "+mb(sent)+" of "+mb(total))}}));
 say("Making the version…");
-await api("POST","/games/"+slug+"/versions",{files:list,notes:document.getElementById("notes").value,publish:document.getElementById("auto").checked?"when-approved":undefined});
+await api("POST","/games/"+slug+"/versions",{files:list,patch_notes:document.getElementById("notes").value,publish_when_approved:document.getElementById("auto").checked});
 location.href="/dashboard/"+slug+"?done=uploaded#versions"}catch(e){say(e.message);status.classList.add("error")}finally{busy=false}}
 input.addEventListener("change",()=>{status.classList.remove("error");upload([...input.files].map(f=>({file:f,path:f.webkitRelativePath||f.name})))});
 form.addEventListener("submit",e=>e.preventDefault());

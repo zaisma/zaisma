@@ -70,7 +70,7 @@ export async function accountForApiKey(db: D1Database, token: string): Promise<s
 
 export const VISIBILITIES: Visibility[] = ["draft", "listed", "unlisted", "private"];
 export const DEVICES = ["phone", "tablet", "computer"] as const;
-export const CONTROLS = ["touch", "keyboard-mouse", "gamepad"] as const;
+export const CONTROLS = ["touch", "keyboard_mouse", "gamepad"] as const;
 export const SCREENS = ["portrait", "landscape", "either"] as const;
 export const MAX_GAMES_PER_OWNER = 50;
 export const PLAY_STYLES = ["co-op", "versus", "both"] as const;
@@ -112,15 +112,52 @@ export function describePlayers(p: Players): { mode: "single" | "local" | "onlin
   return out;
 }
 
-function checkCount(name: "local" | "online", v: unknown): PlayerCount | null | string {
-  if (v === null || v === undefined || v === false) return null;
-  const c = v as Partial<PlayerCount>;
-  const max = c.max === null || c.max === undefined ? null : c.max;
-  if (typeof c !== "object" || !Number.isInteger(c.min) || c.min! < 2 || c.min! > MAX_PLAYERS || (max !== null && (!Number.isInteger(max) || max < c.min! || max > MAX_PLAYERS))) {
-    return `players.${name} needs "min" (2 or more) and "max" (at least min, or null for no limit).`;
+/** One way to play, as the API names it (docs/NAMING.md). */
+export interface PlayMode {
+  mode: "single" | "local" | "online";
+  minimum_player_count: number | null;
+  maximum_player_count: number | null;
+  play_style: PlayerCount["style"] | null;
+}
+
+/** How a game is played, as the API shows it: a list of ways to play, or null when not set. */
+export function playModesOf(p: Players | null): PlayMode[] | null {
+  if (!p) return null;
+  const out: PlayMode[] = [];
+  if (p.single) out.push({ mode: "single", minimum_player_count: null, maximum_player_count: null, play_style: null });
+  for (const mode of ["local", "online"] as const) {
+    const c = p[mode];
+    if (c) out.push({ mode, minimum_player_count: c.min, maximum_player_count: c.max, play_style: c.style });
   }
-  if (!PLAY_STYLES.includes(c.style as PlayerCount["style"])) return `players.${name}.style is one of: ${PLAY_STYLES.join(", ")}.`;
-  return { min: c.min!, max, style: c.style as PlayerCount["style"] };
+  return out;
+}
+
+const PLAY_MODES_HELP = 'play_modes is a list like [{ "mode": "single" }, { "mode": "online", "minimum_player_count": 2, "maximum_player_count": 4, "play_style": "co-op" }], or null to clear it.';
+
+function checkPlayModes(v: unknown): Players | null | string {
+  if (v === null) return null;
+  if (!Array.isArray(v) || v.length === 0) return PLAY_MODES_HELP;
+  const players: Players = { single: false, local: null, online: null };
+  const seen = new Set<string>();
+  for (const raw of v) {
+    const m = raw as Partial<PlayMode> | null;
+    if (!m || typeof m !== "object" || !["single", "local", "online"].includes(m.mode as string)) return `Each play mode needs "mode": single, local or online. ${PLAY_MODES_HELP}`;
+    if (seen.has(m.mode!)) return `play_modes has ${m.mode} twice.`;
+    seen.add(m.mode!);
+    if (m.mode === "single") {
+      if ((m.minimum_player_count ?? null) !== null || (m.maximum_player_count ?? null) !== null || (m.play_style ?? null) !== null) return "The single mode takes no player counts or play_style.";
+      players.single = true;
+      continue;
+    }
+    const min = m.minimum_player_count;
+    const max = m.maximum_player_count ?? null;
+    if (!Number.isInteger(min) || min! < 2 || min! > MAX_PLAYERS || (max !== null && (!Number.isInteger(max) || max < min! || max > MAX_PLAYERS))) {
+      return `The ${m.mode} mode needs minimum_player_count (2 or more) and maximum_player_count (at least the minimum, or null for no limit).`;
+    }
+    if (!PLAY_STYLES.includes(m.play_style as PlayerCount["style"])) return `The ${m.mode} mode's play_style is one of: ${PLAY_STYLES.join(", ")}.`;
+    players[m.mode as "local" | "online"] = { min: min!, max, style: m.play_style as PlayerCount["style"] };
+  }
+  return players;
 }
 
 export interface DetailsChange {
@@ -139,7 +176,7 @@ export interface DetailsChange {
   multiplayer?: (typeof MULTIPLAYER)[number];
 }
 
-/** Check a change from the API. Returns the tidied change or a plain error. */
+/** Check a change from the API, in the API's names (docs/NAMING.md). Returns the tidied change or a plain error. */
 export function checkDetails(input: Record<string, unknown>): { change: DetailsChange } | { error: string } {
   const change: DetailsChange = {};
   if ("title" in input) {
@@ -164,34 +201,26 @@ export function checkDetails(input: Record<string, unknown>): { change: DetailsC
   };
   const listError = list("devices", DEVICES) ?? list("controls", CONTROLS);
   if (listError) return { error: listError };
-  if ("screen" in input) {
-    if (input.screen !== "" && !SCREENS.includes(input.screen as (typeof SCREENS)[number])) return { error: `screen is one of: ${SCREENS.join(", ")} (or "" for not set).` };
-    change.screen = input.screen as string;
+  if ("screen_orientation" in input) {
+    if (input.screen_orientation !== null && !SCREENS.includes(input.screen_orientation as (typeof SCREENS)[number])) return { error: `screen_orientation is one of: ${SCREENS.join(", ")}, or null for not set.` };
+    change.screen = (input.screen_orientation as string | null) ?? "";
   }
-  if ("players" in input) {
-    const p = input.players as Partial<Players> | null;
-    if (p === null) change.players = null;
-    else {
-      if (typeof p !== "object" || typeof p.single !== "boolean") return { error: 'players needs "single" (true or false), plus "local" and "online" ({ "min", "max", "style" } or null).' };
-      const local = checkCount("local", p.local);
-      if (typeof local === "string") return { error: local };
-      const online = checkCount("online", p.online);
-      if (typeof online === "string") return { error: online };
-      if (!p.single && !local && !online) return { error: "players needs at least one way to play: single, local or online." };
-      change.players = { single: p.single, local, online };
-    }
+  if ("play_modes" in input) {
+    const players = checkPlayModes(input.play_modes);
+    if (typeof players === "string") return { error: players };
+    change.players = players;
   }
-  if ("cloud_saves" in input) {
-    if (typeof input.cloud_saves !== "boolean") return { error: "cloud_saves is true or false." };
-    change.cloud_saves = input.cloud_saves;
+  if ("cloud_saves_enabled" in input) {
+    if (typeof input.cloud_saves_enabled !== "boolean") return { error: "cloud_saves_enabled is true or false." };
+    change.cloud_saves = input.cloud_saves_enabled;
   }
   if ("room_browsing" in input) {
     if (!ROOM_BROWSING.includes(input.room_browsing as RoomBrowsing)) return { error: `room_browsing is one of: ${ROOM_BROWSING.join(", ")}.` };
     change.room_browsing = input.room_browsing as RoomBrowsing;
   }
-  if ("multiplayer" in input) {
-    if (!MULTIPLAYER.includes(input.multiplayer as (typeof MULTIPLAYER)[number])) return { error: `multiplayer is one of: ${MULTIPLAYER.join(", ")}.` };
-    change.multiplayer = input.multiplayer as (typeof MULTIPLAYER)[number];
+  if ("multiplayer_mode" in input) {
+    if (!MULTIPLAYER.includes(input.multiplayer_mode as (typeof MULTIPLAYER)[number])) return { error: `multiplayer_mode is one of: ${MULTIPLAYER.join(", ")}.` };
+    change.multiplayer = input.multiplayer_mode as (typeof MULTIPLAYER)[number];
   }
   return { change };
 }

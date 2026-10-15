@@ -608,10 +608,10 @@ const DEVICE_ICONS: Record<string, string> = {
   computer: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="2" y="3" width="16" height="11" rx="1"/><path d="M7 17h6M10 14v3"/></svg>',
 };
 const DEVICE_LABELS: Record<string, string> = { phone: "Phone", tablet: "Tablet", computer: "Computer" };
-const CONTROL_LABELS: Record<string, string> = { touch: "Touch", "keyboard-mouse": "Keyboard and mouse", gamepad: "Gamepad" };
+const CONTROL_LABELS: Record<string, string> = { touch: "Touch", keyboard_mouse: "Keyboard and mouse", gamepad: "Gamepad" };
 const CONTROL_ICONS: Record<string, string> = {
   touch: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 11V4.2a1.5 1.5 0 0 1 3 0V9l3.4.7a2 2 0 0 1 1.6 2.2l-.5 3.6A2.6 2.6 0 0 1 12.9 18H10a2.6 2.6 0 0 1-2-1l-3.4-4.3a1.4 1.4 0 0 1 2.1-1.8z"/></svg>',
-  "keyboard-mouse": '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1.5" y="5" width="17" height="10" rx="1"/><path d="M4.5 8h.01M7.5 8h.01M10.5 8h.01M13.5 8h.01M15.5 8h.01M4.5 11h.01M15.5 11h.01M7.5 11.5h5"/></svg>',
+  keyboard_mouse: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1.5" y="5" width="17" height="10" rx="1"/><path d="M4.5 8h.01M7.5 8h.01M10.5 8h.01M13.5 8h.01M15.5 8h.01M4.5 11h.01M15.5 11h.01M7.5 11.5h5"/></svg>',
   gamepad: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.4 5.5h7.2a4 4 0 0 1 3.9 3.3l.8 4.4a2 2 0 0 1-3.4 1.7L13 13H7l-1.9 1.9a2 2 0 0 1-3.4-1.7l.8-4.4a4 4 0 0 1 3.9-3.3z"/><path d="M6.2 8.3v3M4.7 9.8h3"/><path d="M13.6 9h.01M15.2 10.6h.01"/></svg>',
 };
 const ICON_HISTORY = svg('<path d="M3.5 12a8.5 8.5 0 1 0 2.5-6l-2.5 2.5"/><path d="M3.5 4v4.5H8"/><path d="M12 7.5V12l3 2"/>');

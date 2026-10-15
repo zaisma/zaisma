@@ -66,7 +66,7 @@ A length of time says so in its name. `duration` is the default; four words say 
 2. **Minimum and maximum are spelled out**, as the first word: `minimum_player_count`, `maximum_player_count`. `_min` at the end always means minutes.
 3. **Vague nouns get a subject.** `data`, `info`, `value`, `result` and `context` never stand alone: `join_data`, `failure_context`.
 4. **One type and one unit per field.** No "a number or false", no "a string or a number". A setting with modes is a choice plus a separate number: `idle_check: "server" | "client" | "off"` and `idle_timeout_sec: 600`, not `idleAfter: 600 | false | "client"`.
-5. **A field reads right on its own.** If its short name means something else elsewhere in the glossary, use the full name. `code` is an error's code, so a room's is `room_code`; `players` is a list of players, so a number of them is `player_count`.
+5. **A field reads right on its own.** If its short name means something else elsewhere in the glossary, use the full name. `code` is an error's code, so a room's is `room_code`; `players` is a list of players, so a number of them is `player_count`. On an object, `id` and `kind` are that object's own; anything else about it says what it is (`scan_status`, `review_status`, `page_url`, `image_url`).
 6. **One name per concept, everywhere.** The glossary below is the list. Check it before naming anything; a new concept goes into it in the same change.
 7. **Same words in each surface's style.** snake_case in the API and MCP (`play_duration_min`), camelCase in the SDK and game server (`playDurationMin`). Choice values and error codes are lowercase snake_case everywhere (`when_approved`, `keyboard_mouse`, `month_limit`); a word that's hyphenated in plain English keeps its hyphen (`co-op`).
 8. **Keys are always there.** An answer has the same keys every time. `null` means "not set" or "none" and nothing else. In an update, leaving a key out keeps it and `null` clears it.
@@ -111,7 +111,7 @@ A new kind is added here in the same change. The developer API and MCP still nam
 
 ## Inputs
 
-- **Fixed lists, not free text.** A field with known values is an enum in the schema, each value with a one-line description, never a list written in the field's prose.
+- **Fixed lists, not free text.** A field with known values is an enum in the schema, and its description says what each value means.
 - **Templates, not free-form objects.** Every object has its properties, which are required and `additionalProperties: false`. No bare `{ "type": "object" }`.
 - **Every ID says where it comes from**: "A version_id from get_game or upload_files".
 - **Limits live in the schema** (`maxLength`, `minimum`, `maximum`, `maxItems`, `pattern`), not only in prose.
@@ -134,7 +134,8 @@ A mistake that keeps showing up in MCP errors becomes a bad example.
 
 ## Outputs
 
-- **Every MCP tool has an output schema**, and each field is described once there, with its unit. The tool's description says what the tool is for and when to use it; what each field means lives in the schema.
+- **Every MCP tool has an output schema** (`apps/site/src/schemas.ts`), with each field described once there where its name can't say it all. Not every AI app shows output schemas to the model, so the names carry the meaning, and the tool's description adds only what a reader of the answer must know that names can't carry (like what counts as a play).
+- **Compact JSON.** Answers aren't indented: indenting costs tokens and tells the AI nothing.
 - **The same shape every time** (rule 8).
 - **Brief by default** for anything that can be long, with a way to ask for more.
 
@@ -156,10 +157,10 @@ In the MCP the same object is the tool result's `structuredContent`, with `isErr
 
 ## Next steps
 
-Every call that changes something answers with `next`: the calls that usually follow, ready to make.
+Every call that changes something answers with `next_steps`: the calls that usually follow, ready to make.
 
 ```json
-"next": [
+"next_steps": [
   { "tool": "get_version", "arguments": { "slug": "sky-hopper", "version_id": "version_8f3k2m" }, "after_sec": 30, "reason": "The scan usually takes under a minute." }
 ]
 ```
@@ -167,7 +168,7 @@ Every call that changes something answers with `next`: the calls that usually fo
 - `tool` is the MCP tool's name; `arguments` are what to send, filled in.
 - `after_sec`: how long to wait first, or `null` for straight away.
 - `reason`: why this is the next step, in one short sentence.
-- `next` is `[]` when nothing usually follows.
+- `next_steps` is `[]` when nothing usually follows.
 
 ## Exceptions
 
@@ -200,6 +201,11 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 | Zaisma's review of a game | `review_status`: `pending`, `live`, `held`, `removed` | |
 | Who can see a game | `visibility`: `draft`, `listed`, `unlisted`, `private` | |
 | Where to continue a list | `cursor` in, `next_cursor` out | |
+| How a game is played | `play_modes`: a list of `{ mode, minimum_player_count, maximum_player_count, play_style }` | |
+| A version's notes for players, and when it goes live by itself | `patch_notes`, `scheduled_publish_at` | |
+| Links, by what they open | `page_url` (a game's page), `preview_url` (a version), `image_url`, `link_url` (a tester link) | |
+| Forum topics with something new from Zaisma | `unread_topic_count` | |
+| The calls that usually follow a change | `next_steps` | |
 | Ticks a second, and the time since the last tick | | `ticksPerSec`, `tickDurationSec` |
 | Time without input before "Still there?", and who checks | | `idleTimeoutSec`, `idleCheck` |
 | How long a seat is held for a player who walked away | | `seatHoldDurationSec` |
@@ -212,5 +218,5 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 3. One type, one unit, and the same keys every time.
 4. Describe it in the schema, with limits.
 5. Add examples if a call could go wrong, good and bad, as many as it needs.
-6. Errors get a code, a field and a fix; changes answer with `next`.
+6. Errors get a code, a field and a fix; changes answer with `next_steps`.
 7. Update the glossary, `docs/DEVELOPER-API.md` and the SDK docs in the same change.

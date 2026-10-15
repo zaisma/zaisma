@@ -193,7 +193,7 @@ async function seed() {
     return data;
   };
   const upload = (folder, slug, notes) =>
-    spawnSync("node", [join(ROOT, "packages/cli/zaisma.mjs"), "upload", resolve(ROOT, folder), "--game", slug, "--notes", notes], {
+    spawnSync("node", [join(ROOT, "packages/cli/zaisma.mjs"), "upload", resolve(ROOT, folder), "--game", slug, "--patch-notes", notes], {
       env: { ...process.env, ZAISMA_API: SITE, ZAISMA_KEY: key },
       stdio: "ignore",
     });
@@ -205,15 +205,15 @@ async function seed() {
   };
 
   const games = [
-    { title: "Shard Dodge", folder: "examples/hello-game", color: [70, 140, 220], description: "Dodge the falling shards for as long as you can. Arrow keys, mouse or finger.", devices: ["phone", "tablet", "computer"], controls: ["touch", "keyboard-mouse"], players: { single: true, local: null, online: null } },
-    { title: "Arena", folder: withServer("examples/arena", "arena"), color: [150, 70, 160], description: "Bump your friends off the platform. Last one standing wins the round.", devices: ["computer"], controls: ["keyboard-mouse", "gamepad"], players: { single: false, local: { min: 2, max: 4, style: "versus" }, online: { min: 2, max: 8, style: "versus" } } },
-    { title: "Four in a Row", folder: "examples/four-in-a-row/game", color: [200, 140, 50], description: "The classic: drop your pieces and line up four before your friend does.", devices: ["phone", "tablet", "computer"], controls: ["touch", "keyboard-mouse"], players: { single: false, local: { min: 2, max: 2, style: "versus" }, online: { min: 2, max: 2, style: "versus" } } },
+    { title: "Shard Dodge", folder: "examples/hello-game", color: [70, 140, 220], description: "Dodge the falling shards for as long as you can. Arrow keys, mouse or finger.", devices: ["phone", "tablet", "computer"], controls: ["touch", "keyboard_mouse"], play_modes: [{ mode: "single" }] },
+    { title: "Arena", folder: withServer("examples/arena", "arena"), color: [150, 70, 160], description: "Bump your friends off the platform. Last one standing wins the round.", devices: ["computer"], controls: ["keyboard_mouse", "gamepad"], play_modes: [{ mode: "local", minimum_player_count: 2, maximum_player_count: 4, play_style: "versus" }, { mode: "online", minimum_player_count: 2, maximum_player_count: 8, play_style: "versus" }] },
+    { title: "Four in a Row", folder: "examples/four-in-a-row/game", color: [200, 140, 50], description: "The classic: drop your pieces and line up four before your friend does.", devices: ["phone", "tablet", "computer"], controls: ["touch", "keyboard_mouse"], play_modes: [{ mode: "local", minimum_player_count: 2, maximum_player_count: 2, play_style: "versus" }, { mode: "online", minimum_player_count: 2, maximum_player_count: 2, play_style: "versus" }] },
     { title: "Night Drive", folder: "examples/hello-game", color: [40, 50, 90], description: "", devices: [], controls: [] },
-    { title: "Tiny Farm", folder: "scripts/preview/tiny-farm", color: [90, 140, 60], description: "Harvest carrots. It saves like a Unity game does (in IndexedDB), to try cloud saves.", devices: ["phone", "tablet", "computer"], controls: ["touch", "keyboard-mouse"], players: { single: true, local: null, online: null } },
-    { title: "Cave Crew", folder: "examples/hello-game", color: [60, 120, 90], description: "Dig, build and explore together. Bring the whole crew.", devices: ["computer"], controls: ["keyboard-mouse", "gamepad"], players: { single: true, local: { min: 2, max: 4, style: "co-op" }, online: { min: 2, max: null, style: "co-op" } } },
+    { title: "Tiny Farm", folder: "scripts/preview/tiny-farm", color: [90, 140, 60], description: "Harvest carrots. It saves like a Unity game does (in IndexedDB), to try cloud saves.", devices: ["phone", "tablet", "computer"], controls: ["touch", "keyboard_mouse"], play_modes: [{ mode: "single" }] },
+    { title: "Cave Crew", folder: "examples/hello-game", color: [60, 120, 90], description: "Dig, build and explore together. Bring the whole crew.", devices: ["computer"], controls: ["keyboard_mouse", "gamepad"], play_modes: [{ mode: "single" }, { mode: "local", minimum_player_count: 2, maximum_player_count: 4, play_style: "co-op" }, { mode: "online", minimum_player_count: 2, maximum_player_count: null, play_style: "co-op" }] },
   ];
   for (const g of games) {
-    const { game } = await api("POST", "/games", { title: g.title, description: g.description, devices: g.devices, controls: g.controls, ...(g.players ? { players: g.players } : {}) });
+    const { game } = await api("POST", "/games", { title: g.title, description: g.description, devices: g.devices, controls: g.controls, ...(g.play_modes ? { play_modes: g.play_modes } : {}) });
     upload(g.folder, game.slug, "First version.");
     await api("POST", `/games/${game.slug}/versions/${await approveNewest(game.slug)}/publish`);
     await api("PATCH", `/games/${game.slug}`, { visibility: "listed" });
@@ -256,7 +256,7 @@ async function seed() {
 
   // A game that passed before image matching was connected, with a picture the stand-in only learns
   // about later: the daily check (run once here) matches it and hides the game.
-  const { game: garden } = await api("POST", "/games", { title: "Pixel Garden", description: "Grow a tiny garden, one pixel at a time.", devices: ["computer"], controls: ["keyboard-mouse"], players: { single: true, local: null, online: null } });
+  const { game: garden } = await api("POST", "/games", { title: "Pixel Garden", description: "Grow a tiny garden, one pixel at a time.", devices: ["computer"], controls: ["keyboard_mouse"], play_modes: [{ mode: "single" }] });
   const gardenFolder = join(STATE, "uploads", "pixel-garden");
   rmSync(gardenFolder, { recursive: true, force: true });
   cpSync(join(ROOT, "examples/hello-game"), gardenFolder, { recursive: true });
@@ -265,10 +265,10 @@ async function seed() {
   let gardenVersion;
   for (let i = 0; i < 60; i++) {
     gardenVersion = (await api("GET", `/games/${garden.slug}`)).versions[0];
-    if (gardenVersion.scan !== "scanning") break;
+    if (gardenVersion.scan_status !== "scanning") break;
     await new Promise((r) => setTimeout(r, 1000));
   }
-  if (gardenVersion.scan !== "approved") await go(`/admin/versions/${gardenVersion.id}/approve`, form({ reason: "Preview test data" }));
+  if (gardenVersion.scan_status !== "approved") await go(`/admin/versions/${gardenVersion.id}/approve`, form({ reason: "Preview test data" }));
   await api("POST", `/games/${garden.slug}/versions/${gardenVersion.id}/publish`);
   await api("PATCH", `/games/${garden.slug}`, { visibility: "unlisted" });
   spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", `UPDATE versions SET scan_report = json_set(scan_report, '$.images.connected', json('false')) WHERE id = '${gardenVersion.id}'`], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
@@ -290,14 +290,14 @@ async function seed() {
   }
 
   // A private game that only opens through tester links, and a tester link for Arena to try multiplayer through one.
-  const { game: secret } = await api("POST", "/games", { title: "Rocket Lab", description: "Build a rocket from scrap and see how high it goes. Still in testing.", devices: ["computer"], controls: ["keyboard-mouse"], players: { single: true, local: null, online: null } });
+  const { game: secret } = await api("POST", "/games", { title: "Rocket Lab", description: "Build a rocket from scrap and see how high it goes. Still in testing.", devices: ["computer"], controls: ["keyboard_mouse"], play_modes: [{ mode: "single" }] });
   upload("examples/hello-game", secret.slug, "First test build.");
   await api("POST", `/games/${secret.slug}/versions/${await approveNewest(secret.slug)}/publish`);
   await api("PATCH", `/games/${secret.slug}`, { visibility: "private" });
   const { tester } = await api("POST", `/games/${secret.slug}/testers`, { name: "Playtesters" });
   await api("POST", `/games/${secret.slug}/testers`, { name: "My team" });
   const { tester: arena } = await api("POST", "/games/arena/testers", { name: "Streamer" });
-  writeFileSync(join(STATE, "testers.json"), JSON.stringify({ secret: tester.url, arena: arena.url }));
+  writeFileSync(join(STATE, "testers.json"), JSON.stringify({ secret: tester.link_url, arena: arena.link_url }));
 
   // The developer forum, as it might look a few weeks in: developers and their AI posting ideas,
   // questions and discussions, bugs sent to Zaisma privately, known issues, answers and Me too.

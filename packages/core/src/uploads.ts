@@ -40,15 +40,17 @@ export const SHA256 = /^[0-9a-f]{64}$/;
 
 /** Check a version's file list against the same rules as zips, with the bigger limits. Throws UploadError. */
 export function checkUploadList(input: unknown): UploadFile[] {
-  if (!Array.isArray(input) || input.length === 0) throw new UploadError("Send the game's files as a list of { path, sha256, bytes }.");
+  if (!Array.isArray(input) || input.length === 0) throw new UploadError("Send the game's files as a list of { path, sha256, size_bytes }.");
   if (input.length > FILE_LIMITS.files) throw new UploadError(`The game has ${input.length} files; the limit is ${FILE_LIMITS.files.toLocaleString("en-US")}.`);
   const seen = new Set<string>();
   let total = 0;
   const files: UploadFile[] = [];
   for (const raw of input) {
-    const f = raw as Partial<UploadFile>;
-    if (typeof f?.path !== "string" || typeof f.sha256 !== "string" || !SHA256.test(f.sha256) || !Number.isSafeInteger(f.bytes) || f.bytes! < 0) {
-      throw new UploadError("Each file needs a path, its SHA-256 in lowercase hex and its size in bytes.");
+    // The API's names (docs/NAMING.md): size_bytes in, bytes inside Zaisma.
+    const given = raw as { path?: unknown; sha256?: unknown; size_bytes?: unknown } | null;
+    const f = { path: given?.path, sha256: given?.sha256, bytes: given?.size_bytes } as Partial<UploadFile>;
+    if (typeof f.path !== "string" || typeof f.sha256 !== "string" || !SHA256.test(f.sha256) || !Number.isSafeInteger(f.bytes) || f.bytes! < 0) {
+      throw new UploadError("Each file needs a path, its sha256 in lowercase hex and its size_bytes.");
     }
     const path = cleanPath(f.path);
     if (path.split("/").some((part) => part.startsWith("."))) throw new UploadError(`Hidden files aren't allowed: ${path}`);

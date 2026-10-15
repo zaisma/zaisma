@@ -54,6 +54,7 @@ import {
   testerLinks,
   type TesterLink,
   readPlayers,
+  playModesOf,
   type ReportReason,
   FREE_PLAYER_HOURS,
   monthPlayerSeconds,
@@ -80,7 +81,7 @@ import { KNOWN_IMAGE_ALERT, imageMatcher, pruneVersions } from "./scan.ts";
  *   PUT    /api/dev/files/:sha256              send one file
  *   POST   /api/dev/games/:slug/versions       make a version from stored files (scanned, then a draft)
  *   GET    /api/dev/games/:slug/versions/:id   scan result, findings and preview link
- *   POST   /api/dev/games/:slug/versions/:id/publish   publish a draft or roll back; { "at" } publishes later
+ *   POST   /api/dev/games/:slug/versions/:id/publish   publish a draft or roll back; { "scheduled_publish_at" } publishes later
  *   DELETE /api/dev/games/:slug/versions/:id/publish   cancel a publish-later
  *   POST   /api/dev/files/:sha256/parts        send a big file in parts (see bigFile)
  *   GET    /api/dev/games/:slug/reports        what players reported, by reason
@@ -193,8 +194,8 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
       env.DB.prepare("SELECT * FROM games WHERE owner_id = ? ORDER BY updated_at DESC").bind(caller.ownerId).all<Game>(),
       env.DB.prepare("SELECT COUNT(*) AS n FROM feedback WHERE account_id = ? AND news_at > COALESCE(seen_at, 0)").bind(caller.accountId).first<{ n: number }>(),
     ]);
-    // Your feedback items with a reply or change from Zaisma you haven't opened yet.
-    return ok({ games: results.map((g) => gameJson(env, g)), feedback_news: news?.n ?? 0 });
+    // Your forum topics with a reply or change from Zaisma you haven't opened yet.
+    return ok({ games: results.map((g) => gameJson(env, g)), unread_topic_count: news?.n ?? 0 });
   }
 
   if (path === "/feedback" || path.startsWith("/feedback/")) {
@@ -237,8 +238,9 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
   const facts = path.match(/^\/games\/([a-z0-9-]+)\/(reports|stats|history)$/);
   if (facts && method === "GET") {
     const game = await ownGame(env, facts[1]!, caller);
-    if (facts[2] === "reports") return ok(await reportsFor(env, game, Number(new URL(request.url).searchParams.get("since") ?? 0)));
-    if (facts[2] === "stats") return ok(await statsFor(env, game, Number(new URL(request.url).searchParams.get("days") ?? 30)));
+    const query = new URL(request.url).searchParams;
+    if (facts[2] === "reports") return ok(await reportsFor(env, game, query.get("cursor")));
+    if (facts[2] === "stats") return ok(await statsFor(env, game, Number(query.get("period_duration_days") ?? 30)));
     return ok(await historyFor(env, game, caller));
   }
 
@@ -275,8 +277,8 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     const problem = multiplayer === "own" ? await liveServerProblem(env, game) : null;
     return ok({
       game: gameJson(env, (await gameBySlug(env.DB, game.slug))!),
-      review: waiting ? "The new title or description shows once it's reviewed." : null,
-      ...(problem ? { note: problem } : {}),
+      review_message: waiting ? "The new title or description shows once it's reviewed." : null,
+      game_server_problem: problem,
     });
   }
 
@@ -322,7 +324,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     await env.GAMES.put(imageKey({ game_id: game.id, id }), bytes, { httpMetadata: { contentType: kindOf.type } });
     const img = await addImage(env.DB, { id, game_id: game.id, kind, content_type: kindOf.type, width, height, bytes: bytes.byteLength });
     await audit(env.DB, game.id, "image-added", `${kind} ${id}`, caller.actor);
-    return ok({ image: imageJson(env, img), review: "It shows on the game page once it's reviewed." }, 201);
+    return ok({ image: imageJson(env, img), review_message: "It shows on the game page once it's reviewed." }, 201);
   }
 
   if (images && m[2] && method === "DELETE") {
@@ -331,7 +333,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     await env.GAMES.delete(imageKey(img));
     await deleteImageRow(env.DB, img.id);
     await audit(env.DB, game.id, "image-removed", `${img.kind} ${img.id}`, caller.actor);
-    return ok({ removed: img.id });
+    return ok({ removed_image_id: img.id });
   }
 
   throw new ApiError(405, "bad_method", `${method} isn't used here.`);
@@ -343,7 +345,7 @@ async function putBlob(request: Request, env: Env, sha256: string): Promise<unkn
   if (length > FILE_LIMITS.directBytes) throw new ApiError(413, "file_too_big", `Send files over ${FILE_LIMITS.directBytes / 1048576} MB in parts: POST /api/dev/files/<sha256>/parts.`);
   if ((await missingBlobs(env.DB, [sha256])).length === 0) {
     await request.body?.cancel();
-    return { sha256, stored: "already" };
+    return { sha256, storage_status: "already_stored" };
   }
   if (!request.body) throw new ApiError(400, "no_body", "Send the file as the request body.");
   try {
@@ -359,49 +361,49 @@ async function putBlob(request: Request, env: Env, sha256: string): Promise<unkn
     throw new ApiError(400, "forbidden_file", `That file looks like ${bad}, which isn't allowed in games.`);
   }
   await addBlob(env.DB, sha256, length);
-  return { sha256, stored: "now" };
+  return { sha256, storage_status: "stored_now" };
 }
 
 /**
  * Big files, sent in parts: start, send each part, then finish. Storage can't check the hash
  * of a file sent in parts, so the file is kept for this owner's own versions only.
  *
- *   POST /files/:sha256/parts                { "bytes" }                    -> { upload, part_bytes, parts }
- *   PUT  /files/:sha256/parts/:n?upload=…    one part (all but the last are part_bytes long)
- *   POST /files/:sha256/parts/done           { "upload", "parts": [{ "part", "etag" }] }
+ *   POST /files/:sha256/parts                  { "size_bytes" }  -> { upload_id, part_size_bytes, part_count }
+ *   PUT  /files/:sha256/parts/:n?upload_id=…   one part (all but the last are part_size_bytes long)
+ *   POST /files/:sha256/parts/done             { "upload_id", "parts": [{ "part_number", "etag" }] }
  */
 async function bigFile(request: Request, env: Env, sha256: string, step: string | undefined, caller: Caller): Promise<unknown> {
   const key = ownedBlobKey(caller.ownerId, sha256);
   if (!step && request.method === "POST") {
-    const bytes = (await readJson(request)).bytes;
-    if (!Number.isSafeInteger(bytes) || (bytes as number) <= 0) throw new ApiError(400, "bad_size", 'Send { "bytes": <file size> }.');
+    const bytes = (await readJson(request)).size_bytes;
+    if (!Number.isSafeInteger(bytes) || (bytes as number) <= 0) throw new ApiError(400, "bad_size", 'Send { "size_bytes": <the file\'s size> }.');
     if ((bytes as number) > FILE_LIMITS.fileBytes) throw new ApiError(413, "file_too_big", `Files can be up to ${FILE_LIMITS.fileBytes / 1048576} MB.`);
-    if ((await missingBlobs(env.DB, [sha256], caller.ownerId)).length === 0) return { sha256, stored: "already" };
+    if ((await missingBlobs(env.DB, [sha256], caller.ownerId)).length === 0) return { sha256, storage_status: "already_stored", upload_id: null, part_size_bytes: null, part_count: null };
     const upload = await env.GAMES.createMultipartUpload(key);
-    return { sha256, upload: upload.uploadId, part_bytes: FILE_LIMITS.partBytes, parts: Math.ceil((bytes as number) / FILE_LIMITS.partBytes) };
+    return { sha256, storage_status: "upload_started", upload_id: upload.uploadId, part_size_bytes: FILE_LIMITS.partBytes, part_count: Math.ceil((bytes as number) / FILE_LIMITS.partBytes) };
   }
   if (step && step !== "done" && request.method === "PUT") {
     const n = Number(step);
-    const uploadId = new URL(request.url).searchParams.get("upload") ?? "";
+    const uploadId = new URL(request.url).searchParams.get("upload_id") ?? "";
     const length = Number(request.headers.get("content-length") ?? -1);
-    if (n < 1 || n > 10_000 || !uploadId) throw new ApiError(400, "bad_part", "Send parts numbered from 1, with ?upload=<the upload ID>.");
+    if (n < 1 || n > 10_000 || !uploadId) throw new ApiError(400, "bad_part", "Send parts numbered from 1, with ?upload_id=<the upload_id>.");
     if (!(length > 0 && length <= FILE_LIMITS.partBytes) || !request.body) throw new ApiError(400, "bad_part", `Each part is up to ${FILE_LIMITS.partBytes / 1048576} MB, with a Content-Length header.`);
     try {
       const part = await env.GAMES.resumeMultipartUpload(key, uploadId).uploadPart(n, request.body);
-      return { part: part.partNumber, etag: part.etag };
+      return { part_number: part.partNumber, etag: part.etag };
     } catch {
       throw new ApiError(400, "bad_upload", "That upload isn't open any more. Start again.");
     }
   }
   if (step === "done" && request.method === "POST") {
     const body = await readJson(request, 1024 * 1024);
-    const list = Array.isArray(body.parts) ? (body.parts as { part?: unknown; etag?: unknown }[]) : [];
-    if (typeof body.upload !== "string" || !list.length || !list.every((p) => Number.isInteger(p.part) && typeof p.etag === "string")) {
-      throw new ApiError(400, "bad_parts", 'Send { "upload", "parts": [{ "part", "etag" }] }.');
+    const list = Array.isArray(body.parts) ? (body.parts as { part_number?: unknown; etag?: unknown }[]) : [];
+    if (typeof body.upload_id !== "string" || !list.length || !list.every((p) => Number.isInteger(p.part_number) && typeof p.etag === "string")) {
+      throw new ApiError(400, "bad_parts", 'Send { "upload_id", "parts": [{ "part_number", "etag" }] }.');
     }
     let object: R2Object;
     try {
-      object = await env.GAMES.resumeMultipartUpload(key, body.upload).complete(list.map((p) => ({ partNumber: p.part as number, etag: p.etag as string })));
+      object = await env.GAMES.resumeMultipartUpload(key, body.upload_id).complete(list.map((p) => ({ partNumber: p.part_number as number, etag: p.etag as string })));
     } catch {
       throw new ApiError(400, "bad_parts", "Those parts don't make a whole file. Check every part was sent, then try again.");
     }
@@ -416,7 +418,7 @@ async function bigFile(request: Request, env: Env, sha256: string, step: string 
       throw new ApiError(400, "forbidden_file", `That file looks like ${bad}, which isn't allowed in games.`);
     }
     await addOwnedBlob(env.DB, caller.ownerId, sha256, object.size);
-    return { sha256, stored: "now", bytes: object.size };
+    return { sha256, storage_status: "stored_now", size_bytes: object.size };
   }
   throw new ApiError(405, "bad_method", `${request.method} isn't used here.`);
 }
@@ -429,14 +431,15 @@ async function versionRoute(request: Request, env: Env, game: Game, what: string
   if (what === "uploads" && !id && method === "POST") {
     const files = listOrThrow((await readJson(request, 4 * 1024 * 1024)).files);
     const missing = await missingBlobs(env.DB, files.map((f) => f.sha256), caller.ownerId);
-    return [{ files: files.length, bytes: files.reduce((n, f) => n + f.bytes, 0), missing }];
+    return [{ file_count: files.length, size_bytes: files.reduce((n, f) => n + f.bytes, 0), missing_file_hashes: missing }];
   }
 
   // Step 2: make the version once every file is stored. It's scanned, then waits as a draft.
   if (what === "versions" && !id && method === "POST") {
     const body = await readJson(request, 4 * 1024 * 1024);
     const files = listOrThrow(body.files);
-    const notes = typeof body.notes === "string" ? body.notes.trim() : "";
+    if (body.publish_when_approved !== undefined && typeof body.publish_when_approved !== "boolean") throw new ApiError(400, "bad_publish", "publish_when_approved is true or false.");
+    const notes = typeof body.patch_notes === "string" ? body.patch_notes.trim() : "";
     if (notes.length > FILE_LIMITS.notes) throw new ApiError(400, "notes_too_long", `Patch notes can be up to ${FILE_LIMITS.notes} characters.`);
     const found = await locateBlobs(env.DB, files.map((f) => f.sha256), caller.ownerId);
     const missing = files.filter((f) => !found.has(f.sha256)).length;
@@ -453,7 +456,7 @@ async function versionRoute(request: Request, env: Env, game: Game, what: string
       bytes: files.reduce((n, f) => n + f.bytes, 0),
       kind: "files",
       notes,
-      publishWhenApproved: body.publish === "when-approved",
+      publishWhenApproved: body.publish_when_approved === true,
     });
     await audit(env.DB, game.id, "upload", `Version ${versionId}, ${files.length} files`, caller.actor);
     await env.SCAN_QUEUE.send({ versionId });
@@ -463,24 +466,24 @@ async function versionRoute(request: Request, env: Env, game: Game, what: string
   const version = id ? await versionById(env.DB, id) : null;
   if (id && (!version || version.game_id !== game.id)) throw new ApiError(404, "no_version", "This game has no version with that ID.");
 
-  if (version && !publish && method === "GET") return [{ version: versionJson(env, game, version, true) }];
+  if (version && !publish && method === "GET") return [{ version: versionJson(env, game, version) }];
 
-  // Publish later: { "at": "2026-11-01T17:00:00Z" }. It goes live then if it has passed review.
+  // Publish later: { "scheduled_publish_at": "2026-11-01T17:00:00Z" }. It goes live then if it has passed review.
   const body = version && publish && method === "POST" ? await readJson(request).catch(() => ({}) as Record<string, unknown>) : {};
-  if (version && publish && method === "POST" && body.at !== undefined) {
-    const at = typeof body.at === "number" ? body.at : Date.parse(String(body.at));
+  if (version && publish && method === "POST" && body.scheduled_publish_at !== undefined) {
+    const at = typeof body.scheduled_publish_at === "string" && ISO_TIME.test(body.scheduled_publish_at) ? Date.parse(body.scheduled_publish_at) : NaN;
     if (!Number.isFinite(at) || at <= Date.now() + 60_000 || at > Date.now() + 90 * 86400_000) {
-      throw new ApiError(400, "bad_time", 'Give "at" as a date and time from a few minutes to 90 days from now, like "2026-11-01T17:00:00Z".');
+      throw new ApiError(400, "bad_time", 'Give "scheduled_publish_at" as an ISO time from a few minutes to 90 days from now, like "2026-11-01T17:00:00Z".');
     }
     if (version.scan_status !== "approved" && version.scan_status !== "scanning") throw new ApiError(409, "not_approved", "Only versions that passed review can be published.");
     await env.DB.prepare("UPDATE versions SET publish_at = ? WHERE id = ?").bind(at, version.id).run();
     await audit(env.DB, game.id, "publish-scheduled", `Version ${version.id} at ${new Date(at).toISOString()}`, caller.actor);
-    return [{ version: versionJson(env, game, (await versionById(env.DB, version.id))!) }];
+    return [{ game: gameJson(env, game), version: versionJson(env, game, (await versionById(env.DB, version.id))!) }];
   }
   if (version && publish && method === "DELETE") {
     await env.DB.prepare("UPDATE versions SET publish_at = NULL WHERE id = ?").bind(version.id).run();
     await audit(env.DB, game.id, "publish-unscheduled", `Version ${version.id}`, caller.actor);
-    return [{ version: versionJson(env, game, (await versionById(env.DB, version.id))!) }];
+    return [{ game: gameJson(env, game), version: versionJson(env, game, (await versionById(env.DB, version.id))!) }];
   }
 
   // Publish a draft now, or roll back to any version we've kept.
@@ -497,43 +500,57 @@ async function versionRoute(request: Request, env: Env, game: Game, what: string
 }
 
 const DAY = 86400_000;
+/** An ISO 8601 time with Z or an offset: the only form times come in (docs/NAMING.md). */
+const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
+/** A stored time (milliseconds) as the API shows it: ISO 8601 in UTC, or null. */
+export const iso = (ms: number | null | undefined): string | null => (ms ? new Date(ms).toISOString() : null);
+
+/** Opaque cursors for lists that continue: they say where the last answer ended. */
+const cursorOf = (ms: number) => `cursor_${ms.toString(36)}`;
+function readCursor(cursor: string | null): number {
+  if (!cursor) return 0;
+  if (!/^cursor_[0-9a-z]{1,12}$/.test(cursor)) throw new ApiError(400, "bad_cursor", "Pass the next_cursor from your last call as cursor, as it came.");
+  return parseInt(cursor.slice(7), 36);
+}
 
 /**
  * Player reports, counted by reason over the last 90 days. Bug reports (as report triage sorted
- * them) come with what the player wrote and the version they played; `since` (from next_since)
+ * them) come with what the player wrote and the version they played; `cursor` (from next_cursor)
  * gives only the ones that arrived after it, so a developer's AI can check for new ones.
  * Child-safety reports, including ones triage found under another reason, are never shown or
  * counted here: telling the developer could warn someone abusing a child.
  */
-async function reportsFor(env: Env, game: Game, since = 0) {
+async function reportsFor(env: Env, game: Game, cursor: string | null) {
+  const since = readCursor(cursor);
   const from = Date.now() - 90 * DAY;
   const { results: counts } = await env.DB
     .prepare("SELECT reason, status, COUNT(*) AS n FROM reports WHERE game_id = ? AND created_at > ? AND reason != 'child_safety' AND severity > 0 GROUP BY reason, status")
     .bind(game.id, from)
     .all<{ reason: string; status: string; n: number }>();
-  const byReason: Record<string, { label: string; open: number; closed: number }> = {};
+  const byReason = new Map<string, { reason: string; label: string; open_count: number; closed_count: number }>();
   for (const c of counts) {
-    const r = (byReason[c.reason] ??= { label: REPORT_REASONS[c.reason as ReportReason] ?? c.reason, open: 0, closed: 0 });
-    if (c.status === "open") r.open += c.n;
-    else r.closed += c.n;
+    const r = byReason.get(c.reason) ?? { reason: c.reason, label: REPORT_REASONS[c.reason as ReportReason] ?? c.reason, open_count: 0, closed_count: 0 };
+    byReason.set(c.reason, r);
+    if (c.status === "open") r.open_count += c.n;
+    else r.closed_count += c.n;
   }
   const { results: bugs } = await env.DB
     .prepare("SELECT id, details, triage, version_id, created_at, bug_at FROM reports WHERE game_id = ? AND bug = 1 AND severity > 0 AND bug_at > ? AND details != '' ORDER BY bug_at DESC LIMIT 50")
-    .bind(game.id, Math.max(Number.isFinite(since) ? since : 0, from))
+    .bind(game.id, Math.max(since, from))
     .all<{ id: string; details: string; triage: string | null; version_id: string | null; created_at: number; bug_at: number }>();
   return {
-    days: 90,
+    period_duration_days: 90,
     // Open: waiting for us. Closed: we looked and either dismissed it or acted on it.
-    reasons: byReason,
+    reasons: [...byReason.values()],
     bug_reports: bugs.map((b) => ({
       id: b.id,
-      said: b.details,
+      player_text: b.details,
       summary: b.triage ? (JSON.parse(b.triage) as { summary: string }).summary : null,
-      version: b.version_id,
-      at: b.created_at,
+      version_id: b.version_id,
+      reported_at: iso(b.created_at),
     })),
-    // Pass this as `since` next time to get only bug reports that arrived after this call.
-    next_since: Math.max(Number.isFinite(since) ? since : 0, ...bugs.map((b) => b.bug_at)),
+    // Pass this as `cursor` next time to get only bug reports that arrived after this call.
+    next_cursor: cursorOf(Math.max(since, ...bugs.map((b) => b.bug_at))),
   };
 }
 
@@ -571,25 +588,33 @@ async function statsFor(env: Env, game: Game, days: number) {
   ]);
   const ownServer = game.game_server === SANDBOX_GAME_SERVER;
   return {
-    days: n,
-    multiplayer: results.map((r) => ({
-      day: r.day,
-      rooms: r.rooms,
-      player_minutes: Math.round(r.player_seconds / 60),
-      messages: r.messages,
-      ...(ownServer ? { game_server: { calls: r.server_calls, crashes: r.server_crashes, stopped: r.server_stops, matches_ended: r.server_broken_rooms } } : {}),
+    period_duration_days: n,
+    play_stats: {
+      days: plays.days.map((d) => ({ date: d.day, play_count: d.plays, player_count: d.players, new_player_count: d.new_players, play_duration_min: d.minutes_played, started_play_count: d.all_plays })),
+      play_count: plays.plays,
+      started_play_count: plays.all_plays,
+      new_player_count: plays.new_players,
+      play_duration_min: plays.minutes_played,
+      average_play_duration_min: plays.minutes_per_play,
+      came_back: Object.fromEntries(
+        Object.entries(plays.came_back).map(([after, c]) => [after, { returned_pct: c.percent, returned_player_count: c.players, new_player_count: c.of }]),
+      ),
+    },
+    multiplayer_days: results.map((r) => ({
+      date: r.day,
+      room_count: r.rooms,
+      room_play_duration_min: Math.round(r.player_seconds / 60),
+      message_count: r.messages,
+      game_server: ownServer ? { call_count: r.server_calls, crash_count: r.server_crashes, stopped_count: r.server_stops, ended_match_count: r.server_broken_rooms } : null,
     })),
     // Until Hosting billing exists, new rooms stop opening at the free tier until the month resets (UTC).
-    rooms_this_month: { player_hours: Math.round(month / 360) / 10, free_player_hours: FREE_PLAYER_HOURS, new_rooms_paused: month >= FREE_PLAYER_HOURS * 3600 },
-    ...(ownServer
-      ? {
-          // Crashes lose one call each and the match carries on. "stopped" is a call that ran on too long
-          // (about 2 seconds of CPU, like a loop that never ends): it freezes the match while it runs,
-          // and a match whose game server is stopped twice ends.
-          game_server_errors: errors.map((e) => ({ kind: e.kind, error: e.message, times: e.count, version: e.version_id, first: e.first_at, last: e.last_at })),
-        }
-      : {}),
-    plays,
+    room_use_this_month: { room_play_duration_hours: Math.round(month / 360) / 10, free_room_play_duration_hours: FREE_PLAYER_HOURS, has_reached_free_hours: month >= FREE_PLAYER_HOURS * 3600 },
+    // Crashes lose one call each and the match carries on. "stopped" is a call that ran on too long
+    // (about 2 seconds of CPU, like a loop that never ends): it freezes the match while it runs,
+    // and a match whose game server is stopped twice ends.
+    game_server_errors: ownServer
+      ? errors.map((e) => ({ kind: e.kind, message: e.message, occurrence_count: e.count, version_id: e.version_id, first_at: iso(e.first_at), last_at: iso(e.last_at) }))
+      : [],
   };
 }
 
@@ -638,13 +663,13 @@ async function historyFor(env: Env, game: Game, caller: Caller) {
     .prepare("SELECT action, reason, actor, at FROM audit_log WHERE game_id = ? ORDER BY at DESC, id DESC LIMIT 100")
     .bind(game.id)
     .all<{ action: string; reason: string; actor: string; at: number }>();
-  const out: { what: string; version: string | null; by: string; at: number }[] = [];
+  const events: { description: string; version_id: string | null; done_by: "you" | "zaisma"; happened_at: string | null }[] = [];
   for (const r of results) {
-    const what = HISTORY[r.action];
-    if (!what) continue;
-    out.push({ what, version: r.reason.match(/[Vv]ersion ([a-z0-9]+)/)?.[1] ?? null, by: r.actor === caller.actor ? "you" : "Zaisma", at: r.at });
+    const description = HISTORY[r.action];
+    if (!description) continue;
+    events.push({ description, version_id: r.reason.match(/[Vv]ersion ([a-z0-9]+)/)?.[1] ?? null, done_by: r.actor === caller.actor ? "you" : "zaisma", happened_at: iso(r.at) });
   }
-  return { history: out };
+  return { events };
 }
 
 function listOrThrow(files: unknown): UploadFile[] {
@@ -677,41 +702,41 @@ async function testerRoute(request: Request, env: Env, game: Game, id: string | 
     const link = (await testerLinks(env.DB, game.id)).find((l) => l.id === id);
     if (!link || !(await revokeTesterLink(env.DB, game.id, id))) throw new ApiError(404, "no_tester_link", "That tester link isn't on.");
     await audit(env.DB, game.id, "tester-link-removed", link.name, caller.actor);
-    return [{ ok: true }];
+    return [{ removed_tester_id: link.id }];
   }
   throw new ApiError(405, "bad_method", "Tester links take GET, POST and DELETE.");
 }
 
+// The JSON for each kind of thing, as schemas.ts describes it (names from docs/NAMING.md).
+
 function testerJson(env: Env, l: TesterLink) {
-  return { id: l.id, name: l.name, url: `${env.SITE_ORIGIN}/t/${l.token}`, created_at: l.created_at, opened_at: l.opened_at };
+  return { id: l.id, name: l.name, link_url: `${env.SITE_ORIGIN}/t/${l.token}`, created_at: iso(l.created_at), last_opened_at: iso(l.opened_at) };
 }
 
 function previewUrl(env: Env, slug: string, token: string): string {
   return gameUrl(env, `${slug}--${token}`);
 }
 
-function versionJson(env: Env, game: Game, v: Version, detail = false) {
+function versionJson(env: Env, game: Game, v: Version) {
   const report: ScanReport | null = v.scan_report ? JSON.parse(v.scan_report) : null;
   return {
     id: v.id,
-    files: v.file_count,
-    bytes: v.bytes,
+    file_count: v.file_count,
+    size_bytes: v.bytes,
     // scanning, held (a person will look), approved or rejected.
-    scan: v.scan_status,
-    live: v.id === game.current_version_id,
-    notes: v.notes,
+    scan_status: v.scan_status,
+    is_live: v.id === game.current_version_id,
+    patch_notes: v.notes,
     preview_url: v.preview_token && v.scan_status === "approved" ? previewUrl(env, game.slug, v.preview_token) : null,
-    published_at: v.published_at,
-    publish_at: v.publish_at,
-    created_at: v.created_at,
+    published_at: iso(v.published_at),
+    scheduled_publish_at: iso(v.publish_at),
+    created_at: iso(v.created_at),
     // Why a version was held or rejected. Child-safety findings are never described.
-    ...(detail && report
-      ? {
-          findings: report.childSafety
-            ? [{ rule: "review", detail: "A person needs to look at this version." }]
-            : report.findings.filter((f) => f.severity !== "info").map((f) => ({ severity: f.severity, rule: f.rule, detail: f.detail, path: f.path ?? null })),
-        }
-      : {}),
+    findings: !report
+      ? []
+      : report.childSafety
+        ? [{ severity: "hold", rule: "review", explanation: "A person needs to look at this version.", path: null }]
+        : report.findings.filter((f) => f.severity !== "info").map((f) => ({ severity: f.severity, rule: f.rule, explanation: f.detail, path: f.path ?? null })),
   };
 }
 
@@ -737,31 +762,30 @@ function gameJson(env: Env, g: Game) {
   const draft = g.details_draft ? (JSON.parse(g.details_draft) as { title?: string; description?: string }) : null;
   return {
     slug: g.slug,
-    url: `${env.SITE_ORIGIN}/g/${g.slug}`,
+    page_url: `${env.SITE_ORIGIN}/g/${g.slug}`,
     title: g.title,
     description: g.description,
     visibility: g.visibility,
     // Ours, separate from visibility: pending (no version has passed review yet), live, held or removed.
-    review: g.status,
+    review_status: g.status,
     devices: list(g.devices),
     controls: list(g.controls),
-    screen: g.screen,
-    // How it's played, or null when not set: { single, local: { min, max, style } | null, online: … }.
-    players: readPlayers(g.players),
+    screen_orientation: g.screen || null,
+    // How it's played: a list of ways to play, or null when not set.
+    play_modes: playModesOf(readPlayers(g.players)),
     // Signed-in players' browser saves are copied to their account.
-    cloud_saves: Boolean(g.cloud_saves),
+    cloud_saves_enabled: Boolean(g.cloud_saves),
     // Multiplayer on Zaisma rooms: none, relay, own (its zaisma-server.js in a sandbox) or built-in
     // (one of ours, set by Zaisma), and where its open rooms are listed: page, game or off.
-    multiplayer: multiplayerOf(g.game_server),
-    zaisma_rooms: Boolean(g.game_server),
+    multiplayer_mode: multiplayerOf(g.game_server),
     room_browsing: g.room_browsing,
-    waiting_for_review: draft,
-    updated_at: g.updated_at,
+    details_waiting_for_review: draft ? { title: draft.title ?? null, description: draft.description ?? null } : null,
+    updated_at: iso(g.updated_at),
   };
 }
 
 function imageJson(env: Env, i: GameImage) {
-  return { id: i.id, kind: i.kind, status: i.status, width: i.width, height: i.height, bytes: i.bytes, url: `${env.SITE_ORIGIN}/img/${i.id}`, created_at: i.created_at };
+  return { id: i.id, kind: i.kind, review_status: i.status, width_px: i.width, height_px: i.height, size_bytes: i.bytes, image_url: `${env.SITE_ORIGIN}/img/${i.id}`, created_at: iso(i.created_at) };
 }
 
 /**

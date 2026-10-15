@@ -2,6 +2,8 @@ import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { audit, createAccount, createApiKey, createReport, gameBySlug, notConnected, type ImageMatcher } from "@zaisma/core";
 import { scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
+import { TOOLS } from "../../apps/site/src/mcp.ts";
+import { schemaProblems } from "../schema-check.ts";
 
 const SITE = "https://zaisma.test";
 const testEnv = { ...env, ANTHROPIC_API_KEY: "test-key" };
@@ -23,12 +25,15 @@ async function rpc(body: unknown, key: string | null = token) {
   });
 }
 
-/** Call a tool; returns its result as data, or { error } when the tool said no. */
+/** Call a tool; returns its result as data, or { error } when the tool said no. Every answer must match the tool's output schema exactly. */
 async function tool(name: string, args: Record<string, unknown> = {}, key = token): Promise<any> {
   const res = await rpc({ jsonrpc: "2.0", id: nextId++, method: "tools/call", params: { name, arguments: args } }, key);
   expect(res.status).toBe(200);
   const { result } = (await res.json()) as { result: { content: { text: string }[]; isError?: boolean; structuredContent?: unknown } };
-  return result.isError ? { error: result.content[0]!.text } : result.structuredContent;
+  if (result.isError) return { error: result.content[0]!.text };
+  const schema = TOOLS.find((t) => t.name === name)?.outputSchema;
+  if (schema) expect(schemaProblems(schema, result.structuredContent, name)).toEqual([]);
+  return result.structuredContent;
 }
 
 /** Scan with everything connected, so it passes. */
@@ -78,33 +83,70 @@ describe("publishing a game through the MCP", () => {
     const { game } = await tool("create_game", { title: "Tiny Jump", description: "Jump.", devices: ["phone"] });
     expect(game).toMatchObject({ slug: "tiny-jump", visibility: "draft", devices: ["phone"] });
 
-    const first = await tool("upload_files", { slug: "tiny-jump", files: [{ path: "index.html", text: "<!doctype html><p>v1</p>" }, { path: "pic.png", base64: btoa("not really a png") }], notes: "First." });
-    expect(first.sent).toBe(2);
+    const first = await tool("upload_files", { slug: "tiny-jump", files: [{ path: "index.html", content_text: "<!doctype html><p>v1</p>" }, { path: "pic.png", content_base64: btoa("not really a png") }], patch_notes: "First." });
+    expect(first.sent_file_count).toBe(2);
+    expect(first.version).toMatchObject({ file_count: 2, patch_notes: "First.", scan_status: "scanning", is_live: false });
+    expect(first.next_steps).toEqual([{ tool: "get_version", arguments: { slug: "tiny-jump", version_id: first.version.id }, after_sec: 30, reason: expect.any(String) }]);
     // Held first (image matching isn't connected), so its history shows what Zaisma did; then it passes.
     await scanVersion(testEnv, first.version.id, { ...pass, images: notConnected });
     await passScan(first.version.id);
     const checked = await tool("get_version", { slug: "tiny-jump", version_id: first.version.id });
-    expect(checked.version.scan).toBe("approved");
+    expect(checked.version.scan_status).toBe("approved");
     expect(checked.version.preview_url).toContain("tiny-jump--");
 
     await tool("publish_version", { slug: "tiny-jump", version_id: first.version.id });
-    const second = await tool("upload_files", { slug: "tiny-jump", files: [{ path: "index.html", text: "<!doctype html><p>v2</p>" }, { path: "pic.png", base64: btoa("not really a png") }] });
-    expect(second.sent).toBe(1);
+    const second = await tool("upload_files", { slug: "tiny-jump", files: [{ path: "index.html", content_text: "<!doctype html><p>v2</p>" }, { path: "pic.png", content_base64: btoa("not really a png") }] });
+    expect(second.sent_file_count).toBe(1);
     await passScan(second.version.id);
 
     await tool("publish_version", { slug: "tiny-jump", version_id: second.version.id });
     const back = await tool("publish_version", { slug: "tiny-jump", version_id: first.version.id });
-    expect(back.version.live).toBe(true);
+    expect(back.version.is_live).toBe(true);
+    expect(back.game.review_status).toBe("live");
     expect((await gameBySlug(env.DB, "tiny-jump"))!.current_version_id).toBe(first.version.id);
 
-    const { history } = await tool("get_history", { slug: "tiny-jump" });
-    expect(history[0]).toMatchObject({ what: "Rolled back to an earlier version", version: first.version.id, by: "you" });
-    expect(history).toContainEqual(expect.objectContaining({ what: expect.stringContaining("held"), version: first.version.id, by: "Zaisma" }));
+    const { events } = await tool("get_history", { slug: "tiny-jump" });
+    expect(events[0]).toMatchObject({ description: "Rolled back to an earlier version", version_id: first.version.id, done_by: "you" });
+    expect(events).toContainEqual(expect.objectContaining({ description: expect.stringContaining("held"), version_id: first.version.id, done_by: "zaisma" }));
+
+    const { game: shown, versions, images, testers } = await tool("get_game", { slug: "tiny-jump" });
+    expect(shown).toMatchObject({ slug: "tiny-jump", page_url: expect.stringContaining("/g/tiny-jump"), play_modes: null, screen_orientation: null, multiplayer_mode: "none" });
+    expect(versions).toHaveLength(2);
+    expect(images).toEqual([]);
+    expect(testers).toEqual([]);
+  });
+
+  it("schedules a publish with an ISO time only", async () => {
+    await tool("create_game", { title: "Hop" });
+    const up = await tool("upload_files", { slug: "hop", files: [{ path: "index.html", content_text: "<p>hop</p>" }] });
+    await passScan(up.version.id);
+    const at = new Date(Date.now() + 3 * 3600_000).toISOString();
+    const later = await tool("publish_version", { slug: "hop", version_id: up.version.id, scheduled_publish_at: at });
+    expect(later.version.scheduled_publish_at).toBe(at);
+    expect(later.version.is_live).toBe(false);
+    expect((await tool("publish_version", { slug: "hop", version_id: up.version.id, scheduled_publish_at: Date.now() + 3 * 3600_000 })).error).toContain("ISO time");
+    expect((await tool("cancel_scheduled_publish", { slug: "hop", version_id: up.version.id })).version.scheduled_publish_at).toBeNull();
+  });
+
+  it("takes play modes as a list", async () => {
+    const { game } = await tool("create_game", {
+      title: "Party Hop",
+      play_modes: [{ mode: "single" }, { mode: "online", minimum_player_count: 2, maximum_player_count: 4, play_style: "co-op" }],
+      screen_orientation: "landscape",
+      controls: ["keyboard_mouse"],
+    });
+    expect(game.play_modes).toEqual([
+      { mode: "single", minimum_player_count: null, maximum_player_count: null, play_style: null },
+      { mode: "online", minimum_player_count: 2, maximum_player_count: 4, play_style: "co-op" },
+    ]);
+    expect(game).toMatchObject({ screen_orientation: "landscape", controls: ["keyboard_mouse"] });
+    expect((await tool("update_game", { slug: "party-hop", play_modes: [{ mode: "single", minimum_player_count: 2 }] })).error).toContain("single mode takes no player counts");
+    expect((await tool("update_game", { slug: "party-hop", play_modes: null, screen_orientation: null })).game).toMatchObject({ play_modes: null, screen_orientation: null });
   });
 
   it("asks before hiding a game players can play", async () => {
     await tool("create_game", { title: "Hop" });
-    const up = await tool("upload_files", { slug: "hop", files: [{ path: "index.html", text: "<p>hop</p>" }] });
+    const up = await tool("upload_files", { slug: "hop", files: [{ path: "index.html", content_text: "<p>hop</p>" }] });
     await passScan(up.version.id);
     await tool("publish_version", { slug: "hop", version_id: up.version.id });
     await tool("update_game", { slug: "hop", visibility: "listed" });
@@ -117,8 +159,9 @@ describe("publishing a game through the MCP", () => {
 
   it("explains what it can't do", async () => {
     await tool("create_game", { title: "Hop" });
-    expect((await tool("upload_files", { slug: "hop", files: [{ path: "game.js", text: "1" }] })).error).toContain("index.html");
-    expect((await tool("upload_files", { slug: "hop", files: [{ path: "index.html", text: "x".repeat(5 * 1024 * 1024 + 1) }] })).error).toContain("npx @zaisma/cli upload");
+    expect((await tool("upload_files", { slug: "hop", files: [{ path: "game.js", content_text: "1" }] })).error).toContain("index.html");
+    expect((await tool("upload_files", { slug: "hop", files: [{ path: "index.html", text: "<p>old name</p>" }] })).error).toContain("content_text");
+    expect((await tool("upload_files", { slug: "hop", files: [{ path: "index.html", content_text: "x".repeat(5 * 1024 * 1024 + 1) }] })).error).toContain("npx @zaisma/cli upload");
     expect((await tool("get_game", { slug: "hop" }, other)).error).toContain("You don't have a game");
   });
 });
@@ -134,14 +177,17 @@ describe("reports, stats and history", () => {
     await createReport(env.DB, { gameId: game.id, reason: "other", details: "a secret found by triage" });
     await env.DB.exec(`UPDATE reports SET bug = 1, bug_at = ${Date.now()} WHERE reason = 'broken'; UPDATE reports SET severity = 0, bug = 1, bug_at = ${Date.now()} WHERE reason = 'other'`);
     const out = await tool("get_reports", { slug: "hop" });
-    expect(out.reasons.broken).toMatchObject({ open: 1, closed: 0 });
-    expect(out.reasons.hate.open).toBe(1);
-    expect(out.reasons.child_safety).toBeUndefined();
-    expect(out.bug_reports).toEqual([expect.objectContaining({ said: "Stuck on level 2" })]);
+    const reason = (r: string) => out.reasons.find((x: { reason: string }) => x.reason === r);
+    expect(reason("broken")).toMatchObject({ open_count: 1, closed_count: 0 });
+    expect(reason("hate").open_count).toBe(1);
+    expect(reason("child_safety")).toBeUndefined();
+    expect(out.bug_reports).toEqual([expect.objectContaining({ player_text: "Stuck on level 2" })]);
     expect(JSON.stringify(out)).not.toContain("secret");
     expect(JSON.stringify(out)).not.toContain("slur");
-    // Asking again with next_since gives only bug reports that arrived since.
-    expect((await tool("get_reports", { slug: "hop", since: out.next_since })).bug_reports).toEqual([]);
+    // Asking again with next_cursor gives only bug reports that arrived since.
+    expect(out.next_cursor).toMatch(/^cursor_/);
+    expect((await tool("get_reports", { slug: "hop", cursor: out.next_cursor })).bug_reports).toEqual([]);
+    expect((await tool("get_reports", { slug: "hop", cursor: "1792012345678" })).error).toContain("next_cursor");
   });
 
   it("shows room use per day", async () => {
@@ -149,10 +195,12 @@ describe("reports, stats and history", () => {
     const game = (await gameBySlug(env.DB, "hop"))!;
     const today = new Date().toISOString().slice(0, 10);
     await env.DB.prepare("INSERT INTO room_usage (game_id, day, rooms, player_seconds, messages) VALUES (?, ?, 3, 600, 42)").bind(game.id, today).run();
-    const stats = await tool("get_stats", { slug: "hop", days: 7 });
-    expect(stats.multiplayer).toEqual([{ day: today, rooms: 3, player_minutes: 10, messages: 42 }]);
-    expect(stats.rooms_this_month).toEqual({ player_hours: 0.2, free_player_hours: 1000, new_rooms_paused: false });
-    expect(stats).not.toHaveProperty("game_server_errors");
+    const stats = await tool("get_stats", { slug: "hop", period_duration_days: 7 });
+    expect(stats.period_duration_days).toBe(7);
+    expect(stats.multiplayer_days).toEqual([{ date: today, room_count: 3, room_play_duration_min: 10, message_count: 42, game_server: null }]);
+    expect(stats.room_use_this_month).toEqual({ room_play_duration_hours: 0.2, free_room_play_duration_hours: 1000, has_reached_free_hours: false });
+    expect(stats.game_server_errors).toEqual([]);
+    expect(stats.play_stats).toMatchObject({ play_count: 0, average_play_duration_min: null, came_back: { after_7_days: { returned_pct: null } } });
   });
 
   it("shows how a game's own game server is doing, with its recent errors", async () => {
@@ -161,10 +209,12 @@ describe("reports, stats and history", () => {
     await env.DB.prepare("UPDATE games SET game_server = 'sandbox' WHERE id = ?").bind(game.id).run();
     const today = new Date().toISOString().slice(0, 10);
     await env.DB.prepare("INSERT INTO room_usage (game_id, day, rooms, player_seconds, messages, server_calls, server_crashes, server_stops, server_broken_rooms) VALUES (?, ?, 2, 600, 42, 900, 5, 2, 1)").bind(game.id, today).run();
-    await env.DB.prepare("INSERT INTO game_server_errors (game_id, version_id, kind, message, count, first_at, last_at) VALUES (?, 'v1', 'crash', 'oops (zaisma-server.js:3:9)', 5, 1, 2)").bind(game.id).run();
-    const stats = await tool("get_stats", { slug: "hop", days: 7 });
-    expect(stats.multiplayer[0].game_server).toEqual({ calls: 900, crashes: 5, stopped: 2, matches_ended: 1 });
-    expect(stats.game_server_errors).toEqual([{ kind: "crash", error: "oops (zaisma-server.js:3:9)", times: 5, version: "v1", first: 1, last: 2 }]);
+    await env.DB.prepare("INSERT INTO game_server_errors (game_id, version_id, kind, message, count, first_at, last_at) VALUES (?, 'v1', 'crash', 'oops (zaisma-server.js:3:9)', 5, 1792000000000, 1792003600000)").bind(game.id).run();
+    const stats = await tool("get_stats", { slug: "hop", period_duration_days: 7 });
+    expect(stats.multiplayer_days[0].game_server).toEqual({ call_count: 900, crash_count: 5, stopped_count: 2, ended_match_count: 1 });
+    expect(stats.game_server_errors).toEqual([
+      { kind: "crash", message: "oops (zaisma-server.js:3:9)", occurrence_count: 5, version_id: "v1", first_at: "2026-10-14T17:46:40.000Z", last_at: "2026-10-14T18:46:40.000Z" },
+    ]);
   });
 
   it("keeps scan details and admin notes out of the history", async () => {
@@ -173,12 +223,12 @@ describe("reports, stats and history", () => {
     await audit(env.DB, game.id, "scan-held", "child-safety: something only admins see", "system");
     await audit(env.DB, game.id, "takedown", "private admin note", "admin:julius@example.com");
     await audit(env.DB, game.id, "owner", "Owner: Pixel Smith", "admin:julius@example.com");
-    const { history } = await tool("get_history", { slug: "hop" });
-    const text = JSON.stringify(history);
+    const { events } = await tool("get_history", { slug: "hop" });
+    const text = JSON.stringify(events);
     expect(text).not.toContain("admins see");
     expect(text).not.toContain("admin note");
     expect(text).not.toContain("julius");
-    expect(history.map((h: { what: string }) => h.what)).toContain("Zaisma took the game down");
+    expect(events.map((e: { description: string }) => e.description)).toContain("Zaisma took the game down");
   });
 });
 
