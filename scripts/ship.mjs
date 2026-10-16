@@ -3,6 +3,7 @@
 //
 // It never deploys the checkout it's run from. It fetches origin/main into its own clean copy
 // (.claude/ship in the main checkout, a detached worktree), then from there:
+//   0. stops if GitHub's check (tests and typecheck) failed on that commit, and waits for it if it's running;
 //   1. lists the live database's pending migrations and applies them, in a terminal only:
 //      wrangler asks first and shows the ✅. Without a terminal (Claude, a `!` command) it stops
 //      before deploying anything, because there wrangler would apply them without asking;
@@ -30,6 +31,10 @@ const CHECK_GAME_URL = `https://${CHECK_GAME_SLUG}.zaismausercontent.com/`;
 const ROOMS_URL = "https://rooms.zaisma.com";
 // Deployed in this order: the site calls rooms and links to games, so they go first.
 const WORKERS = ["rooms", "games", "site"];
+// The job in .github/workflows/check.yml that has to pass on the commit before it ships.
+const GITHUB_REPOSITORY = "zaisma/zaisma";
+const GITHUB_CHECK_NAME = "Tests and typecheck";
+const GITHUB_CHECK_WAIT_SEC = 600;
 
 const isDryRun = process.argv.includes("--dry");
 const commitArgumentIndex = process.argv.indexOf("--commit");
@@ -129,6 +134,38 @@ if (lastShip?.commit_sha && lastShip.commit_sha !== commitSha) {
   say("Same commit as the last ship from this machine: shipping it again.");
 }
 
+// GitHub's check on this commit (.github/workflows/check.yml): tests and typecheck. A failed one stops
+// the ship; one still running is waited for. Without gh or a check (older commits) it says so and goes on.
+function readGithubCheck() {
+  let result;
+  try {
+    result = run("gh", ["api", `repos/${GITHUB_REPOSITORY}/commits/${commitSha}/check-runs`, "--jq", `[.check_runs[] | select(.name == "${GITHUB_CHECK_NAME}")][0] // {} | {status, conclusion, html_url}`]);
+  } catch (error) {
+    return { problem: error.message };
+  }
+  if (result.exitCode !== 0) return { problem: result.output.trim().split("\n").at(-1) };
+  return JSON.parse(result.output);
+}
+say("Reading GitHub's check…");
+let githubCheck = readGithubCheck();
+for (let waitedSec = 0; !isDryRun && githubCheck.status && githubCheck.status !== "completed" && waitedSec < GITHUB_CHECK_WAIT_SEC; waitedSec += 15) {
+  if (waitedSec === 0) say(`Waiting for GitHub's check to finish (${githubCheck.html_url})…`);
+  await new Promise((resolve) => setTimeout(resolve, 15000));
+  githubCheck = readGithubCheck();
+}
+let githubCheckNote;
+if (githubCheck.problem) githubCheckNote = `couldn't read GitHub's check (${githubCheck.problem})`;
+else if (!githubCheck.status) githubCheckNote = "no GitHub check on this commit";
+else if (githubCheck.status !== "completed") {
+  githubCheckNote = `GitHub's check still running (${githubCheck.html_url})`;
+  if (!isDryRun) finish("FAIL", `${shortSha}: GitHub's check didn't finish in ${GITHUB_CHECK_WAIT_SEC / 60} minutes (${githubCheck.html_url}); nothing deployed. Run npm run ship again once it has.`, 1);
+} else if (["success", "neutral", "skipped"].includes(githubCheck.conclusion)) githubCheckNote = "GitHub's check passed";
+else {
+  githubCheckNote = `GitHub's check ${githubCheck.conclusion} (${githubCheck.html_url})`;
+  if (!isDryRun) finish("FAIL", `${shortSha}: ${githubCheckNote}; nothing deployed. Fix main, then ship again.`, 1);
+}
+say(githubCheckNote);
+
 // The main checkout's main, brought up to date when that can't lose anything.
 function updateMainCheckout() {
   const branch = run("git", ["-C", mainCheckout, "symbolic-ref", "--quiet", "--short", "HEAD"]).output.trim();
@@ -216,7 +253,7 @@ const isCliNew = npmVersion !== null && isNewer(cliVersion, npmVersion);
 if (isDryRun) {
   const migrationsNote = pendingMigrations.length ? `${pendingMigrations.length} migration(s) to apply first (${pendingMigrations.join(", ")})` : "no migrations";
   const cliNote = npmVersion === null ? "couldn't check npm" : isCliNew ? `CLI ${cliVersion} to publish (npm has ${npmVersion})` : `CLI ${cliVersion} already on npm`;
-  finish("DRY", `${shortSha}: would deploy ${WORKERS.join(", ")}; ${migrationsNote}; ${cliNote}.`, 0);
+  finish("DRY", `${shortSha}: would deploy ${WORKERS.join(", ")}; ${githubCheckNote}; ${migrationsNote}; ${cliNote}.`, 0);
 }
 
 // Deploys. Each Worker version is tagged with the commit, so the dashboard shows what's live.

@@ -266,3 +266,4 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 5. Add examples if a call could go wrong, good and bad, as many as it needs.
 6. Errors get a code, a field and a fix; changes answer with `next_steps`.
 7. Update the glossary, `docs/DEVELOPER-API.md` and the SDK's types (`packages/sdk/zaisma.d.ts`, its reference) in the same change.
+8. After the beta, renaming or removing a field, option or tool follows "What's live keeps working" in `docs/DECISIONS.md`.
