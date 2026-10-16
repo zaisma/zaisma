@@ -115,8 +115,10 @@ li.open .needs.later, body.full .needs.later { display: block; }
 .tags { display: flex; gap: 6px; padding-top: 1px; }
 .tag { font: 500 12px var(--mono); padding: 1px 7px; border-radius: 5px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
 .tag.must { color: var(--fg); border-color: var(--fg); }
-.tag.settled { color: var(--next); border-color: var(--next); }
-.tag.unsettled { color: var(--doing); border-color: var(--doing); border-style: dashed; }
+.mark { display: inline-flex; width: 18px; height: 18px; flex: none; align-self: center; }
+.mark svg { width: 100%; height: 100%; }
+.mark.settled { color: var(--next); }
+.mark.unsettled { color: var(--doing); }
 .tag.julius { color: var(--julius); border-color: var(--julius); }
 .tag.gleb { color: var(--gleb); border-color: var(--gleb); }
 .needs { font-size: 13px; color: var(--muted); margin-top: 3px; }
@@ -185,6 +187,8 @@ footer { color: var(--muted); font-size: 13px; border-top: 1px solid var(--line)
     <span class="s-next"><span class="status">next</span></span>
     <span class="s-planned"><span class="status">planned</span></span>
     <span class="s-idea"><span class="status">idea</span></span>
+    <span id="legend-settled"></span>
+    <span id="legend-unsettled"></span>
   </div>
   <footer>Built from <code>docs/ROADMAP.md</code> in <a href="https://github.com/zaisma/zaisma/blob/main/docs/ROADMAP.md" target="_blank" rel="noopener">github.com/zaisma/zaisma</a>, the one source of truth. The how behind each item is in <a href="https://github.com/zaisma/zaisma/blob/main/docs/DECISIONS.md" target="_blank" rel="noopener">DECISIONS.md</a>.</footer>
 </div>
@@ -233,7 +237,12 @@ function parse(text) {
   return { now, phases };
 }
 
+// Settled shows as a small check badge, and a done row built without a talk as a dashed ring, to keep rows short.
+const SETTLED_MARK = '<span class="mark settled" role="img" aria-label="Settled" title="Settled: talked through with Julius, ready to build"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="8"/><path d="M6.5 10.2l2.4 2.4 4.6-4.9"/></svg></span>';
+const UNSETTLED_MARK = '<span class="mark unsettled" role="img" aria-label="Not settled" title="Not settled: built without being talked through with Julius, not checked off until he settles it"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-dasharray="3 2.6"><circle cx="10" cy="10" r="8"/></svg></span>';
 let data = null;
+document.getElementById("legend-settled").innerHTML = `${SETTLED_MARK} settled`;
+document.getElementById("legend-unsettled").innerHTML = `${UNSETTLED_MARK} not settled`;
 let filter = "all"; let hideDone = false; let full = false;
 const opened = new Set();
 const slug = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -310,7 +319,7 @@ function render() {
         return `<li id="${itemId(i.name)}" class="s-${esc(i.status)}${more ? " has-more" : ""}">
         <span class="status">${esc(i.status)}</span>
         <div>${more ? `<button class="name" type="button" aria-expanded="false">${md(i.name)}</button>` : `<div class="name">${md(i.name)}</div>`}${i.note ? `<div class="note">${md(i.note)}</div>` : ""}${needsHtml(i)}</div>
-        <div class="tags">${i.owner ? "" : i.status === "done" ? (i.isSettled ? "" : '<span class="tag unsettled" title="Built without being talked through with Julius: not checked off until he settles it">Not settled</span>') : i.isSettled ? '<span class="tag settled" title="Talked through with Julius: ready to build">Settled</span>' : ""}${i.owner ? `<span class="tag ${i.owner.toLowerCase()}">${i.owner}</span>` : ""}${i.must ? '<span class="tag must">Must</span>' : i.nice ? '<span class="tag">Nice</span>' : ""}</div>
+        <div class="tags">${i.owner ? "" : i.status === "done" ? (i.isSettled ? "" : UNSETTLED_MARK) : i.isSettled ? SETTLED_MARK : ""}${i.owner ? `<span class="tag ${i.owner.toLowerCase()}">${i.owner}</span>` : ""}${i.must ? '<span class="tag must">Must</span>' : i.nice ? '<span class="tag">Nice</span>' : ""}</div>
       </li>`;
       }).join("");
       const gid = g.title ? groupId(p, g) : "";
