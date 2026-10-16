@@ -50,7 +50,7 @@ export async function createGame(
   const { ownerId, visibility, ...words } = details;
   const game: Game = {
     id: newId("game"), ...words, review_status: "pending", review_reason: null, live_version_id: null, multiplayer_mode: "none", built_in_server: null, connect_hosts: "", owner_id: ownerId ?? null, cloud_saves_enabled: 1,
-    visibility: visibility ?? "listed", devices: "", controls: "", screen_orientation: "", play_modes: "", room_browsing: "page", is_off_shelves: 0, details_waiting_for_review: null, created_at_ms: now(), updated_at_ms: now(),
+    visibility: visibility ?? "listed", devices: "", controls: "", screen_orientation: "", play_modes: "", room_browsing: "page", account_requirement: "none", is_off_shelves: 0, details_waiting_for_review: null, created_at_ms: now(), updated_at_ms: now(),
   };
   await database
     .prepare("INSERT INTO games (id, slug, title, description, review_status, live_version_id, owner_id, visibility, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")

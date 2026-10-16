@@ -1,6 +1,6 @@
 import { newRandomPart, sha256Hex } from "./ids.ts";
 import type { ReviewReason } from "./review.ts";
-import { MULTIPLAYER_MODES, ROOM_BROWSING, type Game, type RoomBrowsing, type Visibility } from "./types.ts";
+import { ACCOUNT_REQUIREMENTS, MULTIPLAYER_MODES, ROOM_BROWSING, type AccountRequirement, type Game, type RoomBrowsing, type Visibility } from "./types.ts";
 
 /**
  * Developer accounts: API keys, game details, device labels and images.
@@ -175,6 +175,8 @@ export interface DetailsChange {
   /** Copy signed-in players' browser saves to their account. Off for games that keep their own saves. */
   cloud_saves_enabled?: boolean;
   room_browsing?: RoomBrowsing;
+  /** none (guests welcome), multiplayer (guests play alone) or whole_game (accounts only). */
+  account_requirement?: AccountRequirement;
   /** none, relay, or own (the game's zaisma-server.js in a sandbox on our rooms). */
   multiplayer_mode?: (typeof MULTIPLAYER_MODES)[number];
 }
@@ -227,6 +229,12 @@ export function checkDetails(input: Record<string, unknown>): { change: DetailsC
     }
     change.room_browsing = input.room_browsing as RoomBrowsing;
   }
+  if ("account_requirement" in input) {
+    if (!ACCOUNT_REQUIREMENTS.includes(input.account_requirement as AccountRequirement)) {
+      return refuse("account_requirement", `account_requirement ${JSON.stringify(input.account_requirement)} isn't one of the choices.`, "Give none (guests play everything), multiplayer (guests play alone; only signed-in players get player passes) or whole_game (players sign in before Play).");
+    }
+    change.account_requirement = input.account_requirement as AccountRequirement;
+  }
   if ("multiplayer_mode" in input) {
     if (!MULTIPLAYER_MODES.includes(input.multiplayer_mode as (typeof MULTIPLAYER_MODES)[number])) {
       return refuse("multiplayer_mode", `multiplayer_mode ${JSON.stringify(input.multiplayer_mode)} isn't one of the choices.`, "Give none (no Zaisma rooms), relay (Zaisma passes messages, no server code) or own (your game server from zaisma-server/).");
@@ -273,6 +281,7 @@ export async function applyDetails(database: D1Database, game: Game, change: Det
   if (change.play_modes !== undefined) set("play_modes", change.play_modes ? JSON.stringify(change.play_modes) : "");
   if (change.cloud_saves_enabled !== undefined) set("cloud_saves_enabled", change.cloud_saves_enabled ? 1 : 0);
   if (change.room_browsing !== undefined) set("room_browsing", change.room_browsing);
+  if (change.account_requirement !== undefined) set("account_requirement", change.account_requirement);
   // Rooms running the old setting end within a minute, when they next check the game.
   if (change.multiplayer_mode !== undefined) set("multiplayer_mode", change.multiplayer_mode);
   if (assignments.length) {

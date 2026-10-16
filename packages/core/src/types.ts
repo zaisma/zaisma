@@ -6,6 +6,9 @@ export type Visibility = "draft" | "listed" | "unlisted" | "private";
 /** Where a game's rooms are listed: the game page and inside the game, only inside the game, or nowhere. */
 export const ROOM_BROWSING = ["page", "game", "off"] as const;
 export type RoomBrowsing = (typeof ROOM_BROWSING)[number];
+/** What a game needs a Zaisma account for: nothing (guests welcome), multiplayer (guests play alone) or the whole game. */
+export const ACCOUNT_REQUIREMENTS = ["none", "multiplayer", "whole_game"] as const;
+export type AccountRequirement = (typeof ACCOUNT_REQUIREMENTS)[number];
 export type ScanStatus = "scanning" | "held" | "approved" | "rejected";
 
 /** A row of the games table: the same names the developer API shows (docs/NAMING.md). */
@@ -38,6 +41,8 @@ export interface Game {
   play_modes: string;
   /** Where its rooms on Zaisma are listed. */
   room_browsing: RoomBrowsing;
+  /** What it needs a Zaisma account for; guests get no player passes unless it's none. */
+  account_requirement: AccountRequirement;
   /** 1 when Zaisma keeps it off Popular, Trending and New (faked plays, or while a spike is checked). */
   is_off_shelves: number;
   /** A new title or description waiting for review, as JSON, for games players can already see. */

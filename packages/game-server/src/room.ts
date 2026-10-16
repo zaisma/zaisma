@@ -420,7 +420,8 @@ export type RoomErrorCode =
   | "kept_out"
   | "refused"
   | "no_room"
-  | "month_limit";
+  | "month_limit"
+  | "account_needed";
 
 export const ERROR_TEXT: Record<RoomErrorCode, string> = {
   full: "This room is full.",
@@ -438,6 +439,7 @@ export const ERROR_TEXT: Record<RoomErrorCode, string> = {
   refused: "The game didn't let you into this room.",
   no_room: "That room isn't running.",
   month_limit: "This game has used this month's multiplayer time. New rooms open again next month.",
+  account_needed: "Playing online needs a Zaisma account. Sign in on the game's page to play.",
 };
 
 /**

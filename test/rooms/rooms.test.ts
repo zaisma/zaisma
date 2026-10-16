@@ -150,6 +150,27 @@ describe("rooms", () => {
     expect((await post("/v1/pass", "arena", ORIGIN, { roomKey: leftoverKey })).status).toBe(403);
   });
 
+  it("gives guests no passes for a game that needs accounts, and rooms turn away guest passes made before", async () => {
+    const arena = await addGame("arena");
+    const account = await createAccount(e.DB, { id: "supabase-user-3", name: "Tall Pine", ageBand: "18+" });
+    const earlier = await getPass("arena");
+    for (const requirement of ["multiplayer", "whole_game"]) {
+      await e.DB.prepare("UPDATE games SET account_requirement = ? WHERE id = ?").bind(requirement, arena).run();
+      const refused = await post("/v1/pass", "arena", ORIGIN, { roomKey: await keyFor("arena") });
+      expect(refused.status).toBe(403);
+      expect(await refused.json()).toEqual({ error: { code: "account_needed", message: "Playing online needs a Zaisma account. Sign in on the game's page to play." } });
+      const signedIn = await post("/v1/pass", "arena", ORIGIN, { roomKey: await issueRoomKey(e.DB, arena, account.id) });
+      expect((await signedIn.json<{ player: { kind: string } }>()).player.kind).toBe("account");
+    }
+    // A guest's pass from before the change no longer gets into a room.
+    const late = await connect("arena", "GSTWAY");
+    late.ws.send(JSON.stringify({ type: "hello", pass: earlier.pass }));
+    expect(await late.next()).toMatchObject({ type: "error", code: "account_needed" });
+    // Guests welcome again: passes as before.
+    await e.DB.prepare("UPDATE games SET account_requirement = 'none' WHERE id = ?").bind(arena).run();
+    expect((await getPass("arena")).player.kind).toBe("guest");
+  });
+
   it("looks up an account's public profile by player ID, for any site or server", async () => {
     const account = await createAccount(e.DB, { id: "supabase-user-2", name: "Quiet Heron", ageBand: "13-17" });
     const lookUp = (playerId: string) => SELF.fetch(`${R}/v1/players/${playerId}`, { headers: { "cf-connecting-ip": `198.51.100.${++address % 250}` } });

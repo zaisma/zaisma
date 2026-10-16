@@ -217,6 +217,7 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 | A player, and the players a call is for or leaves out | `player_id` | `playerId`; `playerIds`, `exceptPlayerId` |
 | Whether a player is signed in | a player's `kind`: `account`, `guest` (also the player pass's `kind` claim) | `kind`; `playerKind` where it isn't on a player |
 | What anyone sees of an account | `player`: `{ id, name }`, its public profile | `PlayerProfile`, `Zaisma.player.getProfile(playerId)` |
+| What a game needs a Zaisma account for | `account_requirement`: `none`, `multiplayer`, `whole_game`; a guest turned away gets `account_needed` | error `code` `account_needed` |
 | How many players, and the most and fewest allowed | `player_count`, `maximum_player_count`, `minimum_player_count` | `playerCount`, `maximumPlayerCount`, `minimumPlayerCount` |
 | How many files, and their total size | `file_count`, `size_bytes` | |
 | An image's size on screen | `width_px`, `height_px` | |

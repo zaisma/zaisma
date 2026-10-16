@@ -85,7 +85,7 @@ import { KNOWN_IMAGE_ALERT, imageMatcher, pruneVersions } from "./scan.ts";
  *   GET    /api/dev/games                      your games
  *   POST   /api/dev/games                      make a game (starts as a draft)
  *   GET    /api/dev/games/:slug                one game, with its images, versions and tester links
- *   PATCH  /api/dev/games/:slug                title, description, visibility, devices, controls, screen_orientation, play_modes, cloud_saves_enabled, room_browsing, multiplayer_mode
+ *   PATCH  /api/dev/games/:slug                title, description, visibility, devices, controls, screen_orientation, play_modes, cloud_saves_enabled, room_browsing, multiplayer_mode, account_requirement
  *   POST   /api/dev/games/:slug/images?kind=   add a cover or screenshot (the image bytes as the body)
  *   DELETE /api/dev/games/:slug/images/:id     remove one
  *   POST   /api/dev/games/:slug/uploads        which of these files still need sending
@@ -321,7 +321,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
 
   if (path === "/games" && method === "POST") {
     const body = await readJson(request);
-    closedBody(body, ["title", "slug", "description", "devices", "controls", "screen_orientation", "play_modes", "cloud_saves_enabled", "multiplayer_mode", "room_browsing"]);
+    closedBody(body, ["title", "slug", "description", "devices", "controls", "screen_orientation", "play_modes", "cloud_saves_enabled", "multiplayer_mode", "room_browsing", "account_requirement"]);
     const title = typeof body.title === "string" ? body.title.trim().replace(/\s+/g, " ") : "";
     if (!title || title.length > 80) throw new ApiError("bad_title", { message: "title is empty or over 80 characters.", field: "title", fix: "Give the game a title of 1 to 80 characters." });
     const slug = typeof body.slug === "string" && body.slug ? body.slug.trim().toLowerCase() : slugify(title);
@@ -405,7 +405,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
 
   if (!isImages && method === "PATCH") {
     const body = await readJson(request);
-    closedBody(body, ["title", "description", "visibility", "devices", "controls", "screen_orientation", "play_modes", "cloud_saves_enabled", "room_browsing", "multiplayer_mode"]);
+    closedBody(body, ["title", "description", "visibility", "devices", "controls", "screen_orientation", "play_modes", "cloud_saves_enabled", "room_browsing", "multiplayer_mode", "account_requirement"]);
     const change = checkDetailsOrThrow(body);
     if (game.review_status === "removed" && change.visibility) {
       throw gameRemoved(game, "its visibility can't change", "visibility");
@@ -1093,6 +1093,7 @@ function gameJson(env: Env, game: Game) {
     cloud_saves_enabled: Boolean(game.cloud_saves_enabled),
     multiplayer_mode: game.multiplayer_mode,
     room_browsing: game.room_browsing,
+    account_requirement: game.account_requirement,
     details_waiting_for_review: waitingWords ? { title: waitingWords.title ?? null, description: waitingWords.description ?? null } : null,
     updated_at: iso(game.updated_at_ms),
   };

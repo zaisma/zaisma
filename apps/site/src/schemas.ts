@@ -55,6 +55,10 @@ export const ROOM_BROWSING_CHOICE = choice(
   { page: "open rooms listed on the game page and to the game", game: "only to the game", off: "nowhere; room codes and invite links still work" },
   "For games on Zaisma rooms: where open rooms are listed.",
 );
+export const ACCOUNT_REQUIREMENT_CHOICE = choice(
+  { none: "guests play everything", multiplayer: "guests play alone; only signed-in players get player passes", whole_game: "players sign in before Play; only signed-in players get player passes" },
+  "What the game needs a Zaisma account for.",
+);
 export const PLAY_MODE = object({
   mode: choice({ single: "single-player", local: "together on one device or screen", online: "each on their own device" }),
   minimum_player_count: nullable(countOf("2 or more; null for single")),
@@ -91,6 +95,7 @@ export const GAME = object({
   cloud_saves_enabled: yes("Signed-in players' browser saves are copied to their account."),
   multiplayer_mode: MULTIPLAYER_MODE,
   room_browsing: ROOM_BROWSING_CHOICE,
+  account_requirement: ACCOUNT_REQUIREMENT_CHOICE,
   details_waiting_for_review: nullable(object({ title: nullable(text()), description: nullable(text()) }, "A new title or description waiting for review before players see it.")),
   updated_at: isoTime(),
 });

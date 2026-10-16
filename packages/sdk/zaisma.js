@@ -238,7 +238,7 @@
   };
 
   // Codes that mean this room won't take the player, so joining fails instead of trying again.
-  var REFUSED = ["full", "closed", "ended", "bad_pass", "too_big", "game_unavailable", "kept_out", "refused", "month_limit"];
+  var REFUSED = ["full", "closed", "ended", "bad_pass", "too_big", "game_unavailable", "kept_out", "refused", "month_limit", "account_needed"];
 
   Room.prototype._connect = function () {
     var room = this;

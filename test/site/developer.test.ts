@@ -152,6 +152,18 @@ describe("games", () => {
     expect(await env.DB.prepare("SELECT is_listed FROM live_rooms WHERE game_id = ?").bind(g.id).first("is_listed")).toBe(0);
   });
 
+  it("sets what a game needs an account for: nothing by default, multiplayer or the whole game", async () => {
+    await api("/games", { body: { title: "Members Club" } });
+    expect((await (await api("/games/members-club")).json<{ game: Record<string, unknown> }>()).game.account_requirement).toBe("none");
+    const wrong = await api("/games/members-club", { method: "PATCH", body: { account_requirement: "accounts" } });
+    expect(wrong.status).toBe(400);
+    expect((await wrong.json<{ error: { code: string; field: string } }>()).error).toMatchObject({ code: "bad_account_requirement", field: "account_requirement" });
+    const res = await api("/games/members-club", { method: "PATCH", body: { account_requirement: "whole_game" } });
+    expect((await res.json<{ game: Record<string, unknown> }>()).game.account_requirement).toBe("whole_game");
+    await api("/games", { body: { title: "Online Only", account_requirement: "multiplayer" } });
+    expect((await gameBySlug(env.DB, "online-only"))!.account_requirement).toBe("multiplayer");
+  });
+
   it("lets developers pick multiplayer: none, the relay or their own game server", async () => {
     await api("/games", { body: { title: "Own Server", multiplayer_mode: "relay" } });
     const g = (await gameBySlug(env.DB, "own-server"))!;

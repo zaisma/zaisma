@@ -699,6 +699,24 @@ describe("cloud saves", () => {
     expect(own).not.toContain("window.startSaves = function");
     expect(own).not.toContain("save-choice");
   });
+
+  it("game pages that need an account say so before Play and ask guests to sign in, back to the same match", async () => {
+    await liveGame("members-only");
+    expect(await (await SELF.fetch(`${SITE}/g/members-only`)).text()).not.toContain('id="account-note"');
+    await env.DB.prepare("UPDATE games SET account_requirement = 'whole_game' WHERE slug = 'members-only'").run();
+    const page = await (await SELF.fetch(`${SITE}/g/members-only?room=BCDFGH`)).text();
+    expect(page).toContain(">Needs a Zaisma account<");
+    expect(page).toContain('href="/signin?next=%2Fg%2Fmembers-only%3Froom%3DBCDFGH"');
+    expect(page).toContain('href="/join?next=%2Fg%2Fmembers-only%3Froom%3DBCDFGH"');
+    expect(page).toContain("Sign in to play");
+    // A room link starts the game only for a signed-in player.
+    expect(page).toContain("if (!needsSignIn) play();");
+    await env.DB.prepare("UPDATE games SET account_requirement = 'multiplayer' WHERE slug = 'members-only'").run();
+    const online = await (await SELF.fetch(`${SITE}/g/members-only`)).text();
+    expect(online).toContain(">Playing online needs a Zaisma account<");
+    // Guests can still play alone, so Play stays Play.
+    expect(online).not.toContain("Sign in to play");
+  });
 });
 
 describe("API keys on the account page", () => {

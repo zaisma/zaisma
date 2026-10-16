@@ -45,7 +45,9 @@ declare namespace Zaisma {
    * every game, or a guest. joinRoom gets one by itself; call this to let the player into a server of
    * your own. Kept for the tab, so a guest who reloads stays the same guest, and renewed when it has
    * under 10 minutes left or the player signed in or out. Fails with error.code "unchecked" when the
-   * game isn't played on its zaisma.com page, and "not_on_zaisma" when it isn't hosted on Zaisma.
+   * game isn't played on its zaisma.com page, "not_on_zaisma" when it isn't hosted on Zaisma, and
+   * "account_needed" for a guest when the game needs an account for multiplayer or the whole game
+   * (its account_requirement setting).
    */
   function player(): Promise<PlayerWithPass>;
 
@@ -69,7 +71,8 @@ declare namespace Zaisma {
    * Fails with an error whose code says why and whose message says it in words. The room won't take
    * the player: full, closed (to new players), ended, kept_out (removed for the rest of the match),
    * refused (the game server's canJoin said no; the message is its refusalMessage), month_limit (the
-   * game has used this month's multiplayer time). No player pass: unchecked (see {@link player}). The
+   * game has used this month's multiplayer time). No player pass: unchecked, or account_needed for a
+   * guest when the game needs accounts (see {@link player}). The
    * call is set up wrong: unknown_option, bad_room_code, bad_server_url, not_on_zaisma (no serverUrl
    * outside Zaisma). Or connection_closed (the connection closed first, say the game left or the player
    * joined from another tab) and request_failed (Zaisma didn't answer). {@link ErrorCode} has them all.
@@ -425,6 +428,7 @@ declare namespace Zaisma {
    * - kept_out: the player was removed for the rest of the match.
    * - refused: the game server's canJoin turned them away.
    * - month_limit: the game has used this month's multiplayer time; new rooms open again next month (UTC).
+   * - account_needed: the player is a guest, and the game needs a Zaisma account for multiplayer or the whole game.
    * - game_unavailable: the game can't be played right now.
    * - bad_pass: the player pass wasn't accepted (the SDK gets a new one and tries once more).
    * - too_big: a message over 16 KB, or joinData over 4 KB.
@@ -439,6 +443,7 @@ declare namespace Zaisma {
     | "kept_out"
     | "refused"
     | "month_limit"
+    | "account_needed"
     | "game_unavailable"
     | "bad_pass"
     | "too_big"

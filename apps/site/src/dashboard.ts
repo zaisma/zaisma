@@ -1,4 +1,4 @@
-import { ApiError, CONTENT_RULES, CONTROLS, DEVICES, PLAY_STYLES, ROOM_BROWSING, SCREENS, type ContentRule, type PlayMode, type RoomBrowsing } from "@zaisma/core";
+import { ACCOUNT_REQUIREMENTS, ApiError, CONTENT_RULES, CONTROLS, DEVICES, PLAY_STYLES, ROOM_BROWSING, SCREENS, type AccountRequirement, type ContentRule, type PlayMode, type RoomBrowsing } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import { apiCall, callerFor, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
@@ -32,6 +32,7 @@ interface GameJson {
   cloud_saves_enabled: boolean;
   multiplayer_mode: "none" | "relay" | "own" | "built-in";
   room_browsing: RoomBrowsing;
+  account_requirement: AccountRequirement;
   details_waiting_for_review: { title: string | null; description: string | null } | null;
   updated_at: string;
 }
@@ -72,6 +73,11 @@ const ROOM_BROWSING_LABELS: Record<RoomBrowsing, { label: string; hint: string }
   page: { label: "On the game page and in the game", hint: "Players see open rooms on your game's page and can jump in. Your game can list them too, with Zaisma.rooms.list()." },
   game: { label: "Only in the game", hint: "For games with their own lobby or server browser: your game lists rooms with Zaisma.rooms.list(), and the game page doesn't." },
   off: { label: "Off", hint: "No room is listed anywhere. Room codes and invite links still work." },
+};
+const ACCOUNT_REQUIREMENT_LABELS: Record<AccountRequirement, { label: string; hint: string }> = {
+  none: { label: "Not needed", hint: "Guests play everything. Signed-in players play as their Zaisma account." },
+  multiplayer: { label: "Accounts for multiplayer", hint: "Guests play alone. Only signed-in players get player passes, so your game shows its own message when a guest tries to play online." },
+  whole_game: { label: "Accounts only", hint: "Your game page says \"Needs a Zaisma account\", and Play asks guests to sign in first." },
 };
 const DONE: Record<string, string> = {
   made: "Your game is made. Upload a version below.",
@@ -140,6 +146,7 @@ export async function handleDashboard(request: Request, env: Env, path: string):
         play_modes: playModesFrom(form),
         cloud_saves_enabled: form.get("cloud_saves") === "on",
         ...(form.has("room_browsing") ? { room_browsing: field("room_browsing") } : {}),
+        ...(form.has("account_requirement") ? { account_requirement: field("account_requirement") } : {}),
         ...(form.has("multiplayer") ? { multiplayer_mode: field("multiplayer") } : {}),
       })) as { review_message: string | null; game_server_problem: string | null };
       if (saved.game_server_problem) return back("multiplayer-no-file", "#details");
@@ -427,6 +434,7 @@ ${playersFields(game.play_modes)}
 <label>Screen<select name="screen">${["", ...SCREENS].map((screen) => html`<option value="${screen}"${(game.screen_orientation ?? "") === screen ? raw(" selected") : ""}>${SCREEN_LABELS[screen]}</option>`)}</select></label>
 ${multiplayerFields(game.multiplayer_mode)}
 ${game.multiplayer_mode !== "none" ? roomBrowsingFields(game.room_browsing) : ""}
+${accountRequirementFields(game.account_requirement)}
 <fieldset><legend>Saves</legend>
 <label class="check"><input type="checkbox" name="cloud_saves"${game.cloud_saves_enabled ? raw(" checked") : ""}> Cloud saves</label>
 <p class="hint">Signed-in players' progress follows them to any device. It copies the game's own browser saves, so there's nothing to add to your game. Turn it off if your game keeps its own saves on a server.</p>
@@ -458,6 +466,15 @@ ${ROOM_BROWSING.map(
     (browsing) => html`<label class="check"><input type="radio" name="room_browsing" value="${browsing}"${current === browsing ? raw(" checked") : ""}> <span>${ROOM_BROWSING_LABELS[browsing].label}<small class="hint">${ROOM_BROWSING_LABELS[browsing].hint}</small></span></label>`,
   )}
 <p class="hint">Your game can also hide single rooms, like private matches: <code>Zaisma.joinRoom({ isListed: false })</code>, or <code>room.setListed(false)</code> from your game server.</p>
+</fieldset>`;
+}
+
+/** Whether guests play too, or only signed-in players for multiplayer or the whole game. */
+function accountRequirementFields(current: AccountRequirement): Raw {
+  return html`<fieldset class="choices"><legend>Zaisma accounts</legend>
+${ACCOUNT_REQUIREMENTS.map(
+    (requirement) => html`<label class="check"><input type="radio" name="account_requirement" value="${requirement}"${current === requirement ? raw(" checked") : ""}> <span>${ACCOUNT_REQUIREMENT_LABELS[requirement].label}<small class="hint">${ACCOUNT_REQUIREMENT_LABELS[requirement].hint}</small></span></label>`,
+  )}
 </fieldset>`;
 }
 

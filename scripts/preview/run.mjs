@@ -104,10 +104,11 @@ if (fresh) {
 // developer's game would; Four in a Row uses the copy built into our rooms.
 // The two multiplayer demos run on our rooms (also for preview data made before rooms were in the preview).
 // Cave Crew uses the relay, to show closed and hidden rooms. Rooms from the last run are gone.
+// Shard Dodge needs a Zaisma account, to show the game page asking guests to sign in.
 spawnSync(
   "npx",
   ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command",
-    "UPDATE games SET multiplayer_mode = 'own' WHERE slug = 'arena'; UPDATE games SET multiplayer_mode = 'built-in', built_in_server = slug WHERE slug = 'four-in-a-row' AND multiplayer_mode = 'none'; UPDATE games SET multiplayer_mode = 'relay' WHERE slug = 'cave-crew' AND multiplayer_mode = 'none'; DELETE FROM live_rooms"],
+    "UPDATE games SET multiplayer_mode = 'own' WHERE slug = 'arena'; UPDATE games SET multiplayer_mode = 'built-in', built_in_server = slug WHERE slug = 'four-in-a-row' AND multiplayer_mode = 'none'; UPDATE games SET multiplayer_mode = 'relay' WHERE slug = 'cave-crew' AND multiplayer_mode = 'none'; UPDATE games SET account_requirement = 'whole_game' WHERE slug = 'shard-dodge'; DELETE FROM live_rooms"],
   { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } },
 );
 // Pretend play stats for two games, so the dashboard's Plays section has something to show. Real
