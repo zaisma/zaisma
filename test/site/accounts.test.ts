@@ -496,6 +496,35 @@ describe("playing as your account", () => {
     const account = await accountById(env.DB, users.get("fox@example.com")!);
     expect(account?.player_id).toMatch(/^player_[a-z0-9]{20}$/);
   });
+
+  it("trades a guest's key for the account's when they sign in while the game runs", async () => {
+    const now = Date.now();
+    await env.DB.prepare("INSERT INTO games (id, slug, title, review_status, visibility, live_version_id, multiplayer_mode, created_at_ms, updated_at_ms) VALUES ('g-arena', 'arena-game', 'Arena', 'live', 'listed', 'v1', 'relay', ?, ?)").bind(now, now).run();
+    const withSupabase = globalThis.fetch;
+    vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) =>
+      String(input instanceof Request ? input.url : input).startsWith("https://challenges.cloudflare.com/") ? Promise.resolve(Response.json({ success: true, action: "play", hostname: "zaisma.test" })) : withSupabase(input, init),
+    );
+    const b = new Browser();
+    const guest = await (await b.go("/api/plays/arena-game", undefined, { method: "POST", body: JSON.stringify({ first: null, last: null, cfirst: null, clast: null, token: "good" }) })).json<{ key: string; playerKind: string }>();
+    expect(guest.playerKind).toBe("guest");
+    const signedIn = (body: unknown, origin = SITE) => b.go("/api/plays/arena-game/account", undefined, { method: "POST", body: JSON.stringify(body), origin });
+    // Still a guest: nothing to trade.
+    expect((await signedIn({ roomKey: guest.key })).status).toBe(401);
+
+    const issued = await env.DB.prepare("SELECT issued_at_ms FROM room_keys WHERE id = ?").bind(guest.key).first<{ issued_at_ms: number }>();
+    await join(b);
+    const traded = await (await signedIn({ roomKey: guest.key })).json<{ player: unknown; key: string; playerKind: string }>();
+    const account = (await accountById(env.DB, users.get("fox@example.com")!))!;
+    expect(traded).toEqual({ player: { id: account.player_id, name: "Night Owl", kind: "account" }, key: expect.stringMatching(/^room_key_[a-z0-9]+$/), playerKind: "account" });
+    // The account's key runs out when the guest's would have, and the guest's is gone, so it trades once.
+    const keys = await env.DB.prepare("SELECT id, account_id, issued_at_ms FROM room_keys WHERE id IN (?, ?)").bind(guest.key, traded.key).all<{ id: string; account_id: string | null }>();
+    expect(keys.results).toEqual([{ id: traded.key, account_id: account.id, issued_at_ms: issued!.issued_at_ms }]);
+    expect(await (await signedIn({ roomKey: guest.key })).json()).toEqual({ player: traded.player });
+    // A game with no key (single-player): just who the player is now.
+    expect(await (await signedIn({})).json()).toEqual({ player: traded.player });
+    // Only from Zaisma's own pages.
+    expect((await signedIn({}, "https://evil.test")).status).toBe(403);
+  });
 });
 
 describe("cloud saves", () => {
@@ -716,6 +745,22 @@ describe("cloud saves", () => {
     expect(page).toContain('href="/g/owl-game?play" data-back=""');
     expect(page).toContain('BroadcastChannel("zaisma").postMessage("signed-in")');
     expect(await (await b.go("/account/kept?game=nope")).text()).toContain("Find a game");
+    // A game that keeps its own saves: no word about progress saving to the account.
+    await liveGame("own-saves", 0);
+    const own = await (await b.go("/account/kept?game=own-saves")).text();
+    expect(own).toContain("Go back to Owl Game to keep playing.</p>");
+  });
+
+  it("lets a game ask a guest to sign in beside it, in a new tab, and tells the game who they are", async () => {
+    await liveGame();
+    const page = await (await SELF.fetch(`${SITE}/g/owl-game`)).text();
+    expect(page).toContain('<aside class="keep plate bevel" id="sign-in-ask"');
+    expect(page).toContain("Owl Game asks you to sign in");
+    expect(page).toContain('href="/join?next=%2Fg%2Fowl-game%3Fplay" data-sign-in="/join"');
+    expect(page).toContain('href="/signin?next=%2Fg%2Fowl-game%3Fplay" data-sign-in="/signin"');
+    expect(page).toContain('d.type === "zaisma:sign-in"');
+    expect(page).toContain('fetch("/api/plays/owl-game/account"');
+    expect(page).toContain('type: "zaisma:signed-in"');
   });
 
   it("game pages offer saves only for games that use them", async () => {

@@ -21,8 +21,10 @@
     <div class="count" id="count">…</div>
     <div class="row"><button id="harvest">Harvest</button><button class="quiet" id="reset">Start over</button></div>
     <p class="note" id="saved">Loading your farm…</p>
+    <p class="note"><button class="quiet" id="sign-in">Sign in</button> <span id="who"></span></p>
   </div>
 </main>
+<script src="_zaisma/v1.js"></script>
 <script>
 // A preview test game that saves like a Unity or Godot web build: a file in an
 // Emscripten-style "/idbfs" IndexedDB database, plus a download cache that isn't progress.
@@ -61,6 +63,16 @@ function save() {
 
 document.getElementById("harvest").onclick = () => { farm.carrots++; save(); };
 document.getElementById("reset").onclick = () => { farm = { carrots: 0 }; save(); };
+// Signing in without leaving the game (Zaisma.player.signIn): Zaisma's page asks beside the game.
+document.getElementById("sign-in").onclick = async () => {
+  const who = document.getElementById("who");
+  try {
+    const player = await Zaisma.player.signIn();
+    who.textContent = "Playing as " + player.name + " (" + player.id + ")";
+  } catch (error) {
+    who.textContent = error.code + ": " + error.message;
+  }
+};
 </script>
 </body>
 </html>

@@ -221,6 +221,7 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 | What anyone sees of an account | `player`: `{ id, name }`, its public profile | `PlayerProfile`, `Zaisma.player.getProfile(playerId)` |
 | Who an account can chat with, and the opaque group open-and-social accounts chat in (never an age) | | player pass claims `social_mode`: `solo_focused`, `friends_focused`, `open_and_social`; `chat_group` (a `chat_group_…` ID, different in every game); checked with `canChat(first, second)` |
 | What a game needs a Zaisma account for | `account_requirement`: `none`, `multiplayer`, `whole_game`; a guest turned away gets `account_needed` | error `code` `account_needed` |
+| A game asking a guest to sign in while it runs, and the guest saying Not now | | `Zaisma.player.signIn()`; error `code` `sign_in_declined` |
 | A developer's own site or app that players sign in to with Zaisma, and OAuth's client type for it | `sign_in_app_id` (the OAuth `client_id`); `kind`: `confidential`, `public` | |
 | Where a sign-in can go back to, and asking for a new client secret | `redirect_urls`; `replace_client_secret: true`, answered once as `client_secret` | |
 | How many players, and the most and fewest allowed | `player_count`, `maximum_player_count`, `minimum_player_count` | `playerCount`, `maximumPlayerCount`, `minimumPlayerCount` |

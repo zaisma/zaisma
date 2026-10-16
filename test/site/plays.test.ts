@@ -136,7 +136,8 @@ describe("counted plays", () => {
     const tester = await SELF.fetch(`${SITE}/t/abcdefghij0123456789`);
     expect(tester.status).toBe(200);
     expect(tester.headers.get("content-security-policy")).not.toContain("challenges.cloudflare.com");
-    expect(await tester.text()).not.toContain("/api/plays/");
+    // No play reports (signing in while playing still tells the game who the player is).
+    expect(await tester.text()).not.toContain('"/api/plays/play-hidden"');
     // A multiplayer game checks the browser for its player passes, without counting the play.
     await env.DB.prepare("UPDATE games SET multiplayer_mode = 'relay' WHERE id = 'g-play-hidden'").run();
     const multi = await SELF.fetch(`${SITE}/t/abcdefghij0123456789`);

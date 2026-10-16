@@ -175,6 +175,59 @@
   }
   player.getProfile = getProfile;
 
+  /*
+   * Signing in while the game runs. The Zaisma page asks the player beside the game and signs them in in
+   * a new tab, so the game keeps running. However the player signs in (here, or the page's "Keep your
+   * progress"), the page says so (zaisma:signed-in): the room key was the guest's, so the next pass
+   * comes from the account's key (and the guest's kept pass, of the wrong kind, isn't used).
+   */
+  var signInPromise = null;
+  var signInWaiters = [];
+
+  window.addEventListener("message", function (event) {
+    if (!config.site || event.origin !== config.site || event.source !== window.parent || !event.data || event.data.type !== "zaisma:signed-in") return;
+    var given = event.data.player;
+    if (!given || typeof given.id !== "string" || typeof given.name !== "string") return;
+    keyPromise = null;
+    var signedIn = { id: given.id, name: given.name, kind: "account" };
+    signInWaiters.splice(0).forEach(function (waiter) { waiter.resolve(signedIn); });
+  });
+
+  /** Ask a guest to sign in, without leaving the game: the account, once they have (zaisma.d.ts: Zaisma.player.signIn). */
+  function signIn() {
+    if (!config.site || window.parent === window) return Promise.reject(notOnZaisma("Signing in works when the game is played on its zaisma.com page."));
+    if (signInPromise) return signInPromise;
+    signInPromise = new Promise(function (resolve, reject) {
+      // Signed in (zaisma:signed-in, above): stop listening for the page's answers.
+      var waiter = { resolve: function (signedIn) { settle(null); resolve(signedIn); } };
+      signInWaiters.push(waiter);
+      // The page answers at once that it's asking; no answer means no Zaisma page is around the game.
+      var isAsking = false;
+      var timer = setTimeout(function () { if (!isAsking) settle(notOnZaisma("No Zaisma page answered: signing in works when the game is played on its zaisma.com page.")); }, 3000);
+      function settle(error) {
+        removeEventListener("message", onMessage);
+        clearTimeout(timer);
+        signInWaiters = signInWaiters.filter(function (each) { return each !== waiter; });
+        if (error) reject(error);
+      }
+      function onMessage(event) {
+        if (event.origin !== config.site || event.source !== window.parent || !event.data || event.data.type !== "zaisma:sign-in") return;
+        if (event.data.status === "asking") isAsking = true;
+        else if (event.data.status === "declined") settle(codedError("sign_in_declined", "The player chose Not now. Ask again when they press something that needs an account, not on a timer."));
+      }
+      addEventListener("message", onMessage);
+      window.parent.postMessage({ type: "zaisma:sign-in" }, config.site);
+    }).then(function (signedIn) {
+      signInPromise = null;
+      return signedIn;
+    }, function (error) {
+      signInPromise = null;
+      throw error;
+    });
+    return signInPromise;
+  }
+  player.signIn = signIn;
+
   function roomCodeFromPage() {
     try {
       var code = new URLSearchParams(location.search).get("room");

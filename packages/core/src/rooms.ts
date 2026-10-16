@@ -95,6 +95,20 @@ export async function useRoomKey(database: D1Database, gameId: string, key: unkn
   return row ? { accountId: row.account_id } : null;
 }
 
+/**
+ * A guest's room key, traded for a key to their account's passes when they sign in while the game runs
+ * (Zaisma.player.signIn): the guest's key goes, and the new one runs out when it would have. Null when
+ * the key isn't this game's, has run out, or is already an account's or traded.
+ */
+export async function tradeRoomKey(database: D1Database, gameId: string, key: unknown, accountId: string, nowMs = Date.now()): Promise<string | null> {
+  if (!isIdOf("room_key", key)) return null;
+  const row = await database
+    .prepare("DELETE FROM room_keys WHERE id = ? AND game_id = ? AND account_id IS NULL AND issued_at_ms > ? RETURNING issued_at_ms")
+    .bind(key, gameId, nowMs - ROOM_KEY_MS)
+    .first<{ issued_at_ms: number }>();
+  return row ? issueRoomKey(database, gameId, accountId, row.issued_at_ms) : null;
+}
+
 /** Whether a game has used this month's free tier, so its new rooms don't open. */
 export async function pastFreeTier(database: D1Database, gameId: string, nowMs = Date.now()): Promise<boolean> {
   return (await roomPlayDurationSecThisMonth(database, gameId, nowMs)) >= FREE_ROOM_PLAY_DURATION_HOURS * 3600;

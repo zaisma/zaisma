@@ -515,7 +515,7 @@ async function keptPage(env: Env, name: string, slug: string | null): Promise<Re
     env,
     "You're in",
     html`<h1>You're in, ${name}</h1>
-<p class="lead">${game ? `Go back to ${game.title} to keep playing. From now on, your progress saves to your account, so it's safe and follows you to any device.` : "From now on, games you play save your progress to your account."}</p>
+<p class="lead">${game ? `Go back to ${game.title} to keep playing.${game.cloud_saves_enabled ? " From now on, your progress saves to your account, so it's safe and follows you to any device." : ""}` : "From now on, games you play save your progress to your account."}</p>
 ${metalButton(game ? `Back to ${game.title}` : "Find a game", { href: back, dataAttributes: { back: "" } })}
 ${raw(JOINED_SCRIPT)}
 <script>
