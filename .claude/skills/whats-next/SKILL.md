@@ -18,6 +18,8 @@ Julius uses this when Now is empty or he isn't sure what comes next. He shouldn'
 
 For each project whose rows all just turned `done`: does its "Done when" actually hold, and did the rows cover the goal, or is there an obvious gap? Only gaps that matter; a project isn't reopened for polish.
 
+A row is only checked off when it's done **and settled**. `node scripts/roadmap-item.mjs --unsettled` lists the done rows built without Julius's talk. Say how many there are and which ones matter most to settle first: the ones others build on, or ones that would cost the most to change later.
+
 ## 3. Does anything go before everything else?
 
 This is the main question. An item, or a short chain of items, goes first only when one of these is true:

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error: a plain JavaScript script without types
-import { findRow, firstBlockers, parseRoadmap, unknownNames } from "../../scripts/roadmap.mjs";
+import { findRow, firstBlockers, parseRoadmap, unknownNames, unsettledDoneRows } from "../../scripts/roadmap.mjs";
 
 /** docs/ROADMAP.md: Now's First and Next parts, and a project's First line, as scripts/roadmap-item.mjs reads them. */
 
@@ -78,6 +78,14 @@ describe("the roadmap's First markers", () => {
     expect(findRow(sample, "Friends list").isSettled).toBe(true);
     expect(findRow(sample, "Party chat").isSettled).toBe(false);
     expect(findRow(sample, "Pass shape").isSettled).toBe(false);
+  });
+
+  it("keeps Settled apart from status: a done row that isn't settled isn't checked off, except a person's task", () => {
+    const built = parseRoadmap(SAMPLE
+      .replace("| next | Must | yes | Friends list |", "| done | Must | yes | Friends list |")
+      .replace("| next | Must | | Party chat |", "| done | Must | | Party chat |")
+      .replace("| planned | Nice | | Emotes |", "| done | Nice | | Julius: buy emotes |"));
+    expect(unsettledDoneRows(built).map((row: { name: string }) => row.name)).toEqual(["Party chat"]);
   });
 
   it("gives every table with Must/Nice in docs/ROADMAP.md a Settled column holding yes or nothing", () => {

@@ -8,7 +8,9 @@ argument-hint: "[an item's exact name, a place in Now, or nothing to pick from w
 
 An item is **settled** when Julius and Claude have gone through what it is, its design and its scope, and he said so. Then it's built, merged and shipped without him. So this talk is where his judgment goes in, and it's the one place to slow down. Its job is not to invent ideas or list everything that could be better. It's to give him what he needs to decide, ask only what's his to decide, and write down what he decided where a future session will find it.
 
-The argument is `$ARGUMENTS`: an item's name or place in Now. Empty means: list the items in Now that aren't settled (`node scripts/roadmap-item.mjs --now`) and ask which one. Julius often opens with an open question rather than a name. Then find the item it's about, or say it isn't on the roadmap yet.
+The argument is `$ARGUMENTS`: an item's name or place in Now. Empty means: list the items in Now that aren't settled (`node scripts/roadmap-item.mjs --now`) and the done ones that aren't (`--unsettled`), and ask which one. Julius often opens with an open question rather than a name. Then find the item it's about, or say it isn't on the roadmap yet.
+
+Settled is apart from status. A **done** item that isn't settled was built without this talk, and it isn't checked off until he settles it. The talk is the same, but about what's live: what was built, which calls the building session made on its own (its pull request, the `docs/DECISIONS.md` lines it added), and whether each is what he wants.
 
 Don't build anything during the talk, and don't change a file until the close.
 
@@ -57,3 +59,4 @@ On his yes, in a worktree, write the docs as shown. Set the item's `Settled` cel
 
 - **Inside `build-next`** (the usual way, also under the coordinator): don't open a separate pull request. The docs go in with the build, in this worktree, and you go back to `build-next` and build. The pull request merges by the settled rule. Its decision lines are the exact words he said yes to; say so in its description.
 - **On its own** (he wanted to settle it but not build it now): `npm test` (the roadmap test checks names and the Settled column), then a pull request for Julius to merge, since it changes settled docs. Tell him in a line that it's ready to build: `/build-next <name>`, or the `/coordinator` picks it up with the rest of Now.
+- **A done item:** if he's happy with it as built, set its `Settled` to `yes`. If he wants changes, each change becomes a new row in the same project, settled, with the done row's name in its Needs, and the done row gets `yes` too: what it should be is now decided, and the rows carry the rest. When only `docs/ROADMAP.md` changes, push it straight to main and republish the roadmap page as `CLAUDE.md` says. Otherwise open a pull request for Julius.

@@ -60,6 +60,14 @@ export function parseRoadmap(text) {
 
 const sameName = (a, b) => a.toLowerCase() === b.toLowerCase();
 
+/** Rows a person does (named "Julius: …" or "Gleb: …") have no design to settle. */
+export const isPersonTask = (row) => /^(Julius|Gleb):/.test(row.name);
+
+/** Done rows that were built without being settled: not checked off until Julius settles them. */
+export function unsettledDoneRows(roadmap) {
+  return roadmap.rows.filter((row) => row.status === "done" && !row.isSettled && !isPersonTask(row));
+}
+
 /** The row with this exact name, or undefined. */
 export function findRow(roadmap, name) {
   return roadmap.rows.find((row) => sameName(row.name, name));

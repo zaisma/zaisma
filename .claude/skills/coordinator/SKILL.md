@@ -62,13 +62,15 @@ Never approve a preview or answer a design question on Julius's behalf.
 
 Each time a session finishes (its row is `done` on `origin/main` and its last ship said `SHIP PASS`), run step 1 again: an item that waited on it may be free now. Start any newly ready ones, unless the argument capped how many run at once.
 
+**Keep one talk ready.** Done items built without being settled aren't checked off (`node scripts/roadmap-item.mjs --unsettled`). Whenever no session is waiting for Julius to talk, start one for the next of those: a `start_session` as in step 2, with `/talk-through <the item's exact name>` as the prompt. Pick the one that matters most first: the ones other work builds on, or the ones that would cost the most to change later. Tell him it's there with its link. He takes it when he has time; nothing waits on it.
+
 ## 5. When Now runs dry
 
 Don't wait to be asked. Use the `whats-next` skill. It checks that the finished work is really done, looks for anything that has to go first, and proposes the next Now, saying which items are settled and which will start with a talk. Sessions still building carry on meanwhile.
 
 Setting Now is Julius's call, so ask him the one question the skill ends with. On his yes, do the skill's last step (Now and the statuses together, pushed straight to main, then republish the roadmap page as CLAUDE.md says), then go back to step 1 and start the new items.
 
-If he says no or wants changes, change the proposal and ask again. If he wants to stop, go to step 6.
+If he says no or wants changes, change the proposal and ask again. If he wants to stop, go to step 7.
 
 ## 6. Anything else Julius brings up
 
@@ -84,5 +86,6 @@ When Julius says to stop, or nothing is building and he has turned down a new No
 
 - What went live, with each pull request.
 - What's left and why: a talk still open, waiting on something, stuck.
+- How many done items still aren't settled.
 
 Each session republishes the roadmap page after its own push. This session republishes only after its own Now change.

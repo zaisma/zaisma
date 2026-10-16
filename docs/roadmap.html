@@ -116,6 +116,7 @@ li.open .needs.later, body.full .needs.later { display: block; }
 .tag { font: 500 12px var(--mono); padding: 1px 7px; border-radius: 5px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
 .tag.must { color: var(--fg); border-color: var(--fg); }
 .tag.settled { color: var(--next); border-color: var(--next); }
+.tag.unsettled { color: var(--doing); border-color: var(--doing); border-style: dashed; }
 .tag.julius { color: var(--julius); border-color: var(--julius); }
 .tag.gleb { color: var(--gleb); border-color: var(--gleb); }
 .needs { font-size: 13px; color: var(--muted); margin-top: 3px; }
@@ -309,7 +310,7 @@ function render() {
         return `<li id="${itemId(i.name)}" class="s-${esc(i.status)}${more ? " has-more" : ""}">
         <span class="status">${esc(i.status)}</span>
         <div>${more ? `<button class="name" type="button" aria-expanded="false">${md(i.name)}</button>` : `<div class="name">${md(i.name)}</div>`}${i.note ? `<div class="note">${md(i.note)}</div>` : ""}${needsHtml(i)}</div>
-        <div class="tags">${i.isSettled && i.status !== "done" ? '<span class="tag settled" title="Talked through with Julius: ready to build">Settled</span>' : ""}${i.owner ? `<span class="tag ${i.owner.toLowerCase()}">${i.owner}</span>` : ""}${i.must ? '<span class="tag must">Must</span>' : i.nice ? '<span class="tag">Nice</span>' : ""}</div>
+        <div class="tags">${i.owner ? "" : i.status === "done" ? (i.isSettled ? "" : '<span class="tag unsettled" title="Built without being talked through with Julius: not checked off until he settles it">Not settled</span>') : i.isSettled ? '<span class="tag settled" title="Talked through with Julius: ready to build">Settled</span>' : ""}${i.owner ? `<span class="tag ${i.owner.toLowerCase()}">${i.owner}</span>` : ""}${i.must ? '<span class="tag must">Must</span>' : i.nice ? '<span class="tag">Nice</span>' : ""}</div>
       </li>`;
       }).join("");
       const gid = g.title ? groupId(p, g) : "";
