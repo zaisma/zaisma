@@ -14,7 +14,7 @@ Who a player is came first: the pass, the player ID and the sign-in that saves, 
 2. Scoped API keys (Developer publishing)
 3. Game database import and export (Game servers and data)
 
-Waiting on people: Gleb: register with NCMEC, Gleb: register the DMCA agent, Julius: send PhotoDNA the LLC's records.
+Waiting on people: Gleb: register with NCMEC, Gleb: register the DMCA agent.
 
 ## How to read this
 
@@ -62,9 +62,9 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | done | Must | | Julius: alert and DMCA email delivery | | Fastmail whitelisted zaisma.com (Oct 14, 2026). support@, dmca@, privacy@, safety@, pdna_account@ and julius@ forward to Julius's Fastmail through Cloudflare Email Routing; site alerts send from alerts@ |
 | done | Must | | Gleb: sign up for Arachnid Shield | | Done Oct 14, 2026: the main image matcher, since PhotoDNA was declined. Free known-abuse-image matching from the Canadian Centre for Child Protection. Guide: [Safety sign-ups for Gleb](https://claude.ai/artifact/8hCVQPJaRzBcMgLiY3xNNU). |
 | done | Nice | | Julius: turn on Cloudflare's CSAM Scanning Tool | | On for both domains (Oct 14, 2026); matches alert safety@zaisma.com. A backstop only: it sees content served through Cloudflare's cache, after it's live, and the games Worker serves files from R2 without the cache |
-| next | Must | | Gleb: register with NCMEC | | Free; how platforms report child sexual abuse material, which US law requires. Contact email safety@zaisma.com. Guide: [Safety sign-ups for Gleb](https://claude.ai/artifact/8hCVQPJaRzBcMgLiY3xNNU). |
+| next | Must | | Gleb: register with NCMEC | | Free; how platforms report child sexual abuse material, which US law requires. Register at esp.ncmec.org/registration (questions: ESPteam@ncmec.org) with safety@zaisma.com. Guide: [Safety sign-ups for Gleb](https://claude.ai/artifact/8hCVQPJaRzBcMgLiY3xNNU). |
 | doing | Must | | Gleb: register the DMCA agent | | Waiting on the company's Twilio phone number. $6 at copyright.gov as Zaisma LLC, agent email dmca@zaisma.com; then the agent details go on zaisma.com/dmca; renews every 3 years. Guide: [Safety sign-ups for Gleb](https://claude.ai/artifact/8hCVQPJaRzBcMgLiY3xNNU). |
-| doing | Nice | | Julius: send PhotoDNA the LLC's records | Julius: form an LLC | Sent Oct 13, 2026; waiting on Microsoft. Julius replied on the same thread (pdnasup@microsoft.com) with Zaisma LLC's legal name, its Wyoming registration link and the articles of organization. If no answer by Oct 20, follow up on that thread. Arachnid Shield covers the beta until then |
+| done | Nice | | Julius: send PhotoDNA the LLC's records | Julius: form an LLC | Approved Oct 16, 2026. Sign in to the PhotoDNA Cloud Service console as pdna_account@zaisma.com for the API key and the Edge Hash SDK |
 | planned | Must | | Julius: Supabase Pro | | $25/month, switched on at launch; the free plan pauses |
 | planned | Nice | | Julius: Public Suffix List entry | | Needs 2+ years left on the registration and a `_psl` TXT record; the list may turn down projects without players, so apply after launch |
 
@@ -206,7 +206,8 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | Status | Must/Nice | Settled | Item | Needs | Notes |
 | --- | --- | --- | --- | --- | --- |
 | done | Must | yes | Connect image matching | Gleb: sign up for Arachnid Shield | Live Oct 14, 2026: every picture and video in an upload (by name, by its first bytes, or as base64 in code), plus covers and screenshots, matched with Arachnid Shield before publishing; a match holds the version, keeps every file and sends an urgent alert; a daily job matches versions that passed before |
-| planned | Must | | Report matches to NCMEC automatically | Connect image matching, Gleb: register with NCMEC | Until then Julius reports matches at report.cybertip.org. PhotoDNA joins the matching once the LLC's records go through |
+| planned | Nice | | Add PhotoDNA to image matching | Connect image matching, Julius: send PhotoDNA the LLC's records | Microsoft's matcher alongside Arachnid Shield. It takes Edge Hashes made with Microsoft's SDK (it has a WebAssembly module), up to 5 per request; the SDK's license decides whether it can sit in the public repo. Julius copies the API key from the PhotoDNA console into Cloudflare |
+| planned | Must | | Report matches to NCMEC automatically | Connect image matching, Gleb: register with NCMEC | Until then Julius reports matches at report.cybertip.org. Microsoft recommends reporting through NCMEC's own API rather than PhotoDNA's |
 | done | Must | | Player safety in rooms | Client SDK | Mute, block and report a player; a ready-made panel games put in their own menu |
 | done | Must | yes | Report redesign |  | Live Oct 12, 2026: a plate beside the running game; reports carry the version, room, reported player and an optional picture. No single report takes an established game offline |
 | done | Must | yes | AI report triage | Report redesign | Live Oct 12, 2026: reports sorted within minutes by severity, merged and summarized with a recommendation; bugs go to the developer by themselves. Child-safety reports are never sorted by AI |
