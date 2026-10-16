@@ -4,7 +4,7 @@ The live plan of what gets built, in what order. `docs/DECISIONS.md` says *how* 
 
 ## Now
 
-Nothing is lined up: Julius picks what's built next. Nothing for an AI to guess is done (Oct 16, 2026), so the codebase's names, errors and holds are what new code builds on, and every pull request checks them. Waiting on people: Gleb: register with NCMEC, Gleb: register the DMCA agent, Julius: send PhotoDNA the LLC's records.
+Nothing is lined up: Julius picks what's built next. Nothing for an AI to guess is done (Oct 16, 2026) but for CLI closed flags and JSON output, being built, so the codebase's names, errors and holds are what new code builds on, and every pull request checks them. Waiting on people: Gleb: register with NCMEC, Gleb: register the DMCA agent, Julius: send PhotoDNA the LLC's records.
 
 ## How to read this
 
@@ -73,6 +73,7 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | done | Must | Checks on every pull request | | Live Oct 16, 2026 (#149): tests and typecheck run by themselves on every pull request and push to main (`.github/workflows/check.yml`), so the naming, schema, error-code and ID checks hold without anyone remembering them; `npm run ship` stops when main's check failed |
 | done | Must | SDK types | Names: SDK and game server | Live Oct 16, 2026 (#151): the SDK's one reference is its types (`packages/sdk/zaisma.d.ts`, served beside it as `_zaisma/v1.d.ts`): every call, option, event and error code. A test holds them to what the SDK takes and hands out, the example games type-check against them, and the naming check reads them and the packages' JavaScript |
 | done | Must | SDK error codes | SDK types | Live Oct 16, 2026 (#152): every error the SDK throws has an `error.code` from `ErrorCode` in `zaisma.d.ts`, so a game's AI branches on codes instead of messages; a test holds every code to the list |
+| doing | Must | CLI closed flags and JSON output | | The upload command's outward side: `zaisma show` is `zaisma visibility`, each command refuses flags and choices it doesn't take, `--json` prints the API's answers and errors as-is, exit codes tell done, failed, a wrong command, held, rejected and still scanning apart, and `--scheduled-publish-at` takes only ISO times with a zone |
 
 ### Developer publishing
 

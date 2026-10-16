@@ -389,7 +389,7 @@ Where developers and their AI talk with the people who build Zaisma, and with ea
 
 ## Uploading versions
 
-The `zaisma` command ([`@zaisma/cli` on npm](https://www.npmjs.com/package/@zaisma/cli), source in `packages/cli`) does all of this for you: `npx @zaisma/cli upload ./build --game sky-hopper`.
+The `zaisma` command ([`@zaisma/cli` on npm](https://www.npmjs.com/package/@zaisma/cli), source in `packages/cli`) does all of this for you: `npx @zaisma/cli upload ./build --game sky-hopper` (see The upload command, below).
 
 Files are stored once, by their SHA-256, and shared by every version that has them, so an update only sends what changed.
 
@@ -417,3 +417,51 @@ Files over 95 MB are sent in parts, 50 MB each (the last can be smaller):
 3. `POST /files/:sha256/parts/done` with `{"upload_id", "parts": [{"part_number", "etag"}]}`.
 
 Storage can't check the hash of a file sent in parts, so it's kept for your own games only: another developer with the same file sends their own copy. The scan reads it like any other file.
+
+## The upload command
+
+`zaisma` ([`@zaisma/cli`](https://www.npmjs.com/package/@zaisma/cli), source `packages/cli/zaisma.mjs`) runs these calls from a terminal or CI: `npx @zaisma/cli <command>`, with `ZAISMA_KEY` set to an API key. `zaisma help` lists every command; `zaisma help --json` gives the same as JSON: each command's arguments and flags (with `has_value`, `is_required` and `choices`), the exit codes and the error codes below.
+
+| Command | What it does | Call |
+| --- | --- | --- |
+| `zaisma games` | Your games | `GET /games` |
+| `zaisma new <title> [--slug <slug>]` | Make a game (a draft) | `POST /games` |
+| `zaisma upload <folder> --game <slug> [--patch-notes "…"] [--publish-when-approved]` | Upload a version, sending only new files, and wait for its scan | Uploading versions, above |
+| `zaisma versions <slug>` | The game and its versions, with preview links | `GET /games/:slug` |
+| `zaisma publish <slug> <version_id> [--scheduled-publish-at <time>]` | Publish, roll back, or publish later | `POST /games/:slug/versions/:id/publish` |
+| `zaisma unschedule <slug> <version_id>` | Cancel a publish-later | `DELETE /games/:slug/versions/:id/publish` |
+| `zaisma visibility <slug> listed\|unlisted\|private\|draft` | Who can see the game | `PATCH /games/:slug` |
+| `zaisma forum [<topic_id>] [--search "words"]` | Your topics and messages, one topic, or a search | `GET /forum`, `GET /forum/:id` |
+| `zaisma forum post --kind … --title "…" --category … [--text "…"] [--by-me]` | A public topic | `POST /forum` |
+| `zaisma forum message --kind … --title "…" [--text "…"] [--category …] [--game <slug>] [--by-me]` | A private message to Zaisma | `POST /forum` with `"is_public": false` |
+| `zaisma forum reply <topic_id> [--text "…"] [--reopen] [--by-me]` | A reply | `POST /forum/:id/posts` |
+
+- **Closed, like the API.** A command takes only its own flags and arguments: anything else is refused before anything is sent, with the flags it does take. Choices (`visibility`, `--kind`, `--category`) are checked first too, with the valid list. A flag that takes a value takes it as `--flag value` or `--flag=value`. Renamed commands and flags say their new name (`zaisma show` is now `zaisma visibility`; `--notes`, `--publish` and `--at` are `--patch-notes`, `--publish-when-approved` and `--scheduled-publish-at`).
+- **`--json` on every command** prints the API's answer as-is, compact, and nothing else on stdout: the same data the MCP gets. On failure it prints the API's `{ "error": { code, message, field, fix, retry_after_sec } }`, or the same shape for the command's own errors (below), where `field` is the flag (`--game`) or argument (`slug`) at fault. `upload --json` prints the version's last answer (`GET /games/:slug/versions/:id`) and sends its progress to stderr; `forum --json` with no topic or search prints both tabs' answers, as `{ "yours": …, "messages": … }`. Without `--json`, the command prints lines for people, and errors go to stderr as `zaisma: <message> <fix> (<code>)`.
+- **`--scheduled-publish-at`** takes the API's times: ISO 8601 with `Z` or an offset (`2026-11-01T17:00:00Z`, `2026-11-01T17:00+01:00`), nothing else. A time without a zone, like `2026-11-01 17:00`, is refused with the same time and this computer's offset written out, so a script on a server in another time zone never publishes at the wrong hour.
+- `--text` can be piped in instead; `--by-me` marks a post as yours, otherwise it says your AI wrote it.
+
+Exit codes, the same for every command:
+
+| Exit code | Name | Means |
+| --- | --- | --- |
+| 0 | `done` | Done. For upload: the version passed the scan. |
+| 1 | `failed` | It didn't work: Zaisma refused the call or couldn't be reached. The error says why and what to do. |
+| 2 | `wrong_command` | The command line is wrong (an unknown command, flag or choice, or a missing argument), so nothing was sent. |
+| 3 | `held` | upload: the version is held for a person at Zaisma to look at, usually within a day. |
+| 4 | `rejected` | upload: the version was rejected. Its review_reason and findings say why and how to fix it. |
+| 5 | `still_scanning` | upload: the version was still being scanned after 10 minutes. Check it later with zaisma versions <slug>. |
+
+Errors only the command answers with, beside the API's own codes (it also uses `unknown_field`, `missing_field`, `no_key`, `internal_error` and the `bad_<field>` codes of the choices it checks):
+
+| Code | Means |
+| --- | --- |
+| `unknown_command` | There's no command by that name. |
+| `renamed_command` | The command has a new name; the error names it. |
+| `renamed_field` | The flag has a new name; the error names it. |
+| `repeated_field` | A flag was given twice. |
+| `missing_value` | A flag that takes a value was given none. |
+| `takes_no_value` | A flag that takes no value was given one. |
+| `not_a_folder` | The folder to upload isn't a folder. |
+| `server_unreachable` | Zaisma couldn't be reached: no connection, or a wrong ZAISMA_API. |
+| `unexpected_answer` | Zaisma answered without JSON, like a page from a network in between. |

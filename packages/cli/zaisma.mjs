@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // The Zaisma upload command. No dependencies; Node 18 or newer.
-// Docs: https://github.com/zaisma/zaisma/blob/main/docs/DEVELOPER-API.md
+// Docs: https://github.com/zaisma/zaisma/blob/main/docs/DEVELOPER-API.md#the-upload-command
 
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
@@ -12,60 +12,288 @@ const KEY = process.env.ZAISMA_KEY || "";
 /** Files bigger than this go in parts; the server says how big each part is. */
 const DIRECT_BYTES = 95 * 1024 * 1024;
 const JUNK = new Set([".DS_Store", "Thumbs.db", "desktop.ini", "__MACOSX", ".git", "node_modules"]);
+/** How long upload waits for the scan (200 checks, 3 seconds apart) before it says it's still scanning. ZAISMA_SCAN_CHECK_INTERVAL_MS is for tests. */
+const SCAN_CHECK_INTERVAL_MS = Number(process.env.ZAISMA_SCAN_CHECK_INTERVAL_MS) || 3000;
+const SCAN_CHECK_COUNT = 200;
 
-const HELP = `Usage:
-  zaisma games                              List your games
-  zaisma new <title> [--slug link-name]     Make a game (it starts as a draft)
-  zaisma upload <folder> --game <slug>      Upload a version; only changed files are sent
-        [--patch-notes "What changed"]      Patch notes, shown with the update
-        [--publish-when-approved]           Go live as soon as it passes review
-  zaisma versions <slug>                    List versions and preview links
-  zaisma publish <slug> <version>           Publish a draft, or roll back to an older version
-        [--scheduled-publish-at "2026-11-01 17:00"]  Publish later, at this time (your computer's time zone)
-  zaisma unschedule <slug> <version>        Cancel a publish-later
-  zaisma show <slug> [--visibility listed|unlisted|private|draft]
-  zaisma forum [--search "words"]          Your forum topics and messages to Zaisma, or search the forum
-  zaisma forum <topic id>                   A topic with every post you can see
-  zaisma forum post --kind bug|gap|feature|question|talk --title "…" --category <category> --text "…"
-                                            Start a public topic in the developer forum
-  zaisma forum message --kind bug|gap|feature|question --title "…" --text "…" [--category <category>] [--game <slug>]
-                                            A private message: only you and Zaisma see it
-  zaisma forum reply <topic id> --text "…" [--reopen]
-                                            Reply, or reopen your topic when something fixed is back
-        [--by-me]                           Mark a post as written by you; otherwise it says your AI wrote it
-  Categories: publishing, scans, pages, rooms, servers, passes, sdk, saves, stats, mcp, api, cli,
-  accounts, dashboard, reports, rules, docs, other. Markdown works in --text, or pipe the text in.
+/** The choices the API takes, checked before anything is sent (test/node/cli.test.ts holds them to the API's lists). */
+const VISIBILITIES = ["listed", "unlisted", "private", "draft"];
+const TOPIC_KINDS = ["bug", "gap", "feature", "question", "talk"];
+const MESSAGE_KINDS = ["bug", "gap", "feature", "question"];
+const FORUM_CATEGORIES = ["publishing", "scans", "pages", "rooms", "servers", "passes", "sdk", "saves", "stats", "mcp", "api", "cli", "accounts", "dashboard", "reports", "rules", "docs", "other"];
 
-Set ZAISMA_KEY to an API key from https://zaisma.com/account (under Game developers).
-Without installing: npx @zaisma/cli <command>. Installed (npm i -g @zaisma/cli): zaisma <command>.`;
+/** What the command ends with, the same for every command, so scripts and CI can tell the outcomes apart. */
+const EXIT_CODES = {
+  done: { exitCode: 0, meaning: "Done. For upload: the version passed the scan." },
+  failed: { exitCode: 1, meaning: "It didn't work: Zaisma refused the call or couldn't be reached. The error says why and what to do." },
+  wrong_command: { exitCode: 2, meaning: "The command line is wrong (an unknown command, flag or choice, or a missing argument), so nothing was sent." },
+  held: { exitCode: 3, meaning: "upload: the version is held for a person at Zaisma to look at, usually within a day." },
+  rejected: { exitCode: 4, meaning: "upload: the version was rejected. Its review_reason and findings say why and how to fix it." },
+  still_scanning: { exitCode: 5, meaning: "upload: the version was still being scanned after 10 minutes. Check it later with zaisma versions <slug>." },
+};
 
-function fail(message) {
-  console.error(`zaisma: ${message}`);
-  process.exit(1);
+/** The errors only the command itself answers with; every other code is the API's (ERROR_CODES in packages/core/src/errors.ts). */
+const COMMAND_ERROR_CODES = {
+  unknown_command: "There's no command by that name.",
+  renamed_command: "The command has a new name; the error names it.",
+  renamed_field: "The flag has a new name; the error names it.",
+  repeated_field: "A flag was given twice.",
+  missing_value: "A flag that takes a value was given none.",
+  takes_no_value: "A flag that takes no value was given one.",
+  not_a_folder: "The folder to upload isn't a folder.",
+  server_unreachable: "Zaisma couldn't be reached: no connection, or a wrong ZAISMA_API.",
+  unexpected_answer: "Zaisma answered without JSON, like a page from a network in between.",
+};
+
+const BY_ME = { hasValue: false, about: "Mark it as written by you; otherwise it says your AI wrote it" };
+const TEXT = { hasValue: true, placeholder: '"…"', about: "The text, in markdown; or pipe it in" };
+const KIND_ABOUT = "bug (something doesn't work), gap (a limit or missing piece blocks you), feature (an idea), question";
+
+/**
+ * Every command, with the arguments and flags it takes. Nothing else is taken: an unknown flag, a
+ * choice that isn't one, or an argument too many is refused before anything is sent.
+ */
+const COMMANDS = {
+  games: { about: "List your games", arguments: [], flags: {} },
+  new: { about: "Make a game (it starts as a draft)", arguments: [{ name: "title", isRest: true }], flags: { slug: { hasValue: true, placeholder: "<slug>", about: "Its link name, as in zaisma.com/g/<slug>; made from the title if left out" } } },
+  upload: {
+    about: "Upload a version; only changed files are sent",
+    arguments: [{ name: "folder" }],
+    flags: {
+      game: { hasValue: true, isRequired: true, placeholder: "<slug>", about: "The game to upload to" },
+      "patch-notes": { hasValue: true, placeholder: '"…"', about: "What changed, shown with the update" },
+      "publish-when-approved": { hasValue: false, about: "Go live as soon as it passes review" },
+    },
+  },
+  versions: { about: "List a game's versions and preview links", arguments: [{ name: "slug" }], flags: {} },
+  publish: {
+    about: "Publish a version that passed, or roll back to an older one",
+    arguments: [{ name: "slug" }, { name: "version_id" }],
+    flags: { "scheduled-publish-at": { hasValue: true, placeholder: "<time>", about: 'Publish later instead: an ISO 8601 time with Z or an offset, like "2026-11-01T17:00:00Z" or "2026-11-01T17:00+01:00"' } },
+  },
+  unschedule: { about: "Cancel a publish-later", arguments: [{ name: "slug" }, { name: "version_id" }], flags: {} },
+  visibility: { about: "Set who can see a game: everyone (listed), people with the link (unlisted), or only you and tester links (private, draft)", arguments: [{ name: "slug" }, { name: "visibility", choices: VISIBILITIES }], flags: {} },
+  forum: {
+    about: "Your forum topics and messages to Zaisma; one topic with every post you can see; or a search",
+    arguments: [{ name: "topic_id", isOptional: true }],
+    flags: { search: { hasValue: true, placeholder: '"words"', about: "Search the forum's topics, answers and known issues" } },
+  },
+  "forum post": {
+    about: "Start a public topic in the developer forum",
+    arguments: [],
+    flags: {
+      kind: { hasValue: true, isRequired: true, choices: TOPIC_KINDS, about: `${KIND_ABOUT} or talk (a discussion)` },
+      title: { hasValue: true, isRequired: true, placeholder: '"…"', about: "The topic's title" },
+      category: { hasValue: true, isRequired: true, choices: FORUM_CATEGORIES, placeholder: "<category>", about: "Where in Zaisma it belongs (the categories are below)" },
+      text: TEXT,
+      "by-me": BY_ME,
+    },
+  },
+  "forum message": {
+    about: "A private message to Zaisma: only you and Zaisma see it",
+    arguments: [],
+    flags: {
+      kind: { hasValue: true, isRequired: true, choices: MESSAGE_KINDS, about: KIND_ABOUT },
+      title: { hasValue: true, isRequired: true, placeholder: '"…"', about: "The message's title" },
+      text: TEXT,
+      category: { hasValue: true, choices: FORUM_CATEGORIES, placeholder: "<category>", about: "Where in Zaisma it belongs (the categories are below)" },
+      game: { hasValue: true, placeholder: "<slug>", about: "The game it's about" },
+      "by-me": BY_ME,
+    },
+  },
+  "forum reply": {
+    about: "Reply to a topic, or reopen yours when something fixed is back",
+    arguments: [{ name: "topic_id" }],
+    flags: { text: TEXT, reopen: { hasValue: false, about: "Reopen your topic: something fixed is back" }, "by-me": BY_ME },
+  },
+  help: { about: "This help; with --json, every command, flag, exit code and error code", arguments: [], flags: {} },
+};
+/** Flags every command takes. */
+const GLOBAL_FLAGS = {
+  json: { hasValue: false, about: "Print the API's answer as JSON, as-is (on failure its { error }), and nothing else" },
+  help: { hasValue: false, about: "This help" },
+};
+/** Commands and flags renamed (docs/NAMING.md): said out loud, so an old one isn't quietly taken for something else. */
+const RENAMED_COMMANDS = {
+  show: { command: "visibility", fix: (words) => `Run: zaisma visibility ${words[0] ?? "<slug>"} ${words.find((word, i) => words[i - 1] === "--visibility") ?? VISIBILITIES.join("|")}` },
+  feedback: { command: "forum", fix: () => "zaisma forum lists your topics; zaisma forum message sends Zaisma a private message." },
+};
+const RENAMED_FLAGS = { notes: "patch-notes", publish: "publish-when-approved", at: "scheduled-publish-at" };
+
+/** A failure in the API's error shape (docs/NAMING.md, Errors), with the exit code it ends with. */
+class CommandError extends Error {
+  constructor(error, exitCode) {
+    super(error.message);
+    this.error = error;
+    this.exitCode = exitCode;
+  }
 }
 
-function parseFlags(argv) {
-  const out = { _: [] };
-  for (let i = 0; i < argv.length; i++) {
-    const argument = argv[i];
-    if (argument.startsWith("--")) {
-      const next = argv[i + 1];
-      if (next === undefined || next.startsWith("--")) out[argument.slice(2)] = true;
-      else out[argument.slice(2)] = argv[++i];
-    } else out._.push(argument);
+function refuse(code, { message, field = null, fix, retryAfterSec = null }, exit = EXIT_CODES.wrong_command) {
+  throw new CommandError({ code, message, field, fix, retry_after_sec: retryAfterSec }, exit.exitCode);
+}
+
+let isJson = false;
+/** A line for people. With --json, stdout holds only the JSON, so progress goes to stderr. */
+const say = (line) => (isJson ? console.error(line) : console.log(line));
+const printJson = (answer) => console.log(JSON.stringify(answer));
+/** --json: the API's answer as-is, compact (docs/NAMING.md, Outputs). */
+const printAnswer = (answer) => {
+  printJson(answer);
+  return EXIT_CODES.done;
+};
+
+const flagList = (names) => names.map((name) => `--${name}`).join(", ");
+const usage = (command) => {
+  const { arguments: commandArguments, flags } = COMMANDS[command];
+  const argumentWords = commandArguments.map((argument) => (argument.choices ? argument.choices.join("|") : argument.isOptional ? `[<${argument.name}>]` : `<${argument.name}>`));
+  const flagWords = Object.entries(flags).map(([name, flag]) => {
+    const word = `--${name}${flag.hasValue ? ` ${flag.placeholder ?? flag.choices.join("|")}` : ""}`;
+    return flag.isRequired ? word : `[${word}]`;
+  });
+  return ["zaisma", command, ...argumentWords, ...flagWords].join(" ");
+};
+
+/** How far apart two words are, in letters, to suggest the flag that was meant. */
+function editDistance(first, second) {
+  let previous = Array.from({ length: second.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= first.length; i++) {
+    const current = [i];
+    for (let secondIndex = 1; secondIndex <= second.length; secondIndex++) {
+      current[secondIndex] = Math.min(previous[secondIndex] + 1, current[secondIndex - 1] + 1, previous[secondIndex - 1] + (first[i - 1] === second[secondIndex - 1] ? 0 : 1));
+    }
+    previous = current;
   }
-  return out;
+  return previous[second.length];
+}
+
+/** The command, its arguments by name and its flags, or a refusal saying exactly what's wrong. */
+function parseCommandLine(argv) {
+  const words = [];
+  const globalFlags = { json: false, help: false };
+  for (const word of argv) {
+    if (word === "--json") globalFlags.json = true;
+    else if (word === "--help" || word === "-h") globalFlags.help = true;
+    else words.push(word);
+  }
+  isJson = globalFlags.json;
+  if (!words.length || words[0] === "help") return { command: "help", values: {}, flags: {}, globalFlags, rest: words.slice(1) };
+  const isForumSubcommand = words[0] === "forum" && ["post", "message", "reply"].includes(words[1]);
+  const command = isForumSubcommand ? `forum ${words[1]}` : words[0];
+  const rest = words.slice(isForumSubcommand ? 2 : 1);
+  if (RENAMED_COMMANDS[command]) {
+    const renamed = RENAMED_COMMANDS[command];
+    refuse("renamed_command", { message: `zaisma ${command} is now zaisma ${renamed.command}.`, fix: renamed.fix(rest) });
+  }
+  const spec = COMMANDS[command];
+  if (!spec) refuse("unknown_command", { message: `There's no command "${command}".`, fix: `Run zaisma help. The commands: ${Object.keys(COMMANDS).join(", ")}.` });
+  if (globalFlags.help) return { command, values: {}, flags: {}, globalFlags, rest };
+
+  const takenFlags = { ...spec.flags, ...GLOBAL_FLAGS };
+  const takesText = `zaisma ${command} takes ${Object.keys(spec.flags).length ? `${flagList(Object.keys(spec.flags))} and ` : "only "}--json.`;
+  const positionals = [];
+  const flags = {};
+  for (let i = 0; i < rest.length; i++) {
+    const word = rest[i];
+    if (!word.startsWith("-") || word === "-") {
+      positionals.push(word);
+      continue;
+    }
+    const equalsAt = word.startsWith("--") ? word.indexOf("=") : -1;
+    const written = equalsAt === -1 ? word : word.slice(0, equalsAt);
+    const inlineValue = equalsAt === -1 ? undefined : word.slice(equalsAt + 1);
+    const name = written.replace(/^--?/, "");
+    if (RENAMED_FLAGS[name]) refuse("renamed_field", { message: `--${name} is now --${RENAMED_FLAGS[name]}.`, field: written, fix: `Write --${RENAMED_FLAGS[name]} instead.` });
+    const flag = written.startsWith("--") ? spec.flags[name] : undefined;
+    if (!flag) {
+      const meant = Object.keys(takenFlags).find((candidate) => editDistance(candidate, name) <= 2);
+      refuse("unknown_field", { message: `zaisma ${command} doesn't take ${written}.`, field: written, fix: `${meant ? `Did you mean --${meant}? ` : ""}${takesText}` });
+    }
+    if (name in flags) refuse("repeated_field", { message: `${written} is given twice.`, field: written, fix: `Give ${written} once.` });
+    if (!flag.hasValue) {
+      if (inlineValue !== undefined) refuse("takes_no_value", { message: `${written} takes no value.`, field: written, fix: `Write ${written} on its own to switch it on, or leave it out.` });
+      flags[name] = true;
+      continue;
+    }
+    const flagValue = inlineValue ?? (rest[i + 1] !== undefined && !rest[i + 1].startsWith("--") ? rest[++i] : undefined);
+    if (flagValue === undefined || flagValue === "") refuse("missing_value", { message: `${written} needs a value.`, field: written, fix: `Give it one: ${usage(command)}` });
+    if (flag.choices && !flag.choices.includes(flagValue)) refuse(`bad_${name.replaceAll("-", "_")}`, { message: `${written} ${JSON.stringify(flagValue)} isn't one of the choices.`, field: written, fix: `Give one of: ${flag.choices.join(", ")}.` });
+    flags[name] = flagValue;
+  }
+
+  const values = {};
+  spec.arguments.forEach((argument, i) => {
+    const argumentValue = argument.isRest ? positionals.slice(i).join(" ") : positionals[i];
+    if (!argumentValue) {
+      if (!argument.isOptional) refuse("missing_field", { message: `zaisma ${command} needs the ${argument.choices ? argument.name : `<${argument.name}>`}.`, field: argument.name, fix: `Run it as: ${usage(command)}` });
+      return;
+    }
+    if (argument.choices && !argument.choices.includes(argumentValue)) refuse(`bad_${argument.name}`, { message: `${argument.name} ${JSON.stringify(argumentValue)} isn't one of the choices.`, field: argument.name, fix: `Give one of: ${argument.choices.join(", ")}.` });
+    values[argument.name] = argumentValue;
+  });
+  const takenArgumentCount = spec.arguments.some((argument) => argument.isRest) ? positionals.length : spec.arguments.length;
+  if (positionals.length > takenArgumentCount) {
+    refuse("unknown_field", { message: `zaisma ${command} takes ${takenArgumentCount || "no"} argument${takenArgumentCount === 1 ? "" : "s"}; "${positionals[takenArgumentCount]}" is one too many.`, fix: `Run it as: ${usage(command)} (put a value with spaces in quotes).` });
+  }
+  for (const [name, flag] of Object.entries(spec.flags)) {
+    if (flag.isRequired && !(name in flags)) refuse("missing_field", { message: `zaisma ${command} needs --${name}.`, field: `--${name}`, fix: `Run it as: ${usage(command)}` });
+  }
+  return { command, values, flags, globalFlags, rest };
+}
+
+function helpText() {
+  const lines = ["Usage:"];
+  for (const command of Object.keys(COMMANDS)) {
+    const { about, flags } = COMMANDS[command];
+    lines.push(`  ${usage(command)}`, `      ${about}.`);
+    for (const [name, flag] of Object.entries(flags)) lines.push(`      --${name}: ${flag.about}.`);
+  }
+  lines.push(
+    "",
+    "Every command takes --json: it prints the API's answer as-is (on failure, its { error }) and nothing else.",
+    "Categories: " + FORUM_CATEGORIES.join(", ") + ".",
+    "",
+    "Exit codes:",
+    ...Object.values(EXIT_CODES).map((exit) => `  ${exit.exitCode}  ${exit.meaning}`),
+    "",
+    "Set ZAISMA_KEY to an API key from https://zaisma.com/account (under Game developers).",
+    "Without installing: npx @zaisma/cli <command>. Installed (npm i -g @zaisma/cli): zaisma <command>.",
+  );
+  return lines.join("\n");
+}
+
+/** help --json: the commands, flags, exit codes and the command's own error codes, for an AI to read instead of the help. */
+function helpAnswer() {
+  const flagAnswer = ([name, flag]) => ({ flag: `--${name}`, has_value: flag.hasValue, is_required: Boolean(flag.isRequired), choices: flag.choices ?? null, about: flag.about });
+  return {
+    commands: Object.entries(COMMANDS).map(([command, spec]) => ({
+      command,
+      usage: usage(command),
+      about: spec.about,
+      arguments: spec.arguments.map((argument) => ({ name: argument.name, is_required: !argument.isOptional, is_rest: Boolean(argument.isRest), choices: argument.choices ?? null })),
+      flags: Object.entries(spec.flags).map(flagAnswer),
+    })),
+    global_flags: Object.entries(GLOBAL_FLAGS).map(flagAnswer),
+    exit_codes: Object.entries(EXIT_CODES).map(([name, exit]) => ({ exit_code: exit.exitCode, name, meaning: exit.meaning })),
+    error_codes: Object.entries(COMMAND_ERROR_CODES).map(([code, meaning]) => ({ code, meaning })),
+  };
 }
 
 async function api(method, path, body) {
-  if (!KEY) fail("set ZAISMA_KEY to an API key from https://zaisma.com/account first.");
-  const response = await fetch(`${API}/api/dev${path}`, {
-    method,
-    headers: { authorization: `Bearer ${KEY}`, "x-zaisma-client": "cli", ...(body && !(body instanceof Uint8Array) ? { "content-type": "application/json" } : {}) },
-    body: body instanceof Uint8Array ? body : body ? JSON.stringify(body) : undefined,
-  });
-  const answer = await response.json().catch(() => ({}));
-  if (!response.ok) fail(answer.error ? `${answer.error.message} ${answer.error.fix} (${answer.error.code})` : `the server answered ${response.status}.`);
+  if (!KEY) refuse("no_key", { message: "ZAISMA_KEY isn't set.", field: "ZAISMA_KEY", fix: "Make an API key at https://zaisma.com/account (under Game developers) and set it: export ZAISMA_KEY=zsk_…" }, EXIT_CODES.failed);
+  let response;
+  try {
+    response = await fetch(`${API}/api/dev${path}`, {
+      method,
+      headers: { authorization: `Bearer ${KEY}`, "x-zaisma-client": "cli", ...(body && !(body instanceof Uint8Array) ? { "content-type": "application/json" } : {}) },
+      body: body instanceof Uint8Array ? body : body ? JSON.stringify(body) : undefined,
+    });
+  } catch (error) {
+    refuse("server_unreachable", { message: `Couldn't reach ${API}: ${error.cause?.message ?? error.message}.`, field: process.env.ZAISMA_API ? "ZAISMA_API" : null, fix: "Check the internet connection (and ZAISMA_API, if it's set), then run it again." }, EXIT_CODES.failed);
+  }
+  const answer = await response.json().catch(() => null);
+  if (answer?.error) throw new CommandError(answer.error, EXIT_CODES.failed.exitCode);
+  if (!response.ok || !answer) refuse("unexpected_answer", { message: `Zaisma answered ${response.status} without JSON.`, fix: "Run it again in a minute. If it keeps happening, tell Zaisma: zaisma forum message --kind bug --category cli.", retryAfterSec: 60 }, EXIT_CODES.failed);
   return answer;
 }
 
@@ -85,7 +313,7 @@ async function walk(root) {
     }
   }
   await visit(root);
-  if (skipped.size) console.log(`Skipping hidden files: ${[...skipped].slice(0, 5).join(", ")}${skipped.size > 5 ? "…" : ""}`);
+  if (skipped.size) say(`Skipping hidden files: ${[...skipped].slice(0, 5).join(", ")}${skipped.size > 5 ? "…" : ""}`);
   return files;
 }
 
@@ -117,14 +345,16 @@ async function sendInParts(file, progress) {
 
 const readableSize = (sizeBytes) => (sizeBytes >= 1048576 ? `${(sizeBytes / 1048576).toFixed(1)} MB` : `${Math.ceil(sizeBytes / 1024)} KB`);
 const sleep = (durationMs) => new Promise((resolve) => setTimeout(resolve, durationMs));
+/** A running count of what's sent, for people watching; left out with --json, where stdout is only the answer. */
+const showProgress = (text) => isJson || process.stdout.write(`\r  ${text}   `);
 
-async function upload(folder, flags) {
+/** Uploads a version and waits for its scan. With --json, prints the last version answer as-is; the exit code says how the scan went. */
+async function upload({ folder }, flags) {
   const slug = flags.game;
-  if (!folder || typeof slug !== "string") fail("usage: zaisma upload <folder> --game <slug>");
-  if (!(await stat(folder).catch(() => null))?.isDirectory()) fail(`${folder} isn't a folder.`);
+  if (!(await stat(folder).catch(() => null))?.isDirectory()) refuse("not_a_folder", { message: `${folder} isn't a folder.`, field: "folder", fix: "Give the folder with the game's index.html at the top, like ./build." });
 
   const paths = await walk(folder);
-  console.log(`Checking ${paths.length} files…`);
+  say(`Checking ${paths.length} files…`);
   const files = [];
   for (const full of paths) {
     files.push({ path: relative(folder, full).split(sep).join("/"), sha256: await sha256(full), size_bytes: (await stat(full)).size, full });
@@ -133,43 +363,50 @@ async function upload(folder, flags) {
   const plan = await api("POST", `/games/${slug}/uploads`, { files: list });
   const todo = files.filter((file, i) => plan.missing_file_hashes.includes(file.sha256) && files.findIndex((other) => other.sha256 === file.sha256) === i);
   const totalBytes = todo.reduce((sumBytes, file) => sumBytes + file.size_bytes, 0);
-  console.log(todo.length ? `Sending ${todo.length} new or changed files (${readableSize(totalBytes)})…` : "Nothing changed since your last upload; making a version from the stored files.");
+  say(todo.length ? `Sending ${todo.length} new or changed files (${readableSize(totalBytes)})…` : "Nothing changed since your last upload; making a version from the stored files.");
 
   let sentBytes = 0;
   const queue = [...todo];
   await Promise.all(
     Array.from({ length: 4 }, async () => {
       for (let file = queue.shift(); file; file = queue.shift()) {
-        if (file.size_bytes > DIRECT_BYTES) await sendInParts(file, (partSentBytes) => process.stdout.write(`\r  ${readableSize(sentBytes + partSentBytes)} of ${readableSize(totalBytes)}   `));
+        if (file.size_bytes > DIRECT_BYTES) await sendInParts(file, (partSentBytes) => showProgress(`${readableSize(sentBytes + partSentBytes)} of ${readableSize(totalBytes)}`));
         else await api("PUT", `/files/${file.sha256}`, new Uint8Array(await readFile(file.full)));
         sentBytes += file.size_bytes;
-        process.stdout.write(`\r  ${readableSize(sentBytes)} of ${readableSize(totalBytes)}   `);
+        showProgress(`${readableSize(sentBytes)} of ${readableSize(totalBytes)}`);
       }
     }),
   );
-  if (todo.length) process.stdout.write("\n");
+  if (todo.length && !isJson) process.stdout.write("\n");
 
-  const { version } = await api("POST", `/games/${slug}/versions`, { files: list, patch_notes: typeof flags["patch-notes"] === "string" ? flags["patch-notes"] : "", publish_when_approved: flags["publish-when-approved"] === true });
-  console.log(`Version ${version.id} is being scanned. This usually takes under a minute…`);
+  let answer = await api("POST", `/games/${slug}/versions`, { files: list, patch_notes: flags["patch-notes"] ?? "", publish_when_approved: flags["publish-when-approved"] === true });
+  const versionId = answer.version.id;
+  say(`Version ${versionId} is being scanned. This usually takes under a minute…`);
 
-  for (let i = 0; i < 200; i++) {
-    await sleep(3000);
-    const { version: checked } = await api("GET", `/games/${slug}/versions/${version.id}`);
-    if (checked.scan_status === "scanning") continue;
-    if (checked.scan_status === "approved") {
-      if (checked.is_live) console.log(`Passed and live: ${API}/g/${slug}`);
-      else {
-        console.log(`Passed. Your private preview: ${checked.preview_url}`);
-        console.log(`Publish it with: zaisma publish ${slug} ${checked.id}`);
-      }
-    } else {
-      console.log(checked.scan_status === "held" ? "Held for a person at Zaisma to look at. Why:" : "Rejected. Why:");
-      printReasons(checked);
-      if (checked.scan_status === "rejected") process.exit(1);
-    }
-    return;
+  for (let i = 0; i < SCAN_CHECK_COUNT && answer.version.scan_status === "scanning"; i++) {
+    await sleep(SCAN_CHECK_INTERVAL_MS);
+    answer = await api("GET", `/games/${slug}/versions/${versionId}`);
   }
-  console.log(`Still scanning. Check later with: zaisma versions ${slug}`);
+  const { version } = answer;
+  if (isJson) printJson(answer);
+  if (version.scan_status === "scanning") {
+    say(`Still scanning. Check later with: zaisma versions ${slug}`);
+    return EXIT_CODES.still_scanning;
+  }
+  if (version.scan_status === "approved") {
+    if (isJson) return EXIT_CODES.done;
+    if (version.is_live) console.log(`Passed and live: ${API}/g/${slug}`);
+    else {
+      console.log(`Passed. Your private preview: ${version.preview_url}`);
+      console.log(`Publish it with: zaisma publish ${slug} ${version.id}`);
+    }
+    return EXIT_CODES.done;
+  }
+  if (!isJson) {
+    console.log(version.scan_status === "held" ? "Held for a person at Zaisma to look at. Why:" : "Rejected. Why:");
+    printReasons(version);
+  }
+  return version.scan_status === "held" ? EXIT_CODES.held : EXIT_CODES.rejected;
 }
 
 /** Why a version is held or rejected: a person's or a report's decision, then what the scan found, each with its code and rule, then what to do. */
@@ -183,6 +420,27 @@ function printReasons(version) {
 const reasonCode = (gameOrVersion) => (gameOrVersion.review_reason ?? gameOrVersion.findings?.[0])?.code ?? "";
 
 const day = (isoTime) => isoTime.slice(0, 10);
+/** An ISO time from the API, with the same time on this computer's clock for people. */
+const when = (isoTime) => `${isoTime} (${new Date(isoTime).toLocaleString()} here)`;
+
+/** docs/NAMING.md rule 10: the same ISO 8601 times the API takes, with Z or an offset, nothing else. */
+const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
+
+function checkPublishTime(written) {
+  if (ISO_TIME.test(written) && !Number.isNaN(Date.parse(written))) return written;
+  const fix = ['Give an ISO 8601 time with Z or an offset, like "2026-11-01T17:00:00Z" or "2026-11-01T17:00+01:00".'];
+  const localMatch = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}(:\d{2})?)$/.exec(written);
+  if (localMatch) {
+    // Said, never assumed: the same time on this computer's clock, with its offset on that day written out.
+    const local = new Date(`${localMatch[1]}T${localMatch[2]}`);
+    if (!Number.isNaN(local.getTime())) {
+      const offsetMin = -local.getTimezoneOffset();
+      const offset = `${offsetMin < 0 ? "-" : "+"}${String(Math.floor(Math.abs(offsetMin) / 60)).padStart(2, "0")}:${String(Math.abs(offsetMin) % 60).padStart(2, "0")}`;
+      fix.push(`For ${localMatch[2]} on this computer's clock, that's "${localMatch[1]}T${localMatch[2]}${offset}".`);
+    }
+  }
+  refuse("bad_time", { message: `--scheduled-publish-at ${JSON.stringify(written)} has no time zone, or isn't an ISO time.`, field: "--scheduled-publish-at", fix: fix.join(" ") });
+}
 
 function printTopic(topic) {
   const countText = topic.is_known_issue ? `, ${topic.affected_developer_count} developer${topic.affected_developer_count === 1 ? "" : "s"} affected` : topic.vote_count ? `, ${topic.vote_count} vote${topic.vote_count === 1 ? "" : "s"}` : "";
@@ -190,55 +448,59 @@ function printTopic(topic) {
 }
 
 /** Text from --text, or piped in. */
-async function readText(flags) {
-  if (typeof flags.text === "string") return flags.text;
-  if (process.stdin.isTTY) return "";
-  const chunks = [];
-  for await (const chunk of process.stdin) chunks.push(chunk);
-  return Buffer.concat(chunks).toString("utf8").trim();
+async function readText(command, flags) {
+  let text = flags.text ?? "";
+  if (!text && !process.stdin.isTTY) {
+    const chunks = [];
+    for await (const chunk of process.stdin) chunks.push(chunk);
+    text = Buffer.concat(chunks).toString("utf8").trim();
+  }
+  if (!text) refuse("missing_field", { message: `zaisma ${command} needs its text.`, field: "--text", fix: `Give --text "…", or pipe the text in. Run it as: ${usage(command)}` });
+  return text;
+}
+
+/** What a forum post or message sent: anything the check said, and secrets it blanked. */
+function sayWhatWasSent(answer) {
+  if (answer.check_note) console.log(answer.check_note);
+  if (answer.removed_secret_count) console.log(`${answer.removed_secret_count} secret${answer.removed_secret_count === 1 ? " was" : "s were"} blanked before it was stored.`);
 }
 
 /** The developer forum. Posts say an AI wrote them unless --by-me says the developer did. */
-async function forum(flags) {
-  const [subcommand, id] = flags._;
+async function forum(command, values, flags) {
   const by = flags["by-me"] ? { author_kind: "developer" } : {};
-  const sent = (out) => {
-    if (out.check_note) console.log(out.check_note);
-    if (out.removed_secret_count) console.log(`${out.removed_secret_count} secret${out.removed_secret_count === 1 ? " was" : "s were"} blanked before it was stored.`);
-  };
-  if (subcommand === "post" || subcommand === "message") {
-    const text = await readText(flags);
-    const isMessage = subcommand === "message";
-    const usage = isMessage
-      ? 'usage: zaisma forum message --kind bug|gap|feature|question --title "…" --text "…" [--category <category>] [--game <slug>]'
-      : 'usage: zaisma forum post --kind bug|gap|feature|question|talk --title "…" --category <category> --text "…"';
-    if (typeof flags.kind !== "string" || typeof flags.title !== "string" || !text || (!isMessage && typeof flags.category !== "string")) fail(usage);
-    const out = await api("POST", "/forum", {
+  if (command === "forum post" || command === "forum message") {
+    const isMessage = command === "forum message";
+    const text = await readText(command, flags);
+    const answer = await api("POST", "/forum", {
       kind: flags.kind,
       title: flags.title,
       text_markdown: text,
-      ...(typeof flags.category === "string" ? { category: flags.category } : {}),
-      ...(isMessage ? { is_public: false, ...(typeof flags.game === "string" ? { game_slug: flags.game } : {}) } : {}),
+      ...(flags.category ? { category: flags.category } : {}),
+      ...(isMessage ? { is_public: false, ...(flags.game ? { game_slug: flags.game } : {}) } : {}),
       ...by,
     });
-    console.log(`${isMessage ? "Sent to Zaisma" : "Posted"} (${out.topic.id}). Replies show here: zaisma forum ${out.topic.id}`);
-    sent(out);
-    if (out.similar_topics.length) {
+    if (isJson) return printJson(answer);
+    console.log(`${isMessage ? "Sent to Zaisma" : "Posted"} (${answer.topic.id}). Replies show here: zaisma forum ${answer.topic.id}`);
+    sayWhatWasSent(answer);
+    if (answer.similar_topics.length) {
       console.log("\nTopics that look like the same thing (vote or reply there if one is):");
-      for (const topic of out.similar_topics) printTopic(topic);
+      for (const topic of answer.similar_topics) printTopic(topic);
     }
     return;
   }
-  if (subcommand === "reply") {
-    const text = await readText(flags);
-    if (!id || !text) fail('usage: zaisma forum reply <topic id> --text "…" [--reopen]');
-    const out = await api("POST", `/forum/${id}/posts`, { text_markdown: text, ...(flags.reopen ? { reopen: true } : {}), ...by });
-    console.log(`Replied in ${id}.`);
-    sent(out);
+  if (command === "forum reply") {
+    const text = await readText(command, flags);
+    const answer = await api("POST", `/forum/${values.topic_id}/posts`, { text_markdown: text, ...(flags.reopen ? { reopen: true } : {}), ...by });
+    if (isJson) return printJson(answer);
+    console.log(`Replied in ${values.topic_id}.`);
+    sayWhatWasSent(answer);
     return;
   }
-  if (subcommand) {
-    const { topic, posts } = await api("GET", `/forum/${subcommand}`);
+  if (values.topic_id) {
+    if (flags.search) refuse("unknown_field", { message: "zaisma forum takes a topic ID or --search, not both.", field: "--search", fix: 'Run zaisma forum <topic_id> for one topic, or zaisma forum --search "words".' });
+    const answer = await api("GET", `/forum/${values.topic_id}`);
+    if (isJson) return printJson(answer);
+    const { topic, posts } = answer;
     console.log(`${topic.title}\n${topic.is_known_issue ? "known issue" : topic.kind}, ${topic.topic_status}${topic.is_public ? "" : ", a message to Zaisma"}${topic.game_slug ? `, ${topic.game_slug}` : ""}`);
     if (topic.workaround) console.log(`Until it's fixed: ${topic.workaround}`);
     if (topic.merged_into_topic) console.log(`Part of the known issue ${topic.merged_into_topic.id}: ${topic.merged_into_topic.title}`);
@@ -250,13 +512,16 @@ async function forum(flags) {
     }
     return;
   }
-  if (typeof flags.search === "string") {
-    const { topics } = await api("GET", `/forum?detail=brief&search_text=${encodeURIComponent(flags.search)}`);
-    if (!topics.length) console.log("Nothing matches that. Post it with: zaisma forum post");
-    for (const topic of topics) printTopic(topic);
+  if (flags.search) {
+    const answer = await api("GET", `/forum?detail=brief&search_text=${encodeURIComponent(flags.search)}`);
+    if (isJson) return printJson(answer);
+    if (!answer.topics.length) console.log("Nothing matches that. Post it with: zaisma forum post");
+    for (const topic of answer.topics) printTopic(topic);
     return;
   }
+  // Two calls, one per tab; --json prints both answers as-is, by the API's tab names.
   const [yours, messages] = await Promise.all([api("GET", "/forum?detail=brief&tab=yours"), api("GET", "/forum?detail=brief&tab=messages")]);
+  if (isJson) return printJson({ yours, messages });
   console.log(yours.topics.length ? "Your topics (* has something new):" : "You haven't posted in the forum yet.");
   for (const topic of yours.topics) printTopic(topic);
   if (messages.topics.length) {
@@ -265,66 +530,85 @@ async function forum(flags) {
   }
 }
 
-async function main() {
-  const [command, ...rest] = process.argv.slice(2);
-  const flags = parseFlags(rest);
-  if (!command || command === "help" || command === "--help" || command === "-h") return console.log(HELP);
-  // Flags renamed to match the API's names (docs/NAMING.md). Said out loud, so an old one isn't quietly ignored.
-  const renamed = { notes: "patch-notes", publish: "publish-when-approved", at: "scheduled-publish-at" };
-  for (const [old, now] of Object.entries(renamed)) if (old in flags) fail(`--${old} is now --${now}.`);
-
+/** Runs the command and answers with how it ended (EXIT_CODES); a failure throws a CommandError. */
+async function run({ command, values, flags, globalFlags, rest }) {
+  if (command === "help" || globalFlags.help) {
+    // zaisma help upload is zaisma upload --help.
+    const about = command === "help" ? rest.join(" ") : command;
+    if (about && !COMMANDS[about]) refuse("unknown_command", { message: `There's no command "${about}".`, fix: `Run zaisma help. The commands: ${Object.keys(COMMANDS).join(", ")}.` });
+    if (isJson) printJson(helpAnswer());
+    else console.log(about ? `${usage(about)}\n${COMMANDS[about].about}.\n\n${helpText()}` : helpText());
+    return EXIT_CODES.done;
+  }
   if (command === "games") {
-    const { games, unread_topic_count: unreadTopicCount } = await api("GET", "/games");
-    if (!games.length) return console.log('No games yet. Make one with: zaisma new "My Game"');
+    const answer = await api("GET", "/games");
+    if (isJson) return printAnswer(answer);
+    const { games, unread_topic_count: unreadTopicCount } = answer;
+    if (!games.length) console.log('No games yet. Make one with: zaisma new "My Game"');
     for (const game of games) console.log(`${game.slug.padEnd(28)} ${game.visibility.padEnd(9)} ${game.review_status.padEnd(8)} ${game.title}${game.review_reason ? `  [${reasonCode(game)}]` : ""}`);
     if (unreadTopicCount) console.log(`\nZaisma replied to ${unreadTopicCount} of your forum topics. See them with: zaisma forum`);
-    return;
+    return EXIT_CODES.done;
   }
   if (command === "new") {
-    const title = flags._.join(" ");
-    if (!title) fail('usage: zaisma new "My Game" [--slug my-game]');
-    const { game } = await api("POST", "/games", { title, ...(typeof flags.slug === "string" ? { slug: flags.slug } : {}) });
-    return console.log(`Made ${game.page_url} (a draft). Upload it with: zaisma upload <folder> --game ${game.slug}`);
+    const answer = await api("POST", "/games", { title: values.title, ...(flags.slug ? { slug: flags.slug } : {}) });
+    if (isJson) return printAnswer(answer);
+    console.log(`Made ${answer.game.page_url} (a draft). Upload it with: zaisma upload <folder> --game ${answer.game.slug}`);
+    return EXIT_CODES.done;
   }
-  if (command === "upload") return upload(flags._[0], flags);
+  if (command === "upload") return upload(values, flags);
   if (command === "versions") {
-    const slug = flags._[0];
-    if (!slug) fail("usage: zaisma versions <slug>");
-    const { versions } = await api("GET", `/games/${slug}`);
-    for (const version of versions) console.log(`${version.id}  ${version.created_at.slice(0, 16).replace("T", " ")}  ${(version.is_live ? "live" : version.scan_status).padEnd(9)} ${version.preview_url ?? (version.scan_status === "held" || version.scan_status === "rejected" ? `[${reasonCode(version)}]` : "")}${version.scheduled_publish_at ? `  goes live ${new Date(version.scheduled_publish_at).toLocaleString()}` : ""}`);
-    return;
+    const answer = await api("GET", `/games/${values.slug}`);
+    if (isJson) return printAnswer(answer);
+    for (const version of answer.versions) {
+      const status = (version.is_live ? "live" : version.scan_status).padEnd(9);
+      const link = version.preview_url ?? (version.scan_status === "held" || version.scan_status === "rejected" ? `[${reasonCode(version)}]` : "");
+      console.log(`${version.id}  ${version.created_at.slice(0, 16).replace("T", " ")}  ${status} ${link}${version.scheduled_publish_at ? `  goes live ${when(version.scheduled_publish_at)}` : ""}`);
+    }
+    return EXIT_CODES.done;
   }
   if (command === "publish") {
-    const [slug, id] = flags._;
-    if (!slug || !id) fail("usage: zaisma publish <slug> <version>");
-    const later = flags["scheduled-publish-at"];
-    if (typeof later === "string") {
-      const publishTime = new Date(later.includes("T") || /z$|[+-]\d\d:?\d\d$/i.test(later) ? later : later.replace(" ", "T"));
-      if (Number.isNaN(publishTime.getTime())) fail('give --scheduled-publish-at as a date and time, like "2026-11-01 17:00".');
-      const { version } = await api("POST", `/games/${slug}/versions/${id}/publish`, { scheduled_publish_at: publishTime.toISOString() });
-      console.log(`Version ${id} will go live at ${new Date(version.scheduled_publish_at).toLocaleString()}${version.scan_status === "scanning" ? ", if it has passed the scan by then" : ""}.`);
-      return;
+    const { slug, version_id: versionId } = values;
+    const scheduledPublishAt = flags["scheduled-publish-at"] === undefined ? undefined : checkPublishTime(flags["scheduled-publish-at"]);
+    const answer = await api("POST", `/games/${slug}/versions/${versionId}/publish`, scheduledPublishAt ? { scheduled_publish_at: scheduledPublishAt } : undefined);
+    if (isJson) return printAnswer(answer);
+    const { game, version } = answer;
+    if (scheduledPublishAt) console.log(`Version ${versionId} will go live at ${when(version.scheduled_publish_at)}${version.scan_status === "scanning" ? ", if it has passed the scan by then" : ""}.`);
+    else {
+      console.log(`Version ${versionId} is live at ${game.page_url}`);
+      if (game.visibility === "draft") console.log(`The game is still a draft, so only you can see it. Show it to everyone with: zaisma visibility ${slug} listed`);
     }
-    const { game } = await api("POST", `/games/${slug}/versions/${id}/publish`);
-    console.log(`Version ${id} is live at ${game.page_url}`);
-    if (game.visibility === "draft") console.log(`The game is still a draft, so only you can see it. Show it with: zaisma show ${slug} --visibility listed`);
-    return;
+    return EXIT_CODES.done;
   }
   if (command === "unschedule") {
-    const [slug, id] = flags._;
-    if (!slug || !id) fail("usage: zaisma unschedule <slug> <version>");
-    await api("DELETE", `/games/${slug}/versions/${id}/publish`);
-    return console.log(`Version ${id} won't be published by itself.`);
+    const answer = await api("DELETE", `/games/${values.slug}/versions/${values.version_id}/publish`);
+    if (isJson) return printAnswer(answer);
+    console.log(`Version ${values.version_id} won't be published by itself.`);
+    return EXIT_CODES.done;
   }
-  if (command === "show") {
-    const slug = flags._[0];
-    if (!slug || typeof flags.visibility !== "string") fail("usage: zaisma show <slug> --visibility listed|unlisted|private|draft");
-    const { game } = await api("PATCH", `/games/${slug}`, { visibility: flags.visibility });
-    return console.log(`${game.title} is now ${game.visibility}.`);
+  if (command === "visibility") {
+    const answer = await api("PATCH", `/games/${values.slug}`, { visibility: values.visibility });
+    if (isJson) return printAnswer(answer);
+    console.log(`${answer.game.title} is now ${answer.game.visibility}.`);
+    return EXIT_CODES.done;
   }
-  if (command === "forum") return forum(flags);
-  if (command === "feedback") fail("zaisma feedback is now zaisma forum: zaisma forum lists your topics, zaisma forum message sends Zaisma a private message.");
-  fail(`unknown command "${command}". Run zaisma help.`);
+  await forum(command, values, flags);
+  return EXIT_CODES.done;
 }
 
-main().catch((error) => fail(error.message));
+/** A failure, in the API's shape: with --json the { error } on stdout, otherwise one line on stderr. */
+function printError(error) {
+  if (isJson) printJson({ error });
+  else console.error(`zaisma: ${error.message} ${error.fix ?? ""}${error.code ? ` (${error.code})` : ""}`.replace(/ +\(/, " ("));
+}
+
+try {
+  process.exitCode = (await run(parseCommandLine(process.argv.slice(2)))).exitCode;
+} catch (error) {
+  if (error instanceof CommandError) {
+    printError(error.error);
+    process.exitCode = error.exitCode;
+  } else {
+    printError({ code: "internal_error", message: `The command broke: ${error.message}`, field: null, fix: "Run it again. If it keeps happening, tell Zaisma: zaisma forum post --kind bug --category cli.", retry_after_sec: null });
+    process.exitCode = EXIT_CODES.failed.exitCode;
+  }
+}
