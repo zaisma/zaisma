@@ -287,6 +287,16 @@ pre{white-space:pre-wrap;word-break:break-word;background:#0d0f12;padding:12px;f
 dialog{color:var(--text);border:0;padding:0}
 dialog::backdrop{background:rgba(0,0,0,.65);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)}
 
+/* Account pictures: initials on a plate in the account's own color, with the Z's cut corner. */
+.av{--s:36px;position:relative;flex:none;display:inline-flex;align-items:center;justify-content:center;width:var(--s);height:var(--s);font-family:var(--display);font-weight:600;font-size:calc(var(--s) * .38);letter-spacing:.02em;color:hsl(var(--h) 40% 92%);
+  background:linear-gradient(to top right,transparent calc(50% - 1px),rgba(255,255,255,.35) calc(50% - 1px),rgba(255,255,255,.35) 50%,transparent 50%) top right/6px 6px no-repeat,linear-gradient(180deg,hsl(var(--h) 32% 38%),hsl(var(--h) 34% 22%));
+  clip-path:polygon(0 0,calc(100% - 6px) 0,100% 6px,100% 100%,0 100%);box-shadow:inset 1px 1px 0 rgba(255,255,255,.18),inset -1px -1px 0 rgba(0,0,0,.6);text-shadow:0 1px 0 rgba(0,0,0,.5)}
+.av.xs{--s:20px}
+.av.sm{--s:26px}
+.av.md{--s:40px}
+.av.z{background:var(--chrome)}
+.av.z img{width:62%;height:auto;display:block}
+
 /* Working: the Z building itself, only after the player presses something. Masked so it takes the text color. */
 .spin{width:19px;height:14px;flex:none;background:currentColor;-webkit-mask:url(/loader/zaisma-loader.svg) center/contain no-repeat;mask:url(/loader/zaisma-loader.svg) center/contain no-repeat}
 .metal .spin{display:inline-block;margin-right:10px;vertical-align:-2px}
@@ -334,6 +344,23 @@ export function metalButton(label: string, options: { href?: string; id?: string
     ? html`<a class="${classNames}" href="${options.href}"${dataAttributes}>${inner}</a>`
     : html`<button class="${classNames}" type="${options.type ?? "button"}"${options.id ? raw(` id="${options.id}"`) : ""}>${inner}</button>`;
   return html`<span class="hit${options.isFullWidth ? " block" : ""}">${element}</span>`;
+}
+
+function hue(name: string): number {
+  let hueDeg = 7;
+  for (const character of name) hueDeg = (hueDeg * 31 + character.codePointAt(0)!) % 360;
+  return hueDeg;
+}
+
+function initials(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  const letters = words.length > 1 ? [Array.from(words[0]!)[0], Array.from(words[1]!)[0]] : Array.from(words[0] ?? "?").slice(0, 2);
+  return letters.join("").toUpperCase();
+}
+
+/** An account's picture: for now its initials on a plate in its own color, until profiles bring uploaded pictures. */
+export function accountPicture(name: string, pictureSize: "xs" | "sm" | "md" = "md", options: { title?: string; mark?: Raw | string } = {}): Raw {
+  return html`<span class="av ${pictureSize}" style="--h:${hue(name)}" title="${options.title ?? name}" aria-hidden="true">${initials(name)}${options.mark ?? ""}</span>`;
 }
 
 /** Cloudflare's invisible check (Turnstile), on pages that ask for it: its script and its frame. */

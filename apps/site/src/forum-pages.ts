@@ -15,7 +15,7 @@ import {
 import { currentSession } from "./auth.ts";
 import { apiCall, callerFor, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
-import { esc, html, layout, raw, type Raw } from "./html.ts";
+import { accountPicture, esc, html, layout, raw, type Raw } from "./html.ts";
 import { forumPeople, previewMentions } from "./forum-mentions.ts";
 import { uploadDraftMedia } from "./forum-posts.ts";
 import { renderMarkdown, VIDEO_FRAMES } from "./forum-markdown.ts";
@@ -345,22 +345,10 @@ function forumPage(ctx: Ctx, title: string, body: Raw, options: { httpStatus?: n
 
 // --- Bits every page uses ---
 
-function hue(name: string): number {
-  let hueDeg = 7;
-  for (const character of name) hueDeg = (hueDeg * 31 + character.codePointAt(0)!) % 360;
-  return hueDeg;
-}
-
-function initials(name: string): string {
-  const words = name.trim().split(/\s+/).filter(Boolean);
-  const letters = words.length > 1 ? [Array.from(words[0]!)[0], Array.from(words[1]!)[0]] : Array.from(words[0] ?? "?").slice(0, 2);
-  return letters.join("").toUpperCase();
-}
-
-/** An account's picture: for now its initials on a plate in its own color. An AI's post shows its developer's, with the AI mark. */
+/** An account's picture (accountPicture). An AI's post shows its developer's, with the AI mark. */
 export function avatar(person: Person, avatarSize: "xs" | "sm" | "md" = "md"): Raw {
   if (person.kind === "zaisma") return html`<span class="av ${avatarSize} z" title="Zaisma"><img src="/zaisma-mark-small-black.svg" alt=""></span>`;
-  return html`<span class="av ${avatarSize}" style="--h:${hue(person.name)}" title="${person.kind === "ai" ? `${person.name}'s AI` : person.name}" aria-hidden="true">${initials(person.name)}${person.kind === "ai" ? html`<i class="ai-mark">${ICONS.ai}</i>` : ""}</span>`;
+  return accountPicture(person.name, avatarSize, { title: person.kind === "ai" ? `${person.name}'s AI` : person.name, mark: person.kind === "ai" ? html`<i class="ai-mark">${ICONS.ai}</i>` : "" });
 }
 
 /** A name as posts show it: the developer, an AI mark for their AI, a Team mark for Zaisma. */
@@ -926,15 +914,7 @@ a.tag:hover,.tag.on{color:#0b0b0c;background:var(--chrome);box-shadow:none}
 .who strong{font-family:var(--display);font-weight:600;color:var(--text)}
 .you{color:var(--muted);font-size:12px}
 
-/* Pictures: initials on a plate in the account's own color, the Z's cut corner, and the AI mark. */
-.av{--s:36px;position:relative;flex:none;display:inline-flex;align-items:center;justify-content:center;width:var(--s);height:var(--s);font-family:var(--display);font-weight:600;font-size:calc(var(--s) * .38);letter-spacing:.02em;color:hsl(var(--h) 40% 92%);
-  background:linear-gradient(to top right,transparent calc(50% - 1px),rgba(255,255,255,.35) calc(50% - 1px),rgba(255,255,255,.35) 50%,transparent 50%) top right/6px 6px no-repeat,linear-gradient(180deg,hsl(var(--h) 32% 38%),hsl(var(--h) 34% 22%));
-  clip-path:polygon(0 0,calc(100% - 6px) 0,100% 6px,100% 100%,0 100%);box-shadow:inset 1px 1px 0 rgba(255,255,255,.18),inset -1px -1px 0 rgba(0,0,0,.6);text-shadow:0 1px 0 rgba(0,0,0,.5)}
-.av.xs{--s:20px}
-.av.sm{--s:26px}
-.av.md{--s:40px}
-.av.z{background:var(--chrome)}
-.av.z img{width:62%;height:auto;display:block}
+/* The AI mark on an account's picture (.av, in the site's styles). */
 .av .ai-mark{position:absolute;right:-1px;bottom:-1px;width:calc(var(--s) * .45);height:calc(var(--s) * .45);min-width:11px;min-height:11px;display:flex;align-items:center;justify-content:center;color:#cfe0ff;background:#1d2438;box-shadow:inset 0 0 0 1px rgba(160,190,255,.4)}
 .av .ai-mark svg{width:70%;height:70%}
 .av:has(.ai-mark){clip-path:none}

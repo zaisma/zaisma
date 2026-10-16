@@ -1,4 +1,4 @@
-import { PLAYER_REPORT_REASONS, accountById, chatBandGroup, gameServerOf, type AccountRequirement, type MultiplayerMode, checkText, createReport, isIdOf, iso, leaveOut, listRooms, newId, pastFreeTier, playerProfile, readLabelParameter, readLeftParameter, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
+import { PLAYER_REPORT_REASONS, accountById, chatBandGroup, friendPlayerIdsOf, gameServerOf, type AccountRequirement, type MultiplayerMode, checkText, createReport, isIdOf, iso, leaveOut, listRooms, newId, pastFreeTier, playerProfile, readLabelParameter, readLeftParameter, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
 import { ERROR_TEXT, guestName, isRoomCode, jwks, loadSigningKey, roomCode, signPass, type Player, type SigningKey } from "@zaisma/game-server";
 import { usesRooms } from "./registry.ts";
 import type { GameDatabaseObject } from "./database.ts";
@@ -183,9 +183,11 @@ export default {
         if (!account && game.account_requirement !== "none") return failure("account_needed", ERROR_TEXT.account_needed, 403, cors);
         const player: Player = account ? { id: account.player_id, name: account.name, kind: "account" } : { id: newId("player"), name: guestName(), kind: "guest" };
         // The pass is proof only: an account's carries no name, which games look up (/v1/players/<id>).
-        // It says who the account can chat with, never its age: its social mode, and an opaque chat group when open and social.
+        // It says who the account can chat with, never its age: its social mode, an opaque chat group when open and social, and its friends.
         const bandGroup = account ? chatBandGroup(account) : null;
-        const chat = account ? { social_mode: account.social_mode, ...(bandGroup ? { chat_group: await chatGroupId(env, slug, bandGroup) } : {}) } : {};
+        const chat = account
+          ? { social_mode: account.social_mode, ...(bandGroup ? { chat_group: await chatGroupId(env, slug, bandGroup) } : {}), friend_player_ids: await friendPlayerIdsOf(env.DB, account.id) }
+          : {};
         const claims = { sub: player.id, ...(player.kind === "guest" ? { name: player.name } : {}), aud: slug, iss: env.ISSUER, kind: player.kind, ...chat, iat: nowSec, exp: nowSec + PASS_DURATION_SEC };
         const pass = await signPass(await signingKey(env), claims);
         return json({ pass, player, expiresAt: iso((nowSec + PASS_DURATION_SEC) * 1000) }, 200, cors);
