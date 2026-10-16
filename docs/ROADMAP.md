@@ -6,8 +6,7 @@ The live plan of what gets built, in what order. `docs/DECISIONS.md` says *how* 
 
 Build, in this order:
 
-1. Names: last sweep of the insides (Nothing for an AI to guess)
-2. Errors: holds and takedowns (Nothing for an AI to guess)
+1. Errors: holds and takedowns (Nothing for an AI to guess)
 
 Nothing for an AI to guess comes first: everything else builds on the codebase, so its names get corrected before more code piles on. Waiting on people: Gleb: register with NCMEC, Gleb: register the DMCA agent, Julius: send PhotoDNA the LLC's records.
 
@@ -73,7 +72,7 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | done | Must | Names: SDK and game server | | Live Oct 15, 2026 (#139): the SDK, game server API, room lists and room messages (`type` and `data`) follow docs/NAMING.md, error codes are snake_case, guests' IDs are `player_…`, and unknown options and events are refused with the valid ones (a game server with one doesn't start and says why in its errors) |
 | done | Must | canJoin refuses with refusalMessage | Names: SDK and game server | Live Oct 15, 2026 (#143, rooms deployed): a game server's `canJoin` answers `true` (or nothing), `false` or `{ refusalMessage }`; any other answer, like a string, turns the player away and shows in the game server's errors at once |
 | done | Must | Names: the admin MCP | | Live Oct 15, 2026 (#146, migration 0033): the admin MCP's tools, inputs and answers for reports, precedents and the forum queue follow docs/NAMING.md, with output schemas, closed inputs and coded errors (`ADMIN_ERROR_CODES`, listed in docs/ADMIN-MCP.md); precedents' columns moved with it |
-| doing | Must | Names: last sweep of the insides | | Rooms, scans, reports and triage, accounts, saves, plays and the game server's insides, with their columns and stored JSON (migration 0034); the naming baseline is empty |
+| done | Must | Names: last sweep of the insides | | Live Oct 15, 2026 (#147, migration 0034): rooms, scans, reports and triage, accounts, saves, plays and the game server's insides follow docs/NAMING.md, with their columns and stored JSON; the naming baseline is empty |
 | next | Must | Errors: holds and takedowns | Errors: developer API and MCP | Every hold and takedown has a plain reason, the rule it broke and a fix, with an error code; the same in the dashboard, API and MCP. Bills get the same when Hosting billing ships |
 
 ### Developer publishing
