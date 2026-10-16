@@ -1,6 +1,7 @@
 import { AUTO_HOLD_REASONS, PLAYER_REPORT_REASONS, REPORT_REASONS, audit, createReport, gameBySlug, reportLabel, reportPictureKey, reviewReason, setReviewStatus, versionById, type Game, type PlayerReportReason, type ReportReason, type Version } from "@zaisma/core";
 import type { Env } from "./env.ts";
 import { sendAlert } from "./email.ts";
+import { tellWebhooks, type WaitUntil } from "./webhooks.ts";
 import { html, layout, metalButton, raw } from "./html.ts";
 
 /**
@@ -354,7 +355,7 @@ export async function submitReport(env: Env, request: Request, slug: string, ctx
     await env.GAMES.put(reportPictureKey(id), picture, { httpMetadata: { contentType: "image/jpeg" } });
     await env.DB.prepare("UPDATE reports SET has_picture = 1 WHERE id = ?").bind(id).run();
   }
-  const paused = !player && !aboutRoom && AUTO_HOLD_REASONS.includes(reason) ? await pauseForReport(env, game, REPORT_REASONS[reason]) : null;
+  const paused = !player && !aboutRoom && AUTO_HOLD_REASONS.includes(reason) ? await pauseForReport(env, game, REPORT_REASONS[reason], (promise) => ctx.waitUntil(promise)) : null;
   const hidden = paused === "game";
   // Child-safety and illegal-content reports go to a person straight away. Report triage (triage.ts)
   // sorts the rest within minutes and alerts the serious ones.
@@ -395,7 +396,7 @@ const RECENT_MS = 7 * 86400_000;
  * - a brand-new game (its only version went live in the last 7 days): hidden until a person looks;
  * - anything else stays up. The alert goes out either way, marked URGENT.
  */
-export async function pauseForReport(env: Env, game: Game, label: string): Promise<"game" | "update" | null> {
+export async function pauseForReport(env: Env, game: Game, label: string, waitUntil?: WaitUntil): Promise<"game" | "update" | null> {
   if (game.review_status !== "live" || !game.live_version_id) return null;
   const live = await versionById(env.DB, game.live_version_id);
   const nowMs = Date.now();
@@ -412,11 +413,14 @@ export async function pauseForReport(env: Env, game: Game, label: string): Promi
       env.DB.prepare("UPDATE versions SET cleared_at_ms = ? WHERE id = ?").bind(nowMs, before.id),
     ]);
     await audit(env.DB, game.id, "report-paused-update", `Report: ${label}. ${live.id} held; players are back on ${before.id}`, "system", reviewReason("report_paused_update"));
+    await tellWebhooks(env, "scan_status_changed", game.id, { versionId: live.id }, waitUntil);
+    await tellWebhooks(env, "live_version_changed", game.id, { versionId: before.id }, waitUntil);
     return "update";
   }
   await setReviewStatus(env.DB, game.id, "held", reviewReason("report_paused_game"));
   await env.DB.prepare("UPDATE versions SET report_held_at_ms = ? WHERE id = ?").bind(nowMs, live.id).run();
   await audit(env.DB, game.id, "auto-hold", `Report: ${label}`, "system", reviewReason("report_paused_game"));
+  await tellWebhooks(env, "review_status_changed", game.id, {}, waitUntil);
   return "game";
 }
 

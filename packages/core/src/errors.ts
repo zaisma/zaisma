@@ -105,6 +105,14 @@ export const ERROR_CODES = {
   too_many_sign_in_apps: { httpStatus: 403, meaning: "The account has 20 sign-in apps already." },
   no_sign_in_app: { httpStatus: 404, meaning: "You have no sign-in app with that ID." },
 
+  // Webhooks
+  bad_endpoint_url: { httpStatus: 400, meaning: "endpoint_url isn't an https URL on a name (no IP address, user name or #fragment), or it's on Zaisma's own domains." },
+  bad_event_kinds: { httpStatus: 400, meaning: "event_kinds isn't a list of 1 or more of the webhook event kinds." },
+  bad_game_slugs: { httpStatus: 400, meaning: "game_slugs isn't null or a list of 1 to 50 of your games' slugs." },
+  bad_replace_signing_secret: { httpStatus: 400, meaning: "replace_signing_secret isn't true or false." },
+  too_many_webhooks: { httpStatus: 403, meaning: "The account has 10 webhooks already." },
+  no_webhook: { httpStatus: 404, meaning: "You have no webhook with that ID." },
+
   // The game database (the same codes a game server's DatabaseError has, and answer_too_big)
   bad_sql: { httpStatus: 400, meaning: "The SQL isn't one statement SQLite takes, or statements isn't a list of { sql, values }." },
   bad_values: { httpStatus: 400, meaning: "values isn't a list of text, numbers, null and { blob_base64 } for the SQL's ?s." },

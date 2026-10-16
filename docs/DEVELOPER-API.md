@@ -12,7 +12,7 @@ Any AI tool that supports remote MCP servers can manage your games at `https://z
 claude mcp add --transport http zaisma https://zaisma.com/mcp --header "Authorization: Bearer $ZAISMA_KEY"
 ```
 
-Every tool is a call to this API (`apps/site/src/mcp.ts`): `list_games`, `create_game`, `get_game`, `update_game`, `upload_files` (small games up to 5 MB, sent as file contents), `get_version`, `publish_version` (also rolls back and publishes later), `cancel_scheduled_publish`, `add_image`, `remove_image`, `add_tester_link`, `remove_tester_link`, `get_reports`, `get_stats`, `get_history`, `get_player`, the sign-in apps' `list_sign_in_apps`, `create_sign_in_app`, `update_sign_in_app` and `delete_sign_in_app`, the game database's `get_database`, `query_database` and `batch_database` (see The game database below), and the developer forum's `search_forum`, `get_topic`, `post_topic`, `message_zaisma`, `reply_to_topic`, `vote`, `mark_helpful`, `report_post`, `forum_people`, `still_happening`, `flag_misplaced`, `follow_topic` and `mark_answer` (see The developer forum below). Bigger builds go through the upload command. Making a game players can play private or a draft again needs `"confirm": true`, so the AI asks you first.
+Every tool is a call to this API (`apps/site/src/mcp.ts`): `list_games`, `create_game`, `get_game`, `update_game`, `upload_files` (small games up to 5 MB, sent as file contents), `get_version`, `publish_version` (also rolls back and publishes later), `cancel_scheduled_publish`, `add_image`, `remove_image`, `add_tester_link`, `remove_tester_link`, `get_reports`, `get_stats`, `get_history`, `get_player`, the sign-in apps' `list_sign_in_apps`, `create_sign_in_app`, `update_sign_in_app` and `delete_sign_in_app`, the webhooks' `list_webhooks`, `create_webhook`, `update_webhook`, `delete_webhook`, `test_webhook` and `list_webhook_deliveries` (see Webhooks below), the game database's `get_database`, `query_database` and `batch_database` (see The game database below), and the developer forum's `search_forum`, `get_topic`, `post_topic`, `message_zaisma`, `reply_to_topic`, `vote`, `mark_helpful`, `report_post`, `forum_people`, `still_happening`, `flag_misplaced`, `follow_topic` and `mark_answer` (see The developer forum below). Bigger builds go through the upload command. Making a game players can play private or a draft again needs `"confirm": true`, so the AI asks you first.
 
 Every tool has an output schema, and answers are compact JSON. Arguments are closed: one a tool doesn't take is refused (`unknown_field`, with the arguments it does take), never quietly dropped, and a missing required one is `missing_field`. A refused call is a tool result with `isError: true`, the error object below as its `structuredContent` and its message, fix and code as its text; each tool's listed output schema is its answer or that error, because MCP clients check both against it. The tools that are easy to get wrong (`update_game`, `upload_files`, `publish_version`, `search_forum`, `post_topic`) carry good examples in their input schema and bad ones at the end of their description.
 
@@ -155,6 +155,12 @@ The HTTP status goes with the code, as listed. The list lives in `ERROR_CODES` (
 | `bad_replace_client_secret` | 400 | replace_client_secret isn't true or false, or the app is public and has no client secret. |
 | `too_many_sign_in_apps` | 403 | The account has 20 sign-in apps already. |
 | `no_sign_in_app` | 404 | You have no sign-in app with that ID. |
+| `bad_endpoint_url` | 400 | endpoint_url isn't an https URL on a name (no IP address, user name or #fragment), or it's on Zaisma's own domains. |
+| `bad_event_kinds` | 400 | event_kinds isn't a list of 1 or more of the webhook event kinds. |
+| `bad_game_slugs` | 400 | game_slugs isn't null or a list of 1 to 50 of your games' slugs. |
+| `bad_replace_signing_secret` | 400 | replace_signing_secret isn't true or false. |
+| `too_many_webhooks` | 403 | The account has 10 webhooks already. |
+| `no_webhook` | 404 | You have no webhook with that ID. |
 
 **The game database**
 
@@ -218,7 +224,7 @@ Every call that changes something answers with `next_steps`: the calls that usua
 
 - `tool` is the MCP tool's name (each maps to a call on this page); `arguments` are filled in as far as Zaisma knows, and `reason` says what to add (like a new game's files).
 - `after_sec`: how long to wait first, or `null` for straight away.
-- What follows today: a new game, its upload (`upload_files`); a new version, checking its scan (`get_version`); publishing while the game is a draft or private, making it `listed` when the developer wants players in (`update_game`); making a game `listed` or `unlisted` with nothing live, publishing the version that passed (`publish_version`), checking the one being scanned, or uploading one; `multiplayer_mode: "own"` without a game server, uploading one; scheduling a version still being scanned, checking its scan. Everything else answers `[]`.
+- What follows today: a new game, its upload (`upload_files`); a new version, checking its scan (`get_version`); publishing while the game is a draft or private, making it `listed` when the developer wants players in (`update_game`); making a game `listed` or `unlisted` with nothing live, publishing the version that passed (`publish_version`), checking the one being scanned, or uploading one; `multiplayer_mode: "own"` without a game server, uploading one; scheduling a version still being scanned, checking its scan; a new webhook, or a new `endpoint_url` or signing secret, sending it a test event (`test_webhook`). Everything else answers `[]`.
 
 ## Holds and takedowns
 
@@ -395,6 +401,34 @@ Every game has its own SQLite database, part of its hosting: the one its game se
 - **Limits, the same as a game server's:** 100,000 characters of SQL, 100 values of up to 1 MB each, 100 statements a batch and 10,000 rows a statement (`too_many_rows`; page with `LIMIT`). An answer here also stops at 8 MB (`answer_too_big`), and a request at 6 MB. A statement that fails undoes itself, and a batch with it.
 - **It's live.** Changes reach the game's rooms straight away, so the MCP's tools ask you before changing or deleting data a live game uses.
 - **Free use** is per game and calendar month (UTC): 500,000 rows written, 500 million read and 500 MB stored, counted the way Cloudflare bills them (an index changed counts as a row written, and a `SELECT` without an index reads every row it looks at). Calls here count like the game's own. Until hosting billing, past the free writes, writes stop (`database_write_limit`); past the reads, queries stop (`database_read_limit`), and `retry_after_sec` says how long until the month resets; at the storage, rows can change and go but not grow (`database_storage_limit`). `GET /games/:slug/database` keeps working past them all.
+
+## Webhooks
+
+Zaisma POSTs an event to your server whenever something happens to your games, so your server or CI doesn't have to keep checking: a bug report can open a GitHub issue, a passed scan can move a release on, a takedown can page you.
+
+| Call | What it does |
+| --- | --- |
+| `GET /webhooks` | Your webhooks: `{"id", "endpoint_url", "event_kinds", "game_slugs", "pending_delivery_count", "failed_delivery_count", "created_at", "updated_at"}`. |
+| `POST /webhooks` | Make one: `{"endpoint_url", "event_kinds", "game_slugs"?}`. Up to 10. Answers with the `webhook` and its `signing_secret`, shown only this once, and `next_steps` (`test_webhook`). |
+| `PATCH /webhooks/:id` | Change `endpoint_url`, `event_kinds` (the whole list) or `game_slugs` (the whole list, or `null` for every game), or `{"replace_signing_secret": true}` for a new secret, answered once as `signing_secret`; the old one stops working at once. Events still being tried go to the new address with the new secret. |
+| `DELETE /webhooks/:id` | Delete one for good, with what was still on its way to it; answers `removed_webhook_id`. |
+| `POST /webhooks/:id/test` | Send it a `test` event now, tried once, and answer the `delivery`: `delivered` when your server answered 2xx, else `failed` with why. |
+| `GET /webhooks/:id/deliveries?cursor=` | What was sent to it in the last 30 days, newest first, 20 at a time (`next_cursor` continues): each `webhook_event` as sent, `delivery_status` (`pending`, `delivered` or `failed`), `attempt_count`, `last_attempt_at`, `next_attempt_at` and `failure_message`. |
+
+- **endpoint_url:** https on a name (no IP addresses, user names or `#fragment`), and not on Zaisma's own domains. Up to 500 characters.
+- **event_kinds**, any of:
+  - `bug_reported`: report triage sorted a player's report as a bug, the same ones `GET /games/:slug/reports` lists (never child-safety reports, and never who sent them).
+  - `scan_status_changed`: a version's scan finished (`approved`, `held` or `rejected`), or Zaisma changed its `scan_status` later: a person approved or rejected it, a report paused it, image matching held it.
+  - `live_version_changed`: players get another version: you published or rolled back, it went live at its `scheduled_publish_at` or as soon as it passed, a report put players back on the version before, or a person put it back after checking.
+  - `review_status_changed`: Zaisma held or took down the game, or put it back (`game.review_status` and `game.review_reason` say which and why).
+- **game_slugs:** only events about these games; leave it out, or `null`, for every game you have and will make.
+- **The event** is the body, JSON: `{"id", "kind", "happened_at", "game", "version", "bug_report"}`. `game`, `version` and `bug_report` are exactly what `GET /games/:slug`, `GET /games/:slug/versions/:id` and `GET /games/:slug/reports` answer for them, as they are when it's sent, or `null` when the event isn't about one (a `test` event has all three `null`). New kinds and fields can be added, so ignore ones you don't know.
+- **Signatures** follow [Standard Webhooks](https://www.standardwebhooks.com), so its libraries check them in one call, in any language. Each request has `webhook-id` (the event's `id`, the same on every try), `webhook-timestamp` (Unix seconds) and `webhook-signature`: `v1,` and the base64 HMAC-SHA256 of `<webhook-id>.<webhook-timestamp>.<body>`, keyed by the bytes the base64 after `whsec_` in your `signing_secret` stands for. Check it against the body exactly as it came, and turn away timestamps more than 5 minutes off.
+- **Answer 2xx within 10 seconds** to take an event. Anything else (or no answer, or a redirect, which isn't followed) is tried again after 5 minutes, 30 minutes, 2 hours, 8 hours and 24 hours, then it has failed; `failed_delivery_count` and the deliveries list show it for 30 days. Do slow work after answering.
+- **Events can come twice or out of order.** Skip an `id` you've already had, and take the state from the event's objects rather than from the order they came in.
+- Deleting your account deletes your webhooks.
+
+A GitHub issue for every bug report needs nothing on Zaisma's side but a webhook: a small server of your own (a Cloudflare Worker, say) checks the signature and calls GitHub's API with your own token, which never leaves your server.
 
 ## Tester links
 

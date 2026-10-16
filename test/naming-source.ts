@@ -43,7 +43,7 @@ const STANDARD_FIELDS_BY_SHAPE: Record<string, string[]> = {
   R2RangeFields: ["offset", "length", "suffix"],
 };
 /** Inputs that ask for an action are a verb (docs/NAMING.md, Yes or no), like kicking with keepOut. */
-const ACTION_FIELDS_BY_SHAPE: Record<string, string[]> = { KickOptions: ["keepOut"], SignInAppChange: ["replaceClientSecret"] };
+const ACTION_FIELDS_BY_SHAPE: Record<string, string[]> = { KickOptions: ["keepOut"], SignInAppChange: ["replaceClientSecret"], WebhookChange: ["replaceSigningSecret"] };
 
 /** The name of the interface or type a type literal belongs to, or "" for one on its own. */
 function shapeName(node: ts.Node): string {
