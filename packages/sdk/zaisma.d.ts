@@ -6,11 +6,12 @@
  *
  * Plain JavaScript, no dependencies, MIT licensed, and every part is optional.
  *
- * For editor and compiler checks, save this file in your game (on Zaisma it's served beside the SDK as
- * _zaisma/v1.d.ts; in Zaisma's repository it's packages/sdk/zaisma.d.ts) and put
- * `/// <reference path="zaisma.d.ts" />` at the top of your script, or list it in tsconfig.json or
- * jsconfig.json (with "checkJs": true for JavaScript). The global `Zaisma` is then typed, and its
- * types are `Zaisma.Room`, `Zaisma.JoinOptions` and so on.
+ * For editor and compiler checks, save this file beside your game's folder, not in it, since uploads
+ * take no .ts files. On Zaisma it's served beside the SDK as _zaisma/v1.d.ts; in Zaisma's repository
+ * it's packages/sdk/zaisma.d.ts. Then put `/// <reference path="../zaisma.d.ts" />` (and in JavaScript,
+ * `// @ts-check`) at the top of your script, or list it in jsconfig.json or tsconfig.json. The
+ * global `Zaisma` is then typed, and its types are `Zaisma.Room`, `Zaisma.JoinOptions` and so on (in
+ * JavaScript, give `let room = null` a JSDoc `@type {Zaisma.Room | null}`, as the example games do).
  *
  * Names follow Zaisma's naming guide: whole words, the unit in the name (`idleTimeoutSec`), and is, has
  * or can for yes or no. An option or event the SDK doesn't take is refused with the list of the ones it
