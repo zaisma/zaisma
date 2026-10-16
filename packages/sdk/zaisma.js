@@ -12,6 +12,7 @@
   "use strict";
   var config = typeof __ZAISMA__ === "object" && __ZAISMA__ ? __ZAISMA__ : {};
   var ROOM_CODE = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/;
+  var SERVER_URL = /^(wss?|https?):\/\/[^/]/;
 
   // What each call takes. Anything else is refused, so a misspelled or old option never goes quietly unused.
   var JOIN_OPTIONS = ["roomCode", "serverUrl", "isListed", "name", "labels", "joinData", "idleTimeoutSec", "idleCheckEnabled"];
@@ -28,6 +29,11 @@
     var error = new Error(message);
     error.code = code;
     return error;
+  }
+
+  /** The error for a call that needs Zaisma, in a game running somewhere else (no __ZAISMA__). */
+  function notOnZaisma(message) {
+    return codedError("not_on_zaisma", message);
   }
 
   /** The error for options a call doesn't take, naming the ones it does, or null when they're all fine. */
@@ -63,16 +69,24 @@
     });
   };
 
-  /** A call to Zaisma rooms. Errors answer { error: { code, message } }, which becomes an Error with that code. */
+  /**
+   * A call to Zaisma rooms. Errors answer { error: { code, message } }, which becomes an Error with that code;
+   * no connection, or an answer that isn't one of Zaisma's, is request_failed.
+   */
   function post(path, body) {
     // text/plain keeps this a simple request, so the browser needs no preflight.
-    return fetch(config.rooms + path, { method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify(body) }).then(answered);
+    return fetch(config.rooms + path, { method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify(body) }).then(answered, requestFailed);
   }
   function answered(response) {
     return response.json().then(function (answer) {
-      if (!response.ok) throw codedError(answer && answer.error && answer.error.code, (answer && answer.error && answer.error.message) || "Zaisma request failed");
-      return answer;
-    });
+      if (response.ok) return answer;
+      var error = answer && answer.error;
+      if (error && error.code) throw codedError(error.code, error.message);
+      requestFailed();
+    }, requestFailed);
+  }
+  function requestFailed() {
+    throw codedError("request_failed", "Zaisma didn't answer, so check the connection and try again.");
   }
 
   var passKey = "zaisma:pass:" + config.game;
@@ -107,7 +121,7 @@
 
   /** This tab's guest player: { id, name, pass, expiresAt }. Kept only for the tab, like the guest it belongs to. */
   function player() {
-    if (!config.rooms) return Promise.reject(new Error("Zaisma player passes only work on Zaisma"));
+    if (!config.rooms) return Promise.reject(notOnZaisma("Player passes come from Zaisma, so they work only in games played on Zaisma."));
     try {
       var saved = JSON.parse(sessionStorage.getItem(passKey) || "null");
       if (saved && Date.parse(saved.expiresAt) - Date.now() > 10 * 60 * 1000) return Promise.resolve(saved);
@@ -264,7 +278,10 @@
       if (room._done || event.code === 4000 || event.code === 4001) {
         room._done = true;
         room._setConnectionStatus("closed");
-        if (room._ready) { room._ready.reject(new Error(event.reason || "Couldn't join the room")); room._ready = null; }
+        if (room._ready) {
+          room._ready.reject(codedError("connection_closed", "The connection closed before the room let the player in" + (event.reason ? ": " + event.reason : "") + "."));
+          room._ready = null;
+        }
         return;
       }
       // 4002: the room stopped holding the seat of a player who walked away. Either way, while they're
@@ -468,8 +485,9 @@
 
   function connect(roomCode, joinOptions, isRetry) {
     var serverUrl = joinOptions.serverUrl ? String(joinOptions.serverUrl).replace(/\/+$/, "") : null;
-    if (!serverUrl && !config.rooms) return Promise.reject(new Error("Pass { serverUrl } to join a room outside Zaisma"));
-    if (roomCode && !ROOM_CODE.test(roomCode)) return Promise.reject(new Error("That room code isn't valid"));
+    if (!serverUrl && !config.rooms) return Promise.reject(notOnZaisma("Outside Zaisma, joinRoom needs your own game server's address, like { serverUrl: \"wss://play.example.com\" }."));
+    if (serverUrl && !SERVER_URL.test(serverUrl)) return Promise.reject(codedError("bad_server_url", "serverUrl takes a full address starting with wss://, ws://, https:// or http://, like \"wss://play.example.com\"."));
+    if (roomCode && !ROOM_CODE.test(roomCode)) return Promise.reject(codedError("bad_room_code", JSON.stringify(roomCode) + " isn't a room code: room codes are six characters like \"K7Q2MX\", from 2 to 9 and A to Z without I or O."));
 
     var roomCodeReady = roomCode
       ? Promise.resolve(roomCode)
@@ -508,7 +526,7 @@
   function listRooms(listOptions) {
     var refused = unknownOption(listOptions, LIST_OPTIONS, "Zaisma.rooms.list");
     if (refused) return Promise.reject(refused);
-    if (!config.rooms) return Promise.reject(new Error("Room lists only cover Zaisma rooms"));
+    if (!config.rooms) return Promise.reject(notOnZaisma("Room lists show Zaisma rooms, so they work only in games played on Zaisma."));
     listOptions = listOptions || {};
     var query = [];
     if (listOptions.region) query.push("region=" + encodeURIComponent(listOptions.region));
@@ -517,7 +535,7 @@
     var leftAgoMs = recent ? Date.now() - recent.leftAtMs : -1;
     var isBack = recent && joined.some(function (room) { return room.roomCode === recent.roomCode && !room._done && !room._away; });
     if (leftAgoMs >= 0 && leftAgoMs < 30000 && !isBack) query.push("left=" + recent.roomCode + "." + leftAgoMs + "." + (Date.now() - recent.joinedAtMs));
-    return fetch(config.rooms + "/v1/rooms/" + config.game + (query.length ? "?" + query.join("&") : "")).then(answered);
+    return fetch(config.rooms + "/v1/rooms/" + config.game + (query.length ? "?" + query.join("&") : "")).then(answered, requestFailed);
   }
 
   // A room that can't take this player, so another may: month_limit is an empty room that can't open again this month.

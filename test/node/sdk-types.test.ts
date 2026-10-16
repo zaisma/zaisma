@@ -17,6 +17,7 @@ const GAME_SERVER = join(ROOT, "packages/game-server/src/room.ts");
 const CORE_ROOMS = join(ROOT, "packages/core/src/rooms.ts");
 const CORE_TYPES = join(ROOT, "packages/core/src/types.ts");
 const TEXT_FILTER = join(ROOT, "packages/core/src/text-filter.ts");
+const ROOMS_WORKER = join(ROOT, "apps/rooms/src/index.ts");
 
 const program = ts.createProgram([TYPES, GAME_SERVER, CORE_ROOMS, CORE_TYPES, TEXT_FILTER], {
   target: ts.ScriptTarget.ES2022,
@@ -57,6 +58,14 @@ function valuesOf(name: string, file = TYPES): string[] {
   return (type.isUnion() ? type.types : [type]).map((part) => String((part as ts.StringLiteralType).value)).sort();
 }
 
+/** The values of a union of string literals a file declares but doesn't export, read from its source alone. */
+function valuesInSource(file: string, name: string): string[] {
+  const source = ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.ES2022);
+  const alias = source.statements.find((statement): statement is ts.TypeAliasDeclaration => ts.isTypeAliasDeclaration(statement) && statement.name.text === name);
+  if (!alias || !ts.isUnionTypeNode(alias.type)) throw new Error(`${file} declares no union ${name}`);
+  return alias.type.types.map((part) => ((part as ts.LiteralTypeNode).literal as ts.StringLiteral).text).sort();
+}
+
 interface StandInSocket {
   url: string;
   sent: string[];
@@ -66,18 +75,23 @@ interface StandInSocket {
   onclose: ((event: { code: number; reason: string }) => void) | null;
 }
 
+const ON_ZAISMA = { rooms: "https://rooms.zaisma.test", game: "test-game", site: "https://zaisma.test" };
+
 /**
  * zaisma.js as on a game's page on Zaisma, in a stand-in browser: the tab already has a guest pass,
- * the test answers for the room's WebSocket, and the page's event listeners are kept for the test to call.
+ * the test answers for the room's WebSocket and for fetch (no connection, unless it gives an answer),
+ * and the page's event listeners are kept for the test to call. null for zaismaConfig: a game hosted
+ * somewhere else, which has no __ZAISMA__.
  */
-function loadSdk() {
+function loadSdk(zaismaConfig: typeof ON_ZAISMA | null = ON_ZAISMA, fetchAnswer: () => Promise<unknown> = () => Promise.reject(new TypeError("Failed to fetch"))) {
   const storage = new Map([["zaisma:pass:test-game", JSON.stringify({ id: "player_ana", name: "Ana", pass: "pass", expiresAt: "2099-01-01T00:00:00Z" })]]);
   const sockets: StandInSocket[] = [];
   const listeners: Record<string, ((event?: unknown) => void)[]> = {};
   const listen = (type: string, listener: (event?: unknown) => void) => void (listeners[type] ??= []).push(listener);
   const window: Record<string, unknown> = { parent: { postMessage() {} }, addEventListener: listen };
   const browser = {
-    __ZAISMA__: { rooms: "https://rooms.zaisma.test", game: "test-game", site: "https://zaisma.test" },
+    __ZAISMA__: zaismaConfig,
+    fetch: fetchAnswer,
     window,
     document: { hidden: false, addEventListener: listen },
     location: { search: "", href: "https://test-game.games.zaisma.test/" },
@@ -129,6 +143,17 @@ function listed(error: unknown): string[] {
   const list = message.match(/(?:It takes|Rooms have): (.*)\.$/);
   if (!list) throw new Error(`Not a refusal that lists names: ${message}`);
   return list[1]!.split(", ").sort();
+}
+
+/** The code a call fails with. Its message is one sentence. */
+async function failureCode(call: () => unknown): Promise<string> {
+  try {
+    await call();
+  } catch (error) {
+    expect((error as Error).message).toMatch(/^[^\n]+\.$/);
+    return (error as { code: string }).code;
+  }
+  throw new Error("The SDK took it");
 }
 
 async function refusal(call: () => unknown): Promise<unknown> {
@@ -206,6 +231,36 @@ describe("the SDK's types say what the SDK does", () => {
     expect(fields(back)).toEqual(fieldsOf("Back"));
     const { room: other, socket: otherSocket } = await joinedRoom(sdk);
     expect(fields(heard(other, "kicked", () => say(otherSocket, { type: "kicked", message: "Removed by the host.", isKeptOut: true })))).toEqual(fieldsOf("Kicked"));
+  });
+
+  it("every error the SDK throws has a code from ErrorCode", async () => {
+    const codes = valuesOf("ErrorCode");
+    // Errors come from codedError alone, with the SDK's own codes and the ones rooms answer with.
+    expect(SDK.match(/new Error\(/g)).toHaveLength(1);
+    const given = [...SDK.matchAll(/codedError\("([a-z_]+)"/g)].map((match) => match[1]!);
+    expect(given.filter((code) => !codes.includes(code))).toEqual([]);
+    expect(valuesInSource(ROOMS_WORKER, "CallErrorCode").filter((code) => !codes.includes(code))).toEqual([]);
+
+    // A game hosted somewhere else.
+    const elsewhere = loadSdk(null);
+    expect(await failureCode(() => elsewhere.Zaisma.player())).toBe("not_on_zaisma");
+    expect(await failureCode(() => elsewhere.Zaisma.joinRoom())).toBe("not_on_zaisma");
+    expect(await failureCode(() => elsewhere.Zaisma.rooms.list())).toBe("not_on_zaisma");
+
+    const sdk = loadSdk();
+    expect(await failureCode(() => sdk.Zaisma.joinRoom({ roomCode: "K7Q2MO" }))).toBe("bad_room_code");
+    expect(await failureCode(() => sdk.Zaisma.joinRoom({ serverUrl: "play.example.com" }))).toBe("bad_server_url");
+    // The match ends before the room lets the player in.
+    const joining = sdk.Zaisma.joinRoom({ roomCode: "K7Q2MX" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    sdk.sockets.at(-1)!.onclose!({ code: 4000, reason: "Match ended" });
+    expect(await failureCode(() => joining)).toBe("connection_closed");
+    // No connection, then answers that aren't Zaisma's, then one that is.
+    expect(await failureCode(() => sdk.Zaisma.rooms.list())).toBe("request_failed");
+    const answering = (answer: () => Promise<unknown>) => loadSdk(ON_ZAISMA, () => Promise.resolve({ ok: false, json: answer })).Zaisma;
+    expect(await failureCode(() => answering(() => Promise.reject(new SyntaxError("Unexpected token '<'"))).rooms.list())).toBe("request_failed");
+    expect(await failureCode(() => answering(() => Promise.resolve({})).rooms.list())).toBe("request_failed");
+    expect(await failureCode(() => answering(() => Promise.resolve({ error: { code: "slow_down", message: "Too many calls. Try again in a minute." } })).rooms.list())).toBe("slow_down");
   });
 
   it("the example games that use the SDK type-check against them", () => {
