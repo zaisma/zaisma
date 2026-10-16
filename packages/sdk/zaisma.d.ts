@@ -362,7 +362,11 @@ declare namespace Zaisma {
      * The player pass: a standard EdDSA JWT any server can check against the keys at
      * https://rooms.zaisma.com/.well-known/jwks.json. It proves only who the player is: its sub is the
      * player's ID, kind says guest or account, aud is the game. A guest's pass also carries their name;
-     * an account's name comes from its profile (https://rooms.zaisma.com/v1/players/<id>).
+     * an account's name comes from its profile (https://rooms.zaisma.com/v1/players/<id>). An account's
+     * pass says who it can chat with, never its age: social_mode (solo_focused, friends_focused or
+     * open_and_social) and, when open and social, an opaque chat_group (chat_group_…) that differs in
+     * every game. Your own server checks two players with canChat(first, second) from @zaisma/game-server
+     * before passing chat between them; guests never chat.
      */
     pass: string;
     /** When the pass runs out, as an ISO time in UTC. */

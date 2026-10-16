@@ -1,6 +1,7 @@
 import { env, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { gameOrigin, type Env } from "../../apps/rooms/src/index.ts";
+import { gameOrigin, signingKey, type Env } from "../../apps/rooms/src/index.ts";
+import { canChat, verifyPass } from "@zaisma/game-server";
 import { addTesterLink, createAccount, deleteAccount, issueRoomKey, revokeTesterLink } from "@zaisma/core";
 import type { Room } from "../../apps/rooms/src/room.ts";
 
@@ -128,8 +129,8 @@ describe("rooms", () => {
     expect(account.player_id).toMatch(/^player_[a-z0-9]{20}$/);
     // The pass proves who, for which game and until when; the name and the sign-in's own ID stay out of it.
     const claims = JSON.parse(atob(pass.split(".")[1]!.replace(/-/g, "+").replace(/_/g, "/")));
-    expect(Object.keys(claims).sort()).toEqual(["aud", "exp", "iat", "iss", "kind", "sub"]);
-    expect(claims).toMatchObject({ sub: account.player_id, kind: "account", aud: "arena" });
+    expect(Object.keys(claims).sort()).toEqual(["aud", "exp", "iat", "iss", "kind", "social_mode", "sub"]);
+    expect(claims).toMatchObject({ sub: account.player_id, kind: "account", aud: "arena", social_mode: "friends_focused" });
     expect(pass).not.toContain(account.id);
     expect((await passFor("other", other)).player.id).toBe(account.player_id);
 
@@ -148,6 +149,45 @@ describe("rooms", () => {
     late.ws.send(JSON.stringify({ type: "hello", pass }));
     expect(await late.next()).toMatchObject({ type: "error", code: "bad_pass" });
     expect((await post("/v1/pass", "arena", ORIGIN, { roomKey: leftoverKey })).status).toBe(403);
+  });
+
+  it("says in the pass who an account can chat with, never its age, and canChat follows it", async () => {
+    const arena = await addGame("arena");
+    const other = await addGame("other");
+    const accountFor = (id: string, ageBand: "13-15" | "16-17" | "18+", socialMode: "solo_focused" | "friends_focused" | "open_and_social") => createAccount(e.DB, { id, name: id, ageBand, socialMode });
+    const claimsOf = async (account: { id: string }, gameSlug = "arena", gameId = arena) => {
+      const { pass } = await (await post("/v1/pass", gameSlug, ORIGIN, { roomKey: await issueRoomKey(e.DB, gameId, account.id) })).json<{ pass: string }>();
+      return verifyPass(pass, [(await signingKey(e)).publicKey], { game: gameSlug, issuer: e.ISSUER });
+    };
+    const teen = await claimsOf(await accountFor("teen-open-1", "16-17", "open_and_social"));
+    const teenToo = await claimsOf(await accountFor("teen-open-2", "16-17", "open_and_social"));
+    const adult = await claimsOf(await accountFor("adult-open-1", "18+", "open_and_social"));
+    const adultToo = await claimsOf(await accountFor("adult-open-2", "18+", "open_and_social"));
+    const friendsOnly = await claimsOf(await accountFor("adult-friends", "18+", "friends_focused"));
+    const young = await claimsOf(await accountFor("young-solo", "13-15", "solo_focused"));
+    const guest = await verifyPass((await getPass("arena")).pass, [(await signingKey(e)).publicKey], { game: "arena", issuer: e.ISSUER });
+
+    // Opaque groups: the same within a band group and a game, never naming an age.
+    expect(teen.chat_group).toMatch(/^chat_group_[a-f0-9]{20}$/);
+    expect(teen.chat_group).toBe(teenToo.chat_group);
+    expect(adult.chat_group).toBe(adultToo.chat_group);
+    expect(teen.chat_group).not.toBe(adult.chat_group);
+    expect(JSON.stringify([teen, adult, young])).not.toMatch(/13-15|16-17|18\+/);
+    // Another game gets other groups, so groups can't be matched across games.
+    expect((await claimsOf({ id: "teen-open-1" }, "other", other)).chat_group).not.toBe(teen.chat_group);
+    // Only open and social carries a group; guests carry no social mode at all.
+    expect(friendsOnly).toMatchObject({ social_mode: "friends_focused" });
+    expect(friendsOnly.chat_group).toBeUndefined();
+    expect(young).toMatchObject({ social_mode: "solo_focused" });
+    expect(guest.social_mode).toBeUndefined();
+
+    expect(canChat(teen, teenToo)).toBe(true);
+    expect(canChat(adult, adultToo)).toBe(true);
+    expect(canChat(teen, adult)).toBe(false);
+    expect(canChat(adult, friendsOnly)).toBe(false);
+    expect(canChat(young, teen)).toBe(false);
+    expect(canChat(guest, adult)).toBe(false);
+    expect(canChat(adult, adult)).toBe(false);
   });
 
   it("gives guests no passes for a game that needs accounts, and rooms turn away guest passes made before", async () => {
@@ -172,7 +212,7 @@ describe("rooms", () => {
   });
 
   it("looks up an account's public profile by player ID, for any site or server", async () => {
-    const account = await createAccount(e.DB, { id: "supabase-user-2", name: "Quiet Heron", ageBand: "13-17" });
+    const account = await createAccount(e.DB, { id: "supabase-user-2", name: "Quiet Heron", ageBand: "16-17" });
     const lookUp = (playerId: string) => SELF.fetch(`${R}/v1/players/${playerId}`, { headers: { "cf-connecting-ip": `198.51.100.${++address % 250}` } });
     const found = await lookUp(account.player_id);
     expect(found.status).toBe(200);
