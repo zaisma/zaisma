@@ -53,10 +53,7 @@ When his answers settle the open calls, end with one message:
 - **What gets written, word for word:** new or changed `docs/DECISIONS.md` lines in blockquotes, roadmap rows (name, Must or Nice, Needs, notes; one row per slice when it's too big for one pull request), and any `docs/NAMING.md`, `docs/PLAN.md` or `CLAUDE.md` line. Mark anything that changes a settled decision, pricing, positioning or who we serve.
 - One question: whether to write it down and mark it settled.
 
-On his yes, in a worktree:
+On his yes, in a worktree, write the docs as shown. Set the item's `Settled` cell to `yes`, and every slice row's when he OK'd the slices. Parked ideas go in `docs/IDEAS.md`. Then:
 
-1. Write the docs as shown. Set the item's `Settled` cell to `yes`, and every slice row's when he OK'd the slices. Parked ideas go in `docs/IDEAS.md`.
-2. `npm test` (the roadmap test checks names and the Settled column), then a pull request. Julius merges it: it changes settled docs. When it changes only `docs/ROADMAP.md`, push it straight to main instead, then republish the roadmap page as `CLAUDE.md` says.
-3. Tell him in a line that it's ready to build: `/build-next <name>` in its own session, or `/build-batch` along with whatever else is settled.
-
-If he asked to build it in this session, go on with the `build-next` skill once the docs are in.
+- **Inside `build-next`** (the usual way, also in a batch): don't open a separate pull request. The docs go in with the build, in this worktree, and you go back to `build-next` and build. The pull request merges by the settled rule. Its decision lines are the exact words he said yes to; say so in its description.
+- **On its own** (he wanted to settle it but not build it now): `npm test` (the roadmap test checks names and the Settled column), then a pull request for Julius to merge, since it changes settled docs. Tell him in a line that it's ready to build: `/build-next <name>`, or `/build-batch` with the rest of Now.
