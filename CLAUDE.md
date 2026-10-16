@@ -69,6 +69,19 @@ Claude runs `npm run ship` itself when no migration is pending (Julius, 15 Oct 2
 - Ship small, working slices. Being first beats being complete.
 - **Checks pass before a pull request.** Run `npm test` and `npm run typecheck` before opening one; GitHub's check (`.github/workflows/check.yml`) runs both on every pull request and push to main, and `npm run ship` stops when it failed.
 
+## Adding a building block
+
+A building block is anything a developer or their AI uses: an API call or MCP tool, an SDK call or event, a game server option, a setting. Before calling one done, go through the places it can live; skip the ones that don't apply and say which in the PR.
+
+1. **Design.** It fits "The direction" in `docs/DECISIONS.md`, the cost targets in `docs/PLAN.md` and the 13+ rules; its names come from the glossary in `docs/NAMING.md` first.
+2. **Core and data.** Logic shared by more than one app goes in `packages/core`; a migration's columns follow `docs/NAMING.md`.
+3. **API and MCP together.** The route in `apps/site/src/developer.ts`, the tool in `mcp.ts`, the answer's schema in `schemas.ts`, error codes in `ERROR_CODES`, `next_steps` on changes, examples where a call is easy to get wrong. The dashboard reads the same API.
+4. **Inside games.** SDK calls and events in `packages/sdk/zaisma.js` and `zaisma.d.ts`; a game server option works the same in Zaisma rooms (`apps/rooms`) and on the developer's own server (`packages/game-server/bin/node.js`).
+5. **The upload command**, when developers would do it from a terminal: a command or flag, closed like the API.
+6. **Docs in the same change:** `docs/DEVELOPER-API.md`, the glossary, how it works in `docs/DECISIONS.md`, a forum category (`packages/core/src/forum.ts`) for a new area, and the example games when it changes how games are written.
+7. **Tests and preview:** API and MCP answers checked against their schemas, game server options tested in both runtimes, and test data in `npm run preview` for anything a page shows.
+8. **After the beta**, changing or removing it follows "What's live keeps working".
+
 ## Working with Julius
 
 - Make small decisions yourself and keep going. Don't ask him to do things you can do.

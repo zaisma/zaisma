@@ -102,6 +102,8 @@ import { KNOWN_IMAGE_ALERT, imageMatcher, pruneVersions } from "./scan.ts";
  *   DELETE /api/dev/games/:slug/testers/:id    turn one off for good
  *   …/api/dev/forum                            the developer forum: topics, replies, Me too (see forum.ts)
  *
+ * API_ROUTES, above route(), is the full list the router answers; keep this one in step with it.
+ *
  * Every refusal answers { "error": { code, message, field, fix, retry_after_sec } }, its code from
  * ERROR_CODES (@zaisma/core), and every call that changes something answers with next_steps
  * (docs/NAMING.md), except the steps of sending files, whose next call is always the one that uses them.
@@ -217,6 +219,68 @@ export async function apiCall(env: Env, caller: Caller, method: string, path: st
   return (await response.json()) as Record<string, unknown>;
 }
 
+/** One developer API call: its method and its path under /api/dev, where :name stands for one path part. */
+export interface ApiRoute {
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  path: string;
+}
+
+/**
+ * Every developer API call. The router answers only these (anything else is not_found or bad_method),
+ * so this is the API as it is; test/site/api-mcp-parity.test.ts holds it to the MCP's tools.
+ */
+export const API_ROUTES: readonly ApiRoute[] = [
+  { method: "GET", path: "/games" },
+  { method: "POST", path: "/games" },
+  { method: "GET", path: "/games/:slug" },
+  { method: "PATCH", path: "/games/:slug" },
+  { method: "POST", path: "/games/:slug/images" },
+  { method: "DELETE", path: "/games/:slug/images/:image_id" },
+  { method: "POST", path: "/games/:slug/uploads" },
+  { method: "PUT", path: "/files/:sha256" },
+  { method: "POST", path: "/files/:sha256/parts" },
+  { method: "PUT", path: "/files/:sha256/parts/:part_number" },
+  { method: "POST", path: "/files/:sha256/parts/done" },
+  { method: "POST", path: "/games/:slug/versions" },
+  { method: "GET", path: "/games/:slug/versions/:version_id" },
+  { method: "POST", path: "/games/:slug/versions/:version_id/publish" },
+  { method: "DELETE", path: "/games/:slug/versions/:version_id/publish" },
+  { method: "GET", path: "/games/:slug/reports" },
+  { method: "GET", path: "/games/:slug/stats" },
+  { method: "GET", path: "/games/:slug/history" },
+  { method: "GET", path: "/games/:slug/testers" },
+  { method: "POST", path: "/games/:slug/testers" },
+  { method: "DELETE", path: "/games/:slug/testers/:tester_id" },
+  { method: "GET", path: "/forum" },
+  { method: "POST", path: "/forum" },
+  { method: "GET", path: "/forum/similar" },
+  { method: "GET", path: "/forum/people" },
+  { method: "POST", path: "/forum/media" },
+  { method: "GET", path: "/forum/:topic_id" },
+  { method: "POST", path: "/forum/:topic_id/posts" },
+  { method: "POST", path: "/forum/:topic_id/vote" },
+  { method: "DELETE", path: "/forum/:topic_id/vote" },
+  { method: "POST", path: "/forum/:topic_id/follow" },
+  { method: "DELETE", path: "/forum/:topic_id/follow" },
+  { method: "POST", path: "/forum/:topic_id/answer" },
+  { method: "POST", path: "/forum/:topic_id/misplaced" },
+  { method: "POST", path: "/forum/:topic_id/still-happening" },
+  { method: "POST", path: "/forum/:topic_id/posts/:post_id/helpful" },
+  { method: "DELETE", path: "/forum/:topic_id/posts/:post_id/helpful" },
+  { method: "POST", path: "/forum/:topic_id/posts/:post_id/report" },
+  { method: "GET", path: "/forum/:topic_id/media/:media_id" },
+];
+
+const routePatterns = new Map(
+  API_ROUTES.map((apiRoute) => [apiRoute, new RegExp(`^${apiRoute.path.replace(/:[a-z0-9_]+/g, (name) => (name === ":sha256" ? "[0-9a-f]{64}" : "[^/]+"))}$`)]),
+);
+
+/** The calls at a path (without its query), the most specific first: /forum/people before /forum/:topic_id. */
+export function apiRoutesAt(path: string): ApiRoute[] {
+  const placeholderCount = (apiRoute: ApiRoute) => apiRoute.path.split(":").length;
+  return API_ROUTES.filter((apiRoute) => routePatterns.get(apiRoute)!.test(path)).sort((first, second) => placeholderCount(first) - placeholderCount(second));
+}
+
 export async function route(request: Request, env: Env, path: string, caller: Caller): Promise<Response> {
   const method = request.method;
   const answer = (body: unknown, httpStatus = 200) => json(body, httpStatus, caller.cookies);
@@ -234,6 +298,9 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
   if (path === "/feedback" || path.startsWith("/feedback/")) {
     throw new ApiError("gone", { message: "The feedback calls are gone; everything they did is in the developer forum.", fix: "Use search_forum (GET /forum?tab=yours or ?tab=messages) for your topics and messages, and post_topic or message_zaisma (POST /forum) to post." });
   }
+  const routes = apiRoutesAt(path);
+  if (routes.length === 0) throw new ApiError("not_found", { message: `There's no API call at ${path}.`, fix: "docs/DEVELOPER-API.md lists every call; paths start with /api/dev, like GET /api/dev/games." });
+  if (!routes.some((apiRoute) => apiRoute.method === method)) throw badMethod(method, path);
   if (path === "/forum" || path.startsWith("/forum/")) {
     const routed = await forumRoute(request, env, path, caller);
     return routed instanceof Response ? routed : answer(...routed);
