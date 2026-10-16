@@ -81,6 +81,21 @@ import {
   updateSignInApp,
   type SignInApp,
   type SignInAppKind,
+  MAXIMUM_WEBHOOK_COUNT,
+  WEBHOOK_EVENT_KINDS,
+  checkEndpointUrl,
+  createWebhook,
+  deleteWebhook,
+  deliveriesFor,
+  deliveryCountsFor,
+  eventKindsOf,
+  gameSlugsOf,
+  updateWebhook,
+  webhookById,
+  webhooksFor,
+  type Webhook,
+  type WebhookDelivery,
+  type WebhookEventKind,
 } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import { gameUrl, type Env } from "./env.ts";
@@ -89,6 +104,7 @@ import { databaseRoute } from "./game-database.ts";
 import { playStats } from "./plays.ts";
 import { sendAlert } from "./email.ts";
 import { KNOWN_IMAGE_ALERT, imageMatcher, pruneVersions } from "./scan.ts";
+import { sendTestEvent, tellWebhooks, type WaitUntil } from "./webhooks.ts";
 
 /**
  * The developer API: one API for the MCP, the upload command and the dashboard, so they always agree.
@@ -122,6 +138,12 @@ import { KNOWN_IMAGE_ALERT, imageMatcher, pruneVersions } from "./scan.ts";
  *   POST   /api/dev/sign-in-apps               make one: { "name", "kind", "redirect_urls" }; a confidential app's client_secret is answered once
  *   PATCH  /api/dev/sign-in-apps/:id           name, redirect_urls, or replace_client_secret: true
  *   DELETE /api/dev/sign-in-apps/:id           delete one, with every player's yes to it
+ *   GET    /api/dev/webhooks                   your webhooks (see webhooks.ts)
+ *   POST   /api/dev/webhooks                   make one: { "endpoint_url", "event_kinds", "game_slugs" }; its signing_secret is answered once
+ *   PATCH  /api/dev/webhooks/:id               endpoint_url, event_kinds, game_slugs, or replace_signing_secret: true
+ *   DELETE /api/dev/webhooks/:id               delete one, with what was on its way to it
+ *   POST   /api/dev/webhooks/:id/test          send it a test event now, and say how it went
+ *   GET    /api/dev/webhooks/:id/deliveries    what was sent to it in the last 30 days, and how each went
  *   …/api/dev/forum                            the developer forum: topics, replies, Me too (see forum.ts)
  *
  * API_ROUTES, above route(), is the full list the router answers; keep this one in step with it.
@@ -142,6 +164,8 @@ export interface Caller {
   via: "api" | "mcp" | "dashboard";
   /** What the caller says it is (X-Zaisma-Client), like "cli". Only for labels; never trusted for anything else. */
   client?: string;
+  /** Keeps work going after the answer (the Worker's ctx.waitUntil), like sending webhook events; without it, that work is waited for. */
+  waitUntil?: WaitUntil;
 }
 
 /** A call that usually follows a change, ready to make (docs/NAMING.md, Next steps). */
@@ -174,11 +198,12 @@ export const INTERNAL_ERROR = () =>
     fix: "Try once more. If it happens again, tell Zaisma with post_topic (kind bug, category api or mcp): the call, what you sent and this error.",
   });
 
-export async function handleDeveloper(request: Request, env: Env, path: string): Promise<Response | null> {
+export async function handleDeveloper(request: Request, env: Env, path: string, ctx?: ExecutionContext): Promise<Response | null> {
   if (path.startsWith("/img/")) return serveImage(request, env, path.slice(5));
   if (path !== "/api/dev" && !path.startsWith("/api/dev/")) return null;
   try {
     const caller = await authenticate(request, env);
+    if (ctx) caller.waitUntil = (promise) => ctx.waitUntil(promise);
     return await route(request, env, path.slice("/api/dev".length) || "/", caller);
   } catch (error) {
     if (error instanceof ApiError) return errorResponse(error);
@@ -299,6 +324,12 @@ export const API_ROUTES: readonly ApiRoute[] = [
   { method: "POST", path: "/sign-in-apps" },
   { method: "PATCH", path: "/sign-in-apps/:sign_in_app_id" },
   { method: "DELETE", path: "/sign-in-apps/:sign_in_app_id" },
+  { method: "GET", path: "/webhooks" },
+  { method: "POST", path: "/webhooks" },
+  { method: "PATCH", path: "/webhooks/:webhook_id" },
+  { method: "DELETE", path: "/webhooks/:webhook_id" },
+  { method: "POST", path: "/webhooks/:webhook_id/test" },
+  { method: "GET", path: "/webhooks/:webhook_id/deliveries" },
 ];
 
 const routePatterns = new Map(
@@ -415,6 +446,9 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
 
   const signInAppPath = path.match(/^\/sign-in-apps(?:\/([^/]+))?$/);
   if (signInAppPath) return answer(...(await signInAppRoute(request, env, signInAppPath[1] ? decodeURIComponent(signInAppPath[1]) : undefined, caller)));
+
+  const webhookPath = path.match(/^\/webhooks(?:\/([^/]+)(?:\/(test|deliveries))?)?$/);
+  if (webhookPath) return answer(...(await webhookRoute(request, env, webhookPath[1] ? decodeURIComponent(webhookPath[1]) : undefined, webhookPath[2] as "test" | "deliveries" | undefined, caller)));
 
   const testerPath = path.match(/^\/games\/([^/]+)\/testers(?:\/([^/]+))?$/);
   if (testerPath) return answer(...(await testerRoute(request, env, await ownGame(env, testerPath[1]!, caller), testerPath[2], caller)));
@@ -765,6 +799,7 @@ async function versionRoute(request: Request, env: Env, game: Game, what: string
     await publishVersion(env.DB, version);
     await audit(env.DB, game.id, version.published_at_ms ? "rolled-back" : "published", version.id, caller.actor);
     await pruneVersions(env, game.id);
+    await tellWebhooks(env, "live_version_changed", game.id, { versionId: version.id }, caller.waitUntil);
     const published = (await gameBySlug(env.DB, game.slug))!;
     const isHidden = published.visibility === "draft" || published.visibility === "private";
     const nextSteps: NextStep[] = isHidden
@@ -848,15 +883,20 @@ async function reportsFor(env: Env, game: Game, cursor: string | null) {
     period_duration_days: 90,
     // Open: waiting for us. Closed: we looked and either dismissed it or acted on it.
     reasons: [...byReason.values()],
-    bug_reports: bugs.map((bug) => ({
-      id: bug.id,
-      player_text: bug.player_text,
-      summary: bug.triage ? (JSON.parse(bug.triage) as { summary: string }).summary : null,
-      version_id: bug.version_id,
-      reported_at: iso(bug.reported_at_ms),
-    })),
+    bug_reports: bugs.map(bugReportJson),
     // Pass this as `cursor` next time to get only bug reports that arrived after this call.
     next_cursor: cursorFor(Math.max(sinceMs, ...bugs.map((bug) => bug.bug_report_at_ms))),
+  };
+}
+
+/** A bug report as the developer sees it, in get_reports and the bug_reported webhook event: never who sent it. */
+export function bugReportJson(bug: { id: string; player_text: string; triage: string | null; version_id: string | null; reported_at_ms: number }) {
+  return {
+    id: bug.id,
+    player_text: bug.player_text,
+    summary: bug.triage ? (JSON.parse(bug.triage) as { summary: string }).summary : null,
+    version_id: bug.version_id,
+    reported_at: iso(bug.reported_at_ms),
   };
 }
 
@@ -1101,6 +1141,137 @@ function signInAppJson(env: Env, app: SignInApp) {
   return { id: app.id, name: app.name, kind: app.kind, redirect_urls: redirectUrlsOf(app), issuer_url: env.SITE_ORIGIN, created_at: iso(app.created_at_ms), updated_at: iso(app.updated_at_ms) };
 }
 
+/**
+ * Webhooks: addresses the developer's servers listen at, sent signed events about their games
+ * (webhooks.ts). The signing secret is answered once, when it's made or replaced.
+ */
+async function webhookRoute(request: Request, env: Env, id: string | undefined, sub: "test" | "deliveries" | undefined, caller: Caller): Promise<[unknown, number?]> {
+  const method = request.method;
+  if (!id && method === "GET") {
+    const [webhooks, counts] = await Promise.all([webhooksFor(env.DB, caller.ownerId), deliveryCountsFor(env.DB, caller.ownerId)]);
+    return [{ webhooks: webhooks.map((webhook) => webhookJson(webhook, counts.get(webhook.id))) }];
+  }
+  if (!id && method === "POST") {
+    const body = await readJson(request);
+    closedBody(body, ["endpoint_url", "event_kinds", "game_slugs"]);
+    for (const field of ["endpoint_url", "event_kinds"]) {
+      if (body[field] === undefined) throw new ApiError("missing_field", { message: `${field} wasn't sent.`, field, fix: WEBHOOK_FIX[field]! });
+    }
+    const endpointUrl = endpointUrlOrThrow(env, body.endpoint_url);
+    const eventKinds = eventKindsOrThrow(body.event_kinds);
+    const gameSlugs = body.game_slugs === undefined ? null : await gameSlugsOrThrow(env, body.game_slugs, caller);
+    if ((await webhooksFor(env.DB, caller.ownerId)).length >= MAXIMUM_WEBHOOK_COUNT) {
+      throw new ApiError("too_many_webhooks", { message: `You have ${MAXIMUM_WEBHOOK_COUNT} webhooks, the most an account can.`, fix: "Delete one you don't use with delete_webhook, or add these event_kinds to one you have with update_webhook." });
+    }
+    const webhook = await createWebhook(env.DB, { ownerId: caller.ownerId, endpointUrl, eventKinds, gameSlugs });
+    return [{ webhook: webhookJson(webhook), signing_secret: webhook.signing_secret, next_steps: [testStep(webhook)] satisfies NextStep[] }, 201];
+  }
+  if (!id) throw badMethod(method, new URL(request.url).pathname);
+  const webhookFix = "list_webhooks lists your webhooks with their IDs.";
+  checkIdKind("webhook", id, "webhook_id", webhookFix);
+  const webhook = await webhookById(env.DB, id);
+  if (!webhook || webhook.owner_id !== caller.ownerId) throw new ApiError("no_webhook", { message: `You have no webhook with the ID ${id}.`, field: "webhook_id", fix: webhookFix });
+
+  if (sub === "test" && method === "POST") {
+    const delivery = await sendTestEvent(env, webhook);
+    return [{ delivery: deliveryJson(delivery), next_steps: [] satisfies NextStep[] }];
+  }
+  if (sub === "deliveries" && method === "GET") {
+    const query = new URL(request.url).searchParams;
+    closedQuery(query, ["cursor"]);
+    const cursor = query.get("cursor");
+    const deliveries = await deliveriesFor(env.DB, webhook.id, 20, cursor ? readCursor(cursor) : null);
+    return [{ deliveries: deliveries.map(deliveryJson), next_cursor: deliveries.length === 20 ? cursorFor(deliveries.at(-1)!.created_at_ms) : null }];
+  }
+  if (sub) throw badMethod(method, new URL(request.url).pathname);
+  if (method === "PATCH") {
+    const body = await readJson(request);
+    closedBody(body, ["endpoint_url", "event_kinds", "game_slugs", "replace_signing_secret"]);
+    const replaceSigningSecret = body.replace_signing_secret;
+    if (replaceSigningSecret !== undefined && typeof replaceSigningSecret !== "boolean") {
+      throw new ApiError("bad_replace_signing_secret", { message: "replace_signing_secret isn't true or false.", field: "replace_signing_secret", fix: "Send true to make a new signing secret (the old one stops at once), or leave it out." });
+    }
+    const updated = await updateWebhook(env.DB, webhook, {
+      endpointUrl: body.endpoint_url === undefined ? undefined : endpointUrlOrThrow(env, body.endpoint_url),
+      eventKinds: body.event_kinds === undefined ? undefined : eventKindsOrThrow(body.event_kinds),
+      gameSlugs: body.game_slugs === undefined ? undefined : await gameSlugsOrThrow(env, body.game_slugs, caller),
+      replaceSigningSecret: replaceSigningSecret === true,
+    });
+    const counts = (await deliveryCountsFor(env.DB, caller.ownerId)).get(webhook.id);
+    const nextSteps: NextStep[] = body.endpoint_url !== undefined || replaceSigningSecret === true ? [testStep(updated)] : [];
+    return [{ webhook: webhookJson(updated, counts), signing_secret: replaceSigningSecret === true ? updated.signing_secret : null, next_steps: nextSteps }];
+  }
+  if (method === "DELETE") {
+    await deleteWebhook(env.DB, webhook.id);
+    return [{ removed_webhook_id: webhook.id, next_steps: [] satisfies NextStep[] }];
+  }
+  throw badMethod(method, new URL(request.url).pathname);
+}
+
+const testStep = (webhook: Webhook): NextStep => ({
+  tool: "test_webhook",
+  arguments: { webhook_id: webhook.id },
+  after_sec: null,
+  reason: "Once your server checks the signature with signing_secret, send a test event to see it answer 2xx.",
+});
+
+const WEBHOOK_FIX: Record<string, string> = {
+  endpoint_url: 'Give the https address your server takes events at, like "https://hooks.skyhopper.io/zaisma": a name, not an IP address, and not on Zaisma\'s own domains.',
+  event_kinds: `Send a list of the events to send, from: ${WEBHOOK_EVENT_KINDS.join(", ")}.`,
+  game_slugs: "Send null (or leave it out) for every game you have and will make, or a list of up to 50 of your games' slugs from list_games.",
+};
+
+function endpointUrlOrThrow(env: Env, given: unknown): string {
+  const ownDomains = [new URL(env.SITE_ORIGIN).hostname, new URL(env.GAME_ORIGIN).hostname, env.GAME_DOMAIN, "zaisma.com", "zaismausercontent.com"].filter(Boolean);
+  const checked = checkEndpointUrl(given, ownDomains, env.SITE_ORIGIN.startsWith("http://localhost"));
+  if ("error" in checked) throw new ApiError("bad_endpoint_url", { message: checked.error, field: "endpoint_url", fix: WEBHOOK_FIX.endpoint_url! });
+  return checked.endpointUrl;
+}
+
+function eventKindsOrThrow(given: unknown): WebhookEventKind[] {
+  if (!Array.isArray(given) || given.length < 1 || given.some((kind) => !(WEBHOOK_EVENT_KINDS as readonly unknown[]).includes(kind))) {
+    const wrong = Array.isArray(given) ? given.find((kind) => !(WEBHOOK_EVENT_KINDS as readonly unknown[]).includes(kind)) : undefined;
+    throw new ApiError("bad_event_kinds", { message: wrong === undefined ? "event_kinds isn't a list of 1 or more event kinds." : `${JSON.stringify(wrong)} isn't an event kind.`, field: "event_kinds", fix: WEBHOOK_FIX.event_kinds! });
+  }
+  return [...new Set(given as WebhookEventKind[])];
+}
+
+async function gameSlugsOrThrow(env: Env, given: unknown, caller: Caller): Promise<string[] | null> {
+  if (given === null) return null;
+  if (!Array.isArray(given) || given.length < 1 || given.length > MAXIMUM_GAME_COUNT_PER_OWNER || given.some((slug) => typeof slug !== "string")) {
+    throw new ApiError("bad_game_slugs", { message: `game_slugs isn't null or a list of 1 to ${MAXIMUM_GAME_COUNT_PER_OWNER} slugs.`, field: "game_slugs", fix: WEBHOOK_FIX.game_slugs! });
+  }
+  const slugs = [...new Set(given as string[])];
+  for (const [i, slug] of slugs.entries()) await ownGame(env, slug, caller, `game_slugs[${i}]`);
+  return slugs;
+}
+
+function webhookJson(webhook: Webhook, counts?: { pendingCount: number; failedCount: number }) {
+  return {
+    id: webhook.id,
+    endpoint_url: webhook.endpoint_url,
+    event_kinds: eventKindsOf(webhook),
+    game_slugs: gameSlugsOf(webhook),
+    pending_delivery_count: counts?.pendingCount ?? 0,
+    failed_delivery_count: counts?.failedCount ?? 0,
+    created_at: iso(webhook.created_at_ms),
+    updated_at: iso(webhook.updated_at_ms),
+  };
+}
+
+function deliveryJson(delivery: WebhookDelivery) {
+  return {
+    webhook_id: delivery.webhook_id,
+    webhook_event: JSON.parse(delivery.event_json) as Record<string, unknown>,
+    delivery_status: delivery.delivery_status,
+    attempt_count: delivery.attempt_count,
+    last_attempt_at: iso(delivery.last_attempt_at_ms),
+    next_attempt_at: delivery.delivery_status === "pending" ? iso(delivery.next_attempt_at_ms) : null,
+    failure_message: delivery.failure_message,
+    created_at: iso(delivery.created_at_ms),
+  };
+}
+
 // The JSON for each kind of thing, as schemas.ts describes it: the row's own names, with values in
 // the API's form (ISO times, true and false, lists and objects instead of stored text).
 
@@ -1112,7 +1283,7 @@ function previewUrl(env: Env, slug: string, token: string): string {
   return gameUrl(env, `${slug}--${token}`);
 }
 
-function versionJson(env: Env, game: Game, version: Version) {
+export function versionJson(env: Env, game: Game, version: Version) {
   return {
     id: version.id,
     file_count: version.file_count,
@@ -1186,7 +1357,7 @@ export function closedQuery(queryParameters: URLSearchParams, fields: string[]):
 
 const splitLabels = (labels: string) => (labels ? labels.split(",") : []);
 
-function gameJson(env: Env, game: Game) {
+export function gameJson(env: Env, game: Game) {
   const waitingWords = game.details_waiting_for_review ? (JSON.parse(game.details_waiting_for_review) as { title?: string; description?: string }) : null;
   return {
     slug: game.slug,

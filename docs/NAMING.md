@@ -121,8 +121,10 @@ Every ID Zaisma makes says its kind in its value: `<kind>_<random>`, the kind in
 | `room_key` | `room_key_…` |
 | `sign_in_app` | `sign_in_app_…` |
 | `chat_group` | `chat_group_…` |
+| `webhook` | `webhook_…` |
+| `webhook_event` | `webhook_event_…` |
 
-`ID_KINDS` (`packages/core/src/ids.ts`) is this list, and a test keeps the two in step; a new kind is added to both in the same change. Accounts' and guests' player IDs are both `player_…`, in their passes and everywhere the SDK and game server show them; an account's never changes, and Zaisma's own account ID (the sign-in's) never leaves Zaisma. The developer API and MCP still name a game by its `slug`, the link name developers know. Not IDs, and kept as they are: a `slug`, a `room_code` (six letters players type), API keys (`zsk_…`, a format secret scanners know) and file hashes (`sha256`).
+`ID_KINDS` (`packages/core/src/ids.ts`) is this list, and a test keeps the two in step; a new kind is added to both in the same change. Accounts' and guests' player IDs are both `player_…`, in their passes and everywhere the SDK and game server show them; an account's never changes, and Zaisma's own account ID (the sign-in's) never leaves Zaisma. The developer API and MCP still name a game by its `slug`, the link name developers know. Not IDs, and kept as they are: a `slug`, a `room_code` (six letters players type), API keys (`zsk_…`, a format secret scanners know), webhook signing secrets (`whsec_…`, Standard Webhooks' form) and file hashes (`sha256`).
 
 ## Inputs
 
@@ -190,7 +192,7 @@ Every call that changes something answers with `next_steps`: the calls that usua
 Deliberate, and only these:
 
 - **Standard formats keep their own names**: HTTP headers, JSON-RPC and MCP fields (`inputSchema`, `isError`, `structuredContent`) and JSON Schema keywords (`maxLength`). So do the shapes of standards and outside services Zaisma reads: JWT claims (`exp`, `nbf`, `iat`), OAuth and OpenID Connect at `/oauth/` and `/.well-known/` (`client_id`, `redirect_uri`, `id_token`, `expires_in`, `auth_time`, `invalid_grant`), WebAuthn's client and authenticator data (`crossOrigin`, `flags`), R2's ranges (`offset`, `length`, `suffix`), and what Cloudflare Turnstile (`success`) and VirusTotal answer.
-- **API keys** keep `zsk_`.
+- **API keys** keep `zsk_`, and webhook signing secrets Standard Webhooks' `whsec_`; the headers webhooks are sent with (`webhook-id`, `webhook-timestamp`, `webhook-signature`) are Standard Webhooks' own.
 
 ## Glossary
 
@@ -223,6 +225,10 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 | What a game needs a Zaisma account for | `account_requirement`: `none`, `multiplayer`, `whole_game`; a guest turned away gets `account_needed` | error `code` `account_needed` |
 | A developer's own site or app that players sign in to with Zaisma, and OAuth's client type for it | `sign_in_app_id` (the OAuth `client_id`); `kind`: `confidential`, `public` | |
 | Where a sign-in can go back to, and asking for a new client secret | `redirect_urls`; `replace_client_secret: true`, answered once as `client_secret` | |
+| An address a developer's server takes Zaisma's events at, the events it takes and the games they're about | `webhook_id`; `endpoint_url`, `event_kinds`, `game_slugs` (`null` for every game) | |
+| What a webhook is sent, and what happened | `webhook_event`, its `id` a `webhook_event_…` ID; its `kind`: `bug_reported`, `scan_status_changed`, `live_version_changed`, `review_status_changed`, `test` | |
+| Asking for a new signing secret for a webhook | `replace_signing_secret: true`, answered once as `signing_secret` (`whsec_…`, Standard Webhooks' form) | |
+| An event on its way to one webhook, and how it went | `delivery_status`: `pending`, `delivered`, `failed`; `attempt_count`, `last_attempt_at`, `next_attempt_at`, `failure_message`; `pending_delivery_count`, `failed_delivery_count` | |
 | How many players, and the most and fewest allowed | `player_count`, `maximum_player_count`, `minimum_player_count` | `playerCount`, `maximumPlayerCount`, `minimumPlayerCount` |
 | How many files, and their total size | `file_count`, `size_bytes` | |
 | An image's size on screen | `width_px`, `height_px` | |

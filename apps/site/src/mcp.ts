@@ -1,7 +1,7 @@
-import { ApiError, CONTROLS, DEVICES, FORUM_CATEGORIES, FORUM_LIMITS, FORUM_REPORT_REASONS, FORUM_SECTIONS, FORUM_TABS, FORUM_TAGS, ACCOUNT_REQUIREMENTS, PLAY_STYLES, POST_SELECTIONS, ROOM_BROWSING, SCREENS, TOPIC_KINDS, TOPIC_STATUSES, VISIBILITIES, type IdKind } from "@zaisma/core";
+import { ApiError, CONTROLS, DEVICES, FORUM_CATEGORIES, FORUM_LIMITS, FORUM_REPORT_REASONS, FORUM_SECTIONS, FORUM_TABS, FORUM_TAGS, ACCOUNT_REQUIREMENTS, PLAY_STYLES, POST_SELECTIONS, ROOM_BROWSING, SCREENS, TOPIC_KINDS, TOPIC_STATUSES, VISIBILITIES, WEBHOOK_EVENT_KINDS, WEBHOOK_TIMEOUT_SEC, type IdKind } from "@zaisma/core";
 import { INTERNAL_ERROR, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
-import { DATABASE, GAME, HISTORY, STATEMENT_RESULT, IMAGE, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, REPORTS, SIGN_IN_APP, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes } from "./schemas.ts";
+import { DATABASE, GAME, HISTORY, STATEMENT_RESULT, IMAGE, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, REPORTS, SIGN_IN_APP, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes } from "./schemas.ts";
 
 /**
  * The developer MCP at /mcp: every tool is a call to the developer API, so the MCP, the upload command
@@ -396,6 +396,96 @@ export const TOOLS: Tool[] = [
     outputSchema: answer({ removed_sign_in_app_id: idOf("sign_in_app"), next_steps: NEXT }),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     run: (toolArguments, call) => call("DELETE", `/sign-in-apps/${pathPart(toolArguments.sign_in_app_id)}`),
+  },
+  {
+    name: "list_webhooks",
+    title: "List my webhooks",
+    description: "Your webhooks: the addresses your servers take Zaisma's events at, which events each takes, and how many deliveries are still being tried or failed in the last 30 days. Signing secrets are never shown again; replace one with update_webhook.",
+    inputSchema: object({}),
+    outputSchema: answer({ webhooks: list(WEBHOOK) }),
+    annotations: read,
+    run: (_, call) => call("GET", "/webhooks"),
+  },
+  {
+    name: "create_webhook",
+    title: "Make a webhook",
+    description:
+      `Have Zaisma POST an event to your server whenever something happens to your games, instead of checking: ${WEBHOOK_EVENT_KINDS.join(", ")}. A bug report can become a GitHub issue, a scan or publish can move your CI on, a takedown can page you. Each event is JSON: { id, kind, happened_at, game, version, bug_report }, with game, version and bug_report as get_game, get_version and get_reports answer them (null when the event isn't about one). Events are signed the Standard Webhooks way (standardwebhooks.com), so its libraries for every language check them in one call: headers webhook-id, webhook-timestamp (Unix seconds) and webhook-signature ("v1," and the base64 HMAC-SHA256 of "<webhook-id>.<webhook-timestamp>.<body>", keyed by the base64 bytes after whsec_ in signing_secret). Your server answers 2xx within ${WEBHOOK_TIMEOUT_SEC} seconds to take one; anything else is tried again after 5 minutes, 30 minutes, 2, 8 and 24 hours. Redirects aren't followed. An event can come twice or out of order: skip an id you've had, and read the state from the event's objects. The signing_secret is answered once, here: keep it on your server, never in a game or page. Then call test_webhook.\n\n` +
+      'Not: { "endpoint_url": "http://hooks.skyhopper.io/zaisma" } (https only)\n' +
+      'Not: { "event_kinds": ["all"] } (list the kinds you want)\n' +
+      'Not: { "game_slugs": [] } (leave it out, or null, for every game)',
+    inputSchema: {
+      ...object(
+        {
+          endpoint_url: { type: "string", maxLength: 500, description: "The https address your server takes events at: a name, not an IP address, and not on Zaisma's own domains." },
+          event_kinds: {
+            type: "array",
+            minItems: 1,
+            items: { enum: WEBHOOK_EVENT_KINDS },
+            description:
+              "The events to send. bug_reported: report triage sorted a player's report as a bug. scan_status_changed: a version's scan finished, or Zaisma changed its scan_status later. live_version_changed: players get another version (published, rolled back, published at its set time, or put back while a report is checked). review_status_changed: Zaisma held or took down a game, or put it back.",
+          },
+          game_slugs: { type: ["array", "null"], minItems: 1, maxItems: 50, items: { type: "string" }, description: "Only events about these games, from list_games; leave it out (or null) for every game you have and will make." },
+        },
+        ["endpoint_url", "event_kinds"],
+      ),
+      examples: [
+        { endpoint_url: "https://hooks.skyhopper.io/zaisma", event_kinds: ["bug_reported"] },
+        { endpoint_url: "https://ci.skyhopper.io/zaisma-events", event_kinds: ["scan_status_changed", "live_version_changed", "review_status_changed"], game_slugs: ["sky-hopper"] },
+      ],
+    },
+    outputSchema: answer({ webhook: WEBHOOK, signing_secret: text("The secret your server checks signatures with, shown only this once."), next_steps: NEXT }),
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+    run: (toolArguments, call) => call("POST", "/webhooks", pick(toolArguments, ["endpoint_url", "event_kinds", "game_slugs"])),
+  },
+  {
+    name: "update_webhook",
+    title: "Change a webhook",
+    description:
+      "Change a webhook's endpoint_url, event_kinds (the whole list) or game_slugs (the whole list, or null for every game), or make a new signing secret with replace_signing_secret: true: the old one stops at once, so put the new one on your server straight away. Leave out what stays the same. Events already on their way go to the new address, signed with the new secret.",
+    inputSchema: {
+      ...object(
+        {
+          webhook_id: idInput("webhook", "A webhook's id from list_webhooks or create_webhook"),
+          endpoint_url: { type: "string", maxLength: 500, description: "The new https address." },
+          event_kinds: { type: "array", minItems: 1, items: { enum: WEBHOOK_EVENT_KINDS }, description: "The whole new list of events to send." },
+          game_slugs: { type: ["array", "null"], minItems: 1, maxItems: 50, items: { type: "string" }, description: "The whole new list of games, or null for every game." },
+          replace_signing_secret: { type: "boolean", description: "true: make a new signing secret, answered once; the old one stops working." },
+        },
+        ["webhook_id"],
+      ),
+      examples: [{ webhook_id: "webhook_8f3k2m9q1x7c4v6b0n5z", event_kinds: ["bug_reported", "review_status_changed"] }],
+    },
+    outputSchema: answer({ webhook: WEBHOOK, signing_secret: nullable(text("The new signing secret when replace_signing_secret was true, shown only this once; null otherwise.")), next_steps: NEXT }),
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+    run: (toolArguments, call) => call("PATCH", `/webhooks/${pathPart(toolArguments.webhook_id)}`, pick(toolArguments, ["endpoint_url", "event_kinds", "game_slugs", "replace_signing_secret"])),
+  },
+  {
+    name: "delete_webhook",
+    title: "Delete a webhook",
+    description: "Delete a webhook for good: nothing more is sent to it, including events still being tried, and its delivery list goes. Ask the developer first.",
+    inputSchema: object({ webhook_id: idInput("webhook", "A webhook's id from list_webhooks") }, ["webhook_id"]),
+    outputSchema: answer({ removed_webhook_id: idOf("webhook"), next_steps: NEXT }),
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    run: (toolArguments, call) => call("DELETE", `/webhooks/${pathPart(toolArguments.webhook_id)}`),
+  },
+  {
+    name: "test_webhook",
+    title: "Send a test event",
+    description: 'Send a webhook a test event now (kind "test", with game, version and bug_report null), signed like every other, and answer how it went: delivery_status delivered when your server answered 2xx, else failed with failure_message saying what it answered or why it could not be reached. A test is tried once, never again.',
+    inputSchema: object({ webhook_id: idInput("webhook", "A webhook's id from list_webhooks or create_webhook") }, ["webhook_id"]),
+    outputSchema: answer({ delivery: WEBHOOK_DELIVERY, next_steps: NEXT }),
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+    run: (toolArguments, call) => call("POST", `/webhooks/${pathPart(toolArguments.webhook_id)}/test`),
+  },
+  {
+    name: "list_webhook_deliveries",
+    title: "List what a webhook was sent",
+    description: "What was sent to a webhook in the last 30 days, newest first, 20 at a time (next_cursor continues): each event as it was sent, and whether it was delivered, is still being tried (and when next) or failed, with your server's last answer and why. The place to look when your server didn't get something.",
+    inputSchema: object({ webhook_id: idInput("webhook", "A webhook's id from list_webhooks"), cursor: { type: "string", description: "next_cursor from the last answer, for the 20 before it." } }, ["webhook_id"]),
+    outputSchema: answer({ deliveries: list(WEBHOOK_DELIVERY), next_cursor: nullable(text("Pass as cursor for older deliveries; null on the last page.")) }),
+    annotations: read,
+    run: (toolArguments, call) => call("GET", `/webhooks/${pathPart(toolArguments.webhook_id)}/deliveries${toolArguments.cursor ? `?cursor=${encodeURIComponent(String(toolArguments.cursor))}` : ""}`),
   },
   {
     name: "search_forum",
@@ -827,7 +917,7 @@ interface RpcMessage {
 /** A JSON-RPC error; `data` carries Zaisma's own error object when there is one. */
 const rpcError = (id: RpcMessage["id"], errorCode: number, message: string, zaismaError?: unknown) => ({ jsonrpc: "2.0", id: id ?? null, error: { code: errorCode, message, ...(zaismaError === undefined ? {} : { data: zaismaError }) } });
 
-export async function handleMcp(request: Request, env: Env): Promise<Response> {
+export async function handleMcp(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
   if (request.method !== "POST") return new Response("Send MCP messages as POST requests.", { status: 405, headers: { Allow: "POST" } });
   let caller: Caller;
   try {
@@ -836,6 +926,7 @@ export async function handleMcp(request: Request, env: Env): Promise<Response> {
     }
     caller = await authenticate(request, env);
     caller.via = "mcp";
+    if (ctx) caller.waitUntil = (promise) => ctx.waitUntil(promise);
   } catch (error) {
     if (!(error instanceof ApiError)) throw error;
     const headers: Record<string, string> = error.httpStatus === 401 ? { "WWW-Authenticate": 'Bearer realm="zaisma"' } : {};
