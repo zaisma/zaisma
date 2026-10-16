@@ -291,7 +291,7 @@ describe("reports, stats and history", () => {
     await env.DB.prepare("INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count, game_server_call_count, game_server_crash_count, game_server_stopped_count, game_server_ended_match_count) VALUES (?, ?, 2, 600, 42, 900, 5, 2, 1)").bind(game.id, today).run();
     await env.DB.prepare("INSERT INTO game_server_errors (game_id, version_id, kind, message, occurrence_count, first_at_ms, last_at_ms) VALUES (?, 'version_8f3k2m9q1x7c4v6b0n5z', 'crash', 'oops (zaisma-server.js:3:9)', 5, 1792000000000, 1792003600000)").bind(game.id).run();
     const stats = await tool("get_stats", { slug: "hop", period_duration_days: 7 });
-    expect(stats.multiplayer_days[0].game_server).toEqual({ call_count: 900, request_count: 0, crash_count: 5, stopped_count: 2, ended_match_count: 1 });
+    expect(stats.multiplayer_days[0].game_server).toEqual({ call_count: 900, request_count: 0, scheduled_run_count: 0, crash_count: 5, stopped_count: 2, ended_match_count: 1 });
     expect(stats.game_server_errors).toEqual([
       { kind: "crash", message: "oops (zaisma-server.js:3:9)", occurrence_count: 5, version_id: "version_8f3k2m9q1x7c4v6b0n5z", first_at: "2026-10-14T17:46:40.000Z", last_at: "2026-10-14T18:46:40.000Z" },
     ]);
@@ -304,8 +304,29 @@ describe("reports, stats and history", () => {
     const today = new Date().toISOString().slice(0, 10);
     await env.DB.prepare("INSERT INTO room_usage (game_id, date, game_server_request_count, game_server_crash_count) VALUES (?, ?, 1000000, 1)").bind(game.id, today).run();
     const stats = await tool("get_stats", { slug: "hop", period_duration_days: 7 });
-    expect(stats.multiplayer_days).toEqual([{ date: today, room_count: 0, room_play_duration_min: 0, message_count: 0, game_server: { call_count: 0, request_count: 1_000_000, crash_count: 1, stopped_count: 0, ended_match_count: 0 } }]);
+    expect(stats.multiplayer_days).toEqual([{ date: today, room_count: 0, room_play_duration_min: 0, message_count: 0, game_server: { call_count: 0, request_count: 1_000_000, scheduled_run_count: 0, crash_count: 1, stopped_count: 0, ended_match_count: 0 } }]);
     expect(stats.request_use_this_month).toEqual({ request_count: 1_000_000, free_request_count: 1_000_000, has_reached_free_requests: true });
+    expect(stats.schedules).toEqual([]);
+  });
+
+  it("shows the live version's schedules and their runs", async () => {
+    await tool("create_game", { title: "Hop" });
+    const game = (await gameBySlug(env.DB, "hop"))!;
+    await env.DB.prepare("UPDATE games SET live_version_id = 'version_8f3k2m9q1x7c4v6b0n5z' WHERE id = ?").bind(game.id).run();
+    const today = new Date().toISOString().slice(0, 10);
+    await env.DB.prepare("INSERT INTO room_usage (game_id, date, game_server_scheduled_run_count, game_server_crash_count) VALUES (?, ?, 24, 1)").bind(game.id, today).run();
+    // As the game's object in the rooms Worker writes them; an older version's are left out.
+    await env.DB.batch([
+      env.DB.prepare("INSERT INTO game_server_schedules (game_id, schedule_name, cron, version_id, next_run_at_ms, last_run_at_ms) VALUES (?, 'daily-reset', '0 0 * * *', 'version_8f3k2m9q1x7c4v6b0n5z', 1792022400000, NULL)").bind(game.id),
+      env.DB.prepare("INSERT INTO game_server_schedules (game_id, schedule_name, cron, version_id, next_run_at_ms, last_run_at_ms) VALUES (?, 'world-turn', '*/15 * * * *', 'version_8f3k2m9q1x7c4v6b0n5z', 1792003500000, 1792002600000)").bind(game.id),
+      env.DB.prepare("INSERT INTO game_server_schedules (game_id, schedule_name, cron, version_id, next_run_at_ms, last_run_at_ms) VALUES (?, 'old-job', '0 * * * *', 'version_0000000000000000000a', 1792003500000, NULL)").bind(game.id),
+    ]);
+    const stats = await tool("get_stats", { slug: "hop", period_duration_days: 7 });
+    expect(stats.schedules).toEqual([
+      { schedule_name: "daily-reset", cron: "0 0 * * *", version_id: "version_8f3k2m9q1x7c4v6b0n5z", next_run_at: "2026-10-15T00:00:00.000Z", last_run_at: null },
+      { schedule_name: "world-turn", cron: "*/15 * * * *", version_id: "version_8f3k2m9q1x7c4v6b0n5z", next_run_at: "2026-10-14T18:45:00.000Z", last_run_at: "2026-10-14T18:30:00.000Z" },
+    ]);
+    expect(stats.multiplayer_days[0].game_server).toEqual({ call_count: 0, request_count: 0, scheduled_run_count: 24, crash_count: 1, stopped_count: 0, ended_match_count: 0 });
   });
 
   it("keeps scan details and admin notes out of the history", async () => {

@@ -10,10 +10,9 @@ Who a player is came first: the pass, the player ID and the sign-in that saves, 
 
 **Next:**
 
-1. Sign-in from games (Accounts and saves)
-2. Saves through the API (Accounts and saves)
-3. Scoped API keys (Developer publishing)
-4. Game database import and export (Game servers and data)
+1. Saves through the API (Accounts and saves)
+2. Scoped API keys (Developer publishing)
+3. Game database import and export (Game servers and data)
 
 Waiting on people: Gleb: register with NCMEC, Gleb: register the DMCA agent, Julius: send PhotoDNA the LLC's records.
 
@@ -165,7 +164,7 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | done | Must | | Game database through the API | Game database for game servers | Live Oct 16, 2026 (#164, no migration, CLI 0.5.0): the developer and their AI run SQL, list tables and see use against the free limits, through the API, MCP (`get_database`, `query_database`, `batch_database`) and `zaisma database` |
 | next | Must | | Game database import and export | Game database through the API | Data in and out of a game's database, and a dashboard page that reads the same API |
 | done | Must | | Game server endpoints | Developers' own game servers run safely | Live Oct 16, 2026 (#169, migration 0041): the game server's `onRequest` answers `Zaisma.server.request` outside rooms (leaderboards, a shop, daily rewards), with the game database behind it, on Zaisma and in the Node runner. Free per game: 1 million requests a month (Julius, Oct 16, 2026) |
-| planned | Must | | Game server schedules | Game server endpoints | The game's server code runs on a schedule (daily resets, persistent worlds), on Zaisma and on the developer's own server |
+| done | Must | | Game server schedules | Game server endpoints | Live Oct 16, 2026 (#170, migration 0043): the game server's `schedules` (crons in UTC) run `onSchedule` outside rooms (daily resets, persistent worlds), on Zaisma and in the Node runner. Free per game: up to 10 schedules, each at most once a minute, with no monthly count (Julius, Oct 16, 2026) |
 | planned | Must | | Game server reach and secrets | Developers' own game servers run safely | Game servers can call the developer's own listed servers and payment providers, with secrets set per game and never shown again. Still nothing of ours inside |
 
 ### Accounts and saves
@@ -185,7 +184,7 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | done | Must | | Account passes | Sign-in, Player passes | Live Oct 16, 2026 (#159, migration 0036): one player ID per account, the same in every game; signed-in players get passes that are proof only (the ID, the game, when it expires), taken by Zaisma rooms and the Node game server; a public profile lookup by player ID at rooms.zaisma.com/v1/players, in the API, MCP and SDK |
 | done | Must | | Accounts-only games | Account passes | Live Oct 16, 2026 (#160, migration 0037): a game setting (account_requirement) for guests welcome, accounts for multiplayer or accounts for the whole game, in the API, MCP and dashboard; guests of such a game get no player passes; the game page says "Needs a Zaisma account" before Play and asks guests to sign in; site copy no longer says every game plays as a guest |
 | planned | Must | | Accounts-only rooms | Accounts-only games | One room takes only accounts, set from the SDK or the game server, on Zaisma rooms and the developer's own server |
-| next | Must | | Sign-in from games | Accounts-only games | `Zaisma.player.signIn()`: a game asks a guest to sign in without leaving it, then gets an account pass |
+| done | Must | | Sign-in from games | Accounts-only games | Live Oct 16, 2026 (#166, no migration): `Zaisma.player.signIn()` asks a guest to sign in beside the game, in a new tab, and the game gets the account and its passes without a reload |
 | done | Must | | Sign in with Zaisma | Account passes | Live Oct 16, 2026 (#161, migration 0038): OpenID Connect on zaisma.com for developers' own sites and games with their own accounts, sign-in apps through the API and MCP, a one-time consent page and the account page's list. The MCP's sign-in uses it next (MCP sign-in without a key) |
 | planned | Must | | Sign-in apps in the dashboard | Sign in with Zaisma | The dashboard's form for sign-in apps, on the same API |
 | done | Must | | Social modes and age bands | Age question | Live Oct 16, 2026 (#162, migration 0039): three age bands (13–15, 16–17, 18+) and a social mode on every account, chosen at signup from 16 and changed on the account page; 13–15 start solo-focused and can switch only to friends-focused. The pass carries the social mode and an opaque chat group, never the age; `canChat(a, b)` in the game server package |

@@ -7,13 +7,14 @@
 // layout as Zaisma rooms, and prove who they are with Zaisma player passes,
 // checked against the keys Zaisma publishes. Put it behind HTTPS (Caddy, nginx,
 // a Cloudflare Tunnel) and add the address to your game's own servers in Zaisma.
-// The game's requests (onRequest) come to POST /v1/requests/<game> on the same port.
+// The game's requests (onRequest) come to POST /v1/requests/<game> on the same port, and its
+// schedules (onSchedule) run while it's up, at the minutes their crons give in UTC.
 // The game's database (room.database) is a local SQLite file, --database, made on first use.
 import { WebSocketServer } from "ws";
 import { createServer } from "node:http";
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
-import { ERROR_TEXT, DATABASE_LIMITS, PassError, REFUSED_CLOSE_CODE, REQUEST_ERROR_HTTP_STATUS, RoomCore, answerDatabase, answerRequest, checkBatch, checkRoomData, checkStatement, clientIdle, defineGameServer, errorMessage, isRoomCode, plainRow, readDatabaseAnswer, readRequestBody, relay, requestError, tidyRoomInfo, tooManyRows, verifyPass } from "../src/index.ts";
+import { ERROR_TEXT, DATABASE_LIMITS, PassError, REFUSED_CLOSE_CODE, REQUEST_ERROR_HTTP_STATUS, RoomCore, answerDatabase, answerRequest, checkBatch, startSchedules, checkRoomData, checkStatement, clientIdle, defineGameServer, errorMessage, isRoomCode, plainRow, readDatabaseAnswer, readRequestBody, relay, requestError, tidyRoomInfo, tooManyRows, verifyPass } from "../src/index.ts";
 
 const HELLO_MS = 5000;
 /** How often rooms check on their players (idle, hidden, held seats), and drop connections that stopped answering. */
@@ -112,6 +113,8 @@ export function localDatabase(file) {
  */
 export function startServer({ server, game, port, origins, issuer = "https://rooms.zaisma.com", keys, profiles = profilesFrom(issuer), database = localDatabase("zaisma-database.sqlite") }) {
   const definition = defineGameServer(server);
+  // Schedules run while this server is up; one that's down when a run is due misses that run.
+  const schedules = startSchedules(definition, { database }, (run, failure) => console.error(`Game server error in onSchedule ("${run.name}", due ${run.scheduledAt}):`, failure));
   const rooms = new Map(); // code -> { core, sockets: Map<playerId, ws>, timer }
   const httpServer = createServer((request, response) => answerHttp(request, response));
   const wss = new WebSocketServer({ server: httpServer, maxPayload: 64 * 1024 });
@@ -278,7 +281,7 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
     };
     if (!address || address[1] !== game || !isRoomCode(address[2])) return ws.close(REFUSED_CLOSE_CODE, "Unknown room");
     if (origins.length && !origins.includes(request.headers.origin)) return ws.close(REFUSED_CLOSE_CODE, "Not allowed from here");
-    if (typeof definition.setup !== "function") return refuse("game_unavailable", "This game server only answers requests: it has no setup(), so it runs no rooms.");
+    if (typeof definition.setup !== "function") return refuse("game_unavailable", "This game server has no setup(), so it runs no rooms: it only answers requests or runs on schedules.");
     const code = address[2];
     let playerId = null;
     const helloTimer = setTimeout(() => playerId || refuse("no_hello"), HELLO_MS);
@@ -355,6 +358,7 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
   const close = () =>
     new Promise((done) => {
       clearInterval(sweeper);
+      schedules.stop();
       for (const room of rooms.values()) if (room.timer) clearInterval(room.timer);
       wss.close(() => httpServer.close(done));
       httpServer.closeAllConnections?.();
@@ -378,5 +382,6 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   const portNumber = Number(flag("port", "8080"));
   const origins = (flag("origin", `https://${game}.zaismausercontent.com`) ?? "").split(",").filter(Boolean);
   startServer({ server, game, port: portNumber, origins, keys: keysFrom(flag("jwks", "https://rooms.zaisma.com/.well-known/jwks.json")), database: localDatabase(resolve(flag("database", "zaisma-database.sqlite"))) });
-  console.log(`Game server for "${game}" on port ${portNumber}. Players connect to /v1/rooms/${game}/<code>; requests come to POST /v1/requests/${game}.`);
+  const scheduleNames = (server.schedules ?? []).map((schedule) => `${schedule.name} (${schedule.cron})`);
+  console.log(`Game server for "${game}" on port ${portNumber}. Players connect to /v1/rooms/${game}/<code>; requests come to POST /v1/requests/${game}.${scheduleNames.length ? ` Schedules, in UTC: ${scheduleNames.join(", ")}.` : ""}`);
 }

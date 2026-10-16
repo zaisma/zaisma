@@ -1,7 +1,8 @@
 // Arena game server: a real-time top-down arena for 2–8 players. Dash into
 // other players to bump them off the platform. Ticks 20 times a second. Each
 // player's best score goes in the game's database, and the game asks for the
-// best scores board with a request (onRequest), outside the room.
+// best scores board with a request (onRequest), outside the room. Once a day a
+// schedule (onSchedule) keeps that board's table small.
 // Only plain JavaScript plus type annotations, so Node can run it as-is.
 import type { GameServer, Player, Room } from "@zaisma/game-server";
 
@@ -139,6 +140,14 @@ const arena: GameServer<State> = {
     await server.database.query(BEST_SCORES_TABLE);
     const rows = await server.database.query("SELECT player_id, name, best_score FROM best_scores ORDER BY best_score DESC LIMIT 10");
     return rows.map((row) => ({ name: row.name, bestScore: row.best_score, isMe: row.player_id === player.id }));
+  },
+
+  // Every day at 04:00 UTC the game server tidies the best scores by itself: only the top 100 stay.
+  schedules: [{ name: "tidy-best-scores", cron: "0 4 * * *" }],
+  async onSchedule(run, server) {
+    if (run.name !== "tidy-best-scores") return;
+    await server.database.query(BEST_SCORES_TABLE);
+    await server.database.query("DELETE FROM best_scores WHERE player_id NOT IN (SELECT player_id FROM best_scores ORDER BY best_score DESC LIMIT 100)");
   },
 
   onMessage(state, player, message) {
