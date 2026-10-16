@@ -269,9 +269,9 @@ interface Ctx {
   url: URL;
 }
 
-/** What a forum page's address asks for. q is the site header's search box. */
+/** What a forum page's address asks for. search_text is the site header's search box. */
 interface PageQuery {
-  q?: string;
+  search_text?: string;
   section?: string;
   category?: string;
   kind?: string;
@@ -285,7 +285,7 @@ const PAGE_TOPIC_COUNT = 30;
 
 function pageQueryFrom(queryParameters: URLSearchParams): PageQuery {
   return {
-    q: queryParameters.get("q") ?? "",
+    search_text: queryParameters.get("search_text") ?? "",
     section: queryParameters.get("section") ?? "",
     category: queryParameters.get("category") ?? "",
     kind: queryParameters.get("kind") ?? "",
@@ -329,14 +329,14 @@ async function imagesFrom(form: FormData): Promise<{ images_base64?: string[] }>
 }
 
 /** The site's page with the forum's search and New topic in the header. */
-function forumPage(ctx: Ctx, title: string, body: Raw, options: { httpStatus?: number; q?: string; keep?: Record<string, string> } = {}): Response {
+function forumPage(ctx: Ctx, title: string, body: Raw, options: { httpStatus?: number; searchText?: string; keep?: Record<string, string> } = {}): Response {
   const category = ctx.url.searchParams.get("category");
   const page = layout(ctx.env, {
     title: `${title} · Zaisma forum`,
     body: html`<style>${raw(FORUM_STYLES)}</style>${body}<script>${raw(FORUM_SCRIPT)}${raw(POSTS_SCRIPT)}</script>`,
-    private: true,
+    isPrivate: true,
     nav: "forum",
-    search: { action: "/forum", q: options.q ?? "", placeholder: "Search the forum", label: "Search the forum", keep: options.keep },
+    search: { action: "/forum", searchText: options.searchText ?? "", placeholder: "Search the forum", label: "Search the forum", keep: options.keep },
     frames: VIDEO_FRAMES,
     action: html`<a class="btn light new-topic" href="/forum/new${category ? `?category=${encodeURIComponent(category)}` : ""}">${ICONS.plus}<span>New topic</span></a>`,
   });
@@ -390,7 +390,7 @@ const statusPill = (status: TopicStatus, isPublic: boolean) =>
 function link(query: PageQuery, change: Partial<PageQuery>): string {
   const next = { ...query, ...change };
   const queryParameters = new URLSearchParams();
-  for (const key of ["q", "section", "category", "kind", "tag", "tab", "topic_status"] as const) if (next[key]) queryParameters.set(key, String(next[key]));
+  for (const key of ["search_text", "section", "category", "kind", "tag", "tab", "topic_status"] as const) if (next[key]) queryParameters.set(key, String(next[key]));
   if (next.page_number && next.page_number > 1) queryParameters.set("page_number", String(next.page_number));
   const search = queryParameters.toString();
   return `/forum${search ? `?${search}` : ""}`;
@@ -472,7 +472,7 @@ function editorBar(): Raw {
 async function listPage(ctx: Ctx, query: PageQuery): Promise<Response> {
   const pageNumber = query.page_number ?? 1;
   const listing = await listTopics(ctx.env, ctx.viewer, {
-    searchText: query.q,
+    searchText: query.search_text,
     section: query.section,
     category: query.category,
     kind: query.kind,
@@ -514,7 +514,7 @@ ${rail(ctx, query, listing.tab, unread)}
       ? html`<nav class="chips" aria-label="Which phase">${phases.map(([status, label]) => html`<a href="${link(query, { topic_status: status, page_number: 1 })}"${(query.topic_status ?? "") === status ? raw(' aria-current="true"') : ""}>${label}</a>`)}</nav>`
       : html`<nav class="chips" aria-label="What kind">${filters.map(([kind, label]) => html`<a href="${link(query, { kind, page_number: 1 })}"${(query.kind ?? "") === kind ? raw(' aria-current="true"') : ""}>${label}</a>`)}</nav>`}
     ${query.tag ? html`<a class="tag on" href="${link(query, { tag: "", page_number: 1 })}" title="Show every tag">${(FORUM_TAGS as Record<string, string>)[query.tag] ?? query.tag} ×</a>` : ""}
-    ${query.q ? html`<span class="muted">Matching “${query.q}” · <a href="${link(query, { q: "", page_number: 1 })}">Clear</a></span>` : ""}
+    ${query.search_text ? html`<span class="muted">Matching “${query.search_text}” · <a href="${link(query, { search_text: "", page_number: 1 })}">Clear</a></span>` : ""}
   </div>
   ${listing.pinned_topics.length
     ? html`<details class="pinned" open><summary>${ICONS.known}<span>Known issues${section || place ? " here" : ""}</span><small>${listing.pinned_topics.length}</small></summary>
@@ -523,13 +523,13 @@ ${rail(ctx, query, listing.tab, unread)}
   ${listing.topics.length
     ? html`<div class="topics-head" aria-hidden="true"><span>Topic</span><span>People</span><span>Replies</span><span>Votes</span><span>Active</span></div>
   <ol class="topics">${listing.topics.map((topic) => topicRow(topic, query))}</ol>`
-    : html`<div class="empty-board"><p>${query.q ? "Nothing matches that." : isMessages ? "No messages yet. Message Zaisma about anything you'd rather not post in public." : listing.tab === "yours" ? "You haven't posted yet. Topics you post, reply to or vote on show here." : listing.tab === "unanswered" ? "Every question here has an answer." : "No topics here yet."}</p>${ctx.viewer ? (isMessages ? html`<a class="btn ghost" href="/forum/messages/new">Message Zaisma</a>` : html`<a class="btn ghost" href="/forum/new${query.category ? `?category=${query.category}` : ""}">Start a topic</a>`) : ""}</div>`}
+    : html`<div class="empty-board"><p>${query.search_text ? "Nothing matches that." : isMessages ? "No messages yet. Message Zaisma about anything you'd rather not post in public." : listing.tab === "yours" ? "You haven't posted yet. Topics you post, reply to or vote on show here." : listing.tab === "unanswered" ? "Every question here has an answer." : "No topics here yet."}</p>${ctx.viewer ? (isMessages ? html`<a class="btn ghost" href="/forum/messages/new">Message Zaisma</a>` : html`<a class="btn ghost" href="/forum/new${query.category ? `?category=${query.category}` : ""}">Start a topic</a>`) : ""}</div>`}
   ${pageNumber > 1 || hasMore
     ? html`<nav class="pager" aria-label="Pages">${pageNumber > 1 ? html`<a class="btn ghost" href="${link(query, { page_number: pageNumber - 1 })}">Newer</a>` : ""}<span class="muted">Page ${pageNumber}</span>${hasMore ? html`<a class="btn ghost" href="${link(query, { page_number: pageNumber + 1 })}">Older</a>` : ""}</nav>`
     : ""}
 </section>
 </div>`,
-    { q: query.q, keep: isMessages ? {} : keep },
+    { searchText: query.search_text, keep: isMessages ? {} : keep },
   );
 }
 

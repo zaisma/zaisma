@@ -14,14 +14,14 @@ const words = new RegExpMatcher({ ...englishDataset.build(), ...englishRecommend
 // Characters that hide text or flip its direction: dropped before anything is checked or shown.
 const HIDDEN = /[\u0000-\u001f\u007f-\u009f­​-‏‪-‮⁠-⁤⁦-⁩﻿]/g;
 
-/** Tidy text before it's checked or stored: no hidden characters, single spaces, at most max characters. */
-export function tidyText(text: unknown, max: number): string {
+/** Tidy text before it's checked or stored: no hidden characters, single spaces, at most maximumCharacterCount characters. */
+export function tidyText(text: unknown, maximumCharacterCount: number): string {
   return String(text ?? "")
     .normalize("NFKC")
     .replace(HIDDEN, "")
     .replace(/\s+/g, " ")
     .trim()
-    .slice(0, max)
+    .slice(0, maximumCharacterCount)
     .trim();
 }
 
@@ -44,11 +44,11 @@ const squeeze = (text: string) =>
     .toLowerCase()
     .normalize("NFKD")
     .replace(/[̀-ͯ]/g, "")
-    .replace(/[0134578@$!|]/g, (c) => LEET[c] ?? c)
+    .replace(/[0134578@$!|]/g, (character) => LEET[character] ?? character)
     .replace(/[^a-z]/g, "");
 
 export interface TextCheck {
-  ok: boolean;
+  isAllowed: boolean;
   /** Why it was blocked: a way to contact someone, or words that aren't allowed. */
   reason?: "contact" | "words";
 }
@@ -56,11 +56,11 @@ export interface TextCheck {
 /** Whether text can be shown to other players. Empty text is fine. */
 export function checkText(text: string): TextCheck {
   const clean = tidyText(text, 500);
-  if (!clean) return { ok: true };
+  if (!clean) return { isAllowed: true };
   const squeezed = squeeze(clean);
-  if (CONTACT.some((re) => re.test(clean)) || APPS.some((app) => squeezed.includes(app))) return { ok: false, reason: "contact" };
+  if (CONTACT.some((pattern) => pattern.test(clean)) || APPS.some((app) => squeezed.includes(app))) return { isAllowed: false, reason: "contact" };
   // Letters spelled out one at a time ("f u c k") are joined back up; real words are left apart.
   const joined = clean.replace(/(?:(?<![\p{L}\p{N}])[\p{L}\p{N}](?![\p{L}\p{N}])[\s._*-]*){3,}/gu, (run) => run.replace(/[\s._*-]/g, "") + " ");
-  if (words.hasMatch(clean) || words.hasMatch(joined)) return { ok: false, reason: "words" };
-  return { ok: true };
+  if (words.hasMatch(clean) || words.hasMatch(joined)) return { isAllowed: false, reason: "words" };
+  return { isAllowed: true };
 }

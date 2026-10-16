@@ -110,7 +110,7 @@ describe("rooms", () => {
 
     // A key is good for 6 hours.
     const old = await keyFor("arena");
-    await e.DB.prepare("UPDATE room_keys SET issued_at = ? WHERE id = ?").bind(Date.now() - 6 * 3_600_000 - 1000, old).run();
+    await e.DB.prepare("UPDATE room_keys SET issued_at_ms = ? WHERE id = ?").bind(Date.now() - 6 * 3_600_000 - 1000, old).run();
     expect((await post("/v1/pass", "arena", ORIGIN, { roomKey: old })).status).toBe(403);
   });
 
@@ -161,7 +161,7 @@ describe("rooms", () => {
 
     await revokeTesterLink(e.DB, id, link.id);
     await runInDurableObject(e.ROOMS.get(e.ROOMS.idFromName("arena:TSTRMS")), (room: Room) => {
-      (room as unknown as { lastTesterCheck: number }).lastTesterCheck = 0;
+      (room as unknown as { lastTesterCheckAtMs: number }).lastTesterCheckAtMs = 0;
     });
     other.ws.send(JSON.stringify({ type: "message", data: 2 }));
     expect(await testerClosed).toBe(4001);
@@ -235,7 +235,7 @@ describe("rooms", () => {
     await e.DB.prepare("UPDATE games SET review_status = 'removed' WHERE id = ?").bind(id).run();
     // Make the room's once-a-minute check due now.
     await runInDurableObject(e.ROOMS.get(e.ROOMS.idFromName("arena:HJKLMN")), async (room: Room) => {
-      (room as any).lastCheck = 0;
+      (room as any).lastCheckAtMs = 0;
     });
     expect((await a.next()).type).toBe("players");
     a.ws.send(JSON.stringify({ type: "message", data: 1 }));
@@ -254,8 +254,8 @@ describe("rooms", () => {
       row = await e.DB.prepare("SELECT * FROM room_usage WHERE game_id = ?").bind(id).first();
       if (!row) await new Promise((r) => setTimeout(r, 20));
     }
-    expect(row).toMatchObject({ game_id: id, rooms: 1, messages: 1 });
-    expect(Object.keys(row).sort()).toEqual(["day", "game_id", "messages", "player_seconds", "rooms", "server_broken_rooms", "server_calls", "server_crashes", "server_stops"]);
+    expect(row).toMatchObject({ game_id: id, room_count: 1, message_count: 1 });
+    expect(Object.keys(row).sort()).toEqual(["date", "game_id", "game_server_call_count", "game_server_crash_count", "game_server_ended_match_count", "game_server_stopped_count", "message_count", "room_count", "room_play_duration_sec"]);
   });
 
   it("past the month's free player-hours, opens no new rooms while running ones carry on", async () => {
@@ -263,7 +263,7 @@ describe("rooms", () => {
     const a = await join("arena", "CAPPDA");
     const now = new Date();
     const lastMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 15)).toISOString().slice(0, 10);
-    const used = (day: string, seconds: number) => e.DB.prepare("INSERT INTO room_usage (game_id, day, player_seconds) VALUES (?, ?, ?)").bind(id, day, seconds).run();
+    const used = (date: string, roomPlayDurationSec: number) => e.DB.prepare("INSERT INTO room_usage (game_id, date, room_play_duration_sec) VALUES (?, ?, ?)").bind(id, date, roomPlayDurationSec).run();
     // Last month's time doesn't count.
     await used(lastMonth, 4_000_000);
     expect((await post("/v1/rooms", "arena")).status).toBe(200);
@@ -343,9 +343,9 @@ describe("reserved rooms", () => {
     const aIn = await hello("four", ma.roomCode, {}, a);
     expect(aIn.first.type).toBe("welcome");
     // Hidden from the game's room list.
-    const live = async () => e.DB.prepare("SELECT listed, open, players FROM live_rooms WHERE code = ?").bind(ma.roomCode).first();
-    for (let i = 0; i < 40 && (await live())?.players !== 2; i++) await new Promise((r) => setTimeout(r, 20));
-    expect(await live()).toEqual({ listed: 0, open: 0, players: 2 });
+    const live = async () => e.DB.prepare("SELECT is_listed, is_open, player_count FROM live_rooms WHERE room_code = ?").bind(ma.roomCode).first();
+    for (let i = 0; i < 40 && (await live())?.player_count !== 2; i++) await new Promise((r) => setTimeout(r, 20));
+    expect(await live()).toEqual({ is_listed: 0, is_open: 0, player_count: 2 });
   });
 
   it("refuse join data that's too big", async () => {
@@ -404,7 +404,7 @@ describe("reporting a player", () => {
     expect(await res.json()).toEqual({ isReported: true });
     expect(res.status).toBe(200);
     const row = await e.DB.prepare("SELECT * FROM reports WHERE game_id = ?").bind(id).first<Record<string, unknown>>();
-    expect(row).toMatchObject({ reason: "player", player_reason: "harassment", player_id: "player_123abc", player_name: "Swift Fox 42", room_code: "ABCDEF", details: "kept spamming" });
+    expect(row).toMatchObject({ reason: "player", player_reason: "harassment", player_id: "player_123abc", player_name: "Swift Fox 42", room_code: "ABCDEF", player_text: "kept spamming" });
   });
 
   it("refuses bad reasons, codes and other sites", async () => {
@@ -431,7 +431,7 @@ describe("room browsing", () => {
   async function rows(gameId: string, want: (r: any[]) => boolean = () => true): Promise<any[]> {
     let found: any[] = [];
     for (let i = 0; i < 40; i++) {
-      found = (await e.DB.prepare("SELECT * FROM live_rooms WHERE game_id = ? ORDER BY code").bind(gameId).all()).results;
+      found = (await e.DB.prepare("SELECT * FROM live_rooms WHERE game_id = ? ORDER BY room_code").bind(gameId).all()).results;
       if (want(found)) return found;
       await new Promise((r) => setTimeout(r, 20));
     }
@@ -441,12 +441,12 @@ describe("room browsing", () => {
   it("lists a room while players are in it, and drops it when they've all gone", async () => {
     const id = await addGame("party");
     const a = await join("party", "BCDFGH", { from: { country: "DE", continent: "EU" } });
-    expect(await rows(id, (r) => r.length === 1)).toMatchObject([{ code: "BCDFGH", players: 1, max_players: 16, open: 1, country: "DE", continent: "EU" }]);
+    expect(await rows(id, (r) => r.length === 1)).toMatchObject([{ room_code: "BCDFGH", player_count: 1, maximum_player_count: 16, is_open: 1, country: "DE", continent: "EU" }]);
     // The room stays where its first player was.
     const b = await join("party", "BCDFGH", { from: { country: "US", continent: "NA" } });
-    expect((await rows(id, (r) => r[0]?.players === 2))[0]).toMatchObject({ players: 2, country: "DE" });
+    expect((await rows(id, (r) => r[0]?.player_count === 2))[0]).toMatchObject({ player_count: 2, country: "DE" });
     b.ws.close(1000);
-    expect((await rows(id, (r) => r[0]?.players === 1))[0].players).toBe(1);
+    expect((await rows(id, (r) => r[0]?.player_count === 1))[0].player_count).toBe(1);
     a.ws.close(1000);
     expect(await rows(id, (r) => r.length === 0)).toEqual([]);
   });
@@ -456,13 +456,13 @@ describe("room browsing", () => {
     const a = await join("party", "JKMN3P", { listed: false });
     await join("party", "JKMN3P");
     a.ws.send(JSON.stringify({ type: "message", data: 1 }));
-    expect(await rows(id, (r) => r[0]?.players === 2)).toMatchObject([{ code: "JKMN3P", players: 2, listed: 0 }]);
+    expect(await rows(id, (r) => r[0]?.player_count === 2)).toMatchObject([{ room_code: "JKMN3P", player_count: 2, is_listed: 0 }]);
     const party = await (await SELF.fetch(`${R}/v1/rooms/party`, { headers: { Origin: ORIGIN } })).json<any>();
     expect(party).toMatchObject({ rooms: [], playing: { playerCount: 2, roomCount: 1, closedRoomCount: 0 }, joinableRoomCount: 0, regions: [] });
 
     const off = await addGame("quiet", { browsing: "off" });
     await join("quiet", "QRSTVW");
-    expect(await rows(off, (r) => r.length === 1)).toMatchObject([{ listed: 0 }]);
+    expect(await rows(off, (r) => r.length === 1)).toMatchObject([{ is_listed: 0 }]);
     const list = await SELF.fetch(`${R}/v1/rooms/quiet`, { headers: { Origin: ORIGIN } });
     expect(await list.json()).toEqual({
       rooms: [],
@@ -490,7 +490,7 @@ describe("room browsing", () => {
     expect(await next(b, "error")).toMatchObject({ code: "not_allowed" });
     a.ws.send(JSON.stringify({ type: "room", isOpen: false }));
     expect(await next(a, "room")).toEqual({ type: "room", room: { isListed: true, isOpen: false, name: null, labels: {} } });
-    expect((await rows(id, (r) => r[0]?.open === 0))[0]).toMatchObject({ players: 2, open: 0 });
+    expect((await rows(id, (r) => r[0]?.is_open === 0))[0]).toMatchObject({ player_count: 2, is_open: 0 });
 
     const { pass } = await getPass("party");
     const c = await connect("party", "XYZ234");
@@ -509,7 +509,7 @@ describe("room browsing", () => {
     const id = await addGame("lister");
     const now = Date.now();
     const add = (code: string, players: number, max: number, open: number, country: string | null, continent: string | null, at = now) =>
-      e.DB.prepare("INSERT INTO live_rooms (game_id, code, players, max_players, open, country, continent, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      e.DB.prepare("INSERT INTO live_rooms (game_id, room_code, player_count, maximum_player_count, is_open, country, continent, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
         .bind(id, code, players, max, open, country, continent, at, at)
         .run();
     await add("AAAAAA", 8, 8, 1, "DE", "EU"); // full
@@ -559,7 +559,7 @@ describe("room browsing", () => {
     expect((await c.next()).room).toMatchObject({ name: "Ana's castle", labels: { Mode: "Classic", Map: "Docks" } });
     expect((await rows(id, (r) => r.length === 1))[0]).toMatchObject({ name: "Ana's castle", labels: '{"Mode":"Classic","Map":"Docks"}' });
     const add = (code: string, labels: string) =>
-      e.DB.prepare("INSERT INTO live_rooms (game_id, code, players, max_players, open, labels, created_at, updated_at) VALUES (?, ?, 1, 8, 1, ?, ?, ?)").bind(id, code, labels, Date.now(), Date.now()).run();
+      e.DB.prepare("INSERT INTO live_rooms (game_id, room_code, player_count, maximum_player_count, is_open, labels, created_at_ms, updated_at_ms) VALUES (?, ?, 1, 8, 1, ?, ?, ?)").bind(id, code, labels, Date.now(), Date.now()).run();
     await add("NMDRM3", '{"Mode":"Hardcore"}');
     await add("NMDRM4", '{"Mode":"classic"}');
     const list = (q = "") => SELF.fetch(`${R}/v1/rooms/named${q}`, { headers: { Origin: ORIGIN } }).then((r) => r.json<any>());
@@ -569,7 +569,7 @@ describe("room browsing", () => {
     expect(all.filters.map((f: any) => [f.label, f.values.map((v: string) => v.toLowerCase())])).toEqual([["Mode", ["classic", "hardcore"]]]);
     const classic = await list(`?labels=${encodeURIComponent(JSON.stringify({ Mode: "Classic" }))}`);
     expect(classic.rooms.map((r: any) => r.roomCode).sort()).toEqual(["NMDRM2", "NMDRM4"]);
-    await e.DB.prepare("UPDATE live_rooms SET name_hidden = 1 WHERE code = 'NMDRM2'").run();
+    await e.DB.prepare("UPDATE live_rooms SET is_name_hidden = 1 WHERE room_code = 'NMDRM2'").run();
     expect((await list()).rooms.find((r: any) => r.roomCode === "NMDRM2")).toMatchObject({ name: null, labels: {} });
     // A room renaming itself doesn't bring back a name a person hid.
     c.ws.send(JSON.stringify({ type: "room", name: "Ana's castle 2" }));
@@ -589,7 +589,7 @@ describe("room browsing", () => {
     const a = await join("pinger", "PNGRMA");
     const b = await join("pinger", "PNGRMA");
     await until(a, (m) => m.type === "players" && m.players.length === 2);
-    await rows(id, (r) => r[0]?.players === 2);
+    await rows(id, (r) => r[0]?.player_count === 2);
     a.ws.send("ping");
     for (let i = 0; i < 40 && !a.pongs.length; i++) await new Promise((r) => setTimeout(r, 20));
     expect(a.pongs).toHaveLength(1);
@@ -599,7 +599,7 @@ describe("room browsing", () => {
     await runInDurableObject(stub, async (_room: Room, state) => {
       for (const ws of state.getWebSockets()) {
         const att = ws.deserializeAttachment();
-        if (att.id === b.player.id) ws.serializeAttachment({ ...att, joinedAt: Date.now() - 100_000, seen: Date.now() - 100_000 });
+        if (att.id === b.player.id) ws.serializeAttachment({ ...att, joinedAtMs: Date.now() - 100_000, seenAtMs: Date.now() - 100_000 });
       }
       await state.storage.setAlarm(Date.now());
     });
@@ -607,11 +607,11 @@ describe("room browsing", () => {
     expect(await b.closed).toBe(4003);
     await until(a, (m) => m.type === "players" && m.players.length === 1 && m.players[0].id === a.player.id);
     // Not playing now, but their seat is held for when they reconnect.
-    expect((await rows(id, (r) => r[0]?.players === 1))[0]).toMatchObject({ players: 1, held: 1 });
+    expect((await rows(id, (r) => r[0]?.player_count === 1))[0]).toMatchObject({ player_count: 1, held_seat_count: 1 });
     const back = await connect("pinger", "PNGRMA");
     back.ws.send(JSON.stringify({ type: "hello", pass: b.pass }));
     expect((await back.next()).type).toBe("welcome");
-    expect((await rows(id, (r) => r[0]?.players === 2))[0]).toMatchObject({ players: 2, held: 0 });
+    expect((await rows(id, (r) => r[0]?.player_count === 2))[0]).toMatchObject({ player_count: 2, held_seat_count: 0 });
     a.ws.close(1000);
     back.ws.close(1000);
   });
@@ -624,19 +624,19 @@ describe("room browsing", () => {
     b.ws.send(JSON.stringify({ type: "idle" }));
     expect(await until(b, (m) => m.type === "away")).toEqual({ type: "away", reason: "idle", seatHoldDurationSec: 300 });
     await until(a, (m) => m.type === "players" && m.players.length === 1);
-    expect((await rows(id, (r) => r[0]?.players === 1))[0]).toMatchObject({ players: 1, held: 1 });
+    expect((await rows(id, (r) => r[0]?.player_count === 1))[0]).toMatchObject({ player_count: 1, held_seat_count: 1 });
     const list = await SELF.fetch(`${R}/v1/rooms/idler`, { headers: { Origin: ORIGIN } }).then((r) => r.json<any>());
     expect(list.playing.playerCount).toBe(1);
     expect(list.rooms[0]).toMatchObject({ playerCount: 1, heldSeatCount: 1 });
 
     b.ws.send(JSON.stringify({ type: "back" }));
     await until(b, (m) => m.type === "welcome");
-    expect((await rows(id, (r) => r[0]?.players === 2))[0]).toMatchObject({ players: 2, held: 0 });
+    expect((await rows(id, (r) => r[0]?.player_count === 2))[0]).toMatchObject({ player_count: 2, held_seat_count: 0 });
 
     // Out again, and this time the seat runs out: the room's check frees it and closes b's connection.
     b.ws.send(JSON.stringify({ type: "idle" }));
     await until(b, (m) => m.type === "away");
-    await rows(id, (r) => r[0]?.held === 1);
+    await rows(id, (r) => r[0]?.held_seat_count === 1);
     const stub = e.ROOMS.get(e.ROOMS.idFromName("idler:DLRRMA"));
     await runInDurableObject(stub, async (room: Room, state) => {
       for (const held of (room as any).core.held.values()) held.untilMs = Date.now() - 1;
@@ -644,7 +644,7 @@ describe("room browsing", () => {
     });
     await runDurableObjectAlarm(stub);
     expect(await b.closed).toBe(4002);
-    expect((await rows(id, (r) => r[0]?.held === 0))[0]).toMatchObject({ players: 1, held: 0 });
+    expect((await rows(id, (r) => r[0]?.held_seat_count === 0))[0]).toMatchObject({ player_count: 1, held_seat_count: 0 });
     const back = await connect("idler", "DLRRMA");
     back.ws.send(JSON.stringify({ type: "hello", pass: b.pass }));
     expect((await back.next()).type).toBe("welcome");
@@ -662,7 +662,7 @@ describe("room browsing", () => {
     // Rows the rooms last wrote 20 seconds ago, as a list copy from before the player left would have them.
     const then = Date.now() - 20_000;
     for (const [code, players] of [["LVRRMA", 1], ["LVRRMB", 3]] as const) {
-      await e.DB.prepare("INSERT INTO live_rooms (game_id, code, players, max_players, open, country, continent, created_at, updated_at) VALUES (?, ?, ?, 8, 1, 'DE', 'EU', ?, ?)").bind(id, code, players, then, then).run();
+      await e.DB.prepare("INSERT INTO live_rooms (game_id, room_code, player_count, maximum_player_count, is_open, country, continent, created_at_ms, updated_at_ms) VALUES (?, ?, ?, 8, 1, 'DE', 'EU', ?, ?)").bind(id, code, players, then, then).run();
     }
     const list = (left = "") => SELF.fetch(`${R}/v1/rooms/leaver${left ? `?left=${left}` : ""}`, { headers: { Origin: ORIGIN } }).then((r) => r.json<any>());
     const all = await list();
@@ -676,7 +676,7 @@ describe("room browsing", () => {
     // Rows from before they joined never counted them, so nothing comes off.
     expect((await list("LVRRMB.3000.10000")).rooms.find((r: any) => r.roomCode === "LVRRMB").playerCount).toBe(3);
     // A row the room wrote as the player went already counts them out; so does a list long after.
-    await e.DB.prepare("UPDATE live_rooms SET players = 2, updated_at = ? WHERE code = 'LVRRMB'").bind(Date.now() - 2_500).run();
+    await e.DB.prepare("UPDATE live_rooms SET player_count = 2, updated_at_ms = ? WHERE room_code = 'LVRRMB'").bind(Date.now() - 2_500).run();
     expect((await list("LVRRMB.3000.25000")).rooms.find((r: any) => r.roomCode === "LVRRMB").playerCount).toBe(2);
     expect((await list("LVRRMA.40000.50000")).rooms).toHaveLength(2);
     expect((await list("LVRRMA.3000")).rooms).toHaveLength(2);
@@ -687,17 +687,17 @@ describe("room browsing", () => {
     const id = await addGame("checker");
     const a = await join("checker", "GHJKMN");
     await rows(id, (r) => r.length === 1);
-    await e.DB.prepare("UPDATE live_rooms SET updated_at = 1").run();
+    await e.DB.prepare("UPDATE live_rooms SET updated_at_ms = 1").run();
     const stub = e.ROOMS.get(e.ROOMS.idFromName("checker:GHJKMN"));
     // The room wakes every half a minute to check on its players, and checks in once an hour has passed.
     expect(await runDurableObjectAlarm(stub)).toBe(true);
-    expect((await rows(id))[0].updated_at).toBe(1);
+    expect((await rows(id))[0].updated_at_ms).toBe(1);
     await runInDurableObject(stub, async (room: Room, state) => {
-      (room as any).checkedIn = Date.now() - 3600_000;
+      (room as any).checkedInAtMs = Date.now() - 3600_000;
       await state.storage.setAlarm(Date.now());
     });
     await runDurableObjectAlarm(stub); // Due now, so it may already have run by itself.
-    expect((await rows(id, (r) => r[0]?.updated_at > 1))[0].updated_at).toBeGreaterThan(1);
+    expect((await rows(id, (r) => r[0]?.updated_at_ms > 1))[0].updated_at_ms).toBeGreaterThan(1);
 
     // A room that lost its players without hearing them go (as after a restart) leaves its row on the next check.
     await runInDurableObject(stub, async (_room: Room, state) => {

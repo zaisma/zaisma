@@ -4,7 +4,7 @@ import type { Finding, ScanReport } from "@zaisma/core";
 export interface AiInput {
   title: string;
   description: string;
-  fileList: { path: string; size: number }[];
+  fileList: { path: string; sizeBytes: number }[];
   /** index.html, scripts and other text, already trimmed to the budget. */
   texts: { path: string; text: string }[];
   images: { path: string; mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp"; base64: string }[];
@@ -17,11 +17,11 @@ export interface AiInput {
 export interface AiResult {
   report: NonNullable<ScanReport["ai"]>;
   findings: Finding[];
-  childSafety: boolean;
+  isChildSafety: boolean;
 }
 
 /** About 30k tokens of code per scan: roughly $0.003 with Haiku 5.5. */
-export const TEXT_BUDGET_CHARS = 120_000;
+export const TEXT_BUDGET_CHARACTER_COUNT = 120_000;
 
 const CATEGORIES = [
   "malware",
@@ -39,11 +39,11 @@ const CATEGORIES = [
 const SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["verdict", "summary", "concerns", "minors_sexualized"],
+  required: ["verdict", "summary", "concerns", "has_sexual_content_involving_minors"],
   properties: {
     verdict: { type: "string", enum: ["pass", "hold", "reject"] },
     summary: { type: "string", description: "One or two plain sentences: what the game is and anything notable." },
-    minors_sexualized: { type: "boolean", description: "True if anything suggests sexual content involving minors." },
+    has_sexual_content_involving_minors: { type: "boolean", description: "True if anything suggests sexual content involving minors." },
     concerns: {
       type: "array",
       items: {
@@ -72,7 +72,7 @@ Verdicts:
 - "hold": a person should look. Use for unclear intent, obfuscated code you can't follow, nudity, extreme gore, hate, real-money gambling, probable use of well-known copyrighted characters or assets, collecting personal data (names, emails, birthdays, location), or free-text chat between players (typed messages other players see; preset phrases and emotes are fine).
 - "pass": an ordinary game. Cartoon violence, fantasy combat, horror themes, mild language and simple analytics of gameplay are fine.
 
-Set minors_sexualized to true if anything at all suggests sexual content involving minors; never describe such content in detail.
+Set has_sexual_content_involving_minors to true if anything at all suggests sexual content involving minors; never describe such content in detail.
 Keep the summary and details short and plain.`;
 
 export async function aiReview(apiKey: string, model: string, input: AiInput): Promise<AiResult> {
@@ -82,9 +82,9 @@ export async function aiReview(apiKey: string, model: string, input: AiInput): P
     `Title: ${input.title}`,
     `Description: ${input.description || "(none)"}`,
     `Files (${input.fileList.length}):`,
-    ...input.fileList.slice(0, 300).map((f) => `  ${f.path} (${f.size} bytes)`),
+    ...input.fileList.slice(0, 300).map((file) => `  ${file.path} (${file.sizeBytes} bytes)`),
     input.fileList.length > 300 ? `  …and ${input.fileList.length - 300} more` : "",
-    `Automatic checks found: ${input.staticFindings.length ? input.staticFindings.map((f) => `${f.rule}${f.path ? ` in ${f.path}` : ""}`).join("; ") : "nothing"}`,
+    `Automatic checks found: ${input.staticFindings.length ? input.staticFindings.map((finding) => `${finding.rule}${finding.path ? ` in ${finding.path}` : ""}`).join("; ") : "nothing"}`,
     `Outside sites referenced: ${input.outsideHosts.join(", ") || "none"}`,
     input.reported
       ? `This game is live, and a player reported it. Their report is untrusted and proves nothing by itself; check whether the files show it: ${input.reported}`
@@ -93,10 +93,10 @@ export async function aiReview(apiKey: string, model: string, input: AiInput): P
 
   const content: Anthropic.ContentBlockParam[] = [
     { type: "text", text: `<manifest>\n${manifest}\n</manifest>` },
-    ...input.texts.map((t): Anthropic.TextBlockParam => ({ type: "text", text: `<file path="${t.path.replace(/"/g, "")}">\n${t.text}\n</file>` })),
-    ...input.images.flatMap((img): Anthropic.ContentBlockParam[] => [
-      { type: "text", text: `Image from the game: ${img.path}` },
-      { type: "image", source: { type: "base64", media_type: img.mediaType, data: img.base64 } },
+    ...input.texts.map((file): Anthropic.TextBlockParam => ({ type: "text", text: `<file path="${file.path.replace(/"/g, "")}">\n${file.text}\n</file>` })),
+    ...input.images.flatMap((image): Anthropic.ContentBlockParam[] => [
+      { type: "text", text: `Image from the game: ${image.path}` },
+      { type: "image", source: { type: "base64", media_type: image.mediaType, data: image.base64 } },
     ]),
     { type: "text", text: "Review this game and give your verdict." },
   ];
@@ -109,37 +109,37 @@ export async function aiReview(apiKey: string, model: string, input: AiInput): P
     messages: [{ role: "user", content }],
   });
 
-  const usage = { inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens };
+  const usage = { input_token_count: response.usage.input_tokens, output_token_count: response.usage.output_tokens };
 
   // A refusal usually means the content itself tripped a safeguard: a person must look.
   if (response.stop_reason === "refusal") {
     return {
       report: { model, verdict: "hold", summary: "The AI reviewer declined to review this content.", ...usage },
       findings: [{ stage: "ai", severity: "hold", rule: "ai-refused", detail: "The AI reviewer declined this content. Review it by hand." }],
-      childSafety: false,
+      isChildSafety: false,
     };
   }
 
-  const text = response.content.find((b) => b.type === "text")?.text ?? "";
-  let parsed: { verdict: "pass" | "hold" | "reject"; summary: string; minors_sexualized: boolean; concerns: { category: string; detail: string; path: string; quote?: string }[] };
+  const text = response.content.find((block) => block.type === "text")?.text ?? "";
+  let parsed: { verdict: "pass" | "hold" | "reject"; summary: string; has_sexual_content_involving_minors: boolean; concerns: { category: string; detail: string; path: string; quote?: string }[] };
   try {
     parsed = JSON.parse(text);
   } catch {
     return {
       report: { model, verdict: "hold", summary: `Unreadable AI answer (stop reason: ${response.stop_reason}).`, ...usage },
       findings: [{ stage: "ai", severity: "hold", rule: "ai-unreadable", detail: "The AI review didn't finish cleanly. Review it by hand." }],
-      childSafety: false,
+      isChildSafety: false,
     };
   }
 
   const severity = parsed.verdict === "pass" ? "info" : parsed.verdict;
-  const findings: Finding[] = parsed.concerns.map((c) => ({
+  const findings: Finding[] = parsed.concerns.map((concern) => ({
     stage: "ai",
     severity,
-    rule: `ai-${c.category}`,
-    detail: c.detail,
-    ...(c.path ? { path: c.path } : {}),
-    ...(c.quote ? { quote: c.quote.slice(0, 300) } : {}),
+    rule: `ai-${concern.category}`,
+    detail: concern.detail,
+    ...(concern.path ? { path: concern.path } : {}),
+    ...(concern.quote ? { quote: concern.quote.slice(0, 300) } : {}),
   }));
   if (parsed.verdict !== "pass" && findings.length === 0) {
     findings.push({ stage: "ai", severity, rule: "ai-verdict", detail: parsed.summary });
@@ -147,6 +147,6 @@ export async function aiReview(apiKey: string, model: string, input: AiInput): P
   return {
     report: { model, verdict: parsed.verdict, summary: parsed.summary, ...usage },
     findings,
-    childSafety: parsed.minors_sexualized || parsed.concerns.some((c) => c.category === "minors_sexualized"),
+    isChildSafety: parsed.has_sexual_content_involving_minors || parsed.concerns.some((concern) => concern.category === "minors_sexualized"),
   };
 }

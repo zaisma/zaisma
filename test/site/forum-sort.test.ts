@@ -70,7 +70,7 @@ describe("forum sorting", () => {
     // The category is the developer's: sorting leaves it alone.
     expect(sorted).toMatchObject({ severity: "high", category: "", topic_status: "new", merged_into_topic_id: null, known_issue_title: null });
     expect(triageOf(sorted)).toMatchObject({ is_by_ai: true, summary: "Big uploads stall.", known_issue_draft: { title: "Big uploads can stall near the end" }, merged_into_topic_id: null, same_as_topic_id: null });
-    expect((await aiUsage(env.DB)).feedback).toBe(1);
+    expect((await aiUsage(env.DB)).forum_call_count).toBe(1);
 
     // The draft isn't public: other developers see no known issue, and sorting isn't news.
     expect((await api("/forum?tab=known", undefined, other)).topics).toEqual([]);

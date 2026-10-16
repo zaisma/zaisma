@@ -1,5 +1,5 @@
 import {
-  MAX_API_KEYS,
+  MAXIMUM_API_KEY_COUNT,
   NAME_RULES,
   accountById,
   ageBand,
@@ -55,9 +55,9 @@ import { deleteSaveFiles } from "./saves.ts";
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,255}\.[^\s@]{2,}$/;
-const BLOCK_SECONDS = 24 * 3600;
-const JOIN_SECONDS = 3600;
-const OAUTH_SECONDS = 600;
+const BLOCK_DURATION_SEC = 24 * 3600;
+const JOIN_DURATION_SEC = 3600;
+const OAUTH_DURATION_SEC = 600;
 
 export async function handleAccount(request: Request, env: Env, path: string): Promise<Response | null> {
   if (
@@ -74,10 +74,10 @@ export async function handleAccount(request: Request, env: Env, path: string): P
     if (origin && origin !== new URL(request.url).origin) return new Response("Bad origin", { status: 403 });
   }
   const form = post ? await request.formData() : null;
-  const field = (name: string, max = 200) => String(form?.get(name) ?? "").trim().slice(0, max);
+  const field = (name: string, maximumCharacterCount = 200) => String(form?.get(name) ?? "").trim().slice(0, maximumCharacterCount);
   const next = safeNext(form ? field("next") : new URL(request.url).searchParams.get("next"));
   const session = await currentSession(request, env);
-  const done = (res: Response) => withCookies(res, session?.cookies ?? []);
+  const done = (response: Response) => withCookies(response, session?.cookies ?? []);
 
   if (path === "/signin" && !post) return done(session ? redirect(next ?? "/account") : await signinPage(env, next));
 
@@ -88,7 +88,7 @@ export async function handleAccount(request: Request, env: Env, path: string): P
     // PKCE: the code Supabase sends back only works with this verifier, kept in this browser.
     const verifier = newChallenge();
     const challenge = b64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)));
-    const cookie = setCookie(env, "zaisma_oauth", `${withProvider}.${verifier}.${encodeURIComponent(next ?? "")}`, { maxAge: OAUTH_SECONDS });
+    const cookie = setCookie(env, "zaisma_oauth", `${withProvider}.${verifier}.${encodeURIComponent(next ?? "")}`, { maximumAgeSec: OAUTH_DURATION_SEC });
     return withCookies(redirect(providerUrl(env, withProvider, challenge)), [cookie]);
   }
 
@@ -98,7 +98,7 @@ export async function handleAccount(request: Request, env: Env, path: string): P
     try {
       back = safeNext(decodeURIComponent(rest.join(".")));
     } catch {}
-    const cookies = [setCookie(env, "zaisma_oauth", "", { maxAge: 0 })];
+    const cookies = [setCookie(env, "zaisma_oauth", "", { maximumAgeSec: 0 })];
     const query = new URL(request.url).searchParams;
     const code = query.get("code");
     const signedIn = code && verifier && isProvider(provider) ? await exchangeCode(env, code.slice(0, 500), verifier) : null;
@@ -126,7 +126,7 @@ export async function handleAccount(request: Request, env: Env, path: string): P
       if (!band) return redirect("/join");
       const checked = checkName(field("name", 60));
       if ("error" in checked) return await joinEmailPage(env, next, field("name"), checked.error, email);
-      cookies.push(setCookie(env, "zaisma_join", encodeURIComponent(JSON.stringify({ band, name: checked.name })), { maxAge: JOIN_SECONDS }));
+      cookies.push(setCookie(env, "zaisma_join", encodeURIComponent(JSON.stringify({ band, name: checked.name })), { maximumAgeSec: JOIN_DURATION_SEC }));
     }
     const sent = await sendCode(env, email, path === "/join/email");
     if (sent === "too-many") return message(env, "Slow down", "We've sent a lot of codes to that address. Wait a few minutes and try again.", 429);
@@ -146,7 +146,7 @@ export async function handleAccount(request: Request, env: Env, path: string): P
     const join = joinDetails(request, env);
     if (!join?.name) return withCookies(redirect(`/join${nextQuery(next)}`), cookies);
     await createAccount(env.DB, { id: signedIn.userId, name: join.name, ageBand: join.band });
-    cookies.push(setCookie(env, "zaisma_join", "", { maxAge: 0 }));
+    cookies.push(setCookie(env, "zaisma_join", "", { maximumAgeSec: 0 }));
     return withCookies(redirect(next ?? "/account?welcome"), cookies);
   }
 
@@ -161,19 +161,19 @@ export async function handleAccount(request: Request, env: Env, path: string): P
     }
 
     if (path === "/join/age" && post) {
-      const age = ageOn({ year: Number(field("year")), month: Number(field("month")), day: Number(field("day")) }, new Date());
-      if (age === null) return done(agePage(env, next, "Choose your full birth date."));
-      const band = ageBand(age);
+      const ageYearCount = ageOn({ yearNumber: Number(field("year")), monthNumber: Number(field("month")), dayNumber: Number(field("day")) }, new Date());
+      if (ageYearCount === null) return done(agePage(env, next, "Choose your full birth date."));
+      const band = ageBand(ageYearCount);
       if (!band) {
         // Under 13: no account. Anything Supabase already holds (a half-finished sign-in) is deleted now.
-        const cookies = [setCookie(env, "zaisma_age", "no", { maxAge: BLOCK_SECONDS }), setCookie(env, "zaisma_join", "", { maxAge: 0 })];
+        const cookies = [setCookie(env, "zaisma_age", "no", { maximumAgeSec: BLOCK_DURATION_SEC }), setCookie(env, "zaisma_join", "", { maximumAgeSec: 0 })];
         if (session) {
           await deleteAuthUser(env, session.userId);
           cookies.push(...clearSessionCookies(env));
         }
         return withCookies(tooYoungPage(env), cookies);
       }
-      const cookie = setCookie(env, "zaisma_join", encodeURIComponent(JSON.stringify({ band })), { maxAge: JOIN_SECONDS });
+      const cookie = setCookie(env, "zaisma_join", encodeURIComponent(JSON.stringify({ band })), { maximumAgeSec: JOIN_DURATION_SEC });
       // They came from Google or Discord: go straight back there (it won't ask again), then pick a name.
       const via = field("with");
       if (!session && isProvider(via) && (await providersOn(env)).includes(via)) return withCookies(redirect(`/signin/with/${via}${nextQuery(next)}`), [cookie]);
@@ -189,7 +189,7 @@ export async function handleAccount(request: Request, env: Env, path: string): P
       const checked = checkName(field("name", 60));
       if ("error" in checked) return done(joinNamePage(env, next, checked.error, field("name")));
       await createAccount(env.DB, { id: session.userId, name: checked.name, ageBand: band });
-      return withCookies(redirect(next ?? "/account?welcome"), [...session.cookies, setCookie(env, "zaisma_join", "", { maxAge: 0 })]);
+      return withCookies(redirect(next ?? "/account?welcome"), [...session.cookies, setCookie(env, "zaisma_join", "", { maximumAgeSec: 0 })]);
     }
     return done(redirect("/join"));
   }
@@ -219,8 +219,8 @@ export async function handleAccount(request: Request, env: Env, path: string): P
 
   // Teens can move to 18+ once they're 18. Nobody moves the other way, and the date isn't kept.
   if (path === "/account/age" && post && account.age_band === "13-17") {
-    const age = ageOn({ year: Number(field("year")), month: Number(field("month")), day: Number(field("day")) }, new Date());
-    if (age === null || age < 18) return done(await accountPage(env, session, false, "That birth date isn't 18 or over yet."));
+    const ageYearCount = ageOn({ yearNumber: Number(field("year")), monthNumber: Number(field("month")), dayNumber: Number(field("day")) }, new Date());
+    if (ageYearCount === null || ageYearCount < 18) return done(await accountPage(env, session, false, "That birth date isn't 18 or over yet."));
     await updateAccount(env.DB, account.id, { ageBand: "18+" });
     return done(redirect("/account"));
   }
@@ -228,7 +228,7 @@ export async function handleAccount(request: Request, env: Env, path: string): P
   // API keys for the developer MCP and upload command. The key is shown once, here.
   if (path === "/account/keys" && post) {
     const name = field("name", 40) || "My key";
-    if ((await apiKeysFor(env.DB, account.id)).length >= MAX_API_KEYS) return done(await accountPage(env, session, false, `You can have up to ${MAX_API_KEYS} keys. Remove one first.`));
+    if ((await apiKeysFor(env.DB, account.id)).length >= MAXIMUM_API_KEY_COUNT) return done(await accountPage(env, session, false, `You can have up to ${MAXIMUM_API_KEY_COUNT} keys. Remove one first.`));
     const { token } = await createApiKey(env.DB, account.id, name);
     return done(await accountPage(env, session, false, undefined, { name, token }));
   }
@@ -256,16 +256,16 @@ function redirect(to: string): Response {
   return new Response(null, { status: 303, headers: { Location: to, "Cache-Control": "no-store" } });
 }
 
-function withCookies(res: Response, cookies: string[]): Response {
-  const out = new Response(res.body, res);
-  for (const c of cookies) out.headers.append("Set-Cookie", c);
+function withCookies(response: Response, cookies: string[]): Response {
+  const out = new Response(response.body, response);
+  for (const cookie of cookies) out.headers.append("Set-Cookie", cookie);
   out.headers.set("Cache-Control", "no-store");
   return out;
 }
 
 /** Only our own paths, never another site. */
-function safeNext(value: string | null | undefined): string | null {
-  return value && /^\/(?![/\\])[\w\-./?=&%]*$/.test(value) && value.length < 200 ? value : null;
+function safeNext(nextPath: string | null | undefined): string | null {
+  return nextPath && /^\/(?![/\\])[\w\-./?=&%]*$/.test(nextPath) && nextPath.length < 200 ? nextPath : null;
 }
 
 const nextQuery = (next: string | null) => (next ? `?next=${encodeURIComponent(next)}` : "");
@@ -277,8 +277,8 @@ async function limited(env: Env, request: Request): Promise<boolean> {
 
 function joinDetails(request: Request, env: Env): { band: AgeBand; name?: string } | null {
   try {
-    const j = JSON.parse(decodeURIComponent(readCookie(request, env, "zaisma_join") ?? "")) as { band?: string; name?: string };
-    return j.band === "13-17" || j.band === "18+" ? { band: j.band, name: typeof j.name === "string" ? j.name : undefined } : null;
+    const joinCookie = JSON.parse(decodeURIComponent(readCookie(request, env, "zaisma_join") ?? "")) as { band?: string; name?: string };
+    return joinCookie.band === "13-17" || joinCookie.band === "18+" ? { band: joinCookie.band, name: typeof joinCookie.name === "string" ? joinCookie.name : undefined } : null;
   } catch {
     return null;
   }
@@ -288,22 +288,22 @@ const joinBand = (request: Request, env: Env) => joinDetails(request, env)?.band
 
 // --- Pages ---
 
-function page(env: Env, title: string, body: Raw, status = 200): Response {
-  const res = layout(env, { title: `${title} · Zaisma`, body: html`<div class="narrow">${body}</div>`, private: true });
-  return new Response(res.body, { status, headers: res.headers });
+function page(env: Env, title: string, body: Raw, httpStatus = 200): Response {
+  const response = layout(env, { title: `${title} · Zaisma`, body: html`<div class="narrow">${body}</div>`, isPrivate: true });
+  return new Response(response.body, { status: httpStatus, headers: response.headers });
 }
 
-const err = (text?: string) => (text ? html`<p class="error" role="alert">${text}</p>` : "");
+const errorParagraph = (text?: string) => (text ? html`<p class="error" role="alert">${text}</p>` : "");
 const nextField = (next: string | null) => (next ? html`<input type="hidden" name="next" value="${next}">` : "");
 
-async function signinPage(env: Env, next: string | null, error?: string, status = 200): Promise<Response> {
+async function signinPage(env: Env, next: string | null, error?: string, httpStatus = 200): Promise<Response> {
   const providers = await providersOn(env);
   return page(
     env,
     "Sign in",
     html`<h1>Sign in</h1>
 <p class="lead">No password needed.</p>
-${err(error)}
+${errorParagraph(error)}
 <div class="ways" id="ways"${providers.length ? "" : raw(" hidden")}>
 <button class="btn" type="button" id="passkey-go" hidden>${raw(ICON_PASSKEY)}Sign in with a passkey</button>
 ${providerLinks(providers, next)}
@@ -330,7 +330,7 @@ ${nextField(next)}
   if (PublicKeyCredential.isConditionalMediationAvailable) PublicKeyCredential.isConditionalMediationAvailable().then((ok) => ok && zaismaPasskeySignIn(next, true).then(show));
 })();
 </script>`,
-    status,
+    httpStatus,
   );
 }
 
@@ -342,7 +342,7 @@ const ICON_PROVIDER: Record<Provider, string> = {
 };
 
 function providerLinks(providers: Provider[], next: string | null): Raw {
-  return html`${providers.map((p) => html`<a class="btn ghost" href="/signin/with/${p}${nextQuery(next)}">${raw(ICON_PROVIDER[p])}Continue with ${PROVIDERS[p]}</a>`)}`;
+  return html`${providers.map((provider) => html`<a class="btn ghost" href="/signin/with/${provider}${nextQuery(next)}">${raw(ICON_PROVIDER[provider])}Continue with ${PROVIDERS[provider]}</a>`)}`;
 }
 
 export function codePage(env: Env, email: string, next: string | null, error?: string, confirm = false): Response {
@@ -351,7 +351,7 @@ export function codePage(env: Env, email: string, next: string | null, error?: s
     "Check your email",
     html`<h1>Check your email</h1>
 <p class="lead">${confirm ? html`We sent a code to <strong>${email}</strong>. Enter it to confirm it's you.` : html`If <strong>${email}</strong> has a Zaisma account or you're making one, a code is on its way.`}</p>
-${err(error)}
+${errorParagraph(error)}
 <form class="stack" method="post" action="/signin/code">
 ${nextField(next)}
 <input type="hidden" name="email" value="${email}">
@@ -364,11 +364,11 @@ ${nextField(next)}
 }
 
 function birthFields(): Raw {
-  const year = new Date().getUTCFullYear();
+  const currentYearNumber = new Date().getUTCFullYear();
   return html`<div class="row birth">
-<label>Month<select name="month" required><option value="">Month</option>${MONTHS.map((m, i) => html`<option value="${i + 1}">${m}</option>`)}</select></label>
+<label>Month<select name="month" required><option value="">Month</option>${MONTHS.map((monthName, i) => html`<option value="${i + 1}">${monthName}</option>`)}</select></label>
 <label>Day<select name="day" required><option value="">Day</option>${Array.from({ length: 31 }, (_, i) => html`<option>${i + 1}</option>`)}</select></label>
-<label>Year<select name="year" required><option value="">Year</option>${Array.from({ length: 100 }, (_, i) => html`<option>${year - i}</option>`)}</select></label>
+<label>Year<select name="year" required><option value="">Year</option>${Array.from({ length: 100 }, (_, i) => html`<option>${currentYearNumber - i}</option>`)}</select></label>
 </div>`;
 }
 
@@ -378,7 +378,7 @@ function agePage(env: Env, next: string | null, error?: string, via?: Provider):
     "Make an account",
     html`<h1>Make an account</h1>
 <p class="lead">${via ? `You're new to Zaisma. Answer this first, then we'll take you back to ${PROVIDERS[via]} to finish.` : "Keep your progress, play with friends and get your own name. Guests can still play everything."}</p>
-${err(error)}
+${errorParagraph(error)}
 <form class="stack" method="post" action="/join/age">
 ${nextField(next)}
 ${via ? html`<input type="hidden" name="with" value="${via}">` : ""}
@@ -396,7 +396,7 @@ async function joinEmailPage(env: Env, next: string | null, name = "", error?: s
     env,
     "Make an account",
     html`<h1>Make an account</h1>
-${err(error)}
+${errorParagraph(error)}
 ${providers.length ? html`<div class="ways">${providerLinks(providers, next)}<p class="or"><span>or use your email</span></p></div>` : ""}
 <form class="stack" method="post" action="/join/email">
 ${nextField(next)}
@@ -414,7 +414,7 @@ function joinNamePage(env: Env, next: string | null, error?: string, name = ""):
     env,
     "Pick a name",
     html`<h1>Pick a name</h1>
-${err(error)}
+${errorParagraph(error)}
 <form class="stack" method="post" action="/join/name">
 ${nextField(next)}
 <label>Your name<input name="name" value="${name}" minlength="3" maxlength="20" autocomplete="nickname" required autofocus><span class="hint">What other players see. ${NAME_RULES} Don't use your real name.</span></label>
@@ -438,7 +438,7 @@ function tooYoungPage(env: Env): Response {
 // recently played games over to the account.
 const JOINED_SCRIPT = `<script>(()=>{try{new BroadcastChannel("zaisma").postMessage("signed-in")}catch{}
 let p=[];try{p=JSON.parse(localStorage.getItem("zaisma:played")||"[]")}catch{}
-if(p.length)fetch("/api/me/played",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({played:p.slice(0,20)})}).catch(()=>{})})()</script>`;
+if(p.length)fetch("/api/me/played",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({played:p.slice(0,20).map(g=>({slug:g.slug,played_at_ms:g.played_at_ms??g.at}))})}).catch(()=>{})})()</script>`;
 
 /** Where "Keep your progress" lands once the guest has an account (or signed in), in the tab it opened. */
 async function keptPage(env: Env, name: string, slug: string | null): Promise<Response> {
@@ -449,7 +449,7 @@ async function keptPage(env: Env, name: string, slug: string | null): Promise<Re
     "You're in",
     html`<h1>You're in, ${name}</h1>
 <p class="lead">${game ? `Go back to ${game.title} to keep playing. From now on, your progress saves to your account, so it's safe and follows you to any device.` : "From now on, games you play save your progress to your account."}</p>
-${metalButton(game ? `Back to ${game.title}` : "Find a game", { href: back, data: { back: "" } })}
+${metalButton(game ? `Back to ${game.title}` : "Find a game", { href: back, dataAttributes: { back: "" } })}
 ${raw(JOINED_SCRIPT)}
 <script>
 // This tab was opened by the game: go back to it, so it keeps running where the player left off.
@@ -476,14 +476,14 @@ async function accountPage(env: Env, session: Session, welcome: boolean, error?:
   const account = (await accountById(env.DB, session.userId))!;
   const [games, keys, passkeys] = await Promise.all([gamesOwnedBy(env.DB, account.id), apiKeysFor(env.DB, account.id), passkeysFor(env.DB, account.id)]);
   // Adding a passkey needs a recent sign-in; otherwise an email code first.
-  const recent = Date.now() - session.authAt < RECENT_SIGNIN_MS;
+  const recent = Date.now() - session.signedInAtMs < RECENT_SIGNIN_MS;
   return page(
     env,
     "Your account",
     html`${welcome ? html`<p class="note">Welcome to Zaisma, ${account.name}.</p>${raw(JOINED_SCRIPT)}` : ""}
 <h1>${account.name}</h1>
 <p class="lead">${session.email}</p>
-${err(error)}
+${errorParagraph(error)}
 <h2>Name</h2>
 <form class="row" method="post" action="/account/name">
 <input name="name" value="${account.name}" minlength="3" maxlength="20" required aria-label="Name">
@@ -501,8 +501,8 @@ ${query.has("passkey") && recent ? html`<p class="note" role="status">Thanks, th
 ${query.has("passkey-failed") ? html`<p class="error" role="alert">Couldn't send a code. Wait a minute and try again.</p>` : ""}
 ${passkeys.length
       ? html`<ul class="keys">${passkeys.map(
-          (k) => html`<li><span>Added on ${k.name} <span class="why muted small">${day(k.created_at)}, ${k.last_used_at ? `last used ${day(k.last_used_at)}` : "not used yet"}</span></span>
-<form method="post" action="/account/passkeys/${k.id}/remove"><button class="btn ghost" type="submit">Remove</button></form></li>`,
+          (passkey) => html`<li><span>Added on ${passkey.name} <span class="why muted small">${day(passkey.created_at_ms)}, ${passkey.last_used_at_ms ? `last used ${day(passkey.last_used_at_ms)}` : "not used yet"}</span></span>
+<form method="post" action="/account/passkeys/${passkey.id}/remove"><button class="btn ghost" type="submit">Remove</button></form></li>`,
         )}</ul>`
       : ""}
 <div class="row" id="passkey-add-row">
@@ -534,7 +534,7 @@ ${recent
 <h2>Game saves</h2>
 <p>Games you play while signed in save your progress to your account. <a href="/account/saves">See your saves</a>, and go back to an earlier version if progress goes missing.</p>
 ${games.length
-      ? html`<h2>Your games</h2><ul>${games.map((g) => html`<li><a href="/dashboard/${g.slug}">${g.title}</a> <span class="pill ${g.status}">${g.status}</span></li>`)}</ul>`
+      ? html`<h2>Your games</h2><ul>${games.map((game) => html`<li><a href="/dashboard/${game.slug}">${game.title}</a> <span class="pill ${game.review_status}">${game.review_status}</span></li>`)}</ul>`
       : ""}
 <h2 id="developer">Game developers</h2>
 <p>Manage your games on <a href="/dashboard">your games page</a>, or from any AI tool or the command line with an API key. Treat a key like a password: anyone with it can change your games.</p>
@@ -545,8 +545,8 @@ ${made
       : ""}
 ${keys.length
       ? html`<ul class="keys">${keys.map(
-          (k) => html`<li><span>${k.name} <span class="muted small">made ${day(k.created_at)}, ${k.last_used_at ? `last used ${day(k.last_used_at)}` : "not used yet"}</span></span>
-<form method="post" action="/account/keys/${k.id}/revoke"><button class="btn ghost" type="submit">Remove</button></form></li>`,
+          (key) => html`<li><span>${key.name} <span class="muted small">made ${day(key.created_at_ms)}, ${key.last_used_at_ms ? `last used ${day(key.last_used_at_ms)}` : "not used yet"}</span></span>
+<form method="post" action="/account/keys/${key.id}/revoke"><button class="btn ghost" type="submit">Remove</button></form></li>`,
         )}</ul>`
       : ""}
 <form class="row" method="post" action="/account/keys">

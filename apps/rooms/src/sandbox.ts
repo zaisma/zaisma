@@ -175,18 +175,18 @@ async function serverCode(env: Env, versionId: string): Promise<{ entry: string;
   const found = await serverModules(env.GAMES, version, manifest);
   if (!found || "error" in found) return null;
   const modules: Record<string, string | WorkerLoaderModule> = {};
-  for (const f of found.files) {
-    const object = await env.GAMES.get(f.key);
+  for (const file of found.files) {
+    const object = await env.GAMES.get(file.key);
     if (!object) return null;
     // import levels from "./levels.json" gives the data; import physics from "./physics.wasm" a WebAssembly.Module.
-    if (f.path.endsWith(".wasm")) modules[f.path] = { wasm: await object.arrayBuffer() };
-    else if (f.path.endsWith(".json")) {
+    if (file.path.endsWith(".wasm")) modules[file.path] = { wasm: await object.arrayBuffer() };
+    else if (file.path.endsWith(".json")) {
       try {
-        modules[f.path] = { json: JSON.parse(await object.text()) };
+        modules[file.path] = { json: JSON.parse(await object.text()) };
       } catch {
-        throw new Error(`${f.path} isn't valid JSON`);
+        throw new Error(`${file.path} isn't valid JSON`);
       }
-    } else modules[f.path] = { js: await object.text() };
+    } else modules[file.path] = { js: await object.text() };
   }
   return { entry: found.entry, modules };
 }
@@ -224,33 +224,33 @@ export async function wrapSession(open: () => Promise<Session>, onBroken: () => 
   const optionNames = Array.isArray(settings.optionNames) ? settings.optionNames.map(String) : [];
   for (const name of optionNames) if (!(GAME_SERVER_OPTIONS as readonly string[]).includes(name)) throw unknownOptionError(name);
   const handlerNames = new Set(Array.isArray(settings.handlerNames) ? settings.handlerNames.map(String) : []);
-  const stats: SandboxStats = { calls: 0, ms: 0, failures: 0, crashes: 0, stops: 0, errors: new Map() };
+  const stats: SandboxStats = { callCount: 0, waitDurationMs: 0, failureCount: 0, crashCount: 0, stoppedCount: 0, errors: new Map() };
   const record = (kind: "crash" | "stopped", text: string) => {
     const message = errorLine(text);
     const seen = stats.errors.get(`${kind}\n${message}`);
-    if (seen) seen.count++;
+    if (seen) seen.occurrenceCount++;
     // A room keeps a handful of distinct errors; a game that throws a new message every tick can't fill the table.
-    else if (stats.errors.size < MAXIMUM_ERROR_COUNT) stats.errors.set(`${kind}\n${message}`, { kind, message, count: 1, first: Date.now() });
+    else if (stats.errors.size < MAXIMUM_ERROR_COUNT) stats.errors.set(`${kind}\n${message}`, { kind, message, occurrenceCount: 1, firstAtMs: Date.now() });
   };
 
   /** One call into the sandbox, counting it and handling a sandbox that fails. */
   const reach = async <T extends { error?: string }>(work: () => Promise<T>): Promise<T> => {
     const startedAtMs = Date.now();
-    if (stats.failures >= FAILURE_COUNT) throw new Error("This game's server stopped working");
+    if (stats.failureCount >= FAILURE_COUNT) throw new Error("This game's server stopped working");
     let answer: T;
     try {
       answer = await work();
     } catch (error) {
-      stats.stops++;
+      stats.stoppedCount++;
       record("stopped", /CPU time/i.test(String(error)) ? "Ran on too long and was stopped, like a loop that never ends" : `The game server stopped: ${String(error)}`);
-      if (++stats.failures >= FAILURE_COUNT) onBroken();
+      if (++stats.failureCount >= FAILURE_COUNT) onBroken();
       else session = await open();
       throw error;
     }
-    stats.calls++;
-    stats.ms += Date.now() - startedAtMs;
+    stats.callCount++;
+    stats.waitDurationMs += Date.now() - startedAtMs;
     if (answer.error) {
-      stats.crashes++;
+      stats.crashCount++;
       record("crash", answer.error);
     }
     return answer;
@@ -290,7 +290,7 @@ export async function wrapSession(open: () => Promise<Session>, onBroken: () => 
             // A wrong answer (like a string) turns the player away, and its developer sees why with the game's server errors.
             const read = readJoinAnswer(checked.answer);
             if ("mistake" in read) {
-              stats.crashes++;
+              stats.crashCount++;
               record("crash", read.mistake);
               throw new Error(`Game server error: ${read.mistake}`);
             }
@@ -304,14 +304,14 @@ export async function wrapSession(open: () => Promise<Session>, onBroken: () => 
 }
 
 export interface SandboxStats {
-  calls: number;
+  callCount: number;
   /** Time spent waiting on the game server, for our own measurements. */
-  ms: number;
+  waitDurationMs: number;
   /** Times the sandbox itself failed; FAILURE_COUNT of them end the room. */
-  failures: number;
-  crashes: number;
-  stops: number;
-  errors: Map<string, { kind: "crash" | "stopped"; message: string; count: number; first: number }>;
+  failureCount: number;
+  crashCount: number;
+  stoppedCount: number;
+  errors: Map<string, { kind: "crash" | "stopped"; message: string; occurrenceCount: number; firstAtMs: number }>;
 }
 
 /** Distinct errors a room keeps until it records them. */

@@ -10,15 +10,15 @@ const LOCAL = "http://localhost";
 const testEnv = { ...env, DEV_ADMIN: "1", ANTHROPIC_API_KEY: "test-key" };
 const DAY = 86400_000;
 
-const connected: ImageMatcher = { check: async (imgs) => ({ provider: "test", connected: true, checked: imgs.length, findings: [] }) };
+const connected: ImageMatcher = { check: async (imgs) => ({ provider: "test", isConnected: true, checkedMediaCount: imgs.length, findings: [] }) };
 /** `where` is the file and quote the AI points to as evidence. */
 const scanSays = (verdict: "pass" | "hold" | "reject", where: { path: string; quote: string } | null = null): ScanDeps => ({
   images: connected,
   ai: async () =>
     ({
-      report: { model: "test", verdict, summary: `AI says ${verdict}`, inputTokens: 1000, outputTokens: 100 },
+      report: { model: "test", verdict, summary: `AI says ${verdict}`, input_token_count: 1000, output_token_count: 100 },
       findings: verdict === "pass" ? [] : [{ stage: "ai", severity: verdict, rule: "ai-test", detail: "test concern", ...(where ?? {}) }],
-      childSafety: false,
+      isChildSafety: false,
     }) satisfies AiResult,
 });
 
@@ -56,8 +56,8 @@ function ai(a: Partial<TriageAnswer> | ((input: TriageInput) => Partial<TriageAn
         precedent: "",
         fit: "none",
         draft: { title: "", applies_when: "", decision: "", why: "" },
-        inputTokens: 500,
-        outputTokens: 50,
+        input_token_count: 500,
+        output_token_count: 50,
         ...(typeof a === "function" ? a(input) : a),
       };
     },
@@ -65,7 +65,7 @@ function ai(a: Partial<TriageAnswer> | ((input: TriageInput) => Partial<TriageAn
   return { deps, seen };
 }
 
-const reports = async () => (await env.DB.prepare("SELECT * FROM reports ORDER BY created_at, rowid").all<Report>()).results;
+const reports = async () => (await env.DB.prepare("SELECT * FROM reports ORDER BY reported_at_ms, rowid").all<Report>()).results;
 const triageOf = (r: Report) => JSON.parse(r.triage!) as Triage;
 
 beforeEach(async () => {
@@ -85,14 +85,14 @@ describe("report triage", () => {
     expect(await triageReports(testEnv, second.deps)).toBe(1);
 
     const [first, dup] = await reports();
-    expect(first).toMatchObject({ severity: 2, group_id: null, status: "open" });
-    expect(triageOf(first!)).toMatchObject({ ai: true, category: "hate", summary: "Hateful words in level 3.", recommendation: "person" });
-    expect(dup).toMatchObject({ severity: 2, group_id: first!.id });
+    expect(first).toMatchObject({ severity_index: 2, report_group_id: null, report_status: "open" });
+    expect(triageOf(first!)).toMatchObject({ is_by_ai: true, category: "hate", summary: "Hateful words in level 3.", recommendation: "person" });
+    expect(dup).toMatchObject({ severity_index: 2, report_group_id: first!.id });
     // The AI saw the earlier report, the game and what the player wrote, marked as untrusted blocks.
     expect(second.seen[0]!.text).toContain("Hateful words in level 3.");
     expect(second.seen[0]!.text).toContain('Details: "level 3 boss is racist"');
     expect(second.seen[0]!.text).toContain("Title: Test Game");
-    expect(await env.DB.prepare("SELECT reports FROM ai_usage").first("reports")).toBe(2);
+    expect(await env.DB.prepare("SELECT report_triage_call_count FROM ai_usage").first("report_triage_call_count")).toBe(2);
   });
 
   it("passes a bug to the developer and closes it", async () => {
@@ -100,8 +100,8 @@ describe("report triage", () => {
     await send({ reason: "other", details: "freezes when I press jump twice" });
     await triageReports(testEnv, ai({ category: "broken", recommendation: "bug" }).deps);
     const [r] = await reports();
-    expect(r).toMatchObject({ status: "actioned", bug: 1 });
-    expect(triageOf(r!).actions[0]).toMatch(/developer/);
+    expect(r).toMatchObject({ report_status: "actioned", is_bug_report: 1 });
+    expect(triageOf(r!).ai_actions[0]).toMatch(/developer/);
     expect(await (await SELF.fetch(`${LOCAL}/admin/reports`)).text()).toContain("Handled without you this week (1)");
   });
 
@@ -112,8 +112,8 @@ describe("report triage", () => {
     await triageReports(testEnv, deps);
     expect(seen).toHaveLength(0);
     const [r] = await reports();
-    expect(r).toMatchObject({ severity: 0, status: "open" });
-    expect(triageOf(r!)).toMatchObject({ ai: false, category: "child_safety", recommendation: "person" });
+    expect(r).toMatchObject({ severity_index: 0, report_status: "open" });
+    expect(triageOf(r!)).toMatchObject({ is_by_ai: false, category: "child_safety", recommendation: "person" });
   });
 
   it("treats child safety the AI finds in another report like a child-safety report", async () => {
@@ -121,8 +121,8 @@ describe("report triage", () => {
     await send({ reason: "other", details: "a character asks kids for pictures" });
     await triageReports(testEnv, ai({ severity: "child_safety", category: "child_safety" }).deps);
     const [r] = await reports();
-    expect(r).toMatchObject({ severity: 0, status: "open" });
-    expect(triageOf(r!).actions).toContain("Hid the new game until a person looks");
+    expect(r).toMatchObject({ severity_index: 0, report_status: "open" });
+    expect(triageOf(r!).ai_actions).toContain("Hid the new game until a person looks");
     expect((await gameBySlug(env.DB, "test-game"))?.review_status).toBe("held");
   });
 
@@ -131,17 +131,17 @@ describe("report triage", () => {
     await send({ reason: "malware", details: "it asks for my steam password" });
     await triageReports(testEnv, ai({ severity: "high", category: "malware", recommendation: "recheck" }).deps);
     let [r] = await reports();
-    expect(triageOf(r!).recheck).toEqual({ status: "waiting" });
+    expect(triageOf(r!).recheck).toEqual({ recheck_status: "waiting" });
     expect((await versionById(env.DB, versionId))?.rechecked_at_ms).toBeTypeOf("number");
     // Nothing happens to the game until the files are checked.
     expect((await gameBySlug(env.DB, "test-game"))?.review_status).toBe("live");
 
     await recheckVersion(testEnv, versionId, r!.id, scanSays("reject", { path: "game.js", quote: "let score = 0;" }));
     [r] = await reports();
-    expect(r!.severity).toBe(1);
-    expect(triageOf(r!)).toMatchObject({ recommendation: "take_down", recheck: { status: "done", decision: "rejected" } });
+    expect(r!.severity_index).toBe(1);
+    expect(triageOf(r!)).toMatchObject({ recommendation: "take_down", recheck: { recheck_status: "done", scan_status: "rejected" } });
     // The files haven't changed since its scan: a person decides.
-    expect(triageOf(r!).actions).toContain("Left the game up: it's established, so a person decides");
+    expect(triageOf(r!).ai_actions).toContain("Left the game up: it's established, so a person decides");
     expect((await gameBySlug(env.DB, "test-game"))?.review_status).toBe("live");
     // The version's own scan stays as it was.
     expect((await versionById(env.DB, versionId))?.scan_status).toBe("approved");
@@ -158,11 +158,11 @@ describe("report triage", () => {
     const { versionId } = await liveGame();
     await send({ reason: "other", details: "weird pictures in the menu" });
     await triageReports(testEnv, ai({ severity: "high", category: "sexual", recommendation: "recheck" }).deps);
-    const known: ImageMatcher = { check: async (media) => ({ provider: "test", connected: true, checked: media.length, findings: [{ stage: "images", severity: "hold", rule: KNOWN_IMAGE_RULE, detail: "Known.", path: "game.js" }] }) };
+    const known: ImageMatcher = { check: async (media) => ({ provider: "test", isConnected: true, checkedMediaCount: media.length, findings: [{ stage: "images", severity: "hold", rule: KNOWN_IMAGE_RULE, detail: "Known.", path: "game.js" }] }) };
     await recheckVersion(testEnv, versionId, (await reports())[0]!.id, { ...scanSays("pass"), images: known });
     const [r] = await reports();
-    expect(r!.severity).toBe(0);
-    expect(triageOf(r!).actions).toContain("Hid the game: its files match known abuse material");
+    expect(r!.severity_index).toBe(0);
+    expect(triageOf(r!).ai_actions).toContain("Hid the game: its files match known abuse material");
     expect((await gameBySlug(env.DB, "test-game"))?.review_status).toBe("held");
     expect((await versionById(env.DB, versionId))?.scan_status).toBe("held");
   });
@@ -173,7 +173,7 @@ describe("report triage", () => {
     await triageReports(testEnv, ai({ severity: "high", category: "malware", recommendation: "recheck" }).deps);
     await recheckVersion(testEnv, versionId, (await reports())[0]!.id, scanSays("reject", { path: "game.js", quote: "requestAnimationFrame(function  loop(){" }));
     const t = triageOf((await reports())[0]!);
-    expect(t.actions).toContain("Hid the new game until a person looks");
+    expect(t.ai_actions).toContain("Hid the new game until a person looks");
     expect(t.recheck?.findings?.[0]).toContain("game.js");
     expect((await gameBySlug(env.DB, "test-game"))?.review_status).toBe("held");
   });
@@ -196,7 +196,7 @@ describe("report triage", () => {
     await triageReports(testEnv, ai({ severity: "high", category: "sexual", recommendation: "recheck" }).deps);
     await recheckVersion(testEnv, versionId, (await reports())[0]!.id, scanSays("pass"));
     const [r] = await reports();
-    expect(triageOf(r!)).toMatchObject({ recommendation: "dismiss", recheck: { decision: "approved" } });
+    expect(triageOf(r!)).toMatchObject({ recommendation: "dismiss", recheck: { scan_status: "approved" } });
     expect((await gameBySlug(env.DB, "test-game"))?.review_status).toBe("live");
   });
 
@@ -206,8 +206,8 @@ describe("report triage", () => {
     await triageReports(testEnv, ai({ severity: "normal", category: "hate", recommendation: "recheck" }).deps);
     await recheckVersion(testEnv, versionId, (await reports())[0]!.id, scanSays("hold"));
     const [r] = await reports();
-    expect(r!.severity).toBe(2);
-    expect(triageOf(r!)).toMatchObject({ recommendation: "person", recheck: { decision: "held", findings: ["ai-test: test concern"] } });
+    expect(r!.severity_index).toBe(2);
+    expect(triageOf(r!)).toMatchObject({ recommendation: "person", recheck: { scan_status: "held", findings: ["ai-test: test concern"] } });
     expect((await gameBySlug(env.DB, "test-game"))?.review_status).toBe("live");
   });
 
@@ -217,20 +217,20 @@ describe("report triage", () => {
     expect((await gameBySlug(env.DB, "test-game"))?.review_status).toBe("held");
     await triageReports(testEnv, ai({ severity: "low", category: "other", recommendation: "dismiss" }).deps);
     const [r] = await reports();
-    expect(r!.severity).toBe(2); // Paused games stay near the top.
+    expect(r!.severity_index).toBe(2); // Paused games stay near the top.
     expect(triageOf(r!).recommendation).toBe("restore");
   });
 
   it("leaves reports for a person when the month's AI budget is used up", async () => {
     await liveGame();
-    await env.DB.prepare("UPDATE ai_usage SET input_tokens = ?").bind(999_999_999).run();
+    await env.DB.prepare("UPDATE ai_usage SET input_token_count = ?").bind(999_999_999).run();
     await send({ reason: "broken", details: "black screen" });
     const { deps, seen } = ai({ recommendation: "dismiss" });
     await triageReports(testEnv, deps);
     expect(seen).toHaveLength(0);
     const [r] = await reports();
-    expect(r).toMatchObject({ severity: 3, status: "open", bug: 1 });
-    expect(triageOf(r!)).toMatchObject({ ai: false, recommendation: "person" });
+    expect(r).toMatchObject({ severity_index: 3, report_status: "open", is_bug_report: 1 });
+    expect(triageOf(r!)).toMatchObject({ is_by_ai: false, recommendation: "person" });
     expect(triageOf(r!).summary).toMatch(/budget/);
   });
 
@@ -240,11 +240,11 @@ describe("report triage", () => {
     const failing: TriageDeps = { ai: async () => Promise.reject(new Error("overloaded")) };
     expect(await triageReports(testEnv, failing)).toBe(0);
     expect(await triageReports(testEnv, failing)).toBe(0);
-    expect((await reports())[0]!.triaged_at).toBeNull();
+    expect((await reports())[0]!.triaged_at_ms).toBeNull();
     expect(await triageReports(testEnv, failing)).toBe(1);
     const [r] = await reports();
-    expect(r).toMatchObject({ severity: 2, triage_tries: 3 });
-    expect(triageOf(r!)).toMatchObject({ ai: false, recommendation: "person" });
+    expect(r).toMatchObject({ severity_index: 2, triage_attempt_count: 3 });
+    expect(triageOf(r!)).toMatchObject({ is_by_ai: false, recommendation: "person" });
   });
 });
 
@@ -258,8 +258,8 @@ describe("precedents", () => {
     // The AI was given the precedents in force.
     expect(seen[0]!.precedents.map((p) => p.id)).toEqual(["precedent_hard-or-boring"]);
     const [r] = await reports();
-    expect(r).toMatchObject({ status: "dismissed", precedent_id: "precedent_hard-or-boring" });
-    expect(triageOf(r!).actions).toEqual(["Dismissed under precedent “Too hard, boring or not fun”"]);
+    expect(r).toMatchObject({ report_status: "dismissed", precedent_id: "precedent_hard-or-boring" });
+    expect(triageOf(r!).ai_actions).toEqual(["Dismissed under precedent “Too hard, boring or not fun”"]);
     expect(await (await SELF.fetch(`${LOCAL}/admin/reports`)).text()).toContain("Handled without you this week (1)");
   });
 
@@ -270,8 +270,8 @@ describe("precedents", () => {
     const { deps } = ai({ severity: "low", precedent: "precedent_hard-or-boring", fit: "fits" });
     await triageReports(testEnv, { ...deps, random: () => 0.01 });
     const [r] = await reports();
-    expect(r).toMatchObject({ status: "open", precedent_id: "precedent_hard-or-boring" });
-    expect(triageOf(r!)).toMatchObject({ spot_check: true, recommendation: "dismiss" });
+    expect(r).toMatchObject({ report_status: "open", precedent_id: "precedent_hard-or-boring" });
+    expect(triageOf(r!)).toMatchObject({ is_spot_check: true, recommendation: "dismiss" });
   });
 
   it("only recommends when the precedent isn't for the AI alone, or the report is urgent", async () => {
@@ -283,7 +283,7 @@ describe("precedents", () => {
     await send({ reason: "other", details: "someone gets shot" });
     await triageReports(testEnv, ai({ severity: "urgent", precedent: "precedent_cartoon-violence", fit: "fits" }).deps);
     const all = await reports();
-    expect(all.map((r) => r.status)).toEqual(["open", "open"]);
+    expect(all.map((r) => r.report_status)).toEqual(["open", "open"]);
     expect(all.map((r) => triageOf(r).recommendation)).toEqual(["dismiss", "dismiss"]);
     expect(triageOf(all[0]!).why).toContain("Precedent “Cartoon and fantasy violence”");
   });
@@ -295,8 +295,8 @@ describe("precedents", () => {
     const draft = { title: "Realistic gore", applies_when: "Realistic, detailed gore.", decision: "take_down" as const, why: "Extreme gore isn't fine for 13+." };
     await triageReports(testEnv, ai({ severity: "high", precedent: "precedent_cartoon-violence", fit: "challenges", draft }).deps);
     const [r] = await reports();
-    expect(r!.status).toBe("open");
-    expect(triageOf(r!)).toMatchObject({ recommendation: "person", precedent: { id: "precedent_cartoon-violence", fit: "challenges" }, draft });
+    expect(r!.report_status).toBe("open");
+    expect(triageOf(r!)).toMatchObject({ recommendation: "person", precedent: { id: "precedent_cartoon-violence", fit: "challenges" }, precedent_draft: draft });
     const page = await (await SELF.fetch(`${LOCAL}/admin/reports`)).text();
     expect(page).toContain("Challenges the precedent");
     expect(page).toContain("Change the precedent “Cartoon and fantasy violence”");
@@ -313,7 +313,7 @@ describe("precedents", () => {
     const made = await env.DB.prepare("SELECT * FROM precedents WHERE replaces_precedent_id = 'precedent_cartoon-violence'").first<Record<string, unknown>>();
     expect(made).toMatchObject({ title: "Violence", decision: "dismiss", can_ai_apply_alone: 1, precedent_status: "active", created_by: "dev@localhost" });
     expect(await env.DB.prepare("SELECT precedent_status FROM precedents WHERE id = 'precedent_cartoon-violence'").first("precedent_status")).toBe("retired");
-    expect((await reports())[0]).toMatchObject({ status: "dismissed", precedent_id: made!.id });
+    expect((await reports())[0]).toMatchObject({ report_status: "dismissed", precedent_id: made!.id });
   });
 
   it("never lets the AI take a game down alone, whatever the precedent says", async () => {
@@ -351,13 +351,13 @@ describe("the report queue", () => {
     expect(page).toContain("3 open reports about 2 problems");
     expect(page.indexOf("Says there's nudity.")).toBeLessThan(page.indexOf("Stuck on level 2."));
 
-    const level2 = (await reports()).find((r) => r.details === "stuck on level 2")!;
+    const level2 = (await reports()).find((r) => r.player_text === "stuck on level 2")!;
     const form = new FormData();
     form.set("back", "queue");
     form.set("reason", "Not a rule break");
-    const res = await SELF.fetch(`${LOCAL}/admin/report-groups/${level2.group_id ?? level2.id}/dismiss`, { method: "POST", body: form, redirect: "manual" });
+    const res = await SELF.fetch(`${LOCAL}/admin/report-groups/${level2.report_group_id ?? level2.id}/dismiss`, { method: "POST", body: form, redirect: "manual" });
     expect(res.headers.get("location")).toBe("/admin/reports");
-    expect(Object.fromEntries((await reports()).map((r) => [r.details, r.status]))).toEqual({ "stuck on level 2": "dismissed", "level 2 never ends": "dismissed", nudity: "open" });
+    expect(Object.fromEntries((await reports()).map((r) => [r.player_text, r.report_status]))).toEqual({ "stuck on level 2": "dismissed", "level 2 never ends": "dismissed", nudity: "open" });
   });
 
   it("passes a group to the developer as bugs", async () => {
@@ -367,6 +367,6 @@ describe("the report queue", () => {
     const form = new FormData();
     form.set("back", "queue");
     await SELF.fetch(`${LOCAL}/admin/report-groups/${(await reports())[0]!.id}/bug`, { method: "POST", body: form, redirect: "manual" });
-    expect(await reports()).toMatchObject([{ status: "actioned", bug: 1 }]);
+    expect(await reports()).toMatchObject([{ report_status: "actioned", is_bug_report: 1 }]);
   });
 });

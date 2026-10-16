@@ -33,7 +33,7 @@ export const SAVES_CLIENT = `
   const toast = document.getElementById("save-toast");
   if (history) history.hidden = guest;
   const choose = document.getElementById("save-choice");
-  let cloud = null;       // the account's save as last seen: { tag, version, hash, at, data }
+  let cloud = null;       // the account's save as last seen: { tag, version_number, sha256, updated_at, save_data }
   let synced = null;      // the save text the game and the account both have
   let paused = true;
   let forceCloud = false;
@@ -52,8 +52,8 @@ export const SAVES_CLIENT = `
       localStorage.setItem("zaisma:save:" + tag, JSON.stringify(value));
     } catch { return null; }
   };
-  const ago = (ms) => {
-    const m = Math.round((Date.now() - ms) / 60000);
+  const ago = (updatedAt) => {
+    const m = Math.round((Date.now() - Date.parse(updatedAt)) / 60000);
     return m < 1 ? "just now" : m < 60 ? m + " min ago" : m < 1440 ? Math.round(m / 60) + " h ago" : Math.round(m / 1440) + " days ago";
   };
   // Green when progress is reaching the account, amber when it isn't.
@@ -68,7 +68,7 @@ export const SAVES_CLIENT = `
   };
   // The player picked the account's progress: keep this device's as an earlier version on the account.
   const keepDevice = (text) => {
-    if (text && text !== "{}") fetch(SAVES.api, { method: "PUT", body: JSON.stringify({ keep: true, data: text }), credentials: "same-origin" }).catch(() => {});
+    if (text && text !== "{}") fetch(SAVES.api, { method: "PUT", body: JSON.stringify({ keep: true, save_json: text }), credentials: "same-origin" }).catch(() => {});
   };
   const tell = (msg) => frame && frame.contentWindow && frame.contentWindow.postMessage({ type: "zaisma:saves", ...msg }, SAVES.frameOrigin);
 
@@ -181,15 +181,15 @@ export const SAVES_CLIENT = `
     const c = await load();
     if (!c) return say("Couldn't reach your saved progress, so this visit won't save to your account.");
     cloud = c;
-    if (!c.version) {
+    if (!c.version_number) {
       // A new account: whatever this device has becomes the account's save.
       paused = false;
       synced = null;
       welcome = true;
       tell({ step: "sync", text: null });
-    } else if (guestText && (await sha(guestText)) === c.hash) {
+    } else if (guestText && (await sha(guestText)) === c.sha256) {
       // The account already has exactly this progress: carry on saving from it.
-      marker(c.tag, { version: c.version, hash: c.hash });
+      marker(c.tag, { version_number: c.version_number, sha256: c.sha256 });
       paused = false;
       synced = guestText;
       tell({ step: "sync", text: guestText });
@@ -220,26 +220,27 @@ export const SAVES_CLIENT = `
     }
     const localHash = await sha(text);
     const empty = text === "{}";
+    // A marker from before version_number and sha256 matches neither, so the player chooses once.
     const mark = marker(c.tag);
     let use;
-    if (forceCloud && c.version) use = "cloud";
-    else if (!c.version) use = "local";
-    else if (empty || localHash === c.hash) use = "cloud";
-    else if (mark && mark.version === c.version) use = "local";
-    else if (mark && mark.hash === localHash) use = "cloud";
+    if (forceCloud && c.version_number) use = "cloud";
+    else if (!c.version_number) use = "local";
+    else if (empty || localHash === c.sha256) use = "cloud";
+    else if (mark && mark.version_number === c.version_number) use = "local";
+    else if (mark && mark.sha256 === localHash) use = "cloud";
     else {
-      use = await ask("Which progress do you want?", "This game has progress saved to your account and different progress on this device. The one you don't pick is kept on your account as an earlier version.", "Your account's (saved " + ago(c.at) + ")", "This device's");
+      use = await ask("Which progress do you want?", "This game has progress saved to your account and different progress on this device. The one you don't pick is kept on your account as an earlier version.", "Your account's (saved " + ago(c.updated_at) + ")", "This device's");
       if (use === "cloud") keepDevice(text);
       else replacing = true;
     }
     forceCloud = false;
-    if (use === "cloud" && c.version) {
+    if (use === "cloud" && c.version_number) {
       restoring = c;
-      tell({ step: "restore", action: "use-cloud", data: c.data });
+      tell({ step: "restore", action: "use-cloud", data: c.save_data });
     } else {
       paused = false;
       // Keep this device's save; the game sends it as soon as it starts.
-      synced = empty && !c.version ? text : null;
+      synced = empty && !c.version_number ? text : null;
       tell({ step: "restore", action: "keep" });
       say("Progress saves to your account.");
     }
@@ -253,26 +254,26 @@ export const SAVES_CLIENT = `
       say("Couldn't put your account's progress on this device, so this visit won't save to your account.");
       return;
     }
-    synced = canonical(c.data);
-    marker(c.tag, { version: c.version, hash: c.hash });
+    synced = canonical(c.save_data);
+    marker(c.tag, { version_number: c.version_number, sha256: c.sha256 });
     paused = false;
-    say("Progress saves to your account. Last saved " + ago(c.at) + ".");
+    say("Progress saves to your account. Last saved " + ago(c.updated_at) + ".");
   }
 
   async function store(text) {
     if (paused) return;
     if (saving) { queued = text; return; }
-    const body = JSON.stringify({ base: cloud.version, data: text, ...(replacing ? { replace: true } : {}) });
+    const body = JSON.stringify({ base_version_number: cloud.version_number, save_json: text, ...(replacing ? { replace: true } : {}) });
     saving = fetch(SAVES.api, { method: "PUT", body, credentials: "same-origin", keepalive: body.length < 60000 }).catch(() => null);
     const res = await saving;
     saving = null;
     const out = res ? await res.json().catch(() => ({})) : {};
     if (res && res.ok) {
       replacing = false;
-      cloud.version = out.version;
-      cloud.hash = out.hash;
+      cloud.version_number = out.version_number;
+      cloud.sha256 = out.sha256;
       synced = text;
-      marker(cloud.tag, { version: out.version, hash: out.hash });
+      marker(cloud.tag, { version_number: out.version_number, sha256: out.sha256 });
       say("Progress saves to your account. Last saved just now.");
       if (welcome) pop("Your progress now saves to your account.");
       welcome = false;
@@ -285,7 +286,7 @@ export const SAVES_CLIENT = `
         forceCloud = true;
         openThroughRestore();
       } else {
-        cloud.version = out.version;
+        cloud.version_number = out.version_number;
         replacing = true;
         paused = false;
         tell({ step: "sync", text: null });

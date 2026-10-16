@@ -78,8 +78,8 @@ export default {
 
     const legalPage = path.match(/^\/legal\/([a-z-]+)$/);
     if (legalPage && method !== "POST") {
-      const res = legal(env, legalPage[1]!);
-      if (res) return res;
+      const response = legal(env, legalPage[1]!);
+      if (response) return response;
     }
 
     if (path === "/robots.txt") return new Response("User-agent: *\nDisallow: /admin\nDisallow: /account\nDisallow: /join\nDisallow: /signin\nDisallow: /api/\nDisallow: /t/\n", { headers: { "Content-Type": "text/plain" } });

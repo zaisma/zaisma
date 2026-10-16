@@ -14,8 +14,8 @@ export interface MediaForMatching {
 
 export interface ImageMatchResult {
   provider: string;
-  connected: boolean;
-  checked: number;
+  isConnected: boolean;
+  checkedMediaCount: number;
   findings: Finding[];
 }
 
@@ -50,29 +50,29 @@ export const MATROSKA_HEAD_BYTES = 64 * 1024;
  * What a file really is from its first bytes, when it's a picture or video that matching can check,
  * whatever it's called; null for anything else (audio, fonts, code, data).
  */
-export function sniffMedia(b: Uint8Array): string | null {
-  const ascii = (from: number, to: number) => latin1(b.subarray(from, to));
-  if (b.length >= 8 && b[0] === 0x89 && ascii(1, 8) === "PNG\r\n\x1a\n") return "image/png";
-  if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
+export function sniffMedia(bytes: Uint8Array): string | null {
+  const ascii = (startIndex: number, endIndex: number) => latin1(bytes.subarray(startIndex, endIndex));
+  if (bytes.length >= 8 && bytes[0] === 0x89 && ascii(1, 8) === "PNG\r\n\x1a\n") return "image/png";
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
   if (ascii(0, 6) === "GIF87a" || ascii(0, 6) === "GIF89a") return "image/gif";
   if (ascii(0, 4) === "RIFF") return ascii(8, 12) === "WEBP" ? "image/webp" : ascii(8, 12) === "AVI " ? "video/x-msvideo" : null;
-  if (ascii(0, 2) === "BM" && b.length >= 18 && [12, 40, 52, 56, 64, 108, 124].includes(b[14]! | (b[15]! << 8) | (b[16]! << 16) | (b[17]! << 24))) return "image/bmp";
+  if (ascii(0, 2) === "BM" && bytes.length >= 18 && [12, 40, 52, 56, 64, 108, 124].includes(bytes[14]! | (bytes[15]! << 8) | (bytes[16]! << 16) | (bytes[17]! << 24))) return "image/bmp";
   if (ascii(4, 8) === "ftyp") {
     const brand = ascii(8, 12);
     if (/^(M4A|M4B|M4P|F4A|F4B)/.test(brand)) return null; // audio
-    const brands = ascii(8, Math.min(b.length, 32));
+    const brands = ascii(8, Math.min(bytes.length, 32));
     if (brands.includes("avif") || brands.includes("avis")) return "image/avif";
     if (/^(heic|heix|heim|heis|hevc|hevx|mif1|msf1)/.test(brand)) return "image/heic";
     return brand === "qt  " ? "video/quicktime" : "video/mp4";
   }
-  if (b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3) return "video/webm";
+  if (bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3) return "video/webm";
   return null;
 }
 
 function latin1(bytes: Uint8Array): string {
-  let s = "";
-  for (let i = 0; i < bytes.length; i += 8192) s += String.fromCharCode(...bytes.subarray(i, i + 8192));
-  return s;
+  let text = "";
+  for (let i = 0; i < bytes.length; i += 8192) text += String.fromCharCode(...bytes.subarray(i, i + 8192));
+  return text;
 }
 
 /** Whether a WebM or Matroska file has a video track, from its start. Audio-only ones aren't sent; when unsure, it's sent. */
@@ -84,15 +84,15 @@ export function matroskaHasVideo(head: Uint8Array): boolean {
 /** Pictures and videos written into code as base64 (in data: links or plain strings), by how their encodings start. */
 const EMBEDDED = /(?:iVBORw0KGg|\/9j\/|R0lGOD|UklGR|GkXfo|AAAA[A-Za-z0-9+/][GWm2]Z0eX)[A-Za-z0-9+/]{60,}={0,2}/g;
 /** Most embedded pictures read from one file, and the biggest one decoded. */
-export const EMBEDDED_LIMIT = 500;
-const EMBEDDED_MAX_CHARS = 40 * 1024 * 1024;
+export const MAXIMUM_EMBEDDED_MEDIA_COUNT = 500;
+const MAXIMUM_EMBEDDED_CHARACTER_COUNT = 40 * 1024 * 1024;
 
 /** Pictures and videos embedded in a code file as base64, decoded, with what they really are. */
 export function embeddedMedia(text: string): { type: string; bytes: Uint8Array }[] {
   const out: { type: string; bytes: Uint8Array }[] = [];
-  for (const m of text.matchAll(EMBEDDED)) {
-    if (out.length >= EMBEDDED_LIMIT) break;
-    const encoded = m[0].slice(0, EMBEDDED_MAX_CHARS).replace(/=+$/, "");
+  for (const match of text.matchAll(EMBEDDED)) {
+    if (out.length >= MAXIMUM_EMBEDDED_MEDIA_COUNT) break;
+    const encoded = match[0].slice(0, MAXIMUM_EMBEDDED_CHARACTER_COUNT).replace(/=+$/, "");
     let binary: string;
     try {
       binary = atob(encoded.length % 4 === 1 ? encoded.slice(0, -1) : encoded);
@@ -114,8 +114,8 @@ export const notConnected: ImageMatcher = {
   async check() {
     return {
       provider: "none",
-      connected: false,
-      checked: 0,
+      isConnected: false,
+      checkedMediaCount: 0,
       findings: [
         {
           stage: "images",
@@ -130,15 +130,15 @@ export const notConnected: ImageMatcher = {
 
 export const ARACHNID_SHIELD_URL = "https://shield.projectarachnid.com";
 /** Files sent to Arachnid Shield at once. */
-const AT_ONCE = 4;
-const TRIES = 3;
+const CONCURRENT_FILE_COUNT = 4;
+const MAXIMUM_ATTEMPT_COUNT = 3;
 
 type Outcome =
   | { kind: "clear" }
   | { kind: "match"; classification: string; matchType: string | null }
   | { kind: "failed"; why: string }
   | { kind: "down"; why: string }
-  | { kind: "refused"; status: number };
+  | { kind: "refused"; httpStatus: number };
 
 const LABELS: Record<string, string> = {
   csam: "known child sexual abuse material",
@@ -151,34 +151,34 @@ const LABELS: Record<string, string> = {
  * and by how it looks. `credentials` is the API user's "username:password". A file under several names
  * is sent once. If Shield turns down the sign-in or stops answering, the rest aren't sent and the version is held.
  */
-export function arachnidShield(credentials: string, options: { baseUrl?: string; fetch?: typeof fetch; wait?: (ms: number) => Promise<void> } = {}): ImageMatcher {
+export function arachnidShield(credentials: string, options: { baseUrl?: string; fetch?: typeof fetch; wait?: (delayMs: number) => Promise<void> } = {}): ImageMatcher {
   const endpoint = `${(options.baseUrl || ARACHNID_SHIELD_URL).replace(/\/+$/, "")}/v1/media/`;
   const send = options.fetch ?? ((input, init) => fetch(input, init));
-  const wait = options.wait ?? ((ms) => new Promise<void>((r) => setTimeout(r, ms)));
+  const wait = options.wait ?? ((delayMs) => new Promise<void>((resolve) => setTimeout(resolve, delayMs)));
   const authorization = `Basic ${btoa(credentials)}`;
 
-  async function scan(item: MediaForMatching): Promise<Outcome> {
+  async function scan(file: MediaForMatching): Promise<Outcome> {
     let why = "";
-    for (let attempt = 0; attempt < TRIES; attempt++) {
-      if (attempt) await wait(1000 * 2 ** attempt);
-      let res: Response;
+    for (let attemptIndex = 0; attemptIndex < MAXIMUM_ATTEMPT_COUNT; attemptIndex++) {
+      if (attemptIndex) await wait(1000 * 2 ** attemptIndex);
+      let response: Response;
       try {
-        res = await send(endpoint, { method: "POST", headers: { authorization, accept: "application/json", "content-type": item.type }, body: await item.body() });
-      } catch (err) {
-        why = String(err);
+        response = await send(endpoint, { method: "POST", headers: { authorization, accept: "application/json", "content-type": file.type }, body: await file.body() });
+      } catch (error) {
+        why = String(error);
         continue;
       }
-      if (res.status === 401 || res.status === 403) return { kind: "refused", status: res.status };
-      if (res.status === 429 || res.status >= 500) {
-        why = `${res.status}`;
-        await res.body?.cancel();
+      if (response.status === 401 || response.status === 403) return { kind: "refused", httpStatus: response.status };
+      if (response.status === 429 || response.status >= 500) {
+        why = `${response.status}`;
+        await response.body?.cancel();
         continue;
       }
-      const data = (await res.json().catch(() => ({}))) as { classification?: string | null; match_type?: string | null; detail?: string };
-      if (!res.ok) return { kind: "failed", why: `${res.status}${data.detail ? `: ${String(data.detail).slice(0, 200)}` : ""}` };
-      if (data.classification === "no-known-match") return { kind: "clear" };
-      if (!data.classification) return { kind: "failed", why: "no classification in its answer" };
-      return { kind: "match", classification: data.classification, matchType: data.match_type ?? null };
+      const answer = (await response.json().catch(() => ({}))) as { classification?: string | null; match_type?: string | null; detail?: string };
+      if (!response.ok) return { kind: "failed", why: `${response.status}${answer.detail ? `: ${String(answer.detail).slice(0, 200)}` : ""}` };
+      if (answer.classification === "no-known-match") return { kind: "clear" };
+      if (!answer.classification) return { kind: "failed", why: "no classification in its answer" };
+      return { kind: "match", classification: answer.classification, matchType: answer.match_type ?? null };
     }
     return { kind: "down", why };
   }
@@ -187,12 +187,12 @@ export function arachnidShield(credentials: string, options: { baseUrl?: string;
     async check(media) {
       const findings: Finding[] = [];
       const byId = new Map<string, Promise<Outcome>>();
-      let checked = 0;
+      let checkedMediaCount = 0;
       let stop: Outcome | null = null;
-      let next = 0;
+      let nextIndex = 0;
       const worker = async () => {
-        while (!stop && next < media.length) {
-          const image = media[next++]!;
+        while (!stop && nextIndex < media.length) {
+          const image = media[nextIndex++]!;
           let pending = byId.get(image.id);
           if (!pending) byId.set(image.id, (pending = scan(image)));
           const outcome = await pending;
@@ -201,7 +201,7 @@ export function arachnidShield(credentials: string, options: { baseUrl?: string;
           } else if (outcome.kind === "failed") {
             findings.push({ stage: "images", severity: "hold", rule: "image-matching-failed", detail: `Arachnid Shield couldn't check this file (${outcome.why}). A person should look.`, path: image.path });
           } else {
-            checked++;
+            checkedMediaCount++;
             if (outcome.kind === "match") {
               const how = outcome.matchType === "exact" ? "the exact file" : outcome.matchType === "near" ? "a visual match" : "a match";
               findings.push({ stage: "images", severity: "hold", rule: KNOWN_IMAGE_RULE, detail: `Arachnid Shield: ${LABELS[outcome.classification] ?? `classified "${outcome.classification}"`} (${how}).`, path: image.path });
@@ -209,14 +209,14 @@ export function arachnidShield(credentials: string, options: { baseUrl?: string;
           }
         }
       };
-      await Promise.all(Array.from({ length: Math.min(AT_ONCE, media.length) }, worker));
+      await Promise.all(Array.from({ length: Math.min(CONCURRENT_FILE_COUNT, media.length) }, worker));
       const halted = stop as Outcome | null;
       if (halted?.kind === "refused") {
-        findings.push({ stage: "images", severity: "hold", rule: "image-matching-failed", detail: `Arachnid Shield turned down our sign-in (${halted.status}). Check the ARACHNID_SHIELD_KEY secret; until it works, a person approves each game.` });
+        findings.push({ stage: "images", severity: "hold", rule: "image-matching-failed", detail: `Arachnid Shield turned down our sign-in (${halted.httpStatus}). Check the ARACHNID_SHIELD_KEY secret; until it works, a person approves each game.` });
       } else if (halted?.kind === "down") {
         findings.push({ stage: "images", severity: "hold", rule: "image-matching-failed", detail: `Arachnid Shield didn't answer (${halted.why}), so not every picture and video was checked. A person should look, or scan it again later.` });
       }
-      return { provider: "arachnid-shield", connected: true, checked, findings };
+      return { provider: "arachnid-shield", isConnected: true, checkedMediaCount, findings };
     },
   };
 }

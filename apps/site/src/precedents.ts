@@ -37,7 +37,7 @@ export async function savePrecedent(env: Env, form: FormData, decision: Preceden
       )
       .bind(id, precedent.title, precedent.applies_when, precedent.decision, precedent.why, precedent.can_ai_apply_alone, replacesPrecedentId, reportGroupId || null, actor, nowMs, nowMs),
     ...(replacesPrecedentId ? [env.DB.prepare("UPDATE precedents SET precedent_status = 'retired', updated_at_ms = ? WHERE id = ? AND precedent_status = 'active'").bind(nowMs, replacesPrecedentId)] : []),
-    ...(reportGroupId ? [env.DB.prepare("UPDATE reports SET precedent_id = ? WHERE id = ? OR group_id = ?").bind(id, reportGroupId, reportGroupId)] : []),
+    ...(reportGroupId ? [env.DB.prepare("UPDATE reports SET precedent_id = ? WHERE id = ? OR report_group_id = ?").bind(id, reportGroupId, reportGroupId)] : []),
   ]);
   await audit(
     env.DB,

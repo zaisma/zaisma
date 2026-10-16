@@ -21,7 +21,7 @@ describe("Arachnid Shield image matching", () => {
   it("sends each picture with the API user's sign-in and passes clean ones", async () => {
     const s = shield(clear);
     const result = await arachnidShield("user:secret", { fetch: s.fetch }).check([image("a.png"), image("b.png")]);
-    expect(result).toEqual({ provider: "arachnid-shield", connected: true, checked: 2, findings: [] });
+    expect(result).toEqual({ provider: "arachnid-shield", isConnected: true, checkedMediaCount: 2, findings: [] });
     expect(s.calls).toHaveLength(2);
     expect(s.calls[0]!.url).toBe("https://shield.projectarachnid.com/v1/media/");
     expect(s.calls[0]!.headers.get("authorization")).toBe(`Basic ${btoa("user:secret")}`);
@@ -31,7 +31,7 @@ describe("Arachnid Shield image matching", () => {
   it("streams big files", async () => {
     const s = shield(clear);
     const video: MediaForMatching = { path: "intro.mp4", type: "video/mp4", id: "v", body: async () => new Blob(["frames"]).stream() };
-    expect((await arachnidShield("u:p", { fetch: s.fetch }).check([video])).checked).toBe(1);
+    expect((await arachnidShield("u:p", { fetch: s.fetch }).check([video])).checkedMediaCount).toBe(1);
     expect(s.calls[0]).toMatchObject({ body: "frames" });
     expect(s.calls[0]!.headers.get("content-type")).toBe("video/mp4");
   });
@@ -40,7 +40,7 @@ describe("Arachnid Shield image matching", () => {
     const s = shield(clear);
     const result = await arachnidShield("u:p", { fetch: s.fetch }).check([image("a.png", "same"), image("b/c.png", "same"), image("d.png")]);
     expect(s.calls).toHaveLength(2);
-    expect(result.checked).toBe(3);
+    expect(result.checkedMediaCount).toBe(3);
   });
 
   it("flags every name of a picture that matches known abuse material", async () => {
@@ -51,7 +51,7 @@ describe("Arachnid Shield image matching", () => {
     expect(known.map((f) => f.path).sort()).toEqual(["x.png", "y.png"]);
     expect(known[0]).toMatchObject({ stage: "images", severity: "hold" });
     expect(known[0]!.detail).toMatch(/known child sexual abuse material \(a visual match\)/);
-    expect(result.checked).toBe(3);
+    expect(result.checkedMediaCount).toBe(3);
   });
 
   it("flags harmful material and classifications it doesn't know yet", async () => {
@@ -66,7 +66,7 @@ describe("Arachnid Shield image matching", () => {
     const s = shield(() => json({ detail: "Invalid username/password." }, 401));
     const result = await arachnidShield("u:wrong", { fetch: s.fetch }).check(Array.from({ length: 10 }, (_, i) => image(`${i}.png`)));
     expect(s.calls.length).toBeLessThanOrEqual(4);
-    expect(result.checked).toBe(0);
+    expect(result.checkedMediaCount).toBe(0);
     expect(result.findings).toHaveLength(1);
     expect(result.findings[0]).toMatchObject({ rule: "image-matching-failed", severity: "hold" });
     expect(result.findings[0]!.detail).toMatch(/ARACHNID_SHIELD_KEY/);
@@ -88,7 +88,7 @@ describe("Arachnid Shield image matching", () => {
   it("holds a picture Shield can't read, and checks the rest", async () => {
     const s = shield((body) => (body === "odd" ? json({ detail: "Unsupported media type." }, 415) : clear()));
     const result = await arachnidShield("u:p", { fetch: s.fetch }).check([image("odd.webp", "odd"), image("fine.png")]);
-    expect(result.checked).toBe(1);
+    expect(result.checkedMediaCount).toBe(1);
     expect(result.findings).toEqual([expect.objectContaining({ rule: "image-matching-failed", path: "odd.webp" })]);
     expect(result.findings[0]!.detail).toMatch(/415: Unsupported media type/);
   });

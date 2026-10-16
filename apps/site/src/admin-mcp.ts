@@ -110,7 +110,7 @@ const precedentFields = {
 };
 
 const QUEUE = "SELECT reports.*, games.slug, games.title, games.review_status AS game_review_status FROM reports JOIN games ON games.id = reports.game_id";
-const isChildSafety = (group: ReportGroup) => group.severity === 0 || group.rows.some((report) => report.reason === "child_safety");
+const isChildSafety = (group: ReportGroup) => group.severityIndex === 0 || group.rows.some((report) => report.reason === "child_safety");
 const NCMEC = "Child-safety report. Don't delete anything. If it's confirmed, the law requires a report to NCMEC's CyberTipline (report.cybertip.org). Its pictures stay on the admin page.";
 const triageOf = (stored: string | null): Triage | null => (stored ? JSON.parse(stored) : null);
 const PRECEDENT_SELECT = "SELECT precedents.*, (SELECT COUNT(*) FROM reports WHERE reports.precedent_id = precedents.id) AS followed_count FROM precedents";
@@ -130,12 +130,12 @@ async function choices(env: Env, group: ReportGroup): Promise<{ options: string[
 
 /** A group of reports by its ID (its first report's); with isOpenOnly, only its open reports. */
 async function reportGroup(env: Env, groupId: string, isOpenOnly: boolean): Promise<ReportGroup> {
-  const { results } = await env.DB.prepare(`${QUEUE} WHERE (reports.id = ? OR reports.group_id = ?) ORDER BY reports.created_at`).bind(groupId, groupId).all<QueueRow>();
+  const { results } = await env.DB.prepare(`${QUEUE} WHERE (reports.id = ? OR reports.report_group_id = ?) ORDER BY reports.reported_at_ms`).bind(groupId, groupId).all<QueueRow>();
   const fix = "list_report_groups lists the open groups with their IDs.";
   if (!results.length) throw new ApiError("no_report_group", { message: `There's no report group with the ID ${groupId}.`, field: "report_group_id", fix });
-  const rows = isOpenOnly ? results.filter((report) => report.status === "open") : results;
+  const rows = isOpenOnly ? results.filter((report) => report.report_status === "open") : results;
   if (!rows.length) throw new ApiError("report_group_closed", { message: `Every report in ${groupId} is closed already.`, field: "report_group_id", fix: `get_report_group shows how it was decided; ${fix}` });
-  const [group] = groupReports(rows.map((report) => ({ ...report, group_id: groupId === report.id ? null : report.group_id })));
+  const [group] = groupReports(rows.map((report) => ({ ...report, report_group_id: groupId === report.id ? null : report.report_group_id })));
   return group!;
 }
 
@@ -143,16 +143,16 @@ function groupRow(group: ReportGroup) {
   const triage = group.triage;
   return {
     id: group.id,
-    severity: REPORT_SEVERITIES[group.severity]!,
+    severity: REPORT_SEVERITIES[group.severityIndex]!,
     game: { slug: group.lead.slug, title: group.lead.title, review_status: group.lead.game_review_status },
     report_count: group.rows.length,
-    first_reported_at: iso(group.rows[0]!.created_at)!,
+    first_reported_at: iso(group.rows[0]!.reported_at_ms)!,
     summary: triage?.summary ?? null,
     recommendation: triage?.recommendation ?? null,
     why: triage?.why ?? null,
     precedent: triage?.precedent ?? null,
-    is_spot_check: triage?.spot_check ?? false,
-    ai_actions: triage?.actions ?? [],
+    is_spot_check: triage?.is_spot_check ?? false,
+    ai_actions: triage?.ai_actions ?? [],
   };
 }
 
@@ -232,13 +232,13 @@ export const ADMIN_TOOLS: AdminTool[] = [
     annotations: read,
     run: async (toolArguments, { env }) => {
       const maximumGroupCount = Number(toolArguments.maximum_group_count ?? 20);
-      const { results } = await env.DB.prepare(`${QUEUE} WHERE reports.status = 'open' ORDER BY reports.created_at LIMIT 500`).all<QueueRow>();
+      const { results } = await env.DB.prepare(`${QUEUE} WHERE reports.report_status = 'open' ORDER BY reports.reported_at_ms LIMIT 500`).all<QueueRow>();
       const groups = groupReports(results);
       const usage = await aiUsage(env.DB);
       return {
         report_groups: groups.slice(0, maximumGroupCount).map(groupRow),
         more_group_count: Math.max(0, groups.length - maximumGroupCount),
-        ai_use_this_month: { input_token_count: usage.input_tokens, output_token_count: usage.output_tokens, scan_call_count: usage.scans, report_triage_call_count: usage.reports, forum_call_count: usage.feedback },
+        ai_use_this_month: { input_token_count: usage.input_token_count, output_token_count: usage.output_token_count, scan_call_count: usage.scan_call_count, report_triage_call_count: usage.report_triage_call_count, forum_call_count: usage.forum_call_count },
       };
     },
   },
@@ -251,7 +251,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
     annotations: read,
     run: async (_, { env }) => {
       const { results } = await env.DB.prepare(
-        `${QUEUE} WHERE reports.status != 'open' AND reports.closed_at = reports.triaged_at AND reports.closed_at > ? AND reports.severity > 0 ORDER BY reports.closed_at DESC LIMIT 100`,
+        `${QUEUE} WHERE reports.report_status != 'open' AND reports.closed_at_ms = reports.triaged_at_ms AND reports.closed_at_ms > ? AND reports.severity_index > 0 ORDER BY reports.closed_at_ms DESC LIMIT 100`,
       )
         .bind(Date.now() - 7 * DAY_MS)
         .all<QueueRow>();
@@ -259,7 +259,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
         period_duration_days: 7,
         reports: results.map((report) => {
           const triage = triageOf(report.triage);
-          return { id: report.id, game_slug: report.slug, summary: triage?.summary ?? reportLabel(report), ai_actions: triage?.actions ?? [], player_text: report.details, reported_at: iso(report.created_at)! };
+          return { id: report.id, game_slug: report.slug, summary: triage?.summary ?? reportLabel(report), ai_actions: triage?.ai_actions ?? [], player_text: report.player_text, reported_at: iso(report.reported_at_ms)! };
         }),
       };
     },
@@ -282,7 +282,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
       // Never a child-safety report's picture: it could be abuse material itself.
       const pictures = await Promise.all(
         group.rows
-          .filter((report) => report.picture && !childSafety)
+          .filter((report) => report.has_picture && !childSafety)
           .slice(0, 3)
           .map(async (report) => {
             const stored = await env.GAMES.get(reportPictureKey(report.id));
@@ -294,42 +294,42 @@ export const ADMIN_TOOLS: AdminTool[] = [
       const answer = {
         report_group: {
           id: group.id,
-          is_open: group.rows.some((report) => report.status === "open"),
-          severity: REPORT_SEVERITIES[group.severity]!,
+          is_open: group.rows.some((report) => report.report_status === "open"),
+          severity: REPORT_SEVERITIES[group.severityIndex]!,
           child_safety_note: childSafety ? NCMEC : null,
           game: gameAnswer(game),
           reports: group.rows.map((report) => {
             const reportTriage = triageOf(report.triage);
             return {
               id: report.id,
-              report_status: report.status,
+              report_status: report.report_status,
               reason: report.reason,
               reason_label: reportLabel(report),
-              player_text: report.details,
+              player_text: report.player_text,
               reported_player: report.player_id ? { id: report.player_id, name: report.player_name, reason: report.player_reason } : null,
               room_code: report.room_code || null,
               // Room names can be typed by players: untrusted, like everything players send.
               room_name: report.room_name || null,
               version_id: report.version_id,
-              picture_status: !report.picture ? "none" : childSafety ? "admin_page_only" : shownReportIds.has(report.id) ? "shown" : "not_shown",
+              picture_status: !report.has_picture ? "none" : childSafety ? "admin_page_only" : shownReportIds.has(report.id) ? "shown" : "not_shown",
               summary: reportTriage?.summary ?? null,
-              reported_at: iso(report.created_at)!,
+              reported_at: iso(report.reported_at_ms)!,
             };
           }),
           triage: triage
             ? {
-                is_by_ai: triage.ai,
+                is_by_ai: triage.is_by_ai,
                 category: triage.category,
                 summary: triage.summary,
                 recommendation: triage.recommendation,
                 why: triage.why,
-                ai_actions: triage.actions,
+                ai_actions: triage.ai_actions,
                 precedent: triage.precedent ?? null,
-                precedent_draft: triage.draft ?? null,
-                is_spot_check: triage.spot_check ?? false,
+                precedent_draft: triage.precedent_draft ?? null,
+                is_spot_check: triage.is_spot_check ?? false,
               }
             : null,
-          rechecks: group.rechecks.map((recheck) => ({ recheck_status: recheck.status, scan_status: recheck.decision ?? null, summary: recheck.summary ?? null, findings: recheck.findings ?? [] })),
+          rechecks: group.rechecks.map((recheck) => ({ recheck_status: recheck.recheck_status, scan_status: recheck.scan_status ?? null, summary: recheck.summary ?? null, findings: recheck.findings ?? [] })),
           precedent: triage?.precedent ? precedentAnswer(await precedentById(env, triage.precedent.id)) : null,
           versions: versions.map((version) => versionAnswer(game, version)),
           events: (await auditLog(env.DB, game.id)).slice(0, 15).map(historyAnswer),
@@ -637,7 +637,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
       const slug = String(toolArguments.slug);
       const game = await gameBySlug(env.DB, slug);
       if (!game) throw new ApiError("no_game", { message: `There's no game at zaisma.com/g/${slug}.`, field: "slug", fix: "list_report_groups names each group's game by its slug." });
-      const { results } = await env.DB.prepare(`${QUEUE} WHERE reports.status = 'open' AND reports.game_id = ? ORDER BY reports.created_at`).bind(game.id).all<QueueRow>();
+      const { results } = await env.DB.prepare(`${QUEUE} WHERE reports.report_status = 'open' AND reports.game_id = ? ORDER BY reports.reported_at_ms`).bind(game.id).all<QueueRow>();
       return {
         game: gameAnswer(game),
         versions: (await versionsForGame(env.DB, game.id)).map((version) => versionAnswer(game, version)),

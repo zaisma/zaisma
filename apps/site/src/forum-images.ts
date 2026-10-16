@@ -18,7 +18,7 @@ export type MatchOutcome = "clean" | "match" | "unmatched";
 /** Match one image's bytes. On a match the file is kept for reporting and Julius is alerted. */
 export async function matchUpload(env: Env, mediaId: string, bytes: Uint8Array, contentType: string, uploaderId: string, matcher: ImageMatcher = imageMatcher(env)): Promise<MatchOutcome> {
   const checked = await matcher.check([{ path: "forum image", type: contentType, id: mediaId, body: async () => bytes }]).catch(() => null);
-  if (!checked?.connected) return "unmatched";
+  if (!checked?.isConnected) return "unmatched";
   if (!checked.findings.some((finding) => finding.rule === KNOWN_IMAGE_RULE)) return "clean";
   await env.GAMES.put(forumHeldKey(mediaId), bytes, { httpMetadata: { contentType } });
   await sendAlert(

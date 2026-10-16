@@ -18,8 +18,8 @@ import type { Env } from "./env.ts";
 export interface UploadResult {
   game: Game;
   versionId: string;
-  files: number;
-  bytes: number;
+  fileCount: number;
+  sizeBytes: number;
 }
 
 /**
@@ -47,33 +47,33 @@ export async function uploadGame(env: Env, form: FormData, actor: string): Promi
 
   const versionId = newId("version");
   const prefix = `games/${game.id}/${versionId}`;
-  let bytes = 0;
+  let sizeBytes = 0;
   try {
     for (const batch of unpackGameFiles(zip, entries)) {
       await Promise.all(
-        batch.map((f) => {
-          bytes += f.bytes.byteLength;
-          return env.GAMES.put(`${prefix}/${f.path}`, f.bytes, { httpMetadata: { contentType: contentTypeFor(f.path) } });
+        batch.map((file) => {
+          sizeBytes += file.bytes.byteLength;
+          return env.GAMES.put(`${prefix}/${file.path}`, file.bytes, { httpMetadata: { contentType: contentTypeFor(file.path) } });
         }),
       );
     }
-  } catch (err) {
+  } catch (error) {
     await deletePrefix(env.GAMES, prefix);
     if (!existing) await env.DB.prepare("DELETE FROM games WHERE id = ?").bind(game.id).run();
-    throw err;
+    throw error;
   }
 
-  await createVersion(env.DB, { id: versionId, gameId: game.id, r2Prefix: prefix, fileCount: entries.length, sizeBytes: bytes });
+  await createVersion(env.DB, { id: versionId, gameId: game.id, r2Prefix: prefix, fileCount: entries.length, sizeBytes });
   await audit(env.DB, game.id, "upload", `${versionId}, ${entries.length} files`, actor);
   await env.SCAN_QUEUE.send({ versionId });
-  return { game: { ...game, title, description }, versionId, files: entries.length, bytes };
+  return { game: { ...game, title, description }, versionId, fileCount: entries.length, sizeBytes };
 }
 
 export async function deletePrefix(bucket: R2Bucket, prefix: string): Promise<void> {
   let cursor: string | undefined;
   do {
     const list = await bucket.list({ prefix: `${prefix}/`, cursor });
-    if (list.objects.length) await bucket.delete(list.objects.map((o) => o.key));
+    if (list.objects.length) await bucket.delete(list.objects.map((object) => object.key));
     cursor = list.truncated ? list.cursor : undefined;
   } while (cursor);
 }

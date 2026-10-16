@@ -85,15 +85,15 @@ describe("cloud save format", () => {
 
 describe("save history", () => {
   const H = 3600_000;
-  const copy = (hoursAgo: number, reason: SaveCopyReason = "hourly"): SaveCopy => ({ id: `c${hoursAgo}`, account_id: "a", game_id: "g", at: 1e12 - hoursAgo * H, reason, hash: `h${hoursAgo}`, bytes: 10 });
+  const copy = (hoursAgo: number, reason: SaveCopyReason = "hourly"): SaveCopy => ({ id: `c${hoursAgo}`, account_id: "a", game_id: "g", saved_at_ms: 1e12 - hoursAgo * H, reason, sha256: `h${hoursAgo}`, size_bytes: 10 });
 
   it("copies when progress is about to be lost, and otherwise once an hour", () => {
-    const current = { bytes: 1000, updated_at: 1e12 };
-    expect(copyReason(current, { bytes: 1000, replace: true }, 1e12)).toBe("replaced");
-    expect(copyReason(current, { bytes: 400, replace: false }, 1e12)).toBe("smaller");
-    expect(copyReason(current, { bytes: 900, replace: false }, null)).toBe("hourly");
-    expect(copyReason(current, { bytes: 900, replace: false }, 1e12 - H)).toBe("hourly");
-    expect(copyReason(current, { bytes: 900, replace: false }, 1e12 - H / 2)).toBeNull();
+    const current = { size_bytes: 1000, updated_at_ms: 1e12 };
+    expect(copyReason(current, { sizeBytes: 1000, isReplacing: true }, 1e12)).toBe("replaced");
+    expect(copyReason(current, { sizeBytes: 400, isReplacing: false }, 1e12)).toBe("smaller");
+    expect(copyReason(current, { sizeBytes: 900, isReplacing: false }, null)).toBe("hourly");
+    expect(copyReason(current, { sizeBytes: 900, isReplacing: false }, 1e12 - H)).toBe("hourly");
+    expect(copyReason(current, { sizeBytes: 900, isReplacing: false }, 1e12 - H / 2)).toBeNull();
   });
 
   it("keeps five: the newest always, then routine copies go first, oldest first", () => {

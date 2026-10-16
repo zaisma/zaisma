@@ -20,6 +20,13 @@ interface Target {
   base: string;
 }
 
+/** The part of a file R2 served for a range request, in R2's own words: from offset, length bytes, or the last suffix bytes. */
+interface R2RangeFields {
+  offset?: number;
+  length?: number;
+  suffix?: number;
+}
+
 /** Work out which game a request is for: path mode, subdomain mode, or a custom domain. */
 export function resolveGame(url: URL, env: Pick<Env, "GAME_HOST_MODE" | "GAME_DOMAIN">): Target | null {
   const host = url.hostname.toLowerCase();
@@ -37,15 +44,15 @@ export function resolveGame(url: URL, env: Pick<Env, "GAME_HOST_MODE" | "GAME_DO
     return { by: { hostname: host }, path: rest, base: "/" };
   }
   // Path mode: /<slug>/<file>
-  const slash = rest.indexOf("/");
-  const slug = slash === -1 ? rest : rest.slice(0, slash);
+  const slashIndex = rest.indexOf("/");
+  const slug = slashIndex === -1 ? rest : rest.slice(0, slashIndex);
   if (!slug) return null;
-  return { by: { slug }, path: slash === -1 ? "" : rest.slice(slash + 1), base: `/${slug}/` };
+  return { by: { slug }, path: slashIndex === -1 ? "" : rest.slice(slashIndex + 1), base: `/${slug}/` };
 }
 
-function decodePath(p: string): string | null {
+function decodePath(encodedPath: string): string | null {
   try {
-    const path = decodeURIComponent(p);
+    const path = decodeURIComponent(encodedPath);
     if (path.split("/").some((part) => part === ".." || part === ".") || path.includes("\\") || path.includes("\0")) return null;
     return path;
   } catch {
@@ -53,24 +60,24 @@ function decodePath(p: string): string | null {
   }
 }
 
-function page(status: number, title: string, text: string, env: Env): Response {
+function page(httpStatus: number, title: string, text: string, env: Env): Response {
   const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><body style="margin:0;display:grid;place-items:center;min-height:100vh;background:#111;color:#eee;font:16px system-ui,sans-serif;text-align:center"><div><h1 style="font-size:22px">${title}</h1><p>${text}</p></div>`;
   const headers = gameHeaders("text/html; charset=utf-8", env.SITE_ORIGIN);
   headers.set("Cache-Control", "no-store");
-  return new Response(html, { status, headers });
+  return new Response(html, { status: httpStatus, headers });
 }
 
 /** Bump when our scripts or the injected tags change, so browsers fetch the new ones. */
-const SCRIPTS_VERSION = 4;
+const SCRIPTS_VERSION_NUMBER = 4;
 
-const RESTORE_PAGE = `<!doctype html><meta charset="utf-8"><title>Loading</title><body style="margin:0;background:#000"><script src="saves.js?v=${SCRIPTS_VERSION}"></script>`;
+const RESTORE_PAGE = `<!doctype html><meta charset="utf-8"><title>Loading</title><body style="margin:0;background:#000"><script src="saves.js?v=${SCRIPTS_VERSION_NUMBER}"></script>`;
 
 /**
  * Put our scripts first in <head>, before any game script runs: the saves script must be there
  * before the game reads its saves, and the picture script before the game starts drawing.
  */
-export function withScripts(page: string, srcs: string[]): string {
-  const tag = srcs.map((src) => `<script src="${src}"></script>`).join("");
+export function withScripts(page: string, scriptUrls: string[]): string {
+  const tag = scriptUrls.map((scriptUrl) => `<script src="${scriptUrl}"></script>`).join("");
   const head = page.match(/<head(\s[^>]*)?>/i);
   if (head) return page.slice(0, head.index! + head[0].length) + tag + page.slice(head.index! + head[0].length);
   const html = page.match(/<html(\s[^>]*)?>/i);
@@ -133,45 +140,45 @@ export default {
       version = { id: game.live_version_id, kind: game.version_kind ?? "zip", r2_prefix: game.r2_prefix };
     }
     // Previews and tester links keep their saves in their own browser storage, never the player's account.
-    const cloudSaves = Boolean(game.cloud_saves_enabled) && !secret;
+    const cloudSavesEnabled = Boolean(game.cloud_saves_enabled) && !secret;
 
     // /<slug> -> /<slug>/ so the game's relative links work.
     if (env.GAME_HOST_MODE === "path" && !url.pathname.endsWith("/") && target.path === "") {
       return Response.redirect(`${url.origin}${target.base}${url.search}`, 301);
     }
 
-    let connect: string[];
+    let connectOrigins: string[];
     try {
-      connect = connectSources(env.ROOMS_ORIGIN, game.connect_hosts);
+      connectOrigins = connectSources(env.ROOMS_ORIGIN, game.connect_hosts);
     } catch {
-      connect = connectSources(env.ROOMS_ORIGIN, "");
+      connectOrigins = connectSources(env.ROOMS_ORIGIN, "");
     }
 
     // The SDK, served from the game's own site so its sandbox allows it, set up for this game.
     if (target.path === "_zaisma/v1.js") {
       // Room links from a tester link go back through it, since a private game has no public page.
       const config = { rooms: env.ROOMS_ORIGIN, game: game.slug, site: env.SITE_ORIGIN, ...(tester ? { page: `/t/${tester.token}` } : {}) };
-      const headers = gameHeaders("text/javascript; charset=utf-8", env.SITE_ORIGIN, connect);
+      const headers = gameHeaders("text/javascript; charset=utf-8", env.SITE_ORIGIN, connectOrigins);
       headers.set("Cache-Control", "public, max-age=300");
       return new Response(request.method === "HEAD" ? null : `var __ZAISMA__ = ${JSON.stringify(config)};\n${sdk}`, { headers });
     }
 
     // Report pictures: every game page can hand the Zaisma page a picture of the game when a player reports it.
     if (target.path === "_zaisma/picture.js") {
-      const headers = gameHeaders("text/javascript; charset=utf-8", env.SITE_ORIGIN, connect);
+      const headers = gameHeaders("text/javascript; charset=utf-8", env.SITE_ORIGIN, connectOrigins);
       headers.set("Cache-Control", "public, max-age=300");
       return new Response(request.method === "HEAD" ? null : `var __ZAISMA_PICTURE__ = ${JSON.stringify({ site: env.SITE_ORIGIN })};\n${pictureScript}`, { headers });
     }
 
     // Cloud saves: the script that hands the game's browser save to the Zaisma game page,
     // and the page that puts an account's save in place before the game starts.
-    if (cloudSaves && target.path === "_zaisma/saves.js") {
-      const headers = gameHeaders("text/javascript; charset=utf-8", env.SITE_ORIGIN, connect);
+    if (cloudSavesEnabled && target.path === "_zaisma/saves.js") {
+      const headers = gameHeaders("text/javascript; charset=utf-8", env.SITE_ORIGIN, connectOrigins);
       headers.set("Cache-Control", "public, max-age=300");
       return new Response(request.method === "HEAD" ? null : `var __ZAISMA_SAVES__ = ${JSON.stringify({ site: env.SITE_ORIGIN })};\n${savesScript}`, { headers });
     }
-    if (cloudSaves && target.path === "_zaisma/restore") {
-      const headers = gameHeaders("text/html; charset=utf-8", env.SITE_ORIGIN, connect);
+    if (cloudSavesEnabled && target.path === "_zaisma/restore") {
+      const headers = gameHeaders("text/html; charset=utf-8", env.SITE_ORIGIN, connectOrigins);
       headers.set("Cache-Control", "no-cache");
       return new Response(request.method === "HEAD" ? null : RESTORE_PAGE, { headers });
     }
@@ -179,39 +186,39 @@ export default {
     const path = target.path === "" || target.path.endsWith("/") ? `${target.path}index.html` : target.path;
     // A game's own game server runs in our rooms' sandbox; players never get its code.
     if (isServerPath(path)) return page(404, "File not found", "This game is missing a file.", env);
-    const html = path.endsWith(".html");
-    const inject = html;
+    const isHtml = path.endsWith(".html");
+    const isInjected = isHtml;
     // Pages get our scripts on the way out, so they skip ranges and R2's own ETag checks.
     const key = fileKey(version, version.kind === "files" ? await manifestFor(env, version.id) : null, path);
-    const object = key ? await env.GAMES.get(key, inject ? {} : { range: request.headers, onlyIf: request.headers }) : null;
+    const object = key ? await env.GAMES.get(key, isInjected ? {} : { range: request.headers, onlyIf: request.headers }) : null;
     if (!object) return page(404, "File not found", "This game is missing a file.", env);
 
-    const headers = gameHeaders(contentTypeFor(path), env.SITE_ORIGIN, connect);
+    const headers = gameHeaders(contentTypeFor(path), env.SITE_ORIGIN, connectOrigins);
     if (secret) headers.set("X-Robots-Tag", "noindex");
     headers.set("ETag", object.httpEtag);
     // HTML is re-checked so takedowns and updates show up. Other files keep the same address
     // across versions, so they're only cached briefly: an update reaches players within a minute.
-    headers.set("Cache-Control", html ? "no-cache" : "public, max-age=60");
+    headers.set("Cache-Control", isHtml ? "no-cache" : "public, max-age=60");
     headers.set("Accept-Ranges", "bytes");
 
-    if (inject && "body" in object && object.body) {
+    if (isInjected && "body" in object && object.body) {
       headers.delete("Accept-Ranges");
-      headers.set("ETag", `W/"${object.etag}-z${SCRIPTS_VERSION}${cloudSaves ? "s" : ""}"`);
+      headers.set("ETag", `W/"${object.etag}-z${SCRIPTS_VERSION_NUMBER}${cloudSavesEnabled ? "s" : ""}"`);
       if (request.headers.get("if-none-match") === headers.get("ETag")) return new Response(null, { status: 304, headers });
-      const scripts = [...(cloudSaves ? [`${target.base}_zaisma/saves.js?v=${SCRIPTS_VERSION}`] : []), `${target.base}_zaisma/picture.js?v=${SCRIPTS_VERSION}`];
+      const scripts = [...(cloudSavesEnabled ? [`${target.base}_zaisma/saves.js?v=${SCRIPTS_VERSION_NUMBER}`] : []), `${target.base}_zaisma/picture.js?v=${SCRIPTS_VERSION_NUMBER}`];
       const page = withScripts(await object.text(), scripts);
       return new Response(request.method === "HEAD" ? null : page, { headers });
     }
 
     if (!("body" in object) || !object.body) return new Response(null, { status: 304, headers });
-    let status = 200;
+    let httpStatus = 200;
     if (object.range && request.headers.has("range")) {
-      const r = object.range as { offset?: number; length?: number; suffix?: number };
-      const offset = r.suffix !== undefined ? object.size - r.suffix : (r.offset ?? 0);
-      const length = r.suffix !== undefined ? r.suffix : (r.length ?? object.size - offset);
-      headers.set("Content-Range", `bytes ${offset}-${offset + length - 1}/${object.size}`);
-      status = 206;
+      const range = object.range as R2RangeFields;
+      const startByte = range.suffix !== undefined ? object.size - range.suffix : (range.offset ?? 0);
+      const lengthBytes = range.suffix !== undefined ? range.suffix : (range.length ?? object.size - startByte);
+      headers.set("Content-Range", `bytes ${startByte}-${startByte + lengthBytes - 1}/${object.size}`);
+      httpStatus = 206;
     }
-    return new Response(request.method === "HEAD" ? null : object.body, { status, headers });
+    return new Response(request.method === "HEAD" ? null : object.body, { status: httpStatus, headers });
   },
 } satisfies ExportedHandler<Env>;

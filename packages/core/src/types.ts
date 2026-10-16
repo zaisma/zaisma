@@ -81,15 +81,17 @@ export interface Finding {
   quote?: string;
 }
 
+/** A version's scan result (versions.scan_report): stored JSON, so snake_case all the way down. */
 export interface ScanReport {
-  finishedAt: number;
+  finished_at_ms: number;
   decision: "approved" | "held" | "rejected";
   findings: Finding[];
-  outsideHosts: string[];
-  images: { provider: string; connected: boolean; checked: number };
-  ai: { model: string; verdict: "pass" | "hold" | "reject" | "skipped"; summary: string; inputTokens: number; outputTokens: number } | null;
+  outside_hosts: string[];
+  /** Image matching: pictures and videos checked against known abuse material. */
+  images: { provider: string; is_connected: boolean; checked_media_count: number };
+  ai: { model: string; verdict: "pass" | "hold" | "reject" | "skipped"; summary: string; input_token_count: number; output_token_count: number } | null;
   /** Child-safety signal: hold, never delete, alert Julius (NCMEC reporting duty). */
-  childSafety: boolean;
+  is_child_safety: boolean;
 }
 
 export interface ScanJob {
@@ -97,7 +99,7 @@ export interface ScanJob {
   /** Look at a live version's files again after a report (AI report triage). Never publishes or changes the version. */
   recheck?: { reportId: string };
   /** Image matching on a version that already passed (before matching was connected). Takes it off only on a match. */
-  images?: true;
+  isImageRecheck?: true;
 }
 
 /** Why a player reports another player in a room. */
@@ -110,26 +112,26 @@ export const PLAYER_REPORT_REASONS = {
 } as const;
 export type PlayerReportReason = keyof typeof PLAYER_REPORT_REASONS;
 
-/** A room with players in it (migrations/0015_live_rooms.sql). */
+/** A room with players in it (migrations/0015_live_rooms.sql, 0034). */
 export interface LiveRoom {
   game_id: string;
-  code: string;
+  room_code: string;
   /** Players in the match who haven't walked away. */
-  players: number;
+  player_count: number;
   /** Seats held for players out of the match for now, or on their way (migrations/0025_held_seats.sql). */
-  held: number;
-  max_players: number;
-  listed: number;
-  open: number;
+  held_seat_count: number;
+  maximum_player_count: number;
+  is_listed: number;
+  is_open: number;
   name: string | null;
   /** JSON, like {"Mode": "Classic"}. */
   labels: string;
   /** 1: a person hid the name and labels after a report. */
-  name_hidden: number;
+  is_name_hidden: number;
   country: string | null;
   continent: string | null;
-  created_at: number;
-  updated_at: number;
+  created_at_ms: number;
+  updated_at_ms: number;
 }
 
 /** Rooms check in every hour, so a row older than this belongs to a room that stopped. */
@@ -147,11 +149,11 @@ export const SANDBOX_GAME_SERVER = "sandbox";
  * folder's other .js files, or one zaisma-server.js file. Never served to players.
  */
 export const SERVER_FILE = "zaisma-server.js";
-export const SERVER_DIR = "zaisma-server/";
+export const SERVER_FOLDER = "zaisma-server/";
 export const SERVER_ENTRY = "zaisma-server/index.js";
 
 export function isServerPath(path: string): boolean {
-  return path === SERVER_FILE || path.startsWith(SERVER_DIR);
+  return path === SERVER_FILE || path.startsWith(SERVER_FOLDER);
 }
 
 /**
@@ -182,17 +184,17 @@ export const REPORT_REASONS = {
 } as const;
 export type ReportReason = keyof typeof REPORT_REASONS;
 
-/** How serious a report is, most serious first: reports.severity is the index. */
+/** How serious a report is, most serious first: reports.severity_index is the index. */
 export const SEVERITIES = ["Child safety", "Urgent", "High", "Normal", "Low"] as const;
 export const SEVERITY = { child_safety: 0, urgent: 1, high: 2, normal: 3, low: 4 } as const;
 export type ReportSeverity = keyof typeof SEVERITY;
-/** The same, as the admin MCP says it: reports.severity is the index. */
+/** The same, as the admin MCP says it: reports.severity_index is the index. */
 export const REPORT_SEVERITIES = Object.keys(SEVERITY) as ReportSeverity[];
 
-/** What AI report triage found and did about a report (reports.triage). */
+/** What AI report triage found and did about a report (reports.triage): stored JSON, in the admin MCP's words. */
 export interface Triage {
   /** False when no AI read it: a child-safety report, or AI review isn't available. */
-  ai: boolean;
+  is_by_ai: boolean;
   /** What the report is really about, whatever reason the player picked. */
   category: ReportReason;
   /** For the person reviewing it, in a sentence or two. */
@@ -201,15 +203,15 @@ export interface Triage {
   recommendation: "dismiss" | "bug" | "recheck" | "person" | "take_down" | "restore";
   why: string;
   /** What triage did by itself, in plain words. */
-  actions: string[];
+  ai_actions: string[];
   /** A fresh look at the reported version's files, asked for by triage. */
-  recheck?: { status: "waiting" | "done" | "failed"; decision?: ScanStatus; summary?: string; findings?: string[] };
+  recheck?: { recheck_status: "waiting" | "done" | "failed"; scan_status?: ScanStatus; summary?: string; findings?: string[] };
   /** The precedent the case fits, or challenges. */
   precedent?: { id: string; title: string; fit: "fits" | "challenges" };
   /** When no precedent fits, or the case challenges one: the ruling the AI proposes for a person. */
-  draft?: { title: string; applies_when: string; decision: PrecedentDecision; why: string };
+  precedent_draft?: { title: string; applies_when: string; decision: PrecedentDecision; why: string };
   /** The AI would have decided this alone under a precedent; kept for a person as a spot-check. */
-  spot_check?: boolean;
+  is_spot_check?: boolean;
 }
 
 /** What a precedent decides. Bugs and re-checks always happen automatically; takedowns never do. */

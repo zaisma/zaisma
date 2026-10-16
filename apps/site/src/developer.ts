@@ -54,8 +54,8 @@ import {
   testerLinks,
   type TesterLink,
   type ReportReason,
-  FREE_PLAYER_HOURS,
-  monthPlayerSeconds,
+  FREE_ROOM_PLAY_DURATION_HOURS,
+  roomPlayDurationSecThisMonth,
   ApiError,
   checkIdKind,
   isIdOf,
@@ -701,33 +701,33 @@ async function reportsFor(env: Env, game: Game, cursor: string | null) {
   const sinceMs = readCursor(cursor);
   const fromMs = Date.now() - 90 * DAY_MS;
   const { results: counts } = await env.DB
-    .prepare("SELECT reason, status, COUNT(*) AS report_count FROM reports WHERE game_id = ? AND created_at > ? AND reason != 'child_safety' AND severity > 0 GROUP BY reason, status")
+    .prepare("SELECT reason, report_status, COUNT(*) AS report_count FROM reports WHERE game_id = ? AND reported_at_ms > ? AND reason != 'child_safety' AND severity_index > 0 GROUP BY reason, report_status")
     .bind(game.id, fromMs)
-    .all<{ reason: string; status: string; report_count: number }>();
+    .all<{ reason: string; report_status: string; report_count: number }>();
   const byReason = new Map<string, { reason: string; label: string; open_count: number; closed_count: number }>();
   for (const row of counts) {
     const reason = byReason.get(row.reason) ?? { reason: row.reason, label: REPORT_REASONS[row.reason as ReportReason] ?? row.reason, open_count: 0, closed_count: 0 };
     byReason.set(row.reason, reason);
-    if (row.status === "open") reason.open_count += row.report_count;
+    if (row.report_status === "open") reason.open_count += row.report_count;
     else reason.closed_count += row.report_count;
   }
   const { results: bugs } = await env.DB
-    .prepare("SELECT id, details, triage, version_id, created_at, bug_at FROM reports WHERE game_id = ? AND bug = 1 AND severity > 0 AND bug_at > ? AND details != '' ORDER BY bug_at DESC LIMIT 50")
+    .prepare("SELECT id, player_text, triage, version_id, reported_at_ms, bug_report_at_ms FROM reports WHERE game_id = ? AND is_bug_report = 1 AND severity_index > 0 AND bug_report_at_ms > ? AND player_text != '' ORDER BY bug_report_at_ms DESC LIMIT 50")
     .bind(game.id, Math.max(sinceMs, fromMs))
-    .all<{ id: string; details: string; triage: string | null; version_id: string | null; created_at: number; bug_at: number }>();
+    .all<{ id: string; player_text: string; triage: string | null; version_id: string | null; reported_at_ms: number; bug_report_at_ms: number }>();
   return {
     period_duration_days: 90,
     // Open: waiting for us. Closed: we looked and either dismissed it or acted on it.
     reasons: [...byReason.values()],
     bug_reports: bugs.map((bug) => ({
       id: bug.id,
-      player_text: bug.details,
+      player_text: bug.player_text,
       summary: bug.triage ? (JSON.parse(bug.triage) as { summary: string }).summary : null,
       version_id: bug.version_id,
-      reported_at: iso(bug.created_at),
+      reported_at: iso(bug.reported_at_ms),
     })),
     // Pass this as `cursor` next time to get only bug reports that arrived after this call.
-    next_cursor: cursorFor(Math.max(sinceMs, ...bugs.map((bug) => bug.bug_at))),
+    next_cursor: cursorFor(Math.max(sinceMs, ...bugs.map((bug) => bug.bug_report_at_ms))),
   };
 }
 
@@ -751,46 +751,36 @@ async function liveServerProblem(env: Env, game: Game): Promise<string | null> {
 async function statsFor(env: Env, game: Game, periodDurationDays: number) {
   const dayCount = Number.isInteger(periodDurationDays) && periodDurationDays > 0 ? Math.min(periodDurationDays, 90) : 30;
   const fromDate = new Date(Date.now() - (dayCount - 1) * DAY_MS).toISOString().slice(0, 10);
-  const [plays, { results: roomDays }, { results: errors }, monthSeconds] = await Promise.all([
+  const [gamePlayStats, { results: roomDays }, { results: errors }, monthRoomPlayDurationSec] = await Promise.all([
     playStats(env.DB, game.id, dayCount),
     env.DB
-      .prepare("SELECT day, rooms, player_seconds, messages, server_calls, server_crashes, server_stops, server_broken_rooms FROM room_usage WHERE game_id = ? AND day >= ? ORDER BY day")
+      .prepare("SELECT date, room_count, room_play_duration_sec, message_count, game_server_call_count, game_server_crash_count, game_server_stopped_count, game_server_ended_match_count FROM room_usage WHERE game_id = ? AND date >= ? ORDER BY date")
       .bind(game.id, fromDate)
-      .all<{ day: string; rooms: number; player_seconds: number; messages: number; server_calls: number; server_crashes: number; server_stops: number; server_broken_rooms: number }>(),
+      .all<{ date: string; room_count: number; room_play_duration_sec: number; message_count: number; game_server_call_count: number; game_server_crash_count: number; game_server_stopped_count: number; game_server_ended_match_count: number }>(),
     env.DB
-      .prepare("SELECT version_id, kind, message, count, first_at, last_at FROM game_server_errors WHERE game_id = ? ORDER BY last_at DESC LIMIT 20")
+      .prepare("SELECT version_id, kind, message, occurrence_count, first_at_ms, last_at_ms FROM game_server_errors WHERE game_id = ? ORDER BY last_at_ms DESC LIMIT 20")
       .bind(game.id)
-      .all<{ version_id: string; kind: "crash" | "stopped"; message: string; count: number; first_at: number; last_at: number }>(),
-    monthPlayerSeconds(env.DB, game.id),
+      .all<{ version_id: string; kind: "crash" | "stopped"; message: string; occurrence_count: number; first_at_ms: number; last_at_ms: number }>(),
+    roomPlayDurationSecThisMonth(env.DB, game.id),
   ]);
   const hasOwnServer = game.multiplayer_mode === "own";
   return {
     period_duration_days: dayCount,
-    play_stats: {
-      days: plays.days.map((day) => ({ date: day.day, play_count: day.plays, player_count: day.players, new_player_count: day.new_players, play_duration_min: day.minutes_played, started_play_count: day.all_plays })),
-      play_count: plays.plays,
-      started_play_count: plays.all_plays,
-      new_player_count: plays.new_players,
-      play_duration_min: plays.minutes_played,
-      average_play_duration_min: plays.minutes_per_play,
-      came_back: Object.fromEntries(
-        Object.entries(plays.came_back).map(([after, cameBack]) => [after, { returned_pct: cameBack.percent, returned_player_count: cameBack.players, new_player_count: cameBack.of }]),
-      ),
-    },
+    play_stats: gamePlayStats,
     multiplayer_days: roomDays.map((day) => ({
-      date: day.day,
-      room_count: day.rooms,
-      room_play_duration_min: Math.round(day.player_seconds / 60),
-      message_count: day.messages,
-      game_server: hasOwnServer ? { call_count: day.server_calls, crash_count: day.server_crashes, stopped_count: day.server_stops, ended_match_count: day.server_broken_rooms } : null,
+      date: day.date,
+      room_count: day.room_count,
+      room_play_duration_min: Math.round(day.room_play_duration_sec / 60),
+      message_count: day.message_count,
+      game_server: hasOwnServer ? { call_count: day.game_server_call_count, crash_count: day.game_server_crash_count, stopped_count: day.game_server_stopped_count, ended_match_count: day.game_server_ended_match_count } : null,
     })),
     // Until Hosting billing exists, new rooms stop opening at the free tier until the month resets (UTC).
-    room_use_this_month: { room_play_duration_hours: Math.round(monthSeconds / 360) / 10, free_room_play_duration_hours: FREE_PLAYER_HOURS, has_reached_free_hours: monthSeconds >= FREE_PLAYER_HOURS * 3600 },
+    room_use_this_month: { room_play_duration_hours: Math.round(monthRoomPlayDurationSec / 360) / 10, free_room_play_duration_hours: FREE_ROOM_PLAY_DURATION_HOURS, has_reached_free_hours: monthRoomPlayDurationSec >= FREE_ROOM_PLAY_DURATION_HOURS * 3600 },
     // Crashes lose one call each and the match carries on. "stopped" is a call that ran on too long
     // (about 2 seconds of CPU, like a loop that never ends): it freezes the match while it runs,
     // and a match whose game server is stopped twice ends.
     game_server_errors: hasOwnServer
-      ? errors.map((error) => ({ kind: error.kind, message: error.message, occurrence_count: error.count, version_id: error.version_id, first_at: iso(error.first_at), last_at: iso(error.last_at) }))
+      ? errors.map((error) => ({ kind: error.kind, message: error.message, occurrence_count: error.occurrence_count, version_id: error.version_id, first_at: iso(error.first_at_ms), last_at: iso(error.last_at_ms) }))
       : [],
   };
 }
@@ -921,7 +911,7 @@ function versionJson(env: Env, game: Game, version: Version) {
     // Why a version was held or rejected. Child-safety findings are never described.
     findings: !report
       ? []
-      : report.childSafety
+      : report.is_child_safety
         ? [{ severity: "hold", rule: "review", explanation: "A person needs to look at this version.", path: null }]
         : report.findings.filter((finding) => finding.severity !== "info").map((finding) => ({ severity: finding.severity, rule: finding.rule, explanation: finding.detail, path: finding.path ?? null })),
   };

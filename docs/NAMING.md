@@ -4,7 +4,7 @@ How names, values, inputs, examples, errors and next steps work everywhere an AI
 
 Why: an AI reading `files: 12`, `dt` or `created_at: 1792012345678` has to stop and work out what it means, and sometimes gets it wrong. Every guess costs tokens and some cost a wrong call. A name that says what it holds, what kind of value and in what unit lets the AI predict the right value and the right next call straight away.
 
-The existing API, MCPs, SDK, game server and Zaisma's own code are moving to these names area by area, each a clean change (old names stop working). Until each lands, everything new follows this guide. The messages between the SDK and rooms move too: `type` and `data`, not `t` and `d` (rooms are billed per message, never by its size). Examples in this guide show the pattern; the glossary at the end lists the names that exist.
+The API, MCPs, SDK, game server and Zaisma's own code all use these names, inside and out, and a test keeps it that way: everything new follows this guide. The messages between the SDK and rooms do too: `type` and `data`, not `t` and `d` (rooms are billed per message, never by its size). Examples in this guide show the pattern; the glossary at the end lists the names that exist.
 
 ## The shape of a name
 
@@ -96,7 +96,8 @@ The same rules hold inside, with these on top. `test/node/naming.test.ts` checks
 - **Yes/no columns are named like booleans** (`cloud_saves_enabled`, `is_listed`), even though D1 stores them as 0 or 1. Every other number column ends in `_count`, a unit, `_ms` or `_per_<unit>`.
 - **Whole words everywhere**, callback parameters included: `games.map((game) => …)`, `catch (error)`, `(first, second) => …` in a sort. `i` is the one short name, for a loop index.
 - **Names the platform sets keep its spelling**: Worker bindings and secrets in `Env` (`DB`, `GAMES`), `env` and `ctx` in Worker handlers, and Web and Cloudflare API fields (`httpMetadata`, `etag`). Our own variables holding them still get whole words (`response`, not `res`).
-- **Old names are paid down area by area.** `test/naming-baseline.json` lists the names not yet moved over, per file and per table. The check fails on any new one, and on any listed one that's gone, so the list only ever shrinks: fix a name, then run `npm run naming:baseline` to update it.
+- **No old names are left.** `test/naming-baseline.json` is empty, and the check fails on any name that breaks these rules. Should a name ever have to wait, it goes in that list (`npm run naming:baseline` writes it), and the check then fails on any new one and on any listed one that's gone, so the list only shrinks.
+- **A standard's shapes keep its names** (Exceptions below): declare the shape with a name, like `TurnstileAnswer` or `PassClaims`, and list its standard fields in `STANDARD_FIELDS_BY_SHAPE` in `test/naming-source.ts`. Only those fields of that shape are let through; anything of ours in it still follows the rules.
 
 ## IDs
 
@@ -186,7 +187,7 @@ Every call that changes something answers with `next_steps`: the calls that usua
 
 Deliberate, and only these:
 
-- **Standard formats keep their own names**: HTTP headers, JSON-RPC and MCP fields (`inputSchema`, `isError`, `structuredContent`) and JSON Schema keywords (`maxLength`).
+- **Standard formats keep their own names**: HTTP headers, JSON-RPC and MCP fields (`inputSchema`, `isError`, `structuredContent`) and JSON Schema keywords (`maxLength`). So do the shapes of standards and outside services Zaisma reads: JWT claims (`exp`, `nbf`, `iat`), WebAuthn's client and authenticator data (`crossOrigin`, `flags`), R2's ranges (`offset`, `length`, `suffix`), and what Cloudflare Turnstile (`success`) and VirusTotal answer.
 - **API keys** keep `zsk_`.
 
 ## Glossary

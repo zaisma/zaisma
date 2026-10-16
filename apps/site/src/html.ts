@@ -2,8 +2,8 @@ import { describePlayModes, type PlayMode } from "@zaisma/core";
 import { gameFrameSource, type Env } from "./env.ts";
 
 /** Escape text for HTML. Every value from a user or a game goes through this. */
-export function esc(value: unknown): string {
-  return String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+export function esc(content: unknown): string {
+  return String(content ?? "").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
 }
 
 /** Tagged template: interpolations are escaped unless wrapped in raw(). */
@@ -17,17 +17,17 @@ export const raw = (html: string) => new Raw(html);
 
 export function html(strings: TemplateStringsArray, ...values: unknown[]): Raw {
   let out = strings[0]!;
-  values.forEach((v, i) => {
-    out += render(v) + strings[i + 1]!;
+  values.forEach((interpolation, i) => {
+    out += render(interpolation) + strings[i + 1]!;
   });
   return new Raw(out);
 }
 
-function render(v: unknown): string {
-  if (v instanceof Raw) return v.html;
-  if (Array.isArray(v)) return v.map(render).join("");
-  if (v === null || v === undefined || v === false) return "";
-  return esc(v);
+function render(interpolation: unknown): string {
+  if (interpolation instanceof Raw) return interpolation.html;
+  if (Array.isArray(interpolation)) return interpolation.map(render).join("");
+  if (interpolation === null || interpolation === undefined || interpolation === false) return "";
+  return esc(interpolation);
 }
 
 // Steel: the design system. Rules and reasons in docs/DESIGN.md.
@@ -322,28 +322,28 @@ addEventListener("pageshow",e=>{if(e.persisted)document.querySelectorAll("[aria-
 const PLAY_ICON = '<svg viewBox="0 0 14 16" aria-hidden="true"><path d="M1 1v14l12-7z" fill="currentColor"/></svg>';
 
 /** The metal primary button. `href` makes a link, otherwise a button with the given id. */
-export function metalButton(label: string, opts: { href?: string; id?: string; big?: boolean; block?: boolean; play?: boolean; type?: string; data?: Record<string, string> }): Raw {
-  const cls = `btn metal bevel${opts.big ? " big" : ""}`;
-  const inner = html`${opts.play ? raw(PLAY_ICON) : ""}<span>${label}</span>`;
-  const data = Object.entries(opts.data ?? {}).map(([k, v]) => html` data-${k}="${v}"`);
-  const el = opts.href
-    ? html`<a class="${cls}" href="${opts.href}"${data}>${inner}</a>`
-    : html`<button class="${cls}" type="${opts.type ?? "button"}"${opts.id ? raw(` id="${opts.id}"`) : ""}>${inner}</button>`;
-  return html`<span class="hit${opts.block ? " block" : ""}">${el}</span>`;
+export function metalButton(label: string, options: { href?: string; id?: string; isBig?: boolean; isFullWidth?: boolean; hasPlayIcon?: boolean; type?: string; dataAttributes?: Record<string, string> }): Raw {
+  const classNames = `btn metal bevel${options.isBig ? " big" : ""}`;
+  const inner = html`${options.hasPlayIcon ? raw(PLAY_ICON) : ""}<span>${label}</span>`;
+  const dataAttributes = Object.entries(options.dataAttributes ?? {}).map(([name, attributeValue]) => html` data-${name}="${attributeValue}"`);
+  const element = options.href
+    ? html`<a class="${classNames}" href="${options.href}"${dataAttributes}>${inner}</a>`
+    : html`<button class="${classNames}" type="${options.type ?? "button"}"${options.id ? raw(` id="${options.id}"`) : ""}>${inner}</button>`;
+  return html`<span class="hit${options.isFullWidth ? " block" : ""}">${element}</span>`;
 }
 
 /** Cloudflare's invisible check (Turnstile), on pages that ask for it: its script and its frame. */
 const CHECK_ORIGIN = "https://challenges.cloudflare.com";
 
-export function securityHeaders(env: Env, extra: Record<string, string> = {}, check = false, frames: string[] = []): Headers {
-  const h = new Headers({
+export function securityHeaders(env: Env, extra: Record<string, string> = {}, hasTurnstileCheck = false, frames: string[] = []): Headers {
+  const headers = new Headers({
     "Content-Type": "text/html; charset=utf-8",
     "Content-Security-Policy": [
       "default-src 'self'",
       "img-src 'self' data:",
       "style-src 'self' 'unsafe-inline'",
-      `script-src 'self' 'unsafe-inline'${check ? ` ${CHECK_ORIGIN}` : ""}`,
-      `frame-src ${gameFrameSource(env)}${check ? ` ${CHECK_ORIGIN}` : ""}${frames.map((f) => ` ${f}`).join("")}`,
+      `script-src 'self' 'unsafe-inline'${hasTurnstileCheck ? ` ${CHECK_ORIGIN}` : ""}`,
+      `frame-src ${gameFrameSource(env)}${hasTurnstileCheck ? ` ${CHECK_ORIGIN}` : ""}${frames.map((frame) => ` ${frame}`).join("")}`,
       "form-action 'self'",
       "frame-ancestors 'none'",
       "base-uri 'none'",
@@ -354,7 +354,7 @@ export function securityHeaders(env: Env, extra: Record<string, string> = {}, ch
     "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
     ...extra,
   });
-  return h;
+  return headers;
 }
 
 // Pages stay cacheable for everyone, so the header learns about sign-in from a readable hint cookie.
@@ -365,19 +365,19 @@ export type Nav = "dashboard" | "forum" | "home";
 /** A page's search box in the header: where it sends, what's typed, and fields it keeps. */
 export interface HeaderSearch {
   action: string;
-  q: string;
+  searchText: string;
   placeholder: string;
   label: string;
   keep?: Record<string, string>;
 }
 
-export function layout(env: Env, opts: { title: string; body: Raw; bare?: boolean; admin?: boolean; private?: boolean; nav?: Nav; art?: string | null; check?: boolean; search?: HeaderSearch; action?: Raw; frames?: string[] }): Response {
-  const doc = html`<!doctype html>
+export function layout(env: Env, options: { title: string; body: Raw; isBare?: boolean; isAdmin?: boolean; isPrivate?: boolean; nav?: Nav; art?: string | null; hasTurnstileCheck?: boolean; search?: HeaderSearch; action?: Raw; frames?: string[] }): Response {
+  const page = html`<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${opts.title}</title>
+<title>${options.title}</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon.ico" sizes="32x32">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -385,16 +385,16 @@ export function layout(env: Env, opts: { title: string; body: Raw; bare?: boolea
 <style>${raw(STYLES)}</style>
 </head>
 <body>
-${ambient(opts.art)}
-${opts.bare
-    ? opts.body
-    : html`${siteHeader(env, opts)}
-<main>${opts.body}</main>
+${ambient(options.art)}
+${options.isBare
+    ? options.body
+    : html`${siteHeader(env, options)}
+<main>${options.body}</main>
 ${siteFooter()}`}
 <script>${raw(METAL_SCRIPT)}${raw(AMBIENT_SCRIPT)}${raw(BUSY_SCRIPT)}</script>
 </body>
 </html>`;
-  return new Response(doc.html, { headers: securityHeaders(env, opts.admin || opts.private ? { "Cache-Control": "no-store" } : {}, opts.check, opts.frames) });
+  return new Response(page.html, { headers: securityHeaders(env, options.isAdmin || options.isPrivate ? { "Cache-Control": "no-store" } : {}, options.hasTurnstileCheck, options.frames) });
 }
 
 /**
@@ -406,14 +406,14 @@ export function ambient(art: string | null | undefined): Raw {
 }
 
 /** The site's header, also used on its own by pages that lay themselves out (the game page). */
-export function siteHeader(env: Env, opts: { admin?: boolean; nav?: Nav; search?: HeaderSearch; action?: Raw } = {}): Raw {
-  const here = (n: Nav) => (opts.nav === n ? raw(' aria-current="page"') : "");
-  const s = opts.search;
+export function siteHeader(env: Env, options: { isAdmin?: boolean; nav?: Nav; search?: HeaderSearch; action?: Raw } = {}): Raw {
+  const here = (nav: Nav) => (options.nav === nav ? raw(' aria-current="page"') : "");
+  const search = options.search;
   return html`<header class="top"><div class="in">
   <a class="logo" href="/" aria-label="Zaisma home"><img src="/zaisma-wordmark-metal.svg" alt="Zaisma"></a>
-  <nav>${opts.admin ? html`<a href="/admin">Admin</a><a href="/admin/reports">Reports</a><a href="/admin/feedback">Feedback</a><a href="/admin/precedents">Precedents</a><a href="/admin/audit">Audit log</a>` : opts.nav === "dashboard" || opts.nav === "forum" ? html`<a href="/">Home</a><a href="/dashboard"${here("dashboard")}>Your games</a><a href="/forum"${here("forum")}>Forum</a>` : html`<a href="/"${here("home")}>Home</a>`}</nav>
-  ${s ? html`<form class="find" method="get" action="${s.action}" role="search">${Object.entries(s.keep ?? {}).map(([k, v]) => html`<input type="hidden" name="${k}" value="${v}">`)}<input type="search" name="q" value="${s.q}" maxlength="200" placeholder="${s.placeholder}" aria-label="${s.label}"></form>` : ""}
-  <div class="end">${opts.action ?? ""}${env.SUPABASE_URL ? raw(ACCOUNT_LINK) : ""}</div>
+  <nav>${options.isAdmin ? html`<a href="/admin">Admin</a><a href="/admin/reports">Reports</a><a href="/admin/feedback">Feedback</a><a href="/admin/precedents">Precedents</a><a href="/admin/audit">Audit log</a>` : options.nav === "dashboard" || options.nav === "forum" ? html`<a href="/">Home</a><a href="/dashboard"${here("dashboard")}>Your games</a><a href="/forum"${here("forum")}>Forum</a>` : html`<a href="/"${here("home")}>Home</a>`}</nav>
+  ${search ? html`<form class="find" method="get" action="${search.action}" role="search">${Object.entries(search.keep ?? {}).map(([name, keptValue]) => html`<input type="hidden" name="${name}" value="${keptValue}">`)}<input type="search" name="search_text" value="${search.searchText}" maxlength="200" placeholder="${search.placeholder}" aria-label="${search.label}"></form>` : ""}
+  <div class="end">${options.action ?? ""}${env.SUPABASE_URL ? raw(ACCOUNT_LINK) : ""}</div>
 </div></header>`;
 }
 
@@ -421,9 +421,9 @@ export function siteFooter(): Raw {
   return html`<footer><div class="in"><img class="mark" src="/zaisma-mark-metal.svg" alt=""><span>Zaisma™, open source</span><a href="/legal/content-rules">Content rules</a><a href="/legal/privacy">Privacy</a><a href="/legal/dmca">Copyright (DMCA)</a><a href="/dashboard">For game developers</a><a href="https://github.com/zaisma/zaisma">GitHub</a></div></footer>`;
 }
 
-export function message(env: Env, title: string, text: string, status = 200): Response {
-  const res = layout(env, { title, body: html`<h1>${title}</h1><p class="lead">${text}</p><a class="btn ghost" href="/">Back to games</a>` });
-  return new Response(res.body, { status, headers: res.headers });
+export function message(env: Env, title: string, text: string, httpStatus = 200): Response {
+  const response = layout(env, { title, body: html`<h1>${title}</h1><p class="lead">${text}</p><a class="btn ghost" href="/">Back to games</a>` });
+  return new Response(response.body, { status: httpStatus, headers: response.headers });
 }
 
 const stroke = (paths: string) => `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;

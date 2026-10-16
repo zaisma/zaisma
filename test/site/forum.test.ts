@@ -357,7 +357,7 @@ describe("categories and votes", () => {
 
 describe("search, phases and reading a topic in part", () => {
   // Image matching, standing in for Arachnid Shield: clean, or a match.
-  const clean: ImageMatcher = { check: async (images) => ({ provider: "test", connected: true, checked: images.length, findings: [] }) };
+  const clean: ImageMatcher = { check: async (images) => ({ provider: "test", isConnected: true, checkedMediaCount: images.length, findings: [] }) };
   const passAll = () => checkForumPosts({ ...env, ANTHROPIC_API_KEY: "test-key" }, { ai: async () => ({ verdict: "ok", reason: "", inputTokenCount: 10, outputTokenCount: 2 }), images: clean });
 
   it("finds answers by relevance: codes whole, word stems, phrases, and any word when all finds nothing", async () => {
@@ -600,7 +600,7 @@ describe("search, phases and reading a topic in part", () => {
 
     // Connected, and it matches: the image comes down, its file kept for reporting, and the post waits for a person.
     const { posts: second } = await mcp("post_topic", { kind: "bug", category: "pages", title: "More", text_markdown: "And this.", images_base64: [PNG] });
-    const match: ImageMatcher = { check: async (images) => ({ provider: "test", connected: true, checked: images.length, findings: [{ rule: KNOWN_IMAGE_RULE, severity: "block", detail: "match", path: images[0]!.path }] as never }) };
+    const match: ImageMatcher = { check: async (images) => ({ provider: "test", isConnected: true, checkedMediaCount: images.length, findings: [{ rule: KNOWN_IMAGE_RULE, severity: "block", detail: "match", path: images[0]!.path }] as never }) };
     const mediaId = second[0].media[0].id;
     await checkForumPosts({ ...env, ANTHROPIC_API_KEY: "test-key" }, { ai: async () => ({ verdict: "ok", reason: "", inputTokenCount: 1, outputTokenCount: 1 }), images: match });
     expect(await env.DB.prepare("SELECT id FROM forum_media WHERE id = ?").bind(mediaId).first()).toBeNull();

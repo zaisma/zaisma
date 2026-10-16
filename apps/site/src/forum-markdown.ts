@@ -21,29 +21,29 @@ export interface MarkdownContext {
 export const VIDEO_FRAMES = ["https://www.youtube-nocookie.com", "https://player.vimeo.com", "https://streamable.com"];
 
 export function videoOf(url: string): { host: string; embed: string } | null {
-  let u: URL;
+  let parsedUrl: URL;
   try {
-    u = new URL(url);
+    parsedUrl = new URL(url);
   } catch {
     return null;
   }
-  const host = u.hostname.replace(/^www\.|^m\./, "");
-  const id = (re: RegExp, s: string) => s.match(re)?.[1] ?? null;
+  const host = parsedUrl.hostname.replace(/^www\.|^m\./, "");
+  const id = (pattern: RegExp, text: string) => text.match(pattern)?.[1] ?? null;
   if (host === "youtube.com") {
-    const v = u.searchParams.get("v") ?? id(/^\/(?:shorts|embed|live)\/([\w-]{6,20})/, u.pathname);
-    return v && /^[\w-]{6,20}$/.test(v) ? { host: "YouTube", embed: `https://www.youtube-nocookie.com/embed/${v}` } : null;
+    const videoId = parsedUrl.searchParams.get("v") ?? id(/^\/(?:shorts|embed|live)\/([\w-]{6,20})/, parsedUrl.pathname);
+    return videoId && /^[\w-]{6,20}$/.test(videoId) ? { host: "YouTube", embed: `https://www.youtube-nocookie.com/embed/${videoId}` } : null;
   }
   if (host === "youtu.be") {
-    const v = id(/^\/([\w-]{6,20})$/, u.pathname);
-    return v ? { host: "YouTube", embed: `https://www.youtube-nocookie.com/embed/${v}` } : null;
+    const videoId = id(/^\/([\w-]{6,20})$/, parsedUrl.pathname);
+    return videoId ? { host: "YouTube", embed: `https://www.youtube-nocookie.com/embed/${videoId}` } : null;
   }
   if (host === "vimeo.com") {
-    const v = id(/^\/(\d{5,12})$/, u.pathname);
-    return v ? { host: "Vimeo", embed: `https://player.vimeo.com/video/${v}?dnt=1` } : null;
+    const videoId = id(/^\/(\d{5,12})$/, parsedUrl.pathname);
+    return videoId ? { host: "Vimeo", embed: `https://player.vimeo.com/video/${videoId}?dnt=1` } : null;
   }
   if (host === "streamable.com") {
-    const v = id(/^\/(?:e\/)?([a-z0-9]{4,12})$/i, u.pathname);
-    return v ? { host: "Streamable", embed: `https://streamable.com/e/${v}` } : null;
+    const videoId = id(/^\/(?:e\/)?([a-z0-9]{4,12})$/i, parsedUrl.pathname);
+    return videoId ? { host: "Streamable", embed: `https://streamable.com/e/${videoId}` } : null;
   }
   return null;
 }
@@ -54,7 +54,7 @@ export const MENTION = /@\[([^\]\n]{1,60})\]|@([\p{L}\p{N}_]{2,40})/gu;
 /** The names a post mentions, as written. */
 export function mentionedNames(text: string): string[] {
   const names = new Set<string>();
-  for (const m of stripCode(text).matchAll(MENTION)) names.add((m[1] ?? m[2])!.trim());
+  for (const match of stripCode(text).matchAll(MENTION)) names.add((match[1] ?? match[2])!.trim());
   return [...names].slice(0, 20);
 }
 
@@ -66,34 +66,34 @@ function stripCode(text: string): string {
 function linkHtml(url: string, label: string, ctx: MarkdownContext): string {
   // A post on the same page, as a quote's "wrote:" links to it.
   if (/^#p-post_[a-z0-9]{1,40}$/.test(url)) return `<a href="${url}">${label}</a>`;
-  let u: URL;
+  let parsedUrl: URL;
   try {
-    u = new URL(url, ctx.siteOrigin);
+    parsedUrl = new URL(url, ctx.siteOrigin);
   } catch {
     return label;
   }
-  if (u.protocol !== "https:" && u.protocol !== "http:") return label;
+  if (parsedUrl.protocol !== "https:" && parsedUrl.protocol !== "http:") return label;
   const site = new URL(ctx.siteOrigin);
-  const ours = u.origin === site.origin || /(^|\.)zaisma\.com$/.test(u.hostname);
-  if (ours) return `<a href="${esc(u.href)}">${label}</a>`;
-  return `<a class="out" href="/forum/out?to=${encodeURIComponent(u.href)}" data-out="${esc(u.href)}" data-host="${esc(u.hostname)}" rel="nofollow ugc noopener">${label}</a>`;
+  const ours = parsedUrl.origin === site.origin || /(^|\.)zaisma\.com$/.test(parsedUrl.hostname);
+  if (ours) return `<a href="${esc(parsedUrl.href)}">${label}</a>`;
+  return `<a class="out" href="/forum/out?to=${encodeURIComponent(parsedUrl.href)}" data-out="${esc(parsedUrl.href)}" data-host="${esc(parsedUrl.hostname)}" rel="nofollow ugc noopener">${label}</a>`;
 }
 
 /** Bold, italics, strikethrough, code, links and mentions within a line. */
 function inline(text: string, ctx: MarkdownContext): string {
   const held: string[] = [];
   const hold = (html: string) => `\u0000${held.push(html) - 1}\u0000`;
-  let s = text.replace(/\u0000/g, "");
-  s = s.replace(/`([^`\n]+)`/g, (_m, code: string) => hold(`<code>${esc(code)}</code>`));
+  let lineText = text.replace(/\u0000/g, "");
+  lineText = lineText.replace(/`([^`\n]+)`/g, (_, code: string) => hold(`<code>${esc(code)}</code>`));
   // Images uploaded to the forum only: an image from anywhere else stays its words.
-  s = s.replace(/!\[([^\]\n]{0,200})\]\((\/forum\/media\/media_[a-z0-9]{1,40})\)/g, (_m, alt: string, src: string) => hold(`<a class="p-img" href="${src}" target="_blank" rel="noopener"><img src="${src}" alt="${esc(alt || "Image")}" loading="lazy"></a>`));
-  s = s.replace(/\[([^\]\n]{1,200})\]\(([^)\s]{1,2000})\)/g, (_m, label: string, url: string) => hold(linkHtml(url, inlineText(label), ctx)));
-  s = s.replace(/\bhttps?:\/\/[^\s<>()]+[^\s<>().,;:!?'"]/g, (url) => hold(linkHtml(url, esc(url), ctx)));
-  s = s.replace(MENTION, (m, bracketed: string | undefined, word: string | undefined) => {
+  lineText = lineText.replace(/!\[([^\]\n]{0,200})\]\((\/forum\/media\/media_[a-z0-9]{1,40})\)/g, (_, alt: string, mediaPath: string) => hold(`<a class="p-img" href="${mediaPath}" target="_blank" rel="noopener"><img src="${mediaPath}" alt="${esc(alt || "Image")}" loading="lazy"></a>`));
+  lineText = lineText.replace(/\[([^\]\n]{1,200})\]\(([^)\s]{1,2000})\)/g, (_, label: string, url: string) => hold(linkHtml(url, inlineText(label), ctx)));
+  lineText = lineText.replace(/\bhttps?:\/\/[^\s<>()]+[^\s<>().,;:!?'"]/g, (url) => hold(linkHtml(url, esc(url), ctx)));
+  lineText = lineText.replace(MENTION, (match, bracketed: string | undefined, word: string | undefined) => {
     const name = (bracketed ?? word)!.trim();
-    return ctx.mentions.has(name.toLowerCase()) ? hold(`<span class="mention">@${esc(name)}</span>`) : m;
+    return ctx.mentions.has(name.toLowerCase()) ? hold(`<span class="mention">@${esc(name)}</span>`) : match;
   });
-  return emphasis(esc(s)).replace(/\u0000(\d+)\u0000/g, (_m, i: string) => held[Number(i)]!);
+  return emphasis(esc(lineText)).replace(/\u0000(\d+)\u0000/g, (_, heldIndexText: string) => held[Number(heldIndexText)]!);
 }
 
 /** A link's label: emphasis, but no links inside links. */
@@ -114,8 +114,8 @@ function codeBlock(lang: string, code: string): string {
   return `<figure class="code"><figcaption><span>${label}</span><button type="button" data-wrap aria-pressed="false">Wrap</button><button type="button" data-copy>Copy</button></figcaption><pre><code>${esc(code)}</code></pre></figure>`;
 }
 
-function videoCard(url: string, v: { host: string; embed: string }, ctx: MarkdownContext): string {
-  return `<div class="video"><iframe src="${esc(v.embed)}" title="${v.host} video" loading="lazy" allow="fullscreen; picture-in-picture; encrypted-media" allowfullscreen referrerpolicy="strict-origin-when-cross-origin" sandbox="allow-scripts allow-same-origin allow-presentation allow-popups"></iframe>${linkHtml(url, `Open on ${v.host}`, ctx)}</div>`;
+function videoCard(url: string, video: { host: string; embed: string }, ctx: MarkdownContext): string {
+  return `<div class="video"><iframe src="${esc(video.embed)}" title="${video.host} video" loading="lazy" allow="fullscreen; picture-in-picture; encrypted-media" allowfullscreen referrerpolicy="strict-origin-when-cross-origin" sandbox="allow-scripts allow-same-origin allow-presentation allow-popups"></iframe>${linkHtml(url, `Open on ${video.host}`, ctx)}</div>`;
 }
 
 /** A post's text as safe HTML. */
@@ -124,7 +124,7 @@ export function renderMarkdown(text: string, ctx: MarkdownContext): string {
   const out: string[] = [];
   let para: string[] = [];
   const flush = () => {
-    if (para.length) out.push(`<p>${para.map((l) => inline(l, ctx)).join("<br>")}</p>`);
+    if (para.length) out.push(`<p>${para.map((paragraphLine) => inline(paragraphLine, ctx)).join("<br>")}</p>`);
     para = [];
   };
   for (let i = 0; i < lines.length; i++) {
@@ -166,13 +166,13 @@ export function renderMarkdown(text: string, ctx: MarkdownContext): string {
       { re: /^\s*-\s+/, open: '<ul class="dashes">', close: "</ul>" },
       { re: /^\s*[*+]\s+/, open: "<ul>", close: "</ul>" },
     ];
-    const list = kinds.find((k) => k.re.test(line));
+    const list = kinds.find((kind) => kind.re.test(line));
     if (list) {
       flush();
       const items: string[] = [];
       while (i < lines.length && list.re.test(lines[i]!)) items.push(lines[i++]!.replace(list.re, ""));
       i--;
-      out.push(`${list.open}${items.map((it) => `<li>${inline(it, ctx)}</li>`).join("")}${list.close}`);
+      out.push(`${list.open}${items.map((listItem) => `<li>${inline(listItem, ctx)}</li>`).join("")}${list.close}`);
       continue;
     }
     const bare = line.trim();

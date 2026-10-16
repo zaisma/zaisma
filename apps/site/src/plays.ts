@@ -27,12 +27,12 @@ import { playable } from "./home.ts";
  *     { ticket, seconds }         time on screen since the last report, up to 10 minutes
  */
 
-const DAY = 86_400_000;
+const DAY_MS = 86_400_000;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 /** The page reports time at least every 5 minutes, so anything past this isn't real. */
-const MAX_SECONDS = 600;
+const MAXIMUM_REPORTED_DURATION_SEC = 600;
 /** How long after their first play a player coming back is counted. */
-const MAX_AFTER = 30;
+const MAXIMUM_RETURN_AFTER_DAYS = 30;
 /** On screen this long before a play counts (the page waits 60 seconds; a little leeway for clocks). */
 const COUNT_AFTER_MS = 55_000;
 /** A ticket is good for this long: a play longer than that stops adding time. */
@@ -40,12 +40,12 @@ const TICKET_MS = 6 * 3_600_000;
 
 const SITEVERIFY = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 
-const today = (now = Date.now()) => new Date(now).toISOString().slice(0, 10);
+const today = (nowMs = Date.now()) => new Date(nowMs).toISOString().slice(0, 10);
 const ok = (body?: unknown) => (body === undefined ? new Response(null, { status: 204 }) : Response.json(body));
 
 export async function handlePlays(request: Request, env: Env, path: string): Promise<Response | null> {
-  const m = path.match(/^\/api\/plays\/([a-z0-9-]+)$/);
-  if (!m) return null;
+  const match = path.match(/^\/api\/plays\/([a-z0-9-]+)$/);
+  if (!match) return null;
   if (request.method !== "POST") return new Response(null, { status: 405 });
   // Only the game page counts plays: another site can't send them from its visitors' browsers.
   const origin = request.headers.get("origin");
@@ -62,7 +62,7 @@ export async function handlePlays(request: Request, env: Env, path: string): Pro
   } catch {
     return new Response(null, { status: 400 });
   }
-  const game = await gameBySlug(env.DB, m[1]!);
+  const game = await gameBySlug(env.DB, match[1]!);
   if (body.tester !== undefined) return testerPlay(env, game, body);
   if (!game || !playable(game)) return new Response(null, { status: 404 });
 
@@ -100,82 +100,89 @@ interface StartFacts {
 }
 
 function startFacts(body: Record<string, unknown>): StartFacts {
-  const date = (v: unknown) => (typeof v === "string" && DATE.test(v) && Number.isFinite(Date.parse(v)) ? v : null);
+  const date = (sentDate: unknown) => (typeof sentDate === "string" && DATE.test(sentDate) && Number.isFinite(Date.parse(sentDate)) ? sentDate : null);
   return { first: date(body.first), last: date(body.last), cfirst: date(body.cfirst), clast: date(body.clast) };
 }
 
 /** Every play started, checked or not: the "in all" numbers. */
-export async function countStart(db: D1Database, gameId: string, f: StartFacts, now = Date.now()): Promise<void> {
-  const day = today(now);
-  const isNew = f.first === null;
-  await db
+export async function countStart(database: D1Database, gameId: string, facts: StartFacts, nowMs = Date.now()): Promise<void> {
+  const date = today(nowMs);
+  const isNew = facts.first === null;
+  await database
     .prepare(
-      "INSERT INTO play_days (game_id, day, plays, players, new_players) VALUES (?, ?, 1, ?, ?) ON CONFLICT (game_id, day) DO UPDATE SET plays = plays + 1, players = players + excluded.players, new_players = new_players + excluded.new_players",
+      "INSERT INTO play_days (game_id, date, started_play_count, started_player_count, started_new_player_count) VALUES (?, ?, 1, ?, ?) ON CONFLICT (game_id, date) DO UPDATE SET started_play_count = started_play_count + 1, started_player_count = started_player_count + excluded.started_player_count, started_new_player_count = started_new_player_count + excluded.started_new_player_count",
     )
-    .bind(gameId, day, isNew || f.last !== day ? 1 : 0, isNew ? 1 : 0)
+    .bind(gameId, date, isNew || facts.last !== date ? 1 : 0, isNew ? 1 : 0)
     .run();
 }
 
 /** A checked play's ticket, with what it will count once it's been on screen for a minute. */
-export async function issueTicket(db: D1Database, gameId: string, f: StartFacts, now = Date.now()): Promise<string> {
+export async function issueTicket(database: D1Database, gameId: string, facts: StartFacts, nowMs = Date.now()): Promise<string> {
   const id = newId("play_ticket");
-  const day = today(now);
-  await db
-    .prepare("INSERT INTO play_tickets (id, game_id, issued_at, day, player, new_player, first_day) VALUES (?, ?, ?, ?, ?, ?, ?)")
-    .bind(id, gameId, now, day, f.clast !== day ? 1 : 0, f.cfirst === null ? 1 : 0, f.cfirst)
+  const date = today(nowMs);
+  await database
+    .prepare("INSERT INTO play_tickets (id, game_id, issued_at_ms, date, is_first_play_today, is_new_player, first_play_date) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    .bind(id, gameId, nowMs, date, facts.clast !== date ? 1 : 0, facts.cfirst === null ? 1 : 0, facts.cfirst)
     .run();
   return id;
 }
 
 /** A minute on screen: count the play, once, with the time it has so far. */
-export async function countTicket(db: D1Database, gameId: string, id: string, asn: number, now = Date.now()): Promise<boolean> {
-  const t = await db
-    .prepare("UPDATE play_tickets SET counted_at = ? WHERE id = ? AND game_id = ? AND counted_at IS NULL AND issued_at <= ? AND issued_at > ? RETURNING *")
-    .bind(now, id, gameId, now - COUNT_AFTER_MS, now - TICKET_MS)
-    .first<{ day: string; player: number; new_player: number; first_day: string | null; seconds: number }>();
-  if (!t) return false;
+export async function countTicket(database: D1Database, gameId: string, id: string, autonomousSystemNumber: number, nowMs = Date.now()): Promise<boolean> {
+  const ticket = await database
+    .prepare("UPDATE play_tickets SET counted_at_ms = ? WHERE id = ? AND game_id = ? AND counted_at_ms IS NULL AND issued_at_ms <= ? AND issued_at_ms > ? RETURNING *")
+    .bind(nowMs, id, gameId, nowMs - COUNT_AFTER_MS, nowMs - TICKET_MS)
+    .first<{ date: string; is_first_play_today: number; is_new_player: number; first_play_date: string | null; play_duration_sec: number }>();
+  if (!ticket) return false;
   const writes = [
-    db
+    database
       .prepare(
-        "INSERT INTO play_days (game_id, day, counted, counted_players, counted_new, counted_seconds) VALUES (?, ?, 1, ?, ?, ?) ON CONFLICT (game_id, day) DO UPDATE SET counted = counted + 1, counted_players = counted_players + excluded.counted_players, counted_new = counted_new + excluded.counted_new, counted_seconds = counted_seconds + excluded.counted_seconds",
+        "INSERT INTO play_days (game_id, date, play_count, player_count, new_player_count, play_duration_sec) VALUES (?, ?, 1, ?, ?, ?) ON CONFLICT (game_id, date) DO UPDATE SET play_count = play_count + 1, player_count = player_count + excluded.player_count, new_player_count = new_player_count + excluded.new_player_count, play_duration_sec = play_duration_sec + excluded.play_duration_sec",
       )
-      .bind(gameId, t.day, t.player, t.new_player, t.seconds),
+      .bind(gameId, ticket.date, ticket.is_first_play_today, ticket.is_new_player, ticket.play_duration_sec),
   ];
-  if (t.player) {
+  if (ticket.is_first_play_today) {
     writes.push(
-      db
-        .prepare("INSERT INTO play_networks (game_id, day, asn, players) VALUES (?, ?, ?, 1) ON CONFLICT (game_id, day, asn) DO UPDATE SET players = players + 1")
-        .bind(gameId, t.day, asn),
+      database
+        .prepare("INSERT INTO play_networks (game_id, date, autonomous_system_number, player_count) VALUES (?, ?, ?, 1) ON CONFLICT (game_id, date, autonomous_system_number) DO UPDATE SET player_count = player_count + 1")
+        .bind(gameId, ticket.date, autonomousSystemNumber),
     );
   }
   // Back for the first time today: count it against the day they first played.
-  const after = t.first_day ? Math.round((Date.parse(t.day) - Date.parse(t.first_day)) / DAY) : 0;
-  if (!t.new_player && t.player && after >= 1 && after <= MAX_AFTER) {
+  const afterDays = ticket.first_play_date ? Math.round((Date.parse(ticket.date) - Date.parse(ticket.first_play_date)) / DAY_MS) : 0;
+  if (!ticket.is_new_player && ticket.is_first_play_today && afterDays >= 1 && afterDays <= MAXIMUM_RETURN_AFTER_DAYS) {
     writes.push(
-      db
-        .prepare("INSERT INTO play_returns (game_id, first_day, after, players) VALUES (?, ?, ?, 1) ON CONFLICT (game_id, first_day, after) DO UPDATE SET players = players + 1")
-        .bind(gameId, t.first_day, after),
+      database
+        .prepare("INSERT INTO play_returns (game_id, first_play_date, after_days, player_count) VALUES (?, ?, ?, 1) ON CONFLICT (game_id, first_play_date, after_days) DO UPDATE SET player_count = player_count + 1")
+        .bind(gameId, ticket.first_play_date, afterDays),
     );
   }
-  await db.batch(writes);
+  await database.batch(writes);
   return true;
 }
 
 /** Time on screen, never more than has passed since the ticket was issued. */
-export async function addTime(db: D1Database, gameId: string, id: string, value: unknown, now = Date.now()): Promise<void> {
-  const seconds = Math.min(Math.round(Number(value)), MAX_SECONDS);
-  if (!Number.isFinite(seconds) || seconds < 1) return;
-  const t = await db
-    .prepare("UPDATE play_tickets SET seconds = seconds + ?1 WHERE id = ?2 AND game_id = ?3 AND issued_at > ?4 AND (seconds + ?1) * 1000 <= ?5 - issued_at + 10000 RETURNING counted_at")
-    .bind(seconds, id, gameId, now - TICKET_MS, now)
-    .first<{ counted_at: number | null }>();
+export async function addTime(database: D1Database, gameId: string, id: string, reportedDurationSec: unknown, nowMs = Date.now()): Promise<void> {
+  const durationSec = Math.min(Math.round(Number(reportedDurationSec)), MAXIMUM_REPORTED_DURATION_SEC);
+  if (!Number.isFinite(durationSec) || durationSec < 1) return;
+  const ticket = await database
+    .prepare("UPDATE play_tickets SET play_duration_sec = play_duration_sec + ?1 WHERE id = ?2 AND game_id = ?3 AND issued_at_ms > ?4 AND (play_duration_sec + ?1) * 1000 <= ?5 - issued_at_ms + 10000 RETURNING counted_at_ms")
+    .bind(durationSec, id, gameId, nowMs - TICKET_MS, nowMs)
+    .first<{ counted_at_ms: number | null }>();
   // Time before the play counted is added when it counts.
-  if (t?.counted_at) {
-    await db
-      .prepare("INSERT INTO play_days (game_id, day, counted_seconds) VALUES (?, ?, ?) ON CONFLICT (game_id, day) DO UPDATE SET counted_seconds = counted_seconds + excluded.counted_seconds")
-      .bind(gameId, today(now), seconds)
+  if (ticket?.counted_at_ms) {
+    await database
+      .prepare("INSERT INTO play_days (game_id, date, play_duration_sec) VALUES (?, ?, ?) ON CONFLICT (game_id, date) DO UPDATE SET play_duration_sec = play_duration_sec + excluded.play_duration_sec")
+      .bind(gameId, today(nowMs), durationSec)
       .run();
   }
+}
+
+/** What Cloudflare's siteverify answers about a Turnstile token, in its own words. */
+interface TurnstileAnswer {
+  success?: boolean;
+  action?: string;
+  hostname?: string;
 }
 
 /** Cloudflare's answer about the browser that pressed Play. Each answer works once. */
@@ -183,8 +190,8 @@ async function checked(env: Env, token: unknown): Promise<boolean> {
   const secret = env.TURNSTILE_SECRET;
   if (!secret || typeof token !== "string" || !token || token.length > 2048) return false;
   try {
-    const res = await fetch(SITEVERIFY, { method: "POST", body: new URLSearchParams({ secret, response: token }) });
-    const out = (await res.json()) as { success?: boolean; action?: string; hostname?: string };
+    const response = await fetch(SITEVERIFY, { method: "POST", body: new URLSearchParams({ secret, response: token }) });
+    const out = (await response.json()) as TurnstileAnswer;
     if (out.success !== true) return false;
     // Cloudflare's test keys (the preview) answer without the action or our hostname.
     if (secret.startsWith("1x0000000000000000000000000000000")) return true;
@@ -206,8 +213,8 @@ async function ownGame(request: Request, env: Env, game: Game): Promise<boolean>
 
 /** The internet provider's network number (ASN) of the connection, or 0 when unknown. */
 function network(request: Request): number {
-  const asn = Number((request as { cf?: { asn?: unknown } }).cf?.asn);
-  return Number.isInteger(asn) && asn > 0 ? asn : 0;
+  const autonomousSystemNumber = Number((request as { cf?: { asn?: unknown } }).cf?.asn);
+  return Number.isInteger(autonomousSystemNumber) && autonomousSystemNumber > 0 ? autonomousSystemNumber : 0;
 }
 
 /**
@@ -239,64 +246,65 @@ export const HOSTING_NETWORKS = new Set([
  * Players a game's day counts for on the shelves: counted players, without hosting networks, and
  * no one network carrying more than 30% of them (or 10, for small games).
  */
-export function shelfPlayers(networks: { asn: number; players: number }[]): number {
+export function shelfPlayers(networks: { autonomous_system_number: number; player_count: number }[]): number {
   // The share is of players on other networks, so bots on cloud servers can't raise it.
-  const homes = networks.filter((r) => r.asn !== 0 && !HOSTING_NETWORKS.has(r.asn));
-  const cap = Math.max(10, Math.ceil(homes.reduce((n, r) => n + r.players, 0) * 0.3));
-  return homes.reduce((n, r) => n + Math.min(r.players, cap), 0);
+  const homes = networks.filter((network) => network.autonomous_system_number !== 0 && !HOSTING_NETWORKS.has(network.autonomous_system_number));
+  const maximumNetworkPlayerCount = Math.max(10, Math.ceil(homes.reduce((totalPlayerCount, network) => totalPlayerCount + network.player_count, 0) * 0.3));
+  return homes.reduce((totalPlayerCount, network) => totalPlayerCount + Math.min(network.player_count, maximumNetworkPlayerCount), 0);
 }
 
+/** The developer API's play_stats (PLAY_STATS in schemas.ts), passed through as it is. */
 export interface PlayStats {
-  days: { day: string; plays: number; players: number; new_players: number; minutes_played: number; all_plays: number }[];
+  days: { date: string; play_count: number; player_count: number; new_player_count: number; play_duration_min: number; started_play_count: number }[];
   /** Counted plays: the official number. */
-  plays: number;
+  play_count: number;
   /** Every play started, counted or not. */
-  all_plays: number;
-  new_players: number;
-  minutes_played: number;
+  started_play_count: number;
+  new_player_count: number;
+  play_duration_min: number;
   /** Average time on screen per counted play, in minutes, or null before any. */
-  minutes_per_play: number | null;
+  average_play_duration_min: number | null;
   /**
    * Of the players whose first counted play was in the 30 days before, how many came back 1, 7 and
-   * 30 days later. Only days that are over count, so a new game shows null (percent) for a while.
+   * 30 days later. Only days that are over count, so a new game shows null (returned_pct) for a while.
    */
-  came_back: Record<"after_1_day" | "after_7_days" | "after_30_days", { percent: number | null; players: number; of: number }>;
+  came_back: Record<"after_1_day" | "after_7_days" | "after_30_days", { returned_pct: number | null; returned_player_count: number; new_player_count: number }>;
 }
 
-/** A game's play stats for the last `days` days (including today). */
-export async function playStats(db: D1Database, gameId: string, days: number, now = Date.now()): Promise<PlayStats> {
-  const from = today(now - (days - 1) * DAY);
+/** A game's play stats for the last `periodDurationDays` days (including today). */
+export async function playStats(database: D1Database, gameId: string, periodDurationDays: number, nowMs = Date.now()): Promise<PlayStats> {
+  const from = today(nowMs - (periodDurationDays - 1) * DAY_MS);
   // Coming back after 30 days looks at players who first played up to 60 days ago.
-  const oldest = today(now - (MAX_AFTER + 30) * DAY);
+  const oldest = today(nowMs - (MAXIMUM_RETURN_AFTER_DAYS + 30) * DAY_MS);
   const [{ results: rows }, { results: returns }] = await Promise.all([
-    db
-      .prepare("SELECT day, plays, counted, counted_players, counted_new, counted_seconds FROM play_days WHERE game_id = ? AND day >= ? ORDER BY day")
+    database
+      .prepare("SELECT date, started_play_count, play_count, player_count, new_player_count, play_duration_sec FROM play_days WHERE game_id = ? AND date >= ? ORDER BY date")
       .bind(gameId, from < oldest ? from : oldest)
-      .all<{ day: string; plays: number; counted: number; counted_players: number; counted_new: number; counted_seconds: number }>(),
-    db
-      .prepare("SELECT first_day, after, players FROM play_returns WHERE game_id = ? AND first_day >= ? AND after IN (1, 7, 30)")
+      .all<{ date: string; started_play_count: number; play_count: number; player_count: number; new_player_count: number; play_duration_sec: number }>(),
+    database
+      .prepare("SELECT first_play_date, after_days, player_count FROM play_returns WHERE game_id = ? AND first_play_date >= ? AND after_days IN (1, 7, 30)")
       .bind(gameId, oldest)
-      .all<{ first_day: string; after: number; players: number }>(),
+      .all<{ first_play_date: string; after_days: number; player_count: number }>(),
   ]);
-  const shown = rows.filter((r) => r.day >= from);
-  const plays = shown.reduce((n, r) => n + r.counted, 0);
-  const seconds = shown.reduce((n, r) => n + r.counted_seconds, 0);
-  const newBy = new Map(rows.map((r) => [r.day, r.counted_new]));
-  const cameBack = (after: number) => {
-    // Players who first played on a day in the 30 before the last day that's over, `after` days on.
-    const days = Array.from({ length: 30 }, (_, i) => today(now - (after + 1 + i) * DAY));
-    const of = days.reduce((n, d) => n + (newBy.get(d) ?? 0), 0);
-    const set = new Set(days);
-    const players = returns.filter((r) => r.after === after && set.has(r.first_day)).reduce((n, r) => n + r.players, 0);
-    return { percent: of ? Math.round((players / of) * 100) : null, players, of };
+  const shown = rows.filter((row) => row.date >= from);
+  const playCount = shown.reduce((totalPlayCount, row) => totalPlayCount + row.play_count, 0);
+  const playDurationSec = shown.reduce((totalDurationSec, row) => totalDurationSec + row.play_duration_sec, 0);
+  const newPlayerCountByDate = new Map(rows.map((row) => [row.date, row.new_player_count]));
+  const cameBack = (afterDays: number) => {
+    // Players who first played on a day in the 30 before the last day that's over, `afterDays` days on.
+    const firstPlayDates = Array.from({ length: 30 }, (_, i) => today(nowMs - (afterDays + 1 + i) * DAY_MS));
+    const newPlayerCount = firstPlayDates.reduce((totalPlayerCount, date) => totalPlayerCount + (newPlayerCountByDate.get(date) ?? 0), 0);
+    const set = new Set(firstPlayDates);
+    const returnedPlayerCount = returns.filter((row) => row.after_days === afterDays && set.has(row.first_play_date)).reduce((totalPlayerCount, row) => totalPlayerCount + row.player_count, 0);
+    return { returned_pct: newPlayerCount ? Math.round((returnedPlayerCount / newPlayerCount) * 100) : null, returned_player_count: returnedPlayerCount, new_player_count: newPlayerCount };
   };
   return {
-    days: shown.map((r) => ({ day: r.day, plays: r.counted, players: r.counted_players, new_players: r.counted_new, minutes_played: Math.round(r.counted_seconds / 60), all_plays: r.plays })),
-    plays,
-    all_plays: shown.reduce((n, r) => n + r.plays, 0),
-    new_players: shown.reduce((n, r) => n + r.counted_new, 0),
-    minutes_played: Math.round(seconds / 60),
-    minutes_per_play: plays ? Math.round((seconds / 60 / plays) * 10) / 10 : null,
+    days: shown.map((row) => ({ date: row.date, play_count: row.play_count, player_count: row.player_count, new_player_count: row.new_player_count, play_duration_min: Math.round(row.play_duration_sec / 60), started_play_count: row.started_play_count })),
+    play_count: playCount,
+    started_play_count: shown.reduce((totalPlayCount, row) => totalPlayCount + row.started_play_count, 0),
+    new_player_count: shown.reduce((totalPlayerCount, row) => totalPlayerCount + row.new_player_count, 0),
+    play_duration_min: Math.round(playDurationSec / 60),
+    average_play_duration_min: playCount ? Math.round((playDurationSec / 60 / playCount) * 10) / 10 : null,
     came_back: { after_1_day: cameBack(1), after_7_days: cameBack(7), after_30_days: cameBack(30) },
   };
 }
@@ -392,43 +400,43 @@ export interface PlaySpike {
   game_id: string;
   title: string;
   is_off_shelves: number;
-  day: string;
-  players: number;
+  date: string;
+  player_count: number;
   /** Counted players a day in the week before, on average. */
-  usual: number;
-  networks: number;
+  usual_players_per_day: number;
+  network_count: number;
   /** Share of the day's players from its biggest network, and from cloud networks, in percent. */
-  top_share: number;
-  hosting_share: number;
+  biggest_network_pct: number;
+  hosting_network_pct: number;
 }
 
 /**
  * Days, today or yesterday, when a game had far more counted players than usual (5 times its average
  * over the week before, and at least 30), with how spread out they were: for admin to check.
  */
-export async function playSpikes(db: D1Database, now = Date.now()): Promise<PlaySpike[]> {
-  const { results } = await db
-    .prepare("SELECT play_days.game_id, games.title, games.is_off_shelves, play_days.day, play_days.counted_players FROM play_days JOIN games ON games.id = play_days.game_id WHERE play_days.day >= ?")
-    .bind(today(now - 8 * DAY))
-    .all<{ game_id: string; title: string; is_off_shelves: number; day: string; counted_players: number }>();
+export async function playSpikes(database: D1Database, nowMs = Date.now()): Promise<PlaySpike[]> {
+  const { results } = await database
+    .prepare("SELECT play_days.game_id, games.title, games.is_off_shelves, play_days.date, play_days.player_count FROM play_days JOIN games ON games.id = play_days.game_id WHERE play_days.date >= ?")
+    .bind(today(nowMs - 8 * DAY_MS))
+    .all<{ game_id: string; title: string; is_off_shelves: number; date: string; player_count: number }>();
   const spikes: PlaySpike[] = [];
-  for (const d of [today(now), today(now - DAY)]) {
-    for (const r of results.filter((x) => x.day === d && x.counted_players >= 30)) {
-      const week = Array.from({ length: 7 }, (_, i) => today(Date.parse(d) - (i + 1) * DAY));
-      const usual = results.filter((x) => x.game_id === r.game_id && week.includes(x.day)).reduce((n, x) => n + x.counted_players, 0) / 7;
-      if (r.counted_players < usual * 5) continue;
-      const { results: nets } = await db.prepare("SELECT asn, players FROM play_networks WHERE game_id = ? AND day = ?").bind(r.game_id, d).all<{ asn: number; players: number }>();
-      const total = nets.reduce((n, x) => n + x.players, 0) || 1;
+  for (const date of [today(nowMs), today(nowMs - DAY_MS)]) {
+    for (const row of results.filter((day) => day.date === date && day.player_count >= 30)) {
+      const week = Array.from({ length: 7 }, (_, i) => today(Date.parse(date) - (i + 1) * DAY_MS));
+      const usualPlayersPerDay = results.filter((day) => day.game_id === row.game_id && week.includes(day.date)).reduce((totalPlayerCount, day) => totalPlayerCount + day.player_count, 0) / 7;
+      if (row.player_count < usualPlayersPerDay * 5) continue;
+      const { results: networks } = await database.prepare("SELECT autonomous_system_number, player_count FROM play_networks WHERE game_id = ? AND date = ?").bind(row.game_id, date).all<{ autonomous_system_number: number; player_count: number }>();
+      const totalPlayerCount = networks.reduce((playerCount, network) => playerCount + network.player_count, 0) || 1;
       spikes.push({
-        game_id: r.game_id,
-        title: r.title,
-        is_off_shelves: r.is_off_shelves,
-        day: d,
-        players: r.counted_players,
-        usual: Math.round(usual * 10) / 10,
-        networks: nets.length,
-        top_share: Math.round((Math.max(0, ...nets.map((x) => x.players)) / total) * 100),
-        hosting_share: Math.round((nets.filter((x) => HOSTING_NETWORKS.has(x.asn)).reduce((n, x) => n + x.players, 0) / total) * 100),
+        game_id: row.game_id,
+        title: row.title,
+        is_off_shelves: row.is_off_shelves,
+        date,
+        player_count: row.player_count,
+        usual_players_per_day: Math.round(usualPlayersPerDay * 10) / 10,
+        network_count: networks.length,
+        biggest_network_pct: Math.round((Math.max(0, ...networks.map((network) => network.player_count)) / totalPlayerCount) * 100),
+        hosting_network_pct: Math.round((networks.filter((network) => HOSTING_NETWORKS.has(network.autonomous_system_number)).reduce((playerCount, network) => playerCount + network.player_count, 0) / totalPlayerCount) * 100),
       });
     }
   }
@@ -436,9 +444,9 @@ export async function playSpikes(db: D1Database, now = Date.now()): Promise<Play
 }
 
 /** Take a day's counted plays away from a game (they looked faked). Every play started stays. */
-export async function clearCountedDay(db: D1Database, gameId: string, day: string): Promise<void> {
-  await db.batch([
-    db.prepare("UPDATE play_days SET counted = 0, counted_players = 0, counted_new = 0, counted_seconds = 0 WHERE game_id = ? AND day = ?").bind(gameId, day),
-    db.prepare("DELETE FROM play_networks WHERE game_id = ? AND day = ?").bind(gameId, day),
+export async function clearCountedDay(database: D1Database, gameId: string, date: string): Promise<void> {
+  await database.batch([
+    database.prepare("UPDATE play_days SET play_count = 0, player_count = 0, new_player_count = 0, play_duration_sec = 0 WHERE game_id = ? AND date = ?").bind(gameId, date),
+    database.prepare("DELETE FROM play_networks WHERE game_id = ? AND date = ?").bind(gameId, date),
   ]);
 }
