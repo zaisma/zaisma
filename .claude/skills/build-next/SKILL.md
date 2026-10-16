@@ -35,6 +35,8 @@ Also stop when:
 
 Otherwise claim it at once: mark the row `doing` in `docs/ROADMAP.md` in your worktree as your first edit, before reading further. Other sessions running this skill read it there and pick another item. Sessions started in the same moment can race for the same free item, so when starting several at once, give each a place in Now or a name.
 
+When it says **Settled: no**, claim it all the same, then use the `talk-through` skill before anything else: its brief is your first message to Julius, and you wait for him. He talks with you in this session, even when another one (the `coordinator` skill) started it. When the talk closes and he says yes, the docs it settled go in this worktree and this pull request, with the row's `Settled` set to `yes`, and you go on to step 3. If he decides not to build it now, put the row back the way it was on main and say so.
+
 ## 3. Read what it touches
 
 - The decisions behind it in `docs/DECISIONS.md`: "The direction" always, and the sections its notes name or that are about the same thing.
@@ -48,6 +50,24 @@ One row is one slice that lands on its own. If the item is too big for one pull 
 ## 5. Build
 
 - The row is already `doing` from step 2; it ships in the same change, per CLAUDE.md's roadmap rules.
-- Follow `CLAUDE.md`: the building-block checklist, the rules for code, preview before live for large or important UI (`npm run preview`, with direct links for Julius).
+- Follow `CLAUDE.md`: the building-block checklist and the rules for code.
 - `npm test` and `npm run typecheck` pass before the pull request; the pull request check runs them too.
-- Open the pull request and stop there: merging is Julius's call. After he merges, `npm run ship`, then mark the row `done` (date, PR, migration) and republish the roadmap page as CLAUDE.md says.
+- Open the pull request.
+
+## 6. Preview
+
+If a player or developer would see anything change on a page, it needs Julius's OK in the preview before it merges. Other sessions may be running previews too, so take the first `PREVIEW_PORT_OFFSET` (0, 100, 200, …) whose site port (8800 plus the offset) nothing is listening on (`lsof -nP -iTCP:<port> -sTCP:LISTEN`), and run `PREVIEW_PORT_OFFSET=<offset> node scripts/preview/run.mjs` in the background. Give Julius direct links to each page and state to look at, then end the turn and wait for his OK, changing what he asks for. No visible change, no preview: say so in the pull request.
+
+## 7. Merge and ship
+
+**Not settled:** stop at the pull request. Merging is Julius's call. After he merges, go on from "Ship" below.
+
+**Settled:** merge it yourself once all of these hold:
+
+1. It's up to date with main. Bring it up to date (`sync_with_base_branch` in an app worktree, else merge `origin/main`), fix any conflicts (most often roadmap rows, or a migration number another item took first: renumber yours), run `npm test` and `npm run typecheck` again and push.
+2. GitHub's check on the pull request passed (`gh pr checks <number> --watch`, in the background).
+3. Julius OK'd the preview, if it had one.
+
+Then `gh pr merge <number> --merge`. If it fails because main moved, go back to 1.
+
+**Ship:** `npm run ship`, in the background. If another session is shipping, it waits its turn by itself. `SHIP WAITING` means a migration deletes data: start it in a Terminal tab for Julius, as CLAUDE.md says. On `SHIP PASS`, mark the row `done` (date, PR, migration) in a commit pushed straight to main, then republish the roadmap page as CLAUDE.md says. If the push is refused because main moved, fetch, redo the one row on `origin/main`, and push again.

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error: a plain JavaScript script without types
-import { findRow, firstBlockers, parseRoadmap, unknownNames } from "../../scripts/roadmap.mjs";
+import { findRow, firstBlockers, parseRoadmap, unknownNames, unsettledDoneRows } from "../../scripts/roadmap.mjs";
 
 /** docs/ROADMAP.md: Now's First and Next parts, and a project's First line, as scripts/roadmap-item.mjs reads them. */
 
@@ -37,11 +37,11 @@ const SAMPLE = `# Roadmap
 
 **First:** Friends list
 
-| Status | Must/Nice | Item | Needs | Notes |
-| --- | --- | --- | --- | --- |
-| next | Must | Friends list | | |
-| next | Must | Party chat | | |
-| planned | Nice | Emotes | | |
+| Status | Must/Nice | Settled | Item | Needs | Notes |
+| --- | --- | --- | --- | --- | --- |
+| next | Must | yes | Friends list | | |
+| next | Must | | Party chat | | |
+| planned | Nice | | Emotes | | |
 `;
 
 describe("the roadmap's First markers", () => {
@@ -72,6 +72,37 @@ describe("the roadmap's First markers", () => {
   it("reads \"**First:** nothing.\" as no First items", () => {
     const empty = parseRoadmap(SAMPLE.replace("**First:**\n\n1. Pass shape (Identity)", "**First:** nothing."));
     expect(empty.nowItems.filter((item: { part: string }) => item.part === "first")).toEqual([]);
+  });
+
+  it("reads the Settled column, and a table without one as not settled", () => {
+    expect(findRow(sample, "Friends list").isSettled).toBe(true);
+    expect(findRow(sample, "Party chat").isSettled).toBe(false);
+    expect(findRow(sample, "Pass shape").isSettled).toBe(false);
+  });
+
+  it("keeps Settled apart from status: a done row that isn't settled isn't checked off, except a person's task", () => {
+    const built = parseRoadmap(SAMPLE
+      .replace("| next | Must | yes | Friends list |", "| done | Must | yes | Friends list |")
+      .replace("| next | Must | | Party chat |", "| done | Must | | Party chat |")
+      .replace("| planned | Nice | | Emotes |", "| done | Nice | | Julius: buy emotes |"));
+    expect(unsettledDoneRows(built).map((row: { name: string }) => row.name)).toEqual(["Party chat"]);
+  });
+
+  it("gives every table with Must/Nice in docs/ROADMAP.md a Settled column holding yes or nothing", () => {
+    const cellsOf = (line: string) => line.slice(1, -1).split("|").map((cell) => cell.trim());
+    const badLines: string[] = [];
+    let settledColumn = -1;
+    for (const line of readFileSync(join(ROOT, "docs/ROADMAP.md"), "utf8").split("\n")) {
+      if (!line.startsWith("|")) { settledColumn = -1; continue; }
+      if (line.startsWith("| Status |")) {
+        settledColumn = cellsOf(line).indexOf("Settled");
+        if (line.includes("Must/Nice") && settledColumn < 0) badLines.push(line);
+        continue;
+      }
+      const value = cellsOf(line)[settledColumn];
+      if (settledColumn >= 0 && !/^\|[\s|-]+\|$/.test(line) && value !== "yes" && value !== "") badLines.push(line);
+    }
+    expect(badLines).toEqual([]);
   });
 
   it("names only real items in docs/ROADMAP.md, and keeps First items in Now unfinished", () => {

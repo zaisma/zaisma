@@ -3,14 +3,16 @@
 //   node scripts/roadmap-item.mjs            the first item in Now that's free to start
 //   node scripts/roadmap-item.mjs 2          the second item in Now
 //   node scripts/roadmap-item.mjs "Game database"   any item, by its exact name
-// Prints the item's row, its project's goal and "Done when", whether its Needs and the First items
-// before it are done, whether another worktree has claimed it, and the project's other rows.
-// Exits 1 when Now is empty or the item isn't on the roadmap, 2 when the item has to wait.
+//   node scripts/roadmap-item.mjs --now      every item in Now: settled or not, free to start or what it waits on
+//   node scripts/roadmap-item.mjs --unsettled   done items built without being settled, by project
+// Prints the item's row, whether it's settled, its project's goal and "Done when", whether its Needs
+// and the First items before it are done, whether another worktree has claimed it, and the project's
+// other rows. Exits 1 when Now is empty or the item isn't on the roadmap, 2 when the item has to wait.
 
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { findRow, firstBlockers, parseRoadmap } from "./roadmap.mjs";
+import { findRow, firstBlockers, parseRoadmap, unsettledDoneRows } from "./roadmap.mjs";
 
 const git = (...args) => execFileSync("git", args, { encoding: "utf8" });
 const roadmap = parseRoadmap(git("show", "origin/main:docs/ROADMAP.md"));
@@ -39,6 +41,43 @@ const statusOf = (name) => findRow(roadmap, name)?.status ?? "no such item";
 const isFree = (row) =>
   row.status !== "done" && row.status !== "doing" && !claims.has(row.name.toLowerCase()) &&
   firstBlockers(roadmap, row).length === 0 && needsOf(row).every((need) => statusOf(need) === "done");
+
+/** Why a row can't start yet, as plain lines; empty when it's free. */
+function waitsOf(row) {
+  const claim = claims.get(row.name.toLowerCase());
+  return [
+    ...(row.status === "done" ? ["it's done"] : []),
+    ...(row.status === "doing" ? ["it's marked doing on main"] : []),
+    ...firstBlockers(roadmap, row).map((blocker) => `${blocker.name} (${blocker.status}) is First ${blocker.gate === "now" ? "in Now" : "in its project"}: it lands before this starts`),
+    ...needsOf(row).filter((need) => statusOf(need) !== "done").map((need) => `${need} (${statusOf(need)}) is in its Needs`),
+    ...(claim ? [`another session has started it: marked doing in ${claim}`] : []),
+  ];
+}
+
+if (process.argv[2] === "--now") {
+  if (!nowItems.length) {
+    console.log("Now is empty: nothing is lined up. Use the whats-next skill to propose what comes next.");
+    process.exit(1);
+  }
+  for (const [i, item] of nowItems.entries()) {
+    const row = findRow(roadmap, item.name);
+    if (!row) { console.log(`${i + 1}. ${item.name}: no such item`); continue; }
+    const waits = waitsOf(row);
+    console.log(`${i + 1}. ${row.name}  [${row.isSettled ? "settled" : "not settled"}] ${waits.length ? `waits: ${waits.join("; ")}` : "free to start"}`);
+  }
+  process.exit(0);
+}
+
+if (process.argv[2] === "--unsettled") {
+  const rows = unsettledDoneRows(roadmap);
+  if (!rows.length) console.log("Every done item is settled.");
+  let project = null;
+  for (const row of rows) {
+    if (row.project !== project) { project = row.project; console.log(`${row.phase}${project.title ? ` > ${project.title}` : ""}`); }
+    console.log(`  ${row.name}`);
+  }
+  process.exit(0);
+}
 
 const asked = process.argv.slice(2).join(" ").trim();
 let name = asked;
@@ -81,6 +120,11 @@ const claim = claims.get(row.name.toLowerCase());
 
 console.log(`Item: ${row.name}${nowPlace >= 0 ? `  (Now #${nowPlace + 1} of ${nowItems.length}, ${nowItems[nowPlace].part === "first" ? "First" : "Next"})` : "  (not in Now)"}`);
 console.log(`Status: ${row.status}${row.mustOrNice ? `, ${row.mustOrNice}` : ""}`);
+console.log(`Settled: ${
+  row.isSettled ? "yes: talked through with Julius, so it's ready to build and its PR merges without him (a preview still needs his OK)"
+  : row.status === "done" ? "no: built without being settled; it isn't checked off until Julius settles it (talk-through)"
+  : "no: talk its design and scope through with Julius first (talk-through)"
+}`);
 console.log(`Where: ${row.phase}${row.project.title ? ` > ${row.project.title}` : ""}`);
 if (row.project.intro) console.log(`Project: ${row.project.intro}`);
 console.log(`Needs: ${needs.length ? needs.map((need) => `${need} (${statusOf(need)})`).join(", ") : "nothing"}`);

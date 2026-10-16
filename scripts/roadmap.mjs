@@ -52,13 +52,21 @@ export function parseRoadmap(text) {
     if (cells.every((cell) => /^-+$/.test(cell))) continue;
     if (!header) { header = cells.map((cell) => cell.toLowerCase()); continue; }
     const get = (key) => cells[header.indexOf(key)] ?? "";
-    rows.push({ phase, project, status: get("status"), mustOrNice: get("must/nice"), name: get("item"), needs: get("needs"), notes: get("notes") });
+    rows.push({ phase, project, status: get("status"), mustOrNice: get("must/nice"), isSettled: get("settled").toLowerCase() === "yes",name: get("item"), needs: get("needs"), notes: get("notes") });
   }
 
   return { nowItems, rows, projects };
 }
 
 const sameName = (a, b) => a.toLowerCase() === b.toLowerCase();
+
+/** Rows a person does (named "Julius: …" or "Gleb: …") have no design to settle. */
+export const isPersonTask = (row) => /^(Julius|Gleb):/.test(row.name);
+
+/** Done rows that were built without being settled: not checked off until Julius settles them. */
+export function unsettledDoneRows(roadmap) {
+  return roadmap.rows.filter((row) => row.status === "done" && !row.isSettled && !isPersonTask(row));
+}
 
 /** The row with this exact name, or undefined. */
 export function findRow(roadmap, name) {

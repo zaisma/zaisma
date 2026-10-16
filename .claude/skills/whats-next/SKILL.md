@@ -18,6 +18,8 @@ Julius uses this when Now is empty or he isn't sure what comes next. He shouldn'
 
 For each project whose rows all just turned `done`: does its "Done when" actually hold, and did the rows cover the goal, or is there an obvious gap? Only gaps that matter; a project isn't reopened for polish.
 
+A row is only checked off when it's done **and settled**. `node scripts/roadmap-item.mjs --unsettled` lists the done rows built without Julius's talk. Say how many there are and which ones matter most to settle first: the ones others build on, or ones that would cost the most to change later.
+
 ## 3. Does anything go before everything else?
 
 This is the main question. An item, or a short chain of items, goes first only when one of these is true:
@@ -43,7 +45,7 @@ Short and plain, in this order:
 1. **Done or not:** one line per finished project, with any real gap.
 2. **What goes first, if anything:** the item or chain for Now's First, in order, and for each one sentence on what builds on it or what waiting would cost. Then any project's First, with the same sentence. If nothing does, say so: then the rest can go in any order, side by side, and say which item you'd start with and why.
 3. **Foundation gaps outside the roadmap**, if any, with the same test: what it costs later, why now. Propose real work as a session card, not a paragraph.
-4. **The Now list you propose**, ready to paste: a `**First:**` part (or `**First:** nothing.`) and a `**Next:**` part, numbered straight through, each item's exact name with its project in brackets. Add any project `**First:**` lines below it.
+4. **The Now list you propose**, ready to paste: a `**First:**` part (or `**First:** nothing.`) and a `**Next:**` part, numbered straight through, each item's exact name with its project in brackets. Add any project `**First:**` lines below it. Say which items are settled and which will start with a talk.
 
 Then ask Julius one question: whether to set Now that way.
 
