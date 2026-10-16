@@ -134,21 +134,23 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | Status | Must/Nice | Settled | Item | Needs | Notes |
 | --- | --- | --- | --- | --- | --- |
 | done | Must | yes | Player passes | | Signed guest passes any server can check, published keys |
-| done | Must | | Game server API and relay | | Server-client by default; messages-only relay for simple games |
-| done | Must | | Rooms on rooms.zaisma.com | Player passes, Game server API and relay | Durable Objects with hibernation; limits, takedowns end rooms |
+| done | Must | yes | Game server API and relay |  | Server-client by default; messages-only relay for simple games |
+| done | Must | yes | Rooms on rooms.zaisma.com | Player passes, Game server API and relay | Durable Objects with hibernation; limits, takedowns end rooms |
 | done | Must | | Games can reach our rooms and their own servers | Rooms on rooms.zaisma.com | Own servers set per game and listed on the game page |
-| done | Must | | Client SDK | Rooms on rooms.zaisma.com | `joinRoom`, invite links, reconnecting |
-| done | Must | | Room invite links | Client SDK | Tap a link, land in the match as a guest |
-| done | Must | | Game page controls | | Share, Full screen and a menu (about, Report) beside the game; invites live in the game via `Zaisma.invite` |
+| done | Must | yes | Client SDK | Rooms on rooms.zaisma.com | `joinRoom`, invite links, reconnecting |
+| done | Must | yes | Room invite links | Client SDK | Tap a link, land in the match as a guest |
+| done | Must | yes | Game page controls |  | Share, Full screen and a menu (about, Report) beside the game; invites live in the game via `Zaisma.invite` |
 | done | Must | | Two demo games | Room invite links | Real-time arena, turn-based four in a row |
-| done | Must | | Room browsing | Room invite links | Live Oct 12, 2026: a Rooms tab on each game's page, "playing now" under the title, and the same list for the game (`Zaisma.rooms.list`, `quickJoin`, `linked`); developers choose where rooms are listed |
-| done | Must | | Room names and labels | Room browsing | Live Oct 12, 2026: names and up to 4 labels, label filters, Zaisma's text filter on names typed by players, reportable names; `Zaisma.filterText` for games |
-| done | Nice | | Lobbies and matches | Room names and labels | Live Oct 12, 2026: data brought into a room (`joinRoom({ data })`) and a game server making a room for some of its players and moving them there (`room.reserve`) |
-| done | Must | | Kick and move players | Lobbies and matches | Live Oct 13, 2026: `room.kick` with keep out, `canJoin`, `room.moveTo` with `onMoved`, the SDK following moves, the host kicking in relay games and the next player becoming host |
+| done | Must | yes | Room browsing | Room invite links | Live Oct 12, 2026: a Rooms tab on each game's page, "playing now" under the title, and the same list for the game (`Zaisma.rooms.list`, `quickJoin`, `linked`); developers choose where rooms are listed |
+| planned | Must | yes | Rooms tab copy for games that don't join you | Room browsing | "Press Play and the game finds you one" shows only for games that join players automatically |
+| done | Must | yes | Room names and labels | Room browsing | Live Oct 12, 2026: names and up to 4 labels, label filters, Zaisma's text filter on names typed by players, reportable names; `Zaisma.filterText` for games |
+| done | Nice | yes | Lobbies and matches | Room names and labels | Live Oct 12, 2026: data brought into a room (`joinRoom({ data })`) and a game server making a room for some of its players and moving them there (`room.reserve`) |
+| done | Must | yes | Kick and move players | Lobbies and matches | Live Oct 13, 2026: `room.kick` with keep out, `canJoin`, `room.moveTo` with `onMoved`, the SDK following moves, the host kicking in relay games and the next player becoming host |
 | done | Must | yes | Idle and away players | Kick and move players | Live Oct 14, 2026, built the honest-clients way: dead connections drop within a minute, "Still there?" after 10 minutes without input, hidden games go away in real-time rooms, seats held for 5 minutes (`holdFor`, `away`, `onAway`, `onBack`), and idle players don't count as playing |
-| done | Must | | Room connection limits | | Live Oct 13, 2026: opening a room connection is limited per internet address (60 a minute) |
-| done | Must | | Room-count protection | Play-count protection | Live Oct 14, 2026: a player pass needs a key from Cloudflare's check on Play, up to 5 passes per key over 6 hours, so bots can't fill rooms or fake "playing now" |
-| done | Must | | Beta usage ceiling | Rooms on rooms.zaisma.com | Live Oct 13, 2026: until Hosting billing, each game's rooms stop at the free 1,000 player-hours a month; running matches finish and no new rooms open until the month resets. Julius approved Oct 13, 2026 |
+| done | Must | yes | Room connection limits |  | Live Oct 13, 2026: opening a room connection is limited per internet address (60 a minute) |
+| done | Must | yes | Room-count protection | Play-count protection | Live Oct 14, 2026: a player pass needs a key from Cloudflare's check on Play, up to 5 passes per key over 6 hours, so bots can't fill rooms or fake "playing now" |
+| done | Must | yes | Beta usage ceiling | Rooms on rooms.zaisma.com | Live Oct 13, 2026: until Hosting billing, each game's rooms stop at the free 1,000 player-hours a month; running matches finish and no new rooms open until the month resets. Julius approved Oct 13, 2026 |
+| planned | Must | yes | Usage warning before the ceiling | Beta usage ceiling | The developer is told before a game reaches its free player-hours, not only after |
 | planned | Nice | | Closest rooms by measurement | Idle and away players | The SDK measures its connection to the regions that have rooms and quick join prefers the fastest; the server's order by location stays for everyone else |
 | planned | Nice | | Find players across rooms | Kick and move players, Player safety in rooms | A small directory per game: the game server asks which room its players are in and messages another room, for friends lists, parties and join a friend. Blocks always apply; teens are findable only by friends by default. Moves to Phase 3 if not ready |
 | planned | Nice | | Own servers list their rooms | Room browsing | Rooms on a developer's own servers show in the same list: their server checks in with Zaisma every minute |
