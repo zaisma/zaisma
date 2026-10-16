@@ -6,10 +6,9 @@ The live plan of what gets built, in what order. `docs/DECISIONS.md` says *how* 
 
 Who a player is comes first: the pass, the player ID and the sign-in that saves, friends, the game database and webhooks all build on, settled before anything else builds on them (Julius, Oct 16, 2026). After these, the rest of Phase 1 goes in any order.
 
-1. Sign in with Zaisma (Accounts and saves)
-2. Social modes and age bands (Accounts and saves)
-3. Game database (Game servers and data)
-4. Webhooks for developers (Developer publishing)
+1. Social modes and age bands (Accounts and saves)
+2. Game database (Game servers and data)
+3. Webhooks for developers (Developer publishing)
 
 Waiting on people: Gleb: register with NCMEC, Gleb: register the DMCA agent, Julius: send PhotoDNA the LLC's records.
 
@@ -175,7 +174,7 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | done | Must | Accounts-only games | Account passes | Live Oct 16, 2026 (#160, migration 0037): a game setting (account_requirement) for guests welcome, accounts for multiplayer or accounts for the whole game, in the API, MCP and dashboard; guests of such a game get no player passes; the game page says "Needs a Zaisma account" before Play and asks guests to sign in; site copy no longer says every game plays as a guest |
 | planned | Must | Accounts-only rooms | Accounts-only games | One room takes only accounts, set from the SDK or the game server, on Zaisma rooms and the developer's own server |
 | planned | Must | Sign-in from games | Accounts-only games | `Zaisma.player.signIn()`: a game asks a guest to sign in without leaving it, then gets an account pass |
-| doing | Must | Sign in with Zaisma | Account passes | One OAuth server for developers' own sites, games with their own accounts and the MCP. This slice: OpenID Connect on zaisma.com, sign-in apps through the API and MCP, the consent page and the account page's list |
+| done | Must | Sign in with Zaisma | Account passes | Live Oct 16, 2026 (#161, migration 0038): OpenID Connect on zaisma.com for developers' own sites and games with their own accounts, sign-in apps through the API and MCP, a one-time consent page and the account page's list. The MCP's sign-in uses it next (MCP sign-in without a key) |
 | planned | Must | Sign-in apps in the dashboard | Sign in with Zaisma | The dashboard's form for sign-in apps, on the same API |
 | next | Must | Social modes and age bands | Age question | Three age bands (13–15, 16–17, 18+); every account has a social mode (solo-focused, friends-focused, open and social). 13–15 start solo-focused and can switch only to friends-focused; open and social stays within the same band group. The pass carries an opaque chat group and friends, never the age; `canChat(a, b)` for developers' servers |
 | planned | Must | Saves through the API | Cloud saves, Developer accounts | Developers read, fix and export their game's saves by player ID (API and MCP); every developer change keeps a history copy first. Saves and the game database stay separate |
