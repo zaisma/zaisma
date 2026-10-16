@@ -10,13 +10,12 @@ Who a player is came first: the pass, the player ID and the sign-in that saves, 
 
 **Next:**
 
-1. Webhooks for developers (Developer publishing)
-2. Friends (Polish before outreach)
-3. Game server endpoints and schedules (Game servers and data)
-4. Sign-in from games (Accounts and saves)
-5. Saves through the API (Accounts and saves)
-6. Scoped API keys (Developer publishing)
-7. Game database import and export (Game servers and data)
+1. Friends (Polish before outreach)
+2. Game server endpoints and schedules (Game servers and data)
+3. Sign-in from games (Accounts and saves)
+4. Saves through the API (Accounts and saves)
+5. Scoped API keys (Developer publishing)
+6. Game database import and export (Game servers and data)
 
 Waiting on people: Gleb: register with NCMEC, Gleb: register the DMCA agent, Julius: send PhotoDNA the LLC's records.
 
@@ -112,7 +111,7 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | planned | Must | Scan only what changed; per-developer budgets | Upload command | A daily limit on AI-reviewed uploads per free account (higher with Pro), about 20 updates per game per day |
 | planned | Must | `zaisma check` and automatic fixes | Upload command | Pulls in outside scripts, unpacks compressed builds |
 | planned | Must | MCP sign-in without a key | Developer MCP | OAuth, so claude.ai and other apps that can't send a key can connect after the developer signs in. Developer MCP: Zaisma's own OAuth server (the one Sign in with Zaisma will use), with a consent page and connected apps listed beside API keys; an app signed in this way can't make API keys. Admin MCP: Cloudflare Access's managed OAuth, no code (Julius: turn on Managed OAuth on the admin application in Zero Trust) |
-| doing | Must | Webhooks for developers | Developer MCP, AI report triage | Signed events (Standard Webhooks) to addresses the developer sets through the API and MCP: bug reports, scans, the version players get, holds and takedowns, with retries and a delivery list. E.g. a GitHub issue for every bug report |
+| done | Must | Webhooks for developers | Developer MCP, AI report triage | Live Oct 16, 2026 (#167, migration 0040): signed events (Standard Webhooks) to addresses the developer sets through the API and MCP: bug reports, scans, the version players get, holds and takedowns, with retries and a delivery list. E.g. a GitHub issue for every bug report |
 | planned | Must | Room events in webhooks | Webhooks for developers | Game server errors, stopped loops and rooms that reach the month's free hours, sent to webhooks; rooms write them to D1 for the site to send |
 | next | Must | Scoped API keys | Developer accounts | Keys limited to one game, read-only or upload-only, for CI and collaborators |
 | planned | Must | Export everything | Developer accounts, Game database import and export | One command (and MCP tool) exports a game: files, versions, database, saves, stats, reports and updates |
