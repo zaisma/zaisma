@@ -181,6 +181,8 @@ async function start() {
     // A drop-in game: the room the player's link points to, else a busy arena with space, else a new one.
     room = await Zaisma.rooms.quickJoin({ joinData: color ? { color } : null });
   } catch (error) {
+    // The developer made multiplayer need a Zaisma account: ask the guest to sign in without leaving the game, then join as the account.
+    if (error.code === "account_needed") return askToSignIn();
     statusElement.textContent = error.message;
     return;
   }
@@ -201,5 +203,16 @@ async function start() {
   });
   room.on("ended", (message) => { statusElement.textContent = message; });
   sendInput();
+}
+
+async function askToSignIn() {
+  statusElement.textContent = "Playing online needs a Zaisma account.";
+  try {
+    await Zaisma.player.signIn();
+  } catch (error) {
+    statusElement.textContent = error.code === "sign_in_declined" ? "Playing online needs a Zaisma account. Reload the game to sign in." : error.message;
+    return;
+  }
+  start();
 }
 start();

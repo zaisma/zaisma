@@ -89,10 +89,18 @@ function loadSdk(zaismaConfig: typeof ON_ZAISMA | null = ON_ZAISMA, fetchAnswer:
   const sockets: StandInSocket[] = [];
   const listeners: Record<string, ((event?: unknown) => void)[]> = {};
   const listen = (type: string, listener: (event?: unknown) => void) => void (listeners[type] ??= []).push(listener);
+  // The Zaisma page around the game: it hands over its room key, whose kind changes when the player signs in.
   const page = {
+    playerKind,
+    posted: [] as unknown[],
     postMessage(message: { type?: string }) {
-      const answer = { origin: ON_ZAISMA.site, source: page, data: { type: "zaisma:room-key", key: "room_key_test", playerKind } };
+      page.posted.push(message);
+      const answer = { origin: ON_ZAISMA.site, source: page, data: { type: "zaisma:room-key", key: "room_key_test", playerKind: page.playerKind } };
       if (message?.type === "zaisma:room-key") queueMicrotask(() => (listeners.message ?? []).slice().forEach((listener) => listener(answer)));
+    },
+    /** A message from the page to the game. */
+    say(data: unknown) {
+      (listeners.message ?? []).slice().forEach((listener) => listener({ origin: ON_ZAISMA.site, source: page, data }));
     },
   };
   const window: Record<string, unknown> = { parent: page, addEventListener: listen };
@@ -124,7 +132,7 @@ function loadSdk(zaismaConfig: typeof ON_ZAISMA | null = ON_ZAISMA, fetchAnswer:
     navigator: {},
   };
   new Function(...Object.keys(browser), SDK)(...Object.values(browser));
-  return { Zaisma: window.Zaisma as any, sockets, listeners };
+  return { Zaisma: window.Zaisma as any, sockets, listeners, page };
 }
 
 const me = { id: "player_ana", name: "Ana", kind: "guest" };
@@ -198,6 +206,8 @@ describe("the SDK's types say what the SDK does", () => {
     expect(Object.keys(Zaisma).sort()).toEqual(values);
     expect(Object.keys(Zaisma.rooms).sort()).toEqual(fieldsOf("Rooms"));
     expect(Object.keys(Zaisma.server).sort()).toEqual(fieldsOf("Server"));
+    const player = membersOf(TYPES).find((member) => member.name === "player")!;
+    expect(Object.keys(Zaisma.player).sort()).toEqual([...player.exports!.keys()].map(String).sort());
   });
 
   it("the options each call takes", async () => {
@@ -295,6 +305,32 @@ describe("the SDK's types say what the SDK does", () => {
     expect(signedIn).toEqual({ ...passAnswer.player, pass: "account-pass", expiresAt: passAnswer.expiresAt });
     expect(Object.keys(signedIn).sort()).toEqual(fieldsOf("PlayerWithPass"));
     expect(asked).toEqual([{ url: "https://rooms.zaisma.test/v1/pass", body: JSON.stringify({ gameSlug: "test-game", roomKey: "room_key_test" }) }]);
+  });
+
+  it("asks the page to sign a guest in, then gives the account's pass", async () => {
+    const passAnswer = { pass: "account-pass", player: { id: "player_cy", name: "Cy", kind: "account" }, expiresAt: "2099-01-01T00:00:00Z" };
+    const sdk = loadSdk(ON_ZAISMA, () => Promise.resolve({ ok: true, json: () => Promise.resolve(passAnswer) }));
+    expect((await sdk.Zaisma.player()).kind).toBe("guest");
+    const asking = sdk.Zaisma.player.signIn();
+    // A second call while the page is asking waits for the same answer.
+    expect(sdk.Zaisma.player.signIn()).toBe(asking);
+    expect(sdk.page.posted.filter((message) => (message as { type: string }).type === "zaisma:sign-in")).toEqual([{ type: "zaisma:sign-in" }]);
+    sdk.page.say({ type: "zaisma:sign-in", status: "asking" });
+    // Signed in: the page's key is the account's from now on.
+    sdk.page.playerKind = "account";
+    sdk.page.say({ type: "zaisma:signed-in", player: passAnswer.player });
+    const signedIn = await asking;
+    expect(signedIn).toEqual(passAnswer.player);
+    expect(Object.keys(signedIn).sort()).toEqual(fieldsOf("Player"));
+    expect(await sdk.Zaisma.player()).toEqual({ ...passAnswer.player, pass: "account-pass", expiresAt: passAnswer.expiresAt });
+
+    // Not now.
+    const declined = sdk.Zaisma.player.signIn();
+    sdk.page.say({ type: "zaisma:sign-in", status: "asking" });
+    sdk.page.say({ type: "zaisma:sign-in", status: "declined" });
+    expect(await failureCode(() => declined)).toBe("sign_in_declined");
+    // A game opened anywhere but its Zaisma page.
+    expect(await failureCode(() => loadSdk(null).Zaisma.player.signIn())).toBe("not_on_zaisma");
   });
 
   it("a profile has the fields PlayerProfile says", async () => {

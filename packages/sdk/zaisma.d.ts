@@ -47,7 +47,7 @@ declare namespace Zaisma {
    * under 10 minutes left or the player signed in or out. Fails with error.code "unchecked" when the
    * game isn't played on its zaisma.com page, "not_on_zaisma" when it isn't hosted on Zaisma, and
    * "account_needed" for a guest when the game needs an account for multiplayer or the whole game
-   * (its account_requirement setting).
+   * (its account_requirement setting): ask them to sign in with {@link player.signIn}.
    */
   function player(): Promise<PlayerWithPass>;
 
@@ -61,6 +61,29 @@ declare namespace Zaisma {
      * const profile = await Zaisma.player.getProfile("player_8f3k2m"); // { id, name }
      */
     function getProfile(playerId: string): Promise<PlayerProfile>;
+
+    /**
+     * Ask a guest to sign in with their Zaisma account, without leaving the game. Zaisma's page shows a
+     * small card beside the game ("Sign in" or make a free account, and "Not now"); signing in opens a
+     * new tab, so the game keeps running. Resolves with the account once the player has signed in, and
+     * at once when they already are. From then on {@link player} and joinRoom give the account's pass;
+     * rooms the player is already in keep them as the guest they joined as, so join again to play as
+     * the account. Call it when the player presses something that needs an account, like Play online
+     * in a game whose multiplayer needs one (joinRoom failed with "account_needed"), or Save to
+     * leaderboard. A second call while the card is up waits for the same answer. Fails with error.code
+     * "sign_in_declined" when the player chose Not now, and "not_on_zaisma" when the game isn't played
+     * on its zaisma.com page. There's no time limit: the player may take a few minutes.
+     *
+     * @example
+     * try {
+     *   room = await Zaisma.joinRoom();
+     * } catch (error) {
+     *   if (error.code !== "account_needed") throw error;
+     *   await Zaisma.player.signIn(); // { id, name, kind: "account" }
+     *   room = await Zaisma.joinRoom();
+     * }
+     */
+    function signIn(): Promise<Player>;
   }
 
   /**
@@ -529,7 +552,8 @@ declare namespace Zaisma {
    * - no_rooms: the game doesn't use Zaisma rooms.
    * - bad_report: a report whose reason isn't a {@link ReportReason}, or whose player ID isn't one.
    * - bad_origin: the call didn't come from the game's own page.
-   * - not_on_zaisma: the game isn't hosted on Zaisma, so it has no player passes or room lists, and joinRoom needs a serverUrl.
+   * - not_on_zaisma: the game isn't hosted on Zaisma, so it has no player passes, sign-in or room lists, and joinRoom needs a serverUrl.
+   * - sign_in_declined: the player chose Not now when the game asked them to sign in ({@link player.signIn}).
    * - bad_room_code: not a room code, which is six characters like "K7Q2MX", from 2 to 9 and A to Z without I or O.
    * - bad_server_url: a serverUrl that isn't a full wss://, ws://, https:// or http:// address.
    * - connection_closed: the connection to the room closed before it let the player in; the message says why.
@@ -547,6 +571,7 @@ declare namespace Zaisma {
     | "bad_report"
     | "bad_origin"
     | "not_on_zaisma"
+    | "sign_in_declined"
     | "no_player"
     | "bad_player_id"
     | "bad_room_code"

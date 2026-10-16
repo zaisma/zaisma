@@ -38,6 +38,8 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   // A game that needs an account for the whole game or for multiplayer asks guests to sign in, and brings them back to the same match.
   const accountRequirement = authConfigured(env) ? game.account_requirement : "none";
   const accountNext = encodeURIComponent(`${here}${inRoom ? `?room=${code}` : "?play"}`);
+  // A game can ask a guest to sign in while it runs (Zaisma.player.signIn).
+  const canSignIn = authConfigured(env);
   const [developer, pictures, updates, others, live] = await Promise.all([
     game.owner_id
       ? env.DB.prepare("SELECT accounts.name, (SELECT COUNT(*) FROM games WHERE owner_id = ? AND review_status = 'live' AND visibility = 'listed') AS game_count FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE owners.id = ?").bind(game.owner_id, game.owner_id).first<{ name: string; game_count: number }>()
@@ -370,6 +372,14 @@ ${saves
   <nav><button class="btn" value="cloud"></button><button class="btn ghost" value="local"></button></nav>
 </form></dialog>`
       : ""}
+${canSignIn
+      ? html`<aside class="keep plate bevel" id="sign-in-ask" aria-labelledby="sign-in-title" hidden>
+  <strong id="sign-in-title">${game.title} asks you to sign in</strong>
+  <p id="sign-in-text">Make a free Zaisma account or sign in. The game keeps running here while you do.</p>
+  <div class="row">${metalButton("Make an account", { href: joinHere, dataAttributes: { "sign-in": "/join" } })}<button class="btn ghost" type="button" id="sign-in-later">Not now</button></div>
+  <p class="small">Have an account? <a href="${signinHere}" data-sign-in="/signin">Sign in</a></p>
+</aside>`
+      : ""}
 ${tester && !multiplayer ? "" : html`<div id="play-check" class="play-check"></div>`}
 <script>
 let frame = null;
@@ -592,6 +602,8 @@ addEventListener("message", (e) => {
     const reply = (given) => frame.contentWindow.postMessage({ type: "zaisma:room-key", key: given ? given.key : null, playerKind: given ? given.playerKind : null }, gameOrigin);
     typeof roomKey === "undefined" ? reply(null) : roomKey.then(reply);
   }
+  // The game asks a guest to sign in (Zaisma.player.signIn).
+  if (d && d.type === "zaisma:sign-in" && window.askSignIn) askSignIn();
 });
 // Leaving the page while in a match leaves the room too (the game says goodbye as it goes). Only
 // while the game is in one: a room the player already left has counted them out, and doing it again would count them twice.
@@ -600,6 +612,7 @@ addEventListener("pagehide", () => {
 });
 ${raw(saves ? `const SAVES =${JSON.stringify({ api: `/api/saves/${game.slug}`, root: gameUrl(env, game.slug), query: inRoom ? `?room=${code}` : "", frameOrigin: new URL(frameUrl).origin, slug: game.slug, offerAfter: (Number(env.KEEP_OFFER_SECONDS) || 300) * 1000 }).replace(/</g, "\\u003c")};\n${SAVES_CLIENT}` : "")}
 ${raw(accountRequirement !== "none" ? accountGate(accountRequirement, accountNext, inRoom) : "")}
+${raw(canSignIn ? signInWhilePlaying(game.slug) : "")}
 // A room link is an invitation into a match already underway, and ?play comes from a Play button elsewhere: both skip the details.
 ${raw(autoplay ? (accountRequirement === "whole_game" || (accountRequirement === "multiplayer" && inRoom) ? "if (!needsSignIn) play();" : "play();") : "")}
 </script>`,
@@ -741,6 +754,70 @@ if (needsSignIn) {
       : ""
   }
 }`;
+}
+
+/**
+ * The game page's script for signing in while the game runs. The game asks (Zaisma.player.signIn) and
+ * a card beside it offers an account; making one or signing in opens a new tab, so the game keeps
+ * running. However the player signs in (here, "Keep your progress", or another tab), the game hears who
+ * they are now (zaisma:signed-in), and in a multiplayer game the guest's room key is traded for one to
+ * the account's passes. Not now tells the game the player declined.
+ */
+function signInWhilePlaying(slug: string): string {
+  return `const signInAsk = document.getElementById("sign-in-ask");
+const signInText = document.getElementById("sign-in-text");
+const isSignedIn = () => /(^|; )(__Host-)?zaisma_in=1/.test(document.cookie);
+let wasGuest = !isSignedIn();
+let telling = null;
+// Who the player is now, told to the game: the account, with the guest's room key traded for the account's.
+function tellSignedIn() {
+  if (!frame) return Promise.resolve(false);
+  if (telling) return telling;
+  telling = (async () => {
+    const given = typeof roomKey === "undefined" ? null : await roomKey;
+    const body = given && given.playerKind === "guest" ? { roomKey: given.key } : {};
+    const answer = await fetch("/api/plays/${slug}/account", { method: "POST", body: JSON.stringify(body) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    telling = null;
+    if (!answer) return false;
+    if (answer.key) roomKey = Promise.resolve({ key: answer.key, playerKind: answer.playerKind });
+    signInAsk.hidden = true;
+    frame.contentWindow.postMessage({ type: "zaisma:signed-in", player: answer.player }, gameOrigin);
+    return true;
+  })();
+  return telling;
+}
+window.askSignIn = async () => {
+  frame.contentWindow.postMessage({ type: "zaisma:sign-in", status: "asking" }, gameOrigin);
+  // Signed in already: the game hears who they are at once. A sign-in that has run out asks again.
+  if (!wasGuest && (await tellSignedIn())) return;
+  wasGuest = true;
+  signInText.textContent = "Make a free Zaisma account or sign in. The game keeps running here while you do.";
+  const keep = document.getElementById("keep");
+  if (keep) keep.hidden = true;
+  signInAsk.hidden = false;
+  signInAsk.querySelector("[data-sign-in]").focus();
+};
+document.getElementById("sign-in-later").onclick = () => {
+  signInAsk.hidden = true;
+  if (!frame) return;
+  frame.contentWindow.postMessage({ type: "zaisma:sign-in", status: "declined" }, gameOrigin);
+  frame.focus();
+};
+// In a new tab, so the game keeps running. If the browser won't open one, the link goes there in this tab and comes back to the game.
+signInAsk.querySelectorAll("[data-sign-in]").forEach((a) => a.addEventListener("click", (e) => {
+  if (!window.open(a.dataset.signIn + "?next=" + encodeURIComponent("/account/kept?game=${slug}"), "_blank")) return;
+  e.preventDefault();
+  signInText.textContent = "Finish in the new tab, then come back here.";
+}));
+// Signed in from another tab: tell the game once it's running.
+function checkSignedIn() {
+  if (!wasGuest || !isSignedIn()) return;
+  if (!frame) { wasGuest = false; return; }
+  tellSignedIn().then((isTold) => { if (isTold) wasGuest = false; });
+}
+addEventListener("focus", checkSignedIn);
+document.addEventListener("visibilitychange", checkSignedIn);
+try { new BroadcastChannel("zaisma").addEventListener("message", (e) => e.data === "signed-in" && checkSignedIn()); } catch {}`;
 }
 
 /** "151 playing now" under the title: everyone in the game's rooms, hidden ones too. */
