@@ -10,11 +10,10 @@ Who a player is came first: the pass, the player ID and the sign-in that saves, 
 
 **Next:**
 
-1. Friends (Polish before outreach)
-2. Sign-in from games (Accounts and saves)
-3. Saves through the API (Accounts and saves)
-4. Scoped API keys (Developer publishing)
-5. Game database import and export (Game servers and data)
+1. Sign-in from games (Accounts and saves)
+2. Saves through the API (Accounts and saves)
+3. Scoped API keys (Developer publishing)
+4. Game database import and export (Game servers and data)
 
 Waiting on people: Gleb: register with NCMEC, Gleb: register the DMCA agent, Julius: send PhotoDNA the LLC's records.
 
@@ -230,7 +229,7 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | done | Must | Home page | Design system, Continue playing | The last-played stage with Play and Details, Continue playing, and Popular, Trending, New and All games shelves. Cards are the developer's cover alone; only Play starts a game |
 | done | Must | Patch notes | | Version notes become patch notes in the game page's Updates tab |
 | planned | Must | Game update posts | Patch notes | Developers post a title, a short text and an optional image (checked like covers) |
-| doing | Must | Friends | Sign-in, Social modes and age bands | The friend list and invites on zaisma.com: a link or code for one friend, never a stranger pressing Add. Passes carry friends for `canChat` |
+| done | Must | Friends | Sign-in, Social modes and age bands | Live Oct 16, 2026 (#168, migration 0042): the friend list and invites on zaisma.com, a link or code for one friend, never a stranger pressing Add. Passes carry friends for `canChat` |
 | planned | Must | Friends playing now | Friends | What game and room each friend is in, with a Join button, and appearing offline; only friends see where a teen is playing |
 | planned | Must | Friends in games | Friends playing now | `Zaisma.friends`: the player's friends with their names and who's in this game now, for in-game friend lists and joining a friend |
 | planned | Must | Friend requests | Friends | Open-and-social accounts take friend requests from anyone, like people they played with |
