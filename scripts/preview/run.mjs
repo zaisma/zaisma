@@ -162,6 +162,7 @@ Zaisma preview is running. Nothing here touches the live site.
   Tester links    ${testers.secret ?? "(npm run preview -- --reset to make them)"}  (Rocket Lab, a private game)
                   ${testers.arena ?? ""}  (Arena, to try multiplayer through one)
   Your games      ${SITE}/dashboard
+  Friends         ${SITE}/friends  (three friends and a waiting invite; sign in as moss@example.test to be one of them)
   Sign in with    ${SIGN_IN_SITE}  (Sky Hopper Online, a developer's own site: Sign in with Zaisma, the consent page and back)
   Admin           ${SITE}/admin
   Report queue    ${SITE}/admin/reports
@@ -334,6 +335,9 @@ async function seed() {
   // The developer forum, as it might look a few weeks in: developers and their AI posting ideas,
   // questions and discussions, bugs sent to Zaisma privately, known issues, answers and Me too.
   await seedForum(api, go, form);
+
+  // Friends for the preview account: three who said yes to its invites, and one invite still waiting.
+  await seedFriends(go, form);
 }
 
 /**
@@ -532,6 +536,37 @@ async function seedForum(you, go, form) {
       `UPDATE forum_topics SET ${["created_at_ms", "updated_at_ms", "last_activity_at_ms", "news_at_ms", "seen_at_ms", "triaged_at_ms"].map(at).join(", ")}; UPDATE forum_posts SET ${at("created_at_ms")}; UPDATE forum_votes SET ${at("created_at_ms")}; UPDATE forum_follows SET ${at("seen_at_ms")};`],
     { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } },
   );
+}
+
+/**
+ * Friends for the preview account, made like people make them: it sends invites, and each friend
+ * (their own account, in their own browser) opens one and says yes. One invite is left waiting.
+ */
+async function seedFriends(go, form) {
+  const friends = [
+    { name: "Moss Runner", email: "moss@example.test", year: "1995" },
+    { name: "Quiet Comet", email: "comet@example.test", year: String(new Date().getUTCFullYear() - 14) },
+    { name: "Tall Pine", email: "pine@example.test", year: "2001" },
+  ];
+  for (const [i, friend] of friends.entries()) {
+    const made = await go("/friends/invites", form({}));
+    const inviteCode = new URL(made.headers.get("location"), SITE).searchParams.get("invite");
+    const jar = new Map();
+    const ip = `198.51.100.${200 + i}`;
+    const asFriend = async (path, body) => {
+      const res = await fetch(SITE + path, { method: "POST", body: new URLSearchParams(body), redirect: "manual", headers: { origin: SITE, "cf-connecting-ip": ip, cookie: [...jar].map(([k, v]) => `${k}=${v}`).join("; ") } });
+      for (const c of res.headers.getSetCookie()) {
+        const [pair] = c.split("; ");
+        jar.set(pair.slice(0, pair.indexOf("=")), pair.slice(pair.indexOf("=") + 1));
+      }
+      return res;
+    };
+    await asFriend("/join/age", { month: "6", day: "2", year: friend.year });
+    await asFriend("/join/email", { name: friend.name, email: friend.email });
+    await asFriend("/signin/code", { email: friend.email, code: "123456" });
+    await asFriend(`/friends/add/${inviteCode}`, {});
+  }
+  await go("/friends/invites", form({}));
 }
 
 /** Another developer account, signed in with its own API key: answers an API call function. */

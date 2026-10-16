@@ -21,6 +21,7 @@ import { sortMisplaced, sortTopics } from "./forum-sort.ts";
 import { moveFiles } from "./file-moves.ts";
 import { checkForumPosts } from "./forum-check.ts";
 import { handleForum } from "./forum-pages.ts";
+import { handleFriends } from "./friends.ts";
 import { deliverDueWebhooks } from "./webhooks.ts";
 
 /** Must match the daily cron in wrangler.jsonc. */
@@ -67,6 +68,9 @@ export default {
     const account = await handleAccount(request, env, path);
     if (account) return account;
 
+    const friends = await handleFriends(request, env, path);
+    if (friends) return friends;
+
     const game = path.match(/^\/g\/([a-z0-9-]+)(\/report|\/rooms)?$/);
     if (game) {
       const [, slug, sub] = game as unknown as [string, string, string | undefined];
@@ -87,7 +91,7 @@ export default {
       if (response) return response;
     }
 
-    if (path === "/robots.txt") return new Response("User-agent: *\nDisallow: /admin\nDisallow: /account\nDisallow: /join\nDisallow: /signin\nDisallow: /oauth/\nDisallow: /api/\nDisallow: /t/\n", { headers: { "Content-Type": "text/plain" } });
+    if (path === "/robots.txt") return new Response("User-agent: *\nDisallow: /admin\nDisallow: /account\nDisallow: /friends\nDisallow: /join\nDisallow: /signin\nDisallow: /oauth/\nDisallow: /api/\nDisallow: /t/\n", { headers: { "Content-Type": "text/plain" } });
     return message(env, "Page not found", "There's nothing at this address.", 404);
   },
 

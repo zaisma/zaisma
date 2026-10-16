@@ -142,7 +142,7 @@ export async function updateAccount(database: D1Database, id: string, change: { 
   return true;
 }
 
-/** Remove an account, its API keys, its save records and its forum topics (the caller deletes the save files and forum images). Its games stay up with no owner. */
+/** Remove an account, its API keys, its save records, its friends and its forum topics (the caller deletes the save files and forum images). Its games stay up with no owner. */
 export async function deleteAccount(database: D1Database, id: string): Promise<void> {
   const owner = await database.prepare("SELECT id FROM owners WHERE account_id = ?").bind(id).first<{ id: string }>();
   await database.batch([
@@ -168,6 +168,9 @@ export async function deleteAccount(database: D1Database, id: string): Promise<v
     database.prepare("DELETE FROM played WHERE account_id = ?").bind(id),
     database.prepare("DELETE FROM api_keys WHERE account_id = ?").bind(id),
     database.prepare("DELETE FROM room_keys WHERE account_id = ?").bind(id),
+    // Their friends, on both sides, and the invites they made.
+    database.prepare("DELETE FROM friendships WHERE account_id = ? OR friend_account_id = ?").bind(id, id),
+    database.prepare("DELETE FROM friend_invites WHERE account_id = ?").bind(id),
     // Their forum topics and posts go too (the caller deletes their images); a known issue they
     // started stays, nameless. Their replies and Me too come off other topics' counts.
     database.prepare(

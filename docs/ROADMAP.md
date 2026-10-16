@@ -231,8 +231,11 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | done | Must | Home page | Design system, Continue playing | The last-played stage with Play and Details, Continue playing, and Popular, Trending, New and All games shelves. Cards are the developer's cover alone; only Play starts a game |
 | done | Must | Patch notes | | Version notes become patch notes in the game page's Updates tab |
 | planned | Must | Game update posts | Patch notes | Developers post a title, a short text and an optional image (checked like covers) |
-| next | Must | Friends | Sign-in, Social modes and age bands | Friend list, invites, see what friends are playing and join them; by invitation in solo- and friends-focused modes; teen-safe defaults. Games get the same list (`Zaisma.friends`), and passes carry friends for `canChat` |
-| planned | Must | Friends on the home page | Home page, Friends | Friends first on the home page, above last played |
+| doing | Must | Friends | Sign-in, Social modes and age bands | The friend list and invites on zaisma.com: a link or code for one friend, never a stranger pressing Add. Passes carry friends for `canChat` |
+| planned | Must | Friends playing now | Friends | What game and room each friend is in, with a Join button, and appearing offline; only friends see where a teen is playing |
+| planned | Must | Friends in games | Friends playing now | `Zaisma.friends`: the player's friends with their names and who's in this game now, for in-game friend lists and joining a friend |
+| planned | Must | Friend requests | Friends | Open-and-social accounts take friend requests from anyone, like people they played with |
+| planned | Must | Friends on the home page | Home page, Friends playing now | Friends first on the home page, above last played |
 | planned | Must | Developer page | Design system | Publishing, the dashboard and docs in one place for game developers, off the home page |
 | planned | Must | Browse games | Design system | A proper games page with covers and genres until Phase 4 discovery |
 | planned | Must | Account pages | Design system, Passkeys | Sign-in, account, saves and sign-in methods, all polished |

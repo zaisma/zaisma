@@ -2,7 +2,7 @@ import { env, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare
 import { beforeEach, describe, expect, it } from "vitest";
 import { gameOrigin, signingKey, type Env } from "../../apps/rooms/src/index.ts";
 import { canChat, verifyPass } from "@zaisma/game-server";
-import { addTesterLink, createAccount, deleteAccount, issueRoomKey, revokeTesterLink } from "@zaisma/core";
+import { acceptFriendInvite, addTesterLink, createAccount, createFriendInvite, deleteAccount, issueRoomKey, removeFriend, revokeTesterLink } from "@zaisma/core";
 import type { Room } from "../../apps/rooms/src/room.ts";
 
 const R = "https://rooms.zaisma.test";
@@ -129,8 +129,8 @@ describe("rooms", () => {
     expect(account.player_id).toMatch(/^player_[a-z0-9]{20}$/);
     // The pass proves who, for which game and until when; the name and the sign-in's own ID stay out of it.
     const claims = JSON.parse(atob(pass.split(".")[1]!.replace(/-/g, "+").replace(/_/g, "/")));
-    expect(Object.keys(claims).sort()).toEqual(["aud", "exp", "iat", "iss", "kind", "social_mode", "sub"]);
-    expect(claims).toMatchObject({ sub: account.player_id, kind: "account", aud: "arena", social_mode: "friends_focused" });
+    expect(Object.keys(claims).sort()).toEqual(["aud", "exp", "friend_player_ids", "iat", "iss", "kind", "social_mode", "sub"]);
+    expect(claims).toMatchObject({ sub: account.player_id, kind: "account", aud: "arena", social_mode: "friends_focused", friend_player_ids: [] });
     expect(pass).not.toContain(account.id);
     expect((await passFor("other", other)).player.id).toBe(account.player_id);
 
@@ -188,6 +188,32 @@ describe("rooms", () => {
     expect(canChat(young, teen)).toBe(false);
     expect(canChat(guest, adult)).toBe(false);
     expect(canChat(adult, adult)).toBe(false);
+    expect(guest.friend_player_ids).toBeUndefined();
+  });
+
+  it("puts an account's friends in its passes, so friends chat and strangers don't", async () => {
+    const arena = await addGame("arena");
+    const ana = await createAccount(e.DB, { id: "friend-ana", name: "Ana", ageBand: "18+", socialMode: "friends_focused" });
+    const ben = await createAccount(e.DB, { id: "friend-ben", name: "Ben", ageBand: "13-15", socialMode: "friends_focused" });
+    const stranger = await createAccount(e.DB, { id: "friend-stranger", name: "Cy", ageBand: "18+", socialMode: "friends_focused" });
+    const claimsOf = async (account: { id: string }) => {
+      const { pass } = await (await post("/v1/pass", "arena", ORIGIN, { roomKey: await issueRoomKey(e.DB, arena, account.id) })).json<{ pass: string }>();
+      return verifyPass(pass, [(await signingKey(e)).publicKey], { game: "arena", issuer: e.ISSUER });
+    };
+    const made = await createFriendInvite(e.DB, ana.id);
+    if (!("invite" in made)) throw new Error("no invite");
+    expect(await acceptFriendInvite(e.DB, ben.id, made.invite.invite_code)).toMatchObject({ friend: { player_id: ana.player_id, name: "Ana" } });
+
+    const [anaClaims, benClaims, strangerClaims] = [await claimsOf(ana), await claimsOf(ben), await claimsOf(stranger)];
+    expect(anaClaims.friend_player_ids).toEqual([ben.player_id]);
+    expect(benClaims.friend_player_ids).toEqual([ana.player_id]);
+    expect(canChat(anaClaims, benClaims)).toBe(true);
+    expect(canChat(anaClaims, strangerClaims)).toBe(false);
+
+    // Removed on one side is removed on both, from the next pass on.
+    await removeFriend(e.DB, ben.id, ana.player_id);
+    expect((await claimsOf(ana)).friend_player_ids).toEqual([]);
+    expect(canChat(await claimsOf(ana), benClaims)).toBe(false);
   });
 
   it("gives guests no passes for a game that needs accounts, and rooms turn away guest passes made before", async () => {
