@@ -18,7 +18,7 @@ Founder: Julius. Side project, built in public. MIT licensed.
 
 ## Current phase
 
-**Phase 1: Beta.** Phase 0 (safe hosting) is live. What's being built next, in order, is the Now list at the top of [`docs/ROADMAP.md`](docs/ROADMAP.md); take work from there unless Julius says otherwise. When Now is empty or Julius asks what's next, use the `whats-next` skill (`.claude/skills/whats-next/SKILL.md`).
+**Phase 1: Beta.** Phase 0 (safe hosting) is live. What's being built next, in order, is the Now list at the top of [`docs/ROADMAP.md`](docs/ROADMAP.md); take work from there unless Julius says otherwise. When Now is empty or Julius asks what's next, use the `whats-next` skill (`.claude/skills/whats-next/SKILL.md`). To start an item, use the `build-next` skill; `node scripts/roadmap-item.mjs <place in Now or name>` prints any item with what it needs.
 
 How the roadmap is kept, so nobody has to piece it together or guess:
 
