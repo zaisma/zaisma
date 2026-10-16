@@ -10,13 +10,11 @@ Who a player is came first: the pass, the player ID and the sign-in that saves, 
 
 **Next:**
 
-1. Webhooks for developers (Developer publishing)
-2. Friends (Polish before outreach)
-3. Game server endpoints and schedules (Game servers and data)
-4. Sign-in from games (Accounts and saves)
-5. Saves through the API (Accounts and saves)
-6. Scoped API keys (Developer publishing)
-7. Game database import and export (Game servers and data)
+1. Friends (Polish before outreach)
+2. Sign-in from games (Accounts and saves)
+3. Saves through the API (Accounts and saves)
+4. Scoped API keys (Developer publishing)
+5. Game database import and export (Game servers and data)
 
 Waiting on people: Gleb: register with NCMEC, Gleb: register the DMCA agent, Julius: send PhotoDNA the LLC's records.
 
@@ -112,7 +110,8 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | planned | Must | Scan only what changed; per-developer budgets | Upload command | A daily limit on AI-reviewed uploads per free account (higher with Pro), about 20 updates per game per day |
 | planned | Must | `zaisma check` and automatic fixes | Upload command | Pulls in outside scripts, unpacks compressed builds |
 | planned | Must | MCP sign-in without a key | Developer MCP | OAuth, so claude.ai and other apps that can't send a key can connect after the developer signs in. Developer MCP: Zaisma's own OAuth server (the one Sign in with Zaisma will use), with a consent page and connected apps listed beside API keys; an app signed in this way can't make API keys. Admin MCP: Cloudflare Access's managed OAuth, no code (Julius: turn on Managed OAuth on the admin application in Zero Trust) |
-| next | Must | Webhooks for developers | Developer MCP, AI report triage | One signed event stream to an address the developer sets (bug reports, scans, publishes, room events, deleted accounts, later purchases), e.g. a GitHub issue for every bug report. Until then their AI checks for new bug reports with `cursor` |
+| done | Must | Webhooks for developers | Developer MCP, AI report triage | Live Oct 16, 2026 (#167, migration 0040): signed events (Standard Webhooks) to addresses the developer sets through the API and MCP: bug reports, scans, the version players get, holds and takedowns, with retries and a delivery list. E.g. a GitHub issue for every bug report |
+| planned | Must | Room events in webhooks | Webhooks for developers | Game server errors, stopped loops and rooms that reach the month's free hours, sent to webhooks; rooms write them to D1 for the site to send |
 | next | Must | Scoped API keys | Developer accounts | Keys limited to one game, read-only or upload-only, for CI and collaborators |
 | planned | Must | Export everything | Developer accounts, Game database import and export | One command (and MCP tool) exports a game: files, versions, database, saves, stats, reports and updates |
 | planned | Must | Registered links | Developer accounts | So developers can earn with their own payments from day one: links to their store, Patreon, Steam or Discord, opened by `Zaisma.links` with a leaving-Zaisma notice |
@@ -165,7 +164,8 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | done | Must | Game database for game servers | Rooms on rooms.zaisma.com | Live Oct 16, 2026 (#163, no migration): a SQLite database per game as `room.database` (plain SQL and batches), in Zaisma rooms and as a local file on the developer's own server. Free per game: 500,000 rows written and 500 million read a month, 500 MB; until Hosting billing, past them writes stop and reads keep working (Julius, Oct 16, 2026) |
 | done | Must | Game database through the API | Game database for game servers | Live Oct 16, 2026 (#164, no migration, CLI 0.5.0): the developer and their AI run SQL, list tables and see use against the free limits, through the API, MCP (`get_database`, `query_database`, `batch_database`) and `zaisma database` |
 | next | Must | Game database import and export | Game database through the API | Data in and out of a game's database, and a dashboard page that reads the same API |
-| next | Must | Game server endpoints and schedules | Developers' own game servers run safely | Plain requests to the game's server code (leaderboards, a shop, daily rewards) and schedules (daily resets, persistent worlds), with the game database behind it; the same code runs on the developer's own server |
+| done | Must | Game server endpoints | Developers' own game servers run safely | Live Oct 16, 2026 (#169, migration 0041): the game server's `onRequest` answers `Zaisma.server.request` outside rooms (leaderboards, a shop, daily rewards), with the game database behind it, on Zaisma and in the Node runner. Free per game: 1 million requests a month (Julius, Oct 16, 2026) |
+| planned | Must | Game server schedules | Game server endpoints | The game's server code runs on a schedule (daily resets, persistent worlds), on Zaisma and on the developer's own server |
 | planned | Must | Game server reach and secrets | Developers' own game servers run safely | Game servers can call the developer's own listed servers and payment providers, with secrets set per game and never shown again. Still nothing of ours inside |
 
 ### Accounts and saves

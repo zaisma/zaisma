@@ -152,6 +152,9 @@ export async function deleteAccount(database: D1Database, id: string): Promise<v
           database.prepare("DELETE FROM sign_in_codes WHERE sign_in_app_id IN (SELECT id FROM sign_in_apps WHERE owner_id = ?)").bind(owner.id),
           database.prepare("DELETE FROM sign_in_grants WHERE sign_in_app_id IN (SELECT id FROM sign_in_apps WHERE owner_id = ?)").bind(owner.id),
           database.prepare("DELETE FROM sign_in_apps WHERE owner_id = ?").bind(owner.id),
+          // Their webhooks, with what was on its way to them.
+          database.prepare("DELETE FROM webhook_deliveries WHERE owner_id = ?").bind(owner.id),
+          database.prepare("DELETE FROM webhooks WHERE owner_id = ?").bind(owner.id),
           database.prepare("UPDATE games SET owner_id = NULL WHERE owner_id = ?").bind(owner.id),
           database.prepare("DELETE FROM owners WHERE id = ?").bind(owner.id),
         ]

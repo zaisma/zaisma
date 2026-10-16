@@ -121,8 +121,10 @@ Every ID Zaisma makes says its kind in its value: `<kind>_<random>`, the kind in
 | `room_key` | `room_key_…` |
 | `sign_in_app` | `sign_in_app_…` |
 | `chat_group` | `chat_group_…` |
+| `webhook` | `webhook_…` |
+| `webhook_event` | `webhook_event_…` |
 
-`ID_KINDS` (`packages/core/src/ids.ts`) is this list, and a test keeps the two in step; a new kind is added to both in the same change. Accounts' and guests' player IDs are both `player_…`, in their passes and everywhere the SDK and game server show them; an account's never changes, and Zaisma's own account ID (the sign-in's) never leaves Zaisma. The developer API and MCP still name a game by its `slug`, the link name developers know. Not IDs, and kept as they are: a `slug`, a `room_code` (six letters players type), API keys (`zsk_…`, a format secret scanners know) and file hashes (`sha256`).
+`ID_KINDS` (`packages/core/src/ids.ts`) is this list, and a test keeps the two in step; a new kind is added to both in the same change. Accounts' and guests' player IDs are both `player_…`, in their passes and everywhere the SDK and game server show them; an account's never changes, and Zaisma's own account ID (the sign-in's) never leaves Zaisma. The developer API and MCP still name a game by its `slug`, the link name developers know. Not IDs, and kept as they are: a `slug`, a `room_code` (six letters players type), API keys (`zsk_…`, a format secret scanners know), webhook signing secrets (`whsec_…`, Standard Webhooks' form) and file hashes (`sha256`).
 
 ## Inputs
 
@@ -190,7 +192,7 @@ Every call that changes something answers with `next_steps`: the calls that usua
 Deliberate, and only these:
 
 - **Standard formats keep their own names**: HTTP headers, JSON-RPC and MCP fields (`inputSchema`, `isError`, `structuredContent`) and JSON Schema keywords (`maxLength`). So do the shapes of standards and outside services Zaisma reads: JWT claims (`exp`, `nbf`, `iat`), OAuth and OpenID Connect at `/oauth/` and `/.well-known/` (`client_id`, `redirect_uri`, `id_token`, `expires_in`, `auth_time`, `invalid_grant`), WebAuthn's client and authenticator data (`crossOrigin`, `flags`), R2's ranges (`offset`, `length`, `suffix`), and what Cloudflare Turnstile (`success`) and VirusTotal answer.
-- **API keys** keep `zsk_`.
+- **API keys** keep `zsk_`, and webhook signing secrets Standard Webhooks' `whsec_`; the headers webhooks are sent with (`webhook-id`, `webhook-timestamp`, `webhook-signature`) are Standard Webhooks' own.
 
 ## Glossary
 
@@ -224,6 +226,10 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 | What a game needs a Zaisma account for | `account_requirement`: `none`, `multiplayer`, `whole_game`; a guest turned away gets `account_needed` | error `code` `account_needed` |
 | A developer's own site or app that players sign in to with Zaisma, and OAuth's client type for it | `sign_in_app_id` (the OAuth `client_id`); `kind`: `confidential`, `public` | |
 | Where a sign-in can go back to, and asking for a new client secret | `redirect_urls`; `replace_client_secret: true`, answered once as `client_secret` | |
+| An address a developer's server takes Zaisma's events at, the events it takes and the games they're about | `webhook_id`; `endpoint_url`, `event_kinds`, `game_slugs` (`null` for every game) | |
+| What a webhook is sent, and what happened | `webhook_event`, its `id` a `webhook_event_…` ID; its `kind`: `bug_reported`, `scan_status_changed`, `live_version_changed`, `review_status_changed`, `test` | |
+| Asking for a new signing secret for a webhook | `replace_signing_secret: true`, answered once as `signing_secret` (`whsec_…`, Standard Webhooks' form) | |
+| An event on its way to one webhook, and how it went | `delivery_status`: `pending`, `delivered`, `failed`; `attempt_count`, `last_attempt_at`, `next_attempt_at`, `failure_message`; `pending_delivery_count`, `failed_delivery_count` | |
 | How many players, and the most and fewest allowed | `player_count`, `maximum_player_count`, `minimum_player_count` | `playerCount`, `maximumPlayerCount`, `minimumPlayerCount` |
 | How many files, and their total size | `file_count`, `size_bytes` | |
 | An image's size on screen | `width_px`, `height_px` | |
@@ -266,6 +272,9 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 | Keeping a kicked player out, as asked and as told | | `keepOut` (asked), `isKeptOut` (told) |
 | A game's own SQLite database, a statement for it and the values for its `?`s | `sql`, `values` (a blob as `{ blob_base64 }`), `statements`; answered as `rows`, `statement_results` (one per statement) and `read_row_count`, `written_row_count`; its `tables` and `indexes` (`table_name`) | `room.database`: `query(sql, values)` answers rows, `batch(statements)` runs `{ sql, values }` statements in one transaction; a `DatabaseError` has a `code` and a `fix` |
 | A game database's free use a month, and its use this month | `database_use_this_month`: `read_row_count`, `written_row_count`, `storage_size_bytes` beside `free_read_row_count`, `free_written_row_count`, `free_storage_size_bytes`; `has_reached_free_reads`, `has_reached_free_writes`, `has_reached_free_storage`; `reset_date` | `writtenRowCountPerMonth`, `readRowCountPerMonth`, `storageSizeBytes` (`GAME_DATABASE_FREE_LIMITS`); past them, `database_write_limit`, `database_read_limit`, `database_storage_limit` |
+| A request from a game to its own game server outside any room, and what that answers | `request_count` (in a day's `game_server`) | `Zaisma.server.request(request, { serverUrl })` answers the `answer`; the game server's `onRequest(player, request, server)`, with `server.database`; sent to `POST /v1/requests/<slug>` as `{ pass, request }`, answered `{ answer }` |
+| A game's requests a month, free and used | `request_use_this_month`: `request_count`, `free_request_count`, `has_reached_free_requests` | `FREE_REQUEST_COUNT_PER_MONTH`; past it, `request_limit` |
+| What a request to a game server can fail with | | `RequestErrorCode`: `bad_request`, `too_big`, `bad_pass`, `account_needed`, `game_unavailable`, `no_request_handler`, `game_server_error`, `request_limit`, `slow_down`, `bad_origin`, `busy` |
 | What an error or a review reason is, and its other parts | `code`; `message`, `field`, `fix`, `retry_after_sec` (inside `error` only); `content_rule` (inside `review_reason` and `findings` only) | `code` (on the error only) |
 
 ## Adding a field, option or tool

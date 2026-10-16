@@ -27,6 +27,7 @@ import {
 import { sendAlert } from "./email.ts";
 import type { Env } from "./env.ts";
 import { pauseForReport } from "./report.ts";
+import { tellWebhooks } from "./webhooks.ts";
 import { holdKnownImages, inspectVersion, summarize, versionFiles, type ScanDeps } from "./scan.ts";
 
 /**
@@ -160,6 +161,8 @@ async function triageOne(env: Env, report: Report, deps: Required<TriageDeps>, p
   await env.DB.prepare("UPDATE reports SET severity_index = ?, report_group_id = ?, triage = ?, triaged_at_ms = ?, is_bug_report = ?, bug_report_at_ms = ?, report_status = ?, closed_at_ms = ?, precedent_id = ? WHERE id = ?")
     .bind(outcome.severityIndex, outcome.reportGroupId, JSON.stringify(outcome.triage), nowMs, outcome.isBugReport ? 1 : 0, outcome.isBugReport ? nowMs : null, outcome.closeAs ?? "open", outcome.closeAs ? nowMs : null, outcome.precedentId ?? null, report.id)
     .run();
+  // A bug the developer sees in get_reports reaches their webhooks too: never child safety, and only with the player's words.
+  if (outcome.isBugReport && outcome.severityIndex > 0 && report.player_text) await tellWebhooks(env, "bug_reported", game.id, { bugReport: { ...report, triage: JSON.stringify(outcome.triage) } });
   if (outcome.recheck) await env.SCAN_QUEUE.send({ versionId: outcome.recheck, recheck: { reportId: report.id } });
   await alertAfterTriage(env, report, game, outcome);
 }
