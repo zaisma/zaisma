@@ -10,8 +10,7 @@ Who a player is came first: the pass, the player ID and the sign-in that saves, 
 
 **Next:**
 
-1. Game database through the API (Game servers and data)
-2. Webhooks for developers (Developer publishing)
+1. Webhooks for developers (Developer publishing)
 
 Waiting on people: Gleb: register with NCMEC, Gleb: register the DMCA agent, Julius: send PhotoDNA the LLC's records.
 
@@ -158,7 +157,7 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | done | Must | Run a game server yourself | Game server API and relay, Player passes | Node runner; same code as our rooms |
 | done | Must | Developers' own game servers run safely | Upload command, Rooms on rooms.zaisma.com, Julius: Workers Paid plan | Live Oct 13, 2026: a `zaisma-server/` folder or one `zaisma-server.js` runs on our rooms in a Dynamic Worker with no internet, never served to players; a match stopped twice ends; developers see its errors with the line |
 | done | Must | Game database for game servers | Rooms on rooms.zaisma.com | Live Oct 16, 2026 (#163, no migration): a SQLite database per game as `room.database` (plain SQL and batches), in Zaisma rooms and as a local file on the developer's own server. Free per game: 500,000 rows written and 500 million read a month, 500 MB; until Hosting billing, past them writes stop and reads keep working (Julius, Oct 16, 2026) |
-| doing | Must | Game database through the API | Game database for game servers | The developer and their AI run SQL, list tables and see use against the free limits, through the API, MCP and upload command |
+| done | Must | Game database through the API | Game database for game servers | Live Oct 16, 2026 (#164, no migration, CLI 0.5.0): the developer and their AI run SQL, list tables and see use against the free limits, through the API, MCP (`get_database`, `query_database`, `batch_database`) and `zaisma database` |
 | planned | Must | Game database import and export | Game database through the API | Data in and out of a game's database, and a dashboard page that reads the same API |
 | planned | Must | Game server endpoints and schedules | Developers' own game servers run safely | Plain requests to the game's server code (leaderboards, a shop, daily rewards) and schedules (daily resets, persistent worlds), with the game database behind it; the same code runs on the developer's own server |
 | planned | Must | Game server reach and secrets | Developers' own game servers run safely | Game servers can call the developer's own listed servers and payment providers, with secrets set per game and never shown again. Still nothing of ours inside |
