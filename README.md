@@ -49,7 +49,7 @@ To run your own Zaisma, create a D1 database, two R2 buckets (game files and clo
 
 ### Multiplayer
 
-Games include the SDK with `<script src="_zaisma/v1.js"></script>` and call `await Zaisma.joinRoom()`. A room link (`zaisma.com/g/<game>?room=CODE`) drops friends into the same match as guests. Player passes come from the game's zaisma.com page, which checks that a real browser opened it (Cloudflare's invisible check, started as the page opens so Play doesn't wait), so bots can't fill rooms: a game opened anywhere else, or a browser the check can't confirm, can't join (`error.code === "unchecked"`).
+Games include the SDK with `<script src="_zaisma/v1.js"></script>` and call `await Zaisma.joinRoom()`. Its reference is its types, [`packages/sdk/zaisma.d.ts`](packages/sdk/zaisma.d.ts) (served beside it as `_zaisma/v1.d.ts`): every call, option, event and error code, explained. Save it beside your game's folder (uploads take no `.ts` files) and put `/// <reference path="../zaisma.d.ts" />` (and in JavaScript, `// @ts-check`) at the top of your script, and your editor and AI get errors instead of guesses. A room link (`zaisma.com/g/<game>?room=CODE`) drops friends into the same match as guests. Player passes come from the game's zaisma.com page, which checks that a real browser opened it (Cloudflare's invisible check, started as the page opens so Play doesn't wait), so bots can't fill rooms: a game opened anywhere else, or a browser the check can't confirm, can't join (`error.code === "unchecked"`).
 
 Multiplayer is server-client: the *client* is the game in the browser, the *game server* holds the official state and checks every move, and a *room* is one live match running one copy of the game server. A game server is a plain object:
 
@@ -106,15 +106,11 @@ The same file runs on your own machine too (below), so you can test it there or 
 Open rooms are listed on the game's page (how full each is and where it runs, never who's in it), with "playing now" under the title (every room counts, hidden ones too), and the game gets the same list to show its own way:
 
 ```js
-Zaisma.rooms.linkedRoomCode;                  // the room code the player's link points to, or null
-const { rooms, playing, regions } = await Zaisma.rooms.list();
-// rooms: [{ roomCode, playerCount, heldSeatCount, maximumPlayerCount, isOpen, location, isNear, name, labels, inviteUrl }]
-// playing: { playerCount, roomCount, closedRoomCount }; regions: [{ region, name, roomCount, playerCount }]
-Zaisma.rooms.list({ region: "EU" });          // one region (continent codes, as in regions)
+const { rooms, playing, regions } = await Zaisma.rooms.list();   // how full each room is and where it runs, never who's in it
+Zaisma.rooms.list({ region: "EU", labels: { Mode: "Classic" } }); // one region, or rooms with these labels
 const room = await Zaisma.rooms.quickJoin();  // the linked room, else a busy room with space nearby, else a new one
 Zaisma.joinRoom({ isListed: false });         // a new room that's never listed: a private match
 Zaisma.joinRoom({ name: "Ana's castle", labels: { Mode: "Classic", Map: "Docks" } });  // name and label a new room
-Zaisma.rooms.list({ labels: { Mode: "Classic" } });  // rooms with those labels; quickJoin takes the same
 await Zaisma.filterText(typed);              // { isAllowed, reason, text }: Zaisma's text filter, if you want it
 ```
 

@@ -1,6 +1,6 @@
 // Arena client: sends input when it changes and draws the game server's
 // snapshots, smoothed by drawing slightly in the past between two snapshots.
-const canvas = document.getElementById("arena");
+const canvas = document.querySelector("canvas");
 const context = canvas.getContext("2d");
 const statusElement = document.getElementById("status");
 const boardElement = document.getElementById("board");
@@ -8,6 +8,7 @@ const PLATFORM_RADIUS = 360;
 const BODY_RADIUS = 18;
 const DRAW_DELAY_MS = 100; // behind the newest snapshot
 
+/** @type {Zaisma.Room | null} */
 let room = null;
 let snapshots = []; // [{ receivedAtMs, bodies: Map(id -> { x, y, score, isDashing, isOut, name, color }) }]
 const flashes = [];

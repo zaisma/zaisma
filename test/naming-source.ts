@@ -1,7 +1,7 @@
 /**
- * docs/NAMING.md for Zaisma's own code: the names declared in apps/ and packages/ (read with the
- * TypeScript compiler we already have) and the columns the migrations make (replayed in Node's
- * built-in SQLite). No new dependencies.
+ * docs/NAMING.md for Zaisma's own code: the names declared in apps/ and packages/, the SDK's types and
+ * the JavaScript the packages ship (read with the TypeScript compiler we already have), and the columns
+ * the migrations make (replayed in Node's built-in SQLite). No new dependencies.
  */
 import { readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -94,21 +94,29 @@ function isNumberShaped(name: string): boolean {
 
 const isBooleanShaped = (name: string) => /^(is|has|can)[A-Z_]/.test(name) || /(_e|E)nabled$/.test(name);
 
-/** Every TypeScript file under apps/*\/src and packages/*\/src. */
+/**
+ * Zaisma's own code: the TypeScript under apps/*\/src and packages/*\/src, the JavaScript the packages
+ * ship (the SDK, the CLI, the Node runner) and the types a package declares (the SDK's zaisma.d.ts).
+ */
 export function sourceFiles(root: string): string[] {
   const out: string[] = [];
-  const walk = (dir: string) => {
+  const walk = (dir: string, isCode: (name: string) => boolean) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const full = join(dir, entry.name);
-      if (entry.isDirectory()) walk(full);
-      else if (/\.ts$/.test(entry.name) && !/\.d\.ts$/.test(entry.name)) out.push(full);
+      if (entry.isDirectory() && entry.name !== "node_modules") walk(full, isCode);
+      else if (entry.isFile() && isCode(entry.name)) out.push(full);
     }
   };
-  for (const group of ["apps", "packages"]) {
-    for (const entry of readdirSync(join(root, group), { withFileTypes: true })) {
-      const src = join(root, group, entry.name, "src");
-      if (entry.isDirectory() && readdirSync(join(root, group, entry.name)).includes("src")) walk(src);
-    }
+  const isTypeScript = (name: string) => /\.ts$/.test(name) && !/\.d\.ts$/.test(name);
+  for (const entry of readdirSync(join(root, "apps"), { withFileTypes: true })) {
+    if (entry.isDirectory() && readdirSync(join(root, "apps", entry.name)).includes("src")) walk(join(root, "apps", entry.name, "src"), isTypeScript);
+  }
+  for (const entry of readdirSync(join(root, "packages"), { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const pack = join(root, "packages", entry.name);
+    walk(pack, (name) => isTypeScript(name) || /\.m?js$/.test(name));
+    const { types } = JSON.parse(readFileSync(join(pack, "package.json"), "utf8")) as { types?: string };
+    if (types) out.push(join(pack, types));
   }
   return out.sort();
 }
@@ -116,7 +124,7 @@ export function sourceFiles(root: string): string[] {
 /** The names declared in the source that break docs/NAMING.md. */
 export function sourceProblems(root: string): Problem[] {
   const files = sourceFiles(root);
-  const program = ts.createProgram(files, { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022, moduleResolution: ts.ModuleResolutionKind.Bundler, allowImportingTsExtensions: true, noEmit: true, strict: true, types: [] });
+  const program = ts.createProgram(files, { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022, moduleResolution: ts.ModuleResolutionKind.Bundler, allowImportingTsExtensions: true, allowJs: true, noEmit: true, strict: true, types: [] });
   const checker = program.getTypeChecker();
   const problems: Problem[] = [];
   for (const file of files) {
@@ -140,7 +148,7 @@ export function sourceProblems(root: string): Problem[] {
       if (ts.isImportDeclaration(node)) return;
       at = node;
       if ((ts.isVariableDeclaration(node) || ts.isParameter(node) || ts.isBindingElement(node)) && ts.isIdentifier(node.name)) checkVariable(node.name);
-      if ((ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node)) && node.name && ts.isIdentifier(node.name)) {
+      if ((ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node) || ts.isMethodSignature(node)) && node.name && ts.isIdentifier(node.name)) {
         for (const problem of wordProblems(node.name.text)) report(node.name.text, problem);
       }
       if ((ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node) || ts.isClassDeclaration(node)) && node.name) {

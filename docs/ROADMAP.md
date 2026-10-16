@@ -4,7 +4,7 @@ The live plan of what gets built, in what order. `docs/DECISIONS.md` says *how* 
 
 ## Now
 
-Nothing is lined up: Julius picks what's built next. Nothing for an AI to guess is done (Oct 16, 2026), so the codebase's names, errors and holds are what new code builds on, and every pull request checks them. Waiting on people: Gleb: register with NCMEC, Gleb: register the DMCA agent, Julius: send PhotoDNA the LLC's records.
+Nothing is lined up: Julius picks what's built next. Nothing for an AI to guess is done (Oct 16, 2026) but for SDK types, being built, so the codebase's names, errors and holds are what new code builds on, and every pull request checks them. Waiting on people: Gleb: register with NCMEC, Gleb: register the DMCA agent, Julius: send PhotoDNA the LLC's records.
 
 ## How to read this
 
@@ -71,6 +71,7 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | done | Must | Names: last sweep of the insides | | Live Oct 15, 2026 (#147, migration 0034): rooms, scans, reports and triage, accounts, saves, plays and the game server's insides follow docs/NAMING.md, with their columns and stored JSON; the naming baseline is empty |
 | done | Must | Errors: holds and takedowns | Errors: developer API and MCP | Live Oct 16, 2026 (#148, migration 0035, CLI 0.3.2): every hold, rejection and takedown says why as a `review_reason` (a code from one list, a plain message, the content rule and a fix) on games, versions, images, scan findings and the history, the same in the dashboard, API, MCP and upload command. Bills get the same when Hosting billing ships |
 | done | Must | Checks on every pull request | | Live Oct 16, 2026 (#149): tests and typecheck run by themselves on every pull request and push to main (`.github/workflows/check.yml`), so the naming, schema, error-code and ID checks hold without anyone remembering them; `npm run ship` stops when main's check failed |
+| doing | Must | SDK types | Names: SDK and game server | The SDK's one reference is its types (`packages/sdk/zaisma.d.ts`, served beside it as `_zaisma/v1.d.ts`): every call, option, event and error code. A test holds them to what the SDK takes and hands out, the example games type-check against them, and the naming check reads them and the packages' JavaScript |
 
 ### Developer publishing
 

@@ -10,18 +10,18 @@
   "use strict";
   var site = typeof __ZAISMA_PICTURE__ === "object" && __ZAISMA_PICTURE__ ? __ZAISMA_PICTURE__.site : "";
   if (!site || window.parent === window) return;
-  var MAX_SIDE = 1280;
+  var MAXIMUM_SIDE_PIXEL_COUNT = 1280;
   var waiting = [];
 
   function biggestCanvas() {
     var best = null;
-    var area = 0;
+    var bestPixelCount = 0;
     var all = document.getElementsByTagName("canvas");
     for (var i = 0; i < all.length; i++) {
-      var size = all[i].width * all[i].height;
-      if (size > area && all[i].getClientRects().length) {
+      var pixelCount = all[i].width * all[i].height;
+      if (pixelCount > bestPixelCount && all[i].getClientRects().length) {
         best = all[i];
-        area = size;
+        bestPixelCount = pixelCount;
       }
     }
     return best;
@@ -32,41 +32,42 @@
     var small = document.createElement("canvas");
     small.width = 32;
     small.height = 18;
-    var ctx = small.getContext("2d");
-    ctx.drawImage(canvas, 0, 0, 32, 18);
-    var px = ctx.getImageData(0, 0, 32, 18).data;
-    var low = 255, high = 0;
-    for (var i = 0; i < px.length; i += 4) {
-      var light = (px[i] * 3 + px[i + 1] * 6 + px[i + 2]) / 10;
-      if (light < low) low = light;
-      if (light > high) high = light;
+    var canvasContext = small.getContext("2d");
+    canvasContext.drawImage(canvas, 0, 0, 32, 18);
+    var pixelBytes = canvasContext.getImageData(0, 0, 32, 18).data;
+    var darkestByte = 255, lightestByte = 0;
+    for (var i = 0; i < pixelBytes.length; i += 4) {
+      var lightnessByte = (pixelBytes[i] * 3 + pixelBytes[i + 1] * 6 + pixelBytes[i + 2]) / 10;
+      if (lightnessByte < darkestByte) darkestByte = lightnessByte;
+      if (lightnessByte > lightestByte) lightestByte = lightnessByte;
     }
-    return high - low < 10;
+    return lightestByte - darkestByte < 10;
   }
 
   function picture() {
     try {
       var from = biggestCanvas();
       if (!from) return null;
-      var scale = Math.min(1, MAX_SIDE / Math.max(from.width, from.height));
+      var longestSidePixelCount = Math.max(from.width, from.height);
+      var shrunkSidePixelCount = Math.min(longestSidePixelCount, MAXIMUM_SIDE_PIXEL_COUNT);
       var to = document.createElement("canvas");
-      to.width = Math.max(1, Math.round(from.width * scale));
-      to.height = Math.max(1, Math.round(from.height * scale));
-      var ctx = to.getContext("2d");
-      ctx.fillStyle = "#000";
-      ctx.fillRect(0, 0, to.width, to.height);
-      ctx.drawImage(from, 0, 0, to.width, to.height);
+      to.width = Math.max(1, Math.round((from.width * shrunkSidePixelCount) / longestSidePixelCount));
+      to.height = Math.max(1, Math.round((from.height * shrunkSidePixelCount) / longestSidePixelCount));
+      var canvasContext = to.getContext("2d");
+      canvasContext.fillStyle = "#000";
+      canvasContext.fillRect(0, 0, to.width, to.height);
+      canvasContext.drawImage(from, 0, 0, to.width, to.height);
       return blank(to) ? null : to.toDataURL("image/jpeg", 0.8);
-    } catch (e) {
+    } catch (error) {
       return null; // A canvas showing pictures from another site can't be copied.
     }
   }
 
   function answer() {
     if (!waiting.length) return;
-    var pic = picture();
+    var pictureUrl = picture();
     waiting.splice(0).forEach(function (id) {
-      window.parent.postMessage({ type: "zaisma:picture", id: id, picture: pic }, site);
+      window.parent.postMessage({ type: "zaisma:picture", id: id, picture: pictureUrl }, site);
     });
   }
 
@@ -74,9 +75,9 @@
   var nativeFrame = window.requestAnimationFrame;
   if (nativeFrame) {
     window.requestAnimationFrame = function (callback) {
-      return nativeFrame.call(window, function (time) {
+      return nativeFrame.call(window, function (frameTimeMs) {
         try {
-          callback(time);
+          callback(frameTimeMs);
         } finally {
           answer();
         }
@@ -84,9 +85,9 @@
     };
   }
 
-  window.addEventListener("message", function (e) {
-    if (e.origin !== site || e.source !== window.parent || !e.data || e.data.type !== "zaisma:picture-request") return;
-    var id = String(e.data.id);
+  window.addEventListener("message", function (event) {
+    if (event.origin !== site || event.source !== window.parent || !event.data || event.data.type !== "zaisma:picture-request") return;
+    var id = String(event.data.id);
     waiting.push(id);
     // A game that isn't drawing right now (paused, between turns) is copied straight away.
     setTimeout(function () {

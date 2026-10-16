@@ -35,6 +35,14 @@ describe("multiplayer on the game domain", () => {
     expect(body).toContain("window.Zaisma");
   });
 
+  it("serves the SDK's types beside it", async () => {
+    await addGame("arena");
+    const res = await SELF.fetch(`${G}/arena/_zaisma/v1.d.ts`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("text/plain; charset=utf-8");
+    expect(await res.text()).toContain("declare namespace Zaisma");
+  });
+
   it("only accepts plain server origins as a game's own servers", () => {
     expect(parseConnectHosts("wss://a.example\nhttps://b.example:8443/\n")).toEqual(["wss://a.example", "https://b.example:8443"]);
     expect(() => parseConnectHosts("http://a.example")).toThrow();
