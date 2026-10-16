@@ -3,8 +3,8 @@ import { SANDBOX_GAME_SERVER, manifestKey, serverModules, type Manifest } from "
 import type { Env } from "./index.ts";
 
 /**
- * Developers' own game servers, run in a Dynamic Worker: a sealed sandbox with no internet, no
- * bindings and a CPU limit. A game opts in with multiplayer_mode "own" and its game server in its
+ * Developers' own game servers, run in a Dynamic Worker: a sealed sandbox with no internet, a CPU
+ * limit and one binding, its own game's database (database.ts). A game opts in with multiplayer_mode "own" and its game server in its
  * upload: a zaisma-server/ folder (index.js, importing the folder's other .js files by relative
  * path) or one zaisma-server.js. ES modules whose default export is the game server.
  *
@@ -84,8 +84,30 @@ const newRoomCode = () => Array.from(crypto.getRandomValues(new Uint8Array(6)), 
 const HOOKS = ["onJoin", "onLeave", "onMessage", "onTick", "onMoved", "onAway", "onBack"];
 const HANDLERS = ["setup", "canJoin", ...HOOKS];
 
-function recorder(snapshot, effects) {
+// room.database, through the binding the room gave this sandbox: its own game's database and nothing else.
+class DatabaseError extends Error {
+  constructor(error) {
+    super(error.message + " " + error.fix + " (" + error.code + ")");
+    this.name = "DatabaseError";
+    this.code = error.code;
+    this.fix = error.fix;
+  }
+}
+
+function gameDatabase(binding) {
+  const read = (answer) => {
+    if (answer.error) throw new DatabaseError(answer.error);
+    return answer.queryResult;
+  };
   return {
+    async query(sql, values) { return read(await binding.query(sql, values === undefined ? [] : values)); },
+    async batch(statements) { return read(await binding.batch(statements)); },
+  };
+}
+
+function recorder(snapshot, effects, database) {
+  return {
+    database,
     get players() { return snapshot.players.map((player) => ({ ...player })); },
     broadcast(message, broadcastOptions) { effects.push({ do: "broadcast", message, exceptPlayerId: broadcastOptions && broadcastOptions.exceptPlayerId }); },
     send(playerId, message) { effects.push({ do: "send", playerId, message }); },
@@ -103,9 +125,10 @@ function recorder(snapshot, effects) {
   };
 }
 
-function answer(handler, effects, state) {
+// A handler may be async (it awaits room.database): what it asked the room to do is handed back once it's done.
+async function answer(handler, effects, state) {
   try {
-    const next = handler();
+    const next = await handler();
     return { state: next === undefined ? state : next, effects };
   } catch (error) {
     return { effects, error: String((error && error.stack) || error) };
@@ -113,6 +136,11 @@ function answer(handler, effects, state) {
 }
 
 class Session extends RpcTarget {
+  #database;
+  constructor(database) {
+    super();
+    this.#database = database;
+  }
   settings() {
     return {
       optionNames: Object.keys(server),
@@ -132,7 +160,7 @@ class Session extends RpcTarget {
   call(hook, state, handlerArguments, snapshot) {
     const effects = [];
     if (!HOOKS.includes(hook) || typeof server[hook] !== "function") return { state, effects };
-    const room = recorder(snapshot, effects);
+    const room = recorder(snapshot, effects, this.#database);
     // onJoin(state, player, room, joinData, joinInfo), onLeave(state, player, room, leaveInfo), onAway(state, player, room, reason),
     // onMessage(state, player, message, room), onTick(state, tickDurationSec, room), onMoved(state, moveResult, room), onBack(state, player, room)
     const full =
@@ -146,7 +174,7 @@ class Session extends RpcTarget {
     if (typeof server.canJoin !== "function") return { answer: true };
     let answer;
     try {
-      answer = await server.canJoin(state, player, recorder(snapshot, []), joinData, joinInfo);
+      answer = await server.canJoin(state, player, recorder(snapshot, [], this.#database), joinData, joinInfo);
     } catch (error) {
       return { error: String((error && error.stack) || error) };
     }
@@ -162,7 +190,7 @@ class Session extends RpcTarget {
 export default class extends WorkerEntrypoint {
   open() {
     if (!server || typeof server.setup !== "function") throw new Error("${entry} must export default a game server with a setup() function");
-    return new Session();
+    return new Session(gameDatabase(this.env.DATABASE));
   }
 }
 `;
@@ -196,17 +224,18 @@ async function serverCode(env: Env, versionId: string): Promise<{ entry: string;
  * can run. One sandbox per game version, shared by all its rooms in a place, and warm while in use.
  * Null if the version has no game server file.
  */
-export async function sandboxServer(env: Env, gameId: string, versionId: string, onBroken: () => void): Promise<GameServer | null> {
+export async function sandboxServer(env: Env, exports: Cloudflare.Exports, gameId: string, versionId: string, onBroken: () => void): Promise<GameServer | null> {
   const code = await serverCode(env, versionId);
   if (code === null) return null;
+  const binding = (exports as unknown as { GameDatabaseBinding: (options: { props: { gameId: string } }) => Fetcher }).GameDatabaseBinding;
   const worker = env.LOADER.get(`${gameId}:${versionId}`, () => ({
     compatibilityDate: "2026-10-01",
     mainModule: "harness.js",
     // The game's files keep their paths, so its relative imports work: ./physics.js from zaisma-server/index.js.
     modules: { ...code.modules, "harness.js": harness(code.entry) },
-    // No internet and no bindings: the game server can only answer the room.
+    // No internet, and one binding: its own game's database (room.database), fixed to the game by props it can't see.
     globalOutbound: null,
-    env: {},
+    env: { DATABASE: binding({ props: { gameId } }) },
     limits: { cpuMs: CPU_MS },
   }));
   return wrapSession(() => (worker.getEntrypoint() as unknown as { open(): Promise<Session> }).open(), onBroken);

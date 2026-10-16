@@ -1,0 +1,96 @@
+import { afterAll, describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import WebSocket from "ws";
+// @ts-expect-error plain JavaScript runner without type declarations
+import { localDatabase, startServer } from "../../packages/game-server/bin/node.js";
+import { checkStatement, defineGameServer, generateSigningKey, loadSigningKey, signPass, type GameDatabase } from "../../packages/game-server/src/index.ts";
+
+// The game database on the developer's own server: a local SQLite file, with the same calls and checks as in Zaisma rooms (test/rooms/database.test.ts).
+
+const folder = mkdtempSync(join(tmpdir(), "zaisma-database-"));
+afterAll(() => rmSync(folder, { recursive: true, force: true }));
+
+/** What a call answers, or the error it threw, as the game would see it. */
+const attempt = (work: Promise<unknown>) => work.catch((error) => ({ name: error.name, code: error.code, message: error.message }));
+
+describe("checking statements", () => {
+  it("takes one statement, cutting off a trailing ; or comment", () => {
+    expect(checkStatement("SELECT 1; ", [])).toEqual({ sql: "SELECT 1", values: [] });
+    expect(checkStatement("SELECT 'a;b' -- note", undefined)).toEqual({ sql: "SELECT 'a;b'", values: [] });
+    expect(checkStatement('SELECT "odd;name" FROM [my;table] /* ; */', [])).toEqual({ sql: 'SELECT "odd;name" FROM [my;table]', values: [] });
+    expect(checkStatement("SELECT 'it''s; fine'", [])).toEqual({ sql: "SELECT 'it''s; fine'", values: [] });
+    expect(() => checkStatement("SELECT 1; SELECT 2", [])).toThrow(/more than one statement.*\(bad_sql\)$/);
+    expect(() => checkStatement("  begin; ", [])).toThrow(/BEGIN isn't allowed/);
+    expect(() => checkStatement("ATTACH 'other.sqlite' AS other", [])).toThrow(/ATTACH isn't allowed/);
+    expect(() => checkStatement("", [])).toThrow(/isn't text/);
+  });
+
+  it("takes text, numbers, null and blobs, and says how to give anything else", () => {
+    const blob = new Uint8Array([1, 2]);
+    expect(checkStatement("SELECT ?, ?, ?, ?", ["a", 1.5, null, blob]).values).toEqual(["a", 1.5, null, blob]);
+    expect(() => checkStatement("SELECT ?", [true])).toThrow("Value 1 is true or false. Give 1 for true and 0 for false. (bad_values)");
+    expect(() => checkStatement("SELECT ?", [{ hat: "red" }])).toThrow(/JSON\.stringify/);
+    expect(() => checkStatement("SELECT ?", [Number.NaN])).toThrow(/finite number/);
+    expect(() => checkStatement("SELECT ?", "a")).toThrow(/values isn't a list/);
+  });
+});
+
+describe("a local database file", () => {
+  it("answers rows, runs batches as one transaction, and keeps its data in the file", async () => {
+    const file = join(folder, "scores.sqlite");
+    const database: GameDatabase = localDatabase(file);
+    expect(existsSync(file)).toBe(false);
+    await database.query("CREATE TABLE scores (player_id TEXT PRIMARY KEY, best_score INTEGER NOT NULL)");
+    expect(await database.query("INSERT INTO scores VALUES (?, ?) RETURNING best_score", ["player_a", 1200])).toEqual([{ best_score: 1200 }]);
+    expect(await attempt(database.batch([{ sql: "UPDATE scores SET best_score = 0" }, { sql: "INSERT INTO missing VALUES (1)" }]))).toMatchObject({ code: "bad_sql", message: expect.stringContaining("no such table: missing") });
+    expect(await database.batch([{ sql: "SELECT best_score FROM scores" }, { sql: "SELECT count(*) AS score_count FROM scores" }])).toEqual([[{ best_score: 1200 }], [{ score_count: 1 }]]);
+    expect(await database.query("SELECT ? AS word, ? AS amount, ? AS empty, x'0102' AS blob", ["docks", 2.5, null])).toEqual([{ word: "docks", amount: 2.5, empty: null, blob: new Uint8Array([1, 2]) }]);
+    expect(await attempt(database.query("SELECT 1; SELECT 2"))).toMatchObject({ name: "DatabaseError", code: "bad_sql" });
+    expect(await attempt(database.query("WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 10001) SELECT i FROM n"))).toMatchObject({ code: "too_many_rows" });
+    expect(await database.query("SELECT 'a;b' AS word; -- done")).toEqual([{ word: "a;b" }]);
+
+    // Another open of the same file, like the runner after a restart, sees the same data.
+    expect(await localDatabase(file).query("SELECT player_id, best_score FROM scores")).toEqual([{ player_id: "player_a", best_score: 1200 }]);
+  });
+});
+
+describe("room.database on the Node runner", () => {
+  const ISS = "https://rooms.zaisma.test";
+  const ORIGIN = "https://arena.zaismausercontent.com";
+
+  it("gives the game server the same database in every room, from the file", async () => {
+    const signing = await loadSigningKey(await generateSigningKey());
+    const leaderboard = defineGameServer({
+      setup: () => ({}),
+      async onJoin(state, player, room) {
+        await room.database.query("CREATE TABLE IF NOT EXISTS scores (player_id TEXT PRIMARY KEY, best_score INTEGER NOT NULL)");
+        await room.database.query("INSERT INTO scores VALUES (?, ?) ON CONFLICT (player_id) DO UPDATE SET best_score = best_score + 1", [player.id, 1]);
+        room.send(player.id, await room.database.query("SELECT player_id, best_score FROM scores ORDER BY player_id"));
+      },
+    });
+    const file = join(folder, "runner.sqlite");
+    const own = startServer({ server: leaderboard, game: "arena", port: 0, origins: [ORIGIN], issuer: ISS, keys: async () => [signing.publicKey], database: localDatabase(file) });
+    await new Promise((resolve) => own.wss.once("listening", resolve));
+    const at = (own.wss.address() as { port: number }).port;
+    const scoresOnJoin = async (sub: string, code: string) => {
+      const ws = new WebSocket(`ws://localhost:${at}/v1/rooms/arena/${code}`, { origin: ORIGIN });
+      const got = new Promise<unknown>((resolve) => ws.on("message", (raw) => {
+        const message = JSON.parse(raw.toString());
+        if (message.type === "message") resolve(message.data);
+      }));
+      await new Promise((resolve) => ws.on("open", resolve));
+      const nowSec = Math.floor(Date.now() / 1000);
+      ws.send(JSON.stringify({ type: "hello", pass: await signPass(signing, { sub, name: sub, aud: "arena", iss: ISS, kind: "guest", iat: nowSec, exp: nowSec + 60 }) }));
+      const data = await got;
+      ws.close();
+      return data;
+    };
+    expect(await scoresOnJoin("player_a", "ABCDEF")).toEqual([{ player_id: "player_a", best_score: 1 }]);
+    expect(await scoresOnJoin("player_b", "GHJKLM")).toEqual([{ player_id: "player_a", best_score: 1 }, { player_id: "player_b", best_score: 1 }]);
+    expect(await scoresOnJoin("player_a", "GHJKLM")).toEqual([{ player_id: "player_a", best_score: 2 }, { player_id: "player_b", best_score: 1 }]);
+    await own.close();
+    expect(existsSync(file)).toBe(true);
+  });
+});

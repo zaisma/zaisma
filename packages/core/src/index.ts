@@ -16,6 +16,7 @@ export * from "./passkeys.ts";
 export * from "./developers.ts";
 export * from "./uploads.ts";
 export * from "./rooms.ts";
+export * from "./game-database.ts";
 export * from "./text-filter.ts";
 export * from "./forum.ts";
 export * from "./errors.ts";
