@@ -224,6 +224,7 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 | Who an account can chat with, and the opaque group open-and-social accounts chat in (never an age) | | player pass claims `social_mode`: `solo_focused`, `friends_focused`, `open_and_social`; `chat_group` (a `chat_group_…` ID, different in every game); checked with `canChat(first, second)` |
 | An account's Zaisma friends, and the invite that makes two accounts friends | | player pass claim `friend_player_ids` (their player IDs); a friend invite's `invite_code` is 8 letters and digits, shown as `K7Q2-MX9P` |
 | What a game needs a Zaisma account for | `account_requirement`: `none`, `multiplayer`, `whole_game`; a guest turned away gets `account_needed` | error `code` `account_needed` |
+| A game asking a guest to sign in while it runs, and the guest saying Not now | | `Zaisma.player.signIn()`; error `code` `sign_in_declined` |
 | A developer's own site or app that players sign in to with Zaisma, and OAuth's client type for it | `sign_in_app_id` (the OAuth `client_id`); `kind`: `confidential`, `public` | |
 | Where a sign-in can go back to, and asking for a new client secret | `redirect_urls`; `replace_client_secret: true`, answered once as `client_secret` | |
 | An address a developer's server takes Zaisma's events at, the events it takes and the games they're about | `webhook_id`; `endpoint_url`, `event_kinds`, `game_slugs` (`null` for every game) | |

@@ -1,4 +1,4 @@
-import { accountById, gameBySlug, isIdOf, issueRoomKey, newId, testerLinkByToken, type Game } from "@zaisma/core";
+import { accountById, gameBySlug, isIdOf, issueRoomKey, newId, testerLinkByToken, tradeRoomKey, type Account, type Game } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { playable } from "./home.ts";
@@ -25,6 +25,10 @@ import { playable } from "./home.ts";
  *     { tester, token }   a play through a tester link (its token): never counted; answers { key }.
  *     { ticket, counted: true }   a minute on screen: count the play
  *     { ticket, seconds }         time on screen since the last report, up to 10 minutes
+ *
+ *   POST /api/plays/:slug/account   the player signed in while the game runs (Zaisma.player.signIn, or
+ *          "Keep your progress"). Answers { player: { id, name, kind } } for the account; given
+ *          { roomKey }, the guest's key, also { key, playerKind } to the account's passes, the guest's key traded.
  */
 
 const DAY_MS = 86_400_000;
@@ -44,7 +48,7 @@ const today = (nowMs = Date.now()) => new Date(nowMs).toISOString().slice(0, 10)
 const ok = (body?: unknown) => (body === undefined ? new Response(null, { status: 204 }) : Response.json(body));
 
 export async function handlePlays(request: Request, env: Env, path: string): Promise<Response | null> {
-  const match = path.match(/^\/api\/plays\/([a-z0-9-]+)$/);
+  const match = path.match(/^\/api\/plays\/([a-z0-9-]+)(\/account)?$/);
   if (!match) return null;
   if (request.method !== "POST") return new Response(null, { status: 405 });
   // Only the game page counts plays: another site can't send them from its visitors' browsers.
@@ -63,6 +67,7 @@ export async function handlePlays(request: Request, env: Env, path: string): Pro
     return new Response(null, { status: 400 });
   }
   const game = await gameBySlug(env.DB, match[1]!);
+  if (match[2]) return signedInWhilePlaying(request, env, game, body);
   if (body.tester !== undefined) return testerPlay(request, env, game, body);
   if (!game || !playable(game)) return new Response(null, { status: 404 });
 
@@ -94,6 +99,18 @@ async function testerPlay(request: Request, env: Env, game: Game | null, body: R
   if (!multiplayer(game) || !(await checked(env, body.token))) return ok();
   const { accountId, cookies } = await signedIn(request, env);
   return withCookies(ok({ key: await issueRoomKey(env.DB, game.id, accountId), playerKind: accountId ? "account" : "guest" }), cookies);
+}
+
+/**
+ * The player signed in while the game runs: who they are now, for the game page to tell its game, and
+ * the guest's room key traded for one to the account's passes. The guest's key is the proof that
+ * Cloudflare checked this browser, so the trade needs no new check.
+ */
+async function signedInWhilePlaying(request: Request, env: Env, game: Game | null, body: Record<string, unknown>): Promise<Response> {
+  const { account, cookies } = await signedIn(request, env);
+  if (!account) return new Response(null, { status: 401 });
+  const key = game && body.roomKey !== undefined ? await tradeRoomKey(env.DB, game.id, body.roomKey, account.id) : null;
+  return withCookies(ok({ player: { id: account.player_id, name: account.name, kind: "account" }, ...(key ? { key, playerKind: "account" } : {}) }), cookies);
 }
 
 interface StartFacts {
@@ -209,11 +226,11 @@ async function checked(env: Env, token: unknown): Promise<boolean> {
  * The signed-in player's account (null for a guest), with the cookies of a session it refreshed: a game
  * page can sit open longer than a sign-in lasts before the player presses Play.
  */
-async function signedIn(request: Request, env: Env): Promise<{ accountId: string | null; cookies: string[] }> {
+async function signedIn(request: Request, env: Env): Promise<{ account: Account | null; accountId: string | null; cookies: string[] }> {
   const session = await currentSession(request, env).catch(() => null);
   // Signed in but the account isn't finished (no name or age yet): a guest until it is.
   const account = session ? await accountById(env.DB, session.userId) : null;
-  return { accountId: account?.id ?? null, cookies: session?.cookies ?? [] };
+  return { account, accountId: account?.id ?? null, cookies: session?.cookies ?? [] };
 }
 
 function withCookies(response: Response, cookies: string[]): Response {
@@ -334,9 +351,9 @@ export async function playStats(database: D1Database, gameId: string, periodDura
  */
 export function playCounter(slug: string, siteKey: string | undefined, tester?: string): string {
   return `// The key to player passes the check gives a checked browser in a multiplayer game, for the game to ask for (zaisma:room-key),
-// and whose passes it gives: the signed-in account's, or a guest's.
+// and whose passes it gives: the signed-in account's, or a guest's. A guest who signs in while playing gets the account's instead.
 let gotKey;
-const roomKey = new Promise((done) => (gotKey = (r) => done(r && r.key ? { key: r.key, playerKind: r.playerKind } : null)));
+let roomKey =new Promise((done) => (gotKey = (r) => done(r && r.key ? { key: r.key, playerKind: r.playerKind } : null)));
 const countPlay = (() => {
 const api = "/api/plays/${slug}", KEY = "zaisma:plays", SLUG = ${JSON.stringify(slug)}, SITE_KEY = ${JSON.stringify(siteKey ?? "")}, TESTER = ${JSON.stringify(tester ?? "")};
 const post = (body) => fetch(api, { method: "POST", body: JSON.stringify(body), keepalive: true }).then((r) => (r.status === 200 ? r.json() : null)).catch(() => null);
