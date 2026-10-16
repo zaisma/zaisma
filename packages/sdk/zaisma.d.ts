@@ -20,7 +20,7 @@
  *
  * Player passes, for rooms and your own servers, need the game played on its zaisma.com page, which
  * checks the browser on Play: joining fails with `error.code` "unchecked" when it couldn't, or when the
- * game was opened anywhere else.
+ * game was opened anywhere else, and "not_on_zaisma" when the game isn't hosted on Zaisma at all.
  *
  * @example
  * const room = await Zaisma.joinRoom();         // joins ?room=CODE if the link has one, else makes a room
@@ -44,7 +44,7 @@ declare namespace Zaisma {
    * This tab's guest player, with their player pass. joinRoom gets one by itself; call this to let the
    * player into a server of your own. Kept only for the tab, like the guest it belongs to, and renewed
    * when it has under 10 minutes left. Fails with error.code "unchecked" when the game isn't played on
-   * its zaisma.com page.
+   * its zaisma.com page, and "not_on_zaisma" when it isn't hosted on Zaisma.
    */
   function player(): Promise<GuestPlayer>;
 
@@ -53,10 +53,13 @@ declare namespace Zaisma {
    * (?room=CODE), else a new room. Resolves once the room has let the player in, so room.me and
    * room.players are set.
    *
-   * Fails with an error whose code says why the room won't take the player and whose message says it
-   * in words: full, closed (to new players), ended, kept_out (removed for the rest of the match),
+   * Fails with an error whose code says why and whose message says it in words. The room won't take
+   * the player: full, closed (to new players), ended, kept_out (removed for the rest of the match),
    * refused (the game server's canJoin said no; the message is its refusalMessage), month_limit (the
-   * game has used this month's multiplayer time), unchecked (see {@link player}), or unknown_option.
+   * game has used this month's multiplayer time). No player pass: unchecked (see {@link player}). The
+   * call is set up wrong: unknown_option, bad_room_code, bad_server_url, not_on_zaisma (no serverUrl
+   * outside Zaisma). Or connection_closed (the connection closed first, say the game left or the player
+   * joined from another tab) and request_failed (Zaisma didn't answer). {@link ErrorCode} has them all.
    *
    * @example
    * const room = await Zaisma.joinRoom();
@@ -104,8 +107,9 @@ declare namespace Zaisma {
     /** A room's code: six characters, like "K7Q2MX". By default, the code in the page's link (?room=), else a new room. */
     roomCode?: string;
     /**
-     * Your own game server's address, like "wss://play.example.com", instead of Zaisma rooms. Add it to
-     * the game's own servers on Zaisma first, so the game is allowed to connect to it.
+     * Your own game server's full address, like "wss://play.example.com" (wss://, ws://, https:// or
+     * http://), instead of Zaisma rooms. Add it to the game's own servers on Zaisma first, so the game
+     * is allowed to connect to it.
      */
     serverUrl?: string;
     /** false: a new room that never shows in room lists, like a private match. Counts only when this player makes the room. */
@@ -177,6 +181,7 @@ declare namespace Zaisma {
     /**
      * The game's listed rooms on Zaisma, for a game's own lobby or server browser: rooms with space
      * first (the player's country, then region, then the busiest), up to 50. Never who's in them.
+     * Fails with error.code "not_on_zaisma" in a game that isn't hosted on Zaisma.
      *
      * @example
      * const { rooms, playing, regions } = await Zaisma.rooms.list();
@@ -425,19 +430,37 @@ declare namespace Zaisma {
    * - no_rooms: the game doesn't use Zaisma rooms.
    * - bad_report: a report whose reason isn't a {@link ReportReason}, or whose player ID isn't one.
    * - bad_origin: the call didn't come from the game's own page.
+   * - not_on_zaisma: the game isn't hosted on Zaisma, so it has no player passes or room lists, and joinRoom needs a serverUrl.
+   * - bad_room_code: not a room code, which is six characters like "K7Q2MX", from 2 to 9 and A to Z without I or O.
+   * - bad_server_url: a serverUrl that isn't a full wss://, ws://, https:// or http:// address.
+   * - connection_closed: the connection to the room closed before it let the player in; the message says why.
+   * - request_failed: Zaisma didn't answer (no connection, or a problem on Zaisma's side); try again.
    */
-  type ErrorCode = RoomErrorCode | "unchecked" | "unknown_option" | "unknown_event" | "slow_down" | "no_rooms" | "bad_report" | "bad_origin";
+  type ErrorCode =
+    | RoomErrorCode
+    | "unchecked"
+    | "unknown_option"
+    | "unknown_event"
+    | "slow_down"
+    | "no_rooms"
+    | "bad_report"
+    | "bad_origin"
+    | "not_on_zaisma"
+    | "bad_room_code"
+    | "bad_server_url"
+    | "connection_closed"
+    | "request_failed";
 
   /**
-   * An error from the SDK. The few that mean the game is set up wrong (joining outside Zaisma without
-   * serverUrl, a room code that isn't valid) have no code; their message says what to fix.
+   * An error from the SDK: its code says what went wrong, for the game to branch on, and its message
+   * says it in one sentence, with what to fix.
    *
    * @example
    * try { room = await Zaisma.joinRoom(); }
    * catch (error) { if (error.code === "full") showRoomFull(); else showError(error.message); }
    */
   interface SdkError extends Error {
-    code: ErrorCode | undefined;
+    code: ErrorCode;
   }
 
   /** What {@link invite} did: "shared" from the share sheet, "copied" the link, "cancelled" the share sheet, or "failed" to do either. */
