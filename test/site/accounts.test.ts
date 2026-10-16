@@ -1,6 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { accountById, ageBand, ageOn, canonicalSave, checkName, createApiKey, gameById, gameBySlug, gameOwner, saveKey, sha256Hex } from "@zaisma/core";
+import { MAXIMUM_OPEN_FRIEND_INVITE_COUNT, accountById, ageBand, ageOn, canonicalSave, checkName, createApiKey, deleteExpiredFriendInvites, friendInviteByCode, friendInvitesOf, friendsOf, gameById, gameBySlug, gameOwner, saveKey, sha256Hex } from "@zaisma/core";
 import { decideTopic } from "../../apps/site/src/forum-posts.ts";
 import { checkForumPosts, type CheckDeps } from "../../apps/site/src/forum-check.ts";
 import { scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
@@ -122,7 +122,7 @@ beforeEach(async () => {
     const url = new URL(input instanceof Request ? input.url : String(input));
     return url.origin === SUPABASE ? fakeSupabase(url, init) : realFetch(input, init);
   });
-  await env.DB.exec("DELETE FROM forum_posts; DELETE FROM forum_topic_tags; DELETE FROM forum_votes; DELETE FROM forum_follows; DELETE FROM forum_media; DELETE FROM forum_mentions; DELETE FROM forum_topics; DELETE FROM played; DELETE FROM game_images; DELETE FROM api_keys; DELETE FROM passkeys; DELETE FROM save_history; DELETE FROM saves; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
+  await env.DB.exec("DELETE FROM forum_posts; DELETE FROM forum_topic_tags; DELETE FROM forum_votes; DELETE FROM forum_follows; DELETE FROM forum_media; DELETE FROM forum_mentions; DELETE FROM forum_topics; DELETE FROM played; DELETE FROM friendships; DELETE FROM friend_invites; DELETE FROM game_images; DELETE FROM api_keys; DELETE FROM passkeys; DELETE FROM save_history; DELETE FROM saves; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -435,6 +435,95 @@ describe("the account page", () => {
     expect(deleted).toEqual([id]);
     expect(await accountById(env.DB, id)).toBeNull();
     expect(b.jar.size).toBe(0);
+  });
+});
+
+describe("friends", () => {
+  const inviteFrom = async (b: Browser) => {
+    const made = await b.go("/friends/invites", {});
+    expect(made.status).toBe(303);
+    return new URL(made.headers.get("location")!, SITE).searchParams.get("invite")!;
+  };
+
+  it("adds a friend only through an invite they were given, once, and removes them on both sides", async () => {
+    const ana = new Browser();
+    await join(ana, "ana@example.com", "Night Owl");
+    const ben = new Browser();
+    await join(ben, "ben@example.com", "Quiet Comet", { year: String(thisYear - 14), month: "1", day: "1" });
+    const [anaId, benId] = [users.get("ana@example.com")!, users.get("ben@example.com")!];
+
+    expect(await (await ana.go("/friends")).text()).toContain("No friends yet");
+    const inviteCode = await inviteFrom(ana);
+    expect(inviteCode).toMatch(/^[23456789A-HJ-NP-Z]{8}$/);
+    const shown = await (await ana.go(`/friends?invite=${inviteCode}`)).text();
+    expect(shown).toContain(`${SITE}/friends/add/${inviteCode}`);
+    expect(shown).toContain(`${inviteCode.slice(0, 4)}-${inviteCode.slice(4)}`);
+    // Someone else's invite code in the address shows nothing.
+    expect(await (await ben.go(`/friends?invite=${inviteCode}`)).text()).not.toContain(`/friends/add/${inviteCode}`);
+
+    // Signed out, the link says who it's from and asks to sign in first.
+    const signedOut = await (await new Browser().go(`/friends/add/${inviteCode}`)).text();
+    expect(signedOut).toContain("Night Owl invited you to be friends");
+    expect(signedOut).toContain(`/signin?next=${encodeURIComponent(`/friends/add/${inviteCode}`)}`);
+    // Its maker can't use it.
+    expect(await (await ana.go(`/friends/add/${inviteCode}`)).text()).toContain("This is your own invite");
+    expect((await ana.go(`/friends/add/${inviteCode}`, {})).status).toBe(409);
+
+    // Typed by hand in any case, with its dash, it goes to the invite's page, which asks first.
+    const typed = await ben.go("/friends/add", { invite_code: `${inviteCode.slice(0, 4).toLowerCase()}-${inviteCode.slice(4)}` });
+    expect(typed.headers.get("location")).toBe(`/friends/add/${inviteCode}`);
+    expect(await (await ben.go(`/friends/add/${inviteCode}`)).text()).toContain("Add Night Owl as a friend?");
+    expect(await (await ben.go("/friends/add", { invite_code: "nope" })).text()).toContain("An invite code is 8 letters and numbers");
+
+    const accepted = await ben.go(`/friends/add/${inviteCode}`, {});
+    expect(accepted.status).toBe(303);
+    expect(await (await ben.go(accepted.headers.get("location")!)).text()).toContain("You and Night Owl are friends now");
+    expect(await friendsOf(env.DB, anaId)).toMatchObject([{ name: "Quiet Comet" }]);
+    expect(await friendsOf(env.DB, benId)).toMatchObject([{ name: "Night Owl" }]);
+    // Ben's chat setting is solo-focused, and the page says what that means for friends.
+    expect(await (await ben.go("/friends")).text()).toContain("you don't chat with anyone in games, friends included");
+
+    // Used once, it's gone.
+    const carol = new Browser();
+    await join(carol, "carol@example.com", "Tall Pine");
+    expect(await (await carol.go(`/friends/add/${inviteCode}`)).text()).toContain("This invite doesn't work");
+    expect((await carol.go(`/friends/add/${inviteCode}`, {})).status).toBe(404);
+
+    // A new invite to someone who's already a friend stays for whoever it's meant for.
+    const second = await inviteFrom(ana);
+    expect(await (await ben.go(`/friends/add/${second}`)).text()).toContain("already friends");
+    expect((await carol.go(`/friends/add/${second}`, {})).status).toBe(303);
+    expect((await friendsOf(env.DB, anaId)).map((friend) => friend.name)).toEqual(["Quiet Comet", "Tall Pine"]);
+
+    // Removing is both sides at once.
+    const benPlayerId = (await accountById(env.DB, benId))!.player_id;
+    expect((await ana.go(`/friends/${benPlayerId}/remove`, {})).status).toBe(303);
+    expect(await friendsOf(env.DB, benId)).toEqual([]);
+    expect((await friendsOf(env.DB, anaId)).map((friend) => friend.name)).toEqual(["Tall Pine"]);
+
+    // Deleting an account takes its friends and invites with it.
+    await inviteFrom(ana);
+    await ana.go("/account/delete", { confirm: "delete" });
+    expect(await friendsOf(env.DB, users.get("carol@example.com")!)).toEqual([]);
+    expect(await env.DB.prepare("SELECT COUNT(*) AS invite_count FROM friend_invites").first("invite_count")).toBe(0);
+  });
+
+  it("takes invites back, lets them run out, and keeps a few waiting at most", async () => {
+    const ana = new Browser();
+    await join(ana, "ana@example.com", "Night Owl");
+    const anaId = users.get("ana@example.com")!;
+    const inviteCode = await inviteFrom(ana);
+    await ana.go(`/friends/invites/${inviteCode}/remove`, {});
+    expect(await friendInviteByCode(env.DB, inviteCode)).toBeNull();
+
+    const expiring = await inviteFrom(ana);
+    expect(await friendInviteByCode(env.DB, expiring, Date.now() + 8 * 86400_000)).toBeNull();
+    await deleteExpiredFriendInvites(env.DB, Date.now() + 8 * 86400_000);
+    expect(await friendInvitesOf(env.DB, anaId, 0)).toEqual([]);
+
+    for (let i = 0; i < MAXIMUM_OPEN_FRIEND_INVITE_COUNT; i++) await inviteFrom(ana);
+    expect(await (await ana.go("/friends/invites", {})).text()).toContain(`You have ${MAXIMUM_OPEN_FRIEND_INVITE_COUNT} invites waiting`);
+    expect(await (await new Browser().go("/friends")).headers.get("location")).toBe(`/signin?next=${encodeURIComponent("/friends")}`);
   });
 });
 
