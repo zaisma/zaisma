@@ -44,29 +44,29 @@ function fail(message) {
   process.exit(1);
 }
 
-function args(argv) {
+function parseFlags(argv) {
   const out = { _: [] };
   for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    if (a.startsWith("--")) {
+    const argument = argv[i];
+    if (argument.startsWith("--")) {
       const next = argv[i + 1];
-      if (next === undefined || next.startsWith("--")) out[a.slice(2)] = true;
-      else out[a.slice(2)] = argv[++i];
-    } else out._.push(a);
+      if (next === undefined || next.startsWith("--")) out[argument.slice(2)] = true;
+      else out[argument.slice(2)] = argv[++i];
+    } else out._.push(argument);
   }
   return out;
 }
 
 async function api(method, path, body) {
   if (!KEY) fail("set ZAISMA_KEY to an API key from https://zaisma.com/account first.");
-  const res = await fetch(`${API}/api/dev${path}`, {
+  const response = await fetch(`${API}/api/dev${path}`, {
     method,
     headers: { authorization: `Bearer ${KEY}`, "x-zaisma-client": "cli", ...(body && !(body instanceof Uint8Array) ? { "content-type": "application/json" } : {}) },
     body: body instanceof Uint8Array ? body : body ? JSON.stringify(body) : undefined,
   });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) fail(data.error ? `${data.error.message} ${data.error.fix} (${data.error.code})` : `the server answered ${res.status}.`);
-  return data;
+  const answer = await response.json().catch(() => ({}));
+  if (!response.ok) fail(answer.error ? `${answer.error.message} ${answer.error.fix} (${answer.error.code})` : `the server answered ${response.status}.`);
+  return answer;
 }
 
 async function walk(root) {
@@ -92,34 +92,34 @@ async function walk(root) {
 function sha256(file) {
   return new Promise((resolve, reject) => {
     const hash = createHash("sha256");
-    createReadStream(file).on("data", (d) => hash.update(d)).on("end", () => resolve(hash.digest("hex"))).on("error", reject);
+    createReadStream(file).on("data", (chunk) => hash.update(chunk)).on("end", () => resolve(hash.digest("hex"))).on("error", reject);
   });
 }
 
-async function sendInParts(f, progress) {
-  const start = await api("POST", `/files/${f.sha256}/parts`, { size_bytes: f.size_bytes });
+async function sendInParts(file, progress) {
+  const start = await api("POST", `/files/${file.sha256}/parts`, { size_bytes: file.size_bytes });
   if (start.storage_status === "already_stored") return;
-  const file = await open(f.full);
+  const handle = await open(file.full);
   const parts = [];
   try {
-    for (let n = 1, offset = 0; offset < f.size_bytes; n++, offset += start.part_size_bytes) {
-      const chunk = new Uint8Array(Math.min(start.part_size_bytes, f.size_bytes - offset));
-      await file.read(chunk, 0, chunk.length, offset);
-      const part = await api("PUT", `/files/${f.sha256}/parts/${n}?upload_id=${encodeURIComponent(start.upload_id)}`, chunk);
+    for (let partNumber = 1, offsetBytes = 0; offsetBytes < file.size_bytes; partNumber++, offsetBytes += start.part_size_bytes) {
+      const chunk = new Uint8Array(Math.min(start.part_size_bytes, file.size_bytes - offsetBytes));
+      await handle.read(chunk, 0, chunk.length, offsetBytes);
+      const part = await api("PUT", `/files/${file.sha256}/parts/${partNumber}?upload_id=${encodeURIComponent(start.upload_id)}`, chunk);
       parts.push({ part_number: part.part_number, etag: part.etag });
-      progress(offset + chunk.length);
+      progress(offsetBytes + chunk.length);
     }
   } finally {
-    await file.close();
+    await handle.close();
   }
-  await api("POST", `/files/${f.sha256}/parts/done`, { upload_id: start.upload_id, parts });
+  await api("POST", `/files/${file.sha256}/parts/done`, { upload_id: start.upload_id, parts });
 }
 
-const size = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.ceil(n / 1024)} KB`);
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const readableSize = (sizeBytes) => (sizeBytes >= 1048576 ? `${(sizeBytes / 1048576).toFixed(1)} MB` : `${Math.ceil(sizeBytes / 1024)} KB`);
+const sleep = (durationMs) => new Promise((resolve) => setTimeout(resolve, durationMs));
 
-async function upload(folder, opts) {
-  const slug = opts.game;
+async function upload(folder, flags) {
+  const slug = flags.game;
   if (!folder || typeof slug !== "string") fail("usage: zaisma upload <folder> --game <slug>");
   if (!(await stat(folder).catch(() => null))?.isDirectory()) fail(`${folder} isn't a folder.`);
 
@@ -129,43 +129,43 @@ async function upload(folder, opts) {
   for (const full of paths) {
     files.push({ path: relative(folder, full).split(sep).join("/"), sha256: await sha256(full), size_bytes: (await stat(full)).size, full });
   }
-  const list = files.map(({ full: _, ...f }) => f);
+  const list = files.map(({ full: _, ...file }) => file);
   const plan = await api("POST", `/games/${slug}/uploads`, { files: list });
-  const todo = files.filter((f, i) => plan.missing_file_hashes.includes(f.sha256) && files.findIndex((g) => g.sha256 === f.sha256) === i);
-  const total = todo.reduce((n, f) => n + f.size_bytes, 0);
-  console.log(todo.length ? `Sending ${todo.length} new or changed files (${size(total)})…` : "Nothing changed since your last upload; making a version from the stored files.");
+  const todo = files.filter((file, i) => plan.missing_file_hashes.includes(file.sha256) && files.findIndex((other) => other.sha256 === file.sha256) === i);
+  const totalBytes = todo.reduce((sumBytes, file) => sumBytes + file.size_bytes, 0);
+  console.log(todo.length ? `Sending ${todo.length} new or changed files (${readableSize(totalBytes)})…` : "Nothing changed since your last upload; making a version from the stored files.");
 
-  let sent = 0;
+  let sentBytes = 0;
   const queue = [...todo];
   await Promise.all(
     Array.from({ length: 4 }, async () => {
-      for (let f = queue.shift(); f; f = queue.shift()) {
-        if (f.size_bytes > DIRECT_BYTES) await sendInParts(f, (n) => process.stdout.write(`\r  ${size(sent + n)} of ${size(total)}   `));
-        else await api("PUT", `/files/${f.sha256}`, new Uint8Array(await readFile(f.full)));
-        sent += f.size_bytes;
-        process.stdout.write(`\r  ${size(sent)} of ${size(total)}   `);
+      for (let file = queue.shift(); file; file = queue.shift()) {
+        if (file.size_bytes > DIRECT_BYTES) await sendInParts(file, (partSentBytes) => process.stdout.write(`\r  ${readableSize(sentBytes + partSentBytes)} of ${readableSize(totalBytes)}   `));
+        else await api("PUT", `/files/${file.sha256}`, new Uint8Array(await readFile(file.full)));
+        sentBytes += file.size_bytes;
+        process.stdout.write(`\r  ${readableSize(sentBytes)} of ${readableSize(totalBytes)}   `);
       }
     }),
   );
   if (todo.length) process.stdout.write("\n");
 
-  const { version } = await api("POST", `/games/${slug}/versions`, { files: list, patch_notes: typeof opts["patch-notes"] === "string" ? opts["patch-notes"] : "", publish_when_approved: opts["publish-when-approved"] === true });
+  const { version } = await api("POST", `/games/${slug}/versions`, { files: list, patch_notes: typeof flags["patch-notes"] === "string" ? flags["patch-notes"] : "", publish_when_approved: flags["publish-when-approved"] === true });
   console.log(`Version ${version.id} is being scanned. This usually takes under a minute…`);
 
   for (let i = 0; i < 200; i++) {
     await sleep(3000);
-    const { version: v } = await api("GET", `/games/${slug}/versions/${version.id}`);
-    if (v.scan_status === "scanning") continue;
-    if (v.scan_status === "approved") {
-      if (v.is_live) console.log(`Passed and live: ${API}/g/${slug}`);
+    const { version: checked } = await api("GET", `/games/${slug}/versions/${version.id}`);
+    if (checked.scan_status === "scanning") continue;
+    if (checked.scan_status === "approved") {
+      if (checked.is_live) console.log(`Passed and live: ${API}/g/${slug}`);
       else {
-        console.log(`Passed. Your private preview: ${v.preview_url}`);
-        console.log(`Publish it with: zaisma publish ${slug} ${v.id}`);
+        console.log(`Passed. Your private preview: ${checked.preview_url}`);
+        console.log(`Publish it with: zaisma publish ${slug} ${checked.id}`);
       }
     } else {
-      console.log(v.scan_status === "held" ? "Held for a person at Zaisma to look at. Why:" : "Rejected. Why:");
-      printReasons(v);
-      if (v.scan_status === "rejected") process.exit(1);
+      console.log(checked.scan_status === "held" ? "Held for a person at Zaisma to look at. Why:" : "Rejected. Why:");
+      printReasons(checked);
+      if (checked.scan_status === "rejected") process.exit(1);
     }
     return;
   }
@@ -180,45 +180,45 @@ function printReasons(version) {
 }
 
 /** The code a held or removed game, or a held or rejected version, is held back by, to look up in the forum. */
-const reasonCode = (thing) => (thing.review_reason ?? thing.findings?.[0])?.code ?? "";
+const reasonCode = (gameOrVersion) => (gameOrVersion.review_reason ?? gameOrVersion.findings?.[0])?.code ?? "";
 
-const day = (at) => at.slice(0, 10);
+const day = (isoTime) => isoTime.slice(0, 10);
 
 function printTopic(topic) {
-  const count = topic.is_known_issue ? `, ${topic.affected_developer_count} developer${topic.affected_developer_count === 1 ? "" : "s"} affected` : topic.vote_count ? `, ${topic.vote_count} vote${topic.vote_count === 1 ? "" : "s"}` : "";
-  console.log(`${topic.id}  ${topic.topic_status.padEnd(13)} ${topic.is_unread ? "* " : "  "}${topic.title}  (${topic.is_known_issue ? "known issue" : topic.kind}${count})`);
+  const countText = topic.is_known_issue ? `, ${topic.affected_developer_count} developer${topic.affected_developer_count === 1 ? "" : "s"} affected` : topic.vote_count ? `, ${topic.vote_count} vote${topic.vote_count === 1 ? "" : "s"}` : "";
+  console.log(`${topic.id}  ${topic.topic_status.padEnd(13)} ${topic.is_unread ? "* " : "  "}${topic.title}  (${topic.is_known_issue ? "known issue" : topic.kind}${countText})`);
 }
 
 /** Text from --text, or piped in. */
-async function readText(opts) {
-  if (typeof opts.text === "string") return opts.text;
+async function readText(flags) {
+  if (typeof flags.text === "string") return flags.text;
   if (process.stdin.isTTY) return "";
   const chunks = [];
-  for await (const c of process.stdin) chunks.push(c);
+  for await (const chunk of process.stdin) chunks.push(chunk);
   return Buffer.concat(chunks).toString("utf8").trim();
 }
 
 /** The developer forum. Posts say an AI wrote them unless --by-me says the developer did. */
-async function forum(opts) {
-  const [sub, id] = opts._;
-  const by = opts["by-me"] ? { author_kind: "developer" } : {};
+async function forum(flags) {
+  const [subcommand, id] = flags._;
+  const by = flags["by-me"] ? { author_kind: "developer" } : {};
   const sent = (out) => {
     if (out.check_note) console.log(out.check_note);
     if (out.removed_secret_count) console.log(`${out.removed_secret_count} secret${out.removed_secret_count === 1 ? " was" : "s were"} blanked before it was stored.`);
   };
-  if (sub === "post" || sub === "message") {
-    const text = await readText(opts);
-    const isMessage = sub === "message";
+  if (subcommand === "post" || subcommand === "message") {
+    const text = await readText(flags);
+    const isMessage = subcommand === "message";
     const usage = isMessage
       ? 'usage: zaisma forum message --kind bug|gap|feature|question --title "…" --text "…" [--category <category>] [--game <slug>]'
       : 'usage: zaisma forum post --kind bug|gap|feature|question|talk --title "…" --category <category> --text "…"';
-    if (typeof opts.kind !== "string" || typeof opts.title !== "string" || !text || (!isMessage && typeof opts.category !== "string")) fail(usage);
+    if (typeof flags.kind !== "string" || typeof flags.title !== "string" || !text || (!isMessage && typeof flags.category !== "string")) fail(usage);
     const out = await api("POST", "/forum", {
-      kind: opts.kind,
-      title: opts.title,
+      kind: flags.kind,
+      title: flags.title,
       text_markdown: text,
-      ...(typeof opts.category === "string" ? { category: opts.category } : {}),
-      ...(isMessage ? { is_public: false, ...(typeof opts.game === "string" ? { game_slug: opts.game } : {}) } : {}),
+      ...(typeof flags.category === "string" ? { category: flags.category } : {}),
+      ...(isMessage ? { is_public: false, ...(typeof flags.game === "string" ? { game_slug: flags.game } : {}) } : {}),
       ...by,
     });
     console.log(`${isMessage ? "Sent to Zaisma" : "Posted"} (${out.topic.id}). Replies show here: zaisma forum ${out.topic.id}`);
@@ -229,16 +229,16 @@ async function forum(opts) {
     }
     return;
   }
-  if (sub === "reply") {
-    const text = await readText(opts);
+  if (subcommand === "reply") {
+    const text = await readText(flags);
     if (!id || !text) fail('usage: zaisma forum reply <topic id> --text "…" [--reopen]');
-    const out = await api("POST", `/forum/${id}/posts`, { text_markdown: text, ...(opts.reopen ? { reopen: true } : {}), ...by });
+    const out = await api("POST", `/forum/${id}/posts`, { text_markdown: text, ...(flags.reopen ? { reopen: true } : {}), ...by });
     console.log(`Replied in ${id}.`);
     sent(out);
     return;
   }
-  if (sub) {
-    const { topic, posts } = await api("GET", `/forum/${sub}`);
+  if (subcommand) {
+    const { topic, posts } = await api("GET", `/forum/${subcommand}`);
     console.log(`${topic.title}\n${topic.is_known_issue ? "known issue" : topic.kind}, ${topic.topic_status}${topic.is_public ? "" : ", a message to Zaisma"}${topic.game_slug ? `, ${topic.game_slug}` : ""}`);
     if (topic.workaround) console.log(`Until it's fixed: ${topic.workaround}`);
     if (topic.merged_into_topic) console.log(`Part of the known issue ${topic.merged_into_topic.id}: ${topic.merged_into_topic.title}`);
@@ -250,8 +250,8 @@ async function forum(opts) {
     }
     return;
   }
-  if (typeof opts.search === "string") {
-    const { topics } = await api("GET", `/forum?detail=brief&search_text=${encodeURIComponent(opts.search)}`);
+  if (typeof flags.search === "string") {
+    const { topics } = await api("GET", `/forum?detail=brief&search_text=${encodeURIComponent(flags.search)}`);
     if (!topics.length) console.log("Nothing matches that. Post it with: zaisma forum post");
     for (const topic of topics) printTopic(topic);
     return;
@@ -267,41 +267,41 @@ async function forum(opts) {
 
 async function main() {
   const [command, ...rest] = process.argv.slice(2);
-  const opts = args(rest);
+  const flags = parseFlags(rest);
   if (!command || command === "help" || command === "--help" || command === "-h") return console.log(HELP);
   // Flags renamed to match the API's names (docs/NAMING.md). Said out loud, so an old one isn't quietly ignored.
   const renamed = { notes: "patch-notes", publish: "publish-when-approved", at: "scheduled-publish-at" };
-  for (const [old, now] of Object.entries(renamed)) if (old in opts) fail(`--${old} is now --${now}.`);
+  for (const [old, now] of Object.entries(renamed)) if (old in flags) fail(`--${old} is now --${now}.`);
 
   if (command === "games") {
-    const { games, unread_topic_count } = await api("GET", "/games");
+    const { games, unread_topic_count: unreadTopicCount } = await api("GET", "/games");
     if (!games.length) return console.log('No games yet. Make one with: zaisma new "My Game"');
-    for (const g of games) console.log(`${g.slug.padEnd(28)} ${g.visibility.padEnd(9)} ${g.review_status.padEnd(8)} ${g.title}${g.review_reason ? `  [${reasonCode(g)}]` : ""}`);
-    if (unread_topic_count) console.log(`\nZaisma replied to ${unread_topic_count} of your forum topics. See them with: zaisma forum`);
+    for (const game of games) console.log(`${game.slug.padEnd(28)} ${game.visibility.padEnd(9)} ${game.review_status.padEnd(8)} ${game.title}${game.review_reason ? `  [${reasonCode(game)}]` : ""}`);
+    if (unreadTopicCount) console.log(`\nZaisma replied to ${unreadTopicCount} of your forum topics. See them with: zaisma forum`);
     return;
   }
   if (command === "new") {
-    const title = opts._.join(" ");
+    const title = flags._.join(" ");
     if (!title) fail('usage: zaisma new "My Game" [--slug my-game]');
-    const { game } = await api("POST", "/games", { title, ...(typeof opts.slug === "string" ? { slug: opts.slug } : {}) });
+    const { game } = await api("POST", "/games", { title, ...(typeof flags.slug === "string" ? { slug: flags.slug } : {}) });
     return console.log(`Made ${game.page_url} (a draft). Upload it with: zaisma upload <folder> --game ${game.slug}`);
   }
-  if (command === "upload") return upload(opts._[0], opts);
+  if (command === "upload") return upload(flags._[0], flags);
   if (command === "versions") {
-    const slug = opts._[0];
+    const slug = flags._[0];
     if (!slug) fail("usage: zaisma versions <slug>");
     const { versions } = await api("GET", `/games/${slug}`);
-    for (const v of versions) console.log(`${v.id}  ${v.created_at.slice(0, 16).replace("T", " ")}  ${(v.is_live ? "live" : v.scan_status).padEnd(9)} ${v.preview_url ?? (v.scan_status === "held" || v.scan_status === "rejected" ? `[${reasonCode(v)}]` : "")}${v.scheduled_publish_at ? `  goes live ${new Date(v.scheduled_publish_at).toLocaleString()}` : ""}`);
+    for (const version of versions) console.log(`${version.id}  ${version.created_at.slice(0, 16).replace("T", " ")}  ${(version.is_live ? "live" : version.scan_status).padEnd(9)} ${version.preview_url ?? (version.scan_status === "held" || version.scan_status === "rejected" ? `[${reasonCode(version)}]` : "")}${version.scheduled_publish_at ? `  goes live ${new Date(version.scheduled_publish_at).toLocaleString()}` : ""}`);
     return;
   }
   if (command === "publish") {
-    const [slug, id] = opts._;
+    const [slug, id] = flags._;
     if (!slug || !id) fail("usage: zaisma publish <slug> <version>");
-    const later = opts["scheduled-publish-at"];
+    const later = flags["scheduled-publish-at"];
     if (typeof later === "string") {
-      const at = new Date(later.includes("T") || /z$|[+-]\d\d:?\d\d$/i.test(later) ? later : later.replace(" ", "T"));
-      if (Number.isNaN(at.getTime())) fail('give --scheduled-publish-at as a date and time, like "2026-11-01 17:00".');
-      const { version } = await api("POST", `/games/${slug}/versions/${id}/publish`, { scheduled_publish_at: at.toISOString() });
+      const publishTime = new Date(later.includes("T") || /z$|[+-]\d\d:?\d\d$/i.test(later) ? later : later.replace(" ", "T"));
+      if (Number.isNaN(publishTime.getTime())) fail('give --scheduled-publish-at as a date and time, like "2026-11-01 17:00".');
+      const { version } = await api("POST", `/games/${slug}/versions/${id}/publish`, { scheduled_publish_at: publishTime.toISOString() });
       console.log(`Version ${id} will go live at ${new Date(version.scheduled_publish_at).toLocaleString()}${version.scan_status === "scanning" ? ", if it has passed the scan by then" : ""}.`);
       return;
     }
@@ -311,20 +311,20 @@ async function main() {
     return;
   }
   if (command === "unschedule") {
-    const [slug, id] = opts._;
+    const [slug, id] = flags._;
     if (!slug || !id) fail("usage: zaisma unschedule <slug> <version>");
     await api("DELETE", `/games/${slug}/versions/${id}/publish`);
     return console.log(`Version ${id} won't be published by itself.`);
   }
   if (command === "show") {
-    const slug = opts._[0];
-    if (!slug || typeof opts.visibility !== "string") fail("usage: zaisma show <slug> --visibility listed|unlisted|private|draft");
-    const { game } = await api("PATCH", `/games/${slug}`, { visibility: opts.visibility });
+    const slug = flags._[0];
+    if (!slug || typeof flags.visibility !== "string") fail("usage: zaisma show <slug> --visibility listed|unlisted|private|draft");
+    const { game } = await api("PATCH", `/games/${slug}`, { visibility: flags.visibility });
     return console.log(`${game.title} is now ${game.visibility}.`);
   }
-  if (command === "forum") return forum(opts);
+  if (command === "forum") return forum(flags);
   if (command === "feedback") fail("zaisma feedback is now zaisma forum: zaisma forum lists your topics, zaisma forum message sends Zaisma a private message.");
   fail(`unknown command "${command}". Run zaisma help.`);
 }
 
-main().catch((err) => fail(err.message));
+main().catch((error) => fail(error.message));

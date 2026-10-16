@@ -31,20 +31,20 @@
   // --- The save format ---
 
   function snapshot() {
-    var data = {};
+    var local = {};
     for (var i = 0; i < localStorage.length; i++) {
       var key = localStorage.key(i);
-      data[key] = localStorage.getItem(key);
+      local[key] = localStorage.getItem(key);
     }
-    return data;
+    return local;
   }
   // Keys sorted, so the same save is always the same text (matches canonicalSave on the server).
-  function canonical(data) {
+  function canonical(local) {
     var out = {};
-    Object.keys(data)
+    Object.keys(local)
       .sort()
-      .forEach(function (k) {
-        set(out, k, data[k]);
+      .forEach(function (key) {
+        set(out, key, local[key]);
       });
     return JSON.stringify(out);
   }
@@ -52,126 +52,126 @@
   function saveText(local, idbText) {
     return idbText ? '{"idb":' + idbText + ',"local":' + canonical(local) + "}" : canonical(local);
   }
-  function set(obj, key, value) {
-    if (key === "__proto__") Object.defineProperty(obj, key, { value: value, enumerable: true, writable: true, configurable: true });
-    else obj[key] = value;
+  function set(target, key, entryValue) {
+    if (key === "__proto__") Object.defineProperty(target, key, { value: entryValue, enumerable: true, writable: true, configurable: true });
+    else target[key] = entryValue;
   }
 
   // IndexedDB holds more than JSON can (dates, binary data, files, maps), so those become
   // tagged objects: { "$z": [kind, ...] }. A plain object with its own "$z" key is tagged
   // too ("obj"), so nothing is ever mistaken for a tag. Blobs are read afterwards: their
   // reads go into `pending`.
-  function encode(v, pending, seen) {
-    if (v === null || typeof v === "boolean" || typeof v === "string") return v;
-    if (typeof v === "number") return isFinite(v) && !(v === 0 && 1 / v < 0) ? v : { $z: ["num", v === 0 ? "-0" : String(v)] };
-    if (v === undefined) return { $z: ["undef"] };
-    if (typeof v === "bigint") return { $z: ["bigint", v.toString()] };
-    if (typeof v !== "object") throw new Error("Can't save a " + typeof v);
-    if (seen.indexOf(v) !== -1) throw new Error("Can't save a value that contains itself");
-    var kind = Object.prototype.toString.call(v).slice(8, -1);
-    if (kind === "Date") return { $z: ["date", encode(v.getTime(), pending, seen)] };
-    if (kind === "RegExp") return { $z: ["regexp", v.source, v.flags] };
-    if (kind === "ArrayBuffer") return { $z: ["bytes", b64(new Uint8Array(v))] };
-    if (ArrayBuffer.isView(v)) return { $z: ["view", VIEWS.indexOf(kind) === -1 ? "Uint8Array" : kind, b64(new Uint8Array(v.buffer, v.byteOffset, v.byteLength))] };
+  function encode(given, pending, seen) {
+    if (given === null || typeof given === "boolean" || typeof given === "string") return given;
+    if (typeof given === "number") return isFinite(given) && !(given === 0 && 1 / given < 0) ? given : { $z: ["num", given === 0 ? "-0" : String(given)] };
+    if (given === undefined) return { $z: ["undef"] };
+    if (typeof given === "bigint") return { $z: ["bigint", given.toString()] };
+    if (typeof given !== "object") throw new Error("Can't save a " + typeof given);
+    if (seen.indexOf(given) !== -1) throw new Error("Can't save a value that contains itself");
+    var kind = Object.prototype.toString.call(given).slice(8, -1);
+    if (kind === "Date") return { $z: ["date", encode(given.getTime(), pending, seen)] };
+    if (kind === "RegExp") return { $z: ["regexp", given.source, given.flags] };
+    if (kind === "ArrayBuffer") return { $z: ["bytes", toBase64(new Uint8Array(given))] };
+    if (ArrayBuffer.isView(given)) return { $z: ["view", VIEWS.indexOf(kind) === -1 ? "Uint8Array" : kind, toBase64(new Uint8Array(given.buffer, given.byteOffset, given.byteLength))] };
     if (kind === "Blob" || kind === "File") {
-      var tag = kind === "File" ? { $z: ["file", v.type, "", v.name, v.lastModified] } : { $z: ["blob", v.type, ""] };
+      var tag = kind === "File" ? { $z: ["file", given.type, "", given.name, given.lastModified] } : { $z: ["blob", given.type, ""] };
       pending.push(
-        v.arrayBuffer().then(function (buf) {
-          tag.$z[2] = b64(new Uint8Array(buf));
+        given.arrayBuffer().then(function (buffer) {
+          tag.$z[2] = toBase64(new Uint8Array(buffer));
         }),
       );
       return tag;
     }
-    seen.push(v);
+    seen.push(given);
     var out;
     if (kind === "Map" || kind === "Set") {
       var items = [];
-      v.forEach(function (value, key) {
-        items.push(kind === "Map" ? [encode(key, pending, seen), encode(value, pending, seen)] : encode(value, pending, seen));
+      given.forEach(function (entryValue, key) {
+        items.push(kind === "Map" ? [encode(key, pending, seen), encode(entryValue, pending, seen)] : encode(entryValue, pending, seen));
       });
       out = { $z: [kind === "Map" ? "map" : "set", items] };
-    } else if (Array.isArray(v)) {
+    } else if (Array.isArray(given)) {
       out = [];
-      for (var i = 0; i < v.length; i++) out.push(encode(v[i], pending, seen));
+      for (var i = 0; i < given.length; i++) out.push(encode(given[i], pending, seen));
     } else {
       out = {};
-      Object.keys(v).forEach(function (k) {
-        set(out, k, encode(v[k], pending, seen));
+      Object.keys(given).forEach(function (key) {
+        set(out, key, encode(given[key], pending, seen));
       });
-      if (Object.prototype.hasOwnProperty.call(v, "$z")) out = { $z: ["obj", out] };
+      if (Object.prototype.hasOwnProperty.call(given, "$z")) out = { $z: ["obj", out] };
     }
     seen.pop();
     return out;
   }
 
-  function decode(v) {
-    if (v === null || typeof v !== "object") return v;
-    if (Array.isArray(v)) return v.map(decode);
-    var z = Object.prototype.hasOwnProperty.call(v, "$z") ? v.$z : null;
-    if (!Array.isArray(z)) return plain(v);
-    switch (z[0]) {
+  function decode(encoded) {
+    if (encoded === null || typeof encoded !== "object") return encoded;
+    if (Array.isArray(encoded)) return encoded.map(decode);
+    var tag = Object.prototype.hasOwnProperty.call(encoded, "$z") ? encoded.$z : null;
+    if (!Array.isArray(tag)) return plain(encoded);
+    switch (tag[0]) {
       case "num":
-        return Number(z[1]);
+        return Number(tag[1]);
       case "undef":
         return undefined;
       case "bigint":
-        return BigInt(z[1]);
+        return BigInt(tag[1]);
       case "date":
-        return new Date(decode(z[1]));
+        return new Date(decode(tag[1]));
       case "regexp":
-        return new RegExp(z[1], z[2]);
+        return new RegExp(tag[1], tag[2]);
       case "bytes":
-        return unb64(z[1]).buffer;
+        return fromBase64(tag[1]).buffer;
       case "view":
-        var bytes = unb64(z[2]);
-        if (z[1] === "DataView") return new DataView(bytes.buffer);
-        return VIEWS.indexOf(z[1]) === -1 ? bytes : new global[z[1]](bytes.buffer);
+        var bytes = fromBase64(tag[2]);
+        if (tag[1] === "DataView") return new DataView(bytes.buffer);
+        return VIEWS.indexOf(tag[1]) === -1 ? bytes : new global[tag[1]](bytes.buffer);
       case "blob":
-        return new Blob([unb64(z[2])], { type: z[1] });
+        return new Blob([fromBase64(tag[2])], { type: tag[1] });
       case "file":
-        return new File([unb64(z[2])], z[3], { type: z[1], lastModified: z[4] });
+        return new File([fromBase64(tag[2])], tag[3], { type: tag[1], lastModified: tag[4] });
       case "map":
         return new Map(
-          z[1].map(function (e) {
-            return [decode(e[0]), decode(e[1])];
+          tag[1].map(function (entry) {
+            return [decode(entry[0]), decode(entry[1])];
           }),
         );
       case "set":
-        return new Set(z[1].map(decode));
+        return new Set(tag[1].map(decode));
       case "obj":
-        return plain(z[1]);
+        return plain(tag[1]);
     }
-    return plain(v);
+    return plain(encoded);
   }
-  function plain(o) {
+  function plain(object) {
     var out = {};
-    Object.keys(o).forEach(function (k) {
-      set(out, k, decode(o[k]));
+    Object.keys(object).forEach(function (key) {
+      set(out, key, decode(object[key]));
     });
     return out;
   }
 
-  function b64(bytes) {
-    var s = "";
-    for (var i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
-    return btoa(s);
+  function toBase64(bytes) {
+    var binary = "";
+    for (var i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(binary);
   }
-  function unb64(text) {
-    var s = atob(text);
-    var out = new Uint8Array(s.length);
-    for (var i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
+  function fromBase64(text) {
+    var binary = atob(text);
+    var out = new Uint8Array(binary.length);
+    for (var i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
     return out;
   }
 
   // --- IndexedDB ---
 
-  function request(r) {
+  function request(databaseRequest) {
     return new Promise(function (ok, fail) {
-      r.onsuccess = function () {
-        ok(r.result);
+      databaseRequest.onsuccess = function () {
+        ok(databaseRequest.result);
       };
-      r.onerror = function () {
-        fail(r.error);
+      databaseRequest.onerror = function () {
+        fail(databaseRequest.error);
       };
     });
   }
@@ -179,36 +179,36 @@
     if (!window.indexedDB || !indexedDB.databases) return Promise.resolve([]);
     return indexedDB.databases().then(function (list) {
       return list
-        .map(function (d) {
-          return d.name;
+        .map(function (database) {
+          return database.name;
         })
-        .filter(function (n) {
-          return typeof n === "string" && !SKIP.test(n);
+        .filter(function (name) {
+          return typeof name === "string" && !SKIP.test(name);
         })
         .sort();
     });
   }
   function open(name, version, upgrade) {
     return new Promise(function (ok, fail) {
-      var r = version ? indexedDB.open(name, version) : indexedDB.open(name);
-      r.onupgradeneeded = function () {
-        if (upgrade) upgrade(r.result);
+      var opening = version ? indexedDB.open(name, version) : indexedDB.open(name);
+      opening.onupgradeneeded = function () {
+        if (upgrade) upgrade(opening.result);
       };
-      r.onsuccess = function () {
-        var db = r.result;
+      opening.onsuccess = function () {
+        var database = opening.result;
         // Never hold up the game's own database upgrades.
-        db.onversionchange = function () {
-          db.close();
+        database.onversionchange = function () {
+          database.close();
         };
-        ok(db);
+        ok(database);
       };
-      r.onerror = function () {
-        fail(r.error);
+      opening.onerror = function () {
+        fail(opening.error);
       };
     });
   }
-  function storeNames(db) {
-    return Array.prototype.slice.call(db.objectStoreNames).sort();
+  function storeNames(database) {
+    return Array.prototype.slice.call(database.objectStoreNames).sort();
   }
   /** How a store is set up, in a fixed shape so two can be compared as text. */
   function shape(store) {
@@ -225,12 +225,12 @@
         }),
     };
   }
-  function savedShape(s) {
-    return { name: s.name, keyPath: s.keyPath, autoIncrement: s.autoIncrement, indexes: s.indexes };
+  function savedShape(saved) {
+    return { name: saved.name, keyPath: saved.keyPath, autoIncrement: saved.autoIncrement, indexes: saved.indexes };
   }
   // A key path is a name, a list of names (some browsers give a DOMStringList) or none.
-  function keyPath(p) {
-    return p === null || typeof p === "string" ? p : Array.prototype.slice.call(p);
+  function keyPath(path) {
+    return path === null || typeof path === "string" ? path : Array.prototype.slice.call(path);
   }
 
   /**
@@ -240,8 +240,8 @@
    */
   function readDatabases() {
     return names().then(function (list) {
-      return Promise.all(list.map(readDatabase)).then(function (dbs) {
-        return dbs.filter(Boolean);
+      return Promise.all(list.map(readDatabase)).then(function (databases) {
+        return databases.filter(Boolean);
       });
     });
   }
@@ -249,48 +249,48 @@
     var created = false;
     return open(name, 0, function () {
       created = true;
-    }).then(function (db) {
-      var stores = storeNames(db);
+    }).then(function (database) {
+      var stores = storeNames(database);
       if (created || !stores.length) {
-        db.close();
+        database.close();
         // It was deleted after the list was read; don't leave an empty one behind.
         if (created) indexedDB.deleteDatabase(name);
         return null;
       }
       return new Promise(function (ok, fail) {
-        var tx = db.transaction(stores, "readonly");
-        var out = stores.map(function (s) {
-          var store = tx.objectStore(s);
-          var item = shape(store);
+        var transaction = database.transaction(stores, "readonly");
+        var out = stores.map(function (storeName) {
+          var store = transaction.objectStore(storeName);
+          var copy = shape(store);
           var keys = store.getAllKeys();
           var values = store.getAll();
           values.onsuccess = function () {
-            item.records = values.result.map(function (value, i) {
-              return [keys.result[i], value];
+            copy.records = values.result.map(function (record, i) {
+              return [keys.result[i], record];
             });
           };
-          return item;
+          return copy;
         });
-        tx.oncomplete = function () {
-          db.close();
-          var any = out.some(function (s) {
-            return s.records.length;
+        transaction.oncomplete = function () {
+          database.close();
+          var hasRecords = out.some(function (copied) {
+            return copied.records.length;
           });
-          ok(any ? { name: name, version: db.version, stores: out } : null);
+          ok(hasRecords ? { name: name, version: database.version, stores: out } : null);
         };
-        tx.onerror = tx.onabort = function () {
-          db.close();
-          fail(tx.error);
+        transaction.onerror = transaction.onabort = function () {
+          database.close();
+          fail(transaction.error);
         };
       });
     });
   }
   /** The databases as save text: "" when there are none. */
   function readIdbText() {
-    return readDatabases().then(function (dbs) {
-      if (!dbs.length) return "";
+    return readDatabases().then(function (databases) {
+      if (!databases.length) return "";
       var pending = [];
-      var out = encode(dbs, pending, []);
+      var out = encode(databases, pending, []);
       return Promise.all(pending).then(function () {
         return JSON.stringify(out);
       });
@@ -302,27 +302,27 @@
    * refilled; one set up differently (another version of the game) is deleted and made
    * again, which waits while the game is open in another tab (onBlocked says so).
    */
-  function writeDatabases(dbs, onBlocked) {
+  function writeDatabases(databases, onBlocked) {
     var wanted = {};
-    dbs.forEach(function (d) {
-      wanted[d.name] = d;
+    databases.forEach(function (database) {
+      wanted[database.name] = database;
     });
     return names().then(function (list) {
       var here = {};
-      list.forEach(function (n) {
-        here[n] = true;
+      list.forEach(function (name) {
+        here[name] = true;
       });
-      var empty = list.filter(function (n) {
-        return !wanted[n];
+      var empty = list.filter(function (name) {
+        return !wanted[name];
       });
       return Promise.all(
         empty
-          .map(function (n) {
-            return fill(n, null, true, onBlocked);
+          .map(function (name) {
+            return fill(name, null, true, onBlocked);
           })
           .concat(
-            dbs.map(function (d) {
-              return fill(d.name, d, Boolean(here[d.name]), onBlocked);
+            databases.map(function (database) {
+              return fill(database.name, database, Boolean(here[database.name]), onBlocked);
             }),
           ),
       );
@@ -330,105 +330,105 @@
   }
   function fill(name, saved, exists, onBlocked) {
     if (!exists) return saved ? create(saved) : Promise.resolve();
-    return open(name).then(function (db) {
-      if (!saved || (db.version === saved.version && sameShape(db, saved))) return write(db, saved);
-      db.close();
+    return open(name).then(function (database) {
+      if (!saved || (database.version === saved.version && sameShape(database, saved))) return write(database, saved);
+      database.close();
       return drop(name, onBlocked).then(function () {
         return create(saved);
       });
     });
   }
-  function sameShape(db, saved) {
-    var stores = storeNames(db);
-    var theirs = saved.stores.map(savedShape).sort(function (a, b) {
-      return a.name < b.name ? -1 : 1;
+  function sameShape(database, saved) {
+    var stores = storeNames(database);
+    var theirs = saved.stores.map(savedShape).sort(function (first, second) {
+      return first.name < second.name ? -1 : 1;
     });
-    if (stores.join("\n") !== theirs.map(function (s) { return s.name; }).join("\n")) return false;
+    if (stores.join("\n") !== theirs.map(function (stored) { return stored.name; }).join("\n")) return false;
     if (!stores.length) return true;
-    var tx = db.transaction(stores, "readonly");
-    return JSON.stringify(stores.map(function (s) { return shape(tx.objectStore(s)); })) === JSON.stringify(theirs);
+    var transaction = database.transaction(stores, "readonly");
+    return JSON.stringify(stores.map(function (storeName) { return shape(transaction.objectStore(storeName)); })) === JSON.stringify(theirs);
   }
   function create(saved) {
-    return open(saved.name, saved.version, function (db) {
-      saved.stores.forEach(function (s) {
-        var store = db.createObjectStore(s.name, { keyPath: s.keyPath, autoIncrement: s.autoIncrement });
-        s.indexes.forEach(function (i) {
-          store.createIndex(i.name, i.keyPath, { unique: i.unique, multiEntry: i.multiEntry });
+    return open(saved.name, saved.version, function (database) {
+      saved.stores.forEach(function (stored) {
+        var store = database.createObjectStore(stored.name, { keyPath: stored.keyPath, autoIncrement: stored.autoIncrement });
+        stored.indexes.forEach(function (savedIndex) {
+          store.createIndex(savedIndex.name, savedIndex.keyPath, { unique: savedIndex.unique, multiEntry: savedIndex.multiEntry });
         });
       });
-    }).then(function (db) {
-      return write(db, saved);
+    }).then(function (database) {
+      return write(database, saved);
     });
   }
   /** Empty every store, then put the saved records back (when there are any). */
-  function write(db, saved) {
-    var stores = storeNames(db);
+  function write(database, saved) {
+    var stores = storeNames(database);
     if (!stores.length) {
-      db.close();
+      database.close();
       return Promise.resolve();
     }
     return new Promise(function (ok, fail) {
-      var tx = db.transaction(stores, "readwrite");
-      tx.oncomplete = function () {
-        db.close();
+      var transaction = database.transaction(stores, "readwrite");
+      transaction.oncomplete = function () {
+        database.close();
         ok();
       };
-      tx.onerror = tx.onabort = function () {
-        db.close();
-        fail(tx.error);
+      transaction.onerror = transaction.onabort = function () {
+        database.close();
+        fail(transaction.error);
       };
       try {
-        stores.forEach(function (s) {
-          tx.objectStore(s).clear();
+        stores.forEach(function (storeName) {
+          transaction.objectStore(storeName).clear();
         });
-        (saved ? saved.stores : []).forEach(function (s) {
-          var store = tx.objectStore(s.name);
-          s.records.forEach(function (r) {
-            if (store.keyPath === null) store.put(r[1], r[0]);
-            else store.put(r[1]);
+        (saved ? saved.stores : []).forEach(function (stored) {
+          var store = transaction.objectStore(stored.name);
+          stored.records.forEach(function (record) {
+            if (store.keyPath === null) store.put(record[1], record[0]);
+            else store.put(record[1]);
           });
         });
-      } catch (err) {
-        tx.abort();
+      } catch (error) {
+        transaction.abort();
       }
     });
   }
   function drop(name, onBlocked) {
-    var r = indexedDB.deleteDatabase(name);
-    r.onblocked = onBlocked;
-    return request(r);
+    var deleting = indexedDB.deleteDatabase(name);
+    deleting.onblocked = onBlocked;
+    return request(deleting);
   }
 
   /** Put the account's save in place of this device's. onBlocked: it's waiting on another tab. */
-  function putSave(data, onBlocked) {
-    var both = Array.isArray(data.idb) && data.local && typeof data.local === "object";
-    var local = both ? data.local : data;
-    var dbs = both ? decode(data.idb) : [];
+  function putSave(save, onBlocked) {
+    var both = Array.isArray(save.idb) && save.local && typeof save.local === "object";
+    var local = both ? save.local : save;
+    var databases = both ? decode(save.idb) : [];
     // IndexedDB first: it's the part that can fail, and then localStorage is still as it was.
-    var idb =
+    var writing =
       window.indexedDB && indexedDB.databases
-        ? writeDatabases(dbs, onBlocked)
-        : dbs.length
+        ? writeDatabases(databases, onBlocked)
+        : databases.length
           ? Promise.reject(new Error("No IndexedDB here"))
           : Promise.resolve();
-    return idb.then(function () {
+    return writing.then(function () {
       localStorage.clear();
-      Object.keys(local).forEach(function (k) {
-        localStorage.setItem(k, String(local[k]));
+      Object.keys(local).forEach(function (key) {
+        localStorage.setItem(key, String(local[key]));
       });
     });
   }
 
   // --- Talking to the game page ---
 
-  function post(msg) {
-    msg.type = "zaisma:saves";
-    parent.postMessage(msg, site);
+  function post(message) {
+    message.type = "zaisma:saves";
+    parent.postMessage(message, site);
   }
-  function listen(fn) {
-    addEventListener("message", function (e) {
-      if (e.origin !== site || e.source !== parent || !e.data || e.data.type !== "zaisma:saves") return;
-      fn(e.data);
+  function listen(listener) {
+    addEventListener("message", function (event) {
+      if (event.origin !== site || event.source !== parent || !event.data || event.data.type !== "zaisma:saves") return;
+      listener(event.data);
     });
   }
 
@@ -451,15 +451,15 @@
       note.style.cssText = "margin:0;position:fixed;inset:0;display:grid;place-items:center;padding:24px;color:#d8dde3;font:16px/1.5 system-ui,sans-serif;text-align:center";
       document.body.appendChild(note);
     };
-    listen(function (m) {
+    listen(function (message) {
       // The player is choosing between two saves: wait for them.
-      if (m.step === "wait") clearTimeout(timer);
-      if (m.step !== "restore") return;
+      if (message.step === "wait") clearTimeout(timer);
+      if (message.step !== "restore") return;
       clearTimeout(timer);
-      if (m.action !== "use-cloud" || !m.data || typeof m.data !== "object") return go();
-      Promise.resolve(m.data)
-        .then(function (data) {
-          return putSave(data, blocked);
+      if (message.action !== "use-cloud" || !message.data || typeof message.data !== "object") return go();
+      Promise.resolve(message.data)
+        .then(function (save) {
+          return putSave(save, blocked);
         })
         .then(
           function () {
@@ -490,13 +490,13 @@
   // Writes to IndexedDB mark the save as changed, so the databases are only read again
   // after the game wrote to them (and every few minutes, in case a worker wrote).
   var idbChanged = true;
-  function watch(proto, methods) {
+  function watch(prototype, methods) {
     methods.forEach(function (name) {
-      var fn = proto && proto[name];
-      if (typeof fn !== "function") return;
-      proto[name] = function () {
+      var original = prototype && prototype[name];
+      if (typeof original !== "function") return;
+      prototype[name] = function () {
         idbChanged = true;
-        return fn.apply(this, arguments);
+        return original.apply(this, arguments);
       };
     });
   }
@@ -510,7 +510,7 @@
   var last = null;
   var timer = null;
   var idbText = null;
-  var checks = 0;
+  var checkCount = 0;
   var reading = false;
   var again = false;
   function check() {
@@ -519,13 +519,13 @@
       again = true;
       return;
     }
-    var readIdb = idbChanged || idbText === null || ++checks % 10 === 0;
+    var readIdb = idbChanged || idbText === null || ++checkCount % 10 === 0;
     idbChanged = false;
     reading = true;
     (readIdb ? readIdbText() : Promise.resolve(idbText))
-      .then(function (t) {
-        idbText = t;
-        var text = saveText(snapshot(), t);
+      .then(function (freshIdbText) {
+        idbText = freshIdbText;
+        var text = saveText(snapshot(), freshIdbText);
         if (text === last) return;
         last = text;
         post({ step: "save", text: text });
@@ -542,14 +542,14 @@
         }
       });
   }
-  listen(function (m) {
-    if (m.step === "sync") {
+  listen(function (message) {
+    if (message.step === "sync") {
       syncing = true;
-      last = typeof m.text === "string" ? m.text : null;
+      last = typeof message.text === "string" ? message.text : null;
       clearInterval(timer);
       timer = setInterval(check, 30000);
       check();
-    } else if (m.step === "pause") {
+    } else if (message.step === "pause") {
       syncing = false;
       clearInterval(timer);
     }

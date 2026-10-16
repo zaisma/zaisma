@@ -1,80 +1,12 @@
 /*
- * The Zaisma SDK. On Zaisma, games include it with one tag:
- *   <script src="_zaisma/v1.js"></script>   (relative, from the game's top folder)
- * Plain JavaScript, no dependencies, MIT licensed. Every part is optional. Names follow docs/NAMING.md;
- * an option, event or field the SDK doesn't take is refused with the list of the ones it does.
+ * The Zaisma SDK. Games include it with one tag, from the game's top folder:
+ *   <script src="_zaisma/v1.js"></script>
+ * Plain JavaScript, no dependencies, MIT licensed. Its reference is zaisma.d.ts beside this file (served
+ * as _zaisma/v1.d.ts): every call, option, event and error code, explained once, there. Change the two
+ * together; test/node/sdk-types.test.ts checks that they match.
  *
- *   const room = await Zaisma.joinRoom();     // joins ?room=CODE if present, else makes a room
- *   room.me; room.players; room.roomCode; room.inviteUrl;
- *   room.on("message", (data) => {});         // from the game server
- *   room.on("players", (players) => {});
- *   room.on("connectionStatus", (connectionStatus) => {});  // "connecting" | "open" | "reconnecting" | "away" | "closed"
- *   room.on("ended", (message) => {});
- *   room.send({ move: "left" });
- *   room.leave();
- *   Zaisma.joinRoom({ serverUrl: "wss://my-server.example" });  // your own game server
- *   Zaisma.joinRoom({ joinData: { character: "knight" } });     // for the game server's canJoin and onJoin, up to 4 KB
- *
- * Players who walk away. The SDK pings the room every 25 seconds (a connection that stops answering
- * comes back by itself) and says goodbye as the page goes. After 10 minutes without input (the game
- * server's idleTimeoutSec) it asks "Still there?" for 30 seconds, then tells the room; in a real-time
- * room, the game hidden for 2 minutes counts too. The room then takes the player out of the match and
- * holds their seat for a few minutes, unless the game server decides (onAway). Any input brings them back.
- *   room.on("idle", (isAsking) => {});        // true: ask "Still there?" yourself (replaces Zaisma's small plate);
- *                                             // false: they answered, or time's up
- *   room.on("away", ({ reason, seatHoldDurationSec }) => {});  // out of the match ("idle" or "hidden"), seat held that long
- *   room.on("back", (back) => { back.rejoin(); });  // back after the seat ran out: listening turns off
- *                                             // rejoining by itself; rejoin() fails if the room is full or over
- *   Zaisma.joinRoom({ idleTimeoutSec: 300 }); // seconds without input before "Still there?"
- *   Zaisma.joinRoom({ idleCheckEnabled: false });  // never ask (the room's own check still applies, except
- *                                             // where the game server's idleCheck is "client", as with the relay)
- * When the game server sends the player to another room (room.reserve or room.moveTo), the room
- * follows by itself: same room object, new code, a "moved" event, then "players" with the new list.
- *   room.on("moved", (roomCode) => {});
- *   room.on("move", (move) => { showLoading(); move.follow(); });  // step in: listening to "move" turns
- *                                             // off following by itself; move.follow() goes when you're ready
- *   room.on("kicked", ({ message, isKeptOut }) => {});  // removed from the room by the game server or the host
- *   room.hostPlayerId;                        // the host's player ID, when the game server gives the host controls, else null
- *   room.kick(playerId, { keepOut: true });   // the host removes a player (relay games; keepOut: for the rest of the match)
- *   await Zaisma.invite(room);                // share sheet on phones, copies the link elsewhere
- *
- * Room browsing. Listed rooms show on the game's Zaisma page and to the game itself:
- *   Zaisma.rooms.linkedRoomCode;              // the room code the player's link points to, or null
- *   const { rooms, playing, regions } = await Zaisma.rooms.list();
- *       // rooms: [{ roomCode, playerCount, heldSeatCount, maximumPlayerCount, isOpen, location, isNear, name, labels, inviteUrl }]
- *       // location: { countryCode: "DE", countryName: "Germany", region: "EU" } or null
- *   Zaisma.rooms.list({ region: "EU", labels: { Mode: "Classic" } });  // one region, or rooms with these labels
- *   const room = await Zaisma.rooms.quickJoin();           // the linked room, else a busy one with space, else a new one
- *   Zaisma.rooms.quickJoin({ region: "EU", labels: { Mode: "Classic" } });  // a room like that with space, else a new one with those labels
- *   Zaisma.joinRoom({ isListed: false });     // a new room that's never listed (a private match)
- *   Zaisma.joinRoom({ name: "Ana's castle", labels: { Mode: "Classic", Map: "Docks" } });  // name and label a new room
- *   room.isListed; room.isOpen; room.name; room.labels; room.on("room", ({ isListed, isOpen, name, labels }) => {});
- *   room.setListed(false); room.setOpen(false); room.setInfo({ name, labels });
- *                                             // with the relay, from the room's host (its first player);
- *                                             // otherwise the game server decides (room.setInfo)
- *   await Zaisma.filterText("what a player typed");  // { isAllowed, reason, text }: Zaisma's text filter
- * Names and labels players type show on Zaisma's pages only if they pass the filter. Inside your game
- * they're yours to look after: filterText is there if you want it.
- * A closed room takes no new players; players who were in it can still come back.
- *
- * Player safety. Games where players interact must offer mute, block and report:
- *   Zaisma.openSafetyPanel(room);           // ready-made panel; call it from your menu
- *   room.isMuted(playerId);                 // true if muted or blocked: hide their emotes/phrases
- *   room.on("muted", (playerIds) => {});    // the muted list changed
- *   room.mute(playerId); room.unmute(playerId); room.block(playerId); room.report(playerId, reason)
- * On Zaisma, the panel's Report opens Zaisma's own report plate beside the game, and the
- * player is muted once the report is sent.
- *
- * Errors carry error.code, lowercase snake_case: a room's (full, closed, ended, kept_out, refused,
- * month_limit, bad_pass, ...), unchecked (below), or unknown_option and unknown_event for a call the
- * SDK doesn't take.
- *
- * On Zaisma, the games Worker defines __ZAISMA__ before this file with the rooms
- * address, the game and the site. Anywhere else, pass { serverUrl } yourself.
- *
- * Player passes (for rooms and your own servers) need the game played on its zaisma.com page, which
- * checks the browser on Play: joining fails with error.code "unchecked" when it couldn't, or when the
- * game was opened anywhere else.
+ * On Zaisma, the games Worker defines __ZAISMA__ before this file with the rooms address, the game and
+ * the site. Anywhere else, games pass { serverUrl } themselves.
  */
 (function () {
   "use strict";
@@ -85,6 +17,10 @@
   var JOIN_OPTIONS = ["roomCode", "serverUrl", "isListed", "name", "labels", "joinData", "idleTimeoutSec", "idleCheckEnabled"];
   var QUICK_JOIN_OPTIONS = ["serverUrl", "isListed", "name", "labels", "joinData", "idleTimeoutSec", "idleCheckEnabled", "region"];
   var LIST_OPTIONS = ["region", "labels"];
+  // move.join joins the room the move names, on this room's server.
+  var MOVE_JOIN_OPTIONS = JOIN_OPTIONS.filter(function (name) { return name !== "roomCode" && name !== "serverUrl"; });
+  var KICK_OPTIONS = ["keepOut"];
+  var ROOM_INFO_FIELDS = ["name", "labels"];
   var ROOM_EVENTS = ["message", "players", "connectionStatus", "ended", "kicked", "room", "move", "moved", "idle", "away", "back", "muted", "error"];
 
   /** An Error with a code, as the SDK's errors all have. */
@@ -121,9 +57,9 @@
     this._on[event] = (this._on[event] || []).filter(function (each) { return each !== listener; });
     return this;
   };
-  Emitter.prototype._emit = function (event, value) {
+  Emitter.prototype._emit = function (event, payload) {
     (this._on[event] || []).slice().forEach(function (listener) {
-      try { listener(value); } catch (error) { console.error(error); }
+      try { listener(payload); } catch (error) { console.error(error); }
     });
   };
 
@@ -241,9 +177,9 @@
     this._away = false;
     this._gone = false;
     this._idleSent = false;
-    this._pingAt = 0;
-    this._pongAt = 0;
-    this._sentAt = 0;
+    this._pingAtMs = 0;
+    this._pongAtMs = 0;
+    this._sentAtMs = 0;
   }
   Room.prototype = Object.create(Emitter.prototype);
 
@@ -251,7 +187,7 @@
   Room.prototype._say = function (message) {
     if (!this._ws || this._ws.readyState !== 1) return;
     this._ws.send(JSON.stringify(message));
-    this._sentAt = Date.now();
+    this._sentAtMs = Date.now();
   };
 
   // Codes that mean this room won't take the player, so joining fails instead of trying again.
@@ -263,11 +199,11 @@
     this._ws = ws;
     watch();
     ws.onopen = function () {
-      room._pingAt = room._pongAt = Date.now();
+      room._pingAtMs = room._pongAtMs = Date.now();
       room._say({ type: "hello", pass: room._pass, room: room._made, joinData: room._joinData, idleTimeoutSec: room._clientIdle.idleTimeoutSec, idleCheckEnabled: room._clientIdle.idleCheckEnabled });
     };
     ws.onmessage = function (event) {
-      if (event.data === "pong") { room._pongAt = Date.now(); return; }
+      if (event.data === "pong") { room._pongAtMs = Date.now(); return; }
       var message;
       try { message = JSON.parse(event.data); } catch (error) { return; }
       if (message.type === "welcome") {
@@ -279,7 +215,7 @@
         room._checks = message.awayChecks || { idleTimeoutSec: null, hiddenTimeoutSec: null };
         room._away = room._gone = room._idleSent = room._coming = room._offered = false;
         // From here on, the room's row counts this player (room lists leave them out once they've left).
-        room._joinedAt = Date.now();
+        room._joinedAtMs = Date.now();
         if (message.room) room._settle(message.room);
         room._setConnectionStatus("open");
         if (room._moved || wasAway) { room._moved = false; room._emit("players", message.players); }
@@ -402,8 +338,8 @@
   };
 
   /** Send a message to the game server. Plain JSON, up to 16 KB. Send input when it changes, not every frame. */
-  Room.prototype.send = function (data) {
-    if (!this._away) this._say({ type: "message", data: data });
+  Room.prototype.send = function (message) {
+    if (!this._away) this._say({ type: "message", data: message });
   };
 
   /**
@@ -422,13 +358,13 @@
    * keepOut: true keeps them out for the rest of the match. They're told the host removed them.
    */
   Room.prototype.kick = function (playerId, kickOptions) {
-    var refused = unknownOption(kickOptions, ["keepOut"], "room.kick");
+    var refused = unknownOption(kickOptions, KICK_OPTIONS, "room.kick");
     if (refused) throw refused;
     this._say({ type: "kick", playerId: playerId, keepOut: Boolean(kickOptions && kickOptions.keepOut) });
   };
   /** Name and label the room: { name, labels }. Leave a field out to keep it; null clears it. */
   Room.prototype.setInfo = function (nameAndLabels) {
-    var refused = unknownOption(nameAndLabels, ["name", "labels"], "room.setInfo");
+    var refused = unknownOption(nameAndLabels, ROOM_INFO_FIELDS, "room.setInfo");
     if (refused) throw refused;
     nameAndLabels = nameAndLabels || {};
     this._say({ type: "room", name: nameAndLabels.name, labels: nameAndLabels.labels });
@@ -445,7 +381,7 @@
       roomCode: message.roomCode,
       follow: function () { room._follow(message.roomCode); },
       join: function (joinOptions) {
-        var refused = unknownOption(joinOptions, JOIN_OPTIONS, "move.join");
+        var refused = unknownOption(joinOptions, MOVE_JOIN_OPTIONS, "move.join");
         if (refused) return Promise.reject(refused);
         return connect(message.roomCode, Object.assign({}, joinOptions || {}, { serverUrl: serverUrl }));
       },
@@ -522,21 +458,7 @@
     if (this._ws) this._ws.close(1000, "Left");
   };
 
-  /**
-   * Join a room. Options:
-   *   roomCode         - a room code; defaults to ?room= in the page address, else a new room
-   *   serverUrl        - your own game server's address (wss://...) instead of Zaisma rooms
-   *   isListed         - false: a new room that never shows in room lists, like a private match
-   *   name, labels     - a new room's name and labels, like "Ana's castle" and { Mode: "Classic" }
-   *   joinData         - plain JSON for the game server's canJoin and onJoin, like the character the player picked (up to 4 KB)
-   *   idleTimeoutSec   - seconds without input before the player is asked "Still there?" (30 to 86400);
-   *                      by default, the game server's idleTimeoutSec (10 minutes)
-   *   idleCheckEnabled - false: never ask
-   * If the room is full, closed or over, the player was kept out or turned away, or the game has used
-   * this month's multiplayer time, it fails with an error whose code says which (full, closed, ended,
-   * kept_out, refused, month_limit) and whose message says why. An option it doesn't take fails with
-   * unknown_option.
-   */
+  /** Join a room: the code in joinOptions, else the page's ?room=, else a new one (zaisma.d.ts: Zaisma.joinRoom). */
   function joinRoom(joinOptions) {
     var refused = unknownOption(joinOptions, JOIN_OPTIONS, "Zaisma.joinRoom");
     if (refused) return Promise.reject(refused);
@@ -582,17 +504,7 @@
     });
   }
 
-  /**
-   * The game's listed rooms on Zaisma: { rooms: [{ roomCode, playerCount, heldSeatCount,
-   * maximumPlayerCount, isOpen, location, isNear, name, labels, inviteUrl }], playing: { playerCount,
-   * roomCount, closedRoomCount }, joinableRoomCount (rooms with space), openRoomCount (rooms taking
-   * players, full ones too), regions: [{ region, name, roomCount, playerCount }], region,
-   * moreOpenRoomCount, filters: [{ label, values }] }. playing counts everyone in the game's rooms,
-   * hidden ones too. location is where the room runs: { countryCode, countryName, region }, like DE,
-   * Germany and EU. Rooms with space come first (the player's country, then region, then the
-   * busiest), up to 50; moreOpenRoomCount says how many open rooms are past those. Pass { region } (a
-   * continent code, like EU) for one region. Never who's in them. For a game's own lobby or server browser.
-   */
+  /** The game's listed rooms on Zaisma, for a game's own lobby (zaisma.d.ts: RoomList). */
   function listRooms(listOptions) {
     var refused = unknownOption(listOptions, LIST_OPTIONS, "Zaisma.rooms.list");
     if (refused) return Promise.reject(refused);
@@ -611,11 +523,7 @@
   // A room that can't take this player, so another may: month_limit is an empty room that can't open again this month.
   var TRY_ANOTHER = ["full", "closed", "ended", "month_limit"];
 
-  /**
-   * Drop the player into a match: the room their link points to if it has space, otherwise a
-   * listed room with space (nearby and busy first, in region if given), otherwise a new room.
-   * Takes joinRoom's options (but roomCode) for the room, and region.
-   */
+  /** The linked room if it has space, else a listed room with space (nearby and busy first), else a new room. */
   function quickJoin(quickJoinOptions) {
     var refused = unknownOption(quickJoinOptions, QUICK_JOIN_OPTIONS, "Zaisma.rooms.quickJoin");
     if (refused) return Promise.reject(refused);
@@ -639,21 +547,12 @@
     return connect(linked, joinOptions).catch(function (error) { if (TRY_ANOTHER.indexOf(error.code) !== -1) return busiest(); throw error; });
   }
 
-  /**
-   * Zaisma's text filter: whether what a player typed can be shown to other players, as on Zaisma's
-   * own pages. Resolves to { isAllowed, reason, text }: reason is "contact" (a link, handle, email,
-   * phone number or contact app), "words" (slurs or sexual words) or null; text is tidied (hidden
-   * characters and extra spaces gone).
-   */
+  /** Zaisma's text filter: { isAllowed, reason, text } (zaisma.d.ts: Zaisma.filterText). */
   function filterText(text) {
     return post("/v1/filter", { gameSlug: config.game, text: String(text == null ? "" : text) });
   }
 
-  /**
-   * Invite friends into a room: opens the share sheet where there is one, otherwise
-   * copies the room link. Resolves to "shared", "copied", "cancelled" or "failed".
-   * Call it from a button in your game, such as on a "waiting for players" screen.
-   */
+  /** The share sheet on phones, else copy the link: "shared", "copied", "cancelled" or "failed". */
   function invite(room) {
     var link = room && room.inviteUrl ? room.inviteUrl : config.site && config.game ? config.site + gamePage() : location.href;
     function copy() {
@@ -673,8 +572,8 @@
   // The room this tab last left and when it joined it, for its own room lists, and for the Zaisma page's (zaisma:left).
   var recent = null;
   function left(room) {
-    if (room._joinedAt) recent = { roomCode: room.roomCode, leftAtMs: Date.now(), joinedAtMs: room._joinedAt };
-    room._joinedAt = 0;
+    if (room._joinedAtMs) recent = { roomCode: room.roomCode, leftAtMs: Date.now(), joinedAtMs: room._joinedAtMs };
+    room._joinedAtMs = 0;
     if (config.site && window.parent !== window) window.parent.postMessage({ type: "zaisma:left", code: room.roomCode }, config.site);
   }
 
@@ -686,8 +585,8 @@
   var PING_MS = 25000;
   var PONG_MS = 15000;
   var ASK_MS = 30000;
-  var lastInput = Date.now();
-  var asking = null; // { until, rooms } while "Still there?" is up
+  var lastInputAtMs = Date.now();
+  var asking = null; // { untilMs, rooms } while "Still there?" is up
   var watching = null;
 
   function watch() {
@@ -701,7 +600,7 @@
   }
 
   function input() {
-    lastInput = Date.now();
+    lastInputAtMs = Date.now();
     if (asking) stopAsking();
     joined.forEach(function (room) { room._return(); });
   }
@@ -723,29 +622,29 @@
   }
 
   function check() {
-    var now = Date.now();
+    var nowMs = Date.now();
     var due = [];
     joined.forEach(function (room) {
       var ws = room._ws;
       if (room._done || !ws || ws.readyState !== 1) return;
       // A ping that went unanswered: the connection is gone, even if the browser hasn't noticed.
-      if (room._pingAt > room._pongAt && now - room._pingAt > PONG_MS) return room._lost();
-      if (now - room._pingAt >= PING_MS) {
-        room._pingAt = now;
+      if (room._pingAtMs > room._pongAtMs && nowMs - room._pingAtMs > PONG_MS) return room._lost();
+      if (nowMs - room._pingAtMs >= PING_MS) {
+        room._pingAtMs = nowMs;
         ws.send("ping");
       }
       if (room._away || room._idleSent) return;
       var idleTimeoutSec = room._idleTimeoutSec();
-      if (idleTimeoutSec !== null && now - lastInput >= idleTimeoutSec * 1000) due.push(room);
+      if (idleTimeoutSec !== null && nowMs - lastInputAtMs >= idleTimeoutSec * 1000) due.push(room);
       // The room's own check hears from players who give input but whose game sends nothing for a while.
       var roomIdleTimeoutSec = room._checks.idleTimeoutSec;
-      if (roomIdleTimeoutSec !== null && lastInput > room._sentAt && now - room._sentAt > Math.min(240000, roomIdleTimeoutSec * 500)) room._say({ type: "here" });
+      if (roomIdleTimeoutSec !== null && lastInputAtMs > room._sentAtMs && nowMs - room._sentAtMs > Math.min(240000, roomIdleTimeoutSec * 500)) room._say({ type: "here" });
     });
-    if (asking && now >= asking.until) {
+    if (asking && nowMs >= asking.untilMs) {
       var asked = asking.rooms;
       stopAsking();
       asked.forEach(function (room) {
-        if (room._done || room._away || now - lastInput < ASK_MS) return;
+        if (room._done || room._away || nowMs - lastInputAtMs < ASK_MS) return;
         room._idleSent = true;
         room._say({ type: "idle" });
       });
@@ -753,7 +652,7 @@
   }
 
   function startAsking(rooms) {
-    asking = { until: Date.now() + ASK_MS, rooms: rooms };
+    asking = { untilMs: Date.now() + ASK_MS, rooms: rooms };
     var isOwn = false;
     rooms.forEach(function (room) {
       if ((room._on.idle || []).length) isOwn = true;
@@ -961,6 +860,6 @@
     wrap.focus();
   }
 
-  var rooms = { join: joinRoom, list: listRooms, quickJoin: quickJoin, linkedRoomCode: roomCodeFromPage() };
-  window.Zaisma = { sdkVersion: 1, gameSlug: config.game || null, player: player, joinRoom: joinRoom, rooms: rooms, invite: invite, filterText: filterText, openSafetyPanel: openSafetyPanel };
+  var rooms = { list: listRooms, quickJoin: quickJoin, linkedRoomCode: roomCodeFromPage() };
+  window.Zaisma = { sdkVersionNumber: 1, gameSlug: config.game || null, player: player, joinRoom: joinRoom, rooms: rooms, invite: invite, filterText: filterText, openSafetyPanel: openSafetyPanel };
 })();

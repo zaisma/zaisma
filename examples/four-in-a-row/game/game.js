@@ -5,6 +5,7 @@ const boardElement = document.getElementById("board");
 const infoElement = document.getElementById("info");
 const playersElement = document.getElementById("players");
 const afterElement = document.getElementById("after");
+/** @type {Zaisma.Room | null} */
 let room = null;
 let game = null; // the game server's latest board and seats
 let lobbyWaitingCount = null; // players waiting in the lobby with you, while you're in it
@@ -21,13 +22,13 @@ for (let i = 0; i < 42; i++) {
 
 function render() {
   if (lobbyWaitingCount !== null) {
-    boardElement.style.opacity = 0.35;
+    boardElement.style.opacity = "0.35";
     playersElement.innerHTML = "";
     infoElement.textContent = "Looking for an opponent…";
     afterElement.innerHTML = "";
     return;
   }
-  boardElement.style.opacity = 1;
+  boardElement.style.opacity = "1";
   if (!game || !room) return;
   const mySeat = game.seatPlayerIds.indexOf(room.me.id) + 1;
   cells.forEach((cell, i) => {
@@ -73,6 +74,7 @@ function render() {
 // Mute, block and report, from the game's own menu.
 document.getElementById("players-button").onclick = () => room && Zaisma.openSafetyPanel(room);
 
+/** @param {Zaisma.Room} next */
 function use(next) {
   room = next;
   game = null;

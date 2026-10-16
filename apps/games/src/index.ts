@@ -2,6 +2,7 @@ import { isServerPath, connectSources, contentTypeFor, fileKey, gameHeaders, man
 import savesScript from "@zaisma/sdk/saves.js";
 import pictureScript from "@zaisma/sdk/picture.js";
 import sdk from "@zaisma/sdk/zaisma.js";
+import sdkTypes from "@zaisma/sdk/zaisma.d.ts";
 
 export interface Env {
   DB: D1Database;
@@ -161,6 +162,12 @@ export default {
       const headers = gameHeaders("text/javascript; charset=utf-8", env.SITE_ORIGIN, connectOrigins);
       headers.set("Cache-Control", "public, max-age=300");
       return new Response(request.method === "HEAD" ? null : `var __ZAISMA__ = ${JSON.stringify(config)};\n${sdk}`, { headers });
+    }
+    // The SDK's types beside it: its reference, for the developer's editor and AI.
+    if (target.path === "_zaisma/v1.d.ts") {
+      const headers = gameHeaders("text/plain; charset=utf-8", env.SITE_ORIGIN, connectOrigins);
+      headers.set("Cache-Control", "public, max-age=300");
+      return new Response(request.method === "HEAD" ? null : sdkTypes, { headers });
     }
 
     // Report pictures: every game page can hand the Zaisma page a picture of the game when a player reports it.

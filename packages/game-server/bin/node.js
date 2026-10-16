@@ -26,10 +26,10 @@ const SEAT_MS = 60 * 1000;
 export function keysFrom(jwksUrl) {
   let cache = null;
   return async (refresh = false) => {
-    if (cache && !refresh && Date.now() - cache.at < 3600_000) return cache.keys;
-    const res = await fetch(jwksUrl);
-    if (!res.ok) throw new Error(`Couldn't load player pass keys from ${jwksUrl}`);
-    cache = { at: Date.now(), keys: (await res.json()).keys };
+    if (cache && !refresh && Date.now() - cache.fetchedAtMs < 3600_000) return cache.keys;
+    const response = await fetch(jwksUrl);
+    if (!response.ok) throw new Error(`Couldn't load player pass keys from ${jwksUrl}`);
+    cache = { fetchedAtMs: Date.now(), keys: (await response.json()).keys };
     return cache.keys;
   };
 }
@@ -71,7 +71,7 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
               for (const id of moveAnswer.movedPlayerIds) sockets.get(id)?.send(JSON.stringify({ type: "move", roomCode: next }));
               core.moved(next, moveAnswer, ask.players);
             })
-            .catch((err) => console.error("Couldn't move players:", err));
+            .catch((error) => console.error("Couldn't move players:", error));
         },
       },
       { start },
@@ -86,11 +86,11 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
     if (!definition.ticksPerSec) return;
     if (room.core.playingCount > 0 && !room.core.ended) {
       if (room.timer) return;
-      let last = Date.now();
+      let lastTickAtMs = Date.now();
       room.timer = setInterval(() => {
-        const now = Date.now();
-        room.core.tick((now - last) / 1000);
-        last = now;
+        const nowMs = Date.now();
+        room.core.tick((nowMs - lastTickAtMs) / 1000);
+        lastTickAtMs = nowMs;
       }, 1000 / definition.ticksPerSec);
     } else if (room.timer) {
       clearInterval(room.timer);
@@ -99,13 +99,13 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
   }
 
   /** Keep a room for players on their way, even if it empties meanwhile. */
-  function wait(code, room, ms) {
+  function wait(code, room, durationMs) {
     room.waiting = true;
     clearTimeout(room.waitTimer);
     room.waitTimer = setTimeout(() => {
       room.waiting = false;
       closeIfEmpty(code, room);
-    }, ms);
+    }, durationMs);
     room.waitTimer.unref?.();
   }
 
@@ -118,9 +118,9 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
 
   // Check on every room's players: connections that stopped answering, idle and hidden players, held seats that ran out.
   const sweeper = setInterval(() => {
-    const now = Date.now();
+    const nowMs = Date.now();
     for (const [code, room] of rooms) {
-      for (const ws of room.sockets.values()) if (now - ws.zaismaSeen > DEAD_MS) ws.terminate();
+      for (const ws of room.sockets.values()) if (nowMs - ws.zaismaSeenAtMs > DEAD_MS) ws.terminate();
       room.core.sweep();
       pace(room);
       closeIfEmpty(code, room);
@@ -128,40 +128,40 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
   }, SWEEP_MS);
   sweeper.unref?.();
 
-  wss.on("connection", (ws, req) => {
-    const m = /^\/v1\/rooms\/([a-z0-9-]{1,40})\/([A-Z0-9]{6})$/.exec(req.url ?? "");
+  wss.on("connection", (ws, request) => {
+    const address = /^\/v1\/rooms\/([a-z0-9-]{1,40})\/([A-Z0-9]{6})$/.exec(request.url ?? "");
     const refuse = (code, message) => {
       ws.send(errorMessage(code, message));
       ws.close(REFUSED_CLOSE_CODE, code);
     };
-    if (!m || m[1] !== game || !isRoomCode(m[2])) return ws.close(REFUSED_CLOSE_CODE, "Unknown room");
-    if (origins.length && !origins.includes(req.headers.origin)) return ws.close(REFUSED_CLOSE_CODE, "Not allowed from here");
-    const code = m[2];
+    if (!address || address[1] !== game || !isRoomCode(address[2])) return ws.close(REFUSED_CLOSE_CODE, "Unknown room");
+    if (origins.length && !origins.includes(request.headers.origin)) return ws.close(REFUSED_CLOSE_CODE, "Not allowed from here");
+    const code = address[2];
     let playerId = null;
     const helloTimer = setTimeout(() => playerId || refuse("no_hello"), HELLO_MS);
-    ws.zaismaSeen = Date.now();
+    ws.zaismaSeenAtMs = Date.now();
 
-    ws.on("message", async (data, isBinary) => {
-      const text = isBinary ? null : data.toString();
-      ws.zaismaSeen = Date.now();
+    ws.on("message", async (received, isBinary) => {
+      const text = isBinary ? null : received.toString();
+      ws.zaismaSeenAtMs = Date.now();
       // Games ping every 25 seconds or so, so a connection that stops answering can be dropped.
       if (text === "ping") return ws.send("pong");
       if (playerId) {
         const room = rooms.get(code);
-        const err = text === null ? "bad_message" : room?.core.receive(playerId, text);
-        if (err) ws.send(errorMessage(err));
+        const errorCode = text === null ? "bad_message" : room?.core.receive(playerId, text);
+        if (errorCode) ws.send(errorMessage(errorCode));
         if (room) pace(room);
         return;
       }
       let pass;
       let made = {};
       try {
-        const msg = JSON.parse(text ?? "");
-        if (msg.type !== "hello" || typeof msg.pass !== "string") return refuse("no_hello");
-        pass = msg.pass;
-        if (msg.room && typeof msg.room === "object") made = { ...(msg.room.isListed === false ? { isListed: false } : {}), ...tidyRoomInfo(msg.room) };
-        made.clientIdle = clientIdle(msg);
-        const checked = checkRoomData(msg.joinData);
+        const hello = JSON.parse(text ?? "");
+        if (hello.type !== "hello" || typeof hello.pass !== "string") return refuse("no_hello");
+        pass = hello.pass;
+        if (hello.room && typeof hello.room === "object") made = { ...(hello.room.isListed === false ? { isListed: false } : {}), ...tidyRoomInfo(hello.room) };
+        made.clientIdle = clientIdle(hello);
+        const checked = checkRoomData(hello.joinData);
         if (!checked.isValid) return refuse("too_big");
         made.joinData = checked.checkedData;
       } catch {
@@ -169,14 +169,14 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
       }
       let claims;
       try {
-        claims = await verifyPass(pass, await keys(), { game, issuer }).catch(async (err) => {
+        claims = await verifyPass(pass, await keys(), { game, issuer }).catch(async (error) => {
           // A new key may have been published since we cached them.
-          if (err instanceof PassError && err.code === "unknown_key") return verifyPass(pass, await keys(true), { game, issuer });
-          throw err;
+          if (error instanceof PassError && error.code === "unknown_key") return verifyPass(pass, await keys(true), { game, issuer });
+          throw error;
         });
-      } catch (err) {
-        if (err instanceof PassError) return refuse("bad_pass");
-        throw err;
+      } catch (error) {
+        if (error instanceof PassError) return refuse("bad_pass");
+        throw error;
       }
       clearTimeout(helloTimer);
       const room = roomFor(code);
@@ -189,11 +189,11 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
       room.sockets.get(claims.sub)?.close(REFUSED_CLOSE_CODE, "Joined from somewhere else");
       room.sockets.set(claims.sub, ws);
       // Rooms here aren't in Zaisma's room lists, but listed, open and closed work the same for the game.
-      const result = room.core.join({ id: claims.sub, name: claims.name }, made);
-      if (!result.isAllowed) {
+      const joined = room.core.join({ id: claims.sub, name: claims.name }, made);
+      if (!joined.isAllowed) {
         room.sockets.delete(claims.sub);
         closeIfEmpty(code, room);
-        return refuse(result.code, result.message);
+        return refuse(joined.code, joined.message);
       }
       playerId = claims.sub;
       room.waiting = false;
@@ -215,27 +215,27 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
   const close = () =>
     new Promise((done) => {
       clearInterval(sweeper);
-      for (const r of rooms.values()) if (r.timer) clearInterval(r.timer);
+      for (const room of rooms.values()) if (room.timer) clearInterval(room.timer);
       wss.close(done);
     });
   return { wss, rooms, close };
 }
 
-function arg(name, fallback) {
+function flag(name, fallback) {
   const i = process.argv.indexOf(`--${name}`);
   return i === -1 ? fallback : process.argv[i + 1];
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   const file = process.argv[2];
-  const game = arg("game");
+  const game = flag("game");
   if (!file || !game) {
     console.log("Usage: node bin/node.js <server.ts | relay> --game <slug> [--port 8080] [--origin https://<slug>.zaismausercontent.com]");
     process.exit(1);
   }
   const server = file === "relay" ? relay : (await import(pathToFileURL(resolve(file)).href)).default;
-  const port = Number(arg("port", "8080"));
-  const origins = (arg("origin", `https://${game}.zaismausercontent.com`) ?? "").split(",").filter(Boolean);
-  startServer({ server, game, port, origins, keys: keysFrom(arg("jwks", "https://rooms.zaisma.com/.well-known/jwks.json")) });
-  console.log(`Game server for "${game}" on port ${port}. Players connect to /v1/rooms/${game}/<code>.`);
+  const portNumber = Number(flag("port", "8080"));
+  const origins = (flag("origin", `https://${game}.zaismausercontent.com`) ?? "").split(",").filter(Boolean);
+  startServer({ server, game, port: portNumber, origins, keys: keysFrom(flag("jwks", "https://rooms.zaisma.com/.well-known/jwks.json")) });
+  console.log(`Game server for "${game}" on port ${portNumber}. Players connect to /v1/rooms/${game}/<code>.`);
 }

@@ -88,7 +88,7 @@ Good and not:
 
 ## Zaisma's own code
 
-The same rules hold inside, with these on top. `test/node/naming.test.ts` checks identifiers, type fields and the database columns the migrations make.
+The same rules hold inside, with these on top. `test/node/naming.test.ts` checks identifiers, type fields and the database columns the migrations make, in the TypeScript, the JavaScript the packages ship (the SDK, the CLI, the Node runner) and the SDK's types.
 
 - **Same words, two styles.** Database rows and API data are snake_case (`review_status`, `size_bytes`); variables, functions and types are camelCase or PascalCase (`reviewStatus`, `sizeBytes`). Never mix them in one shape: a stored JSON object is snake_case all the way down.
 - **Columns take the API's names**, so the API passes data through instead of renaming it: `games.review_status`, `versions.patch_notes`, `game_images.width_px`. When the API shows something differently (an ISO time, a list made from text), only the value's form changes, never its name.
@@ -265,4 +265,4 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 4. Describe it in the schema, with limits.
 5. Add examples if a call could go wrong, good and bad, as many as it needs.
 6. Errors get a code, a field and a fix; changes answer with `next_steps`.
-7. Update the glossary, `docs/DEVELOPER-API.md` and the SDK docs in the same change.
+7. Update the glossary, `docs/DEVELOPER-API.md` and the SDK's types (`packages/sdk/zaisma.d.ts`, its reference) in the same change.

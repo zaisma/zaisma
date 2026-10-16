@@ -4,6 +4,12 @@ declare module "@zaisma/sdk/zaisma.js" {
   export default source;
 }
 
+// And its types, served beside it.
+declare module "@zaisma/sdk/zaisma.d.ts" {
+  const source: string;
+  export default source;
+}
+
 declare module "@zaisma/sdk/saves.js" {
   const source: string;
   export default source;
