@@ -13,6 +13,7 @@ import { gamePage, legal, testerPage } from "./pages.ts";
 import { reportForm, submitReport } from "./report.ts";
 import { roomsFragment } from "./rooms.ts";
 import { handlePasskeys } from "./passkeys.ts";
+import { handleSignIn } from "./sign-in.ts";
 import { handleSaveHistory, handleSaves } from "./saves.ts";
 import { handleScanBatch, queueImageChecks } from "./scan.ts";
 import { triageReports } from "./triage.ts";
@@ -34,6 +35,9 @@ export default {
     if (path === "/mcp") return handleMcp(request, env);
     const developer = await handleDeveloper(request, env, path);
     if (developer) return developer;
+    // Sign in with Zaisma, before the method check: other sites' pages ask first (OPTIONS).
+    const signIn = await handleSignIn(request, env, path);
+    if (signIn) return signIn;
     if (method !== "GET" && method !== "HEAD" && method !== "POST" && !(method === "PUT" && path.startsWith("/api/saves/"))) return new Response("Method not allowed", { status: 405 });
 
     if (path === "/" && method !== "POST") return home(env);
@@ -82,7 +86,7 @@ export default {
       if (response) return response;
     }
 
-    if (path === "/robots.txt") return new Response("User-agent: *\nDisallow: /admin\nDisallow: /account\nDisallow: /join\nDisallow: /signin\nDisallow: /api/\nDisallow: /t/\n", { headers: { "Content-Type": "text/plain" } });
+    if (path === "/robots.txt") return new Response("User-agent: *\nDisallow: /admin\nDisallow: /account\nDisallow: /join\nDisallow: /signin\nDisallow: /oauth/\nDisallow: /api/\nDisallow: /t/\n", { headers: { "Content-Type": "text/plain" } });
     return message(env, "Page not found", "There's nothing at this address.", 404);
   },
 

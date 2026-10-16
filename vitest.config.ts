@@ -5,6 +5,9 @@ import { generateSigningKey } from "./packages/game-server/src/pass.ts";
 const migrations = await readD1Migrations("migrations");
 // A throwaway pass signing key for tests. The real one is a Worker secret.
 const passKey = await generateSigningKey();
+// And one for Sign in with Zaisma's tokens (scripts/sign-in-key.mjs makes the real one).
+const signInPair = (await crypto.subtle.generateKey({ name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["sign", "verify"])) as CryptoKeyPair;
+const signInKey = JSON.stringify(await crypto.subtle.exportKey("jwk", signInPair.privateKey));
 
 const worker = (name: string, configPath: string, extraBindings: Record<string, string> = {}, extra: Record<string, unknown> = {}) => ({
   extends: true as const,
@@ -44,6 +47,7 @@ export default defineConfig({
         SUPABASE_URL: "https://supabase.test",
         SUPABASE_PUBLISHABLE_KEY: "sb_publishable_test",
         SUPABASE_SECRET_KEY: "sb_secret_test",
+        SIGN_IN_SIGNING_KEY: signInKey,
         // Room lists answer from the database every time, so tests see each change at once.
         ROOM_LIST_CACHE_SECONDS: "0",
         // Cloudflare's check on Play: tests answer it themselves (test/site/plays.test.ts).

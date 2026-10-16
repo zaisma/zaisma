@@ -46,6 +46,8 @@ export interface Env {
   SUPABASE_PUBLISHABLE_KEY?: string;
   /** Only for deleting sign-ins (account deletion, under-13s). */
   SUPABASE_SECRET_KEY?: string;
+  /** Sign in with Zaisma's RS256 key, a private RSA JWK (scripts/sign-in-key.mjs makes one). Without it, Sign in with Zaisma is off. */
+  SIGN_IN_SIGNING_KEY?: string;
 }
 
 export function gameUrl(env: Env, slug: string): string {

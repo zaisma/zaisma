@@ -16,7 +16,7 @@ const SHORT = new Set(["dt", "dx", "dy", "msg", "opts", "pos", "num", "cfg"]);
 /** Plurals that would read as a list, so they can't name a number or an object (rule 9). */
 const PLURALS = new Set(["files", "players", "images", "versions", "rooms", "plays", "messages", "days", "testers", "topics", "posts", "reports", "games", "events"]);
 /** Yes/no inputs that ask for an action are verbs, and these are the ones in use. */
-const VERBS = new Set(["confirm", "reopen", "publish_when_approved", "undo"]);
+const VERBS = new Set(["confirm", "reopen", "publish_when_approved", "undo", "replace_client_secret"]);
 /** Plurals that don't end in s. */
 const IRREGULAR_PLURALS = new Set(["people", "media"]);
 /** Formats a list of values can be sent in, after the plural: images_base64 (docs/NAMING.md). */

@@ -1,7 +1,7 @@
 import { ApiError, CONTROLS, DEVICES, FORUM_CATEGORIES, FORUM_LIMITS, FORUM_REPORT_REASONS, FORUM_SECTIONS, FORUM_TABS, FORUM_TAGS, ACCOUNT_REQUIREMENTS, PLAY_STYLES, POST_SELECTIONS, ROOM_BROWSING, SCREENS, TOPIC_KINDS, TOPIC_STATUSES, VISIBILITIES, type IdKind } from "@zaisma/core";
 import { INTERNAL_ERROR, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
-import { GAME, HISTORY, IMAGE, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, REPORTS, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes } from "./schemas.ts";
+import { GAME, HISTORY, IMAGE, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, REPORTS, SIGN_IN_APP, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes } from "./schemas.ts";
 
 /**
  * The developer MCP at /mcp: every tool is a call to the developer API, so the MCP, the upload command
@@ -322,6 +322,80 @@ export const TOOLS: Tool[] = [
     outputSchema: answer({ removed_tester_id: idOf("tester"), next_steps: NEXT }),
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     run: (toolArguments, call) => call("DELETE", `/games/${pathPart(toolArguments.slug)}/testers/${pathPart(toolArguments.tester_id)}`),
+  },
+  {
+    name: "list_sign_in_apps",
+    title: "List my sign-in apps",
+    description: "Your sign-in apps: your own sites, servers and apps that players sign in to with their Zaisma account (Sign in with Zaisma, standard OpenID Connect). Client secrets are never shown again; replace one with update_sign_in_app.",
+    inputSchema: object({}),
+    outputSchema: answer({ sign_in_apps: list(SIGN_IN_APP) }),
+    annotations: read,
+    run: (_, call) => call("GET", "/sign-in-apps"),
+  },
+  {
+    name: "create_sign_in_app",
+    title: "Make a sign-in app",
+    description:
+      'Let players sign in to your own site, server or game with its own accounts using their Zaisma account: Sign in with Zaisma, standard OpenID Connect (authorization code flow), so any OpenID Connect library works with issuer_url, the app\'s id as client_id and, for a confidential app, client_secret. Your site gets the player\'s ID (sub, a player_… ID, the same as in your games\' player passes) and, with the profile scope, their name; never an email, so ask for scope "openid profile". Public apps must send PKCE (S256). The client_secret is answered once, here: store it on your server and never in a page or game. Players see the name when they first sign in, and can remove the app from their account.\n\n' +
+      'Not: { "redirect_urls": ["https://skyhopper.io/*"] } (exact URLs, no wildcards)\n' +
+      'Not: { "kind": "public" } for a site with its own server (confidential: the server keeps the secret)\n' +
+      'Not: { "name": "Zaisma Login" } (name the app the way players know your site)',
+    inputSchema: {
+      ...object(
+        {
+          name: { type: "string", minLength: 1, maxLength: 60, description: "What players see when they sign in: the name players know your site by. Can't say Zaisma." },
+          kind: {
+            enum: ["confidential", "public"],
+            description: "confidential: a site or server that keeps the client secret on its server. public: a page, phone or desktop app with no server, which signs in with PKCE alone.",
+          },
+          redirect_urls: {
+            type: "array",
+            minItems: 1,
+            maxItems: 10,
+            items: { type: "string", maxLength: 500 },
+            description: "The exact URLs a sign-in can go back to (your library's callback URL): https, or http://localhost for development, no #fragment and no wildcards.",
+          },
+        },
+        ["name", "kind", "redirect_urls"],
+      ),
+      examples: [
+        { name: "Sky Hopper Online", kind: "confidential", redirect_urls: ["https://skyhopper.io/auth/callback/zaisma", "http://localhost:3000/auth/callback/zaisma"] },
+        { name: "Sky Hopper Map Editor", kind: "public", redirect_urls: ["https://editor.skyhopper.io/signed-in"] },
+      ],
+    },
+    outputSchema: answer({ sign_in_app: SIGN_IN_APP, client_secret: nullable(text("A confidential app's client secret, shown only this once; null for a public app.")), next_steps: NEXT }),
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+    run: (toolArguments, call) => call("POST", "/sign-in-apps", pick(toolArguments, ["name", "kind", "redirect_urls"])),
+  },
+  {
+    name: "update_sign_in_app",
+    title: "Change a sign-in app",
+    description:
+      "Change a sign-in app's name or redirect URLs (redirect_urls replaces the whole list), or make a new client secret for a confidential app with replace_client_secret: true: the old secret stops working at once, so put the new one on your server straight away. Leave out what stays the same.",
+    inputSchema: {
+      ...object(
+        {
+          sign_in_app_id: idInput("sign_in_app", "A sign-in app's id from list_sign_in_apps or create_sign_in_app"),
+          name: { type: "string", minLength: 1, maxLength: 60, description: "What players see when they sign in. Can't say Zaisma." },
+          redirect_urls: { type: "array", minItems: 1, maxItems: 10, items: { type: "string", maxLength: 500 }, description: "The whole new list of exact redirect URLs." },
+          replace_client_secret: { type: "boolean", description: "true: make a new client secret, answered once; the old one stops working. Confidential apps only." },
+        },
+        ["sign_in_app_id"],
+      ),
+      examples: [{ sign_in_app_id: "sign_in_app_8f3k2m9q1x7c4v6b0n5z", redirect_urls: ["https://skyhopper.io/auth/callback/zaisma", "https://beta.skyhopper.io/auth/callback/zaisma"] }],
+    },
+    outputSchema: answer({ sign_in_app: SIGN_IN_APP, client_secret: nullable(text("The new client secret when replace_client_secret was true, shown only this once; null otherwise.")), next_steps: NEXT }),
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+    run: (toolArguments, call) => call("PATCH", `/sign-in-apps/${pathPart(toolArguments.sign_in_app_id)}`, pick(toolArguments, ["name", "redirect_urls", "replace_client_secret"])),
+  },
+  {
+    name: "delete_sign_in_app",
+    title: "Delete a sign-in app",
+    description: "Delete a sign-in app for good: players can't sign in to it with Zaisma any more, and every player's yes to it goes. Ask the developer first. Player IDs stay the same, so a new app recognizes the same players.",
+    inputSchema: object({ sign_in_app_id: idInput("sign_in_app", "A sign-in app's id from list_sign_in_apps") }, ["sign_in_app_id"]),
+    outputSchema: answer({ removed_sign_in_app_id: idOf("sign_in_app"), next_steps: NEXT }),
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    run: (toolArguments, call) => call("DELETE", `/sign-in-apps/${pathPart(toolArguments.sign_in_app_id)}`),
   },
   {
     name: "search_forum",

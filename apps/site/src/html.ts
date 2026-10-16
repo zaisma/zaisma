@@ -335,7 +335,8 @@ export function metalButton(label: string, options: { href?: string; id?: string
 /** Cloudflare's invisible check (Turnstile), on pages that ask for it: its script and its frame. */
 const CHECK_ORIGIN = "https://challenges.cloudflare.com";
 
-export function securityHeaders(env: Env, extra: Record<string, string> = {}, hasTurnstileCheck = false, frames: string[] = []): Headers {
+/** formTargets: other sites a form on the page may end up at, like the app a Sign in with Zaisma consent page goes back to. */
+export function securityHeaders(env: Env, extra: Record<string, string> = {}, hasTurnstileCheck = false, frames: string[] = [], formTargets: string[] = []): Headers {
   const headers = new Headers({
     "Content-Type": "text/html; charset=utf-8",
     "Content-Security-Policy": [
@@ -344,7 +345,7 @@ export function securityHeaders(env: Env, extra: Record<string, string> = {}, ha
       "style-src 'self' 'unsafe-inline'",
       `script-src 'self' 'unsafe-inline'${hasTurnstileCheck ? ` ${CHECK_ORIGIN}` : ""}`,
       `frame-src ${gameFrameSource(env)}${hasTurnstileCheck ? ` ${CHECK_ORIGIN}` : ""}${frames.map((frame) => ` ${frame}`).join("")}`,
-      "form-action 'self'",
+      `form-action 'self'${formTargets.map((target) => ` ${target}`).join("")}`,
       "frame-ancestors 'none'",
       "base-uri 'none'",
       "object-src 'none'",
@@ -371,7 +372,7 @@ export interface HeaderSearch {
   keep?: Record<string, string>;
 }
 
-export function layout(env: Env, options: { title: string; body: Raw; isBare?: boolean; isAdmin?: boolean; isPrivate?: boolean; nav?: Nav; art?: string | null; hasTurnstileCheck?: boolean; search?: HeaderSearch; action?: Raw; frames?: string[] }): Response {
+export function layout(env: Env, options: { title: string; body: Raw; isBare?: boolean; isAdmin?: boolean; isPrivate?: boolean; nav?: Nav; art?: string | null; hasTurnstileCheck?: boolean; search?: HeaderSearch; action?: Raw; frames?: string[]; formTargets?: string[] }): Response {
   const page = html`<!doctype html>
 <html lang="en">
 <head>
@@ -394,7 +395,7 @@ ${siteFooter()}`}
 <script>${raw(METAL_SCRIPT)}${raw(AMBIENT_SCRIPT)}${raw(BUSY_SCRIPT)}</script>
 </body>
 </html>`;
-  return new Response(page.html, { headers: securityHeaders(env, options.isAdmin || options.isPrivate ? { "Cache-Control": "no-store" } : {}, options.hasTurnstileCheck, options.frames) });
+  return new Response(page.html, { headers: securityHeaders(env, options.isAdmin || options.isPrivate ? { "Cache-Control": "no-store" } : {}, options.hasTurnstileCheck, options.frames, options.formTargets) });
 }
 
 /**
