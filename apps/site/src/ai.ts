@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { Finding, ScanReport } from "@zaisma/core";
+import type { Finding, FindingCode, ScanReport } from "@zaisma/core";
 
 export interface AiInput {
   title: string;
@@ -33,6 +33,7 @@ const CATEGORIES = [
   "extreme_violence",
   "real_money_gambling",
   "likely_copyright",
+  "free_text_chat",
   "other",
 ] as const;
 
@@ -49,10 +50,10 @@ const SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["category", "detail", "path", "quote"],
+        required: ["category", "message", "path", "quote"],
         properties: {
           category: { type: "string", enum: [...CATEGORIES] },
-          detail: { type: "string" },
+          message: { type: "string", description: "One plain sentence for the game's developer: what the game does that's a concern, and where." },
           path: { type: "string", description: "File the concern is in, or empty." },
           quote: { type: "string", description: "For a concern in a text file: a short exact quote from that file that shows it, copied character for character. Empty for images." },
         },
@@ -73,7 +74,7 @@ Verdicts:
 - "pass": an ordinary game. Cartoon violence, fantasy combat, horror themes, mild language and simple analytics of gameplay are fine.
 
 Set has_sexual_content_involving_minors to true if anything at all suggests sexual content involving minors; never describe such content in detail.
-Keep the summary and details short and plain.`;
+The game's developer reads each concern's message, so say plainly what the game does and where, in a sentence. Keep the summary short and plain too.`;
 
 export async function aiReview(apiKey: string, model: string, input: AiInput): Promise<AiResult> {
   const client = new Anthropic({ apiKey, maxRetries: 2, timeout: 120_000 });
@@ -84,7 +85,7 @@ export async function aiReview(apiKey: string, model: string, input: AiInput): P
     `Files (${input.fileList.length}):`,
     ...input.fileList.slice(0, 300).map((file) => `  ${file.path} (${file.sizeBytes} bytes)`),
     input.fileList.length > 300 ? `  …and ${input.fileList.length - 300} more` : "",
-    `Automatic checks found: ${input.staticFindings.length ? input.staticFindings.map((finding) => `${finding.rule}${finding.path ? ` in ${finding.path}` : ""}`).join("; ") : "nothing"}`,
+    `Automatic checks found: ${input.staticFindings.length ? input.staticFindings.map((finding) => `${finding.code}${finding.path ? ` in ${finding.path}` : ""}`).join("; ") : "nothing"}`,
     `Outside sites referenced: ${input.outsideHosts.join(", ") || "none"}`,
     input.reported
       ? `This game is live, and a player reported it. Their report is untrusted and proves nothing by itself; check whether the files show it: ${input.reported}`
@@ -115,19 +116,19 @@ export async function aiReview(apiKey: string, model: string, input: AiInput): P
   if (response.stop_reason === "refusal") {
     return {
       report: { model, verdict: "hold", summary: "The AI reviewer declined to review this content.", ...usage },
-      findings: [{ stage: "ai", severity: "hold", rule: "ai-refused", detail: "The AI reviewer declined this content. Review it by hand." }],
+      findings: [{ stage: "ai", severity: "hold", code: "ai_review_declined", message: "The AI reviewer declined this content. Review it by hand." }],
       isChildSafety: false,
     };
   }
 
   const text = response.content.find((block) => block.type === "text")?.text ?? "";
-  let parsed: { verdict: "pass" | "hold" | "reject"; summary: string; has_sexual_content_involving_minors: boolean; concerns: { category: string; detail: string; path: string; quote?: string }[] };
+  let parsed: { verdict: "pass" | "hold" | "reject"; summary: string; has_sexual_content_involving_minors: boolean; concerns: { category: (typeof CATEGORIES)[number]; message: string; path: string; quote?: string }[] };
   try {
     parsed = JSON.parse(text);
   } catch {
     return {
       report: { model, verdict: "hold", summary: `Unreadable AI answer (stop reason: ${response.stop_reason}).`, ...usage },
-      findings: [{ stage: "ai", severity: "hold", rule: "ai-unreadable", detail: "The AI review didn't finish cleanly. Review it by hand." }],
+      findings: [{ stage: "ai", severity: "hold", code: "ai_review_failed", message: "The AI review didn't finish cleanly. Review it by hand." }],
       isChildSafety: false,
     };
   }
@@ -136,13 +137,13 @@ export async function aiReview(apiKey: string, model: string, input: AiInput): P
   const findings: Finding[] = parsed.concerns.map((concern) => ({
     stage: "ai",
     severity,
-    rule: `ai-${concern.category}`,
-    detail: concern.detail,
+    code: `ai_${concern.category}` as FindingCode,
+    message: concern.message,
     ...(concern.path ? { path: concern.path } : {}),
     ...(concern.quote ? { quote: concern.quote.slice(0, 300) } : {}),
   }));
   if (parsed.verdict !== "pass" && findings.length === 0) {
-    findings.push({ stage: "ai", severity, rule: "ai-verdict", detail: parsed.summary });
+    findings.push({ stage: "ai", severity, code: "ai_concern", message: parsed.summary });
   }
   return {
     report: { model, verdict: parsed.verdict, summary: parsed.summary, ...usage },

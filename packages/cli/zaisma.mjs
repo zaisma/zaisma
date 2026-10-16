@@ -163,14 +163,24 @@ async function upload(folder, opts) {
         console.log(`Publish it with: zaisma publish ${slug} ${v.id}`);
       }
     } else {
-      console.log(v.scan_status === "held" ? "Held: a person will look at it, usually within a day. What the scan found:" : "Rejected. What the scan found:");
-      for (const f of v.findings) console.log(`  - ${f.explanation}${f.path ? ` (${f.path})` : ""}`);
+      console.log(v.scan_status === "held" ? "Held for a person at Zaisma to look at. Why:" : "Rejected. Why:");
+      printReasons(v);
       if (v.scan_status === "rejected") process.exit(1);
     }
     return;
   }
   console.log(`Still scanning. Check later with: zaisma versions ${slug}`);
 }
+
+/** Why a version is held or rejected: a person's or a report's decision, then what the scan found, each with its code and rule, then what to do. */
+function printReasons(version) {
+  const reasons = [...(version.review_reason ? [version.review_reason] : []), ...version.findings];
+  for (const reason of reasons) console.log(`  - ${reason.message}${reason.path ? ` (${reason.path})` : ""} [${reason.code}${reason.content_rule ? `, rule: ${reason.content_rule}` : ""}]`);
+  for (const fix of new Set(reasons.map((reason) => reason.fix))) console.log(`  ${fix}`);
+}
+
+/** The code a held or removed game, or a held or rejected version, is held back by, to look up in the forum. */
+const reasonCode = (thing) => (thing.review_reason ?? thing.findings?.[0])?.code ?? "";
 
 const day = (at) => at.slice(0, 10);
 
@@ -266,7 +276,7 @@ async function main() {
   if (command === "games") {
     const { games, unread_topic_count } = await api("GET", "/games");
     if (!games.length) return console.log('No games yet. Make one with: zaisma new "My Game"');
-    for (const g of games) console.log(`${g.slug.padEnd(28)} ${g.visibility.padEnd(9)} ${g.review_status.padEnd(8)} ${g.title}`);
+    for (const g of games) console.log(`${g.slug.padEnd(28)} ${g.visibility.padEnd(9)} ${g.review_status.padEnd(8)} ${g.title}${g.review_reason ? `  [${reasonCode(g)}]` : ""}`);
     if (unread_topic_count) console.log(`\nZaisma replied to ${unread_topic_count} of your forum topics. See them with: zaisma forum`);
     return;
   }
@@ -281,7 +291,7 @@ async function main() {
     const slug = opts._[0];
     if (!slug) fail("usage: zaisma versions <slug>");
     const { versions } = await api("GET", `/games/${slug}`);
-    for (const v of versions) console.log(`${v.id}  ${v.created_at.slice(0, 16).replace("T", " ")}  ${(v.is_live ? "live" : v.scan_status).padEnd(9)} ${v.preview_url ?? ""}${v.scheduled_publish_at ? `  goes live ${new Date(v.scheduled_publish_at).toLocaleString()}` : ""}`);
+    for (const v of versions) console.log(`${v.id}  ${v.created_at.slice(0, 16).replace("T", " ")}  ${(v.is_live ? "live" : v.scan_status).padEnd(9)} ${v.preview_url ?? (v.scan_status === "held" || v.scan_status === "rejected" ? `[${reasonCode(v)}]` : "")}${v.scheduled_publish_at ? `  goes live ${new Date(v.scheduled_publish_at).toLocaleString()}` : ""}`);
     return;
   }
   if (command === "publish") {

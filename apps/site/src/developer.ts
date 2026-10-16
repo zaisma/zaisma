@@ -16,7 +16,13 @@ import {
   imageKey,
   heldImageKey,
   iso,
-  KNOWN_IMAGE_RULE,
+  KNOWN_IMAGE_CODE,
+  REVIEW_CODES,
+  readReviewReason,
+  reviewReason,
+  reviewReasonAnswer,
+  type Finding,
+  type ReviewCodeName,
   imagesForGame,
   newId,
   personOwner,
@@ -322,7 +328,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     closedBody(body, ["title", "description", "visibility", "devices", "controls", "screen_orientation", "play_modes", "cloud_saves_enabled", "room_browsing", "multiplayer_mode"]);
     const change = checkDetailsOrThrow(body);
     if (game.review_status === "removed" && change.visibility) {
-      throw new ApiError("game_removed", { message: "Zaisma took this game down, so its visibility can't change.", field: "visibility", fix: "get_history says when and why; reply to Zaisma's message about it, or message_zaisma, to ask about it." });
+      throw gameRemoved(game, "its visibility can't change", "visibility");
     }
     const { multiplayer_mode: multiplayerMode, ...details } = change;
     const changesMultiplayer = multiplayerMode !== undefined && multiplayerMode !== game.multiplayer_mode;
@@ -370,7 +376,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     // Matched against known abuse material before anyone sees it. A match is kept for reporting, never shown.
     // If matching fails, the picture waits for a person as usual.
     const matched = await imageMatcher(env).check([{ path: `${kind} image`, type: sniffed.type, id: "upload", body: async () => bytes }]);
-    if (matched.findings.some((finding) => finding.rule === KNOWN_IMAGE_RULE)) {
+    if (matched.findings.some((finding) => finding.code === KNOWN_IMAGE_CODE)) {
       const id = newId("image");
       await env.GAMES.put(heldImageKey(game.id, id), bytes, { httpMetadata: { contentType: sniffed.type } });
       await audit(env.DB, game.id, "image-held", `A ${kind} upload matched known abuse material. Kept at ${heldImageKey(game.id, id)}; never shown.`, caller.actor);
@@ -540,7 +546,7 @@ async function bigFile(request: Request, env: Env, sha256: string, step: string 
 async function versionRoute(request: Request, env: Env, game: Game, what: string, id: string | undefined, isPublish: boolean, caller: Caller): Promise<[unknown, number?]> {
   const method = request.method;
   if (game.review_status === "removed" && method !== "GET") {
-    throw new ApiError("game_removed", { message: "Zaisma took this game down, so it can't get new versions or publish.", fix: "get_history says when and why; reply to Zaisma's message about it, or message_zaisma, to ask about it." });
+    throw gameRemoved(game, "it can't get new versions or publish");
   }
 
   // Step 1: which of these files do you still need to send?
@@ -656,15 +662,24 @@ async function versionRoute(request: Request, env: Env, game: Game, what: string
   throw badMethod(method, new URL(request.url).pathname);
 }
 
-/** A held or rejected version, which can't be published. */
+/** A held or rejected version, which can't be published: why, and what to do, from its review reason or first finding. */
 function notApproved(game: Game, version: Version): ApiError {
+  const why = versionReviewReason(version) ?? findingsFor(version)[0] ?? null;
   return new ApiError("not_approved", {
-    message: `This version is ${version.scan_status}, so it can't be published.`,
+    message: `This version is ${version.scan_status}, so it can't be published${why ? ` (${why.code}): ${why.message}` : "."}`,
     field: "version_id",
-    fix:
-      version.scan_status === "held"
-        ? "A person at Zaisma looks at held versions, usually within a day; get_version shows its findings meanwhile."
-        : `get_version shows its findings and how to fix them; upload a fixed version (upload_files with slug ${game.slug}).`,
+    fix: `${why?.fix ?? (version.scan_status === "held" ? "A person at Zaisma looks at held versions, usually within a day." : `Upload a fixed version (upload_files with slug ${game.slug}).`)} get_version shows every finding.`,
+  });
+}
+
+/** A game Zaisma took down can't change: why, and what to do, from its review reason. */
+function gameRemoved(game: Game, what: string, field: string | null = null): ApiError {
+  const reason = readReviewReason(game.review_reason);
+  const why = reason ? reviewReasonAnswer(reason) : null;
+  return new ApiError("game_removed", {
+    message: `Zaisma took this game down, so ${what}${why ? ` (${why.code}): ${why.message}` : "."}`,
+    field,
+    fix: why?.fix ?? "message_zaisma with the game_slug to ask about it.",
   });
 }
 
@@ -827,16 +842,28 @@ const HISTORY: Record<string, string | null> = {
 
 async function historyFor(env: Env, game: Game, caller: Caller) {
   const { results } = await env.DB
-    .prepare("SELECT action, reason, actor, happened_at_ms FROM audit_log WHERE game_id = ? ORDER BY happened_at_ms DESC, id DESC LIMIT 100")
+    .prepare("SELECT action, reason, actor, happened_at_ms, review_reason FROM audit_log WHERE game_id = ? ORDER BY happened_at_ms DESC, id DESC LIMIT 100")
     .bind(game.id)
-    .all<{ action: string; reason: string; actor: string; happened_at_ms: number }>();
-  const events: { description: string; version_id: string | null; done_by: "you" | "zaisma"; happened_at: string | null }[] = [];
+    .all<{ action: string; reason: string; actor: string; happened_at_ms: number; review_reason: string | null }>();
+  const events: { description: string; version_id: string | null; done_by: "you" | "zaisma"; happened_at: string | null; review_reason: ReturnType<typeof reasonAnswer> }[] = [];
   for (const entry of results) {
     const description = HISTORY[entry.action];
     if (!description) continue;
-    events.push({ description, version_id: entry.reason.match(/\bversion_[a-z0-9]+/)?.[0] ?? null, done_by: entry.actor === caller.actor ? "you" : "zaisma", happened_at: iso(entry.happened_at_ms) });
+    events.push({
+      description,
+      version_id: entry.reason.match(/\bversion_[a-z0-9]+/)?.[0] ?? null,
+      done_by: entry.actor === caller.actor ? "you" : "zaisma",
+      happened_at: iso(entry.happened_at_ms),
+      review_reason: reasonAnswer(entry.review_reason),
+    });
   }
   return { events };
+}
+
+/** A stored review reason (JSON) as the API answers it, with its fix; null when there's none. */
+function reasonAnswer(stored: string | null) {
+  const reason = readReviewReason(stored);
+  return reason ? reviewReasonAnswer(reason) : null;
 }
 
 function listOrThrow(files: unknown): UploadFile[] {
@@ -856,7 +883,7 @@ async function testerRoute(request: Request, env: Env, game: Game, id: string | 
   if (!id && request.method === "GET") return [{ testers: (await testerLinks(env.DB, game.id)).map((link) => testerJson(env, link)) }];
   if (!id && request.method === "POST") {
     if (game.review_status === "removed") {
-      throw new ApiError("game_removed", { message: "Zaisma took this game down, so it can't get tester links.", fix: "get_history says when and why; reply to Zaisma's message about it, or message_zaisma, to ask about it." });
+      throw gameRemoved(game, "it can't get tester links");
     }
     const body = await readJson(request);
     closedBody(body, ["name"]);
@@ -895,7 +922,6 @@ function previewUrl(env: Env, slug: string, token: string): string {
 }
 
 function versionJson(env: Env, game: Game, version: Version) {
-  const report: ScanReport | null = version.scan_report ? JSON.parse(version.scan_report) : null;
   return {
     id: version.id,
     file_count: version.file_count,
@@ -908,13 +934,30 @@ function versionJson(env: Env, game: Game, version: Version) {
     published_at: iso(version.published_at_ms),
     scheduled_publish_at: iso(version.scheduled_publish_at_ms),
     created_at: iso(version.created_at_ms),
-    // Why a version was held or rejected. Child-safety findings are never described.
-    findings: !report
-      ? []
-      : report.is_child_safety
-        ? [{ severity: "hold", rule: "review", explanation: "A person needs to look at this version.", path: null }]
-        : report.findings.filter((finding) => finding.severity !== "info").map((finding) => ({ severity: finding.severity, rule: finding.rule, explanation: finding.detail, path: finding.path ?? null })),
+    review_reason: versionReviewReason(version),
+    findings: findingsFor(version),
   };
+}
+
+/** A person's or a report's decision about a version: a report paused this update, or a person rejected it. */
+function versionReviewReason(version: Version) {
+  if (version.report_held_at_ms && version.scan_status === "held") return reviewReasonAnswer(reviewReason("report_paused_update"));
+  const reason = readReviewReason(version.review_reason);
+  return reason ? reviewReasonAnswer(reason) : null;
+}
+
+/** Why the scan held or rejected a version, with the rule and the fix. Child-safety signals are never described: a person needs to look. */
+function findingsFor(version: Version) {
+  const report: ScanReport | null = version.scan_report ? JSON.parse(version.scan_report) : null;
+  if (!report) return [];
+  const shown: Finding[] = report.is_child_safety
+    ? [{ stage: "static", severity: "hold", code: "needs_review", message: "" }]
+    : report.findings.filter((finding) => finding.severity !== "info" && Object.hasOwn(REVIEW_CODES, finding.code));
+  return shown.map((finding) => {
+    const code = finding.code as ReviewCodeName;
+    const reason = reviewReasonAnswer({ code, message: finding.message, content_rule: REVIEW_CODES[code].contentRule });
+    return { code, severity: finding.severity, message: reason.message, content_rule: reason.content_rule, path: finding.path ?? null, fix: reason.fix };
+  });
 }
 
 /** A game this caller owns, by its slug (or the input named by `field`). Someone else's game looks the same as no game. */
@@ -960,8 +1003,9 @@ function gameJson(env: Env, game: Game) {
     title: game.title,
     description: game.description,
     visibility: game.visibility,
-    // Ours, separate from visibility: pending (no version has passed review yet), live, held or removed.
+    // Ours, separate from visibility: pending (no version has passed review yet), live, held or removed, and why.
     review_status: game.review_status,
+    review_reason: reasonAnswer(game.review_reason),
     devices: splitLabels(game.devices),
     controls: splitLabels(game.controls),
     screen_orientation: game.screen_orientation || null,
@@ -979,6 +1023,7 @@ function imageJson(env: Env, image: GameImage) {
     id: image.id,
     kind: image.kind,
     review_status: image.review_status,
+    review_reason: reasonAnswer(image.review_reason),
     width_px: image.width_px,
     height_px: image.height_px,
     size_bytes: image.size_bytes,

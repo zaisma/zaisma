@@ -1,3 +1,5 @@
+import type { FindingCode } from "./review.ts";
+
 /** Zaisma's review of a game, separate from its visibility: no version has passed yet, live, paused while checked, or taken down. */
 export type ReviewStatus = "pending" | "live" | "held" | "removed";
 export type Visibility = "draft" | "listed" | "unlisted" | "private";
@@ -13,6 +15,8 @@ export interface Game {
   title: string;
   description: string;
   review_status: ReviewStatus;
+  /** Why it's held or removed, as JSON (a ReviewReason); NULL while it's pending or live. */
+  review_reason: string | null;
   live_version_id: string | null;
   /** Multiplayer on Zaisma rooms (see MULTIPLAYER_MODES). */
   multiplayer_mode: MultiplayerMode;
@@ -51,6 +55,8 @@ export interface Version {
   size_bytes: number;
   scan_status: ScanStatus;
   scan_report: string | null;
+  /** A person's decision about it, as JSON (a ReviewReason): why they rejected it. What the scan found is in scan_report. */
+  review_reason: string | null;
   /** "zip": files under r2_prefix. "files": uploaded file by file, listed in a manifest. */
   kind: "zip" | "files";
   patch_notes: string;
@@ -71,11 +77,14 @@ export interface Version {
 
 export type Severity = "reject" | "hold" | "info";
 
+/** Something a scan found in a version's files (stored in ScanReport.findings). */
 export interface Finding {
   stage: "static" | "images" | "ai";
   severity: Severity;
-  rule: string;
-  detail: string;
+  /** Which problem: a code from REVIEW_CODES, or one only Zaisma sees (INTERNAL_FINDING_CODES). */
+  code: FindingCode;
+  /** What was found, for a person at Zaisma; the developer reads it only for codes with their own message. */
+  message: string;
   path?: string;
   /** From the AI reviewer: a short exact quote from the file at path that shows the problem. */
   quote?: string;

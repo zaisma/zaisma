@@ -16,6 +16,9 @@ import {
   reportPictureKey,
   versionById,
   versionsForGame,
+  CONTENT_RULES,
+  readReviewReason,
+  reviewReasonAnswer,
   type AuditEntry,
   type ErrorCode,
   type Game,
@@ -167,6 +170,7 @@ function gameAnswer(game: Game) {
     multiplayer_mode: game.multiplayer_mode,
     game_server_name: gameServerOf(game),
     has_own_servers: Boolean(game.connect_hosts),
+    review_reason: reasonAnswer(game.review_reason),
     created_at: iso(game.created_at_ms)!,
   };
 }
@@ -181,13 +185,20 @@ function versionAnswer(game: Game, version: Version) {
     published_at: iso(version.published_at_ms),
     created_at: iso(version.created_at_ms)!,
     scan_summary: scan?.ai?.summary ?? null,
+    review_reason: reasonAnswer(version.review_reason),
     findings: (scan?.findings ?? [])
       .filter((finding) => finding.severity !== "info")
-      .map((finding) => ({ severity: finding.severity, rule: finding.rule, explanation: finding.detail, path: finding.path ?? null })),
+      .map((finding) => ({ code: finding.code, severity: finding.severity, message: finding.message, path: finding.path ?? null })),
   };
 }
 
-const historyAnswer = (entry: AuditEntry) => ({ action: entry.action, description: entry.reason, actor: entry.actor, happened_at: iso(entry.happened_at_ms)! });
+const historyAnswer = (entry: AuditEntry) => ({ action: entry.action, description: entry.reason, actor: entry.actor, happened_at: iso(entry.happened_at_ms)!, review_reason: reasonAnswer(entry.review_reason) });
+
+/** What the developer reads about a hold, rejection or takedown, stored as JSON. */
+const reasonAnswer = (stored: string | null) => {
+  const reason = readReviewReason(stored);
+  return reason ? reviewReasonAnswer(reason) : null;
+};
 
 function precedentAnswer(precedent: Precedent & { followed_count: number }) {
   return {
@@ -343,10 +354,11 @@ export const ADMIN_TOOLS: AdminTool[] = [
     name: "decide_report_group",
     title: "Decide a report group",
     description:
-      "Decide a group's open reports, exactly like its button in the queue. get_report_group's possible_decisions says what's possible now. With precedent, also set a precedent so future cases like it are decided the same way: dismiss, restore and put_update_back set a dismissal, bug a bug, take_down and keep_update_off a takedown, and hide_name none. Ask the admin first.\n\n" +
+      "Decide a group's open reports, exactly like its button in the queue. get_report_group's possible_decisions says what's possible now. With precedent, also set a precedent so future cases like it are decided the same way: dismiss, restore and put_update_back set a dismissal, bug a bug, take_down and keep_update_off a takedown, and hide_name none. take_down needs the content_rule it broke (keep_update_off can name one), and for both the developer reads why (never for child safety). Ask the admin first.\n\n" +
       'Not: { "group": "report_…" } (the ID goes in report_group_id)\n' +
       'Not: { "reason": "…" } (why it was decided goes in why)\n' +
-      'Not: { "decision": "hide_name", "precedent": { … } } (hiding a room\'s name sets no precedent)',
+      'Not: { "decision": "hide_name", "precedent": { … } } (hiding a room\'s name sets no precedent)\n' +
+      'Not: { "decision": "take_down", "why": "…" } (a takedown needs content_rule too)',
     inputSchema: {
       ...object(
         {
@@ -355,7 +367,9 @@ export const ADMIN_TOOLS: AdminTool[] = [
             enum: ["dismiss", "hide_name", "bug", "take_down", "restore", "put_update_back", "keep_update_off"],
             description: "dismiss; hide_name (hide a reported room's name and labels from room lists); bug (pass to the developer); take_down; restore (put a paused game back); put_update_back or keep_update_off (for a paused update).",
           },
-          why: { type: "string", minLength: 1, maxLength: 500, description: "Why, in a sentence. Goes in the audit log." },
+          why: { type: "string", minLength: 1, maxLength: 500, description: "Why, in a sentence. Goes in the audit log; for take_down and keep_update_off the developer reads it too, so write it for them (never shown for child safety)." },
+          content_rule: { enum: Object.keys(CONTENT_RULES), description: "For take_down (needed) and keep_update_off: the content rule it broke. Other decisions leave it out." },
+          is_copyright_notice: { type: "boolean", description: "For take_down: true when it's on a copyright (DMCA) notice, in place of content_rule." },
           precedent: {
             ...object(
               {
@@ -374,6 +388,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
       ),
       examples: [
         { report_group_id: "report_8f3k2m9q1x7c4v6b0n5z", decision: "dismiss", why: "The player doesn't like the difficulty; nothing against the rules." },
+        { report_group_id: "report_8f3k2m9q1x7c4v6b0n5z", decision: "take_down", content_rule: "malware", why: "The game's login screen asks players for their Steam password." },
         {
           report_group_id: "report_8f3k2m9q1x7c4v6b0n5z",
           decision: "dismiss",
@@ -390,6 +405,17 @@ export const ADMIN_TOOLS: AdminTool[] = [
       const { options, pausedVersionId } = await choices(env, group);
       if (!options.includes(decision)) {
         throw new ApiError("cant_decide", { message: `${group.id} can't be decided as ${decision} now.`, field: "decision", fix: `Give one of: ${options.join(", ")}.` });
+      }
+      // The rule broken: take_down names it (or a copyright notice), keep_update_off can, the rest don't.
+      for (const field of ["content_rule", "is_copyright_notice"] as const) {
+        const takesIt = decision === "take_down" || (decision === "keep_update_off" && field === "content_rule");
+        if (toolArguments[field] !== undefined && !takesIt) {
+          throw new ApiError("unknown_field", { message: `${decision} takes no ${field}.`, field, fix: "Leave it out: take_down names the rule it broke, and keep_update_off can name one." });
+        }
+      }
+      const isCopyrightNotice = toolArguments.is_copyright_notice === true;
+      if (decision === "take_down" && !toolArguments.content_rule && !isCopyrightNotice) {
+        throw new ApiError("missing_field", { message: "A takedown needs the content rule it broke.", field: "content_rule", fix: `Give content_rule, one of: ${Object.keys(CONTENT_RULES).join(", ")}; or is_copyright_notice: true for a DMCA notice.` });
       }
       const precedent = toolArguments.precedent as Record<string, unknown> | undefined;
       if (precedent) {
@@ -410,6 +436,8 @@ export const ADMIN_TOOLS: AdminTool[] = [
       const form = new FormData();
       form.set("reason", String(toolArguments.why).trim());
       form.set("group", group.id);
+      if (isCopyrightNotice) form.set("content_rule", "copyright_notice");
+      else if (toolArguments.content_rule) form.set("content_rule", String(toolArguments.content_rule));
       if (precedent) {
         form.set("precedent", "1");
         form.set("p_title", String(precedent.title));

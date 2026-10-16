@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ADMIN_ERROR_CODES, ERROR_CODES } from "../../packages/core/src/errors.ts";
+import { CONTENT_RULES, INTERNAL_FINDING_CODES, REVIEW_CODES } from "../../packages/core/src/review.ts";
 
 /**
  * docs/NAMING.md, Errors: one list of codes. Every code in ERROR_CODES is listed in
@@ -53,5 +54,41 @@ describe("error codes", () => {
     const isUsed = (errorCode: string) =>
       code.includes(`"${errorCode}"`) || (errorCode.startsWith("bad_") && new RegExp(`(oneOf|refuse)\\("${errorCode.slice(4)}"|\\["${errorCode.slice(4)}", |field: "${errorCode.slice(4)}"`).test(code));
     expect(everyCode.filter((errorCode) => !isUsed(errorCode))).toEqual([]);
+  });
+});
+
+/**
+ * docs/DEVELOPER-API.md, Holds and takedowns: every code in REVIEW_CODES is listed there with its
+ * rule and meaning, and every content rule in CONTENT_RULES with its words; nothing else is.
+ */
+describe("hold and takedown codes", () => {
+  const doc = readFileSync(join(ROOT, "docs/DEVELOPER-API.md"), "utf8");
+  const section = doc.slice(doc.indexOf("\n## Holds and takedowns\n"), doc.indexOf("\n## Signing in\n"));
+  const reviewCodes = Object.keys(REVIEW_CODES);
+
+  it("are lowercase snake_case, and never an error code", () => {
+    for (const code of reviewCodes) expect(code).toMatch(/^[a-z][a-z0-9]*(_[a-z0-9]+)*$/);
+    expect(reviewCodes.filter((code) => code in ERROR_CODES || code in ADMIN_ERROR_CODES || (INTERNAL_FINDING_CODES as readonly string[]).includes(code))).toEqual([]);
+  });
+
+  it("are all listed in docs/DEVELOPER-API.md, as the code has them", () => {
+    const listed = [...section.matchAll(/^\| `([a-z0-9_]+)` \| (`[a-z_]+`|none|picked) \| (.+) \|$/gm)].map((row) => ({ code: row[1]!, rule: row[2]!, meaning: row[3]! }));
+    expect(listed.map((row) => row.code)).toEqual(reviewCodes);
+    for (const row of listed) {
+      const known: { meaning: string; contentRule: string | null; isRulePicked?: true } = REVIEW_CODES[row.code as keyof typeof REVIEW_CODES];
+      expect(row, row.code).toEqual({ code: row.code, rule: known.contentRule ? `\`${known.contentRule}\`` : known.isRulePicked ? "picked" : "none", meaning: known.meaning });
+    }
+  });
+
+  it("name content rules that are all listed in docs/DEVELOPER-API.md, as the code has them", () => {
+    const listed = [...section.matchAll(/^\| `([a-z_]+)` \| ([^|`]+) \|$/gm)].map((row) => ({ rule: row[1]!, words: row[2]! }));
+    expect(listed).toEqual(Object.entries(CONTENT_RULES).map(([rule, words]) => ({ rule, words })));
+  });
+
+  it("are each one Zaisma can give", () => {
+    const code = [source(), readFileSync(join(ROOT, "apps/site/src/ai.ts"), "utf8")].join("\n").replace(readFileSync(join(ROOT, "packages/core/src/review.ts"), "utf8"), "");
+    // The AI review's concerns are ai_<category>, from its list of categories.
+    const isUsed = (reviewCode: string) => code.includes(`"${reviewCode}"`) || (reviewCode.startsWith("ai_") && code.includes(`"${reviewCode.slice(3)}"`));
+    expect(reviewCodes.filter((reviewCode) => !isUsed(reviewCode))).toEqual([]);
   });
 });

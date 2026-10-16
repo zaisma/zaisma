@@ -1,3 +1,4 @@
+import type { FindingCode } from "../review.ts";
 import type { Finding } from "../types.ts";
 
 export interface TextFile {
@@ -5,10 +6,10 @@ export interface TextFile {
   text: string;
 }
 
-interface Rule {
-  rule: string;
+interface Check {
+  code: FindingCode;
   severity: Finding["severity"];
-  detail: string;
+  message: string;
   pattern: RegExp;
   /** Only check files whose path matches. */
   only?: RegExp;
@@ -16,49 +17,49 @@ interface Rule {
 
 const HTML = /\.(html?|svg)$/i;
 
-const RULES: Rule[] = [
+const CHECKS: Check[] = [
   {
-    rule: "crypto-miner",
+    code: "crypto_miner",
     severity: "reject",
-    detail: "Contains crypto-mining code.",
+    message: "Contains crypto-mining code.",
     pattern: /coinhive|coin-hive|cryptonight|cryptoloot|webminepool|deepminer|coinimp|minero\.cc|stratum\+(tcp|ssl):\/\/|xmr-?stak|monero[-_ ]?miner|webmr\.js|crypta\.js/i,
   },
   {
-    rule: "packed-code",
+    code: "packed_code",
     severity: "hold",
-    detail: "Code is packed or decoded at runtime (eval of encoded text), which hides what it does.",
+    message: "Code is packed or decoded at runtime (eval of encoded text), which hides what it does.",
     pattern: /eval\(\s*function\s*\(\s*p\s*,\s*a\s*,\s*c\s*,\s*k\s*,\s*e\s*,|\beval\(\s*(atob|unescape|decodeURIComponent|String\.fromCharCode)\s*\(|new\s+Function\(\s*atob\s*\(/,
   },
   {
-    rule: "top-navigation",
+    code: "top_navigation",
     severity: "hold",
-    detail: "Tries to change the page outside the game (top or parent window location).",
+    message: "Tries to change the page outside the game (top or parent window location).",
     pattern: /\b(window\.)?(top|parent)\.location(\.href)?\s*=(?!=)|\b(window\.)?(top|parent)\.location\.(replace|assign)\s*\(/,
   },
   {
-    rule: "password-field",
+    code: "password_field",
     severity: "hold",
-    detail: "Has a password field. Games don't need one, and phishing pages do.",
+    message: "Has a password field. Games don't need one, and phishing pages do.",
     pattern: /<input[^>]*type\s*=\s*["']?password/i,
     only: HTML,
   },
   {
-    rule: "external-form",
+    code: "external_form",
     severity: "hold",
-    detail: "Has a form that sends data to another site.",
+    message: "Has a form that sends data to another site.",
     pattern: /<form[^>]*action\s*=\s*["']?(https?:)?\/\//i,
     only: HTML,
   },
   {
-    rule: "wallet-words",
+    code: "wallet_words",
     severity: "info",
-    detail: "Mentions seed phrases, private keys or wallets. Worth a look for scams.",
+    message: "Mentions seed phrases, private keys or wallets. Worth a look for scams.",
     pattern: /seed phrase|recovery phrase|private key|metamask|walletconnect/i,
   },
   {
-    rule: "svg-script",
+    code: "svg_script",
     severity: "info",
-    detail: "An SVG image contains script.",
+    message: "An SVG image contains script.",
     pattern: /<script/i,
     only: /\.svg$/i,
   },
@@ -77,10 +78,10 @@ export function staticScan(files: TextFile[]): StaticResult {
   const findings: Finding[] = [];
   const hosts = new Set<string>();
   for (const file of files) {
-    for (const rule of RULES) {
-      if (rule.only && !rule.only.test(file.path)) continue;
-      if (rule.pattern.test(file.text)) {
-        findings.push({ stage: "static", severity: rule.severity, rule: rule.rule, detail: rule.detail, path: file.path });
+    for (const check of CHECKS) {
+      if (check.only && !check.only.test(file.path)) continue;
+      if (check.pattern.test(file.text)) {
+        findings.push({ stage: "static", severity: check.severity, code: check.code, message: check.message, path: file.path });
       }
     }
     for (const match of file.text.matchAll(URL_PATTERN)) {
@@ -96,8 +97,8 @@ export function staticScan(files: TextFile[]): StaticResult {
     findings.push({
       stage: "static",
       severity: "info",
-      rule: "outside-hosts",
-      detail: `References ${outsideHosts.length} outside site(s). Games can't load from them on Zaisma, so bundle any libraries into the zip.`,
+      code: "outside_hosts",
+      message: `References ${outsideHosts.length} outside site(s). Games can't load from them on Zaisma, so bundle any libraries into the zip.`,
     });
   }
   return { findings, outsideHosts };

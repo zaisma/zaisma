@@ -59,7 +59,8 @@ describe("migration 0034", () => {
     expect(JSON.parse(held!)).toEqual({
       finished_at_ms: 1792012345678,
       decision: "held",
-      findings: scanReport.findings,
+      // Named by code since migration 0035.
+      findings: [{ code: "outside_host", severity: "hold", message: "Loads code from another site.", path: "index.html" }],
       outside_hosts: ["cdn.example.com"],
       images: { provider: "photodna", is_connected: true, checked_media_count: 3 },
       ai: { model: "claude-haiku-5-5", verdict: "hold", summary: "Loads a script from elsewhere.", input_token_count: 1200, output_token_count: 80 },
@@ -87,5 +88,87 @@ describe("migration 0034", () => {
       is_spot_check: false,
     });
     expect(second).toBeNull();
+  });
+});
+
+describe("migration 0035", () => {
+  const report = (decision: string, findings: unknown[]) => ({
+    finished_at_ms: 1,
+    decision,
+    findings,
+    outside_hosts: [],
+    images: { provider: "none", is_connected: false, checked_media_count: 0 },
+    ai: null,
+    is_child_safety: false,
+  });
+  const json = (value: unknown) => `'${JSON.stringify(value).replace(/'/g, "''")}'`;
+  const held = report("held", [
+    { stage: "static", severity: "hold", rule: "packed-code", detail: "Code is packed.", path: "game.js" },
+    { stage: "static", severity: "info", rule: "virustotal-unavailable", detail: "VirusTotal lookup failed (500).", path: "game.js" },
+    { stage: "ai", severity: "hold", rule: "ai-budget", detail: "Budget used up." },
+    { stage: "ai", severity: "hold", rule: "ai-likely_copyright", detail: "Mario sprites.", path: "art/hero.png", quote: "mario" },
+  ]);
+  const database = migratedFrom(
+    "0035_",
+    `
+    INSERT INTO games (id, slug, title, review_status, live_version_id, created_at_ms, updated_at_ms) VALUES
+      ('game_down', 'down', 'Down', 'removed', NULL, 1, 1),
+      ('game_paused', 'paused', 'Paused', 'held', 'version_paused', 1, 1),
+      ('game_hidden', 'hidden', 'Hidden', 'held', 'version_known', 1, 1),
+      ('game_live', 'live', 'Live', 'live', 'version_held', 1, 1);
+    INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, created_at_ms, scan_report, report_held_at_ms) VALUES
+      ('version_held', 'game_live', 'm', 1, 10, 'held', 5, ${json(held)}, NULL),
+      ('version_paused', 'game_paused', 'm', 1, 10, 'approved', 5, ${json(report("approved", []))}, 9),
+      ('version_known', 'game_hidden', 'm', 1, 10, 'held', 5, ${json(report("held", []))}, NULL),
+      ('version_by_person', 'game_live', 'm', 1, 10, 'rejected', 5, ${json(report("held", []))}, NULL),
+      ('version_by_scan', 'game_live', 'm', 1, 10, 'rejected', 5, ${json(report("rejected", []))}, NULL),
+      ('version_failed', 'game_live', 'm', 1, 10, 'held', 7, NULL, NULL);
+    INSERT INTO game_images (id, game_id, kind, content_type, width_px, height_px, size_bytes, review_status, created_at_ms) VALUES
+      ('image_no', 'game_live', 'cover', 'image/png', 1920, 1080, 10, 'rejected', 1),
+      ('image_yes', 'game_live', 'cover', 'image/png', 1920, 1080, 10, 'approved', 1);
+    INSERT INTO audit_log (game_id, action, reason, actor, happened_at_ms) VALUES
+      ('game_down', 'takedown', 'Steals passwords', 'julius@ivsan.com', 1),
+      ('game_paused', 'auto-hold', 'Report: Child safety', 'system', 2),
+      ('game_live', 'published', 'version_held', 'system', 3);
+    `,
+  );
+  const read = (sql: string) => database.prepare(sql).all();
+  const reasonOf = (code: string, message: string) => JSON.stringify({ code, message, content_rule: null });
+
+  it("names scan findings by code, with their message", () => {
+    const [stored] = read("SELECT scan_report FROM versions WHERE id = 'version_held'").map((row) => JSON.parse(row.scan_report as string));
+    expect(stored.findings).toEqual([
+      { stage: "static", severity: "hold", code: "packed_code", message: "Code is packed.", path: "game.js" },
+      { stage: "static", severity: "info", code: "antivirus_unavailable", message: "VirusTotal lookup failed (500).", path: "game.js" },
+      { stage: "ai", severity: "hold", code: "ai_review_budget_used", message: "Budget used up." },
+      { stage: "ai", severity: "hold", code: "ai_likely_copyright", message: "Mario sprites.", path: "art/hero.png", quote: "mario" },
+    ]);
+  });
+
+  it("gives a scan that never finished a report that says so", () => {
+    const [stored] = read("SELECT scan_report FROM versions WHERE id = 'version_failed'").map((row) => JSON.parse(row.scan_report as string));
+    expect(stored).toEqual({ ...report("held", [{ stage: "static", severity: "hold", code: "scan_failed", message: "The scan didn't finish." }]), finished_at_ms: 7 });
+  });
+
+  it("says why games are held or removed, and why a person rejected a version or an image", () => {
+    expect(read("SELECT id, review_reason FROM games ORDER BY id")).toEqual([
+      { id: "game_down", review_reason: reasonOf("taken_down", "A person at Zaisma took the game down.") },
+      { id: "game_hidden", review_reason: reasonOf("needs_review", "A person at Zaisma needs to look at it first.") },
+      { id: "game_live", review_reason: null },
+      { id: "game_paused", review_reason: reasonOf("report_paused_game", "A player report paused the game while Zaisma checks it.") },
+    ]);
+    expect(read("SELECT id, review_reason FROM versions WHERE review_reason IS NOT NULL")).toEqual([{ id: "version_by_person", review_reason: reasonOf("rejected_by_zaisma", "A person at Zaisma rejected the version.") }]);
+    expect(read("SELECT id, review_reason FROM game_images ORDER BY id")).toEqual([
+      { id: "image_no", review_reason: reasonOf("image_rejected", "A person at Zaisma didn't approve the image.") },
+      { id: "image_yes", review_reason: null },
+    ]);
+  });
+
+  it("puts the same reasons in the history, never Zaisma's own notes", () => {
+    expect(read("SELECT action, reason, review_reason FROM audit_log ORDER BY happened_at_ms")).toEqual([
+      { action: "takedown", reason: "Steals passwords", review_reason: reasonOf("taken_down", "A person at Zaisma took the game down.") },
+      { action: "auto-hold", reason: "Report: Child safety", review_reason: reasonOf("report_paused_game", "A player report paused the game while Zaisma checks it.") },
+      { action: "published", reason: "version_held", review_reason: null },
+    ]);
   });
 });

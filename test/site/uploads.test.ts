@@ -1,7 +1,8 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { KEPT_VERSION_COUNT, ownedBlobKey, personOwner, blobKey, createAccount, createApiKey, gameBySlug, manifestKey, notConnected, sha256Hex, versionById, type ImageMatcher } from "@zaisma/core";
+import { REVIEW_CODES, addImage, KEPT_VERSION_COUNT, ownedBlobKey, personOwner, blobKey, createAccount, createApiKey, gameBySlug, manifestKey, notConnected, sha256Hex, versionById, type ImageMatcher } from "@zaisma/core";
 import { scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
+import { adminForm } from "../../apps/site/src/admin.ts";
 import { dailyCleanup, publishDue } from "../../apps/site/src/cleanup.ts";
 
 const SITE = "https://zaisma.test";
@@ -107,11 +108,19 @@ describe("file-by-file uploads", () => {
   it("explains why a version was held and won't publish it", async () => {
     const { version } = await push(GAME);
     await scan(version.id, hold);
-    const held = (await (await api(`/games/hop/versions/${version.id}`)).json()) as { version: { scan_status: string; preview_url: null; findings: { rule: string }[] } };
+    const held = (await (await api(`/games/hop/versions/${version.id}`)).json()) as { version: { scan_status: string; preview_url: null; review_reason: null; findings: unknown[] } };
     expect(held.version.scan_status).toBe("held");
     expect(held.version.preview_url).toBeNull();
-    expect(held.version.findings.map((f) => f.rule)).toContain("image-matching-not-connected");
-    expect((await api(`/games/hop/versions/${version.id}/publish`, { method: "POST" })).status).toBe(409);
+    expect(held.version.review_reason).toBeNull();
+    // The code's own words, never the scan's notes for Zaisma (which name its secrets and providers).
+    expect(held.version.findings).toEqual([{ code: "image_matching_off", severity: "hold", message: REVIEW_CODES.image_matching_off.meaning, content_rule: null, path: null, fix: REVIEW_CODES.image_matching_off.fix }]);
+    const refused = await api(`/games/hop/versions/${version.id}/publish`, { method: "POST" });
+    expect(refused.status).toBe(409);
+    expect(((await refused.json()) as { error: unknown }).error).toMatchObject({
+      code: "not_approved",
+      message: `This version is held, so it can't be published (image_matching_off): ${REVIEW_CODES.image_matching_off.meaning}`,
+      fix: `${REVIEW_CODES.image_matching_off.fix} get_version shows every finding.`,
+    });
   });
 
   it("can go live by itself when asked to", async () => {
@@ -233,5 +242,94 @@ describe("daily cleanup", () => {
     expect(await env.GAMES.head(blobKey(await sha256Hex(enc("never used"))))).toBeNull();
     expect(await env.GAMES.head(blobKey(await sha256Hex(enc(GAME["index.html"]))))).not.toBeNull();
     expect(await env.GAMES.head(blobKey(await sha256Hex(enc("let held = 1;"))))).not.toBeNull();
+  });
+});
+
+describe("holds and takedowns say why", () => {
+  const ai = (findings: unknown[], isChildSafety = false): ScanDeps => ({
+    images: connected,
+    ai: async () => ({ report: { model: "test", verdict: "hold", summary: "A platformer.", input_token_count: 10, output_token_count: 1 }, findings: findings as never, isChildSafety }),
+  });
+  const getVersion = async (id: string) => ((await (await api(`/games/hop/versions/${id}`)).json()) as { version: { scan_status: string; review_reason: unknown; findings: unknown[] } }).version;
+  const getGame = async () => (await (await api("/games/hop")).json()) as { game: { review_status: string; review_reason: unknown }; images: { review_reason: unknown }[] };
+  const history = async () => ((await (await api("/games/hop/history")).json()) as { events: { description: string; review_reason: unknown }[] }).events;
+  const decide = (path: string, fields: Record<string, string>) => {
+    const form = new FormData();
+    for (const [name, value] of Object.entries(fields)) form.set(name, value);
+    return adminForm(testEnv, path, form, "julius@zaisma.test");
+  };
+
+  it("gives the AI review's own words, with the rule they're about", async () => {
+    const { version } = await push(GAME);
+    await scan(version.id, ai([{ stage: "ai", severity: "hold", code: "ai_likely_copyright", message: "The hero is Nintendo's Mario.", path: "art/hero.png" }]));
+    expect((await getVersion(version.id)).findings).toEqual([
+      { code: "ai_likely_copyright", severity: "hold", message: "The hero is Nintendo's Mario.", content_rule: "copyright", path: "art/hero.png", fix: REVIEW_CODES.ai_likely_copyright.fix },
+    ]);
+  });
+
+  it("never describes a child-safety hold", async () => {
+    const { version } = await push(GAME);
+    await scan(version.id, ai([{ stage: "ai", severity: "reject", code: "ai_minors_sexualized", message: "Never shown.", path: "index.html" }], true));
+    const held = await getVersion(version.id);
+    expect(held.scan_status).toBe("held");
+    expect(held.findings).toEqual([{ code: "needs_review", severity: "hold", message: REVIEW_CODES.needs_review.meaning, content_rule: null, path: null, fix: REVIEW_CODES.needs_review.fix }]);
+  });
+
+  it("says why a person rejected a version, in the version and the history", async () => {
+    const { version } = await push(GAME);
+    await scan(version.id, hold);
+    await decide(`/admin/versions/${version.id}/reject`, { content_rule: "copyright", reason: "The music is from Zelda." });
+    const rejected = await getVersion(version.id);
+    const reason = { code: "rejected_by_zaisma", message: "The music is from Zelda.", content_rule: "copyright", fix: REVIEW_CODES.rejected_by_zaisma.fix };
+    expect(rejected).toMatchObject({ scan_status: "rejected", review_reason: reason });
+    expect(rejected.findings).toHaveLength(1);
+    expect((await history())[0]).toMatchObject({ description: "A version was rejected after review", review_reason: reason });
+
+    // Approved after all: the reason goes.
+    await decide(`/admin/versions/${version.id}/approve`, {});
+    expect(await getVersion(version.id)).toMatchObject({ scan_status: "approved", review_reason: null });
+  });
+
+  it("says a report paused an update", async () => {
+    const { version } = await push(GAME);
+    await scan(version.id, pass);
+    await env.DB.prepare("UPDATE versions SET scan_status = 'held', report_held_at_ms = 1 WHERE id = ?").bind(version.id).run();
+    expect((await getVersion(version.id)).review_reason).toEqual({ code: "report_paused_update", message: REVIEW_CODES.report_paused_update.meaning, content_rule: null, fix: REVIEW_CODES.report_paused_update.fix });
+  });
+
+  it("says why a game was taken down, everywhere it can't change", async () => {
+    const { version } = await push(GAME, { publish_when_approved: true });
+    await scan(version.id, pass);
+    const game = (await gameBySlug(env.DB, "hop"))!;
+    await decide(`/admin/games/${game.id}/takedown`, { content_rule: "malware", reason: "The login screen asks players for their Steam password." });
+    const reason = { code: "taken_down", message: "The login screen asks players for their Steam password.", content_rule: "malware", fix: REVIEW_CODES.taken_down.fix };
+    expect((await getGame()).game).toMatchObject({ review_status: "removed", review_reason: reason });
+    expect((await history())[0]).toMatchObject({ description: "Zaisma took the game down", review_reason: reason });
+
+    const refused = await api("/games/hop", { method: "PATCH", body: { visibility: "unlisted" } });
+    expect(refused.status).toBe(403);
+    expect(((await refused.json()) as { error: unknown }).error).toMatchObject({
+      code: "game_removed",
+      message: "Zaisma took this game down, so its visibility can't change (taken_down): The login screen asks players for their Steam password.",
+      field: "visibility",
+      fix: REVIEW_CODES.taken_down.fix,
+    });
+
+    await decide(`/admin/games/${game.id}/restore`, {});
+    expect((await getGame()).game).toMatchObject({ review_status: "live", review_reason: null });
+  });
+
+  it("never tells the developer why a child-safety takedown happened", async () => {
+    const game = (await gameBySlug(env.DB, "hop"))!;
+    await decide(`/admin/games/${game.id}/takedown`, { content_rule: "child_safety", reason: "Matches a reported image; filed with NCMEC." });
+    expect((await getGame()).game.review_reason).toEqual({ code: "taken_down", message: REVIEW_CODES.taken_down.meaning, content_rule: null, fix: REVIEW_CODES.taken_down.fix });
+    expect(JSON.stringify(await history())).not.toContain("NCMEC");
+  });
+
+  it("says why an image wasn't approved", async () => {
+    const game = (await gameBySlug(env.DB, "hop"))!;
+    const image = await addImage(env.DB, { id: "image_cover1", game_id: game.id, kind: "cover", content_type: "image/png", width_px: 1920, height_px: 1080, size_bytes: 10 });
+    await decide(`/admin/images/${image.id}/reject`, { reason: "The cover promises free Robux." });
+    expect((await getGame()).images[0]!.review_reason).toEqual({ code: "image_rejected", message: "The cover promises free Robux.", content_rule: null, fix: REVIEW_CODES.image_rejected.fix });
   });
 });

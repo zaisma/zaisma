@@ -176,6 +176,15 @@ describe("admin MCP", () => {
     expect(await refusal("decide_report_group", { report_group_id: nudity.id, decision: "restore", why: "x" })).toMatchObject({ code: "cant_decide", fix: "Give one of: dismiss, bug, take_down." });
     expect(await refusal("decide_report_group", { report_group_id: nudity.id, decision: "approve", why: "x" })).toMatchObject({ code: "bad_decision", field: "decision" });
     expect(await refusal("decide_report_group", { report_group_id: nudity.id, decision: "dismiss" })).toMatchObject({ code: "missing_field", field: "why" });
+
+    // A takedown names the rule it broke, and the developer reads why; other decisions name no rule.
+    expect(await refusal("decide_report_group", { report_group_id: nudity.id, decision: "take_down", why: "Nudity on level 2." })).toMatchObject({ code: "missing_field", field: "content_rule" });
+    expect(await refusal("decide_report_group", { report_group_id: nudity.id, decision: "dismiss", why: "x", content_rule: "sexual" })).toMatchObject({ code: "unknown_field", field: "content_rule" });
+    await data("decide_report_group", { report_group_id: nudity.id, decision: "take_down", content_rule: "sexual", why: "Level 2 shows a naked character." });
+    expect((await data("get_report_group", { report_group_id: nudity.id })).report_group.game).toMatchObject({
+      review_status: "removed",
+      review_reason: { code: "taken_down", message: "Level 2 shows a naked character.", content_rule: "sexual", fix: expect.stringContaining("message_zaisma") },
+    });
   });
 
   it("lists what triage handled alone", async () => {

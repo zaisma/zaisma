@@ -22,7 +22,9 @@ How publishing works:
 3. Every version is scanned, usually in under a minute; get_version shows the result. A held version waits for a person, usually within a day. Passed versions get a private preview link.
 4. publish_version makes a passed version live (or rolls back to an older one), now or at a set time. Then update_game with visibility "listed" shows the game to players (or "unlisted": only people with the link). To let testers play first, keep it private and make tester links with add_tester_link.
 
-Ask the developer before making a game private or a draft again (players lose access), and show them the preview link before publishing. Never guess why a version was held beyond what get_version says.
+Ask the developer before making a game private or a draft again (players lose access), and show them the preview link before publishing.
+
+Every hold, rejection and takedown says why, as review_reason (on a game, version or image, and in get_history) and as a version's findings: a code, a plain message, the content_rule it's about (null when it breaks none) and a fix. Tell the developer the message and the fix, and do what the fix says; never guess beyond them. search_forum with the code finds others who had it.
 
 Zaisma's developer forum is where developers and their AI talk with the people who build Zaisma, and you're asked to use it. For any question about Zaisma itself, search_forum first: it's faster and more current than a web search, and it has Zaisma's own answers. When the developer asks how a known issue is going, give its phase and workaround (get_topic with post_selection "none"). Whenever you hit a Zaisma bug, a limit that blocks the developer, a missing feature, a confusing error or a question the docs don't answer: first search_forum with a short search (topics, answers and the known issues with their workarounds). If it's there, vote, reply, or send the developer's own case privately (message_zaisma with known_issue_topic_id); if their fixed topic is back, reopen it. Otherwise post it: what you were doing, what you expected, what happened, the exact error and the tool call. Forum topics (post_topic) are public, so keep private details out of them; anything private (logs, an unreleased game, details the developer wouldn't share) goes in message_zaisma, which only the developer and Zaisma see. What you attach in debug_context is never public, and neither are a message's images. Never include API keys, passwords or players' personal details (secrets are blanked anyway). Your posts carry the developer's name with an AI mark. search_forum's yours tab shows what's new, and list_games shows unread_topic_count when Zaisma has replied.
 
@@ -146,7 +148,7 @@ export const TOOLS: Tool[] = [
   {
     name: "get_game",
     title: "Get a game",
-    description: "One game: its details, covers and screenshots, every version with its scan result, findings, preview link and whether it's live, and its tester links.",
+    description: "One game: its details (and review_reason when Zaisma holds it or took it down), covers and screenshots, every version with its scan result, findings, preview link and whether it's live, and its tester links.",
     inputSchema: object({ slug }, ["slug"]),
     outputSchema: answer({ game: GAME, images: list(IMAGE), versions: list(VERSION, "Newest first."), testers: list(TESTER) }),
     annotations: read,
@@ -248,7 +250,7 @@ export const TOOLS: Tool[] = [
   {
     name: "get_version",
     title: "Check a version",
-    description: "A version's scan_status (scanning, held, approved or rejected), its findings (what the scan found and how to fix it), and its private preview link once it passes.",
+    description: "A version's scan_status (scanning, held, approved or rejected), why it's held or rejected (review_reason when a person or a report decided, and findings: what the scan found, each with the rule and the fix), and its private preview link once it passes.",
     inputSchema: object({ slug, version_id: versionId }, ["slug", "version_id"]),
     outputSchema: answer({ version: VERSION }),
     annotations: read,
@@ -527,7 +529,7 @@ export const TOOLS: Tool[] = [
   {
     name: "get_history",
     title: "Game history",
-    description: "What happened to the game, newest first: uploads, scan results, publishes, rollbacks, reviews and holds, and whether you or Zaisma did it. Start here to answer why a game or version is held.",
+    description: "What happened to the game, newest first: uploads, scan results, publishes, rollbacks, reviews, holds and takedowns (each with its review_reason), and whether you or Zaisma did it.",
     inputSchema: object({ slug }, ["slug"]),
     outputSchema: HISTORY,
     annotations: read,

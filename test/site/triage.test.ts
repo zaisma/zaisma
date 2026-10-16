@@ -1,6 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { KNOWN_IMAGE_RULE, gameBySlug, versionById, type ImageMatcher, type Report, type Triage } from "@zaisma/core";
+import { KNOWN_IMAGE_CODE, gameBySlug, versionById, type ImageMatcher, type Report, type Triage } from "@zaisma/core";
 import { scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
 import { recheckVersion, triageReports, type TriageAnswer, type TriageDeps, type TriageInput } from "../../apps/site/src/triage.ts";
 import type { AiResult } from "../../apps/site/src/ai.ts";
@@ -17,7 +17,7 @@ const scanSays = (verdict: "pass" | "hold" | "reject", where: { path: string; qu
   ai: async () =>
     ({
       report: { model: "test", verdict, summary: `AI says ${verdict}`, input_token_count: 1000, output_token_count: 100 },
-      findings: verdict === "pass" ? [] : [{ stage: "ai", severity: verdict, rule: "ai-test", detail: "test concern", ...(where ?? {}) }],
+      findings: verdict === "pass" ? [] : [{ stage: "ai", severity: verdict, code: "ai_other", message: "test concern", ...(where ?? {}) }],
       isChildSafety: false,
     }) satisfies AiResult,
 });
@@ -158,7 +158,7 @@ describe("report triage", () => {
     const { versionId } = await liveGame();
     await send({ reason: "other", details: "weird pictures in the menu" });
     await triageReports(testEnv, ai({ severity: "high", category: "sexual", recommendation: "recheck" }).deps);
-    const known: ImageMatcher = { check: async (media) => ({ provider: "test", isConnected: true, checkedMediaCount: media.length, findings: [{ stage: "images", severity: "hold", rule: KNOWN_IMAGE_RULE, detail: "Known.", path: "game.js" }] }) };
+    const known: ImageMatcher = { check: async (media) => ({ provider: "test", isConnected: true, checkedMediaCount: media.length, findings: [{ stage: "images", severity: "hold", code: KNOWN_IMAGE_CODE, message: "Known.", path: "game.js" }] }) };
     await recheckVersion(testEnv, versionId, (await reports())[0]!.id, { ...scanSays("pass"), images: known });
     const [r] = await reports();
     expect(r!.severity_index).toBe(0);
@@ -207,7 +207,7 @@ describe("report triage", () => {
     await recheckVersion(testEnv, versionId, (await reports())[0]!.id, scanSays("hold"));
     const [r] = await reports();
     expect(r!.severity_index).toBe(2);
-    expect(triageOf(r!)).toMatchObject({ recommendation: "person", recheck: { scan_status: "held", findings: ["ai-test: test concern"] } });
+    expect(triageOf(r!)).toMatchObject({ recommendation: "person", recheck: { scan_status: "held", findings: ["ai_other: test concern"] } });
     expect((await gameBySlug(env.DB, "test-game"))?.review_status).toBe("live");
   });
 

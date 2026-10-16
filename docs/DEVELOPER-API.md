@@ -191,6 +191,96 @@ Every call that changes something answers with `next_steps`: the calls that usua
 - `after_sec`: how long to wait first, or `null` for straight away.
 - What follows today: a new game, its upload (`upload_files`); a new version, checking its scan (`get_version`); publishing while the game is a draft or private, making it `listed` when the developer wants players in (`update_game`); making a game `listed` or `unlisted` with nothing live, publishing the version that passed (`publish_version`), checking the one being scanned, or uploading one; `multiplayer_mode: "own"` without a game server, uploading one; scheduling a version still being scanned, checking its scan. Everything else answers `[]`.
 
+## Holds and takedowns
+
+When Zaisma holds, rejects or takes something down, it says why, the same way in the dashboard, these answers and the MCP: a `review_reason`, with the same parts as an error plus the content rule it's about.
+
+```json
+"review_reason": {"code": "taken_down", "message": "The game's login screen asks players for their Steam password.", "content_rule": "malware", "fix": "If it's a mistake, or to say what you'll change, message_zaisma with the game_slug. Until Zaisma restores it, the game can't get new versions or change who can play it."}
+```
+
+- `code`: stable, one problem per code, from the list below, never the same as an error code; search the forum with it (`search_forum`).
+- `message`: what happened and why, in plain words: the code's meaning, or for the AI review and a person at Zaisma, their own words.
+- `content_rule`: the content rule it's about ([zaisma.com/legal/content-rules](https://zaisma.com/legal/content-rules), each rule at `#<rule>`), or `null` when it breaks none, like a check that couldn't finish. A hold names the rule a person checks it against; a rejection or takedown, the rule it broke.
+- `fix`: what to do about it, naming the call when there is one.
+
+Where it shows:
+
+- **A game's `review_reason`**: why it's `held` or `removed`; `null` while it's `pending` or `live`.
+- **A version's `review_reason`**: a person rejected it, or a report paused the update; `null` otherwise. Its `findings` are what the scan found that holds or rejects it, each `{"code", "severity", "message", "content_rule", "path", "fix"}`, where `severity` is `reject` (it can't go live) or `hold` (a person at Zaisma looks first, usually within a day).
+- **An image's `review_reason`**: why it wasn't approved.
+- **`get_history`**: each hold, rejection and takedown with its `review_reason`, kept after it's over.
+- **Errors:** `game_removed` and `not_approved` put the reason's code and message in theirs, and its fix as theirs.
+
+The list lives in `REVIEW_CODES` and the rules in `CONTENT_RULES` (`packages/core/src/review.ts`), and a test keeps this page in step with them. Rule says which content rule a code is about: one rule always, `none` when it breaks none, or `picked` when the person deciding picks it each time.
+
+**The scan's checks**
+
+| Code | Rule | Meaning |
+| --- | --- | --- |
+| `crypto_miner` | `malware` | The code mines cryptocurrency. |
+| `packed_code` | `malware` | Code is packed or decoded at runtime (eval of encoded text), which hides what it does. |
+| `top_navigation` | `malware` | The code tries to change the page outside the game (the top or parent window's location). |
+| `password_field` | `malware` | The game has a password field. Games don't need one, and phishing pages do. |
+| `external_form` | `personal_data` | The game has a form that sends what players type to another site. |
+| `antivirus_flag` | `malware` | Antivirus engines flag a file: three or more reject the version, fewer hold it for a person. |
+
+**Checks that couldn't finish (no rule broken)**
+
+| Code | Rule | Meaning |
+| --- | --- | --- |
+| `too_much_code` | none | The game has more code than the automatic checks read (40 MB), so a person at Zaisma looks first. |
+| `too_many_files_to_check` | none | The game has more files than the scan checks for hidden pictures (5,000), so a person at Zaisma looks at the rest. |
+| `too_many_images_to_check` | none | The game has more pictures and videos than image matching checks (5,000), so a person at Zaisma looks at the rest. |
+| `image_matching_off` | none | Image matching isn't connected, so a person at Zaisma approves each version. |
+| `image_matching_failed` | none | Image matching couldn't check every picture and video, so a person at Zaisma looks first. |
+| `ai_review_off` | none | AI review isn't set up, so a person at Zaisma approves each version. |
+| `ai_review_budget_used` | none | This month's AI reviews are used up, so a person at Zaisma approves each version. |
+| `ai_review_declined` | none | The AI reviewer wouldn't review the game, so a person at Zaisma looks. |
+| `ai_review_failed` | none | The AI review didn't finish, so a person at Zaisma looks. |
+| `scan_failed` | none | The scan didn't finish after three tries, so a person at Zaisma looks. |
+
+**The AI review**
+
+| Code | Rule | Meaning |
+| --- | --- | --- |
+| `ai_malware` | `malware` | The AI review found what looks like malware. |
+| `ai_phishing_or_scam` | `malware` | The AI review found what looks like phishing or a scam. |
+| `ai_data_collection` | `personal_data` | The AI review found the game collecting players' personal data, like names, emails, birthdays or location. |
+| `ai_sexual_content` | `sexual` | The AI review found sexual content or nudity. |
+| `ai_hate_or_harassment` | `hate` | The AI review found hate or harassment. |
+| `ai_extreme_violence` | none | The AI review found extreme violence or gore, for a person at Zaisma to judge. |
+| `ai_real_money_gambling` | `illegal` | The AI review found real-money gambling. |
+| `ai_likely_copyright` | `copyright` | The AI review found characters, art or music that look like someone else's. |
+| `ai_free_text_chat` | `free_text_chat` | The AI review found free-text chat between players. |
+| `ai_other` | none | The AI review found something else for a person at Zaisma to look at. |
+| `ai_concern` | none | The AI review held or rejected the version without naming one concern; the message is its summary. |
+
+**People and reports**
+
+| Code | Rule | Meaning |
+| --- | --- | --- |
+| `needs_review` | none | A person at Zaisma needs to look at it first. |
+| `report_paused_game` | none | A player report paused the game while Zaisma checks it. |
+| `report_paused_update` | none | A player report paused this update while Zaisma checks it; players get the version before it. |
+| `rejected_by_zaisma` | picked | A person at Zaisma rejected the version; the message says why. |
+| `taken_down` | picked | A person at Zaisma took the game down; the message says why. |
+| `copyright_notice` | `copyright` | The game was taken down on a copyright (DMCA) notice. |
+| `image_rejected` | picked | A person at Zaisma didn't approve the image; the message says why. |
+| `details_rejected` | picked | A person at Zaisma didn't approve the new title or description; the message says why. |
+
+| Rule | What it says |
+| --- | --- |
+| `child_safety` | Sexual content involving minors, in any form. We report it to the National Center for Missing & Exploited Children. |
+| `sexual` | Sexually explicit content. |
+| `malware` | Malware, crypto miners, phishing, scams or anything that tries to break out of the game. |
+| `illegal` | Content that's illegal in the United States, including real-money gambling. |
+| `hate` | Hate, harassment or threats against real people or groups. |
+| `copyright` | Other people's games, art, music or characters used without permission. |
+| `personal_data` | Collecting players' personal data. |
+| `free_text_chat` | Free-text chat between players. Preset phrases and emotes are fine. |
+| `faked_plays` | Faking plays or players, with bots, scripts or click farms. |
+
 ## Signing in
 
 Make an API key on your account page (zaisma.com/account, under Game developers) and send it as `Authorization: Bearer zsk_…`. The key is shown once; we keep only a hash. Any account can make up to 10 keys and remove them at any time. Pages on zaisma.com can use the signed-in session instead. Up to 120 requests a minute per account, plus up to 1,000 a minute for sending files.
@@ -201,13 +291,13 @@ Make an API key on your account page (zaisma.com/account, under Game developers)
 | --- | --- |
 | `GET /games` | Your games, and `unread_topic_count`: how many of your forum topics Zaisma has replied to or changed since you last opened them. |
 | `POST /games` | Make a game: `{"title", "slug"?, "description"?, "devices"?, "controls"?, "screen_orientation"?, "play_modes"?, "cloud_saves_enabled"?, "multiplayer_mode"?, "room_browsing"?}`. It starts as a draft that only you can see. Up to 50 games. |
-| `GET /games/:slug` | One game with its `images`, `versions` (newest first, each with its scan `findings`) and `testers`. |
+| `GET /games/:slug` | One game with its `images`, `versions` (newest first, each with its `review_reason` and scan `findings`) and `testers`. |
 | `PATCH /games/:slug` | Change any of `title`, `description`, `visibility`, `devices`, `controls`, `screen_orientation`, `play_modes`, `cloud_saves_enabled`, `room_browsing`, `multiplayer_mode`. Leave out what stays the same; `null` clears it. Answers with the `game`, `review_message` (set when new words wait for review), `game_server_problem` (why the game's own game server can't run yet, or `null`) and `next_steps`. |
 
-A game looks like: `slug`, `page_url`, `title`, `description`, `visibility`, `review_status`, `devices`, `controls`, `screen_orientation`, `play_modes`, `cloud_saves_enabled`, `multiplayer_mode`, `room_browsing`, `details_waiting_for_review` and `updated_at`.
+A game looks like: `slug`, `page_url`, `title`, `description`, `visibility`, `review_status`, `review_reason`, `devices`, `controls`, `screen_orientation`, `play_modes`, `cloud_saves_enabled`, `multiplayer_mode`, `room_browsing`, `details_waiting_for_review` and `updated_at`.
 
 - **visibility:** `draft`, `listed` (home page and search), `unlisted` (anyone with the link, never in lists or search engines) or `private`. Draft and private games open only through preview links and tester links (below).
-- **review_status** is ours and separate: `pending` (no version has passed review yet), `live`, `held` or `removed`. Changing visibility never undoes a takedown.
+- **review_status** is ours and separate: `pending` (no version has passed review yet), `live`, `held` or `removed`, and `review_reason` says why it's held or removed (see Holds and takedowns). Changing visibility never undoes a takedown.
 - **play_modes:** how it's played, shown on the game page with icons: a list with one entry per way to play, like `[{"mode": "single"}, {"mode": "online", "minimum_player_count": 2, "maximum_player_count": 4, "play_style": "co-op"}]`. `mode` is `single`, `local` (together on one device or screen) or `online` (each on their own device). `single` takes no counts; the others need `minimum_player_count` (2 or more) and `play_style` (`co-op`, `versus` or `both`), and `maximum_player_count: null` means no limit ("2+ players"). Answers give every key, `null` where it doesn't apply. `null` clears it.
 - **devices:** any of `phone`, `tablet`, `computer`. **controls:** any of `touch`, `keyboard_mouse`, `gamepad`. **screen_orientation:** `portrait`, `landscape`, `either` or `null` (not set).
 - **cloud_saves_enabled:** `true` (the default) copies signed-in players' browser saves to their account, so their progress follows them to any device with no code in the game. It covers localStorage and IndexedDB (Unity, Godot and localForage saves included; databases with "cache" in the name, like Unity's download cache, are skipped), up to 5 MB per player. Set `false` for games that keep their own saves on a server.
@@ -219,7 +309,7 @@ A game looks like: `slug`, `page_url`, `title`, `description`, `visibility`, `re
 | --- | --- |
 | `GET /games/:slug/reports?cursor=` | Player reports from the last 90 days (`period_duration_days`), counted by reason in `reasons` (`reason`, `label`, `open_count`, `closed_count`), and `bug_reports`: reports that report triage sorted as bugs, each with `player_text`, a one-line `summary`, the `version_id` they played and `reported_at`. Pass the `next_cursor` from your last call as `cursor` to get only the bug reports that arrived after it. Child-safety reports are never counted or shown. |
 | `GET /games/:slug/stats?period_duration_days=30` | How the game is played, up to 90 days (`play_stats`, see Play stats below), and multiplayer use per day in `multiplayer_days`: `date`, `room_count`, `room_play_duration_min` and `message_count`. `room_use_this_month`: `room_play_duration_hours` on Zaisma rooms this month (UTC), the `free_room_play_duration_hours` (1,000) and `has_reached_free_hours`: until hosting billing is ready, a game that reaches the free hours opens no new rooms until the month resets, while matches already running carry on (joining then fails with the code `month_limit`). For games running their own game server on our rooms, each day's `game_server` has `call_count`, `crash_count` (a handler threw; that call is lost), `stopped_count` (ran on too long, like an endless loop; the match froze about 2 seconds) and `ended_match_count` (stopped twice), and `game_server_errors` lists the 20 most recent distinct errors: `kind`, `message` with the file and line it came from (a game server that didn't start says why, like an option it doesn't take, with the ones it does), `occurrence_count`, `version_id`, `first_at` and `last_at`. Other games get `game_server: null` and `game_server_errors: []`. |
-| `GET /games/:slug/history` | What happened to the game in `events`, newest first: `description`, `version_id`, `done_by` (`you` or `zaisma`) and `happened_at`. |
+| `GET /games/:slug/history` | What happened to the game in `events`, newest first: `description`, `version_id`, `done_by` (`you` or `zaisma`), `happened_at` and, for a hold, rejection or takedown, its `review_reason` (otherwise `null`). |
 
 ### Play stats
 
@@ -250,10 +340,10 @@ Secret links that open the game's live version for anyone who has them, whatever
 
 | Call | What it does |
 | --- | --- |
-| `POST /games/:slug/images?kind=cover`, `?kind=square` or `?kind=screenshot` | Send the image file as the request body. Answers with the `image` (`id`, `kind`, `review_status`, `width_px`, `height_px`, `size_bytes`, `image_url`, `created_at`) and a `review_message`. |
+| `POST /games/:slug/images?kind=cover`, `?kind=square` or `?kind=screenshot` | Send the image file as the request body. Answers with the `image` (`id`, `kind`, `review_status`, `review_reason`, `width_px`, `height_px`, `size_bytes`, `image_url`, `created_at`) and a `review_message`. |
 | `DELETE /games/:slug/images/:id` | Remove one; answers `removed_image_id`. |
 
-The cover is your game's card everywhere players browse: we show it alone, with no title over or under it, so put your game's name or logo on it. The cover is landscape (16:9 shows best). A square cover is optional: phones show it instead, where a landscape one would be small (without one, phones show the landscape cover whole, never cropped). It must be as wide as it is tall, at least 512 px. Screenshots are just the game. PNG, JPEG or WebP, checked from the file itself; SVG and other types are refused. Up to 5 MB, 320 to 8,192 px on each side, one cover, one square cover and up to 8 screenshots. Each image's `review_status` is `pending` until it's reviewed, then shows at `https://zaisma.com/img/:id`; a newly approved cover replaces the old one of its kind. Until then only you can see it.
+The cover is your game's card everywhere players browse: we show it alone, with no title over or under it, so put your game's name or logo on it. The cover is landscape (16:9 shows best). A square cover is optional: phones show it instead, where a landscape one would be small (without one, phones show the landscape cover whole, never cropped). It must be as wide as it is tall, at least 512 px. Screenshots are just the game. PNG, JPEG or WebP, checked from the file itself; SVG and other types are refused. Up to 5 MB, 320 to 8,192 px on each side, one cover, one square cover and up to 8 screenshots. Each image's `review_status` is `pending` until it's reviewed, then shows at `https://zaisma.com/img/:id`; a newly approved cover replaces the old one of its kind. Until then only you can see it. One that isn't approved is `rejected`, with its `review_reason`.
 
 ```bash
 curl -X POST "https://zaisma.com/api/dev/games/sky-hopper/images?kind=cover" \
@@ -308,7 +398,7 @@ Files are stored once, by their SHA-256, and shared by every version that has th
 | `POST /games/:slug/uploads` | Send the file list, `{"files": [{"path", "sha256", "size_bytes"}]}`. Answers `file_count`, `size_bytes` and the hashes we don't have yet (`missing_file_hashes`). |
 | `PUT /files/:sha256` | Send one missing file as the request body. Storage checks the hash; programs and archives are refused. Answers `storage_status`: `stored_now` or `already_stored`. |
 | `POST /games/:slug/versions` | Make the version from the same list, plus `patch_notes` (up to 2,000 characters) and optionally `"publish_when_approved": true`. |
-| `GET /games/:slug/versions/:id` | The `version`: `id`, `file_count`, `size_bytes`, `scan_status` (`scanning`, `held`, `approved` or `rejected`), `is_live`, `patch_notes`, `preview_url` once it passes, `published_at`, `scheduled_publish_at`, `created_at`, and `findings`: what the scan found (`severity`, `rule`, `explanation`, `path`). |
+| `GET /games/:slug/versions/:id` | The `version`: `id`, `file_count`, `size_bytes`, `scan_status` (`scanning`, `held`, `approved` or `rejected`), `is_live`, `patch_notes`, `preview_url` once it passes, `published_at`, `scheduled_publish_at`, `created_at`, `review_reason` (a person rejected it, or a report paused it) and `findings`: what the scan found that holds or rejects it (`code`, `severity`, `message`, `content_rule`, `path`, `fix`; see Holds and takedowns). |
 | `POST /games/:slug/versions/:id/publish` | Publish a draft that passed, or roll back to an older version. With `{"scheduled_publish_at": "2026-11-01T17:00:00Z"}` (an ISO time; numbers are refused) it publishes later instead (a few minutes to 90 days ahead; checked every 5 minutes). A version still being scanned goes live at that time if it has passed by then. Answers with the `game` and the `version`. |
 | `DELETE /games/:slug/versions/:id/publish` | Cancel a publish-later. Answers with the `game` and the `version`. |
 

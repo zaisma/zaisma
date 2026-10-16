@@ -1,6 +1,6 @@
 import {
   BUILT_IN_GAME_SERVERS,
-  KNOWN_IMAGE_RULE,
+  KNOWN_IMAGE_CODE,
   SANDBOX_GAME_SERVER,
   ZIP_LIMITS,
   AUTO_HOLD_REASONS,
@@ -38,6 +38,11 @@ import {
   pendingImages,
   settleDetailsWaitingForReview,
   settleImage,
+  CONTENT_RULES,
+  decidedReason,
+  isContentRule,
+  readReviewReason,
+  type ContentRule,
   type GameImage,
   type ReviewStatus,
   type PrecedentDecision,
@@ -59,7 +64,38 @@ import { uploadGame } from "./upload.ts";
 const when = (ms: number) => new Date(ms).toISOString().slice(0, 16).replace("T", " ");
 const pill = (label: string) => html`<span class="pill ${label}">${label}</span>`;
 /** A version with pictures that matched known abuse material: never approved, only kept and reported. */
-const knownImages = (version: Version) => (version.scan_report ? (JSON.parse(version.scan_report) as ScanReport).findings.some((finding) => finding.rule === KNOWN_IMAGE_RULE) : false);
+const knownImages = (version: Version) => (version.scan_report ? (JSON.parse(version.scan_report) as ScanReport).findings.some((finding) => finding.code === KNOWN_IMAGE_CODE) : false);
+
+/** The content rule a person picked for a decision (content_rule in the form), or null for none. */
+const pickedRule = (form: FormData): ContentRule | null => {
+  const picked = form.get("content_rule");
+  return isContentRule(picked) ? picked : null;
+};
+
+/**
+ * What a person picks and writes when they hold something back: the content rule it broke and why,
+ * which the developer reads (never for child safety). A takedown needs both, and can be on a copyright notice.
+ */
+function decisionFields(options: { isTakedown?: boolean }): Raw {
+  const isTakedown = Boolean(options.isTakedown);
+  return html`${ruleSelect({ contentRule: null, isRequired: isTakedown, hasCopyrightNotice: isTakedown })}
+<input name="reason" placeholder="${isTakedown ? "Why (required; the developer reads it)" : "Why (the developer reads it)"}" maxlength="500" size="36"${isTakedown ? raw(" required") : ""}>`;
+}
+
+/** The content rules to pick from, and for takedowns a copyright notice. */
+function ruleSelect(options: { contentRule: string | null; isRequired: boolean; hasCopyrightNotice: boolean }): Raw {
+  return html`<select name="content_rule" aria-label="The rule it broke"${options.isRequired ? raw(" required") : ""}>
+  <option value="">${options.isRequired ? "The rule it broke…" : "No rule broken"}</option>
+  ${Object.entries(CONTENT_RULES).map(([rule, text]) => html`<option value="${rule}" title="${text}"${options.contentRule === rule ? raw(" selected") : ""}>${rule.replace(/_/g, " ")}</option>`)}
+  ${options.hasCopyrightNotice ? html`<option value="copyright_notice">copyright notice (DMCA)</option>` : ""}
+</select>`;
+}
+
+/** What the developer was told about a hold, rejection or takedown, for the admin pages. */
+function toldDeveloper(stored: string | null): Raw | string {
+  const reason = readReviewReason(stored);
+  return reason ? html`<p class="muted">The developer reads: <code>${reason.code}</code>${reason.content_rule ? html` · rule <code>${reason.content_rule}</code>` : ""} · “${reason.message}”</p>` : "";
+}
 
 export function adminPage(env: Env, title: string, body: Raw): Response {
   return page(env, title, body);
@@ -139,6 +175,7 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     const version = await versionById(env.DB, match[1]!);
     if (!version) return new Response("Not found", { status: 404 });
     if (match[2] === "approve" && knownImages(version)) return new Response("This version matched known abuse material, so it can't be approved.", { status: 409 });
+    if (match[2] === "approve") await env.DB.prepare("UPDATE versions SET review_reason = NULL WHERE id = ?").bind(version.id).run();
     if (version.report_held_at_ms && match[2] === "approve") {
       // A report paused this update: put it back, and later reports can't pause it again.
       await publishVersion(env.DB, version);
@@ -148,9 +185,11 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     } else if (match[2] === "approve") {
       await passVersion(env, version, reason || "Approved by a person", actor);
     } else {
+      const rejectedReason = decidedReason("rejected_by_zaisma", pickedRule(form), reason);
       await saveScan(env.DB, version.id, "rejected", null);
+      await env.DB.prepare("UPDATE versions SET review_reason = ? WHERE id = ?").bind(JSON.stringify(rejectedReason), version.id).run();
       if (version.report_held_at_ms) await closeReports(env.DB, version.game_id, "actioned");
-      await audit(env.DB, version.game_id, "rejected", reason || version.id, actor);
+      await audit(env.DB, version.game_id, "rejected", reason ? `${version.id}: ${reason}` : version.id, actor, rejectedReason);
     }
     return back(`/admin/games/${version.game_id}`);
   }
@@ -159,9 +198,10 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
   if (match) {
     const image = await imageById(env.DB, match[1]!);
     if (!image) return new Response("Not found", { status: 404 });
-    const replaced = await settleImage(env.DB, image, match[2] === "approve");
+    const rejectedReason = match[2] === "reject" ? decidedReason("image_rejected", pickedRule(form), reason) : null;
+    const replaced = await settleImage(env.DB, image, rejectedReason);
     await Promise.all(replaced.map((replacedImage) => env.GAMES.delete(imageKey(replacedImage))));
-    await audit(env.DB, image.game_id, match[2] === "approve" ? "image-approved" : "image-rejected", reason || `${image.kind} ${image.id}`, actor);
+    await audit(env.DB, image.game_id, rejectedReason ? "image-rejected" : "image-approved", reason || `${image.kind} ${image.id}`, actor, rejectedReason);
     return redirect(String(form.get("back") ?? "") === "game" ? `/admin/games/${image.game_id}` : "/admin");
   }
 
@@ -170,7 +210,8 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     const game = await gameById(env.DB, match[1]!);
     if (!game) return new Response("Not found", { status: 404 });
     await settleDetailsWaitingForReview(env.DB, game, match[2] === "approve");
-    await audit(env.DB, game.id, match[2] === "approve" ? "details-approved" : "details-rejected", reason || game.details_waiting_for_review || "", actor);
+    const rejectedReason = match[2] === "reject" ? decidedReason("details_rejected", pickedRule(form), reason) : null;
+    await audit(env.DB, game.id, rejectedReason ? "details-rejected" : "details-approved", reason || game.details_waiting_for_review || "", actor, rejectedReason);
     return redirect("/admin");
   }
 
@@ -244,10 +285,13 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     const game = await gameById(env.DB, match[1]!);
     if (!game) return new Response("Not found", { status: 404 });
     if (match[2] === "takedown") {
-      if (!reason) return gameDetail(env, game.id, "Give a reason for the takedown. It goes in the audit log.");
-      await setReviewStatus(env.DB, game.id, "removed");
+      const isCopyrightNotice = form.get("content_rule") === "copyright_notice";
+      const contentRule = pickedRule(form);
+      if (!reason || (!contentRule && !isCopyrightNotice)) return gameDetail(env, game.id, "Pick the rule it broke and say why. The developer reads why, unless it's child safety; it goes in the audit log too.");
+      const removedReason = decidedReason(isCopyrightNotice ? "copyright_notice" : "taken_down", contentRule, reason);
+      await setReviewStatus(env.DB, game.id, "removed", removedReason);
       await closeReports(env.DB, game.id, "actioned");
-      await audit(env.DB, game.id, "takedown", reason, actor);
+      await audit(env.DB, game.id, "takedown", reason, actor, removedReason);
     } else if (match[2] === "restore") {
       const current = game.live_version_id ? await versionById(env.DB, game.live_version_id) : null;
       if (current && knownImages(current)) return gameDetail(env, game.id, "Players would get the version that matched known abuse material. Once the developer publishes a clean version, the game can be shown again.");
@@ -330,7 +374,7 @@ ${words.length
       ? html`<table><tr><th>Game</th><th>Now</th><th>New</th><th></th></tr>${words.map((game) => {
           const waiting = JSON.parse(game.details_waiting_for_review!) as { title?: string; description?: string };
           return html`<tr><td><a href="/admin/games/${game.id}">${game.slug}</a></td><td><strong>${game.title}</strong><br>${game.description}</td><td><strong>${waiting.title ?? game.title}</strong><br>${waiting.description ?? game.description}</td>
-<td><div class="row"><form method="post" action="/admin/games/${game.id}/details/approve"><button class="btn" type="submit">Approve</button></form><form method="post" action="/admin/games/${game.id}/details/reject"><button class="btn ghost" type="submit">Reject</button></form></div></td></tr>`;
+<td><div class="row"><form method="post" action="/admin/games/${game.id}/details/approve"><button class="btn" type="submit">Approve</button></form><details><summary class="btn ghost">Reject…</summary><form class="row" method="post" action="/admin/games/${game.id}/details/reject">${decisionFields({})}<button class="btn ghost" type="submit">Reject</button></form></details></div></td></tr>`;
         })}</table>`
       : html`<p class="note">Nothing waiting.</p>`}
 
@@ -400,7 +444,8 @@ ${error ? html`<p class="note" style="color:var(--danger)">${error}</p>` : ""}
 <h2>Takedown</h2>
 ${game.review_status === "removed" || game.review_status === "held"
       ? html`<form method="post" action="/admin/games/${game.id}/restore" class="row"><input name="reason" placeholder="Why (optional)"><button class="btn" type="submit">${game.review_status === "held" ? "Clear and show again" : "Restore"}</button></form>`
-      : html`<form method="post" action="/admin/games/${game.id}/takedown" class="row"><input name="reason" placeholder="Reason (required, goes in the audit log)" required size="40"><button class="btn danger" type="submit">Take down now</button></form>`}
+      : html`<form method="post" action="/admin/games/${game.id}/takedown" class="row">${decisionFields({ isTakedown: true })}<button class="btn danger" type="submit">Take down now</button></form>`}
+${toldDeveloper(game.review_reason)}
 
 <h2>Details</h2>
 <p>Visibility: ${pill(game.visibility)} · Devices: ${game.devices || "not set"} · Controls: ${game.controls || "not set"} · Screen: ${game.screen_orientation || "not set"}</p>
@@ -455,10 +500,11 @@ ${versions.map((version) => {
     <span>${version.file_count} files · ${(version.size_bytes / 1048576).toFixed(1)} MB · ${when(version.created_at_ms)}</span></div>
   ${version.report_held_at_ms && version.scan_status === "held" ? html`<p><strong>A report paused this update.</strong> Players are on the version before it. Put it back if the report was wrong.</p>` : ""}
   ${report ? scanReport(report) : html`<p>Scan in progress…</p>`}
+  ${toldDeveloper(version.review_reason)}
   ${version.scan_status !== "approved" || !current
         ? html`<div class="row">
     ${version.scan_status !== "approved" && !knownImages(version) ? html`<form method="post" action="/admin/versions/${version.id}/approve"><button class="btn" type="submit">${version.report_held_at_ms ? "Put the update back" : version.publish_when_approved_enabled ? "Approve and publish" : "Approve as a draft"}</button></form>` : ""}
-    ${version.scan_status !== "rejected" ? html`<form method="post" action="/admin/versions/${version.id}/reject"><button class="btn ghost" type="submit">${version.report_held_at_ms ? "Keep it off" : "Reject"}</button></form>` : ""}
+    ${version.scan_status !== "rejected" ? html`<details><summary class="btn ghost">${version.report_held_at_ms ? "Keep it off…" : "Reject…"}</summary><form class="row" method="post" action="/admin/versions/${version.id}/reject">${decisionFields({})}<button class="btn ghost" type="submit">${version.report_held_at_ms ? "Keep it off" : "Reject"}</button></form></details>` : ""}
   </div>`
         : ""}
 </div>`;
@@ -471,7 +517,7 @@ ${auditTable(log)}`,
 
 function scanReport(report: ScanReport): Raw {
   return html`
-${report.findings.some((finding) => finding.rule === KNOWN_IMAGE_RULE)
+${report.findings.some((finding) => finding.code === KNOWN_IMAGE_CODE)
     ? html`<p style="color:var(--danger)"><strong>Known abuse images.</strong> ${KNOWN_IMAGE_ALERT} It can't be approved.</p>`
     : report.is_child_safety
       ? html`<p style="color:var(--danger)"><strong>Child-safety flag.</strong> Don't delete anything. Review, and if confirmed report to NCMEC (CyberTipline) as the law requires.</p>`
@@ -480,7 +526,7 @@ ${report.findings.some((finding) => finding.rule === KNOWN_IMAGE_RULE)
 ${report.ai?.summary ? html`<p>${report.ai.summary}</p>` : ""}
 ${report.findings.length
     ? html`<table><tr><th>Level</th><th>Check</th><th>What</th><th>File</th></tr>${report.findings.map(
-        (finding) => html`<tr><td>${pill(finding.severity)}</td><td>${finding.rule}</td><td>${finding.detail}</td><td>${finding.path ?? ""}</td></tr>`,
+        (finding) => html`<tr><td>${pill(finding.severity)}</td><td>${finding.code}</td><td>${finding.message}</td><td>${finding.path ?? ""}</td></tr>`,
       )}</table>`
     : ""}
 ${report.outside_hosts.length ? html`<p>Outside sites referenced: ${report.outside_hosts.join(", ")}</p>` : ""}`;
@@ -503,8 +549,10 @@ function imageReview(image: GameImage, fromGame = false): Raw {
 <p>${image.kind} ${pill(image.review_status)} <span class="muted">${image.width_px}×${image.height_px}</span></p>
 ${image.review_status === "pending"
     ? html`<div class="row"><form method="post" action="/admin/images/${image.id}/approve"><input type="hidden" name="back" value="${fromGame ? "game" : ""}"><button class="btn" type="submit">Approve</button></form>
-<form method="post" action="/admin/images/${image.id}/reject"><input type="hidden" name="back" value="${fromGame ? "game" : ""}"><button class="btn ghost" type="submit">Reject</button></form></div>`
-    : ""}`;
+<details><summary class="btn ghost">Reject…</summary><form class="stack" method="post" action="/admin/images/${image.id}/reject"><input type="hidden" name="back" value="${fromGame ? "game" : ""}">${decisionFields({})}<button class="btn ghost" type="submit">Reject</button></form></details></div>`
+    : image.review_status === "rejected"
+      ? toldDeveloper(image.review_reason)
+      : ""}`;
 }
 
 export type QueueRow = Report & { slug: string; title: string; game_review_status: ReviewStatus };
@@ -634,7 +682,8 @@ function groupCard(group: ReportGroup, pausedUpdate: string | undefined): Raw {
       </details>
     </div>
     <div class="row">
-    <input name="reason" value="${prefill}" aria-label="Reason, for the audit log" maxlength="500">
+    <input name="reason" value="${prefill}" aria-label="Why: for the audit log, and the developer reads it if you take the game down or keep the update off" title="For the audit log. If you take the game down or keep the update off, the developer reads it too (never for child safety)." maxlength="500">
+    ${gameRemoved ? "" : ruleSelect({ contentRule: triage && isContentRule(triage.category) ? triage.category : null, isRequired: false, hasCopyrightNotice: true })}
     ${gameRemoved
       ? button("Close", `/admin/report-groups/${group.id}/dismiss`, true)
       : gameHeld
