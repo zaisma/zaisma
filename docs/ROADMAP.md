@@ -4,11 +4,7 @@ The live plan of what gets built, in what order. `docs/DECISIONS.md` says *how* 
 
 ## Now
 
-Build, in this order:
-
-1. Errors: holds and takedowns (Nothing for an AI to guess)
-
-Nothing for an AI to guess comes first: everything else builds on the codebase, so its names get corrected before more code piles on. Waiting on people: Gleb: register with NCMEC, Gleb: register the DMCA agent, Julius: send PhotoDNA the LLC's records.
+Nothing is lined up: Julius picks what's built next. Nothing for an AI to guess is done (Oct 16, 2026), so the codebase's names, errors and holds are what new code builds on. Waiting on people: Gleb: register with NCMEC, Gleb: register the DMCA agent, Julius: send PhotoDNA the LLC's records.
 
 ## How to read this
 
@@ -73,7 +69,7 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | done | Must | canJoin refuses with refusalMessage | Names: SDK and game server | Live Oct 15, 2026 (#143, rooms deployed): a game server's `canJoin` answers `true` (or nothing), `false` or `{ refusalMessage }`; any other answer, like a string, turns the player away and shows in the game server's errors at once |
 | done | Must | Names: the admin MCP | | Live Oct 15, 2026 (#146, migration 0033): the admin MCP's tools, inputs and answers for reports, precedents and the forum queue follow docs/NAMING.md, with output schemas, closed inputs and coded errors (`ADMIN_ERROR_CODES`, listed in docs/ADMIN-MCP.md); precedents' columns moved with it |
 | done | Must | Names: last sweep of the insides | | Live Oct 15, 2026 (#147, migration 0034): rooms, scans, reports and triage, accounts, saves, plays and the game server's insides follow docs/NAMING.md, with their columns and stored JSON; the naming baseline is empty |
-| doing | Must | Errors: holds and takedowns | Errors: developer API and MCP | Every hold, rejection and takedown says why as a `review_reason` (a code from one list, a plain message, the content rule and a fix) on games, versions, images, scan findings and the history; the same in the dashboard, API and MCP (migration 0035, CLI 0.3.2). Bills get the same when Hosting billing ships |
+| done | Must | Errors: holds and takedowns | Errors: developer API and MCP | Live Oct 16, 2026 (#148, migration 0035): every hold, rejection and takedown says why as a `review_reason` (a code from one list, a plain message, the content rule and a fix) on games, versions, images, scan findings and the history, the same in the dashboard, API and MCP. CLI 0.3.2, which prints them, waits for npm sign-in. Bills get the same when Hosting billing ships |
 
 ### Developer publishing
 
