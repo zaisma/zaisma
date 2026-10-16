@@ -15,6 +15,7 @@ Who a player is came first: the pass, the player ID and the sign-in that saves, 
 3. Saves through the API (Accounts and saves)
 4. Scoped API keys (Developer publishing)
 5. Game database import and export (Game servers and data)
+6. Game server schedules (Game servers and data)
 
 Waiting on people: Gleb: register with NCMEC, Gleb: register the DMCA agent, Julius: send PhotoDNA the LLC's records.
 
@@ -165,7 +166,7 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | done | Must | Game database through the API | Game database for game servers | Live Oct 16, 2026 (#164, no migration, CLI 0.5.0): the developer and their AI run SQL, list tables and see use against the free limits, through the API, MCP (`get_database`, `query_database`, `batch_database`) and `zaisma database` |
 | next | Must | Game database import and export | Game database through the API | Data in and out of a game's database, and a dashboard page that reads the same API |
 | done | Must | Game server endpoints | Developers' own game servers run safely | Live Oct 16, 2026 (#169, migration 0041): the game server's `onRequest` answers `Zaisma.server.request` outside rooms (leaderboards, a shop, daily rewards), with the game database behind it, on Zaisma and in the Node runner. Free per game: 1 million requests a month (Julius, Oct 16, 2026) |
-| planned | Must | Game server schedules | Game server endpoints | The game's server code runs on a schedule (daily resets, persistent worlds), on Zaisma and on the developer's own server |
+| doing | Must | Game server schedules | Game server endpoints | The game's server code runs on a schedule (daily resets, persistent worlds), on Zaisma and on the developer's own server. Free per game: up to 10 schedules, each at most once a minute, with no monthly count (Julius, Oct 16, 2026) |
 | planned | Must | Game server reach and secrets | Developers' own game servers run safely | Game servers can call the developer's own listed servers and payment providers, with secrets set per game and never shown again. Still nothing of ours inside |
 
 ### Accounts and saves

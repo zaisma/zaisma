@@ -65,6 +65,8 @@ export default {
   onMessage(state, player, message, room) {},
   onTick(state, tickDurationSec, room) {},     // tickDurationSec: seconds since the last tick
   onRequest(player, request, server) {},       // a request outside any room (Zaisma.server.request): answer it (below)
+  schedules: [{ name: "daily-reset", cron: "0 0 * * *" }], // runs by itself, in UTC (below)
+  onSchedule(run, server) {},                  // run.name: which schedule is due
 };
 // room.broadcast(message, { exceptPlayerId }), room.send(playerId, message), room.players, room.end(message),
 // room.setListed(false), room.setOpen(false), room.reserve({ playerIds, setupData }),
@@ -231,6 +233,32 @@ const { isClaimed } = await Zaisma.server.request({ type: "claimDailyReward" });
 - **Errors:** the game gets an `error.code`: `no_request_handler` (no `onRequest`), `game_server_error` (it threw, answered something that isn't plain JSON or over 1 MB, or took over 10 seconds; you see why with your game server's errors in the dashboard and `get_stats`, with the file and line), `request_limit`, `too_big`, `slow_down` (over about 120 a minute from one address) and the pass's own (`unchecked`, `account_needed`, `bad_pass`). A game server that keeps running on too long (a loop that never ends) is paused for a few minutes.
 - **Free on Zaisma up to 1 million requests a month per game.** Until hosting billing is ready, past them requests answer `request_limit` until the month resets (UTC). Your dashboard and `get_stats` show the month's count.
 - **On your own server** the Node runner answers the same requests at `POST /v1/requests/<game>` on its port, with `server.database` its local SQLite file: `Zaisma.server.request(request, { serverUrl: "https://play.example.com" })`. Any server can answer them the same way: the body is `{ pass, request }` as JSON (sent as `text/plain`, so browsers need no preflight), and the answer `{ answer }` or `{ error: { code, message } }`.
+
+#### Schedules
+
+A game's own game server can also run by itself, for a daily reset, a weekly leaderboard or a persistent world's turns. List its `schedules`, each a name and a cron, and `onSchedule` runs at each:
+
+```js
+// zaisma-server/index.js (or zaisma-server.js)
+export default {
+  schedules: [
+    { name: "daily-reset", cron: "0 0 * * *" },    // every midnight, UTC
+    { name: "world-turn", cron: "*/15 * * * *" },  // every 15 minutes
+  ],
+  async onSchedule(run, server) {
+    if (run.name === "daily-reset") {
+      // Safe to run twice: it only resets what's older than this run.
+      await server.database.query("DELETE FROM daily_scores WHERE scored_at < ?", [run.scheduledAt]);
+    }
+    if (run.name === "world-turn") await server.database.query("UPDATE crops SET growth = min(growth + 1, 10)");
+  },
+};
+```
+
+- **`cron`** is the usual five fields, minute hour day-of-month month day-of-week, always in UTC: numbers, `*`, ranges (`1-5`), steps (`*/15`) and lists (`1,15`). `"0 4 * * 1"` is Mondays at 04:00. So a schedule runs at most once a minute; anything faster belongs in a room's `onTick`. A cron that doesn't read stops the game server starting, and says why.
+- **`onSchedule(run, server)`** gets `run.name`, `run.cron` and `run.scheduledAt`, the minute it was due (an ISO time). There's no room, no player and no state: what lasts goes in `server.database`, the same game database the game's rooms and requests use. It has 30 seconds. A run can rarely come late or twice (after a restart), so make it safe to repeat, like a reset that checks `run.scheduledAt`.
+- **Up to 10 schedules, free on Zaisma.** They run with the live version's game server, whatever the multiplayer setting, within a minute of it going live; a version without them stops them, and so does a game taken down. A game server with only schedules needs no `setup()` and runs no rooms. Your dashboard and `get_stats` show each schedule with its next and last run, the runs per day, and any errors with the schedule's name, file and line.
+- **On your own server** the Node runner runs the same schedules at the same minutes while it's up, with `server.database` its local SQLite file, and prints a run's errors. A run due while it's down is missed.
 
 #### Run your game server yourself
 

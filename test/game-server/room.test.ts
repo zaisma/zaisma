@@ -274,7 +274,7 @@ describe("RoomCore", () => {
     expect(refusal).toBeInstanceOf(GameServerError);
     expect(refusal).toMatchObject({ code: "unknown_option", field: "tickRate" });
     expect(refusal!.message).toBe(
-      "tickRate isn't a game server option. A game server takes: maximumPlayerCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, setup, onJoin, canJoin, onMoved, onLeave, onAway, onBack, onMessage, onTick, onRequest. (unknown_option)",
+      "tickRate isn't a game server option. A game server takes: maximumPlayerCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, setup, onJoin, canJoin, onMoved, onLeave, onAway, onBack, onMessage, onTick, onRequest, schedules, onSchedule. (unknown_option)",
     );
   });
 

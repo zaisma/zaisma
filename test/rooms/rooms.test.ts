@@ -368,7 +368,7 @@ describe("rooms", () => {
       if (!row) await new Promise((r) => setTimeout(r, 20));
     }
     expect(row).toMatchObject({ game_id: id, room_count: 1, message_count: 1 });
-    expect(Object.keys(row).sort()).toEqual(["date", "game_id", "game_server_call_count", "game_server_crash_count", "game_server_ended_match_count", "game_server_request_count", "game_server_stopped_count", "message_count", "room_count", "room_play_duration_sec"]);
+    expect(Object.keys(row).sort()).toEqual(["date", "game_id", "game_server_call_count", "game_server_crash_count", "game_server_ended_match_count", "game_server_request_count", "game_server_scheduled_run_count", "game_server_stopped_count", "message_count", "room_count", "room_play_duration_sec"]);
   });
 
   it("past the month's free player-hours, opens no new rooms while running ones carry on", async () => {

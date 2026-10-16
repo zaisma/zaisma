@@ -7,6 +7,8 @@
   "routes": [{ "pattern": "rooms.zaisma.com", "custom_domain": true }],
   "workers_dev": false,
   "observability": { "enabled": true },
+  // Every minute: games' schedules after a publish (src/game-server.ts, syncSchedules).
+  "triggers": { "crons": ["* * * * *"] },
   "vars": {
     "ISSUER": "https://rooms.zaisma.com",
     "SITE_ORIGIN": "https://zaisma.com",
@@ -17,7 +19,7 @@
   },
   // One Durable Object per room, SQLite-backed (required on the free plan), always with WebSocket hibernation.
   // And one per game for its database (database.ts), SQLite-backed, used by all its rooms.
-  // And one per game for its game server outside rooms (game-server.ts): requests (onRequest).
+  // And one per game for its game server outside rooms (game-server.ts): requests (onRequest) and schedules (onSchedule).
   "durable_objects": {
     "bindings": [
       { "name": "ROOMS", "class_name": "Room" },

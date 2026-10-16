@@ -349,7 +349,7 @@ ${imagesPanel(slug, images)}
 <div class="facts">
 <details open><summary><h2>Plays</h2><span class="muted">Last 30 days</span></summary>${playsPanel(stats.play_stats)}</details>
 <details${openReportCount ? raw(" open") : ""}><summary><h2>Player reports${openReportCount ? ` (${openReportCount} open)` : ""}</h2></summary>${reportsPanel(reports)}</details>
-<details${stats.room_use_this_month.has_reached_free_hours || stats.request_use_this_month.has_reached_free_requests ? raw(" open") : ""}><summary><h2>Multiplayer and game server use${stats.room_use_this_month.has_reached_free_hours ? " (new rooms paused)" : stats.request_use_this_month.has_reached_free_requests ? " (requests paused)" : ""}</h2></summary>${statsPanel(stats, game.multiplayer_mode === "own" || stats.multiplayer_days.some((day) => day.game_server !== null))}</details>
+<details${stats.room_use_this_month.has_reached_free_hours || stats.request_use_this_month.has_reached_free_requests ? raw(" open") : ""}><summary><h2>Multiplayer and game server use${stats.room_use_this_month.has_reached_free_hours ? " (new rooms paused)" : stats.request_use_this_month.has_reached_free_requests ? " (requests paused)" : ""}</h2></summary>${statsPanel(stats, game.multiplayer_mode === "own" || stats.schedules.length > 0 || stats.multiplayer_days.some((day) => day.game_server !== null))}</details>
 <details><summary><h2>History</h2></summary>${history.events.length ? html`<table><tbody>${history.events.map((event) => html`<tr><td class="nowrap">${when(event.happened_at)}</td><td>${event.description}${event.version_id ? html` <span class="muted">(${event.version_id.slice(0, 16)})</span>` : ""}${event.review_reason ? html`<br><span class="muted">${event.review_reason.message} <code>${event.review_reason.code}</code></span>` : ""}</td><td class="muted">${event.done_by === "you" ? "You" : "Zaisma"}</td></tr>`)}</tbody></table>` : html`<p class="muted">Nothing yet.</p>`}</details>
 </div>`,
     httpStatus,
@@ -569,10 +569,11 @@ interface Stats {
     room_count: number;
     room_play_duration_min: number;
     message_count: number;
-    game_server: { call_count: number; request_count: number; crash_count: number; stopped_count: number; ended_match_count: number } | null;
+    game_server: { call_count: number; request_count: number; scheduled_run_count: number; crash_count: number; stopped_count: number; ended_match_count: number } | null;
   }[];
   room_use_this_month: { room_play_duration_hours: number; free_room_play_duration_hours: number; has_reached_free_hours: boolean };
   request_use_this_month: { request_count: number; free_request_count: number; has_reached_free_requests: boolean };
+  schedules: { schedule_name: string; cron: string; version_id: string; next_run_at: string; last_run_at: string | null }[];
   game_server_errors: { kind: "crash" | "stopped"; message: string; occurrence_count: number; version_id: string; last_at: string }[];
 }
 
@@ -615,20 +616,30 @@ function statsPanel(stats: Stats, own: boolean): Raw {
     : requestUse.has_reached_free_requests
       ? html`<p class="hint">Your game has used this month's ${formatted(requestUse.free_request_count)} free requests to its game server, so requests answer request_limit until the month resets (UTC). Until hosting billing is ready, that's the most a game can use. Requests to a server you run yourself are never limited.</p>`
       : html`<p class="hint">${formatted(requestUse.request_count)} of ${formatted(requestUse.free_request_count)} free requests to your game server this month. Until hosting billing is ready, requests stop at ${formatted(requestUse.free_request_count)} until the month resets (UTC).</p>`;
-  if (!days.length) return html`<p class="muted">No multiplayer rooms in the last 30 days.</p>${monthUse.room_play_duration_hours || monthUse.has_reached_free_hours ? month : ""}${requests}`;
+  if (!days.length) return html`<p class="muted">No multiplayer rooms in the last 30 days.</p>${monthUse.room_play_duration_hours || monthUse.has_reached_free_hours ? month : ""}${requests}${schedulesTable(stats.schedules)}`;
   const topDurationMin = Math.max(...days.map((day) => day.room_play_duration_min), 1);
-  return html`<table><thead><tr><th>Day</th><th>Rooms</th><th>Player minutes</th>${own ? html`<th>Requests</th><th>Game server errors</th><th>Stopped</th><th>Matches ended</th>` : ""}</tr></thead><tbody>${days.map(
+  return html`<table><thead><tr><th>Day</th><th>Rooms</th><th>Player minutes</th>${own ? html`<th>Requests</th><th>Scheduled runs</th><th>Game server errors</th><th>Stopped</th><th>Matches ended</th>` : ""}</tr></thead><tbody>${days.map(
     (day) => html`<tr><td class="nowrap">${day.date}</td><td>${day.room_count}</td><td><span class="bar" style="width:${Math.round((day.room_play_duration_min / topDurationMin) * 100)}%"></span>${day.room_play_duration_min}</td>${
-      own ? html`<td>${formatted(day.game_server?.request_count ?? 0)}</td><td>${day.game_server?.crash_count ?? 0}</td><td>${day.game_server?.stopped_count ?? 0}</td><td>${day.game_server?.ended_match_count ?? 0}</td>` : ""
+      own ? html`<td>${formatted(day.game_server?.request_count ?? 0)}</td><td>${formatted(day.game_server?.scheduled_run_count ?? 0)}</td><td>${day.game_server?.crash_count ?? 0}</td><td>${day.game_server?.stopped_count ?? 0}</td><td>${day.game_server?.ended_match_count ?? 0}</td>` : ""
     }</tr>`,
-  )}</tbody></table>${month}${requests}${own ? serverErrors(stats.game_server_errors) : ""}`;
+  )}</tbody></table>${month}${requests}${schedulesTable(stats.schedules)}${own ? serverErrors(stats.game_server_errors) : ""}`;
+}
+
+/** The live version's schedules, so its developer sees they were read and when they run. */
+function schedulesTable(schedules: Stats["schedules"]): Raw | "" {
+  if (!schedules.length) return "";
+  return html`<h3>Your game server's schedules</h3>
+<p class="hint">Times are UTC. Schedules are free: up to 10, each at most once a minute. Errors from a run show with your game server's others.</p>
+<table><thead><tr><th>Schedule</th><th>Cron</th><th>Next run</th><th>Last run</th></tr></thead><tbody>${schedules.map(
+    (schedule) => html`<tr><td>${schedule.schedule_name}</td><td><code>${schedule.cron}</code></td><td class="nowrap">${when(schedule.next_run_at)}</td><td class="nowrap">${schedule.last_run_at ? when(schedule.last_run_at) : html`<span class="muted">Not yet</span>`}</td></tr>`,
+  )}</tbody></table>`;
 }
 
 /** A game server's recent errors, so its developer can fix what wastes their players' time and our work. */
 function serverErrors(errors: Stats["game_server_errors"]): Raw {
   if (!errors.length) return html`<p class="muted">No errors from your game server in the last 30 days.</p>`;
   return html`<h3>Your game server's errors</h3>
-<p class="hint">An error loses that one message, tick or request, and the match carries on. Stopped means it ran on too long, like a loop that never ends: the match froze for about 2 seconds, and a match stopped twice ends.</p>
+<p class="hint">An error loses that one message, tick, request or scheduled run, and the match carries on. Stopped means it ran on too long, like a loop that never ends: the match froze for about 2 seconds, and a match stopped twice ends.</p>
 <table><thead><tr><th>What happened</th><th>Times</th><th>Last</th></tr></thead><tbody>${errors.map(
     (serverError) => html`<tr><td>${serverError.kind === "stopped" ? serverError.message : html`<code>${serverError.message}</code>`}</td><td>${serverError.occurrence_count}</td><td class="nowrap">${when(serverError.last_at)}</td></tr>`,
   )}</tbody></table>`;

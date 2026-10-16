@@ -106,7 +106,7 @@ children.push(wrangler("games", [...dev("games"), "--port", String(PORTS.games),
 await waitFor(GAMES);
 children.push(wrangler("site", [...dev("site"), "--port", String(PORTS.site), "--inspector-port", String(9340 + OFFSET), "--local-upstream", `localhost:${PORTS.site}`, "--persist-to", STATE, "--env-file", join(STATE, "site.env"), "--test-scheduled"], { quiet: true }));
 await waitFor(SITE);
-children.push(wrangler("rooms", [...dev("rooms"), "--port", String(PORTS.rooms), "--inspector-port", String(9342 + OFFSET), "--persist-to", STATE, "--env-file", join(STATE, "rooms.env")], { quiet: true }));
+children.push(wrangler("rooms", [...dev("rooms"), "--port", String(PORTS.rooms), "--inspector-port", String(9342 + OFFSET), "--persist-to", STATE, "--env-file", join(STATE, "rooms.env"), "--test-scheduled"], { quiet: true }));
 await waitFor(ROOMS);
 if (fresh) {
   console.log("Adding test games…");
@@ -143,6 +143,10 @@ setInterval(pretend, 30 * 60_000);
 const tick = () => fetch(`${SITE}/__scheduled?cron=${encodeURIComponent("*/5 * * * *")}`).catch(() => {});
 setInterval(tick, 20_000);
 tick();
+// The rooms' every-minute job: games' schedules after a publish (Arena tidies its best scores daily).
+const roomsTick = () => fetch(`${ROOMS}/__scheduled?cron=${encodeURIComponent("* * * * *")}`).catch(() => {});
+setInterval(roomsTick, 20_000);
+roomsTick();
 
 let testers = {};
 try {
