@@ -1,4 +1,4 @@
-import { ApiError, CONTROLS, DEVICES, FORUM_CATEGORIES, FORUM_LIMITS, FORUM_REPORT_REASONS, FORUM_SECTIONS, FORUM_TABS, FORUM_TAGS, PLAY_STYLES, POST_SELECTIONS, ROOM_BROWSING, SCREENS, TOPIC_KINDS, TOPIC_STATUSES, VISIBILITIES, type IdKind } from "@zaisma/core";
+import { ApiError, CONTROLS, DEVICES, FORUM_CATEGORIES, FORUM_LIMITS, FORUM_REPORT_REASONS, FORUM_SECTIONS, FORUM_TABS, FORUM_TAGS, ACCOUNT_REQUIREMENTS, PLAY_STYLES, POST_SELECTIONS, ROOM_BROWSING, SCREENS, TOPIC_KINDS, TOPIC_STATUSES, VISIBILITIES, type IdKind } from "@zaisma/core";
 import { INTERNAL_ERROR, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { GAME, HISTORY, IMAGE, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, REPORTS, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes } from "./schemas.ts";
@@ -117,6 +117,11 @@ const details = {
     description:
       "For games on Zaisma rooms: where open rooms are listed so players can join them. page (the default): on the game page and to the game through Zaisma.rooms.list(). game: only to the game, for games with their own lobby or server browser. off: nowhere; room codes and invite links still work. Single rooms can be hidden with joinRoom({ isListed: false }) or room.setListed(false).",
   },
+  account_requirement: {
+    enum: ACCOUNT_REQUIREMENTS,
+    description:
+      'What the game needs a Zaisma account for. none (the default): guests play everything, and signed-in players play as their account. multiplayer: guests play alone; only signed-in players get player passes, so a guest\'s Zaisma.joinRoom() and Zaisma.player() fail with error.code "account_needed" (show your own message). whole_game: the game page says "Needs a Zaisma account" and Play asks guests to sign in first; only signed-in players get player passes. Players under 13 can\'t make accounts, so they can\'t play games that need one.',
+  },
 };
 const DETAILS = Object.keys(details);
 const read = { readOnlyHint: true, openWorldHint: false } as const;
@@ -158,7 +163,7 @@ export const TOOLS: Tool[] = [
     name: "update_game",
     title: "Change a game's details",
     description:
-      'Change the title, description, device labels, play_modes (single-player, local and online multiplayer with player counts), cloud saves, multiplayer, room browsing or visibility. listed: on Zaisma for everyone. unlisted: only people with the link. private and draft: only you and people with a tester link (add_tester_link). Leave out what stays the same; null clears it. A new title or description on a game players can see waits for review. Making a public game private or a draft takes it away from players, so it needs "confirm": true after asking the developer.\n\n' +
+      'Change the title, description, device labels, play_modes (single-player, local and online multiplayer with player counts), cloud saves, multiplayer, room browsing, what it needs an account for or visibility. listed: on Zaisma for everyone. unlisted: only people with the link. private and draft: only you and people with a tester link (add_tester_link). Leave out what stays the same; null clears it. A new title or description on a game players can see waits for review. Making a public game private or a draft takes it away from players, so it needs "confirm": true after asking the developer.\n\n' +
       'Not: { "play_modes": [{ "mode": "single", "maximum_player_count": 1 }] } (single takes no player counts: { "mode": "single" })\n' +
       'Not: { "play_modes": [{ "mode": "online", "maximum_player_count": 4 }] } (local and online need minimum_player_count, 2 or more, and play_style)\n' +
       'Not: { "play_modes": ["single", "online"] } (each mode is an object, like { "mode": "single" })\n' +
@@ -173,6 +178,7 @@ export const TOOLS: Tool[] = [
         { slug: "sky-hopper", visibility: "listed" },
         { slug: "sky-hopper", multiplayer_mode: "relay", room_browsing: "page" },
         { slug: "sky-hopper", play_modes: null },
+        { slug: "sky-hopper", account_requirement: "multiplayer" },
       ],
     },
     outputSchema: answer({

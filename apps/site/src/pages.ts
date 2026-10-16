@@ -1,4 +1,5 @@
 import { CONTENT_RULES, gameBySlug, readPlayModes, testerLinkByToken, testerLinkOpened, type TesterLink } from "@zaisma/core";
+import { authConfigured } from "./auth.ts";
 import { gameUrl, type Env } from "./env.ts";
 import { html, layout, message, metalButton, playerModes, raw, siteFooter, siteHeader, type Raw } from "./html.ts";
 import { showcase, tile } from "./home.ts";
@@ -34,6 +35,9 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   const multiplayer = game.multiplayer_mode !== "none" || Boolean(game.connect_hosts);
   const ownServers = game.connect_hosts.split("\n").filter(Boolean).map((host) => host.replace(/^[a-z]+:\/\//, ""));
   const autoplay = inRoom || url.searchParams.has("play");
+  // A game that needs an account for the whole game or for multiplayer asks guests to sign in, and brings them back to the same match.
+  const accountRequirement = authConfigured(env) ? game.account_requirement : "none";
+  const accountNext = encodeURIComponent(`${here}${inRoom ? `?room=${code}` : "?play"}`);
   const [developer, pictures, updates, others, live] = await Promise.all([
     game.owner_id
       ? env.DB.prepare("SELECT accounts.name, (SELECT COUNT(*) FROM games WHERE owner_id = ? AND review_status = 'live' AND visibility = 'listed') AS game_count FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE owners.id = ?").bind(game.owner_id, game.owner_id).first<{ name: string; game_count: number }>()
@@ -99,6 +103,8 @@ main.gp{max-width:1240px;margin:0 auto;padding:30px 24px 72px}
 .side .live-now[hidden]{display:none}
 a.live-now:hover{text-decoration:underline;text-underline-offset:3px}
 .side .note{margin:0;font-size:14px;background:none;box-shadow:none;padding:0;color:var(--warn)}
+.side .account-note{margin:-4px 0 0;font-size:14px;color:var(--text-2)}
+.side .account-note a{color:var(--text);text-underline-offset:3px}
 .spec{margin:4px 0 0;display:grid}
 .spec>div{display:grid;grid-template-columns:96px minmax(0,1fr);gap:12px;align-items:start;padding:12px 0;
   background:linear-gradient(#000,#000) top/100% 1px no-repeat,linear-gradient(rgba(255,255,255,.055),rgba(255,255,255,.055)) 0 1px/100% 1px no-repeat}
@@ -301,6 +307,9 @@ ${siteHeader(env)}
     ${tester ? html`<p class="note tester">You're testing this game with a link from its developer.${hidden ? " It isn't public yet: anyone with this link can play, so only share it with other testers." : ""} Your progress stays in this browser.</p>` : ""}
     ${live ? playingLine(playingNowPlayerCount, Boolean(rooms)) : ""}
     ${metalButton("Play", { id: "play", isBig: true, isFullWidth: true, hasPlayIcon: true })}
+    ${accountRequirement !== "none"
+      ? html`<p class="account-note" id="account-note">${accountRequirement === "whole_game" ? "Needs a Zaisma account" : "Playing online needs a Zaisma account"}<span id="account-ask" hidden>. <a href="/join?next=${accountNext}">Make one free</a> or <a href="/signin?next=${accountNext}">sign in</a>${accountRequirement === "whole_game" ? " to play" : " to play with others"}</span>.</p>`
+      : ""}
     <p class="note" id="device-note" hidden></p>
     ${spec}
     <div class="row"><button class="btn ghost" id="share-page" type="button">${raw(ICON_SHARE)}<span class="label">Share</span></button><a class="btn ghost" href="/g/${game.slug}/report" data-report>Report</a></div>
@@ -590,8 +599,9 @@ addEventListener("pagehide", () => {
   if (frame) leftRoom();
 });
 ${raw(saves ? `const SAVES =${JSON.stringify({ api: `/api/saves/${game.slug}`, root: gameUrl(env, game.slug), query: inRoom ? `?room=${code}` : "", frameOrigin: new URL(frameUrl).origin, slug: game.slug, offerAfter: (Number(env.KEEP_OFFER_SECONDS) || 300) * 1000 }).replace(/</g, "\\u003c")};\n${SAVES_CLIENT}` : "")}
+${raw(accountRequirement !== "none" ? accountGate(accountRequirement, accountNext, inRoom) : "")}
 // A room link is an invitation into a match already underway, and ?play comes from a Play button elsewhere: both skip the details.
-${raw(autoplay ? "play();" : "")}
+${raw(autoplay ? (accountRequirement === "whole_game" || (accountRequirement === "multiplayer" && inRoom) ? "if (!needsSignIn) play();" : "play();") : "")}
 </script>`,
   });
   // Unlisted games are for people with the link, never search engines.
@@ -672,9 +682,9 @@ const DMCA = `
 <p>If your game was removed and you believe it was a mistake or you have permission, email the same address with a counter-notice. We'll forward it to the person who filed the claim.</p>
 `;
 
-// Approved by Julius on Oct 12, 2026; the play stats and play-check lines on Oct 13, 2026.
+// Approved by Julius on Oct 12, 2026; the play stats and play-check lines on Oct 13, 2026; the player ID line on Oct 16, 2026.
 const PRIVACY = `
-<p class="lead">Zaisma keeps as little about you as it can. Playing needs no account, and guests leave nothing behind.</p>
+<p class="lead">Zaisma keeps as little about you as it can. Most games need no account, and guests leave nothing behind.</p>
 <h2>Playing as a guest</h2>
 <p>Guests get a temporary ID and a made-up name like "Swift Fox 42", used only to run the game session. They're kept in your browser tab and forgotten when it closes. We don't keep a profile, and we don't know who you are.</p>
 <p>Your browser also remembers which games you played recently, so the home page can show them first. That list stays on your device; we never see it.</p>
@@ -712,6 +722,26 @@ const PRIVACY = `
 
 /** Fewest players for "playing now" to show, so a new game never looks empty. */
 const MINIMUM_PLAYING_NOW_PLAYER_COUNT = 3;
+
+/**
+ * The game page's script for a game that needs an account: a guest (no zaisma_in cookie) sees how to
+ * sign in, and for a whole game Play becomes "Sign in to play". Sets needsSignIn for autoplay. Rooms
+ * refuse guests' passes either way; this is only so honest players never start a game that turns them away.
+ */
+function accountGate(accountRequirement: "multiplayer" | "whole_game", accountNext: string, inRoom: boolean): string {
+  return `// Guests are asked to sign in first, and come back to the same page or match.
+const needsSignIn = !/(^|; )(__Host-)?zaisma_in=1/.test(document.cookie);
+if (needsSignIn) {
+  document.getElementById("account-ask").hidden = false;${
+    accountRequirement === "whole_game" || inRoom
+      ? `
+  const playButton = document.getElementById("play");
+  playButton.querySelector("span").textContent = "Sign in to play";
+  playButton.onclick = () => { location.href = "/signin?next=${accountNext}"; };`
+      : ""
+  }
+}`;
+}
 
 /** "151 playing now" under the title: everyone in the game's rooms, hidden ones too. */
 function playingLine(playerCount: number, roomsHere: boolean): Raw {

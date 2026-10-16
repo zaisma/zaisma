@@ -1,4 +1,4 @@
-import { PLAYER_REPORT_REASONS, accountById, gameServerOf, type MultiplayerMode, checkText, createReport, isIdOf, iso, leaveOut, listRooms, newId, pastFreeTier, playerProfile, readLabelParameter, readLeftParameter, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
+import { PLAYER_REPORT_REASONS, accountById, gameServerOf, type AccountRequirement, type MultiplayerMode, checkText, createReport, isIdOf, iso, leaveOut, listRooms, newId, pastFreeTier, playerProfile, readLabelParameter, readLeftParameter, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
 import { ERROR_TEXT, guestName, isRoomCode, jwks, loadSigningKey, roomCode, signPass, type Player, type SigningKey } from "@zaisma/game-server";
 import { usesRooms } from "./registry.ts";
 
@@ -37,10 +37,11 @@ export interface RoomGame {
   multiplayer_mode: MultiplayerMode;
   built_in_server: string | null;
   room_browsing: string;
+  account_requirement: AccountRequirement;
 }
 
 export async function playableGame(database: D1Database, slug: string): Promise<RoomGame | null> {
-  const game = await database.prepare("SELECT id, slug, review_status, live_version_id, multiplayer_mode, built_in_server, room_browsing FROM games WHERE slug = ?").bind(slug).first<RoomGame>();
+  const game = await database.prepare("SELECT id, slug, review_status, live_version_id, multiplayer_mode, built_in_server, room_browsing, account_requirement FROM games WHERE slug = ?").bind(slug).first<RoomGame>();
   return game && game.review_status === "live" && game.live_version_id ? game : null;
 }
 
@@ -91,7 +92,7 @@ function json(body: unknown, httpStatus = 200, origin?: string): Response {
  * The codes the SDK's calls answer with besides the room error codes, which the SDK passes on as
  * err.code. Every error is { error: { code, message } }.
  */
-type CallErrorCode = "bad_origin" | "game_unavailable" | "slow_down" | "unchecked" | "no_rooms" | "bad_report" | "month_limit" | "no_player";
+type CallErrorCode = "bad_origin" | "game_unavailable" | "slow_down" | "unchecked" | "no_rooms" | "bad_report" | "month_limit" | "no_player" | "account_needed";
 
 function failure(code: CallErrorCode, message: string, httpStatus: number, origin?: string): Response {
   return json({ error: { code, message } }, httpStatus, origin);
@@ -164,6 +165,8 @@ export default {
         const nowSec = Math.floor(Date.now() / 1000);
         // A signed-in player is their account, with the same player ID in every game; anyone else a new guest.
         const account = key.accountId ? await accountById(env.DB, key.accountId) : null;
+        // A game that needs accounts, for multiplayer or the whole game, gives guests no passes, so its own servers see only accounts too.
+        if (!account && game.account_requirement !== "none") return failure("account_needed", ERROR_TEXT.account_needed, 403, cors);
         const player: Player = account ? { id: account.player_id, name: account.name, kind: "account" } : { id: newId("player"), name: guestName(), kind: "guest" };
         // The pass is proof only: an account's carries no name, which games look up (/v1/players/<id>).
         const claims = { sub: player.id, ...(player.kind === "guest" ? { name: player.name } : {}), aud: slug, iss: env.ISSUER, kind: player.kind, iat: nowSec, exp: nowSec + PASS_DURATION_SEC };

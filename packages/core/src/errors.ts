@@ -37,6 +37,7 @@ export const ERROR_CODES = {
   bad_cloud_saves_enabled: { httpStatus: 400, meaning: "cloud_saves_enabled isn't true or false." },
   bad_room_browsing: { httpStatus: 400, meaning: "room_browsing isn't page, game or off." },
   bad_multiplayer_mode: { httpStatus: 400, meaning: "multiplayer_mode isn't none, relay or own." },
+  bad_account_requirement: { httpStatus: 400, meaning: "account_requirement isn't none, multiplayer or whole_game." },
   built_in_server: { httpStatus: 403, meaning: "The game runs a game server built into Zaisma, which only Zaisma changes." },
   game_removed: { httpStatus: 403, meaning: "Zaisma took the game down, so this can't change." },
   needs_confirm: { httpStatus: 409, meaning: "Hiding a game players can play needs the developer's OK." },

@@ -65,7 +65,7 @@ export async function handleAccount(request: Request, env: Env, path: string): P
     !/^\/account\/keys\/[a-z0-9]+\/revoke$/.test(path) &&
     !/^\/signin\/(with\/[a-z]{1,20}|callback)$/.test(path)
   ) return null;
-  if (!authConfigured(env)) return message(env, "Accounts aren't on yet", "You can play every game as a guest.", 404);
+  if (!authConfigured(env)) return message(env, "Accounts aren't on yet", "You can still play as a guest.", 404);
 
   const post = request.method === "POST";
   if (post) {
@@ -315,7 +315,7 @@ ${nextField(next)}
 <label>Email<input type="email" name="email" autocomplete="email webauthn" required autofocus></label>
 <button class="btn" type="submit" id="code-go">Email me a code</button>
 </form>
-<p class="muted">New here? <a href="/join${nextQuery(next)}">Make an account</a>. You don't need one to play.</p>
+<p class="muted">New here? <a href="/join${nextQuery(next)}">Make an account</a>. Most games play without one.</p>
 <script>${raw(PASSKEY_SCRIPT)}
 (() => {
   if (!window.PublicKeyCredential) return;
@@ -377,7 +377,7 @@ function agePage(env: Env, next: string | null, error?: string, via?: Provider):
     env,
     "Make an account",
     html`<h1>Make an account</h1>
-<p class="lead">${via ? `You're new to Zaisma. Answer this first, then we'll take you back to ${PROVIDERS[via]} to finish.` : "Keep your progress, play with friends and get your own name. Guests can still play everything."}</p>
+<p class="lead">${via ? `You're new to Zaisma. Answer this first, then we'll take you back to ${PROVIDERS[via]} to finish.` : "Keep your progress, play with friends and get your own name. Most games play without one."}</p>
 ${errorParagraph(error)}
 <form class="stack" method="post" action="/join/age">
 ${nextField(next)}
@@ -429,7 +429,7 @@ function tooYoungPage(env: Env): Response {
     env,
     "Accounts are for 13 and up",
     html`<h1>Accounts are for 13 and up</h1>
-<p class="lead">You can't make a Zaisma account yet, but you can still play every game as a guest.</p>
+<p class="lead">You can't make a Zaisma account yet, but you can still play as a guest in any game that doesn't need one.</p>
 <a class="btn" href="/">Find a game</a>`,
   );
 }

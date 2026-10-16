@@ -23,7 +23,7 @@ import {
   type SavedRoom,
   type ServerMessage,
 } from "@zaisma/game-server";
-import { gameServerOf, pastFreeTier, playerProfile, type MultiplayerMode } from "@zaisma/core";
+import { gameServerOf, pastFreeTier, playerProfile, type AccountRequirement, type MultiplayerMode } from "@zaisma/core";
 import { gameServer } from "./registry.ts";
 import { SANDBOX, errorLine, sandboxServer, type SandboxStats } from "./sandbox.ts";
 import { signingKey, type Env } from "./index.ts";
@@ -111,6 +111,8 @@ export class Room extends DurableObject<Env> {
   private timer: ReturnType<typeof setInterval> | null = null;
   /** The game's room browsing setting, read with its status; null until read since waking. */
   private browsing: string | null = null;
+  /** What the game needs an account for, read with its status: guests can't join unless it's none. */
+  private accountRequirement: AccountRequirement = "none";
   /** What this room last wrote to live_rooms ("" for no row), so unchanged rooms don't write again. */
   private listedAs: string | undefined = undefined;
   /** Rooms this room is still setting up for its players (room.reserve), so it doesn't sleep before they're told. */
@@ -372,6 +374,8 @@ export class Room extends DurableObject<Env> {
     }
     if (this.hasEnded) return this.refuse(socket, "ended");
     if (!(await this.gameStillLive())) return this.refuse(socket, "game_unavailable");
+    // Passes aren't given to guests of games that need accounts; this catches one given before the game changed.
+    if (player.kind === "guest" && this.accountRequirement !== "none") return this.refuse(socket, "account_needed");
     await this.load();
     const core = this.room();
     if (!core) return this.refuse(socket, "game_unavailable");
@@ -678,13 +682,14 @@ export class Room extends DurableObject<Env> {
     }, 1000 / core.server.ticksPerSec!);
   }
 
-  /** A takedown or a changed game server ends the match. Also picks up the game's room browsing setting. */
+  /** A takedown or a changed game server ends the match. Also picks up the game's room browsing and account settings. */
   private async gameStillLive(): Promise<boolean> {
     this.lastCheckAtMs = Date.now();
-    const row = await this.env.DB.prepare("SELECT review_status, live_version_id, multiplayer_mode, built_in_server, room_browsing FROM games WHERE id = ?")
+    const row = await this.env.DB.prepare("SELECT review_status, live_version_id, multiplayer_mode, built_in_server, room_browsing, account_requirement FROM games WHERE id = ?")
       .bind(this.meta!.gameId)
-      .first<{ review_status: string; live_version_id: string | null; multiplayer_mode: MultiplayerMode; built_in_server: string | null; room_browsing: string }>();
+      .first<{ review_status: string; live_version_id: string | null; multiplayer_mode: MultiplayerMode; built_in_server: string | null; room_browsing: string; account_requirement: AccountRequirement }>();
     if (row && row.review_status === "live" && row.live_version_id && gameServerOf(row) === this.meta!.server) {
+      this.accountRequirement = row.account_requirement;
       if (row.room_browsing !== this.browsing) {
         this.browsing = row.room_browsing;
         if (this.core) this.core.listingChanged = true;
