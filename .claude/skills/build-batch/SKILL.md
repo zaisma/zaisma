@@ -20,7 +20,7 @@ node scripts/roadmap-item.mjs --now
 
 It prints every item in Now, settled or not, and whether it's free to start or what it waits on (Needs, a First item, another session's claim). An item is in the batch when it's **settled** and **free to start**, and no open pull request (`gh pr list`) is already about it.
 
-Items that aren't settled stay out. Name them to Julius in one line as needing a talk in his own session; never start one. If nothing is ready, say why in a line or two and stop.
+Items that aren't settled stay out. Name them to Julius in one line, each with the command for its talk in his own session (`/talk-through <name>`); never start one. If nothing is ready, say why in a line or two and stop.
 
 ## 2. Start one session per item
 

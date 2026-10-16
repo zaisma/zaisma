@@ -33,7 +33,7 @@ Also stop when:
 - the row is already `doing`, or an open pull request (`gh pr list`) or a recent commit on `origin/main` is already about it,
 - the item is waiting on Julius or Gleb (its name starts with theirs).
 
-When it says **Settled: no**, don't build. Talk it through with Julius: what it is, its design and scope, and the questions the decisions don't answer, one at a time. When he says it's settled, set its `Settled` cell to `yes` along with the claim below, and go on. If this session was started by another one (the `build-batch` skill), ask that session instead: it asks Julius.
+When it says **Settled: no**, don't build or claim it. Use the `talk-through` skill on it instead. It ends with what Julius decided written down and the item marked settled. Come back here once that's on main. If another session started this one (the `build-batch` skill), stop and tell that session the item isn't settled: talks happen in Julius's own session.
 
 Otherwise claim it at once: mark the row `doing` in `docs/ROADMAP.md` in your worktree as your first edit, before reading further. Other sessions running this skill read it there and pick another item. Sessions started in the same moment can race for the same free item, so when starting several at once, give each a place in Now or a name.
 
