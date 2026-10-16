@@ -18,7 +18,7 @@ Founder: Julius. Side project, built in public. MIT licensed.
 
 ## Current phase
 
-**Phase 1: Beta.** Phase 0 (safe hosting) is live. What's being built next, in order, is the Now list at the top of [`docs/ROADMAP.md`](docs/ROADMAP.md); take work from there unless Julius says otherwise. Julius usually works through the `coordinator` skill: one session that starts a `build-next` session for every free item in Now, brings him their talks, previews and questions, and runs `whats-next` when Now runs dry. When Now is empty or Julius asks what's next, use the `whats-next` skill (`.claude/skills/whats-next/SKILL.md`). To start one item, use the `build-next` skill. `node scripts/roadmap-item.mjs <place in Now or name>` prints any item with what it needs, and `--now` lists Now with what's ready.
+**Phase 1: Beta.** Phase 0 (safe hosting) is live. What's being built next, in order, is the Now list at the top of [`docs/ROADMAP.md`](docs/ROADMAP.md); take work from there unless Julius says otherwise. Julius usually works through the `coordinator` skill: one session that starts a `build-next` session for each free item in Now, up to a cap (2 by default, `/coordinator 3` for more) and in one of three modes (`both`, `build` while he's away, `talk` to settle the backlog), brings him their talks, previews and questions, and runs `whats-next` when Now runs dry. When Now is empty or Julius asks what's next, use the `whats-next` skill (`.claude/skills/whats-next/SKILL.md`). To start one item, use the `build-next` skill. `node scripts/roadmap-item.mjs <place in Now or name>` prints any item with what it needs, and `--now` lists Now with what's ready.
 
 How the roadmap is kept, so nobody has to piece it together or guess:
 
