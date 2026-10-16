@@ -4,7 +4,8 @@ import { ApiError } from "./errors.ts";
  * IDs that say their kind (docs/NAMING.md, IDs): every ID Zaisma makes is <kind>_<random>, the kind
  * in whole words and the random part without underscores, so whoever holds one knows what it is.
  * The list matches the table in docs/NAMING.md; test/node/ids.test.ts keeps them in step. Guests'
- * player IDs take theirs with the SDK and game server's names (docs/ROADMAP.md).
+ * player IDs take theirs with the SDK and game server's names (docs/ROADMAP.md); an account's is kept
+ * with the account (accounts.player_id), the same in every game.
  */
 export const ID_KINDS = ["game", "version", "image", "tester", "topic", "post", "report", "media", "precedent", "player", "owner", "save_copy", "play_ticket", "room_key"] as const;
 export type IdKind = (typeof ID_KINDS)[number];

@@ -1,7 +1,7 @@
 import { env, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { gameOrigin, type Env } from "../../apps/rooms/src/index.ts";
-import { addTesterLink, issueRoomKey, revokeTesterLink } from "@zaisma/core";
+import { addTesterLink, createAccount, deleteAccount, issueRoomKey, revokeTesterLink } from "@zaisma/core";
 import type { Room } from "../../apps/rooms/src/room.ts";
 
 const R = "https://rooms.zaisma.test";
@@ -31,7 +31,7 @@ async function keyFor(game: string) {
   return issueRoomKey(e.DB, row?.id ?? "none");
 }
 
-async function getPass(game: string): Promise<{ pass: string; player: { id: string; name: string }; expiresAt: string }> {
+async function getPass(game: string): Promise<{ pass: string; player: { id: string; name: string; kind: string }; expiresAt: string }> {
   const res = await post("/v1/pass", game, ORIGIN, { roomKey: await keyFor(game) });
   expect(res.status).toBe(200);
   return res.json();
@@ -112,6 +112,58 @@ describe("rooms", () => {
     const old = await keyFor("arena");
     await e.DB.prepare("UPDATE room_keys SET issued_at_ms = ? WHERE id = ?").bind(Date.now() - 6 * 3_600_000 - 1000, old).run();
     expect((await post("/v1/pass", "arena", ORIGIN, { roomKey: old })).status).toBe(403);
+  });
+
+  it("gives a signed-in player their account's pass: the same ID in every game, proof only, with their name in rooms", async () => {
+    const arena = await addGame("arena");
+    const other = await addGame("other");
+    const account = await createAccount(e.DB, { id: "supabase-user-1", name: "Night Owl", ageBand: "18+" });
+    const passFor = async (gameSlug: string, gameId: string) => {
+      const response = await post("/v1/pass", gameSlug, ORIGIN, { roomKey: await issueRoomKey(e.DB, gameId, account.id) });
+      expect(response.status).toBe(200);
+      return response.json<{ pass: string; player: { id: string; name: string; kind: string } }>();
+    };
+    const { pass, player } = await passFor("arena", arena);
+    expect(player).toEqual({ id: account.player_id, name: "Night Owl", kind: "account" });
+    expect(account.player_id).toMatch(/^player_[a-z0-9]{20}$/);
+    // The pass proves who, for which game and until when; the name and the sign-in's own ID stay out of it.
+    const claims = JSON.parse(atob(pass.split(".")[1]!.replace(/-/g, "+").replace(/_/g, "/")));
+    expect(Object.keys(claims).sort()).toEqual(["aud", "exp", "iat", "iss", "kind", "sub"]);
+    expect(claims).toMatchObject({ sub: account.player_id, kind: "account", aud: "arena" });
+    expect(pass).not.toContain(account.id);
+    expect((await passFor("other", other)).player.id).toBe(account.player_id);
+
+    // Rooms show the account's name, and the game server sees its kind.
+    const c = await connect("arena", "ACCNTS");
+    c.ws.send(JSON.stringify({ type: "hello", pass }));
+    expect((await c.next()).me).toEqual({ id: account.player_id, name: "Night Owl", kind: "account" });
+    c.ws.close(1000);
+    // A guest beside them is still a guest.
+    expect((await getPass("arena")).player.kind).toBe("guest");
+
+    // Once the account is deleted, its passes stop working and its keys give nothing.
+    const leftoverKey = await issueRoomKey(e.DB, arena, account.id);
+    await deleteAccount(e.DB, account.id);
+    const late = await connect("arena", "ACCNTS");
+    late.ws.send(JSON.stringify({ type: "hello", pass }));
+    expect(await late.next()).toMatchObject({ type: "error", code: "bad_pass" });
+    expect((await post("/v1/pass", "arena", ORIGIN, { roomKey: leftoverKey })).status).toBe(403);
+  });
+
+  it("looks up an account's public profile by player ID, for any site or server", async () => {
+    const account = await createAccount(e.DB, { id: "supabase-user-2", name: "Quiet Heron", ageBand: "13-17" });
+    const lookUp = (playerId: string) => SELF.fetch(`${R}/v1/players/${playerId}`, { headers: { "cf-connecting-ip": `198.51.100.${++address % 250}` } });
+    const found = await lookUp(account.player_id);
+    expect(found.status).toBe(200);
+    expect(found.headers.get("Access-Control-Allow-Origin")).toBe("*");
+    // What a stranger sees: never the email, the age or the sign-in's own ID.
+    expect(await found.json()).toEqual({ player: { id: account.player_id, name: "Quiet Heron" } });
+    const { player: guest } = await (await addGame("arena").then(() => getPass("arena")));
+    for (const playerId of [guest.id, "player_nobodyhasthis1", "supabase-user-2"]) {
+      const missing = await lookUp(playerId);
+      expect(missing.status).toBe(404);
+      expect((await missing.json<{ error: { code: string } }>()).error.code).toBe("no_player");
+    }
   });
 
   it("limits how many room connections one address opens in a minute", async () => {

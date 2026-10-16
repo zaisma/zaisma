@@ -65,6 +65,7 @@ import {
   ApiError,
   checkIdKind,
   isIdOf,
+  playerProfile,
   secondsUntilDayPasses,
   type ErrorCode,
 } from "@zaisma/core";
@@ -269,6 +270,7 @@ export const API_ROUTES: readonly ApiRoute[] = [
   { method: "DELETE", path: "/forum/:topic_id/posts/:post_id/helpful" },
   { method: "POST", path: "/forum/:topic_id/posts/:post_id/report" },
   { method: "GET", path: "/forum/:topic_id/media/:media_id" },
+  { method: "GET", path: "/players/:player_id" },
 ];
 
 const routePatterns = new Map(
@@ -304,6 +306,17 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
   if (path === "/forum" || path.startsWith("/forum/")) {
     const routed = await forumRoute(request, env, path, caller);
     return routed instanceof Response ? routed : answer(...routed);
+  }
+
+  // An account's public profile, the same as any game or server gets at <rooms>/v1/players/<id>.
+  const playerPath = path.match(/^\/players\/([^/]+)$/);
+  if (playerPath && method === "GET") {
+    const playerId = decodeURIComponent(playerPath[1]!);
+    const playerFix = "Take player IDs from your game: a room's players, or the sub of a player pass your server checked.";
+    checkIdKind("player", playerId, "player_id", playerFix);
+    const profile = await playerProfile(env.DB, playerId);
+    if (!profile) throw new ApiError("no_player", { message: `No account has the player ID ${playerId}. Guests have no profile, and a deleted account's is gone.`, field: "player_id", fix: playerFix });
+    return answer({ player: profile });
   }
 
   if (path === "/games" && method === "POST") {

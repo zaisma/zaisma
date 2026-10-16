@@ -1,5 +1,5 @@
-import { gameBySlug, isIdOf, issueRoomKey, newId, testerLinkByToken, type Game } from "@zaisma/core";
-import { checkAccessToken, readCookie } from "./auth.ts";
+import { accountById, gameBySlug, isIdOf, issueRoomKey, newId, testerLinkByToken, type Game } from "@zaisma/core";
+import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { playable } from "./home.ts";
 
@@ -63,7 +63,7 @@ export async function handlePlays(request: Request, env: Env, path: string): Pro
     return new Response(null, { status: 400 });
   }
   const game = await gameBySlug(env.DB, match[1]!);
-  if (body.tester !== undefined) return testerPlay(env, game, body);
+  if (body.tester !== undefined) return testerPlay(request, env, game, body);
   if (!game || !playable(game)) return new Response(null, { status: 404 });
 
   if (typeof body.ticket === "string") {
@@ -75,21 +75,25 @@ export async function handlePlays(request: Request, env: Env, path: string): Pro
   const facts = startFacts(body);
   await countStart(env.DB, game.id, facts);
   if (!(await checked(env, body.token))) return ok();
-  const key = multiplayer(game) ? await issueRoomKey(env.DB, game.id) : undefined;
+  const { accountId, cookies } = await signedIn(request, env);
+  // A signed-in player plays as their account in every game, everyone else as a guest.
+  const key = multiplayer(game) ? await issueRoomKey(env.DB, game.id, accountId) : undefined;
   // Only plays from a checked browser, and not the developer's own, can be counted.
-  const ticket = (await ownGame(request, env, game)) ? undefined : await issueTicket(env.DB, game.id, facts);
-  return ticket || key ? ok({ ...(ticket ? { ticket } : {}), ...(key ? { key } : {}) }) : ok();
+  const ticket = (await ownGame(env, game, accountId)) ? undefined : await issueTicket(env.DB, game.id, facts);
+  const playerKind = accountId ? "account" : "guest";
+  return withCookies(ticket || key ? ok({ ...(ticket ? { ticket } : {}), ...(key ? { key, playerKind } : {}) }) : ok(), cookies);
 }
 
 /** Multiplayer with Zaisma's player passes: on Zaisma rooms or the game's own servers. */
 const multiplayer = (game: Game) => game.multiplayer_mode !== "none" || Boolean(game.connect_hosts);
 
 /** A play through a tester link: never counted, but a checked browser still gets its key to multiplayer. */
-async function testerPlay(env: Env, game: Game | null, body: Record<string, unknown>): Promise<Response> {
+async function testerPlay(request: Request, env: Env, game: Game | null, body: Record<string, unknown>): Promise<Response> {
   const link = typeof body.tester === "string" ? await testerLinkByToken(env.DB, body.tester) : null;
   if (!game || !link || link.slug !== game.slug || game.review_status !== "live" || !game.live_version_id) return new Response(null, { status: 404 });
   if (!multiplayer(game) || !(await checked(env, body.token))) return ok();
-  return ok({ key: await issueRoomKey(env.DB, game.id) });
+  const { accountId, cookies } = await signedIn(request, env);
+  return withCookies(ok({ key: await issueRoomKey(env.DB, game.id, accountId), playerKind: accountId ? "account" : "guest" }), cookies);
 }
 
 interface StartFacts {
@@ -201,14 +205,26 @@ async function checked(env: Env, token: unknown): Promise<boolean> {
   }
 }
 
-/** The developer playing their own game, signed in. Never refreshes the session, so it can't sign them out. */
-async function ownGame(request: Request, env: Env, game: Game): Promise<boolean> {
-  if (!game.owner_id) return false;
-  const access = readCookie(request, env, "zaisma")?.split("~")[0];
-  if (!access) return false;
-  const who = await checkAccessToken(env, access).catch(() => null);
-  if (!who || who === "expired") return false;
-  return Boolean(await env.DB.prepare("SELECT 1 FROM owners WHERE id = ? AND account_id = ?").bind(game.owner_id, who.userId).first());
+/**
+ * The signed-in player's account (null for a guest), with the cookies of a session it refreshed: a game
+ * page can sit open longer than a sign-in lasts before the player presses Play.
+ */
+async function signedIn(request: Request, env: Env): Promise<{ accountId: string | null; cookies: string[] }> {
+  const session = await currentSession(request, env).catch(() => null);
+  // Signed in but the account isn't finished (no name or age yet): a guest until it is.
+  const account = session ? await accountById(env.DB, session.userId) : null;
+  return { accountId: account?.id ?? null, cookies: session?.cookies ?? [] };
+}
+
+function withCookies(response: Response, cookies: string[]): Response {
+  for (const cookie of cookies) response.headers.append("Set-Cookie", cookie);
+  return response;
+}
+
+/** The developer playing their own game, signed in. */
+async function ownGame(env: Env, game: Game, accountId: string | null): Promise<boolean> {
+  if (!game.owner_id || !accountId) return false;
+  return Boolean(await env.DB.prepare("SELECT 1 FROM owners WHERE id = ? AND account_id = ?").bind(game.owner_id, accountId).first());
 }
 
 /** The internet provider's network number (ASN) of the connection, or 0 when unknown. */
@@ -317,9 +333,10 @@ export async function playStats(database: D1Database, gameId: string, periodDura
  * played, and when it first and last did, stay in this browser (zaisma:plays).
  */
 export function playCounter(slug: string, siteKey: string | undefined, tester?: string): string {
-  return `// The key to player passes the check gives a checked browser in a multiplayer game, for the game to ask for (zaisma:room-key).
+  return `// The key to player passes the check gives a checked browser in a multiplayer game, for the game to ask for (zaisma:room-key),
+// and whose passes it gives: the signed-in account's, or a guest's.
 let gotKey;
-const roomKey = new Promise((done) => (gotKey = (r) => done((r && r.key) || null)));
+const roomKey = new Promise((done) => (gotKey = (r) => done(r && r.key ? { key: r.key, playerKind: r.playerKind } : null)));
 const countPlay = (() => {
 const api = "/api/plays/${slug}", KEY = "zaisma:plays", SLUG = ${JSON.stringify(slug)}, SITE_KEY = ${JSON.stringify(siteKey ?? "")}, TESTER = ${JSON.stringify(tester ?? "")};
 const post = (body) => fetch(api, { method: "POST", body: JSON.stringify(body), keepalive: true }).then((r) => (r.status === 200 ? r.json() : null)).catch(() => null);

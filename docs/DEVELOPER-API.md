@@ -76,6 +76,12 @@ The HTTP status goes with the code, as listed. The list lives in `ERROR_CODES` (
 | `bad_period_duration_days` | 400 | period_duration_days isn't a whole number from 1 to 90. |
 | `bad_cursor` | 400 | cursor isn't a next_cursor from an earlier answer. |
 
+**Players**
+
+| Code | HTTP | Meaning |
+| --- | --- | --- |
+| `no_player` | 404 | No account has that player ID: a guest's, or a deleted account's. |
+
 **Covers, screenshots and other images**
 
 | Code | HTTP | Meaning |
@@ -320,6 +326,16 @@ A game looks like: `slug`, `page_url`, `title`, `description`, `visibility`, `re
 - **came_back:** `after_1_day`, `after_7_days` and `after_30_days`, each `{"returned_pct", "returned_player_count", "new_player_count"}`: of the new players in the 30 days before, how many played again that many days after their first play. Only days that are over count, so `returned_pct` is `null` until there are some.
 
 A player is a browser: one person on two devices counts twice, and clearing the browser makes them new. Plays through tester and preview links, and your own while signed in, aren't counted. We keep only counts: nothing that says who played. Faking plays breaks the content rules: it takes a game off Popular, Trending and New, and doing it again can get the game taken down.
+
+## Players
+
+A signed-in player plays as their Zaisma account in every game, with the same player ID (`player_…`) everywhere; anyone else is a guest with a new ID for each pass. Your game sees the ID in `room.players`, in `Zaisma.player()` and as the `sub` of the player pass your own server checks, with `kind` saying `account` or `guest`.
+
+| Call | What it does |
+| --- | --- |
+| `GET /players/:player_id` | An account's public profile: `{"player": {"id", "name"}}`, exactly what a stranger sees of it, never its email, age or other games' data. A guest's ID, or a deleted account's, is `no_player`. |
+
+Games and servers get the same with no key at `GET https://rooms.zaisma.com/v1/players/<player_id>` (open to any site, up to 300 a minute per address, answers cacheable for 5 minutes), and in games with `Zaisma.player.getProfile(playerId)`. A player pass proves only who the player is: an account's carries no name, so your server looks the name up there (the Node game server does it for you).
 
 ## Tester links
 

@@ -1,10 +1,12 @@
-import { newId } from "./ids.ts";
+import { isIdOf, newId } from "./ids.ts";
 
 export type AgeBand = "13-17" | "18+";
 
 export interface Account {
-  /** The Supabase user ID. */
+  /** The Supabase user ID. Stays inside Zaisma. */
   id: string;
+  /** The player ID games see, the same in every game (player_…). */
+  player_id: string;
   name: string;
   age_band: AgeBand;
   created_at_ms: number;
@@ -63,11 +65,27 @@ export async function accountById(database: D1Database, id: string): Promise<Acc
   return database.prepare("SELECT * FROM accounts WHERE id = ?").bind(id).first<Account>();
 }
 
+/**
+ * What anyone sees of an account by its player ID, games and servers included: exactly what a stranger
+ * sees, as each part exists (today, its name). Never its email, age, saves or anything it didn't make
+ * public (docs/DECISIONS.md, "A Zaisma account works in every game").
+ */
+export interface PlayerProfile {
+  id: string;
+  name: string;
+}
+
+/** An account's public profile, or null when no account has this player ID (a guest's, or a deleted account's). */
+export async function playerProfile(database: D1Database, playerId: string): Promise<PlayerProfile | null> {
+  if (!isIdOf("player", playerId)) return null;
+  return database.prepare("SELECT player_id AS id, name FROM accounts WHERE player_id = ?").bind(playerId).first<PlayerProfile>();
+}
+
 export async function createAccount(database: D1Database, newAccount: { id: string; name: string; ageBand: AgeBand }): Promise<Account> {
-  const account: Account = { id: newAccount.id, name: newAccount.name, age_band: newAccount.ageBand, created_at_ms: now(), updated_at_ms: now() };
+  const account: Account = { id: newAccount.id, player_id: newId("player"), name: newAccount.name, age_band: newAccount.ageBand, created_at_ms: now(), updated_at_ms: now() };
   await database
-    .prepare("INSERT INTO accounts (id, name, age_band, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING")
-    .bind(account.id, account.name, account.age_band, account.created_at_ms, account.updated_at_ms)
+    .prepare("INSERT INTO accounts (id, player_id, name, age_band, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING")
+    .bind(account.id, account.player_id, account.name, account.age_band, account.created_at_ms, account.updated_at_ms)
     .run();
   return (await accountById(database, newAccount.id)) ?? account;
 }
@@ -93,6 +111,7 @@ export async function deleteAccount(database: D1Database, id: string): Promise<v
     database.prepare("DELETE FROM saves WHERE account_id = ?").bind(id),
     database.prepare("DELETE FROM played WHERE account_id = ?").bind(id),
     database.prepare("DELETE FROM api_keys WHERE account_id = ?").bind(id),
+    database.prepare("DELETE FROM room_keys WHERE account_id = ?").bind(id),
     // Their forum topics and posts go too (the caller deletes their images); a known issue they
     // started stays, nameless. Their replies and Me too come off other topics' counts.
     database.prepare(

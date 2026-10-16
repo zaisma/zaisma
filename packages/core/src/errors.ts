@@ -43,6 +43,9 @@ export const ERROR_CODES = {
   bad_period_duration_days: { httpStatus: 400, meaning: "period_duration_days isn't a whole number from 1 to 90." },
   bad_cursor: { httpStatus: 400, meaning: "cursor isn't a next_cursor from an earlier answer." },
 
+  // Players
+  no_player: { httpStatus: 404, meaning: "No account has that player ID: a guest's, or a deleted account's." },
+
   // Covers, screenshots and other images
   bad_kind: { httpStatus: 400, meaning: "kind isn't one of the choices the call takes." },
   not_an_image: { httpStatus: 415, meaning: "The file isn't an image of a type the call takes." },

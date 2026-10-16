@@ -4,12 +4,14 @@ The live plan of what gets built, in what order. `docs/DECISIONS.md` says *how* 
 
 ## Now
 
-Who a player is comes first: the pass, the player ID and the sign-in that saves, friends, the game database and webhooks all build on, settled before anything else builds on them (Julius, Oct 16, 2026). After these four, the rest of Phase 1 goes in any order.
+Who a player is comes first: the pass, the player ID and the sign-in that saves, friends, the game database and webhooks all build on, settled before anything else builds on them (Julius, Oct 16, 2026). After these, the rest of Phase 1 goes in any order.
 
-1. Zaisma accounts in games (Accounts and saves)
-2. Social modes and age bands (Accounts and saves)
-3. Game database (Game servers and data)
-4. Webhooks for developers (Developer publishing)
+1. Account passes (Accounts and saves)
+2. Accounts-only games (Accounts and saves)
+3. Sign in with Zaisma (Accounts and saves)
+4. Social modes and age bands (Accounts and saves)
+5. Game database (Game servers and data)
+6. Webhooks for developers (Developer publishing)
 
 Waiting on people: Gleb: register with NCMEC, Gleb: register the DMCA agent, Julius: send PhotoDNA the LLC's records.
 
@@ -171,7 +173,9 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | done | Must | Save history | Cloud saves | Up to 5 earlier versions per game; players go back from their account or the game menu |
 | done | Must | Passkeys | Sign-in | Face ID or fingerprint to sign back in, checked on our server; the email code stays for new accounts and lost devices |
 | done | Nice | Google and Discord sign-in | Sign-in, Age question | Through Supabase, with the age question still first for new accounts |
-| next | Must | Zaisma accounts in games | Sign-in, Player passes | One ID everywhere. Passes become proof only (the ID, the game, when it expires). A public profile lookup any game or server can call. Games choose guests, accounts only or a mix; the game page says "Needs a Zaisma account" before Play when the whole game does. Ships with Sign in with Zaisma: one OAuth server for developers' own sites, games with their own accounts and the MCP. Site copy that says every game plays as a guest changes when this ships |
+| doing | Must | Account passes | Sign-in, Player passes | One player ID per account, the same in every game. Signed-in players get passes that are proof only (the ID, the game, when it expires); Zaisma rooms and the Node game server take both kinds. A public profile lookup by player ID for any game or server, in the API, MCP and SDK |
+| next | Must | Accounts-only games | Account passes | Games choose guests, accounts only or a mix, for the whole game, multiplayer or a room; the game page says "Needs a Zaisma account" before Play when the whole game does, and the game can ask the player to sign in. Site copy that says every game plays as a guest changes with it |
+| next | Must | Sign in with Zaisma | Account passes | One OAuth server for developers' own sites, games with their own accounts and the MCP |
 | next | Must | Social modes and age bands | Age question | Three age bands (13–15, 16–17, 18+); every account has a social mode (solo-focused, friends-focused, open and social). 13–15 start solo-focused and can switch only to friends-focused; open and social stays within the same band group. The pass carries an opaque chat group and friends, never the age; `canChat(a, b)` for developers' servers |
 | planned | Must | Saves through the API | Cloud saves, Developer accounts | Developers read, fix and export their game's saves by player ID (API and MCP); every developer change keeps a history copy first. Saves and the game database stay separate |
 | planned | Must | Save screens games can take over | Cloud saves, "Keep your progress" | The conflict chooser and the "Keep your progress" card stay the default; SDK games handle conflicts themselves (`Zaisma.saves.onConflict`) and offer an account when they like (`Zaisma.player.offerAccount()`) |

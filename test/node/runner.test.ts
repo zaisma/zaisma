@@ -65,6 +65,33 @@ describe("Node runner", () => {
     b.ws.close();
   });
 
+  it("looks up an account's name, since its pass carries none, and turns away a deleted account", async () => {
+    const lookedUp: string[] = [];
+    const profiles = async (playerId: string) => {
+      lookedUp.push(playerId);
+      return playerId === "player_owl" ? { id: playerId, name: "Night Owl" } : null;
+    };
+    const own = startServer({ server: relay, game: "arena", port: 0, origins: [ORIGIN], issuer: ISS, keys: async () => [signing.publicKey], profiles });
+    await new Promise((r) => own.wss.once("listening", r));
+    const at = (own.wss.address() as { port: number }).port;
+    const accountPass = async (sub: string) => {
+      const now = Math.floor(Date.now() / 1000);
+      return signPass(signing, { sub, aud: "arena", iss: ISS, kind: "account", iat: now, exp: now + 60 });
+    };
+    const owl = connect(ORIGIN, "/v1/rooms/arena/ABCDEF", at);
+    await owl.open;
+    owl.say({ type: "hello", pass: await accountPass("player_owl") });
+    expect((await owl.next()).me).toEqual({ id: "player_owl", name: "Night Owl", kind: "account" });
+    const gone = connect(ORIGIN, "/v1/rooms/arena/ABCDEF", at);
+    await gone.open;
+    gone.say({ type: "hello", pass: await accountPass("player_gone") });
+    expect(await gone.next()).toMatchObject({ type: "error", code: "bad_pass" });
+    // Guests' names come in their passes, so they're never looked up.
+    expect(lookedUp).toEqual(["player_owl", "player_gone"]);
+    owl.ws.close();
+    own.close();
+  });
+
   it("refuses other origins, passes for other games and the old short hello", async () => {
     expect(await connect("https://evil.example").closed).toBe(4001);
     const c = connect();

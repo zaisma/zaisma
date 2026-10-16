@@ -4,18 +4,25 @@
  * /.well-known/jwks.json. Any JWT library that supports EdDSA works.
  */
 
+/**
+ * What a pass proves: who the player is, for which game, until when. Nothing more; anything else
+ * about an account (its name) comes from its public profile, <issuer>/v1/players/<id>.
+ */
 export interface PassClaims {
-  /** Player ID. For guests, random and only valid for this pass. */
+  /** Player ID. An account's is the same in every game; a guest's is random and only valid for this pass. */
   sub: string;
-  /** Display name. Guests get a generated one. */
-  name: string;
+  /** A guest's generated name. Account passes carry none. */
+  name?: string;
   /** The game's slug: a pass only works for the game it was issued for. */
   aud: string;
   iss: string;
-  kind: "guest";
+  kind: PlayerKind;
   iat: number;
   exp: number;
 }
+
+/** A signed-in Zaisma account, or a guest. */
+export type PlayerKind = "guest" | "account";
 
 export type PublicKey = JsonWebKey & { kid: string };
 
@@ -112,6 +119,7 @@ export async function verifyPass(
   if (typeof claims.exp !== "number" || claims.exp <= nowSec) throw new PassError("expired");
   if (claims.iss !== expect.issuer) throw new PassError("wrong_issuer");
   if (claims.aud !== expect.game) throw new PassError("wrong_game");
-  if (typeof claims.sub !== "string" || typeof claims.name !== "string") throw new PassError("malformed");
+  if (typeof claims.sub !== "string") throw new PassError("malformed");
+  if (claims.kind !== "account" && !(claims.kind === "guest" && typeof claims.name === "string")) throw new PassError("malformed");
   return claims;
 }

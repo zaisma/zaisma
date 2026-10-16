@@ -16,13 +16,14 @@ import {
   type MoveAnswer,
   type MoveAsk,
   type Player,
+  type PlayerKind,
   type RoomErrorCode,
   type RoomInfo,
   type RoomStart,
   type SavedRoom,
   type ServerMessage,
 } from "@zaisma/game-server";
-import { gameServerOf, pastFreeTier, type MultiplayerMode } from "@zaisma/core";
+import { gameServerOf, pastFreeTier, playerProfile, type MultiplayerMode } from "@zaisma/core";
 import { gameServer } from "./registry.ts";
 import { SANDBOX, errorLine, sandboxServer, type SandboxStats } from "./sandbox.ts";
 import { signingKey, type Env } from "./index.ts";
@@ -33,7 +34,8 @@ type Attachment =
   // tester: the tester link the player came through, which they can only play through while it's on.
   // seenAtMs: about when the player last sent a message (pings are answered without waking the room).
   // clientIdle: the idle check the player's game asked for, for game servers that leave it to the client.
-  | { stage: "in"; id: string; name: string; joinedAtMs: number; tester?: string; seenAtMs?: number; clientIdle?: ClientIdle }
+  // kind: missing on players who joined before accounts got passes, all guests.
+  | { stage: "in"; id: string; name: string; kind?: PlayerKind; joinedAtMs: number; tester?: string; seenAtMs?: number; clientIdle?: ClientIdle }
   | { stage: "gone" };
 
 interface Meta {
@@ -322,12 +324,12 @@ export class Room extends DurableObject<Env> {
   private async expecting(request: Request): Promise<Response> {
     if (!this.meta?.roomCode || this.hasEnded || this.meta.gameId !== request.headers.get("x-game-id")) return new Response("No such room", { status: 404 });
     const ask = (await request.json()) as MoveAsk;
-    const players = Array.isArray(ask?.players) ? ask.players.filter((player) => typeof player?.id === "string" && typeof player?.name === "string").slice(0, 16) : [];
+    const players = Array.isArray(ask?.players) ? ask.players.filter((player) => typeof player?.id === "string" && typeof player?.name === "string" && (player.kind === "guest" || player.kind === "account")).slice(0, 16) : [];
     if (typeof ask?.fromRoomCode !== "string" || !players.length) return new Response("Bad request", { status: 400 });
     if (!(await this.load()) || !(await this.gameStillLive())) return new Response("No such room", { status: 404 });
     const core = this.room();
     if (!core) return new Response("No such room", { status: 404 });
-    const answer = await core.expect({ fromRoomCode: ask.fromRoomCode, players: players.map((player) => ({ id: player.id, name: player.name })), joinData: ask.joinData ?? null });
+    const answer = await core.expect({ fromRoomCode: ask.fromRoomCode, players: players.map((player) => ({ id: player.id, name: player.name, kind: player.kind })), joinData: ask.joinData ?? null });
     await core.settled();
     this.savedRoom = core.saved;
     await this.ctx.storage.put("room", this.savedRoom);
@@ -360,7 +362,10 @@ export class Room extends DurableObject<Env> {
     let player: Player;
     try {
       const claims = await verifyPass(pass, [(await signingKey(this.env)).publicKey], { game: this.meta.slug, issuer: this.env.ISSUER });
-      player = { id: claims.sub, name: claims.name };
+      // An account's pass is proof only: its name comes from its profile, and a deleted account's pass stops working.
+      const name = claims.kind === "account" ? (await playerProfile(this.env.DB, claims.sub))?.name : claims.name;
+      if (!name) return this.refuse(socket, "bad_pass");
+      player = { id: claims.sub, name, kind: claims.kind };
     } catch (error) {
       if (!(error instanceof PassError)) throw error;
       return this.refuse(socket, "bad_pass");
@@ -388,7 +393,7 @@ export class Room extends DurableObject<Env> {
       other.close(REFUSED_CLOSE_CODE, "Joined from somewhere else");
     }
     const nowMs = Date.now();
-    socket.serializeAttachment({ stage: "in", id: player.id, name: player.name, joinedAtMs: nowMs, seenAtMs: nowMs, ...(tester ? { tester } : {}), clientIdle: made.clientIdle ?? {} } satisfies Attachment);
+    socket.serializeAttachment({ stage: "in", id: player.id, name: player.name, kind: player.kind, joinedAtMs: nowMs, seenAtMs: nowMs, ...(tester ? { tester } : {}), clientIdle: made.clientIdle ?? {} } satisfies Attachment);
     const joined = core.join(player, made);
     if (!joined.isAllowed) return this.refuse(socket, joined.code, joined.message);
     await core.settled();
@@ -598,7 +603,7 @@ export class Room extends DurableObject<Env> {
       const attachment = socket.deserializeAttachment() as Attachment & { stage: "in" };
       if (Object.hasOwn(held, attachment.id)) return [];
       presence[attachment.id] = { seenAtMs: attachment.seenAtMs ?? attachment.joinedAtMs, clientIdle: attachment.clientIdle };
-      return [{ id: attachment.id, name: attachment.name }];
+      return [{ id: attachment.id, name: attachment.name, kind: attachment.kind ?? "guest" }];
     });
     const transport = {
       send: (id: string, text: string) => this.sockets(id).forEach((socket) => socket.send(text)),

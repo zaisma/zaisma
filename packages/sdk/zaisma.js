@@ -95,8 +95,9 @@
   var UNCHECKED = "Zaisma couldn't check this browser, so it can't play online. Reload the game to try again.";
 
   /**
-   * The game page's key to player passes. zaisma.com gives one when Cloudflare's check on Play says
-   * a real browser pressed it, so bots can't fill rooms; a game opened anywhere else gets none.
+   * The game page's key to player passes, as { key, playerKind }: whose passes it gives, the signed-in
+   * account's or a guest's. zaisma.com gives one when Cloudflare's check on Play says a real browser
+   * pressed it, so bots can't fill rooms; a game opened anywhere else gets none.
    */
   function roomKey() {
     if (!keyPromise) {
@@ -109,7 +110,7 @@
           if (event.origin !== config.site || event.source !== window.parent || !event.data || event.data.type !== "zaisma:room-key") return;
           removeEventListener("message", onMessage);
           clearTimeout(timer);
-          if (typeof event.data.key === "string") resolve(event.data.key);
+          if (typeof event.data.key === "string") resolve({ key: event.data.key, playerKind: event.data.playerKind === "account" ? "account" : "guest" });
           else fail(UNCHECKED);
         }
         addEventListener("message", onMessage);
@@ -119,21 +120,40 @@
     return keyPromise;
   }
 
-  /** This tab's guest player: { id, name, pass, expiresAt }. Kept only for the tab, like the guest it belongs to. */
+  /** The pass this tab kept, while it has 10 minutes or more left, else null. */
+  function keptPass() {
+    try {
+      var kept = JSON.parse(sessionStorage.getItem(passKey) || "null");
+      return kept && Date.parse(kept.expiresAt) - Date.now() > 10 * 60 * 1000 ? kept : null;
+    } catch (error) {
+      return null; // storage off: fetch a new pass
+    }
+  }
+
+  /**
+   * This tab's player: { id, name, kind, pass, expiresAt }. The signed-in account, or a guest. Kept for
+   * the tab, so a guest who reloads stays the same guest and gets their seat back.
+   */
   function player() {
     if (!config.rooms) return Promise.reject(notOnZaisma("Player passes come from Zaisma, so they work only in games played on Zaisma."));
-    try {
-      var saved = JSON.parse(sessionStorage.getItem(passKey) || "null");
-      if (saved && Date.parse(saved.expiresAt) - Date.now() > 10 * 60 * 1000) return Promise.resolve(saved);
-    } catch (error) { /* storage off: fetch a new pass */ }
     if (!passPromise) {
-      passPromise = roomKey().then(function (key) {
-        return post("/v1/pass", { gameSlug: config.game, roomKey: key });
-      }).then(function (answer) {
-        var guest = { id: answer.player.id, name: answer.player.name, pass: answer.pass, expiresAt: answer.expiresAt };
-        try { sessionStorage.setItem(passKey, JSON.stringify(guest)); } catch (error) { /* fine */ }
+      passPromise = roomKey().then(function (given) {
+        // The kept pass, unless the player signed in or out since it was made.
+        var kept = keptPass();
+        if (kept && kept.kind === given.playerKind) return kept;
+        return post("/v1/pass", { gameSlug: config.game, roomKey: given.key }).then(function (answer) {
+          var mine = { id: answer.player.id, name: answer.player.name, kind: answer.player.kind, pass: answer.pass, expiresAt: answer.expiresAt };
+          try { sessionStorage.setItem(passKey, JSON.stringify(mine)); } catch (error) { /* fine */ }
+          return mine;
+        });
+      }, function (error) {
+        // No key this time (the check couldn't answer): the pass this tab kept still works.
+        var kept = keptPass();
+        if (kept) return kept;
+        throw error;
+      }).then(function (mine) {
         passPromise = null;
-        return guest;
+        return mine;
       }, function (error) {
         passPromise = null;
         throw error;
@@ -141,6 +161,19 @@
     }
     return passPromise;
   }
+
+  /**
+   * An account's public profile by player ID: { id, name }, what anyone sees of it. Guests have none
+   * (error.code "no_player").
+   */
+  function getProfile(playerId) {
+    if (!config.rooms) return Promise.reject(notOnZaisma("Profiles come from Zaisma, so they work only in games played on Zaisma."));
+    if (typeof playerId !== "string" || !/^player_[a-z0-9]+$/.test(playerId)) return Promise.reject(codedError("bad_player_id", "playerId isn't a player ID like \"player_8f3k2m\": take it from room.players or Zaisma.player()."));
+    return fetch(config.rooms + "/v1/players/" + playerId).then(answered, requestFailed).then(function (answer) {
+      return answer.player;
+    });
+  }
+  player.getProfile = getProfile;
 
   function roomCodeFromPage() {
     try {

@@ -35,10 +35,30 @@ export function keysFrom(jwksUrl) {
 }
 
 /**
- * Start a server. Options: server (a game server object), game (its Zaisma slug),
- * port, origins (allowed page origins), issuer, keys (async () => public keys).
+ * Look up accounts' public profiles at Zaisma (<issuer>/v1/players/<id>), caching each for 5 minutes.
+ * An account's pass proves only who the player is; its name comes from here. Null when no account
+ * has that ID (deleted since its pass was made).
  */
-export function startServer({ server, game, port, origins, issuer = "https://rooms.zaisma.com", keys }) {
+export function profilesFrom(issuer) {
+  const cache = new Map();
+  return async (playerId) => {
+    const cached = cache.get(playerId);
+    if (cached && Date.now() - cached.fetchedAtMs < 300_000) return cached.profile;
+    const response = await fetch(`${issuer}/v1/players/${encodeURIComponent(playerId)}`);
+    if (response.status !== 200 && response.status !== 404) throw new Error(`Couldn't look up player ${playerId} at ${issuer}`);
+    const profile = response.status === 200 ? (await response.json()).player : null;
+    if (cache.size > 10_000) cache.clear();
+    cache.set(playerId, { fetchedAtMs: Date.now(), profile });
+    return profile;
+  };
+}
+
+/**
+ * Start a server. Options: server (a game server object), game (its Zaisma slug),
+ * port, origins (allowed page origins), issuer, keys (async () => public keys),
+ * profiles (async (playerId) => an account's public profile or null).
+ */
+export function startServer({ server, game, port, origins, issuer = "https://rooms.zaisma.com", keys, profiles = profilesFrom(issuer) }) {
   const definition = defineGameServer(server);
   const rooms = new Map(); // code -> { core, sockets: Map<playerId, ws>, timer }
   const wss = new WebSocketServer({ port, maxPayload: 64 * 1024 });
@@ -178,10 +198,14 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
         if (error instanceof PassError) return refuse("bad_pass");
         throw error;
       }
+      // An account's pass is proof only: its name comes from its public profile, and a deleted account's pass stops working.
+      const name = claims.kind === "account" ? (await profiles(claims.sub))?.name : claims.name;
+      if (!name) return refuse("bad_pass");
+      const player = { id: claims.sub, name, kind: claims.kind };
       clearTimeout(helloTimer);
       const room = roomFor(code);
       // The room's rules and the game's canJoin, before anyone hears about this player.
-      const admitted = await room.core.admit({ id: claims.sub, name: claims.name }, made.joinData);
+      const admitted = await room.core.admit(player, made.joinData);
       if (!admitted.isAllowed) {
         closeIfEmpty(code, room);
         return refuse(admitted.code, admitted.message);
@@ -189,7 +213,7 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
       room.sockets.get(claims.sub)?.close(REFUSED_CLOSE_CODE, "Joined from somewhere else");
       room.sockets.set(claims.sub, ws);
       // Rooms here aren't in Zaisma's room lists, but listed, open and closed work the same for the game.
-      const joined = room.core.join({ id: claims.sub, name: claims.name }, made);
+      const joined = room.core.join(player, made);
       if (!joined.isAllowed) {
         room.sockets.delete(claims.sub);
         closeIfEmpty(code, room);

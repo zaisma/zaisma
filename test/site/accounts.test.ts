@@ -440,6 +440,33 @@ describe("pages", () => {
   });
 });
 
+describe("playing as your account", () => {
+  it("gives a signed-in player a key to their account's passes, and anyone else a guest's", async () => {
+    const now = Date.now();
+    await env.DB.prepare("INSERT INTO games (id, slug, title, review_status, visibility, live_version_id, multiplayer_mode, created_at_ms, updated_at_ms) VALUES ('g-arena', 'arena-game', 'Arena', 'live', 'listed', 'v1', 'relay', ?, ?)").bind(now, now).run();
+    // Cloudflare's check on Play says each browser is real.
+    const withSupabase = globalThis.fetch;
+    vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) =>
+      String(input instanceof Request ? input.url : input).startsWith("https://challenges.cloudflare.com/") ? Promise.resolve(Response.json({ success: true, action: "play", hostname: "zaisma.test" })) : withSupabase(input, init),
+    );
+    const play = async (b: Browser) => (await b.go("/api/plays/arena-game", undefined, { method: "POST", body: JSON.stringify({ first: null, last: null, cfirst: null, clast: null, token: "good" }) })).json<{ key: string; playerKind: string }>();
+    const keyAccount = (key: string) => env.DB.prepare("SELECT account_id FROM room_keys WHERE id = ?").bind(key).first<{ account_id: string | null }>();
+
+    const guest = await play(new Browser());
+    expect(guest.playerKind).toBe("guest");
+    expect(await keyAccount(guest.key)).toEqual({ account_id: null });
+
+    const b = new Browser();
+    await join(b);
+    const signedIn = await play(b);
+    expect(signedIn.playerKind).toBe("account");
+    expect(await keyAccount(signedIn.key)).toEqual({ account_id: users.get("fox@example.com") });
+    // Every account has its own player ID, the same in every game, apart from the sign-in's ID.
+    const account = await accountById(env.DB, users.get("fox@example.com")!);
+    expect(account?.player_id).toMatch(/^player_[a-z0-9]{20}$/);
+  });
+});
+
 describe("cloud saves", () => {
   async function liveGame(slug = "owl-game", cloudSaves = 1) {
     const now = Date.now();

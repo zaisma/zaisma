@@ -330,3 +330,13 @@ describe("reports, stats and history", () => {
   });
 });
 
+describe("players", () => {
+  it("looks up an account's public profile by its player ID, and nothing else", async () => {
+    const account = await createAccount(env.DB, { id: "player-1", name: "Night Owl", ageBand: "13-17" });
+    // What a stranger sees: the name, never the email, age or the sign-in's own ID.
+    expect(await tool("get_player", { player_id: account.player_id })).toEqual({ player: { id: account.player_id, name: "Night Owl" } });
+    expect(await tool("get_player", { player_id: "player_nobodyhasthis1" })).toMatchObject({ code: "no_player", field: "player_id" });
+    expect(await tool("get_player", { player_id: "version_8f3k2m9q1x7c4v6b0n5z" })).toMatchObject({ code: "wrong_id_kind", field: "player_id" });
+  });
+});
+
