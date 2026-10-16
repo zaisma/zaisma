@@ -629,7 +629,7 @@ function statsPanel(stats: Stats, own: boolean): Raw {
 function schedulesTable(schedules: Stats["schedules"]): Raw | "" {
   if (!schedules.length) return "";
   return html`<h3>Your game server's schedules</h3>
-<p class="hint">Times are UTC. Schedules are free: up to 10, each at most once a minute. Errors from a run show with your game server's others.</p>
+<p class="hint">Crons are in UTC; times here are yours. Schedules are free: up to 10, each at most once a minute. Errors from a run show with your game server's others.</p>
 <table><thead><tr><th>Schedule</th><th>Cron</th><th>Next run</th><th>Last run</th></tr></thead><tbody>${schedules.map(
     (schedule) => html`<tr><td>${schedule.schedule_name}</td><td><code>${schedule.cron}</code></td><td class="nowrap">${when(schedule.next_run_at)}</td><td class="nowrap">${schedule.last_run_at ? when(schedule.last_run_at) : html`<span class="muted">Not yet</span>`}</td></tr>`,
   )}</tbody></table>`;
