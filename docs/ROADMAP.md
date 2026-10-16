@@ -162,14 +162,14 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 
 | Status | Must/Nice | Settled | Item | Needs | Notes |
 | --- | --- | --- | --- | --- | --- |
-| done | Must | | Run a game server yourself | Game server API and relay, Player passes | Node runner; same code as our rooms |
-| done | Must | | Developers' own game servers run safely | Upload command, Rooms on rooms.zaisma.com, Julius: Workers Paid plan | Live Oct 13, 2026: a `zaisma-server/` folder or one `zaisma-server.js` runs on our rooms in a Dynamic Worker with no internet, never served to players; a match stopped twice ends; developers see its errors with the line |
+| done | Must | yes | Run a game server yourself | Game server API and relay, Player passes | Node runner; same code as our rooms |
+| done | Must | yes | Developers' own game servers run safely | Upload command, Rooms on rooms.zaisma.com, Julius: Workers Paid plan | Live Oct 13, 2026: a `zaisma-server/` folder or one `zaisma-server.js` runs on our rooms in a Dynamic Worker with no internet, never served to players; a match stopped twice ends; developers see its errors with the line |
 | done | Must | yes | Game database for game servers | Rooms on rooms.zaisma.com | Live Oct 16, 2026 (#163, no migration): a SQLite database per game as `room.database` (plain SQL and batches), in Zaisma rooms and as a local file on the developer's own server. Free per game: 500,000 rows written and 500 million read a month, 500 MB; until Hosting billing, past them writes stop and reads keep working (Julius, Oct 16, 2026) |
 | done | Must | yes | Game database through the API | Game database for game servers | Live Oct 16, 2026 (#164, no migration, CLI 0.5.0): the developer and their AI run SQL, list tables and see use against the free limits, through the API, MCP (`get_database`, `query_database`, `batch_database`) and `zaisma database` |
 | next | Must | yes | Game database import and export | Game database through the API | The whole database out and in as SQLite's SQL dump through the API, MCP and `zaisma database export` and `import` (a `.sqlite` file from the CLI), and the dashboard's database console on the same API |
 | planned | Must | yes | Game database restore to a time | Game database import and export | Roll a game's database back to any minute in the last 30 days, and undo that, through the API, MCP, CLI and the dashboard's console |
-| done | Must | | Game server endpoints | Developers' own game servers run safely | Live Oct 16, 2026 (#169, migration 0041): the game server's `onRequest` answers `Zaisma.server.request` outside rooms (leaderboards, a shop, daily rewards), with the game database behind it, on Zaisma and in the Node runner. Free per game: 1 million requests a month (Julius, Oct 16, 2026) |
-| done | Must | | Game server schedules | Game server endpoints | Live Oct 16, 2026 (#170, migration 0043): the game server's `schedules` (crons in UTC) run `onSchedule` outside rooms (daily resets, persistent worlds), on Zaisma and in the Node runner. Free per game: up to 10 schedules, each at most once a minute, with no monthly count (Julius, Oct 16, 2026) |
+| done | Must | yes | Game server endpoints | Developers' own game servers run safely | Live Oct 16, 2026 (#169, migration 0041): the game server's `onRequest` answers `Zaisma.server.request` outside rooms (leaderboards, a shop, daily rewards), with the game database behind it, on Zaisma and in the Node runner. Free per game: 1 million requests a month (Julius, Oct 16, 2026) |
+| done | Must | yes | Game server schedules | Game server endpoints | Live Oct 16, 2026 (#170, migration 0043): the game server's `schedules` (crons in UTC) run `onSchedule` outside rooms (daily resets, persistent worlds), on Zaisma and in the Node runner. Free per game: up to 10 schedules, each at most once a minute, with no monthly count (Julius, Oct 16, 2026) |
 | planned | Must | | Game server reach and secrets | Developers' own game servers run safely | Game servers can call the developer's own listed servers and payment providers, with secrets set per game and never shown again. Still nothing of ours inside |
 
 ### Accounts and saves
@@ -205,13 +205,13 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 
 | Status | Must/Nice | Settled | Item | Needs | Notes |
 | --- | --- | --- | --- | --- | --- |
-| done | Must | | Connect image matching | Gleb: sign up for Arachnid Shield | Live Oct 14, 2026: every picture and video in an upload (by name, by its first bytes, or as base64 in code), plus covers and screenshots, matched with Arachnid Shield before publishing; a match holds the version, keeps every file and sends an urgent alert; a daily job matches versions that passed before |
+| done | Must | yes | Connect image matching | Gleb: sign up for Arachnid Shield | Live Oct 14, 2026: every picture and video in an upload (by name, by its first bytes, or as base64 in code), plus covers and screenshots, matched with Arachnid Shield before publishing; a match holds the version, keeps every file and sends an urgent alert; a daily job matches versions that passed before |
 | planned | Must | | Report matches to NCMEC automatically | Connect image matching, Gleb: register with NCMEC | Until then Julius reports matches at report.cybertip.org. PhotoDNA joins the matching once the LLC's records go through |
 | done | Must | | Player safety in rooms | Client SDK | Mute, block and report a player; a ready-made panel games put in their own menu |
-| done | Must | | Report redesign | | Live Oct 12, 2026: a plate beside the running game; reports carry the version, room, reported player and an optional picture. No single report takes an established game offline |
-| done | Must | | AI report triage | Report redesign | Live Oct 12, 2026: reports sorted within minutes by severity, merged and summarized with a recommendation; bugs go to the developer by themselves. Child-safety reports are never sorted by AI |
-| done | Must | | Report precedents | AI report triage | Live Oct 12, 2026: triage follows rulings a person made; dismissals marked for the AI alone happen without a person, with spot-checks. Child safety is never automatic and takedowns always need a person |
-| done | Must | | Admin MCP | AI report triage | Live Oct 12, 2026 at zaisma.com/admin/mcp: reports, games and precedents in a Claude session, signed in through Cloudflare Access (docs/ADMIN-MCP.md) |
+| done | Must | yes | Report redesign |  | Live Oct 12, 2026: a plate beside the running game; reports carry the version, room, reported player and an optional picture. No single report takes an established game offline |
+| done | Must | yes | AI report triage | Report redesign | Live Oct 12, 2026: reports sorted within minutes by severity, merged and summarized with a recommendation; bugs go to the developer by themselves. Child-safety reports are never sorted by AI |
+| done | Must | yes | Report precedents | AI report triage | Live Oct 12, 2026: triage follows rulings a person made; dismissals marked for the AI alone happen without a person, with spot-checks. Child safety is never automatic and takedowns always need a person |
+| done | Must | yes | Admin MCP | AI report triage | Live Oct 12, 2026 at zaisma.com/admin/mcp: reports, games and precedents in a Claude session, signed in through Cloudflare Access (docs/ADMIN-MCP.md) |
 | planned | Must | | No-slop cover and title checks | Game details and device labels | AI review checks covers; real screenshots on every game page. Fake rewards and brands the developer doesn't own hold the game; other slop keeps it off the shelves until the cover is fixed |
 | planned | Must | | Chat rules | | In the content rules and the AI review: chat only for accounts, through Zaisma's chat hosting or with `canChat` and the filter on a developer's own server. Until those ship (Phase 3), games offer preset phrases and emotes |
 
@@ -221,7 +221,7 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 
 | Status | Must/Nice | Settled | Item | Needs | Notes |
 | --- | --- | --- | --- | --- | --- |
-| done | Must | | Basic play stats | | Live Oct 13, 2026: plays, session length and players coming back, counted by the game page with no player IDs; in the dashboard, API and MCP |
+| done | Must | yes | Basic play stats |  | Live Oct 13, 2026: plays, session length and players coming back, counted by the game page with no player IDs; in the dashboard, API and MCP |
 | done | Must | yes | Play-count protection | Basic play stats | Live Oct 13, 2026: Cloudflare's invisible check on Play, a ticket per play, a minute on screen; shelves skip cloud networks; spike alerts and a content rule against faking plays |
 | planned | Nice | | Stats export and game events | Basic play stats | Daily counts through the API to export, and games counting their own events (`Zaisma.track`, no player IDs) next to plays |
 
@@ -231,10 +231,10 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 
 | Status | Must/Nice | Settled | Item | Needs | Notes |
 | --- | --- | --- | --- | --- | --- |
-| done | Must | | Design system | | Steel (docs/DESIGN.md): a console-style big-screen theme lit by the game on screen. Live on the home, game, dashboard and account pages; other pages move over as they're rebuilt |
-| done | Must | | Continue playing | | The games you played most recently, on the home page, sorted by recently played or updated, with an "Updated" badge |
-| done | Must | | Home page | Design system, Continue playing | The last-played stage with Play and Details, Continue playing, and Popular, Trending, New and All games shelves. Cards are the developer's cover alone; only Play starts a game |
-| done | Must | | Patch notes | | Version notes become patch notes in the game page's Updates tab |
+| done | Must | | Design system | | Steel (docs/DESIGN.md): a console-style big-screen theme lit by the game on screen. Live on the home, game, dashboard and account pages; other pages move over as they're rebuilt. Left unsettled on purpose: Steel is the look while Phase 1 is built, and it's revisited near the end of Phase 1, before the beta, so it reflects the turns Zaisma's identity takes until then (Julius, Oct 16, 2026). Sorts of done items skip it until then |
+| done | Must | yes | Continue playing |  | The games you played most recently, on the home page, sorted by recently played or updated, with an "Updated" badge |
+| done | Must | yes | Home page | Design system, Continue playing | The last-played stage with Play and Details, Continue playing, and Popular, Trending, New and All games shelves. Cards are the developer's cover alone; only Play starts a game |
+| done | Must | yes | Patch notes |  | Version notes become patch notes in the game page's Updates tab |
 | planned | Must | | Game update posts | Patch notes | Developers post a title, a short text and an optional image (checked like covers) |
 | done | Must | | Friends | Sign-in, Social modes and age bands | Live Oct 16, 2026 (#168, migration 0042): the friend list and invites on zaisma.com, a link or code for one friend, never a stranger pressing Add. Passes carry friends for `canChat` |
 | planned | Must | | Friends playing now | Friends | What game and room each friend is in, with a Join button, and appearing offline; only friends see where a teen is playing |
