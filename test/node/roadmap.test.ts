@@ -37,11 +37,11 @@ const SAMPLE = `# Roadmap
 
 **First:** Friends list
 
-| Status | Must/Nice | Item | Needs | Notes |
-| --- | --- | --- | --- | --- |
-| next | Must | Friends list | | |
-| next | Must | Party chat | | |
-| planned | Nice | Emotes | | |
+| Status | Must/Nice | Settled | Item | Needs | Notes |
+| --- | --- | --- | --- | --- | --- |
+| next | Must | yes | Friends list | | |
+| next | Must | | Party chat | | |
+| planned | Nice | | Emotes | | |
 `;
 
 describe("the roadmap's First markers", () => {
@@ -72,6 +72,28 @@ describe("the roadmap's First markers", () => {
   it("reads \"**First:** nothing.\" as no First items", () => {
     const empty = parseRoadmap(SAMPLE.replace("**First:**\n\n1. Pass shape (Identity)", "**First:** nothing."));
     expect(empty.nowItems.filter((item: { part: string }) => item.part === "first")).toEqual([]);
+  });
+
+  it("reads the Settled column, and a table without one as not settled", () => {
+    expect(findRow(sample, "Friends list").isSettled).toBe(true);
+    expect(findRow(sample, "Party chat").isSettled).toBe(false);
+    expect(findRow(sample, "Pass shape").isSettled).toBe(false);
+  });
+
+  it("gives every table with Must/Nice in docs/ROADMAP.md a Settled column holding yes or nothing", () => {
+    const lines = readFileSync(join(ROOT, "docs/ROADMAP.md"), "utf8").split("\n");
+    const headers = lines.filter((line) => line.startsWith("| Status |"));
+    expect(headers.filter((line) => line.includes("Must/Nice") && !line.includes("| Settled |"))).toEqual([]);
+    const settledColumn = headers[headers.findIndex((line) => line.includes("| Settled |"))].slice(1, -1).split("|").map((cell) => cell.trim()).indexOf("Settled");
+    const values = new Set<string>();
+    let isSettledTable = false;
+    for (const line of lines) {
+      if (!line.startsWith("|")) { isSettledTable = false; continue; }
+      if (line.startsWith("| Status |")) { isSettledTable = line.includes("| Settled |"); continue; }
+      if (!isSettledTable || /^\|[\s|-]+\|$/.test(line)) continue;
+      values.add(line.slice(1, -1).split("|").map((cell) => cell.trim())[settledColumn]);
+    }
+    expect([...values].filter((value) => value !== "yes" && value !== "")).toEqual([]);
   });
 
   it("names only real items in docs/ROADMAP.md, and keeps First items in Now unfinished", () => {

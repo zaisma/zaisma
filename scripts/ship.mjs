@@ -4,9 +4,10 @@
 // It never deploys the checkout it's run from. It fetches origin/main into its own clean copy
 // (.claude/ship in the main checkout, a detached worktree), then from there:
 //   0. stops if GitHub's check (tests and typecheck) failed on that commit, and waits for it if it's running;
-//   1. lists the live database's pending migrations and applies them, in a terminal only:
-//      wrangler asks first and shows the ✅. Without a terminal (Claude, a `!` command) it stops
-//      before deploying anything, because there wrangler would apply them without asking;
+//   1. lists the live database's pending migrations and applies them. Ones that only add or change
+//      (tables, columns, indexes, backfills) apply by themselves. When one deletes data (DROP TABLE,
+//      DROP COLUMN, DELETE FROM, TRUNCATE) it needs a terminal, where wrangler asks Julius first;
+//      without one (Claude, a `!` command) it stops before deploying anything;
 //   2. deploys rooms, games and site, in that order;
 //   3. publishes the command-line tool to npm when its version is new (also a terminal only:
 //      npm asks you to sign in);
@@ -35,6 +36,8 @@ const WORKERS = ["rooms", "games", "site"];
 const GITHUB_REPOSITORY = "zaisma/zaisma";
 const GITHUB_CHECK_NAME = "Tests and typecheck";
 const GITHUB_CHECK_WAIT_SEC = 600;
+// How long a ship waits for another one that's running.
+const SHIP_LOCK_WAIT_SEC = 1800;
 
 const isDryRun = process.argv.includes("--dry");
 const commitArgumentIndex = process.argv.indexOf("--commit");
@@ -73,21 +76,32 @@ const logFolder = join(gitFolder, "zaisma-ship-logs");
 const isInShipCopy = realpathSync(fileURLToPath(import.meta.url)) === (existsSync(join(shipCopy, "scripts/ship.mjs")) ? realpathSync(join(shipCopy, "scripts/ship.mjs")) : "");
 
 if (!isInShipCopy) {
-  // One ship at a time: two would deploy over each other from the same copy.
+  // One ship at a time: two would deploy over each other from the same copy. A second one waits its
+  // turn, then ships whatever main is by then, so sessions that merge at once never need each other.
   const lockFile = join(gitFolder, "zaisma-ship.lock");
   let lockHandle;
-  try {
-    lockHandle = openSync(lockFile, "wx");
-  } catch {
-    const holderPid = Number(readFileSync(lockFile, "utf8")) || 0;
+  for (let waitedSec = 0; !lockHandle; waitedSec += 10) {
+    try {
+      lockHandle = openSync(lockFile, "wx");
+      break;
+    } catch {}
+    let holderPid = 0;
+    try {
+      holderPid = Number(readFileSync(lockFile, "utf8")) || 0;
+    } catch {}
     let isHolderAlive = false;
     try {
       process.kill(holderPid, 0);
       isHolderAlive = holderPid > 0;
     } catch {}
-    if (isHolderAlive) finish("FAIL", `another ship is running (process ${holderPid}); wait for its SHIP line, then run it again if needed.`, 1);
-    rmSync(lockFile, { force: true });
-    lockHandle = openSync(lockFile, "wx");
+    if (!isHolderAlive) {
+      rmSync(lockFile, { force: true });
+      continue;
+    }
+    if (isDryRun) finish("FAIL", `another ship is running (process ${holderPid}); a dry run doesn't wait for it.`, 1);
+    if (waitedSec >= SHIP_LOCK_WAIT_SEC) finish("FAIL", `another ship (process ${holderPid}) was still running after ${SHIP_LOCK_WAIT_SEC / 60} minutes; nothing deployed. Run npm run ship again once it's done.`, 1);
+    if (waitedSec === 0) say(`Another ship is running (process ${holderPid}); waiting for it to finish, then shipping main as it is by then…`);
+    await new Promise((resolve) => setTimeout(resolve, 10000));
   }
   writeFileSync(lockHandle, String(process.pid));
   closeSync(lockHandle);
@@ -216,21 +230,44 @@ function listPendingMigrations() {
   return migrationFiles;
 }
 
+// Statements that throw data away. A migration with one waits for Julius; anything else (new
+// tables, columns, indexes, renames, backfills) applies by itself (Julius, Oct 16, 2026).
+const DELETING_STATEMENT = /\b(drop\s+table|drop\s+column|delete\s+from|truncate)\b/i;
+
+/** Each pending migration's statements that delete data, as "file: statement" lines. */
+function deletingStatements(migrationFiles) {
+  return migrationFiles.flatMap((file) =>
+    readFileSync(join(shipCopy, "migrations", file), "utf8")
+      .split("\n")
+      .map((line) => line.replace(/--.*$/, "").trim())
+      .filter((line) => DELETING_STATEMENT.test(line))
+      .map((line) => `${file}: ${line}`),
+  );
+}
+
 say("Checking the live database's migrations…");
 let pendingMigrations = listPendingMigrations();
+const pendingDeletions = deletingStatements(pendingMigrations);
 if (pendingMigrations.length) {
   say(`Pending migrations: ${pendingMigrations.join(", ")}`);
+  for (const line of pendingDeletions) say(`  deletes data: ${line}`);
   if (isDryRun) {
     // Reported in the summary below.
-  } else if (!hasTerminal) {
+  } else if (pendingDeletions.length && !hasTerminal) {
     finish(
       "WAITING",
-      `${shortSha}: ${pendingMigrations.length} migration(s) to apply first (${pendingMigrations.join(", ")}); nothing deployed. Run npm run ship in a terminal tab: wrangler asks before applying, then it deploys.`,
+      `${shortSha}: ${pendingMigrations.length} migration(s) to apply first (${pendingMigrations.join(", ")}), and ${pendingDeletions.length} statement(s) in them delete data (above); nothing deployed. Run npm run ship in a terminal tab: wrangler asks before applying, then it deploys.`,
       2,
     );
   } else {
-    // wrangler asks "continue? (Y/n)" itself and prints each migration's ✅.
-    spawnSync(wranglerBin, ["d1", "migrations", "apply", "zaisma", "--remote"], { cwd: siteFolder, stdio: "inherit" });
+    // A migration that deletes data: wrangler asks "continue? (Y/n)" in the terminal. Otherwise
+    // CI=1 makes it answer yes itself. Either way it prints each migration's ✅.
+    const isAsking = pendingDeletions.length > 0;
+    spawnSync(wranglerBin, ["d1", "migrations", "apply", "zaisma", "--remote"], {
+      cwd: siteFolder,
+      stdio: isAsking ? "inherit" : ["ignore", "inherit", "inherit"],
+      env: isAsking ? process.env : { ...process.env, CI: "1" },
+    });
     pendingMigrations = listPendingMigrations();
     if (pendingMigrations.length) finish("FAIL", `${shortSha}: still pending: ${pendingMigrations.join(", ")}; nothing deployed.`, 1);
     say("Migrations applied.");
@@ -251,7 +288,9 @@ const isNewer = (a, b) => {
 const isCliNew = npmVersion !== null && isNewer(cliVersion, npmVersion);
 
 if (isDryRun) {
-  const migrationsNote = pendingMigrations.length ? `${pendingMigrations.length} migration(s) to apply first (${pendingMigrations.join(", ")})` : "no migrations";
+  const migrationsNote = pendingMigrations.length
+    ? `${pendingMigrations.length} migration(s) to apply first (${pendingMigrations.join(", ")}), ${pendingDeletions.length ? `${pendingDeletions.length} statement(s) deleting data, so Julius answers in a terminal` : "applied by themselves"}`
+    : "no migrations";
   const cliNote = npmVersion === null ? "couldn't check npm" : isCliNew ? `CLI ${cliVersion} to publish (npm has ${npmVersion})` : `CLI ${cliVersion} already on npm`;
   finish("DRY", `${shortSha}: would deploy ${WORKERS.join(", ")}; ${githubCheckNote}; ${migrationsNote}; ${cliNote}.`, 0);
 }

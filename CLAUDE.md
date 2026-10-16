@@ -18,7 +18,7 @@ Founder: Julius. Side project, built in public. MIT licensed.
 
 ## Current phase
 
-**Phase 1: Beta.** Phase 0 (safe hosting) is live. What's being built next, in order, is the Now list at the top of [`docs/ROADMAP.md`](docs/ROADMAP.md); take work from there unless Julius says otherwise. When Now is empty or Julius asks what's next, use the `whats-next` skill (`.claude/skills/whats-next/SKILL.md`). To start an item, use the `build-next` skill; `node scripts/roadmap-item.mjs <place in Now or name>` prints any item with what it needs.
+**Phase 1: Beta.** Phase 0 (safe hosting) is live. What's being built next, in order, is the Now list at the top of [`docs/ROADMAP.md`](docs/ROADMAP.md); take work from there unless Julius says otherwise. When Now is empty or Julius asks what's next, use the `whats-next` skill (`.claude/skills/whats-next/SKILL.md`). To start an item, use the `build-next` skill; to build every settled item in Now at once, one session each, the `build-batch` skill. `node scripts/roadmap-item.mjs <place in Now or name>` prints any item with what it needs, and `--now` lists Now with what's ready.
 
 How the roadmap is kept, so nobody has to piece it together or guess:
 
@@ -27,6 +27,7 @@ How the roadmap is kept, so nobody has to piece it together or guess:
 - **A project is done only when every row is done** and its "Done when" holds. Say so from the rows, not from memory.
 - **`next` means the Now list.** Only items in Now are `next`, in Now's order; change Now and the statuses together, with Julius's OK for the order.
 - **First goes before everything.** Now has two parts: **First**, the items nothing else starts before (others build on their shape, or they get dearer the longer they wait; usually empty), and **Next**, the rest in order, which can be built side by side in their own sessions. A project's own gate is a `**First:** <item>` line under its goal: every other row in it waits on that item, and the line goes when it's done. Only Julius puts items in First; the `whats-next` skill proposes them.
+- **Settled means talked through with Julius.** The `Settled` column says `yes` only after Julius and Claude have gone through the item's design and scope and Julius said it's settled; only his word in chat sets it, never Claude's judgment, and a row that's split into slices keeps it only when he OKs the slices. Settled items are ready to build: the `build-batch` skill builds them, and their pull requests merge and ship without him (see "Merging" below). An item that isn't settled is talked through in Julius's own session before anything is built.
 - **Notes stay short:** what the item is, and when it went live. How it works goes in `docs/DECISIONS.md`, the docs or the PR. Item names never contain commas (Needs splits on them) and every name in Needs is an item's exact name.
 
 Keep the roadmap current: when work starts, lands or moves, update its status in `docs/ROADMAP.md` in the same change. The roadmap page (https://claude.ai/artifact/5ES8sV8oDvQqzdg2aGXNzm) can't read GitHub, so it's republished in one step, **only right after a push to main** that changes `docs/ROADMAP.md` or `docs/roadmap.html` (a merge or a direct commit), always from `origin/main`, never from a checkout:
@@ -41,10 +42,10 @@ If the publish is refused because another session published first, repeat both s
 `npm run ship`, from any checkout, after a PR merges. It deploys exactly GitHub's main from its own clean copy (`.claude/ship` in the main checkout), never the checkout it's run from, so never deploy with `wrangler deploy` or `npm run deploy` yourself. In order: GitHub's check on that commit (waited for while it runs; a failed one is `SHIP FAIL`), pending D1 migrations, then rooms, games and site, then the CLI to npm when its version is new, then a live check of a game page, the MCP, game files and rooms. It also pulls the main checkout's `main` when that's a clean fast-forward. Its last line is one of:
 
 - `SHIP PASS …`: live and checked.
-- `SHIP WAITING …`: a migration is pending and nothing was deployed. Migrations need Julius: start `npm run ship` in a Terminal tab (`run_in_terminal`), where wrangler asks him before applying; read the tab for the ✅ and the `SHIP PASS`. A CLI release waiting for npm sign-in works the same way.
+- `SHIP WAITING …`: a pending migration deletes data (`DROP TABLE`, `DROP COLUMN`, `DELETE FROM`, `TRUNCATE`) and nothing was deployed. Those need Julius: start `npm run ship` in a Terminal tab (`run_in_terminal`), where wrangler asks him before applying; read the tab for the ✅ and the `SHIP PASS`. A CLI release waiting for npm sign-in works the same way.
 - `SHIP FAIL …`: what failed and what's live; fix it, don't work around it.
 
-Claude runs `npm run ship` itself when no migration is pending (Julius, 15 Oct 2026). `npm run ship -- --dry` says what would ship without changing anything.
+Claude runs `npm run ship` itself. Migrations that only add or change (tables, columns, indexes, renames, backfills) apply by themselves; only ones that delete data wait for Julius (Julius, Oct 16, 2026). `npm run ship -- --dry` says what would ship without changing anything.
 
 ## Stack
 
@@ -90,5 +91,5 @@ A building block is anything a developer or their AI uses: an API call or MCP to
 - Flag only hard blockers in one line (illegal, would get accounts or the domain banned, clearly loses money), then keep going.
 - Replies: concise, little jargon, no recap. End with the next step and anything you need from him.
 - Commit messages: plain English, say what changed and why.
-- **Preview before live.** Large or important UI changes and features run in the local preview first (`npm run preview`: site, games and a stand-in sign-in on localhost:8800, filled with test games; `-- --reset` for fresh data; `PREVIEW_PORT_OFFSET=100` runs it on localhost:8900 when another checkout has 8800). Give Julius direct links to the pages and states to look at, iterate with him there, and only then merge and ship. Small fixes he asks for directly can ship as before.
-- **Merging is Julius's call.** He clicks merge, or says "merge" in chat for that PR; never merge on your own (a migration he ran isn't approval). Then `npm run ship`.
+- **Preview before live.** Anything a player or developer would see change on a page (new or changed screens, states, copy, layout) runs in the local preview first (`npm run preview`: site, games and a stand-in sign-in on localhost:8800, filled with test games; `-- --reset` for fresh data; `PREVIEW_PORT_OFFSET=100` runs it on localhost:8900 when another checkout has 8800, and any multiple of 100 works for more). Give Julius direct links to the pages and states to look at, iterate with him there, and only then merge and ship. This is the one approval he always gives himself. Small fixes he asks for directly can ship as before.
+- **Merging.** A pull request for a **settled** roadmap item merges without asking once GitHub's check passes, it's up to date with main, and Julius has OK'd its preview when it had one; then `npm run ship` (the `build-batch` skill does this for a batch). Everything else is Julius's call: items that aren't settled, work that isn't a roadmap item, and changes to these rules. He clicks merge, or says "merge" in chat for that PR (a migration he ran isn't approval).

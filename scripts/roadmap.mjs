@@ -52,7 +52,7 @@ export function parseRoadmap(text) {
     if (cells.every((cell) => /^-+$/.test(cell))) continue;
     if (!header) { header = cells.map((cell) => cell.toLowerCase()); continue; }
     const get = (key) => cells[header.indexOf(key)] ?? "";
-    rows.push({ phase, project, status: get("status"), mustOrNice: get("must/nice"), name: get("item"), needs: get("needs"), notes: get("notes") });
+    rows.push({ phase, project, status: get("status"), mustOrNice: get("must/nice"), isSettled: get("settled").toLowerCase() === "yes",name: get("item"), needs: get("needs"), notes: get("notes") });
   }
 
   return { nowItems, rows, projects };
