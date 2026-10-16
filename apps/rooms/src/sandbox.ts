@@ -1,4 +1,4 @@
-import { GAME_SERVER_OPTIONS, defineGameServer, readJoinAnswer, unknownOptionError, type AwayReason, type GameServer, type JoinAnswer, type JoinInfo, type LeaveInfo, type Player, type Room } from "@zaisma/game-server";
+import { GAME_SERVER_OPTIONS, defineGameServer, noSetupError, readJoinAnswer, unknownOptionError, type AwayReason, type GameServer, type JoinAnswer, type JoinInfo, type LeaveInfo, type Player, type Room } from "@zaisma/game-server";
 import { SANDBOX_GAME_SERVER, manifestKey, serverModules, type Manifest } from "@zaisma/core";
 import type { Env } from "./index.ts";
 
@@ -12,7 +12,8 @@ import type { Env } from "./index.ts";
  * mute, block and report. The sandbox only runs the game's handlers: each call gets the state and
  * a copy of the room, and hands back the new state plus what the game asked the room to do
  * (broadcast, send, end, kick, ...), which the room then does; canJoin only answers yes or no.
- * A room opens one session with the sandbox
+ * Requests (onRequest) come through the game's own object outside any room (game-server.ts), with
+ * the same sandbox and the same database. A room or that object opens one session with the sandbox
  * when it wakes and makes every call through it, so a room is billed one request per wake rather
  * than one per message or tick.
  */
@@ -71,6 +72,8 @@ export interface Session {
   call(hook: string, state: unknown, handlerArguments: unknown[], room: Snapshot): Promise<Answer>;
   /** canJoin: the game's answer on a player coming in, as plain JSON. It can't change the state or the room. */
   check(state: unknown, player: Player, joinData: unknown, room: Snapshot, joinInfo: JoinInfo): Promise<{ answer?: unknown; error?: string }>;
+  /** onRequest: what the game server answered a request, as plain JSON, or the error it threw. */
+  request(player: Player, request: unknown): Promise<{ answer?: unknown; error?: string }>;
 }
 
 // Runs inside the sandbox, beside the game's file. Plain JavaScript: nothing here is trusted by the
@@ -82,7 +85,7 @@ import server from "./${entry}";
 const ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 const newRoomCode = () => Array.from(crypto.getRandomValues(new Uint8Array(6)), (byte) => ALPHABET[byte & 31]).join("");
 const HOOKS = ["onJoin", "onLeave", "onMessage", "onTick", "onMoved", "onAway", "onBack"];
-const HANDLERS = ["setup", "canJoin", ...HOOKS];
+const HANDLERS = ["setup", "canJoin", "onRequest", ...HOOKS];
 
 // room.database, through the binding the room gave this sandbox: its own game's database and nothing else.
 class DatabaseError extends Error {
@@ -185,11 +188,31 @@ class Session extends RpcTarget {
       return { answer: "(an answer that isn't plain JSON)" };
     }
   }
+  // onRequest(player, request, server): no room and no state, only the game's database.
+  async request(player, request) {
+    if (typeof server.onRequest !== "function") return { error: "This game server has no onRequest" };
+    let answer;
+    try {
+      answer = await server.onRequest(player, request, { database: this.#database });
+    } catch (error) {
+      return { error: String((error && error.stack) || error) };
+    }
+    // Handed back as plain JSON; the game's object checks its size like any game server's answer.
+    if (answer === undefined || answer === null) return { answer: null };
+    let text;
+    try {
+      text = JSON.stringify(answer);
+    } catch {
+      text = undefined;
+    }
+    if (text === undefined) return { error: "onRequest answered something that isn't plain JSON, like a function or an object that refers to itself. Answer numbers, text, true or false, null, lists and plain objects." };
+    return { answer: JSON.parse(text) };
+  }
 }
 
 export default class extends WorkerEntrypoint {
   open() {
-    if (!server || typeof server.setup !== "function") throw new Error("${entry} must export default a game server with a setup() function");
+    if (!server || (typeof server.setup !== "function" && typeof server.onRequest !== "function")) throw new Error("${entry} must export default a game server with setup() for rooms, onRequest() for requests, or both");
     return new Session(gameDatabase(this.env.DATABASE));
   }
 }
@@ -220,11 +243,11 @@ async function serverCode(env: Env, versionId: string): Promise<{ entry: string;
 }
 
 /**
- * Open a session with a game version's server in its sandbox, and wrap it as a game server the room
- * can run. One sandbox per game version, shared by all its rooms in a place, and warm while in use.
- * Null if the version has no game server file.
+ * How to open a session with a game version's server in its sandbox. One sandbox per game version,
+ * shared by all its rooms and its requests in a place, and warm while in use. Null if the version has
+ * no game server file.
  */
-export async function sandboxServer(env: Env, exports: Cloudflare.Exports, gameId: string, versionId: string, onBroken: () => void): Promise<GameServer | null> {
+export async function sandboxOpener(env: Env, exports: Cloudflare.Exports, gameId: string, versionId: string): Promise<(() => Promise<Session>) | null> {
   const code = await serverCode(env, versionId);
   if (code === null) return null;
   const binding = (exports as unknown as { GameDatabaseBinding: (options: { props: { gameId: string } }) => Fetcher }).GameDatabaseBinding;
@@ -238,7 +261,13 @@ export async function sandboxServer(env: Env, exports: Cloudflare.Exports, gameI
     env: { DATABASE: binding({ props: { gameId } }) },
     limits: { cpuMs: CPU_MS },
   }));
-  return wrapSession(() => (worker.getEntrypoint() as unknown as { open(): Promise<Session> }).open(), onBroken);
+  return () => (worker.getEntrypoint() as unknown as { open(): Promise<Session> }).open();
+}
+
+/** A game version's server in its sandbox, as a game server the room can run. Null if the version has none. */
+export async function sandboxServer(env: Env, exports: Cloudflare.Exports, gameId: string, versionId: string, onBroken: () => void): Promise<GameServer | null> {
+  const open = await sandboxOpener(env, exports, gameId, versionId);
+  return open === null ? null : wrapSession(open, onBroken);
 }
 
 /**
@@ -253,6 +282,8 @@ export async function wrapSession(open: () => Promise<Session>, onBroken: () => 
   const optionNames = Array.isArray(settings.optionNames) ? settings.optionNames.map(String) : [];
   for (const name of optionNames) if (!(GAME_SERVER_OPTIONS as readonly string[]).includes(name)) throw unknownOptionError(name);
   const handlerNames = new Set(Array.isArray(settings.handlerNames) ? settings.handlerNames.map(String) : []);
+  // A game server for requests alone doesn't run rooms.
+  if (!handlerNames.has("setup")) throw noSetupError();
   const stats: SandboxStats = { callCount: 0, waitDurationMs: 0, failureCount: 0, crashCount: 0, stoppedCount: 0, errors: new Map() };
   const record = (kind: "crash" | "stopped", text: string) => {
     const message = errorLine(text);

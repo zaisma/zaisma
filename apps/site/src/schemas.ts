@@ -1,4 +1,4 @@
-import { CONTENT_RULES, CONTROLS, DEVICES, FORUM_REPORT_REASONS, PLAY_STYLES, PLAYER_REPORT_REASONS, REPORT_REASONS, REVIEW_CODES, ROOM_BROWSING, SCREENS, VISIBILITIES, type IdKind } from "@zaisma/core";
+import { CONTENT_RULES, CONTROLS, DEVICES, FORUM_REPORT_REASONS, PLAY_STYLES, PLAYER_REPORT_REASONS, REPORT_REASONS, REVIEW_CODES, ROOM_BROWSING, SCREENS, VISIBILITIES, WEBHOOK_EVENT_KINDS, type IdKind } from "@zaisma/core";
 
 /**
  * The developer API's answers as JSON Schema, and the admin MCP's at the end: the MCPs' output
@@ -231,12 +231,13 @@ export const STATS = object({
       game_server: nullable(
         object(
           {
-            call_count: countOf(),
-            crash_count: countOf("A handler threw; that call is lost."),
-            stopped_count: countOf("A call ran on too long, about 2 seconds of CPU; the match froze meanwhile."),
+            call_count: countOf("Calls into the game server from its rooms."),
+            request_count: countOf("Requests to its onRequest (Zaisma.server.request), outside rooms."),
+            crash_count: countOf("A handler threw; that call or request is lost."),
+            stopped_count: countOf("A call ran on too long, about 2 seconds of CPU; the match froze meanwhile, or the request failed."),
             ended_match_count: countOf("Matches ended because their game server was stopped twice."),
           },
-          "Only for games running their own game server; otherwise null.",
+          "Only for games whose own game server runs on Zaisma, for rooms or requests; otherwise null.",
         ),
       ),
     }),
@@ -245,6 +246,11 @@ export const STATS = object({
     room_play_duration_hours: number("Player time on Zaisma rooms this month, UTC."),
     free_room_play_duration_hours: countOf(),
     has_reached_free_hours: yes("Until hosting billing is ready, no new rooms open until the month resets; matches already running carry on."),
+  }),
+  request_use_this_month: object({
+    request_count: countOf("Requests to the game's own game server this month, UTC, recorded about once a minute."),
+    free_request_count: countOf(),
+    has_reached_free_requests: yes("Until hosting billing is ready, requests answer request_limit until the month resets."),
   }),
   game_server_errors: list(
     object({
@@ -293,6 +299,15 @@ export const DATABASE = object({
   ),
 });
 
+/** A player's report that report triage sorted as a bug: what they wrote, never who they are. */
+export const BUG_REPORT = object({
+  id: idOf("report"),
+  player_text: text("What the player wrote."),
+  summary: nullable(text()),
+  version_id: nullable(idOf("version", "The version they played.")),
+  reported_at: isoTime(),
+});
+
 export const REPORTS = object({
   period_duration_days: countOf(),
   reasons: list(
@@ -303,16 +318,51 @@ export const REPORTS = object({
       closed_count: countOf("Zaisma looked and dismissed it or acted on it."),
     }),
   ),
-  bug_reports: list(
-    object({
-      id: idOf("report"),
-      player_text: text("What the player wrote."),
-      summary: nullable(text()),
-      version_id: nullable(idOf("version", "The version they played.")),
-      reported_at: isoTime(),
-    }),
-  ),
+  bug_reports: list(BUG_REPORT),
   next_cursor: text("Pass as cursor next time to get only bug reports that arrived after this call."),
+});
+
+/** An address your server takes Zaisma's events at, and the events it takes. */
+export const WEBHOOK = object({
+  id: idOf("webhook"),
+  endpoint_url: url("Where events are sent, as signed POSTs."),
+  event_kinds: list(choice(WEBHOOK_EVENT_KINDS), "The events sent to it."),
+  game_slugs: nullable(list(text(), "Only events about these games; null for every game you have and will make.")),
+  pending_delivery_count: countOf("Events still being tried."),
+  failed_delivery_count: countOf("Events that failed every try in the last 30 days: list_webhook_deliveries says why."),
+  created_at: isoTime(),
+  updated_at: isoTime(),
+});
+
+/** What a webhook is sent: the body the signature covers. */
+export const WEBHOOK_EVENT = object({
+  id: idOf("webhook_event", "The same on every try (Standard Webhooks' webhook-id header), so a server can skip one it already has."),
+  kind: choice(
+    {
+      bug_reported: "report triage sorted a player's report as a bug (bug_report)",
+      scan_status_changed: "a version's scan finished, or Zaisma changed its scan_status later (version)",
+      live_version_changed: "players get another version: published, rolled back, published at its set time, or put back while a report is checked (version: the one players get now)",
+      review_status_changed: "Zaisma held or took down the game, or put it back (game.review_status and game.review_reason)",
+      test: "sent by test_webhook; game, version and bug_report are null",
+    },
+    "What happened.",
+  ),
+  happened_at: isoTime(),
+  game: nullable({ ...GAME, description: "The game as get_game answers it, now; null for a test event." }),
+  version: nullable({ ...VERSION, description: "The version as get_version answers it, now; null when the event isn't about one." }),
+  bug_report: nullable({ ...BUG_REPORT, description: "The bug report as get_reports lists it; null unless kind is bug_reported." }),
+});
+
+/** One event on its way to one webhook, and how it went. */
+export const WEBHOOK_DELIVERY = object({
+  webhook_id: idOf("webhook"),
+  webhook_event: WEBHOOK_EVENT,
+  delivery_status: choice({ pending: "being tried; next_attempt_at says when next", delivered: "your server answered 2xx", failed: "every try failed, so it won't be sent again" }),
+  attempt_count: countOf("Tries so far: up to 6 over about a day and a half (a test event: 1)."),
+  last_attempt_at: nullable(isoTime()),
+  next_attempt_at: nullable(isoTime("When it's tried next; null unless pending.")),
+  failure_message: nullable(text("Why the last try failed, with the HTTP status your server answered, like \"Answered 500; only a 2xx answer counts as delivered.\"; null once delivered.")),
+  created_at: isoTime(),
 });
 
 export const HISTORY = object({

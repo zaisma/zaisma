@@ -67,6 +67,22 @@ export async function roomPlayDurationSecThisMonth(database: D1Database, gameId:
   return row?.room_play_duration_sec ?? 0;
 }
 
+/**
+ * Requests to a game's own game server (onRequest) free each month, per game (Julius, Oct 16, 2026):
+ * at most about $0.80 a month at Cloudflare's prices. Until Hosting billing, a game past them gets
+ * request_limit until the month resets (UTC).
+ */
+export const FREE_REQUEST_COUNT_PER_MONTH = 1_000_000;
+
+/** A game's requests to its game server this month (UTC), as recorded: its object adds them about once a minute. */
+export async function requestCountThisMonth(database: D1Database, gameId: string, nowMs = Date.now()): Promise<number> {
+  const row = await database
+    .prepare("SELECT COALESCE(SUM(game_server_request_count), 0) AS request_count FROM room_usage WHERE game_id = ? AND date >= ?")
+    .bind(gameId, `${new Date(nowMs).toISOString().slice(0, 7)}-01`)
+    .first<{ request_count: number }>();
+  return row?.request_count ?? 0;
+}
+
 /** How long a room key gives passes, and how many: enough to rejoin, not to fill rooms. */
 export const ROOM_KEY_MS = 6 * 3_600_000;
 export const PASS_COUNT_PER_KEY = 5;

@@ -24,6 +24,11 @@ export interface PassClaims {
    * players chat when their groups match. Opaque and different in every game, so it never says an age.
    */
   chat_group?: string;
+  /**
+   * An account's friends' player IDs, up to 200, as they were when the pass was made. Guests' passes
+   * have none. Friends are always two-way, so canChat asks both passes.
+   */
+  friend_player_ids?: string[];
   iat: number;
   exp: number;
 }
@@ -37,13 +42,17 @@ export type SocialMode = "solo_focused" | "friends_focused" | "open_and_social";
 const SOCIAL_MODES: readonly string[] = ["solo_focused", "friends_focused", "open_and_social"];
 
 /**
- * Whether two players may chat, by the passes your server checked (verifyPass): both accounts, and
- * both open and social in the same chat group. Guests and solo-focused players never chat; friends-
- * focused players chat only with friends, which passes will carry once Zaisma has friends. Use it on
- * every message your own server delivers, text or voice; Zaisma rooms will do the same for you.
+ * Whether two players may chat, by the passes your server checked (verifyPass): both accounts, neither
+ * solo-focused, and either friends or both open and social in the same chat group. Guests and solo-
+ * focused players never chat; friends-focused players chat only with friends. Friends count only
+ * when each pass lists the other, so removing a friend holds as soon as either side has a new pass.
+ * Use it on every message your own server delivers, text or voice; Zaisma rooms will do the same for you.
  */
 export function canChat(first: PassClaims, second: PassClaims): boolean {
   if (first.kind !== "account" || second.kind !== "account" || first.sub === second.sub) return false;
+  if (!first.social_mode || !second.social_mode || first.social_mode === "solo_focused" || second.social_mode === "solo_focused") return false;
+  const areFriends = Boolean(first.friend_player_ids?.includes(second.sub) && second.friend_player_ids?.includes(first.sub));
+  if (areFriends) return true;
   return first.social_mode === "open_and_social" && second.social_mode === "open_and_social" && typeof first.chat_group === "string" && first.chat_group === second.chat_group;
 }
 
@@ -146,5 +155,6 @@ export async function verifyPass(
   if (claims.kind !== "account" && !(claims.kind === "guest" && typeof claims.name === "string")) throw new PassError("malformed");
   if (claims.social_mode !== undefined && !SOCIAL_MODES.includes(claims.social_mode)) throw new PassError("malformed");
   if (claims.chat_group !== undefined && typeof claims.chat_group !== "string") throw new PassError("malformed");
+  if (claims.friend_player_ids !== undefined && !(Array.isArray(claims.friend_player_ids) && claims.friend_player_ids.every((playerId) => typeof playerId === "string"))) throw new PassError("malformed");
   return claims;
 }

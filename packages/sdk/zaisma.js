@@ -651,6 +651,44 @@
     return connect(linked, joinOptions).catch(function (error) { if (TRY_ANOTHER.indexOf(error.code) !== -1) return busiest(); throw error; });
   }
 
+  var REQUEST_OPTIONS = ["serverUrl"];
+  var MAXIMUM_REQUEST_SIZE_BYTES = 16 * 1024;
+
+  /**
+   * A request to the game's own game server, its onRequest, outside any room: what it answered
+   * (zaisma.d.ts: Zaisma.server.request). The player's pass goes with it, so the server knows who's asking.
+   */
+  function serverRequest(request, requestOptions, isRetry) {
+    var refused = unknownOption(requestOptions, REQUEST_OPTIONS, "Zaisma.server.request");
+    if (refused) return Promise.reject(refused);
+    var serverUrl = requestOptions && requestOptions.serverUrl ? String(requestOptions.serverUrl).replace(/\/+$/, "") : null;
+    if (!serverUrl && !config.rooms) return Promise.reject(notOnZaisma("Outside Zaisma, Zaisma.server.request needs your own game server's address, like { serverUrl: \"https://play.example.com\" }."));
+    if (serverUrl && !SERVER_URL.test(serverUrl)) return Promise.reject(codedError("bad_server_url", "serverUrl takes a full address starting with https://, http://, wss:// or ws://, like \"https://play.example.com\"."));
+    var requestText;
+    try {
+      requestText = JSON.stringify(request === undefined ? null : request);
+    } catch (error) {
+      requestText = undefined;
+    }
+    if (requestText === undefined) return Promise.reject(codedError("bad_request", "A request is plain JSON: numbers, text, true or false, null, lists and plain objects, like { type: \"buy\", itemId: \"sword\" }."));
+    if (new TextEncoder().encode(requestText).length > MAXIMUM_REQUEST_SIZE_BYTES) return Promise.reject(codedError("too_big", "Requests are up to 16 KB as JSON."));
+    var base = (serverUrl || config.rooms).replace(/^ws/, "http");
+    return player().then(function (mine) {
+      return fetch(base + "/v1/requests/" + config.game, { method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify({ pass: mine.pass, request: JSON.parse(requestText) }) }).then(answered, requestFailed);
+    }).then(function (answer) {
+      return answer.answer;
+    }, function (error) {
+      // A pass this tab kept from before Zaisma changed its keys: get a new one and try once more.
+      if (error.code !== "bad_pass" || isRetry) throw error;
+      try { sessionStorage.removeItem(passKey); } catch (storageError) { /* fine */ }
+      return serverRequest(request, requestOptions, true);
+    });
+  }
+
+  var server = {
+    request: function (request, requestOptions) { return serverRequest(request, requestOptions, false); },
+  };
+
   /** Zaisma's text filter: { isAllowed, reason, text } (zaisma.d.ts: Zaisma.filterText). */
   function filterText(text) {
     return post("/v1/filter", { gameSlug: config.game, text: String(text == null ? "" : text) });
@@ -965,5 +1003,5 @@
   }
 
   var rooms = { list: listRooms, quickJoin: quickJoin, linkedRoomCode: roomCodeFromPage() };
-  window.Zaisma = { sdkVersionNumber: 1, gameSlug: config.game || null, player: player, joinRoom: joinRoom, rooms: rooms, invite: invite, filterText: filterText, openSafetyPanel: openSafetyPanel };
+  window.Zaisma = { sdkVersionNumber: 1, gameSlug: config.game || null, player: player, joinRoom: joinRoom, rooms: rooms, server: server, invite: invite, filterText: filterText, openSafetyPanel: openSafetyPanel };
 })();

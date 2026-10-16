@@ -1,7 +1,8 @@
 import { deleteStaleDraftMedia } from "./forum-posts.ts";
-import { ROOM_STALE_MS, audit, deleteExpiredSignInCodes, blobKey, manifestKey, ownedBlobKey, publishVersion, reportPictureKey, type Manifest, type Version } from "@zaisma/core";
+import { ROOM_STALE_MS, audit, deleteExpiredFriendInvites, deleteExpiredSignInCodes, deleteOldDeliveries, blobKey, manifestKey, ownedBlobKey, publishVersion, reportPictureKey, type Manifest, type Version } from "@zaisma/core";
 import type { Env } from "./env.ts";
 import { deleteVersion, pruneVersions } from "./scan.ts";
+import { tellWebhooks } from "./webhooks.ts";
 
 /** Every few minutes: publish drafts whose time has come. */
 export async function publishDue(env: Env, nowMs = Date.now()): Promise<number> {
@@ -13,6 +14,7 @@ export async function publishDue(env: Env, nowMs = Date.now()): Promise<number> 
       await publishVersion(env.DB, version);
       await audit(env.DB, version.game_id, "published", `${version.id}, at its scheduled time`);
       await pruneVersions(env, version.game_id);
+      await tellWebhooks(env, "live_version_changed", version.game_id, { versionId: version.id });
       publishedCount++;
     } else {
       await env.DB.prepare("UPDATE versions SET scheduled_publish_at_ms = NULL WHERE id = ?").bind(version.id).run();
@@ -63,6 +65,10 @@ export async function dailyCleanup(env: Env, nowMs = Date.now()): Promise<{ dele
   await env.DB.prepare("DELETE FROM room_keys WHERE issued_at_ms < ?").bind(nowMs - DAY_MS).run();
   // Sign in with Zaisma codes nobody swapped: each only works for 2 minutes.
   await deleteExpiredSignInCodes(env.DB, nowMs);
+  // Friend invites nobody used: each works for a week.
+  await deleteExpiredFriendInvites(env.DB, nowMs);
+  // What was sent to webhooks: kept 30 days, so the developer can see what went and why it failed.
+  await deleteOldDeliveries(env.DB, nowMs);
   // Images uploaded for a forum post that was never posted.
   const deletedForumDraftCount = await deleteStaleDraftMedia(env, nowMs);
   return { deletedDraftCount: drafts.length, deletedFileCount: unusedKeys.length, deletedPictureCount: pictures.length, deletedForumDraftCount };

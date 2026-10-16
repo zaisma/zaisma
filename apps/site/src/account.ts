@@ -561,6 +561,8 @@ ${errorParagraph(error)}
 ${account.age_band === "18+"
       ? ""
       : html`<details><summary>Turned ${account.age_band === "13-15" ? "16" : "18"}?</summary><form class="stack" method="post" action="/account/age">${birthFields()}<button class="btn ghost" type="submit">Update</button></form></details>`}
+<h2 id="friends">Friends</h2>
+<p>Friends join by an invite you give them, as a link or a code. <a href="/friends">Your friends and invites</a>.</p>
 <h2 id="chat">Chat</h2>
 ${query.has("social-mode-saved") ? html`<p class="note" role="status">Saved. Games pick it up the next time you open them.</p>` : ""}
 <form class="stack" method="post" action="/account/social-mode">

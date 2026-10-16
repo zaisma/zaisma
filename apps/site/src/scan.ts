@@ -41,6 +41,7 @@ import {
 } from "@zaisma/core";
 import { deletePrefix } from "./upload.ts";
 import { TEXT_BUDGET_CHARACTER_COUNT, aiReview, type AiInput, type AiResult } from "./ai.ts";
+import { tellWebhooks } from "./webhooks.ts";
 import { sendAlert } from "./email.ts";
 import type { Env } from "./env.ts";
 import { recheckFailed, recheckVersion } from "./triage.ts";
@@ -88,6 +89,8 @@ export async function handleScanBatch(batch: MessageBatch<ScanJob>, env: Env, de
       } else if (message.attempts >= 3) {
         await saveScan(env.DB, message.body.versionId, "held", scanFailedReport(String(error)));
         await sendAlert(env, "A scan failed", `Version ${message.body.versionId} couldn't be scanned and is held: ${String(error)}`);
+        const version = await versionById(env.DB, message.body.versionId);
+        if (version) await tellWebhooks(env, "scan_status_changed", version.game_id, { versionId: version.id });
         message.ack();
       } else {
         message.retry({ delaySeconds: 30 * message.attempts });
@@ -124,6 +127,7 @@ export async function scanVersion(env: Env, versionId: string, deps: ScanDeps = 
       );
     }
   }
+  await tellWebhooks(env, "scan_status_changed", game.id, { versionId: version.id });
   return report;
 }
 
@@ -319,6 +323,8 @@ export async function holdKnownImages(env: Env, game: Game, version: Version, im
   // Never described to the developer: they're told a person needs to look.
   if (isGameHidden) await setReviewStatus(env.DB, game.id, "held", reviewReason("needs_review"));
   await audit(env.DB, game.id, "image-match-hold", `${why}: ${version.id} is held${isGameHidden ? " and the game is hidden" : ""}\n${summarize(knownImageFindings)}`);
+  await tellWebhooks(env, "scan_status_changed", game.id, { versionId: version.id });
+  if (isGameHidden) await tellWebhooks(env, "review_status_changed", game.id, {});
   await sendAlert(env, `URGENT: known abuse images in ${game.slug}${isGameHidden ? " (game hidden)" : ""}`, `${why}.\n\n${KNOWN_IMAGE_ALERT}${isGameHidden ? " The game is hidden from players." : ""}\n\n${summarize(knownImageFindings)}\n\nGame: ${env.SITE_ORIGIN}/admin/games/${game.id}`);
   return isGameHidden;
 }
@@ -441,6 +447,7 @@ export async function passVersion(env: Env, version: Version, why: string, actor
     await publishVersion(env.DB, version);
     await audit(env.DB, version.game_id, "published", `${why}: ${version.id}`, actor);
     await pruneVersions(env, version.game_id);
+    await tellWebhooks(env, "live_version_changed", version.game_id, { versionId: version.id });
   } else {
     await approveDraft(env.DB, version.id);
     await audit(env.DB, version.game_id, "draft-ready", `${why}: ${version.id} is ready to preview and publish`, actor);

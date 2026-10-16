@@ -1,10 +1,12 @@
-import { PLAYER_REPORT_REASONS, accountById, chatBandGroup, gameServerOf, type AccountRequirement, type MultiplayerMode, checkText, createReport, isIdOf, iso, leaveOut, listRooms, newId, pastFreeTier, playerProfile, readLabelParameter, readLeftParameter, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
-import { ERROR_TEXT, guestName, isRoomCode, jwks, loadSigningKey, roomCode, signPass, type Player, type SigningKey } from "@zaisma/game-server";
+import { PLAYER_REPORT_REASONS, accountById, chatBandGroup, friendPlayerIdsOf, gameServerOf, type AccountRequirement, type MultiplayerMode, checkText, createReport, isIdOf, iso, leaveOut, listRooms, newId, pastFreeTier, playerProfile, readLabelParameter, readLeftParameter, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
+import { ERROR_TEXT, PassError, REQUEST_ERROR_HTTP_STATUS, guestName, isRoomCode, jwks, loadSigningKey, readRequestBody, requestError, roomCode, signPass, verifyPass, type Player, type RequestErrorCode, type SigningKey } from "@zaisma/game-server";
 import { usesRooms } from "./registry.ts";
 import type { GameDatabaseObject } from "./database.ts";
+import type { GameServerObject, RequestOutcome } from "./game-server.ts";
 
 export { Room } from "./room.ts";
 export { GameDatabaseObject, GameDatabaseBinding, GameDatabaseService } from "./database.ts";
+export { GameServerObject } from "./game-server.ts";
 
 export interface Env {
   DB: D1Database;
@@ -12,12 +14,14 @@ export interface Env {
   LOADER: WorkerLoader;
   ROOMS: DurableObjectNamespace;
   GAME_DATABASES: DurableObjectNamespace<GameDatabaseObject>;
+  GAME_SERVER_OBJECTS: DurableObjectNamespace<GameServerObject>;
   PASS_LIMIT?: RateLimit;
   ROOM_LIMIT?: RateLimit;
   REPORT_LIMIT?: RateLimit;
   FILTER_LIMIT?: RateLimit;
   CONNECT_LIMIT?: RateLimit;
   PROFILE_LIMIT?: RateLimit;
+  REQUEST_LIMIT?: RateLimit;
   ISSUER: string;
   SITE_ORIGIN: string;
   GAME_HOST_MODE: "path" | "subdomain";
@@ -131,6 +135,66 @@ async function limited(limit: RateLimit | undefined, request: Request): Promise<
 
 const SLOW_DOWN = "Too many requests. Try again in a minute.";
 
+/** A request's error, as the SDK reads it (err.code). */
+function requestFailure(code: RequestErrorCode, origin?: string, message?: string): Response {
+  return json(requestError(code, message), REQUEST_ERROR_HTTP_STATUS[code], origin);
+}
+
+/** Accounts' names by player ID, for requests: kept 5 minutes, like the Node runner's. */
+const accountNames = new Map<string, { name: string | null; fetchedAtMs: number }>();
+
+async function accountName(env: Env, playerId: string): Promise<string | null> {
+  const cached = accountNames.get(playerId);
+  if (cached && Date.now() - cached.fetchedAtMs < 300_000) return cached.name;
+  const name = (await playerProfile(env.DB, playerId))?.name ?? null;
+  if (accountNames.size > 10_000) accountNames.clear();
+  accountNames.set(playerId, { name, fetchedAtMs: Date.now() });
+  return name;
+}
+
+/**
+ * A request from the game to its own game server (Zaisma.server.request), outside any room: the
+ * player's pass says who's asking, and the game's object runs onRequest (game-server.ts).
+ */
+async function answerGameRequest(request: Request, env: Env, slug: string): Promise<Response> {
+  const origin = request.headers.get("origin");
+  if (!(await isGameOrigin(env, slug, origin))) return requestFailure("bad_origin");
+  const cors = origin!;
+  if (await limited(env.REQUEST_LIMIT, request)) return requestFailure("slow_down", cors);
+  // The request, its pass and the JSON around them; anything much bigger isn't read.
+  if (Number(request.headers.get("content-length") ?? 0) > 32 * 1024) return requestFailure("too_big", cors);
+  const text = await request.text();
+  if (text.length > 32 * 1024) return requestFailure("too_big", cors);
+  const body = readRequestBody(text);
+  if ("code" in body) return requestFailure(body.code, cors);
+  const game = await playableGame(env.DB, slug);
+  if (!game) return requestFailure("game_unavailable", cors);
+
+  let player: Player;
+  try {
+    const claims = await verifyPass(body.pass, [(await signingKey(env)).publicKey], { game: slug, issuer: env.ISSUER });
+    // An account's pass is proof only: its name comes from its profile, and a deleted account's pass stops working.
+    const name = claims.kind === "account" ? await accountName(env, claims.sub) : claims.name;
+    if (!name) return requestFailure("bad_pass", cors);
+    player = { id: claims.sub, name, kind: claims.kind };
+  } catch (error) {
+    if (!(error instanceof PassError)) throw error;
+    return requestFailure("bad_pass", cors);
+  }
+  // Passes aren't given to guests of games that need accounts; this catches one given before the game changed.
+  if (player.kind === "guest" && game.account_requirement !== "none") return requestFailure("account_needed", cors);
+
+  try {
+    // RPC's types can't carry unknown, so the answer is named here.
+    const outcome = (await env.GAME_SERVER_OBJECTS.get(env.GAME_SERVER_OBJECTS.idFromName(game.id)).request(game.id, game.live_version_id!, player, body.request)) as RequestOutcome;
+    if ("code" in outcome) return requestFailure(outcome.code, cors, outcome.message);
+    return json({ answer: outcome.answer }, 200, cors);
+  } catch (error) {
+    console.error("Game server unavailable for requests:", error);
+    return requestFailure("busy", cors);
+  }
+}
+
 /** A room list for a game, in the SDK's words; inviteUrl is the link that drops a player into each room. */
 function roomListForGame(list: Omit<RoomList, "changedAtMs">, inviteUrl: (code: string) => string) {
   return { ...list, rooms: list.rooms.map((room) => ({ ...room, inviteUrl: inviteUrl(room.roomCode) })) };
@@ -183,9 +247,11 @@ export default {
         if (!account && game.account_requirement !== "none") return failure("account_needed", ERROR_TEXT.account_needed, 403, cors);
         const player: Player = account ? { id: account.player_id, name: account.name, kind: "account" } : { id: newId("player"), name: guestName(), kind: "guest" };
         // The pass is proof only: an account's carries no name, which games look up (/v1/players/<id>).
-        // It says who the account can chat with, never its age: its social mode, and an opaque chat group when open and social.
+        // It says who the account can chat with, never its age: its social mode, an opaque chat group when open and social, and its friends.
         const bandGroup = account ? chatBandGroup(account) : null;
-        const chat = account ? { social_mode: account.social_mode, ...(bandGroup ? { chat_group: await chatGroupId(env, slug, bandGroup) } : {}) } : {};
+        const chat = account
+          ? { social_mode: account.social_mode, ...(bandGroup ? { chat_group: await chatGroupId(env, slug, bandGroup) } : {}), friend_player_ids: await friendPlayerIdsOf(env.DB, account.id) }
+          : {};
         const claims = { sub: player.id, ...(player.kind === "guest" ? { name: player.name } : {}), aud: slug, iss: env.ISSUER, kind: player.kind, ...chat, iat: nowSec, exp: nowSec + PASS_DURATION_SEC };
         const pass = await signPass(await signingKey(env), claims);
         return json({ pass, player, expiresAt: iso((nowSec + PASS_DURATION_SEC) * 1000) }, 200, cors);
@@ -216,6 +282,9 @@ export default {
       if (await pastFreeTier(env.DB, game.id)) return failure("month_limit", ERROR_TEXT.month_limit, 403, cors);
       return json({ roomCode: roomCode() }, 200, cors);
     }
+
+    const requestMatch = url.pathname.match(/^\/v1\/requests\/([a-z0-9-]{1,40})$/);
+    if (requestMatch && request.method === "POST") return answerGameRequest(request, env, requestMatch[1]!);
 
     // The game's listed rooms, for games that show them themselves (Zaisma.rooms.list).
     const listMatch = url.pathname.match(/^\/v1\/rooms\/([a-z0-9-]{1,40})$/);

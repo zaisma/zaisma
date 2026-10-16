@@ -21,6 +21,8 @@ import { sortMisplaced, sortTopics } from "./forum-sort.ts";
 import { moveFiles } from "./file-moves.ts";
 import { checkForumPosts } from "./forum-check.ts";
 import { handleForum } from "./forum-pages.ts";
+import { handleFriends } from "./friends.ts";
+import { deliverDueWebhooks } from "./webhooks.ts";
 
 /** Must match the daily cron in wrangler.jsonc. */
 const DAILY = "17 3 * * *";
@@ -32,8 +34,8 @@ export default {
     const method = request.method;
 
     if (path === "/admin" || path.startsWith("/admin/")) return handleAdmin(request, env, path);
-    if (path === "/mcp") return handleMcp(request, env);
-    const developer = await handleDeveloper(request, env, path);
+    if (path === "/mcp") return handleMcp(request, env, ctx);
+    const developer = await handleDeveloper(request, env, path, ctx);
     if (developer) return developer;
     // Sign in with Zaisma, before the method check: other sites' pages ask first (OPTIONS).
     const signIn = await handleSignIn(request, env, path);
@@ -66,6 +68,9 @@ export default {
     const account = await handleAccount(request, env, path);
     if (account) return account;
 
+    const friends = await handleFriends(request, env, path);
+    if (friends) return friends;
+
     const game = path.match(/^\/g\/([a-z0-9-]+)(\/report|\/rooms)?$/);
     if (game) {
       const [, slug, sub] = game as unknown as [string, string, string | undefined];
@@ -86,7 +91,7 @@ export default {
       if (response) return response;
     }
 
-    if (path === "/robots.txt") return new Response("User-agent: *\nDisallow: /admin\nDisallow: /account\nDisallow: /join\nDisallow: /signin\nDisallow: /oauth/\nDisallow: /api/\nDisallow: /t/\n", { headers: { "Content-Type": "text/plain" } });
+    if (path === "/robots.txt") return new Response("User-agent: *\nDisallow: /admin\nDisallow: /account\nDisallow: /friends\nDisallow: /join\nDisallow: /signin\nDisallow: /oauth/\nDisallow: /api/\nDisallow: /t/\n", { headers: { "Content-Type": "text/plain" } });
     return message(env, "Page not found", "There's nothing at this address.", 404);
   },
 
@@ -96,7 +101,7 @@ export default {
 
   async scheduled(event, env): Promise<void> {
     // One failing job mustn't stop the others.
-    const jobs = await Promise.allSettled([moveFiles(env), publishDue(env), triageReports(env), sortTopics(env), sortMisplaced(env), checkForumPosts(env), ...(event.cron === DAILY ? [dailyCleanup(env), queueImageChecks(env)] : [])]);
+    const jobs = await Promise.allSettled([moveFiles(env), publishDue(env), triageReports(env), sortTopics(env), sortMisplaced(env), checkForumPosts(env), deliverDueWebhooks(env), ...(event.cron === DAILY ? [dailyCleanup(env), queueImageChecks(env)] : [])]);
     for (const job of jobs) if (job.status === "rejected") console.error("scheduled job failed", job.reason);
   },
 } satisfies ExportedHandler<Env, ScanJob>;
