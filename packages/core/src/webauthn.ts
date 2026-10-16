@@ -8,19 +8,19 @@
  */
 
 /** The key types we accept: ES256 (almost everything) and RS256 (Windows Hello on older PCs). */
-export const PASSKEY_ALGS = [-7, -257] as const;
+export const PASSKEY_ALGORITHM_NUMBERS = [-7, -257] as const;
 
 export function b64url(bytes: ArrayBuffer | Uint8Array): string {
-  const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-  let s = "";
-  for (const x of b) s += String.fromCharCode(x);
-  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const byteArray = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  let binary = "";
+  for (const byte of byteArray) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-export function fromB64url(s: string): Uint8Array | null {
-  if (!/^[A-Za-z0-9_-]*$/.test(s)) return null;
+export function fromB64url(encoded: string): Uint8Array | null {
+  if (!/^[A-Za-z0-9_-]*$/.test(encoded)) return null;
   try {
-    return Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4)), (c) => c.charCodeAt(0));
+    return Uint8Array.from(atob(encoded.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((encoded.length + 3) % 4)), (character) => character.charCodeAt(0));
   } catch {
     return null;
   }
@@ -34,30 +34,44 @@ interface Expected {
   rpId: string;
 }
 
-const sha256 = async (data: Uint8Array) => new Uint8Array(await crypto.subtle.digest("SHA-256", data));
-const same = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((x, i) => x === b[i]);
+const sha256 = async (bytes: Uint8Array) => new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+const same = (first: Uint8Array, second: Uint8Array) => first.length === second.length && first.every((byte, i) => byte === second[i]);
+
+/** WebAuthn's CollectedClientData, in the standard's own words. */
+interface CollectedClientData {
+  type?: string;
+  challenge?: string;
+  origin?: string;
+  crossOrigin?: boolean;
+}
 
 function clientData(raw: Uint8Array, type: string, want: Expected): boolean {
   try {
-    const c = JSON.parse(new TextDecoder().decode(raw)) as { type?: string; challenge?: string; origin?: string; crossOrigin?: boolean };
-    return c.type === type && c.challenge === want.challenge && c.origin === want.origin && c.crossOrigin !== true;
+    const collected = JSON.parse(new TextDecoder().decode(raw)) as CollectedClientData;
+    return collected.type === type && collected.challenge === want.challenge && collected.origin === want.origin && collected.crossOrigin !== true;
   } catch {
     return false;
   }
 }
 
-/** Authenticator data: rpIdHash (32), flags (1), signCount (4), then attested credential data when adding. */
-async function authData(raw: Uint8Array, rpId: string): Promise<{ flags: number; signCount: number } | null> {
-  if (raw.length < 37 || !same(raw.slice(0, 32), await sha256(new TextEncoder().encode(rpId)))) return null;
-  const flags = raw[32]!;
-  // The player was present (UP) and verified with Face ID, a fingerprint or a PIN (UV).
-  if (!(flags & 0x01) || !(flags & 0x04)) return null;
-  return { flags, signCount: new DataView(raw.buffer, raw.byteOffset + 33, 4).getUint32(0) };
+/** The parts of WebAuthn's authenticator data we use, in the standard's own words. */
+interface AuthenticatorData {
+  flags: number;
+  signCount: number;
 }
 
-function importParams(alg: number): { import: Parameters<typeof crypto.subtle.importKey>[2]; verify: Parameters<typeof crypto.subtle.verify>[0] } | null {
-  if (alg === -7) return { import: { name: "ECDSA", namedCurve: "P-256" }, verify: { name: "ECDSA", hash: "SHA-256" } };
-  if (alg === -257) return { import: { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, verify: "RSASSA-PKCS1-v1_5" };
+/** Authenticator data: rpIdHash (32), flags (1), signCount (4), then attested credential data when adding. */
+async function readAuthenticatorData(raw: Uint8Array, rpId: string): Promise<AuthenticatorData | null> {
+  if (raw.length < 37 || !same(raw.slice(0, 32), await sha256(new TextEncoder().encode(rpId)))) return null;
+  const flagsByte = raw[32]!;
+  // The player was present (UP) and verified with Face ID, a fingerprint or a PIN (UV).
+  if (!(flagsByte & 0x01) || !(flagsByte & 0x04)) return null;
+  return { flags: flagsByte, signCount: new DataView(raw.buffer, raw.byteOffset + 33, 4).getUint32(0) };
+}
+
+function importParameters(algorithmNumber: number): { import: Parameters<typeof crypto.subtle.importKey>[2]; verify: Parameters<typeof crypto.subtle.verify>[0] } | null {
+  if (algorithmNumber === -7) return { import: { name: "ECDSA", namedCurve: "P-256" }, verify: { name: "ECDSA", hash: "SHA-256" } };
+  if (algorithmNumber === -257) return { import: { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, verify: "RSASSA-PKCS1-v1_5" };
   return null;
 }
 
@@ -66,28 +80,28 @@ export interface NewPasskey {
   clientDataJSON: string;
   authenticatorData: string;
   publicKey: string;
-  alg: number;
+  algorithmNumber: number;
 }
 
 /** Check a passkey the browser just made. Returns its starting sign count, or null if anything is off. */
-export async function checkNewPasskey(p: NewPasskey, want: Expected): Promise<{ signCount: number } | null> {
-  const cd = fromB64url(p.clientDataJSON);
-  const ad = fromB64url(p.authenticatorData);
-  const key = fromB64url(p.publicKey);
-  const id = fromB64url(p.id);
-  const params = importParams(p.alg);
-  if (!cd || !ad || !key || !id || !id.length || !params || !clientData(cd, "webauthn.create", want)) return null;
-  const data = await authData(ad, want.rpId);
-  if (!data || !(data.flags & 0x40) || ad.length < 55) return null;
+export async function checkNewPasskey(passkey: NewPasskey, want: Expected): Promise<{ signCount: number } | null> {
+  const clientDataBytes = fromB64url(passkey.clientDataJSON);
+  const authenticatorDataBytes = fromB64url(passkey.authenticatorData);
+  const key = fromB64url(passkey.publicKey);
+  const id = fromB64url(passkey.id);
+  const algorithm = importParameters(passkey.algorithmNumber);
+  if (!clientDataBytes || !authenticatorDataBytes || !key || !id || !id.length || !algorithm || !clientData(clientDataBytes, "webauthn.create", want)) return null;
+  const authenticatorData = await readAuthenticatorData(authenticatorDataBytes, want.rpId);
+  if (!authenticatorData || !(authenticatorData.flags & 0x40) || authenticatorDataBytes.length < 55) return null;
   // The attested credential data names the same credential the browser gave us.
-  const idLength = (ad[53]! << 8) | ad[54]!;
-  if (!same(ad.slice(55, 55 + idLength), id)) return null;
+  const idLengthBytes = (authenticatorDataBytes[53]! << 8) | authenticatorDataBytes[54]!;
+  if (!same(authenticatorDataBytes.slice(55, 55 + idLengthBytes), id)) return null;
   try {
-    await crypto.subtle.importKey("spki", key, params.import, false, ["verify"]);
+    await crypto.subtle.importKey("spki", key, algorithm.import, false, ["verify"]);
   } catch {
     return null;
   }
-  return { signCount: data.signCount };
+  return { signCount: authenticatorData.signCount };
 }
 
 export interface PasskeyUse {
@@ -100,26 +114,26 @@ export interface PasskeyUse {
  * Check a sign-in with a stored passkey. Returns the new sign count, or null. A count that
  * goes backwards means the key was copied, so it's refused (passkeys that sync always send 0).
  */
-export async function checkPasskeyUse(p: PasskeyUse, key: { publicKey: string; alg: number; signCount: number }, want: Expected): Promise<{ signCount: number } | null> {
-  const cd = fromB64url(p.clientDataJSON);
-  const ad = fromB64url(p.authenticatorData);
-  let sig = fromB64url(p.signature);
+export async function checkPasskeyUse(passkeyUse: PasskeyUse, key: { publicKey: string; algorithmNumber: number; signCount: number }, want: Expected): Promise<{ signCount: number } | null> {
+  const clientDataBytes = fromB64url(passkeyUse.clientDataJSON);
+  const authenticatorDataBytes = fromB64url(passkeyUse.authenticatorData);
+  let signature = fromB64url(passkeyUse.signature);
   const spki = fromB64url(key.publicKey);
-  const params = importParams(key.alg);
-  if (!cd || !ad || !sig || !spki || !params || !clientData(cd, "webauthn.get", want)) return null;
-  const data = await authData(ad, want.rpId);
-  if (!data) return null;
-  if (data.signCount !== 0 || key.signCount !== 0) {
-    if (data.signCount <= key.signCount) return null;
+  const algorithm = importParameters(key.algorithmNumber);
+  if (!clientDataBytes || !authenticatorDataBytes || !signature || !spki || !algorithm || !clientData(clientDataBytes, "webauthn.get", want)) return null;
+  const authenticatorData = await readAuthenticatorData(authenticatorDataBytes, want.rpId);
+  if (!authenticatorData) return null;
+  if (authenticatorData.signCount !== 0 || key.signCount !== 0) {
+    if (authenticatorData.signCount <= key.signCount) return null;
   }
-  if (key.alg === -7) sig = derToRaw(sig);
-  if (!sig.length) return null;
-  const signed = new Uint8Array(ad.length + 32);
-  signed.set(ad);
-  signed.set(await sha256(cd), ad.length);
+  if (key.algorithmNumber === -7) signature = derToRaw(signature);
+  if (!signature.length) return null;
+  const signed = new Uint8Array(authenticatorDataBytes.length + 32);
+  signed.set(authenticatorDataBytes);
+  signed.set(await sha256(clientDataBytes), authenticatorDataBytes.length);
   try {
-    const k = await crypto.subtle.importKey("spki", spki, params.import, false, ["verify"]);
-    return (await crypto.subtle.verify(params.verify, k, sig, signed)) ? { signCount: data.signCount } : null;
+    const cryptoKey = await crypto.subtle.importKey("spki", spki, algorithm.import, false, ["verify"]);
+    return (await crypto.subtle.verify(algorithm.verify, cryptoKey, signature, signed)) ? { signCount: authenticatorData.signCount } : null;
   } catch {
     return null;
   }
@@ -130,17 +144,17 @@ function derToRaw(der: Uint8Array): Uint8Array {
   const out = new Uint8Array(64);
   if (der[0] !== 0x30) return new Uint8Array(0);
   let i = 2;
-  for (const at of [0, 32]) {
+  for (const outIndex of [0, 32]) {
     if (der[i] !== 0x02) return new Uint8Array(0);
-    let len = der[i + 1]!;
-    let start = i + 2;
-    i = start + len;
-    while (len > 32 && der[start] === 0) {
-      start++;
-      len--;
+    let lengthBytes = der[i + 1]!;
+    let startIndex = i + 2;
+    i = startIndex + lengthBytes;
+    while (lengthBytes > 32 && der[startIndex] === 0) {
+      startIndex++;
+      lengthBytes--;
     }
-    if (len > 32) return new Uint8Array(0);
-    out.set(der.slice(start, start + len), at + 32 - len);
+    if (lengthBytes > 32) return new Uint8Array(0);
+    out.set(der.slice(startIndex, startIndex + lengthBytes), outIndex + 32 - lengthBytes);
   }
   return out;
 }

@@ -1,4 +1,4 @@
-import { PLAYER_REPORT_REASONS, gameServerOf, type MultiplayerMode, checkText, createReport, isIdOf, iso, leaveOut, listRooms, newId, pastFreeTier, readLabelParam, readLeftParam, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
+import { PLAYER_REPORT_REASONS, gameServerOf, type MultiplayerMode, checkText, createReport, isIdOf, iso, leaveOut, listRooms, newId, pastFreeTier, readLabelParameter, readLeftParameter, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
 import { ERROR_TEXT, guestName, isRoomCode, jwks, loadSigningKey, roomCode, signPass, type SigningKey } from "@zaisma/game-server";
 import { usesRooms } from "./registry.ts";
 
@@ -38,8 +38,8 @@ export interface RoomGame {
   room_browsing: string;
 }
 
-export async function playableGame(db: D1Database, slug: string): Promise<RoomGame | null> {
-  const game = await db.prepare("SELECT id, slug, review_status, live_version_id, multiplayer_mode, built_in_server, room_browsing FROM games WHERE slug = ?").bind(slug).first<RoomGame>();
+export async function playableGame(database: D1Database, slug: string): Promise<RoomGame | null> {
+  const game = await database.prepare("SELECT id, slug, review_status, live_version_id, multiplayer_mode, built_in_server, room_browsing FROM games WHERE slug = ?").bind(slug).first<RoomGame>();
   return game && game.review_status === "live" && game.live_version_id ? game : null;
 }
 
@@ -142,7 +142,7 @@ export default {
         if (await limited(env.FILTER_LIMIT, request)) return failure("slow_down", SLOW_DOWN, 429, cors);
         const text = tidyText(body.text, 500);
         const checked = checkText(text);
-        return json({ isAllowed: checked.ok, reason: checked.ok ? null : checked.reason, text }, 200, cors);
+        return json({ isAllowed: checked.isAllowed, reason: checked.isAllowed ? null : checked.reason, text }, 200, cors);
       }
 
       if (url.pathname === "/v1/pass") {
@@ -167,7 +167,7 @@ export default {
         await createReport(env.DB, {
           gameId: game.id,
           reason: "player",
-          details: plainText(body.details, 500),
+          playerText: plainText(body.details, 500),
           versionId: game.live_version_id,
           roomCode: reportedRoomCode,
           player: { id: playerId, name: plainText(body.playerName, 40), reason },
@@ -195,13 +195,13 @@ export default {
         return json(roomListForGame(nothing, inviteUrl), 200, origin!);
       }
       // The SDK says which room this player just left, so they don't see themselves in it while lists catch up.
-      const left = readLeftParam(url.searchParams.get("left"));
+      const left = readLeftParameter(url.searchParams.get("left"));
       const listed = await listRooms(env.DB, game.id, {
         country: request.cf?.country as string | undefined,
         continent: request.cf?.continent as string | undefined,
         region: url.searchParams.get("region"),
-        labels: readLabelParam(url.searchParams.get("labels")),
-        cacheSeconds: Number(env.ROOM_LIST_CACHE_SECONDS ?? 10),
+        labels: readLabelParameter(url.searchParams.get("labels")),
+        cacheDurationSec: Number(env.ROOM_LIST_CACHE_SECONDS ?? 10),
       });
       const { changedAtMs: _, ...found } = left ? leaveOut(listed, left) : listed;
       return json(roomListForGame(found, inviteUrl), 200, origin!);

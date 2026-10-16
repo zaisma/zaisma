@@ -137,7 +137,7 @@ export async function sortMisplaced(env: Env, deps: SortDeps = { ai: aiSort }): 
   const { results } = await env.DB.prepare("SELECT topic.* FROM forum_topics topic WHERE topic.id IN (SELECT DISTINCT topic_id FROM forum_misplaced_flags) LIMIT ?").bind(BATCH_TOPIC_COUNT).all<ForumTopic>();
   let movedCount = 0;
   for (const topic of results) {
-    if ((await aiUsage(env.DB)).input_tokens >= (Number(env.AI_MONTHLY_INPUT_TOKENS) || 0)) break;
+    if ((await aiUsage(env.DB)).input_token_count >= (Number(env.AI_MONTHLY_INPUT_TOKENS) || 0)) break;
     const { results: posts } = await env.DB.prepare("SELECT * FROM forum_posts WHERE topic_id = ? AND (check_status = 'passed' OR author_kind = 'zaisma') ORDER BY created_at_ms, rowid LIMIT 5")
       .bind(topic.id)
       .all<ForumPost>();
@@ -183,7 +183,7 @@ async function candidatesFor(env: Env, topic: ForumTopic, posts: ForumPost[]): P
 /** The AI's answer, or why there isn't one (no key, or the month's budget is used up). Throws when the call fails. */
 async function askAi(env: Env, topic: ForumTopic, posts: ForumPost[], candidates: Candidate[], deps: SortDeps): Promise<SortAnswer | string> {
   if (!env.ANTHROPIC_API_KEY) return "AI sorting isn't set up, so this waits for a person.";
-  if ((await aiUsage(env.DB)).input_tokens >= (Number(env.AI_MONTHLY_INPUT_TOKENS) || 0)) return "This month's AI budget is used up, so this waits for a person.";
+  if ((await aiUsage(env.DB)).input_token_count >= (Number(env.AI_MONTHLY_INPUT_TOKENS) || 0)) return "This month's AI budget is used up, so this waits for a person.";
   const answer = await deps.ai(env.ANTHROPIC_API_KEY, env.AI_MODEL, { text: sortText(topic, posts, candidates) });
   await addAiUsage(env.DB, answer.inputTokenCount, answer.outputTokenCount, "feedback");
   return answer;

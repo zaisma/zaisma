@@ -25,8 +25,8 @@ export async function sendAlert(env: Env, subject: string, body: string): Promis
   ].join("\r\n");
   try {
     await env.ALERTS.send(new EmailMessage(env.ALERT_FROM, env.ALERT_EMAIL, mime));
-  } catch (err) {
-    console.error("alert email failed", err);
+  } catch (error) {
+    console.error("alert email failed", error);
   }
 }
 

@@ -51,7 +51,7 @@ export async function checkPost(env: Env, postId: string, deps: CheckDeps = { ai
       .run();
     return "held";
   }
-  if (!env.ANTHROPIC_API_KEY || (await aiUsage(env.DB)).input_tokens >= (Number(env.AI_MONTHLY_INPUT_TOKENS) || 0)) return "pending";
+  if (!env.ANTHROPIC_API_KEY || (await aiUsage(env.DB)).input_token_count >= (Number(env.AI_MONTHLY_INPUT_TOKENS) || 0)) return "pending";
   const isOpening = await isFirst(env, post);
   // The post's images are checked with its words: others see them only if all of it passes.
   const { results: media } = await env.DB.prepare("SELECT id, content_type, storage_key FROM forum_media WHERE post_id = ? ORDER BY position_index")

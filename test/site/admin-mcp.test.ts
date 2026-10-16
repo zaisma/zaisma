@@ -9,7 +9,7 @@ import { errorProblems, schemaProblems } from "../schema-check.ts";
 
 const LOCAL = "http://localhost";
 const testEnv = { ...env, DEV_ADMIN: "1", ANTHROPIC_API_KEY: "test-key" };
-const connected: ImageMatcher = { check: async (imgs) => ({ provider: "test", connected: true, checked: imgs.length, findings: [] }) };
+const connected: ImageMatcher = { check: async (imgs) => ({ provider: "test", isConnected: true, checkedMediaCount: imgs.length, findings: [] }) };
 
 async function liveGame() {
   const form = new FormData();
@@ -18,7 +18,7 @@ async function liveGame() {
   form.set("description", "A test.");
   form.set("zip", new File([makeZip(CLEAN_GAME)], "game.zip", { type: "application/zip" }));
   const { versionId } = (await (await SELF.fetch(`${LOCAL}/admin/api/games`, { method: "POST", body: form })).json()) as { versionId: string };
-  await scanVersion(testEnv, versionId, { images: connected, ai: async () => ({ report: { model: "t", verdict: "pass", summary: "fine", inputTokens: 1, outputTokens: 1 }, findings: [], childSafety: false }) });
+  await scanVersion(testEnv, versionId, { images: connected, ai: async () => ({ report: { model: "t", verdict: "pass", summary: "fine", input_token_count: 1, output_token_count: 1 }, findings: [], isChildSafety: false }) });
   await env.DB.prepare("UPDATE versions SET published_at_ms = ?").bind(Date.now() - 30 * 86400_000).run();
 }
 
@@ -41,8 +41,8 @@ const sorted: TriageDeps = {
       precedent: "",
       fit: "none",
       draft: { title: "Boring games", applies_when: "The player finds it boring.", decision: "dismiss", why: "Taste." },
-      inputTokens: 10,
-      outputTokens: 10,
+      input_token_count: 10,
+      output_token_count: 10,
     };
   },
 };
@@ -140,8 +140,8 @@ describe("admin MCP", () => {
   it("opens a child-safety report for the admin, but never its picture, and never passes it to the developer", async () => {
     // A report sent as something else, that triage found to be about child safety, can carry a picture.
     await send({ reason: "other", details: "a grown-up character asks kids for photos", picture: "data:image/jpeg;base64," + btoa(String.fromCharCode(0xff, 0xd8, 0xff, 0xe0, 3, 4)) });
-    const escalated = await env.DB.prepare("SELECT id FROM reports WHERE details LIKE 'a grown-up%'").first<{ id: string }>();
-    await env.DB.prepare("UPDATE reports SET severity = 0 WHERE id = ?").bind(escalated!.id).run();
+    const escalated = await env.DB.prepare("SELECT id FROM reports WHERE player_text LIKE 'a grown-up%'").first<{ id: string }>();
+    await env.DB.prepare("UPDATE reports SET severity_index = 0 WHERE id = ?").bind(escalated!.id).run();
     const full = await tool("get_report_group", { report_group_id: escalated!.id });
     expect(full.content).toHaveLength(1); // No image.
     expect(full.structuredContent.report_group.child_safety_note).toContain("NCMEC");
@@ -154,7 +154,7 @@ describe("admin MCP", () => {
     // The queue's own route refuses it too.
     const form = new FormData();
     await SELF.fetch(`${LOCAL}/admin/report-groups/${filed!.id}/bug`, { method: "POST", body: form, redirect: "manual" });
-    expect(await env.DB.prepare("SELECT status, bug FROM reports WHERE id = ?").bind(filed!.id).first()).toEqual({ status: "open", bug: 0 });
+    expect(await env.DB.prepare("SELECT report_status, is_bug_report FROM reports WHERE id = ?").bind(filed!.id).first()).toEqual({ report_status: "open", is_bug_report: 0 });
   });
 
   it("decides a group like the queue does, and can set a precedent with it", async () => {
@@ -166,7 +166,7 @@ describe("admin MCP", () => {
     const done = await data("decide_report_group", { report_group_id: boring.id, decision: "dismiss", why: "Taste", precedent });
     expect(done).toMatchObject({ report_group_id: boring.id, decision: "dismiss", report_count: 1, precedent: { title: "Boring games", decision: "dismiss", can_ai_apply_alone: true, precedent_status: "active", from_report_group_id: boring.id }, message: null });
     expect(done.next_steps).toEqual([{ tool: "list_report_groups", arguments: {}, after_sec: null, reason: expect.any(String) }]);
-    expect(await env.DB.prepare("SELECT status FROM reports WHERE id = ?").bind(boring.id).first("status")).toBe("dismissed");
+    expect(await env.DB.prepare("SELECT report_status FROM reports WHERE id = ?").bind(boring.id).first("report_status")).toBe("dismissed");
     expect(await env.DB.prepare("SELECT actor FROM audit_log WHERE action = 'reports-dismissed'").first("actor")).toBe("dev@localhost");
     // Decided once; the history keeps it.
     expect(await refusal("decide_report_group", { report_group_id: boring.id, decision: "dismiss", why: "Again" })).toMatchObject({ code: "report_group_closed" });
@@ -179,8 +179,8 @@ describe("admin MCP", () => {
   });
 
   it("lists what triage handled alone", async () => {
-    await env.DB.prepare("UPDATE reports SET status = 'dismissed', closed_at = ?, triaged_at = ? WHERE details = 'so boring'").bind(Date.now(), Date.now()).run();
-    await env.DB.prepare("UPDATE reports SET closed_at = triaged_at WHERE details = 'so boring'").run();
+    await env.DB.prepare("UPDATE reports SET report_status = 'dismissed', closed_at_ms = ?, triaged_at_ms = ? WHERE player_text = 'so boring'").bind(Date.now(), Date.now()).run();
+    await env.DB.prepare("UPDATE reports SET closed_at_ms = triaged_at_ms WHERE player_text = 'so boring'").run();
     expect(await data("list_handled_reports")).toMatchObject({ period_duration_days: 7, reports: [{ game_slug: "test-game", summary: "Doesn't like it.", player_text: "so boring" }] });
   });
 

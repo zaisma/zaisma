@@ -47,7 +47,7 @@ export function checkIdKind(kind: IdKind, given: unknown, field: string, fix: st
   if (sentKind && sentKind !== kind) throw new ApiError("wrong_id_kind", { message: `That's ${idKindInWords(sentKind)}; ${field} takes ${idKindInWords(kind)}.`, field, fix });
 }
 
-export async function sha256Hex(data: Uint8Array | ArrayBuffer): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", data);
+export async function sha256Hex(bytes: Uint8Array | ArrayBuffer): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }

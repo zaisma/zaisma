@@ -17,7 +17,7 @@ export function connectSources(roomsOrigin: string | null, connectHosts: string)
 
 /** A game's own servers: one https:// or wss:// origin per line, at most 5. Throws on anything else. */
 export function parseConnectHosts(text: string): string[] {
-  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   if (lines.length > 5) throw new Error("At most 5 servers.");
   return lines.map((line) => {
     const url = URL.canParse(line) ? new URL(line) : null;
@@ -33,17 +33,17 @@ export function parseConnectHosts(text: string): string[] {
  * they run on their own site, can't load anything from outside it, can only
  * connect to Zaisma rooms and their own listed servers, and can only be framed by Zaisma.
  */
-export function gameHeaders(contentType: string, siteOrigin: string, connect: string[] = []): Headers {
-  const h = new Headers();
-  h.set("Content-Type", contentType);
-  h.set(
+export function gameHeaders(contentType: string, siteOrigin: string, connectOrigins: string[] = []): Headers {
+  const headers = new Headers();
+  headers.set("Content-Type", contentType);
+  headers.set(
     "Content-Security-Policy",
     [
       "default-src 'self' data: blob:",
       // Game engines (Unity, Godot, Emscripten) need eval and inline scripts.
       "script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob:",
       "style-src 'self' 'unsafe-inline'",
-      ["connect-src 'self' data: blob:", ...connect].join(" "),
+      ["connect-src 'self' data: blob:", ...connectOrigins].join(" "),
       "worker-src 'self' blob:",
       "form-action 'none'",
       "base-uri 'self'",
@@ -51,12 +51,12 @@ export function gameHeaders(contentType: string, siteOrigin: string, connect: st
       `frame-ancestors ${siteOrigin}`,
     ].join("; "),
   );
-  h.set(
+  headers.set(
     "Permissions-Policy",
     "camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), hid=(), display-capture=(), fullscreen=(self), gamepad=(self), autoplay=(self)",
   );
-  h.set("X-Content-Type-Options", "nosniff");
-  h.set("Referrer-Policy", "no-referrer");
-  h.set("Cross-Origin-Opener-Policy", "same-origin");
-  return h;
+  headers.set("X-Content-Type-Options", "nosniff");
+  headers.set("Referrer-Policy", "no-referrer");
+  headers.set("Cross-Origin-Opener-Policy", "same-origin");
+  return headers;
 }

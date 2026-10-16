@@ -77,14 +77,14 @@ export function staticScan(files: TextFile[]): StaticResult {
   const findings: Finding[] = [];
   const hosts = new Set<string>();
   for (const file of files) {
-    for (const r of RULES) {
-      if (r.only && !r.only.test(file.path)) continue;
-      if (r.pattern.test(file.text)) {
-        findings.push({ stage: "static", severity: r.severity, rule: r.rule, detail: r.detail, path: file.path });
+    for (const rule of RULES) {
+      if (rule.only && !rule.only.test(file.path)) continue;
+      if (rule.pattern.test(file.text)) {
+        findings.push({ stage: "static", severity: rule.severity, rule: rule.rule, detail: rule.detail, path: file.path });
       }
     }
-    for (const m of file.text.matchAll(URL_PATTERN)) {
-      const host = m[1]!.toLowerCase();
+    for (const match of file.text.matchAll(URL_PATTERN)) {
+      const host = match[1]!.toLowerCase();
       // Skip version-like numbers and file names that look like hosts ("three.min.js").
       if (/^[\d.]+$/.test(host) && !/^\d+\.\d+\.\d+\.\d+$/.test(host)) continue;
       if (/\.(js|mjs|css|png|jpg|json|html|wasm|map)$/i.test(host)) continue;

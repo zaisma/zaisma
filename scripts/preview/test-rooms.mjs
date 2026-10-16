@@ -164,5 +164,5 @@ export function pretendRoomsSql(now = Date.now()) {
     ([code, players, max, country, continent, name, labels]) =>
       `((SELECT id FROM games WHERE slug = 'cave-crew'), '${code}', ${players}, ${max}, 1, ${sql(name)}, ${sql(JSON.stringify(labels))}, '${country}', '${continent}', ${now}, ${now})`,
   );
-  return `INSERT OR REPLACE INTO live_rooms (game_id, code, players, max_players, open, name, labels, country, continent, created_at, updated_at) VALUES ${values.join(", ")}`;
+  return `INSERT OR REPLACE INTO live_rooms (game_id, room_code, player_count, maximum_player_count, is_open, name, labels, country, continent, created_at_ms, updated_at_ms) VALUES ${values.join(", ")}`;
 }

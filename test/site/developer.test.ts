@@ -146,10 +146,10 @@ describe("games", () => {
     const g = (await gameBySlug(env.DB, "party-game"))!;
     expect((await (await api("/games/party-game")).json<{ game: Record<string, unknown> }>()).game).toMatchObject({ multiplayer_mode: "none", room_browsing: "page" });
     expect((await api("/games/party-game", { method: "PATCH", body: { room_browsing: "everywhere" } })).status).toBe(400);
-    await env.DB.prepare("INSERT INTO live_rooms (game_id, code, players, max_players, open, created_at, updated_at) VALUES (?, 'BCDFGH', 2, 8, 1, 0, 0)").bind(g.id).run();
+    await env.DB.prepare("INSERT INTO live_rooms (game_id, room_code, player_count, maximum_player_count, is_open, created_at_ms, updated_at_ms) VALUES (?, 'BCDFGH', 2, 8, 1, 0, 0)").bind(g.id).run();
     const res = await api("/games/party-game", { method: "PATCH", body: { room_browsing: "off" } });
     expect((await res.json<{ game: Record<string, unknown> }>()).game.room_browsing).toBe("off");
-    expect(await env.DB.prepare("SELECT listed FROM live_rooms WHERE game_id = ?").bind(g.id).first("listed")).toBe(0);
+    expect(await env.DB.prepare("SELECT is_listed FROM live_rooms WHERE game_id = ?").bind(g.id).first("is_listed")).toBe(0);
   });
 
   it("lets developers pick multiplayer: none, the relay or their own game server", async () => {

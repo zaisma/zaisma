@@ -42,8 +42,8 @@ const why = (reason: string, label: string, hint: string) =>
   html`<button type="button" class="why" data-reason="${reason}" data-label="${label}"><span><strong>${label}</strong>${hint ? html`<small>${hint}</small>` : ""}</span>${raw(ICON_NEXT)}</button>`;
 
 /** The report plate for the game page, with its styles and script. */
-export function reportSheet(game: Game, opts: { multiplayer: boolean; gameOrigin: string }): ReturnType<typeof html> {
-  const config = { slug: game.slug, title: game.title, gameOrigin: opts.gameOrigin, hold: AUTO_HOLD_REASONS };
+export function reportSheet(game: Game, options: { isMultiplayer: boolean; gameOrigin: string }): ReturnType<typeof html> {
+  const config = { slug: game.slug, title: game.title, gameOrigin: options.gameOrigin, hold: AUTO_HOLD_REASONS };
   return html`<style>
 /* Report: a plate that slides in beside the game. The game keeps running and stays in view, and the
    shade only deepens toward the plate. */
@@ -118,8 +118,8 @@ dialog.sheet::backdrop{background:linear-gradient(90deg,rgba(4,5,7,0) 35%,rgba(4
   </div>
   <div class="sheet-body">
     <section data-step="why" aria-label="What's wrong">
-      <div class="whys" data-for="game">${GAME_WHYS.filter(([r]) => r !== "player" || opts.multiplayer).map(([r, label, hint]) => why(r, label, hint))}</div>
-      <div class="whys" data-for="player" hidden>${PLAYER_WHYS.map(([r, label, hint]) => why(r, label, hint))}</div>
+      <div class="whys" data-for="game">${GAME_WHYS.filter(([reason]) => reason !== "player" || options.isMultiplayer).map(([reason, label, hint]) => why(reason, label, hint))}</div>
+      <div class="whys" data-for="player" hidden>${PLAYER_WHYS.map(([reason, label, hint]) => why(reason, label, hint))}</div>
       <p class="sheet-foot" data-for="game">Someone copied your work? <a href="/legal/dmca" target="_blank" rel="noopener">Send a copyright notice</a></p>
     </section>
     <form data-step="tell" hidden>
@@ -238,7 +238,7 @@ dialog.sheet::backdrop{background:linear-gradient(90deg,rgba(4,5,7,0) 35%,rgba(4
       $("report-error").hidden = false;
       return;
     }
-    $("report-sent-text").textContent = data.hidden ? "The game is hidden while we check it." : data.paused ? "The latest update is paused while we check it." : about && about.fromGame ? about.name + " is muted for you. We'll look at it soon." : "We'll look at it soon.";
+    $("report-sent-text").textContent = data.is_game_hidden ? "The game is hidden while we check it." : data.is_update_paused ? "The latest update is paused while we check it." : about && about.fromGame ? about.name + " is muted for you. We'll look at it soon." : "We'll look at it soon.";
     // The game mutes a player once they're reported.
     const f = frame();
     if (about && f && f.contentWindow) f.contentWindow.postMessage({ type: "zaisma:reported", player: about.id }, C.gameOrigin);
@@ -279,10 +279,10 @@ dialog.sheet::backdrop{background:linear-gradient(90deg,rgba(4,5,7,0) 35%,rgba(4
 const isPublic = (game: Game) => game.review_status !== "pending" && game.visibility !== "draft" && game.visibility !== "private";
 
 /** The form without JavaScript. */
-export async function reportForm(env: Env, slug: string, error = "", status = 200): Promise<Response> {
+export async function reportForm(env: Env, slug: string, error = "", httpStatus = 200): Promise<Response> {
   const game = await gameBySlug(env.DB, slug);
   const named = game && isPublic(game);
-  const res = layout(env, {
+  const response = layout(env, {
     title: named ? `Report ${game.title}` : "Report a game",
     body: html`<h1>${named ? html`Report “${game.title}”` : "Report a game"}</h1>
 <p class="lead">Tell us what's wrong. We don't record who you are.</p>
@@ -291,7 +291,7 @@ ${error ? html`<p class="note">${error}</p>` : ""}
   <label>What's the problem?
     <select name="reason" required>
       <option value="">Choose one</option>
-      ${Object.entries(REPORT_REASONS).map(([value, label]) => html`<option value="${value}">${label}</option>`)}
+      ${Object.entries(REPORT_REASONS).map(([reason, label]) => html`<option value="${reason}">${label}</option>`)}
     </select>
   </label>
   <label>Details (optional)
@@ -301,7 +301,7 @@ ${error ? html`<p class="note">${error}</p>` : ""}
   <div class="row"><button class="btn" type="submit">Send report</button><a class="btn ghost" href="/g/${slug}">Cancel</a></div>
 </form>`,
   });
-  return new Response(res.body, { status, headers: res.headers });
+  return new Response(response.body, { status: httpStatus, headers: response.headers });
 }
 
 /**
@@ -311,14 +311,14 @@ ${error ? html`<p class="note">${error}</p>` : ""}
  */
 export async function submitReport(env: Env, request: Request, slug: string, ctx: ExecutionContext): Promise<Response> {
   const fromSheet = (request.headers.get("content-type") ?? "").startsWith("application/json");
-  const reply = (status: number, body: { ok?: true; hidden?: boolean; paused?: boolean; error?: string }) => {
-    if (fromSheet) return Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
-    if (body.error) return reportForm(env, slug, body.error, status);
-    const res = layout(env, {
+  const reply = (httpStatus: number, body: { has_reported?: true; is_game_hidden?: boolean; is_update_paused?: boolean; error?: string }) => {
+    if (fromSheet) return Response.json(body, { status: httpStatus, headers: { "Cache-Control": "no-store" } });
+    if (body.error) return reportForm(env, slug, body.error, httpStatus);
+    const response = layout(env, {
       title: "Thanks for the report",
-      body: html`<h1>Thanks for the report</h1><p class="lead">${body.hidden ? "The game is hidden while we check it." : body.paused ? "The latest update is paused while we check it." : "We'll look at it soon."}</p><a class="btn ghost" href="/">Back to games</a>`,
+      body: html`<h1>Thanks for the report</h1><p class="lead">${body.is_game_hidden ? "The game is hidden while we check it." : body.is_update_paused ? "The latest update is paused while we check it." : "We'll look at it soon."}</p><a class="btn ghost" href="/">Back to games</a>`,
     });
-    return new Response(res.body, { status, headers: res.headers });
+    return new Response(response.body, { status: httpStatus, headers: response.headers });
   };
   // Only our own pages send the plate's reports.
   if (fromSheet && request.headers.get("origin") !== new URL(request.url).origin) return reply(403, { error: "Not allowed from here." });
@@ -328,23 +328,23 @@ export async function submitReport(env: Env, request: Request, slug: string, ctx
   if (env.REPORT_LIMIT && !(await env.REPORT_LIMIT.limit({ key: ip })).success) return reply(429, { error: "Too many reports. Wait a minute and try again." });
 
   const input = fromSheet ? await readJson(request) : Object.fromEntries((await request.formData()).entries());
-  const text = (v: unknown, max: number) => (typeof v === "string" ? v.slice(0, max).replace(/[\u0000-\u0008\u000b-\u001f]/g, " ").trim() : "");
-  const details = text(input.details, 2000);
+  const text = (given: unknown, maximumCharacterCount: number) => (typeof given === "string" ? given.slice(0, maximumCharacterCount).replace(/[\u0000-\u0008\u000b-\u001f]/g, " ").trim() : "");
+  const playerText = text(input.details, 2000);
   const room = text(input.room, 6).toUpperCase();
-  const p = input.player && typeof input.player === "object" ? (input.player as Record<string, unknown>) : null;
-  const player = p && typeof p.id === "string" && PLAYER_ID.test(p.id) ? { id: p.id, name: text(p.name, 40), reason: text(input.reason, 20) } : null;
+  const playerInput = input.player && typeof input.player === "object" ? (input.player as Record<string, unknown>) : null;
+  const player = playerInput && typeof playerInput.id === "string" && PLAYER_ID.test(playerInput.id) ? { id: playerInput.id, name: text(playerInput.name, 40), reason: text(input.reason, 20) } : null;
   // A report about a player says what they did; one about the game says what's wrong with it.
   const reason = (player ? "player" : text(input.reason, 20)) as ReportReason;
   if (player ? !(player.reason in PLAYER_REPORT_REASONS) : !(reason in REPORT_REASONS)) return reply(400, { error: "Choose what the problem is." });
 
   const game = await gameBySlug(env.DB, slug);
-  if (!game) return reply(200, { ok: true, hidden: false, paused: false });
+  if (!game) return reply(200, { has_reported: true, is_game_hidden: false, is_update_paused: false });
 
   const roomCode = ROOM_CODE.test(room) ? room : "";
   // The room's name and labels as they are now, from the room itself: a room can rename itself later.
-  const named = roomCode ? await env.DB.prepare("SELECT name, labels FROM live_rooms WHERE game_id = ? AND code = ?").bind(game.id, roomCode).first<{ name: string | null; labels: string }>() : null;
+  const named = roomCode ? await env.DB.prepare("SELECT name, labels FROM live_rooms WHERE game_id = ? AND room_code = ?").bind(game.id, roomCode).first<{ name: string | null; labels: string }>() : null;
   const roomName = named ? describeRoom(named.name, named.labels) : null;
-  const report = { gameId: game.id, reason, details, versionId: game.live_version_id, roomCode, roomName, ...(player ? { player } : {}) };
+  const report = { gameId: game.id, reason, playerText, versionId: game.live_version_id, roomCode, roomName, ...(player ? { player } : {}) };
   // A report about what a room is called is about players' words, not the game: it never pauses the game.
   const aboutRoom = input.about === "room" && Boolean(roomCode);
   const id = await createReport(env.DB, report);
@@ -352,7 +352,7 @@ export async function submitReport(env: Env, request: Request, slug: string, ctx
   const picture = AUTO_HOLD_REASONS.includes(reason) ? null : pictureBytes(input.picture);
   if (picture) {
     await env.GAMES.put(reportPictureKey(id), picture, { httpMetadata: { contentType: "image/jpeg" } });
-    await env.DB.prepare("UPDATE reports SET picture = 1 WHERE id = ?").bind(id).run();
+    await env.DB.prepare("UPDATE reports SET has_picture = 1 WHERE id = ?").bind(id).run();
   }
   const paused = !player && !aboutRoom && AUTO_HOLD_REASONS.includes(reason) ? await pauseForReport(env, game, REPORT_REASONS[reason]) : null;
   const hidden = paused === "game";
@@ -364,20 +364,20 @@ export async function submitReport(env: Env, request: Request, slug: string, ctx
       sendAlert(
         env,
         `${reason === "child_safety" ? "URGENT child-safety report" : "URGENT report"} on ${game.slug}: ${what}${hidden ? " (game hidden)" : paused ? " (update paused)" : ""}`,
-        `${what}\n\n${details || "(no details)"}\n\n${reason === "child_safety" ? "Don't delete anything; review it and report to NCMEC if confirmed.\n\n" : ""}${hidden ? "The game is hidden until you review it.\n\n" : paused ? "Players are back on the version before the latest update until you review it.\n\n" : ""}Review: ${env.SITE_ORIGIN}/admin/reports`,
+        `${what}\n\n${playerText || "(no details)"}\n\n${reason === "child_safety" ? "Don't delete anything; review it and report to NCMEC if confirmed.\n\n" : ""}${hidden ? "The game is hidden until you review it.\n\n" : paused ? "Players are back on the version before the latest update until you review it.\n\n" : ""}Review: ${env.SITE_ORIGIN}/admin/reports`,
       ),
     );
   }
-  return reply(200, { ok: true, hidden, paused: paused === "update" });
+  return reply(200, { has_reported: true, is_game_hidden: hidden, is_update_paused: paused === "update" });
 }
 
 /** A picture of the game from the plate: a JPEG data URL, at most 1.5 MB. Anything else is dropped. */
-function pictureBytes(value: unknown): Uint8Array | null {
+function pictureBytes(dataUrl: unknown): Uint8Array | null {
   const prefix = "data:image/jpeg;base64,";
-  if (typeof value !== "string" || !value.startsWith(prefix) || value.length > 2_100_000) return null;
+  if (typeof dataUrl !== "string" || !dataUrl.startsWith(prefix) || dataUrl.length > 2_100_000) return null;
   let bytes: Uint8Array;
   try {
-    bytes = Uint8Array.from(atob(value.slice(prefix.length)), (c) => c.charCodeAt(0));
+    bytes = Uint8Array.from(atob(dataUrl.slice(prefix.length)), (character) => character.charCodeAt(0));
   } catch {
     return null;
   }
@@ -398,8 +398,8 @@ const RECENT_MS = 7 * 86400_000;
 export async function pauseForReport(env: Env, game: Game, label: string): Promise<"game" | "update" | null> {
   if (game.review_status !== "live" || !game.live_version_id) return null;
   const live = await versionById(env.DB, game.live_version_id);
-  const now = Date.now();
-  if (!live || live.cleared_at_ms || !live.published_at_ms || live.published_at_ms < now - RECENT_MS) return null;
+  const nowMs = Date.now();
+  if (!live || live.cleared_at_ms || !live.published_at_ms || live.published_at_ms < nowMs - RECENT_MS) return null;
   const before = await env.DB
     .prepare("SELECT * FROM versions WHERE game_id = ? AND id != ? AND scan_status = 'approved' AND published_at_ms IS NOT NULL AND published_at_ms < ? ORDER BY published_at_ms DESC LIMIT 1")
     .bind(game.id, live.id, live.published_at_ms)
@@ -407,15 +407,15 @@ export async function pauseForReport(env: Env, game: Game, label: string): Promi
   if (before) {
     // Approving the held update (in admin) puts it straight back.
     await env.DB.batch([
-      env.DB.prepare("UPDATE games SET live_version_id = ?, updated_at_ms = ? WHERE id = ?").bind(before.id, now, game.id),
-      env.DB.prepare("UPDATE versions SET scan_status = 'held', publish_when_approved_enabled = 1, report_held_at_ms = ? WHERE id = ?").bind(now, live.id),
-      env.DB.prepare("UPDATE versions SET cleared_at_ms = ? WHERE id = ?").bind(now, before.id),
+      env.DB.prepare("UPDATE games SET live_version_id = ?, updated_at_ms = ? WHERE id = ?").bind(before.id, nowMs, game.id),
+      env.DB.prepare("UPDATE versions SET scan_status = 'held', publish_when_approved_enabled = 1, report_held_at_ms = ? WHERE id = ?").bind(nowMs, live.id),
+      env.DB.prepare("UPDATE versions SET cleared_at_ms = ? WHERE id = ?").bind(nowMs, before.id),
     ]);
     await audit(env.DB, game.id, "report-paused-update", `Report: ${label}. ${live.id} held; players are back on ${before.id}`);
     return "update";
   }
   await setReviewStatus(env.DB, game.id, "held");
-  await env.DB.prepare("UPDATE versions SET report_held_at_ms = ? WHERE id = ?").bind(now, live.id).run();
+  await env.DB.prepare("UPDATE versions SET report_held_at_ms = ? WHERE id = ?").bind(nowMs, live.id).run();
   await audit(env.DB, game.id, "auto-hold", `Report: ${label}`);
   return "game";
 }
@@ -435,6 +435,6 @@ export function describeRoom(name: string | null, labelsJson: string): string | 
   try {
     labels = Object.entries(JSON.parse(labelsJson) as Record<string, unknown>);
   } catch {}
-  const tags = labels.map(([k, v]) => `${k}: ${String(v)}`).join(", ");
+  const tags = labels.map(([labelName, labelValue]) => `${labelName}: ${String(labelValue)}`).join(", ");
   return [name, tags && `(${tags})`].filter(Boolean).join(" ") || null;
 }

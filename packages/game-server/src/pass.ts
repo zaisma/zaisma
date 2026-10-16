@@ -31,23 +31,23 @@ export class PassError extends Error {
 }
 
 const ED25519 = { name: "Ed25519" } as const;
-const enc = new TextEncoder();
-const dec = new TextDecoder();
+const encoder = new TextEncoder();
+const decoder = new TextDecoder();
 
-function b64url(bytes: Uint8Array): string {
-  let s = "";
-  for (const b of bytes) s += String.fromCharCode(b);
-  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+function toBase64Url(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-function unb64url(s: string): Uint8Array {
-  const bin = atob(s.replace(/-/g, "+").replace(/_/g, "/"));
-  return Uint8Array.from(bin, (c) => c.charCodeAt(0));
+function fromBase64Url(text: string): Uint8Array {
+  const binary = atob(text.replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
 }
 
-async function keyId(x: string): Promise<string> {
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", enc.encode(x)));
-  return b64url(digest).slice(0, 16);
+async function keyId(publicKeyBase64Url: string): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(publicKeyBase64Url)));
+  return toBase64Url(digest).slice(0, 16);
 }
 
 /** Make a new signing key, as a JWK string for the PASS_SIGNING_KEY secret. */
@@ -71,10 +71,10 @@ export async function loadSigningKey(secret: string): Promise<SigningKey> {
 }
 
 export async function signPass(signing: SigningKey, claims: PassClaims): Promise<string> {
-  const header = b64url(enc.encode(JSON.stringify({ alg: "EdDSA", typ: "JWT", kid: signing.publicKey.kid })));
-  const body = b64url(enc.encode(JSON.stringify(claims)));
-  const sig = new Uint8Array(await crypto.subtle.sign(ED25519, signing.key, enc.encode(`${header}.${body}`)));
-  return `${header}.${body}.${b64url(sig)}`;
+  const header = toBase64Url(encoder.encode(JSON.stringify({ alg: "EdDSA", typ: "JWT", kid: signing.publicKey.kid })));
+  const body = toBase64Url(encoder.encode(JSON.stringify(claims)));
+  const signature = new Uint8Array(await crypto.subtle.sign(ED25519, signing.key, encoder.encode(`${header}.${body}`)));
+  return `${header}.${body}.${toBase64Url(signature)}`;
 }
 
 export function jwks(keys: PublicKey[]): { keys: PublicKey[] } {
@@ -85,31 +85,31 @@ export function jwks(keys: PublicKey[]): { keys: PublicKey[] } {
 export async function verifyPass(
   token: string,
   keys: PublicKey[],
-  expect: { game: string; issuer: string; now?: number },
+  expect: { game: string; issuer: string; nowMs?: number },
 ): Promise<PassClaims> {
   const parts = token.split(".");
   if (parts.length !== 3) throw new PassError("malformed");
   let header: { alg?: string; kid?: string };
   let claims: PassClaims;
   try {
-    header = JSON.parse(dec.decode(unb64url(parts[0]!)));
-    claims = JSON.parse(dec.decode(unb64url(parts[1]!)));
+    header = JSON.parse(decoder.decode(fromBase64Url(parts[0]!)));
+    claims = JSON.parse(decoder.decode(fromBase64Url(parts[1]!)));
   } catch {
     throw new PassError("malformed");
   }
   if (header.alg !== "EdDSA") throw new PassError("malformed");
-  const jwk = keys.find((k) => k.kid === header.kid);
+  const jwk = keys.find((publicKey) => publicKey.kid === header.kid);
   if (!jwk) throw new PassError("unknown_key");
   const key = await crypto.subtle.importKey("jwk", { kty: "OKP", crv: "Ed25519", x: jwk.x }, ED25519, false, ["verify"]);
-  let sig: Uint8Array;
+  let signature: Uint8Array;
   try {
-    sig = unb64url(parts[2]!);
+    signature = fromBase64Url(parts[2]!);
   } catch {
     throw new PassError("malformed");
   }
-  if (!(await crypto.subtle.verify(ED25519, key, sig, enc.encode(`${parts[0]}.${parts[1]}`)))) throw new PassError("bad_signature");
-  const now = Math.floor((expect.now ?? Date.now()) / 1000);
-  if (typeof claims.exp !== "number" || claims.exp <= now) throw new PassError("expired");
+  if (!(await crypto.subtle.verify(ED25519, key, signature, encoder.encode(`${parts[0]}.${parts[1]}`)))) throw new PassError("bad_signature");
+  const nowSec = Math.floor((expect.nowMs ?? Date.now()) / 1000);
+  if (typeof claims.exp !== "number" || claims.exp <= nowSec) throw new PassError("expired");
   if (claims.iss !== expect.issuer) throw new PassError("wrong_issuer");
   if (claims.aud !== expect.game) throw new PassError("wrong_game");
   if (typeof claims.sub !== "string" || typeof claims.name !== "string") throw new PassError("malformed");

@@ -8,10 +8,10 @@ import { errorProblems, schemaProblems } from "../schema-check.ts";
 
 const SITE = "https://zaisma.test";
 const testEnv = { ...env, ANTHROPIC_API_KEY: "test-key" };
-const connected: ImageMatcher = { check: async (imgs) => ({ provider: "test", connected: true, checked: imgs.length, findings: [] }) };
+const connected: ImageMatcher = { check: async (imgs) => ({ provider: "test", isConnected: true, checkedMediaCount: imgs.length, findings: [] }) };
 const pass: ScanDeps = {
   images: connected,
-  ai: async () => ({ report: { model: "test", verdict: "pass", summary: "fine", inputTokens: 10, outputTokens: 1 }, findings: [], childSafety: false }),
+  ai: async () => ({ report: { model: "test", verdict: "pass", summary: "fine", input_token_count: 10, output_token_count: 1 }, findings: [], isChildSafety: false }),
 };
 
 let token = "";
@@ -249,12 +249,12 @@ describe("reports, stats and history", () => {
   it("shows reports by reason, never child-safety ones", async () => {
     await tool("create_game", { title: "Hop" });
     const game = (await gameBySlug(env.DB, "hop"))!;
-    await createReport(env.DB, { gameId: game.id, reason: "broken", details: "Stuck on level 2" });
-    await createReport(env.DB, { gameId: game.id, reason: "hate", details: "slur in the chat" });
-    await createReport(env.DB, { gameId: game.id, reason: "child_safety", details: "secret" });
+    await createReport(env.DB, { gameId: game.id, reason: "broken", playerText: "Stuck on level 2" });
+    await createReport(env.DB, { gameId: game.id, reason: "hate", playerText: "slur in the chat" });
+    await createReport(env.DB, { gameId: game.id, reason: "child_safety", playerText: "secret" });
     // Bug reports reach the developer once report triage sorts them as bugs. One sorted as child safety never does.
-    await createReport(env.DB, { gameId: game.id, reason: "other", details: "a secret found by triage" });
-    await env.DB.exec(`UPDATE reports SET bug = 1, bug_at = ${Date.now()} WHERE reason = 'broken'; UPDATE reports SET severity = 0, bug = 1, bug_at = ${Date.now()} WHERE reason = 'other'`);
+    await createReport(env.DB, { gameId: game.id, reason: "other", playerText: "a secret found by triage" });
+    await env.DB.exec(`UPDATE reports SET is_bug_report = 1, bug_report_at_ms = ${Date.now()} WHERE reason = 'broken'; UPDATE reports SET severity_index = 0, is_bug_report = 1, bug_report_at_ms = ${Date.now()} WHERE reason = 'other'`);
     const out = await tool("get_reports", { slug: "hop" });
     const reason = (r: string) => out.reasons.find((x: { reason: string }) => x.reason === r);
     expect(reason("broken")).toMatchObject({ open_count: 1, closed_count: 0 });
@@ -273,7 +273,7 @@ describe("reports, stats and history", () => {
     await tool("create_game", { title: "Hop" });
     const game = (await gameBySlug(env.DB, "hop"))!;
     const today = new Date().toISOString().slice(0, 10);
-    await env.DB.prepare("INSERT INTO room_usage (game_id, day, rooms, player_seconds, messages) VALUES (?, ?, 3, 600, 42)").bind(game.id, today).run();
+    await env.DB.prepare("INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count) VALUES (?, ?, 3, 600, 42)").bind(game.id, today).run();
     const stats = await tool("get_stats", { slug: "hop", period_duration_days: 7 });
     expect(stats.period_duration_days).toBe(7);
     expect(stats.multiplayer_days).toEqual([{ date: today, room_count: 3, room_play_duration_min: 10, message_count: 42, game_server: null }]);
@@ -287,8 +287,8 @@ describe("reports, stats and history", () => {
     const game = (await gameBySlug(env.DB, "hop"))!;
     await env.DB.prepare("UPDATE games SET multiplayer_mode = 'own' WHERE id = ?").bind(game.id).run();
     const today = new Date().toISOString().slice(0, 10);
-    await env.DB.prepare("INSERT INTO room_usage (game_id, day, rooms, player_seconds, messages, server_calls, server_crashes, server_stops, server_broken_rooms) VALUES (?, ?, 2, 600, 42, 900, 5, 2, 1)").bind(game.id, today).run();
-    await env.DB.prepare("INSERT INTO game_server_errors (game_id, version_id, kind, message, count, first_at, last_at) VALUES (?, 'version_8f3k2m9q1x7c4v6b0n5z', 'crash', 'oops (zaisma-server.js:3:9)', 5, 1792000000000, 1792003600000)").bind(game.id).run();
+    await env.DB.prepare("INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count, game_server_call_count, game_server_crash_count, game_server_stopped_count, game_server_ended_match_count) VALUES (?, ?, 2, 600, 42, 900, 5, 2, 1)").bind(game.id, today).run();
+    await env.DB.prepare("INSERT INTO game_server_errors (game_id, version_id, kind, message, occurrence_count, first_at_ms, last_at_ms) VALUES (?, 'version_8f3k2m9q1x7c4v6b0n5z', 'crash', 'oops (zaisma-server.js:3:9)', 5, 1792000000000, 1792003600000)").bind(game.id).run();
     const stats = await tool("get_stats", { slug: "hop", period_duration_days: 7 });
     expect(stats.multiplayer_days[0].game_server).toEqual({ call_count: 900, crash_count: 5, stopped_count: 2, ended_match_count: 1 });
     expect(stats.game_server_errors).toEqual([

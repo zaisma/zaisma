@@ -121,7 +121,7 @@ describe("room browsing on the game page", () => {
   });
 
   const room = (gameId: string, code: string, players: number, open = 1, at = Date.now(), where: [string, string] = ["DE", "EU"], max = 8) =>
-    env.DB.prepare("INSERT INTO live_rooms (game_id, code, players, max_players, open, country, continent, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    env.DB.prepare("INSERT INTO live_rooms (game_id, room_code, player_count, maximum_player_count, is_open, country, continent, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
       .bind(gameId, code, players, max, open, where[0], where[1], at, at)
       .run();
 
@@ -186,7 +186,7 @@ describe("room browsing on the game page", () => {
   it("shows who's playing now, hidden rooms included, once there are 3 or more", async () => {
     const id = await addGame("arena", "relay");
     const hidden = (code: string, players: number) =>
-      env.DB.prepare("INSERT INTO live_rooms (game_id, code, players, max_players, listed, open, created_at, updated_at) VALUES (?, ?, ?, 8, 0, 1, ?, ?)").bind(id, code, players, Date.now(), Date.now()).run();
+      env.DB.prepare("INSERT INTO live_rooms (game_id, room_code, player_count, maximum_player_count, is_listed, is_open, created_at_ms, updated_at_ms) VALUES (?, ?, ?, 8, 0, 1, ?, ?)").bind(id, code, players, Date.now(), Date.now()).run();
     await hidden("BCDFGH", 2);
     const few = await (await SELF.fetch("https://zaisma.test/g/arena")).text();
     expect(few).toContain('id="playing-now" href="#rooms" hidden>2 playing now</a>');
@@ -206,7 +206,7 @@ describe("room browsing on the game page", () => {
   it("shows names and labels that pass the text filter, with a Report button, and filters by labels", async () => {
     const id = await addGame("arena", "relay");
     const named = (code: string, name: string | null, labels: Record<string, string>) =>
-      env.DB.prepare("INSERT INTO live_rooms (game_id, code, players, max_players, open, name, labels, created_at, updated_at) VALUES (?, ?, 2, 8, 1, ?, ?, ?, ?)")
+      env.DB.prepare("INSERT INTO live_rooms (game_id, room_code, player_count, maximum_player_count, is_open, name, labels, created_at_ms, updated_at_ms) VALUES (?, ?, 2, 8, 1, ?, ?, ?, ?)")
         .bind(id, code, name, JSON.stringify(labels), Date.now(), Date.now())
         .run();
     await named("BCDFGH", "Ana's castle", { Mode: "Classic", Map: "Docks" });
@@ -227,7 +227,7 @@ describe("room browsing on the game page", () => {
   it("reports a room's name with the name as it was, without pausing the game, and a person can hide it", async () => {
     const id = await addGame("arena", "relay");
     await env.DB.exec("DELETE FROM reports;");
-    await env.DB.prepare("INSERT INTO live_rooms (game_id, code, players, max_players, open, name, labels, created_at, updated_at) VALUES (?, 'BCDFGH', 2, 8, 1, 'Bad name', '{\"Mode\":\"Classic\"}', ?, ?)")
+    await env.DB.prepare("INSERT INTO live_rooms (game_id, room_code, player_count, maximum_player_count, is_open, name, labels, created_at_ms, updated_at_ms) VALUES (?, 'BCDFGH', 2, 8, 1, 'Bad name', '{\"Mode\":\"Classic\"}', ?, ?)")
       .bind(id, Date.now(), Date.now())
       .run();
     const res = await SELF.fetch("https://zaisma.test/g/arena/report", {
@@ -235,7 +235,7 @@ describe("room browsing on the game page", () => {
       headers: { "content-type": "application/json", origin: "https://zaisma.test", "cf-connecting-ip": "192.0.2.77" },
       body: JSON.stringify({ reason: "child_safety", room: "BCDFGH", about: "room", details: "the room name" }),
     });
-    expect(await res.json()).toMatchObject({ hidden: false, paused: false });
+    expect(await res.json()).toMatchObject({ is_game_hidden: false, is_update_paused: false });
     expect((await gameById(env.DB, id))?.review_status).toBe("live");
     const report = await env.DB.prepare("SELECT id, room_code, room_name FROM reports WHERE game_id = ?").bind(id).first<{ id: string; room_code: string; room_name: string }>();
     expect(report).toMatchObject({ room_code: "BCDFGH", room_name: "Bad name (Mode: Classic)" });
@@ -245,8 +245,8 @@ describe("room browsing on the game page", () => {
     const form = new FormData();
     form.set("reason", "Name broke the rules");
     await SELF.fetch(`http://localhost/admin/report-groups/${report!.id}/hide-name`, { method: "POST", body: form, redirect: "manual" });
-    expect(await env.DB.prepare("SELECT name_hidden FROM live_rooms WHERE code = 'BCDFGH'").first("name_hidden")).toBe(1);
-    expect(await env.DB.prepare("SELECT status FROM reports WHERE id = ?").bind(report!.id).first("status")).toBe("actioned");
+    expect(await env.DB.prepare("SELECT is_name_hidden FROM live_rooms WHERE room_code = 'BCDFGH'").first("is_name_hidden")).toBe(1);
+    expect(await env.DB.prepare("SELECT report_status FROM reports WHERE id = ?").bind(report!.id).first("report_status")).toBe("actioned");
     expect(await (await SELF.fetch("https://zaisma.test/g/arena")).text()).not.toContain("Bad name");
   });
 

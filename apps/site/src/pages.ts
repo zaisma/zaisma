@@ -26,17 +26,17 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   // A room link (zaisma.com/g/<slug>?room=CODE) drops the player straight into that match.
   const code = url.searchParams.get("room")?.toUpperCase() ?? "";
   const inRoom = ROOM_CODE.test(code);
-  const src = gameUrl(env, tester ? `${game.slug}--${tester.token}` : game.slug) + (inRoom ? `?room=${code}` : "");
+  const frameUrl = gameUrl(env, tester ? `${game.slug}--${tester.token}` : game.slug) + (inRoom ? `?room=${code}` : "");
   const saves = Boolean(game.cloud_saves_enabled && env.SUPABASE_URL && !tester);
   // Without a new tab, making an account or signing in comes back to the game.
   const joinHere = `/join?next=${encodeURIComponent(`${here}?play`)}`;
   const signinHere = `/signin?next=${encodeURIComponent(`${here}?play`)}`;
   const multiplayer = game.multiplayer_mode !== "none" || Boolean(game.connect_hosts);
-  const ownServers = game.connect_hosts.split("\n").filter(Boolean).map((o) => o.replace(/^[a-z]+:\/\//, ""));
+  const ownServers = game.connect_hosts.split("\n").filter(Boolean).map((host) => host.replace(/^[a-z]+:\/\//, ""));
   const autoplay = inRoom || url.searchParams.has("play");
   const [developer, pictures, updates, others, live] = await Promise.all([
     game.owner_id
-      ? env.DB.prepare("SELECT accounts.name, (SELECT COUNT(*) FROM games WHERE owner_id = ? AND review_status = 'live' AND visibility = 'listed') AS games FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE owners.id = ?").bind(game.owner_id, game.owner_id).first<{ name: string; games: number }>()
+      ? env.DB.prepare("SELECT accounts.name, (SELECT COUNT(*) FROM games WHERE owner_id = ? AND review_status = 'live' AND visibility = 'listed') AS game_count FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE owners.id = ?").bind(game.owner_id, game.owner_id).first<{ name: string; game_count: number }>()
       : null,
     // The square cover is only for phones' game cards, not one of the game's pictures.
     env.DB.prepare("SELECT id, kind FROM game_images WHERE game_id = ? AND review_status = 'approved' AND kind != 'square' ORDER BY kind = 'cover' DESC, created_at_ms").bind(game.id).all<{ id: string; kind: string }>(),
@@ -47,25 +47,25 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
     game.multiplayer_mode !== "none" && !tester ? pageRooms(env, game, request) : null,
   ]);
   const rooms = live && roomsOnPage(game) ? live : null;
-  const playingNow = live ? live.playing.playerCount : 0;
-  const shots = pictures.results.map((p) => `/img/${p.id}`);
-  const more = [...others.filter((g) => g.slug !== game.slug && g.owner_id && g.owner_id === game.owner_id), ...others.filter((g) => g.slug !== game.slug && (!g.owner_id || g.owner_id !== game.owner_id))].slice(0, 4);
+  const playingNowPlayerCount = live ? live.playing.playerCount : 0;
+  const shots = pictures.results.map((picture) => `/img/${picture.id}`);
+  const more = [...others.filter((otherGame) => otherGame.slug !== game.slug && otherGame.owner_id && otherGame.owner_id === game.owner_id), ...others.filter((otherGame) => otherGame.slug !== game.slug && (!otherGame.owner_id || otherGame.owner_id !== game.owner_id))].slice(0, 4);
   const devices = game.devices ? game.devices.split(",") : [];
   const controls = game.controls ? game.controls.split(",") : [];
   const modes = playerModes(readPlayModes(game.play_modes), game.multiplayer_mode !== "none");
   const specRows = [
     modes.html ? html`<div><dt>Players</dt><dd>${modes}</dd></div>` : "",
-    devices.length ? html`<div><dt>Works on</dt><dd class="icons">${devices.map((d) => html`<span>${raw(DEVICE_ICONS[d] ?? "")}${DEVICE_LABELS[d] ?? d}</span>`)}</dd></div>` : "",
-    controls.length ? html`<div><dt>Controls</dt><dd class="icons">${controls.map((c) => html`<span>${raw(CONTROL_ICONS[c] ?? "")}${CONTROL_LABELS[c] ?? c}</span>`)}</dd></div>` : "",
+    devices.length ? html`<div><dt>Works on</dt><dd class="icons">${devices.map((device) => html`<span>${raw(DEVICE_ICONS[device] ?? "")}${DEVICE_LABELS[device] ?? device}</span>`)}</dd></div>` : "",
+    controls.length ? html`<div><dt>Controls</dt><dd class="icons">${controls.map((control) => html`<span>${raw(CONTROL_ICONS[control] ?? "")}${CONTROL_LABELS[control] ?? control}</span>`)}</dd></div>` : "",
   ];
   const spec = specRows.some(Boolean) ? html`<dl class="spec">${specRows}</dl>` : "";
   const tabs = [{ id: "about", label: "About" }, ...(rooms ? [{ id: "rooms", label: "Rooms" }] : []), ...(updates.results.length ? [{ id: "updates", label: "Updates" }] : [])];
   const day = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
-  const res = layout(env, {
+  const response = layout(env, {
     title: `${game.title} on Zaisma`,
-    bare: true,
+    isBare: true,
     // Cloudflare's invisible check from when the page opens, for play counts and multiplayer (tester links: only for multiplayer).
-    check: (!tester || multiplayer) && Boolean(env.TURNSTILE_SITE_KEY),
+    hasTurnstileCheck: (!tester || multiplayer) && Boolean(env.TURNSTILE_SITE_KEY),
     art: shots[0] ?? null,
     body: html`<style>
 /* Two states on one page: details with a Play button, then the game filling the screen. */
@@ -293,14 +293,14 @@ ${siteHeader(env)}
 <section class="gp-top" aria-labelledby="title">
   <div class="viewer">
     <div class="frame"><div class="bezel bevel-l"><div class="shot">${shots[0] ? html`<img id="shot" src="${shots[0]}" alt="${game.title}">` : ""}</div></div></div>
-    ${shots.length > 1 ? html`<div class="thumbs">${shots.map((src, i) => html`<button type="button" class="bevel-s" data-src="${src}" aria-label="Picture ${i + 1} of ${shots.length}" aria-pressed="${i === 0}"><img src="${src}" alt="" loading="lazy"></button>`)}</div>` : ""}
+    ${shots.length > 1 ? html`<div class="thumbs">${shots.map((shot, i) => html`<button type="button" class="bevel-s" data-src="${shot}" aria-label="Picture ${i + 1} of ${shots.length}" aria-pressed="${i === 0}"><img src="${shot}" alt="" loading="lazy"></button>`)}</div>` : ""}
   </div>
   <div class="side plate bevel-l">
     <h1 id="title">${game.title}</h1>
     ${developer ? html`<p class="by">by ${developer.name}</p>` : ""}
     ${tester ? html`<p class="note tester">You're testing this game with a link from its developer.${hidden ? " It isn't public yet: anyone with this link can play, so only share it with other testers." : ""} Your progress stays in this browser.</p>` : ""}
-    ${live ? playingLine(playingNow, Boolean(rooms)) : ""}
-    ${metalButton("Play", { id: "play", big: true, block: true, play: true })}
+    ${live ? playingLine(playingNowPlayerCount, Boolean(rooms)) : ""}
+    ${metalButton("Play", { id: "play", isBig: true, isFullWidth: true, hasPlayIcon: true })}
     <p class="note" id="device-note" hidden></p>
     ${spec}
     <div class="row"><button class="btn ghost" id="share-page" type="button">${raw(ICON_SHARE)}<span class="label">Share</span></button><a class="btn ghost" href="/g/${game.slug}/report" data-report>Report</a></div>
@@ -309,7 +309,7 @@ ${siteHeader(env)}
 </section>
 ${tabs.length > 1
       ? html`<div class="tabs" role="tablist" aria-label="About this game">${tabs.map(
-          (t, i) => html`<button type="button" role="tab" id="tab-${t.id}" aria-controls="${t.id}" aria-selected="${String(i === 0)}">${t.label}${t.id === "rooms" ? html`<span class="tab-count" id="rooms-count"${rooms?.joinableRoomCount ? "" : raw(" hidden")}>${rooms ? tabCount(rooms) : "0"}</span>` : ""}</button>`,
+          (tab, i) => html`<button type="button" role="tab" id="tab-${tab.id}" aria-controls="${tab.id}" aria-selected="${String(i === 0)}">${tab.label}${tab.id === "rooms" ? html`<span class="tab-count" id="rooms-count"${rooms?.joinableRoomCount ? "" : raw(" hidden")}>${rooms ? tabCount(rooms) : "0"}</span>` : ""}</button>`,
         )}</div>`
       : html`<div class="tabs"></div>`}
 <section class="about" id="about" role="tabpanel" aria-label="About">
@@ -317,18 +317,18 @@ ${tabs.length > 1
     ${game.description ? html`<p class="desc">${game.description}</p>` : html`<p class="desc muted">The developer hasn't written about this game yet.</p>`}
     ${ownServers.length ? html`<p class="note">This game also connects to its own servers: ${ownServers.join(", ")}.</p>` : ""}
   </div>
-  ${developer ? html`<div class="dev-card bevel"><span class="av bevel-s" aria-hidden="true">${developer.name[0]!.toUpperCase()}</span><span><strong>${developer.name}</strong><small>${developer.games === 1 ? "1 game on Zaisma" : `${developer.games} games on Zaisma`}</small></span></div>` : ""}
+  ${developer ? html`<div class="dev-card bevel"><span class="av bevel-s" aria-hidden="true">${developer.name[0]!.toUpperCase()}</span><span><strong>${developer.name}</strong><small>${developer.game_count === 1 ? "1 game on Zaisma" : `${developer.game_count} games on Zaisma`}</small></span></div>` : ""}
 </section>
 ${rooms ? html`<section id="rooms" role="tabpanel" aria-label="Rooms" hidden>${codeBox(game.slug)}<div id="rooms-list">${roomsPanel(game.slug, rooms)}</div></section>` : ""}
 ${updates.results.length
       ? html`<section id="updates" role="tabpanel" aria-label="Updates" hidden><ol class="updates">${updates.results.map(
-          (u) => html`<li><h3>${day(u.published_at_ms)}</h3><p>${u.patch_notes}</p></li>`,
+          (update) => html`<li><h3>${day(update.published_at_ms)}</h3><p>${update.patch_notes}</p></li>`,
         )}</ol></section>`
       : ""}
-${more.length ? html`<section class="more" aria-labelledby="more-title"><h2 class="rule-h" id="more-title">More games</h2><div class="grid">${more.map((g) => tile(g))}</div></section>` : ""}
+${more.length ? html`<section class="more" aria-labelledby="more-title"><h2 class="rule-h" id="more-title">More games</h2><div class="grid">${more.map((otherGame) => tile(otherGame))}</div></section>` : ""}
 </main>
 ${siteFooter()}
-<template id="game-frame"><iframe id="game" src="${src}" title="${game.title}"
+<template id="game-frame"><iframe id="game" src="${frameUrl}" title="${game.title}"
   sandbox="allow-scripts allow-same-origin allow-pointer-lock"
   allow="fullscreen; gamepad; autoplay; web-share; clipboard-write" allowfullscreen referrerpolicy="no-referrer"></iframe></template>
 <dialog id="menu-dialog" class="quick plate" aria-label="${game.title}">
@@ -346,12 +346,12 @@ ${siteFooter()}
     <a href="/">${raw(ICON_GAMES)}All games</a>
   </nav>
 </dialog>
-${reportSheet(game, { multiplayer, gameOrigin: new URL(src).origin })}
+${reportSheet(game, { isMultiplayer: multiplayer, gameOrigin: new URL(frameUrl).origin })}
 ${saves
       ? html`<aside class="keep plate bevel" id="keep" aria-labelledby="keep-title" hidden>
   <strong id="keep-title">Keep your progress</strong>
   <p>Your ${game.title} progress is only saved in this browser. Make a free account to keep it safe and play on any device.</p>
-  <div class="row">${metalButton("Make an account", { href: joinHere, data: { keep: "/join" } })}<button class="btn ghost" type="button" id="keep-later">Not now</button></div>
+  <div class="row">${metalButton("Make an account", { href: joinHere, dataAttributes: { keep: "/join" } })}<button class="btn ghost" type="button" id="keep-later">Not now</button></div>
   <p class="small">Have an account? <a href="${signinHere}" data-keep="/signin">Sign in</a></p>
 </aside>
 <p class="keep-toast plate" id="save-toast" role="status" hidden></p>
@@ -388,7 +388,7 @@ ${raw(tester && !multiplayer ? "" : playCounter(game.slug, env.TURNSTILE_SITE_KE
 function remember() {
   try {
     const list = JSON.parse(localStorage.getItem("zaisma:played") || "[]").filter((p) => p.slug !== ${raw(JSON.stringify(game.slug))});
-    list.unshift({ slug: ${raw(JSON.stringify(game.slug))}, at: Date.now() });
+    list.unshift({ slug: ${raw(JSON.stringify(game.slug))}, played_at_ms: Date.now() });
     localStorage.setItem("zaisma:played", JSON.stringify(list.slice(0, 20)));
   } catch {}
   if (/(^|; )(__Host-)?zaisma_in=1/.test(document.cookie)) fetch("/api/me/played/${raw(game.slug)}", { method: "POST", keepalive: true }).catch(() => {});
@@ -446,7 +446,7 @@ async function refreshRooms(force) {
     const n = list.firstElementChild?.dataset.count || "0";
     const playing = Number(list.firstElementChild?.dataset.playing || 0);
     const line = document.getElementById("playing-now");
-    if (line) { line.hidden = playing < ${raw(String(PLAYING_NOW_MIN))}; line.textContent = playing + " playing now"; }
+    if (line) { line.hidden = playing < ${raw(String(MINIMUM_PLAYING_NOW_PLAYER_COUNT))}; line.textContent = playing + " playing now"; }
     const count = document.getElementById("rooms-count");
     count.textContent = n;
     count.hidden = n === "0";
@@ -566,7 +566,7 @@ async function shareFrom(button) {
 }
 share.onclick = () => shareFrom(share);
 // The game says which room it's in, so the address bar (and so Share) points to that match.
-const gameOrigin = new URL(${raw(JSON.stringify(src))}).origin;
+const gameOrigin = new URL(${raw(JSON.stringify(frameUrl))}).origin;
 addEventListener("message", (e) => {
   if (!frame || e.origin !== gameOrigin || e.source !== frame.contentWindow) return;
   const d = e.data;
@@ -588,14 +588,14 @@ addEventListener("message", (e) => {
 addEventListener("pagehide", () => {
   if (frame) leftRoom();
 });
-${raw(saves ? `const SAVES =${JSON.stringify({ api: `/api/saves/${game.slug}`, root: gameUrl(env, game.slug), query: inRoom ? `?room=${code}` : "", frameOrigin: new URL(src).origin, slug: game.slug, offerAfter: (Number(env.KEEP_OFFER_SECONDS) || 300) * 1000 }).replace(/</g, "\\u003c")};\n${SAVES_CLIENT}` : "")}
+${raw(saves ? `const SAVES =${JSON.stringify({ api: `/api/saves/${game.slug}`, root: gameUrl(env, game.slug), query: inRoom ? `?room=${code}` : "", frameOrigin: new URL(frameUrl).origin, slug: game.slug, offerAfter: (Number(env.KEEP_OFFER_SECONDS) || 300) * 1000 }).replace(/</g, "\\u003c")};\n${SAVES_CLIENT}` : "")}
 // A room link is an invitation into a match already underway, and ?play comes from a Play button elsewhere: both skip the details.
 ${raw(autoplay ? "play();" : "")}
 </script>`,
   });
   // Unlisted games are for people with the link, never search engines.
-  if (game.visibility === "unlisted" || tester) res.headers.set("X-Robots-Tag", "noindex");
-  return res;
+  if (game.visibility === "unlisted" || tester) response.headers.set("X-Robots-Tag", "noindex");
+  return response;
 }
 
 const svg = (paths: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
@@ -635,9 +635,9 @@ export function legal(env: Env, page: string): Response | null {
     dmca: { title: "Copyright and DMCA notices", body: DMCA },
     privacy: { title: "Privacy", body: PRIVACY },
   };
-  const p = pages[page];
-  if (!p) return null;
-  return layout(env, { title: `${p.title} · Zaisma`, body: html`<h1>${p.title}</h1>${raw(p.body)}` });
+  const legalPage = pages[page];
+  if (!legalPage) return null;
+  return layout(env, { title: `${legalPage.title} · Zaisma`, body: html`<h1>${legalPage.title}</h1>${raw(legalPage.body)}` });
 }
 
 // DRAFT: Julius approves this wording before it's deployed. The faked-plays rule was approved Oct 13, 2026.
@@ -718,12 +718,12 @@ const PRIVACY = `
 `;
 
 /** Fewest players for "playing now" to show, so a new game never looks empty. */
-const PLAYING_NOW_MIN = 3;
+const MINIMUM_PLAYING_NOW_PLAYER_COUNT = 3;
 
 /** "151 playing now" under the title: everyone in the game's rooms, hidden ones too. */
-function playingLine(players: number, roomsHere: boolean): Raw {
-  const hidden = players < PLAYING_NOW_MIN ? raw(" hidden") : "";
+function playingLine(playerCount: number, roomsHere: boolean): Raw {
+  const hidden = playerCount < MINIMUM_PLAYING_NOW_PLAYER_COUNT ? raw(" hidden") : "";
   return roomsHere
-    ? html`<a class="badge live-now" id="playing-now" href="#rooms"${hidden}>${players} playing now</a>`
-    : html`<p class="badge live-now" id="playing-now"${hidden}>${players} playing now</p>`;
+    ? html`<a class="badge live-now" id="playing-now" href="#rooms"${hidden}>${playerCount} playing now</a>`
+    : html`<p class="badge live-now" id="playing-now"${hidden}>${playerCount} playing now</p>`;
 }

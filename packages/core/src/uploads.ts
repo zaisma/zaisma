@@ -1,6 +1,6 @@
 import { CONTENT_TYPES, extensionOf } from "./mime.ts";
 import { UploadError, cleanPath } from "./zip.ts";
-import { SERVER_DIR, SERVER_ENTRY, SERVER_FILE, type Version } from "./types.ts";
+import { SERVER_FOLDER, SERVER_ENTRY, SERVER_FILE, type Version } from "./types.ts";
 
 /**
  * File-by-file uploads. Each file is stored once, by its SHA-256, at blobs/<sha256> in the games
@@ -111,18 +111,18 @@ export function checkUploadList(input: unknown): UploadFile[] {
  * Where we already have each of these files: shared (checked by storage, any version can use it)
  * or owned (a big file this owner sent in parts). Files we don't have are left out.
  */
-export async function locateBlobs(db: D1Database, hashes: string[], ownerId?: string): Promise<Map<string, "shared" | "owned">> {
+export async function locateBlobs(database: D1Database, hashes: string[], ownerId?: string): Promise<Map<string, "shared" | "owned">> {
   const unique = [...new Set(hashes)];
   const found = new Map<string, "shared" | "owned">();
   const statements: D1PreparedStatement[] = [];
   for (let i = 0; i < unique.length; i += 90) {
     const chunk = unique.slice(i, i + 90);
     const placeholders = chunk.map(() => "?").join(",");
-    statements.push(db.prepare(`SELECT sha256, 'shared' AS kind FROM blobs WHERE sha256 IN (${placeholders})`).bind(...chunk));
-    if (ownerId) statements.push(db.prepare(`SELECT sha256, 'owned' AS kind FROM owned_blobs WHERE owner_id = ? AND sha256 IN (${placeholders})`).bind(ownerId, ...chunk));
+    statements.push(database.prepare(`SELECT sha256, 'shared' AS kind FROM blobs WHERE sha256 IN (${placeholders})`).bind(...chunk));
+    if (ownerId) statements.push(database.prepare(`SELECT sha256, 'owned' AS kind FROM owned_blobs WHERE owner_id = ? AND sha256 IN (${placeholders})`).bind(ownerId, ...chunk));
   }
   for (let i = 0; i < statements.length; i += 50) {
-    for (const batch of await db.batch<{ sha256: string; kind: "shared" | "owned" }>(statements.slice(i, i + 50))) {
+    for (const batch of await database.batch<{ sha256: string; kind: "shared" | "owned" }>(statements.slice(i, i + 50))) {
       for (const row of batch.results) if (found.get(row.sha256) !== "shared") found.set(row.sha256, row.kind);
     }
   }
@@ -130,34 +130,34 @@ export async function locateBlobs(db: D1Database, hashes: string[], ownerId?: st
 }
 
 /** Which of these files we don't have yet. */
-export async function missingBlobs(db: D1Database, hashes: string[], ownerId?: string): Promise<string[]> {
-  const found = await locateBlobs(db, hashes, ownerId);
+export async function missingBlobs(database: D1Database, hashes: string[], ownerId?: string): Promise<string[]> {
+  const found = await locateBlobs(database, hashes, ownerId);
   return [...new Set(hashes)].filter((hash) => !found.has(hash));
 }
 
-export async function addOwnedBlob(db: D1Database, ownerId: string, sha256: string, sizeBytes: number): Promise<void> {
-  await db
+export async function addOwnedBlob(database: D1Database, ownerId: string, sha256: string, sizeBytes: number): Promise<void> {
+  await database
     .prepare("INSERT INTO owned_blobs (owner_id, sha256, size_bytes, created_at_ms) VALUES (?, ?, ?, ?) ON CONFLICT (owner_id, sha256) DO NOTHING")
     .bind(ownerId, sha256, sizeBytes, Date.now())
     .run();
 }
 
-export async function addBlob(db: D1Database, sha256: string, sizeBytes: number): Promise<void> {
-  await db.prepare("INSERT INTO blobs (sha256, size_bytes, created_at_ms) VALUES (?, ?, ?) ON CONFLICT (sha256) DO NOTHING").bind(sha256, sizeBytes, Date.now()).run();
+export async function addBlob(database: D1Database, sha256: string, sizeBytes: number): Promise<void> {
+  await database.prepare("INSERT INTO blobs (sha256, size_bytes, created_at_ms) VALUES (?, ?, ?) ON CONFLICT (sha256) DO NOTHING").bind(sha256, sizeBytes, Date.now()).run();
 }
 
 /** Each stored file's size by its hash, from the blobs tables: the one record of every stored file's size. */
-export async function blobSizes(db: D1Database, hashes: string[]): Promise<Map<string, number>> {
+export async function blobSizes(database: D1Database, hashes: string[]): Promise<Map<string, number>> {
   const unique = [...new Set(hashes)];
   const sizes = new Map<string, number>();
   const statements: D1PreparedStatement[] = [];
   for (let i = 0; i < unique.length; i += 45) {
     const chunk = unique.slice(i, i + 45);
     const placeholders = chunk.map(() => "?").join(",");
-    statements.push(db.prepare(`SELECT sha256, size_bytes FROM blobs WHERE sha256 IN (${placeholders}) UNION ALL SELECT sha256, size_bytes FROM owned_blobs WHERE sha256 IN (${placeholders})`).bind(...chunk, ...chunk));
+    statements.push(database.prepare(`SELECT sha256, size_bytes FROM blobs WHERE sha256 IN (${placeholders}) UNION ALL SELECT sha256, size_bytes FROM owned_blobs WHERE sha256 IN (${placeholders})`).bind(...chunk, ...chunk));
   }
   for (let i = 0; i < statements.length; i += 50) {
-    for (const batch of await db.batch<{ sha256: string; size_bytes: number }>(statements.slice(i, i + 50))) {
+    for (const batch of await database.batch<{ sha256: string; size_bytes: number }>(statements.slice(i, i + 50))) {
       for (const row of batch.results) sizes.set(row.sha256, row.size_bytes);
     }
   }
@@ -199,12 +199,12 @@ export async function serverModules(
   if (version.kind === "files") {
     // Sizes come from storage once the files are chosen: a manifest lists only where each file is.
     for (const path of Object.keys(manifest?.files ?? {})) {
-      if ((path.startsWith(SERVER_DIR) && SERVER_MODULE.test(path)) || path === SERVER_FILE) found.push({ path, key: fileKey(version, manifest, path)!, sizeBytes: null });
+      if ((path.startsWith(SERVER_FOLDER) && SERVER_MODULE.test(path)) || path === SERVER_FILE) found.push({ path, key: fileKey(version, manifest, path)!, sizeBytes: null });
     }
   } else {
     let cursor: string | undefined;
     do {
-      const page = await bucket.list({ prefix: `${version.r2_prefix}/${SERVER_DIR}`, cursor });
+      const page = await bucket.list({ prefix: `${version.r2_prefix}/${SERVER_FOLDER}`, cursor });
       for (const object of page.objects) if (SERVER_MODULE.test(object.key)) found.push({ path: object.key.slice(version.r2_prefix.length + 1), key: object.key, sizeBytes: object.size });
       cursor = page.truncated ? page.cursor : undefined;
     } while (cursor && found.length <= SERVER_LIMITS.maximumFileCount);

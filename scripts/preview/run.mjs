@@ -277,7 +277,7 @@ async function seed() {
   if (gardenVersion.scan_status !== "approved") await go(`/admin/versions/${gardenVersion.id}/approve`, form({ reason: "Preview test data" }));
   await api("POST", `/games/${garden.slug}/versions/${gardenVersion.id}/publish`);
   await api("PATCH", `/games/${garden.slug}`, { visibility: "unlisted" });
-  spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", `UPDATE versions SET scan_report = json_set(scan_report, '$.images.connected', json('false')) WHERE id = '${gardenVersion.id}'`], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
+  spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", `UPDATE versions SET scan_report = json_set(scan_report, '$.images.is_connected', json('false')) WHERE id = '${gardenVersion.id}'`], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
   writeFileSync(join(STATE, "shield-knows-later"), "");
   await fetch(`${SITE}/__scheduled?cron=${encodeURIComponent("17 3 * * *")}`);
 
@@ -548,10 +548,10 @@ function pretendPlaysSql(now = Date.now()) {
     const plays = Math.round(players * 1.8);
     const counted = Math.round(plays * 0.8);
     const countedPlayers = Math.round(players * 0.85);
-    rows.push(`INSERT OR IGNORE INTO play_days (game_id, day, plays, players, new_players, play_seconds, counted, counted_players, counted_new, counted_seconds) SELECT id, '${d}', ${plays}, ${players}, ${fresh}, 0, ${counted}, ${countedPlayers}, ${Math.round(fresh * 0.85)}, ${counted * seconds} FROM games WHERE slug = '${slug}'`);
+    rows.push(`INSERT OR IGNORE INTO play_days (game_id, date, started_play_count, started_player_count, started_new_player_count, play_count, player_count, new_player_count, play_duration_sec) SELECT id, '${d}', ${plays}, ${players}, ${fresh}, ${counted}, ${countedPlayers}, ${Math.round(fresh * 0.85)}, ${counted * seconds} FROM games WHERE slug = '${slug}'`);
     PROVIDERS.forEach((asn, i) => {
       const share = Math.floor(countedPlayers / PROVIDERS.length) + (i < countedPlayers % PROVIDERS.length ? 1 : 0);
-      if (share) rows.push(`INSERT OR IGNORE INTO play_networks (game_id, day, asn, players) SELECT id, '${d}', ${asn}, ${share} FROM games WHERE slug = '${slug}'`);
+      if (share) rows.push(`INSERT OR IGNORE INTO play_networks (game_id, date, autonomous_system_number, player_count) SELECT id, '${d}', ${asn}, ${share} FROM games WHERE slug = '${slug}'`);
     });
   };
   for (const [slug, size] of [["shard-dodge", 40], ["arena", 15]]) {
@@ -562,7 +562,7 @@ function pretendPlaysSql(now = Date.now()) {
       const d = day(now - i * 86_400_000);
       add(slug, d, Math.round(fresh * 1.6), fresh, slug === "arena" ? 540 : 260);
       for (const [after, share] of [[1, 0.32], [7, 0.14], [30, 0.06]]) {
-        if (i - after >= 0) rows.push(`INSERT OR IGNORE INTO play_returns (game_id, first_day, after, players) SELECT id, '${d}', ${after}, ${Math.round(fresh * 0.85 * share)} FROM games WHERE slug = '${slug}'`);
+        if (i - after >= 0) rows.push(`INSERT OR IGNORE INTO play_returns (game_id, first_play_date, after_days, player_count) SELECT id, '${d}', ${after}, ${Math.round(fresh * 0.85 * share)} FROM games WHERE slug = '${slug}'`);
       }
     }
   }
@@ -575,9 +575,9 @@ function pretendPlaysSql(now = Date.now()) {
   }
   // Four in a Row looks botted today: a jump, mostly from cloud servers, for admin's Play spikes.
   for (let i = 7; i >= 1; i--) add("four-in-a-row", day(now - i * 86_400_000), 4, 2, 300);
-  rows.push(`INSERT OR IGNORE INTO play_days (game_id, day, plays, players, new_players, counted, counted_players, counted_new, counted_seconds) SELECT id, '${day(now)}', 260, 240, 235, 240, 240, 235, ${240 * 70} FROM games WHERE slug = 'four-in-a-row'`);
-  rows.push(`INSERT OR IGNORE INTO play_networks (game_id, day, asn, players) SELECT id, '${day(now)}', 16509, 190 FROM games WHERE slug = 'four-in-a-row'`);
-  rows.push(`INSERT OR IGNORE INTO play_networks (game_id, day, asn, players) SELECT id, '${day(now)}', 14061, 38 FROM games WHERE slug = 'four-in-a-row'`);
-  rows.push(`INSERT OR IGNORE INTO play_networks (game_id, day, asn, players) SELECT id, '${day(now)}', 7922, 12 FROM games WHERE slug = 'four-in-a-row'`);
+  rows.push(`INSERT OR IGNORE INTO play_days (game_id, date, started_play_count, started_player_count, started_new_player_count, play_count, player_count, new_player_count, play_duration_sec) SELECT id, '${day(now)}', 260, 240, 235, 240, 240, 235, ${240 * 70} FROM games WHERE slug = 'four-in-a-row'`);
+  rows.push(`INSERT OR IGNORE INTO play_networks (game_id, date, autonomous_system_number, player_count) SELECT id, '${day(now)}', 16509, 190 FROM games WHERE slug = 'four-in-a-row'`);
+  rows.push(`INSERT OR IGNORE INTO play_networks (game_id, date, autonomous_system_number, player_count) SELECT id, '${day(now)}', 14061, 38 FROM games WHERE slug = 'four-in-a-row'`);
+  rows.push(`INSERT OR IGNORE INTO play_networks (game_id, date, autonomous_system_number, player_count) SELECT id, '${day(now)}', 7922, 12 FROM games WHERE slug = 'four-in-a-row'`);
   return rows.join("; ");
 }

@@ -160,10 +160,10 @@ describe("sandboxed game servers", () => {
       row = await e.DB.prepare("SELECT * FROM room_usage WHERE game_id = 'goops'").first();
       if (!row) await new Promise((r) => setTimeout(r, 20));
     }
-    expect(row).toMatchObject({ rooms: 1, server_crashes: 2, server_stops: 0, server_broken_rooms: 0 });
-    expect(row.server_calls).toBeGreaterThanOrEqual(5);
-    const err = await e.DB.prepare("SELECT kind, message, count, version_id FROM game_server_errors WHERE game_id = 'goops'").first();
-    expect(err).toMatchObject({ kind: "crash", count: 2, version_id: "voops" });
+    expect(row).toMatchObject({ room_count: 1, game_server_crash_count: 2, game_server_stopped_count: 0, game_server_ended_match_count: 0 });
+    expect(row.game_server_call_count).toBeGreaterThanOrEqual(5);
+    const err = await e.DB.prepare("SELECT kind, message, occurrence_count, version_id FROM game_server_errors WHERE game_id = 'goops'").first();
+    expect(err).toMatchObject({ kind: "crash", occurrence_count: 2, version_id: "voops" });
     expect(err!.message).toMatch(/^oops \(zaisma-server\.js:\d+:\d+\)$/);
   });
 
@@ -171,8 +171,8 @@ describe("sandboxed game servers", () => {
     await addSandboxGame("old-names", `export default { tickRate: 20, setup: () => ({}) };`);
     const up = await SELF.fetch(`${R}/v1/rooms/old-names/ABCDEF`, { headers: { Upgrade: "websocket", Origin: ORIGIN, "cf-connecting-ip": `198.51.100.${++address % 250}` } });
     expect(up.status).toBe(404);
-    const err = await e.DB.prepare("SELECT kind, message, count, version_id FROM game_server_errors WHERE game_id = 'goldnames'").first<{ message: string }>();
-    expect(err).toMatchObject({ kind: "crash", count: 1, version_id: "voldnames" });
+    const err = await e.DB.prepare("SELECT kind, message, occurrence_count, version_id FROM game_server_errors WHERE game_id = 'goldnames'").first<{ message: string }>();
+    expect(err).toMatchObject({ kind: "crash", occurrence_count: 1, version_id: "voldnames" });
     expect(err!.message).toBe(
       "Didn't start: tickRate isn't a game server option. A game server takes: maximumPlayerCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, setup, onJoin, canJoin, onMoved, onLeave, onAway, onBack, onMessage, onTick. (unknown_option)",
     );
@@ -249,12 +249,12 @@ describe("sandboxed game servers", () => {
     expect(again).toEqual({ type: "error", code: "kept_out", message: "Too rough." });
 
     // Kicking the last player empties the room like everyone leaving: it drops out of the room list.
-    expect(await e.DB.prepare("SELECT players FROM live_rooms WHERE game_id = 'gguarded'").first()).toEqual({ players: 1 });
+    expect(await e.DB.prepare("SELECT player_count FROM live_rooms WHERE game_id = 'gguarded'").first()).toEqual({ player_count: 1 });
     a.say("out");
     expect(await a.next()).toEqual({ type: "kicked", message: "You were removed from this room.", isKeptOut: false });
     let row: unknown = {};
     for (let i = 0; i < 50 && row; i++) {
-      row = await e.DB.prepare("SELECT players FROM live_rooms WHERE game_id = 'gguarded'").first();
+      row = await e.DB.prepare("SELECT player_count FROM live_rooms WHERE game_id = 'gguarded'").first();
       if (row) await new Promise((r) => setTimeout(r, 20));
     }
     expect(row).toBeNull();
@@ -328,6 +328,6 @@ describe("a game server whose sandbox keeps failing", () => {
     // From then on it fails at once, without asking the sandbox again.
     fail = false;
     await expect(server.onTick!({ tickCount: 1 }, 0.1, room)).rejects.toThrow("stopped working");
-    expect(server.stats.failures).toBe(2);
+    expect(server.stats.failureCount).toBe(2);
   });
 });

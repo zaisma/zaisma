@@ -18,7 +18,8 @@ export async function adminIdentity(request: Request, env: Env): Promise<string 
   return claims.email ?? (claims.common_name ? `service token ${claims.common_name}` : "access-user");
 }
 
-interface Claims {
+/** A Cloudflare Access token's claims, in the JWT standard's and Cloudflare's own words. */
+interface AccessJwtClaims {
   aud: string | string[];
   iss: string;
   exp: number;
@@ -27,50 +28,50 @@ interface Claims {
   common_name?: string;
 }
 
-let certCache: { team: string; at: number; keys: (JsonWebKey & { kid: string })[] } | null = null;
+let certCache: { team: string; fetchedAtMs: number; keys: (JsonWebKey & { kid: string })[] } | null = null;
 
 async function keysFor(team: string): Promise<(JsonWebKey & { kid: string })[]> {
-  if (certCache && certCache.team === team && Date.now() - certCache.at < 10 * 60_000) return certCache.keys;
-  const res = await fetch(`https://${team}/cdn-cgi/access/certs`);
-  if (!res.ok) return [];
-  const { keys } = (await res.json()) as { keys: (JsonWebKey & { kid: string })[] };
-  certCache = { team, at: Date.now(), keys };
+  if (certCache && certCache.team === team && Date.now() - certCache.fetchedAtMs < 10 * 60_000) return certCache.keys;
+  const response = await fetch(`https://${team}/cdn-cgi/access/certs`);
+  if (!response.ok) return [];
+  const { keys } = (await response.json()) as { keys: (JsonWebKey & { kid: string })[] };
+  certCache = { team, fetchedAtMs: Date.now(), keys };
   return keys;
 }
 
-export async function verifyJwt(token: string, team: string, aud: string, keys?: (JsonWebKey & { kid: string })[]): Promise<Claims | null> {
+export async function verifyJwt(token: string, team: string, audience: string, keys?: (JsonWebKey & { kid: string })[]): Promise<AccessJwtClaims | null> {
   const parts = token.split(".");
   if (parts.length !== 3) return null;
-  const [h, p, s] = parts as [string, string, string];
+  const [encodedHeader, encodedClaims, encodedSignature] = parts as [string, string, string];
   let header: { alg: string; kid: string };
-  let claims: Claims;
+  let claims: AccessJwtClaims;
   try {
-    header = JSON.parse(b64urlText(h));
-    claims = JSON.parse(b64urlText(p));
+    header = JSON.parse(b64urlText(encodedHeader));
+    claims = JSON.parse(b64urlText(encodedClaims));
   } catch {
     return null;
   }
   if (header.alg !== "RS256") return null;
-  const jwk = (keys ?? (await keysFor(team))).find((k) => k.kid === header.kid);
+  const jwk = (keys ?? (await keysFor(team))).find((candidate) => candidate.kid === header.kid);
   if (!jwk) return null;
 
   const key = await crypto.subtle.importKey("jwk", jwk, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]);
-  const ok = await crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, b64urlBytes(s), new TextEncoder().encode(`${h}.${p}`));
+  const ok = await crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, b64urlBytes(encodedSignature), new TextEncoder().encode(`${encodedHeader}.${encodedClaims}`));
   if (!ok) return null;
 
-  const now = Date.now() / 1000;
-  const auds = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
-  if (!auds.includes(aud)) return null;
+  const nowSec = Date.now() / 1000;
+  const audiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
+  if (!audiences.includes(audience)) return null;
   if (claims.iss !== `https://${team}`) return null;
-  if (!(claims.exp > now) || (claims.nbf && claims.nbf > now + 60)) return null;
+  if (!(claims.exp > nowSec) || (claims.nbf && claims.nbf > nowSec + 60)) return null;
   return claims;
 }
 
-function b64urlBytes(s: string): Uint8Array {
-  const b64 = s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4);
-  return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+function b64urlBytes(encoded: string): Uint8Array {
+  const base64 = encoded.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((encoded.length + 3) % 4);
+  return Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
 }
 
-function b64urlText(s: string): string {
-  return new TextDecoder().decode(b64urlBytes(s));
+function b64urlText(encoded: string): string {
+  return new TextDecoder().decode(b64urlBytes(encoded));
 }

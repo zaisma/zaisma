@@ -207,7 +207,7 @@ function withCookies(response: Response, cookies: string[]): Response {
 }
 
 export function page(env: Env, title: string, body: Raw, httpStatus = 200, art: string | null = null): Response {
-  const rendered = layout(env, { title: `${title} · Zaisma`, body: html`<style>${raw(STYLES)}</style>${body}<script>${raw(LOCAL_TIMES)}</script>`, private: true, nav: "dashboard", art });
+  const rendered = layout(env, { title: `${title} · Zaisma`, body: html`<style>${raw(STYLES)}</style>${body}<script>${raw(LOCAL_TIMES)}</script>`, isPrivate: true, nav: "dashboard", art });
   return new Response(rendered.body, { status: httpStatus, headers: rendered.headers });
 }
 

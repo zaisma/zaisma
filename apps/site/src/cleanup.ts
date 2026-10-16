@@ -22,21 +22,21 @@ export async function publishDue(env: Env, nowMs = Date.now()): Promise<number> 
   return publishedCount;
 }
 
-const DAY = 86400_000;
+const DAY_MS = 86400_000;
 
 /**
  * Once a day: delete drafts nobody published within 30 days, then files no version uses, then
  * pictures from reports closed more than 30 days ago, then rooms-list rows of rooms that stopped.
  * Held and rejected versions are kept: they may need a person, or a report to the authorities.
  */
-export async function dailyCleanup(env: Env, now = Date.now()): Promise<{ drafts: number; files: number; pictures: number; forumDrafts: number }> {
+export async function dailyCleanup(env: Env, nowMs = Date.now()): Promise<{ deletedDraftCount: number; deletedFileCount: number; deletedPictureCount: number; deletedForumDraftCount: number }> {
   const { results: drafts } = await env.DB
     .prepare(
       `SELECT versions.* FROM versions JOIN games ON games.id = versions.game_id
        WHERE versions.scan_status = 'approved' AND versions.published_at_ms IS NULL AND versions.scheduled_publish_at_ms IS NULL
          AND versions.created_at_ms < ? AND (games.live_version_id IS NULL OR games.live_version_id != versions.id)`,
     )
-    .bind(now - 30 * DAY)
+    .bind(nowMs - 30 * DAY_MS)
     .all<Version>();
   for (const draft of drafts) {
     await deleteVersion(env, draft);
@@ -45,25 +45,25 @@ export async function dailyCleanup(env: Env, now = Date.now()): Promise<{ drafts
 
   // Files no version uses, after a day's grace for uploads still in progress. While files are still
   // moving to new names (file_moves), a version's file list may not be where it looks, so they wait.
-  const isMovingFiles = (await env.DB.prepare("SELECT 1 AS found FROM file_moves LIMIT 1").first()) !== null;
-  const unusedKeys = isMovingFiles ? [] : await deleteUnusedFiles(env, now - DAY);
+  const isMovingFiles = (await env.DB.prepare("SELECT 1 AS is_found FROM file_moves LIMIT 1").first()) !== null;
+  const unusedKeys = isMovingFiles ? [] : await deleteUnusedFiles(env, nowMs - DAY_MS);
 
-  const { results: pictures } = await env.DB.prepare("SELECT id FROM reports WHERE picture = 1 AND status != 'open' AND closed_at < ? LIMIT 1000").bind(now - 30 * DAY).all<{ id: string }>();
+  const { results: pictures } = await env.DB.prepare("SELECT id FROM reports WHERE has_picture = 1 AND report_status != 'open' AND closed_at_ms < ? LIMIT 1000").bind(nowMs - 30 * DAY_MS).all<{ id: string }>();
   if (pictures.length) {
-    await env.GAMES.delete(pictures.map((p) => reportPictureKey(p.id)));
-    await env.DB.batch(pictures.map((p) => env.DB.prepare("UPDATE reports SET picture = 0 WHERE id = ?").bind(p.id)));
+    await env.GAMES.delete(pictures.map((picture) => reportPictureKey(picture.id)));
+    await env.DB.batch(pictures.map((picture) => env.DB.prepare("UPDATE reports SET has_picture = 0 WHERE id = ?").bind(picture.id)));
   }
   // Lists already skip these; a room that stopped without saying so (a restart) leaves one behind.
-  await env.DB.prepare("DELETE FROM live_rooms WHERE updated_at < ?").bind(now - ROOM_STALE_MS).run();
+  await env.DB.prepare("DELETE FROM live_rooms WHERE updated_at_ms < ?").bind(nowMs - ROOM_STALE_MS).run();
   // Game server errors are for fixing what's happening now: kept 30 days after they last happened.
-  await env.DB.prepare("DELETE FROM game_server_errors WHERE last_at < ?").bind(now - 30 * DAY).run();
+  await env.DB.prepare("DELETE FROM game_server_errors WHERE last_at_ms < ?").bind(nowMs - 30 * DAY_MS).run();
   // A play's ticket is only needed while it's going on.
-  await env.DB.prepare("DELETE FROM play_tickets WHERE issued_at < ?").bind(now - DAY).run();
+  await env.DB.prepare("DELETE FROM play_tickets WHERE issued_at_ms < ?").bind(nowMs - DAY_MS).run();
   // So is its key to multiplayer passes.
-  await env.DB.prepare("DELETE FROM room_keys WHERE issued_at < ?").bind(now - DAY).run();
+  await env.DB.prepare("DELETE FROM room_keys WHERE issued_at_ms < ?").bind(nowMs - DAY_MS).run();
   // Images uploaded for a forum post that was never posted.
-  const forumDrafts = await deleteStaleDraftMedia(env, now);
-  return { drafts: drafts.length, files: unusedKeys.length, pictures: pictures.length, forumDrafts };
+  const deletedForumDraftCount = await deleteStaleDraftMedia(env, nowMs);
+  return { deletedDraftCount: drafts.length, deletedFileCount: unusedKeys.length, deletedPictureCount: pictures.length, deletedForumDraftCount };
 }
 
 /** Deletes shared and owned files older than the cutoff that no version's file list uses, and answers their keys. */

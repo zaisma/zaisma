@@ -1,4 +1,4 @@
-import { PLAYED_KEEP, gameBySlug, mergePlayed, readPlayModes, recentlyPlayed, recordPlayed, type Game, type MultiplayerMode } from "@zaisma/core";
+import { KEPT_PLAYED_GAME_COUNT, gameBySlug, mergePlayed, readPlayModes, recentlyPlayed, recordPlayed, type Game, type MultiplayerMode } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { esc, html, layout, metalButton, playerLine, raw, type Raw } from "./html.ts";
@@ -20,21 +20,21 @@ export interface ShowGame {
   /** The square cover phones show instead, if the developer added one. */
   square: string | null;
   /** When the version players get now went live. */
-  updated: number | null;
+  published_at_ms: number | null;
   /** When the game first went live. */
-  since: number | null;
+  first_published_at_ms: number | null;
   /** How it's played, in a few words: "Single-player · Online co-op". */
   modes: string;
   devices: string[];
 }
 
 /** Listed, live games with what their cards need, newest update first. */
-export async function showcase(env: Env, limit = 200): Promise<ShowGame[]> {
+export async function showcase(env: Env, maximumGameCount = 200): Promise<ShowGame[]> {
   const { results } = await env.DB
     .prepare(
       `SELECT games.slug, games.title, games.description, games.owner_id, games.devices, games.play_modes, games.multiplayer_mode, games.connect_hosts,
          accounts.name AS developer, versions.published_at_ms,
-         (SELECT MIN(published_at_ms) FROM versions WHERE game_id = games.id) AS since,
+         (SELECT MIN(published_at_ms) FROM versions WHERE game_id = games.id) AS first_published_at_ms,
          (SELECT id FROM game_images WHERE game_id = games.id AND kind = 'cover' AND review_status = 'approved' ORDER BY created_at_ms DESC LIMIT 1) AS cover,
          (SELECT id FROM game_images WHERE game_id = games.id AND kind = 'square' AND review_status = 'approved' ORDER BY created_at_ms DESC LIMIT 1) AS square
        FROM games
@@ -44,78 +44,78 @@ export async function showcase(env: Env, limit = 200): Promise<ShowGame[]> {
        WHERE games.review_status = 'live' AND games.visibility = 'listed' AND games.live_version_id IS NOT NULL
        ORDER BY COALESCE(versions.published_at_ms, games.updated_at_ms) DESC LIMIT ?`,
     )
-    .bind(limit)
-    .all<{ slug: string; title: string; description: string; owner_id: string | null; devices: string; play_modes: string; multiplayer_mode: MultiplayerMode; connect_hosts: string; developer: string | null; published_at_ms: number | null; since: number | null; cover: string | null; square: string | null }>();
-  return results.map((r) => ({
-    slug: r.slug,
-    title: r.title,
-    description: r.description,
-    developer: r.developer,
-    owner_id: r.owner_id,
-    cover: r.cover ? `/img/${r.cover}` : null,
-    square: r.square ? `/img/${r.square}` : null,
-    updated: r.published_at_ms,
-    since: r.since,
-    modes: playerLine(readPlayModes(r.play_modes), r.multiplayer_mode !== "none"),
-    devices: r.devices ? r.devices.split(",") : [],
+    .bind(maximumGameCount)
+    .all<{ slug: string; title: string; description: string; owner_id: string | null; devices: string; play_modes: string; multiplayer_mode: MultiplayerMode; connect_hosts: string; developer: string | null; published_at_ms: number | null; first_published_at_ms: number | null; cover: string | null; square: string | null }>();
+  return results.map((row) => ({
+    slug: row.slug,
+    title: row.title,
+    description: row.description,
+    developer: row.developer,
+    owner_id: row.owner_id,
+    cover: row.cover ? `/img/${row.cover}` : null,
+    square: row.square ? `/img/${row.square}` : null,
+    published_at_ms: row.published_at_ms,
+    first_published_at_ms: row.first_published_at_ms,
+    modes: playerLine(readPlayModes(row.play_modes), row.multiplayer_mode !== "none"),
+    devices: row.devices ? row.devices.split(",") : [],
   }));
 }
 
-const DAY = 86_400_000;
+const DAY_MS = 86_400_000;
 /** Games per shelf, and the fewest that make a shelf worth showing. */
-const SHELF = 12;
-const SHELF_MIN = 2;
+const MAXIMUM_SHELF_GAME_COUNT = 12;
+const MINIMUM_SHELF_GAME_COUNT = 2;
 
 /**
  * Popular, trending and new, the same for everyone, by plain rules from counted plays (plays.ts), not
  * AI, counting players the way shelfPlayers does. Popular: the most players in the last 7 days. Trending: more players in the last 3 days than
  * the 14 before would suggest, at least half as many again. New: first went live in the last 60 days, newest first. A shelf with too few games is left out.
  */
-export async function shelves(env: Env, games: ShowGame[], now = Date.now()): Promise<{ popular: ShowGame[]; trending: ShowGame[]; fresh: ShowGame[] }> {
-  const day = (ago: number) => new Date(now - ago * DAY).toISOString().slice(0, 10);
+export async function shelves(env: Env, games: ShowGame[], nowMs = Date.now()): Promise<{ popular: ShowGame[]; trending: ShowGame[]; fresh: ShowGame[] }> {
+  const dateDaysAgo = (dayCount: number) => new Date(nowMs - dayCount * DAY_MS).toISOString().slice(0, 10);
   // Counted players by network, for listed games Zaisma hasn't kept off the shelves.
   const [{ results: networks }, { results: held }] = await Promise.all([
     env.DB
       .prepare(
-        `SELECT games.slug, play_networks.day, play_networks.asn, play_networks.players
+        `SELECT games.slug, play_networks.date, play_networks.autonomous_system_number, play_networks.player_count
          FROM play_networks JOIN games ON games.id = play_networks.game_id
-         WHERE play_networks.day >= ? AND games.review_status = 'live' AND games.visibility = 'listed' AND games.is_off_shelves = 0`,
+         WHERE play_networks.date >= ? AND games.review_status = 'live' AND games.visibility = 'listed' AND games.is_off_shelves = 0`,
       )
-      .bind(day(16))
-      .all<{ slug: string; day: string; asn: number; players: number }>(),
+      .bind(dateDaysAgo(16))
+      .all<{ slug: string; date: string; autonomous_system_number: number; player_count: number }>(),
     env.DB.prepare("SELECT slug FROM games WHERE is_off_shelves = 1").all<{ slug: string }>(),
   ]);
   // Each game's days, as the shelves count them (plays.ts: no cloud networks, no one network carrying it).
-  const byDay = new Map<string, Map<string, { asn: number; players: number }[]>>();
-  for (const r of networks) {
-    const days = byDay.get(r.slug) ?? new Map<string, { asn: number; players: number }[]>();
-    days.set(r.day, [...(days.get(r.day) ?? []), r]);
-    byDay.set(r.slug, days);
+  const byDay = new Map<string, Map<string, { autonomous_system_number: number; player_count: number }[]>>();
+  for (const network of networks) {
+    const days = byDay.get(network.slug) ?? new Map<string, { autonomous_system_number: number; player_count: number }[]>();
+    days.set(network.date, [...(days.get(network.date) ?? []), network]);
+    byDay.set(network.slug, days);
   }
-  const results = [...byDay].map(([slug, days]) => {
-    const sum = (from: string, to = "9999") => [...days].filter(([d]) => d >= from && d < to).reduce((n, [, rows]) => n + shelfPlayers(rows), 0);
-    return { slug, week: sum(day(6)), recent: sum(day(2)), before: sum(day(16), day(2)) };
+  const shelfCounts = [...byDay].map(([slug, days]) => {
+    const sum = (from: string, to = "9999") => [...days].filter(([date]) => date >= from && date < to).reduce((totalPlayerCount, [, rows]) => totalPlayerCount + shelfPlayers(rows), 0);
+    return { slug, weekPlayerCount: sum(dateDaysAgo(6)), recentPlayerCount: sum(dateDaysAgo(2)), earlierPlayerCount: sum(dateDaysAgo(16), dateDaysAgo(2)) };
   });
-  const off = new Set(held.map((h) => h.slug));
-  const bySlug = new Map(games.map((g) => [g.slug, g]));
+  const off = new Set(held.map((heldGame) => heldGame.slug));
+  const bySlug = new Map(games.map((game) => [game.slug, game]));
   const pick = (slugs: string[]) => {
-    const list = slugs.map((s) => bySlug.get(s)).filter((g): g is ShowGame => Boolean(g)).slice(0, SHELF);
-    return list.length >= SHELF_MIN ? list : [];
+    const list = slugs.map((slug) => bySlug.get(slug)).filter((game): game is ShowGame => Boolean(game)).slice(0, MAXIMUM_SHELF_GAME_COUNT);
+    return list.length >= MINIMUM_SHELF_GAME_COUNT ? list : [];
   };
-  const popular = pick(results.filter((r) => r.week >= 3).sort((a, b) => b.week - a.week).map((r) => r.slug));
+  const popular = pick(shelfCounts.filter((counts) => counts.weekPlayerCount >= 3).sort((first, second) => second.weekPlayerCount - first.weekPlayerCount).map((counts) => counts.slug));
   // Over 3 days, what the 14 before would suggest, plus 10 so a handful of players can't trend.
-  const usual = (r: { before: number }) => (r.before / 14) * 3;
+  const usualRecentPlayerCount = (counts: { earlierPlayerCount: number }) => (counts.earlierPlayerCount / 14) * 3;
   const trending = pick(
-    results
-      .filter((r) => r.recent >= 10 && r.recent >= usual(r) * 1.5)
-      .sort((a, b) => b.recent / (usual(b) + 10) - a.recent / (usual(a) + 10))
-      .map((r) => r.slug),
+    shelfCounts
+      .filter((counts) => counts.recentPlayerCount >= 10 && counts.recentPlayerCount >= usualRecentPlayerCount(counts) * 1.5)
+      .sort((first, second) => second.recentPlayerCount / (usualRecentPlayerCount(second) + 10) - first.recentPlayerCount / (usualRecentPlayerCount(first) + 10))
+      .map((counts) => counts.slug),
   );
   const fresh = pick(
     games
-      .filter((g) => g.since && g.since >= now - 60 * DAY && !off.has(g.slug))
-      .sort((a, b) => b.since! - a.since!)
-      .map((g) => g.slug),
+      .filter((game) => game.first_published_at_ms && game.first_published_at_ms >= nowMs - 60 * DAY_MS && !off.has(game.slug))
+      .sort((first, second) => second.first_published_at_ms! - first.first_published_at_ms!)
+      .map((game) => game.slug),
   );
   return { popular, trending, fresh };
 }
@@ -125,8 +125,8 @@ export async function shelves(env: Env, games: ShowGame[], now = Date.now()): Pr
  * logo. It opens the game's page; only a Play button starts a game. A game without a cover gets its
  * title engraved on a plate. `flag` is a small note on the art, like "Updated".
  */
-export function tile(g: ShowGame, opts: { flag?: string } = {}): Raw {
-  return raw(card(g, opts.flag));
+export function tile(game: ShowGame, options: { flag?: string } = {}): Raw {
+  return raw(card(game, options.flag));
 }
 
 /**
@@ -134,22 +134,22 @@ export function tile(g: ShowGame, opts: { flag?: string } = {}): Raw {
  * show square cards: the square cover when there is one, otherwise the landscape cover whole (never
  * cropped, so no logo is cut off) over a blurred copy of itself.
  */
-function card(g: Pick<ShowGame, "slug" | "title" | "cover" | "square">, flag?: string, label = g.title): string {
-  const art = !g.cover
-    ? `<span class="named"><span>${esc(g.title)}</span></span>`
-    : g.square
-      ? `<picture><source media="(max-width:640px)" srcset="${esc(g.square)}"><img src="${esc(g.cover)}" alt="" loading="lazy"></picture>`
-      : `<span class="fill" style="--fill:url(${esc(g.cover)})"></span><img src="${esc(g.cover)}" alt="" loading="lazy">`;
-  return `<div class="hit block"${g.cover ? ` data-art="${esc(g.cover)}"` : ""}><a class="tile${g.cover && !g.square ? " wide" : ""}" href="/g/${esc(g.slug)}" aria-label="${esc(label)}"><span class="pic">${art}${flag ? `<span class="flag">${esc(flag)}</span>` : ""}</span></a></div>`;
+function card(game: Pick<ShowGame, "slug" | "title" | "cover" | "square">, flag?: string, label = game.title): string {
+  const art = !game.cover
+    ? `<span class="named"><span>${esc(game.title)}</span></span>`
+    : game.square
+      ? `<picture><source media="(max-width:640px)" srcset="${esc(game.square)}"><img src="${esc(game.cover)}" alt="" loading="lazy"></picture>`
+      : `<span class="fill" style="--fill:url(${esc(game.cover)})"></span><img src="${esc(game.cover)}" alt="" loading="lazy">`;
+  return `<div class="hit block"${game.cover ? ` data-art="${esc(game.cover)}"` : ""}><a class="tile${game.cover && !game.square ? " wide" : ""}" href="/g/${esc(game.slug)}" aria-label="${esc(label)}"><span class="pic">${art}${flag ? `<span class="flag">${esc(flag)}</span>` : ""}</span></a></div>`;
 }
 
 export async function home(env: Env): Promise<Response> {
   const games = await showcase(env);
   const { popular, trending, fresh } = await shelves(env, games);
   const shelf = (id: string, title: string, list: ShowGame[]) =>
-    list.length ? html`<section aria-labelledby="${id}"><div class="sec-head"><h2 id="${id}">${title}</h2></div><div class="row-tiles">${list.map((g) => tile(g))}</div></section>` : "";
-  const featured = games.find((g) => g.cover) ?? games[0];
-  const data = games.map(({ owner_id: _, ...g }) => g);
+    list.length ? html`<section aria-labelledby="${id}"><div class="sec-head"><h2 id="${id}">${title}</h2></div><div class="row-tiles">${list.map((game) => tile(game))}</div></section>` : "";
+  const featured = games.find((game) => game.cover) ?? games[0];
+  const browserGames = games.map(({ owner_id: _, ...game }) => game);
   return layout(env, {
     title: "Zaisma: every kind of game, one link away",
     art: featured?.cover ?? null,
@@ -166,7 +166,7 @@ ${featured
 <p class="by" id="stage-by">${[featured.developer, featured.modes].filter(Boolean).join(" · ")}</p>
 <a class="updated" id="stage-updated" hidden></a>
 <p class="desc" id="stage-desc">${featured.description}</p>
-<div class="go-row">${metalButton("Play", { href: `/g/${featured.slug}?play`, big: true, block: true, play: true })}<a class="btn ghost big" id="stage-details" href="/g/${featured.slug}">Details</a></div>
+<div class="go-row">${metalButton("Play", { href: `/g/${featured.slug}?play`, isBig: true, isFullWidth: true, hasPlayIcon: true })}<a class="btn ghost big" id="stage-details" href="/g/${featured.slug}">Details</a></div>
 </div>
 </section>`
       : html`<h1>Every kind of game. One link away.</h1><p class="empty">The first games are on their way.</p>`}
@@ -180,52 +180,52 @@ ${shelf("trending-title", "Trending", trending)}
 ${shelf("new-title", "New", fresh)}
 ${games.length
       ? html`<section aria-labelledby="games-title"><div class="sec-head"><h2 id="games-title">${popular.length || trending.length || fresh.length ? "All games" : "Games"}</h2></div>
-<div class="grid">${games.map((g) => tile(g))}</div></section>`
+<div class="grid">${games.map((game) => tile(game))}</div></section>`
       : ""}
-<script>const GAMES=${raw(JSON.stringify(data).replace(/</g, "\\u003c"))};${raw(HOME_SCRIPT)}</script>`,
+<script>const GAMES=${raw(JSON.stringify(browserGames).replace(/</g, "\\u003c"))};${raw(HOME_SCRIPT)}</script>`,
   });
 }
 
 /**
  * Recently played, for signed-in players.
- *   GET  /api/me/played          [{ slug, at }], newest first
+ *   GET  /api/me/played          { played: [{ slug, played_at_ms }] }, newest first
  *   POST /api/me/played/:slug    remember that they just pressed Play
- *   POST /api/me/played          { played: [{ slug, at }] } from this device's list, when a guest makes an account
+ *   POST /api/me/played          { played: [{ slug, played_at_ms }] } from this device's list, when a guest makes an account
  */
 export async function handlePlayed(request: Request, env: Env, path: string): Promise<Response | null> {
-  const m = path.match(/^\/api\/me\/played(?:\/([a-z0-9-]+))?$/);
-  if (!m) return null;
-  const json = (data: unknown, status = 200, cookies: string[] = []) => {
-    const res = Response.json(data, { status, headers: { "Cache-Control": "no-store" } });
-    for (const c of cookies) res.headers.append("Set-Cookie", c);
-    return res;
+  const match = path.match(/^\/api\/me\/played(?:\/([a-z0-9-]+))?$/);
+  if (!match) return null;
+  const json = (body: unknown, httpStatus = 200, cookies: string[] = []) => {
+    const response = Response.json(body, { status: httpStatus, headers: { "Cache-Control": "no-store" } });
+    for (const cookie of cookies) response.headers.append("Set-Cookie", cookie);
+    return response;
   };
   if (request.method === "POST" && request.headers.get("origin") !== new URL(request.url).origin) return json({ error: "Bad origin" }, 403);
   const session = await currentSession(request, env);
   if (!session) return json({ error: "Signed out" }, 401);
   const account = await env.DB.prepare("SELECT id FROM accounts WHERE id = ?").bind(session.userId).first<{ id: string }>();
   if (!account) return json({ error: "No account" }, 401, session.cookies);
-  if (!m[1] && request.method === "GET") return json({ played: await recentlyPlayed(env.DB, account.id) }, 200, session.cookies);
-  if (!m[1] && request.method === "POST") {
+  if (!match[1] && request.method === "GET") return json({ played: await recentlyPlayed(env.DB, account.id) }, 200, session.cookies);
+  if (!match[1] && request.method === "POST") {
     let body: { played?: unknown };
     try {
       body = await request.json();
     } catch {
       return json({ error: "Bad list" }, 400, session.cookies);
     }
-    const list = Array.isArray(body.played) ? body.played.slice(0, PLAYED_KEEP) : [];
-    const now = Date.now();
-    const played: { gameId: string; at: number }[] = [];
-    for (const p of list as { slug?: unknown; at?: unknown }[]) {
-      const game = typeof p?.slug === "string" ? await gameBySlug(env.DB, p.slug) : null;
-      const at = Number(p?.at);
-      if (game && playable(game) && Number.isFinite(at) && at > 0) played.push({ gameId: game.id, at: Math.min(at, now) });
+    const list = Array.isArray(body.played) ? body.played.slice(0, KEPT_PLAYED_GAME_COUNT) : [];
+    const nowMs = Date.now();
+    const played: { gameId: string; playedAtMs: number }[] = [];
+    for (const entry of list as { slug?: unknown; played_at_ms?: unknown }[]) {
+      const game = typeof entry?.slug === "string" ? await gameBySlug(env.DB, entry.slug) : null;
+      const playedAtMs = Number(entry?.played_at_ms);
+      if (game && playable(game) && Number.isFinite(playedAtMs) && playedAtMs > 0) played.push({ gameId: game.id, playedAtMs: Math.min(playedAtMs, nowMs) });
     }
     await mergePlayed(env.DB, account.id, played);
     return json({ ok: true }, 200, session.cookies);
   }
-  if (m[1] && request.method === "POST") {
-    const game = await gameBySlug(env.DB, m[1]);
+  if (match[1] && request.method === "POST") {
+    const game = await gameBySlug(env.DB, match[1]);
     if (!game || !playable(game)) return json({ error: "No such game" }, 404, session.cookies);
     await recordPlayed(env.DB, account.id, game.id);
     return json({ ok: true }, 200, session.cookies);
@@ -234,8 +234,8 @@ export async function handlePlayed(request: Request, env: Env, path: string): Pr
 }
 
 /** Games players can open by their link. */
-export function playable(g: Game): boolean {
-  return g.review_status === "live" && Boolean(g.live_version_id) && (g.visibility === "listed" || g.visibility === "unlisted");
+export function playable(game: Game): boolean {
+  return game.review_status === "live" && Boolean(game.live_version_id) && (game.visibility === "listed" || game.visibility === "unlisted");
 }
 
 const HOME_STYLES = `
@@ -288,23 +288,23 @@ const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&
 const card=(g,flag,label)=>{const art=!g.cover?'<span class="named"><span>'+esc(g.title)+'</span></span>':g.square?'<picture><source media="(max-width:640px)" srcset="'+esc(g.square)+'"><img src="'+esc(g.cover)+'" alt="" loading="lazy"></picture>':'<span class="fill" style="--fill:url('+esc(g.cover)+')"></span><img src="'+esc(g.cover)+'" alt="" loading="lazy">';
 return '<div class="hit block"'+(g.cover?' data-art="'+esc(g.cover)+'"':"")+'><a class="tile'+(g.cover&&!g.square?" wide":"")+'" href="/g/'+esc(g.slug)+'" aria-label="'+esc(label)+'"><span class="pic">'+art+(flag?'<span class="flag">'+esc(flag)+'</span>':"")+'</span></a></div>'};
 const ago=t=>{const m=Math.max(1,Math.round((Date.now()-t)/60000));return m<60?m+" min ago":m<1440?Math.round(m/60)+" h ago":Math.round(m/1440)===1?"yesterday":Math.round(m/1440)+" days ago"};
-let played=[];try{played=JSON.parse(localStorage.getItem(KEY)||"[]")}catch{}
+let played=[];try{played=JSON.parse(localStorage.getItem(KEY)||"[]").map(p=>({slug:p.slug,played_at_ms:p.played_at_ms??p.at}))}catch{}
 const signedIn=/(^|; )(__Host-)?zaisma_in=1/.test(document.cookie);const guest=document.getElementById("guest");if(guest&&!signedIn)guest.hidden=false;
 let sort="played";
-function render(){const list=played.filter(p=>bySlug[p.slug]).sort((a,b)=>b.at-a.at);if(!list.length)return;
-const last=list[0],g=bySlug[last.slug],fresh=g.updated&&g.updated>last.at;
+function render(){const list=played.filter(p=>bySlug[p.slug]).sort((a,b)=>b.played_at_ms-a.played_at_ms);if(!list.length)return;
+const last=list[0],g=bySlug[last.slug],fresh=g.published_at_ms&&g.published_at_ms>last.played_at_ms;
 const stage=document.getElementById("stage");if(stage){
 stage.querySelector("#stage-pic").href="/g/"+g.slug;if(g.cover){const amb=document.getElementById("ambient");if(window.zaismaArt)zaismaArt(g.cover);else if(amb){amb.dataset.art=g.cover;const on=amb.children[0];on.dataset.u=g.cover;on.style.setProperty("--art","url('"+g.cover+"')");on.className="on";amb.children[1].className=""}}stage.querySelector("#stage-pic").innerHTML=g.cover?'<img src="'+esc(g.cover)+'" alt="">':"";
 stage.querySelector("#stage-title").textContent=g.title;
-stage.querySelector("#stage-by").textContent=[g.developer,"played "+ago(last.at)].filter(Boolean).join(" · ");
-const up=stage.querySelector("#stage-updated");up.hidden=!fresh;if(fresh){up.href="/g/"+g.slug+"#updates";up.textContent="Updated "+ago(g.updated)}
+stage.querySelector("#stage-by").textContent=[g.developer,"played "+ago(last.played_at_ms)].filter(Boolean).join(" · ");
+const up=stage.querySelector("#stage-updated");up.hidden=!fresh;if(fresh){up.href="/g/"+g.slug+"#updates";up.textContent="Updated "+ago(g.published_at_ms)}
 stage.querySelector("#stage-desc").hidden=true;
 const btn=stage.querySelector(".metal");btn.href="/g/"+g.slug+"?play";btn.querySelector("span").textContent="Continue";stage.querySelector("#stage-details").href="/g/"+g.slug}
 // The game on the stage isn't repeated underneath.
 const others=stage?list.slice(1):list;if(!others.length)return;
-const rest=sort==="played"?others:others.slice().sort((a,b)=>(bySlug[b.slug].updated||0)-(bySlug[a.slug].updated||0));
-document.getElementById("continue-tiles").innerHTML=rest.map(p=>{const t=bySlug[p.slug],up=t.updated&&t.updated>p.at;return card(t,up?"Updated":"",t.title+(up?", updated":""))}).join("");
+const rest=sort==="played"?others:others.slice().sort((a,b)=>(bySlug[b.slug].published_at_ms||0)-(bySlug[a.slug].published_at_ms||0));
+document.getElementById("continue-tiles").innerHTML=rest.map(p=>{const t=bySlug[p.slug],up=t.published_at_ms&&t.published_at_ms>p.played_at_ms;return card(t,up?"Updated":"",t.title+(up?", updated":""))}).join("");
 document.getElementById("continue").hidden=false}
 document.querySelectorAll("#continue [data-sort]").forEach(b=>b.onclick=()=>{sort=b.dataset.sort;document.querySelectorAll("#continue [data-sort]").forEach(x=>x.setAttribute("aria-pressed",String(x===b)));render()});
 render();
-if(signedIn)fetch("/api/me/played").then(r=>r.ok?r.json():null).then(d=>{if(!d)return;const m=new Map(played.map(p=>[p.slug,p.at]));for(const p of d.played)m.set(p.slug,Math.max(m.get(p.slug)||0,p.at));played=[...m].map(([slug,at])=>({slug,at}));render()}).catch(()=>{})})();`;
+if(signedIn)fetch("/api/me/played").then(r=>r.ok?r.json():null).then(d=>{if(!d)return;const m=new Map(played.map(p=>[p.slug,p.played_at_ms]));for(const p of d.played)m.set(p.slug,Math.max(m.get(p.slug)||0,p.played_at_ms));played=[...m].map(([slug,played_at_ms])=>({slug,played_at_ms}));render()}).catch(()=>{})})();`;

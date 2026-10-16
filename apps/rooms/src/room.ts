@@ -29,11 +29,11 @@ import { signingKey, type Env } from "./index.ts";
 
 /** A socket's saved details, kept through hibernation. */
 type Attachment =
-  | { stage: "hello"; at: number; tester?: string }
+  | { stage: "hello"; connectedAtMs: number; tester?: string }
   // tester: the tester link the player came through, which they can only play through while it's on.
-  // seen: about when the player last sent a message (pings are answered without waking the room).
+  // seenAtMs: about when the player last sent a message (pings are answered without waking the room).
   // clientIdle: the idle check the player's game asked for, for game servers that leave it to the client.
-  | { stage: "in"; id: string; name: string; joinedAt: number; tester?: string; seen?: number; clientIdle?: ClientIdle }
+  | { stage: "in"; id: string; name: string; joinedAtMs: number; tester?: string; seenAtMs?: number; clientIdle?: ClientIdle }
   | { stage: "gone" };
 
 interface Meta {
@@ -41,9 +41,9 @@ interface Meta {
   slug: string;
   server: string;
   /** The game version a room started on: a sandboxed game server keeps running it until the room ends. */
-  version?: string;
+  versionId?: string;
   /** Rooms made before room browsing don't know their code, and aren't listed. */
-  code?: string;
+  roomCode?: string;
   /** The country and continent the room's first player connected from, which is roughly where the room runs. */
   country?: string | null;
   continent?: string | null;
@@ -51,19 +51,19 @@ interface Meta {
 
 interface Saved {
   state?: unknown;
-  ended?: boolean;
+  hasEnded?: boolean;
   usage?: Usage;
 }
 
 interface Usage {
-  playerSeconds: number;
-  messages: number;
+  roomPlayDurationSec: number;
+  messageCount: number;
 }
 
 /** A player must send their pass this soon after connecting. */
 const HELLO_MS = 5000;
 /** Extra sockets allowed past maximumPlayerCount, for people still saying hello. */
-const SPARE_SOCKETS = 4;
+const SPARE_SOCKET_COUNT = 4;
 /** How often a running room re-checks that its game is still live, so takedowns close rooms. */
 const CHECK_MS = 60_000;
 /** How often a room with players who came through tester links checks those links are still on. */
@@ -97,15 +97,15 @@ export class Room extends DurableObject<Env> {
   /** The game server, loaded on first use since waking (a sandboxed one opens its session then). */
   private server: GameServer | null = null;
   /** Set when the game server kept failing and the room ended for it. */
-  private wasBroken = false;
+  private isBroken = false;
   /** Set once the game server failed to start and the game's errors say so, so a room that keeps failing writes it once. */
-  private startErrorRecorded = false;
-  private ended = false;
-  private usage: Usage = { playerSeconds: 0, messages: 0 };
+  private hasRecordedStartError = false;
+  private hasEnded = false;
+  private usage: Usage = { roomPlayDurationSec: 0, messageCount: 0 };
   private saved: unknown = undefined;
   private savedRoom: SavedRoom | undefined = undefined;
-  private lastCheck = 0;
-  private lastTesterCheck = 0;
+  private lastCheckAtMs = 0;
+  private lastTesterCheckAtMs = 0;
   private timer: ReturnType<typeof setInterval> | null = null;
   /** The game's room browsing setting, read with its status; null until read since waking. */
   private browsing: string | null = null;
@@ -114,26 +114,26 @@ export class Room extends DurableObject<Env> {
   /** Rooms this room is still setting up for its players (room.reserve), so it doesn't sleep before they're told. */
   private moving: Promise<void>[] = [];
   /** When the room's alarm is set for, so wakes that are already covered don't write it again. */
-  private alarmAt: number | null = null;
+  private alarmAtMs: number | null = null;
   /** When the room last checked in (its row and usage), which it does hourly. */
-  private checkedIn = 0;
+  private checkedInAtMs = 0;
   /** The room's row didn't take its last write, so the next check writes it again. */
-  private rowStale = false;
+  private isRowStale = false;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     // Games ping every 25 seconds or so; the answer doesn't wake the room, and the time is kept per socket.
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
     ctx.blockConcurrencyWhile(async () => {
-      const got = await ctx.storage.get<Meta | Saved | SavedRoom | number>(["meta", "saved", "room", "checkedIn"]);
+      const got = await ctx.storage.get<Meta | Saved | SavedRoom | number>(["meta", "saved", "room", "checkedInAtMs"]);
       this.meta = (got.get("meta") as Meta | undefined) ?? null;
       const saved = (got.get("saved") as Saved | undefined) ?? {};
       this.saved = saved.state;
       this.savedRoom = got.get("room") as SavedRoom | undefined;
-      this.ended = saved.ended ?? false;
-      this.usage = saved.usage ?? this.usage;
-      this.checkedIn = (got.get("checkedIn") as number | undefined) ?? 0;
-      this.alarmAt = await ctx.storage.getAlarm();
+      this.hasEnded = saved.hasEnded ?? false;
+      this.usage = { roomPlayDurationSec: saved.usage?.roomPlayDurationSec ?? 0, messageCount: saved.usage?.messageCount ?? 0 };
+      this.checkedInAtMs = (got.get("checkedInAtMs") as number | undefined) ?? 0;
+      this.alarmAtMs = await ctx.storage.getAlarm();
     });
   }
 
@@ -141,14 +141,14 @@ export class Room extends DurableObject<Env> {
     // Another room of the same game reserving this one (only rooms can reach this; players' requests are WebSockets).
     if (request.method === "POST" && new URL(request.url).pathname === "/reserve") return this.reserved(request);
     if (request.method === "POST" && new URL(request.url).pathname === "/expect") return this.expecting(request);
-    if (!this.meta || !this.meta.code) {
+    if (!this.meta || !this.meta.roomCode) {
       this.meta = {
         gameId: request.headers.get("x-game-id")!,
         slug: request.headers.get("x-game-slug")!,
         server: request.headers.get("x-game-server")!,
-        version: request.headers.get("x-game-version") ?? undefined,
+        versionId: request.headers.get("x-game-version") ?? undefined,
         ...this.meta,
-        code: request.headers.get("x-room-code") ?? undefined,
+        roomCode: request.headers.get("x-room-code") ?? undefined,
         country: this.meta?.country ?? (request.headers.get("x-room-country") || null),
         continent: this.meta?.continent ?? (request.headers.get("x-room-continent") || null),
       };
@@ -158,50 +158,50 @@ export class Room extends DurableObject<Env> {
     if (!server) return new Response("This game isn't available right now", { status: 404 });
 
     this.dropStaleHellos();
-    const max = (server.maximumPlayerCount ?? ROOM_LIMITS.defaultMaximumPlayerCount) + SPARE_SOCKETS;
-    const open = this.ctx.getWebSockets().filter((ws) => (ws.deserializeAttachment() as Attachment | null)?.stage !== "gone");
-    if (open.length >= max) return new Response("This room is full", { status: 409 });
+    const maximumSocketCount = (server.maximumPlayerCount ?? ROOM_LIMITS.defaultMaximumPlayerCount) + SPARE_SOCKET_COUNT;
+    const open = this.ctx.getWebSockets().filter((existing) => (existing.deserializeAttachment() as Attachment | null)?.stage !== "gone");
+    if (open.length >= maximumSocketCount) return new Response("This room is full", { status: 409 });
 
     const { 0: client, 1: socket } = new WebSocketPair();
     this.ctx.acceptWebSocket(socket);
     const tester = request.headers.get("x-tester-link") || undefined;
-    socket.serializeAttachment({ stage: "hello", at: Date.now(), ...(tester ? { tester } : {}) } satisfies Attachment);
+    socket.serializeAttachment({ stage: "hello", connectedAtMs: Date.now(), ...(tester ? { tester } : {}) } satisfies Attachment);
     return new Response(null, { status: 101, webSocket: client });
   }
 
-  async webSocketMessage(ws: WebSocket, data: string | ArrayBuffer): Promise<void> {
-    const att = ws.deserializeAttachment() as Attachment;
-    if (typeof data !== "string") return this.refuse(ws, "bad_message");
-    if (att.stage === "hello") return this.hello(ws, data);
-    if (att.stage !== "in") return;
+  async webSocketMessage(socket: WebSocket, message: string | ArrayBuffer): Promise<void> {
+    const attachment = socket.deserializeAttachment() as Attachment;
+    if (typeof message !== "string") return this.refuse(socket, "bad_message");
+    if (attachment.stage === "hello") return this.hello(socket, message);
+    if (attachment.stage !== "in") return;
 
     // Pings never get here; any other message shows the player is still connected.
-    const now = Date.now();
-    if (now - (att.seen ?? att.joinedAt) > SEEN_MS) ws.serializeAttachment({ ...att, seen: now } satisfies Attachment);
+    const nowMs = Date.now();
+    if (nowMs - (attachment.seenAtMs ?? attachment.joinedAtMs ?? 0) > SEEN_MS) socket.serializeAttachment({ ...attachment, seenAtMs: nowMs } satisfies Attachment);
 
     await this.load();
     const core = this.room();
     if (!core) return;
-    if (Date.now() - this.lastCheck > CHECK_MS && !(await this.gameStillLive())) return;
-    if (Date.now() - this.lastTesterCheck > TESTER_CHECK_MS) await this.testerLinksStillOn();
-    if ((ws.deserializeAttachment() as Attachment).stage !== "in") return;
-    const err = core.receive(att.id, data);
-    if (err) ws.send(errorMessage(err));
+    if (Date.now() - this.lastCheckAtMs > CHECK_MS && !(await this.gameStillLive())) return;
+    if (Date.now() - this.lastTesterCheckAtMs > TESTER_CHECK_MS) await this.testerLinksStillOn();
+    if ((socket.deserializeAttachment() as Attachment).stage !== "in") return;
+    const errorCode = core.receive(attachment.id, message);
+    if (errorCode) socket.send(errorMessage(errorCode));
     await this.settle(core);
   }
 
-  async webSocketClose(ws: WebSocket, code: number): Promise<void> {
+  async webSocketClose(socket: WebSocket, code: number): Promise<void> {
     // Closed on purpose (1000, or 1001 as a page goes away), or the connection was lost.
-    await this.left(ws, code === 1000 || code === 1001 ? "left" : "lost");
+    await this.left(socket, code === 1000 || code === 1001 ? "left" : "lost");
     try {
-      ws.close(code === 1005 || code === 1006 ? 1000 : code, "Bye");
+      socket.close(code === 1005 || code === 1006 ? 1000 : code, "Bye");
     } catch {
       // Already closed.
     }
   }
 
-  async webSocketError(ws: WebSocket): Promise<void> {
-    await this.left(ws, "lost");
+  async webSocketError(socket: WebSocket): Promise<void> {
+    await this.left(socket, "lost");
   }
 
   /**
@@ -210,44 +210,44 @@ export class Room extends DurableObject<Env> {
    * stopped without hearing its players go (a restart).
    */
   async alarm(): Promise<void> {
-    this.alarmAt = null;
+    this.alarmAtMs = null;
     if (this.sockets().length) {
       // The next check first, so one that fails (a busy database) doesn't stop the room checking on its players.
       await this.wake(Date.now() + SWEEP_MS);
       await this.load();
       const core = this.room();
-      for (const ws of this.unanswered()) {
-        await this.left(ws, "lost");
+      for (const socket of this.unanswered()) {
+        await this.left(socket, "lost");
         try {
-          ws.close(NO_ANSWER_CLOSE_CODE, "No answer");
+          socket.close(NO_ANSWER_CLOSE_CODE, "No answer");
         } catch {
           // Already closed.
         }
       }
-      if (core && !this.ended) {
+      if (core && !this.hasEnded) {
         core.sweep();
         await this.settle(core);
-        if (this.rowStale) await this.list();
+        if (this.isRowStale) await this.list();
       }
-      if (this.sockets().length && Date.now() - this.checkedIn >= CHECK_IN_MS) {
+      if (this.sockets().length && Date.now() - this.checkedInAtMs >= CHECK_IN_MS) {
         if (await this.gameStillLive()) await this.list(true);
         // A long match's game server health shouldn't wait for the room to empty.
         await this.recordUsage(false);
         // Also when the room has no row to touch (everyone walked away).
-        this.checkedIn = Date.now();
-        await this.ctx.storage.put("checkedIn", this.checkedIn);
+        this.checkedInAtMs = Date.now();
+        await this.ctx.storage.put("checkedInAtMs", this.checkedInAtMs);
       }
       return;
     }
     await this.unlist();
-    const since = await this.ctx.storage.get<number>("emptySince");
-    if (since === undefined) {
-      await this.ctx.storage.put("emptySince", Date.now());
+    const emptiedAtMs = await this.ctx.storage.get<number>("emptiedAtMs");
+    if (emptiedAtMs === undefined) {
+      await this.ctx.storage.put("emptiedAtMs", Date.now());
       await this.setAlarm(Date.now() + KEEP_EMPTY_MS);
-    } else if (Date.now() - since >= KEEP_EMPTY_MS) {
+    } else if (Date.now() - emptiedAtMs >= KEEP_EMPTY_MS) {
       await this.ctx.storage.deleteAll();
     } else {
-      await this.setAlarm(since + KEEP_EMPTY_MS);
+      await this.setAlarm(emptiedAtMs + KEEP_EMPTY_MS);
     }
   }
 
@@ -256,29 +256,29 @@ export class Room extends DurableObject<Env> {
     await core.settled();
     await this.moved();
     await core.settled();
-    if (!this.ended && !core.ended) this.pace(core);
+    if (!this.hasEnded && !core.ended) this.pace(core);
     await this.save();
     if (core.listingChanged) await this.list();
   }
 
   /** Sockets of players the room hasn't heard from, not even a ping, for too long. */
-  private unanswered(now = Date.now()): WebSocket[] {
-    return this.sockets().filter((ws) => {
-      const att = ws.deserializeAttachment() as Attachment & { stage: "in" };
-      const pinged = this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? 0;
-      return now - Math.max(pinged, att.seen ?? 0, att.joinedAt) > DEAD_MS;
+  private unanswered(nowMs = Date.now()): WebSocket[] {
+    return this.sockets().filter((socket) => {
+      const attachment = socket.deserializeAttachment() as Attachment & { stage: "in" };
+      const pinged = this.ctx.getWebSocketAutoResponseTimestamp(socket)?.getTime() ?? 0;
+      return nowMs - Math.max(pinged, attachment.seenAtMs ?? 0, attachment.joinedAtMs ?? 0) > DEAD_MS;
     });
   }
 
   /** Make sure the room wakes by then: writes the alarm only if it isn't already due sooner. */
-  private async wake(at: number): Promise<void> {
-    if (this.alarmAt !== null && this.alarmAt <= at && this.alarmAt > Date.now()) return;
-    await this.setAlarm(at);
+  private async wake(wakeAtMs: number): Promise<void> {
+    if (this.alarmAtMs !== null && this.alarmAtMs <= wakeAtMs && this.alarmAtMs > Date.now()) return;
+    await this.setAlarm(wakeAtMs);
   }
 
-  private async setAlarm(at: number): Promise<void> {
-    this.alarmAt = at;
-    await this.ctx.storage.setAlarm(at);
+  private async setAlarm(alarmAtMs: number): Promise<void> {
+    this.alarmAtMs = alarmAtMs;
+    await this.ctx.storage.setAlarm(alarmAtMs);
   }
 
   /**
@@ -294,8 +294,8 @@ export class Room extends DurableObject<Env> {
       gameId,
       slug: request.headers.get("x-game-slug")!,
       server: request.headers.get("x-game-server")!,
-      version: request.headers.get("x-game-version") ?? undefined,
-      code: request.headers.get("x-room-code")!,
+      versionId: request.headers.get("x-game-version") ?? undefined,
+      roomCode: request.headers.get("x-room-code")!,
       country: request.headers.get("x-room-country") || null,
       continent: request.headers.get("x-room-continent") || null,
     };
@@ -310,7 +310,7 @@ export class Room extends DurableObject<Env> {
       ...(typeof start.lobbyRoomCode === "string" && start.lobbyRoomCode ? { lobbyRoomCode: start.lobbyRoomCode } : {}),
     };
     // Like an empty room: cleared after a day if nobody comes.
-    await this.ctx.storage.put({ meta: this.meta, room: this.savedRoom, emptySince: Date.now() });
+    await this.ctx.storage.put({ meta: this.meta, room: this.savedRoom, emptiedAtMs: Date.now() });
     await this.setAlarm(Date.now() + KEEP_EMPTY_MS);
     return new Response(null, { status: 204 });
   }
@@ -320,14 +320,14 @@ export class Room extends DurableObject<Env> {
    * takes, and holds a seat for each for a minute. A room that isn't running takes nobody.
    */
   private async expecting(request: Request): Promise<Response> {
-    if (!this.meta?.code || this.ended || this.meta.gameId !== request.headers.get("x-game-id")) return new Response("No such room", { status: 404 });
+    if (!this.meta?.roomCode || this.hasEnded || this.meta.gameId !== request.headers.get("x-game-id")) return new Response("No such room", { status: 404 });
     const ask = (await request.json()) as MoveAsk;
-    const players = Array.isArray(ask?.players) ? ask.players.filter((p) => typeof p?.id === "string" && typeof p?.name === "string").slice(0, 16) : [];
+    const players = Array.isArray(ask?.players) ? ask.players.filter((player) => typeof player?.id === "string" && typeof player?.name === "string").slice(0, 16) : [];
     if (typeof ask?.fromRoomCode !== "string" || !players.length) return new Response("Bad request", { status: 400 });
     if (!(await this.load()) || !(await this.gameStillLive())) return new Response("No such room", { status: 404 });
     const core = this.room();
     if (!core) return new Response("No such room", { status: 404 });
-    const answer = await core.expect({ fromRoomCode: ask.fromRoomCode, players: players.map((p) => ({ id: p.id, name: p.name })), joinData: ask.joinData ?? null });
+    const answer = await core.expect({ fromRoomCode: ask.fromRoomCode, players: players.map((player) => ({ id: player.id, name: player.name })), joinData: ask.joinData ?? null });
     await core.settled();
     this.savedRoom = core.saved;
     await this.ctx.storage.put("room", this.savedRoom);
@@ -335,13 +335,13 @@ export class Room extends DurableObject<Env> {
     return Response.json(answer);
   }
 
-  private async hello(ws: WebSocket, text: string): Promise<void> {
-    const tester = (ws.deserializeAttachment() as Attachment & { stage: "hello" }).tester;
+  private async hello(socket: WebSocket, text: string): Promise<void> {
+    const tester = (socket.deserializeAttachment() as Attachment & { stage: "hello" }).tester;
     let pass: unknown;
     let made: { isListed?: boolean; joinData?: unknown; clientIdle?: ClientIdle } & RoomInfo = {};
     try {
       const hello = JSON.parse(text) as { type?: unknown; pass?: unknown; joinData?: unknown; room?: { isListed?: unknown; name?: unknown; labels?: unknown } };
-      if (hello.type !== "hello") return this.refuse(ws, "no_hello");
+      if (hello.type !== "hello") return this.refuse(socket, "no_hello");
       pass = hello.pass;
       // The idle check the player's game asked for, for game servers that leave it to the client.
       made.clientIdle = clientIdle(hello);
@@ -350,59 +350,59 @@ export class Room extends DurableObject<Env> {
       made = { ...made, ...(room.isListed === false ? { isListed: false } : {}), ...tidyRoomInfo(room as RoomInfo) };
       // What the player brings for the game server's onJoin, like the character they picked.
       const checked = checkRoomData(hello.joinData);
-      if (!checked.isValid) return this.refuse(ws, "too_big");
+      if (!checked.isValid) return this.refuse(socket, "too_big");
       made.joinData = checked.checkedData;
     } catch {
-      return this.refuse(ws, "no_hello");
+      return this.refuse(socket, "no_hello");
     }
-    if (typeof pass !== "string" || !this.meta) return this.refuse(ws, "bad_pass");
+    if (typeof pass !== "string" || !this.meta) return this.refuse(socket, "bad_pass");
 
     let player: Player;
     try {
       const claims = await verifyPass(pass, [(await signingKey(this.env)).publicKey], { game: this.meta.slug, issuer: this.env.ISSUER });
       player = { id: claims.sub, name: claims.name };
-    } catch (err) {
-      if (!(err instanceof PassError)) throw err;
-      return this.refuse(ws, "bad_pass");
+    } catch (error) {
+      if (!(error instanceof PassError)) throw error;
+      return this.refuse(socket, "bad_pass");
     }
-    if (this.ended) return this.refuse(ws, "ended");
-    if (!(await this.gameStillLive())) return this.refuse(ws, "game_unavailable");
+    if (this.hasEnded) return this.refuse(socket, "ended");
+    if (!(await this.gameStillLive())) return this.refuse(socket, "game_unavailable");
     await this.load();
     const core = this.room();
-    if (!core) return this.refuse(ws, "game_unavailable");
+    if (!core) return this.refuse(socket, "game_unavailable");
     // Past this month's free tier, a room with nobody in it opens only for players it's holding a place for.
-    if (core.players.size === 0 && !core.expects(player.id) && (await pastFreeTier(this.env.DB, this.meta.gameId))) return this.refuse(ws, "month_limit");
+    if (core.players.size === 0 && !core.expects(player.id) && (await pastFreeTier(this.env.DB, this.meta.gameId))) return this.refuse(socket, "month_limit");
     // The room's rules and the game's canJoin, before anyone hears about this player.
     const admitted = await core.admit(player, made.joinData);
     if (!admitted.isAllowed) {
-      this.refuse(ws, admitted.code, admitted.message);
+      this.refuse(socket, admitted.code, admitted.message);
       // A canJoin that crashed or answered wrongly turns everyone away, so the room may never fill and empty: record it now, for its developer.
       if ((this.server as { stats?: SandboxStats } | null)?.stats?.errors.size) await this.recordUsage(false);
       return;
     }
-    if ((ws.deserializeAttachment() as Attachment).stage !== "hello") return;
+    if ((socket.deserializeAttachment() as Attachment).stage !== "hello") return;
 
     // The same player connecting again (a reconnect or a second tab) replaces the old connection.
     for (const other of this.sockets(player.id)) {
       this.retire(other);
       other.close(REFUSED_CLOSE_CODE, "Joined from somewhere else");
     }
-    const now = Date.now();
-    ws.serializeAttachment({ stage: "in", id: player.id, name: player.name, joinedAt: now, seen: now, ...(tester ? { tester } : {}), clientIdle: made.clientIdle ?? {} } satisfies Attachment);
+    const nowMs = Date.now();
+    socket.serializeAttachment({ stage: "in", id: player.id, name: player.name, joinedAtMs: nowMs, seenAtMs: nowMs, ...(tester ? { tester } : {}), clientIdle: made.clientIdle ?? {} } satisfies Attachment);
     const joined = core.join(player, made);
-    if (!joined.isAllowed) return this.refuse(ws, joined.code, joined.message);
+    if (!joined.isAllowed) return this.refuse(socket, joined.code, joined.message);
     await core.settled();
-    if (core.players.size === 1) await this.ctx.storage.delete("emptySince");
+    if (core.players.size === 1) await this.ctx.storage.delete("emptiedAtMs");
     await this.settle(core);
     await this.wake(Date.now() + SWEEP_MS);
   }
 
   /** A player's connection closed: they left, or it was lost (the room then holds their seat a while). */
-  private async left(ws: WebSocket, why: "left" | "lost"): Promise<void> {
-    const att = this.retire(ws);
-    if (att.stage !== "in") return;
-    const core = this.sockets(att.id).length === 0 && (await this.load()) ? this.room() : null;
-    core?.leave(att.id, why);
+  private async left(socket: WebSocket, why: "left" | "lost"): Promise<void> {
+    const attachment = this.retire(socket);
+    if (attachment.stage !== "in") return;
+    const core = this.sockets(attachment.id).length === 0 && (await this.load()) ? this.room() : null;
+    core?.leave(attachment.id, why);
     if (this.sockets().length === 0) {
       await core?.settled();
       await this.emptied();
@@ -410,11 +410,11 @@ export class Room extends DurableObject<Env> {
   }
 
   /** Mark a socket as gone, counting the time its player spent in the room. */
-  private retire(ws: WebSocket): Attachment {
-    const att = ws.deserializeAttachment() as Attachment;
-    if (att.stage === "in") this.usage.playerSeconds += Math.round((Date.now() - att.joinedAt) / 1000);
-    ws.serializeAttachment({ stage: "gone" } satisfies Attachment);
-    return att;
+  private retire(socket: WebSocket): Attachment {
+    const attachment = socket.deserializeAttachment() as Attachment;
+    if (attachment.stage === "in") this.usage.roomPlayDurationSec += Math.round((Date.now() - (attachment.joinedAtMs ?? Date.now())) / 1000);
+    socket.serializeAttachment({ stage: "gone" } satisfies Attachment);
+    return attachment;
   }
 
   /** Everyone has gone: stop ticking, record usage, drop the room's row, and clean up after a day. */
@@ -424,18 +424,18 @@ export class Room extends DurableObject<Env> {
     if (this.core && !this.core.ticking) this.core.dirty = true;
     await this.save();
     await this.unlist();
-    await this.ctx.storage.put("emptySince", Date.now());
+    await this.ctx.storage.put("emptiedAtMs", Date.now());
     await this.setAlarm(Date.now() + KEEP_EMPTY_MS);
   }
 
   /** The match is over for good: nobody else can join this room. */
   private async finish(): Promise<void> {
-    if (this.ended) return;
-    this.ended = true;
+    if (this.hasEnded) return;
+    this.hasEnded = true;
     this.stopTicking();
     await this.recordUsage();
     await this.unlist();
-    await this.ctx.storage.put({ saved: { ended: true } satisfies Saved, emptySince: Date.now() });
+    await this.ctx.storage.put({ saved: { hasEnded: true } satisfies Saved, emptiedAtMs: Date.now() });
     await this.setAlarm(Date.now() + KEEP_EMPTY_MS);
   }
 
@@ -448,35 +448,35 @@ export class Room extends DurableObject<Env> {
   private async list(touch = false): Promise<void> {
     const core = this.core;
     const meta = this.meta;
-    if (!core || !meta?.code) return;
+    if (!core || !meta?.roomCode) return;
     if (this.browsing === null && !(await this.gameStillLive())) return;
     core.listingChanged = false;
     // What the room keeps for itself, so a hidden or closed room stays that way after a restart.
     this.savedRoom = core.saved;
     await this.ctx.storage.put("room", this.savedRoom);
-    const live = !this.ended && !core.ended && core.playingCount > 0;
-    const listed = core.isListed && this.browsing !== "off" ? 1 : 0;
+    const live = !this.hasEnded && !core.ended && core.playingCount > 0;
+    const isListed = core.isListed && this.browsing !== "off" ? 1 : 0;
     const labels = JSON.stringify(core.labels);
-    const as = live ? JSON.stringify([core.playingCount, core.heldSeatCount, core.maximumPlayerCount, core.isOpen, listed, core.name, labels]) : "";
+    const as = live ? JSON.stringify([core.playingCount, core.heldSeatCount, core.maximumPlayerCount, core.isOpen, isListed, core.name, labels]) : "";
     if (as === this.listedAs && !touch) return;
     if (!live) return this.unlist();
-    const now = Date.now();
+    const nowMs = Date.now();
     await this.rowWrite(as, () =>
       this.env.DB.prepare(
-        // A name a person hid stays hidden while the room lives (name_hidden is never overwritten here).
-        "INSERT INTO live_rooms (game_id, code, players, held, max_players, listed, open, name, labels, country, continent, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(game_id, code) DO UPDATE SET players = excluded.players, held = excluded.held, max_players = excluded.max_players, listed = excluded.listed, open = excluded.open, name = excluded.name, labels = excluded.labels, updated_at = excluded.updated_at",
+        // A name a person hid stays hidden while the room lives (is_name_hidden is never overwritten here).
+        "INSERT INTO live_rooms (game_id, room_code, player_count, held_seat_count, maximum_player_count, is_listed, is_open, name, labels, country, continent, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(game_id, room_code) DO UPDATE SET player_count = excluded.player_count, held_seat_count = excluded.held_seat_count, maximum_player_count = excluded.maximum_player_count, is_listed = excluded.is_listed, is_open = excluded.is_open, name = excluded.name, labels = excluded.labels, updated_at_ms = excluded.updated_at_ms",
       )
-        .bind(meta.gameId, meta.code, core.playingCount, core.heldSeatCount, core.maximumPlayerCount, listed, core.isOpen ? 1 : 0, core.name, labels, meta.country ?? null, meta.continent ?? null, now, now)
+        .bind(meta.gameId, meta.roomCode, core.playingCount, core.heldSeatCount, core.maximumPlayerCount, isListed, core.isOpen ? 1 : 0, core.name, labels, meta.country ?? null, meta.continent ?? null, nowMs, nowMs)
         .run(),
     );
     // Checked in: the next check-in is due an hour from now.
-    this.checkedIn = now;
-    await this.ctx.storage.put("checkedIn", now);
+    this.checkedInAtMs = nowMs;
+    await this.ctx.storage.put("checkedInAtMs", nowMs);
   }
 
   private async unlist(): Promise<void> {
-    if (this.listedAs === "" || !this.meta?.code) return;
-    await this.rowWrite("", () => this.env.DB.prepare("DELETE FROM live_rooms WHERE game_id = ? AND code = ?").bind(this.meta!.gameId, this.meta!.code!).run());
+    if (this.listedAs === "" || !this.meta?.roomCode) return;
+    await this.rowWrite("", () => this.env.DB.prepare("DELETE FROM live_rooms WHERE game_id = ? AND room_code = ?").bind(this.meta!.gameId, this.meta!.roomCode!).run());
   }
 
   /**
@@ -488,11 +488,11 @@ export class Room extends DurableObject<Env> {
     this.listedAs = as;
     try {
       await write();
-      this.rowStale = false;
-    } catch (err) {
+      this.isRowStale = false;
+    } catch (error) {
       if (this.listedAs === as) this.listedAs = was;
-      this.rowStale = true;
-      throw err;
+      this.isRowStale = true;
+      throw error;
     }
   }
 
@@ -507,47 +507,47 @@ export class Room extends DurableObject<Env> {
    */
   private async recordUsage(ended = true): Promise<void> {
     if (this.core) {
-      this.usage.messages += this.core.messageCount;
+      this.usage.messageCount += this.core.messageCount;
       this.core.messageCount = 0;
     }
     const stats = (this.server as { stats?: SandboxStats } | null)?.stats;
-    const health = { calls: stats?.calls ?? 0, crashes: stats?.crashes ?? 0, stops: stats?.stops ?? 0, broken: ended && this.wasBroken ? 1 : 0 };
+    const health = { callCount: stats?.callCount ?? 0, crashCount: stats?.crashCount ?? 0, stoppedCount: stats?.stoppedCount ?? 0, endedMatchCount: ended && this.isBroken ? 1 : 0 };
     const errors = stats ? [...stats.errors.values()] : [];
     if (stats) {
-      stats.calls = stats.ms = stats.crashes = stats.stops = 0;
+      stats.callCount = stats.waitDurationMs = stats.crashCount = stats.stoppedCount = 0;
       stats.errors.clear();
     }
-    if (!this.meta || !(this.usage.playerSeconds || this.usage.messages || health.calls || health.crashes || health.stops || health.broken)) return;
-    const day = new Date().toISOString().slice(0, 10);
-    const now = Date.now();
+    if (!this.meta || !(this.usage.roomPlayDurationSec || this.usage.messageCount || health.callCount || health.crashCount || health.stoppedCount || health.endedMatchCount)) return;
+    const date = new Date().toISOString().slice(0, 10);
+    const nowMs = Date.now();
     await this.env.DB.batch([
       this.env.DB.prepare(
-        "INSERT INTO room_usage (game_id, day, rooms, player_seconds, messages, server_calls, server_crashes, server_stops, server_broken_rooms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(game_id, day) DO UPDATE SET rooms = rooms + excluded.rooms, player_seconds = player_seconds + excluded.player_seconds, messages = messages + excluded.messages, server_calls = server_calls + excluded.server_calls, server_crashes = server_crashes + excluded.server_crashes, server_stops = server_stops + excluded.server_stops, server_broken_rooms = server_broken_rooms + excluded.server_broken_rooms",
-      ).bind(this.meta.gameId, day, ended ? 1 : 0, this.usage.playerSeconds, this.usage.messages, health.calls, health.crashes, health.stops, health.broken),
-      ...errors.map((e) =>
+        "INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count, game_server_call_count, game_server_crash_count, game_server_stopped_count, game_server_ended_match_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(game_id, date) DO UPDATE SET room_count = room_count + excluded.room_count, room_play_duration_sec = room_play_duration_sec + excluded.room_play_duration_sec, message_count = message_count + excluded.message_count, game_server_call_count = game_server_call_count + excluded.game_server_call_count, game_server_crash_count = game_server_crash_count + excluded.game_server_crash_count, game_server_stopped_count = game_server_stopped_count + excluded.game_server_stopped_count, game_server_ended_match_count = game_server_ended_match_count + excluded.game_server_ended_match_count",
+      ).bind(this.meta.gameId, date, ended ? 1 : 0, this.usage.roomPlayDurationSec, this.usage.messageCount, health.callCount, health.crashCount, health.stoppedCount, health.endedMatchCount),
+      ...errors.map((error) =>
         this.env.DB.prepare(
-          "INSERT INTO game_server_errors (game_id, version_id, kind, message, count, first_at, last_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(game_id, version_id, kind, message) DO UPDATE SET count = count + excluded.count, last_at = excluded.last_at",
-        ).bind(this.meta!.gameId, this.meta!.version ?? "", e.kind, e.message, e.count, e.first, now),
+          "INSERT INTO game_server_errors (game_id, version_id, kind, message, occurrence_count, first_at_ms, last_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(game_id, version_id, kind, message) DO UPDATE SET occurrence_count = occurrence_count + excluded.occurrence_count, last_at_ms = excluded.last_at_ms",
+        ).bind(this.meta!.gameId, this.meta!.versionId ?? "", error.kind, error.message, error.occurrenceCount, error.firstAtMs, nowMs),
       ),
     ]);
-    this.usage = { playerSeconds: 0, messages: 0 };
+    this.usage = { roomPlayDurationSec: 0, messageCount: 0 };
   }
 
   /**
    * The game reserved a room (room.reserve): set it up, then tell its players where to go. Players
    * learn the code only once the room is waiting for them, so nobody else can get there first.
    */
-  private reserve(code: string, start: RoomStart): void {
+  private reserve(roomCode: string, start: RoomStart): void {
     const meta = this.meta!;
     const work = (async () => {
-      const headers = { "x-game-id": meta.gameId, "x-game-slug": meta.slug, "x-game-server": meta.server, "x-game-version": meta.version ?? "", "x-room-code": code, "x-room-country": meta.country ?? "", "x-room-continent": meta.continent ?? "" };
+      const headers = { "x-game-id": meta.gameId, "x-game-slug": meta.slug, "x-game-server": meta.server, "x-game-version": meta.versionId ?? "", "x-room-code": roomCode, "x-room-country": meta.country ?? "", "x-room-continent": meta.continent ?? "" };
       // The new room knows where it came from, for game servers that send players who walk away back to their lobby.
-      const body = JSON.stringify({ ...start, ...(meta.code ? { lobbyRoomCode: meta.code } : {}) } satisfies RoomStart);
-      const res = await this.env.ROOMS.get(this.env.ROOMS.idFromName(`${meta.slug}:${code}`)).fetch("https://room/reserve", { method: "POST", headers, body });
-      if (!res.ok) throw new Error(`room ${code} said ${res.status}`);
-      const text = JSON.stringify({ type: "move", roomCode: code } satisfies ServerMessage);
-      for (const id of start.playerIds) this.sockets(id).forEach((ws) => ws.send(text));
-    })().catch((err) => console.error("Couldn't reserve a room:", err));
+      const body = JSON.stringify({ ...start, ...(meta.roomCode ? { lobbyRoomCode: meta.roomCode } : {}) } satisfies RoomStart);
+      const response = await this.env.ROOMS.get(this.env.ROOMS.idFromName(`${meta.slug}:${roomCode}`)).fetch("https://room/reserve", { method: "POST", headers, body });
+      if (!response.ok) throw new Error(`room ${roomCode} said ${response.status}`);
+      const text = JSON.stringify({ type: "move", roomCode } satisfies ServerMessage);
+      for (const id of start.playerIds) this.sockets(id).forEach((socket) => socket.send(text));
+    })().catch((error) => console.error("Couldn't reserve a room:", error));
     this.moving.push(work);
   }
 
@@ -555,29 +555,29 @@ export class Room extends DurableObject<Env> {
    * The game sends players to another of its rooms (room.moveTo): ask that room, tell the players it
    * takes where to go, and give the game server the answer (onMoved).
    */
-  private moveTo(code: string, ask: Omit<MoveAsk, "fromRoomCode">): void {
+  private moveTo(roomCode: string, ask: Omit<MoveAsk, "fromRoomCode">): void {
     const meta = this.meta!;
     const nobody = (refusalCode: "no_room" | "busy"): MoveAnswer => ({ movedPlayerIds: [], refusals: ask.players.map((player) => ({ playerId: player.id, code: refusalCode, message: ERROR_TEXT[refusalCode] })) });
     const work = (async () => {
       let answer: MoveAnswer;
-      if (code === meta.code || !meta.code) answer = nobody("no_room");
+      if (roomCode === meta.roomCode || !meta.roomCode) answer = nobody("no_room");
       else {
         try {
-          const res = await this.env.ROOMS.get(this.env.ROOMS.idFromName(`${meta.slug}:${code}`)).fetch("https://room/expect", {
+          const response = await this.env.ROOMS.get(this.env.ROOMS.idFromName(`${meta.slug}:${roomCode}`)).fetch("https://room/expect", {
             method: "POST",
             headers: { "x-game-id": meta.gameId },
-            body: JSON.stringify({ ...ask, fromRoomCode: meta.code } satisfies MoveAsk),
+            body: JSON.stringify({ ...ask, fromRoomCode: meta.roomCode } satisfies MoveAsk),
           });
-          answer = res.ok ? await res.json() : nobody("no_room");
-        } catch (err) {
-          console.error("Couldn't move players:", err);
+          answer = response.ok ? await response.json() : nobody("no_room");
+        } catch (error) {
+          console.error("Couldn't move players:", error);
           answer = nobody("busy");
         }
       }
-      const text = JSON.stringify({ type: "move", roomCode: code } satisfies ServerMessage);
-      for (const id of answer.movedPlayerIds) this.sockets(id).forEach((ws) => ws.send(text));
-      this.core?.moved(code, answer, ask.players);
-    })().catch((err) => console.error("Couldn't move players:", err));
+      const text = JSON.stringify({ type: "move", roomCode } satisfies ServerMessage);
+      for (const id of answer.movedPlayerIds) this.sockets(id).forEach((socket) => socket.send(text));
+      this.core?.moved(roomCode, answer, ask.players);
+    })().catch((error) => console.error("Couldn't move players:", error));
     this.moving.push(work);
   }
 
@@ -594,24 +594,24 @@ export class Room extends DurableObject<Env> {
     // Players whose seat is held are still connected, but out of the match.
     const held = this.savedRoom?.held ?? {};
     const presence: Record<string, { seenAtMs?: number; clientIdle?: ClientIdle }> = {};
-    const players = this.sockets().flatMap((ws) => {
-      const att = ws.deserializeAttachment() as Attachment & { stage: "in" };
-      if (Object.hasOwn(held, att.id)) return [];
-      presence[att.id] = { seenAtMs: att.seen ?? att.joinedAt, clientIdle: att.clientIdle };
-      return [{ id: att.id, name: att.name }];
+    const players = this.sockets().flatMap((socket) => {
+      const attachment = socket.deserializeAttachment() as Attachment & { stage: "in" };
+      if (Object.hasOwn(held, attachment.id)) return [];
+      presence[attachment.id] = { seenAtMs: attachment.seenAtMs ?? attachment.joinedAtMs, clientIdle: attachment.clientIdle };
+      return [{ id: attachment.id, name: attachment.name }];
     });
     const transport = {
-      send: (id: string, text: string) => this.sockets(id).forEach((ws) => ws.send(text)),
+      send: (id: string, text: string) => this.sockets(id).forEach((socket) => socket.send(text)),
       close: (id: string, code: number, reason: string) => {
-        this.sockets(id).forEach((ws) => {
-          this.retire(ws);
-          ws.close(code, reason);
+        this.sockets(id).forEach((socket) => {
+          this.retire(socket);
+          socket.close(code, reason);
         });
         // The game kicked the last player: the room empties like when everyone leaves.
         if (!this.core?.ended && this.sockets().length === 0) void this.emptied();
       },
-      reserve: (code: string, start: RoomStart) => this.reserve(code, start),
-      moveTo: (code: string, ask: Omit<MoveAsk, "fromRoomCode">) => this.moveTo(code, ask),
+      reserve: (roomCode: string, start: RoomStart) => this.reserve(roomCode, start),
+      moveTo: (roomCode: string, ask: Omit<MoveAsk, "fromRoomCode">) => this.moveTo(roomCode, ask),
     };
     // Turn-based rooms wake with their saved state. A ticking room's state isn't saved,
     // so if one is ever evicted mid-match, it starts fresh and everyone joins again.
@@ -634,18 +634,18 @@ export class Room extends DurableObject<Env> {
   private async load(): Promise<GameServer | null> {
     if (this.server || !this.meta) return this.server;
     if (this.meta.server !== SANDBOX) return (this.server = gameServer(this.meta.server));
-    if (!this.meta.version) return null;
+    if (!this.meta.versionId) return null;
     try {
-      this.server = await sandboxServer(this.env, this.meta.gameId, this.meta.version, () => this.broken());
+      this.server = await sandboxServer(this.env, this.meta.gameId, this.meta.versionId, () => this.broken());
     } catch (error) {
       console.error("Couldn't start the game server:", error);
-      if (!this.startErrorRecorded) {
-        this.startErrorRecorded = true;
+      if (!this.hasRecordedStartError) {
+        this.hasRecordedStartError = true;
         const nowMs = Date.now();
         await this.env.DB.prepare(
-          "INSERT INTO game_server_errors (game_id, version_id, kind, message, count, first_at, last_at) VALUES (?, ?, 'crash', ?, 1, ?, ?) ON CONFLICT(game_id, version_id, kind, message) DO UPDATE SET count = count + 1, last_at = excluded.last_at",
+          "INSERT INTO game_server_errors (game_id, version_id, kind, message, occurrence_count, first_at_ms, last_at_ms) VALUES (?, ?, 'crash', ?, 1, ?, ?) ON CONFLICT(game_id, version_id, kind, message) DO UPDATE SET occurrence_count = occurrence_count + 1, last_at_ms = excluded.last_at_ms",
         )
-          .bind(this.meta.gameId, this.meta.version, `Didn't start: ${errorLine(String(error instanceof Error ? error.message : error))}`, nowMs, nowMs)
+          .bind(this.meta.gameId, this.meta.versionId, `Didn't start: ${errorLine(String(error instanceof Error ? error.message : error))}`, nowMs, nowMs)
           .run()
           .catch((writeError: unknown) => console.error("Couldn't record the game server's error:", writeError));
       }
@@ -661,21 +661,21 @@ export class Room extends DurableObject<Env> {
 
   private startTicking(core: RoomCore): void {
     if (!core.ticking || this.timer) return;
-    let last = Date.now();
+    let lastTickAtMs = Date.now();
     this.timer = setInterval(() => {
-      const now = Date.now();
-      core.tick((now - last) / 1000);
-      last = now;
+      const nowMs = Date.now();
+      core.tick((nowMs - lastTickAtMs) / 1000);
+      lastTickAtMs = nowMs;
       if (core.ended) void this.finish();
-      else if (now - this.lastCheck > CHECK_MS) void this.gameStillLive();
-      else if (now - this.lastTesterCheck > TESTER_CHECK_MS) void this.testerLinksStillOn();
+      else if (nowMs - this.lastCheckAtMs > CHECK_MS) void this.gameStillLive();
+      else if (nowMs - this.lastTesterCheckAtMs > TESTER_CHECK_MS) void this.testerLinksStillOn();
       else if (core.listingChanged) void this.list();
     }, 1000 / core.server.ticksPerSec!);
   }
 
   /** A takedown or a changed game server ends the match. Also picks up the game's room browsing setting. */
   private async gameStillLive(): Promise<boolean> {
-    this.lastCheck = Date.now();
+    this.lastCheckAtMs = Date.now();
     const row = await this.env.DB.prepare("SELECT review_status, live_version_id, multiplayer_mode, built_in_server, room_browsing FROM games WHERE id = ?")
       .bind(this.meta!.gameId)
       .first<{ review_status: string; live_version_id: string | null; multiplayer_mode: MultiplayerMode; built_in_server: string | null; room_browsing: string }>();
@@ -687,9 +687,9 @@ export class Room extends DurableObject<Env> {
       return true;
     }
     this.room()?.end("This game isn't available right now.");
-    for (const ws of this.ctx.getWebSockets()) {
-      this.retire(ws);
-      ws.close(REFUSED_CLOSE_CODE, "Game unavailable");
+    for (const socket of this.ctx.getWebSockets()) {
+      this.retire(socket);
+      socket.close(REFUSED_CLOSE_CODE, "Game unavailable");
     }
     await this.finish();
     return false;
@@ -700,24 +700,24 @@ export class Room extends DurableObject<Env> {
    * every 10 seconds, only while such players are in the room, so other rooms never read the table.
    */
   private async testerLinksStillOn(): Promise<void> {
-    this.lastTesterCheck = Date.now();
-    const links = [...new Set(this.sockets().map((ws) => (ws.deserializeAttachment() as Attachment & { stage: "in" }).tester).filter((t): t is string => Boolean(t)))];
+    this.lastTesterCheckAtMs = Date.now();
+    const links = [...new Set(this.sockets().map((socket) => (socket.deserializeAttachment() as Attachment & { stage: "in" }).tester).filter((tester): tester is string => Boolean(tester)))];
     if (!links.length) return;
     const { results } = await this.env.DB.prepare(`SELECT id FROM tester_links WHERE id IN (${links.map(() => "?").join(", ")}) AND revoked_at_ms IS NULL`)
       .bind(...links)
       .all<{ id: string }>();
-    const on = new Set(results.map((r) => r.id));
-    for (const ws of this.sockets()) {
-      const tester = (ws.deserializeAttachment() as Attachment & { stage: "in" }).tester;
+    const on = new Set(results.map((link) => link.id));
+    for (const socket of this.sockets()) {
+      const tester = (socket.deserializeAttachment() as Attachment & { stage: "in" }).tester;
       if (!tester || on.has(tester)) continue;
       try {
-        ws.send(errorMessage("game_unavailable"));
+        socket.send(errorMessage("game_unavailable"));
       } catch {
         // Already closed.
       }
-      await this.left(ws, "left");
+      await this.left(socket, "left");
       try {
-        ws.close(REFUSED_CLOSE_CODE, "Tester link turned off");
+        socket.close(REFUSED_CLOSE_CODE, "Tester link turned off");
       } catch {
         // Already closed.
       }
@@ -726,8 +726,8 @@ export class Room extends DurableObject<Env> {
 
   /** The game's own game server keeps failing (stuck in a loop, say): end the match rather than freeze it. */
   private broken(): void {
-    console.error(`Game server for ${this.meta?.slug} stopped working; ending room ${this.meta?.code}`);
-    this.wasBroken = true;
+    console.error(`Game server for ${this.meta?.slug} stopped working; ending room ${this.meta?.roomCode}`);
+    this.isBroken = true;
     this.room()?.end("This game's server stopped working.");
     void this.finish();
   }
@@ -736,19 +736,19 @@ export class Room extends DurableObject<Env> {
   private async save(): Promise<void> {
     const core = this.core;
     if (core?.ended) await this.finish();
-    if (!core || this.ended || core.ticking || !core.dirty) return;
-    this.usage.messages += core.messageCount;
+    if (!core || this.hasEnded || core.ticking || !core.dirty) return;
+    this.usage.messageCount += core.messageCount;
     core.messageCount = 0;
     core.dirty = false;
     this.saved = core.state;
     await this.ctx.storage.put("saved", { state: core.state, usage: this.usage } satisfies Saved);
   }
 
-  private refuse(ws: WebSocket, code: RoomErrorCode, message?: string): void {
-    ws.serializeAttachment({ stage: "gone" } satisfies Attachment);
+  private refuse(socket: WebSocket, code: RoomErrorCode, message?: string): void {
+    socket.serializeAttachment({ stage: "gone" } satisfies Attachment);
     try {
-      ws.send(errorMessage(code, message));
-      ws.close(REFUSED_CLOSE_CODE, code);
+      socket.send(errorMessage(code, message));
+      socket.close(REFUSED_CLOSE_CODE, code);
     } catch {
       // Already closed.
     }
@@ -756,17 +756,17 @@ export class Room extends DurableObject<Env> {
 
   /** Open sockets of players in the room, optionally just one player's. */
   private sockets(playerId?: string): WebSocket[] {
-    return this.ctx.getWebSockets().filter((ws) => {
-      const att = ws.deserializeAttachment() as Attachment | null;
-      return att?.stage === "in" && (playerId === undefined || att.id === playerId);
+    return this.ctx.getWebSockets().filter((socket) => {
+      const attachment = socket.deserializeAttachment() as Attachment | null;
+      return attachment?.stage === "in" && (playerId === undefined || attachment.id === playerId);
     });
   }
 
   private dropStaleHellos(): void {
-    const now = Date.now();
-    for (const ws of this.ctx.getWebSockets()) {
-      const att = ws.deserializeAttachment() as Attachment | null;
-      if (att?.stage === "hello" && now - att.at > HELLO_MS) this.refuse(ws, "no_hello");
+    const nowMs = Date.now();
+    for (const socket of this.ctx.getWebSockets()) {
+      const attachment = socket.deserializeAttachment() as Attachment | null;
+      if (attachment?.stage === "hello" && nowMs - (attachment.connectedAtMs ?? 0) > HELLO_MS) this.refuse(socket, "no_hello");
       // Sockets already refused but not yet gone don't hold a place.
     }
   }

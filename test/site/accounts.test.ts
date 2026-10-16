@@ -164,10 +164,10 @@ async function join(b: Browser, email = "fox@example.com", name = "Night Owl", b
 describe("age and names", () => {
   it("works out whole years and the band", () => {
     const today = new Date(Date.UTC(2026, 9, 12));
-    expect(ageOn({ year: 2013, month: 10, day: 12 }, today)).toBe(13);
-    expect(ageOn({ year: 2013, month: 10, day: 13 }, today)).toBe(12);
-    expect(ageOn({ year: 2008, month: 2, day: 30 }, today)).toBeNull();
-    expect(ageOn({ year: 2030, month: 1, day: 1 }, today)).toBeNull();
+    expect(ageOn({ yearNumber: 2013, monthNumber: 10, dayNumber: 12 }, today)).toBe(13);
+    expect(ageOn({ yearNumber: 2013, monthNumber: 10, dayNumber: 13 }, today)).toBe(12);
+    expect(ageOn({ yearNumber: 2008, monthNumber: 2, dayNumber: 30 }, today)).toBeNull();
+    expect(ageOn({ yearNumber: 2030, monthNumber: 1, dayNumber: 1 }, today)).toBeNull();
     expect([ageBand(12), ageBand(13), ageBand(17), ageBand(18)]).toEqual([null, "13-17", "13-17", "18+"]);
   });
 
@@ -212,7 +212,7 @@ describe("making an account", () => {
     const row = await env.DB.prepare("SELECT * FROM accounts").first();
     expect(row).toMatchObject({ age_band: "13-17" });
     // Everything but the id and timestamps, which can contain any four digits.
-    const { id: _id, created_at: _c, updated_at: _u, ...stored } = row!;
+    const { id: _id, created_at_ms: _c, updated_at_ms: _u, ...stored } = row!;
     expect(JSON.stringify(stored)).not.toContain(String(thisYear - 15));
     expect([...b.jar.values()].join()).not.toContain(String(thisYear - 15));
   });
@@ -448,28 +448,28 @@ describe("cloud saves", () => {
       .run();
     return `g-${slug}`;
   }
-  const put = (b: Browser, base: number, data: Record<string, string>, slug = "owl-game") =>
-    b.go(`/api/saves/${slug}`, undefined, { method: "PUT", body: JSON.stringify({ base, data: JSON.stringify(data) }) });
+  const put = (b: Browser, baseVersionNumber: number, saveData: Record<string, string>, slug = "owl-game") =>
+    b.go(`/api/saves/${slug}`, undefined, { method: "PUT", body: JSON.stringify({ base_version_number: baseVersionNumber, save_json: JSON.stringify(saveData) }) });
 
   it("stores a save, hands it back, and refuses an out-of-date one", async () => {
     const gameId = await liveGame();
     const b = new Browser();
     await join(b);
-    const empty = (await (await b.go("/api/saves/owl-game")).json()) as { tag: string; version: number };
-    expect(empty.version).toBe(0);
+    const empty = (await (await b.go("/api/saves/owl-game")).json()) as { tag: string; version_number: number };
+    expect(empty.version_number).toBe(0);
     expect(empty.tag).toMatch(/^[0-9a-f]{16}$/);
 
     const first = await put(b, 0, { level: "3", coins: "120" });
     expect(first.status).toBe(200);
-    expect(await first.json()).toMatchObject({ version: 1 });
-    const got = (await (await b.go("/api/saves/owl-game")).json()) as { version: number; data: Record<string, string>; hash: string };
-    expect(got).toMatchObject({ version: 1, data: { coins: "120", level: "3" } });
+    expect(await first.json()).toMatchObject({ version_number: 1, updated_at: expect.stringMatching(/Z$/) });
+    const got = (await (await b.go("/api/saves/owl-game")).json()) as { version_number: number; save_data: Record<string, string>; sha256: string };
+    expect(got).toMatchObject({ version_number: 1, save_data: { coins: "120", level: "3" } });
     expect(await env.SAVES.get(saveKey(users.get("fox@example.com")!, gameId)).then((o) => o?.text())).toBe(canonicalSave({ level: "3", coins: "120" }));
 
     // A second device that loaded version 0 can't overwrite version 1.
     const stale = await put(b, 0, { level: "1" });
     expect(stale.status).toBe(409);
-    expect(await stale.json()).toMatchObject({ version: 1 });
+    expect(await stale.json()).toMatchObject({ version_number: 1 });
     expect((await put(b, 1, { level: "4" })).status).toBe(200);
     expect((await put(b, 1, { level: "5" })).status).toBe(409);
   });
@@ -479,15 +479,15 @@ describe("cloud saves", () => {
     const b = new Browser();
     await join(b);
     const save = { idb: [{ name: "/idbfs", version: 21, stores: [{ name: "FILE_DATA", keyPath: null, autoIncrement: false, indexes: [], records: [["/idbfs/save", { contents: { $z: ["view", "Uint8Array", "Bw=="] } }]] }] }], local: { b: "2", a: "1" } };
-    const res = await b.go("/api/saves/owl-game", undefined, { method: "PUT", body: JSON.stringify({ base: 0, data: JSON.stringify(save) }) });
+    const res = await b.go("/api/saves/owl-game", undefined, { method: "PUT", body: JSON.stringify({ base_version_number: 0, save_json: JSON.stringify(save) }) });
     expect(res.status).toBe(200);
     const text = canonicalSave(save);
     expect(text.startsWith('{"idb":[{"name":"/idbfs"')).toBe(true);
     expect(text).toContain('"local":{"a":"1","b":"2"}');
     expect(await env.SAVES.get(saveKey(users.get("fox@example.com")!, gameId)).then((o) => o?.text())).toBe(text);
-    const got = (await (await b.go("/api/saves/owl-game")).json()) as { data: unknown; hash: string };
-    expect(got.data).toEqual(JSON.parse(text));
-    expect(got.hash).toBe(await sha256Hex(new TextEncoder().encode(text)));
+    const got = (await (await b.go("/api/saves/owl-game")).json()) as { save_data: unknown; sha256: string };
+    expect(got.save_data).toEqual(JSON.parse(text));
+    expect(got.sha256).toBe(await sha256Hex(new TextEncoder().encode(text)));
   });
 
   it("keeps saves apart per player", async () => {
@@ -497,7 +497,7 @@ describe("cloud saves", () => {
     const b = new Browser();
     await join(b, "b@example.com", "Player Two");
     await put(a, 0, { secret: "a" });
-    expect(((await (await b.go("/api/saves/owl-game")).json()) as { version: number }).version).toBe(0);
+    expect(((await (await b.go("/api/saves/owl-game")).json()) as { version_number: number }).version_number).toBe(0);
   });
 
   it("refuses guests, other sites, bad saves, big saves and games that keep their own", async () => {
@@ -506,8 +506,8 @@ describe("cloud saves", () => {
     expect((await new Browser().go("/api/saves/owl-game")).status).toBe(401);
     const b = new Browser();
     await join(b);
-    expect((await b.go("/api/saves/owl-game", undefined, { method: "PUT", body: JSON.stringify({ base: 0, data: "{}" }), origin: "https://owl-game.games.example" })).status).toBe(403);
-    expect((await b.go("/api/saves/owl-game", undefined, { method: "PUT", body: JSON.stringify({ base: 0, data: '{"a":1}' }) })).status).toBe(400);
+    expect((await b.go("/api/saves/owl-game", undefined, { method: "PUT", body: JSON.stringify({ base_version_number: 0, save_json: "{}" }), origin: "https://owl-game.games.example" })).status).toBe(403);
+    expect((await b.go("/api/saves/owl-game", undefined, { method: "PUT", body: JSON.stringify({ base_version_number: 0, save_json: '{"a":1}' }) })).status).toBe(400);
     expect((await put(b, 0, { big: "x".repeat(5 * 1024 * 1024) })).status).toBe(413);
     expect((await b.go("/api/saves/own-saves")).status).toBe(404);
   });
@@ -525,9 +525,9 @@ describe("cloud saves", () => {
 
   describe("earlier versions", () => {
     const id = () => users.get("fox@example.com")!;
-    const copies = async () => (await env.DB.prepare("SELECT * FROM save_history ORDER BY at DESC, rowid DESC").all<{ id: string; reason: string; at: number; hash: string }>()).results;
+    const copies = async () => (await env.DB.prepare("SELECT * FROM save_history ORDER BY saved_at_ms DESC, rowid DESC").all<{ id: string; reason: string; saved_at_ms: number; sha256: string }>()).results;
     // Pretend the history was made earlier, so the next save is due an hourly copy.
-    const age = (ms: number) => env.DB.prepare("UPDATE save_history SET at = at - ?").bind(ms).run();
+    const age = (ms: number) => env.DB.prepare("UPDATE save_history SET saved_at_ms = saved_at_ms - ?").bind(ms).run();
     const putWith = (b: Browser, body: Record<string, unknown>) => b.go("/api/saves/owl-game", undefined, { method: "PUT", body: JSON.stringify(body) });
 
     it("keeps a copy about once an hour, not on every save", async () => {
@@ -553,12 +553,14 @@ describe("cloud saves", () => {
       await join(b);
       await put(b, 0, { level: "9", coins: "5000", items: "sword,shield,bow" });
       await put(b, 1, { level: "10", coins: "5100", items: "sword,shield,bow" });
-      await putWith(b, { base: 2, data: JSON.stringify({ level: "11", coins: "5200", items: "sword,shield,bow" }), replace: true });
+      await putWith(b, { base_version_number: 2, save_json: JSON.stringify({ level: "11", coins: "5200", items: "sword,shield,bow" }), replace: true });
       await put(b, 3, { level: "1" });
-      expect((await putWith(b, { keep: true, data: JSON.stringify({ phone: "progress" }) })).status).toBe(200);
+      const kept = await putWith(b, { keep: true, save_json: JSON.stringify({ phone: "progress" }) });
+      expect(kept.status).toBe(200);
+      expect(await kept.json()).toEqual({ is_kept: true });
       expect((await copies()).map((c) => c.reason)).toEqual(["device", "smaller", "replaced", "hourly"]);
       // Keeping the device's progress doesn't touch the account's save.
-      expect(((await (await b.go("/api/saves/owl-game")).json()) as { version: number }).version).toBe(4);
+      expect(((await (await b.go("/api/saves/owl-game")).json()) as { version_number: number }).version_number).toBe(4);
     });
 
     it("keeps five, dropping routine copies before ones from right before progress was lost", async () => {
@@ -566,7 +568,7 @@ describe("cloud saves", () => {
       const b = new Browser();
       await join(b);
       await put(b, 0, { level: "0" });
-      await putWith(b, { base: 1, data: JSON.stringify({ level: "1" }), replace: true });
+      await putWith(b, { base_version_number: 1, save_json: JSON.stringify({ level: "1" }), replace: true });
       for (let v = 2; v <= 8; v++) {
         await age(2 * 3600_000);
         await put(b, v, { level: String(v) });
@@ -590,8 +592,8 @@ describe("cloud saves", () => {
       expect(page).toContain(`value="${copy!.id}"`);
       const res = await b.go("/account/saves/owl-game/restore", { id: copy!.id });
       expect(res.headers.get("location")).toBe("/account/saves/owl-game?restored");
-      const got = (await (await b.go("/api/saves/owl-game")).json()) as { version: number; data: unknown };
-      expect(got).toMatchObject({ version: 3, data: { level: "7" } });
+      const got = (await (await b.go("/api/saves/owl-game")).json()) as { version_number: number; save_data: unknown };
+      expect(got).toMatchObject({ version_number: 3, save_data: { level: "7" } });
       expect((await copies()).map((c) => c.reason)).toEqual(["restore", "hourly"]);
       expect(await env.SAVES.get(saveKey(id(), gameId)).then((o) => o?.text())).toBe(canonicalSave({ level: "7" }));
       expect(await (await b.go("/account/saves/owl-game?restored")).text()).toContain("starts from that progress");
@@ -703,8 +705,8 @@ describe("API keys on the account page", () => {
 
 describe("the dashboard", () => {
   const pass: ScanDeps = {
-    images: { check: async (imgs) => ({ provider: "test", connected: true, checked: imgs.length, findings: [] }) },
-    ai: async () => ({ report: { model: "test", verdict: "pass", summary: "fine", inputTokens: 1, outputTokens: 1 }, findings: [], childSafety: false }),
+    images: { check: async (imgs) => ({ provider: "test", isConnected: true, checkedMediaCount: imgs.length, findings: [] }) },
+    ai: async () => ({ report: { model: "test", verdict: "pass", summary: "fine", input_token_count: 1, output_token_count: 1 }, findings: [], isChildSafety: false }),
   };
 
   /** Upload a one-file game through the API with the browser's session, then pass its scan. */
@@ -889,7 +891,7 @@ describe("the dashboard", () => {
     expect(await (await reader.go(`/forum/${id}`)).text()).not.toContain("discord");
 
     // Filters: kind, category and its section, tag.
-    for (const [q, shown] of [["kind=question", true], ["kind=bug", false], ["category=rooms", true], ["section=multiplayer", true], ["section=publish", false], ["tag=mobile", true], ["q=region", true], ["q=nothing+like+it", false]] as const) {
+    for (const [q, shown] of [["kind=question", true], ["kind=bug", false], ["category=rooms", true], ["section=multiplayer", true], ["section=publish", false], ["tag=mobile", true], ["search_text=region", true], ["search_text=nothing+like+it", false]] as const) {
       expect((await (await reader.go(`/forum?${q}`)).text()).includes("How do rooms pick a region?"), q).toBe(shown);
     }
 
@@ -936,12 +938,12 @@ describe("recently played", () => {
     const b = new Browser();
     await join(b);
     await b.go("/api/me/played/hop", undefined, { method: "POST", body: "{}" });
-    const list = { played: [{ slug: "hop", at: 5 }, { slug: "dash", at: 10 }, { slug: "nope", at: 20 }, { slug: "dash", at: "soon" }] };
+    const list = { played: [{ slug: "hop", played_at_ms: 5 }, { slug: "dash", played_at_ms: 10 }, { slug: "nope", played_at_ms: 20 }, { slug: "dash", played_at_ms: "soon" }] };
     expect((await b.go("/api/me/played", undefined, { method: "POST", body: JSON.stringify(list) })).status).toBe(200);
-    const { played } = (await (await b.go("/api/me/played")).json()) as { played: { slug: string; at: number }[] };
+    const { played } = (await (await b.go("/api/me/played")).json()) as { played: { slug: string; played_at_ms: number }[] };
     expect(played.map((p) => p.slug)).toEqual(["hop", "dash"]);
-    expect(played[0]!.at).toBeGreaterThan(5);
-    expect(played[1]!.at).toBe(10);
+    expect(played[0]!.played_at_ms).toBeGreaterThan(5);
+    expect(played[1]!.played_at_ms).toBe(10);
     expect((await b.go("/api/me/played", undefined, { method: "POST", body: "{}", origin: "https://evil.example" })).status).toBe(403);
     expect((await b.go("/api/me/played", undefined, { method: "POST", body: "nope" })).status).toBe(400);
   });
@@ -1035,9 +1037,9 @@ describe("passkeys", () => {
     expect(status).toBe(200);
     expect(data.next).toBe("/account");
     expect(await (await other.go("/account")).text()).toContain("fox@example.com");
-    const row = await env.DB.prepare("SELECT sign_count, last_used_at FROM passkeys").first<{ sign_count: number; last_used_at: number }>();
+    const row = await env.DB.prepare("SELECT sign_count, last_used_at_ms FROM passkeys").first<{ sign_count: number; last_used_at_ms: number }>();
     expect(row!.sign_count).toBe(1);
-    expect(row!.last_used_at).toBeGreaterThan(0);
+    expect(row!.last_used_at_ms).toBeGreaterThan(0);
   });
 
   it("refuses a wrong site, a reused challenge, a copied key and a removed passkey", async () => {

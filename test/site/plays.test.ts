@@ -31,7 +31,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 const send = (slug: string, body: unknown, headers: Record<string, string> = { origin: SITE }) =>
   SELF.fetch(`${SITE}/api/plays/${slug}`, { method: "POST", body: JSON.stringify(body), headers: { "content-type": "text/plain", ...headers } });
-const row = () => env.DB.prepare("SELECT plays, players, new_players, counted, counted_players, counted_new, counted_seconds FROM play_days WHERE game_id = 'g-play'").first();
+const row = () => env.DB.prepare("SELECT started_play_count, started_player_count, started_new_player_count, play_count, player_count, new_player_count, play_duration_sec FROM play_days WHERE game_id = 'g-play'").first();
 const NEW = { first: null, last: null, cfirst: null, clast: null };
 
 describe("counted plays", () => {
@@ -44,9 +44,9 @@ describe("counted plays", () => {
     expect(ticket).toMatch(/^play_ticket_[a-z0-9]+$/);
     expect(verified).toEqual(["forged", "good"]);
     // Three plays started, none counted yet: a play counts after a minute on screen.
-    expect(await row()).toMatchObject({ plays: 3, counted: 0 });
+    expect(await row()).toMatchObject({ started_play_count: 3, play_count: 0 });
     expect((await send("play-game", { ticket, counted: true })).status).toBe(204);
-    expect(await row()).toMatchObject({ counted: 0 });
+    expect(await row()).toMatchObject({ play_count: 0 });
   });
 
   it("counts a ticket once, after a minute, and never more time than has passed", async () => {
@@ -60,8 +60,8 @@ describe("counted plays", () => {
     expect(await countTicket(env.DB, "g-play", id, COMCAST, t0 + 60_000)).toBe(true);
     expect(await countTicket(env.DB, "g-play", id, COMCAST, t0 + 61_000)).toBe(false);
     await addTime(env.DB, "g-play", id, 30, t0 + 90_000);
-    expect(await row()).toMatchObject({ counted: 1, counted_players: 1, counted_new: 1, counted_seconds: 80 });
-    expect((await env.DB.prepare("SELECT asn, players FROM play_networks WHERE game_id = 'g-play'").all()).results).toEqual([{ asn: COMCAST, players: 1 }]);
+    expect(await row()).toMatchObject({ play_count: 1, player_count: 1, new_player_count: 1, play_duration_sec: 80 });
+    expect((await env.DB.prepare("SELECT autonomous_system_number, player_count FROM play_networks WHERE game_id = 'g-play'").all()).results).toEqual([{ autonomous_system_number: COMCAST, player_count: 1 }]);
   });
 
   it("only takes plays of games players can open, sent from Zaisma", async () => {
@@ -89,15 +89,15 @@ describe("counted plays", () => {
     await play("2026-10-17T09:00:00Z", "2026-10-10", "2026-10-11", 600);
 
     const stats = await playStats(env.DB, "g-play", 30, now);
-    expect(stats.plays).toBe(7);
-    expect(stats.all_plays).toBe(7);
-    expect(stats.new_players).toBe(4);
-    expect(stats.minutes_played).toBe(10);
-    expect(stats.minutes_per_play).toBe(1.4);
-    expect(stats.came_back.after_1_day).toEqual({ percent: 50, players: 2, of: 4 });
-    expect(stats.came_back.after_7_days).toEqual({ percent: 25, players: 1, of: 4 });
-    expect(stats.came_back.after_30_days).toEqual({ percent: null, players: 0, of: 0 });
-    expect(stats.days.map((d) => d.day)).toEqual(["2026-10-10", "2026-10-11", "2026-10-17"]);
+    expect(stats.play_count).toBe(7);
+    expect(stats.started_play_count).toBe(7);
+    expect(stats.new_player_count).toBe(4);
+    expect(stats.play_duration_min).toBe(10);
+    expect(stats.average_play_duration_min).toBe(1.4);
+    expect(stats.came_back.after_1_day).toEqual({ returned_pct: 50, returned_player_count: 2, new_player_count: 4 });
+    expect(stats.came_back.after_7_days).toEqual({ returned_pct: 25, returned_player_count: 1, new_player_count: 4 });
+    expect(stats.came_back.after_30_days).toEqual({ returned_pct: null, returned_player_count: 0, new_player_count: 0 });
+    expect(stats.days.map((day) => day.date)).toEqual(["2026-10-10", "2026-10-11", "2026-10-17"]);
   });
 
   it("gives a checked browser in a multiplayer game its key to player passes", async () => {
@@ -106,7 +106,7 @@ describe("counted plays", () => {
     await env.DB.prepare("UPDATE games SET multiplayer_mode = 'relay' WHERE id LIKE 'g-play%'").run();
     const both = await (await send("play-game", { ...NEW, token: "good" })).json<{ ticket: string; key: string }>();
     expect(both.ticket).toMatch(/^play_ticket_[a-z0-9]+$/);
-    expect(await env.DB.prepare("SELECT game_id, passes FROM room_keys WHERE id = ?").bind(both.key).first()).toEqual({ game_id: "g-play", passes: 0 });
+    expect(await env.DB.prepare("SELECT game_id, pass_count FROM room_keys WHERE id = ?").bind(both.key).first()).toEqual({ game_id: "g-play", pass_count: 0 });
     expect((await send("play-game", { ...NEW, token: "forged" })).status).toBe(204);
   });
 
@@ -150,39 +150,40 @@ describe("counted plays", () => {
 
 describe("faked plays", () => {
   it("leaves cloud networks out of the shelves, and caps any one network", () => {
-    expect(shelfPlayers([{ asn: COMCAST, players: 5 }, { asn: AMAZON, players: 500 }])).toBe(5);
+    const network = (autonomousSystemNumber: number, playerCount: number) => ({ autonomous_system_number: autonomousSystemNumber, player_count: playerCount });
+    expect(shelfPlayers([network(COMCAST, 5), network(AMAZON, 500)])).toBe(5);
     // 100 players: no network carries more than 30 of them.
-    expect(shelfPlayers([{ asn: COMCAST, players: 90 }, { asn: 3320, players: 10 }])).toBe(40);
+    expect(shelfPlayers([network(COMCAST, 90), network(3320, 10)])).toBe(40);
     // Small games: up to 10 from one network.
-    expect(shelfPlayers([{ asn: COMCAST, players: 12 }])).toBe(10);
+    expect(shelfPlayers([network(COMCAST, 12)])).toBe(10);
     // Bots on cloud servers don't raise the share one network can carry.
-    expect(shelfPlayers([{ asn: COMCAST, players: 90 }, { asn: 3320, players: 10 }, { asn: AMAZON, players: 10_000 }])).toBe(40);
+    expect(shelfPlayers([network(COMCAST, 90), network(3320, 10), network(AMAZON, 10_000)])).toBe(40);
   });
 
   it("flags a spike, and admin can remove the day's counts", async () => {
     const now = Date.parse("2026-10-20T12:00:00Z");
-    for (let i = 1; i <= 7; i++) await env.DB.prepare("INSERT INTO play_days (game_id, day, counted, counted_players) VALUES ('g-play', ?, 4, 4)").bind(day(now - i * DAY)).run();
-    await env.DB.prepare("INSERT INTO play_days (game_id, day, plays, counted, counted_players) VALUES ('g-play', ?, 300, 200, 200)").bind(day(now)).run();
-    await env.DB.prepare("INSERT INTO play_networks (game_id, day, asn, players) VALUES ('g-play', ?1, ?2, 150), ('g-play', ?1, ?3, 50)").bind(day(now), AMAZON, COMCAST).run();
+    for (let i = 1; i <= 7; i++) await env.DB.prepare("INSERT INTO play_days (game_id, date, play_count, player_count) VALUES ('g-play', ?, 4, 4)").bind(day(now - i * DAY)).run();
+    await env.DB.prepare("INSERT INTO play_days (game_id, date, started_play_count, play_count, player_count) VALUES ('g-play', ?, 300, 200, 200)").bind(day(now)).run();
+    await env.DB.prepare("INSERT INTO play_networks (game_id, date, autonomous_system_number, player_count) VALUES ('g-play', ?1, ?2, 150), ('g-play', ?1, ?3, 50)").bind(day(now), AMAZON, COMCAST).run();
     const [spike] = await playSpikes(env.DB, now);
-    expect(spike).toMatchObject({ game_id: "g-play", day: day(now), players: 200, usual: 4, networks: 2, top_share: 75, hosting_share: 75 });
+    expect(spike).toMatchObject({ game_id: "g-play", date: day(now), player_count: 200, usual_players_per_day: 4, network_count: 2, biggest_network_pct: 75, hosting_network_pct: 75 });
 
     await clearCountedDay(env.DB, "g-play", day(now));
-    expect(await env.DB.prepare("SELECT plays, counted, counted_players FROM play_days WHERE game_id = 'g-play' AND day = ?").bind(day(now)).first()).toEqual({ plays: 300, counted: 0, counted_players: 0 });
+    expect(await env.DB.prepare("SELECT started_play_count, play_count, player_count FROM play_days WHERE game_id = 'g-play' AND date = ?").bind(day(now)).first()).toEqual({ started_play_count: 300, play_count: 0, player_count: 0 });
     expect(await playSpikes(env.DB, now)).toEqual([]);
   });
 });
 
 describe("home page shelves", () => {
   const now = Date.parse("2026-10-20T12:00:00Z");
-  const show = (slug: string, since: number | null = null) => ({ slug, title: slug, description: "", developer: null, owner_id: null, cover: null, square: null, updated: null, since, modes: "", devices: [] });
+  const show = (slug: string, firstPublishedAtMs: number | null = null) => ({ slug, title: slug, description: "", developer: null, owner_id: null, cover: null, square: null, published_at_ms: null, first_published_at_ms: firstPublishedAtMs, modes: "", devices: [] });
   // Players spread over five providers, so no one network is capped.
   const players = async (id: string, ago: number, n: number) => {
     for (const [i, asn] of [7922, 3320, 5089, 2856, 701].entries()) {
       const share = Math.floor(n / 5) + (i < n % 5 ? 1 : 0);
       if (!share) continue;
       await env.DB
-        .prepare("INSERT INTO play_networks (game_id, day, asn, players) VALUES (?, ?, ?, ?) ON CONFLICT (game_id, day, asn) DO UPDATE SET players = players + excluded.players")
+        .prepare("INSERT INTO play_networks (game_id, date, autonomous_system_number, player_count) VALUES (?, ?, ?, ?) ON CONFLICT (game_id, date, autonomous_system_number) DO UPDATE SET player_count = player_count + excluded.player_count")
         .bind(id, day(now - ago * DAY), asn, share)
         .run();
     }
@@ -205,7 +206,7 @@ describe("home page shelves", () => {
     // Only c is above its usual, and one game isn't a shelf.
     expect(trending).toEqual([]);
     // Bots on cloud servers don't move a game.
-    await env.DB.prepare("INSERT INTO play_networks (game_id, day, asn, players) VALUES ('g-play-b', ?, ?, 100000)").bind(day(now), AMAZON).run();
+    await env.DB.prepare("INSERT INTO play_networks (game_id, date, autonomous_system_number, player_count) VALUES ('g-play-b', ?, ?, 100000)").bind(day(now), AMAZON).run();
     expect((await shelves(env, games, now)).trending).toEqual([]);
     await players("g-play-b", 0, 300);
     expect((await shelves(env, games, now)).trending.map((g) => g.slug)).toEqual(["play-b", "play-c"]);

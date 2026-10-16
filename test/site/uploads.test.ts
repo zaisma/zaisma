@@ -6,10 +6,10 @@ import { dailyCleanup, publishDue } from "../../apps/site/src/cleanup.ts";
 
 const SITE = "https://zaisma.test";
 const testEnv = { ...env, ANTHROPIC_API_KEY: "test-key" };
-const connected: ImageMatcher = { check: async (imgs) => ({ provider: "test", connected: true, checked: imgs.length, findings: [] }) };
+const connected: ImageMatcher = { check: async (imgs) => ({ provider: "test", isConnected: true, checkedMediaCount: imgs.length, findings: [] }) };
 const pass: ScanDeps = {
   images: connected,
-  ai: async () => ({ report: { model: "test", verdict: "pass", summary: "fine", inputTokens: 10, outputTokens: 1 }, findings: [], childSafety: false }),
+  ai: async () => ({ report: { model: "test", verdict: "pass", summary: "fine", input_token_count: 10, output_token_count: 1 }, findings: [], isChildSafety: false }),
 };
 const hold: ScanDeps = { ...pass, images: notConnected };
 
@@ -225,7 +225,7 @@ describe("daily cleanup", () => {
     // A month and a day later.
     const later = Date.now() + 31 * 86400_000;
     const result = await dailyCleanup(env, later);
-    expect(result.drafts).toBe(1);
+    expect(result.deletedDraftCount).toBe(1);
     expect(await versionById(env.DB, draft.version.id)).toBeNull();
     expect(await versionById(env.DB, live.version.id)).not.toBeNull();
     expect(await versionById(env.DB, held.version.id)).not.toBeNull();

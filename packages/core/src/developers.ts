@@ -14,11 +14,11 @@ export interface ApiKey {
   id: string;
   account_id: string;
   name: string;
-  created_at: number;
-  last_used_at: number | null;
+  created_at_ms: number;
+  last_used_at_ms: number | null;
 }
 
-export const MAX_API_KEYS = 10;
+export const MAXIMUM_API_KEY_COUNT = 10;
 const KEY = /^zsk_([a-z0-9]{20})_([A-Za-z0-9_-]{43})$/;
 
 function b64url(bytes: Uint8Array): string {
@@ -26,42 +26,42 @@ function b64url(bytes: Uint8Array): string {
 }
 
 /** Make a key. The full key is returned once; we keep only a hash of its secret part. */
-export async function createApiKey(db: D1Database, accountId: string, name: string): Promise<{ key: ApiKey; token: string }> {
+export async function createApiKey(database: D1Database, accountId: string, name: string): Promise<{ key: ApiKey; token: string }> {
   const id = newRandomPart();
   const secret = b64url(crypto.getRandomValues(new Uint8Array(32)));
-  const key: ApiKey = { id, account_id: accountId, name, created_at: now(), last_used_at: null };
-  await db
-    .prepare("INSERT INTO api_keys (id, account_id, name, secret_hash, created_at) VALUES (?, ?, ?, ?, ?)")
-    .bind(id, accountId, name, await sha256Hex(new TextEncoder().encode(secret)), key.created_at)
+  const key: ApiKey = { id, account_id: accountId, name, created_at_ms: now(), last_used_at_ms: null };
+  await database
+    .prepare("INSERT INTO api_keys (id, account_id, name, secret_hash, created_at_ms) VALUES (?, ?, ?, ?, ?)")
+    .bind(id, accountId, name, await sha256Hex(new TextEncoder().encode(secret)), key.created_at_ms)
     .run();
   return { key, token: `zsk_${id}_${secret}` };
 }
 
-export async function apiKeysFor(db: D1Database, accountId: string): Promise<ApiKey[]> {
-  const { results } = await db
-    .prepare("SELECT id, account_id, name, created_at, last_used_at FROM api_keys WHERE account_id = ? ORDER BY created_at")
+export async function apiKeysFor(database: D1Database, accountId: string): Promise<ApiKey[]> {
+  const { results } = await database
+    .prepare("SELECT id, account_id, name, created_at_ms, last_used_at_ms FROM api_keys WHERE account_id = ? ORDER BY created_at_ms")
     .bind(accountId)
     .all<ApiKey>();
   return results;
 }
 
-export async function revokeApiKey(db: D1Database, accountId: string, id: string): Promise<boolean> {
-  const res = await db.prepare("DELETE FROM api_keys WHERE id = ? AND account_id = ?").bind(id, accountId).run();
-  return res.meta.changes > 0;
+export async function revokeApiKey(database: D1Database, accountId: string, id: string): Promise<boolean> {
+  const deletion = await database.prepare("DELETE FROM api_keys WHERE id = ? AND account_id = ?").bind(id, accountId).run();
+  return deletion.meta.changes > 0;
 }
 
 /** The account a key belongs to, or null. Marks the key used (at most once an hour, to save writes). */
-export async function accountForApiKey(db: D1Database, token: string): Promise<string | null> {
-  const m = token.match(KEY);
-  if (!m) return null;
-  const row = await db.prepare("SELECT account_id, secret_hash, last_used_at FROM api_keys WHERE id = ?").bind(m[1]).first<{ account_id: string; secret_hash: string; last_used_at: number | null }>();
+export async function accountForApiKey(database: D1Database, token: string): Promise<string | null> {
+  const keyMatch = token.match(KEY);
+  if (!keyMatch) return null;
+  const row = await database.prepare("SELECT account_id, secret_hash, last_used_at_ms FROM api_keys WHERE id = ?").bind(keyMatch[1]).first<{ account_id: string; secret_hash: string; last_used_at_ms: number | null }>();
   if (!row) return null;
-  const hash = await sha256Hex(new TextEncoder().encode(m[2]!));
-  let diff = hash.length ^ row.secret_hash.length;
-  for (let i = 0; i < hash.length; i++) diff |= hash.charCodeAt(i) ^ row.secret_hash.charCodeAt(i % row.secret_hash.length);
-  if (diff !== 0) return null;
-  if (!row.last_used_at || now() - row.last_used_at > 3600_000) {
-    await db.prepare("UPDATE api_keys SET last_used_at = ? WHERE id = ?").bind(now(), m[1]).run();
+  const hash = await sha256Hex(new TextEncoder().encode(keyMatch[2]!));
+  let mismatchNumber = hash.length ^ row.secret_hash.length;
+  for (let i = 0; i < hash.length; i++) mismatchNumber |= hash.charCodeAt(i) ^ row.secret_hash.charCodeAt(i % row.secret_hash.length);
+  if (mismatchNumber !== 0) return null;
+  if (!row.last_used_at_ms || now() - row.last_used_at_ms > 3600_000) {
+    await database.prepare("UPDATE api_keys SET last_used_at_ms = ? WHERE id = ?").bind(now(), keyMatch[1]).run();
   }
   return row.account_id;
 }
@@ -244,7 +244,7 @@ export function shownToPlayers(game: Game): boolean {
  * Apply a change. A new title or description on a game players can see waits for review in
  * details_waiting_for_review; everything else applies straight away. Returns whether words are waiting.
  */
-export async function applyDetails(db: D1Database, game: Game, change: DetailsChange): Promise<{ isWaitingForReview: boolean }> {
+export async function applyDetails(database: D1Database, game: Game, change: DetailsChange): Promise<{ isWaitingForReview: boolean }> {
   const assignments: string[] = [];
   const values: unknown[] = [];
   const set = (column: string, columnValue: unknown) => {
@@ -276,24 +276,24 @@ export async function applyDetails(db: D1Database, game: Game, change: DetailsCh
   if (change.multiplayer_mode !== undefined) set("multiplayer_mode", change.multiplayer_mode);
   if (assignments.length) {
     set("updated_at_ms", now());
-    await db.prepare(`UPDATE games SET ${assignments.join(", ")} WHERE id = ?`).bind(...values, game.id).run();
+    await database.prepare(`UPDATE games SET ${assignments.join(", ")} WHERE id = ?`).bind(...values, game.id).run();
   }
   // Rooms update their own rows when they next check in; turning listing off takes them off lists at once.
-  if (change.room_browsing === "off") await db.prepare("UPDATE live_rooms SET listed = 0 WHERE game_id = ?").bind(game.id).run();
+  if (change.room_browsing === "off") await database.prepare("UPDATE live_rooms SET is_listed = 0 WHERE game_id = ?").bind(game.id).run();
   return { isWaitingForReview };
 }
 
 /** Admin: accept or drop the words waiting for review. */
-export async function settleDetailsWaitingForReview(db: D1Database, game: Game, accept: boolean): Promise<void> {
+export async function settleDetailsWaitingForReview(database: D1Database, game: Game, accept: boolean): Promise<void> {
   const waitingWords = game.details_waiting_for_review ? (JSON.parse(game.details_waiting_for_review) as { title?: string; description?: string }) : {};
-  await db
+  await database
     .prepare("UPDATE games SET title = ?, description = ?, details_waiting_for_review = NULL, updated_at_ms = ? WHERE id = ?")
     .bind(accept ? (waitingWords.title ?? game.title) : game.title, accept ? (waitingWords.description ?? game.description) : game.description, now(), game.id)
     .run();
 }
 
-export async function gamesWithDetailsWaitingForReview(db: D1Database): Promise<Game[]> {
-  const { results } = await db.prepare("SELECT * FROM games WHERE details_waiting_for_review IS NOT NULL ORDER BY updated_at_ms").all<Game>();
+export async function gamesWithDetailsWaitingForReview(database: D1Database): Promise<Game[]> {
+  const { results } = await database.prepare("SELECT * FROM games WHERE details_waiting_for_review IS NOT NULL ORDER BY updated_at_ms").all<Game>();
   return results;
 }
 
@@ -371,26 +371,26 @@ export function sniffImage(bytes: Uint8Array): { type: "image/png" | "image/jpeg
   return null;
 }
 
-export async function addImage(db: D1Database, image: Omit<GameImage, "review_status" | "created_at_ms">): Promise<GameImage> {
+export async function addImage(database: D1Database, image: Omit<GameImage, "review_status" | "created_at_ms">): Promise<GameImage> {
   const row: GameImage = { ...image, review_status: "pending", created_at_ms: now() };
-  await db
+  await database
     .prepare("INSERT INTO game_images (id, game_id, kind, content_type, width_px, height_px, size_bytes, review_status, created_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
     .bind(row.id, row.game_id, row.kind, row.content_type, row.width_px, row.height_px, row.size_bytes, row.review_status, row.created_at_ms)
     .run();
   return row;
 }
 
-export async function imageById(db: D1Database, id: string): Promise<GameImage | null> {
-  return db.prepare("SELECT * FROM game_images WHERE id = ?").bind(id).first<GameImage>();
+export async function imageById(database: D1Database, id: string): Promise<GameImage | null> {
+  return database.prepare("SELECT * FROM game_images WHERE id = ?").bind(id).first<GameImage>();
 }
 
-export async function imagesForGame(db: D1Database, gameId: string): Promise<GameImage[]> {
-  const { results } = await db.prepare("SELECT * FROM game_images WHERE game_id = ? ORDER BY kind, created_at_ms").bind(gameId).all<GameImage>();
+export async function imagesForGame(database: D1Database, gameId: string): Promise<GameImage[]> {
+  const { results } = await database.prepare("SELECT * FROM game_images WHERE game_id = ? ORDER BY kind, created_at_ms").bind(gameId).all<GameImage>();
   return results;
 }
 
-export async function pendingImages(db: D1Database): Promise<(GameImage & { slug: string; title: string })[]> {
-  const { results } = await db
+export async function pendingImages(database: D1Database): Promise<(GameImage & { slug: string; title: string })[]> {
+  const { results } = await database
     .prepare("SELECT game_images.*, games.slug, games.title FROM game_images JOIN games ON games.id = game_images.game_id WHERE game_images.review_status = 'pending' ORDER BY game_images.created_at_ms LIMIT 100")
     .all<GameImage & { slug: string; title: string }>();
   return results;
@@ -400,22 +400,22 @@ export async function pendingImages(db: D1Database): Promise<(GameImage & { slug
  * Approve or reject an image. An approved cover (landscape or square) replaces the game's old one of that kind; the old files
  * to delete from storage are returned. Rejected files are kept, in case they need reporting.
  */
-export async function settleImage(db: D1Database, image: GameImage, approve: boolean): Promise<GameImage[]> {
+export async function settleImage(database: D1Database, image: GameImage, approve: boolean): Promise<GameImage[]> {
   if (!approve) {
-    await db.prepare("UPDATE game_images SET review_status = 'rejected' WHERE id = ?").bind(image.id).run();
+    await database.prepare("UPDATE game_images SET review_status = 'rejected' WHERE id = ?").bind(image.id).run();
     return [];
   }
   const { results: replaced } =
     image.kind !== "screenshot"
-      ? await db.prepare("SELECT * FROM game_images WHERE game_id = ? AND kind = ? AND review_status = 'approved' AND id != ?").bind(image.game_id, image.kind, image.id).all<GameImage>()
+      ? await database.prepare("SELECT * FROM game_images WHERE game_id = ? AND kind = ? AND review_status = 'approved' AND id != ?").bind(image.game_id, image.kind, image.id).all<GameImage>()
       : { results: [] as GameImage[] };
-  await db.batch([
-    db.prepare("UPDATE game_images SET review_status = 'approved' WHERE id = ?").bind(image.id),
-    ...replaced.map((old) => db.prepare("DELETE FROM game_images WHERE id = ?").bind(old.id)),
+  await database.batch([
+    database.prepare("UPDATE game_images SET review_status = 'approved' WHERE id = ?").bind(image.id),
+    ...replaced.map((old) => database.prepare("DELETE FROM game_images WHERE id = ?").bind(old.id)),
   ]);
   return replaced;
 }
 
-export async function deleteImageRow(db: D1Database, id: string): Promise<void> {
-  await db.prepare("DELETE FROM game_images WHERE id = ?").bind(id).run();
+export async function deleteImageRow(database: D1Database, id: string): Promise<void> {
+  await database.prepare("DELETE FROM game_images WHERE id = ?").bind(id).run();
 }

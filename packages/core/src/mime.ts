@@ -65,8 +65,8 @@ export const IMAGE_TYPES: Record<string, string> = {
 
 export function extensionOf(path: string): string {
   const name = path.slice(path.lastIndexOf("/") + 1);
-  const dot = name.lastIndexOf(".");
-  return dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
+  const dotIndex = name.lastIndexOf(".");
+  return dotIndex > 0 ? name.slice(dotIndex + 1).toLowerCase() : "";
 }
 
 export function contentTypeFor(path: string): string {

@@ -25,6 +25,23 @@ const STANDARD_FIELDS = new Set(["readOnlyHint", "destructiveHint", "idempotentH
 const STANDARD_SHAPES = new Set(["Env", "RpcMessage", "McpImage"]);
 /** Room messages say type and data (docs/NAMING.md): there, data is the game's own message. */
 const MESSAGE_SHAPES = new Set(["ServerMessage"]);
+/**
+ * The fields a standard or an outside service names, in the shape we declare for it (docs/NAMING.md,
+ * Exceptions): JWT claims, WebAuthn's structures, R2's ranges and what Cloudflare and VirusTotal answer. Only
+ * these fields of these shapes; anything of ours in them still follows the rules.
+ */
+const STANDARD_FIELDS_BY_SHAPE: Record<string, string[]> = {
+  AccessJwtClaims: ["exp", "nbf"],
+  SupabaseJwtClaims: ["exp", "timestamp"],
+  PassClaims: ["iat", "exp"],
+  CollectedClientData: ["crossOrigin"],
+  AuthenticatorData: ["flags"],
+  TurnstileAnswer: ["success"],
+  VirusTotalAnswer: ["data", "malicious"],
+  R2RangeFields: ["offset", "length", "suffix"],
+};
+/** Inputs that ask for an action are a verb (docs/NAMING.md, Yes or no), like kicking with keepOut. */
+const ACTION_FIELDS_BY_SHAPE: Record<string, string[]> = { KickOptions: ["keepOut"] };
 
 /** The name of the interface or type a type literal belongs to, or "" for one on its own. */
 function shapeName(node: ts.Node): string {
@@ -136,10 +153,12 @@ export function sourceProblems(root: string): Problem[] {
         const names = fields.map((field) => (field.name as ts.Identifier | ts.StringLiteral).text);
         if (!isEnv && names.some((name) => /_/.test(name)) && names.some((name) => /[a-z][A-Z]/.test(name))) report(names.join(","), "mixes snake_case and camelCase in one shape");
         if (!isEnv) {
-          const isMessage = MESSAGE_SHAPES.has(shapeName(node));
+          const shape = ts.isInterfaceDeclaration(node) ? node.name.text : shapeName(node);
+          const isMessage = MESSAGE_SHAPES.has(shape);
+          const keptAsTheyAre = [...(STANDARD_FIELDS_BY_SHAPE[shape] ?? []), ...(ACTION_FIELDS_BY_SHAPE[shape] ?? [])];
           for (const field of fields) {
             const name = (field.name as ts.Identifier | ts.StringLiteral).text;
-            if (/[^A-Za-z0-9_]/.test(name) || STANDARD_FIELDS.has(name) || (isMessage && name === "data")) continue;
+            if (/[^A-Za-z0-9_]/.test(name) || STANDARD_FIELDS.has(name) || (isMessage && name === "data") || keptAsTheyAre.includes(name)) continue;
             for (const problem of wordProblems(name)) report(name, problem);
             if (field.type && isNumber(field.name) && !isNumberShaped(name)) report(name, "a number's name ends in a count, a unit, index or number");
             if (field.type && isBoolean(field.name) && !isBooleanShaped(name)) report(name, "a yes/no field starts with is, has or can, or ends in enabled");
