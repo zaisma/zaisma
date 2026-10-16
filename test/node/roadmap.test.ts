@@ -81,19 +81,20 @@ describe("the roadmap's First markers", () => {
   });
 
   it("gives every table with Must/Nice in docs/ROADMAP.md a Settled column holding yes or nothing", () => {
-    const lines = readFileSync(join(ROOT, "docs/ROADMAP.md"), "utf8").split("\n");
-    const headers = lines.filter((line) => line.startsWith("| Status |"));
-    expect(headers.filter((line) => line.includes("Must/Nice") && !line.includes("| Settled |"))).toEqual([]);
-    const settledColumn = headers[headers.findIndex((line) => line.includes("| Settled |"))].slice(1, -1).split("|").map((cell) => cell.trim()).indexOf("Settled");
-    const values = new Set<string>();
-    let isSettledTable = false;
-    for (const line of lines) {
-      if (!line.startsWith("|")) { isSettledTable = false; continue; }
-      if (line.startsWith("| Status |")) { isSettledTable = line.includes("| Settled |"); continue; }
-      if (!isSettledTable || /^\|[\s|-]+\|$/.test(line)) continue;
-      values.add(line.slice(1, -1).split("|").map((cell) => cell.trim())[settledColumn]);
+    const cellsOf = (line: string) => line.slice(1, -1).split("|").map((cell) => cell.trim());
+    const badLines: string[] = [];
+    let settledColumn = -1;
+    for (const line of readFileSync(join(ROOT, "docs/ROADMAP.md"), "utf8").split("\n")) {
+      if (!line.startsWith("|")) { settledColumn = -1; continue; }
+      if (line.startsWith("| Status |")) {
+        settledColumn = cellsOf(line).indexOf("Settled");
+        if (line.includes("Must/Nice") && settledColumn < 0) badLines.push(line);
+        continue;
+      }
+      const value = cellsOf(line)[settledColumn];
+      if (settledColumn >= 0 && !/^\|[\s|-]+\|$/.test(line) && value !== "yes" && value !== "") badLines.push(line);
     }
-    expect([...values].filter((value) => value !== "yes" && value !== "")).toEqual([]);
+    expect(badLines).toEqual([]);
   });
 
   it("names only real items in docs/ROADMAP.md, and keeps First items in Now unfinished", () => {
