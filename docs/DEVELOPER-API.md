@@ -143,9 +143,18 @@ The HTTP status goes with the code, as listed. The list lives in `ERROR_CODES` (
 
 | Code | HTTP | Meaning |
 | --- | --- | --- |
-| `bad_name` | 400 | A tester link's name isn't 1 to 60 characters. |
+| `bad_name` | 400 | A tester link's or sign-in app's name isn't 1 to 60 characters, or a sign-in app's says Zaisma. |
 | `too_many_tester_links` | 403 | The game has 50 tester links on already. |
 | `no_tester_link` | 404 | The game has no tester link on with that ID. |
+
+**Sign in with Zaisma**
+
+| Code | HTTP | Meaning |
+| --- | --- | --- |
+| `bad_redirect_urls` | 400 | redirect_urls isn't a list of 1 to 10 https URLs (http only for localhost) without #fragments. |
+| `bad_replace_client_secret` | 400 | replace_client_secret isn't true or false, or the app is public and has no client secret. |
+| `too_many_sign_in_apps` | 403 | The account has 20 sign-in apps already. |
+| `no_sign_in_app` | 404 | You have no sign-in app with that ID. |
 
 **The developer forum**
 
@@ -338,6 +347,25 @@ A signed-in player plays as their Zaisma account in every game, with the same pl
 | `GET /players/:player_id` | An account's public profile: `{"player": {"id", "name"}}`, exactly what a stranger sees of it, never its email, age or other games' data. A guest's ID, or a deleted account's, is `no_player`. |
 
 Games and servers get the same with no key at `GET https://rooms.zaisma.com/v1/players/<player_id>` (open to any site, up to 300 a minute per address, answers cacheable for 5 minutes), and in games with `Zaisma.player.getProfile(playerId)`. A player pass proves only who the player is: an account's carries no name, so your server looks the name up there (the Node game server does it for you).
+
+## Sign in with Zaisma
+
+Players sign in to your own site, server or app with their Zaisma account, and you know them by the same player ID your games see. It's standard OpenID Connect (the authorization code flow), so any OpenID Connect library works: point it at the issuer `https://zaisma.com`, which publishes everything else at `https://zaisma.com/.well-known/openid-configuration`.
+
+| Call | What it does |
+| --- | --- |
+| `GET /sign-in-apps` | Your sign-in apps: `{"id", "name", "kind", "redirect_urls", "issuer_url", "created_at", "updated_at"}`. |
+| `POST /sign-in-apps` | Make one: `{"name", "kind", "redirect_urls"}`. Up to 20. Answers with the `sign_in_app` and, for a confidential app, its `client_secret`, shown only this once (`null` for a public app). |
+| `PATCH /sign-in-apps/:id` | Change `name` or `redirect_urls` (the whole list), or `{"replace_client_secret": true}` for a new secret, answered once as `client_secret`; the old one stops working at once. |
+| `DELETE /sign-in-apps/:id` | Delete one for good, with every player's yes to it; answers `removed_sign_in_app_id`. |
+
+- **The app's `id`** (`sign_in_app_…`) is its OAuth `client_id`.
+- **kind:** `confidential` for a site or server that keeps the client secret on its server (sent by HTTP Basic or as `client_secret` in the form); `public` for a page, phone or desktop app with no server, which has no secret and must use PKCE (`code_challenge_method=S256`). PKCE works for confidential apps too.
+- **redirect_urls:** 1 to 10 exact URLs your library's callback lives at: https, or `http://localhost` for development, no `#fragment` and no wildcards. The `redirect_uri` a sign-in sends must be one of them, exactly.
+- **name:** what players see on the one-time consent page, with your account's name as the developer and the address they go back to. It can't say Zaisma.
+- **Scopes:** `openid` (the player ID) and `profile` (the player's name). Ask for `"openid profile"`. Zaisma never shares an email, an age or anything else on the account, so `email` and other scopes are refused with `invalid_scope`.
+- **What you get:** an ID token (RS256, keys at `/.well-known/jwks.json`) with `sub` (the player ID, a `player_…` ID, the same as in their player passes and `GET /players/:player_id`), `name` with the profile scope, `nonce` when you sent one, and `auth_time`; and an access token for `/oauth/userinfo`, which answers the same `sub` and `name`. Both last an hour; there are no refresh tokens, so keep your own session.
+- **Players decide:** the first sign-in to an app asks the player; later ones go straight back. Players see the apps they signed in to on their account page and can remove any, which stops `/oauth/userinfo` for that app at once. `prompt=none` answers `login_required` or `consent_required` instead of showing a page, and `prompt=consent` asks again. Codes work once, for 2 minutes. Deleting an account removes the player's yeses; deleting yours removes your apps.
 
 ## Tester links
 

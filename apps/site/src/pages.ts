@@ -682,7 +682,7 @@ const DMCA = `
 <p>If your game was removed and you believe it was a mistake or you have permission, email the same address with a counter-notice. We'll forward it to the person who filed the claim.</p>
 `;
 
-// Approved by Julius on Oct 12, 2026; the play stats and play-check lines on Oct 13, 2026; the player ID line on Oct 16, 2026.
+// Approved by Julius on Oct 12, 2026; the play stats and play-check lines on Oct 13, 2026; the lead and the player ID line on Oct 16, 2026; sites you sign in to with Zaisma in the player ID line by merging Sign in with Zaisma.
 const PRIVACY = `
 <p class="lead">Zaisma keeps as little about you as it can. Most games need no account, and guests leave nothing behind.</p>
 <h2>Playing as a guest</h2>
@@ -693,7 +693,7 @@ const PRIVACY = `
 <ul>
 <li><strong>Your email</strong>, only to sign you in. It's never shown to anyone, and we don't send marketing.</li>
 <li><strong>Your name</strong>, the one you pick. Other players can see it.</li>
-<li><strong>Your player ID.</strong> When you're signed in, the games you play know you by a player ID, the same in every game, and can look up your name with it. They never get your email, your age or anything from other games.</li>
+<li><strong>Your player ID.</strong> When you're signed in, the games you play, and the sites you choose to sign in to with Zaisma, know you by a player ID, the same everywhere, and can look up your name with it. They never get your email, your age or anything from other games. Your account page lists the sites, and you can remove any of them.</li>
 <li><strong>Your age group</strong>: 13 to 17, or 18 and over. We ask your birth date once to work it out and never keep it.</li>
 <li><strong>Your game saves.</strong> If you're signed in, your game saves are stored with your account, so your progress follows you to any device.</li>
 <li><strong>The games you played recently</strong> (the last 20), so Continue playing follows you to any device too.</li>

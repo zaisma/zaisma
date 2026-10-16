@@ -68,6 +68,19 @@ import {
   playerProfile,
   secondsUntilDayPasses,
   type ErrorCode,
+  MAXIMUM_REDIRECT_URL_COUNT,
+  MAXIMUM_SIGN_IN_APP_COUNT,
+  SIGN_IN_APP_KINDS,
+  checkRedirectUrl,
+  checkSignInAppName,
+  createSignInApp,
+  deleteSignInApp,
+  redirectUrlsOf,
+  signInAppById,
+  signInAppsFor,
+  updateSignInApp,
+  type SignInApp,
+  type SignInAppKind,
 } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import { gameUrl, type Env } from "./env.ts";
@@ -101,6 +114,10 @@ import { KNOWN_IMAGE_ALERT, imageMatcher, pruneVersions } from "./scan.ts";
  *   GET    /api/dev/games/:slug/testers        tester links that are on
  *   POST   /api/dev/games/:slug/testers        make a tester link: { "name" }
  *   DELETE /api/dev/games/:slug/testers/:id    turn one off for good
+ *   GET    /api/dev/sign-in-apps               your sign-in apps (Sign in with Zaisma, see sign-in.ts)
+ *   POST   /api/dev/sign-in-apps               make one: { "name", "kind", "redirect_urls" }; a confidential app's client_secret is answered once
+ *   PATCH  /api/dev/sign-in-apps/:id           name, redirect_urls, or replace_client_secret: true
+ *   DELETE /api/dev/sign-in-apps/:id           delete one, with every player's yes to it
  *   …/api/dev/forum                            the developer forum: topics, replies, Me too (see forum.ts)
  *
  * API_ROUTES, above route(), is the full list the router answers; keep this one in step with it.
@@ -271,6 +288,10 @@ export const API_ROUTES: readonly ApiRoute[] = [
   { method: "POST", path: "/forum/:topic_id/posts/:post_id/report" },
   { method: "GET", path: "/forum/:topic_id/media/:media_id" },
   { method: "GET", path: "/players/:player_id" },
+  { method: "GET", path: "/sign-in-apps" },
+  { method: "POST", path: "/sign-in-apps" },
+  { method: "PATCH", path: "/sign-in-apps/:sign_in_app_id" },
+  { method: "DELETE", path: "/sign-in-apps/:sign_in_app_id" },
 ];
 
 const routePatterns = new Map(
@@ -384,6 +405,9 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     }
     return answer(await historyFor(env, game, caller));
   }
+
+  const signInAppPath = path.match(/^\/sign-in-apps(?:\/([^/]+))?$/);
+  if (signInAppPath) return answer(...(await signInAppRoute(request, env, signInAppPath[1] ? decodeURIComponent(signInAppPath[1]) : undefined, caller)));
 
   const testerPath = path.match(/^\/games\/([^/]+)\/testers(?:\/([^/]+))?$/);
   if (testerPath) return answer(...(await testerRoute(request, env, await ownGame(env, testerPath[1]!, caller), testerPath[2], caller)));
@@ -988,6 +1012,83 @@ async function testerRoute(request: Request, env: Env, game: Game, id: string | 
     return [{ removed_tester_id: link.id, next_steps: [] satisfies NextStep[] }];
   }
   throw badMethod(request.method, new URL(request.url).pathname);
+}
+
+/**
+ * Sign-in apps: developers' own sites, servers and apps that players sign in to with Zaisma
+ * (sign-in.ts). The app's ID is its OAuth client_id; a confidential app's client secret is answered
+ * once, when it's made or replaced, and only its SHA-256 is kept.
+ */
+async function signInAppRoute(request: Request, env: Env, id: string | undefined, caller: Caller): Promise<[unknown, number?]> {
+  const method = request.method;
+  if (!id && method === "GET") return [{ sign_in_apps: (await signInAppsFor(env.DB, caller.ownerId)).map((app) => signInAppJson(env, app)) }];
+  if (!id && method === "POST") {
+    const body = await readJson(request);
+    closedBody(body, ["name", "kind", "redirect_urls"]);
+    for (const field of ["name", "kind", "redirect_urls"]) {
+      if (body[field] === undefined) throw new ApiError("missing_field", { message: `${field} wasn't sent.`, field, fix: SIGN_IN_APP_FIX[field]! });
+    }
+    const name = signInAppNameOrThrow(body.name);
+    if (!(SIGN_IN_APP_KINDS as readonly unknown[]).includes(body.kind)) throw new ApiError("bad_kind", { message: "kind isn't confidential or public.", field: "kind", fix: SIGN_IN_APP_FIX.kind! });
+    const redirectUrls = redirectUrlsOrThrow(body.redirect_urls);
+    if ((await signInAppsFor(env.DB, caller.ownerId)).length >= MAXIMUM_SIGN_IN_APP_COUNT) {
+      throw new ApiError("too_many_sign_in_apps", { message: `You have ${MAXIMUM_SIGN_IN_APP_COUNT} sign-in apps, the most an account can.`, fix: "Delete one you don't use with delete_sign_in_app, or add this site's redirect URLs to an app you have with update_sign_in_app." });
+    }
+    const { app, clientSecret } = await createSignInApp(env.DB, { ownerId: caller.ownerId, name, kind: body.kind as SignInAppKind, redirectUrls });
+    return [{ sign_in_app: signInAppJson(env, app), client_secret: clientSecret, next_steps: [] satisfies NextStep[] }, 201];
+  }
+  if (!id) throw badMethod(method, new URL(request.url).pathname);
+  const appFix = "list_sign_in_apps lists your sign-in apps with their IDs.";
+  checkIdKind("sign_in_app", id, "sign_in_app_id", appFix);
+  const app = await signInAppById(env.DB, id);
+  if (!app || app.owner_id !== caller.ownerId) throw new ApiError("no_sign_in_app", { message: `You have no sign-in app with the ID ${id}.`, field: "sign_in_app_id", fix: appFix });
+  if (method === "PATCH") {
+    const body = await readJson(request);
+    closedBody(body, ["name", "redirect_urls", "replace_client_secret"]);
+    const replaceClientSecret = body.replace_client_secret;
+    if (replaceClientSecret !== undefined && typeof replaceClientSecret !== "boolean") throw new ApiError("bad_replace_client_secret", { message: "replace_client_secret isn't true or false.", field: "replace_client_secret", fix: "Send true to make a new client secret (the old one stops working at once), or leave it out." });
+    if (replaceClientSecret && app.kind === "public") throw new ApiError("bad_replace_client_secret", { message: `${app.name} is a public app, which has no client secret.`, field: "replace_client_secret", fix: "Leave replace_client_secret out. A public app signs in with PKCE alone; for a client secret, make a confidential app with create_sign_in_app." });
+    const { app: updated, clientSecret } = await updateSignInApp(env.DB, app, {
+      name: body.name === undefined ? undefined : signInAppNameOrThrow(body.name),
+      redirectUrls: body.redirect_urls === undefined ? undefined : redirectUrlsOrThrow(body.redirect_urls),
+      replaceClientSecret: replaceClientSecret === true,
+    });
+    return [{ sign_in_app: signInAppJson(env, updated), client_secret: clientSecret, next_steps: [] satisfies NextStep[] }];
+  }
+  if (method === "DELETE") {
+    await deleteSignInApp(env.DB, app.id);
+    return [{ removed_sign_in_app_id: app.id, next_steps: [] satisfies NextStep[] }];
+  }
+  throw badMethod(method, new URL(request.url).pathname);
+}
+
+const SIGN_IN_APP_FIX: Record<string, string> = {
+  name: 'Name the app the way players know your site, in 1 to 60 characters, like "Sky Hopper Online". Players see it when they sign in.',
+  kind: 'Send "confidential" for a site or server that keeps the client secret on its server, or "public" for a page or phone app with no server, which signs in with PKCE alone.',
+  redirect_urls: 'Send a list of 1 to 10 exact URLs your site gets players back on, like ["https://skyhopper.io/auth/callback"]: https, or http://localhost for development, without a #fragment.',
+};
+
+function signInAppNameOrThrow(given: unknown): string {
+  const checked = checkSignInAppName(given);
+  if ("error" in checked) throw new ApiError("bad_name", { message: checked.error, field: "name", fix: SIGN_IN_APP_FIX.name! });
+  return checked.name;
+}
+
+function redirectUrlsOrThrow(given: unknown): string[] {
+  if (!Array.isArray(given) || given.length < 1 || given.length > MAXIMUM_REDIRECT_URL_COUNT) {
+    throw new ApiError("bad_redirect_urls", { message: `redirect_urls isn't a list of 1 to ${MAXIMUM_REDIRECT_URL_COUNT} URLs.`, field: "redirect_urls", fix: SIGN_IN_APP_FIX.redirect_urls! });
+  }
+  const redirectUrls: string[] = [];
+  for (const [i, url] of given.entries()) {
+    const checked = checkRedirectUrl(url);
+    if ("error" in checked) throw new ApiError("bad_redirect_urls", { message: checked.error, field: `redirect_urls[${i}]`, fix: SIGN_IN_APP_FIX.redirect_urls! });
+    if (!redirectUrls.includes(checked.redirectUrl)) redirectUrls.push(checked.redirectUrl);
+  }
+  return redirectUrls;
+}
+
+function signInAppJson(env: Env, app: SignInApp) {
+  return { id: app.id, name: app.name, kind: app.kind, redirect_urls: redirectUrlsOf(app), issuer_url: env.SITE_ORIGIN, created_at: iso(app.created_at_ms), updated_at: iso(app.updated_at_ms) };
 }
 
 // The JSON for each kind of thing, as schemas.ts describes it: the row's own names, with values in

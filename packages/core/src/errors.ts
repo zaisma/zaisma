@@ -95,9 +95,15 @@ export const ERROR_CODES = {
   not_approved: { httpStatus: 409, meaning: "The version didn't pass review, so it can't be published." },
 
   // Tester links
-  bad_name: { httpStatus: 400, meaning: "A tester link's name isn't 1 to 60 characters." },
+  bad_name: { httpStatus: 400, meaning: "A tester link's or sign-in app's name isn't 1 to 60 characters, or a sign-in app's says Zaisma." },
   too_many_tester_links: { httpStatus: 403, meaning: "The game has 50 tester links on already." },
   no_tester_link: { httpStatus: 404, meaning: "The game has no tester link on with that ID." },
+
+  // Sign in with Zaisma
+  bad_redirect_urls: { httpStatus: 400, meaning: "redirect_urls isn't a list of 1 to 10 https URLs (http only for localhost) without #fragments." },
+  bad_replace_client_secret: { httpStatus: 400, meaning: "replace_client_secret isn't true or false, or the app is public and has no client secret." },
+  too_many_sign_in_apps: { httpStatus: 403, meaning: "The account has 20 sign-in apps already." },
+  no_sign_in_app: { httpStatus: 404, meaning: "You have no sign-in app with that ID." },
 
   // The developer forum
   no_topic: { httpStatus: 404, meaning: "There's no topic with that ID you can see." },

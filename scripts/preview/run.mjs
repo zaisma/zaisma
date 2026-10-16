@@ -3,6 +3,7 @@
 // tried and iterated on before anything goes live. Run: npm run preview (add --reset for fresh data).
 // Uses its own data folder and ports, so it never touches your dev data or the live site.
 import { spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,7 +17,11 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const STATE = join(ROOT, ".wrangler/preview");
 // PREVIEW_PORT_OFFSET=100 moves every port up (site on 8900), for a second checkout while another runs its preview.
 const OFFSET = Number(process.env.PREVIEW_PORT_OFFSET) || 0;
-const PORTS = { site: 8800 + OFFSET, games: 8801 + OFFSET, rooms: 8802 + OFFSET, auth: 8790 + OFFSET, ai: 8791 + OFFSET, shield: 8792 + OFFSET };
+const PORTS = { site: 8800 + OFFSET, games: 8801 + OFFSET, rooms: 8802 + OFFSET, auth: 8790 + OFFSET, ai: 8791 + OFFSET, shield: 8792 + OFFSET, signInSite: 8793 + OFFSET };
+// Sky Hopper Online, a developer's own site using Sign in with Zaisma (fake-site.mjs), and its app.
+const SIGN_IN_SITE = `http://localhost:${PORTS.signInSite}`;
+const SIGN_IN_APP_ID = "sign_in_app_previewskyhopper";
+const SIGN_IN_APP_SECRET = "preview-client-secret";
 const SITE = `http://localhost:${PORTS.site}`;
 const GAMES = `http://localhost:${PORTS.games}`;
 const ROOMS = `http://localhost:${PORTS.rooms}`;
@@ -27,9 +32,16 @@ const fresh = !existsSync(join(STATE, "seeded"));
 mkdirSync(STATE, { recursive: true });
 
 // Settings for the preview only. --env-file replaces .dev.vars, so your own settings stay out of it.
+// Sign in with Zaisma's RS256 key, kept between runs so test sites' tokens stay valid.
+const signInKeyFile = join(STATE, "sign-in-key.json");
+if (!existsSync(signInKeyFile)) {
+  const pair = await crypto.subtle.generateKey({ name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["sign", "verify"]);
+  const { kty, n, e, d, p, q, dp, dq, qi } = await crypto.subtle.exportKey("jwk", pair.privateKey);
+  writeFileSync(signInKeyFile, JSON.stringify({ kty, n, e, d, p, q, dp, dq, qi }));
+}
 writeFileSync(
   join(STATE, "site.env"),
-  [`SITE_ORIGIN=${SITE}`, `GAME_ORIGIN=${GAMES}`, "GAME_HOST_MODE=path", "GAME_DOMAIN=", "DEV_ADMIN=1", `SUPABASE_URL=http://localhost:${PORTS.auth}`, "SUPABASE_PUBLISHABLE_KEY=preview", "SUPABASE_SECRET_KEY=preview", "KEEP_OFFER_SECONDS=20",
+  [`SITE_ORIGIN=${SITE}`, `SIGN_IN_SIGNING_KEY='${readFileSync(signInKeyFile, "utf8")}'`, `GAME_ORIGIN=${GAMES}`, "GAME_HOST_MODE=path", "GAME_DOMAIN=", "DEV_ADMIN=1", `SUPABASE_URL=http://localhost:${PORTS.auth}`, "SUPABASE_PUBLISHABLE_KEY=preview", "SUPABASE_SECRET_KEY=preview", "KEEP_OFFER_SECONDS=20",
     // Scans and report triage ask a stand-in AI (fake-ai.mjs): no real key, no cost.
     "ANTHROPIC_API_KEY=preview", `ANTHROPIC_BASE_URL=http://localhost:${PORTS.ai}`,
     // Image matching asks a stand-in Arachnid Shield (fake-shield.mjs) that only matches marked test pictures.
@@ -86,6 +98,7 @@ async function waitFor(url) {
 await startFakeAuth(PORTS.auth, join(STATE, "auth-key.json")).catch(() => console.log(`Sign-in stand-in already running on ${PORTS.auth}.`));
 children.push(spawn("node", [join(ROOT, "scripts/preview/fake-ai.mjs"), String(PORTS.ai)], { stdio: "ignore" }));
 children.push(spawn("node", [join(ROOT, "scripts/preview/fake-shield.mjs"), String(PORTS.shield), STATE], { stdio: "ignore" }));
+children.push(spawn("node", [join(ROOT, "scripts/preview/fake-site.mjs"), String(PORTS.signInSite), SITE, SIGN_IN_APP_ID, SIGN_IN_APP_SECRET], { stdio: "ignore" }));
 console.log("Applying database updates…");
 spawnSync("npx", ["wrangler", "d1", "migrations", "apply", "zaisma", "--local", "--persist-to", STATE], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
 // One at a time: they share the preview's database, and starting together can find it locked.
@@ -105,10 +118,15 @@ if (fresh) {
 // The two multiplayer demos run on our rooms (also for preview data made before rooms were in the preview).
 // Cave Crew uses the relay, to show closed and hidden rooms. Rooms from the last run are gone.
 // Shard Dodge needs a Zaisma account, to show the game page asking guests to sign in.
+// Preview Studio's sign-in app for Sky Hopper Online, with a known secret, to its port this run.
+const signInAppSql = `INSERT INTO sign_in_apps (id, owner_id, name, kind, redirect_urls, client_secret_sha256, created_at_ms, updated_at_ms)
+  SELECT '${SIGN_IN_APP_ID}', owners.id, 'Sky Hopper Online', 'confidential', '${JSON.stringify([`${SIGN_IN_SITE}/callback`])}', '${createHash("sha256").update(SIGN_IN_APP_SECRET).digest("hex")}', ${Date.now()}, ${Date.now()}
+  FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE accounts.name = 'Preview Studio'
+  ON CONFLICT (id) DO UPDATE SET redirect_urls = excluded.redirect_urls`;
 spawnSync(
   "npx",
   ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command",
-    "UPDATE games SET multiplayer_mode = 'own' WHERE slug = 'arena'; UPDATE games SET multiplayer_mode = 'built-in', built_in_server = slug WHERE slug = 'four-in-a-row' AND multiplayer_mode = 'none'; UPDATE games SET multiplayer_mode = 'relay' WHERE slug = 'cave-crew' AND multiplayer_mode = 'none'; UPDATE games SET account_requirement = 'whole_game' WHERE slug = 'shard-dodge'; DELETE FROM live_rooms"],
+    `UPDATE games SET multiplayer_mode = 'own' WHERE slug = 'arena'; UPDATE games SET multiplayer_mode = 'built-in', built_in_server = slug WHERE slug = 'four-in-a-row' AND multiplayer_mode = 'none'; UPDATE games SET multiplayer_mode = 'relay' WHERE slug = 'cave-crew' AND multiplayer_mode = 'none'; UPDATE games SET account_requirement = 'whole_game' WHERE slug = 'shard-dodge'; DELETE FROM live_rooms; ${signInAppSql}`],
   { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } },
 );
 // Pretend play stats for two games, so the dashboard's Plays section has something to show. Real
@@ -140,6 +158,7 @@ Zaisma preview is running. Nothing here touches the live site.
   Tester links    ${testers.secret ?? "(npm run preview -- --reset to make them)"}  (Rocket Lab, a private game)
                   ${testers.arena ?? ""}  (Arena, to try multiplayer through one)
   Your games      ${SITE}/dashboard
+  Sign in with    ${SIGN_IN_SITE}  (Sky Hopper Online, a developer's own site: Sign in with Zaisma, the consent page and back)
   Admin           ${SITE}/admin
   Report queue    ${SITE}/admin/reports
   Forum           ${SITE}/forum  (topics, known issues, a topic: ${SITE}/forum?tab=known)

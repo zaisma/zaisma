@@ -147,6 +147,17 @@ export const TESTER = object({
   last_opened_at: nullable(isoTime("To the hour.")),
 });
 
+/** A developer's site or app that players sign in to with Zaisma (OpenID Connect). */
+export const SIGN_IN_APP = object({
+  id: idOf("sign_in_app", "The app's ID: give it to your OpenID Connect library as the client_id."),
+  name: text("What players see when they sign in."),
+  kind: choice({ confidential: "a site or server that keeps the client secret on its server", public: "a page or phone app with no server; it signs in with PKCE alone" }, "OAuth's client type."),
+  redirect_urls: list(url(), "The exact URLs a sign-in can go back to: the redirect_uri your site sends must be one of them."),
+  issuer_url: url("Zaisma's OpenID Connect issuer: libraries find everything else at <issuer_url>/.well-known/openid-configuration."),
+  created_at: isoTime(),
+  updated_at: isoTime(),
+});
+
 /** An account's public profile: what anyone sees of it, games and servers included. */
 export const PLAYER_PROFILE = object({
   id: idOf("player", "The account's player ID, the same in every game."),

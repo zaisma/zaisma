@@ -14,7 +14,10 @@ import {
   gamesOwnedBy,
   newChallenge,
   passkeysFor,
+  redirectUrlsOf,
+  removeSignInGrant,
   revokeApiKey,
+  signInGrantsFor,
   updateAccount,
   type AgeBand,
 } from "@zaisma/core";
@@ -63,6 +66,7 @@ export async function handleAccount(request: Request, env: Env, path: string): P
   if (
     !["/signin", "/signin/code", "/join", "/join/age", "/join/email", "/join/name", "/account", "/account/kept", "/account/name", "/account/age", "/account/delete", "/account/keys", "/signout"].includes(path) &&
     !/^\/account\/keys\/[a-z0-9]+\/revoke$/.test(path) &&
+    !/^\/account\/sign-ins\/sign_in_app_[a-z0-9]+\/remove$/.test(path) &&
     !/^\/signin\/(with\/[a-z]{1,20}|callback)$/.test(path)
   ) return null;
   if (!authConfigured(env)) return message(env, "Accounts aren't on yet", "You can still play as a guest.", 404);
@@ -75,7 +79,7 @@ export async function handleAccount(request: Request, env: Env, path: string): P
   }
   const form = post ? await request.formData() : null;
   const field = (name: string, maximumCharacterCount = 200) => String(form?.get(name) ?? "").trim().slice(0, maximumCharacterCount);
-  const next = safeNext(form ? field("next") : new URL(request.url).searchParams.get("next"));
+  const next = safeNext(form ? field("next", 2000) : new URL(request.url).searchParams.get("next"));
   const session = await currentSession(request, env);
   const done = (response: Response) => withCookies(response, session?.cookies ?? []);
 
@@ -238,6 +242,13 @@ export async function handleAccount(request: Request, env: Env, path: string): P
     return done(redirect("/account#developer"));
   }
 
+  // Sign in with Zaisma: the player takes their yes to an app back.
+  const signInApp = path.match(/^\/account\/sign-ins\/(sign_in_app_[a-z0-9]+)\/remove$/);
+  if (signInApp && post) {
+    await removeSignInGrant(env.DB, account.id, signInApp[1]!);
+    return done(redirect("/account#sign-ins"));
+  }
+
   if (path === "/account/delete" && post) {
     if (field("confirm").toLowerCase() !== "delete") return done(await accountPage(env, session, false, 'Type "delete" to confirm.'));
     if (!(await deleteAuthUser(env, session.userId))) return done(message(env, "Couldn't delete your account", "Something went wrong on our side. Try again later.", 502));
@@ -263,9 +274,9 @@ function withCookies(response: Response, cookies: string[]): Response {
   return out;
 }
 
-/** Only our own paths, never another site. */
+/** Only our own paths, never another site. Long enough for a Sign in with Zaisma link (sign-in.ts). */
 function safeNext(nextPath: string | null | undefined): string | null {
-  return nextPath && /^\/(?![/\\])[\w\-./?=&%]*$/.test(nextPath) && nextPath.length < 200 ? nextPath : null;
+  return nextPath && /^\/(?![/\\])[\w\-./?=&%+*]*$/.test(nextPath) && nextPath.length < 2000 ? nextPath : null;
 }
 
 const nextQuery = (next: string | null) => (next ? `?next=${encodeURIComponent(next)}` : "");
@@ -474,7 +485,7 @@ const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
 async function accountPage(env: Env, session: Session, welcome: boolean, error?: string, made?: { name: string; token: string }, query = new URLSearchParams()): Promise<Response> {
   const account = (await accountById(env.DB, session.userId))!;
-  const [games, keys, passkeys] = await Promise.all([gamesOwnedBy(env.DB, account.id), apiKeysFor(env.DB, account.id), passkeysFor(env.DB, account.id)]);
+  const [games, keys, passkeys, signIns] = await Promise.all([gamesOwnedBy(env.DB, account.id), apiKeysFor(env.DB, account.id), passkeysFor(env.DB, account.id), signInGrantsFor(env.DB, account.id)]);
   // Adding a passkey needs a recent sign-in; otherwise an email code first.
   const recent = Date.now() - session.signedInAtMs < RECENT_SIGNIN_MS;
   return page(
@@ -533,6 +544,14 @@ ${recent
 </script>
 <h2>Game saves</h2>
 <p>Games you play while signed in save your progress to your account. <a href="/account/saves">See your saves</a>, and go back to an earlier version if progress goes missing.</p>
+${signIns.length
+      ? html`<h2 id="sign-ins">Signed in with Zaisma</h2>
+<p>Sites and apps you signed in to with your Zaisma account. They get your player ID and name, never your email. Remove one and it asks again next time.</p>
+<ul class="keys">${signIns.map(
+          (signIn) => html`<li><span>${signIn.name} <span class="muted small">${new URL(redirectUrlsOf(signIn)[0]!).host}, last used ${day(signIn.last_used_at_ms)}</span></span>
+<form method="post" action="/account/sign-ins/${signIn.sign_in_app_id}/remove"><button class="btn ghost" type="submit">Remove</button></form></li>`,
+        )}</ul>`
+      : ""}
 ${games.length
       ? html`<h2>Your games</h2><ul>${games.map((game) => html`<li><a href="/dashboard/${game.slug}">${game.title}</a> <span class="pill ${game.review_status}">${game.review_status}</span></li>`)}</ul>`
       : ""}

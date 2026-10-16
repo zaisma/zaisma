@@ -29,7 +29,7 @@
     // Supabase Auth for accounts. Both values are public.
     "SUPABASE_URL": "https://qhvplmvsvlwzweucvsrk.supabase.co",
     "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_EnpE0zs8z2351p479gDrzA_jRMpZn0l"
-    // Secrets (wrangler secret put): ANTHROPIC_API_KEY, ALERT_EMAIL, SUPABASE_SECRET_KEY, optional VT_API_KEY
+    // Secrets (wrangler secret put): ANTHROPIC_API_KEY, ALERT_EMAIL, SUPABASE_SECRET_KEY, SIGN_IN_SIGNING_KEY (scripts/sign-in-key.mjs), optional VT_API_KEY
   },
   "d1_databases": [{ "binding": "DB", "database_name": "zaisma", "database_id": "bffea7a7-f905-4eaf-84f2-97b1fb6bf932", "migrations_dir": "../../migrations" }],
   "r2_buckets": [

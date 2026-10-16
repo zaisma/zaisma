@@ -15,3 +15,5 @@ SUPABASE_URL=
 SUPABASE_PUBLISHABLE_KEY=
 # Only needed to delete accounts locally. Never commit it.
 SUPABASE_SECRET_KEY=
+# Sign in with Zaisma's signing key, one line from: node scripts/sign-in-key.mjs. Empty turns it off.
+SIGN_IN_SIGNING_KEY=

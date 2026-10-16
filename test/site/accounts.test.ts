@@ -4,6 +4,8 @@ import { accountById, ageBand, ageOn, canonicalSave, checkName, createApiKey, ga
 import { decideTopic } from "../../apps/site/src/forum-posts.ts";
 import { checkForumPosts, type CheckDeps } from "../../apps/site/src/forum-check.ts";
 import { scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
+import { SIGN_IN_APP } from "../../apps/site/src/schemas.ts";
+import { errorProblems, schemaProblems } from "../schema-check.ts";
 
 const SITE = "https://zaisma.test";
 const SUPABASE = "https://supabase.test";
@@ -1140,5 +1142,190 @@ describe("passkeys", () => {
     const page = await (await new Browser().go("/signin?next=/g/owl")).text();
     expect(page).toContain("Sign in with a passkey");
     expect(page).toContain('autocomplete="email webauthn"');
+  });
+});
+
+describe("Sign in with Zaisma", () => {
+  const CALLBACK = "https://skyhopper.test/auth/callback";
+  const RS256 = { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" } as const;
+
+  beforeEach(async () => {
+    await env.DB.exec("DELETE FROM sign_in_codes; DELETE FROM sign_in_grants; DELETE FROM sign_in_apps;");
+  });
+
+  /** A developer with a sign-in app, made through the API with their session, as the dashboard would. */
+  async function developerWithApp(kind: "confidential" | "public" = "confidential"): Promise<{ developer: Browser; appId: string; clientSecret: string | null }> {
+    const developer = new Browser();
+    await join(developer, `maker-${crypto.randomUUID()}@example.com`, "Sky Maker");
+    const made = await developer.go("/api/dev/sign-in-apps", undefined, { method: "POST", body: JSON.stringify({ name: "Sky Hopper Online", kind, redirect_urls: [CALLBACK] }) });
+    expect(made.status).toBe(201);
+    const answer = (await made.json()) as { sign_in_app: { id: string }; client_secret: string | null };
+    return { developer, appId: answer.sign_in_app.id, clientSecret: answer.client_secret };
+  }
+
+  const authorizeQuery = (appId: string, extra: Record<string, string> = {}) =>
+    `/oauth/authorize?${new URLSearchParams({ response_type: "code", client_id: appId, redirect_uri: CALLBACK, scope: "openid profile", state: "state-123", nonce: "nonce-456", ...extra })}`;
+
+  /** Says yes on the consent page, and answers the code the app gets back. */
+  async function allow(player: Browser, appId: string, extra: Record<string, string> = {}): Promise<string> {
+    const back = await player.go("/oauth/authorize", { response_type: "code", client_id: appId, redirect_uri: CALLBACK, scope: "openid profile", state: "state-123", nonce: "nonce-456", ...extra, decision: "allow" });
+    expect(back.status).toBe(303);
+    const url = new URL(back.headers.get("location")!);
+    expect(url.origin + url.pathname).toBe(CALLBACK);
+    expect(url.searchParams.get("state")).toBe("state-123");
+    expect(url.searchParams.get("iss")).toBe(SITE);
+    return url.searchParams.get("code")!;
+  }
+
+  const swap = (form: Record<string, string>, headers: Record<string, string> = {}) =>
+    SELF.fetch(`${SITE}/oauth/token`, { method: "POST", body: new URLSearchParams({ grant_type: "authorization_code", redirect_uri: CALLBACK, ...form }), headers });
+
+  async function readIdToken(idToken: string): Promise<Record<string, unknown>> {
+    const { keys: published } = (await (await SELF.fetch(`${SITE}/.well-known/jwks.json`)).json()) as { keys: (JsonWebKey & { kid: string })[] };
+    const [header, body, signature] = idToken.split(".") as [string, string, string];
+    const fromB64url = (text: string) => Uint8Array.from(atob(text.replace(/-/g, "+").replace(/_/g, "/")), (character) => character.charCodeAt(0));
+    const headerJson = JSON.parse(new TextDecoder().decode(fromB64url(header))) as { alg: string; kid: string };
+    expect(headerJson.alg).toBe("RS256");
+    const jwk = published.find((candidate) => candidate.kid === headerJson.kid)!;
+    const key = await crypto.subtle.importKey("jwk", { kty: jwk.kty, n: jwk.n, e: jwk.e }, RS256, false, ["verify"]);
+    expect(await crypto.subtle.verify(RS256, key, fromB64url(signature), new TextEncoder().encode(`${header}.${body}`))).toBe(true);
+    return JSON.parse(new TextDecoder().decode(fromB64url(body))) as Record<string, unknown>;
+  }
+
+  it("makes, changes and deletes sign-in apps through the API", async () => {
+    const { developer, appId, clientSecret } = await developerWithApp();
+    expect(clientSecret).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    const listed = (await (await developer.go("/api/dev/sign-in-apps")).json()) as { sign_in_apps: unknown[] };
+    expect(listed.sign_in_apps).toHaveLength(1);
+    expect(schemaProblems(SIGN_IN_APP, listed.sign_in_apps[0])).toEqual([]);
+    expect(JSON.stringify(listed)).not.toContain(clientSecret);
+
+    const make = (body: unknown) => developer.go("/api/dev/sign-in-apps", undefined, { method: "POST", body: JSON.stringify(body) });
+    const plainHttp = await make({ name: "Sky Hopper", kind: "confidential", redirect_urls: ["http://skyhopper.test/callback"] });
+    expect(((await plainHttp.json()) as { error: { code: string; field: string } }).error).toMatchObject({ code: "bad_redirect_urls", field: "redirect_urls[0]" });
+    const lookalike = await make({ name: "Zaisma Login", kind: "public", redirect_urls: [CALLBACK] });
+    const lookalikeAnswer = await lookalike.json();
+    expect(errorProblems(lookalikeAnswer, lookalike.status)).toEqual([]);
+    expect((lookalikeAnswer as { error: { code: string } }).error.code).toBe("bad_name");
+    expect(((await (await make({ name: "Local", kind: "public", redirect_urls: ["http://localhost:3000/cb"] })).json()) as { client_secret: string | null }).client_secret).toBeNull();
+
+    const change = (id: string, body: unknown) => developer.go(`/api/dev/sign-in-apps/${id}`, undefined, { method: "PATCH", body: JSON.stringify(body) });
+    const replaced = (await (await change(appId, { replace_client_secret: true })).json()) as { client_secret: string };
+    expect(replaced.client_secret).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(replaced.client_secret).not.toBe(clientSecret);
+
+    // Someone else's app is not yours to see or change.
+    const stranger = new Browser();
+    await join(stranger, "stranger@example.com", "Some Stranger");
+    const theirs = await stranger.go(`/api/dev/sign-in-apps/${appId}`, undefined, { method: "PATCH", body: JSON.stringify({ name: "Mine Now" }) });
+    expect(((await theirs.json()) as { error: { code: string } }).error.code).toBe("no_sign_in_app");
+
+    const removed = await developer.go(`/api/dev/sign-in-apps/${appId}`, undefined, { method: "DELETE", body: "{}" });
+    expect(await removed.json()).toEqual({ removed_sign_in_app_id: appId, next_steps: [] });
+  });
+
+  it("signs a player in to a site, remembers their yes, and lets them take it back", async () => {
+    const { appId, clientSecret } = await developerWithApp();
+    const player = new Browser();
+
+    // Signed out: sign in first, then back to the same step.
+    const signedOut = await player.go(authorizeQuery(appId));
+    expect(signedOut.status).toBe(303);
+    const signinUrl = new URL(signedOut.headers.get("location")!, SITE);
+    expect(signinUrl.pathname).toBe("/signin");
+    expect(signinUrl.searchParams.get("next")).toContain(`/oauth/authorize?response_type=code&client_id=${appId}`);
+    expect(await (await player.go(`/signin?next=${encodeURIComponent(signinUrl.searchParams.get("next")!)}`)).text()).toContain('name="next" value="/oauth/authorize?');
+
+    await join(player, "owl@example.com", "Night Owl");
+    const consent = await player.go(authorizeQuery(appId));
+    expect(consent.status).toBe(200);
+    const consentPage = await consent.text();
+    expect(consentPage).toContain("Sign in to Sky Hopper Online");
+    expect(consentPage).toContain("Never your email");
+    expect(consentPage).toContain("skyhopper.test");
+    expect(consent.headers.get("content-security-policy")).toContain("form-action 'self' https://skyhopper.test");
+
+    const code = await allow(player, appId);
+    const wrongSecret = await swap({ code, client_id: appId, client_secret: "not-the-secret" });
+    expect(wrongSecret.status).toBe(401);
+    expect(((await wrongSecret.json()) as { error: string }).error).toBe("invalid_client");
+
+    // The wrong secret didn't use the code up; the right one, by HTTP Basic, swaps it once.
+    const swapped = await swap({ code }, { authorization: `Basic ${btoa(`${appId}:${clientSecret}`)}` });
+    expect(swapped.status).toBe(200);
+    const tokens = (await swapped.json()) as { access_token: string; id_token: string; token_type: string; expires_in: number };
+    expect(tokens.token_type).toBe("Bearer");
+    const account = await env.DB.prepare("SELECT player_id FROM accounts WHERE name = 'Night Owl'").first<{ player_id: string }>();
+    const claims = await readIdToken(tokens.id_token);
+    expect(claims).toMatchObject({ iss: SITE, sub: account!.player_id, aud: appId, nonce: "nonce-456", name: "Night Owl" });
+    expect(JSON.stringify(claims)).not.toContain("owl@example.com");
+    expect((await swap({ code, client_id: appId, client_secret: clientSecret! })).status).toBe(400);
+
+    const userinfo = () => SELF.fetch(`${SITE}/oauth/userinfo`, { headers: { authorization: `Bearer ${tokens.access_token}` } });
+    expect(await (await userinfo()).json()).toEqual({ sub: account!.player_id, name: "Night Owl" });
+
+    // The second time, straight back with a code.
+    const again = await player.go(authorizeQuery(appId));
+    expect(again.status).toBe(303);
+    expect(new URL(again.headers.get("location")!).searchParams.get("code")).toBeTruthy();
+
+    // Taken back on the account page: userinfo stops, and the app asks again.
+    const accountPage = await (await player.go("/account")).text();
+    expect(accountPage).toContain("Signed in with Zaisma");
+    expect(accountPage).toContain("Sky Hopper Online");
+    await player.go(`/account/sign-ins/${appId}/remove`, {});
+    expect((await userinfo()).status).toBe(401);
+    expect((await player.go(authorizeQuery(appId))).status).toBe(200);
+  });
+
+  it("needs PKCE from public apps, and checks the code_verifier", async () => {
+    const { appId } = await developerWithApp("public");
+    const player = new Browser();
+    await join(player, "owl@example.com", "Night Owl");
+    const withoutPkce = await player.go(authorizeQuery(appId));
+    expect(new URL(withoutPkce.headers.get("location")!).searchParams.get("error")).toBe("invalid_request");
+
+    const verifier = "a-long-random-verifier-that-only-the-app-knows-1234567890";
+    const challenge = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    const pkce = { code_challenge: challenge, code_challenge_method: "S256" };
+    const wrong = await swap({ code: await allow(player, appId, pkce), client_id: appId, code_verifier: "not-the-verifier" });
+    expect(((await wrong.json()) as { error: string }).error).toBe("invalid_grant");
+    const right = await swap({ code: await allow(player, appId, pkce), client_id: appId, code_verifier: verifier });
+    expect(right.status).toBe(200);
+    expect(right.headers.get("access-control-allow-origin")).toBe("*");
+
+    // Signing in with an email code keeps the whole link, PKCE included, and comes back to it.
+    await player.go("/signout", {});
+    const next = new URL((await player.go(authorizeQuery(appId, pkce))).headers.get("location")!, SITE).searchParams.get("next")!;
+    expect(next.length).toBeGreaterThan(200);
+    await player.go("/signin", { email: "owl@example.com", next });
+    expect((await player.go("/signin/code", { email: "owl@example.com", code: "123456", next })).headers.get("location")).toBe(next);
+    expect(new URL((await player.go(next)).headers.get("location")!).searchParams.get("code")).toBeTruthy();
+  });
+
+  it("refuses broken links and what it doesn't share, and publishes where everything is", async () => {
+    const { appId } = await developerWithApp();
+    const player = new Browser();
+    expect((await player.go(authorizeQuery("sign_in_app_nosuchapp"))).status).toBe(400);
+    expect(await (await player.go(authorizeQuery(appId, { redirect_uri: "https://evil.test/steal" }))).text()).toContain("register (redirect_uri)");
+    const email = await player.go(authorizeQuery(appId, { scope: "openid email" }));
+    expect(new URL(email.headers.get("location")!).searchParams.get("error")).toBe("invalid_scope");
+    const silent = await player.go(authorizeQuery(appId, { prompt: "none" }));
+    expect(new URL(silent.headers.get("location")!).searchParams.get("error")).toBe("login_required");
+
+    const configuration = (await (await SELF.fetch(`${SITE}/.well-known/openid-configuration`)).json()) as Record<string, unknown>;
+    expect(configuration).toMatchObject({ issuer: SITE, authorization_endpoint: `${SITE}/oauth/authorize`, token_endpoint: `${SITE}/oauth/token`, jwks_uri: `${SITE}/.well-known/jwks.json`, id_token_signing_alg_values_supported: ["RS256"] });
+  });
+
+  it("goes with the account: a player's yeses, and a developer's apps", async () => {
+    const { developer, appId } = await developerWithApp();
+    const player = new Browser();
+    await join(player, "owl@example.com", "Night Owl");
+    await allow(player, appId);
+    await player.go("/account/delete", { confirm: "delete" });
+    expect(await env.DB.prepare("SELECT * FROM sign_in_grants").first()).toBeNull();
+    expect(await env.DB.prepare("SELECT * FROM sign_in_codes").first()).toBeNull();
+    await developer.go("/account/delete", { confirm: "delete" });
+    expect(await env.DB.prepare("SELECT * FROM sign_in_apps").first()).toBeNull();
   });
 });

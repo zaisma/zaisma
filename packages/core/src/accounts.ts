@@ -104,8 +104,18 @@ export async function deleteAccount(database: D1Database, id: string): Promise<v
   const owner = await database.prepare("SELECT id FROM owners WHERE account_id = ?").bind(id).first<{ id: string }>();
   await database.batch([
     ...(owner
-      ? [database.prepare("UPDATE games SET owner_id = NULL WHERE owner_id = ?").bind(owner.id), database.prepare("DELETE FROM owners WHERE id = ?").bind(owner.id)]
+      ? [
+          // Their sign-in apps go, with every player's yes to them and their codes not yet used.
+          database.prepare("DELETE FROM sign_in_codes WHERE sign_in_app_id IN (SELECT id FROM sign_in_apps WHERE owner_id = ?)").bind(owner.id),
+          database.prepare("DELETE FROM sign_in_grants WHERE sign_in_app_id IN (SELECT id FROM sign_in_apps WHERE owner_id = ?)").bind(owner.id),
+          database.prepare("DELETE FROM sign_in_apps WHERE owner_id = ?").bind(owner.id),
+          database.prepare("UPDATE games SET owner_id = NULL WHERE owner_id = ?").bind(owner.id),
+          database.prepare("DELETE FROM owners WHERE id = ?").bind(owner.id),
+        ]
       : []),
+    // The apps they signed in to with Zaisma.
+    database.prepare("DELETE FROM sign_in_codes WHERE account_id = ?").bind(id),
+    database.prepare("DELETE FROM sign_in_grants WHERE account_id = ?").bind(id),
     database.prepare("DELETE FROM save_history WHERE account_id = ?").bind(id),
     database.prepare("DELETE FROM passkeys WHERE account_id = ?").bind(id),
     database.prepare("DELETE FROM saves WHERE account_id = ?").bind(id),
