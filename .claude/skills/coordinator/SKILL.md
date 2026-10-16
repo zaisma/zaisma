@@ -10,7 +10,7 @@ Julius starts one session with `/coordinator` and works from there. He shouldn't
 
 **Sessions do the work; this session finishes it.** A session under the coordinator talks, builds, opens its pull request and gets its preview OK'd, but it never merges, ships or cleans up. When it has reached a conclusion it asks Julius **"Are we done?"** (buttons: *Yes, we're done* / *More to discuss*). On his yes it ends its turn with a **done report**, and this session does the rest (step 4): merge, ship, mark the row, republish the roadmap page, archive the session. His yes in that session is his merge for its pull request (CLAUDE.md, "Merging"). A build that never needed him (settled, no preview) reports done without asking.
 
-The only files this session changes are the roadmap's: a new Now (step 6) and the `done` mark after a ship (step 4). It does that in its own worktree (EnterWorktree, named `coordinator`, if this session isn't in one).
+The only files this session changes are the roadmap's: a new Now (step 6), the `done` mark after a ship (step 4) and the `Settled` marks for Quick items Julius settles here (step 5). It does that in its own worktree (EnterWorktree, named `coordinator`, if this session isn't in one).
 
 ## The argument: how many and which mode
 
@@ -107,7 +107,10 @@ Then tell Julius in a line or two what landed, with each pull request, and go to
 
 Each time a session reports done, run step 1 again: an item that waited on it may be free now. Start ready ones as the cap rule allows, in Now's order (as cards when a note began the turn).
 
-**Talks about done items.** Done items built without being settled aren't checked off (`node scripts/roadmap-item.mjs --unsettled`). A talk about one is a `start_session` as in step 2, with `/talk-through <the item's exact name>` as the prompt. Pick the one that matters most first: the ones other work builds on, or the ones that would cost the most to change later. It counts against the cap like any session.
+**Sort the done items first.** Done items built without being settled aren't checked off (`node scripts/roadmap-item.mjs --unsettled`). Most were technical, and a session each would end in "your pick". So before any talk about a done item, and again whenever new ones turn up, sort them into the `talk-through` skill's three tiers (its steps 1 to 3 and `calls.md`), without starting talks. Hand the reading to subagents, a project or a handful of items each. Each subagent returns, per item, its tier, what it is through Julius's lens in one line, and the line it would settle as. Then:
+
+- **Quick items come to Julius here, as one list:** one line each, what it is and "settles as …", grouped by project, at most 15 per message. He answers with "settle all" or names the ones to pull out. His yes in this chat settles the rest. Write their `Settled` cells in this session's worktree, open one roadmap-only pull request, and finish it as in step 4 (his yes is its merge). A pulled-out item becomes a talk.
+- **One call and Needs you items** get a talk each: a `start_session` as in step 2, with `/talk-through <the item's exact name>` as the prompt. Put the tier in the background so the session doesn't redo the sorting. Start with the ones other work builds on, or the ones that would cost the most to change later. Each counts against the cap like any session.
 
 - **`both`:** keep one ready. Whenever no session is waiting for Julius to talk and the cap has room, start one, and tell him it's there with its link. He takes it when he has time; nothing waits on it.
 - **`talk`:** once no unsettled item in Now is left to start, fill the cap with these.
