@@ -34,9 +34,11 @@ One message of about 300 to 600 words:
 2. **How it got on the roadmap:** when, from which session or decision, and what it already assumes.
 3. **Where things stand today**, in broad strokes. Implications, not variable names.
 4. **What it locks in and what it costs**, a line each, only when they matter.
-5. **The calls that are Julius's:** two to four, numbered. These are what it is, who it's for, scope, how it fits the direction, anything that changes pricing, positioning or a settled decision. Each comes with the options that matter, a concrete case where they differ, and your pick with one line of why.
+5. **The calls that are Julius's:** at most three, numbered, and often only one or none. There's no quota: never pad the list to reach a number. Each comes with the options that matter, a concrete case where they differ, and your pick with one line of why.
 
-Define any term he may not have met (a Cloudflare product, an industry word) the first time it appears. A table helps when comparing options feature by feature or cost by cost. Anything that's yours to decide (names, numbers, limits, internals), decide, and list it under "Calls I made, overrule any" instead of asking.
+**Which calls are his.** A call is his only when it's system design or product, not implementation: what the item is and who it's for, what a player or developer can do or see that they couldn't otherwise (a page, a screen, a new capability), how it fits the direction, or anything that changes pricing, positioning or a settled decision. Ask: would his answer come from knowing the product, or only from knowing the tech? If only the tech, it's yours. File and data formats, how an operation behaves at its edges (partial failures, limits, what counts toward use), paging, chunking, names, endpoints and internals are always yours, even when a developer touches them. So is a small safety net or companion piece that follows from the direction; add it as its own row and list it as a call you made. A page's look is his (see "Anything with a page" below). In the game database import and export talk, four calls went up and only the dashboard page was his; format, import behaviour and an undo row were all implementation (Julius, Oct 16, 2026).
+
+Define any term he may not have met (a Cloudflare product, an industry word) the first time it appears. A table helps when comparing options feature by feature or cost by cost. Everything that's yours, decide, and list it under "Calls I made, overrule any" in a line each, in plain words, instead of asking.
 
 ## 3. During the talk
 
