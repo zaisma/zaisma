@@ -34,14 +34,14 @@ Waiting on people: Gleb: register with NCMEC, Gleb: register the DMCA agent, Jul
 
 Live on zaisma.com since Oct 11, 2026.
 
-| Status | Item | Notes |
-| --- | --- | --- |
-| done | Upload a game (admin only) | Zip upload in admin |
-| done | Scan before publishing | File checks, malware and phishing rules, AI review; image matching placeholder holds every game |
-| done | Sandboxed game server | Separate game domain, strict CSP, no cookies |
-| done | Directory and game pages | |
-| done | Report button and takedowns | Reports store nothing about the reporter; audit log |
-| done | First game: Shard Dodge | |
+| Status | Settled | Item | Notes |
+| --- | --- | --- | --- |
+| done | yes | Upload a game (admin only) | Zip upload in admin |
+| done | | Scan before publishing | File checks, malware and phishing rules, AI review; image matching placeholder holds every game |
+| done | yes | Sandboxed game server | Separate game domain, strict CSP, no cookies |
+| done | yes | Directory and game pages | |
+| done | yes | Report button and takedowns | Reports store nothing about the reporter; audit log |
+| done | yes | First game: Shard Dodge | |
 
 ## Phase 1: Beta
 
@@ -56,7 +56,7 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | Status | Must/Nice | Settled | Item | Needs | Notes |
 | --- | --- | --- | --- | --- | --- |
 | done | Must | | Julius: buy the game domain | | zaismausercontent.com, bought Oct 11, 2026 |
-| done | Must | | Serve each game on its own subdomain | Julius: buy the game domain | Live Oct 11, 2026: <slug>.zaismausercontent.com; workers.dev turned off |
+| done | Must | yes | Serve each game on its own subdomain | Julius: buy the game domain | Live Oct 11, 2026: <slug>.zaismausercontent.com; workers.dev turned off |
 | done | Must | | Julius: form an LLC | | Zaisma LLC, registered in Wyoming (Oct 13, 2026). Liability protection before outside uploads; a registered agent keeps a home address off public records |
 | done | Must | | Julius: Workers Paid plan | | $5/month, live Oct 12, 2026; needed to run developers' game servers |
 | done | Must | | Julius: alert and DMCA email delivery | | Fastmail whitelisted zaisma.com (Oct 14, 2026). support@, dmca@, privacy@, safety@, pdna_account@ and julius@ forward to Julius's Fastmail through Cloudflare Email Routing; site alerts send from alerts@ |
@@ -96,14 +96,16 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | Status | Must/Nice | Settled | Item | Needs | Notes |
 | --- | --- | --- | --- | --- | --- |
 | done | Must | | Developer accounts | | Any account owns games; API keys on the account page; one developer API for the MCP, upload command and dashboard (docs/DEVELOPER-API.md) |
-| done | Must | | Upload command | Developer accounts | File by file, up to 2 GB per game, only changed files. `npx @zaisma/cli` (source in packages/cli), files up to 500 MB |
-| done | Must | | Drafts and publishing | Upload command | Preview links, publish now or later, roll back; keep the live version plus the last 5. Unpublished drafts deleted after 30 days, unused files after a day |
-| done | Must | | Game visibility | Developer accounts | Draft, listed, unlisted or private; separate from review status. Unlisted is noindex and never in any shelf. Draft and private games open only through preview and tester links |
-| done | Must | | Tester links | Game visibility | Secret, named, revocable links (zaisma.com/t/…) that open the live version whatever the visibility; guests can use them and multiplayer works through them. Inviting specific accounts comes later |
-| done | Must | | Game details and device labels | Developer accounts | Labels, covers, square covers and screenshots on the game page, scanned and approved, with "Play anyway" on other devices |
-| done | Must | | Developer MCP | Drafts and publishing | Create, edit, upload, publish, roll back, scans, reports and stats at zaisma.com/mcp, signed in with an API key; small games upload through the MCP, bigger builds through the upload command |
+| done | Must | yes | Upload command | Developer accounts | File by file, up to 2 GB per game, only changed files. `npx @zaisma/cli` (source in packages/cli), files up to 500 MB |
+| done | Must | yes | Drafts and publishing | Upload command | Preview links, publish now or later, roll back; keep the live version plus the last 5. Unpublished drafts deleted after 30 days, unused files after a day |
+| done | Must | yes | Game visibility | Developer accounts | Draft, listed, unlisted or private; separate from review status. Unlisted is noindex and never in any shelf. Draft and private games open only through preview and tester links |
+| done | Must | yes | Tester links | Game visibility | Secret, named, revocable links (zaisma.com/t/…) that open the live version whatever the visibility; guests can use them and multiplayer works through them. Inviting specific accounts comes later |
+| done | Must | yes | Game details and device labels | Developer accounts | Labels, covers, square covers and screenshots on the game page, scanned and approved, with "Play anyway" on other devices |
+| done | Must | yes | Developer MCP | Drafts and publishing | Create, edit, upload, publish, roll back, scans, reports and stats at zaisma.com/mcp, signed in with an API key; small games upload through the MCP, bigger builds through the upload command |
 | done | Must | | Developer dashboard | Drafts and publishing | zaisma.com/dashboard on the same API as the MCP: games, folder upload in the browser, versions with preview, publish, publish later and roll back, details, visibility, images, reports, stats and history |
-| done | Must | | Support tools in the MCP | Developer MCP | "Why is my game held?": game history and scan findings in the MCP |
+| done | Must | yes | Support tools in the MCP | Developer MCP | "Why is my game held?": game history and scan findings in the MCP |
+| planned | Must | yes | Device notes and required screenshots | Game details and device labels | Controls and screen orientation show on the game page only as a note when they don't fit ("Needs a keyboard", "Best in landscape"), not as icons; a game is listed only with at least one screenshot |
+| planned | Must | yes | Private means you and your testers | Game visibility | The dashboard's "Only me" label for private games says that testers can play too |
 | planned | Must | | Games for your device first | Game details and device labels | Shelves and lists show games for the player's device first |
 | planned | Must | | Logs in the MCP | Support tools in the MCP | A game's logs readable by the developer's AI, beside its history and findings |
 | planned | Must | | Scan only what changed; per-developer budgets | Upload command | A daily limit on AI-reviewed uploads per free account (higher with Pro), about 20 updates per game per day |
