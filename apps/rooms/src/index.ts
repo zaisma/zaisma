@@ -2,7 +2,7 @@ import { PLAYER_REPORT_REASONS, accountById, chatBandGroup, friendPlayerIdsOf, g
 import { ERROR_TEXT, PassError, REQUEST_ERROR_HTTP_STATUS, guestName, isRoomCode, jwks, loadSigningKey, readRequestBody, requestError, roomCode, signPass, verifyPass, type Player, type RequestErrorCode, type SigningKey } from "@zaisma/game-server";
 import { usesRooms } from "./registry.ts";
 import type { GameDatabaseObject } from "./database.ts";
-import type { GameServerObject, RequestOutcome } from "./game-server.ts";
+import { syncSchedules, type GameServerObject, type RequestOutcome } from "./game-server.ts";
 
 export { Room } from "./room.ts";
 export { GameDatabaseObject, GameDatabaseBinding, GameDatabaseService } from "./database.ts";
@@ -346,5 +346,10 @@ export default {
 
     if (url.pathname === "/") return Response.redirect(env.SITE_ORIGIN, 302);
     return new Response("Not found", { status: 404 });
+  },
+
+  // Every minute: games' schedules after a publish (game-server.ts).
+  async scheduled(event, env, ctx): Promise<void> {
+    ctx.waitUntil(syncSchedules(env));
   },
 } satisfies ExportedHandler<Env>;

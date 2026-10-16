@@ -1,4 +1,4 @@
-import { GAME_SERVER_OPTIONS, defineGameServer, noSetupError, readJoinAnswer, unknownOptionError, type AwayReason, type GameServer, type JoinAnswer, type JoinInfo, type LeaveInfo, type Player, type Room } from "@zaisma/game-server";
+import { GAME_SERVER_OPTIONS, checkSchedules, defineGameServer, noSetupError, readJoinAnswer, unknownOptionError, type AwayReason, type GameServer, type JoinAnswer, type JoinInfo, type LeaveInfo, type Player, type Room, type ScheduledRun } from "@zaisma/game-server";
 import { SANDBOX_GAME_SERVER, manifestKey, serverModules, type Manifest } from "@zaisma/core";
 import type { Env } from "./index.ts";
 
@@ -12,8 +12,8 @@ import type { Env } from "./index.ts";
  * mute, block and report. The sandbox only runs the game's handlers: each call gets the state and
  * a copy of the room, and hands back the new state plus what the game asked the room to do
  * (broadcast, send, end, kick, ...), which the room then does; canJoin only answers yes or no.
- * Requests (onRequest) come through the game's own object outside any room (game-server.ts), with
- * the same sandbox and the same database. A room or that object opens one session with the sandbox
+ * Requests (onRequest) and schedules (onSchedule) go through the game's own object outside any room
+ * (game-server.ts), with the same sandbox and the same database. A room or that object opens one session with the sandbox
  * when it wakes and makes every call through it, so a room is billed one request per wake rather
  * than one per message or tick.
  */
@@ -63,6 +63,8 @@ interface Settings {
   idleTimeoutSec?: unknown;
   awayMode?: unknown;
   seatHoldDurationSec?: unknown;
+  /** As plain JSON; the game's object checks them (checkSchedules). */
+  schedules?: unknown;
   handlerNames: unknown;
 }
 
@@ -74,6 +76,8 @@ export interface Session {
   check(state: unknown, player: Player, joinData: unknown, room: Snapshot, joinInfo: JoinInfo): Promise<{ answer?: unknown; error?: string }>;
   /** onRequest: what the game server answered a request, as plain JSON, or the error it threw. */
   request(player: Player, request: unknown): Promise<{ answer?: unknown; error?: string }>;
+  /** onSchedule: one run of a schedule, or the error it threw. */
+  schedule(run: ScheduledRun): Promise<{ error?: string }>;
 }
 
 // Runs inside the sandbox, beside the game's file. Plain JavaScript: nothing here is trusted by the
@@ -85,7 +89,7 @@ import server from "./${entry}";
 const ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 const newRoomCode = () => Array.from(crypto.getRandomValues(new Uint8Array(6)), (byte) => ALPHABET[byte & 31]).join("");
 const HOOKS = ["onJoin", "onLeave", "onMessage", "onTick", "onMoved", "onAway", "onBack"];
-const HANDLERS = ["setup", "canJoin", "onRequest", ...HOOKS];
+const HANDLERS = ["setup", "canJoin", "onRequest", "onSchedule", ...HOOKS];
 
 // room.database, through the binding the room gave this sandbox: its own game's database and nothing else.
 class DatabaseError extends Error {
@@ -154,6 +158,7 @@ class Session extends RpcTarget {
       idleTimeoutSec: server.idleTimeoutSec,
       awayMode: server.awayMode,
       seatHoldDurationSec: server.seatHoldDurationSec,
+      schedules: plain(server.schedules),
       handlerNames: HANDLERS.filter((name) => typeof server[name] === "function"),
     };
   }
@@ -208,11 +213,31 @@ class Session extends RpcTarget {
     if (text === undefined) return { error: "onRequest answered something that isn't plain JSON, like a function or an object that refers to itself. Answer numbers, text, true or false, null, lists and plain objects." };
     return { answer: JSON.parse(text) };
   }
+  // onSchedule(run, server): like a request, with no player and nothing handed back.
+  async schedule(run) {
+    if (typeof server.onSchedule !== "function") return { error: "This game server has no onSchedule" };
+    try {
+      await server.onSchedule(run, { database: this.#database });
+      return {};
+    } catch (error) {
+      return { error: String((error && error.stack) || error) };
+    }
+  }
+}
+
+// An option as plain JSON, or a note saying it isn't, for the game's object to report.
+function plain(value) {
+  if (value === undefined) return undefined;
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch {
+    return "(something that isn't plain JSON)";
+  }
 }
 
 export default class extends WorkerEntrypoint {
   open() {
-    if (!server || (typeof server.setup !== "function" && typeof server.onRequest !== "function")) throw new Error("${entry} must export default a game server with setup() for rooms, onRequest() for requests, or both");
+    if (!server || (typeof server.setup !== "function" && typeof server.onRequest !== "function" && typeof server.onSchedule !== "function")) throw new Error("${entry} must export default a game server with setup() for rooms, onRequest() for requests or onSchedule() for schedules");
     return new Session(gameDatabase(this.env.DATABASE));
   }
 }
@@ -282,8 +307,9 @@ export async function wrapSession(open: () => Promise<Session>, onBroken: () => 
   const optionNames = Array.isArray(settings.optionNames) ? settings.optionNames.map(String) : [];
   for (const name of optionNames) if (!(GAME_SERVER_OPTIONS as readonly string[]).includes(name)) throw unknownOptionError(name);
   const handlerNames = new Set(Array.isArray(settings.handlerNames) ? settings.handlerNames.map(String) : []);
-  // A game server for requests alone doesn't run rooms.
+  // A game server for requests or schedules alone doesn't run rooms, and one whose schedules don't read doesn't start anywhere.
   if (!handlerNames.has("setup")) throw noSetupError();
+  checkSchedules(settings.schedules, handlerNames.has("onSchedule"));
   const stats: SandboxStats = { callCount: 0, waitDurationMs: 0, failureCount: 0, crashCount: 0, stoppedCount: 0, errors: new Map() };
   const record = (kind: "crash" | "stopped", text: string) => {
     const message = errorLine(text);

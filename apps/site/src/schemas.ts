@@ -233,11 +233,12 @@ export const STATS = object({
           {
             call_count: countOf("Calls into the game server from its rooms."),
             request_count: countOf("Requests to its onRequest (Zaisma.server.request), outside rooms."),
-            crash_count: countOf("A handler threw; that call or request is lost."),
-            stopped_count: countOf("A call ran on too long, about 2 seconds of CPU; the match froze meanwhile, or the request failed."),
+            scheduled_run_count: countOf("Runs of its onSchedule, one per schedule due."),
+            crash_count: countOf("A handler threw; that call, request or run is lost."),
+            stopped_count: countOf("A call ran on too long, about 2 seconds of CPU; the match froze meanwhile, or the request or run failed."),
             ended_match_count: countOf("Matches ended because their game server was stopped twice."),
           },
-          "Only for games whose own game server runs on Zaisma, for rooms or requests; otherwise null.",
+          "Only for games whose own game server runs on Zaisma, for rooms, requests or schedules; otherwise null.",
         ),
       ),
     }),
@@ -252,6 +253,16 @@ export const STATS = object({
     free_request_count: countOf(),
     has_reached_free_requests: yes("Until hosting billing is ready, requests answer request_limit until the month resets."),
   }),
+  schedules: list(
+    object({
+      schedule_name: text("Its name in the game server's schedules."),
+      cron: text("When it runs: minute hour day-of-month month day-of-week, in UTC."),
+      version_id: idOf("version"),
+      next_run_at: isoTime(),
+      last_run_at: nullable(isoTime("null until it first runs.")),
+    }),
+    "The live version's schedules (its game server's schedules option), read within a minute of publishing; empty when it has none or the game isn't playable.",
+  ),
   game_server_errors: list(
     object({
       kind: choice({ crash: "a handler threw", stopped: "a call ran on too long" }),

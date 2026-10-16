@@ -11,6 +11,7 @@ import { DatabaseError, type GameDatabase } from "./database.ts";
 import { isRoomCode, roomCode } from "./names.ts";
 import type { PlayerKind } from "./pass.ts";
 import type { Server } from "./requests.ts";
+import { readSchedules, type Schedule, type ScheduledRun } from "./schedules.ts";
 
 export interface Player {
   /** An account's player ID is the same in every game; a guest's lasts only for their pass. */
@@ -208,7 +209,7 @@ export interface GameServer<S = any> {
   /**
    * The starting state. It must be plain JSON so a sleeping room can be saved and woken. setupData
    * is what room.reserve() passed when another room made this one, and null otherwise. Rooms need it;
-   * a game server that only answers requests (onRequest) can leave it out.
+   * a game server that only answers requests (onRequest) or runs on schedules can leave it out.
    */
   setup?(setupData: unknown): S;
   /**
@@ -220,6 +221,20 @@ export interface GameServer<S = any> {
    * error.code "game_server_error" and you see the error with the game server's others.
    */
   onRequest?(player: Player, request: unknown, server: Server): unknown;
+  /**
+   * When the game server runs by itself, outside rooms and requests: daily resets, a weekly
+   * leaderboard, a persistent world's turns. Up to 10, each a name and a cron in UTC (minute hour
+   * day-of-month month day-of-week), so at most once a minute: [{ name: "daily-reset", cron: "0 0 * * *" }].
+   */
+  schedules?: Schedule[];
+  /**
+   * A schedule is due: run.name says which, run.scheduledAt the minute it was due (an ISO time, UTC).
+   * There's no room, no player and no state: keep what lasts in server.database. It has 30 seconds.
+   * A run can rarely come twice or a little late (after a restart), so make it safe to repeat, like
+   * a reset that checks run.scheduledAt against the last one it did. If it throws, you see the
+   * error with the game server's others.
+   */
+  onSchedule?(run: ScheduledRun, server: Server): unknown;
   /**
    * joinData is what the player's game passed to joinRoom({ joinData }), like the character they
    * picked, or null. It comes from the player's browser, so check it like any message. For a player
@@ -299,6 +314,8 @@ export const GAME_SERVER_OPTIONS = [
   "onMessage",
   "onTick",
   "onRequest",
+  "schedules",
+  "onSchedule",
 ] as const satisfies readonly (keyof GameServer)[];
 
 export const ROOM_LIMITS = {
@@ -357,23 +374,35 @@ export function unknownOptionError(field: string): GameServerError {
   return new GameServerError("unknown_option", field, `${field} isn't a game server option.`, `A game server takes: ${GAME_SERVER_OPTIONS.join(", ")}.`);
 }
 
-/** The error for a room whose game server has no setup(): it only answers requests. */
+/** The error for a room whose game server has no setup(): it only answers requests or runs on schedules. */
 export function noSetupError(): GameServerError {
-  return new GameServerError("bad_option", "setup", "This game server has no setup(), so it can't run rooms; it only answers requests.", "Add setup: (setupData) => ({ ...your starting state }) to run rooms too.");
+  return new GameServerError("bad_option", "setup", "This game server has no setup(), so it can't run rooms; it only answers requests or runs on schedules.", "Add setup: (setupData) => ({ ...your starting state }) to run rooms too.");
+}
+
+/** A game server's schedules, checked (readSchedules), or GameServerError for the field schedules. */
+export function checkSchedules(schedules: unknown, hasOnSchedule: boolean): Schedule[] {
+  const read = readSchedules(schedules, hasOnSchedule);
+  if ("message" in read) throw new GameServerError("bad_option", "schedules", read.message, read.fix);
+  return read.schedules;
 }
 
 /** Check a game server's options once, when it's defined: unknown options and values out of range throw. */
 export function defineGameServer<S>(server: GameServer<S>): GameServer<S> {
   for (const field of Object.keys(server ?? {})) if (!(GAME_SERVER_OPTIONS as readonly string[]).includes(field)) throw unknownOptionError(field);
   const bad = (field: string, message: string, fix: string) => new GameServerError("bad_option", field, message, fix);
-  if (typeof server?.setup !== "function" && typeof server?.onRequest !== "function") {
-    throw bad("setup", "A game server needs setup() to run rooms, onRequest() to answer requests, or both.", "Add setup: (setupData) => ({ ...your starting state }) for rooms, or onRequest(player, request, server) for requests.");
+  if (typeof server?.setup !== "function" && typeof server?.onRequest !== "function" && typeof server?.onSchedule !== "function") {
+    throw bad(
+      "setup",
+      "A game server needs setup() to run rooms, onRequest() to answer requests or onSchedule() to run on schedules, or more than one.",
+      "Add setup: (setupData) => ({ ...your starting state }) for rooms, onRequest(player, request, server) for requests, or schedules with onSchedule(run, server).",
+    );
   }
   for (const field of GAME_SERVER_OPTIONS) {
     if (field.startsWith("on") || field === "canJoin" || field === "setup") {
       if (server[field] !== undefined && typeof server[field] !== "function") throw bad(field, `${field} isn't a function.`, `Give ${field} as a function, or leave it out.`);
     }
   }
+  checkSchedules(server.schedules, typeof server.onSchedule === "function");
   const { maximumPlayerCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec } = server;
   if (maximumPlayerCount !== undefined && !(Number.isInteger(maximumPlayerCount) && maximumPlayerCount >= 1 && maximumPlayerCount <= ROOM_LIMITS.maximumPlayerCount)) {
     throw bad("maximumPlayerCount", `maximumPlayerCount is ${JSON.stringify(maximumPlayerCount)}.`, `Give a whole number from 1 to ${ROOM_LIMITS.maximumPlayerCount}, like 8.`);

@@ -916,27 +916,33 @@ async function liveServerProblem(env: Env, game: Game): Promise<string | null> {
 /**
  * Plays, play time and players coming back (counted by the game page, see plays.ts), multiplayer
  * room use per day, and for games running their own game server on our rooms, how it's doing:
- * calls, errors, loops we stopped and matches that ended for it, plus its recent errors. Only
- * counts: nothing about who played.
+ * calls, requests, scheduled runs, errors, loops we stopped and matches that ended for it, plus its
+ * schedules and recent errors. Only counts: nothing about who played.
  */
 async function statsFor(env: Env, game: Game, periodDurationDays: number) {
   const dayCount = Number.isInteger(periodDurationDays) && periodDurationDays > 0 ? Math.min(periodDurationDays, 90) : 30;
   const fromDate = new Date(Date.now() - (dayCount - 1) * DAY_MS).toISOString().slice(0, 10);
-  const [gamePlayStats, { results: roomDays }, { results: errors }, monthRoomPlayDurationSec, monthRequestCount] = await Promise.all([
+  const [gamePlayStats, { results: roomDays }, { results: errors }, { results: schedules }, monthRoomPlayDurationSec, monthRequestCount] = await Promise.all([
     playStats(env.DB, game.id, dayCount),
     env.DB
-      .prepare("SELECT date, room_count, room_play_duration_sec, message_count, game_server_call_count, game_server_request_count, game_server_crash_count, game_server_stopped_count, game_server_ended_match_count FROM room_usage WHERE game_id = ? AND date >= ? ORDER BY date")
+      .prepare("SELECT date, room_count, room_play_duration_sec, message_count, game_server_call_count, game_server_request_count, game_server_scheduled_run_count, game_server_crash_count, game_server_stopped_count, game_server_ended_match_count FROM room_usage WHERE game_id = ? AND date >= ? ORDER BY date")
       .bind(game.id, fromDate)
-      .all<{ date: string; room_count: number; room_play_duration_sec: number; message_count: number; game_server_call_count: number; game_server_request_count: number; game_server_crash_count: number; game_server_stopped_count: number; game_server_ended_match_count: number }>(),
+      .all<{ date: string; room_count: number; room_play_duration_sec: number; message_count: number; game_server_call_count: number; game_server_request_count: number; game_server_scheduled_run_count: number; game_server_crash_count: number; game_server_stopped_count: number; game_server_ended_match_count: number }>(),
     env.DB
       .prepare("SELECT version_id, kind, message, occurrence_count, first_at_ms, last_at_ms FROM game_server_errors WHERE game_id = ? ORDER BY last_at_ms DESC LIMIT 20")
       .bind(game.id)
       .all<{ version_id: string; kind: "crash" | "stopped"; message: string; occurrence_count: number; first_at_ms: number; last_at_ms: number }>(),
+    // Written by the game's object in the rooms Worker within a minute of a publish (apps/rooms/src/game-server.ts).
+    env.DB
+      .prepare("SELECT schedule_name, cron, version_id, next_run_at_ms, last_run_at_ms FROM game_server_schedules WHERE game_id = ? AND version_id = ? ORDER BY schedule_name")
+      .bind(game.id, game.live_version_id)
+      .all<{ schedule_name: string; cron: string; version_id: string; next_run_at_ms: number; last_run_at_ms: number | null }>(),
     roomPlayDurationSecThisMonth(env.DB, game.id),
     requestCountThisMonth(env.DB, game.id),
   ]);
-  // The game's own game server runs on Zaisma for its rooms, or for requests, which any game's can answer.
-  const hasOwnServer = game.multiplayer_mode === "own" || monthRequestCount > 0 || roomDays.some((day) => day.game_server_request_count > 0);
+  // The game's own game server runs on Zaisma for its rooms, or for requests and schedules, which any game's can have.
+  const hasOwnServer =
+    game.multiplayer_mode === "own" || monthRequestCount > 0 || schedules.length > 0 || roomDays.some((day) => day.game_server_request_count > 0 || day.game_server_scheduled_run_count > 0);
   return {
     period_duration_days: dayCount,
     play_stats: gamePlayStats,
@@ -945,12 +951,14 @@ async function statsFor(env: Env, game: Game, periodDurationDays: number) {
       room_count: day.room_count,
       room_play_duration_min: Math.round(day.room_play_duration_sec / 60),
       message_count: day.message_count,
-      game_server: hasOwnServer ? { call_count: day.game_server_call_count, request_count: day.game_server_request_count, crash_count: day.game_server_crash_count, stopped_count: day.game_server_stopped_count, ended_match_count: day.game_server_ended_match_count } : null,
+      game_server: hasOwnServer ? { call_count: day.game_server_call_count, request_count: day.game_server_request_count, scheduled_run_count: day.game_server_scheduled_run_count, crash_count: day.game_server_crash_count, stopped_count: day.game_server_stopped_count, ended_match_count: day.game_server_ended_match_count } : null,
     })),
     // Until Hosting billing exists, new rooms stop opening at the free tier until the month resets (UTC).
     room_use_this_month: { room_play_duration_hours: Math.round(monthRoomPlayDurationSec / 360) / 10, free_room_play_duration_hours: FREE_ROOM_PLAY_DURATION_HOURS, has_reached_free_hours: monthRoomPlayDurationSec >= FREE_ROOM_PLAY_DURATION_HOURS * 3600 },
     // Requests to the game's own game server (Zaisma.server.request): likewise, past the free ones they stop until the month resets.
     request_use_this_month: { request_count: monthRequestCount, free_request_count: FREE_REQUEST_COUNT_PER_MONTH, has_reached_free_requests: monthRequestCount >= FREE_REQUEST_COUNT_PER_MONTH },
+    // Schedules are free, capped by their shape: up to 10, each at most once a minute.
+    schedules: schedules.map((schedule) => ({ schedule_name: schedule.schedule_name, cron: schedule.cron, version_id: schedule.version_id, next_run_at: iso(schedule.next_run_at_ms), last_run_at: iso(schedule.last_run_at_ms) })),
     // Crashes lose one call each and the match carries on. "stopped" is a call that ran on too long
     // (about 2 seconds of CPU, like a loop that never ends): it freezes the match while it runs,
     // and a match whose game server is stopped twice ends.
