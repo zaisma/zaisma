@@ -55,5 +55,5 @@ When his answers settle the open calls, end with one message:
 
 On his yes, in a worktree, write the docs as shown. Set the item's `Settled` cell to `yes`, and every slice row's when he OK'd the slices. Parked ideas go in `docs/IDEAS.md`. Then:
 
-- **Inside `build-next`** (the usual way, also in a batch): don't open a separate pull request. The docs go in with the build, in this worktree, and you go back to `build-next` and build. The pull request merges by the settled rule. Its decision lines are the exact words he said yes to; say so in its description.
-- **On its own** (he wanted to settle it but not build it now): `npm test` (the roadmap test checks names and the Settled column), then a pull request for Julius to merge, since it changes settled docs. Tell him in a line that it's ready to build: `/build-next <name>`, or `/build-batch` with the rest of Now.
+- **Inside `build-next`** (the usual way, also under the coordinator): don't open a separate pull request. The docs go in with the build, in this worktree, and you go back to `build-next` and build. The pull request merges by the settled rule. Its decision lines are the exact words he said yes to; say so in its description.
+- **On its own** (he wanted to settle it but not build it now): `npm test` (the roadmap test checks names and the Settled column), then a pull request for Julius to merge, since it changes settled docs. Tell him in a line that it's ready to build: `/build-next <name>`, or the `/coordinator` picks it up with the rest of Now.
