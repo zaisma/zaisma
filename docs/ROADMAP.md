@@ -6,7 +6,7 @@ The live plan of what gets built, in what order. `docs/DECISIONS.md` says *how* 
 
 Who a player is comes first: the pass, the player ID and the sign-in that saves, friends, the game database and webhooks all build on, settled before anything else builds on them (Julius, Oct 16, 2026). After these, the rest of Phase 1 goes in any order.
 
-1. Game database (Game servers and data)
+1. Game database for game servers (Game servers and data)
 2. Webhooks for developers (Developer publishing)
 
 Waiting on people: Gleb: register with NCMEC, Gleb: register the DMCA agent, Julius: send PhotoDNA the LLC's records.
@@ -103,7 +103,7 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | planned | Must | MCP sign-in without a key | Developer MCP | OAuth, so claude.ai and other apps that can't send a key can connect after the developer signs in. Developer MCP: Zaisma's own OAuth server (the one Sign in with Zaisma will use), with a consent page and connected apps listed beside API keys; an app signed in this way can't make API keys. Admin MCP: Cloudflare Access's managed OAuth, no code (Julius: turn on Managed OAuth on the admin application in Zero Trust) |
 | next | Must | Webhooks for developers | Developer MCP, AI report triage | One signed event stream to an address the developer sets (bug reports, scans, publishes, room events, deleted accounts, later purchases), e.g. a GitHub issue for every bug report. Until then their AI checks for new bug reports with `cursor` |
 | planned | Must | Scoped API keys | Developer accounts | Keys limited to one game, read-only or upload-only, for CI and collaborators |
-| planned | Must | Export everything | Developer accounts, Game database | One command (and MCP tool) exports a game: files, versions, database, saves, stats, reports and updates |
+| planned | Must | Export everything | Developer accounts, Game database import and export | One command (and MCP tool) exports a game: files, versions, database, saves, stats, reports and updates |
 | planned | Must | Registered links | Developer accounts | So developers can earn with their own payments from day one: links to their store, Patreon, Steam or Discord, opened by `Zaisma.links` with a leaving-Zaisma notice |
 
 ### Developer forum
@@ -151,7 +151,9 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | --- | --- | --- | --- | --- |
 | done | Must | Run a game server yourself | Game server API and relay, Player passes | Node runner; same code as our rooms |
 | done | Must | Developers' own game servers run safely | Upload command, Rooms on rooms.zaisma.com, Julius: Workers Paid plan | Live Oct 13, 2026: a `zaisma-server/` folder or one `zaisma-server.js` runs on our rooms in a Dynamic Worker with no internet, never served to players; a match stopped twice ends; developers see its errors with the line |
-| next | Must | Game database | Rooms on rooms.zaisma.com | A real database per game, part of its hosting: tables and queries from its game servers, full access for the developer and their AI (query, change tables, fix data, import and export). The same calls use a local file on the developer's own server. Free up to a limit per game, then priced with a margin like rooms (Julius approved in principle Oct 13, 2026; the limits come to him with the numbers) |
+| doing | Must | Game database for game servers | Rooms on rooms.zaisma.com | A SQLite database per game as `room.database` (plain SQL and batches), in Zaisma rooms and as a local file on the developer's own server. Free per game: 500,000 rows written and 500 million read a month, 500 MB; until Hosting billing, past them writes stop and reads keep working (Julius, Oct 16, 2026) |
+| planned | Must | Game database through the API | Game database for game servers | The developer and their AI run SQL, list tables and see use against the free limits, through the API, MCP and upload command |
+| planned | Must | Game database import and export | Game database through the API | Data in and out of a game's database, and a dashboard page that reads the same API |
 | planned | Must | Game server endpoints and schedules | Developers' own game servers run safely | Plain requests to the game's server code (leaderboards, a shop, daily rewards) and schedules (daily resets, persistent worlds), with the game database behind it; the same code runs on the developer's own server |
 | planned | Must | Game server reach and secrets | Developers' own game servers run safely | Game servers can call the developer's own listed servers and payment providers, with secrets set per game and never shown again. Still nothing of ours inside |
 
@@ -178,7 +180,7 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | done | Must | Social modes and age bands | Age question | Live Oct 16, 2026 (#162, migration 0039): three age bands (13–15, 16–17, 18+) and a social mode on every account, chosen at signup from 16 and changed on the account page; 13–15 start solo-focused and can switch only to friends-focused. The pass carries the social mode and an opaque chat group, never the age; `canChat(a, b)` in the game server package |
 | planned | Must | Saves through the API | Cloud saves, Developer accounts | Developers read, fix and export their game's saves by player ID (API and MCP); every developer change keeps a history copy first. Saves and the game database stay separate |
 | planned | Must | Save screens games can take over | Cloud saves, "Keep your progress" | The conflict chooser and the "Keep your progress" card stay the default; SDK games handle conflicts themselves (`Zaisma.saves.onConflict`) and offer an account when they like (`Zaisma.player.offerAccount()`) |
-| planned | Must | Account deletion reaches developers | Webhooks for developers, Game database | An "account deleted" webhook to every game the player used, with a one-call helper to erase that player in the game database |
+| planned | Must | Account deletion reaches developers | Webhooks for developers, Game database through the API | An "account deleted" webhook to every game the player used, with a one-call helper to erase that player in the game database |
 
 ### Safety and moderation
 
@@ -254,7 +256,7 @@ Goal: developers can make money within days of the beta.
 | planned | Must | Live purchases | | Exactly-once delivery to the game and game server |
 | planned | Must | Purchase notifications for developers' servers | | Through webhooks. Also links purchases to games' own accounts |
 | planned | Must | Purchase rules | | Honest labels, real prices, refund policies, no loot boxes |
-| planned | Must | Hosting billing | | About 2x our Cloudflare cost; first 1,000 player-hours a month free per developer or team, no card needed. Above that, prepaid credit (about $10 minimum, optional automatic top-up): when it runs out, running matches finish but no new rooms open beyond the free tier; warnings at 20% and empty. Credit pays only for Zaisma services and is never paid out. Bills readable in the API and MCP, with plain reasons and error codes. Starts the month payments go live |
+| planned | Must | Hosting billing | | About 2x our Cloudflare cost; first 1,000 player-hours a month free per developer or team, no card needed. Above that, prepaid credit (about $10 minimum, optional automatic top-up): when it runs out, running matches finish but no new rooms open beyond the free tier; warnings at 20% and empty. Game databases past their free use the same way: $2 per million rows written, $0.002 per million read, $0.40 per GB-month (Julius, Oct 16, 2026). Credit pays only for Zaisma services and is never paid out. Bills readable in the API and MCP, with plain reasons and error codes. Starts the month payments go live |
 | planned | Must | AI support assistant | Errors: holds and takedowns | On zaisma.com for players and developers. Reads the same records (account, game status, scan report, receipts, saves, bills), answers from facts and takes safe actions (resend a code, re-run a scan, restore a save); hands judgment calls to a person |
 | planned | Must | Appeals queue | AI report triage | Takedown and ban appeals with AI summaries and a recommendation; one-click decisions |
 | planned | Must | Zaisma Pro | | About $10/month, only for what costs us more: custom domains (Cloudflare for SaaS, moved from Phase 6), more storage and seats, higher upload limit. Stats and scheduled releases stay free for everyone (Oct 14, 2026) |

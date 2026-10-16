@@ -7,10 +7,11 @@
 // layout as Zaisma rooms, and prove who they are with Zaisma player passes,
 // checked against the keys Zaisma publishes. Put it behind HTTPS (Caddy, nginx,
 // a Cloudflare Tunnel) and add the address to your game's own servers in Zaisma.
+// The game's database (room.database) is a local SQLite file, --database, made on first use.
 import { WebSocketServer } from "ws";
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
-import { ERROR_TEXT, PassError, REFUSED_CLOSE_CODE, RoomCore, checkRoomData, clientIdle, defineGameServer, errorMessage, isRoomCode, relay, tidyRoomInfo, verifyPass } from "../src/index.ts";
+import { ERROR_TEXT, DATABASE_LIMITS, PassError, REFUSED_CLOSE_CODE, RoomCore, answerDatabase, checkBatch, checkRoomData, checkStatement, clientIdle, defineGameServer, errorMessage, isRoomCode, plainRow, readDatabaseAnswer, relay, tidyRoomInfo, tooManyRows, verifyPass } from "../src/index.ts";
 
 const HELLO_MS = 5000;
 /** How often rooms check on their players (idle, hidden, held seats), and drop connections that stopped answering. */
@@ -54,11 +55,58 @@ export function profilesFrom(issuer) {
 }
 
 /**
+ * The game's database (room.database) in a local SQLite file, opened on first use: the same calls
+ * as in Zaisma rooms, checked the same way, each call in one transaction. Zaisma's free limits don't
+ * apply here; the file is yours. Copy it to move the data, or open it with any SQLite tool.
+ */
+export function localDatabase(file) {
+  let opened = null;
+  const open = async () => {
+    // Loaded only when a game uses its database, so games without one never see Node's SQLite warning.
+    opened ??= import("node:sqlite").then(({ DatabaseSync }) => new DatabaseSync(file));
+    return opened;
+  };
+  const run = (database, statements) => {
+    database.exec("BEGIN");
+    try {
+      const results = statements.map(({ sql, values }) => {
+        const rows = [];
+        for (const row of database.prepare(sql).iterate(...values)) {
+          if (rows.length >= DATABASE_LIMITS.maximumRowCount) throw tooManyRows();
+          rows.push(plainRow(row));
+        }
+        return rows;
+      });
+      database.exec("COMMIT");
+      return results;
+    } catch (error) {
+      try {
+        database.exec("ROLLBACK");
+      } catch {
+        // SQLite already ended the transaction.
+      }
+      throw error;
+    }
+  };
+  return {
+    query: async (sql, values) => {
+      const database = await open();
+      return readDatabaseAnswer(answerDatabase(() => run(database, [checkStatement(sql, values)])[0]));
+    },
+    batch: async (statements) => {
+      const database = await open();
+      return readDatabaseAnswer(answerDatabase(() => run(database, checkBatch(statements))));
+    },
+  };
+}
+
+/**
  * Start a server. Options: server (a game server object), game (its Zaisma slug),
  * port, origins (allowed page origins), issuer, keys (async () => public keys),
- * profiles (async (playerId) => an account's public profile or null).
+ * profiles (async (playerId) => an account's public profile or null), database (room.database;
+ * by default a local file, zaisma-database.sqlite, made the first time the game uses it).
  */
-export function startServer({ server, game, port, origins, issuer = "https://rooms.zaisma.com", keys, profiles = profilesFrom(issuer) }) {
+export function startServer({ server, game, port, origins, issuer = "https://rooms.zaisma.com", keys, profiles = profilesFrom(issuer), database = localDatabase("zaisma-database.sqlite") }) {
   const definition = defineGameServer(server);
   const rooms = new Map(); // code -> { core, sockets: Map<playerId, ws>, timer }
   const wss = new WebSocketServer({ port, maxPayload: 64 * 1024 });
@@ -72,6 +120,7 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
     const core = new RoomCore(
       definition,
       {
+        database,
         send: (id, text) => sockets.get(id)?.send(text),
         close: (id, code, reason) => sockets.get(id)?.close(code, reason),
         reserve: (next, how) => {
@@ -254,12 +303,12 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   const file = process.argv[2];
   const game = flag("game");
   if (!file || !game) {
-    console.log("Usage: node bin/node.js <server.ts | relay> --game <slug> [--port 8080] [--origin https://<slug>.zaismausercontent.com]");
+    console.log("Usage: node bin/node.js <server.ts | relay> --game <slug> [--port 8080] [--origin https://<slug>.zaismausercontent.com] [--database zaisma-database.sqlite]");
     process.exit(1);
   }
   const server = file === "relay" ? relay : (await import(pathToFileURL(resolve(file)).href)).default;
   const portNumber = Number(flag("port", "8080"));
   const origins = (flag("origin", `https://${game}.zaismausercontent.com`) ?? "").split(",").filter(Boolean);
-  startServer({ server, game, port: portNumber, origins, keys: keysFrom(flag("jwks", "https://rooms.zaisma.com/.well-known/jwks.json")) });
+  startServer({ server, game, port: portNumber, origins, keys: keysFrom(flag("jwks", "https://rooms.zaisma.com/.well-known/jwks.json")), database: localDatabase(resolve(flag("database", "zaisma-database.sqlite"))) });
   console.log(`Game server for "${game}" on port ${portNumber}. Players connect to /v1/rooms/${game}/<code>.`);
 }

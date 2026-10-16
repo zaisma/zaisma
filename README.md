@@ -66,7 +66,8 @@ export default {
   onTick(state, tickDurationSec, room) {},     // tickDurationSec: seconds since the last tick
 };
 // room.broadcast(message, { exceptPlayerId }), room.send(playerId, message), room.players, room.end(message),
-// room.setListed(false), room.setOpen(false), room.reserve({ playerIds, setupData })
+// room.setListed(false), room.setOpen(false), room.reserve({ playerIds, setupData }),
+// await room.database.query(sql, values), await room.database.batch([{ sql, values }])  (the game database, below)
 ```
 
 Names follow [`docs/NAMING.md`](docs/NAMING.md): whole words, with the unit in the name. A game server with an option it doesn't take doesn't start, and says which ones it does take (`unknown_option`); the SDK refuses options and events it doesn't take the same way. Every message between a game and its room says its `type`, and a game's own messages travel in `data`; rooms count messages, not their size, so whole words cost nothing.
@@ -94,12 +95,38 @@ zaisma-server/
 ```
 
 - **Plain JavaScript ES modules:** `zaisma-server/index.js` default-exports the game server above, and can import the folder's other files by relative path: `.js` code, `.json` data (`import levels from "./levels.json"`) and `.wasm` WebAssembly, like a physics engine (`import mod from "./physics.wasm"` gives a `WebAssembly.Module`; `new WebAssembly.Instance(mod, imports)` starts it). Packages from npm (`import "lodash"`) and TypeScript need a build step: bundle into one `zaisma-server.js` at the top of the upload instead (`npx esbuild server.ts --format=esm --bundle --outfile=zaisma-server.js`). Up to 500 files and 5 MB.
-- **Sealed off:** no internet and nothing of Zaisma's, so it only talks to its players through `room`. State is plain JSON.
+- **Sealed off:** no internet and nothing of Zaisma's but its own game's database, so it only talks to its players through `room`. State is plain JSON.
 - **Private:** players never get its files; the game domain refuses `zaisma-server/` and `zaisma-server.js`.
 - **Kept in check:** an error in a handler loses that one message or tick and the match carries on. A handler that runs on too long (a loop that never ends) is stopped after about 2 seconds, freezing the match meanwhile, and a match stopped twice ends. Your dashboard and the MCP's `get_stats` show these errors with the file and line they came from.
 - **Updates:** rooms keep the version they started with until they end; new rooms get the live version.
 
 The same file runs on your own machine too (below), so you can test it there or move off Zaisma any time.
+
+#### The game database
+
+Every game has its own SQLite database, part of its hosting: shared by all its rooms, kept between matches, for what the game server owns or must trust (inventories, leaderboards, bans, worlds). Players' own progress belongs in cloud saves, which need no code. The game server uses it as `room.database` with plain SQL, in any handler that awaits it:
+
+```js
+async onJoin(state, player, room) {
+  await room.database.query("CREATE TABLE IF NOT EXISTS scores (player_id TEXT PRIMARY KEY, best_score INTEGER NOT NULL)");
+  const [mine] = await room.database.query("SELECT best_score FROM scores WHERE player_id = ?", [player.id]);
+  room.send(player.id, { bestScore: mine?.best_score ?? 0 });
+},
+async onMessage(state, player, message, room) {
+  if (message.type === "finished") {
+    await room.database.query(
+      "INSERT INTO scores VALUES (?, ?) ON CONFLICT (player_id) DO UPDATE SET best_score = max(best_score, excluded.best_score)",
+      [player.id, state.scores[player.id]],
+    );
+  }
+},
+```
+
+- **`query(sql, values)`** runs one statement and answers its rows as objects (`[]` when it returns none). `values` fill its `?`s in order: text, numbers, `null` or a `Uint8Array` (use 1 and 0 for true and false; store objects as `JSON.stringify` and read them with `JSON.parse` or SQLite's JSON functions). To see what an `INSERT`, `UPDATE` or `DELETE` changed, add `RETURNING`.
+- **`batch([{ sql, values }, ...])`** runs up to 100 statements in one transaction, so they all happen or none do (moving an item between two inventories, say), and answers each one's rows. `BEGIN` and `COMMIT` aren't taken; batch is the transaction.
+- **Errors** are a `DatabaseError` with a `code` and a `fix`: `bad_sql` (SQLite's own message, or more than one statement in a query), `bad_values`, `too_many_rows` (over 10,000 rows; page with `LIMIT`), `database_write_limit`, `database_read_limit`, `database_storage_limit` and `database_unavailable`.
+- **Free on Zaisma up to 500,000 rows written and 500 million rows read a month, and 500 MB stored, per game.** Until hosting billing is ready, a game past its written rows can't write until the month resets (UTC), and one at its storage can change and delete rows but not grow; reads keep working. Past its read rows, it waits for the month too. Every statement counts the rows SQLite touched, like Cloudflare's billing: an index makes lookups read fewer rows.
+- **The same code on your own server:** the Node runner keeps the database in a local SQLite file (below), checked the same way, with no limits. Copy the file to move the data.
 
 #### Room browsing
 
@@ -180,8 +207,10 @@ Your own clients follow the same protocol: send the text `ping` every 30 seconds
 The same game server runs on your own machine with Node 23.6 or later:
 
 ```sh
-node packages/game-server/bin/node.js ./server.ts --game <your-game> --port 8080
+node packages/game-server/bin/node.js ./server.ts --game <your-game> --port 8080 --database ./zaisma-database.sqlite
 ```
+
+`room.database` there is that SQLite file, made the first time the game uses it (`zaisma-database.sqlite` where you start it, unless `--database` says otherwise).
 
 Put it behind HTTPS, add its address (like `wss://play.example.com`) to the game's own servers on Zaisma, and join with `Zaisma.joinRoom({ serverUrl: "wss://play.example.com" })`. Players still arrive with Zaisma player passes: standard EdDSA JWTs your server checks against the keys at `https://rooms.zaisma.com/.well-known/jwks.json`, so any language's JWT library can check them too. A pass proves only who the player is: its `sub` is the player's ID (`player_…`), `kind` is `account` (a signed-in Zaisma account, with the same ID in every game) or `guest` (a new ID for each pass), and `aud` is the game. A guest's pass also carries their generated `name`; an account's name comes from its public profile at `https://rooms.zaisma.com/v1/players/<id>`, which the Node runner looks up for you. Game servers see the same `kind` on every player.
 

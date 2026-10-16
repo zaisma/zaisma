@@ -1,14 +1,17 @@
 import { PLAYER_REPORT_REASONS, accountById, chatBandGroup, gameServerOf, type AccountRequirement, type MultiplayerMode, checkText, createReport, isIdOf, iso, leaveOut, listRooms, newId, pastFreeTier, playerProfile, readLabelParameter, readLeftParameter, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
 import { ERROR_TEXT, guestName, isRoomCode, jwks, loadSigningKey, roomCode, signPass, type Player, type SigningKey } from "@zaisma/game-server";
 import { usesRooms } from "./registry.ts";
+import type { GameDatabaseObject } from "./database.ts";
 
 export { Room } from "./room.ts";
+export { GameDatabaseObject, GameDatabaseBinding } from "./database.ts";
 
 export interface Env {
   DB: D1Database;
   GAMES: R2Bucket;
   LOADER: WorkerLoader;
   ROOMS: DurableObjectNamespace;
+  GAME_DATABASES: DurableObjectNamespace<GameDatabaseObject>;
   PASS_LIMIT?: RateLimit;
   ROOM_LIMIT?: RateLimit;
   REPORT_LIMIT?: RateLimit;

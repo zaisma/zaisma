@@ -7,6 +7,7 @@
  * running one copy of the game server. Names follow docs/NAMING.md.
  */
 
+import { DatabaseError, type GameDatabase } from "./database.ts";
 import { isRoomCode, roomCode } from "./names.ts";
 import type { PlayerKind } from "./pass.ts";
 
@@ -67,6 +68,13 @@ export interface Room {
    * turned away; they stay here.
    */
   moveTo(roomCode: string, moveOptions: MoveOptions): void;
+  /**
+   * The game's own SQLite database, shared by all its rooms and kept between matches: for what the
+   * game server owns or must trust, like inventories, leaderboards and bans. Plain SQL, awaited in
+   * any handler (which then runs as async). In Zaisma rooms it's part of the game's hosting; on your
+   * own server the Node runner keeps it in a local file (--database), so the same code runs in both.
+   */
+  readonly database: GameDatabase;
 }
 
 export interface BroadcastOptions {
@@ -162,7 +170,8 @@ export type IdleCheck = "server" | "client" | "off";
 /** What happens to a player who walks away: their seat is held (hold), or they're sent to the room that made this one (lobby). */
 export type AwayMode = "hold" | "lobby";
 
-type HandlerResult<S> = void | S;
+/** A handler answers the new state, or nothing to keep it; an async handler (one that awaits room.database) answers it later. */
+type HandlerResult<S> = void | S | Promise<void | S>;
 
 export interface GameServer<S = any> {
   /** Up to 16. Defaults to 8. */
@@ -496,7 +505,15 @@ export interface Transport {
    * "move" message, then hand the answer to this room's moved(). Without it, rooms can't move players.
    */
   moveTo?(roomCode: string, ask: Omit<MoveAsk, "fromRoomCode">): void;
+  /** The game's database, as room.database. Without it, its calls fail with database_unavailable. */
+  database?: GameDatabase;
 }
+
+/** room.database where the room has no database: every call fails, saying so. */
+const NO_DATABASE: GameDatabase = {
+  query: () => Promise.reject(new DatabaseError("database_unavailable", "This room has no game database.", "On your own server, start the Node runner with --database <file>, or pass database to startServer.")),
+  batch: () => Promise.reject(new DatabaseError("database_unavailable", "This room has no game database.", "On your own server, start the Node runner with --database <file>, or pass database to startServer.")),
+};
 
 /**
  * Plain JSON within ROOM_LIMITS.maximumRoomDataSizeBytes, copied, or isValid false if it isn't.
@@ -668,6 +685,7 @@ export class RoomCore<S = any> {
       reserve: (reserveOptions) => this.reserve(reserveOptions),
       kick: (playerId, kickOptions) => this.kick(playerId, kickOptions),
       moveTo: (toRoomCode, moveOptions) => this.moveTo(toRoomCode, moveOptions),
+      database: transport.database ?? NO_DATABASE,
     };
   }
 

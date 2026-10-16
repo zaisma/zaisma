@@ -25,6 +25,7 @@ import {
 } from "@zaisma/game-server";
 import { gameServerOf, pastFreeTier, playerProfile, type AccountRequirement, type MultiplayerMode } from "@zaisma/core";
 import { gameServer } from "./registry.ts";
+import { gameDatabase } from "./database.ts";
 import { SANDBOX, errorLine, sandboxServer, type SandboxStats } from "./sandbox.ts";
 import { signingKey, type Env } from "./index.ts";
 
@@ -621,6 +622,8 @@ export class Room extends DurableObject<Env> {
       },
       reserve: (roomCode: string, start: RoomStart) => this.reserve(roomCode, start),
       moveTo: (roomCode: string, ask: Omit<MoveAsk, "fromRoomCode">) => this.moveTo(roomCode, ask),
+      // A game server built into this Worker reaches its game's database directly; a sandboxed one through its own binding (sandbox.ts).
+      database: gameDatabase(this.env, this.meta!.gameId),
     };
     // Turn-based rooms wake with their saved state. A ticking room's state isn't saved,
     // so if one is ever evicted mid-match, it starts fresh and everyone joins again.
@@ -645,7 +648,7 @@ export class Room extends DurableObject<Env> {
     if (this.meta.server !== SANDBOX) return (this.server = gameServer(this.meta.server));
     if (!this.meta.versionId) return null;
     try {
-      this.server = await sandboxServer(this.env, this.meta.gameId, this.meta.versionId, () => this.broken());
+      this.server = await sandboxServer(this.env, this.ctx.exports, this.meta.gameId, this.meta.versionId, () => this.broken());
     } catch (error) {
       console.error("Couldn't start the game server:", error);
       if (!this.hasRecordedStartError) {

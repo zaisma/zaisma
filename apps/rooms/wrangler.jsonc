@@ -16,8 +16,17 @@
     // Secret (wrangler secret put): PASS_SIGNING_KEY, an Ed25519 private JWK.
   },
   // One Durable Object per room, SQLite-backed (required on the free plan), always with WebSocket hibernation.
-  "durable_objects": { "bindings": [{ "name": "ROOMS", "class_name": "Room" }] },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }],
+  // And one per game for its database (database.ts), SQLite-backed, used by all its rooms.
+  "durable_objects": {
+    "bindings": [
+      { "name": "ROOMS", "class_name": "Room" },
+      { "name": "GAME_DATABASES", "class_name": "GameDatabaseObject" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["Room"] },
+    { "tag": "v2", "new_sqlite_classes": ["GameDatabaseObject"] }
+  ],
   // Developers' game servers run in Dynamic Workers (sandbox.ts); their files come from the games bucket.
   "worker_loaders": [{ "binding": "LOADER" }],
   "r2_buckets": [{ "binding": "GAMES", "bucket_name": "zaisma-games" }],
