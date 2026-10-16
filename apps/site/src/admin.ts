@@ -60,6 +60,7 @@ import { precedentAction, precedentsPage, savePrecedent } from "./precedents.ts"
 import { clearCountedDay, playSpikes } from "./plays.ts";
 import { KNOWN_IMAGE_ALERT, passVersion } from "./scan.ts";
 import { uploadGame } from "./upload.ts";
+import { tellWebhooks } from "./webhooks.ts";
 
 const when = (ms: number) => new Date(ms).toISOString().slice(0, 16).replace("T", " ");
 const pill = (label: string) => html`<span class="pill ${label}">${label}</span>`;
@@ -182,6 +183,7 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
       await clearVersion(env.DB, version.id);
       await closeReports(env.DB, version.game_id, "dismissed");
       await audit(env.DB, version.game_id, "report-cleared", reason || `${version.id} is back`, actor);
+      await tellWebhooks(env, "live_version_changed", version.game_id, { versionId: version.id });
     } else if (match[2] === "approve") {
       await passVersion(env, version, reason || "Approved by a person", actor);
     } else {
@@ -191,6 +193,7 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
       if (version.report_held_at_ms) await closeReports(env.DB, version.game_id, "actioned");
       await audit(env.DB, version.game_id, "rejected", reason ? `${version.id}: ${reason}` : version.id, actor, rejectedReason);
     }
+    await tellWebhooks(env, "scan_status_changed", version.game_id, { versionId: version.id });
     return back(`/admin/games/${version.game_id}`);
   }
 
@@ -292,10 +295,12 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
       await setReviewStatus(env.DB, game.id, "removed", removedReason);
       await closeReports(env.DB, game.id, "actioned");
       await audit(env.DB, game.id, "takedown", reason, actor, removedReason);
+      await tellWebhooks(env, "review_status_changed", game.id, {});
     } else if (match[2] === "restore") {
       const current = game.live_version_id ? await versionById(env.DB, game.live_version_id) : null;
       if (current && knownImages(current)) return gameDetail(env, game.id, "Players would get the version that matched known abuse material. Once the developer publishes a clean version, the game can be shown again.");
       await setReviewStatus(env.DB, game.id, game.live_version_id ? "live" : "pending");
+      await tellWebhooks(env, "review_status_changed", game.id, {});
       // A person checked it: reports can't hide this version again.
       if (game.live_version_id) await clearVersion(env.DB, game.live_version_id);
       await closeReports(env.DB, game.id, "dismissed");
@@ -324,6 +329,8 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
       await audit(env.DB, gameId, "room-name-hidden", reason || `Room ${rooms.join(", ")}: ${group[0]!.room_name ?? "its name"}`, actor);
     } else if (match[2] === "bug") {
       await env.DB.prepare("UPDATE reports SET is_bug_report = 1, bug_report_at_ms = COALESCE(bug_report_at_ms, ?) WHERE (id = ? OR report_group_id = ?) AND report_status = 'open'").bind(Date.now(), match[1]!, match[1]!).run();
+      // The ones the developer hadn't been told about yet, the same ones get_reports shows.
+      for (const report of group) if (!report.is_bug_report && report.player_text && report.severity_index > 0) await tellWebhooks(env, "bug_reported", gameId, { bugReport: report });
       await closeReportGroup(env.DB, match[1]!, "actioned");
       await audit(env.DB, gameId, "reports-to-developer", reason || `${group.length} report(s) passed to the developer as bugs`, actor);
     } else {

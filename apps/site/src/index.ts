@@ -21,6 +21,7 @@ import { sortMisplaced, sortTopics } from "./forum-sort.ts";
 import { moveFiles } from "./file-moves.ts";
 import { checkForumPosts } from "./forum-check.ts";
 import { handleForum } from "./forum-pages.ts";
+import { deliverDueWebhooks } from "./webhooks.ts";
 
 /** Must match the daily cron in wrangler.jsonc. */
 const DAILY = "17 3 * * *";
@@ -32,8 +33,8 @@ export default {
     const method = request.method;
 
     if (path === "/admin" || path.startsWith("/admin/")) return handleAdmin(request, env, path);
-    if (path === "/mcp") return handleMcp(request, env);
-    const developer = await handleDeveloper(request, env, path);
+    if (path === "/mcp") return handleMcp(request, env, ctx);
+    const developer = await handleDeveloper(request, env, path, ctx);
     if (developer) return developer;
     // Sign in with Zaisma, before the method check: other sites' pages ask first (OPTIONS).
     const signIn = await handleSignIn(request, env, path);
@@ -96,7 +97,7 @@ export default {
 
   async scheduled(event, env): Promise<void> {
     // One failing job mustn't stop the others.
-    const jobs = await Promise.allSettled([moveFiles(env), publishDue(env), triageReports(env), sortTopics(env), sortMisplaced(env), checkForumPosts(env), ...(event.cron === DAILY ? [dailyCleanup(env), queueImageChecks(env)] : [])]);
+    const jobs = await Promise.allSettled([moveFiles(env), publishDue(env), triageReports(env), sortTopics(env), sortMisplaced(env), checkForumPosts(env), deliverDueWebhooks(env), ...(event.cron === DAILY ? [dailyCleanup(env), queueImageChecks(env)] : [])]);
     for (const job of jobs) if (job.status === "rejected") console.error("scheduled job failed", job.reason);
   },
 } satisfies ExportedHandler<Env, ScanJob>;
