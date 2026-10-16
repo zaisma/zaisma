@@ -10,6 +10,7 @@
 import { DatabaseError, type GameDatabase } from "./database.ts";
 import { isRoomCode, roomCode } from "./names.ts";
 import type { PlayerKind } from "./pass.ts";
+import type { Server } from "./requests.ts";
 
 export interface Player {
   /** An account's player ID is the same in every game; a guest's lasts only for their pass. */
@@ -206,9 +207,19 @@ export interface GameServer<S = any> {
   seatHoldDurationSec?: number;
   /**
    * The starting state. It must be plain JSON so a sleeping room can be saved and woken. setupData
-   * is what room.reserve() passed when another room made this one, and null otherwise.
+   * is what room.reserve() passed when another room made this one, and null otherwise. Rooms need it;
+   * a game server that only answers requests (onRequest) can leave it out.
    */
-  setup(setupData: unknown): S;
+  setup?(setupData: unknown): S;
+  /**
+   * A request from the player's game outside any room (Zaisma.server.request(request)), like a
+   * leaderboard, a shop or a daily reward in a single-player game. Answer what the game gets back:
+   * plain JSON, up to 1 MB, within 10 seconds. request is plain JSON from the player's browser, up
+   * to 16 KB, so check it like any message; player is who sent it, from their player pass. There's no
+   * room and no state: keep what lasts in server.database. If it throws, the game gets
+   * error.code "game_server_error" and you see the error with the game server's others.
+   */
+  onRequest?(player: Player, request: unknown, server: Server): unknown;
   /**
    * joinData is what the player's game passed to joinRoom({ joinData }), like the character they
    * picked, or null. It comes from the player's browser, so check it like any message. For a player
@@ -287,6 +298,7 @@ export const GAME_SERVER_OPTIONS = [
   "onBack",
   "onMessage",
   "onTick",
+  "onRequest",
 ] as const satisfies readonly (keyof GameServer)[];
 
 export const ROOM_LIMITS = {
@@ -345,13 +357,20 @@ export function unknownOptionError(field: string): GameServerError {
   return new GameServerError("unknown_option", field, `${field} isn't a game server option.`, `A game server takes: ${GAME_SERVER_OPTIONS.join(", ")}.`);
 }
 
+/** The error for a room whose game server has no setup(): it only answers requests. */
+export function noSetupError(): GameServerError {
+  return new GameServerError("bad_option", "setup", "This game server has no setup(), so it can't run rooms; it only answers requests.", "Add setup: (setupData) => ({ ...your starting state }) to run rooms too.");
+}
+
 /** Check a game server's options once, when it's defined: unknown options and values out of range throw. */
 export function defineGameServer<S>(server: GameServer<S>): GameServer<S> {
   for (const field of Object.keys(server ?? {})) if (!(GAME_SERVER_OPTIONS as readonly string[]).includes(field)) throw unknownOptionError(field);
   const bad = (field: string, message: string, fix: string) => new GameServerError("bad_option", field, message, fix);
-  if (typeof server.setup !== "function") throw bad("setup", "A game server needs a setup() function.", "Add setup: (setupData) => ({ ...your starting state }).");
+  if (typeof server?.setup !== "function" && typeof server?.onRequest !== "function") {
+    throw bad("setup", "A game server needs setup() to run rooms, onRequest() to answer requests, or both.", "Add setup: (setupData) => ({ ...your starting state }) for rooms, or onRequest(player, request, server) for requests.");
+  }
   for (const field of GAME_SERVER_OPTIONS) {
-    if (field.startsWith("on") || field === "canJoin") {
+    if (field.startsWith("on") || field === "canJoin" || field === "setup") {
       if (server[field] !== undefined && typeof server[field] !== "function") throw bad(field, `${field} isn't a function.`, `Give ${field} as a function, or leave it out.`);
     }
   }
@@ -651,6 +670,7 @@ export class RoomCore<S = any> {
     for (const player of this.players.values()) this.remember(player.id);
     if (startOptions.state !== undefined) this.state = startOptions.state;
     else {
+      if (typeof server.setup !== "function") throw noSetupError();
       const first = server.setup(this.setupData) as S | Promise<S>;
       if (isPromise(first)) {
         this.state = undefined as S;

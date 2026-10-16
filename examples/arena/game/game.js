@@ -154,6 +154,28 @@ inviteButton.onclick = async () => {
   if (shared === "copied") { inviteButton.textContent = "Link copied"; setTimeout(() => (inviteButton.textContent = "Invite"), 1500); }
 };
 
+// The best scores board: a request to the game server (its onRequest), outside the room. Best scores are saved as players leave.
+const bestScoresElement = document.getElementById("best-scores");
+document.getElementById("best").onclick = async () => {
+  if (!bestScoresElement.hidden) { bestScoresElement.hidden = true; return; }
+  const list = bestScoresElement.querySelector("ol");
+  list.textContent = "Loading…";
+  bestScoresElement.hidden = false;
+  try {
+    const bestScores = /** @type {{ name: string, bestScore: number, isMe: boolean }[]} */ (await Zaisma.server.request({ type: "bestScores" }));
+    list.innerHTML = "";
+    for (const best of bestScores) {
+      const line = document.createElement("li");
+      line.textContent = `${best.name}  ${best.bestScore}`;
+      if (best.isMe) line.style.fontWeight = "700";
+      list.append(line);
+    }
+    if (!bestScores.length) list.textContent = "No best scores yet. Knock someone off the edge, then leave the arena.";
+  } catch (error) {
+    list.textContent = error.message;
+  }
+};
+
 async function start() {
   try {
     // A drop-in game: the room the player's link points to, else a busy arena with space, else a new one.

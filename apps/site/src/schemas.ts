@@ -231,12 +231,13 @@ export const STATS = object({
       game_server: nullable(
         object(
           {
-            call_count: countOf(),
-            crash_count: countOf("A handler threw; that call is lost."),
-            stopped_count: countOf("A call ran on too long, about 2 seconds of CPU; the match froze meanwhile."),
+            call_count: countOf("Calls into the game server from its rooms."),
+            request_count: countOf("Requests to its onRequest (Zaisma.server.request), outside rooms."),
+            crash_count: countOf("A handler threw; that call or request is lost."),
+            stopped_count: countOf("A call ran on too long, about 2 seconds of CPU; the match froze meanwhile, or the request failed."),
             ended_match_count: countOf("Matches ended because their game server was stopped twice."),
           },
-          "Only for games running their own game server; otherwise null.",
+          "Only for games whose own game server runs on Zaisma, for rooms or requests; otherwise null.",
         ),
       ),
     }),
@@ -245,6 +246,11 @@ export const STATS = object({
     room_play_duration_hours: number("Player time on Zaisma rooms this month, UTC."),
     free_room_play_duration_hours: countOf(),
     has_reached_free_hours: yes("Until hosting billing is ready, no new rooms open until the month resets; matches already running carry on."),
+  }),
+  request_use_this_month: object({
+    request_count: countOf("Requests to the game's own game server this month, UTC, recorded about once a minute."),
+    free_request_count: countOf(),
+    has_reached_free_requests: yes("Until hosting billing is ready, requests answer request_limit until the month resets."),
   }),
   game_server_errors: list(
     object({

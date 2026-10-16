@@ -174,7 +174,7 @@ describe("sandboxed game servers", () => {
     const err = await e.DB.prepare("SELECT kind, message, occurrence_count, version_id FROM game_server_errors WHERE game_id = 'goldnames'").first<{ message: string }>();
     expect(err).toMatchObject({ kind: "crash", occurrence_count: 1, version_id: "voldnames" });
     expect(err!.message).toBe(
-      "Didn't start: tickRate isn't a game server option. A game server takes: maximumPlayerCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, setup, onJoin, canJoin, onMoved, onLeave, onAway, onBack, onMessage, onTick. (unknown_option)",
+      "Didn't start: tickRate isn't a game server option. A game server takes: maximumPlayerCount, ticksPerSec, hostControlsEnabled, idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, setup, onJoin, canJoin, onMoved, onLeave, onAway, onBack, onMessage, onTick, onRequest. (unknown_option)",
     );
   });
 

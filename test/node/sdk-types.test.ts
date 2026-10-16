@@ -14,12 +14,13 @@ const ROOT = join(import.meta.dirname, "../..");
 const TYPES = join(ROOT, "packages/sdk/zaisma.d.ts");
 const SDK = readFileSync(join(ROOT, "packages/sdk/zaisma.js"), "utf8");
 const GAME_SERVER = join(ROOT, "packages/game-server/src/room.ts");
+const GAME_SERVER_REQUESTS = join(ROOT, "packages/game-server/src/requests.ts");
 const CORE_ROOMS = join(ROOT, "packages/core/src/rooms.ts");
 const CORE_TYPES = join(ROOT, "packages/core/src/types.ts");
 const TEXT_FILTER = join(ROOT, "packages/core/src/text-filter.ts");
 const ROOMS_WORKER = join(ROOT, "apps/rooms/src/index.ts");
 
-const program = ts.createProgram([TYPES, GAME_SERVER, CORE_ROOMS, CORE_TYPES, TEXT_FILTER], {
+const program = ts.createProgram([TYPES, GAME_SERVER, GAME_SERVER_REQUESTS, CORE_ROOMS, CORE_TYPES, TEXT_FILTER], {
   target: ts.ScriptTarget.ES2022,
   module: ts.ModuleKind.ES2022,
   moduleResolution: ts.ModuleResolutionKind.Bundler,
@@ -196,6 +197,7 @@ describe("the SDK's types say what the SDK does", () => {
       .sort();
     expect(Object.keys(Zaisma).sort()).toEqual(values);
     expect(Object.keys(Zaisma.rooms).sort()).toEqual(fieldsOf("Rooms"));
+    expect(Object.keys(Zaisma.server).sort()).toEqual(fieldsOf("Server"));
   });
 
   it("the options each call takes", async () => {
@@ -204,6 +206,7 @@ describe("the SDK's types say what the SDK does", () => {
     expect(listed(await refusal(() => sdk.Zaisma.joinRoom(wrong)))).toEqual(fieldsOf("JoinOptions"));
     expect(listed(await refusal(() => sdk.Zaisma.rooms.quickJoin(wrong)))).toEqual(fieldsOf("QuickJoinOptions"));
     expect(listed(await refusal(() => sdk.Zaisma.rooms.list(wrong)))).toEqual(fieldsOf("ListOptions"));
+    expect(listed(await refusal(() => sdk.Zaisma.server.request({ type: "leaderboard" }, wrong)))).toEqual(fieldsOf("RequestOptions"));
     const { room, socket } = await joinedRoom(sdk);
     expect(listed(await refusal(() => room.kick("player_bo", wrong)))).toEqual(fieldsOf("KickOptions"));
     expect(listed(await refusal(() => room.setInfo(wrong)))).toEqual(fieldsOf("RoomInfo"));
@@ -252,10 +255,14 @@ describe("the SDK's types say what the SDK does", () => {
     expect(await failureCode(() => elsewhere.Zaisma.player())).toBe("not_on_zaisma");
     expect(await failureCode(() => elsewhere.Zaisma.joinRoom())).toBe("not_on_zaisma");
     expect(await failureCode(() => elsewhere.Zaisma.rooms.list())).toBe("not_on_zaisma");
+    expect(await failureCode(() => elsewhere.Zaisma.server.request({ type: "leaderboard" }))).toBe("not_on_zaisma");
 
     const sdk = loadSdk();
     expect(await failureCode(() => sdk.Zaisma.joinRoom({ roomCode: "K7Q2MO" }))).toBe("bad_room_code");
     expect(await failureCode(() => sdk.Zaisma.joinRoom({ serverUrl: "play.example.com" }))).toBe("bad_server_url");
+    expect(await failureCode(() => sdk.Zaisma.server.request({ type: "leaderboard" }, { serverUrl: "play.example.com" }))).toBe("bad_server_url");
+    expect(await failureCode(() => sdk.Zaisma.server.request({ type: "buy", coinCount: BigInt(10) }))).toBe("bad_request");
+    expect(await failureCode(() => sdk.Zaisma.server.request({ type: "save", text: "x".repeat(17 * 1024) }))).toBe("too_big");
     // The match ends before the room lets the player in.
     const joining = sdk.Zaisma.joinRoom({ roomCode: "K7Q2MX" });
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -330,6 +337,7 @@ describe("the SDK's types say what the SDK does", () => {
     expect(fieldsOf("Player")).toEqual(fieldsOf("Player", GAME_SERVER));
     expect(fieldsOf("RoomSettings")).toEqual(fieldsOf("RoomSettings", GAME_SERVER));
     expect(valuesOf("RoomErrorCode")).toEqual(valuesOf("RoomErrorCode", GAME_SERVER));
+    expect(valuesOf("RequestErrorCode")).toEqual(valuesOf("RequestErrorCode", GAME_SERVER_REQUESTS));
     expect(valuesOf("ReportReason")).toEqual(valuesOf("PlayerReportReason", CORE_TYPES));
     expect(fieldsOf("ListedRoom")).toEqual([...fieldsOf("ListedRoom", CORE_ROOMS), "inviteUrl"].sort());
     // changedAtMs is the site's own; the rooms Worker leaves it out for games.
