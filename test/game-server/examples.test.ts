@@ -14,10 +14,10 @@ describe("arena", () => {
   it("adds bots for a lone player and removes them when a friend joins", () => {
     const { t, last } = transport();
     const room = new RoomCore(defineGameServer(arena), t);
-    room.join({ id: "a", name: "A" });
+    room.join({ id: "a", name: "A", kind: "guest" });
     room.tick(0.05);
     expect(last("a").snapshot).toHaveLength(3);
-    room.join({ id: "b", name: "B" });
+    room.join({ id: "b", name: "B", kind: "guest" });
     room.tick(0.05);
     expect(last("a").snapshot.map((body: { id: string }) => body.id).sort()).toEqual(["a", "b"]);
   });
@@ -25,8 +25,8 @@ describe("arena", () => {
   it("moves players by their input and ignores junk", () => {
     const { t, last } = transport();
     const room = new RoomCore(defineGameServer(arena), t);
-    room.join({ id: "a", name: "A" });
-    room.join({ id: "b", name: "B" });
+    room.join({ id: "a", name: "A", kind: "guest" });
+    room.join({ id: "b", name: "B", kind: "guest" });
     room.tick(0.05);
     const before = last("a").snapshot.find((body: { id: string }) => body.id === "a");
     room.receive("a", msg({ input: [1, 0] }));
@@ -39,7 +39,7 @@ describe("arena", () => {
   it("takes the color a player brings as join data", () => {
     const { t, last } = transport();
     const room = new RoomCore(defineGameServer(arena), t);
-    room.join({ id: "a", name: "A" }, { joinData: { color: "#7dff8a" } });
+    room.join({ id: "a", name: "A", kind: "guest" }, { joinData: { color: "#7dff8a" } });
     room.tick(0.05);
     expect(last("a").snapshot.find((body: { id: string }) => body.id === "a").color).toBe("#7dff8a");
   });
@@ -49,8 +49,8 @@ describe("four in a row", () => {
   const play = () => {
     const tr = transport();
     const room = new RoomCore(defineGameServer(fourInARow), tr.t);
-    room.join({ id: "a", name: "A" });
-    room.join({ id: "b", name: "B" });
+    room.join({ id: "a", name: "A", kind: "guest" });
+    room.join({ id: "b", name: "B", kind: "guest" });
     return { room, ...tr };
   };
 
@@ -69,11 +69,11 @@ describe("four in a row", () => {
 
   it("keeps a player's seat when they come back, and spectators can't move", () => {
     const { room, last } = play();
-    room.join({ id: "c", name: "C" });
+    room.join({ id: "c", name: "C", kind: "guest" });
     room.receive("c", msg({ column: 3 }));
     expect(last("c").board.every((cell: number) => cell === 0)).toBe(true);
     room.leave("a");
-    room.join({ id: "a", name: "A" });
+    room.join({ id: "a", name: "A", kind: "guest" });
     expect(last("a").seatPlayerIds).toEqual(["a", "b"]);
   });
 });

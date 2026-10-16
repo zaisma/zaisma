@@ -78,17 +78,23 @@ interface StandInSocket {
 const ON_ZAISMA = { rooms: "https://rooms.zaisma.test", game: "test-game", site: "https://zaisma.test" };
 
 /**
- * zaisma.js as on a game's page on Zaisma, in a stand-in browser: the tab already has a guest pass,
- * the test answers for the room's WebSocket and for fetch (no connection, unless it gives an answer),
- * and the page's event listeners are kept for the test to call. null for zaismaConfig: a game hosted
- * somewhere else, which has no __ZAISMA__.
+ * zaisma.js as on a game's page on Zaisma, in a stand-in browser: the tab already has a guest pass and
+ * the page hands over a guest's room key, the test answers for the room's WebSocket and for fetch (no
+ * connection, unless it gives an answer), and the page's event listeners are kept for the test to
+ * call. null for zaismaConfig: a game hosted somewhere else, which has no __ZAISMA__.
  */
-function loadSdk(zaismaConfig: typeof ON_ZAISMA | null = ON_ZAISMA, fetchAnswer: () => Promise<unknown> = () => Promise.reject(new TypeError("Failed to fetch"))) {
-  const storage = new Map([["zaisma:pass:test-game", JSON.stringify({ id: "player_ana", name: "Ana", pass: "pass", expiresAt: "2099-01-01T00:00:00Z" })]]);
+function loadSdk(zaismaConfig: typeof ON_ZAISMA | null = ON_ZAISMA, fetchAnswer: () => Promise<unknown> = () => Promise.reject(new TypeError("Failed to fetch")), playerKind = "guest") {
+  const storage = new Map([["zaisma:pass:test-game", JSON.stringify({ ...me, pass: "pass", expiresAt: "2099-01-01T00:00:00Z" })]]);
   const sockets: StandInSocket[] = [];
   const listeners: Record<string, ((event?: unknown) => void)[]> = {};
   const listen = (type: string, listener: (event?: unknown) => void) => void (listeners[type] ??= []).push(listener);
-  const window: Record<string, unknown> = { parent: { postMessage() {} }, addEventListener: listen };
+  const page = {
+    postMessage(message: { type?: string }) {
+      const answer = { origin: ON_ZAISMA.site, source: page, data: { type: "zaisma:room-key", key: "room_key_test", playerKind } };
+      if (message?.type === "zaisma:room-key") queueMicrotask(() => (listeners.message ?? []).slice().forEach((listener) => listener(answer)));
+    },
+  };
+  const window: Record<string, unknown> = { parent: page, addEventListener: listen };
   const browser = {
     __ZAISMA__: zaismaConfig,
     fetch: fetchAnswer,
@@ -120,7 +126,7 @@ function loadSdk(zaismaConfig: typeof ON_ZAISMA | null = ON_ZAISMA, fetchAnswer:
   return { Zaisma: window.Zaisma as any, sockets, listeners };
 }
 
-const me = { id: "player_ana", name: "Ana" };
+const me = { id: "player_ana", name: "Ana", kind: "guest" };
 const settings = { isListed: true, isOpen: true, name: null, labels: {} };
 
 /** Join a room the test plays the server of. */
@@ -129,7 +135,7 @@ async function joinedRoom(sdk: ReturnType<typeof loadSdk>) {
   await new Promise((resolve) => setTimeout(resolve, 0));
   const socket = sdk.sockets.at(-1)!;
   socket.onopen!();
-  say(socket, { type: "welcome", me, players: [me, { id: "player_bo", name: "Bo" }], room: settings, hostPlayerId: null, awayChecks: { idleTimeoutSec: 600, hiddenTimeoutSec: null } });
+  say(socket, { type: "welcome", me, players: [me, { id: "player_bo", name: "Bo", kind: "account" }], room: settings, hostPlayerId: null, awayChecks: { idleTimeoutSec: 600, hiddenTimeoutSec: null } });
   return { room: await joining, socket };
 }
 
@@ -261,6 +267,38 @@ describe("the SDK's types say what the SDK does", () => {
     expect(await failureCode(() => answering(() => Promise.reject(new SyntaxError("Unexpected token '<'"))).rooms.list())).toBe("request_failed");
     expect(await failureCode(() => answering(() => Promise.resolve({})).rooms.list())).toBe("request_failed");
     expect(await failureCode(() => answering(() => Promise.resolve({ error: { code: "slow_down", message: "Too many calls. Try again in a minute." } })).rooms.list())).toBe("slow_down");
+    // Profiles: only player IDs are looked up, and a guest's has none.
+    expect(await failureCode(() => sdk.Zaisma.player.getProfile("Ana"))).toBe("bad_player_id");
+    expect(await failureCode(() => answering(() => Promise.resolve({ error: { code: "no_player", message: "No account has that player ID." } })).player.getProfile("player_gone"))).toBe("no_player");
+    expect(await failureCode(() => elsewhere.Zaisma.player.getProfile("player_ana"))).toBe("not_on_zaisma");
+  });
+
+  it("keeps a pass for the tab until the player signs in or out", async () => {
+    const asked: { url: string; body: string }[] = [];
+    const passAnswer = { pass: "account-pass", player: { id: "player_cy", name: "Cy", kind: "account" }, expiresAt: "2099-01-01T00:00:00Z" };
+    const fetchAnswer = ((url: string, init: { body: string }) => {
+      asked.push({ url, body: init.body });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(passAnswer) });
+    }) as () => Promise<unknown>;
+    // Still a guest: the kept guest pass, with no call.
+    expect(await loadSdk(ON_ZAISMA, fetchAnswer).Zaisma.player()).toEqual({ ...me, pass: "pass", expiresAt: "2099-01-01T00:00:00Z" });
+    expect(asked).toEqual([]);
+    // Signed in since: a new pass, for the account, with the page's key.
+    const signedIn = await loadSdk(ON_ZAISMA, fetchAnswer, "account").Zaisma.player();
+    expect(signedIn).toEqual({ ...passAnswer.player, pass: "account-pass", expiresAt: passAnswer.expiresAt });
+    expect(Object.keys(signedIn).sort()).toEqual(fieldsOf("PlayerWithPass"));
+    expect(asked).toEqual([{ url: "https://rooms.zaisma.test/v1/pass", body: JSON.stringify({ gameSlug: "test-game", roomKey: "room_key_test" }) }]);
+  });
+
+  it("a profile has the fields PlayerProfile says", async () => {
+    const asked: string[] = [];
+    const sdk = loadSdk(ON_ZAISMA, ((url: string) => {
+      asked.push(url);
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ player: { id: "player_bo", name: "Bo" } }) });
+    }) as () => Promise<unknown>);
+    const profile = await sdk.Zaisma.player.getProfile("player_bo");
+    expect(Object.keys(profile).sort()).toEqual(fieldsOf("PlayerProfile"));
+    expect(asked).toEqual(["https://rooms.zaisma.test/v1/players/player_bo"]);
   });
 
   it("the example games that use the SDK type-check against them", () => {

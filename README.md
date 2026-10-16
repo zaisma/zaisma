@@ -183,7 +183,7 @@ The same game server runs on your own machine with Node 23.6 or later:
 node packages/game-server/bin/node.js ./server.ts --game <your-game> --port 8080
 ```
 
-Put it behind HTTPS, add its address (like `wss://play.example.com`) to the game's own servers on Zaisma, and join with `Zaisma.joinRoom({ serverUrl: "wss://play.example.com" })`. Players still arrive with Zaisma player passes: standard EdDSA JWTs your server checks against the keys at `https://rooms.zaisma.com/.well-known/jwks.json`, so any language's JWT library can check them too. A pass's `sub` is the player's ID (`player_…`).
+Put it behind HTTPS, add its address (like `wss://play.example.com`) to the game's own servers on Zaisma, and join with `Zaisma.joinRoom({ serverUrl: "wss://play.example.com" })`. Players still arrive with Zaisma player passes: standard EdDSA JWTs your server checks against the keys at `https://rooms.zaisma.com/.well-known/jwks.json`, so any language's JWT library can check them too. A pass proves only who the player is: its `sub` is the player's ID (`player_…`), `kind` is `account` (a signed-in Zaisma account, with the same ID in every game) or `guest` (a new ID for each pass), and `aud` is the game. A guest's pass also carries their generated `name`; an account's name comes from its public profile at `https://rooms.zaisma.com/v1/players/<id>`, which the Node runner looks up for you. Game servers see the same `kind` on every player.
 
 ### Cloud saves
 

@@ -8,10 +8,15 @@
  */
 
 import { isRoomCode, roomCode } from "./names.ts";
+import type { PlayerKind } from "./pass.ts";
 
 export interface Player {
+  /** An account's player ID is the same in every game; a guest's lasts only for their pass. */
   id: string;
+  /** The account's name, or a guest's generated one like "Swift Fox 42". */
   name: string;
+  /** A signed-in Zaisma account, or a guest. */
+  kind: PlayerKind;
 }
 
 export interface Room {

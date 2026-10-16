@@ -28,6 +28,8 @@
     { "name": "REPORT_LIMIT", "namespace_id": "1004", "simple": { "limit": 5, "period": 60 } },
     { "name": "FILTER_LIMIT", "namespace_id": "1010", "simple": { "limit": 60, "period": 60 } },
     // Opening room connections: each one can wake a room, so a script can't keep waking them.
-    { "name": "CONNECT_LIMIT", "namespace_id": "1011", "simple": { "limit": 60, "period": 60 } }
+    { "name": "CONNECT_LIMIT", "namespace_id": "1011", "simple": { "limit": 60, "period": 60 } },
+    // Public profiles by player ID: a developer's own game server looks up each account that joins.
+    { "name": "PROFILE_LIMIT", "namespace_id": "1012", "simple": { "limit": 300, "period": 60 } }
   ]
 }

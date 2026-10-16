@@ -1,7 +1,7 @@
 import { ApiError, CONTROLS, DEVICES, FORUM_CATEGORIES, FORUM_LIMITS, FORUM_REPORT_REASONS, FORUM_SECTIONS, FORUM_TABS, FORUM_TAGS, PLAY_STYLES, POST_SELECTIONS, ROOM_BROWSING, SCREENS, TOPIC_KINDS, TOPIC_STATUSES, VISIBILITIES, type IdKind } from "@zaisma/core";
 import { INTERNAL_ERROR, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
-import { GAME, HISTORY, IMAGE, NEW_REPLY, NEW_TOPIC, NEXT, POST, REPORTS, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes } from "./schemas.ts";
+import { GAME, HISTORY, IMAGE, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, REPORTS, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes } from "./schemas.ts";
 
 /**
  * The developer MCP at /mcp: every tool is a call to the developer API, so the MCP, the upload command
@@ -505,6 +505,16 @@ export const TOOLS: Tool[] = [
     outputSchema: answer({ answer_post_id: nullable(idOf("post")), next_steps: NEXT }),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     run: (toolArguments, call) => call("POST", `/forum/${pathPart(toolArguments.topic_id)}/answer`, { answer_post_id: toolArguments.answer_post_id ?? null }),
+  },
+  {
+    name: "get_player",
+    title: "Look up a player",
+    description:
+      "An account's public profile by player ID: exactly what a stranger sees (today, its name), never its email, age or other games' data. A signed-in player has the same player ID in every game, in room.players and as the sub of their player pass; games and servers get the same at https://rooms.zaisma.com/v1/players/<id> with no key. Guests have no profile (no_player).",
+    inputSchema: object({ player_id: idInput("player", "A player ID from the game: a room's players, or the sub of a player pass") }, ["player_id"]),
+    outputSchema: answer({ player: PLAYER_PROFILE }),
+    annotations: read,
+    run: (toolArguments, call) => call("GET", `/players/${pathPart(toolArguments.player_id)}`),
   },
   {
     name: "get_reports",

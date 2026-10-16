@@ -1,6 +1,6 @@
 /**
  * The Zaisma SDK, typed: this file is its reference. One script tag, from the game's top folder,
- * gives a browser game guest players and multiplayer rooms:
+ * gives a browser game its players (Zaisma accounts and guests) and multiplayer rooms:
  *
  *   <script src="_zaisma/v1.js"></script>
  *
@@ -41,12 +41,25 @@ declare namespace Zaisma {
   const gameSlug: string | null;
 
   /**
-   * This tab's guest player, with their player pass. joinRoom gets one by itself; call this to let the
-   * player into a server of your own. Kept only for the tab, like the guest it belongs to, and renewed
-   * when it has under 10 minutes left. Fails with error.code "unchecked" when the game isn't played on
-   * its zaisma.com page, and "not_on_zaisma" when it isn't hosted on Zaisma.
+   * This tab's player, with their player pass: the signed-in Zaisma account, with the same player ID in
+   * every game, or a guest. joinRoom gets one by itself; call this to let the player into a server of
+   * your own. Kept for the tab, so a guest who reloads stays the same guest, and renewed when it has
+   * under 10 minutes left or the player signed in or out. Fails with error.code "unchecked" when the
+   * game isn't played on its zaisma.com page, and "not_on_zaisma" when it isn't hosted on Zaisma.
    */
-  function player(): Promise<GuestPlayer>;
+  function player(): Promise<PlayerWithPass>;
+
+  namespace player {
+    /**
+     * An account's public profile by player ID, what anyone sees of it, like a name for a leaderboard
+     * row. Fails with error.code "no_player" for a guest's ID or a deleted account's, and
+     * "bad_player_id" for anything that isn't a player ID.
+     *
+     * @example
+     * const profile = await Zaisma.player.getProfile("player_8f3k2m"); // { id, name }
+     */
+    function getProfile(playerId: string): Promise<PlayerProfile>;
+  }
 
   /**
    * Join a room: the one joinOptions.roomCode names, else the one the page's link points to
@@ -322,17 +335,31 @@ declare namespace Zaisma {
 
   /** A player, as the room shows them to everyone. */
   interface Player {
-    /** Their player ID, like "player_8f3k2m". Guest IDs are temporary. */
+    /** Their player ID, like "player_8f3k2m". An account's is the same in every game; a guest's is temporary. */
     id: string;
-    /** The name shown for them, like "Swift Otter 42". */
+    /** The name shown for them: the account's name, or a guest's like "Swift Otter 42". */
+    name: string;
+    /** A signed-in Zaisma account, or a guest. */
+    kind: PlayerKind;
+  }
+
+  /** A signed-in Zaisma account, or a guest. */
+  type PlayerKind = "guest" | "account";
+
+  /** What anyone sees of an account ({@link player.getProfile}). */
+  interface PlayerProfile {
+    /** The account's player ID, the same in every game. */
+    id: string;
     name: string;
   }
 
-  /** This tab's guest player and their player pass ({@link player}). */
-  interface GuestPlayer extends Player {
+  /** This tab's player and their player pass ({@link player}). */
+  interface PlayerWithPass extends Player {
     /**
      * The player pass: a standard EdDSA JWT any server can check against the keys at
-     * https://rooms.zaisma.com/.well-known/jwks.json. Its sub is the player's ID.
+     * https://rooms.zaisma.com/.well-known/jwks.json. It proves only who the player is: its sub is the
+     * player's ID, kind says guest or account, aud is the game. A guest's pass also carries their name;
+     * an account's name comes from its profile (https://rooms.zaisma.com/v1/players/<id>).
      */
     pass: string;
     /** When the pass runs out, as an ISO time in UTC. */
@@ -446,6 +473,8 @@ declare namespace Zaisma {
     | "bad_report"
     | "bad_origin"
     | "not_on_zaisma"
+    | "no_player"
+    | "bad_player_id"
     | "bad_room_code"
     | "bad_server_url"
     | "connection_closed"

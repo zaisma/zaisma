@@ -17,6 +17,18 @@ describe("player passes", () => {
     expect(await verifyPass(token, keys, { game: "arena", issuer: ISS })).toMatchObject({ sub: "p1", name: "Swift Fox 42" });
   });
 
+  it("an account's pass is proof only: its ID, the game and when it expires, with no name", async () => {
+    const { signing, claims, keys } = await setup();
+    const { name: _, ...accountClaims } = { ...claims, sub: "player_8f3k2m", kind: "account" as const };
+    const checked = await verifyPass(await signPass(signing, accountClaims), keys, { game: "arena", issuer: ISS });
+    expect(checked).toMatchObject({ sub: "player_8f3k2m", kind: "account", aud: "arena" });
+    expect(checked).not.toHaveProperty("name");
+    // A guest's pass carries its name, and a pass of any other kind isn't one.
+    const reason = async (token: string) => verifyPass(token, keys, { game: "arena", issuer: ISS }).then(() => "ok", (error: PassError) => error.code);
+    expect(await reason(await signPass(signing, { ...claims, name: undefined }))).toBe("malformed");
+    expect(await reason(await signPass(signing, { ...claims, kind: "admin" as never }))).toBe("malformed");
+  });
+
   it("publishes only the public half of the key", async () => {
     const { keys } = await setup();
     expect(keys[0]).toMatchObject({ kty: "OKP", crv: "Ed25519", alg: "EdDSA", use: "sig" });

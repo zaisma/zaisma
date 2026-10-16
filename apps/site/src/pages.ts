@@ -577,9 +577,10 @@ addEventListener("message", (e) => {
   }
   // The game left a room (the player left, walked away, was moved or the match ended).
   if (d && d.type === "zaisma:left" && inRoom && d.code === inRoom.code) leftRoom();
-  // The game asks for its key to player passes: given once the check on Play has answered, only to this game.
+  // The game asks for its key to player passes: given once the check on Play has answered, only to this game,
+  // with whose passes it gives (account or guest), so the game doesn't keep a pass from before the player signed in or out.
   if (d && d.type === "zaisma:room-key") {
-    const reply = (key) => frame.contentWindow.postMessage({ type: "zaisma:room-key", key }, gameOrigin);
+    const reply = (given) => frame.contentWindow.postMessage({ type: "zaisma:room-key", key: given ? given.key : null, playerKind: given ? given.playerKind : null }, gameOrigin);
     typeof roomKey === "undefined" ? reply(null) : roomKey.then(reply);
   }
 });
@@ -682,6 +683,7 @@ const PRIVACY = `
 <ul>
 <li><strong>Your email</strong>, only to sign you in. It's never shown to anyone, and we don't send marketing.</li>
 <li><strong>Your name</strong>, the one you pick. Other players can see it.</li>
+<li><strong>Your player ID.</strong> When you're signed in, the games you play know you by a player ID, the same in every game, and can look up your name with it. They never get your email, your age or anything from other games.</li>
 <li><strong>Your age group</strong>: 13 to 17, or 18 and over. We ask your birth date once to work it out and never keep it.</li>
 <li><strong>Your game saves.</strong> If you're signed in, your game saves are stored with your account, so your progress follows you to any device.</li>
 <li><strong>The games you played recently</strong> (the last 20), so Continue playing follows you to any device too.</li>

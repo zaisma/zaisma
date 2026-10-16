@@ -1,5 +1,5 @@
-import { PLAYER_REPORT_REASONS, gameServerOf, type MultiplayerMode, checkText, createReport, isIdOf, iso, leaveOut, listRooms, newId, pastFreeTier, readLabelParameter, readLeftParameter, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
-import { ERROR_TEXT, guestName, isRoomCode, jwks, loadSigningKey, roomCode, signPass, type SigningKey } from "@zaisma/game-server";
+import { PLAYER_REPORT_REASONS, accountById, gameServerOf, type MultiplayerMode, checkText, createReport, isIdOf, iso, leaveOut, listRooms, newId, pastFreeTier, playerProfile, readLabelParameter, readLeftParameter, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
+import { ERROR_TEXT, guestName, isRoomCode, jwks, loadSigningKey, roomCode, signPass, type Player, type SigningKey } from "@zaisma/game-server";
 import { usesRooms } from "./registry.ts";
 
 export { Room } from "./room.ts";
@@ -14,6 +14,7 @@ export interface Env {
   REPORT_LIMIT?: RateLimit;
   FILTER_LIMIT?: RateLimit;
   CONNECT_LIMIT?: RateLimit;
+  PROFILE_LIMIT?: RateLimit;
   ISSUER: string;
   SITE_ORIGIN: string;
   GAME_HOST_MODE: "path" | "subdomain";
@@ -24,7 +25,7 @@ export interface Env {
   ROOM_LIST_CACHE_SECONDS?: string;
 }
 
-/** Guest passes last a day; the SDK keeps them only for the browser tab. */
+/** Passes last a day; the SDK keeps them only for the browser tab. */
 const PASS_DURATION_SEC = 24 * 3600;
 
 /** What rooms need of a game: its columns of the same names, and the game server its rooms run (gameServerOf). */
@@ -90,7 +91,7 @@ function json(body: unknown, httpStatus = 200, origin?: string): Response {
  * The codes the SDK's calls answer with besides the room error codes, which the SDK passes on as
  * err.code. Every error is { error: { code, message } }.
  */
-type CallErrorCode = "bad_origin" | "game_unavailable" | "slow_down" | "unchecked" | "no_rooms" | "bad_report" | "month_limit";
+type CallErrorCode = "bad_origin" | "game_unavailable" | "slow_down" | "unchecked" | "no_rooms" | "bad_report" | "month_limit" | "no_player";
 
 function failure(code: CallErrorCode, message: string, httpStatus: number, origin?: string): Response {
   return json({ error: { code, message } }, httpStatus, origin);
@@ -130,6 +131,16 @@ export default {
       return Response.json(jwks([key.publicKey]), { headers: { "Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=3600" } });
     }
 
+    // An account's public profile by player ID, for any game, server or site: what a stranger sees, read-only.
+    const profileMatch = url.pathname.match(/^\/v1\/players\/([a-z0-9_-]{1,60})$/);
+    if (profileMatch && request.method === "GET") {
+      const open = { "Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=300" };
+      if (await limited(env.PROFILE_LIMIT, request)) return Response.json({ error: { code: "slow_down", message: SLOW_DOWN } }, { status: 429, headers: { ...open, "Cache-Control": "no-store" } });
+      const profile = await playerProfile(env.DB, profileMatch[1]!);
+      if (!profile) return Response.json({ error: { code: "no_player", message: "No account has that player ID. Guests have no profile, and a deleted account's is gone." } }, { status: 404, headers: open });
+      return Response.json({ player: profile }, { headers: open });
+    }
+
     if (request.method === "POST" && (url.pathname === "/v1/pass" || url.pathname === "/v1/rooms" || url.pathname === "/v1/report" || url.pathname === "/v1/filter")) {
       const { slug, body } = await readBody(request);
       if (!slug || !(await isGameOrigin(env, slug, origin))) return failure("bad_origin", "Not allowed from here.", 403);
@@ -148,10 +159,15 @@ export default {
       if (url.pathname === "/v1/pass") {
         if (await limited(env.PASS_LIMIT, request)) return failure("slow_down", SLOW_DOWN, 429, cors);
         // Only for a browser Cloudflare's check on Play said is real: the game page's key, a few passes each.
-        if (!(await useRoomKey(env.DB, game.id, body.roomKey))) return failure("unchecked", "Zaisma couldn't check this browser, so it can't play online. Reload the game to try again.", 403, cors);
+        const key = await useRoomKey(env.DB, game.id, body.roomKey);
+        if (!key) return failure("unchecked", "Zaisma couldn't check this browser, so it can't play online. Reload the game to try again.", 403, cors);
         const nowSec = Math.floor(Date.now() / 1000);
-        const player = { id: newId("player"), name: guestName() };
-        const pass = await signPass(await signingKey(env), { sub: player.id, name: player.name, aud: slug, iss: env.ISSUER, kind: "guest", iat: nowSec, exp: nowSec + PASS_DURATION_SEC });
+        // A signed-in player is their account, with the same player ID in every game; anyone else a new guest.
+        const account = key.accountId ? await accountById(env.DB, key.accountId) : null;
+        const player: Player = account ? { id: account.player_id, name: account.name, kind: "account" } : { id: newId("player"), name: guestName(), kind: "guest" };
+        // The pass is proof only: an account's carries no name, which games look up (/v1/players/<id>).
+        const claims = { sub: player.id, ...(player.kind === "guest" ? { name: player.name } : {}), aud: slug, iss: env.ISSUER, kind: player.kind, iat: nowSec, exp: nowSec + PASS_DURATION_SEC };
+        const pass = await signPass(await signingKey(env), claims);
         return json({ pass, player, expiresAt: iso((nowSec + PASS_DURATION_SEC) * 1000) }, 200, cors);
       }
 

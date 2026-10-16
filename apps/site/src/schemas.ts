@@ -142,6 +142,12 @@ export const TESTER = object({
   last_opened_at: nullable(isoTime("To the hour.")),
 });
 
+/** An account's public profile: what anyone sees of it, games and servers included. */
+export const PLAYER_PROFILE = object({
+  id: idOf("player", "The account's player ID, the same in every game."),
+  name: text("The account's name, as other players see it."),
+});
+
 /** The calls that usually follow a change, ready to make (docs/NAMING.md, Next steps). */
 export const NEXT = list(
   object({
