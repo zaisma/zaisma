@@ -9,17 +9,22 @@ import {
   checkName,
   createAccount,
   createApiKey,
+  defaultSocialMode,
   deleteAccount,
   gameBySlug,
   gamesOwnedBy,
+  isAgeBand,
+  isSocialMode,
   newChallenge,
   passkeysFor,
   redirectUrlsOf,
   removeSignInGrant,
   revokeApiKey,
   signInGrantsFor,
+  socialModesFor,
   updateAccount,
   type AgeBand,
+  type SocialMode,
 } from "@zaisma/core";
 import {
   PROVIDERS,
@@ -51,7 +56,9 @@ import { deleteSaveFiles } from "./saves.ts";
  *
  * New accounts answer the age question before they type an email, so we collect
  * nothing from under-13s. The birth date is used once and never stored; we keep
- * the band (13–17 or 18+). "Sign in" never creates accounts, so it can't skip the question.
+ * the band (13–15, 16–17 or 18+). "Sign in" never creates accounts, so it can't skip the question.
+ * 16 and over choose a social mode while making the account (friends-focused unless they pick
+ * another); 13–15 start solo-focused. Everyone can change it on the account page, within their band.
  * Google and Discord work the same way: someone new who comes back from them without having
  * answered the age question is forgotten straight away and sent to answer it first.
  */
@@ -64,7 +71,7 @@ const OAUTH_DURATION_SEC = 600;
 
 export async function handleAccount(request: Request, env: Env, path: string): Promise<Response | null> {
   if (
-    !["/signin", "/signin/code", "/join", "/join/age", "/join/email", "/join/name", "/account", "/account/kept", "/account/name", "/account/age", "/account/delete", "/account/keys", "/signout"].includes(path) &&
+    !["/signin", "/signin/code", "/join", "/join/age", "/join/email", "/join/name", "/account", "/account/kept", "/account/name", "/account/age", "/account/social-mode", "/account/delete", "/account/keys", "/signout"].includes(path) &&
     !/^\/account\/keys\/[a-z0-9]+\/revoke$/.test(path) &&
     !/^\/account\/sign-ins\/sign_in_app_[a-z0-9]+\/remove$/.test(path) &&
     !/^\/signin\/(with\/[a-z]{1,20}|callback)$/.test(path)
@@ -123,14 +130,15 @@ export async function handleAccount(request: Request, env: Env, path: string): P
   if (path === "/signin" || path === "/join/email") {
     if (await limited(env, request)) return message(env, "Slow down", "Too many tries. Wait a minute and try again.", 429);
     const email = field("email", 320).toLowerCase();
-    if (!EMAIL.test(email)) return path === "/signin" ? await signinPage(env, next, "Enter your email address.") : await joinEmailPage(env, next, field("name"), "Enter your email address.");
+    const band = joinBand(request, env);
+    const socialMode = chosenSocialMode(band, field("social_mode", 40));
+    if (!EMAIL.test(email)) return path === "/signin" ? await signinPage(env, next, "Enter your email address.") : await joinEmailPage(env, next, band, "Enter your email address.", { name: field("name"), socialMode });
     const cookies: string[] = [];
     if (path === "/join/email") {
-      const band = joinBand(request, env);
       if (!band) return redirect("/join");
       const checked = checkName(field("name", 60));
-      if ("error" in checked) return await joinEmailPage(env, next, field("name"), checked.error, email);
-      cookies.push(setCookie(env, "zaisma_join", encodeURIComponent(JSON.stringify({ band, name: checked.name })), { maximumAgeSec: JOIN_DURATION_SEC }));
+      if ("error" in checked) return await joinEmailPage(env, next, band, checked.error, { name: field("name"), email, socialMode });
+      cookies.push(setCookie(env, "zaisma_join", encodeURIComponent(JSON.stringify({ band, name: checked.name, social_mode: socialMode })), { maximumAgeSec: JOIN_DURATION_SEC }));
     }
     const sent = await sendCode(env, email, path === "/join/email");
     if (sent === "too-many") return message(env, "Slow down", "We've sent a lot of codes to that address. Wait a few minutes and try again.", 429);
@@ -149,7 +157,7 @@ export async function handleAccount(request: Request, env: Env, path: string): P
     // A brand new sign-in: finish the account with the age band and name from the join steps.
     const join = joinDetails(request, env);
     if (!join?.name) return withCookies(redirect(`/join${nextQuery(next)}`), cookies);
-    await createAccount(env.DB, { id: signedIn.userId, name: join.name, ageBand: join.band });
+    await createAccount(env.DB, { id: signedIn.userId, name: join.name, ageBand: join.band, socialMode: join.socialMode });
     cookies.push(setCookie(env, "zaisma_join", "", { maximumAgeSec: 0 }));
     return withCookies(redirect(next ?? "/account?welcome"), cookies);
   }
@@ -182,17 +190,21 @@ export async function handleAccount(request: Request, env: Env, path: string): P
       const via = field("with");
       if (!session && isProvider(via) && (await providersOn(env)).includes(via)) return withCookies(redirect(`/signin/with/${via}${nextQuery(next)}`), [cookie]);
       // Already signed in (they verified an email but never finished): skip straight to the name.
-      return withCookies(session ? joinNamePage(env, next) : await joinEmailPage(env, next), [...(session?.cookies ?? []), cookie]);
+      return withCookies(session ? joinNamePage(env, next, band) : await joinEmailPage(env, next, band), [...(session?.cookies ?? []), cookie]);
     }
 
-    if (path === "/join/name" && !post) return done(session && joinBand(request, env) ? joinNamePage(env, next) : redirect(`/join${nextQuery(next)}`));
+    if (path === "/join/name" && !post) {
+      const band = joinBand(request, env);
+      return done(session && band ? joinNamePage(env, next, band) : redirect(`/join${nextQuery(next)}`));
+    }
 
     if (path === "/join/name" && post && session) {
       const band = joinBand(request, env);
       if (!band) return done(redirect("/join"));
+      const socialMode = chosenSocialMode(band, field("social_mode", 40));
       const checked = checkName(field("name", 60));
-      if ("error" in checked) return done(joinNamePage(env, next, checked.error, field("name")));
-      await createAccount(env.DB, { id: session.userId, name: checked.name, ageBand: band });
+      if ("error" in checked) return done(joinNamePage(env, next, band, checked.error, { name: field("name"), socialMode }));
+      await createAccount(env.DB, { id: session.userId, name: checked.name, ageBand: band, socialMode });
       return withCookies(redirect(next ?? "/account?welcome"), [...session.cookies, setCookie(env, "zaisma_join", "", { maximumAgeSec: 0 })]);
     }
     return done(redirect("/join"));
@@ -221,12 +233,21 @@ export async function handleAccount(request: Request, env: Env, path: string): P
     return done(redirect("/account"));
   }
 
-  // Teens can move to 18+ once they're 18. Nobody moves the other way, and the date isn't kept.
-  if (path === "/account/age" && post && account.age_band === "13-17") {
+  // Teens move up a band once they're old enough, keeping their social mode. Nobody moves down, and the date isn't kept.
+  if (path === "/account/age" && post && account.age_band !== "18+") {
     const ageYearCount = ageOn({ yearNumber: Number(field("year")), monthNumber: Number(field("month")), dayNumber: Number(field("day")) }, new Date());
-    if (ageYearCount === null || ageYearCount < 18) return done(await accountPage(env, session, false, "That birth date isn't 18 or over yet."));
-    await updateAccount(env.DB, account.id, { ageBand: "18+" });
-    return done(redirect("/account"));
+    const band = ageYearCount === null ? null : ageBand(ageYearCount);
+    if (!band || AGE_ORDER[band] <= AGE_ORDER[account.age_band]) return done(await accountPage(env, session, false, `That birth date isn't ${account.age_band === "13-15" ? "16" : "18"} or over yet.`));
+    await updateAccount(env.DB, account.id, { ageBand: band });
+    return done(redirect("/account#age"));
+  }
+
+  // Who can chat with them, within what their band can choose.
+  if (path === "/account/social-mode" && post) {
+    const socialMode = field("social_mode", 40);
+    if (!isSocialMode(socialMode) || !socialModesFor(account.age_band).includes(socialMode)) return done(await accountPage(env, session, false, "Choose one of the chat settings shown."));
+    await updateAccount(env.DB, account.id, { socialMode });
+    return done(redirect("/account?social-mode-saved#chat"));
   }
 
   // API keys for the developer MCP and upload command. The key is shown once, here.
@@ -286,16 +307,25 @@ async function limited(env: Env, request: Request): Promise<boolean> {
   return env.SIGNIN_LIMIT ? !(await env.SIGNIN_LIMIT.limit({ key: request.headers.get("cf-connecting-ip") ?? "local" })).success : false;
 }
 
-function joinDetails(request: Request, env: Env): { band: AgeBand; name?: string } | null {
+function joinDetails(request: Request, env: Env): { band: AgeBand; name?: string; socialMode: SocialMode } | null {
   try {
-    const joinCookie = JSON.parse(decodeURIComponent(readCookie(request, env, "zaisma_join") ?? "")) as { band?: string; name?: string };
-    return joinCookie.band === "13-17" || joinCookie.band === "18+" ? { band: joinCookie.band, name: typeof joinCookie.name === "string" ? joinCookie.name : undefined } : null;
+    const joinCookie = JSON.parse(decodeURIComponent(readCookie(request, env, "zaisma_join") ?? "")) as { band?: string; name?: string; social_mode?: string };
+    if (!isAgeBand(joinCookie.band)) return null;
+    return { band: joinCookie.band, name: typeof joinCookie.name === "string" ? joinCookie.name : undefined, socialMode: chosenSocialMode(joinCookie.band, joinCookie.social_mode) };
   } catch {
     return null;
   }
 }
 
 const joinBand = (request: Request, env: Env) => joinDetails(request, env)?.band ?? null;
+
+/** The social mode picked while joining, when the band can choose it; otherwise the band's default. 13–15 never choose. */
+function chosenSocialMode(band: AgeBand | null, given: unknown): SocialMode {
+  if (!band) return "solo_focused";
+  return band !== "13-15" && isSocialMode(given) && socialModesFor(band).includes(given) ? given : defaultSocialMode(band);
+}
+
+const AGE_ORDER: Record<AgeBand, number> = { "13-15": 0, "16-17": 1, "18+": 2 };
 
 // --- Pages ---
 
@@ -401,7 +431,31 @@ ${via ? html`<input type="hidden" name="with" value="${via}">` : ""}
   );
 }
 
-async function joinEmailPage(env: Env, next: string | null, name = "", error?: string, email = ""): Promise<Response> {
+const SOCIAL_MODE_LABELS: Record<SocialMode, string> = { solo_focused: "Solo-focused", friends_focused: "Friends-focused", open_and_social: "Open and social" };
+
+function socialModeHint(socialMode: SocialMode, band: AgeBand): string {
+  if (socialMode === "solo_focused") return "No chat with other players. You still play with them.";
+  if (socialMode === "friends_focused") return "Chat only with friends you invited, or who invited you.";
+  return band === "16-17" ? "Chat with anyone 16 or 17 who's open and social too." : "Chat with any adult who's open and social too.";
+}
+
+/** The social modes a band can pick, as radio buttons. */
+function socialModeChoices(band: AgeBand, current: SocialMode, legend: string): Raw {
+  return html`<fieldset class="choices"><legend>${legend}</legend>
+${socialModesFor(band).map(
+    (socialMode) => html`<label class="check"><input type="radio" name="social_mode" value="${socialMode}"${socialMode === current ? raw(" checked") : ""}> <span>${SOCIAL_MODE_LABELS[socialMode]}<small class="hint">${socialModeHint(socialMode, band)}</small></span></label>`,
+  )}
+</fieldset>`;
+}
+
+/** 16 and over pick a social mode while joining; 13–15 start solo-focused and can turn on friends later. */
+function joinSocialModeFields(band: AgeBand | null, current: SocialMode | undefined): Raw | string {
+  if (!band || band === "13-15") return "";
+  return html`${socialModeChoices(band, current ?? defaultSocialMode(band), "Who can chat with you?")}<p class="hint">Games that have chat follow this. You can change it any time on your account page.</p>`;
+}
+
+async function joinEmailPage(env: Env, next: string | null, band: AgeBand | null, error?: string, given: { name?: string; email?: string; socialMode?: SocialMode } = {}): Promise<Response> {
+  const { name = "", email = "" } = given;
   const providers = await providersOn(env);
   return page(
     env,
@@ -413,6 +467,7 @@ ${providers.length ? html`<div class="ways">${providerLinks(providers, next)}<p 
 ${nextField(next)}
 <label>Your name<input name="name" value="${name}" minlength="3" maxlength="20" autocomplete="nickname" required autofocus><span class="hint">What other players see. ${NAME_RULES} Don't use your real name.</span></label>
 <label>Email<input type="email" name="email" value="${email}" autocomplete="email" required><span class="hint">Only for signing in. Never shown to anyone.</span></label>
+${joinSocialModeFields(band, given.socialMode)}
 <button class="btn" type="submit">Email me a code</button>
 </form>
 <p class="muted">By making an account you agree to the <a href="/legal/content-rules">content rules</a> and our <a href="/legal/privacy">privacy policy</a>.</p>`,
@@ -420,7 +475,7 @@ ${nextField(next)}
   );
 }
 
-function joinNamePage(env: Env, next: string | null, error?: string, name = ""): Response {
+function joinNamePage(env: Env, next: string | null, band: AgeBand, error?: string, given: { name?: string; socialMode?: SocialMode } = {}): Response {
   return page(
     env,
     "Pick a name",
@@ -428,7 +483,8 @@ function joinNamePage(env: Env, next: string | null, error?: string, name = ""):
 ${errorParagraph(error)}
 <form class="stack" method="post" action="/join/name">
 ${nextField(next)}
-<label>Your name<input name="name" value="${name}" minlength="3" maxlength="20" autocomplete="nickname" required autofocus><span class="hint">What other players see. ${NAME_RULES} Don't use your real name.</span></label>
+<label>Your name<input name="name" value="${given.name ?? ""}" minlength="3" maxlength="20" autocomplete="nickname" required autofocus><span class="hint">What other players see. ${NAME_RULES} Don't use your real name.</span></label>
+${joinSocialModeFields(band, given.socialMode)}
 <button class="btn" type="submit">Finish</button>
 </form>`,
     error ? 400 : 200,
@@ -479,7 +535,7 @@ document.querySelector("[data-back]").addEventListener("click", (e) => {
 
 const ICON_PASSKEY = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="4"/><path d="M2 21c0-3.9 3.1-7 7-7 1.2 0 2.4.3 3.4.9"/><circle cx="18" cy="13" r="2.5"/><path d="M18 15.5V21l1.5-1.2M18 18.5h1.5"/></svg>';
 
-const BAND_TEXT: Record<AgeBand, string> = { "13-17": "13 to 17", "18+": "18 or over" };
+const BAND_TEXT: Record<AgeBand, string> = { "13-15": "13 to 15", "16-17": "16 or 17", "18+": "18 or over" };
 
 const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
@@ -500,11 +556,18 @@ ${errorParagraph(error)}
 <input name="name" value="${account.name}" minlength="3" maxlength="20" required aria-label="Name">
 <button class="btn ghost" type="submit">Save</button>
 </form>
-<h2>Age group</h2>
-<p>${BAND_TEXT[account.age_band]}.${account.age_band === "13-17" ? " Accounts for 13 to 17 year olds get safer settings." : ""}</p>
-${account.age_band === "13-17"
-      ? html`<details><summary>Turned 18?</summary><form class="stack" method="post" action="/account/age">${birthFields()}<button class="btn ghost" type="submit">Update</button></form></details>`
-      : ""}
+<h2 id="age">Age group</h2>
+<p>${BAND_TEXT[account.age_band]}.${account.age_band === "18+" ? "" : " Accounts under 18 get safer settings."}</p>
+${account.age_band === "18+"
+      ? ""
+      : html`<details><summary>Turned ${account.age_band === "13-15" ? "16" : "18"}?</summary><form class="stack" method="post" action="/account/age">${birthFields()}<button class="btn ghost" type="submit">Update</button></form></details>`}
+<h2 id="chat">Chat</h2>
+${query.has("social-mode-saved") ? html`<p class="note" role="status">Saved. Games pick it up the next time you open them.</p>` : ""}
+<form class="stack" method="post" action="/account/social-mode">
+${socialModeChoices(account.age_band, account.social_mode, "Who can chat with you in games")}
+${account.age_band === "13-15" ? html`<p class="hint">Open and social opens up at 16.</p>` : ""}
+<button class="btn ghost" type="submit">Save</button>
+</form>
 <h2 id="passkeys">Passkeys</h2>
 <p>Sign in with Face ID, a fingerprint or your device's PIN instead of an email code. Your email still works if you lose a device.</p>
 ${query.has("passkey-added") ? html`<p class="note" role="status"><strong>Passkey added.</strong> Next time, choose Sign in with a passkey.</p>` : ""}

@@ -120,6 +120,7 @@ Every ID Zaisma makes says its kind in its value: `<kind>_<random>`, the kind in
 | `play_ticket` | `play_ticket_…` |
 | `room_key` | `room_key_…` |
 | `sign_in_app` | `sign_in_app_…` |
+| `chat_group` | `chat_group_…` |
 
 `ID_KINDS` (`packages/core/src/ids.ts`) is this list, and a test keeps the two in step; a new kind is added to both in the same change. Accounts' and guests' player IDs are both `player_…`, in their passes and everywhere the SDK and game server show them; an account's never changes, and Zaisma's own account ID (the sign-in's) never leaves Zaisma. The developer API and MCP still name a game by its `slug`, the link name developers know. Not IDs, and kept as they are: a `slug`, a `room_code` (six letters players type), API keys (`zsk_…`, a format secret scanners know) and file hashes (`sha256`).
 
@@ -218,6 +219,7 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 | A player, and the players a call is for or leaves out | `player_id` | `playerId`; `playerIds`, `exceptPlayerId` |
 | Whether a player is signed in | a player's `kind`: `account`, `guest` (also the player pass's `kind` claim) | `kind`; `playerKind` where it isn't on a player |
 | What anyone sees of an account | `player`: `{ id, name }`, its public profile | `PlayerProfile`, `Zaisma.player.getProfile(playerId)` |
+| Who an account can chat with, and the opaque group open-and-social accounts chat in (never an age) | | player pass claims `social_mode`: `solo_focused`, `friends_focused`, `open_and_social`; `chat_group` (a `chat_group_…` ID, different in every game); checked with `canChat(first, second)` |
 | What a game needs a Zaisma account for | `account_requirement`: `none`, `multiplayer`, `whole_game`; a guest turned away gets `account_needed` | error `code` `account_needed` |
 | A developer's own site or app that players sign in to with Zaisma, and OAuth's client type for it | `sign_in_app_id` (the OAuth `client_id`); `kind`: `confidential`, `public` | |
 | Where a sign-in can go back to, and asking for a new client secret | `redirect_urls`; `replace_client_secret: true`, answered once as `client_secret` | |

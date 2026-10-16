@@ -170,7 +170,7 @@ describe("age and names", () => {
     expect(ageOn({ yearNumber: 2013, monthNumber: 10, dayNumber: 13 }, today)).toBe(12);
     expect(ageOn({ yearNumber: 2008, monthNumber: 2, dayNumber: 30 }, today)).toBeNull();
     expect(ageOn({ yearNumber: 2030, monthNumber: 1, dayNumber: 1 }, today)).toBeNull();
-    expect([ageBand(12), ageBand(13), ageBand(17), ageBand(18)]).toEqual([null, "13-17", "13-17", "18+"]);
+    expect([ageBand(12), ageBand(13), ageBand(15), ageBand(16), ageBand(17), ageBand(18)]).toEqual([null, "13-15", "13-15", "16-17", "16-17", "18+"]);
   });
 
   it("tidies names and refuses rude or reserved ones", () => {
@@ -188,7 +188,10 @@ describe("making an account", () => {
     const b = new Browser();
     expect(await (await b.go("/join")).text()).toContain("When's your birthday?");
     const age = await b.go("/join/age", BIRTH_ADULT);
-    expect(await age.text()).toContain("Your name");
+    const agePage = await age.text();
+    expect(agePage).toContain("Your name");
+    // 16 and over pick a social mode on the way in, friends-focused unless they choose another.
+    expect(agePage).toContain("Who can chat with you?");
     const email = await b.go("/join/email", { email: "Fox@Example.com", name: "Night Owl" });
     expect(await email.text()).toContain("Check your email");
     expect(sent).toEqual([{ email: "fox@example.com", create: true }]);
@@ -201,18 +204,33 @@ describe("making an account", () => {
     expect(b.jar.has("__Host-zaisma_join")).toBe(false);
 
     const account = await accountById(env.DB, users.get("fox@example.com")!);
-    expect(account).toMatchObject({ name: "Night Owl", age_band: "18+" });
+    expect(account).toMatchObject({ name: "Night Owl", age_band: "18+", social_mode: "friends_focused" });
     const page = await (await b.go("/account?welcome")).text();
     expect(page).toContain("Welcome to Zaisma, Night Owl");
     expect(page).toContain("fox@example.com");
     expect(page).toContain("18 or over");
   });
 
+  it("lets 16 and over choose a social mode while joining, and starts 13 to 15 with no chat", async () => {
+    const older = new Browser();
+    await older.go("/join/age", { year: String(thisYear - 17), month: "1", day: "1" });
+    await older.go("/join/email", { email: "open@example.com", name: "Open Kite", social_mode: "open_and_social" });
+    await older.go("/signin/code", { email: "open@example.com", code: "123456" });
+    expect(await accountById(env.DB, users.get("open@example.com")!)).toMatchObject({ age_band: "16-17", social_mode: "open_and_social" });
+
+    const younger = new Browser();
+    expect(await (await younger.go("/join/age", { year: String(thisYear - 14), month: "1", day: "1" })).text()).not.toContain("Who can chat with you?");
+    // A hand-made form can't give 13–15 open and social.
+    await younger.go("/join/email", { email: "young@example.com", name: "Small Kite", social_mode: "open_and_social" });
+    await younger.go("/signin/code", { email: "young@example.com", code: "123456" });
+    expect(await accountById(env.DB, users.get("young@example.com")!)).toMatchObject({ age_band: "13-15", social_mode: "solo_focused" });
+  });
+
   it("never stores the birth date", async () => {
     const b = new Browser();
     await join(b, "teen@example.com", "Quiet Comet", { year: String(thisYear - 15), month: "1", day: "1" });
     const row = await env.DB.prepare("SELECT * FROM accounts").first();
-    expect(row).toMatchObject({ age_band: "13-17" });
+    expect(row).toMatchObject({ age_band: "13-15", social_mode: "solo_focused" });
     // Everything but the id and timestamps, which can contain any four digits.
     const { id: _id, created_at_ms: _c, updated_at_ms: _u, ...stored } = row!;
     expect(JSON.stringify(stored)).not.toContain(String(thisYear - 15));
@@ -396,9 +414,20 @@ describe("the account page", () => {
     expect((await b.go("/account/name", { name: "Loud Comet" })).status).toBe(303);
     expect((await accountById(env.DB, id))?.name).toBe("Loud Comet");
 
-    expect(await (await b.go("/account/age", { year: String(thisYear - 16), month: "1", day: "1" })).text()).toContain("18 or over yet");
+    // 13–15 can move to friends-focused, never open and social.
+    expect(await (await b.go("/account/social-mode", { social_mode: "open_and_social" })).text()).toContain("Choose one of the chat settings shown");
+    expect((await accountById(env.DB, id))?.social_mode).toBe("solo_focused");
+    expect((await b.go("/account/social-mode", { social_mode: "friends_focused" })).status).toBe(303);
+    expect((await accountById(env.DB, id))?.social_mode).toBe("friends_focused");
+
+    // Up a band at a time, keeping the social mode; never down.
+    expect(await (await b.go("/account/age", { year: String(thisYear - 14), month: "1", day: "1" })).text()).toContain("16 or over yet");
+    await b.go("/account/age", { year: String(thisYear - 16), month: "1", day: "1" });
+    expect(await accountById(env.DB, id)).toMatchObject({ age_band: "16-17", social_mode: "friends_focused" });
+    expect(await (await b.go("/account/age", { year: String(thisYear - 17), month: "1", day: "1" })).text()).toContain("18 or over yet");
+    expect((await b.go("/account/social-mode", { social_mode: "open_and_social" })).status).toBe(303);
     await b.go("/account/age", { year: String(thisYear - 19), month: "1", day: "1" });
-    expect((await accountById(env.DB, id))?.age_band).toBe("18+");
+    expect(await accountById(env.DB, id)).toMatchObject({ age_band: "18+", social_mode: "open_and_social" });
 
     expect(await (await b.go("/account/delete", { confirm: "nope" })).text()).toContain('Type "delete"');
     const gone = await b.go("/account/delete", { confirm: "delete" });

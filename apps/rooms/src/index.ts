@@ -1,4 +1,4 @@
-import { PLAYER_REPORT_REASONS, accountById, gameServerOf, type AccountRequirement, type MultiplayerMode, checkText, createReport, isIdOf, iso, leaveOut, listRooms, newId, pastFreeTier, playerProfile, readLabelParameter, readLeftParameter, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
+import { PLAYER_REPORT_REASONS, accountById, chatBandGroup, gameServerOf, type AccountRequirement, type MultiplayerMode, checkText, createReport, isIdOf, iso, leaveOut, listRooms, newId, pastFreeTier, playerProfile, readLabelParameter, readLeftParameter, tidyText, useRoomKey, type PlayerReportReason, type RoomList } from "@zaisma/core";
 import { ERROR_TEXT, guestName, isRoomCode, jwks, loadSigningKey, roomCode, signPass, type Player, type SigningKey } from "@zaisma/game-server";
 import { usesRooms } from "./registry.ts";
 
@@ -77,6 +77,17 @@ let signing: { secret: string; key: Promise<SigningKey> } | null = null;
 export function signingKey(env: Env): Promise<SigningKey> {
   if (signing?.secret !== env.PASS_SIGNING_KEY) signing = { secret: env.PASS_SIGNING_KEY, key: loadSigningKey(env.PASS_SIGNING_KEY) };
   return signing.key;
+}
+
+/**
+ * The opaque chat group an open-and-social account carries in this game's passes: a keyed hash of the
+ * game and the band group, so players in the same group match and nobody can tell which group is which
+ * age, or link a group across games. Keyed with the pass signing secret, which never leaves Zaisma.
+ */
+export async function chatGroupId(env: Env, slug: string, bandGroup: string): Promise<string> {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(env.PASS_SIGNING_KEY), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const digest = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`chat_group:${slug}:${bandGroup}`)));
+  return `chat_group_${Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("").slice(0, 20)}`;
 }
 
 function json(body: unknown, httpStatus = 200, origin?: string): Response {
@@ -169,7 +180,10 @@ export default {
         if (!account && game.account_requirement !== "none") return failure("account_needed", ERROR_TEXT.account_needed, 403, cors);
         const player: Player = account ? { id: account.player_id, name: account.name, kind: "account" } : { id: newId("player"), name: guestName(), kind: "guest" };
         // The pass is proof only: an account's carries no name, which games look up (/v1/players/<id>).
-        const claims = { sub: player.id, ...(player.kind === "guest" ? { name: player.name } : {}), aud: slug, iss: env.ISSUER, kind: player.kind, iat: nowSec, exp: nowSec + PASS_DURATION_SEC };
+        // It says who the account can chat with, never its age: its social mode, and an opaque chat group when open and social.
+        const bandGroup = account ? chatBandGroup(account) : null;
+        const chat = account ? { social_mode: account.social_mode, ...(bandGroup ? { chat_group: await chatGroupId(env, slug, bandGroup) } : {}) } : {};
+        const claims = { sub: player.id, ...(player.kind === "guest" ? { name: player.name } : {}), aud: slug, iss: env.ISSUER, kind: player.kind, ...chat, iat: nowSec, exp: nowSec + PASS_DURATION_SEC };
         const pass = await signPass(await signingKey(env), claims);
         return json({ pass, player, expiresAt: iso((nowSec + PASS_DURATION_SEC) * 1000) }, 200, cors);
       }

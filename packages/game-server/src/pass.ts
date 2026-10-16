@@ -17,12 +17,35 @@ export interface PassClaims {
   aud: string;
   iss: string;
   kind: PlayerKind;
+  /** Who an account can chat with. Guests' passes have none: guests don't chat. */
+  social_mode?: SocialMode;
+  /**
+   * For open_and_social accounts, the group they can chat in (chat_group_…): two open-and-social
+   * players chat when their groups match. Opaque and different in every game, so it never says an age.
+   */
+  chat_group?: string;
   iat: number;
   exp: number;
 }
 
 /** A signed-in Zaisma account, or a guest. */
 export type PlayerKind = "guest" | "account";
+
+/** No chat, friends only, or anyone in the same chat group (docs/DECISIONS.md, "Social modes decide who can talk to whom"). */
+export type SocialMode = "solo_focused" | "friends_focused" | "open_and_social";
+
+const SOCIAL_MODES: readonly string[] = ["solo_focused", "friends_focused", "open_and_social"];
+
+/**
+ * Whether two players may chat, by the passes your server checked (verifyPass): both accounts, and
+ * both open and social in the same chat group. Guests and solo-focused players never chat; friends-
+ * focused players chat only with friends, which passes will carry once Zaisma has friends. Use it on
+ * every message your own server delivers, text or voice; Zaisma rooms will do the same for you.
+ */
+export function canChat(first: PassClaims, second: PassClaims): boolean {
+  if (first.kind !== "account" || second.kind !== "account" || first.sub === second.sub) return false;
+  return first.social_mode === "open_and_social" && second.social_mode === "open_and_social" && typeof first.chat_group === "string" && first.chat_group === second.chat_group;
+}
 
 export type PublicKey = JsonWebKey & { kid: string };
 
@@ -121,5 +144,7 @@ export async function verifyPass(
   if (claims.aud !== expect.game) throw new PassError("wrong_game");
   if (typeof claims.sub !== "string") throw new PassError("malformed");
   if (claims.kind !== "account" && !(claims.kind === "guest" && typeof claims.name === "string")) throw new PassError("malformed");
+  if (claims.social_mode !== undefined && !SOCIAL_MODES.includes(claims.social_mode)) throw new PassError("malformed");
+  if (claims.chat_group !== undefined && typeof claims.chat_group !== "string") throw new PassError("malformed");
   return claims;
 }
