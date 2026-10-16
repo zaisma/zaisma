@@ -4,7 +4,11 @@ The live plan of what gets built, in what order. `docs/DECISIONS.md` says *how* 
 
 ## Now
 
-Who a player is comes first: the pass, the player ID and the sign-in that saves, friends, the game database and webhooks all build on, settled before anything else builds on them (Julius, Oct 16, 2026). After these, the rest of Phase 1 goes in any order.
+Who a player is came first: the pass, the player ID and the sign-in that saves, friends, the game database and webhooks all build on, settled before anything else builds on them (Julius, Oct 16, 2026). That chain is live; the rest of Phase 1 goes in any order.
+
+**First:** nothing.
+
+**Next:**
 
 1. Game database through the API (Game servers and data)
 2. Webhooks for developers (Developer publishing)
@@ -20,6 +24,8 @@ Waiting on people: Gleb: register with NCMEC, Gleb: register the DMCA agent, Jul
 - **Must** items finish the phase. **Nice** items ship if they're ready and otherwise move to a later phase without holding anything up.
 - **Julius** and **Gleb** mark things only that person does (money, accounts, sign-ups, legal filings). Gleb can sign for Zaisma LLC.
 - **Needs** lists the items that must land first, by name, separated by commas (so item names never contain commas). Items without needs can start any time.
+- **First** in Now lists the items that go before every other item: others build on their shape, or they get dearer the longer they wait. Nothing else starts until they land. **Next** in Now is the order for the rest, and those items can be built side by side in their own sessions. Places in Now count straight through both.
+- **First** under a project's goal names the item that goes before every other row in that project (a project-wide Need). The line goes when that item is done.
 - **Weekly releases** start with the beta. Every phase after it ships in small pieces as each one is ready.
 
 ## Phase 0: Safe hosting (done)
