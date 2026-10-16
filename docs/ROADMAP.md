@@ -34,14 +34,14 @@ Waiting on people: Gleb: register with NCMEC, Gleb: register the DMCA agent, Jul
 
 Live on zaisma.com since Oct 11, 2026.
 
-| Status | Item | Notes |
-| --- | --- | --- |
-| done | Upload a game (admin only) | Zip upload in admin |
-| done | Scan before publishing | File checks, malware and phishing rules, AI review; image matching placeholder holds every game |
-| done | Sandboxed game server | Separate game domain, strict CSP, no cookies |
-| done | Directory and game pages | |
-| done | Report button and takedowns | Reports store nothing about the reporter; audit log |
-| done | First game: Shard Dodge | |
+| Status | Settled | Item | Notes |
+| --- | --- | --- | --- |
+| done | yes | Upload a game (admin only) | Zip upload in admin |
+| done | | Scan before publishing | File checks, malware and phishing rules, AI review; image matching placeholder holds every game |
+| done | yes | Sandboxed game server | Separate game domain, strict CSP, no cookies |
+| done | yes | Directory and game pages | |
+| done | yes | Report button and takedowns | Reports store nothing about the reporter; audit log |
+| done | yes | First game: Shard Dodge | |
 
 ## Phase 1: Beta
 
@@ -56,7 +56,7 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | Status | Must/Nice | Settled | Item | Needs | Notes |
 | --- | --- | --- | --- | --- | --- |
 | done | Must | | Julius: buy the game domain | | zaismausercontent.com, bought Oct 11, 2026 |
-| done | Must | | Serve each game on its own subdomain | Julius: buy the game domain | Live Oct 11, 2026: <slug>.zaismausercontent.com; workers.dev turned off |
+| done | Must | yes | Serve each game on its own subdomain | Julius: buy the game domain | Live Oct 11, 2026: <slug>.zaismausercontent.com; workers.dev turned off |
 | done | Must | | Julius: form an LLC | | Zaisma LLC, registered in Wyoming (Oct 13, 2026). Liability protection before outside uploads; a registered agent keeps a home address off public records |
 | done | Must | | Julius: Workers Paid plan | | $5/month, live Oct 12, 2026; needed to run developers' game servers |
 | done | Must | | Julius: alert and DMCA email delivery | | Fastmail whitelisted zaisma.com (Oct 14, 2026). support@, dmca@, privacy@, safety@, pdna_account@ and julius@ forward to Julius's Fastmail through Cloudflare Email Routing; site alerts send from alerts@ |
@@ -96,14 +96,16 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | Status | Must/Nice | Settled | Item | Needs | Notes |
 | --- | --- | --- | --- | --- | --- |
 | done | Must | | Developer accounts | | Any account owns games; API keys on the account page; one developer API for the MCP, upload command and dashboard (docs/DEVELOPER-API.md) |
-| done | Must | | Upload command | Developer accounts | File by file, up to 2 GB per game, only changed files. `npx @zaisma/cli` (source in packages/cli), files up to 500 MB |
-| done | Must | | Drafts and publishing | Upload command | Preview links, publish now or later, roll back; keep the live version plus the last 5. Unpublished drafts deleted after 30 days, unused files after a day |
-| done | Must | | Game visibility | Developer accounts | Draft, listed, unlisted or private; separate from review status. Unlisted is noindex and never in any shelf. Draft and private games open only through preview and tester links |
-| done | Must | | Tester links | Game visibility | Secret, named, revocable links (zaisma.com/t/…) that open the live version whatever the visibility; guests can use them and multiplayer works through them. Inviting specific accounts comes later |
-| done | Must | | Game details and device labels | Developer accounts | Labels, covers, square covers and screenshots on the game page, scanned and approved, with "Play anyway" on other devices |
-| done | Must | | Developer MCP | Drafts and publishing | Create, edit, upload, publish, roll back, scans, reports and stats at zaisma.com/mcp, signed in with an API key; small games upload through the MCP, bigger builds through the upload command |
+| done | Must | yes | Upload command | Developer accounts | File by file, up to 2 GB per game, only changed files. `npx @zaisma/cli` (source in packages/cli), files up to 500 MB |
+| done | Must | yes | Drafts and publishing | Upload command | Preview links, publish now or later, roll back; keep the live version plus the last 5. Unpublished drafts deleted after 30 days, unused files after a day |
+| done | Must | yes | Game visibility | Developer accounts | Draft, listed, unlisted or private; separate from review status. Unlisted is noindex and never in any shelf. Draft and private games open only through preview and tester links |
+| done | Must | yes | Tester links | Game visibility | Secret, named, revocable links (zaisma.com/t/…) that open the live version whatever the visibility; guests can use them and multiplayer works through them. Inviting specific accounts comes later |
+| done | Must | yes | Game details and device labels | Developer accounts | Labels, covers, square covers and screenshots on the game page, scanned and approved, with "Play anyway" on other devices |
+| done | Must | yes | Developer MCP | Drafts and publishing | Create, edit, upload, publish, roll back, scans, reports and stats at zaisma.com/mcp, signed in with an API key; small games upload through the MCP, bigger builds through the upload command |
 | done | Must | | Developer dashboard | Drafts and publishing | zaisma.com/dashboard on the same API as the MCP: games, folder upload in the browser, versions with preview, publish, publish later and roll back, details, visibility, images, reports, stats and history |
-| done | Must | | Support tools in the MCP | Developer MCP | "Why is my game held?": game history and scan findings in the MCP |
+| done | Must | yes | Support tools in the MCP | Developer MCP | "Why is my game held?": game history and scan findings in the MCP |
+| planned | Must | yes | Device notes and required screenshots | Game details and device labels | Controls and screen orientation show on the game page only as a note when they don't fit ("Needs a keyboard", "Best in landscape"), not as icons; a game is listed only with at least one screenshot |
+| planned | Must | yes | Private means you and your testers | Game visibility | The dashboard's "Only me" label for private games says that testers can play too |
 | planned | Must | | Games for your device first | Game details and device labels | Shelves and lists show games for the player's device first |
 | planned | Must | | Logs in the MCP | Support tools in the MCP | A game's logs readable by the developer's AI, beside its history and findings |
 | planned | Must | | Scan only what changed; per-developer budgets | Upload command | A daily limit on AI-reviewed uploads per free account (higher with Pro), about 20 updates per game per day |
@@ -132,21 +134,23 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | Status | Must/Nice | Settled | Item | Needs | Notes |
 | --- | --- | --- | --- | --- | --- |
 | done | Must | yes | Player passes | | Signed guest passes any server can check, published keys |
-| done | Must | | Game server API and relay | | Server-client by default; messages-only relay for simple games |
-| done | Must | | Rooms on rooms.zaisma.com | Player passes, Game server API and relay | Durable Objects with hibernation; limits, takedowns end rooms |
+| done | Must | yes | Game server API and relay |  | Server-client by default; messages-only relay for simple games |
+| done | Must | yes | Rooms on rooms.zaisma.com | Player passes, Game server API and relay | Durable Objects with hibernation; limits, takedowns end rooms |
 | done | Must | | Games can reach our rooms and their own servers | Rooms on rooms.zaisma.com | Own servers set per game and listed on the game page |
-| done | Must | | Client SDK | Rooms on rooms.zaisma.com | `joinRoom`, invite links, reconnecting |
-| done | Must | | Room invite links | Client SDK | Tap a link, land in the match as a guest |
-| done | Must | | Game page controls | | Share, Full screen and a menu (about, Report) beside the game; invites live in the game via `Zaisma.invite` |
+| done | Must | yes | Client SDK | Rooms on rooms.zaisma.com | `joinRoom`, invite links, reconnecting |
+| done | Must | yes | Room invite links | Client SDK | Tap a link, land in the match as a guest |
+| done | Must | yes | Game page controls |  | Share, Full screen and a menu (about, Report) beside the game; invites live in the game via `Zaisma.invite` |
 | done | Must | | Two demo games | Room invite links | Real-time arena, turn-based four in a row |
-| done | Must | | Room browsing | Room invite links | Live Oct 12, 2026: a Rooms tab on each game's page, "playing now" under the title, and the same list for the game (`Zaisma.rooms.list`, `quickJoin`, `linked`); developers choose where rooms are listed |
-| done | Must | | Room names and labels | Room browsing | Live Oct 12, 2026: names and up to 4 labels, label filters, Zaisma's text filter on names typed by players, reportable names; `Zaisma.filterText` for games |
-| done | Nice | | Lobbies and matches | Room names and labels | Live Oct 12, 2026: data brought into a room (`joinRoom({ data })`) and a game server making a room for some of its players and moving them there (`room.reserve`) |
-| done | Must | | Kick and move players | Lobbies and matches | Live Oct 13, 2026: `room.kick` with keep out, `canJoin`, `room.moveTo` with `onMoved`, the SDK following moves, the host kicking in relay games and the next player becoming host |
+| done | Must | yes | Room browsing | Room invite links | Live Oct 12, 2026: a Rooms tab on each game's page, "playing now" under the title, and the same list for the game (`Zaisma.rooms.list`, `quickJoin`, `linked`); developers choose where rooms are listed |
+| planned | Must | yes | Rooms tab copy for games that don't join you | Room browsing | "Press Play and the game finds you one" shows only for games that join players automatically |
+| done | Must | yes | Room names and labels | Room browsing | Live Oct 12, 2026: names and up to 4 labels, label filters, Zaisma's text filter on names typed by players, reportable names; `Zaisma.filterText` for games |
+| done | Nice | yes | Lobbies and matches | Room names and labels | Live Oct 12, 2026: data brought into a room (`joinRoom({ data })`) and a game server making a room for some of its players and moving them there (`room.reserve`) |
+| done | Must | yes | Kick and move players | Lobbies and matches | Live Oct 13, 2026: `room.kick` with keep out, `canJoin`, `room.moveTo` with `onMoved`, the SDK following moves, the host kicking in relay games and the next player becoming host |
 | done | Must | yes | Idle and away players | Kick and move players | Live Oct 14, 2026, built the honest-clients way: dead connections drop within a minute, "Still there?" after 10 minutes without input, hidden games go away in real-time rooms, seats held for 5 minutes (`holdFor`, `away`, `onAway`, `onBack`), and idle players don't count as playing |
-| done | Must | | Room connection limits | | Live Oct 13, 2026: opening a room connection is limited per internet address (60 a minute) |
-| done | Must | | Room-count protection | Play-count protection | Live Oct 14, 2026: a player pass needs a key from Cloudflare's check on Play, up to 5 passes per key over 6 hours, so bots can't fill rooms or fake "playing now" |
-| done | Must | | Beta usage ceiling | Rooms on rooms.zaisma.com | Live Oct 13, 2026: until Hosting billing, each game's rooms stop at the free 1,000 player-hours a month; running matches finish and no new rooms open until the month resets. Julius approved Oct 13, 2026 |
+| done | Must | yes | Room connection limits |  | Live Oct 13, 2026: opening a room connection is limited per internet address (60 a minute) |
+| done | Must | yes | Room-count protection | Play-count protection | Live Oct 14, 2026: a player pass needs a key from Cloudflare's check on Play, up to 5 passes per key over 6 hours, so bots can't fill rooms or fake "playing now" |
+| done | Must | yes | Beta usage ceiling | Rooms on rooms.zaisma.com | Live Oct 13, 2026: until Hosting billing, each game's rooms stop at the free 1,000 player-hours a month; running matches finish and no new rooms open until the month resets. Julius approved Oct 13, 2026 |
+| planned | Must | yes | Usage warning before the ceiling | Beta usage ceiling | The developer is told before a game reaches its free player-hours, not only after |
 | planned | Nice | | Closest rooms by measurement | Idle and away players | The SDK measures its connection to the regions that have rooms and quick join prefers the fastest; the server's order by location stays for everyone else |
 | planned | Nice | | Find players across rooms | Kick and move players, Player safety in rooms | A small directory per game: the game server asks which room its players are in and messages another room, for friends lists, parties and join a friend. Blocks always apply; teens are findable only by friends by default. Moves to Phase 3 if not ready |
 | planned | Nice | | Own servers list their rooms | Room browsing | Rooms on a developer's own servers show in the same list: their server checks in with Zaisma every minute |
@@ -158,14 +162,14 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 
 | Status | Must/Nice | Settled | Item | Needs | Notes |
 | --- | --- | --- | --- | --- | --- |
-| done | Must | | Run a game server yourself | Game server API and relay, Player passes | Node runner; same code as our rooms |
-| done | Must | | Developers' own game servers run safely | Upload command, Rooms on rooms.zaisma.com, Julius: Workers Paid plan | Live Oct 13, 2026: a `zaisma-server/` folder or one `zaisma-server.js` runs on our rooms in a Dynamic Worker with no internet, never served to players; a match stopped twice ends; developers see its errors with the line |
+| done | Must | yes | Run a game server yourself | Game server API and relay, Player passes | Node runner; same code as our rooms |
+| done | Must | yes | Developers' own game servers run safely | Upload command, Rooms on rooms.zaisma.com, Julius: Workers Paid plan | Live Oct 13, 2026: a `zaisma-server/` folder or one `zaisma-server.js` runs on our rooms in a Dynamic Worker with no internet, never served to players; a match stopped twice ends; developers see its errors with the line |
 | done | Must | yes | Game database for game servers | Rooms on rooms.zaisma.com | Live Oct 16, 2026 (#163, no migration): a SQLite database per game as `room.database` (plain SQL and batches), in Zaisma rooms and as a local file on the developer's own server. Free per game: 500,000 rows written and 500 million read a month, 500 MB; until Hosting billing, past them writes stop and reads keep working (Julius, Oct 16, 2026) |
 | done | Must | yes | Game database through the API | Game database for game servers | Live Oct 16, 2026 (#164, no migration, CLI 0.5.0): the developer and their AI run SQL, list tables and see use against the free limits, through the API, MCP (`get_database`, `query_database`, `batch_database`) and `zaisma database` |
 | next | Must | yes | Game database import and export | Game database through the API | The whole database out and in as SQLite's SQL dump through the API, MCP and `zaisma database export` and `import` (a `.sqlite` file from the CLI), and the dashboard's database console on the same API |
 | planned | Must | yes | Game database restore to a time | Game database import and export | Roll a game's database back to any minute in the last 30 days, and undo that, through the API, MCP, CLI and the dashboard's console |
-| done | Must | | Game server endpoints | Developers' own game servers run safely | Live Oct 16, 2026 (#169, migration 0041): the game server's `onRequest` answers `Zaisma.server.request` outside rooms (leaderboards, a shop, daily rewards), with the game database behind it, on Zaisma and in the Node runner. Free per game: 1 million requests a month (Julius, Oct 16, 2026) |
-| done | Must | | Game server schedules | Game server endpoints | Live Oct 16, 2026 (#170, migration 0043): the game server's `schedules` (crons in UTC) run `onSchedule` outside rooms (daily resets, persistent worlds), on Zaisma and in the Node runner. Free per game: up to 10 schedules, each at most once a minute, with no monthly count (Julius, Oct 16, 2026) |
+| done | Must | yes | Game server endpoints | Developers' own game servers run safely | Live Oct 16, 2026 (#169, migration 0041): the game server's `onRequest` answers `Zaisma.server.request` outside rooms (leaderboards, a shop, daily rewards), with the game database behind it, on Zaisma and in the Node runner. Free per game: 1 million requests a month (Julius, Oct 16, 2026) |
+| done | Must | yes | Game server schedules | Game server endpoints | Live Oct 16, 2026 (#170, migration 0043): the game server's `schedules` (crons in UTC) run `onSchedule` outside rooms (daily resets, persistent worlds), on Zaisma and in the Node runner. Free per game: up to 10 schedules, each at most once a minute, with no monthly count (Julius, Oct 16, 2026) |
 | planned | Must | | Game server reach and secrets | Developers' own game servers run safely | Game servers can call the developer's own listed servers and payment providers, with secrets set per game and never shown again. Still nothing of ours inside |
 
 ### Accounts and saves
@@ -175,18 +179,18 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | Status | Must/Nice | Settled | Item | Needs | Notes |
 | --- | --- | --- | --- | --- | --- |
 | done | Must | | Sign-in | | Emailed code, no passwords. Supabase holds only the email; names and age bands live with the games. Delete account is instant |
-| done | Must | | Age question | Sign-in | Asked before the email, so we collect nothing from under-13s. Only the age band is kept; no ID checks |
-| done | Must | | Games have owners | Sign-in | A person now, a team later |
-| done | Must | | Cloud saves | Sign-in, Client SDK | Mirrors the game's own browser saves (localStorage and IndexedDB), no code needed; the player chooses when two devices disagree |
-| done | Must | | "Keep your progress" | Cloud saves | Turns a guest into an account after 5 minutes of play with progress, without a reload |
-| done | Must | | Save history | Cloud saves | Up to 5 earlier versions per game; players go back from their account or the game menu |
-| done | Must | | Passkeys | Sign-in | Face ID or fingerprint to sign back in, checked on our server; the email code stays for new accounts and lost devices |
+| done | Must | yes | Age question | Sign-in | Asked before the email, so we collect nothing from under-13s. Only the age band is kept; no ID checks |
+| done | Must | yes | Games have owners | Sign-in | A person now, a team later |
+| done | Must | yes | Cloud saves | Sign-in, Client SDK | Mirrors the game's own browser saves (localStorage and IndexedDB), no code needed; the player chooses when two devices disagree |
+| done | Must | yes | "Keep your progress" | Cloud saves | Turns a guest into an account after 5 minutes of play with progress, without a reload |
+| done | Must | yes | Save history | Cloud saves | Up to 5 earlier versions per game; players go back from their account or the game menu |
+| done | Must | yes | Passkeys | Sign-in | Face ID or fingerprint to sign back in, checked on our server; the email code stays for new accounts and lost devices |
 | done | Nice | | Google and Discord sign-in | Sign-in, Age question | Through Supabase, with the age question still first for new accounts |
 | done | Must | yes | Account passes | Sign-in, Player passes | Live Oct 16, 2026 (#159, migration 0036): one player ID per account, the same in every game; signed-in players get passes that are proof only (the ID, the game, when it expires), taken by Zaisma rooms and the Node game server; a public profile lookup by player ID at rooms.zaisma.com/v1/players, in the API, MCP and SDK |
-| done | Must | | Accounts-only games | Account passes | Live Oct 16, 2026 (#160, migration 0037): a game setting (account_requirement) for guests welcome, accounts for multiplayer or accounts for the whole game, in the API, MCP and dashboard; guests of such a game get no player passes; the game page says "Needs a Zaisma account" before Play and asks guests to sign in; site copy no longer says every game plays as a guest |
+| done | Must | yes | Accounts-only games | Account passes | Live Oct 16, 2026 (#160, migration 0037): a game setting (account_requirement) for guests welcome, accounts for multiplayer or accounts for the whole game, in the API, MCP and dashboard; guests of such a game get no player passes; the game page says "Needs a Zaisma account" before Play and asks guests to sign in; site copy no longer says every game plays as a guest |
 | planned | Must | | Accounts-only rooms | Accounts-only games | One room takes only accounts, set from the SDK or the game server, on Zaisma rooms and the developer's own server |
-| done | Must | | Sign-in from games | Accounts-only games | Live Oct 16, 2026 (#166, no migration): `Zaisma.player.signIn()` asks a guest to sign in beside the game, in a new tab, and the game gets the account and its passes without a reload |
-| done | Must | | Sign in with Zaisma | Account passes | Live Oct 16, 2026 (#161, migration 0038): OpenID Connect on zaisma.com for developers' own sites and games with their own accounts, sign-in apps through the API and MCP, a one-time consent page and the account page's list. The MCP's sign-in uses it next (MCP sign-in without a key) |
+| done | Must | yes | Sign-in from games | Accounts-only games | Live Oct 16, 2026 (#166, no migration): `Zaisma.player.signIn()` asks a guest to sign in beside the game, in a new tab, and the game gets the account and its passes without a reload |
+| done | Must | yes | Sign in with Zaisma | Account passes | Live Oct 16, 2026 (#161, migration 0038): OpenID Connect on zaisma.com for developers' own sites and games with their own accounts, sign-in apps through the API and MCP, a one-time consent page and the account page's list. The MCP's sign-in uses it next (MCP sign-in without a key) |
 | planned | Must | | Sign-in apps in the dashboard | Sign in with Zaisma | The dashboard's form for sign-in apps, on the same API |
 | done | Must | yes | Social modes and age bands | Age question | Live Oct 16, 2026 (#162, migration 0039): three age bands (13–15, 16–17, 18+) and a social mode on every account, chosen at signup from 16 and changed on the account page; 13–15 start solo-focused and can switch only to friends-focused. The pass carries the social mode and an opaque chat group, never the age; `canChat(a, b)` in the game server package |
 | next | Must | yes | Saves through the API | Cloud saves, Developer accounts | Developers list, read, change (some keys or the whole save) and reset their game's saves by player ID, and read and restore earlier versions (API and MCP); a change keeps a copy first and reloads an open game with no dialog. Saves and the game database stay separate |
@@ -201,13 +205,13 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 
 | Status | Must/Nice | Settled | Item | Needs | Notes |
 | --- | --- | --- | --- | --- | --- |
-| done | Must | | Connect image matching | Gleb: sign up for Arachnid Shield | Live Oct 14, 2026: every picture and video in an upload (by name, by its first bytes, or as base64 in code), plus covers and screenshots, matched with Arachnid Shield before publishing; a match holds the version, keeps every file and sends an urgent alert; a daily job matches versions that passed before |
+| done | Must | yes | Connect image matching | Gleb: sign up for Arachnid Shield | Live Oct 14, 2026: every picture and video in an upload (by name, by its first bytes, or as base64 in code), plus covers and screenshots, matched with Arachnid Shield before publishing; a match holds the version, keeps every file and sends an urgent alert; a daily job matches versions that passed before |
 | planned | Must | | Report matches to NCMEC automatically | Connect image matching, Gleb: register with NCMEC | Until then Julius reports matches at report.cybertip.org. PhotoDNA joins the matching once the LLC's records go through |
 | done | Must | | Player safety in rooms | Client SDK | Mute, block and report a player; a ready-made panel games put in their own menu |
-| done | Must | | Report redesign | | Live Oct 12, 2026: a plate beside the running game; reports carry the version, room, reported player and an optional picture. No single report takes an established game offline |
-| done | Must | | AI report triage | Report redesign | Live Oct 12, 2026: reports sorted within minutes by severity, merged and summarized with a recommendation; bugs go to the developer by themselves. Child-safety reports are never sorted by AI |
-| done | Must | | Report precedents | AI report triage | Live Oct 12, 2026: triage follows rulings a person made; dismissals marked for the AI alone happen without a person, with spot-checks. Child safety is never automatic and takedowns always need a person |
-| done | Must | | Admin MCP | AI report triage | Live Oct 12, 2026 at zaisma.com/admin/mcp: reports, games and precedents in a Claude session, signed in through Cloudflare Access (docs/ADMIN-MCP.md) |
+| done | Must | yes | Report redesign |  | Live Oct 12, 2026: a plate beside the running game; reports carry the version, room, reported player and an optional picture. No single report takes an established game offline |
+| done | Must | yes | AI report triage | Report redesign | Live Oct 12, 2026: reports sorted within minutes by severity, merged and summarized with a recommendation; bugs go to the developer by themselves. Child-safety reports are never sorted by AI |
+| done | Must | yes | Report precedents | AI report triage | Live Oct 12, 2026: triage follows rulings a person made; dismissals marked for the AI alone happen without a person, with spot-checks. Child safety is never automatic and takedowns always need a person |
+| done | Must | yes | Admin MCP | AI report triage | Live Oct 12, 2026 at zaisma.com/admin/mcp: reports, games and precedents in a Claude session, signed in through Cloudflare Access (docs/ADMIN-MCP.md) |
 | planned | Must | | No-slop cover and title checks | Game details and device labels | AI review checks covers; real screenshots on every game page. Fake rewards and brands the developer doesn't own hold the game; other slop keeps it off the shelves until the cover is fixed |
 | planned | Must | | Chat rules | | In the content rules and the AI review: chat only for accounts, through Zaisma's chat hosting or with `canChat` and the filter on a developer's own server. Until those ship (Phase 3), games offer preset phrases and emotes |
 
@@ -217,7 +221,7 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 
 | Status | Must/Nice | Settled | Item | Needs | Notes |
 | --- | --- | --- | --- | --- | --- |
-| done | Must | | Basic play stats | | Live Oct 13, 2026: plays, session length and players coming back, counted by the game page with no player IDs; in the dashboard, API and MCP |
+| done | Must | yes | Basic play stats |  | Live Oct 13, 2026: plays, session length and players coming back, counted by the game page with no player IDs; in the dashboard, API and MCP |
 | done | Must | yes | Play-count protection | Basic play stats | Live Oct 13, 2026: Cloudflare's invisible check on Play, a ticket per play, a minute on screen; shelves skip cloud networks; spike alerts and a content rule against faking plays |
 | planned | Nice | | Stats export and game events | Basic play stats | Daily counts through the API to export, and games counting their own events (`Zaisma.track`, no player IDs) next to plays |
 
@@ -227,10 +231,10 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 
 | Status | Must/Nice | Settled | Item | Needs | Notes |
 | --- | --- | --- | --- | --- | --- |
-| done | Must | | Design system | | Steel (docs/DESIGN.md): a console-style big-screen theme lit by the game on screen. Live on the home, game, dashboard and account pages; other pages move over as they're rebuilt |
-| done | Must | | Continue playing | | The games you played most recently, on the home page, sorted by recently played or updated, with an "Updated" badge |
-| done | Must | | Home page | Design system, Continue playing | The last-played stage with Play and Details, Continue playing, and Popular, Trending, New and All games shelves. Cards are the developer's cover alone; only Play starts a game |
-| done | Must | | Patch notes | | Version notes become patch notes in the game page's Updates tab |
+| done | Must | | Design system | | Steel (docs/DESIGN.md): a console-style big-screen theme lit by the game on screen. Live on the home, game, dashboard and account pages; other pages move over as they're rebuilt. Left unsettled on purpose: Steel is the look while Phase 1 is built, and it's revisited near the end of Phase 1, before the beta, so it reflects the turns Zaisma's identity takes until then (Julius, Oct 16, 2026). Sorts of done items skip it until then |
+| done | Must | yes | Continue playing |  | The games you played most recently, on the home page, sorted by recently played or updated, with an "Updated" badge |
+| done | Must | yes | Home page | Design system, Continue playing | The last-played stage with Play and Details, Continue playing, and Popular, Trending, New and All games shelves. Cards are the developer's cover alone; only Play starts a game |
+| done | Must | yes | Patch notes |  | Version notes become patch notes in the game page's Updates tab |
 | planned | Must | | Game update posts | Patch notes | Developers post a title, a short text and an optional image (checked like covers) |
 | done | Must | | Friends | Sign-in, Social modes and age bands | Live Oct 16, 2026 (#168, migration 0042): the friend list and invites on zaisma.com, a link or code for one friend, never a stranger pressing Add. Passes carry friends for `canChat` |
 | planned | Must | | Friends playing now | Friends | What game and room each friend is in, with a Join button, and appearing offline; only friends see where a teen is playing |
