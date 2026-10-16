@@ -12,7 +12,7 @@ Who a player is came first: the pass, the player ID and the sign-in that saves, 
 
 1. Webhooks for developers (Developer publishing)
 2. Friends (Polish before outreach)
-3. Game server endpoints and schedules (Game servers and data)
+3. Game server endpoints (Game servers and data)
 4. Sign-in from games (Accounts and saves)
 5. Saves through the API (Accounts and saves)
 6. Scoped API keys (Developer publishing)
@@ -165,7 +165,8 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | done | Must | Game database for game servers | Rooms on rooms.zaisma.com | Live Oct 16, 2026 (#163, no migration): a SQLite database per game as `room.database` (plain SQL and batches), in Zaisma rooms and as a local file on the developer's own server. Free per game: 500,000 rows written and 500 million read a month, 500 MB; until Hosting billing, past them writes stop and reads keep working (Julius, Oct 16, 2026) |
 | done | Must | Game database through the API | Game database for game servers | Live Oct 16, 2026 (#164, no migration, CLI 0.5.0): the developer and their AI run SQL, list tables and see use against the free limits, through the API, MCP (`get_database`, `query_database`, `batch_database`) and `zaisma database` |
 | next | Must | Game database import and export | Game database through the API | Data in and out of a game's database, and a dashboard page that reads the same API |
-| next | Must | Game server endpoints and schedules | Developers' own game servers run safely | Plain requests to the game's server code (leaderboards, a shop, daily rewards) and schedules (daily resets, persistent worlds), with the game database behind it; the same code runs on the developer's own server |
+| doing | Must | Game server endpoints | Developers' own game servers run safely | Plain requests from the game to its server code (leaderboards, a shop, daily rewards), with the game database behind it; the same code runs on the developer's own server. Free per game: 1 million requests a month (Julius, Oct 16, 2026) |
+| planned | Must | Game server schedules | Game server endpoints | The game's server code runs on a schedule (daily resets, persistent worlds), on Zaisma and on the developer's own server |
 | planned | Must | Game server reach and secrets | Developers' own game servers run safely | Game servers can call the developer's own listed servers and payment providers, with secrets set per game and never shown again. Still nothing of ours inside |
 
 ### Accounts and saves

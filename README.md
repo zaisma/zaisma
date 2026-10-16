@@ -64,6 +64,7 @@ export default {
   onLeave(state, player, room, leaveInfo) {},  // leaveInfo.reason: left, lost, idle, hidden or kicked
   onMessage(state, player, message, room) {},
   onTick(state, tickDurationSec, room) {},     // tickDurationSec: seconds since the last tick
+  onRequest(player, request, server) {},       // a request outside any room (Zaisma.server.request): answer it (below)
 };
 // room.broadcast(message, { exceptPlayerId }), room.send(playerId, message), room.players, room.end(message),
 // room.setListed(false), room.setOpen(false), room.reserve({ playerIds, setupData }),
@@ -95,7 +96,7 @@ zaisma-server/
 ```
 
 - **Plain JavaScript ES modules:** `zaisma-server/index.js` default-exports the game server above, and can import the folder's other files by relative path: `.js` code, `.json` data (`import levels from "./levels.json"`) and `.wasm` WebAssembly, like a physics engine (`import mod from "./physics.wasm"` gives a `WebAssembly.Module`; `new WebAssembly.Instance(mod, imports)` starts it). Packages from npm (`import "lodash"`) and TypeScript need a build step: bundle into one `zaisma-server.js` at the top of the upload instead (`npx esbuild server.ts --format=esm --bundle --outfile=zaisma-server.js`). Up to 500 files and 5 MB.
-- **Sealed off:** no internet and nothing of Zaisma's but its own game's database, so it only talks to its players through `room`. State is plain JSON.
+- **Sealed off:** no internet and nothing of Zaisma's but its own game's database, so it only talks to its players through `room` and its answers to their requests. State is plain JSON.
 - **Private:** players never get its files; the game domain refuses `zaisma-server/` and `zaisma-server.js`.
 - **Kept in check:** an error in a handler loses that one message or tick and the match carries on. A handler that runs on too long (a loop that never ends) is stopped after about 2 seconds, freezing the match meanwhile, and a match stopped twice ends. Your dashboard and the MCP's `get_stats` show these errors with the file and line they came from.
 - **Updates:** rooms keep the version they started with until they end; new rooms get the live version.
@@ -202,6 +203,34 @@ Zaisma.joinRoom({ idleCheckEnabled: false }); // no "Still there?" in this game 
 ```
 
 Your own clients follow the same protocol: send the text `ping` every 30 seconds or so (the room answers `pong`), `{"type":"idle"}`, `{"type":"hidden"}` and `{"type":"shown"}` as they happen, and `{"type":"back"}` when the player returns. Errors from the room are `{"type":"error","code":"full","message":"This room is full."}`, with codes in lowercase snake_case: `full`, `closed`, `ended`, `kept_out`, `refused`, `month_limit`, `bad_pass`, `no_hello`, `bad_message`, `too_big`, `too_fast`, `not_allowed`, `game_unavailable`, `busy` and `no_room`.
+
+#### Requests to your game server
+
+Not everything needs a room. A game's own game server can also answer plain requests from the game, for a leaderboard, a shop or a daily reward, in single-player games too. Give it `onRequest`, and the game calls it with `Zaisma.server.request`:
+
+```js
+// zaisma-server/index.js (or zaisma-server.js)
+export default {
+  async onRequest(player, request, server) {
+    await server.database.query("CREATE TABLE IF NOT EXISTS rewards (player_id TEXT PRIMARY KEY, claimed_date TEXT NOT NULL)");
+    if (request.type === "claimDailyReward") {
+      const today = new Date().toISOString().slice(0, 10);
+      const [claimed] = await server.database.query("INSERT INTO rewards VALUES (?, ?) ON CONFLICT (player_id) DO UPDATE SET claimed_date = excluded.claimed_date WHERE claimed_date < excluded.claimed_date RETURNING player_id", [player.id, today]);
+      return { isClaimed: Boolean(claimed) };
+    }
+    return { error: "unknown request" };
+  },
+};
+
+// In the game:
+const { isClaimed } = await Zaisma.server.request({ type: "claimDailyReward" });
+```
+
+- **`onRequest(player, request, server)`** answers what the game gets back: plain JSON, up to 1 MB, within 10 seconds. `player` is who sent it, from their player pass, so a player can't claim someone else's reward. `request` is the game's plain JSON, up to 16 KB, from the player's browser, so check it like any message and say what it's for in its `type`. There's no room and no state: what lasts goes in `server.database`, the same game database the game's rooms use.
+- **Rooms or not:** a game server with only `onRequest` needs no `setup()` and runs no rooms; one with both does both. Requests work whatever the game's multiplayer setting, as long as its live version has the game server in its `zaisma-server/` folder or `zaisma-server.js`, run in the same sealed sandbox as its rooms.
+- **Errors:** the game gets an `error.code`: `no_request_handler` (no `onRequest`), `game_server_error` (it threw, answered something that isn't plain JSON or over 1 MB, or took over 10 seconds; you see why with your game server's errors in the dashboard and `get_stats`, with the file and line), `request_limit`, `too_big`, `slow_down` (over about 120 a minute from one address) and the pass's own (`unchecked`, `account_needed`, `bad_pass`). A game server that keeps running on too long (a loop that never ends) is paused for a few minutes.
+- **Free on Zaisma up to 1 million requests a month per game.** Until hosting billing is ready, past them requests answer `request_limit` until the month resets (UTC). Your dashboard and `get_stats` show the month's count.
+- **On your own server** the Node runner answers the same requests at `POST /v1/requests/<game>` on its port, with `server.database` its local SQLite file: `Zaisma.server.request(request, { serverUrl: "https://play.example.com" })`. Any server can answer them the same way: the body is `{ pass, request }` as JSON (sent as `text/plain`, so browsers need no preflight), and the answer `{ answer }` or `{ error: { code, message } }`.
 
 #### Run your game server yourself
 

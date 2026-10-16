@@ -1,5 +1,7 @@
 // Arena game server: a real-time top-down arena for 2–8 players. Dash into
-// other players to bump them off the platform. Ticks 20 times a second.
+// other players to bump them off the platform. Ticks 20 times a second. Each
+// player's best score goes in the game's database, and the game asks for the
+// best scores board with a request (onRequest), outside the room.
 // Only plain JavaScript plus type annotations, so Node can run it as-is.
 import type { GameServer, Player, Room } from "@zaisma/game-server";
 
@@ -13,6 +15,7 @@ const DASH_DURATION_SEC = 0.25;
 const RESPAWN_DELAY_SEC = 1.5;
 const BOT_COUNT_WHEN_ALONE = 2;
 const COLORS = ["#ff5d5d", "#4fc3ff", "#ffd84f", "#7dff8a", "#d07bff", "#ff9e4f", "#4fffe1", "#ff7bc4"];
+const BEST_SCORES_TABLE = "CREATE TABLE IF NOT EXISTS best_scores (player_id TEXT PRIMARY KEY, name TEXT NOT NULL, best_score INTEGER NOT NULL)";
 
 interface Body {
   name: string;
@@ -116,9 +119,26 @@ const arena: GameServer<State> = {
     fillBots(state, room);
   },
 
-  onLeave(state, player, room) {
+  // A player's best score is kept in the game's database, for the best scores board (onRequest).
+  async onLeave(state, player, room) {
+    const score = state.bodies[player.id]?.score ?? 0;
     delete state.bodies[player.id];
     fillBots(state, room);
+    if (score > 0) {
+      await room.database.query(BEST_SCORES_TABLE);
+      await room.database.query(
+        "INSERT INTO best_scores VALUES (?, ?, ?) ON CONFLICT (player_id) DO UPDATE SET name = excluded.name, best_score = max(best_score, excluded.best_score)",
+        [player.id, player.name, score],
+      );
+    }
+  },
+
+  // The best scores board, outside any room: Zaisma.server.request({ type: "bestScores" }) in the game.
+  async onRequest(player, request, server) {
+    if ((request as { type?: unknown } | null)?.type !== "bestScores") return null;
+    await server.database.query(BEST_SCORES_TABLE);
+    const rows = await server.database.query("SELECT player_id, name, best_score FROM best_scores ORDER BY best_score DESC LIMIT 10");
+    return rows.map((row) => ({ name: row.name, bestScore: row.best_score, isMe: row.player_id === player.id }));
   },
 
   onMessage(state, player, message) {

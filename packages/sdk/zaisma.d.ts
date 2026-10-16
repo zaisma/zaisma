@@ -90,6 +90,9 @@ declare namespace Zaisma {
   /** Room browsing: the game's listed rooms, which show on its Zaisma page and to the game itself. */
   const rooms: Rooms;
 
+  /** The game's own game server outside any room: requests to its onRequest. */
+  const server: Server;
+
   /**
    * Invite friends: opens the share sheet on phones, otherwise copies the room's invite link (the
    * game's page without a room). Call it from a button in your game, like on a "waiting for players" screen.
@@ -213,6 +216,38 @@ declare namespace Zaisma {
      * Zaisma.rooms.quickJoin({ region: "EU", labels: { Mode: "Classic" } });   // a room like that with space, else a new one with those labels
      */
     quickJoin(quickJoinOptions?: QuickJoinOptions): Promise<Room>;
+  }
+
+  /** The game's own game server outside any room ({@link server}). */
+  interface Server {
+    /**
+     * Send a request to the game's own game server, its onRequest(player, request, server), outside
+     * any room, and get back what it answers: for a leaderboard, a shop or a daily reward, in
+     * single-player games too. The player's pass goes with it, so the server knows who's asking and
+     * the player can't pretend to be someone else. The request is plain JSON, up to 16 KB; say what
+     * it's for in its type, like a room message. On Zaisma, the game server is the one in your
+     * upload's zaisma-server/ folder (or zaisma-server.js); give serverUrl for your own.
+     *
+     * Fails with error.code: no_request_handler (the game server has no onRequest), game_server_error
+     * (onRequest threw, answered something that isn't plain JSON or over 1 MB, or took over 10
+     * seconds; you see why with the game server's errors), request_limit (the game has used this
+     * month's free requests, 1 million on Zaisma), too_big, bad_request (not plain JSON), slow_down
+     * (over about 120 a minute from one address), bad_pass, account_needed, unchecked,
+     * game_unavailable, bad_origin, busy, bad_server_url, not_on_zaisma (no serverUrl outside
+     * Zaisma), unknown_option and request_failed.
+     *
+     * @example
+     * const top = await Zaisma.server.request({ type: "leaderboard" });
+     * const { coinCount } = await Zaisma.server.request({ type: "claimDailyReward" });
+     * Zaisma.server.request({ type: "buy", itemId: "sword" }, { serverUrl: "https://play.example.com" }); // your own server
+     */
+    request(request: unknown, requestOptions?: RequestOptions): Promise<unknown>;
+  }
+
+  /** Options for {@link Server.request}. */
+  interface RequestOptions {
+    /** Your own game server's address, like "https://play.example.com", instead of Zaisma's. The Node runner answers requests on the same port as its rooms. */
+    serverUrl?: string;
   }
 
   /** A room the player is in: one live match, running one copy of the game server. */
@@ -459,6 +494,33 @@ declare namespace Zaisma {
     | "no_room";
 
   /**
+   * The codes a request's errors have ({@link Server.request}), from Zaisma or the Node runner alike:
+   * - bad_request: not plain JSON with the player's pass.
+   * - too_big: a request over 16 KB.
+   * - bad_pass: the player pass wasn't accepted (the SDK gets a new one and tries once more).
+   * - account_needed: the player is a guest, and the game needs a Zaisma account for multiplayer or the whole game.
+   * - game_unavailable: the game can't be played right now.
+   * - no_request_handler: the game's server has no onRequest.
+   * - game_server_error: onRequest threw, answered something that isn't plain JSON or over 1 MB, or took over 10 seconds.
+   * - request_limit: the game has used this month's free requests; they work again next month (UTC).
+   * - slow_down: too many requests from this address; try again in a minute.
+   * - bad_origin: the request didn't come from the game's own page.
+   * - busy: Zaisma couldn't answer right now; try again soon.
+   */
+  type RequestErrorCode =
+    | "bad_request"
+    | "too_big"
+    | "bad_pass"
+    | "account_needed"
+    | "game_unavailable"
+    | "no_request_handler"
+    | "game_server_error"
+    | "request_limit"
+    | "slow_down"
+    | "bad_origin"
+    | "busy";
+
+  /**
    * The codes the SDK's errors have: a room's ({@link RoomErrorCode}), and:
    * - unchecked: no player pass, because the game isn't played on its zaisma.com page or Zaisma couldn't check the browser.
    * - unknown_option, unknown_event: a call the SDK doesn't take; the message lists what it does.
@@ -471,9 +533,11 @@ declare namespace Zaisma {
    * - bad_server_url: a serverUrl that isn't a full wss://, ws://, https:// or http:// address.
    * - connection_closed: the connection to the room closed before it let the player in; the message says why.
    * - request_failed: Zaisma didn't answer (no connection, or a problem on Zaisma's side); try again.
+   * - And a request's ({@link RequestErrorCode}).
    */
   type ErrorCode =
     | RoomErrorCode
+    | RequestErrorCode
     | "unchecked"
     | "unknown_option"
     | "unknown_event"
