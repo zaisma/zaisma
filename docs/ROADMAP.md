@@ -6,11 +6,10 @@ The live plan of what gets built, in what order. `docs/DECISIONS.md` says *how* 
 
 Who a player is comes first: the pass, the player ID and the sign-in that saves, friends, the game database and webhooks all build on, settled before anything else builds on them (Julius, Oct 16, 2026). After these, the rest of Phase 1 goes in any order.
 
-1. Accounts-only games (Accounts and saves)
-2. Sign in with Zaisma (Accounts and saves)
-3. Social modes and age bands (Accounts and saves)
-4. Game database (Game servers and data)
-5. Webhooks for developers (Developer publishing)
+1. Sign in with Zaisma (Accounts and saves)
+2. Social modes and age bands (Accounts and saves)
+3. Game database (Game servers and data)
+4. Webhooks for developers (Developer publishing)
 
 Waiting on people: Gleb: register with NCMEC, Gleb: register the DMCA agent, Julius: send PhotoDNA the LLC's records.
 
@@ -173,7 +172,7 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | done | Must | Passkeys | Sign-in | Face ID or fingerprint to sign back in, checked on our server; the email code stays for new accounts and lost devices |
 | done | Nice | Google and Discord sign-in | Sign-in, Age question | Through Supabase, with the age question still first for new accounts |
 | done | Must | Account passes | Sign-in, Player passes | Live Oct 16, 2026 (#159, migration 0036): one player ID per account, the same in every game; signed-in players get passes that are proof only (the ID, the game, when it expires), taken by Zaisma rooms and the Node game server; a public profile lookup by player ID at rooms.zaisma.com/v1/players, in the API, MCP and SDK |
-| doing | Must | Accounts-only games | Account passes | A game setting: guests welcome, accounts for multiplayer or accounts for the whole game. Guests of such a game get no player passes; the game page says "Needs a Zaisma account" before Play and asks guests to sign in. Site copy that says every game plays as a guest changes with it |
+| done | Must | Accounts-only games | Account passes | Live Oct 16, 2026 (#160, migration 0037): a game setting (account_requirement) for guests welcome, accounts for multiplayer or accounts for the whole game, in the API, MCP and dashboard; guests of such a game get no player passes; the game page says "Needs a Zaisma account" before Play and asks guests to sign in; site copy no longer says every game plays as a guest |
 | planned | Must | Accounts-only rooms | Accounts-only games | One room takes only accounts, set from the SDK or the game server, on Zaisma rooms and the developer's own server |
 | planned | Must | Sign-in from games | Accounts-only games | `Zaisma.player.signIn()`: a game asks a guest to sign in without leaving it, then gets an account pass |
 | next | Must | Sign in with Zaisma | Account passes | One OAuth server for developers' own sites, games with their own accounts and the MCP |
