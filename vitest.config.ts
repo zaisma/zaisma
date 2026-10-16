@@ -1,6 +1,18 @@
 import { cloudflareTest, readD1Migrations } from "@cloudflare/vitest-plugin";
+import { build } from "esbuild";
 import { defineConfig } from "vitest/config";
 import { generateSigningKey } from "./packages/game-server/src/pass.ts";
+
+// The site reaches games' databases in the rooms Worker through a service binding. Its tests get the
+// real database code as a second Worker of that name, bundled here (test/site/rooms-database-worker.ts).
+const roomsDatabaseBundle = await build({ entryPoints: ["test/site/rooms-database-worker.ts"], bundle: true, format: "esm", platform: "neutral", mainFields: ["module", "main"], external: ["cloudflare:*", "node:*"], write: false });
+const roomsDatabaseWorker = {
+  name: "zaisma-rooms",
+  modules: [{ type: "ESModule" as const, path: "rooms-database-worker.mjs", contents: roomsDatabaseBundle.outputFiles[0]!.text }],
+  compatibilityDate: "2026-10-01",
+  compatibilityFlags: ["nodejs_compat"],
+  durableObjects: { GAME_DATABASES: { className: "GameDatabaseObject", useSQLite: true } },
+};
 
 const migrations = await readD1Migrations("migrations");
 // A throwaway pass signing key for tests. The real one is a Worker secret.
@@ -59,6 +71,7 @@ export default defineConfig({
         // Tests run scans themselves. Wrangler's options are merged one level deep, so the queue's
         // consumer can't be removed; instead uploads send their scan jobs to a queue nothing reads.
         queueProducers: { SCAN_QUEUE: { queueName: "zaisma-scan-in-tests" } },
+        workers: [roomsDatabaseWorker],
       }),
       worker("games", "apps/games/wrangler.jsonc", { SITE_ORIGIN: "https://zaisma.test", ROOMS_ORIGIN: "https://rooms.zaisma.test", GAME_HOST_MODE: "path", GAME_DOMAIN: "" }),
       worker("core", "apps/games/wrangler.jsonc"),

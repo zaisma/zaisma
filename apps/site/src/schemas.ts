@@ -259,6 +259,40 @@ export const STATS = object({
   ),
 });
 
+/** A game database's answer to one statement. */
+export const STATEMENT_RESULT = object({
+  rows: list(
+    {
+      type: "object",
+      additionalProperties: { anyOf: [{ type: ["string", "number", "null"] }, object({ blob_base64: text("The bytes, base64-encoded.") })] },
+      description: "One row, by column name: text, a number, null, or { blob_base64 } for a blob.",
+    },
+    "What the statement answered: a SELECT's rows, or a change's with RETURNING; [] for none.",
+  ),
+  read_row_count: countOf("Rows the statement read, as Cloudflare counts them towards the month's free reads."),
+  written_row_count: countOf("Rows it wrote, counting each index changed, towards the month's free writes."),
+});
+
+export const DATABASE = object({
+  tables: list(object({ name: text(), sql: text("Its CREATE TABLE, as SQLite keeps it.") }), "The game's tables, by name."),
+  indexes: list(object({ name: text(), table_name: text(), sql: text("Its CREATE INDEX, as SQLite keeps it.") }), "Indexes made with CREATE INDEX, by name."),
+  database_use_this_month: object(
+    {
+      read_row_count: countOf(),
+      written_row_count: countOf(),
+      storage_size_bytes: countOf("The database's size now."),
+      free_read_row_count: countOf(),
+      free_written_row_count: countOf(),
+      free_storage_size_bytes: countOf(),
+      has_reached_free_reads: yes("Until hosting billing is ready, past them queries stop (game servers' and the API's) until reset_date."),
+      has_reached_free_writes: yes("Past them writes stop until reset_date; reads keep working."),
+      has_reached_free_storage: yes("At it the database can change and delete rows but not grow."),
+      reset_date: date("When the month's reads and writes start again from 0 (UTC)."),
+    },
+    "This calendar month (UTC), against the free use every game has.",
+  ),
+});
+
 export const REPORTS = object({
   period_duration_days: countOf(),
   reasons: list(

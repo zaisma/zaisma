@@ -4,7 +4,7 @@ import { usesRooms } from "./registry.ts";
 import type { GameDatabaseObject } from "./database.ts";
 
 export { Room } from "./room.ts";
-export { GameDatabaseObject, GameDatabaseBinding } from "./database.ts";
+export { GameDatabaseObject, GameDatabaseBinding, GameDatabaseService } from "./database.ts";
 
 export interface Env {
   DB: D1Database;

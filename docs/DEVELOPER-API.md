@@ -12,7 +12,7 @@ Any AI tool that supports remote MCP servers can manage your games at `https://z
 claude mcp add --transport http zaisma https://zaisma.com/mcp --header "Authorization: Bearer $ZAISMA_KEY"
 ```
 
-Every tool is a call to this API (`apps/site/src/mcp.ts`): `list_games`, `create_game`, `get_game`, `update_game`, `upload_files` (small games up to 5 MB, sent as file contents), `get_version`, `publish_version` (also rolls back and publishes later), `cancel_scheduled_publish`, `add_image`, `remove_image`, `add_tester_link`, `remove_tester_link`, `get_reports`, `get_stats`, `get_history`, and the developer forum's `search_forum`, `get_topic`, `post_topic`, `message_zaisma`, `reply_to_topic`, `vote`, `mark_helpful`, `report_post`, `forum_people`, `still_happening`, `flag_misplaced`, `follow_topic` and `mark_answer` (see The developer forum below). Bigger builds go through the upload command. Making a game players can play private or a draft again needs `"confirm": true`, so the AI asks you first.
+Every tool is a call to this API (`apps/site/src/mcp.ts`): `list_games`, `create_game`, `get_game`, `update_game`, `upload_files` (small games up to 5 MB, sent as file contents), `get_version`, `publish_version` (also rolls back and publishes later), `cancel_scheduled_publish`, `add_image`, `remove_image`, `add_tester_link`, `remove_tester_link`, `get_reports`, `get_stats`, `get_history`, `get_player`, the sign-in apps' `list_sign_in_apps`, `create_sign_in_app`, `update_sign_in_app` and `delete_sign_in_app`, the game database's `get_database`, `query_database` and `batch_database` (see The game database below), and the developer forum's `search_forum`, `get_topic`, `post_topic`, `message_zaisma`, `reply_to_topic`, `vote`, `mark_helpful`, `report_post`, `forum_people`, `still_happening`, `flag_misplaced`, `follow_topic` and `mark_answer` (see The developer forum below). Bigger builds go through the upload command. Making a game players can play private or a draft again needs `"confirm": true`, so the AI asks you first.
 
 Every tool has an output schema, and answers are compact JSON. Arguments are closed: one a tool doesn't take is refused (`unknown_field`, with the arguments it does take), never quietly dropped, and a missing required one is `missing_field`. A refused call is a tool result with `isError: true`, the error object below as its `structuredContent` and its message, fix and code as its text; each tool's listed output schema is its answer or that error, because MCP clients check both against it. The tools that are easy to get wrong (`update_game`, `upload_files`, `publish_version`, `search_forum`, `post_topic`) carry good examples in their input schema and bad ones at the end of their description.
 
@@ -155,6 +155,19 @@ The HTTP status goes with the code, as listed. The list lives in `ERROR_CODES` (
 | `bad_replace_client_secret` | 400 | replace_client_secret isn't true or false, or the app is public and has no client secret. |
 | `too_many_sign_in_apps` | 403 | The account has 20 sign-in apps already. |
 | `no_sign_in_app` | 404 | You have no sign-in app with that ID. |
+
+**The game database**
+
+| Code | HTTP | Meaning |
+| --- | --- | --- |
+| `bad_sql` | 400 | The SQL isn't one statement SQLite takes, or statements isn't a list of { sql, values }. |
+| `bad_values` | 400 | values isn't a list of text, numbers, null and { blob_base64 } for the SQL's ?s. |
+| `too_many_rows` | 400 | A statement answered more than 10,000 rows. |
+| `answer_too_big` | 400 | The rows answered come to more than 8 MB. |
+| `database_write_limit` | 429 | The game's database has written its free rows this month, so writes wait for the next. |
+| `database_read_limit` | 429 | The game's database has read its free rows this month, so queries wait for the next. |
+| `database_storage_limit` | 403 | The statement would grow the game's database past its free storage. |
+| `database_unavailable` | 503 | The game's database didn't answer. |
 
 **The developer forum**
 
@@ -317,7 +330,7 @@ A game looks like: `slug`, `page_url`, `title`, `description`, `visibility`, `re
 - **play_modes:** how it's played, shown on the game page with icons: a list with one entry per way to play, like `[{"mode": "single"}, {"mode": "online", "minimum_player_count": 2, "maximum_player_count": 4, "play_style": "co-op"}]`. `mode` is `single`, `local` (together on one device or screen) or `online` (each on their own device). `single` takes no counts; the others need `minimum_player_count` (2 or more) and `play_style` (`co-op`, `versus` or `both`), and `maximum_player_count: null` means no limit ("2+ players"). Answers give every key, `null` where it doesn't apply. `null` clears it.
 - **devices:** any of `phone`, `tablet`, `computer`. **controls:** any of `touch`, `keyboard_mouse`, `gamepad`. **screen_orientation:** `portrait`, `landscape`, `either` or `null` (not set).
 - **cloud_saves_enabled:** `true` (the default) copies signed-in players' browser saves to their account, so their progress follows them to any device with no code in the game. It covers localStorage and IndexedDB (Unity, Godot and localForage saves included; databases with "cache" in the name, like Unity's download cache, are skipped), up to 5 MB per player. Set `false` for games that keep their own saves on a server.
-- **multiplayer_mode:** `none`, `relay` (Zaisma passes each message to the others, no server code) or `own`: your game server, from the live version's `zaisma-server/` folder (`index.js` first, importing the folder's other `.js`, `.json` and `.wasm` files) or one `zaisma-server.js`, runs on Zaisma rooms in a sandbox with no internet, with the game's own SQLite database as `room.database` (see "Your game server on Zaisma" and "The game database" in the README; reading and changing it through this API comes next). If the live version has no game server, or one over 500 files or 5 MB, the change is saved and `game_server_problem` says why; rooms open once a version that works is published. Games already on a game server built into Zaisma show `built-in` and can't change it themselves. Rooms on the old setting end within a minute.
+- **multiplayer_mode:** `none`, `relay` (Zaisma passes each message to the others, no server code) or `own`: your game server, from the live version's `zaisma-server/` folder (`index.js` first, importing the folder's other `.js`, `.json` and `.wasm` files) or one `zaisma-server.js`, runs on Zaisma rooms in a sandbox with no internet, with the game's own SQLite database as `room.database` (see "Your game server on Zaisma" and "The game database" in the README, and The game database below to read and change it yourself). If the live version has no game server, or one over 500 files or 5 MB, the change is saved and `game_server_problem` says why; rooms open once a version that works is published. Games already on a game server built into Zaisma show `built-in` and can't change it themselves. Rooms on the old setting end within a minute.
 - **room_browsing:** for games on Zaisma rooms (`multiplayer_mode` other than `none`), where open rooms are listed so players can join them: `page` (the default) on the game page and to the game through `Zaisma.rooms.list()`, `game` only to the game (for games with their own lobby or server browser), or `off`. Room codes and invite links work either way, and the game can hide single rooms itself (see Multiplayer in the README). Whatever the setting, the game page says how many are playing now once it's 3 or more (no names). Rooms on your own servers aren't listed or counted.
 - **account_requirement:** what the game needs a Zaisma account for. `none` (the default): guests play everything, and signed-in players play as their account. `multiplayer`: guests play alone; only signed-in players get player passes, so a guest's `Zaisma.player()` and `Zaisma.joinRoom()` fail with `error.code` `"account_needed"` (show your own message), and room links ask guests to sign in first. `whole_game`: the game page says "Needs a Zaisma account" and Play asks guests to sign in first; only signed-in players get player passes. Passes are the backstop: Zaisma rooms also turn away guest passes given before the change, and your own servers can check a pass's `kind` claim for the same. Players under 13 can't make accounts, so they can't play games that need one.
 - Once players can see a game, a new title or description waits for review (`details_waiting_for_review`, with `title` and `description`, `null` for the one that didn't change) before it shows.
@@ -366,6 +379,22 @@ Players sign in to your own site, server or app with their Zaisma account, and y
 - **Scopes:** `openid` (the player ID) and `profile` (the player's name). Ask for `"openid profile"`. Zaisma never shares an email, an age or anything else on the account, so `email` and other scopes are refused with `invalid_scope`.
 - **What you get:** an ID token (RS256, keys at `/.well-known/jwks.json`) with `sub` (the player ID, a `player_…` ID, the same as in their player passes and `GET /players/:player_id`), `name` with the profile scope, `nonce` when you sent one, and `auth_time`; and an access token for `/oauth/userinfo`, which answers the same `sub` and `name`. Both last an hour; there are no refresh tokens, so keep your own session.
 - **Players decide:** the first sign-in to an app asks the player; later ones go straight back. Players see the apps they signed in to on their account page and can remove any, which stops `/oauth/userinfo` for that app at once. `prompt=none` answers `login_required` or `consent_required` instead of showing a page, and `prompt=consent` asks again. Codes work once, for 2 minutes. Deleting an account removes the player's yeses; deleting yours removes your apps.
+
+## The game database
+
+Every game has its own SQLite database, part of its hosting: the one its game servers use as `room.database` (see "The game database" in the README), empty until something writes to it. You and your AI reach the same database here, live, with the same checks and limits as game servers: look at its tables, query it, fix data and change its tables.
+
+| Call | What it does |
+| --- | --- |
+| `GET /games/:slug/database` | `tables` (`{"name", "sql"}`, the `sql` being its `CREATE TABLE`), `indexes` (`{"name", "table_name", "sql"}`, only ones made with `CREATE INDEX`), and `database_use_this_month`: `read_row_count`, `written_row_count` and `storage_size_bytes` beside the free `free_read_row_count`, `free_written_row_count` and `free_storage_size_bytes`, `has_reached_free_reads`, `has_reached_free_writes`, `has_reached_free_storage`, and `reset_date`, when the month's counts start again (UTC). No row counts, because counting reads every row: query `SELECT count(*)` when you need one. |
+| `POST /games/:slug/database/query` | Run one statement: `{"sql", "values"}`. Answers `rows` (a `SELECT`'s, or a change's with `RETURNING`; `[]` for none), `read_row_count` and `written_row_count` (what it counts towards the month's free use), and `next_steps`. |
+| `POST /games/:slug/database/batch` | Run up to 100 statements in one transaction, `{"statements": [{"sql", "values"}]}`: all of them happen, or, if one fails, none do. Answers `statement_results`, one `{"rows", "read_row_count", "written_row_count"}` per statement, in order. |
+
+- **values** fill the `?`s in order: text, numbers, `null`, or `{"blob_base64": "…"}` for bytes. Blobs come back the same way. SQLite has no true or false (send 1 or 0), and an object goes in as JSON text, read back with SQLite's JSON functions. Put values in `values`, never into the SQL.
+- **One statement per query**, a trailing `;` is fine. `BEGIN`, `COMMIT`, `ROLLBACK`, `SAVEPOINT`, `RELEASE`, `ATTACH` and `DETACH` are refused: a batch is the transaction.
+- **Limits, the same as a game server's:** 100,000 characters of SQL, 100 values of up to 1 MB each, 100 statements a batch and 10,000 rows a statement (`too_many_rows`; page with `LIMIT`). An answer here also stops at 8 MB (`answer_too_big`), and a request at 6 MB. A statement that fails undoes itself, and a batch with it.
+- **It's live.** Changes reach the game's rooms straight away, so the MCP's tools ask you before changing or deleting data a live game uses.
+- **Free use** is per game and calendar month (UTC): 500,000 rows written, 500 million read and 500 MB stored, counted the way Cloudflare bills them (an index changed counts as a row written, and a `SELECT` without an index reads every row it looks at). Calls here count like the game's own. Until hosting billing, past the free writes, writes stop (`database_write_limit`); past the reads, queries stop (`database_read_limit`), and `retry_after_sec` says how long until the month resets; at the storage, rows can change and go but not grow (`database_storage_limit`). `GET /games/:slug/database` keeps working past them all.
 
 ## Tester links
 
@@ -481,11 +510,15 @@ Storage can't check the hash of a file sent in parts, so it's kept for your own 
 | `zaisma forum post --kind … --title "…" --category … [--text "…"] [--by-me]` | A public topic | `POST /forum` |
 | `zaisma forum message --kind … --title "…" [--text "…"] [--category …] [--game <slug>] [--by-me]` | A private message to Zaisma | `POST /forum` with `"is_public": false` |
 | `zaisma forum reply <topic_id> [--text "…"] [--reopen] [--by-me]` | A reply | `POST /forum/:id/posts` |
+| `zaisma database <slug>` | The game database's tables, indexes and use this month | `GET /games/:slug/database` |
+| `zaisma database query <slug> ["<sql>"] [--values '[…]']` | Run one statement; the SQL in quotes or piped in, the values as a JSON list | `POST /games/:slug/database/query` |
+| `zaisma database batch <slug> [<file>]` | Run statements in one transaction, from a JSON file (or piped in) like `[{"sql": "…", "values": […]}]` | `POST /games/:slug/database/batch` |
 
 - **Closed, like the API.** A command takes only its own flags and arguments: anything else is refused before anything is sent, with the flags it does take. Choices (`visibility`, `--kind`, `--category`) are checked first too, with the valid list. A flag that takes a value takes it as `--flag value` or `--flag=value`. Renamed commands and flags say their new name (`zaisma show` is now `zaisma visibility`; `--notes`, `--publish` and `--at` are `--patch-notes`, `--publish-when-approved` and `--scheduled-publish-at`).
 - **`--json` on every command** prints the API's answer as-is, compact, and nothing else on stdout: the same data the MCP gets. On failure it prints the API's `{ "error": { code, message, field, fix, retry_after_sec } }`, or the same shape for the command's own errors (below), where `field` is the flag (`--game`) or argument (`slug`) at fault. `upload --json` prints the version's last answer (`GET /games/:slug/versions/:id`) and sends its progress to stderr; `forum --json` with no topic or search prints both tabs' answers, as `{ "yours": …, "messages": … }`. Without `--json`, the command prints lines for people, and errors go to stderr as `zaisma: <message> <fix> (<code>)`.
 - **`--scheduled-publish-at`** takes the API's times: ISO 8601 with `Z` or an offset (`2026-11-01T17:00:00Z`, `2026-11-01T17:00+01:00`), nothing else. A time without a zone, like `2026-11-01 17:00`, is refused with the same time and this computer's offset written out, so a script on a server in another time zone never publishes at the wrong hour.
 - `--text` can be piped in instead; `--by-me` marks a post as yours, otherwise it says your AI wrote it.
+- `database query` prints the rows as a table (blobs as their size), then the rows read and written; `--values` and a batch's file are checked to be JSON lists before anything is sent (`bad_values`, `bad_sql`).
 
 Exit codes, the same for every command:
 
@@ -509,5 +542,6 @@ Errors only the command answers with, beside the API's own codes (it also uses `
 | `missing_value` | A flag that takes a value was given none. |
 | `takes_no_value` | A flag that takes no value was given one. |
 | `not_a_folder` | The folder to upload isn't a folder. |
+| `not_a_file` | The file of statements can't be read. |
 | `server_unreachable` | Zaisma couldn't be reached: no connection, or a wrong ZAISMA_API. |
 | `unexpected_answer` | Zaisma answered without JSON, like a page from a network in between. |

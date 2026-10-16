@@ -36,6 +36,8 @@
     { "binding": "GAMES", "bucket_name": "zaisma-games" },
     { "binding": "SAVES", "bucket_name": "zaisma-saves" }
   ],
+  // Games' own databases, in the rooms Worker (apps/rooms/src/database.ts), for the developer API. Rooms deploys first.
+  "services": [{ "binding": "GAME_DATABASES", "service": "zaisma-rooms", "entrypoint": "GameDatabaseService" }],
   "queues": {
     "producers": [{ "binding": "SCAN_QUEUE", "queue": "zaisma-scan" }],
     "consumers": [{ "queue": "zaisma-scan", "max_batch_size": 1, "max_retries": 3 }]

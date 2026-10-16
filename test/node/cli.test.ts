@@ -176,7 +176,7 @@ describe("--json", () => {
   });
 
   it("help --json lists every command, and the exit codes and error codes the docs list", async () => {
-    expect(help.commands.map((entry) => entry.command)).toEqual(["games", "new", "upload", "versions", "publish", "unschedule", "visibility", "forum", "forum post", "forum message", "forum reply", "help"]);
+    expect(help.commands.map((entry) => entry.command)).toEqual(["games", "new", "upload", "versions", "publish", "unschedule", "visibility", "forum", "forum post", "forum message", "forum reply", "database", "database query", "database batch", "help"]);
     const docs = readFileSync(join(ROOT, "docs/DEVELOPER-API.md"), "utf8");
     const section = docs.slice(docs.indexOf("\n## The upload command\n"));
     const exitRows = [...section.matchAll(/^\| (\d+) \| `([a-z_]+)` \| (.+) \|$/gm)].map((row) => ({ exit_code: Number(row[1]), name: row[2], meaning: row[3] }));
@@ -190,6 +190,43 @@ describe("--json", () => {
     for (const entry of help.commands) for (const option of [...entry.flags.map((flag) => ({ name: flag.flag.slice(2).replaceAll("-", "_"), choices: flag.choices })), ...entry.arguments]) if (option.choices) usedCodes.add(`bad_${option.name}`);
     const known = new Set([...Object.keys(ERROR_CODES), ...help.error_codes.map((entry) => entry.code)]);
     expect([...usedCodes].filter((code) => !known.has(code))).toEqual([]);
+  });
+});
+
+describe("database", () => {
+  const scores = { rows: [{ player_id: "player_a", best_score: 1200, replay: { blob_base64: "AAEC" } }], read_row_count: 1, written_row_count: 0 };
+
+  it("sends one statement with its values, from an argument or piped in, and prints the rows", async () => {
+    answers["POST /games/sky-hopper/database/query"] = { status: 200, body: { ...scores, next_steps: [] } };
+    const result = await zaisma(["database", "query", "sky-hopper", "SELECT * FROM scores WHERE best_score > ?", "--values", "[1000]"]);
+    expect(result.exitCode).toBe(0);
+    expect(calls[0]).toMatchObject({ method: "POST", path: "/games/sky-hopper/database/query", body: { sql: "SELECT * FROM scores WHERE best_score > ?", values: [1000] } });
+    expect(result.stdout).toBe("player_id  best_score  replay\nplayer_a   1200        <blob, 3 bytes>\n1 row. Read 1, wrote 0.\n");
+
+    const piped = await zaisma(["database", "query", "sky-hopper", "--json"], { input: "SELECT 1\n" });
+    expect(calls[1]!.body).toEqual({ sql: "SELECT 1" });
+    expect(json(piped.stdout)).toEqual({ ...scores, next_steps: [] });
+  });
+
+  it("sends a JSON file of statements as one batch", async () => {
+    const folder = mkdtempSync(join(tmpdir(), "zaisma-batch-"));
+    const statements = [{ sql: "DELETE FROM scores WHERE player_id = ?", values: ["player_a"] }, { sql: "SELECT count(*) AS score_count FROM scores" }];
+    writeFileSync(join(folder, "fix.json"), JSON.stringify(statements));
+    answers["POST /games/sky-hopper/database/batch"] = { status: 200, body: { statement_results: [scores, scores], next_steps: [] } };
+    const result = await zaisma(["database", "batch", "sky-hopper", join(folder, "fix.json"), "--json"]);
+    expect(result.exitCode).toBe(0);
+    expect(calls[0]!.body).toEqual({ statements });
+  });
+
+  it("refuses values or statements that aren't JSON lists before anything is sent", async () => {
+    const badValues = await zaisma(["database", "query", "sky-hopper", "SELECT ?", "--values", "1000", "--json"]);
+    expect(badValues.exitCode).toBe(2);
+    expect(json(badValues.stdout).error).toMatchObject({ code: "bad_values", field: "--values" });
+    const badFile = await zaisma(["database", "batch", "sky-hopper", "--json"], { input: "DELETE FROM scores" });
+    expect(json(badFile.stdout).error).toMatchObject({ code: "bad_sql", field: "file" });
+    const missing = await zaisma(["database", "batch", "sky-hopper", "/nowhere/fix.json", "--json"]);
+    expect(json(missing.stdout).error).toMatchObject({ code: "not_a_file", field: "file" });
+    expect(calls).toEqual([]);
   });
 });
 

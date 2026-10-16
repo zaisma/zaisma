@@ -1,7 +1,7 @@
 import { ApiError, CONTROLS, DEVICES, FORUM_CATEGORIES, FORUM_LIMITS, FORUM_REPORT_REASONS, FORUM_SECTIONS, FORUM_TABS, FORUM_TAGS, ACCOUNT_REQUIREMENTS, PLAY_STYLES, POST_SELECTIONS, ROOM_BROWSING, SCREENS, TOPIC_KINDS, TOPIC_STATUSES, VISIBILITIES, type IdKind } from "@zaisma/core";
 import { INTERNAL_ERROR, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
-import { GAME, HISTORY, IMAGE, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, REPORTS, SIGN_IN_APP, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes } from "./schemas.ts";
+import { DATABASE, GAME, HISTORY, STATEMENT_RESULT, IMAGE, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, REPORTS, SIGN_IN_APP, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes } from "./schemas.ts";
 
 /**
  * The developer MCP at /mcp: every tool is a call to the developer API, so the MCP, the upload command
@@ -624,6 +624,94 @@ export const TOOLS: Tool[] = [
     outputSchema: HISTORY,
     annotations: read,
     run: (toolArguments, call) => call("GET", `/games/${pathPart(toolArguments.slug)}/history`),
+  },
+  {
+    name: "get_database",
+    title: "Game database overview",
+    description:
+      "The game's own SQLite database, the one its game servers use as room.database: its tables and indexes (their CREATE statements), and this month's rows read and written and its size against the free use every game has. Every game has one, empty until something writes to it. Read and change what's in it with query_database and batch_database. No row counts here, because counting reads every row: query SELECT count(*) when you need one.",
+    inputSchema: object({ slug }, ["slug"]),
+    outputSchema: DATABASE,
+    annotations: read,
+    run: (toolArguments, call) => call("GET", `/games/${pathPart(toolArguments.slug)}/database`),
+  },
+  {
+    name: "query_database",
+    title: "Run SQL on a game's database",
+    description:
+      "Run one SQL statement (SQLite) on the game's own database, the same one its game servers use as room.database, live: changes reach the game at once, so ask the developer before you change or delete data a live game uses. Answers the rows (a SELECT's, or a change's with RETURNING) and the rows it read and wrote, which count towards the month's free use like the game's own. Put values in values for the ?s, never into the SQL. Up to 10,000 rows and 8 MB an answer: page with LIMIT. A blob goes in and out as { \"blob_base64\": \"…\" }. To list tables use get_database; for several changes that must all happen or none, batch_database.\n\n" +
+      'Not: { "sql": "SELECT * FROM scores WHERE player_id = \'player_8f3k2m\'" } (put the player ID in values: "… WHERE player_id = ?", values ["player_8f3k2m"])\n' +
+      'Not: { "sql": "BEGIN; UPDATE …; COMMIT" } (one statement per query; batch_database is the transaction)\n' +
+      'Not: { "values": [true] } (SQLite has no true or false: give 1 or 0)\n' +
+      'Not: { "values": [{ "level": 3 }] } (give an object as JSON text, and read it with json_extract)',
+    inputSchema: {
+      ...object(
+        {
+          slug,
+          sql: { type: "string", minLength: 1, maxLength: 100000, description: "One SQLite statement, with ? where each value goes. A trailing ; is fine; BEGIN, COMMIT, ATTACH and the like aren't allowed." },
+          values: {
+            type: "array",
+            maxItems: 100,
+            items: { anyOf: [{ type: ["string", "number", "null"] }, object({ blob_base64: { type: "string", description: "Bytes, base64-encoded" } }, ["blob_base64"])] },
+            description: "The values for the ?s, in order: text, numbers, null, or { blob_base64 } for bytes. Leave out when there are none.",
+          },
+        },
+        ["slug", "sql"],
+      ),
+      examples: [
+        { slug: "sky-hopper", sql: "SELECT player_id, best_score FROM scores ORDER BY best_score DESC LIMIT 10" },
+        { slug: "sky-hopper", sql: "UPDATE scores SET best_score = ? WHERE player_id = ? RETURNING *", values: [0, "player_8f3k2m9q1x7c4v6b0n5z"] },
+        { slug: "sky-hopper", sql: "CREATE INDEX IF NOT EXISTS scores_by_best_score ON scores (best_score)" },
+      ],
+    },
+    outputSchema: answer({ ...(STATEMENT_RESULT.properties as Record<string, Record<string, unknown>>), next_steps: NEXT }),
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+    run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/database/query`, pick(toolArguments, ["sql", "values"])),
+  },
+  {
+    name: "batch_database",
+    title: "Run SQL statements in one transaction",
+    description:
+      "Run up to 100 SQL statements on the game's own database in one transaction: all of them happen, or, if one fails, none do. Like a game server's room.database.batch. For moving an item between two players, fixing data across tables, or adding a column and filling it. Answers each statement's rows and rows read and written, in order. Everything else is as in query_database: values for the ?s, ask the developer before changing a live game's data.\n\n" +
+      'Not: { "statements": ["UPDATE …", "INSERT …"] } (each statement is { "sql": "…", "values": [...] })\n' +
+      'Not: { "statements": [{ "sql": "BEGIN" }, …] } (the batch is the transaction already)',
+    inputSchema: {
+      ...object(
+        {
+          slug,
+          statements: {
+            type: "array",
+            minItems: 1,
+            maxItems: 100,
+            items: object(
+              {
+                sql: { type: "string", minLength: 1, maxLength: 100000, description: "One SQLite statement, with ? where each value goes" },
+                values: { type: "array", maxItems: 100, items: { anyOf: [{ type: ["string", "number", "null"] }, object({ blob_base64: { type: "string" } }, ["blob_base64"])] }, description: "The values for its ?s, in order" },
+              },
+              ["sql"],
+            ),
+            description: "The statements, run in order.",
+          },
+        },
+        ["slug", "statements"],
+      ),
+      examples: [
+        {
+          slug: "sky-hopper",
+          statements: [
+            { sql: "UPDATE inventories SET item_count = item_count - 1 WHERE player_id = ? AND item = ? AND item_count > 0", values: ["player_8f3k2m9q1x7c4v6b0n5z", "golden_wing"] },
+            { sql: "INSERT INTO inventories (player_id, item, item_count) VALUES (?, ?, 1) ON CONFLICT (player_id, item) DO UPDATE SET item_count = item_count + 1", values: ["player_2b7x0q4n1m8k5c3v9z6d", "golden_wing"] },
+          ],
+        },
+        {
+          slug: "sky-hopper",
+          statements: [{ sql: "ALTER TABLE scores ADD COLUMN level_count INTEGER NOT NULL DEFAULT 0" }, { sql: "UPDATE scores SET level_count = 1 WHERE best_score > 0" }],
+        },
+      ],
+    },
+    outputSchema: answer({ statement_results: list(STATEMENT_RESULT, "One per statement, in order."), next_steps: NEXT }),
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+    run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/database/batch`, pick(toolArguments, ["statements"])),
   },
 ];
 

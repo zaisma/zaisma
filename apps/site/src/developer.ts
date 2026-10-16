@@ -85,6 +85,7 @@ import {
 import { currentSession } from "./auth.ts";
 import { gameUrl, type Env } from "./env.ts";
 import { forumRoute } from "./forum.ts";
+import { databaseRoute } from "./game-database.ts";
 import { playStats } from "./plays.ts";
 import { sendAlert } from "./email.ts";
 import { KNOWN_IMAGE_ALERT, imageMatcher, pruneVersions } from "./scan.ts";
@@ -114,6 +115,9 @@ import { KNOWN_IMAGE_ALERT, imageMatcher, pruneVersions } from "./scan.ts";
  *   GET    /api/dev/games/:slug/testers        tester links that are on
  *   POST   /api/dev/games/:slug/testers        make a tester link: { "name" }
  *   DELETE /api/dev/games/:slug/testers/:id    turn one off for good
+ *   GET    /api/dev/games/:slug/database       the game database's tables, indexes and use this month (see game-database.ts)
+ *   POST   /api/dev/games/:slug/database/query run one SQL statement: { "sql", "values" }
+ *   POST   /api/dev/games/:slug/database/batch run several in one transaction: { "statements" }
  *   GET    /api/dev/sign-in-apps               your sign-in apps (Sign in with Zaisma, see sign-in.ts)
  *   POST   /api/dev/sign-in-apps               make one: { "name", "kind", "redirect_urls" }; a confidential app's client_secret is answered once
  *   PATCH  /api/dev/sign-in-apps/:id           name, redirect_urls, or replace_client_secret: true
@@ -269,6 +273,9 @@ export const API_ROUTES: readonly ApiRoute[] = [
   { method: "GET", path: "/games/:slug/testers" },
   { method: "POST", path: "/games/:slug/testers" },
   { method: "DELETE", path: "/games/:slug/testers/:tester_id" },
+  { method: "GET", path: "/games/:slug/database" },
+  { method: "POST", path: "/games/:slug/database/query" },
+  { method: "POST", path: "/games/:slug/database/batch" },
   { method: "GET", path: "/forum" },
   { method: "POST", path: "/forum" },
   { method: "GET", path: "/forum/similar" },
@@ -411,6 +418,9 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
 
   const testerPath = path.match(/^\/games\/([^/]+)\/testers(?:\/([^/]+))?$/);
   if (testerPath) return answer(...(await testerRoute(request, env, await ownGame(env, testerPath[1]!, caller), testerPath[2], caller)));
+
+  const databasePath = path.match(/^\/games\/([^/]+)\/database(?:\/(query|batch))?$/);
+  if (databasePath) return answer(...(await databaseRoute(request, env, await ownGame(env, databasePath[1]!, caller), databasePath[2])));
 
   const gamePath = path.match(/^\/games\/([^/]+)(\/images(?:\/([^/]+))?)?$/);
   if (!gamePath) throw new ApiError("not_found", { message: `There's no API call at ${path}.`, fix: "docs/DEVELOPER-API.md lists every call; paths start with /api/dev, like GET /api/dev/games." });

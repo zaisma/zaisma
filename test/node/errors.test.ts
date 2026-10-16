@@ -19,13 +19,13 @@ function listedCodes(file: string, nextHeading: string): { code: string; httpSta
   return [...section.matchAll(/^\| `([a-z0-9_]+)` \| (\d+) \| (.+) \|$/gm)].map((row) => ({ code: row[1]!, httpStatus: Number(row[2]), meaning: row[3]! }));
 }
 
-/** Zaisma's own source that can answer with an error, without the list itself. */
+/** Zaisma's own source that can answer with an error, without the list itself: the game database's codes come from rooms and the game server package. */
 function source(): string {
   const read = (directory: string): string[] =>
     readdirSync(join(ROOT, directory), { withFileTypes: true }).flatMap((entry) =>
       entry.isDirectory() ? read(join(directory, entry.name)) : entry.name.endsWith(".ts") && entry.name !== "errors.ts" ? [readFileSync(join(ROOT, directory, entry.name), "utf8")] : [],
     );
-  return [...read("apps/site/src"), ...read("packages/core/src")].join("\n");
+  return [...read("apps/site/src"), ...read("packages/core/src"), ...read("apps/rooms/src"), ...read("packages/game-server/src")].join("\n");
 }
 
 describe("error codes", () => {

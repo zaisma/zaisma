@@ -45,7 +45,7 @@ npm run dev:site    # http://localhost:8787, admin at /admin
 npm test
 ```
 
-To run your own Zaisma, create a D1 database, two R2 buckets (game files and cloud saves) and a queue (names in the two `wrangler.jsonc` files), put the database ID in the three files, set your site, game and rooms addresses, protect `/admin` with Cloudflare Access, set the rooms Worker's `PASS_SIGNING_KEY` secret, point `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` at your Supabase project for accounts (and set the site's `SUPABASE_SECRET_KEY` secret so accounts can be deleted, and its `SIGN_IN_SIGNING_KEY` secret for Sign in with Zaisma: `node scripts/sign-in-key.mjs | npx wrangler secret put SIGN_IN_SIGNING_KEY --config apps/site/wrangler.jsonc`), and deploy `apps/rooms`, `apps/games` and `apps/site`.
+To run your own Zaisma, create a D1 database, two R2 buckets (game files and cloud saves) and a queue (names in the two `wrangler.jsonc` files), put the database ID in the three files, set your site, game and rooms addresses, protect `/admin` with Cloudflare Access, set the rooms Worker's `PASS_SIGNING_KEY` secret, point `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` at your Supabase project for accounts (and set the site's `SUPABASE_SECRET_KEY` secret so accounts can be deleted, and its `SIGN_IN_SIGNING_KEY` secret for Sign in with Zaisma: `node scripts/sign-in-key.mjs | npx wrangler secret put SIGN_IN_SIGNING_KEY --config apps/site/wrangler.jsonc`), and deploy `apps/rooms`, `apps/games` and `apps/site`, in that order (the site reaches games' databases through a service binding to the rooms Worker, `zaisma-rooms`).
 
 ### Multiplayer
 
@@ -126,6 +126,7 @@ async onMessage(state, player, message, room) {
 - **`batch([{ sql, values }, ...])`** runs up to 100 statements in one transaction, so they all happen or none do (moving an item between two inventories, say), and answers each one's rows. `BEGIN` and `COMMIT` aren't taken; batch is the transaction.
 - **Errors** are a `DatabaseError` with a `code` and a `fix`: `bad_sql` (SQLite's own message, or more than one statement in a query), `bad_values`, `too_many_rows` (over 10,000 rows; page with `LIMIT`), `database_write_limit`, `database_read_limit`, `database_storage_limit` and `database_unavailable`.
 - **Free on Zaisma up to 500,000 rows written and 500 million rows read a month, and 500 MB stored, per game.** Until hosting billing is ready, a game past its written rows can't write until the month resets (UTC), and one at its storage can change and delete rows but not grow; reads keep working. Past its read rows, it waits for the month too. Every statement counts the rows SQLite touched, like Cloudflare's billing: an index makes lookups read fewer rows.
+- **You and your AI reach it too:** look at its tables and use, query it, fix data and change tables through the developer API, the MCP (`get_database`, `query_database`, `batch_database`) or `zaisma database` in a terminal, with the same checks and limits (see "The game database" in [`docs/DEVELOPER-API.md`](docs/DEVELOPER-API.md)).
 - **The same code on your own server:** the Node runner keeps the database in a local SQLite file (below), checked the same way, with no limits. Copy the file to move the data.
 
 #### Room browsing

@@ -1,5 +1,5 @@
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
-import { DATABASE_LIMITS, DatabaseError, answerDatabase, checkBatch, checkStatement, plainRow, readDatabaseAnswer, tooManyRows, type DatabaseAnswer, type DatabaseRow, type DatabaseValue, type GameDatabase } from "@zaisma/game-server";
+import { DATABASE_LIMITS, DatabaseError, answerDatabase, type DatabaseErrorCode, checkBatch, checkStatement, plainRow, readDatabaseAnswer, tooManyRows, type DatabaseAnswer, type DatabaseRow, type DatabaseValue, type GameDatabase } from "@zaisma/game-server";
 import { GAME_DATABASE_FREE_LIMITS, nextMonthStartDate, usageMonth } from "@zaisma/core";
 import type { Env } from "./index.ts";
 
@@ -9,6 +9,32 @@ interface Usage {
   readRowCount: number;
   writtenRowCount: number;
 }
+
+/** One statement's rows, and the rows it read and wrote, as the developer API shows them. */
+export interface StatementResult {
+  rows: DatabaseRow[];
+  readRowCount: number;
+  writtenRowCount: number;
+}
+
+/** What the developer API gets back: a DatabaseError's codes, and answer_too_big, which only it has. */
+export type DeveloperDatabaseAnswer<T> = { queryResult: T } | { error: { code: DatabaseErrorCode | "answer_too_big"; message: string; fix: string } };
+
+/** What the developer API shows of a database: its tables and indexes as SQLite keeps them, and this month's use. */
+export interface DatabaseOverview {
+  tables: { name: string; sql: string }[];
+  indexes: { name: string; tableName: string; sql: string }[];
+  usage: Usage & { storageSizeBytes: number };
+}
+
+/**
+ * The most an answer to the developer API may hold, about, in bytes: well under what one call between
+ * Workers carries, with room for base64. Game servers get their rows straight, so this is the API's alone.
+ */
+const MAXIMUM_DEVELOPER_ANSWER_SIZE_BYTES = 8 * 1024 * 1024;
+
+/** An answer past MAXIMUM_DEVELOPER_ANSWER_SIZE_BYTES; the transaction undoes itself. */
+class AnswerTooBig extends Error {}
 
 /** Usage is kept at most this long, or this many statements, before it's saved: not one extra write per query. */
 const USAGE_SAVE_MS = 60_000;
@@ -32,20 +58,48 @@ export class GameDatabaseObject extends DurableObject<Env> {
   }
 
   query(sql: unknown, values: unknown): DatabaseAnswer<DatabaseRow[]> {
-    return answerDatabase(() => this.run([checkStatement(sql, values)])[0]!);
+    return answerDatabase(() => this.run([checkStatement(sql, values)])[0]!.rows);
   }
 
   batch(statements: unknown): DatabaseAnswer<DatabaseRow[][]> {
-    return answerDatabase(() => this.run(checkBatch(statements)));
+    return answerDatabase(() => this.run(checkBatch(statements)).map((statementResult) => statementResult.rows));
   }
 
-  /** This month's use, for tests now and the developer API next. */
+  /** query() for the developer API: the same checks, limits and use, plus what the statement read and wrote. */
+  queryForDeveloper(sql: unknown, values: unknown): DeveloperDatabaseAnswer<StatementResult> {
+    return answerForDeveloper(() => this.run([checkStatement(sql, values)], MAXIMUM_DEVELOPER_ANSWER_SIZE_BYTES)[0]!);
+  }
+
+  /** batch() for the developer API. */
+  batchForDeveloper(statements: unknown): DeveloperDatabaseAnswer<StatementResult[]> {
+    return answerForDeveloper(() => this.run(checkBatch(statements), MAXIMUM_DEVELOPER_ANSWER_SIZE_BYTES));
+  }
+
+  /**
+   * The tables and indexes, from SQLite's own list, without Cloudflare's (_cf_…) or SQLite's (sqlite_…).
+   * Reading the list counts towards the month's use like any read, but works past the free reads, so the
+   * developer can always see what's there. No row counts: counting reads every row.
+   */
+  overview(): DatabaseOverview {
+    const cursor = this.ctx.storage.sql.exec<{ type: string; name: string; tbl_name: string; sql: string }>(
+      "SELECT type, name, tbl_name, sql FROM sqlite_schema WHERE type IN ('table', 'index') AND sql IS NOT NULL AND substr(name, 1, 4) <> '_cf_' AND substr(name, 1, 7) <> 'sqlite_' ORDER BY name",
+    );
+    const schemaRows = cursor.toArray();
+    this.addUsage(cursor.rowsRead, 0, 1);
+    return {
+      tables: schemaRows.filter((schemaRow) => schemaRow.type === "table").map((schemaRow) => ({ name: schemaRow.name, sql: schemaRow.sql })),
+      indexes: schemaRows.filter((schemaRow) => schemaRow.type === "index").map((schemaRow) => ({ name: schemaRow.name, tableName: schemaRow.tbl_name, sql: schemaRow.sql })),
+      usage: this.usageThisMonth(),
+    };
+  }
+
+  /** This month's use. */
   usageThisMonth(): Usage & { storageSizeBytes: number } {
     this.newMonth();
     return { ...this.usage, storageSizeBytes: this.ctx.storage.sql.databaseSize };
   }
 
-  private run(statements: { sql: string; values: DatabaseValue[] }[]): DatabaseRow[][] {
+  private run(statements: { sql: string; values: DatabaseValue[] }[], maximumAnswerSizeBytes = Infinity): StatementResult[] {
     this.newMonth();
     const limits = GAME_DATABASE_FREE_LIMITS;
     const resetDate = nextMonthStartDate();
@@ -56,6 +110,7 @@ export class GameDatabaseObject extends DurableObject<Env> {
     const sql = this.ctx.storage.sql;
     let readRowCount = 0;
     let writtenRowCount = 0;
+    let answerSizeBytes = 0;
     try {
       return this.ctx.storage.transactionSync(() =>
         statements.map((statement) => {
@@ -65,7 +120,10 @@ export class GameDatabaseObject extends DurableObject<Env> {
           try {
             for (const row of cursor) {
               if (rows.length >= DATABASE_LIMITS.maximumRowCount) throw tooManyRows();
-              rows.push(plainRow(row));
+              const plain = plainRow(row);
+              answerSizeBytes += rowSizeBytes(plain);
+              if (answerSizeBytes > maximumAnswerSizeBytes) throw new AnswerTooBig();
+              rows.push(plain);
             }
           } finally {
             readRowCount += cursor.rowsRead;
@@ -78,7 +136,7 @@ export class GameDatabaseObject extends DurableObject<Env> {
           if (sql.databaseSize > limits.storageSizeBytes && sql.databaseSize > sizeBeforeBytes) {
             throw new DatabaseError("database_storage_limit", `This game's database would be over its free ${limits.storageSizeBytes / 1024 / 1024} MB, so this statement was undone.`, "Reads, changes and deletes still work. Delete rows you no longer need (old matches, players who left long ago) to make room.");
           }
-          return rows;
+          return { rows, readRowCount: cursor.rowsRead, writtenRowCount: cursor.rowsWritten };
         }),
       );
     } finally {
@@ -107,6 +165,37 @@ export class GameDatabaseObject extends DurableObject<Env> {
     this.unsavedStatementCount = 0;
     this.savedAtMs = Date.now();
   }
+}
+
+/** About how many bytes a row takes in an answer: text as characters, blobs as base64, numbers as 8. */
+function rowSizeBytes(row: DatabaseRow): number {
+  let sizeBytes = 0;
+  for (const [column, columnValue] of Object.entries(row)) {
+    sizeBytes += column.length + (typeof columnValue === "string" ? columnValue.length : columnValue instanceof Uint8Array ? Math.ceil(columnValue.byteLength / 3) * 4 : 8);
+  }
+  return sizeBytes;
+}
+
+/** answerDatabase, plus answer_too_big for an answer past what the developer API sends. */
+function answerForDeveloper<T>(work: () => T): DeveloperDatabaseAnswer<T> {
+  // answerDatabase takes any error it doesn't know for SQLite's, so this one is noted on its way through.
+  let isTooBig = false;
+  const answer = answerDatabase(() => {
+    try {
+      return work();
+    } catch (error) {
+      if (error instanceof AnswerTooBig) isTooBig = true;
+      throw error;
+    }
+  });
+  if (!isTooBig) return answer;
+  return {
+    error: {
+      code: "answer_too_big",
+      message: `The answer is over ${MAXIMUM_DEVELOPER_ANSWER_SIZE_BYTES / 1024 / 1024} MB, so the statements were undone.`,
+      fix: "Ask for fewer rows with LIMIT (and OFFSET or a WHERE on the last row for the next page), or fewer columns; leave big text and blobs out and read them a row at a time.",
+    },
+  };
 }
 
 /** A game's database, by its game ID. */
@@ -142,6 +231,34 @@ export class GameDatabaseBinding extends WorkerEntrypoint<Env, { gameId: string 
     } catch (error) {
       console.error("Game database unavailable:", error);
       return { error: { code: "database_unavailable", message: "The game's database didn't answer.", fix: "Try again in a moment; if it keeps happening, tell Zaisma on the forum." } };
+    }
+  }
+}
+
+/**
+ * Every game's database for the developer API on zaisma.com (apps/site/src/game-database.ts), through
+ * a service binding: only Zaisma's own Workers reach it, never a game server or the internet. The site
+ * checks the caller owns the game before it names the game here.
+ */
+export class GameDatabaseService extends WorkerEntrypoint<Env> {
+  query(gameId: string, sql: unknown, values: unknown): Promise<DeveloperDatabaseAnswer<StatementResult>> {
+    return this.reach(gameId, (database) => database.queryForDeveloper(sql, values));
+  }
+
+  batch(gameId: string, statements: unknown): Promise<DeveloperDatabaseAnswer<StatementResult[]>> {
+    return this.reach(gameId, (database) => database.batchForDeveloper(statements));
+  }
+
+  overview(gameId: string): Promise<DeveloperDatabaseAnswer<DatabaseOverview>> {
+    return this.reach(gameId, async (database) => ({ queryResult: await database.overview() }));
+  }
+
+  private async reach<T>(gameId: string, work: (database: DurableObjectStub<GameDatabaseObject>) => Promise<DeveloperDatabaseAnswer<T>>): Promise<DeveloperDatabaseAnswer<T>> {
+    try {
+      return await work(gameDatabaseObject(this.env, gameId));
+    } catch (error) {
+      console.error("Game database unavailable:", error);
+      return { error: { code: "database_unavailable", message: "The game's database didn't answer.", fix: "Try again in a moment; if it keeps happening, tell Zaisma with post_topic (kind bug, category servers)." } };
     }
   }
 }

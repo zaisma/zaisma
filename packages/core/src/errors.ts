@@ -105,6 +105,16 @@ export const ERROR_CODES = {
   too_many_sign_in_apps: { httpStatus: 403, meaning: "The account has 20 sign-in apps already." },
   no_sign_in_app: { httpStatus: 404, meaning: "You have no sign-in app with that ID." },
 
+  // The game database (the same codes a game server's DatabaseError has, and answer_too_big)
+  bad_sql: { httpStatus: 400, meaning: "The SQL isn't one statement SQLite takes, or statements isn't a list of { sql, values }." },
+  bad_values: { httpStatus: 400, meaning: "values isn't a list of text, numbers, null and { blob_base64 } for the SQL's ?s." },
+  too_many_rows: { httpStatus: 400, meaning: "A statement answered more than 10,000 rows." },
+  answer_too_big: { httpStatus: 400, meaning: "The rows answered come to more than 8 MB." },
+  database_write_limit: { httpStatus: 429, meaning: "The game's database has written its free rows this month, so writes wait for the next." },
+  database_read_limit: { httpStatus: 429, meaning: "The game's database has read its free rows this month, so queries wait for the next." },
+  database_storage_limit: { httpStatus: 403, meaning: "The statement would grow the game's database past its free storage." },
+  database_unavailable: { httpStatus: 503, meaning: "The game's database didn't answer." },
+
   // The developer forum
   no_topic: { httpStatus: 404, meaning: "There's no topic with that ID you can see." },
   no_post: { httpStatus: 404, meaning: "There's no post with that ID you can see in the topic." },

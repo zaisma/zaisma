@@ -1,4 +1,5 @@
 import type { ScanJob } from "@zaisma/core";
+import type { GameDatabaseService } from "../../rooms/src/database.ts";
 
 export interface Env {
   DB: D1Database;
@@ -7,6 +8,8 @@ export interface Env {
   SAVES: R2Bucket;
   ASSETS: Fetcher;
   SCAN_QUEUE: Queue<ScanJob>;
+  /** Every game's own database, in the rooms Worker, for the developer API (game-database.ts). */
+  GAME_DATABASES?: Service<GameDatabaseService>;
   REPORT_LIMIT?: RateLimit;
   SIGNIN_LIMIT?: RateLimit;
   SAVE_LIMIT?: RateLimit;
