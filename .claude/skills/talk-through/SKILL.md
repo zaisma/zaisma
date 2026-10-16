@@ -42,7 +42,7 @@ Define any term he may not have met (a Cloudflare product, an industry word) the
 
 - **He replies in blocks:** `<!-- reply N -->` then a quoted line, then his answer, several per message, or numbered answers to numbered questions. Answer every block, including passing questions. A question skipped in one round got lost twice before.
 - **Hold a position when you have a reason**, and change it when he gives you one. Say which it is. Don't flip just because he questioned it.
-- **Test every option against the direction yourself:** does it give the developer a building block, or make Zaisma run something? Would Roblox do it this way, and is that a reason? He shouldn't have to be the one who catches a Roblox default.
+- **Test every option against the direction yourself,** with the principle's casebook in `docs/principles/` open: does it give the developer a building block, or make Zaisma run something? Would Roblox do it this way, and is that a reason? He shouldn't have to be the one who catches a Roblox default.
 - **Anything with a page:** agree on what it looks like before it's built. Name a real product it should feel like, or ask him for one. A forum that was built as a private inbox once cost a whole session.
 - **Keep it to the item.** When he opens a new topic, take it. If it's real work outside the item, put it in `docs/IDEAS.md` at the close or propose its own session.
 - **No building, no file changes** until the close.
@@ -55,7 +55,7 @@ When his answers settle the open calls, end with one message:
 - **What gets written, word for word:** new or changed `docs/DECISIONS.md` lines in blockquotes, roadmap rows (name, Must or Nice, Needs, notes; one row per slice when it's too big for one pull request), and any `docs/NAMING.md`, `docs/PLAN.md` or `CLAUDE.md` line. Mark anything that changes a settled decision, pricing, positioning or who we serve.
 - One question: whether to write it down and mark it settled.
 
-On his yes, in a worktree, write the docs as shown. Set the item's `Settled` cell to `yes`, and every slice row's when he OK'd the slices. Parked ideas go in `docs/IDEAS.md`. Then:
+On his yes, in a worktree, write the docs as shown. Set the item's `Settled` cell to `yes`, and every slice row's when he OK'd the slices. Parked ideas go in `docs/IDEAS.md`. When the talk settled a close call against a principle in "The direction" (a pass, a fail or a close call, with what was done instead), add the case to that principle's file in `docs/principles/` in the same change; show it in the close with the rest. Then:
 
 - **Inside `build-next`** (the usual way, also under the coordinator): don't open a separate pull request. The docs go in with the build, in this worktree, and you go back to `build-next` and build. The pull request merges by the settled rule. Its decision lines are the exact words he said yes to; say so in its description.
 - **On its own** (he wanted to settle it but not build it now): `npm test` (the roadmap test checks names and the Settled column), then a pull request for Julius to merge, since it changes settled docs. Tell him in a line that it's ready to build: `/build-next <name>`, or the `/coordinator` picks it up with the rest of Now.
