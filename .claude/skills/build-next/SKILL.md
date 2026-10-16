@@ -35,7 +35,7 @@ Also stop when:
 
 Otherwise claim it at once: mark the row `doing` in `docs/ROADMAP.md` in your worktree as your first edit, before reading further. Other sessions running this skill read it there and pick another item. Sessions started in the same moment can race for the same free item, so when starting several at once, give each a place in Now or a name.
 
-When it says **Settled: no**, claim it all the same, then use the `talk-through` skill before anything else: its brief is your first message to Julius, and you wait for him. He talks with you in this session, even when another one (the `coordinator` skill) started it. When the talk closes and he says yes, the docs it settled go in this worktree and this pull request, with the row's `Settled` set to `yes`, and you go on to step 3. If he decides not to build it now, put the row back the way it was on main and say so.
+When it says **Settled: no**, claim it all the same, then use the `talk-through` skill before anything else: its brief is your first message to Julius, and you wait for him. He talks with you in this session, even when another one (the `coordinator` skill) started it. When the talk closes and he says yes, the docs it settled go in this worktree and this pull request, with the row's `Settled` set to `yes`, and you go on to step 3. If he decides not to build it now, put the row back the way it was on main and say so. Under the coordinator, the settled docs still go in a pull request, and you report done as a talk (step 7).
 
 ## 3. Read what it touches
 
@@ -59,6 +59,19 @@ One row is one slice that lands on its own. If the item is too big for one pull 
 If a player or developer would see anything change on a page, it needs Julius's OK in the preview before it merges. Other sessions may be running previews too, so take the first `PREVIEW_PORT_OFFSET` (0, 100, 200, …) whose site port (8800 plus the offset) nothing is listening on (`lsof -nP -iTCP:<port> -sTCP:LISTEN`), and run `PREVIEW_PORT_OFFSET=<offset> node scripts/preview/run.mjs` in the background. Give Julius direct links to each page and state to look at, then end the turn and wait for his OK, changing what he asks for. No visible change, no preview: say so in the pull request.
 
 ## 7. Merge and ship
+
+**Under the coordinator** (your brief says so): don't merge, ship, mark the row done or clean up; the coordinator does that. Once the pull request is open, `npm test` and `npm run typecheck` pass, and the preview is OK'd when it had one:
+
+- If Julius was in this session (a talk, a preview, a question), ask one thing with the wrap-up box: **"Are we done?"**, with the buttons *Yes, we're done* and *More to discuss*. *More to discuss* means you keep going with him.
+- On his yes, or straight away when he was never needed, end your turn with `wrap_up` and no question, its recap starting:
+
+```
+Done: <the item's exact name>, build, PR #<number>.
+```
+
+followed by one line on what it changed, any migration, and whether it had a preview. That recap is the done report: it reaches the coordinator by itself. Ask nothing after it. If the coordinator sends it back (a conflict, a failed check, `SHIP FAIL`), fix it, push, and report done the same way again; for `SHIP FAIL`, in a new pull request.
+
+The rest of this step is for a session on its own.
 
 **Not settled:** stop at the pull request. Merging is Julius's call. After he merges, go on from "Ship" below.
 
