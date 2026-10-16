@@ -73,6 +73,7 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | done | Must | Checks on every pull request | | Live Oct 16, 2026 (#149): tests and typecheck run by themselves on every pull request and push to main (`.github/workflows/check.yml`), so the naming, schema, error-code and ID checks hold without anyone remembering them; `npm run ship` stops when main's check failed |
 | done | Must | SDK types | Names: SDK and game server | Live Oct 16, 2026 (#151): the SDK's one reference is its types (`packages/sdk/zaisma.d.ts`, served beside it as `_zaisma/v1.d.ts`): every call, option, event and error code. A test holds them to what the SDK takes and hands out, the example games type-check against them, and the naming check reads them and the packages' JavaScript |
 | done | Must | SDK error codes | SDK types | Live Oct 16, 2026 (#152): every error the SDK throws has an `error.code` from `ErrorCode` in `zaisma.d.ts`, so a game's AI branches on codes instead of messages; a test holds every code to the list |
+| doing | Must | API and MCP parity test | Checks on every pull request | A test holds every developer API call (`API_ROUTES`, the only calls the router answers) to an MCP tool that makes it, and every tool to a real call; the calls without a tool are named with why |
 
 ### Developer publishing
 
