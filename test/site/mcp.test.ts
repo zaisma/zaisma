@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { audit, createAccount, createApiKey, createReport, gameBySlug, notConnected, type ImageMatcher } from "@zaisma/core";
 import { scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
 import { TOOLS } from "../../apps/site/src/mcp.ts";
+import { adminForm } from "../../apps/site/src/admin.ts";
 import { ERROR } from "../../apps/site/src/schemas.ts";
 import { errorProblems, schemaProblems } from "../schema-check.ts";
 
@@ -308,6 +309,24 @@ describe("reports, stats and history", () => {
     expect(text).not.toContain("admin note");
     expect(text).not.toContain("julius");
     expect(events.map((e: { description: string }) => e.description)).toContain("Zaisma took the game down");
+  });
+
+  it("says why a version is held and a game was taken down, in its output schemas", async () => {
+    await tool("create_game", { title: "Hop" });
+    const { version } = await tool("upload_files", { slug: "hop", files: [{ path: "index.html", content_text: "<!doctype html><p>hi</p>" }] });
+    await scanVersion(testEnv, version.id, { ...pass, images: notConnected });
+    const held = await tool("get_version", { slug: "hop", version_id: version.id });
+    expect(held.version).toMatchObject({ scan_status: "held", review_reason: null, findings: [{ code: "image_matching_off", severity: "hold", content_rule: null, path: null }] });
+
+    const game = (await gameBySlug(env.DB, "hop"))!;
+    const form = new FormData();
+    form.set("content_rule", "personal_data");
+    form.set("reason", "The sign-up screen asks players for their home address.");
+    await adminForm(testEnv, `/admin/games/${game.id}/takedown`, form, "admin:julius@example.com");
+    const taken = { code: "taken_down", message: "The sign-up screen asks players for their home address.", content_rule: "personal_data", fix: expect.stringContaining("message_zaisma") };
+    expect((await tool("get_game", { slug: "hop" })).game).toMatchObject({ review_status: "removed", review_reason: taken });
+    expect((await tool("get_history", { slug: "hop" })).events[0]).toMatchObject({ description: "Zaisma took the game down", review_reason: taken });
+    expect(await tool("add_tester_link", { slug: "hop", name: "Team" })).toMatchObject({ code: "game_removed", message: expect.stringContaining("home address"), fix: expect.stringContaining("message_zaisma") });
   });
 });
 

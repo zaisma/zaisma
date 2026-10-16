@@ -1,4 +1,4 @@
-import { ApiError, KNOWN_IMAGE_RULE, type ImageMatcher } from "@zaisma/core";
+import { ApiError, KNOWN_IMAGE_CODE, type ImageMatcher } from "@zaisma/core";
 import { sendAlert } from "./email.ts";
 import type { Env } from "./env.ts";
 import { imageMatcher } from "./scan.ts";
@@ -19,7 +19,7 @@ export type MatchOutcome = "clean" | "match" | "unmatched";
 export async function matchUpload(env: Env, mediaId: string, bytes: Uint8Array, contentType: string, uploaderId: string, matcher: ImageMatcher = imageMatcher(env)): Promise<MatchOutcome> {
   const checked = await matcher.check([{ path: "forum image", type: contentType, id: mediaId, body: async () => bytes }]).catch(() => null);
   if (!checked?.isConnected) return "unmatched";
-  if (!checked.findings.some((finding) => finding.rule === KNOWN_IMAGE_RULE)) return "clean";
+  if (!checked.findings.some((finding) => finding.code === KNOWN_IMAGE_CODE)) return "clean";
   await env.GAMES.put(forumHeldKey(mediaId), bytes, { httpMetadata: { contentType } });
   await sendAlert(
     env,

@@ -221,8 +221,10 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 | Counted plays, and time on screen in them | `play_count`, `play_duration_min` | |
 | Player time in rooms | `room_play_duration_min`, `room_play_duration_hours` | |
 | How many days a report or stats answer covers | `period_duration_days` | |
-| A version's scan result | `scan_status`: `scanning`, `held`, `approved`, `rejected` | |
+| A version's scan result, and what it found that holds or rejects it | `scan_status`: `scanning`, `held`, `approved`, `rejected`; `findings`, each `{ code, severity, message, content_rule, path, fix }` | |
 | Zaisma's review of a game | `review_status`: `pending`, `live`, `held`, `removed` | |
+| Why Zaisma held, rejected or took down a game, version or image | `review_reason`: `{ code, message, content_rule, fix }`, its `code` from `REVIEW_CODES` | |
+| A content rule, as a hold or takedown names it | `content_rule`: `child_safety`, `sexual`, `malware`, `illegal`, `hate`, `copyright`, `personal_data`, `free_text_chat`, `faked_plays` (the same words as a report's `reason` where they mean the same) | |
 | Who can see a game | `visibility`: `draft`, `listed`, `unlisted`, `private` | |
 | Where to continue a list | `cursor` in, `next_cursor` out | |
 | How a game is played | `play_modes`: a list of `{ mode, minimum_player_count, maximum_player_count, play_style }` | |
@@ -253,7 +255,7 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 | A part of the world rooms run in: a continent code, like `EU` | | `region` |
 | Where a room's connection stands | | `connectionStatus`: `connecting`, `open`, `reconnecting`, `away`, `closed` |
 | Keeping a kicked player out, as asked and as told | | `keepOut` (asked), `isKeptOut` (told) |
-| What an error is, and its other parts | `code`; `message`, `field`, `fix`, `retry_after_sec` (inside `error` only) | `code` (on the error only) |
+| What an error or a review reason is, and its other parts | `code`; `message`, `field`, `fix`, `retry_after_sec` (inside `error` only); `content_rule` (inside `review_reason` and `findings` only) | `code` (on the error only) |
 
 ## Adding a field, option or tool
 

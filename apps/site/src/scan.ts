@@ -11,6 +11,7 @@ import {
   publishVersion,
   saveScan,
   setReviewStatus,
+  reviewReason,
   sha256Hex,
   staticScan,
   versionById,
@@ -23,7 +24,7 @@ import {
   type Version,
   type Game,
   KEPT_VERSION_COUNT,
-  KNOWN_IMAGE_RULE,
+  KNOWN_IMAGE_CODE,
   MATCH_TYPES,
   MATROSKA_HEAD_BYTES,
   SNIFF_BYTES,
@@ -85,7 +86,7 @@ export async function handleScanBatch(batch: MessageBatch<ScanJob>, env: Env, de
         await recheckFailed(env, recheck.reportId, String(error));
         message.ack();
       } else if (message.attempts >= 3) {
-        await saveScan(env.DB, message.body.versionId, "held", null);
+        await saveScan(env.DB, message.body.versionId, "held", scanFailedReport(String(error)));
         await sendAlert(env, "A scan failed", `Version ${message.body.versionId} couldn't be scanned and is held: ${String(error)}`);
         message.ack();
       } else {
@@ -108,7 +109,7 @@ export async function scanVersion(env: Env, versionId: string, deps: ScanDeps = 
     await passVersion(env, version, "Passed the scan");
   } else {
     await audit(env.DB, game.id, decision === "held" ? "scan-held" : "scan-rejected", `${version.id}\n${summarize(findings)}`);
-    const hasKnownImage = findings.some((finding) => finding.rule === KNOWN_IMAGE_RULE);
+    const hasKnownImage = findings.some((finding) => finding.code === KNOWN_IMAGE_CODE);
     if (hasKnownImage) {
       await sendAlert(
         env,
@@ -140,7 +141,7 @@ export async function inspectVersion(env: Env, version: Version, game: Game, dep
   const files = await versionFiles(env, version);
   const findings: Finding[] = [];
   const { texts, disguised, hasTooMuchCode } = await readCode(env, files);
-  if (hasTooMuchCode) findings.push({ stage: "static", severity: "hold", rule: "too-much-code", detail: "More code than the automatic checks read. A person should look." });
+  if (hasTooMuchCode) findings.push({ stage: "static", severity: "hold", code: "too_much_code", message: "More code than the automatic checks read. A person should look." });
 
   // 2. Static checks.
   const staticResult = staticScan(texts);
@@ -151,7 +152,7 @@ export async function inspectVersion(env: Env, version: Version, game: Game, dep
   const imageFiles = files.filter((file) => extensionOf(file.path) in IMAGE_TYPES);
   const images = await matchMedia(env, files, texts, disguised, deps.images);
   findings.push(...images.findings);
-  const hasKnownImage = images.findings.some((finding) => finding.rule === KNOWN_IMAGE_RULE);
+  const hasKnownImage = images.findings.some((finding) => finding.code === KNOWN_IMAGE_CODE);
 
   // 4. AI review, within the monthly budget. Never with pictures that matched known abuse material.
   let ai: ScanReport["ai"] = null;
@@ -162,10 +163,10 @@ export async function inspectVersion(env: Env, version: Version, game: Game, dep
     ai = { model: env.AI_MODEL, verdict: "skipped", summary: "Not sent for AI review: image matching found known abuse material.", input_token_count: 0, output_token_count: 0 };
   } else if (!env.ANTHROPIC_API_KEY) {
     ai = { model: env.AI_MODEL, verdict: "skipped", summary: "No API key set.", input_token_count: 0, output_token_count: 0 };
-    findings.push({ stage: "ai", severity: "hold", rule: "ai-not-configured", detail: "AI review isn't set up, so a person has to approve this game." });
+    findings.push({ stage: "ai", severity: "hold", code: "ai_review_off", message: "AI review isn't set up, so a person has to approve this game." });
   } else if (used.input_token_count >= maximumMonthlyInputTokenCount) {
     ai = { model: env.AI_MODEL, verdict: "skipped", summary: "Monthly AI review budget used up.", input_token_count: 0, output_token_count: 0 };
-    findings.push({ stage: "ai", severity: "hold", rule: "ai-budget", detail: "This month's AI review budget is used up, so a person has to approve this game." });
+    findings.push({ stage: "ai", severity: "hold", code: "ai_review_budget_used", message: "This month's AI review budget is used up, so a person has to approve this game." });
   } else {
     const aiImages = await pickImages(env, imageFiles);
     const aiResult = await deps.ai(env.ANTHROPIC_API_KEY, env.AI_MODEL, {
@@ -242,11 +243,11 @@ export async function matchMedia(env: Env, files: StoredFile[], texts: { path: s
     if (!type || (type === "video/webm" && !matroskaHasVideo(await readStart(env, file.key, MATROSKA_HEAD_BYTES)))) continue;
     media.push(stored(file, type));
   }
-  if (sniffedFileCount > MAXIMUM_SNIFFED_FILE_COUNT) findings.push({ stage: "images", severity: "hold", rule: "too-many-files", detail: `More than ${MAXIMUM_SNIFFED_FILE_COUNT} files that aren't code or pictures: the first ${MAXIMUM_SNIFFED_FILE_COUNT} were checked for hidden pictures, and a person should look at the rest.` });
+  if (sniffedFileCount > MAXIMUM_SNIFFED_FILE_COUNT) findings.push({ stage: "images", severity: "hold", code: "too_many_files_to_check", message: `More than ${MAXIMUM_SNIFFED_FILE_COUNT} files that aren't code or pictures: the first ${MAXIMUM_SNIFFED_FILE_COUNT} were checked for hidden pictures, and a person should look at the rest.` });
   for (const textFile of texts) {
     embeddedMedia(textFile.text).forEach(({ type, bytes }, i) => media.push({ path: `${textFile.path} (picture ${i + 1} in the code)`, type, id: `embedded:${textFile.path}:${i}`, body: async () => bytes }));
   }
-  if (media.length > MAXIMUM_MATCHED_MEDIA_COUNT) findings.push({ stage: "images", severity: "hold", rule: "too-many-images", detail: `More than ${MAXIMUM_MATCHED_MEDIA_COUNT} pictures and videos: the first ${MAXIMUM_MATCHED_MEDIA_COUNT} were matched, and a person should look at the rest.` });
+  if (media.length > MAXIMUM_MATCHED_MEDIA_COUNT) findings.push({ stage: "images", severity: "hold", code: "too_many_images_to_check", message: `More than ${MAXIMUM_MATCHED_MEDIA_COUNT} pictures and videos: the first ${MAXIMUM_MATCHED_MEDIA_COUNT} were matched, and a person should look at the rest.` });
   const matchResult = await matcher.check(media.slice(0, MAXIMUM_MATCHED_MEDIA_COUNT));
   return { ...matchResult, findings: [...findings, ...matchResult.findings] };
 }
@@ -287,16 +288,16 @@ export async function recheckImages(env: Env, versionId: string, deps: ScanDeps 
   const files = await versionFiles(env, version);
   const { texts, disguised, hasTooMuchCode } = await readCode(env, files);
   const matchResult = await matchMedia(env, files, texts, disguised, deps.images);
-  if (matchResult.findings.some((finding) => finding.rule === KNOWN_IMAGE_RULE)) {
+  if (matchResult.findings.some((finding) => finding.code === KNOWN_IMAGE_CODE)) {
     await holdKnownImages(env, game, version, matchResult, "Image matching on a version that passed before it was connected");
     return;
   }
-  const unfinished = matchResult.findings.filter((finding) => finding.rule === "image-matching-failed" && !finding.path);
+  const unfinished = matchResult.findings.filter((finding) => finding.code === "image_matching_failed" && !finding.path);
   if (unfinished.length) throw new Error(summarize(unfinished));
   const report = reportOf(version);
   report.images = { provider: matchResult.provider, is_connected: true, checked_media_count: matchResult.checkedMediaCount };
   await env.DB.prepare("UPDATE versions SET scan_report = ? WHERE id = ?").bind(JSON.stringify(report), version.id).run();
-  const loose = [...matchResult.findings, ...(hasTooMuchCode ? [{ stage: "static", severity: "hold", rule: "too-much-code", detail: "More code than the checks read." } as Finding] : [])];
+  const loose = [...matchResult.findings, ...(hasTooMuchCode ? [{ stage: "static", severity: "hold", code: "too_much_code", message: "More code than the checks read." } as Finding] : [])];
   await audit(env.DB, game.id, "images-checked", `${version.id}: ${matchResult.checkedMediaCount} pictures and videos matched, no known abuse material${loose.length ? `\nNot fully checked:\n${summarize(loose)}` : ""}`);
   if (loose.length) await sendAlert(env, `${game.slug}: some files couldn't be image-matched`, `Version ${version.id} passed before image matching was connected. It was matched now and nothing known was found, but:\n\n${summarize(loose)}\n\nGame: ${env.SITE_ORIGIN}/admin/games/${game.id}`);
 }
@@ -307,29 +308,41 @@ export async function recheckImages(env: Env, versionId: string, deps: ScanDeps 
  * if players get this version, and an urgent alert. Nothing is deleted. Returns whether the game was hidden.
  */
 export async function holdKnownImages(env: Env, game: Game, version: Version, images: ImageMatchResult, why: string): Promise<boolean> {
-  const knownImageFindings = images.findings.filter((finding) => finding.rule === KNOWN_IMAGE_RULE);
+  const knownImageFindings = images.findings.filter((finding) => finding.code === KNOWN_IMAGE_CODE);
   const report = reportOf(version);
-  report.findings = [...report.findings.filter((finding) => finding.rule !== KNOWN_IMAGE_RULE), ...knownImageFindings];
+  report.findings = [...report.findings.filter((finding) => finding.code !== KNOWN_IMAGE_CODE), ...knownImageFindings];
   report.decision = "held";
   report.is_child_safety = true;
   report.images = { provider: images.provider, is_connected: images.isConnected, checked_media_count: images.checkedMediaCount };
   await env.DB.prepare("UPDATE versions SET scan_status = 'held', preview_token = NULL, scheduled_publish_at_ms = NULL, scan_report = ? WHERE id = ?").bind(JSON.stringify(report), version.id).run();
   const isGameHidden = game.live_version_id === version.id && game.review_status === "live";
-  if (isGameHidden) await setReviewStatus(env.DB, game.id, "held");
+  // Never described to the developer: they're told a person needs to look.
+  if (isGameHidden) await setReviewStatus(env.DB, game.id, "held", reviewReason("needs_review"));
   await audit(env.DB, game.id, "image-match-hold", `${why}: ${version.id} is held${isGameHidden ? " and the game is hidden" : ""}\n${summarize(knownImageFindings)}`);
   await sendAlert(env, `URGENT: known abuse images in ${game.slug}${isGameHidden ? " (game hidden)" : ""}`, `${why}.\n\n${KNOWN_IMAGE_ALERT}${isGameHidden ? " The game is hidden from players." : ""}\n\n${summarize(knownImageFindings)}\n\nGame: ${env.SITE_ORIGIN}/admin/games/${game.id}`);
   return isGameHidden;
 }
 
 function reportOf(version: Version): ScanReport {
-  return version.scan_report
-    ? (JSON.parse(version.scan_report) as ScanReport)
-    : { finished_at_ms: Date.now(), decision: "approved", findings: [], outside_hosts: [], images: { provider: "none", is_connected: false, checked_media_count: 0 }, ai: null, is_child_safety: false };
+  return version.scan_report ? (JSON.parse(version.scan_report) as ScanReport) : emptyReport("approved", []);
 }
+
+const emptyReport = (decision: ScanReport["decision"], findings: Finding[]): ScanReport => ({
+  finished_at_ms: Date.now(),
+  decision,
+  findings,
+  outside_hosts: [],
+  images: { provider: "none", is_connected: false, checked_media_count: 0 },
+  ai: null,
+  is_child_safety: false,
+});
+
+/** A scan that didn't finish after its tries: held for a person, the error kept for Zaisma's eyes. */
+const scanFailedReport = (error: string): ScanReport => emptyReport("held", [{ stage: "static", severity: "hold", code: "scan_failed", message: `The scan didn't finish: ${error.slice(0, 300)}` }]);
 
 export function summarize(findings: Finding[]): string {
   const important = findings.filter((finding) => finding.severity !== "info");
-  return important.length ? important.map((finding) => `${finding.rule}: ${finding.detail}`).join("\n") : "No problems found.";
+  return important.length ? important.map((finding) => `${finding.code}: ${finding.message}`).join("\n") : "No problems found.";
 }
 
 /** index.html first, then other HTML, then scripts, smallest first, up to the budget. */
@@ -381,13 +394,13 @@ async function virusTotal(env: Env, files: StoredFile[]): Promise<Finding[]> {
     const response = await fetch(`https://www.virustotal.com/api/v3/files/${hash}`, { headers: { "x-apikey": env.VT_API_KEY! } });
     if (response.status === 404) continue;
     if (!response.ok) {
-      findings.push({ stage: "static", severity: "info", rule: "virustotal-unavailable", detail: `VirusTotal lookup failed (${response.status}).`, path: file.path });
+      findings.push({ stage: "static", severity: "info", code: "antivirus_unavailable", message: `VirusTotal lookup failed (${response.status}).`, path: file.path });
       continue;
     }
     const answer = (await response.json()) as VirusTotalAnswer;
     const maliciousEngineCount = answer.data?.attributes?.last_analysis_stats?.malicious ?? 0;
-    if (maliciousEngineCount >= 3) findings.push({ stage: "static", severity: "reject", rule: "virustotal", detail: `${maliciousEngineCount} antivirus engines flag this file.`, path: file.path });
-    else if (maliciousEngineCount > 0) findings.push({ stage: "static", severity: "hold", rule: "virustotal", detail: `${maliciousEngineCount} antivirus engine(s) flag this file.`, path: file.path });
+    if (maliciousEngineCount >= 3) findings.push({ stage: "static", severity: "reject", code: "antivirus_flag", message: `${maliciousEngineCount} antivirus engines flag this file.`, path: file.path });
+    else if (maliciousEngineCount > 0) findings.push({ stage: "static", severity: "hold", code: "antivirus_flag", message: `${maliciousEngineCount} antivirus engine(s) flag this file.`, path: file.path });
   }
   return findings;
 }

@@ -1,5 +1,6 @@
 import { AUTO_HOLD_REASONS, PLAYER_REPORT_REASONS, REPORT_REASONS, SEVERITY, type Game, type MultiplayerMode, type PlayerReportReason, type ReportReason, type ReviewStatus, type ScanReport, type ScanStatus, type Version, type Visibility } from "./types.ts";
 import { newId } from "./ids.ts";
+import type { ReviewReason } from "./review.ts";
 
 const now = () => Date.now();
 
@@ -48,7 +49,7 @@ export async function createGame(
 ): Promise<Game> {
   const { ownerId, visibility, ...words } = details;
   const game: Game = {
-    id: newId("game"), ...words, review_status: "pending", live_version_id: null, multiplayer_mode: "none", built_in_server: null, connect_hosts: "", owner_id: ownerId ?? null, cloud_saves_enabled: 1,
+    id: newId("game"), ...words, review_status: "pending", review_reason: null, live_version_id: null, multiplayer_mode: "none", built_in_server: null, connect_hosts: "", owner_id: ownerId ?? null, cloud_saves_enabled: 1,
     visibility: visibility ?? "listed", devices: "", controls: "", screen_orientation: "", play_modes: "", room_browsing: "page", is_off_shelves: 0, details_waiting_for_review: null, created_at_ms: now(), updated_at_ms: now(),
   };
   await database
@@ -74,8 +75,11 @@ export async function setMultiplayer(database: D1Database, id: string, multiplay
     .run();
 }
 
-export async function setReviewStatus(database: D1Database, id: string, reviewStatus: ReviewStatus): Promise<void> {
-  await database.prepare("UPDATE games SET review_status = ?, updated_at_ms = ? WHERE id = ?").bind(reviewStatus, now(), id).run();
+/** Zaisma's review of a game. Held and removed always say why; pending and live never do. */
+export async function setReviewStatus(database: D1Database, id: string, reviewStatus: "pending" | "live"): Promise<void>;
+export async function setReviewStatus(database: D1Database, id: string, reviewStatus: "held" | "removed", reviewReason: ReviewReason): Promise<void>;
+export async function setReviewStatus(database: D1Database, id: string, reviewStatus: ReviewStatus, reviewReason: ReviewReason | null = null): Promise<void> {
+  await database.prepare("UPDATE games SET review_status = ?, review_reason = ?, updated_at_ms = ? WHERE id = ?").bind(reviewStatus, reviewReason ? JSON.stringify(reviewReason) : null, now(), id).run();
 }
 
 export async function createVersion(
@@ -139,8 +143,15 @@ export async function clearVersion(database: D1Database, versionId: string): Pro
   await database.prepare("UPDATE versions SET cleared_at_ms = ?, report_held_at_ms = NULL WHERE id = ?").bind(now(), versionId).run();
 }
 
-export async function audit(database: D1Database, gameId: string | null, action: string, reason = "", actor = "system"): Promise<void> {
-  await database.prepare("INSERT INTO audit_log (game_id, action, reason, actor, happened_at_ms) VALUES (?, ?, ?, ?, ?)").bind(gameId, action, reason, actor, now()).run();
+/**
+ * Note what happened to a game. `reason` is for Zaisma's own eyes; `reviewReason`, for a hold,
+ * rejection or takedown, is what the developer reads about it in the game's history.
+ */
+export async function audit(database: D1Database, gameId: string | null, action: string, reason = "", actor = "system", reviewReason: ReviewReason | null = null): Promise<void> {
+  await database
+    .prepare("INSERT INTO audit_log (game_id, action, reason, actor, happened_at_ms, review_reason) VALUES (?, ?, ?, ?, ?, ?)")
+    .bind(gameId, action, reason, actor, now(), reviewReason ? JSON.stringify(reviewReason) : null)
+    .run();
 }
 
 /** A row of the audit log: what happened to a game, and who did it. */
@@ -152,6 +163,8 @@ export interface AuditEntry {
   reason: string;
   actor: string;
   happened_at_ms: number;
+  /** For a hold, rejection or takedown: what the developer reads about it, as JSON (a ReviewReason). */
+  review_reason: string | null;
 }
 
 export async function auditLog(database: D1Database, gameId?: string): Promise<AuditEntry[]> {

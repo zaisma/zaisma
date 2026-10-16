@@ -1,4 +1,4 @@
-import { ApiError, CONTROLS, DEVICES, PLAY_STYLES, ROOM_BROWSING, SCREENS, type PlayMode, type RoomBrowsing } from "@zaisma/core";
+import { ApiError, CONTENT_RULES, CONTROLS, DEVICES, PLAY_STYLES, ROOM_BROWSING, SCREENS, type ContentRule, type PlayMode, type RoomBrowsing } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import { apiCall, callerFor, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
@@ -11,6 +11,12 @@ import { html, layout, metalButton, raw, type Raw } from "./html.ts";
  */
 
 // The API's answers, as apps/site/src/schemas.ts describes them.
+interface ReviewReasonJson {
+  code: string;
+  message: string;
+  content_rule: ContentRule | null;
+  fix: string;
+}
 interface GameJson {
   slug: string;
   page_url: string;
@@ -18,6 +24,7 @@ interface GameJson {
   description: string;
   visibility: "draft" | "listed" | "unlisted" | "private";
   review_status: "pending" | "live" | "held" | "removed";
+  review_reason: ReviewReasonJson | null;
   devices: string[];
   controls: string[];
   screen_orientation: string | null;
@@ -32,7 +39,9 @@ interface ImageJson {
   id: string;
   kind: "cover" | "square" | "screenshot";
   review_status: "pending" | "approved" | "rejected";
+  review_reason: ReviewReasonJson | null;
   image_url: string;
+  created_at: string;
 }
 interface VersionJson {
   id: string;
@@ -45,7 +54,8 @@ interface VersionJson {
   published_at: string | null;
   scheduled_publish_at: string | null;
   created_at: string;
-  findings: { severity: string; rule: string; explanation: string; path: string | null }[];
+  review_reason: ReviewReasonJson | null;
+  findings: (ReviewReasonJson & { severity: "reject" | "hold"; path: string | null })[];
 }
 
 const VISIBILITY: Record<GameJson["visibility"], { label: string; hint: string }> = {
@@ -284,7 +294,7 @@ async function managerPage(
     call("GET", `/games/${slug}/reports`),
     call("GET", `/games/${slug}/stats?period_duration_days=30`),
     call("GET", `/games/${slug}/history`),
-  ])) as unknown as [Reports, Stats, { events: { description: string; version_id: string | null; done_by: "you" | "zaisma"; happened_at: string }[] }];
+  ])) as unknown as [Reports, Stats, { events: { description: string; version_id: string | null; done_by: "you" | "zaisma"; happened_at: string; review_reason: ReviewReasonJson | null }[] }];
   const cover = coverOf(images);
   const removed = game.review_status === "removed";
   const openReportCount = reports.reasons.reduce((openCount, reason) => openCount + reason.open_count, 0);
@@ -311,7 +321,7 @@ ${options.confirmHide
 <form class="row" method="post" action="/dashboard/${slug}/visibility"><input type="hidden" name="visibility" value="${options.confirmHide}"><input type="hidden" name="confirm" value="yes">
 <button class="btn danger" type="submit">Hide it from players</button><a class="btn ghost" href="/dashboard/${slug}">Keep it</a></form></div>`
       : ""}
-${removed ? html`<div class="note"><p><strong>Zaisma took this game down.</strong> It can't get new versions or change who can play it.</p></div>` : ""}
+${game.review_reason ? html`<div class="note held-game" role="status">${reasonPanel(slug, game.review_reason, removed ? "Zaisma took this game down." : "Players can't open this game right now.")}</div>` : ""}
 ${notice(options)}
 <div class="manage">
 <section class="main">
@@ -333,7 +343,7 @@ ${imagesPanel(slug, images)}
 <details open><summary><h2>Plays</h2><span class="muted">Last 30 days</span></summary>${playsPanel(stats.play_stats)}</details>
 <details${openReportCount ? raw(" open") : ""}><summary><h2>Player reports${openReportCount ? ` (${openReportCount} open)` : ""}</h2></summary>${reportsPanel(reports)}</details>
 <details${stats.room_use_this_month.has_reached_free_hours ? raw(" open") : ""}><summary><h2>Multiplayer use${stats.room_use_this_month.has_reached_free_hours ? " (new rooms paused)" : ""}</h2></summary>${statsPanel(stats, game.multiplayer_mode === "own")}</details>
-<details><summary><h2>History</h2></summary>${history.events.length ? html`<table><tbody>${history.events.map((event) => html`<tr><td class="nowrap">${when(event.happened_at)}</td><td>${event.description}${event.version_id ? html` <span class="muted">(${event.version_id.slice(0, 16)})</span>` : ""}</td><td class="muted">${event.done_by === "you" ? "You" : "Zaisma"}</td></tr>`)}</tbody></table>` : html`<p class="muted">Nothing yet.</p>`}</details>
+<details><summary><h2>History</h2></summary>${history.events.length ? html`<table><tbody>${history.events.map((event) => html`<tr><td class="nowrap">${when(event.happened_at)}</td><td>${event.description}${event.version_id ? html` <span class="muted">(${event.version_id.slice(0, 16)})</span>` : ""}${event.review_reason ? html`<br><span class="muted">${event.review_reason.message} <code>${event.review_reason.code}</code></span>` : ""}</td><td class="muted">${event.done_by === "you" ? "You" : "Zaisma"}</td></tr>`)}</tbody></table>` : html`<p class="muted">Nothing yet.</p>`}</details>
 </div>`,
     httpStatus,
     cover?.image_url ?? null,
@@ -387,17 +397,20 @@ ${version.scheduled_publish_at ? "" : html`<details class="later"><summary>Publi
 </div>`;
   } else if (version.scan_status === "scanning") {
     acts = html`<p class="muted">Being scanned. This usually takes under a minute.</p>`;
-  } else if (version.scan_status === "held") {
-    acts = html`<p class="muted">A person will look at it, usually within a day.</p>`;
-  } else if (version.scan_status === "rejected") {
-    acts = html`<p class="muted">This version can't be published. Fix what's below and upload again.</p>`;
   }
-  // Held and rejected versions come with what the scan found.
-  const findings = version.scan_status === "held" || version.scan_status === "rejected" ? version.findings : [];
+  // Held and rejected versions say why: a person's or a report's decision, and what the scan found.
+  const isHeldBack = version.scan_status === "held" || version.scan_status === "rejected";
+  const findings = isHeldBack ? version.findings : [];
+  const fixes = [...new Set(findings.map((finding) => finding.fix))];
   return html`<li class="${version.is_live ? "live edge" : ""}">
 <div class="version-head"><strong>${version.is_live ? html`<span class="badge">Live</span> ` : ""}${version.id.slice(0, 16)}</strong><span class="muted">${when(version.created_at)} · ${version.file_count} files, ${sizeText(version.size_bytes)}</span>${version.is_live ? "" : html`<span class="pill ${version.scan_status}">${version.scan_status === "approved" ? (version.published_at ? "Was live" : "Ready") : version.scan_status[0]!.toUpperCase() + version.scan_status.slice(1)}</span>`}</div>
 ${version.patch_notes ? html`<p class="version-notes">${version.patch_notes}</p>` : ""}
-${findings.length ? html`<ul class="findings">${findings.map((finding) => html`<li>${finding.explanation}${finding.path ? html` <span class="muted">(${finding.path})</span>` : ""}</li>`)}</ul>` : ""}
+${isHeldBack && version.review_reason ? reasonPanel(slug, version.review_reason) : ""}
+${findings.length
+      ? html`<div class="reason"><ul class="findings">${findings.map(
+          (finding) => html`<li>${finding.message}${finding.path ? html` <span class="muted">(${finding.path})</span>` : ""}<br><span class="muted">${finding.content_rule ? html`${ruleLink(finding.content_rule)} · ` : ""}<code>${finding.code}</code></span></li>`,
+        )}</ul>${fixes.map((fix) => html`<p class="fix">${fixForPeople(slug, fix)}</p>`)}</div>`
+      : ""}
 ${scheduled}${acts}
 </li>`;
 }
@@ -464,9 +477,43 @@ ${mode("online", "Online multiplayer", "Each on their own device. Leave the most
 
 const KIND_LABELS: Record<ImageJson["kind"], string> = { cover: "Cover", square: "Square cover", screenshot: "Screenshot" };
 
+/**
+ * Why Zaisma held, rejected or took something down: the reason in plain words, the content rule it's
+ * about, what to do, and the code to look it up by (the forum finds others who had it).
+ */
+function reasonPanel(slug: string, reason: ReviewReasonJson, lead?: string): Raw {
+  return html`<div class="reason">
+<p>${lead ? html`<strong>${lead}</strong> ` : ""}${reason.message}</p>
+${reason.content_rule ? html`<p class="muted">${ruleLink(reason.content_rule)}</p>` : ""}
+<p class="fix">${fixForPeople(slug, reason.fix)}</p>
+<p class="muted"><a href="/forum?search_text=${encodeURIComponent(reason.code)}"><code>${reason.code}</code></a></p>
+</div>`;
+}
+
+/**
+ * A fix as people read it here: the calls it names for an AI (message_zaisma, add_image, update_game)
+ * become this page's own links, with the same meaning.
+ */
+function fixForPeople(slug: string, fix: string): Raw {
+  const message = `/forum/messages/new?${new URLSearchParams({ kind: "question", game_slug: slug })}`;
+  const parts = fix.split(/(message_zaisma(?: with the (?:game_slug|version_id))?|add_image|update_game)/);
+  return html`${parts.map((part, i) =>
+    i % 2 === 0 ? part : part.startsWith("message_zaisma") ? html`<a href="${message}">message Zaisma</a>` : part === "add_image" ? html`<a href="#images">Add image</a>` : html`<a href="#details">the details here</a>`,
+  )}`;
+}
+
+/** A content rule, linked to where the rules page says it. */
+const ruleLink = (rule: ContentRule) => html`The rule: <a href="/legal/content-rules#${rule}" target="_blank" rel="noopener">${CONTENT_RULES[rule]}</a>`;
+
 function imagesPanel(slug: string, images: ImageJson[]): Raw {
   const shown = images.filter((i) => i.review_status !== "rejected");
-  return html`${shown.length
+  // Only the latest few that weren't approved, each with why; rejected images are never served, so no picture.
+  const rejected = images.filter((image) => image.review_status === "rejected" && image.review_reason).slice(0, 3);
+  return html`${rejected.map(
+    (image) => html`<div class="note rejected-image"><p><strong>The ${KIND_LABELS[image.kind].toLowerCase()} you sent ${when(image.created_at)} wasn't approved.</strong></p>${reasonPanel(slug, image.review_reason!)}
+<form method="post" action="/dashboard/${slug}/images/${image.id}/remove"><button class="link" type="submit">Clear this</button></form></div>`,
+  )}
+${shown.length
     ? html`<div class="thumbs">${shown.map(
         (i) => html`<figure><img class="bevel-s${i.kind === "square" ? " sq" : ""}" src="${i.image_url}" alt="" loading="lazy"><figcaption><span>${KIND_LABELS[i.kind]}${i.review_status === "pending" ? html` <span class="pill pending">In review</span>` : ""}</span>
 <form method="post" action="/dashboard/${slug}/images/${i.id}/remove"><button class="link" type="submit">Remove</button></form></figcaption></figure>`,
@@ -602,8 +649,16 @@ const STYLES = `
 .version-head{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
 .version-head .pill{margin-left:auto}
 .version-notes{margin:0;color:var(--text-2);white-space:pre-wrap}
-.findings{margin:0;padding-left:18px;color:var(--warn)}
-.findings .muted{color:var(--muted)}
+.findings{margin:0;padding-left:18px;color:var(--warn);display:grid;gap:6px}
+.findings .muted{color:var(--muted);font-size:13px}
+.reason{display:grid;gap:6px}
+.reason p{margin:0}
+.reason .fix{color:var(--text-2)}
+.reason code{font-size:12px}
+.reason a{color:inherit}
+.held-game{margin-bottom:16px;border-left:3px solid var(--warn)}
+.rejected-image{margin-bottom:12px;display:grid;gap:8px}
+.rejected-image>p{margin:0}
 .track p{margin:0}
 .testers{list-style:none;padding:0;margin:0 0 12px;display:grid;gap:12px}
 .testers>li{padding:14px 16px;display:grid;gap:10px}

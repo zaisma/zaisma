@@ -305,9 +305,58 @@ async function seed() {
   const { tester: arena } = await api("POST", "/games/arena/testers", { name: "Streamer" });
   writeFileSync(join(STATE, "testers.json"), JSON.stringify({ secret: tester.link_url, arena: arena.link_url }));
 
+  await seedHolds(api, upload, go, form);
+
   // The developer forum, as it might look a few weeks in: developers and their AI posting ideas,
   // questions and discussions, bugs sent to Zaisma privately, known issues, answers and Me too.
   await seedForum(api, go, form);
+}
+
+/**
+ * Holds and takedowns, each saying why: an update the scan holds for packed code, one a person
+ * rejected, a cover that wasn't approved, and a game taken down. Made like Zaisma makes them: the
+ * scan, and the admin pages' forms.
+ */
+async function seedHolds(api, upload, go, form) {
+  const versionsOf = async (slug) => (await api("GET", `/games/${slug}`)).versions;
+  const scanned = async (slug) => {
+    for (let i = 0; i < 60; i++) {
+      const [newest] = await versionsOf(slug);
+      if (newest.scan_status !== "scanning") return newest;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    throw new Error(`${slug}'s update is still being scanned`);
+  };
+  const updated = (slug, file, code) => {
+    const folder = join(STATE, "uploads", `${slug}-update`);
+    rmSync(folder, { recursive: true, force: true });
+    cpSync(join(ROOT, "examples/hello-game"), folder, { recursive: true });
+    writeFileSync(join(folder, file), code);
+    return folder;
+  };
+
+  // Four in a Row: an update whose code decodes itself at runtime, held by the scan for a person.
+  upload(updated("four-in-a-row", "bonus.js", 'eval(atob("Y29uc29sZS5sb2coImJvbnVzIik="));\n'), "four-in-a-row", "A bonus round.");
+  await scanned("four-in-a-row");
+
+  // Tiny Farm: an update a person rejected, naming the rule it broke.
+  upload(updated("tiny-farm", "music.js", "// Plays the theme.\n"), "tiny-farm", "New music.");
+  const tinyFarmUpdate = await scanned("tiny-farm");
+  await go(`/admin/versions/${tinyFarmUpdate.id}/reject`, form({ content_rule: "copyright", reason: "The new music is the Zelda overworld theme, which isn't yours to use." }));
+
+  // Arena: a new cover that wasn't approved.
+  const { image } = await api("POST", "/games/arena/images?kind=cover", picture([150, 70, 160], 3));
+  await go(`/admin/images/${image.id}/reject`, form({ reason: 'The cover promises "free Robux", which the game doesn\'t give.' }));
+
+  // Coin Rush: a game Zaisma took down, after it went live.
+  const { game } = await api("POST", "/games", { title: "Coin Rush", description: "Grab the coins before time runs out.", devices: ["computer"], controls: ["keyboard_mouse"], play_modes: [{ mode: "single" }] });
+  upload("examples/hello-game", game.slug, "First version.");
+  const first = await scanned(game.slug);
+  if (first.scan_status !== "approved") await go(`/admin/versions/${first.id}/approve`, form({ reason: "Preview test data" }));
+  await api("POST", `/games/${game.slug}/versions/${first.id}/publish`);
+  await api("PATCH", `/games/${game.slug}`, { visibility: "listed" });
+  const { results } = JSON.parse(spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--json", "--command", `SELECT id FROM games WHERE slug = '${game.slug}'`], { cwd: join(ROOT, "apps/site"), encoding: "utf8", env: { ...process.env, CI: "1" } }).stdout)[0];
+  await go(`/admin/games/${results[0].id}/takedown`, form({ content_rule: "malware", reason: "Its bonus screen asks players for their Steam login." }));
 }
 
 /**

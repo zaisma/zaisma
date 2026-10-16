@@ -107,8 +107,8 @@ export function embeddedMedia(text: string): { type: string; bytes: Uint8Array }
   return out;
 }
 
-/** The rule on a finding for a picture that matched known abuse material. The scan holds the version, keeps everything and alerts. */
-export const KNOWN_IMAGE_RULE = "known-illegal-image";
+/** The code on a finding for a picture that matched known abuse material. The scan holds the version, keeps everything and alerts. */
+export const KNOWN_IMAGE_CODE = "known_illegal_image";
 
 export const notConnected: ImageMatcher = {
   async check() {
@@ -120,8 +120,8 @@ export const notConnected: ImageMatcher = {
         {
           stage: "images",
           severity: "hold",
-          rule: "image-matching-not-connected",
-          detail: "Known-illegal-image matching isn't connected yet, so a person has to approve this game. Must be connected before outside uploads open.",
+          code: "image_matching_off",
+          message: "Known-illegal-image matching isn't connected yet, so a person has to approve this game. Must be connected before outside uploads open.",
         },
       ],
     };
@@ -199,12 +199,12 @@ export function arachnidShield(credentials: string, options: { baseUrl?: string;
           if (outcome.kind === "refused" || outcome.kind === "down") {
             stop ??= outcome;
           } else if (outcome.kind === "failed") {
-            findings.push({ stage: "images", severity: "hold", rule: "image-matching-failed", detail: `Arachnid Shield couldn't check this file (${outcome.why}). A person should look.`, path: image.path });
+            findings.push({ stage: "images", severity: "hold", code: "image_matching_failed", message: `Arachnid Shield couldn't check this file (${outcome.why}). A person should look.`, path: image.path });
           } else {
             checkedMediaCount++;
             if (outcome.kind === "match") {
               const how = outcome.matchType === "exact" ? "the exact file" : outcome.matchType === "near" ? "a visual match" : "a match";
-              findings.push({ stage: "images", severity: "hold", rule: KNOWN_IMAGE_RULE, detail: `Arachnid Shield: ${LABELS[outcome.classification] ?? `classified "${outcome.classification}"`} (${how}).`, path: image.path });
+              findings.push({ stage: "images", severity: "hold", code: KNOWN_IMAGE_CODE, message: `Arachnid Shield: ${LABELS[outcome.classification] ?? `classified "${outcome.classification}"`} (${how}).`, path: image.path });
             }
           }
         }
@@ -212,9 +212,9 @@ export function arachnidShield(credentials: string, options: { baseUrl?: string;
       await Promise.all(Array.from({ length: Math.min(CONCURRENT_FILE_COUNT, media.length) }, worker));
       const halted = stop as Outcome | null;
       if (halted?.kind === "refused") {
-        findings.push({ stage: "images", severity: "hold", rule: "image-matching-failed", detail: `Arachnid Shield turned down our sign-in (${halted.httpStatus}). Check the ARACHNID_SHIELD_KEY secret; until it works, a person approves each game.` });
+        findings.push({ stage: "images", severity: "hold", code: "image_matching_failed", message: `Arachnid Shield turned down our sign-in (${halted.httpStatus}). Check the ARACHNID_SHIELD_KEY secret; until it works, a person approves each game.` });
       } else if (halted?.kind === "down") {
-        findings.push({ stage: "images", severity: "hold", rule: "image-matching-failed", detail: `Arachnid Shield didn't answer (${halted.why}), so not every picture and video was checked. A person should look, or scan it again later.` });
+        findings.push({ stage: "images", severity: "hold", code: "image_matching_failed", message: `Arachnid Shield didn't answer (${halted.why}), so not every picture and video was checked. A person should look, or scan it again later.` });
       }
       return { provider: "arachnid-shield", isConnected: true, checkedMediaCount, findings };
     },

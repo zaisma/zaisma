@@ -1,6 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { KNOWN_IMAGE_RULE, createAccount, createApiKey, createGame, deleteAccount, forumMediaKey, personOwner, type ImageMatcher } from "@zaisma/core";
+import { KNOWN_IMAGE_CODE, createAccount, createApiKey, createGame, deleteAccount, forumMediaKey, personOwner, type ImageMatcher } from "@zaisma/core";
 import { decideTopic, deleteStaleDraftMedia } from "../../apps/site/src/forum-posts.ts";
 import { sortMisplaced, sortTopics, type SortAnswer, type SortDeps } from "../../apps/site/src/forum-sort.ts";
 import { checkForumPosts, type CheckImage } from "../../apps/site/src/forum-check.ts";
@@ -600,7 +600,7 @@ describe("search, phases and reading a topic in part", () => {
 
     // Connected, and it matches: the image comes down, its file kept for reporting, and the post waits for a person.
     const { posts: second } = await mcp("post_topic", { kind: "bug", category: "pages", title: "More", text_markdown: "And this.", images_base64: [PNG] });
-    const match: ImageMatcher = { check: async (images) => ({ provider: "test", isConnected: true, checkedMediaCount: images.length, findings: [{ rule: KNOWN_IMAGE_RULE, severity: "block", detail: "match", path: images[0]!.path }] as never }) };
+    const match: ImageMatcher = { check: async (images) => ({ provider: "test", isConnected: true, checkedMediaCount: images.length, findings: [{ code: KNOWN_IMAGE_CODE, severity: "block", message: "match", path: images[0]!.path }] as never }) };
     const mediaId = second[0].media[0].id;
     await checkForumPosts({ ...env, ANTHROPIC_API_KEY: "test-key" }, { ai: async () => ({ verdict: "ok", reason: "", inputTokenCount: 1, outputTokenCount: 1 }), images: match });
     expect(await env.DB.prepare("SELECT id FROM forum_media WHERE id = ?").bind(mediaId).first()).toBeNull();

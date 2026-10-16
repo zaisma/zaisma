@@ -1,4 +1,4 @@
-import { AUTO_HOLD_REASONS, PLAYER_REPORT_REASONS, REPORT_REASONS, audit, createReport, gameBySlug, reportLabel, reportPictureKey, setReviewStatus, versionById, type Game, type PlayerReportReason, type ReportReason, type Version } from "@zaisma/core";
+import { AUTO_HOLD_REASONS, PLAYER_REPORT_REASONS, REPORT_REASONS, audit, createReport, gameBySlug, reportLabel, reportPictureKey, reviewReason, setReviewStatus, versionById, type Game, type PlayerReportReason, type ReportReason, type Version } from "@zaisma/core";
 import type { Env } from "./env.ts";
 import { sendAlert } from "./email.ts";
 import { html, layout, metalButton, raw } from "./html.ts";
@@ -411,12 +411,12 @@ export async function pauseForReport(env: Env, game: Game, label: string): Promi
       env.DB.prepare("UPDATE versions SET scan_status = 'held', publish_when_approved_enabled = 1, report_held_at_ms = ? WHERE id = ?").bind(nowMs, live.id),
       env.DB.prepare("UPDATE versions SET cleared_at_ms = ? WHERE id = ?").bind(nowMs, before.id),
     ]);
-    await audit(env.DB, game.id, "report-paused-update", `Report: ${label}. ${live.id} held; players are back on ${before.id}`);
+    await audit(env.DB, game.id, "report-paused-update", `Report: ${label}. ${live.id} held; players are back on ${before.id}`, "system", reviewReason("report_paused_update"));
     return "update";
   }
-  await setReviewStatus(env.DB, game.id, "held");
+  await setReviewStatus(env.DB, game.id, "held", reviewReason("report_paused_game"));
   await env.DB.prepare("UPDATE versions SET report_held_at_ms = ? WHERE id = ?").bind(nowMs, live.id).run();
-  await audit(env.DB, game.id, "auto-hold", `Report: ${label}`);
+  await audit(env.DB, game.id, "auto-hold", `Report: ${label}`, "system", reviewReason("report_paused_game"));
   return "game";
 }
 

@@ -1,4 +1,4 @@
-import { CONTROLS, DEVICES, FORUM_REPORT_REASONS, PLAY_STYLES, PLAYER_REPORT_REASONS, REPORT_REASONS, ROOM_BROWSING, SCREENS, VISIBILITIES, type IdKind } from "@zaisma/core";
+import { CONTENT_RULES, CONTROLS, DEVICES, FORUM_REPORT_REASONS, PLAY_STYLES, PLAYER_REPORT_REASONS, REPORT_REASONS, REVIEW_CODES, ROOM_BROWSING, SCREENS, VISIBILITIES, type IdKind } from "@zaisma/core";
 
 /**
  * The developer API's answers as JSON Schema, and the admin MCP's at the end: the MCPs' output
@@ -62,6 +62,20 @@ export const PLAY_MODE = object({
   play_style: nullable(choice(PLAY_STYLES, "null for single.")),
 });
 
+export const CONTENT_RULE = choice(CONTENT_RULES, "The content rule it's about, as zaisma.com/legal/content-rules#<rule> words it.");
+const REVIEW_CODE = describe({ type: "string", enum: Object.keys(REVIEW_CODES) }, "Stable, from one list (docs/DEVELOPER-API.md, Holds and takedowns); search_forum finds others who had it.");
+/** Why Zaisma held, rejected or took something down: the same parts as an error's, plus the content rule. */
+export const reviewReason = (description: string) =>
+  object(
+    {
+      code: REVIEW_CODE,
+      message: text("What happened and why, in plain words."),
+      content_rule: nullable(CONTENT_RULE),
+      fix: text("What to do about it, naming the call when there is one."),
+    },
+    description,
+  );
+
 export const GAME = object({
   slug: text("The game's link name, as in zaisma.com/g/<slug>"),
   page_url: url(),
@@ -69,6 +83,7 @@ export const GAME = object({
   description: text(),
   visibility: VISIBILITY,
   review_status: REVIEW_STATUS,
+  review_reason: nullable(reviewReason("Why it's held or removed; null while it's pending or live.")),
   devices: list(choice(DEVICES)),
   controls: list(choice(CONTROLS)),
   screen_orientation: nullable(choice(SCREENS, "null: not set.")),
@@ -80,11 +95,14 @@ export const GAME = object({
   updated_at: isoTime(),
 });
 
+const FINDING_SEVERITY = choice({ reject: "the version can't go live", hold: "a person at Zaisma looks first" });
 export const FINDING = object({
-  severity: choice({ reject: "the version can't go live", hold: "a person at Zaisma looks first" }),
-  rule: text("Which check found it."),
-  explanation: text(),
+  code: REVIEW_CODE,
+  severity: FINDING_SEVERITY,
+  message: text("What the scan found, in plain words."),
+  content_rule: nullable(CONTENT_RULE),
   path: nullable(text("The file it's in, if any.")),
+  fix: text("What to do about it."),
 });
 
 const SCAN_STATUS = choice({ scanning: "being scanned, usually under a minute", held: "waiting for a person at Zaisma", approved: "passed; it can be previewed and published", rejected: "can't be published; see findings" });
@@ -100,13 +118,15 @@ export const VERSION = object({
   published_at: nullable(isoTime("When it last went live.")),
   scheduled_publish_at: nullable(isoTime("When it goes live by itself, if it's scheduled.")),
   created_at: isoTime(),
-  findings: list(FINDING, "Why it was held or rejected."),
+  review_reason: nullable(reviewReason("A person's or a report's decision: why a person rejected it, or a report paused it. null otherwise.")),
+  findings: list(FINDING, "What the scan found that holds or rejects it."),
 });
 
 export const IMAGE = object({
   id: idOf("image"),
   kind: choice({ cover: "landscape cover", square: "square cover, shown on phones", screenshot: "a screenshot" }),
   review_status: choice({ pending: "only you see it until it's reviewed", approved: "shown to players", rejected: "not shown" }),
+  review_reason: nullable(reviewReason("Why it wasn't approved; null otherwise.")),
   width_px: countOf(),
   height_px: countOf(),
   size_bytes: countOf(),
@@ -246,6 +266,7 @@ export const HISTORY = object({
       version_id: nullable(idOf("version")),
       done_by: choice({ you: "the developer", zaisma: "Zaisma" }),
       happened_at: isoTime(),
+      review_reason: nullable(reviewReason("For a hold, rejection or takedown: why, the rule and the fix. null for everything else.")),
     }),
     "Newest first.",
   ),
@@ -430,6 +451,7 @@ const ADMIN_GAME = object({
   multiplayer_mode: MULTIPLAYER_MODE,
   game_server_name: nullable(text("What runs its multiplayer on Zaisma rooms: relay, sandbox (the game's own game server) or a built-in one's name; null without rooms.")),
   has_own_servers: yes("The game talks to servers of its own."),
+  review_reason: nullable(reviewReason("What the developer reads about why it's held or removed.")),
   created_at: isoTime(),
 });
 const ADMIN_VERSION = object({
@@ -440,13 +462,18 @@ const ADMIN_VERSION = object({
   published_at: nullable(isoTime("When it last went live.")),
   created_at: isoTime(),
   scan_summary: nullable(text("What the AI review said; null before it ran.")),
-  findings: list(FINDING),
+  review_reason: nullable(reviewReason("What the developer reads about a person's or report's decision on it.")),
+  findings: list(
+    object({ code: text("Which check found it: a code from REVIEW_CODES, or one only Zaisma sees, like known_illegal_image."), severity: FINDING_SEVERITY, message: text("For Zaisma's eyes."), path: nullable(text()) }),
+    "Everything the scan found but notes, as Zaisma sees it.",
+  ),
 });
 const HISTORY_EVENT = object({
   action: text("What happened, like report-paused-update or version-published."),
   description: text(),
   actor: text("Who did it: an admin's email, the developer's account, or Zaisma's own checks (scan, triage)."),
   happened_at: isoTime(),
+  review_reason: nullable(reviewReason("For a hold, rejection or takedown: what the developer reads about it.")),
 });
 const GAME_IN_BRIEF = object({ slug: text(), title: text(), review_status: REVIEW_STATUS });
 

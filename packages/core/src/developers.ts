@@ -1,4 +1,5 @@
 import { newRandomPart, sha256Hex } from "./ids.ts";
+import type { ReviewReason } from "./review.ts";
 import { MULTIPLAYER_MODES, ROOM_BROWSING, type Game, type RoomBrowsing, type Visibility } from "./types.ts";
 
 /**
@@ -313,6 +314,8 @@ export interface GameImage {
   height_px: number;
   size_bytes: number;
   review_status: ImageReviewStatus;
+  /** Why a person didn't approve it, as JSON (a ReviewReason); NULL otherwise. */
+  review_reason: string | null;
   created_at_ms: number;
 }
 
@@ -371,8 +374,8 @@ export function sniffImage(bytes: Uint8Array): { type: "image/png" | "image/jpeg
   return null;
 }
 
-export async function addImage(database: D1Database, image: Omit<GameImage, "review_status" | "created_at_ms">): Promise<GameImage> {
-  const row: GameImage = { ...image, review_status: "pending", created_at_ms: now() };
+export async function addImage(database: D1Database, image: Omit<GameImage, "review_status" | "review_reason" | "created_at_ms">): Promise<GameImage> {
+  const row: GameImage = { ...image, review_status: "pending", review_reason: null, created_at_ms: now() };
   await database
     .prepare("INSERT INTO game_images (id, game_id, kind, content_type, width_px, height_px, size_bytes, review_status, created_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
     .bind(row.id, row.game_id, row.kind, row.content_type, row.width_px, row.height_px, row.size_bytes, row.review_status, row.created_at_ms)
@@ -397,12 +400,12 @@ export async function pendingImages(database: D1Database): Promise<(GameImage & 
 }
 
 /**
- * Approve or reject an image. An approved cover (landscape or square) replaces the game's old one of that kind; the old files
- * to delete from storage are returned. Rejected files are kept, in case they need reporting.
+ * Approve an image (rejectedReason null) or reject it, saying why. An approved cover (landscape or square) replaces the game's
+ * old one of that kind; the old files to delete from storage are returned. Rejected files are kept, in case they need reporting.
  */
-export async function settleImage(database: D1Database, image: GameImage, approve: boolean): Promise<GameImage[]> {
-  if (!approve) {
-    await database.prepare("UPDATE game_images SET review_status = 'rejected' WHERE id = ?").bind(image.id).run();
+export async function settleImage(database: D1Database, image: GameImage, rejectedReason: ReviewReason | null): Promise<GameImage[]> {
+  if (rejectedReason) {
+    await database.prepare("UPDATE game_images SET review_status = 'rejected', review_reason = ? WHERE id = ?").bind(JSON.stringify(rejectedReason), image.id).run();
     return [];
   }
   const { results: replaced } =

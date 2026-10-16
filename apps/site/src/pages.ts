@@ -1,4 +1,4 @@
-import { gameBySlug, readPlayModes, testerLinkByToken, testerLinkOpened, type TesterLink } from "@zaisma/core";
+import { CONTENT_RULES, gameBySlug, readPlayModes, testerLinkByToken, testerLinkOpened, type TesterLink } from "@zaisma/core";
 import { gameUrl, type Env } from "./env.ts";
 import { html, layout, message, metalButton, playerModes, raw, siteFooter, siteHeader, type Raw } from "./html.ts";
 import { showcase, tile } from "./home.ts";
@@ -631,7 +631,7 @@ export async function testerPage(env: Env, token: string, request: Request, ctx:
 
 export function legal(env: Env, page: string): Response | null {
   const pages: Record<string, { title: string; body: string }> = {
-    "content-rules": { title: "Content rules", body: CONTENT_RULES },
+    "content-rules": { title: "Content rules", body: CONTENT_RULES_PAGE },
     dmca: { title: "Copyright and DMCA notices", body: DMCA },
     privacy: { title: "Privacy", body: PRIVACY },
   };
@@ -641,20 +641,11 @@ export function legal(env: Env, page: string): Response | null {
 }
 
 // DRAFT: Julius approves this wording before it's deployed. The faked-plays rule was approved Oct 13, 2026.
-const CONTENT_RULES = `
+// The rules themselves are CONTENT_RULES (@zaisma/core), each anchored by the name holds and takedowns give it.
+const CONTENT_RULES_PAGE = `
 <p class="lead">Zaisma is for players 13 and up. Any kind of game is welcome, within these rules.</p>
 <h2>Not allowed</h2>
-<ul>
-<li>Sexual content involving minors, in any form. We report it to the National Center for Missing &amp; Exploited Children.</li>
-<li>Sexually explicit content.</li>
-<li>Malware, crypto miners, phishing, scams or anything that tries to break out of the game.</li>
-<li>Content that's illegal in the United States, including real-money gambling.</li>
-<li>Hate, harassment or threats against real people or groups.</li>
-<li>Other people's games, art, music or characters used without permission.</li>
-<li>Collecting players' personal data.</li>
-<li>Free-text chat between players. Preset phrases and emotes are fine.</li>
-<li>Faking plays or players, with bots, scripts or click farms.</li>
-</ul>
+${html`<ul>${Object.entries(CONTENT_RULES).map(([rule, words]) => html`<li id="${rule}">${words}</li>`)}</ul>`}
 <p>Names players give to things in a game (sessions, worlds, maps) are allowed. The game is responsible for keeping them within these rules.</p>
 <h2>How we check</h2>
 <p>Every game is scanned before it's published: automatic malware checks, matching against known illegal images, and an AI review. Games that need a closer look wait for a person.</p>

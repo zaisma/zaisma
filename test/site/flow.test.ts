@@ -1,6 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { KNOWN_IMAGE_RULE, arachnidShield, gameBySlug, notConnected, versionById, type ImageMatcher, type ScanJob, type ScanReport } from "@zaisma/core";
+import { KNOWN_IMAGE_CODE, arachnidShield, gameBySlug, notConnected, versionById, type ImageMatcher, type ScanJob, type ScanReport } from "@zaisma/core";
 import { handleScanBatch, imageMatcher, queueImageChecks, recheckImages, scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
 import { dailyCleanup } from "../../apps/site/src/cleanup.ts";
 import type { AiResult } from "../../apps/site/src/ai.ts";
@@ -27,7 +27,7 @@ const shield = arachnidShield("user:pass", {
 const aiSays = (verdict: "pass" | "hold" | "reject", isChildSafety = false): ScanDeps["ai"] => async () =>
   ({
     report: { model: "test", verdict, summary: `AI says ${verdict}`, input_token_count: 1000, output_token_count: 100 },
-    findings: verdict === "pass" ? [] : [{ stage: "ai", severity: verdict, rule: "ai-test", detail: "test concern" }],
+    findings: verdict === "pass" ? [] : [{ stage: "ai", severity: verdict, code: "ai_other", message: "test concern" }],
     isChildSafety,
   }) satisfies AiResult;
 
@@ -101,7 +101,7 @@ describe("scan and publish", () => {
   it("holds every game while image matching isn't connected", async () => {
     const { report } = await uploadAndScan(CLEAN_GAME, { images: notConnected, ai: aiSays("pass") });
     expect(report.decision).toBe("held");
-    expect(report.findings.map((f) => f.rule)).toContain("image-matching-not-connected");
+    expect(report.findings.map((f) => f.code)).toContain("image_matching_off");
     expect((await gameBySlug(env.DB, "test-game"))?.review_status).toBe("pending");
   });
 
@@ -143,7 +143,7 @@ describe("scan and publish", () => {
     const { report } = await uploadAndScan(CLEAN_GAME, { images: connected, ai: async (...a) => ((called = true), aiSays("pass")(...a)) });
     expect(called).toBe(false);
     expect(report.decision).toBe("held");
-    expect(report.findings.map((f) => f.rule)).toContain("ai-budget");
+    expect(report.findings.map((f) => f.code)).toContain("ai_review_budget_used");
   });
 
   it("lets the admin approve a held game", async () => {
@@ -169,7 +169,7 @@ describe("scan and publish", () => {
     expect(report.decision).toBe("held");
     expect(report.is_child_safety).toBe(true);
     expect(report.images).toEqual({ provider: "arachnid-shield", is_connected: true, checked_media_count: 2 });
-    expect(report.findings.filter((f) => f.rule === KNOWN_IMAGE_RULE).map((f) => f.path)).toEqual(["art/other.png"]);
+    expect(report.findings.filter((f) => f.code === KNOWN_IMAGE_CODE).map((f) => f.path)).toEqual(["art/other.png"]);
     expect(aiCalled).toBe(false);
     expect(report.ai?.verdict).toBe("skipped");
 
@@ -199,7 +199,7 @@ describe("scan and publish", () => {
     };
     const { report } = await uploadAndScan(files, { images: shield, ai: aiSays("pass") });
     expect(sent.map((s) => `${s.type}`).sort()).toEqual(["image/png", "image/png", "image/png", "video/mp4", "video/webm"]);
-    expect(report.findings.filter((f) => f.rule === KNOWN_IMAGE_RULE).map((f) => f.path).sort()).toEqual(["data/level.dat", "index.html (picture 1 in the code)", "video/outro.mp4"]);
+    expect(report.findings.filter((f) => f.code === KNOWN_IMAGE_CODE).map((f) => f.path).sort()).toEqual(["data/level.dat", "index.html (picture 1 in the code)", "video/outro.mp4"]);
     expect(report.decision).toBe("held");
   });
 
@@ -422,21 +422,30 @@ describe("reports and takedowns", () => {
     expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM reports").first("n")).toBe(0);
   });
 
-  it("takes a game down in one step, with a reason in the audit log", async () => {
+  it("takes a game down in one step, with the rule it broke and a reason in the audit log", async () => {
     const { gameId } = await liveGame();
     const noReason = await SELF.fetch(`${LOCAL}/admin/games/${gameId}/takedown`, { method: "POST", body: new FormData() });
-    expect(await noReason.text()).toContain("Give a reason");
+    expect(await noReason.text()).toContain("Pick the rule it broke and say why");
+    const noRule = new FormData();
+    noRule.set("reason", "DMCA notice from the artist");
+    expect(await (await SELF.fetch(`${LOCAL}/admin/games/${gameId}/takedown`, { method: "POST", body: noRule })).text()).toContain("Pick the rule it broke");
+    expect((await SELF.fetch(`${LOCAL}/g/test-game`)).status).toBe(200);
 
     const form = new FormData();
     form.set("reason", "DMCA notice from the artist");
+    form.set("content_rule", "copyright_notice");
     await SELF.fetch(`${LOCAL}/admin/games/${gameId}/takedown`, { method: "POST", body: form, redirect: "manual" });
     expect((await SELF.fetch(`${LOCAL}/g/test-game`)).status).toBe(410);
     expect(await (await SELF.fetch(`${LOCAL}/`)).text()).not.toContain("/g/test-game");
     const log = await env.DB.prepare("SELECT action, reason, actor FROM audit_log WHERE action = 'takedown'").first();
     expect(log).toEqual({ action: "takedown", reason: "DMCA notice from the artist", actor: "dev@localhost" });
+    const removed = await env.DB.prepare("SELECT review_status, review_reason FROM games WHERE id = ?").bind(gameId).first<{ review_status: string; review_reason: string }>();
+    expect(removed!.review_status).toBe("removed");
+    expect(JSON.parse(removed!.review_reason)).toEqual({ code: "copyright_notice", message: "DMCA notice from the artist", content_rule: "copyright" });
 
     await SELF.fetch(`${LOCAL}/admin/games/${gameId}/restore`, { method: "POST", body: new FormData(), redirect: "manual" });
     expect((await SELF.fetch(`${LOCAL}/g/test-game`)).status).toBe(200);
+    expect(await env.DB.prepare("SELECT review_reason FROM games WHERE id = ?").bind(gameId).first("review_reason")).toBeNull();
   });
 });
 

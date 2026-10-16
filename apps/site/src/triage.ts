@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import {
   gameServerOf,
   AUTO_HOLD_REASONS,
-  KNOWN_IMAGE_RULE,
+  KNOWN_IMAGE_CODE,
   PRECEDENT_DECISIONS,
   REPORT_REASONS,
   SEVERITIES,
@@ -291,7 +291,7 @@ const untrusted = (text: string) => text.replace(/</g, "‹");
 async function triageInput(env: Env, report: Report, game: Game, others: Report[]): Promise<Omit<TriageInput, "precedents">> {
   const version = report.version_id ? await versionById(env.DB, report.version_id) : null;
   const scan: ScanReport | null = version?.scan_report ? JSON.parse(version.scan_report) : null;
-  const findings = scan?.findings.filter((finding) => finding.severity !== "info").map((finding) => `${finding.rule}: ${finding.detail}`) ?? [];
+  const findings = scan?.findings.filter((finding) => finding.severity !== "info").map((finding) => `${finding.code}: ${finding.message}`) ?? [];
   const text = [
     "<game>",
     `Title: ${untrusted(game.title)}`,
@@ -436,10 +436,10 @@ export async function recheckVersion(env: Env, versionId: string, reportId: stri
   const recheckReport = await inspectVersion(env, version, game, deps, `${reportLabel(report)}${report.player_text ? `: "${report.player_text.slice(0, 500)}"` : ""}`);
   // What the first scan already knew about (a person approved the version with it) isn't news.
   const first: ScanReport | null = version.scan_report ? JSON.parse(version.scan_report) : null;
-  const known = new Set(first?.findings.map((finding) => finding.rule));
-  const news = recheckReport.findings.filter((finding) => finding.severity !== "info" && !known.has(finding.rule));
+  const known = new Set(first?.findings.map((finding) => finding.code));
+  const news = recheckReport.findings.filter((finding) => finding.severity !== "info" && !known.has(finding.code));
   const where = (finding: Finding) => (finding.path ? ` (${finding.path}${finding.quote ? `: “${finding.quote}”` : ""})` : "");
-  triage.recheck = { recheck_status: "done", scan_status: recheckReport.decision, summary: recheckReport.ai?.summary ?? "", findings: news.map((finding) => `${finding.rule}: ${finding.detail}${where(finding)}`) };
+  triage.recheck = { recheck_status: "done", scan_status: recheckReport.decision, summary: recheckReport.ai?.summary ?? "", findings: news.map((finding) => `${finding.code}: ${finding.message}${where(finding)}`) };
   triage.ai_actions = triage.ai_actions.map((action) => (action === CHECKING ? "Checked the game's files again" : action));
   let severityIndex = report.severity_index;
 
@@ -450,7 +450,7 @@ export async function recheckVersion(env: Env, versionId: string, reportId: stri
     severityIndex = Math.min(severityIndex, SEVERITY.high);
     triage.recommendation = "person";
     triage.why = "The re-check called it a clear problem but couldn't point to it in the game's files, so nothing was paused.";
-  } else if (news.some((finding) => finding.rule === KNOWN_IMAGE_RULE)) {
+  } else if (news.some((finding) => finding.code === KNOWN_IMAGE_CODE)) {
     // Known abuse material in the files isn't an opinion: the version comes off whatever the game's age (holdKnownImages alerts).
     severityIndex = SEVERITY.child_safety;
     const hidden = await holdKnownImages(env, game, version, { provider: recheckReport.images.provider, isConnected: recheckReport.images.is_connected, checkedMediaCount: recheckReport.images.checked_media_count, findings: news }, `A re-check after a report`);
