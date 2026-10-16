@@ -37,7 +37,7 @@ If the publish is refused because another session published first, repeat both s
 
 ## Shipping
 
-`npm run ship`, from any checkout, after a PR merges. It deploys exactly GitHub's main from its own clean copy (`.claude/ship` in the main checkout), never the checkout it's run from, so never deploy with `wrangler deploy` or `npm run deploy` yourself. In order: pending D1 migrations, then rooms, games and site, then the CLI to npm when its version is new, then a live check of a game page, the MCP, game files and rooms. It also pulls the main checkout's `main` when that's a clean fast-forward. Its last line is one of:
+`npm run ship`, from any checkout, after a PR merges. It deploys exactly GitHub's main from its own clean copy (`.claude/ship` in the main checkout), never the checkout it's run from, so never deploy with `wrangler deploy` or `npm run deploy` yourself. In order: GitHub's check on that commit (waited for while it runs; a failed one is `SHIP FAIL`), pending D1 migrations, then rooms, games and site, then the CLI to npm when its version is new, then a live check of a game page, the MCP, game files and rooms. It also pulls the main checkout's `main` when that's a clean fast-forward. Its last line is one of:
 
 - `SHIP PASS …`: live and checked.
 - `SHIP WAITING …`: a migration is pending and nothing was deployed. Migrations need Julius: start `npm run ship` in a Terminal tab (`run_in_terminal`), where wrangler asks him before applying; read the tab for the ✅ and the `SHIP PASS`. A CLI release waiting for npm sign-in works the same way.
@@ -66,6 +66,7 @@ Claude runs `npm run ship` itself when no migration is pending (Julius, 15 Oct 2
 - **Self-hosting must keep working.** Anything a game uses on our servers (rooms, player identity) needs a path that works on the developer's own server: signed player passes that any server can verify, room links that can point anywhere.
 - **Cheap by design.** Check every feature against the cost targets in `docs/PLAN.md`. Multiplayer is ~80% of cost at scale.
 - Ship small, working slices. Being first beats being complete.
+- **Checks pass before a pull request.** Run `npm test` and `npm run typecheck` before opening one; GitHub's check (`.github/workflows/check.yml`) runs both on every pull request and push to main, and `npm run ship` stops when it failed.
 
 ## Working with Julius
 
