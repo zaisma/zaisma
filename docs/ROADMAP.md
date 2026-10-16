@@ -6,9 +6,8 @@ The live plan of what gets built, in what order. `docs/DECISIONS.md` says *how* 
 
 Who a player is comes first: the pass, the player ID and the sign-in that saves, friends, the game database and webhooks all build on, settled before anything else builds on them (Julius, Oct 16, 2026). After these, the rest of Phase 1 goes in any order.
 
-1. Social modes and age bands (Accounts and saves)
-2. Game database (Game servers and data)
-3. Webhooks for developers (Developer publishing)
+1. Game database (Game servers and data)
+2. Webhooks for developers (Developer publishing)
 
 Waiting on people: Gleb: register with NCMEC, Gleb: register the DMCA agent, Julius: send PhotoDNA the LLC's records.
 
@@ -176,7 +175,7 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | planned | Must | Sign-in from games | Accounts-only games | `Zaisma.player.signIn()`: a game asks a guest to sign in without leaving it, then gets an account pass |
 | done | Must | Sign in with Zaisma | Account passes | Live Oct 16, 2026 (#161, migration 0038): OpenID Connect on zaisma.com for developers' own sites and games with their own accounts, sign-in apps through the API and MCP, a one-time consent page and the account page's list. The MCP's sign-in uses it next (MCP sign-in without a key) |
 | planned | Must | Sign-in apps in the dashboard | Sign in with Zaisma | The dashboard's form for sign-in apps, on the same API |
-| doing | Must | Social modes and age bands | Age question | Three age bands (13–15, 16–17, 18+); every account has a social mode (solo-focused, friends-focused, open and social). 13–15 start solo-focused and can switch only to friends-focused; open and social stays within the same band group. The pass carries the social mode and an opaque chat group, never the age; `canChat(a, b)` for developers' servers |
+| done | Must | Social modes and age bands | Age question | Live Oct 16, 2026 (#162, migration 0039): three age bands (13–15, 16–17, 18+) and a social mode on every account, chosen at signup from 16 and changed on the account page; 13–15 start solo-focused and can switch only to friends-focused. The pass carries the social mode and an opaque chat group, never the age; `canChat(a, b)` in the game server package |
 | planned | Must | Saves through the API | Cloud saves, Developer accounts | Developers read, fix and export their game's saves by player ID (API and MCP); every developer change keeps a history copy first. Saves and the game database stay separate |
 | planned | Must | Save screens games can take over | Cloud saves, "Keep your progress" | The conflict chooser and the "Keep your progress" card stay the default; SDK games handle conflicts themselves (`Zaisma.saves.onConflict`) and offer an account when they like (`Zaisma.player.offerAccount()`) |
 | planned | Must | Account deletion reaches developers | Webhooks for developers, Game database | An "account deleted" webhook to every game the player used, with a one-call helper to erase that player in the game database |
