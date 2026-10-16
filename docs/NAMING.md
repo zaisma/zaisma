@@ -263,8 +263,8 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 | A part of the world rooms run in: a continent code, like `EU` | | `region` |
 | Where a room's connection stands | | `connectionStatus`: `connecting`, `open`, `reconnecting`, `away`, `closed` |
 | Keeping a kicked player out, as asked and as told | | `keepOut` (asked), `isKeptOut` (told) |
-| A game's own SQLite database, a statement for it and the values for its `?`s | | `room.database`: `query(sql, values)` answers rows, `batch(statements)` runs `{ sql, values }` statements in one transaction; a `DatabaseError` has a `code` and a `fix` |
-| A game database's free use a month | | `writtenRowCountPerMonth`, `readRowCountPerMonth`, `storageSizeBytes` (`GAME_DATABASE_FREE_LIMITS`); past them, `database_write_limit`, `database_read_limit`, `database_storage_limit` |
+| A game's own SQLite database, a statement for it and the values for its `?`s | `sql`, `values` (a blob as `{ blob_base64 }`), `statements`; answered as `rows`, `statement_results` (one per statement) and `read_row_count`, `written_row_count`; its `tables` and `indexes` (`table_name`) | `room.database`: `query(sql, values)` answers rows, `batch(statements)` runs `{ sql, values }` statements in one transaction; a `DatabaseError` has a `code` and a `fix` |
+| A game database's free use a month, and its use this month | `database_use_this_month`: `read_row_count`, `written_row_count`, `storage_size_bytes` beside `free_read_row_count`, `free_written_row_count`, `free_storage_size_bytes`; `has_reached_free_reads`, `has_reached_free_writes`, `has_reached_free_storage`; `reset_date` | `writtenRowCountPerMonth`, `readRowCountPerMonth`, `storageSizeBytes` (`GAME_DATABASE_FREE_LIMITS`); past them, `database_write_limit`, `database_read_limit`, `database_storage_limit` |
 | What an error or a review reason is, and its other parts | `code`; `message`, `field`, `fix`, `retry_after_sec` (inside `error` only); `content_rule` (inside `review_reason` and `findings` only) | `code` (on the error only) |
 
 ## Adding a field, option or tool

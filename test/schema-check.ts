@@ -23,8 +23,8 @@ const IRREGULAR_PLURALS = new Set(["people", "media"]);
 const FORMATS = new Set(["base64", "markdown"]);
 /** A pattern that says an ID's kind (docs/NAMING.md, IDs). */
 const ID_PATTERN = new RegExp(`^\\^(${ID_KINDS.join("|")})_`);
-/** Objects whose keys are the caller's own, not ours: next steps' arguments. */
-const OPEN_OBJECTS = new Set(["arguments"]);
+/** Objects whose keys are the caller's own, not ours: next steps' arguments, and a game database's rows, by its own columns. */
+const OPEN_OBJECTS = new Set(["arguments", "rows[]"]);
 
 const typesOf = (s: Schema): string[] => {
   const t = s.type;

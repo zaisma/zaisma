@@ -94,8 +94,8 @@ export function checkStatement(sql: unknown, values: unknown): { sql: string; va
   if (typeof sql !== "string" || !sql.trim()) throw new DatabaseError("bad_sql", "The SQL isn't text.", 'Give one SQL statement as text, like "SELECT * FROM scores WHERE player_id = ?".');
   if (sql.length > DATABASE_LIMITS.maximumSqlCharacterCount) throw new DatabaseError("bad_sql", `The SQL is ${sql.length} characters.`, `Keep one statement under ${DATABASE_LIMITS.maximumSqlCharacterCount} characters, and pass data as values instead of writing it into the SQL.`);
   const words = statementWords(sql);
-  if (words.statementCount > 1) throw new DatabaseError("bad_sql", "The SQL has more than one statement.", "Give one statement per query, or several in database.batch([{ sql, values }, ...]), which also runs them in one transaction.");
-  if (REFUSED_FIRST_WORDS.has(words.firstWord)) throw new DatabaseError("bad_sql", `${words.firstWord} isn't allowed.`, "For a transaction, use database.batch([{ sql, values }, ...]): its statements all happen or none do.");
+  if (words.statementCount > 1) throw new DatabaseError("bad_sql", "The SQL has more than one statement.", "Give one statement per query, or several in a batch (room.database.batch([{ sql, values }, ...]) in a game server, batch_database through the API), which also runs them in one transaction.");
+  if (REFUSED_FIRST_WORDS.has(words.firstWord)) throw new DatabaseError("bad_sql", `${words.firstWord} isn't allowed.`, "For a transaction, use a batch (room.database.batch([{ sql, values }, ...]) in a game server, batch_database through the API): its statements all happen or none do.");
   const given = values === undefined || values === null ? [] : values;
   if (!Array.isArray(given)) throw new DatabaseError("bad_values", "values isn't a list.", 'Give the values for the ?s as a list, in order, like ["player_8f3k2m", 1200].');
   if (given.length > DATABASE_LIMITS.maximumValueCount) throw new DatabaseError("bad_values", `There are ${given.length} values.`, `Give up to ${DATABASE_LIMITS.maximumValueCount} values per statement; split big inserts into several statements in one batch.`);

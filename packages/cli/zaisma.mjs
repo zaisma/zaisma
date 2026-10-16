@@ -41,6 +41,7 @@ const COMMAND_ERROR_CODES = {
   missing_value: "A flag that takes a value was given none.",
   takes_no_value: "A flag that takes no value was given one.",
   not_a_folder: "The folder to upload isn't a folder.",
+  not_a_file: "The file of statements can't be read.",
   server_unreachable: "Zaisma couldn't be reached: no connection, or a wrong ZAISMA_API.",
   unexpected_answer: "Zaisma answered without JSON, like a page from a network in between.",
 };
@@ -106,8 +107,21 @@ const COMMANDS = {
     arguments: [{ name: "topic_id" }],
     flags: { text: TEXT, reopen: { hasValue: false, about: "Reopen your topic: something fixed is back" }, "by-me": BY_ME },
   },
+  database: { about: "A game's own database: its tables and indexes, and this month's use against the free limits", arguments: [{ name: "slug" }], flags: {} },
+  "database query": {
+    about: "Run one SQL statement on a game's database, live; the SQL as an argument or piped in",
+    arguments: [{ name: "slug" }, { name: "sql", isOptional: true }],
+    flags: { values: { hasValue: true, placeholder: "'[…]'", about: 'The values for the ?s, as a JSON list: text, numbers, null or { "blob_base64": "…" }, like \'["player_8f3k2m", 1200]\'' } },
+  },
+  "database batch": {
+    about: "Run SQL statements on a game's database in one transaction: all of them happen, or none",
+    arguments: [{ name: "slug" }, { name: "file", isOptional: true }],
+    flags: {},
+  },
   help: { about: "This help; with --json, every command, flag, exit code and error code", arguments: [], flags: {} },
 };
+/** Commands with a second word, like zaisma forum post. */
+const SUBCOMMANDS = { forum: ["post", "message", "reply"], database: ["query", "batch"] };
 /** Flags every command takes. */
 const GLOBAL_FLAGS = {
   json: { hasValue: false, about: "Print the API's answer as JSON, as-is (on failure its { error }), and nothing else" },
@@ -178,9 +192,9 @@ function parseCommandLine(argv) {
   }
   isJson = globalFlags.json;
   if (!words.length || words[0] === "help") return { command: "help", values: {}, flags: {}, globalFlags, rest: words.slice(1) };
-  const isForumSubcommand = words[0] === "forum" && ["post", "message", "reply"].includes(words[1]);
-  const command = isForumSubcommand ? `forum ${words[1]}` : words[0];
-  const rest = words.slice(isForumSubcommand ? 2 : 1);
+  const isSubcommand = Boolean(SUBCOMMANDS[words[0]]?.includes(words[1]));
+  const command = isSubcommand ? `${words[0]} ${words[1]}` : words[0];
+  const rest = words.slice(isSubcommand ? 2 : 1);
   if (RENAMED_COMMANDS[command]) {
     const renamed = RENAMED_COMMANDS[command];
     refuse("renamed_command", { message: `zaisma ${command} is now zaisma ${renamed.command}.`, fix: renamed.fix(rest) });
@@ -449,12 +463,7 @@ function printTopic(topic) {
 
 /** Text from --text, or piped in. */
 async function readText(command, flags) {
-  let text = flags.text ?? "";
-  if (!text && !process.stdin.isTTY) {
-    const chunks = [];
-    for await (const chunk of process.stdin) chunks.push(chunk);
-    text = Buffer.concat(chunks).toString("utf8").trim();
-  }
+  const text = flags.text ?? (await readInput());
   if (!text) refuse("missing_field", { message: `zaisma ${command} needs its text.`, field: "--text", fix: `Give --text "…", or pipe the text in. Run it as: ${usage(command)}` });
   return text;
 }
@@ -530,6 +539,74 @@ async function forum(command, values, flags) {
   }
 }
 
+/** Everything piped in, as text; "" when nothing is. */
+async function readInput() {
+  if (process.stdin.isTTY) return "";
+  const chunks = [];
+  for await (const chunk of process.stdin) chunks.push(chunk);
+  return Buffer.concat(chunks).toString("utf8").trim();
+}
+
+/** A game's own database (GET and POST /games/<slug>/database…), as the MCP's get_database, query_database and batch_database. */
+async function database(command, values, flags) {
+  if (command === "database") {
+    const answer = await api("GET", `/games/${values.slug}/database`);
+    if (isJson) return printJson(answer);
+    const use = answer.database_use_this_month;
+    if (!answer.tables.length) console.log("No tables yet. Make one from your game server, or with: zaisma database query <slug> \"CREATE TABLE …\"");
+    for (const table of answer.tables) console.log(`${table.sql};`);
+    for (const index of answer.indexes) console.log(`${index.sql};`);
+    const percent = (used, free) => `${Math.floor((used / free) * 100)}%`;
+    console.log(
+      `\nThis month: ${use.read_row_count.toLocaleString("en-US")} rows read (${percent(use.read_row_count, use.free_read_row_count)} of the free ${use.free_read_row_count.toLocaleString("en-US")}), ` +
+        `${use.written_row_count.toLocaleString("en-US")} written (${percent(use.written_row_count, use.free_written_row_count)} of ${use.free_written_row_count.toLocaleString("en-US")}), ` +
+        `${(use.storage_size_bytes / 1024 / 1024).toFixed(1)} MB stored (${percent(use.storage_size_bytes, use.free_storage_size_bytes)} of ${use.free_storage_size_bytes / 1024 / 1024} MB). Resets ${use.reset_date}.`,
+    );
+    return;
+  }
+  if (command === "database query") {
+    const sql = values.sql ?? (await readInput());
+    if (!sql) refuse("missing_field", { message: "zaisma database query needs the SQL.", field: "sql", fix: `Give it in quotes, or pipe it in. Run it as: ${usage(command)}` });
+    let statementValues;
+    if (flags.values !== undefined) {
+      try {
+        statementValues = JSON.parse(flags.values);
+      } catch {}
+      if (!Array.isArray(statementValues)) refuse("bad_values", { message: "--values isn't a JSON list.", field: "--values", fix: `Give the values as a JSON list in single quotes, like --values '["player_8f3k2m", 1200]'.` });
+    }
+    const answer = await api("POST", `/games/${values.slug}/database/query`, { sql, ...(statementValues ? { values: statementValues } : {}) });
+    if (isJson) return printJson(answer);
+    printRows(answer);
+    return;
+  }
+  const text = values.file ? await readFile(values.file, "utf8").catch(() => refuse("not_a_file", { message: `Couldn't read ${values.file}.`, field: "file", fix: "Give the path of a JSON file of statements, or pipe them in." })) : await readInput();
+  let statements;
+  try {
+    statements = JSON.parse(text);
+  } catch {}
+  if (!Array.isArray(statements)) refuse("bad_sql", { message: `${values.file ?? "What was piped in"} isn't a JSON list of statements.`, field: "file", fix: 'Give a JSON list like [{ "sql": "UPDATE scores SET best_score = 0 WHERE player_id = ?", "values": ["player_8f3k2m"] }, { "sql": "DELETE FROM matches" }].' });
+  const answer = await api("POST", `/games/${values.slug}/database/batch`, { statements });
+  if (isJson) return printJson(answer);
+  answer.statement_results.forEach((statementResult, i) => {
+    if (i) console.log("");
+    console.log(`Statement ${i + 1}:`);
+    printRows(statementResult);
+  });
+}
+
+/** A statement's rows as a table, then what it read and wrote. Blobs show their size. */
+function printRows({ rows, read_row_count: readRowCount, written_row_count: writtenRowCount }) {
+  const shown = (cell) => (cell === null ? "NULL" : typeof cell === "object" ? `<blob, ${Math.floor((cell.blob_base64.replace(/=+$/, "").length * 3) / 4)} bytes>` : String(cell));
+  if (rows.length) {
+    const columns = Object.keys(rows[0]);
+    const widths = columns.map((column) => Math.min(40, Math.max(column.length, ...rows.map((row) => shown(row[column]).length))));
+    const line = (cells) => cells.map((cell, i) => (cell.length > widths[i] ? `${cell.slice(0, widths[i] - 1)}…` : cell.padEnd(widths[i]))).join("  ").trimEnd();
+    console.log(line(columns));
+    for (const row of rows) console.log(line(columns.map((column) => shown(row[column]))));
+  }
+  console.log(`${rows.length} row${rows.length === 1 ? "" : "s"}. Read ${readRowCount}, wrote ${writtenRowCount}.`);
+}
+
 /** Runs the command and answers with how it ended (EXIT_CODES); a failure throws a CommandError. */
 async function run({ command, values, flags, globalFlags, rest }) {
   if (command === "help" || globalFlags.help) {
@@ -591,7 +668,8 @@ async function run({ command, values, flags, globalFlags, rest }) {
     console.log(`${answer.game.title} is now ${answer.game.visibility}.`);
     return EXIT_CODES.done;
   }
-  await forum(command, values, flags);
+  if (command === "database" || command.startsWith("database ")) await database(command, values, flags);
+  else await forum(command, values, flags);
   return EXIT_CODES.done;
 }
 
