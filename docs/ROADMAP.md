@@ -6,12 +6,11 @@ The live plan of what gets built, in what order. `docs/DECISIONS.md` says *how* 
 
 Who a player is comes first: the pass, the player ID and the sign-in that saves, friends, the game database and webhooks all build on, settled before anything else builds on them (Julius, Oct 16, 2026). After these, the rest of Phase 1 goes in any order.
 
-1. Account passes (Accounts and saves)
-2. Accounts-only games (Accounts and saves)
-3. Sign in with Zaisma (Accounts and saves)
-4. Social modes and age bands (Accounts and saves)
-5. Game database (Game servers and data)
-6. Webhooks for developers (Developer publishing)
+1. Accounts-only games (Accounts and saves)
+2. Sign in with Zaisma (Accounts and saves)
+3. Social modes and age bands (Accounts and saves)
+4. Game database (Game servers and data)
+5. Webhooks for developers (Developer publishing)
 
 Waiting on people: Gleb: register with NCMEC, Gleb: register the DMCA agent, Julius: send PhotoDNA the LLC's records.
 
@@ -173,7 +172,7 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | done | Must | Save history | Cloud saves | Up to 5 earlier versions per game; players go back from their account or the game menu |
 | done | Must | Passkeys | Sign-in | Face ID or fingerprint to sign back in, checked on our server; the email code stays for new accounts and lost devices |
 | done | Nice | Google and Discord sign-in | Sign-in, Age question | Through Supabase, with the age question still first for new accounts |
-| doing | Must | Account passes | Sign-in, Player passes | One player ID per account, the same in every game. Signed-in players get passes that are proof only (the ID, the game, when it expires); Zaisma rooms and the Node game server take both kinds. A public profile lookup by player ID for any game or server, in the API, MCP and SDK |
+| done | Must | Account passes | Sign-in, Player passes | Live Oct 16, 2026 (#159, migration 0036): one player ID per account, the same in every game; signed-in players get passes that are proof only (the ID, the game, when it expires), taken by Zaisma rooms and the Node game server; a public profile lookup by player ID at rooms.zaisma.com/v1/players, in the API, MCP and SDK |
 | next | Must | Accounts-only games | Account passes | Games choose guests, accounts only or a mix, for the whole game, multiplayer or a room; the game page says "Needs a Zaisma account" before Play when the whole game does, and the game can ask the player to sign in. Site copy that says every game plays as a guest changes with it |
 | next | Must | Sign in with Zaisma | Account passes | One OAuth server for developers' own sites, games with their own accounts and the MCP |
 | next | Must | Social modes and age bands | Age question | Three age bands (13–15, 16–17, 18+); every account has a social mode (solo-focused, friends-focused, open and social). 13–15 start solo-focused and can switch only to friends-focused; open and social stays within the same band group. The pass carries an opaque chat group and friends, never the age; `canChat(a, b)` for developers' servers |
