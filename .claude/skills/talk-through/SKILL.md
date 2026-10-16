@@ -77,3 +77,18 @@ On his yes, in a worktree, write the docs. Set the item's `Settled` cell to `yes
 - **Inside `build-next`** (the usual way, also under the coordinator): don't open a separate pull request. The docs go in with the build, in this worktree, and you go back to `build-next` and build. The pull request merges by the settled rule. Its decision lines are the words he said yes to; say so in its description.
 - **On its own** (he wanted to settle it but not build it now): `npm test` (the roadmap test checks names and the Settled column), then a pull request for Julius to merge, since it changes settled docs. Tell him in a line that it's ready to build: `/build-next <name>`, or the `/coordinator` picks it up with the rest of Now.
 - **A done item:** if he's happy with it as built, set its `Settled` to `yes`. If he wants changes, each change becomes a new row in the same project, settled, with the done row's name in its Needs, and the done row gets `yes` too. When only `docs/ROADMAP.md` changes, push it straight to main and republish the roadmap page as `CLAUDE.md` says. Otherwise open a pull request for Julius.
+
+## 6. Under the coordinator
+
+When your brief says you're under the coordinator, the close changes. You never merge, push to main, ship, republish the roadmap page or clean up; the coordinator does all of that.
+
+- **On its own or a done item:** always a pull request, `npm test` first, even when only `docs/ROADMAP.md` changes. Don't ask him to merge it.
+- **Inside `build-next`:** carry on building; `build-next` ends the session the same way.
+
+Once the pull request is open and nothing is left to talk about, ask one thing with the wrap-up box: **"Are we done?"**, with the buttons *Yes, we're done* and *More to discuss*. *More to discuss* means the talk goes on. On *Yes, we're done* (or his words saying so), push anything left, then end your turn with `wrap_up` and no question, its recap starting:
+
+```
+Done: <the item's exact name>, talk, PR #<number>.
+```
+
+followed by what it settled in one line. That recap is the done report: it reaches the coordinator by itself. Ask nothing after it and don't offer a follow-up. If he sets the item aside without settling it, the report is `Done: <name>, talk, no PR.` with the reason.
