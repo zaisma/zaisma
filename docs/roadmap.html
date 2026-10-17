@@ -132,9 +132,17 @@ input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; a
 .outline { display: grid; gap: 12px; align-content: start; }
 .outline .find input { width: 100%; height: 34px; padding: 0 10px; border: 0; background: var(--bg); color: var(--fg); font: 13.5px var(--body); box-shadow: inset 0 0 0 1px var(--line); }
 .outline .find input:focus { outline: none; box-shadow: inset 0 0 0 1px var(--chrome); }
-.outline .g { display: grid; gap: 1px; }
-.outline .g > b { font: 600 12.5px var(--display); color: var(--muted); padding: 0 10px 3px; letter-spacing: 0.02em; }
-.outline a { display: flex; justify-content: space-between; gap: 10px; padding: 5px 10px; text-decoration: none; color: var(--fg-2); font-size: 14px; position: relative; }
+.outline .groups { display: grid; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.outline .g { display: grid; }
+.outline .g + .g { border-top: 1px solid var(--line); }
+.outline .gh { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 42px; padding: 8px 10px; border: 0; background: none; cursor: pointer; text-align: left; font: 600 15px var(--display); color: var(--fg); position: relative; }
+.outline .gh:hover { background: var(--plate); }
+.outline .gh svg { flex: none; color: var(--muted); transition: transform 0.15s; }
+.outline .g.open > .gh svg { transform: rotate(90deg); }
+.outline .gh .c { margin-left: auto; font: 500 12px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.outline .g.here > .gh::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 2px; background: linear-gradient(180deg, var(--chrome), var(--chrome-2)); }
+.outline .ga { display: grid; gap: 1px; margin: 0 0 10px 16px; padding-left: 8px; border-left: 1px solid var(--line); }
+.outline a { display: flex; justify-content: space-between; gap: 10px; padding: 5px 10px; text-decoration: none; color: var(--fg-2); font-size: 13.5px; position: relative; }
 .outline a:hover { color: var(--fg); background: var(--plate); }
 .outline a .c { font: 500 12px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
 .outline a.here { color: var(--fg); background: var(--plate); }
@@ -231,7 +239,7 @@ footer { color: var(--muted); font-size: 13px; border-top: 1px solid var(--line)
   .fold { padding-left: 36px; }
   .tags .tag.ph { display: none; }
 }
-@media (prefers-reduced-motion: reduce) { .fold svg, .to-top, .to-top.shown { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .fold svg, .outline .gh svg, .to-top, .to-top.shown { transition: none; } }
 </style>
 
 <div class="page">
@@ -378,6 +386,7 @@ let data = null;
 let view = "";            // a phase's name, "Later", "All" or "Shipped"
 let query = "";
 let areaFind = "";
+const openGroups = new Set();   // groups in the outline start folded
 const openSlices = new Set();
 const openFolds = new Set();
 let showAllShipped = false;
@@ -472,20 +481,34 @@ function outlineHtml() {
   const shown = visibleAreas();
   const find = areaFind.toLowerCase();
   let html = `<div class="find"><input type="search" class="area-find" placeholder="Find an area" aria-label="Find an area" value="${esc(areaFind)}" autocomplete="off"></div>`;
-  let any = false;
+  let groups = "";
   for (const g of data.groups) {
     const rows = shown.filter((x) => x.area.group === g && (!find || x.area.title.toLowerCase().includes(find) || g.title.toLowerCase().includes(find)));
     if (!rows.length) continue;
-    any = true;
-    html += `<div class="g"><b>${esc(g.title)}</b>${rows.map(({ area, slices }) => `<a href="#${area.id}" data-area="${area.id}">${esc(area.title)}<span class="c">${slices.length ? `${slices.filter(isDone).length}/${slices.length}` : "–"}</span></a>`).join("")}</div>`;
+    // Groups start folded; finding an area opens the groups it's in.
+    const id = `group-${slug(g.title)}`;
+    const open = find ? true : openGroups.has(id);
+    const all = rows.flatMap((x) => x.slices);
+    groups += `<div class="g${open ? " open" : ""}" data-group-box="${id}">
+      <button class="gh" type="button" data-group="${id}" aria-expanded="${open}">${CHEVRON}<span>${esc(g.title)}</span><span class="c">${all.length ? `${all.filter(isDone).length}/${all.length}` : plural(rows.length, "area")}</span></button>
+      <div class="ga"${open ? "" : " hidden"}>${rows.map(({ area, slices }) => `<a href="#${area.id}" data-area="${area.id}">${esc(area.title)}<span class="c">${slices.length ? `${slices.filter(isDone).length}/${slices.length}` : "–"}</span></a>`).join("")}</div>
+    </div>`;
   }
-  if (!any) html += `<div class="none">No area matches.</div>`;
-  return html;
+  return html + (groups ? `<div class="groups">${groups}</div>` : `<div class="none">No area matches.</div>`);
 }
 
 function renderOutline() {
-  $("#side").innerHTML = outlineHtml();
+  const side = $("#side"), keep = side.scrollTop;
+  side.innerHTML = outlineHtml();
+  side.scrollTop = keep;
   if (!$("#sheet").hidden) $("#sheet-panel").innerHTML = `<div class="top"><b>Areas</b><button class="x plate cut" type="button" id="sheet-close" aria-label="Close the areas">×</button></div>${outlineHtml()}`;
+  markHere(lastHere);
+}
+
+/** Light the area you're in, and its group, which shows it even while folded. */
+function markHere(id) {
+  for (const a of document.querySelectorAll(".outline a[data-area]")) a.classList.toggle("here", a.dataset.area === id);
+  for (const g of document.querySelectorAll(".outline .g")) g.classList.toggle("here", !!id && !!g.querySelector(`a[data-area="${id}"]`));
 }
 
 function sliceHtml(s) {
@@ -598,8 +621,8 @@ function spy() {
   $("#areas-label").textContent = here ? here.dataset.title : view === "Shipped" && !query ? "Shipped" : "Areas";
   if (id === lastHere) return;
   lastHere = id;
-  for (const a of document.querySelectorAll(".outline a[data-area]")) a.classList.toggle("here", a.dataset.area === id);
-  const mine = $(`#side a[data-area="${id}"]`);
+  markHere(id);
+  const mine = $(`#side .g.open a[data-area="${id}"]`) ?? $("#side .g.here > .gh");
   if (mine) { const side = $("#side"); const r = side.getBoundingClientRect(), b = mine.getBoundingClientRect(); if (b.top < r.top || b.bottom > r.bottom) side.scrollTop += b.top - r.top - r.height / 3; }
 }
 /** The back-to-top button shows once the first screen is behind you. */
@@ -611,7 +634,6 @@ addEventListener("resize", () => { measureBar(); spy(); });
 function openSheet() {
   $("#sheet").hidden = false;
   renderOutline();
-  for (const a of $("#sheet-panel").querySelectorAll("a[data-area]")) a.classList.toggle("here", a.dataset.area === lastHere);
   document.body.style.overflow = "hidden";
   $("#sheet-panel .area-find")?.focus({ preventScroll: true });
 }
@@ -645,6 +667,14 @@ document.addEventListener("click", (e) => {
     return;
   }
   if (t.closest("#areas-btn")) { openSheet(); return; }
+  const groupBtn = t.closest("[data-group]");
+  if (groupBtn) {
+    const id = groupBtn.dataset.group;
+    openGroups.has(id) ? openGroups.delete(id) : openGroups.add(id);
+    renderOutline();
+    (t.closest("#sheet") ? $("#sheet-panel") : $("#side")).querySelector(`[data-group="${id}"]`)?.focus({ preventScroll: true });
+    return;
+  }
   if (t.closest("#to-top")) { glide(0); history.replaceState(null, "", location.pathname + location.search); return; }
   if (t.closest("#sheet-shade") || t.closest("#sheet-close")) { closeSheet(); return; }
 });
