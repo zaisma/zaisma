@@ -95,7 +95,8 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 
 | Status | Must/Nice | Settled | Item | Needs | Notes |
 | --- | --- | --- | --- | --- | --- |
-| done | Must | | Developer accounts | | Any account owns games; API keys on the account page; one developer API for the MCP, upload command and dashboard (docs/DEVELOPER-API.md) |
+| done | Must | yes | Developer accounts | | Any account owns games; API keys on the account page; one developer API for the MCP, upload command and dashboard (docs/DEVELOPER-API.md) |
+| planned | Must | yes | Uploads only for people Julius adds | Developer accounts | Until the beta only Julius, Gleb and accounts Julius adds make games; everyone else still signs in and plays, and Your games says publishing opens with the beta (Julius, Oct 16, 2026) |
 | done | Must | yes | Upload command | Developer accounts | File by file, up to 2 GB per game, only changed files. `npx @zaisma/cli` (source in packages/cli), files up to 500 MB |
 | done | Must | yes | Drafts and publishing | Upload command | Preview links, publish now or later, roll back; keep the live version plus the last 5. Unpublished drafts deleted after 30 days, unused files after a day |
 | done | Must | yes | Game visibility | Developer accounts | Draft, listed, unlisted or private; separate from review status. Unlisted is noindex and never in any shelf. Draft and private games open only through preview and tester links |
@@ -263,7 +264,7 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | planned | Nice | | 10 seed games | At least 5 seed games | The target in `docs/PLAN.md` |
 | planned | Must | | Link-out listings | Ready for outreach | Games hosted elsewhere, credited and linked, marked "Plays on example.com", never embedded. Original games only, checked at listing and re-checked automatically. Added from admin with the developer's OK at first; later developers add and claim their own |
 | planned | Nice | | QR codes | | |
-| planned | Must | | Open the public beta | Connect image matching, Report matches to NCMEC automatically, Gleb: register the DMCA agent, Julius: form an LLC, Julius: alert and DMCA email delivery, Julius: Supabase Pro, At least 5 seed games | And every other must item above. Weekly releases and the weekly game jam start here |
+| planned | Must | | Open the public beta | Connect image matching, Report matches to NCMEC automatically, Gleb: register the DMCA agent, Julius: form an LLC, Julius: alert and DMCA email delivery, Julius: Supabase Pro, At least 5 seed games | And every other must item above. Uploads open to every account. Weekly releases and the weekly game jam start here |
 
 ## Phase 2: Earn
 
