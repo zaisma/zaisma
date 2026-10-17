@@ -100,17 +100,6 @@ export async function bumpSave(
   return writeResult.meta.changes === 1 ? save.baseVersionNumber + 1 : null;
 }
 
-/** The games a player has cloud saves for, most recently saved first. */
-export async function savedGames(database: D1Database, accountId: string): Promise<{ slug: string; title: string; updated_at_ms: number; save_copy_count: number }[]> {
-  const { results } = await database
-    .prepare(
-      "SELECT games.slug, games.title, saves.updated_at_ms, (SELECT COUNT(*) FROM save_history WHERE save_history.account_id = saves.account_id AND save_history.game_id = saves.game_id) AS save_copy_count FROM saves JOIN games ON games.id = saves.game_id WHERE saves.account_id = ? AND games.review_status = 'live' AND games.cloud_saves_enabled = 1 ORDER BY saves.updated_at_ms DESC",
-    )
-    .bind(accountId)
-    .all<{ slug: string; title: string; updated_at_ms: number; save_copy_count: number }>();
-  return results;
-}
-
 /** One player's save in a game, as the developer API lists them. */
 export interface GameSaveRow extends SaveRow {
   player_id: string;
@@ -145,10 +134,10 @@ export const SAVE_COPY_PROTECTION_DURATION_MS = 30 * 24 * 3600_000;
 
 /**
  * Why a copy was kept: a routine hourly copy, or because progress was about to be lost:
- * the player picked another device's progress over it (replaced), the game's save shrank to
- * under half (smaller, usually a reset), the player went back to an earlier version (restore),
- * the player picked the account's progress over this device's (device), or the game's developer
- * changed, reset or restored the save through the API (developer).
+ * another device's progress, played more recently, replaced it (replaced), the game's save shrank to
+ * under half (smaller, usually a reset), the player went back to an earlier version (restore: from
+ * a page Zaisma no longer has, so only older copies), a device's progress was older than the account's
+ * (device), or the game's developer changed, reset or restored the save through the API (developer).
  */
 export const SAVE_COPY_REASONS = ["hourly", "replaced", "smaller", "restore", "device", "developer"] as const;
 export type SaveCopyReason = (typeof SAVE_COPY_REASONS)[number];
@@ -173,7 +162,7 @@ export async function saveHistory(database: D1Database, accountId: string, gameI
 
 /**
  * Whether to keep a copy of the current save before it's replaced, and why.
- * `isReplacing` is set when the player chose this device's progress over the account's.
+ * `isReplacing` is set when this device's progress was played more recently than the account's and replaces it.
  */
 export function copyReason(current: { size_bytes: number; updated_at_ms: number }, next: { sizeBytes: number; isReplacing: boolean }, newestCopyAtMs: number | null): SaveCopyReason | null {
   if (next.isReplacing) return "replaced";

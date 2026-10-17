@@ -8,15 +8,20 @@
  *  - nothing on this device, or both the same: the account's
  *  - this device last synced the account's current save and has played on since: this device's
  *  - this device hasn't changed since it last synced, but the account has: the account's
- *  - anything else (two different saves): the player chooses
- * While playing, every save names the version it started from; if another device saved
- * in between, saving pauses and the player chooses. Saving only starts once the game domain
- * says the account's save is in place, so a device that couldn't take it never sends its own.
- * Whichever progress the player didn't pick is kept as an earlier version (see /account/saves).
- * A developer's change (through the API, saves-api.ts) reaches an open game with no question: when its
- * next save finds the account moved on, or when the player comes back to the tab, the game reloads with
- * it, and this device's progress since its last save is kept as an earlier version. A game opening later
- * takes it like any newer save.
+ *  - anything else (both played on): the progress played most recently
+ * Zaisma never asks the player which progress to keep: what progress means is the game's, so a game
+ * that wants a choice builds it with the SDK. When this device's progress loses, it's kept on the account
+ * as an earlier version; when it wins, the account's is (the developer can restore either).
+ * While playing, every save names the version it started from. If another device saved in between,
+ * the progress played most recently wins: usually this device's, which is being played right now.
+ * Back on the tab, if the account moved on while it was hidden and was played after this device,
+ * the game reloads with the account's progress. Saving only starts once the game domain says the
+ * account's save is in place, so a device that couldn't take it never sends its own.
+ * When this device last played is remembered per game as { sha256, played_at_ms }: the time its save
+ * last changed, as far as this page saw (null when it never saw a change; the account's progress wins then).
+ * A developer's change (through the API, saves-api.ts) always wins: when the game's next save finds the
+ * account moved on, or when the player comes back to the tab, the game reloads with it, and this device's
+ * progress since its last save is kept as an earlier version. A game opening later takes it like any newer save.
  *
  * Guests: the game opens directly and its progress stays in this browser; nothing is sent
  * anywhere. Once a guest has progress and has played a while, a card offers to keep it with
@@ -30,13 +35,10 @@ export const SAVES_CLIENT = `
   const signedIn = () => /(^|; )(__Host-)?zaisma_in=1/.test(document.cookie);
   let guest = !signedIn();
   const status = document.getElementById("save-status");
-  const history = document.getElementById("save-history");
   const offer = document.getElementById("keep");
   const offerBar = document.getElementById("keep-bar");
   const offerLink = document.getElementById("keep-link");
   const toast = document.getElementById("save-toast");
-  if (history) history.hidden = guest;
-  const choose = document.getElementById("save-choice");
   let cloud = null;       // the account's save as last seen: { tag, version_number, sha256, updated_at, changed_by_kind, save_data }
   let synced = null;      // the save text the game and the account both have
   let paused = true;
@@ -45,7 +47,7 @@ export const SAVES_CLIENT = `
   let queued = null;      // the newest save waiting behind it
   let frame = null;
   let restoring = null;   // the account's save while the game domain puts it in place
-  let replacing = false;  // the player picked this device's progress over the account's
+  let replacing = false;  // this device's progress was played more recently than the account's, and replaces it
   let welcome = false;    // a guest just signed in: say so when their progress first reaches the account
 
   const canonical = (data) => { const out = {}; Object.keys(data).sort().forEach((k) => (out[k] = data[k])); return JSON.stringify(out); };
@@ -70,9 +72,28 @@ export const SAVES_CLIENT = `
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => (toast.hidden = true), 8000);
   };
-  // The player picked the account's progress: keep this device's as an earlier version on the account.
+  // The account's progress wins: keep this device's as an earlier version on the account.
   const keepDevice = (text) => {
     if (text && text !== "{}") fetch(SAVES.api, { method: "PUT", body: JSON.stringify({ keep: true, save_json: text }), credentials: "same-origin" }).catch(() => {});
+  };
+  const playedKey = "zaisma:played:" + SAVES.slug;
+  const played = (value) => {
+    try {
+      if (value === undefined) return JSON.parse(localStorage.getItem(playedKey) || "null");
+      localStorage.setItem(playedKey, JSON.stringify(value));
+    } catch { return null; }
+  };
+  // The game sent its save: if it changed, this device played just now.
+  async function notePlayed(text) {
+    const hash = await sha(text);
+    const was = played();
+    if (!was) played({ sha256: hash, played_at_ms: null });
+    else if (was.sha256 !== hash) played({ sha256: hash, played_at_ms: Date.now() });
+  }
+  // Whether this device's progress was played after the account's was saved. Not known: the account's wins.
+  const deviceIsNewer = (updatedAt) => {
+    const p = played();
+    return Boolean(p && p.played_at_ms && updatedAt && p.played_at_ms > Date.parse(updatedAt));
   };
   const tell = (msg) => frame && frame.contentWindow && frame.contentWindow.postMessage({ type: "zaisma:saves", ...msg }, SAVES.frameOrigin);
 
@@ -85,26 +106,6 @@ export const SAVES_CLIENT = `
     } catch { if (!retry) return null; }
     await new Promise((r) => setTimeout(r, 800));
     return load(false);
-  }
-
-  function ask(title, text, cloudLabel, localLabel) {
-    choose.querySelector("strong").textContent = title;
-    choose.querySelector("p").textContent = text;
-    choose.querySelector("[value=cloud]").textContent = cloudLabel;
-    choose.querySelector("[value=local]").textContent = localLabel;
-    choose.showModal();
-    // Answer on the click itself; Escape counts as the account's save, the safe default.
-    return new Promise((resolve) => {
-      const done = (value) => (e) => {
-        if (e) e.preventDefault();
-        choose.querySelector("[value=cloud]").onclick = choose.querySelector("[value=local]").onclick = choose.oncancel = null;
-        choose.close();
-        resolve(value);
-      };
-      choose.querySelector("[value=cloud]").onclick = done("cloud");
-      choose.querySelector("[value=local]").onclick = done("local");
-      choose.oncancel = done("cloud");
-    });
   }
 
   // Open the game through the restore page. If that page doesn't answer, open the game
@@ -181,7 +182,6 @@ export const SAVES_CLIENT = `
     if (!guest || !signedIn()) return;
     guest = false;
     for (const el of [offer, offerBar, offerLink]) if (el) el.hidden = true;
-    if (history) history.hidden = false;
     if (!frame) return; // Not playing yet: Play opens the game through the restore page as usual.
     const c = await load();
     if (!c) return say("Couldn't reach your saved progress, so this visit won't save to your account.");
@@ -200,10 +200,18 @@ export const SAVES_CLIENT = `
       tell({ step: "sync", text: guestText });
       say("Progress saves to your account.");
       pop("Your progress now saves to your account.");
+    } else if (deviceIsNewer(c.updated_at)) {
+      // Both have progress, and this device's was played more recently: it replaces the account's, which is kept as an earlier version.
+      paused = false;
+      synced = null;
+      replacing = true;
+      welcome = true;
+      tell({ step: "sync", text: null });
     } else {
-      const text = "You're signed in. Your account already has progress in this game, so you'll choose which to keep next time you open it.";
-      say(text);
-      pop(text);
+      // The account's progress was played more recently: the game reloads with it, keeping this device's as an earlier version.
+      forceCloud = true;
+      openThroughRestore();
+      pop("You're signed in. Your account's progress in this game is newer, so the game reloaded with it.");
     }
   }
   addEventListener("focus", joined);
@@ -225,20 +233,24 @@ export const SAVES_CLIENT = `
     }
     const localHash = await sha(text);
     const empty = text === "{}";
-    // A marker from before version_number and sha256 matches neither, so the player chooses once.
+    // The first time this page sees this device's save: from now on a change to it counts as playing.
+    if (!played()) played({ sha256: localHash, played_at_ms: null });
+    // A marker from before version_number and sha256 matches neither, so the most recently played wins.
     const mark = marker(c.tag);
     let use;
     if (forceCloud && c.version_number) {
       use = "cloud";
       // This device's progress since its last save (the account keeps one copy of each progress).
-      if (!empty && localHash !== c.sha256) keepDevice(text);
+      // Unchanged since it last synced, it was the account's own save, so there's nothing to keep.
+      if (!empty && localHash !== c.sha256 && !(mark && mark.sha256 === localHash)) keepDevice(text);
     }
     else if (!c.version_number) use = "local";
     else if (empty || localHash === c.sha256) use = "cloud";
     else if (mark && mark.version_number === c.version_number) use = "local";
     else if (mark && mark.sha256 === localHash) use = "cloud";
     else {
-      use = await ask("Which progress do you want?", "This game has progress saved to your account and different progress on this device. The one you don't pick is kept on your account as an earlier version.", "Your account's (saved " + ago(c.updated_at) + ")", "This device's");
+      // Both played on since they last matched: the progress played most recently wins, the other is kept.
+      use = deviceIsNewer(c.updated_at) ? "local" : "cloud";
       if (use === "cloud") keepDevice(text);
       else replacing = true;
     }
@@ -265,6 +277,7 @@ export const SAVES_CLIENT = `
     }
     synced = canonical(c.save_data);
     marker(c.tag, { version_number: c.version_number, sha256: c.sha256 });
+    played({ sha256: c.sha256, played_at_ms: Date.parse(c.updated_at) || null });
     paused = false;
     say("Progress saves to your account. Last saved " + ago(c.updated_at) + ".");
   }
@@ -289,15 +302,9 @@ export const SAVES_CLIENT = `
     } else if (res && res.status === 409) {
       paused = true;
       tell({ step: "pause" });
-      if (out.changed_by_kind === "developer") {
-        // The developer changed the save: reload the game with it, no question, keeping this device's progress.
-        keepDevice(text);
-        forceCloud = true;
-        openThroughRestore();
-        return;
-      }
-      const use = await ask("You played this game on another device", "Its progress is newer than this device's. The one you don't pick is kept on your account as an earlier version.", "Load the newer progress", "Keep this device's");
-      if (use === "cloud") {
+      // The developer's change always wins, and so does another device's progress played after this device's:
+      // reload the game with it, keeping this device's progress. Otherwise this device's, played just now, replaces it.
+      if (out.changed_by_kind === "developer" || !deviceIsNewer(out.updated_at)) {
         keepDevice(text);
         forceCloud = true;
         openThroughRestore();
@@ -326,13 +333,15 @@ export const SAVES_CLIENT = `
     if (queued !== null) { const next = queued; queued = null; store(next); }
   }
 
-  // Back on the tab: if the developer changed the save meanwhile, reload the game with it now rather
-  // than at its next save. Only the version is asked for, so this costs one small read.
+  // Back on the tab: if the developer changed the save meanwhile, or another device saved progress played
+  // after this device's, reload the game with it now rather than at its next save. Only the version is
+  // asked for, so this costs one small read.
   document.addEventListener("visibilitychange", async () => {
     if (guest || paused || saving || document.visibilityState !== "visible" || !cloud || cloud instanceof Promise) return;
     const res = await fetch(SAVES.api + "?version", { credentials: "same-origin" }).catch(() => null);
     const out = res && res.ok ? await res.json().catch(() => null) : null;
-    if (!out || out.changed_by_kind !== "developer" || out.version_number === cloud.version_number || paused || saving) return;
+    if (!out || out.version_number === cloud.version_number || paused || saving) return;
+    if (out.changed_by_kind !== "developer" && deviceIsNewer(out.updated_at)) return;
     paused = true;
     tell({ step: "pause" });
     forceCloud = true;
@@ -343,6 +352,7 @@ export const SAVES_CLIENT = `
     if (!frame || e.origin !== SAVES.frameOrigin || e.source !== frame.contentWindow) return;
     const m = e.data;
     if (!m || m.type !== "zaisma:saves" || typeof m.step !== "string") return;
+    if (m.step === "save" && typeof m.text === "string") notePlayed(m.text);
     if (guest) {
       // Watch for progress only: the save stays in this browser.
       if (m.step === "hello" && m.phase === "game") tell({ step: "sync", text: null });

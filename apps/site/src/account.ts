@@ -1237,8 +1237,6 @@ ${recent
 })();
 </script>`
       : ""}
-<h2>Game saves</h2>
-<p>Games you play while signed in save your progress to your account. <a href="/account/saves">See your saves</a>, and go back to an earlier version if progress goes missing.</p>
 ${signIns.length
       ? html`<h2 id="sign-ins">Signed in with Zaisma</h2>
 <p>Sites and apps you signed in to with your Zaisma account. They get your player ID and name, never your email. Remove one and it asks again next time.</p>

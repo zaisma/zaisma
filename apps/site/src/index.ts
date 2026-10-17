@@ -14,7 +14,7 @@ import { reportForm, submitReport } from "./report.ts";
 import { roomsFragment } from "./rooms.ts";
 import { handlePasskeys } from "./passkeys.ts";
 import { handleSignIn } from "./sign-in.ts";
-import { handleSaveHistory, handleSaves } from "./saves.ts";
+import { handleSaves } from "./saves.ts";
 import { handleScanBatch, queueImageChecks } from "./scan.ts";
 import { triageReports } from "./triage.ts";
 import { sortMisplaced, sortTopics } from "./forum-sort.ts";
@@ -61,9 +61,6 @@ export default {
 
     const passkeys = await handlePasskeys(request, env, path);
     if (passkeys) return passkeys;
-
-    const history = await handleSaveHistory(request, env, path);
-    if (history) return history;
 
     const account = await handleAccount(request, env, path);
     if (account) return account;

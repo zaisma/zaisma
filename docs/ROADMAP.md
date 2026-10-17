@@ -10,11 +10,9 @@ Who a player is came first, and that chain is live (Julius, Oct 16, 2026). Nothi
 
 **Next:**
 
-1. Social settings (Social settings)
-2. Saves without Zaisma screens (Saves)
-3. Game server reach and secrets (Game servers)
-4. Game dashboard sections (Developer dashboard)
-5. Developer home (Developer dashboard)
+1. Game server reach and secrets (Game servers)
+2. Game dashboard sections (Developer dashboard)
+3. Developer home (Developer dashboard)
 
 ## Phases
 
@@ -286,7 +284,7 @@ What a running game can use, on Zaisma and on its developer's own servers.
 | done | Beta | Must | yes | "Keep your progress" | Cloud saves | Turns a guest into an account after 5 minutes of play with progress, without a reload |
 | done | Beta | Must | yes | Save history | Cloud saves | Up to 5 earlier versions per game; players go back from their account or the game menu |
 | done | Beta | Must | yes | Saves through the API | Cloud saves, Developer accounts | Live Oct 17, 2026 (#200, migration 0044, CLI 0.7.0): developers list, read, change (some keys or the whole save) and reset their game's saves by player ID, and read and restore earlier versions (API and MCP); a change keeps a copy first and reloads an open game with no dialog. Saves and the game database stay separate |
-| next | Beta | Must | yes | Saves without Zaisma screens | Cloud saves, Save history | No conflict chooser (the progress played most recently wins, the other kept as an earlier version), no restoring or list of copies on the account page or game menu; the "Keep your progress" card gets a game setting to turn it off |
+| done | Beta | Must | yes | Saves without Zaisma screens | Cloud saves, Save history | Live Oct 17, 2026 (#207, migration 0046): no conflict chooser (the progress played most recently wins, the other kept as an earlier version), no restoring or list of copies on the account page or game menu; the "Keep your progress" card gets a game setting to turn it off |
 | planned | Beta | Must | | Saves in the SDK | Saves without Zaisma screens, "Keep your progress" | `Zaisma.saves.onConflict`, `getHistory()` and `restore()` for games that want their own conflict or rollback screens, `Zaisma.saves.onDeveloperChange` for games that take a developer's change their own way (in place, with their own message or their own reload) instead of Zaisma's reload, and `Zaisma.player.offerAccount()` |
 
 ### In-game purchases
@@ -364,7 +362,7 @@ Who a player is, who they play with and how they find games.
 | Status | Phase | Must/Nice | Settled | Slice | Needs | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
 | done | Beta | Must | yes | Social modes and age bands | Age question | Live Oct 16, 2026 (#162, migration 0039): three age bands (13–15, 16–17, 18+) and a social mode on every account, chosen at signup from 16 and changed on the account page; 13–15 start solo-focused and can switch only to friends-focused. The pass carries the social mode and an opaque chat group, never the age; `canChat(a, b)` in the game server package |
-| doing | Beta | Must | yes | Social settings | Social modes and age bands | A Social section on the account page: separate settings for chat, joining, what I'm playing, what I've played, online and friend requests, with the social modes as presets plus Custom and hard age limits; the page says "Anyone", never band groups (Julius, Oct 17, 2026) |
+| done | Beta | Must | yes | Social settings | Social modes and age bands | Live Oct 17, 2026 (#208, migrations 0048 and 0049): a Social section on the account page: separate settings for chat, joining, what I'm playing, what I've played, online and friend requests, with the social modes as presets plus Custom and hard age limits; the page says "Anyone", never band groups (Julius, Oct 17, 2026) |
 
 ### Friends
 
