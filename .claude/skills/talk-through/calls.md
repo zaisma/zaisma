@@ -64,6 +64,15 @@ Would his answer be better than Claude's? His edge: UI and UX, how players and d
 **"Why no messaging?"** *Friends playing now.* He asked about a settled line. The settled reasons (teen safety, moderation cost, the direction), plus a wordless alternative for the case he cared about (room invites), kept the line in one round, and he liked the alternative.
 *Lesson:* when he questions a settled decision, give its reasons plainly and solve the need behind the question without crossing it.
 
+**What a private profile says.** *Profiles, Oct 17, 2026.* Claude's sketch showed a teen's profile to a stranger as "Mia shares more with friends." He caught that it tells a stranger the way in (become her friend) and asked for a brick wall instead: "Mia's profile is private.", the same words for a private adult as for a teen.
+*Lesson:* a privacy wall says nothing about how to get past it or why it's there. Read each line of copy as the person it keeps out would.
+
+**Friend list, or friends in common.** *Profiles.* Claude left the friend list off. He agreed and added mutual friends, the legit part of a friend list. Hours played he moved to an owner's choice with the later extras rather than cutting it.
+*Lesson:* when cutting something for safety, offer the version that keeps its honest use. A "flex" field is the owner's choice, not Zaisma's.
+
+**Profiles as marketing.** *Profiles.* He took games-first and framed the whole page as showing off developers and their games: developers come to Zaisma for exposure. A developer's own games lead their profile.
+*Lesson:* for any page with games or people on it, ask what it does for developers' exposure; he'll weigh that first.
+
 ## Not his
 
 **The export format: SQL dump, or JSON and CSV.** *Game database import and export.* "Too technical… just implementation decisions, not system design."
@@ -91,6 +100,7 @@ All three talks above should have opened differently:
 - **Saves through the API:** *Needs you*, the direction question plus what players see.
 - **Games can reach our rooms and their own servers:** *One call*, rightly: the promise, with the direction check folded into the options.
 - **Friends playing now:** *Needs you*, rightly: a page, a player control and a direction question (Join by default). It grew into five rows over three rounds.
+- **Profiles:** *Needs you*, rightly: one page call with five picks in a sketch. Settled in one round; he changed two picks and added mutual friends.
 
 ## Scan before publishing (Oct 16, 2026)
 
