@@ -123,6 +123,10 @@ const details = {
     type: "boolean",
     description: "Copy signed-in players' browser saves (localStorage and IndexedDB) to their account, so progress follows them to any device. On by default; turn off for games that keep their own saves on a server.",
   },
+  account_offer_enabled: {
+    type: "boolean",
+    description: "Show guests the \"Keep your progress\" card once they have progress and have played 5 minutes: it offers a free account so their progress is kept, beside the game. On by default; turn off for games that offer accounts their own way (Zaisma.player.signIn() asks whenever the game likes).",
+  },
   multiplayer_mode: {
     enum: ["none", "relay", "own"],
     description:
