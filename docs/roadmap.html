@@ -1,475 +1,678 @@
 <title>Zaisma Roadmap</title>
+<meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jost:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jost:wght@500;600&family=IBM+Plex+Mono:wght@500&display=swap">
 <style>
-/* Layout: a roadmap ledger. A sticky bar says where you are and jumps between phases and tracks; phases fold, items are one line until tapped. Dark first (the metal logo lives on dark). */
+/* Layout: a timeline of phases on top, the Now board under it, then every area of Zaisma grouped like a console's
+   settings list: an outline beside the slices on wide screens, a sheet behind one button in a narrow side panel.
+   Steel, lightly: steel neutrals, Jost labels, the Z's cut corner on plates, a chrome rail for "you are here". Dark first. */
 :root {
-  --bg: #16161a; --surface: #1e1e23; --line: #2d2d34; --fg: #ececef; --muted: #9b9ba6;
-  --steel: #b9c6d8; --julius: #e2b45e; --gleb: #6cc6c0;
-  --done: #74c393; --doing: #e2b45e; --next: #86aef0; --planned: #8a8a96;
+  --bg: #0d0f12; --plate: #16191e; --plate-hi: #1c2026; --line: #2a2f37; --rim: rgba(255, 255, 255, 0.06);
+  --fg: #eceef0; --fg-2: #c6c9ce; --muted: #969ba4; --chrome: #c4cfdc; --chrome-2: #7d8a9b;
+  --done: #5fd38d; --doing: #f2c14e; --next: #8fb3ec; --talk: #c4a8f2; --julius: #e2b45e; --gleb: #6cc6c0;
   --display: "Jost", "Futura", "Century Gothic", system-ui, sans-serif;
-  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --body: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --logo-metal: block; --logo-black: none;
+  --gl: max(16px, env(safe-area-inset-left, 0px)); --gr: max(16px, env(safe-area-inset-right, 0px));
+  --bar-h: 104px;
   color-scheme: dark;
 }
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
-    --bg: #f3f4f6; --surface: #ffffff; --line: #dcdde2; --fg: #17171b; --muted: #5d5e68;
-    --steel: #3d4f6b; --julius: #9a6a10; --gleb: #1d7f79;
-    --done: #1f8a4c; --doing: #9a6a10; --next: #2f5fb3; --planned: #6c6c78;
+    --bg: #eceef1; --plate: #ffffff; --plate-hi: #f5f6f8; --line: #d5d9df; --rim: rgba(255, 255, 255, 0.9);
+    --fg: #15181c; --fg-2: #353a42; --muted: #5b616b; --chrome: #33455f; --chrome-2: #8c99ab;
+    --done: #1d8549; --doing: #93650c; --next: #2d5cae; --talk: #6a45b3; --julius: #93650c; --gleb: #1b7a74;
     --logo-metal: none; --logo-black: block; color-scheme: light;
   }
 }
 :root[data-theme="light"] {
-  --bg: #f3f4f6; --surface: #ffffff; --line: #dcdde2; --fg: #17171b; --muted: #5d5e68;
-  --steel: #3d4f6b; --julius: #9a6a10; --gleb: #1d7f79;
-  --done: #1f8a4c; --doing: #9a6a10; --next: #2f5fb3; --planned: #6c6c78;
+  --bg: #eceef1; --plate: #ffffff; --plate-hi: #f5f6f8; --line: #d5d9df; --rim: rgba(255, 255, 255, 0.9);
+  --fg: #15181c; --fg-2: #353a42; --muted: #5b616b; --chrome: #33455f; --chrome-2: #8c99ab;
+  --done: #1d8549; --doing: #93650c; --next: #2d5cae; --talk: #6a45b3; --julius: #93650c; --gleb: #1b7a74;
   --logo-metal: none; --logo-black: block; color-scheme: light;
 }
 * { box-sizing: border-box; }
-body { background: var(--bg); color: var(--fg); font: 15px/1.55 var(--body); }
-.wrap { max-width: 1080px; margin: 0 auto; padding-inline: 20px; padding-block: 28px 64px; display: grid; gap: 32px; }
-h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; letter-spacing: 0.01em; }
-a { color: var(--steel); }
-:focus-visible { outline: 2px solid var(--steel); outline-offset: 2px; border-radius: 4px; }
+[hidden] { display: none !important; }
+body { background: var(--bg); color: var(--fg); font: 15px/1.5 var(--body); }
+.page { max-width: 1180px; margin: 0 auto; padding-left: var(--gl); padding-right: var(--gr); padding-block: 20px 56px; display: grid; gap: 22px; }
+h1, h2, h3 { font-family: var(--display); font-weight: 600; letter-spacing: 0.01em; text-wrap: balance; margin: 0; }
+a { color: var(--chrome); }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--chrome); outline-offset: 2px; }
+code { font: 500 0.9em var(--mono); }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+/* The Z's cut corner, top right. */
+.cut { clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 0 100%); }
+.plate { background: var(--plate); box-shadow: inset 0 0 0 1px var(--line), inset 2px 2px 0 var(--rim); }
 
-header { display: grid; gap: 14px; }
+/* Header: brand and the timeline of phases. */
 .brand { display: flex; align-items: center; gap: 12px; }
-.brand img { height: 26px; width: auto; }
+.brand img { height: 22px; width: auto; }
 .logo-metal { display: var(--logo-metal); }
 .logo-black { display: var(--logo-black); }
 .brand span { font: 600 14px var(--display); color: var(--muted); padding-left: 12px; border-left: 1px solid var(--line); }
-h1 { font-size: clamp(30px, 5vw, 44px); font-weight: 600; }
-.now { font-size: 16px; max-width: 70ch; display: grid; gap: 8px; }
-.now h2 { font-size: 15px; color: var(--steel); font-weight: 600; }
-.now p { margin: 0; color: var(--muted); }
-.now ol { margin: 0; padding-left: 22px; display: grid; gap: 4px; }
-.now ol a { color: var(--fg); text-decoration-color: var(--line); text-underline-offset: 3px; }
-.now ol a:hover { text-decoration-color: var(--steel); }
-.now ol .project { color: var(--muted); font-size: 14px; }
-li.flash { box-shadow: inset 3px 0 0 var(--steel); }
+.timeline { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
+.step { position: relative; display: grid; gap: 2px; padding: 10px 10px 9px; text-align: left; border: 0; cursor: pointer; background: var(--plate); box-shadow: inset 0 0 0 1px var(--line), inset 2px 2px 0 var(--rim); min-width: 0; }
+.step:hover { background: var(--plate-hi); }
+.step .k { font: 500 11px var(--mono); color: var(--muted); }
+.step .n { font: 600 16px var(--display); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.step .s { font: 500 11.5px var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.step i { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--line); }
+.step i b { display: block; height: 100%; background: var(--done); }
+.step.reached .n { color: var(--muted); }
+.step.current { background: var(--plate-hi); }
+.step.current .n { color: var(--fg); }
+.step.current i b { background: linear-gradient(90deg, var(--chrome), var(--chrome-2)); }
+.step.later .n { color: var(--fg-2); }
+.step[aria-pressed="true"] { box-shadow: inset 0 0 0 1px var(--chrome), inset 2px 2px 0 var(--rim); }
+.goal-line { display: grid; gap: 4px; max-width: 72ch; }
+.goal-line h1 { font-size: clamp(24px, 4.4vw, 34px); }
+.goal-line p { margin: 0; color: var(--fg-2); }
 
-.beta { display: grid; gap: 8px; max-width: 560px; }
-.beta-label { display: flex; justify-content: space-between; gap: 12px; font: 500 13px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
-.meter { height: 8px; background: var(--line); border-radius: 99px; overflow: hidden; }
-.meter i { display: block; height: 100%; background: var(--steel); border-radius: 99px; }
+/* Now board. */
+.now { display: grid; gap: 14px; }
+.now > h2 { font-size: 20px; }
+.meters { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 8px; }
+.meter { padding: 11px 14px 12px; display: grid; gap: 7px; }
+.meter .top { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+.meter .top b { font: 600 15px var(--display); }
+.meter .top span { font: 500 12.5px var(--mono); color: var(--fg-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.meter .track { height: 6px; background: var(--line); overflow: hidden; }
+.meter .track i { display: block; height: 100%; background: linear-gradient(90deg, var(--chrome), var(--chrome-2)); }
+.meter small { color: var(--muted); font-size: 12.5px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 8px; }
+.card { padding: 11px 14px 13px; display: grid; gap: 5px; align-content: start; }
+.card .head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.card .place { font: 500 12px var(--mono); color: var(--muted); }
+.card .name { font: 600 16px var(--display); background: none; border: 0; padding: 0; text-align: left; cursor: pointer; line-height: 1.25; }
+.card .name:hover { color: var(--chrome); text-decoration: underline; text-underline-offset: 3px; }
+.card .area { font-size: 12.5px; color: var(--muted); }
+.card .what { font-size: 13.5px; color: var(--fg-2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.card .waits { font-size: 12.5px; color: var(--muted); }
+.state { font: 600 12px var(--display); letter-spacing: 0.02em; padding: 2px 8px; border: 1px solid currentColor; white-space: nowrap; }
+.st-building { color: var(--doing); } .st-talk { color: var(--talk); } .st-ready { color: var(--next); } .st-waits { color: var(--muted); } .st-live { color: var(--done); }
+.lists { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; }
+.lists h3 { font-size: 15px; margin-bottom: 6px; }
+.lists ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; }
+.lists li { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 10px; font-size: 13.5px; align-items: baseline; }
+.lists li .d { font: 500 12px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.lists li .who-julius { color: var(--julius); font: 600 13px var(--display); }
+.lists li .who-gleb { color: var(--gleb); font: 600 13px var(--display); }
+.lists li button { background: none; border: 0; padding: 0; text-align: left; cursor: pointer; }
+.lists li button:hover { color: var(--chrome); text-decoration: underline; text-underline-offset: 3px; }
+.lists .sub { color: var(--muted); font-size: 12.5px; display: block; }
+.lists .all { margin-top: 6px; background: none; border: 0; padding: 0; color: var(--chrome); cursor: pointer; font: 500 13px var(--body); }
+details.why summary { cursor: pointer; color: var(--muted); font-size: 13.5px; width: fit-content; }
+details.why p { margin: 8px 0 0; color: var(--fg-2); max-width: 72ch; font-size: 14px; }
+.first-note { font-size: 13.5px; color: var(--fg-2); }
 
-.bar { position: sticky; top: 0; z-index: 5; margin-inline: -20px; padding: 10px 20px; background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); display: grid; gap: 8px; }
-.where { font: 600 15px var(--display); display: flex; gap: 8px; align-items: baseline; min-width: 0; white-space: nowrap; overflow: hidden; }
-.where .p { color: var(--fg); }
-.where .g { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
-.where .sep { color: var(--muted); }
-.pills { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin-inline: -20px; padding-inline: 20px; }
-.pills::-webkit-scrollbar { display: none; }
-.pill { flex: none; display: inline-flex; gap: 7px; align-items: center; font: 500 13px var(--body); padding: 4px 11px; border-radius: 99px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); text-decoration: none; white-space: nowrap; }
-.pill .c { font: 500 12px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
-.pill:hover { border-color: var(--steel); }
-.pill.here { border-color: var(--steel); box-shadow: inset 0 0 0 1px var(--steel); }
-/* The track row floats under the bar, so showing or hiding it never moves the page (moving it made the bar flip back and forth at phase edges). */
-.pills.tracks { position: absolute; top: 100%; left: 0; right: 0; margin: 0; padding: 8px 20px; background: inherit; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
-.pills.tracks .pill { background: transparent; }
+/* The sticky bar: where you are, search, and which phase you see. */
+.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 10; margin-left: calc(-1 * var(--gl)); margin-right: calc(-1 * var(--gr)); padding: 10px var(--gr) 10px var(--gl); background: color-mix(in srgb, var(--bg) 93%, transparent); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); display: grid; gap: 8px; }
+.bar-row { display: flex; gap: 8px; align-items: center; min-width: 0; }
+.areas-btn { flex: 0 1 auto; min-width: 0; max-width: 46%; height: 38px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border: 0; cursor: pointer; font: 600 14px var(--display); }
+.areas-btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.areas-btn svg { flex: none; }
+.field { flex: 1 1 auto; min-width: 0; position: relative; }
+.field input { width: 100%; height: 38px; padding: 0 34px 0 34px; border: 0; background: var(--bg); color: var(--fg); font: 14px var(--body); box-shadow: inset 0 0 0 1px var(--line), inset 1px 2px 4px rgba(0, 0, 0, 0.25); }
+.field input:focus { outline: none; box-shadow: inset 0 0 0 1px var(--chrome), inset 1px 2px 4px rgba(0, 0, 0, 0.25); }
+input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
+.field > svg { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+.field .clear { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 30px; height: 30px; border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 18px; line-height: 1; }
+.seg { display: flex; gap: 2px; padding: 2px; background: var(--bg); box-shadow: inset 0 0 0 1px var(--line); overflow-x: auto; scrollbar-width: none; }
+.seg::-webkit-scrollbar { display: none; }
+.seg button { flex: 1 0 auto; height: 32px; padding: 0 11px; border: 0; background: none; cursor: pointer; font: 600 13.5px var(--display); color: var(--muted); position: relative; white-space: nowrap; }
+.seg button:hover { color: var(--fg); }
+.seg button[aria-pressed="true"] { color: var(--fg); background: var(--plate-hi); box-shadow: inset 1px 1px 0 var(--rim); }
+.seg button[aria-pressed="true"]::after { content: ""; position: absolute; left: 8px; right: 8px; bottom: 0; height: 2px; background: linear-gradient(90deg, var(--chrome), var(--chrome-2)); }
+.seg .sep { flex: none; width: 1px; margin: 6px 3px; background: var(--line); }
 
-.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.controls .lbl { font: 500 13px var(--body); color: var(--muted); margin-right: 4px; }
-.chip { font: 500 13px var(--body); padding: 6px 12px; border-radius: 99px; border: 1px solid var(--line); background: transparent; color: var(--fg); cursor: pointer; }
-.chip[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+/* Areas: the outline (wide screens and the sheet) and the sections. */
+.layout { display: grid; gap: 28px; }
+.outline { display: grid; gap: 12px; align-content: start; }
+.outline .find input { width: 100%; height: 34px; padding: 0 10px; border: 0; background: var(--bg); color: var(--fg); font: 13.5px var(--body); box-shadow: inset 0 0 0 1px var(--line); }
+.outline .find input:focus { outline: none; box-shadow: inset 0 0 0 1px var(--chrome); }
+.outline .g { display: grid; gap: 1px; }
+.outline .g > b { font: 600 12.5px var(--display); color: var(--muted); padding: 0 10px 3px; letter-spacing: 0.02em; }
+.outline a { display: flex; justify-content: space-between; gap: 10px; padding: 5px 10px; text-decoration: none; color: var(--fg-2); font-size: 14px; position: relative; }
+.outline a:hover { color: var(--fg); background: var(--plate); }
+.outline a .c { font: 500 12px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.outline a.here { color: var(--fg); background: var(--plate); }
+.outline a.here::before { content: ""; position: absolute; left: 0; top: 4px; bottom: 4px; width: 2px; background: linear-gradient(180deg, var(--chrome), var(--chrome-2)); }
+.outline .none { color: var(--muted); font-size: 13.5px; padding: 0 10px; }
+.side { display: none; }
+main { display: grid; gap: 30px; min-width: 0; }
+.group { display: grid; gap: 18px; }
+.group > header { display: grid; gap: 2px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.group > header h2 { font-size: 22px; }
+.group > header p { margin: 0; color: var(--muted); font-size: 14px; }
+section.area { display: grid; gap: 8px; scroll-margin-top: calc(var(--bar-h) + 10px); }
+section.area > header { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
+section.area h3 { font-size: 18px; }
+section.area > header .c { font: 500 12px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+section.area > p { margin: 0; color: var(--muted); font-size: 14px; max-width: 72ch; }
+.empty { padding: 12px 14px; color: var(--muted); font-size: 14px; }
 
-details.phase { border: 1px solid var(--line); border-radius: 12px; background: color-mix(in srgb, var(--surface) 40%, transparent); scroll-margin-top: 126px; }
-details.phase > summary { list-style: none; cursor: pointer; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 16px; align-items: center; padding: 16px 18px; }
-details.phase > summary::-webkit-details-marker { display: none; }
-summary .k { font: 500 13px var(--mono); color: var(--muted); }
-summary h2 { font-size: 24px; font-weight: 600; }
-summary .prog { display: grid; gap: 6px; justify-items: end; min-width: 120px; }
-summary .prog .c { font: 500 12px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
-summary .track { width: 120px; height: 4px; background: var(--line); border-radius: 9px; overflow: hidden; }
-summary .track i { display: block; height: 100%; background: var(--done); }
-summary .chev { grid-column: 2; grid-row: 1; justify-self: end; color: var(--muted); transition: transform .2s; }
-details.phase[open] > summary .chev { transform: rotate(90deg); }
-summary .name-wrap { display: grid; gap: 2px; }
-.phase-body { display: grid; gap: 16px; padding: 0 18px 18px; }
-.phase-body > p { margin: 0; max-width: 70ch; color: var(--muted); }
-.phase-body > p strong { color: var(--fg); font-weight: 600; }
-.group { display: grid; gap: 8px; scroll-margin-top: 126px; }
-.group h3 { font: 600 17px var(--display); margin-top: 6px; display: flex; gap: 10px; align-items: baseline; }
-.group h3 .c { font: 500 12px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
-.group > p { margin: 0; color: var(--muted); font-size: 14px; max-width: 70ch; }
-
-ul.items { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); overflow: hidden; }
-ul.items li { display: grid; grid-template-columns: 84px minmax(0, 1fr) auto; gap: 14px; align-items: start; padding: 10px 14px; border-top: 1px solid var(--line); }
-ul.items li:first-child { border-top: 0; }
-ul.items li.has-more { cursor: pointer; }
-ul.items li.has-more:hover { background: color-mix(in srgb, var(--steel) 6%, transparent); }
-.status { font: 500 12px var(--mono); padding-top: 2px; display: flex; align-items: center; gap: 7px; color: var(--muted); }
-.status::before { content: ""; width: 9px; height: 9px; border-radius: 50%; flex: none; border: 2px solid var(--planned); }
-.s-done .status { color: var(--done); } .s-done .status::before { background: var(--done); border-color: var(--done); }
-.s-doing .status { color: var(--doing); } .s-doing .status::before { border-color: var(--doing); background: linear-gradient(90deg, var(--doing) 50%, transparent 50%); }
-.s-next .status { color: var(--next); } .s-next .status::before { border-color: var(--next); }
-.s-idea .status::before { border-style: dashed; }
-.s-done .name { color: var(--muted); }
-.name { font-weight: 500; background: none; border: 0; padding: 0; color: inherit; font: inherit; font-weight: 500; text-align: left; cursor: inherit; }
-.note { color: var(--muted); font-size: 14px; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
-li.open .note, body.full .note { -webkit-line-clamp: unset; display: block; }
-li .needs.later { display: none; }
-li.open .needs.later, body.full .needs.later { display: block; }
-.tags { display: flex; gap: 6px; padding-top: 1px; }
-.tag { font: 500 12px var(--mono); padding: 1px 7px; border-radius: 5px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
-.tag.must { color: var(--fg); border-color: var(--fg); }
-.mark { display: inline-flex; width: 18px; height: 18px; flex: none; align-self: center; }
+ul.slices { list-style: none; margin: 0; padding: 0; }
+ul.slices > li { border-top: 1px solid var(--line); scroll-margin-top: calc(var(--bar-h) + 10px); }
+ul.slices > li:first-child { border-top: 0; }
+.row { width: 100%; display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 4px 10px; align-items: start; padding: 10px 14px 0; background: none; border: 0; text-align: left; cursor: pointer; }
+.row:hover .nm { color: var(--chrome); }
+.dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 5px; border: 2px solid var(--muted); }
+.s-done .dot { background: var(--done); border-color: var(--done); }
+.s-doing .dot { border-color: var(--doing); background: linear-gradient(90deg, var(--doing) 50%, transparent 50%); }
+.s-next .dot { border-color: var(--next); }
+.s-idea .dot { border-style: dashed; }
+.nm { font-weight: 550; font-size: 14.5px; }
+.s-done .nm { color: var(--fg-2); font-weight: 450; }
+.tags { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; justify-content: flex-end; padding-top: 1px; }
+.tag { font: 500 11.5px var(--mono); padding: 0 6px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; line-height: 18px; }
+.tag.julius { color: var(--julius); border-color: var(--julius); }
+.tag.gleb { color: var(--gleb); border-color: var(--gleb); }
+.tag.st { border: 0; padding: 0; }
+.st-doing { color: var(--doing); } .st-next { color: var(--next); }
+.mark { display: inline-flex; width: 17px; height: 17px; flex: none; }
 .mark svg { width: 100%; height: 100%; }
 .mark.settled { color: var(--next); }
 .mark.unsettled { color: var(--doing); }
-.tag.julius { color: var(--julius); border-color: var(--julius); }
-.tag.gleb { color: var(--gleb); border-color: var(--gleb); }
-.needs { font-size: 13px; color: var(--muted); margin-top: 3px; }
-.needs .lbl { font: 500 12px var(--mono); margin-right: 4px; }
-.needs .open { color: var(--fg); }
-.needs .met { text-decoration: line-through; }
-.empty { padding: 14px; color: var(--muted); font-size: 14px; }
+.detail { padding: 2px 14px 10px 40px; display: grid; gap: 6px; }
+.note { margin: 0; color: var(--muted); font-size: 13.5px; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+li.open .note { -webkit-line-clamp: unset; display: block; color: var(--fg-2); }
+.facts { display: none; font-size: 13px; color: var(--muted); gap: 3px; }
+li.open .facts { display: grid; }
+.facts .lbl { font: 500 11.5px var(--mono); margin-right: 6px; }
+.facts .open { color: var(--fg); }
+.facts .met { text-decoration: line-through; }
+.facts button { background: none; border: 0; padding: 0; color: inherit; cursor: pointer; text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
+.facts button:hover { color: var(--chrome); }
+.fold { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 14px 10px 40px; border: 0; border-top: 1px solid var(--line); background: none; cursor: pointer; color: var(--muted); font: 500 13.5px var(--body); text-align: left; }
+.fold:hover { color: var(--fg); }
+.fold svg { transition: transform 0.15s; }
+.fold[aria-expanded="true"] svg { transform: rotate(90deg); }
+li.flash { box-shadow: inset 3px 0 0 var(--chrome); }
 
-.legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 13px; color: var(--muted); }
+/* Shipped: everything that went live, newest first. */
+.shipped { display: grid; gap: 16px; }
+.shipped h3 { font: 600 14px var(--mono); color: var(--muted); }
+.shipped .day { display: grid; gap: 6px; }
+.shipped .slices .row { grid-template-columns: 16px minmax(0, 1fr) auto; }
+.searchnote { color: var(--muted); font-size: 14px; }
+
+.legend { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 13px; color: var(--muted); }
 .legend span { display: inline-flex; gap: 6px; align-items: center; }
-footer { color: var(--muted); font-size: 13px; border-top: 1px solid var(--line); padding-top: 16px; }
-.error { padding: 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.legend .dot { margin-top: 0; }
+footer { color: var(--muted); font-size: 13px; border-top: 1px solid var(--line); padding-top: 14px; display: grid; gap: 10px; }
+.error { padding: 16px; }
 
-@media (max-width: 560px) {
-  .wrap { padding-inline: 16px; }
-  .bar, .pills { margin-inline: -16px; padding-inline: 16px; }
-  .pills.tracks { margin: 0; }
-  ul.items li { grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; }
-  ul.items li > div:first-of-type { grid-column: 1 / -1; grid-row: 2; }
-  .phase-body { padding: 0 12px 14px; }
-  summary h2 { font-size: 20px; }
-  summary .prog { min-width: 0; }
-  summary .track { width: 72px; }
+/* The sheet: the outline behind the Areas button in narrow windows. */
+.sheet { position: fixed; inset: 0; z-index: 20; display: grid; grid-template-columns: minmax(0, 360px) 1fr; }
+.sheet .panel { background: var(--bg); border-right: 1px solid var(--line); overflow-y: auto; padding: calc(14px + env(safe-area-inset-top, 0px)) 14px calc(20px + env(safe-area-inset-bottom, 0px)) var(--gl); display: grid; gap: 12px; align-content: start; }
+.sheet .shade { background: rgba(0, 0, 0, 0.45); border: 0; cursor: pointer; }
+.sheet .top { display: flex; justify-content: space-between; align-items: center; }
+.sheet .top b { font: 600 17px var(--display); }
+.sheet .x { width: 38px; height: 38px; border: 0; cursor: pointer; font-size: 20px; }
+
+@media (min-width: 880px) {
+  .layout { grid-template-columns: 236px minmax(0, 1fr); }
+  .side { display: grid; position: sticky; top: calc(env(safe-area-inset-top, 0px) + var(--bar-h) + 12px); max-height: calc(100vh - var(--bar-h) - 24px); overflow-y: auto; scrollbar-width: thin; }
+  .areas-btn { display: none; }
+  .bar { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
 }
-@media (prefers-reduced-motion: no-preference) {
-  .meter i, summary .track i { transition: width .4s ease; }
+@media (max-width: 420px) {
+  .step { padding: 9px 7px 8px; }
+  .step .n { font-size: 15px; }
+  .row { padding-inline: 10px; }
+  .detail { padding-left: 36px; padding-right: 10px; }
+  .fold { padding-left: 36px; }
+  .tags .tag.ph { display: none; }
 }
+@media (prefers-reduced-motion: reduce) { .fold svg { transition: none; } }
 </style>
 
-<div class="wrap">
-  <header>
+<div class="page">
+  <header style="display:grid;gap:14px">
     <div class="brand">
       <img class="logo-metal" src="zaisma-wordmark-metal.svg" alt="Zaisma">
       <img class="logo-black" src="zaisma-wordmark-black.svg" alt="Zaisma">
       <span>Roadmap</span>
     </div>
-    <h1>From safe hosting to a full game platform</h1>
-    <div class="now" id="now"><p>Loading the roadmap…</p></div>
-    <div class="beta" id="beta" hidden>
-      <div class="beta-label"><span>Beta progress: must items in Phase 1</span><span id="beta-count"></span></div>
-      <div class="meter"><i id="beta-bar" style="width:0"></i></div>
-    </div>
+    <nav class="timeline" id="timeline" aria-label="Phases"></nav>
+    <div class="goal-line" id="goal"><p>Loading the roadmap…</p></div>
   </header>
 
-  <div class="bar">
-    <div class="where" aria-live="polite"><span class="p" id="where-p">Roadmap</span><span class="sep" id="where-sep" hidden>›</span><span class="g" id="where-g"></span></div>
-    <nav class="pills" id="pills" aria-label="Phases"></nav>
-    <nav class="pills tracks" id="tracks" aria-label="Tracks in this phase" hidden></nav>
+  <section class="now" id="now" aria-label="Now" hidden></section>
+
+  <div class="bar" id="bar">
+    <div class="bar-row">
+      <button class="areas-btn plate cut" id="areas-btn" type="button" aria-haspopup="dialog" aria-controls="sheet"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h7"/></svg><span id="areas-label">Areas</span></button>
+      <div class="field">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5l3 3"/></svg>
+        <input id="q" type="search" placeholder="Find a slice" aria-label="Find a slice" autocomplete="off">
+        <button class="clear" id="q-clear" type="button" aria-label="Clear the search" hidden>×</button>
+      </div>
+    </div>
+    <div class="seg" id="seg" role="group" aria-label="Which slices to show"></div>
   </div>
 
-  <div class="controls" role="group" aria-label="Filter items">
-    <span class="lbl">Show</span>
-    <button class="chip" id="f-all" type="button" aria-pressed="true">Everything</button>
-    <button class="chip" id="f-must" type="button" aria-pressed="false">Must items only</button>
-    <button class="chip" id="f-julius" type="button" aria-pressed="false">Julius's to-dos</button>
-    <button class="chip" id="f-gleb" type="button" aria-pressed="false">Gleb's to-dos</button>
-    <button class="chip" id="f-open" type="button" aria-pressed="false">Hide done</button>
-    <button class="chip" id="f-full" type="button" aria-pressed="false">Full notes</button>
+  <div class="layout">
+    <aside class="side outline" id="side" aria-label="Areas"></aside>
+    <main id="main"></main>
   </div>
 
-  <main id="phases" style="display:grid;gap:14px"></main>
+  <footer>
+    <div class="legend" aria-label="Key">
+      <span class="s-done"><span class="dot"></span>done</span>
+      <span class="s-doing"><span class="dot"></span>doing</span>
+      <span class="s-next"><span class="dot"></span>next</span>
+      <span class="s-planned"><span class="dot"></span>planned</span>
+      <span class="s-idea"><span class="dot"></span>idea</span>
+      <span id="legend-settled"></span>
+      <span id="legend-unsettled"></span>
+    </div>
+    <div>Built from <code>docs/ROADMAP.md</code> in <a href="https://github.com/zaisma/zaisma/blob/main/docs/ROADMAP.md" target="_blank" rel="noopener">github.com/zaisma/zaisma</a>, the one source of truth. How each slice works is in <a href="https://github.com/zaisma/zaisma/blob/main/docs/DECISIONS.md" target="_blank" rel="noopener">DECISIONS.md</a>.</div>
+  </footer>
+</div>
 
-  <div class="legend" aria-label="Status key">
-    <span class="s-done"><span class="status">done</span></span>
-    <span class="s-doing"><span class="status">doing</span></span>
-    <span class="s-next"><span class="status">next</span></span>
-    <span class="s-planned"><span class="status">planned</span></span>
-    <span class="s-idea"><span class="status">idea</span></span>
-    <span id="legend-settled"></span>
-    <span id="legend-unsettled"></span>
-  </div>
-  <footer>Built from <code>docs/ROADMAP.md</code> in <a href="https://github.com/zaisma/zaisma/blob/main/docs/ROADMAP.md" target="_blank" rel="noopener">github.com/zaisma/zaisma</a>, the one source of truth. The how behind each item is in <a href="https://github.com/zaisma/zaisma/blob/main/docs/DECISIONS.md" target="_blank" rel="noopener">DECISIONS.md</a>.</footer>
+<div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-label="Areas" hidden>
+  <div class="panel outline" id="sheet-panel"></div>
+  <button class="shade" id="sheet-shade" type="button" aria-label="Close the areas"></button>
 </div>
 
 <script>
-const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const $ = (selector, root = document) => root.querySelector(selector);
+const esc = (text) => String(text).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 // Inline markdown: **bold**, `code`, [text](url).
-const md = (s) => esc(s)
+const md = (text) => esc(text)
   .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
   .replace(/`(.+?)`/g, "<code>$1</code>")
-  .replace(/\[(.+?)\]\((.+?)\)/g, (m, t, u) => /^https?:/.test(u) ? `<a href="${u}" target="_blank" rel="noopener">${t}</a>` : t);
+  .replace(/\[(.+?)\]\((.+?)\)/g, (m, label, url) => /^https?:/.test(url) ? `<a href="${url}" target="_blank" rel="noopener">${label}</a>` : label);
+const slug = (text) => text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+const capital = (text) => text.charAt(0).toUpperCase() + text.slice(1);
+const plural = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
+const LATER = "Later";
 
+/** docs/ROADMAP.md, read the same way as scripts/roadmap.mjs: Now, the phases, and groups of areas with their slices. */
 function parse(text) {
-  const phases = []; const now = []; let isNow = false; let phase = null; let group = null; let header = null;
+  const SECTIONS = new Set(["Now", "Phases", "How to read this"]);
+  const names = (rest) => { const t = rest.trim().replace(/\.$/, ""); return !t || t.toLowerCase() === "nothing" ? [] : t.split(",").map((n) => n.trim()).filter(Boolean); };
+  const data = { nowProse: [], nowSlices: [], phases: [], groups: [], slices: [] };
+  let section = "", part = "next", phase = null, group = null, area = null, header = null;
   for (const raw of text.split("\n")) {
     const line = raw.trim();
-    const h2 = line.match(/^## (.+)$/);
-    // "## Now": what's being built next, in order, as a numbered list with lines around it.
-    if (h2) isNow = h2[1] === "Now";
-    if (isNow) { if (line && !h2) now.push(line); continue; }
-    if (h2) {
-      const m = h2[1].match(/^Phase (\d+): (.+?)(?: \((.+)\))?$/);
-      if (m) phase = { num: m[1], title: m[2], tagline: m[3] || "", intro: [], groups: [] };
-      else if (/parked/i.test(h2[1])) phase = { num: "", title: h2[1], intro: [], groups: [] };
-      else { phase = null; continue; }
-      phases.push(phase); group = { title: "", intro: [], items: [] }; phase.groups.push(group); header = null; continue;
-    }
-    if (!phase) continue;
-    const h3 = line.match(/^### (.+)$/);
-    if (h3) { group = { title: h3[1], intro: [], items: [] }; phase.groups.push(group); header = null; continue; }
-    if (line.startsWith("|")) {
-      const cells = line.slice(1, -1).split("|").map((c) => c.trim());
-      if (cells.every((c) => /^-+$/.test(c))) continue;
-      if (!header) { header = cells.map((c) => c.toLowerCase()); continue; }
-      const get = (k) => cells[header.indexOf(k)] ?? "";
-      let name = get("item");
-      const owner = (name.match(/^(Julius|Gleb):\s*/) || [])[1] || "";
-      name = name.replace(/^(Julius|Gleb):\s*/, ""); name = name.charAt(0).toUpperCase() + name.slice(1);
-      group.items.push({ status: get("status") || "planned", isSettled: get("settled").toLowerCase() === "yes", must: /must/i.test(get("must/nice")), nice: /nice/i.test(get("must/nice")), name, note: get("notes"), owner, needs: get("needs").split(",").map((n) => n.trim()).filter(Boolean) });
+    if (raw.startsWith("## ")) { section = raw.slice(3).trim(); phase = area = header = null; group = SECTIONS.has(section) ? null : { title: section, intro: "", areas: [] }; if (group) data.groups.push(group); continue; }
+    if (section === "Now") {
+      const first = line.match(/^\*\*First:\*\*\s*(.*)$/);
+      if (first) { part = "first"; for (const name of names(first[1])) data.nowSlices.push({ name, part }); continue; }
+      if (/^\*\*Next:\*\*/.test(line)) { part = "next"; continue; }
+      const entry = line.match(/^\d+\.\s+(.+?)(?:\s+\((.+)\))?$/);
+      if (entry) data.nowSlices.push({ name: entry[1], part });
+      else if (line) data.nowProse.push(line);
       continue;
     }
-    header = null;
-    if (line) (group.items.length || group.title ? group.intro : phase.intro).push(line);
+    if (section === "Phases") {
+      const heading = raw.match(/^### Phase (\d+): (.+)$/);
+      if (heading) { phase = { number: Number(heading[1]), name: heading[2].trim(), goal: "", reachedOn: "", gates: [] }; data.phases.push(phase); continue; }
+      if (raw.startsWith("### ")) { phase = null; continue; }
+      if (!phase) continue;
+      const goal = line.match(/^\*\*Goal:\*\*\s*(.*)$/); if (goal) phase.goal = goal[1];
+      const reached = line.match(/^\*\*Reached:\*\*\s*(.*)$/); if (reached) phase.reachedOn = reached[1].match(/[A-Z][a-z]{2} \d{1,2}, \d{4}/)?.[0] ?? reached[1];
+      const gates = line.match(/^\*\*Gates:\*\*\s*(.*)$/); if (gates) phase.gates.push(...names(gates[1]));
+      continue;
+    }
+    if (!group) continue;
+    if (raw.startsWith("### ")) { area = { title: raw.slice(4).trim(), group, goal: "", slices: [] }; area.id = `area-${slug(area.title)}`; group.areas.push(area); header = null; continue; }
+    if (!line.startsWith("|")) {
+      header = null;
+      if (!area) { if (line && !group.intro) group.intro = line; continue; }
+      const goal = line.match(/^\*\*Goal:\*\*\s*(.*)$/); if (goal) area.goal = goal[1];
+      continue;
+    }
+    if (!area) continue;
+    const cells = line.slice(1, -1).split("|").map((c) => c.trim());
+    if (cells.every((c) => /^-+$/.test(c))) continue;
+    if (!header) { header = cells.map((c) => c.toLowerCase()); continue; }
+    const get = (key) => cells[header.indexOf(key)] ?? "";
+    const name = get("slice");
+    const owner = (name.match(/^(Julius|Gleb):\s*/) || [])[1] || "";
+    const slice = {
+      name, owner, shown: capital(name.replace(/^(Julius|Gleb):\s*/, "")), id: `slice-${slug(name)}`,
+      status: get("status") || "planned", phase: get("phase") || LATER, mustOrNice: get("must/nice"), isSettled: get("settled").toLowerCase() === "yes",
+      needs: get("needs").split(",").map((n) => n.trim()).filter(Boolean), notes: get("notes"), area, group,
+    };
+    area.slices.push(slice); data.slices.push(slice);
   }
-  for (const p of phases) p.groups = p.groups.filter((g) => g.items.length || g.intro.length);
-  return { now, phases };
+  const byName = new Map(data.slices.map((s) => [s.name.toLowerCase(), s]));
+  data.find = (name) => byName.get(name.toLowerCase());
+  data.current = data.phases.find((p) => !p.reachedOn);
+  for (const s of data.slices) s.liveOn = liveOn(s, data);
+  return data;
 }
 
-// Settled shows as a small check badge, and a done row built without a talk as a dashed ring, to keep rows short.
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** When a done slice went live: "Live Oct 16, 2026" in its note, else its first date that isn't a decision's, else its phase's. */
+function liveOn(slice, data) {
+  if (slice.status !== "done") return null;
+  const live = slice.notes.match(/Live ([A-Z][a-z]{2}) (\d{1,2}), (\d{4})/);
+  const any = [...slice.notes.matchAll(/(Julius, |Gleb, )?([A-Z][a-z]{2}) (\d{1,2}), (\d{4})/g)].find((m) => !m[1]);
+  const phase = data.phases.find((p) => p.name === slice.phase);
+  const m = live ? [null, live[1], live[2], live[3]] : any ? [null, any[2], any[3], any[4]] : phase?.reachedOn.match(/([A-Z][a-z]{2}) (\d{1,2}), (\d{4})/);
+  if (!m || !MONTHS.includes(m[1])) return null;
+  const pr = Number(slice.notes.match(/#(\d+)/)?.[1] ?? 0);
+  return { key: Number(m[3]) * 10000 + (MONTHS.indexOf(m[1]) + 1) * 100 + Number(m[2]), label: `${m[1]} ${m[2]}`, year: m[3], pr };
+}
+
 const SETTLED_MARK = '<span class="mark settled" role="img" aria-label="Settled" title="Settled: talked through with Julius, ready to build"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="8"/><path d="M6.5 10.2l2.4 2.4 4.6-4.9"/></svg></span>';
 const UNSETTLED_MARK = '<span class="mark unsettled" role="img" aria-label="Not settled" title="Not settled: built without being talked through with Julius, not checked off until he settles it"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-dasharray="3 2.6"><circle cx="10" cy="10" r="8"/></svg></span>';
-let data = null;
-document.getElementById("legend-settled").innerHTML = `${SETTLED_MARK} settled`;
-document.getElementById("legend-unsettled").innerHTML = `${UNSETTLED_MARK} not settled`;
-let filter = "all"; let hideDone = false; let full = false;
-const opened = new Set();
-const slug = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-const phaseId = (p) => p.num !== "" ? `phase-${p.num}` : "parked";
-const phaseLabel = (p) => p.num !== "" ? `Phase ${p.num}: ${p.title}` : p.title;
-const groupId = (p, g) => `${phaseId(p)}-${slug(g.title.replace(/\(.*?\)/g, ""))}`;
-const shortTitle = (t) => t.replace(/\s*\(.*?\)\s*/g, "").trim();
-const countDone = (items) => `${items.filter((i) => i.status === "done").length}/${items.length}`;
-const itemId = (name) => `item-${slug(name)}`;
+const CHEVRON = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 2.5L8 6l-3.5 3.5"/></svg>';
+$("#legend-settled").innerHTML = `${SETTLED_MARK} settled`;
+$("#legend-unsettled").innerHTML = `${UNSETTLED_MARK} done, not settled`;
 
-/** The Now section: its numbered lines as a list whose entries jump to their rows, the rest as paragraphs. */
-function nowHtml(lines) {
-  let html = ""; let list = "";
-  const flush = () => { if (list) html += `<ol>${list}</ol>`; list = ""; };
-  for (const line of lines) {
-    const entry = line.match(/^\d+\.\s+(.+?)(?:\s+\((.+)\))?$/);
-    if (!entry) { flush(); html += `<p>${md(line)}</p>`; continue; }
-    list += `<li><a href="#${itemId(entry[1])}">${md(entry[1])}</a>${entry[2] ? ` <span class="project">${esc(entry[2])}</span>` : ""}</li>`;
-  }
-  flush();
-  return lines.length ? `<h2>Now</h2>${html}` : "";
+let data = null;
+let view = "";            // a phase's name, "Later", "All" or "Shipped"
+let query = "";
+let areaFind = "";
+const openSlices = new Set();
+const openFolds = new Set();
+let showAllShipped = false;
+
+const phaseLabel = (name) => { const p = data.phases.find((x) => x.name === name); return p ? `Phase ${p.number}: ${p.name}` : LATER; };
+const isDone = (s) => s.status === "done";
+const isMust = (s) => /must/i.test(s.mustOrNice);
+const inView = (s) => view === "All" || s.phase === view;
+const shipped = () => data.slices.filter((s) => s.liveOn).sort((a, b) => b.liveOn.key - a.liveOn.key || b.liveOn.pr - a.liveOn.pr);
+
+/** Every slice a slice needs, directly or through its Needs' Needs. */
+function needed(slice, seen = new Map()) {
+  for (const name of slice.needs) { const s = data.find(name); if (s && !seen.has(s.name)) { seen.set(s.name, s); needed(s, seen); } }
+  return [...seen.values()];
 }
 
-function visible(item) {
-  if (hideDone && item.status === "done") return false;
-  if (filter === "must") return item.must;
-  if (filter === "julius") return item.owner === "Julius";
-  if (filter === "gleb") return item.owner === "Gleb";
-  return true;
+/** What a slice in Now is up to, as the board's chip. */
+function stateOf(s) {
+  if (isDone(s)) return { cls: "live", label: "Live" };
+  const waits = s.needs.filter((n) => data.find(n)?.status !== "done");
+  const first = data.nowSlices.filter((e) => e.part === "first" && e.name.toLowerCase() !== s.name.toLowerCase() && data.find(e.name)?.status !== "done").map((e) => e.name);
+  if (s.status === "doing") return s.isSettled ? { cls: "building", label: "Building" } : { cls: "talk", label: "In its talk" };
+  if (waits.length || first.length) return { cls: "waits", label: "Waits", waits: [...first, ...waits] };
+  return s.isSettled ? { cls: "ready", label: "Ready to build" } : { cls: "talk", label: "Talk first" };
+}
+
+function renderHeader() {
+  const steps = [...data.phases.map((p) => {
+    const must = data.slices.filter((s) => s.phase === p.name && isMust(s));
+    const done = must.filter(isDone).length;
+    const pct = p.reachedOn ? 100 : must.length ? (done / must.length) * 100 : 0;
+    const cls = p.reachedOn ? "reached" : p === data.current ? "current" : "";
+    return `<button class="step cut ${cls}" type="button" data-view="${esc(p.name)}" aria-pressed="${view === p.name}" title="${esc(`Phase ${p.number}: ${p.name}. ${p.goal.replace(/\*\*/g, "")}`)}"><span class="k">Phase ${p.number}</span><span class="n">${esc(p.name)}</span><span class="s">${p.reachedOn ? esc(p.reachedOn.replace(/, \d{4}$/, "")) : `${done} of ${must.length}`}</span><i><b style="width:${pct}%"></b></i></button>`;
+  }), `<button class="step cut later" type="button" data-view="${LATER}" aria-pressed="${view === LATER}" title="Not on the timeline yet"><span class="k">Not yet</span><span class="n">Later</span><span class="s">${plural(data.slices.filter((s) => s.phase === LATER).length, "slice")}</span><i></i></button>`];
+  $("#timeline").innerHTML = steps.join("");
+  const p = data.current;
+  $("#goal").innerHTML = p ? `<h1>Phase ${p.number}: ${esc(p.name)}</h1><p>${md(capital(p.goal))}</p>` : "<h1>Every phase is reached</h1>";
+}
+
+function renderNow() {
+  const el = $("#now");
+  const p = data.current;
+  let meters = "";
+  if (p) {
+    const gates = p.gates.map((name) => { const g = data.find(name); const all = g ? [...needed(g), g] : []; return { name, done: all.filter(isDone).length, count: all.length }; });
+    const must = data.slices.filter((s) => s.phase === p.name && isMust(s));
+    const meter = (label, done, count, small, target) => `<div class="meter plate cut"><div class="top"><b>${target ? `<button class="name" type="button" data-go="${esc(target)}" style="background:none;border:0;padding:0;cursor:pointer;font:inherit">${esc(label)}</button>` : esc(label)}</b><span>${done} of ${count}</span></div><div class="track"><i style="width:${count ? (done / count) * 100 : 0}%"></i></div><small>${esc(small)}</small></div>`;
+    meters = `<div class="meters">${gates.map((g) => meter(g.name, g.done, g.count, `A gate on the way to ${p.name}, with everything it needs`, data.find(g.name)?.id)).join("")}${meter(`${p.name}`, must.filter(isDone).length, must.length, `Must slices in Phase ${p.number}`)}</div>`;
+  }
+  const entries = data.nowSlices.map((e, i) => ({ ...e, place: i + 1, slice: data.find(e.name) })).filter((e) => e.slice);
+  const card = (e) => {
+    const s = e.slice; const st = stateOf(s);
+    return `<article class="card plate cut"><div class="head"><span class="state st-${st.cls}">${st.label}</span><span class="place">${e.part === "first" ? "First" : `#${e.place}`}</span></div><button class="name" type="button" data-go="${s.id}">${md(s.shown)}</button><span class="area">${esc(s.area.title)}${s.owner ? ` · ${s.owner}` : ""}</span>${s.notes ? `<span class="what">${md(s.notes)}</span>` : ""}${st.waits ? `<span class="waits">Waits on ${st.waits.map(esc).join(", ")}</span>` : ""}</article>`;
+  };
+  const firsts = entries.filter((e) => e.part === "first");
+  const cards = entries.length ? `${firsts.length ? `<p class="first-note">First: nothing else starts until ${firsts.length === 1 ? "this lands" : "these land"}.</p>` : ""}<div class="cards">${entries.map(card).join("")}</div>` : `<p class="first-note">Now is empty: nothing is lined up yet.</p>`;
+  const live = shipped();
+  const recent = live.slice(0, 5);
+  const people = data.slices.filter((s) => s.owner && (s.status === "next" || s.status === "doing"));
+  el.innerHTML = `<h2>Now</h2>${meters}${cards}
+    <div class="lists">
+      <div><h3>Just went live</h3><ol>${recent.map((s) => `<li><span class="d">${esc(s.liveOn.label)}</span><span><button type="button" data-go="${s.id}">${esc(s.shown)}</button><span class="sub">${esc(s.area.title)}</span></span></li>`).join("")}</ol>${live.length > recent.length ? `<button class="all" type="button" data-view="Shipped">All ${live.length} that went live</button>` : ""}</div>
+      ${people.length ? `<div><h3>Waiting on people</h3><ol>${people.map((s) => `<li><span class="who-${s.owner.toLowerCase()}">${s.owner}</span><span><button type="button" data-go="${s.id}">${esc(s.shown)}</button><span class="sub">${esc(s.status === "doing" ? "Started" : "Up next")}${s.notes.split(/[.;]/)[0].length > 12 ? ` · ${md(s.notes.split(/[.;]/)[0])}` : ""}</span></span></li>`).join("")}</ol></div>` : ""}
+    </div>
+    ${data.nowProse.length ? `<details class="why"><summary>Why this order</summary>${data.nowProse.map((t) => `<p>${md(t)}</p>`).join("")}</details>` : ""}`;
+  el.hidden = false;
+}
+
+function renderSeg() {
+  const options = [...data.phases.map((p) => p.name), LATER, "All"];
+  $("#seg").innerHTML = `${options.map((o) => `<button type="button" data-view="${esc(o)}" aria-pressed="${view === o && !query}">${esc(o)}</button>`).join("")}<span class="sep" aria-hidden="true"></span><button type="button" data-view="Shipped" aria-pressed="${view === "Shipped" && !query}">Shipped</button>`;
+}
+
+/** The areas shown in the outline and the sections for the current view. */
+function visibleAreas() {
+  const areas = [];
+  for (const g of data.groups) for (const a of g.areas) {
+    const slices = query ? a.slices.filter(matches) : view === "Shipped" ? [] : a.slices.filter(inView);
+    if (slices.length || (view === "All" && !query)) areas.push({ area: a, slices });
+  }
+  return areas;
+}
+
+function matches(s) {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const hay = `${s.name} ${s.notes} ${s.area.title} ${s.group.title} ${s.phase} ${s.status}`.toLowerCase();
+  return words.every((w) => hay.includes(w));
+}
+
+function outlineHtml() {
+  if (view === "Shipped" && !query) return `<div class="none">Shipped lists everything that went live, newest first.</div>`;
+  const shown = visibleAreas();
+  const find = areaFind.toLowerCase();
+  let html = `<div class="find"><input type="search" class="area-find" placeholder="Find an area" aria-label="Find an area" value="${esc(areaFind)}" autocomplete="off"></div>`;
+  let any = false;
+  for (const g of data.groups) {
+    const rows = shown.filter((x) => x.area.group === g && (!find || x.area.title.toLowerCase().includes(find) || g.title.toLowerCase().includes(find)));
+    if (!rows.length) continue;
+    any = true;
+    html += `<div class="g"><b>${esc(g.title)}</b>${rows.map(({ area, slices }) => `<a href="#${area.id}" data-area="${area.id}">${esc(area.title)}<span class="c">${slices.length ? `${slices.filter(isDone).length}/${slices.length}` : "–"}</span></a>`).join("")}</div>`;
+  }
+  if (!any) html += `<div class="none">No area matches.</div>`;
+  return html;
+}
+
+function renderOutline() {
+  $("#side").innerHTML = outlineHtml();
+  if (!$("#sheet").hidden) $("#sheet-panel").innerHTML = `<div class="top"><b>Areas</b><button class="x plate cut" type="button" id="sheet-close" aria-label="Close the areas">×</button></div>${outlineHtml()}`;
+}
+
+function sliceHtml(s) {
+  const showPhase = view === "All" || view === "Shipped" || query;
+  const waiting = s.needs.map((n) => { const shown = capital(n.replace(/^(Julius|Gleb):\s*/, "")); const t = data.find(n); const met = t?.status === "done"; return `<span class="${met ? "met" : "open"}">${t ? `<button type="button" data-go="${t.id}">${esc(shown)}</button>` : esc(shown)}</span>`; });
+  const settled = s.owner ? "Only " + s.owner + " can do this" : s.isSettled ? "Settled: talked through with Julius" : isDone(s) ? "Built without being settled; not checked off until Julius settles it" : "Not settled yet: it starts with a talk";
+  const tags = [
+    showPhase ? `<span class="tag ph">${esc(s.phase)}</span>` : "",
+    s.status === "doing" || s.status === "next" ? `<span class="tag st st-${s.status}">${s.status}</span>` : "",
+    /nice/i.test(s.mustOrNice) ? '<span class="tag">Nice</span>' : "",
+    s.owner ? `<span class="tag ${s.owner.toLowerCase()}">${s.owner}</span>` : isDone(s) ? (s.isSettled ? "" : UNSETTLED_MARK) : s.isSettled ? SETTLED_MARK : "",
+  ].join("");
+  const open = openSlices.has(s.id);
+  return `<li id="${s.id}" class="s-${esc(s.status)}${open ? " open" : ""}">
+    <button class="row" type="button" aria-expanded="${open}" data-slice="${s.id}"><span class="dot" aria-label="${esc(s.status)}"></span><span class="nm">${md(s.shown)}</span><span class="tags">${tags}</span></button>
+    <div class="detail">${s.notes ? `<p class="note">${md(s.notes)}</p>` : ""}<div class="facts">
+      ${waiting.length ? `<div><span class="lbl">Needs</span>${waiting.join(", ")}</div>` : ""}
+      <div><span class="lbl">Where</span>${esc(s.group.title)} › ${esc(s.area.title)} · ${esc(phaseLabel(s.phase))} · ${esc(s.status)}${s.mustOrNice ? `, ${esc(s.mustOrNice.toLowerCase())}` : ""}${s.liveOn ? ` · live ${esc(s.liveOn.label)}, ${s.liveOn.year}` : ""}</div>
+      <div><span class="lbl">Settled</span>${esc(settled)}</div>
+    </div></div></li>`;
+}
+
+function areaHtml({ area, slices }) {
+  // Done slices fold into one line, except in a search and in Alpha, where everything is done.
+  const open = slices.filter((s) => !isDone(s));
+  const done = slices.filter(isDone);
+  const foldDone = !query && view !== "Alpha" && done.length > 0;
+  const folded = foldDone && done.length && !openFolds.has(area.id);
+  const list = foldDone ? open : slices;
+  const count = slices.length ? `${done.length} of ${slices.length} done` : "";
+  return `<section class="area" id="${area.id}" data-title="${esc(area.title)}">
+    <header><h3>${esc(area.title)}</h3><span class="c">${count}</span></header>
+    ${area.goal ? `<p>${md(capital(area.goal))}</p>` : ""}
+    ${slices.length ? `<div class="plate cut"><ul class="slices">${list.map(sliceHtml).join("")}${foldDone && done.length ? `<li class="foldrow" style="border-top:0"><button class="fold" type="button" data-fold="${area.id}" aria-expanded="${!folded}" ${list.length ? "" : 'style="border-top:0"'}>${CHEVRON}${plural(done.length, "done slice")}</button></li>${folded ? "" : done.map(sliceHtml).join("")}` : ""}</ul></div>` : `<div class="plate cut empty">Nothing planned yet.</div>`}
+  </section>`;
+}
+
+function shippedHtml() {
+  const live = shipped();
+  const shown = showAllShipped ? live : live.slice(0, 60);
+  const days = [];
+  for (const s of shown) { const key = `${s.liveOn.label}, ${s.liveOn.year}`; if (days.at(-1)?.key !== key) days.push({ key, slices: [] }); days.at(-1).slices.push(s); }
+  const undated = data.slices.filter((s) => isDone(s) && !s.liveOn);
+  return `<div class="shipped">${days.map((d) => `<div class="day"><h3>${esc(d.key)}</h3><div class="plate cut"><ul class="slices">${d.slices.map(sliceHtml).join("")}</ul></div></div>`).join("")}
+    ${live.length > shown.length ? `<button class="all fold" type="button" id="more-shipped">${CHEVRON}${live.length - shown.length} more</button>` : ""}
+    ${undated.length && (showAllShipped || live.length <= shown.length) ? `<div class="day"><h3>Earlier</h3><div class="plate cut"><ul class="slices">${undated.map(sliceHtml).join("")}</ul></div></div>` : ""}</div>`;
+}
+
+function renderMain() {
+  const main = $("#main");
+  if (!query && view === "Shipped") { main.innerHTML = shippedHtml(); return; }
+  const shown = visibleAreas();
+  let html = query ? `<p class="searchnote">${shown.reduce((n, x) => n + x.slices.length, 0) ? `${plural(shown.reduce((n, x) => n + x.slices.length, 0), "slice")} match “${esc(query)}”, in every phase.` : `No slice matches “${esc(query)}”.`}</p>` : "";
+  for (const g of data.groups) {
+    const areas = shown.filter((x) => x.area.group === g);
+    if (!areas.length) continue;
+    html += `<div class="group"><header><h2>${esc(g.title)}</h2>${g.intro ? `<p>${md(g.intro)}</p>` : ""}</header>${areas.map(areaHtml).join("")}</div>`;
+  }
+  if (!query && !shown.length) html += `<div class="plate cut empty">Nothing is in ${esc(view)} yet.</div>`;
+  main.innerHTML = html;
 }
 
 function render() {
-  const { now, phases } = data;
-  document.getElementById("now").innerHTML = nowHtml(now);
-
-  const p1 = phases.find((p) => p.num === "1");
-  if (p1) {
-    const must = p1.groups.flatMap((g) => g.items).filter((i) => i.must);
-    const done = must.filter((i) => i.status === "done").length;
-    document.getElementById("beta").hidden = false;
-    document.getElementById("beta-count").textContent = `${done} of ${must.length}`;
-    document.getElementById("beta-bar").style.width = `${must.length ? (done / must.length) * 100 : 0}%`;
-  }
-
-  const current = phases.find((p) => p.num !== "" && p.groups.flatMap((g) => g.items).some((i) => i.status !== "done"));
-  if (!opened.size && current) opened.add(phaseId(current));
-
-  document.getElementById("pills").innerHTML = phases.map((p) => {
-    const items = p.groups.flatMap((g) => g.items);
-    return `<a class="pill" href="#${phaseId(p)}" data-for="${phaseId(p)}">${p.num !== "" ? `${p.num} · ` : ""}${esc(p.title)}<span class="c">${p.num !== "" ? countDone(items) : items.length}</span></a>`;
-  }).join("");
-
-  const statusOf = new Map(phases.flatMap((p) => p.groups.flatMap((g) => g.items)).map((i) => [i.name.toLowerCase(), i.status]));
-  const needsHtml = (i) => {
-    if (!i.needs.length) return "";
-    const parts = i.needs.map((n) => {
-      const shown = n.replace(/^(Julius|Gleb):\s*/, "");
-      const met = statusOf.get(shown.toLowerCase()) === "done";
-      return { met, html: `<span class="${met ? "met" : "open"}">${md(shown.charAt(0).toUpperCase() + shown.slice(1))}</span>` };
-    });
-    // Needs still waiting stay in view; needs already met show with the full note.
-    const waiting = i.status !== "done" && parts.some((x) => !x.met);
-    return `<div class="needs${waiting ? "" : " later"}"><span class="lbl">Needs</span>${parts.map((x) => x.html).join(", ")}</div>`;
-  };
-
-  document.getElementById("phases").innerHTML = phases.map((p) => {
-    const id = phaseId(p);
-    const all = p.groups.flatMap((g) => g.items);
-    const groups = p.groups.map((g) => {
-      const items = g.items.filter(visible);
-      if (g.items.length && !items.length) return "";
-      const rows = items.map((i) => {
-        const more = i.note || i.needs.length;
-        return `<li id="${itemId(i.name)}" class="s-${esc(i.status)}${more ? " has-more" : ""}">
-        <span class="status">${esc(i.status)}</span>
-        <div>${more ? `<button class="name" type="button" aria-expanded="false">${md(i.name)}</button>` : `<div class="name">${md(i.name)}</div>`}${i.note ? `<div class="note">${md(i.note)}</div>` : ""}${needsHtml(i)}</div>
-        <div class="tags">${i.owner ? "" : i.status === "done" ? (i.isSettled ? "" : UNSETTLED_MARK) : i.isSettled ? SETTLED_MARK : ""}${i.owner ? `<span class="tag ${i.owner.toLowerCase()}">${i.owner}</span>` : ""}${i.must ? '<span class="tag must">Must</span>' : i.nice ? '<span class="tag">Nice</span>' : ""}</div>
-      </li>`;
-      }).join("");
-      const gid = g.title ? groupId(p, g) : "";
-      return `<div class="group"${gid ? ` id="${gid}" data-title="${esc(shortTitle(g.title))}"` : ""}>${g.title ? `<h3>${esc(shortTitle(g.title))}<span class="c">${countDone(g.items)} done</span></h3>` : ""}${g.intro.map((t) => `<p>${md(t)}</p>`).join("")}${rows ? `<ul class="items">${rows}</ul>` : ""}</div>`;
-    }).join("");
-    const shown = groups.trim() ? groups : `<div class="empty">Nothing here matches this filter.</div>`;
-    const done = all.filter((i) => i.status === "done").length;
-    return `<details class="phase" id="${id}" data-label="${esc(phaseLabel(p))}"${opened.has(id) ? " open" : ""}>
-      <summary>
-        <span class="name-wrap"><span class="k">${p.num !== "" ? `Phase ${p.num}` : "Not planned"}</span><h2>${esc(p.title)}</h2></span>
-        <span class="prog">${p.num !== "" ? `<span class="track"><i style="width:${all.length ? (done / all.length) * 100 : 0}%"></i></span><span class="c">${done}/${all.length} done</span>` : `<span class="c">${all.length} ideas</span>`}</span>
-      </summary>
-      <div class="phase-body">${p.intro.map((t) => `<p>${md(t)}</p>`).join("")}${shown}</div>
-    </details>`;
-  }).join("");
-
-  for (const d of document.querySelectorAll("details.phase")) d.addEventListener("toggle", () => {
-    d.open ? opened.add(d.id) : opened.delete(d.id);
-    spy();
-  });
-  spy();
+  renderHeader(); renderSeg(); renderOutline(); renderMain();
+  $("#q-clear").hidden = !query;
+  measureBar(); spy();
 }
 
+// ---- Moving around: jumps, the sheet and "you are here". ----
+
 const smooth = () => !matchMedia("(prefers-reduced-motion: reduce)").matches;
-// A quick eased scroll (the browser's own smooth scroll is slow and can't be tuned): 250 to 450 ms by distance, easing out.
-// Scrolling with the wheel or a finger takes over at once.
 let gliding = 0;
+/** A quick eased scroll (250 to 450 ms by distance); the wheel or a finger takes over at once. */
 function glide(to) {
   const from = scrollY, dist = to - from;
   if (!smooth() || Math.abs(dist) < 2) { scrollTo(0, to); return; }
   const ms = Math.min(450, 250 + Math.abs(dist) / 20), start = performance.now(), run = ++gliding;
-  const step = (now) => {
-    if (run !== gliding) return;
-    const t = Math.min(1, (now - start) / ms);
-    scrollTo(0, from + dist * (1 - Math.pow(1 - t, 3)));
-    if (t < 1) requestAnimationFrame(step);
-  };
+  const step = (now) => { if (run !== gliding) return; const t = Math.min(1, (now - start) / ms); scrollTo(0, from + dist * (1 - Math.pow(1 - t, 3))); if (t < 1) requestAnimationFrame(step); };
   requestAnimationFrame(step);
 }
 for (const ev of ["wheel", "touchstart", "keydown"]) addEventListener(ev, () => { gliding++; }, { passive: true });
-// Slide a pill row sideways so the highlighted pill is in view, without touching the page's own scroll.
-function reveal(row, pill) {
-  const r = row.getBoundingClientRect(), b = pill.getBoundingClientRect();
-  if (b.left >= r.left && b.right <= r.right) return;
-  row.scrollTo({ left: row.scrollLeft + b.left - r.left - (r.width - b.width) / 2, behavior: smooth() ? "smooth" : "auto" });
+
+function measureBar() {
+  const h = $("#bar").offsetHeight;
+  document.documentElement.style.setProperty("--bar-h", `${h}px`);
 }
 
-// Open a phase (and scroll to a phase or track) from a link, the pills or the address.
-function go(id) {
-  const el = document.getElementById(id); if (!el) return;
-  const phase = el.closest("details.phase"); if (phase && !phase.open) phase.open = true;
-  // Land the phase or track just above the line the bar reads from, so the bar names what you jumped to.
-  const top = el.getBoundingClientRect().top + scrollY - document.querySelector(".bar").offsetHeight - LINE + 8;
+/** Jump to an area or a slice, showing it first if the view or the search hides it. */
+function go(id, { flash = true } = {}) {
+  let el = document.getElementById(id);
+  const slice = data.slices.find((s) => s.id === id);
+  if (!el) {
+    if (slice) { query = ""; $("#q").value = ""; view = slice.phase; if (isDone(slice)) openFolds.add(slice.area.id); }
+    else { query = ""; $("#q").value = ""; view = "All"; }
+    remember(); render(); el = document.getElementById(id);
+  }
+  if (!el) return;
+  if (slice) { openSlices.add(id); el.classList.add("open"); el.querySelector(".row")?.setAttribute("aria-expanded", "true"); }
+  const top = el.getBoundingClientRect().top + scrollY - $("#bar").offsetHeight - 10 - (parseFloat(getComputedStyle(document.documentElement).paddingTop) || 0);
   glide(Math.max(0, top));
+  if (flash && slice) { el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 1600); }
+  history.replaceState(null, "", `#${id}`);
 }
 
-// Which phase and track sit under the sticky bar: shown in the bar, with that phase's tracks as jumps.
-/** How far below the bar the "you are here" line sits: room for the floating track row. */
-const LINE = 56;
-let lastPhase = null;
+let lastHere = null;
 function spy() {
-  const line = document.querySelector(".bar").getBoundingClientRect().bottom + LINE;
-  let phase = null, group = null;
-  for (const d of document.querySelectorAll("details.phase")) if (d.getBoundingClientRect().top <= line) phase = d;
-  if (phase?.open) for (const g of phase.querySelectorAll(".group[id]")) if (g.getBoundingClientRect().top <= line) group = g;
-  document.getElementById("where-p").textContent = phase ? phase.dataset.label : "Roadmap";
-  document.getElementById("where-sep").hidden = !group;
-  document.getElementById("where-g").textContent = group ? group.dataset.title : "";
-  for (const a of document.querySelectorAll("#pills .pill")) {
-    const here = a.dataset.for === phase?.id;
-    a.classList.toggle("here", here);
-    if (here && lastPhase !== phase.id) reveal(a.parentElement, a);
-  }
-  const tracks = document.getElementById("tracks");
-  const groups = phase?.open ? [...phase.querySelectorAll(".group[id]")] : [];
-  if ((phase?.id ?? null) !== lastPhase || tracks.childElementCount !== groups.length) {
-    tracks.innerHTML = groups.map((g) => `<a class="pill" href="#${g.id}" data-for="${g.id}">${esc(g.dataset.title)}<span class="c">${esc(g.querySelector("h3 .c").textContent.replace(" done", ""))}</span></a>`).join("");
-  }
-  tracks.hidden = !groups.length;
-  for (const a of tracks.querySelectorAll(".pill")) {
-    const here = a.dataset.for === group?.id;
-    if (here && !a.classList.contains("here")) reveal(tracks, a);
-    a.classList.toggle("here", here);
-  }
-  lastPhase = phase?.id ?? null;
+  const line = $("#bar").getBoundingClientRect().bottom + 24;
+  let here = null;
+  for (const s of document.querySelectorAll("section.area")) if (s.getBoundingClientRect().top <= line) here = s;
+  const id = here?.id ?? null;
+  $("#areas-label").textContent = here ? here.dataset.title : view === "Shipped" && !query ? "Shipped" : "Areas";
+  if (id === lastHere) return;
+  lastHere = id;
+  for (const a of document.querySelectorAll(".outline a[data-area]")) a.classList.toggle("here", a.dataset.area === id);
+  const mine = $(`#side a[data-area="${id}"]`);
+  if (mine) { const side = $("#side"); const r = side.getBoundingClientRect(), b = mine.getBoundingClientRect(); if (b.top < r.top || b.bottom > r.bottom) side.scrollTop += b.top - r.top - r.height / 3; }
 }
 let ticking = false;
 addEventListener("scroll", () => { if (!ticking) { ticking = true; requestAnimationFrame(() => { ticking = false; spy(); }); } }, { passive: true });
+addEventListener("resize", () => { measureBar(); spy(); });
+
+function openSheet() {
+  $("#sheet").hidden = false;
+  renderOutline();
+  for (const a of $("#sheet-panel").querySelectorAll("a[data-area]")) a.classList.toggle("here", a.dataset.area === lastHere);
+  document.body.style.overflow = "hidden";
+  $("#sheet-panel .area-find")?.focus({ preventScroll: true });
+}
+function closeSheet() { $("#sheet").hidden = true; document.body.style.overflow = ""; $("#areas-btn").focus({ preventScroll: true }); }
+
+/** Where the page scrolls to so the bar sits at the top with the list right under it. */
+const barTop = () => $(".layout").getBoundingClientRect().top + scrollY - $("#bar").offsetHeight - (parseFloat(getComputedStyle(document.documentElement).paddingTop) || 0) - 12;
+function setView(next) {
+  view = next; query = ""; $("#q").value = ""; remember(); render();
+  const top = barTop(); if (scrollY > top) glide(top);
+}
+function remember() { try { localStorage.setItem("roadmap-view", view); } catch {} }
 
 document.addEventListener("click", (e) => {
-  const link = e.target.closest('.bar a[href^="#"], .now a[href^="#"]');
-  if (link) {
-    e.preventDefault();
-    const id = link.getAttribute("href").slice(1);
-    // An item filtered out of view is shown again before jumping to it.
-    if (!document.getElementById(id) && (filter !== "all" || hideDone)) { hideDone = false; document.getElementById("f-open").setAttribute("aria-pressed", "false"); setFilter("all"); }
-    history.replaceState(null, "", `#${id}`);
-    go(id);
-    const row = document.getElementById(id);
-    if (row?.matches("li")) { row.classList.add("open", "flash"); setTimeout(() => row.classList.remove("flash"), 1600); }
+  const t = e.target;
+  const viewBtn = t.closest("[data-view]");
+  if (viewBtn) { if (viewBtn.dataset.view === "Shipped") showAllShipped = false; setView(viewBtn.dataset.view); return; }
+  const goBtn = t.closest("[data-go]");
+  if (goBtn) { e.preventDefault(); go(goBtn.dataset.go); return; }
+  const areaLink = t.closest("a[data-area]");
+  if (areaLink) { e.preventDefault(); if (!$("#sheet").hidden) closeSheet(); go(areaLink.dataset.area, { flash: false }); return; }
+  const fold = t.closest("[data-fold]");
+  if (fold) { const id = fold.dataset.fold; openFolds.has(id) ? openFolds.delete(id) : openFolds.add(id); renderMain(); spy(); return; }
+  if (t.closest("#more-shipped")) { showAllShipped = true; renderMain(); return; }
+  const row = t.closest("button.row[data-slice]");
+  if (row && !t.closest("a")) {
+    const li = row.closest("li"); const id = row.dataset.slice;
+    const open = li.classList.toggle("open");
+    open ? openSlices.add(id) : openSlices.delete(id);
+    row.setAttribute("aria-expanded", String(open));
     return;
   }
-  const row = e.target.closest("li.has-more");
-  if (row && !e.target.closest("a")) {
-    const open = row.classList.toggle("open");
-    row.querySelector("button.name")?.setAttribute("aria-expanded", String(open));
+  if (t.closest("#areas-btn")) { openSheet(); return; }
+  if (t.closest("#sheet-shade") || t.closest("#sheet-close")) { closeSheet(); return; }
+});
+document.addEventListener("input", (e) => {
+  if (e.target.id === "q") {
+    query = e.target.value.trim(); renderSeg(); renderOutline(); renderMain(); $("#q-clear").hidden = !query; measureBar();
+    // Results start at the top of the list, under the bar.
+    const top = barTop(); if (scrollY > top) scrollTo(0, top);
+    spy(); return;
+  }
+  if (e.target.classList.contains("area-find")) {
+    areaFind = e.target.value; const inSheet = !!e.target.closest("#sheet");
+    renderOutline();
+    const again = (inSheet ? $("#sheet-panel") : $("#side")).querySelector(".area-find");
+    again.focus(); again.setSelectionRange(areaFind.length, areaFind.length);
   }
 });
-
-function setFilter(next) {
-  filter = next;
-  for (const [id, f] of [["f-all", "all"], ["f-must", "must"], ["f-julius", "julius"], ["f-gleb", "gleb"]]) document.getElementById(id).setAttribute("aria-pressed", String(f === filter));
-  try { localStorage.setItem("roadmap-filter", filter); } catch {}
-  render();
-}
-document.getElementById("f-all").onclick = () => setFilter("all");
-document.getElementById("f-must").onclick = () => setFilter("must");
-document.getElementById("f-julius").onclick = () => setFilter("julius");
-document.getElementById("f-gleb").onclick = () => setFilter("gleb");
-document.getElementById("f-open").onclick = (e) => {
-  hideDone = !hideDone; e.currentTarget.setAttribute("aria-pressed", String(hideDone));
-  try { localStorage.setItem("roadmap-hide-done", hideDone ? "1" : ""); } catch {}
-  render();
-};
-document.getElementById("f-full").onclick = (e) => {
-  full = !full; e.currentTarget.setAttribute("aria-pressed", String(full));
-  document.body.classList.toggle("full", full);
-  try { localStorage.setItem("roadmap-full", full ? "1" : ""); } catch {}
-  spy();
-};
+$("#q-clear").addEventListener("click", () => { query = ""; $("#q").value = ""; render(); $("#q").focus(); });
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !$("#sheet").hidden) closeSheet();
+  if (e.key === "/" && document.activeElement?.tagName !== "INPUT") { e.preventDefault(); $("#q").focus(); }
+});
 
 // The page can't reach GitHub (the artifact host blocks it), so it reads the ROADMAP.md published beside it.
 fetch("ROADMAP.md", { cache: "no-store" })
   .then((r) => { if (!r.ok) throw new Error(r.status); return r.text(); })
   .then((text) => {
     data = parse(text);
-    try {
-      const f = localStorage.getItem("roadmap-filter"); if (f && ["all", "must", "julius", "gleb"].includes(f)) filter = f;
-      hideDone = localStorage.getItem("roadmap-hide-done") === "1";
-      full = localStorage.getItem("roadmap-full") === "1";
-    } catch {}
-    for (const [id, f] of [["f-all", "all"], ["f-must", "must"], ["f-julius", "julius"], ["f-gleb", "gleb"]]) document.getElementById(id).setAttribute("aria-pressed", String(f === filter));
-    document.getElementById("f-open").setAttribute("aria-pressed", String(hideDone));
-    document.getElementById("f-full").setAttribute("aria-pressed", String(full));
-    document.body.classList.toggle("full", full);
-    render();
-    if (location.hash) go(location.hash.slice(1));
+    $("#q").value = "";
+    const views = [...data.phases.map((p) => p.name), LATER, "All", "Shipped"];
+    let saved = null; try { saved = localStorage.getItem("roadmap-view"); } catch {}
+    view = views.includes(saved) ? saved : data.current?.name ?? "All";
+    renderNow(); render();
+    if (location.hash) go(location.hash.slice(1), { flash: true });
   })
   .catch(() => {
-    document.getElementById("now").innerHTML = "";
-    document.getElementById("phases").innerHTML = '<div class="error">The roadmap file didn\'t load. Reload the page, or read it on GitHub: <a href="https://github.com/zaisma/zaisma/blob/main/docs/ROADMAP.md" target="_blank" rel="noopener">docs/ROADMAP.md</a>.</div>';
+    $("#goal").innerHTML = "";
+    $("#main").innerHTML = '<div class="plate cut error">The roadmap file didn\'t load. Reload the page, or read it on GitHub: <a href="https://github.com/zaisma/zaisma/blob/main/docs/ROADMAP.md" target="_blank" rel="noopener">docs/ROADMAP.md</a>.</div>';
   });
 </script>

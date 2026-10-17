@@ -78,15 +78,13 @@ Launching at 13+ keeps us outside the strictest child-privacy law, as long as we
 
 ## Build order
 
-The live roadmap, with every item and its status, is [`docs/ROADMAP.md`](ROADMAP.md). In short, the beta comes as soon as Phase 1's must-have items are done, then weekly releases. Being first matters more than being complete, but the beta has to meet what developers and players expect out of the box.
+The live roadmap, with every slice and its status, is [`docs/ROADMAP.md`](ROADMAP.md): phases are milestones on one timeline, and every slice belongs to an area of Zaisma. In short, the beta comes as soon as Phase 1's must slices are done, then weekly releases. Being first matters more than being complete, but the beta has to meet what developers and players expect out of the box.
 
-0. **Safe hosting** (done): upload, scan, sandboxed game domain, directory, reports and takedowns.
-1. **Beta:** launch prerequisites (the game domain, image matching, DMCA agent, paid plans), guest multiplayer and invite links, accounts and cloud saves, the developer MCP and one-prompt publishing, launch content and share cards. **Open the public beta.**
-2. **Earn:** the Zaisma buy sheet, owned items, purchase rules, hosting billing, Zaisma Pro, promoted games, deposits, donations.
-3. **Play together:** friends, Zaisma in Discord.
-4. **Discover:** the progress bar, real ratings, player lists, follows and the rest of the developer marketing kit.
-5. **Create together:** remixes, teams, mods.
-6. **Grow:** bigger game servers, custom game domains, the Wavedash switch, subscriptions.
+0. **Alpha** (reached Oct 11, 2026): safe hosting. Upload, scan, sandboxed game domain, directory, reports and takedowns.
+1. **Beta:** launch prerequisites (the game domain, image matching, DMCA agent, paid plans), guest multiplayer and invite links, accounts, friends and cloud saves, game servers and their database, the developer MCP and one-prompt publishing, launch content and share cards. Ready for outreach comes on the way: then developers get invited. **Open the public beta.**
+2. **1.0:** Zaisma leaves the beta. Developers earn and Zaisma pays its own way: the Zaisma buy sheet, owned items, purchase rules, hosting billing, Zaisma Pro, promoted games, deposits, donations, appeals and the support assistant.
+
+**Later** holds what isn't on the timeline yet, picked into a phase when it's time: chat and voice, Zaisma in Discord and game communities, discovery (the progress bar, real ratings, player lists, follows), remixes, teams and mods, bigger game servers, the Wavedash switch and subscriptions.
 
 ## First 100 games and targets
 
@@ -103,7 +101,7 @@ The goal for the first 90 days after beta: 100 listed games and 10,000 monthly p
 | Guests who make an account | 15% |
 | Games with paid items | 10 |
 
-## Tools on the developer page (Phase 4)
+## Tools on the developer page (later)
 
 Zaisma lists free, open-source developer tools on the developer page: asset pipelines, engines, level editors, Claude Code skills, plugins and MCP servers. Browser tools upload and run like games, marked as a tool; others link to their repository. Games lead the launch so the player crowd forms first; tools then make more and better games.
 
