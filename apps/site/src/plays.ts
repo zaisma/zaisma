@@ -2,6 +2,7 @@ import { accountById, gameBySlug, isIdOf, issueRoomKey, newId, testerLinkByToken
 import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { playable } from "./home.ts";
+import { isRealBrowser } from "./turnstile.ts";
 
 /**
  * Play stats, counted by the game page (docs/DECISIONS.md: developer play stats built in, counted
@@ -42,8 +43,6 @@ const COUNT_AFTER_MS = 55_000;
 /** A ticket is good for this long: a play longer than that stops adding time. */
 const TICKET_MS = 6 * 3_600_000;
 
-const SITEVERIFY = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
-
 const today = (nowMs = Date.now()) => new Date(nowMs).toISOString().slice(0, 10);
 const ok = (body?: unknown) => (body === undefined ? new Response(null, { status: 204 }) : Response.json(body));
 
@@ -79,7 +78,7 @@ export async function handlePlays(request: Request, env: Env, path: string): Pro
   }
   const facts = startFacts(body);
   await countStart(env.DB, game.id, facts);
-  if (!(await checked(env, body.token))) return ok();
+  if (!(await isRealBrowser(env, body.token, "play"))) return ok();
   const { accountId, cookies } = await signedIn(request, env);
   // A signed-in player plays as their account in every game, everyone else as a guest.
   const key = multiplayer(game) ? await issueRoomKey(env.DB, game.id, accountId) : undefined;
@@ -96,7 +95,7 @@ const multiplayer = (game: Game) => game.multiplayer_mode !== "none" || Boolean(
 async function testerPlay(request: Request, env: Env, game: Game | null, body: Record<string, unknown>): Promise<Response> {
   const link = typeof body.tester === "string" ? await testerLinkByToken(env.DB, body.tester) : null;
   if (!game || !link || link.slug !== game.slug || game.review_status !== "live" || !game.live_version_id) return new Response(null, { status: 404 });
-  if (!multiplayer(game) || !(await checked(env, body.token))) return ok();
+  if (!multiplayer(game) || !(await isRealBrowser(env, body.token, "play"))) return ok();
   const { accountId, cookies } = await signedIn(request, env);
   return withCookies(ok({ key: await issueRoomKey(env.DB, game.id, accountId), playerKind: accountId ? "account" : "guest" }), cookies);
 }
@@ -110,7 +109,7 @@ async function signedInWhilePlaying(request: Request, env: Env, game: Game | nul
   const { account, cookies } = await signedIn(request, env);
   if (!account) return new Response(null, { status: 401 });
   const key = game && body.roomKey !== undefined ? await tradeRoomKey(env.DB, game.id, body.roomKey, account.id) : null;
-  return withCookies(ok({ player: { id: account.player_id, name: account.name, kind: "account" }, ...(key ? { key, playerKind: "account" } : {}) }), cookies);
+  return withCookies(ok({ player: { id: account.player_id, name: account.username, kind: "account" }, ...(key ? { key, playerKind: "account" } : {}) }), cookies);
 }
 
 interface StartFacts {
@@ -196,29 +195,6 @@ export async function addTime(database: D1Database, gameId: string, id: string, 
       .prepare("INSERT INTO play_days (game_id, date, play_duration_sec) VALUES (?, ?, ?) ON CONFLICT (game_id, date) DO UPDATE SET play_duration_sec = play_duration_sec + excluded.play_duration_sec")
       .bind(gameId, today(nowMs), durationSec)
       .run();
-  }
-}
-
-/** What Cloudflare's siteverify answers about a Turnstile token, in its own words. */
-interface TurnstileAnswer {
-  success?: boolean;
-  action?: string;
-  hostname?: string;
-}
-
-/** Cloudflare's answer about the browser that pressed Play. Each answer works once. */
-async function checked(env: Env, token: unknown): Promise<boolean> {
-  const secret = env.TURNSTILE_SECRET;
-  if (!secret || typeof token !== "string" || !token || token.length > 2048) return false;
-  try {
-    const response = await fetch(SITEVERIFY, { method: "POST", body: new URLSearchParams({ secret, response: token }) });
-    const out = (await response.json()) as TurnstileAnswer;
-    if (out.success !== true) return false;
-    // Cloudflare's test keys (the preview) answer without the action or our hostname.
-    if (secret.startsWith("1x0000000000000000000000000000000")) return true;
-    return out.action === "play" && out.hostname === new URL(env.SITE_ORIGIN).hostname;
-  } catch {
-    return false;
   }
 }
 

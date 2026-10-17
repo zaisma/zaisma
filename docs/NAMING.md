@@ -220,7 +220,8 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 | A room players join by typing it | `room_code` | `roomCode` |
 | A player, and the players a call is for or leaves out | `player_id` | `playerId`; `playerIds`, `exceptPlayerId` |
 | Whether a player is signed in | a player's `kind`: `account`, `guest` (also the player pass's `kind` claim) | `kind`; `playerKind` where it isn't on a player |
-| What anyone sees of an account | `player`: `{ id, name }`, its public profile | `PlayerProfile`, `Zaisma.player.getProfile(playerId)` |
+| What anyone sees of an account | `player`: `{ id, name, username }`, its public profile | `PlayerProfile`, `Zaisma.player.getProfile(playerId)` |
+| An account's unique name, as in @username (3 to 20 letters, numbers and underscores, unique ignoring case; it can change, the player ID can't), and the name shown for a player (today the username; a guest's made-up one) | `username`; `name` | `username`; `name` |
 | Who an account can chat with, and the opaque group open-and-social accounts chat in (never an age) | | player pass claims `social_mode`: `solo_focused`, `friends_focused`, `open_and_social`; `chat_group` (a `chat_group_…` ID, different in every game); checked with `canChat(first, second)` |
 | An account's Zaisma friends, and the invite that makes two accounts friends | | player pass claim `friend_player_ids` (their player IDs); a friend invite's `invite_code` is 8 letters and digits, shown as `K7Q2-MX9P` |
 | What a game needs a Zaisma account for | `account_requirement`: `none`, `multiplayer`, `whole_game`; a guest turned away gets `account_needed` | error `code` `account_needed` |

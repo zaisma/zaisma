@@ -245,7 +245,7 @@ export default {
         const account = key.accountId ? await accountById(env.DB, key.accountId) : null;
         // A game that needs accounts, for multiplayer or the whole game, gives guests no passes, so its own servers see only accounts too.
         if (!account && game.account_requirement !== "none") return failure("account_needed", ERROR_TEXT.account_needed, 403, cors);
-        const player: Player = account ? { id: account.player_id, name: account.name, kind: "account" } : { id: newId("player"), name: guestName(), kind: "guest" };
+        const player: Player = account ? { id: account.player_id, name: account.username, kind: "account" } : { id: newId("player"), name: guestName(), kind: "guest" };
         // The pass is proof only: an account's carries no name, which games look up (/v1/players/<id>).
         // It says who the account can chat with, never its age: its social mode, an opaque chat group when open and social, and its friends.
         const bandGroup = account ? chatBandGroup(account) : null;
