@@ -128,12 +128,12 @@ describe("sandboxed game servers", () => {
     expect((await a.next()).data).toEqual({ tickCount: 3, isTimed: true });
   });
 
-  it("keeps the game server off the internet, away from our data, and within its limits", async () => {
+  it("keeps the game server off hosts its game doesn't list, away from our data, and within its limits", async () => {
     await addSandboxGame("hostile", COUNTER);
     const a = await join("hostile", "ABCDEF");
     await a.next(); // hi
 
-    // No internet: the fetch fails, so nothing is broadcast.
+    // The game lists no hosts, so the fetch is refused and nothing is broadcast (test/rooms/reach.test.ts has the rest).
     a.say("fetch");
     // Nothing of ours inside the sandbox.
     a.say("who");

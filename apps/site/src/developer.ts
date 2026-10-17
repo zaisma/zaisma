@@ -97,6 +97,7 @@ import {
   deleteWebhook,
   deliveriesFor,
   deliveryCountsFor,
+  allowedHostsOf,
   eventKindsOf,
   gameSlugsOf,
   updateWebhook,
@@ -111,6 +112,7 @@ import { gameUrl, type Env } from "./env.ts";
 import { forumRoute } from "./forum.ts";
 import { databaseRoute } from "./game-database.ts";
 import { savesRoute } from "./saves-api.ts";
+import { secretsRoute } from "./secrets-api.ts";
 import { playStats } from "./plays.ts";
 import { sendAlert } from "./email.ts";
 import { KNOWN_IMAGE_ALERT, imageMatcher, pruneVersions } from "./scan.ts";
@@ -125,7 +127,7 @@ import { sendTestEvent, tellWebhooks, type WaitUntil } from "./webhooks.ts";
  *   GET    /api/dev/games                      your games
  *   POST   /api/dev/games                      make a game (starts as a draft)
  *   GET    /api/dev/games/:slug                one game, with its images, versions and tester links
- *   PATCH  /api/dev/games/:slug                title, description, visibility, devices, controls, screen_orientation, play_modes, cloud_saves_enabled, account_offer_enabled, room_browsing, multiplayer_mode, account_requirement
+ *   PATCH  /api/dev/games/:slug                title, description, visibility, devices, controls, screen_orientation, play_modes, cloud_saves_enabled, account_offer_enabled, room_browsing, multiplayer_mode, account_requirement, game_server_allowed_hosts
  *   POST   /api/dev/games/:slug/images?kind=   add a cover or screenshot (the image bytes as the body)
  *   DELETE /api/dev/games/:slug/images/:id     remove one
  *   POST   /api/dev/games/:slug/uploads        which of these files still need sending
@@ -147,6 +149,9 @@ import { sendTestEvent, tellWebhooks, type WaitUntil } from "./webhooks.ts";
  *   GET    /api/dev/games/:slug/database/export one part of the database's SQL dump: ?cursor=<next_cursor>
  *   POST   /api/dev/games/:slug/database/import one part of a SQL dump in: { "dump_sql" }
  *   …/api/dev/games/:slug/saves                the game's cloud saves by player ID: list, read, change, reset, earlier versions (see saves-api.ts)
+ *   GET    /api/dev/games/:slug/secrets        the game's secrets' names, never their values (see secrets-api.ts)
+ *   PUT    /api/dev/games/:slug/secrets/:name  set one: { "secret_value" }
+ *   DELETE /api/dev/games/:slug/secrets/:name  delete one
  *   GET    /api/dev/sign-in-apps               your sign-in apps (Sign in with Zaisma, see sign-in.ts)
  *   POST   /api/dev/sign-in-apps               make one: { "name", "kind", "redirect_urls" }; a confidential app's client_secret is answered once
  *   PATCH  /api/dev/sign-in-apps/:id           name, redirect_urls, or replace_client_secret: true
@@ -332,6 +337,9 @@ export const API_ROUTES: readonly ApiRoute[] = [
   { method: "POST", path: "/games/:slug/database/batch", ...needs("database_access", "write") },
   { method: "GET", path: "/games/:slug/database/export", ...needs("database_access", "read") },
   { method: "POST", path: "/games/:slug/database/import", ...needs("database_access", "write") },
+  { method: "GET", path: "/games/:slug/secrets", ...needs("game_access", "read") },
+  { method: "PUT", path: "/games/:slug/secrets/:secret_name", ...needs("game_access", "write") },
+  { method: "DELETE", path: "/games/:slug/secrets/:secret_name", ...needs("game_access", "write") },
   { method: "GET", path: "/games/:slug/saves", ...needs("save_access", "read") },
   { method: "GET", path: "/games/:slug/saves/:player_id", ...needs("save_access", "read") },
   { method: "PATCH", path: "/games/:slug/saves/:player_id", ...needs("save_access", "write") },
@@ -434,7 +442,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
       });
     }
     const body = await readJson(request);
-    closedBody(body, ["title", "slug", "description", "devices", "controls", "screen_orientation", "play_modes", "cloud_saves_enabled", "account_offer_enabled", "multiplayer_mode", "room_browsing", "account_requirement"]);
+    closedBody(body, ["title", "slug", "description", "devices", "controls", "screen_orientation", "play_modes", "cloud_saves_enabled", "account_offer_enabled", "multiplayer_mode", "room_browsing", "account_requirement", "game_server_allowed_hosts"]);
     const title = typeof body.title === "string" ? body.title.trim().replace(/\s+/g, " ") : "";
     if (!title || title.length > 80) throw new ApiError("bad_title", { message: "title is empty or over 80 characters.", field: "title", fix: "Give the game a title of 1 to 80 characters." });
     const slug = typeof body.slug === "string" && body.slug ? body.slug.trim().toLowerCase() : slugify(title);
@@ -510,6 +518,9 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
   const databasePath = path.match(/^\/games\/([^/]+)\/database(?:\/(query|batch|export|import))?$/);
   if (databasePath) return answer(...(await databaseRoute(request, env, await ownGame(env, databasePath[1]!, caller), databasePath[2])));
 
+  const secretsPath = path.match(/^\/games\/([^/]+)\/secrets(?:\/([^/]+))?$/);
+  if (secretsPath) return answer(...(await secretsRoute(request, env, await ownGame(env, secretsPath[1]!, caller), secretsPath[2] ? decodeURIComponent(secretsPath[2]) : undefined, caller)));
+
   const savesPath = path.match(/^\/games\/([^/]+)\/saves(?:\/([^/]+)(\/copies(?:\/([^/]+)(\/restore)?)?)?)?$/);
   if (savesPath) return answer(...(await savesRoute(request, env, await ownGame(env, savesPath[1]!, caller), savesPath[2], Boolean(savesPath[3]), savesPath[4], Boolean(savesPath[5]))));
 
@@ -530,19 +541,20 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
 
   if (!isImages && method === "PATCH") {
     const body = await readJson(request);
-    closedBody(body, ["title", "description", "visibility", "devices", "controls", "screen_orientation", "play_modes", "cloud_saves_enabled", "account_offer_enabled", "room_browsing", "multiplayer_mode", "account_requirement"]);
+    closedBody(body, ["title", "description", "visibility", "devices", "controls", "screen_orientation", "play_modes", "cloud_saves_enabled", "account_offer_enabled", "room_browsing", "multiplayer_mode", "account_requirement", "game_server_allowed_hosts"]);
     const change = checkDetailsOrThrow(body);
     if (game.review_status === "removed" && change.visibility) {
       throw gameRemoved(game, "its visibility can't change", "visibility");
     }
-    const { multiplayer_mode: multiplayerMode, ...details } = change;
+    const { multiplayer_mode: multiplayerMode, game_server_allowed_hosts: allowedHosts, ...details } = change;
     const changesMultiplayer = multiplayerMode !== undefined && multiplayerMode !== game.multiplayer_mode;
     if (changesMultiplayer && game.multiplayer_mode === "built-in") {
       throw new ApiError("built_in_server", { message: "This game runs a game server built into Zaisma, which only Zaisma changes.", field: "multiplayer_mode", fix: "Leave multiplayer_mode out, or ask Zaisma with message_zaisma to change it." });
     }
-    const { isWaitingForReview } = await applyDetails(env.DB, game, { ...details, ...(changesMultiplayer ? { multiplayer_mode: multiplayerMode } : {}) });
+    const { isWaitingForReview } = await applyDetails(env.DB, game, { ...details, ...(changesMultiplayer ? { multiplayer_mode: multiplayerMode } : {}), ...(allowedHosts ? { game_server_allowed_hosts: allowedHosts } : {}) });
     if (Object.keys(details).length) await audit(env.DB, game.id, "details", Object.keys(details).join(", ") + (isWaitingForReview ? " (words waiting for review)" : ""), caller.actor);
     if (changesMultiplayer) await audit(env.DB, game.id, "multiplayer", `Multiplayer: ${multiplayerMode}`, caller.actor);
+    if (allowedHosts) await audit(env.DB, game.id, "allowed-hosts", `Game server can call: ${allowedHosts.join(", ") || "no other servers"}`, caller.actor);
     const gameServerProblem = multiplayerMode === "own" ? await liveServerProblem(env, game) : null;
     const changed = (await gameBySlug(env.DB, game.slug))!;
     return answer({
@@ -1057,6 +1069,9 @@ const HISTORY: Record<string, string | null> = {
   "cloud-saves": "Cloud saves switched",
   "tester-link-added": "Made a tester link",
   "tester-link-removed": "Turned off a tester link",
+  "allowed-hosts": "Changed which other servers the game server can call",
+  "secret-set": "Set a secret",
+  "secret-deleted": "Deleted a secret",
   "plays-cleared": "Zaisma removed a day's counted plays that looked faked",
   "off-shelves": "Zaisma took the game off Popular, Trending and New",
   "on-shelves": "Zaisma put the game back on Popular, Trending and New",
@@ -1473,6 +1488,7 @@ export function gameJson(env: Env, game: Game) {
     multiplayer_mode: game.multiplayer_mode,
     room_browsing: game.room_browsing,
     account_requirement: game.account_requirement,
+    game_server_allowed_hosts: allowedHostsOf(game),
     details_waiting_for_review: waitingWords ? { title: waitingWords.title ?? null, description: waitingWords.description ?? null } : null,
     updated_at: iso(game.updated_at_ms),
   };

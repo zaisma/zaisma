@@ -97,6 +97,7 @@ export const GAME = object({
   multiplayer_mode: MULTIPLAYER_MODE,
   room_browsing: ROOM_BROWSING_CHOICE,
   account_requirement: ACCOUNT_REQUIREMENT_CHOICE,
+  game_server_allowed_hosts: list(text(), "The hosts its game server can call with fetch(), like discord.com, or *.example.com for every name under example.com; [] for none."),
   details_waiting_for_review: nullable(object({ title: nullable(text()), description: nullable(text()) }, "A new title or description waiting for review before players see it.")),
   updated_at: isoTime(),
 });
@@ -175,7 +176,7 @@ export const ACCESS = object({
   ),
   area_access: object(
     {
-      game_access: choice(AREA_ACCESS_CHOICES.game_access, "read: list and get games, with images, versions, scans and tester links. write: also details, visibility, images, tester links and new games."),
+      game_access: choice(AREA_ACCESS_CHOICES.game_access, "read: list and get games, with images, versions, scans, tester links and secrets' names. write: also details, visibility, images, tester links, secrets, the hosts its game server calls, and new games."),
       version_access: choice(AREA_ACCESS_CHOICES.version_access, "read: see versions and scans. upload: also send files and make versions. publish: also publish, schedule and roll back."),
       stats_access: choice(AREA_ACCESS_CHOICES.stats_access, "Stats, player reports and history."),
       database_access: choice(AREA_ACCESS_CHOICES.database_access, "read: tables, indexes, use and export. write: run SQL and import."),
@@ -443,6 +444,12 @@ export const WEBHOOK = object({
   failed_delivery_count: countOf("Events that failed every try in the last 30 days: list_webhook_deliveries says why."),
   created_at: isoTime(),
   updated_at: isoTime(),
+});
+
+/** A game's secret as the API shows it: never its value. */
+export const SECRET = object({
+  name: text("Its name, as the game server reads it: server.secrets.<name> and room.secrets.<name>."),
+  set_at: isoTime("When it was last set."),
 });
 
 /** What a webhook is sent: the body the signature covers. */

@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import { GAME_SERVER_OPTIONS, REQUEST_LIMITS, SCHEDULE_LIMITS, checkSchedules, nextRunAtMs, readRequestAnswer, type Player, type RequestErrorCode, type Schedule } from "@zaisma/game-server";
 import { FREE_REQUEST_COUNT_PER_MONTH, nextMonthStartDate, usageMonth } from "@zaisma/core";
 import { errorLine, sandboxOpener, type Session } from "./sandbox.ts";
+import { secretsForGameServer } from "./secrets.ts";
 import type { Env } from "./index.ts";
 
 /** What a request gets: onRequest's answer, or why not. */
@@ -115,6 +116,14 @@ export class GameServerObject extends DurableObject<Env> {
     return read;
   }
 
+  /**
+   * The game's secrets changed (secrets.ts): the next request or run opens a fresh session with them.
+   * A call already running finishes with the old ones.
+   */
+  secretsChanged(): void {
+    this.server = null;
+  }
+
   /** From the rooms Worker's cron, when the game's live version isn't the one whose schedules were read. */
   async syncSchedules(gameId: string): Promise<void> {
     this.knowGame(gameId);
@@ -150,7 +159,8 @@ export class GameServerObject extends DurableObject<Env> {
     try {
       const open = await sandboxOpener(this.env, this.ctx.exports, gameId, versionId);
       if (open === null) return { outcome: { code: "no_request_handler", message: "This game's server doesn't take requests: its live version has no game server." } };
-      const session = await open();
+      const { secrets } = await secretsForGameServer(this.env, gameId);
+      const session = await open(secrets);
       const settings = await session.settings();
       const optionNames = Array.isArray(settings.optionNames) ? settings.optionNames.map(String) : [];
       const unknown = optionNames.find((name) => !(GAME_SERVER_OPTIONS as readonly string[]).includes(name));

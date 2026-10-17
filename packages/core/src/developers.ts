@@ -1,5 +1,6 @@
 import { newRandomPart, sha256Hex } from "./ids.ts";
 import type { ReviewReason } from "./review.ts";
+import { checkAllowedHosts } from "./reach.ts";
 import { ACCOUNT_REQUIREMENTS, MULTIPLAYER_MODES, ROOM_BROWSING, type AccountRequirement, type Game, type RoomBrowsing, type Visibility } from "./types.ts";
 
 /**
@@ -34,7 +35,7 @@ const KEY = /^zsk_([a-z0-9]{20})_([A-Za-z0-9_-]{43})$/;
  * least to most, and each takes in the ones before it. Every key sees its games and their versions, so
  * game_access and version_access start at read.
  *
- *   game_access         read: list and get games, with images, versions, scans and tester links. write: details, visibility, images, tester links, new games
+ *   game_access         read: list and get games, with images, versions, scans, tester links and secrets' names. write: details, visibility, images, tester links, secrets, game_server_allowed_hosts, new games
  *   version_access      read: as games. upload: send files and make versions. publish: also publish, schedule and roll back
  *   stats_access        stats, player reports and history
  *   database_access     read: tables, indexes, use and export. write: run SQL and import
@@ -312,6 +313,8 @@ export interface DetailsChange {
   account_requirement?: AccountRequirement;
   /** none, relay, or own (the game's zaisma-server.js in a sandbox on our rooms). */
   multiplayer_mode?: (typeof MULTIPLAYER_MODES)[number];
+  /** The hosts its game server may call (game server reach), checked by checkAllowedHosts. */
+  game_server_allowed_hosts?: string[];
 }
 
 /** Check a change from the API (docs/NAMING.md). Returns the tidied change or a plain error. */
@@ -378,6 +381,11 @@ export function checkDetails(input: Record<string, unknown>): { change: DetailsC
     }
     change.multiplayer_mode = input.multiplayer_mode as (typeof MULTIPLAYER_MODES)[number];
   }
+  if ("game_server_allowed_hosts" in input) {
+    const checked = checkAllowedHosts(input.game_server_allowed_hosts);
+    if ("problem" in checked) return checked;
+    change.game_server_allowed_hosts = checked.allowedHosts;
+  }
   return { change };
 }
 
@@ -422,6 +430,8 @@ export async function applyDetails(database: D1Database, game: Game, change: Det
   if (change.account_requirement !== undefined) set("account_requirement", change.account_requirement);
   // Rooms running the old setting end within a minute, when they next check the game.
   if (change.multiplayer_mode !== undefined) set("multiplayer_mode", change.multiplayer_mode);
+  // The gateway reads the list again within a minute (apps/rooms/src/outbound.ts).
+  if (change.game_server_allowed_hosts !== undefined) set("game_server_allowed_hosts", JSON.stringify(change.game_server_allowed_hosts));
   if (assignments.length) {
     set("updated_at_ms", now());
     await database.prepare(`UPDATE games SET ${assignments.join(", ")} WHERE id = ?`).bind(...values, game.id).run();

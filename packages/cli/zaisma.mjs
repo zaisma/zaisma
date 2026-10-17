@@ -82,6 +82,14 @@ const COMMANDS = {
   },
   unschedule: { about: "Cancel a publish-later", arguments: [{ name: "slug" }, { name: "version_id" }], flags: {} },
   visibility: { about: "Set who can see a game: everyone (listed), people with the link (unlisted), or only you and tester links (private, draft)", arguments: [{ name: "slug" }, { name: "visibility", choices: VISIBILITIES }], flags: {} },
+  "allowed-hosts": {
+    about: "The hosts a game's server can call with fetch(), like discord.com or *.example.com; given hosts, set the whole list",
+    arguments: [{ name: "slug" }, { name: "hosts", isRest: true, isOptional: true }],
+    flags: { none: { hasValue: false, about: "Set the list to none: the game server calls no other servers" } },
+  },
+  secrets: { about: "A game's secrets, which its game server reads as server.secrets and room.secrets: their names and when each was set, never the values", arguments: [{ name: "slug" }], flags: {} },
+  "secrets set": { about: "Set a secret for a game's server, replacing one of the same name: the value piped in, or typed without showing; it's never shown again", arguments: [{ name: "slug" }, { name: "secret_name" }], flags: {} },
+  "secrets delete": { about: "Delete one of a game's secrets", arguments: [{ name: "slug" }, { name: "secret_name" }], flags: {} },
   forum: {
     about: "Your forum topics and messages to Zaisma; one topic with every post you can see; or a search",
     arguments: [{ name: "topic_id", isOptional: true }],
@@ -159,7 +167,7 @@ const COMMANDS = {
   help: { about: "This help; with --json, every command, flag, exit code and error code", arguments: [], flags: {} },
 };
 /** Commands with a second word, like zaisma forum post. */
-const SUBCOMMANDS = { forum: ["post", "message", "reply"], database: ["query", "batch", "export", "import"], saves: ["get", "change", "replace", "reset", "copies", "copy", "restore"] };
+const SUBCOMMANDS = { forum: ["post", "message", "reply"], database: ["query", "batch", "export", "import"], saves: ["get", "change", "replace", "reset", "copies", "copy", "restore"], secrets: ["set", "delete"] };
 /** Flags every command takes. */
 const GLOBAL_FLAGS = {
   json: { hasValue: false, about: "Print the API's answer as JSON, as-is (on failure its { error }), and nothing else" },
@@ -838,6 +846,68 @@ function* sqliteDumpStatements(sqlite) {
   yield "COMMIT;\n";
 }
 
+/** The hosts a game's server can call (game_server_allowed_hosts on the game), as the MCP's get_game and update_game. */
+async function allowedHosts(values, flags) {
+  const given = (values.hosts ?? "").split(/[\s,]+/).filter(Boolean);
+  if (given.length && flags.none) refuse("unknown_field", { message: "Hosts and --none were both given.", field: "--none", fix: `Give the whole list, like zaisma allowed-hosts ${values.slug} discord.com api.github.com, or --none for none.` });
+  const answer = given.length || flags.none ? await api("PATCH", `/games/${values.slug}`, { game_server_allowed_hosts: given }) : await api("GET", `/games/${values.slug}`);
+  if (isJson) return printJson(answer);
+  const hosts = answer.game.game_server_allowed_hosts;
+  console.log(hosts.length ? `${values.slug}'s game server can call: ${hosts.join(", ")}` : `${values.slug}'s game server calls no other servers. List some with: zaisma allowed-hosts ${values.slug} discord.com`);
+  if (given.length || flags.none) console.log("It works within a minute.");
+}
+
+/** A game's secrets (…/games/<slug>/secrets…), as the MCP's list_secrets, set_secret and delete_secret. */
+async function secrets(command, values) {
+  if (command === "secrets") {
+    const answer = await api("GET", `/games/${values.slug}/secrets`);
+    if (isJson) return printJson(answer);
+    if (!answer.secrets.length) console.log(`No secrets yet. Set one with: zaisma secrets set ${values.slug} DISCORD_WEBHOOK_URL`);
+    for (const secret of answer.secrets) console.log(`${secret.name.padEnd(32)} set ${when(secret.set_at)}`);
+    return;
+  }
+  const path = `/games/${values.slug}/secrets/${encodeURIComponent(values.secret_name)}`;
+  if (command === "secrets delete") {
+    const answer = await api("DELETE", path);
+    if (isJson) return printJson(answer);
+    return console.log(`Deleted ${values.secret_name} from ${values.slug}. Running rooms lose it within a minute.`);
+  }
+  const secretValue = await readSecretValue(values.secret_name);
+  if (!secretValue) refuse("missing_field", { message: `No value was given for ${values.secret_name}.`, field: "secret_value", fix: `Pipe it in, like printf %s "$TOKEN" | zaisma secrets set ${values.slug} ${values.secret_name}, or run it in a terminal and type it.` });
+  const answer = await api("PUT", path, { secret_value: secretValue });
+  if (isJson) return printJson(answer);
+  console.log(`Set ${values.secret_name} for ${values.slug}. Its game server reads it as server.secrets.${values.secret_name}; running rooms get it within a minute.`);
+  if (answer.next_steps.some((step) => step.tool === "update_game")) console.log(`It calls no other servers yet: list the hosts it uses this with, like zaisma allowed-hosts ${values.slug} discord.com`);
+}
+
+/** A secret's value: piped in (without the line break at its end), or typed in a terminal without showing it. */
+async function readSecretValue(secretName) {
+  if (!process.stdin.isTTY) {
+    const chunks = [];
+    for await (const chunk of process.stdin) chunks.push(chunk);
+    return Buffer.concat(chunks).toString("utf8").replace(/\r?\n$/, "");
+  }
+  process.stderr.write(`${secretName} (it isn't shown; Enter when done): `);
+  process.stdin.setRawMode(true);
+  process.stdin.setEncoding("utf8");
+  let typed = "";
+  try {
+    for await (const chunk of process.stdin) {
+      for (const character of chunk) {
+        if (character === "\r" || character === "\n") return typed;
+        if (character === "\u0003") process.exit(130);
+        if (character === "\u007f" || character === "\b") typed = typed.slice(0, -1);
+        else typed += character;
+      }
+    }
+    return typed;
+  } finally {
+    process.stdin.setRawMode(false);
+    process.stdin.pause();
+    process.stderr.write("\n");
+  }
+}
+
 /** A game's cloud saves (…/games/<slug>/saves…), as the MCP's list_saves, get_save, change_save, replace_save, reset_save, list_save_copies, get_save_copy and restore_save_copy. */
 async function saves(command, values, flags) {
   const savePath = () => `/games/${values.slug}/saves/${encodeURIComponent(values.player_id)}`;
@@ -987,7 +1057,9 @@ async function run({ command, values, flags, globalFlags, rest }) {
     console.log(`${answer.game.title} is now ${answer.game.visibility}.`);
     return EXIT_CODES.done;
   }
-  if (command === "database" || command.startsWith("database ")) await database(command, values, flags);
+  if (command === "allowed-hosts") await allowedHosts(values, flags);
+  else if (command === "secrets" || command.startsWith("secrets ")) await secrets(command, values);
+  else if (command === "database" || command.startsWith("database ")) await database(command, values, flags);
   else if (command === "saves" || command.startsWith("saves ")) await saves(command, values, flags);
   else await forum(command, values, flags);
   return EXIT_CODES.done;

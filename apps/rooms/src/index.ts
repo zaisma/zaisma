@@ -2,11 +2,14 @@ import { PLAYER_REPORT_REASONS, accountById, chatBandGroup, socialSettingsOf, fr
 import { ERROR_TEXT, PassError, REQUEST_ERROR_HTTP_STATUS, guestName, isRoomCode, jwks, loadSigningKey, readRequestBody, requestError, roomCode, signPass, verifyPass, type Player, type RequestErrorCode, type SigningKey } from "@zaisma/game-server";
 import { usesRooms } from "./registry.ts";
 import type { GameDatabaseObject } from "./database.ts";
+import type { GameSecretsObject } from "./secrets.ts";
 import { syncSchedules, type GameServerObject, type RequestOutcome } from "./game-server.ts";
 
 export { Room } from "./room.ts";
 export { GameDatabaseObject, GameDatabaseBinding, GameDatabaseService } from "./database.ts";
 export { GameServerObject } from "./game-server.ts";
+export { GameSecretsObject, GameSecretsService } from "./secrets.ts";
+export { GameServerOutbound } from "./outbound.ts";
 
 export interface Env {
   DB: D1Database;
@@ -15,6 +18,8 @@ export interface Env {
   ROOMS: DurableObjectNamespace;
   GAME_DATABASES: DurableObjectNamespace<GameDatabaseObject>;
   GAME_SERVER_OBJECTS: DurableObjectNamespace<GameServerObject>;
+  /** Each game's secrets (secrets.ts). */
+  GAME_SECRETS: DurableObjectNamespace<GameSecretsObject>;
   PASS_LIMIT?: RateLimit;
   ROOM_LIMIT?: RateLimit;
   REPORT_LIMIT?: RateLimit;
@@ -22,6 +27,8 @@ export interface Env {
   CONNECT_LIMIT?: RateLimit;
   PROFILE_LIMIT?: RateLimit;
   REQUEST_LIMIT?: RateLimit;
+  /** Game servers' calls to other servers, per game (outbound.ts). */
+  OUTSIDE_CALL_LIMIT?: RateLimit;
   ISSUER: string;
   SITE_ORIGIN: string;
   GAME_HOST_MODE: "path" | "subdomain";

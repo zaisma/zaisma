@@ -978,7 +978,7 @@ const LEVEL_LABELS: Record<AccessLevel, [string, string]> = {
 
 /** Each area on the custom step: its name, and what it covers. */
 const AREA_LABELS: Record<AccessArea, [string, string]> = {
-  game_access: ["Games", "Details, images, visibility and tester links. Write also makes new games."],
+  game_access: ["Games", "Details, images, visibility, tester links and secrets. Write also makes new games."],
   version_access: ["Versions", "Uploading, publishing, scheduling and rolling back."],
   stats_access: ["Stats", "Stats, player reports and history."],
   database_access: ["Game databases", "Read-only sees tables and use, and exports. Write runs SQL and imports."],

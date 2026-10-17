@@ -12,9 +12,9 @@ Any AI tool that supports remote MCP servers can manage your games at `https://z
 claude mcp add --transport http zaisma https://zaisma.com/mcp --header "Authorization: Bearer $ZAISMA_KEY"
 ```
 
-Every tool is a call to this API (`apps/site/src/mcp.ts`): `list_games`, `create_game`, `get_game`, `update_game`, `upload_files` (small games up to 5 MB, sent as file contents), `get_version`, `publish_version` (also rolls back and publishes later), `cancel_scheduled_publish`, `add_image`, `remove_image`, `add_tester_link`, `remove_tester_link`, `get_reports`, `get_stats`, `get_history`, `get_player`, `get_access` (what the key can do), the sign-in apps' `list_sign_in_apps`, `create_sign_in_app`, `update_sign_in_app` and `delete_sign_in_app`, the webhooks' `list_webhooks`, `create_webhook`, `update_webhook`, `delete_webhook`, `test_webhook` and `list_webhook_deliveries` (see Webhooks below), the game database's `get_database`, `query_database`, `batch_database`, `export_database` and `import_database` (see The game database below), cloud saves' `list_saves`, `get_save`, `change_save`, `replace_save`, `reset_save`, `list_save_copies`, `get_save_copy` and `restore_save_copy` (see Cloud saves below), and the developer forum's `search_forum`, `get_topic`, `post_topic`, `message_zaisma`, `reply_to_topic`, `vote`, `mark_helpful`, `report_post`, `forum_people`, `still_happening`, `flag_misplaced`, `follow_topic` and `mark_answer` (see The developer forum below). Bigger builds go through the upload command. Making a game players can play private or a draft again needs `"confirm": true`, so the AI asks you first.
+Every tool is a call to this API (`apps/site/src/mcp.ts`): `list_games`, `create_game`, `get_game`, `update_game`, `upload_files` (small games up to 5 MB, sent as file contents), `get_version`, `publish_version` (also rolls back and publishes later), `cancel_scheduled_publish`, `add_image`, `remove_image`, `add_tester_link`, `remove_tester_link`, `get_reports`, `get_stats`, `get_history`, `get_player`, `get_access` (what the key can do), the sign-in apps' `list_sign_in_apps`, `create_sign_in_app`, `update_sign_in_app` and `delete_sign_in_app`, the webhooks' `list_webhooks`, `create_webhook`, `update_webhook`, `delete_webhook`, `test_webhook` and `list_webhook_deliveries` (see Webhooks below), a game's secrets' `list_secrets`, `set_secret` and `delete_secret` (see Secrets below), the game database's `get_database`, `query_database`, `batch_database`, `export_database` and `import_database` (see The game database below), cloud saves' `list_saves`, `get_save`, `change_save`, `replace_save`, `reset_save`, `list_save_copies`, `get_save_copy` and `restore_save_copy` (see Cloud saves below), and the developer forum's `search_forum`, `get_topic`, `post_topic`, `message_zaisma`, `reply_to_topic`, `vote`, `mark_helpful`, `report_post`, `forum_people`, `still_happening`, `flag_misplaced`, `follow_topic` and `mark_answer` (see The developer forum below). Bigger builds go through the upload command. Making a game players can play private or a draft again needs `"confirm": true`, so the AI asks you first.
 
-Every tool has an output schema, and answers are compact JSON. Arguments are closed: one a tool doesn't take is refused (`unknown_field`, with the arguments it does take), never quietly dropped, and a missing required one is `missing_field`. A refused call is a tool result with `isError: true`, the error object below as its `structuredContent` and its message, fix and code as its text; each tool's listed output schema is its answer or that error, because MCP clients check both against it. The tools that are easy to get wrong (`update_game`, `upload_files`, `publish_version`, `search_forum`, `post_topic`, `change_save`, `replace_save`) carry good examples in their input schema and bad ones at the end of their description.
+Every tool has an output schema, and answers are compact JSON. Arguments are closed: one a tool doesn't take is refused (`unknown_field`, with the arguments it does take), never quietly dropped, and a missing required one is `missing_field`. A refused call is a tool result with `isError: true`, the error object below as its `structuredContent` and its message, fix and code as its text; each tool's listed output schema is its answer or that error, because MCP clients check both against it. The tools that are easy to get wrong (`update_game`, `upload_files`, `publish_version`, `search_forum`, `post_topic`, `change_save`, `replace_save`, `set_secret`) carry good examples in their input schema and bad ones at the end of their description.
 
 ## Errors
 
@@ -73,6 +73,7 @@ The HTTP status goes with the code, as listed. The list lives in `ERROR_CODES` (
 | `bad_room_browsing` | 400 | room_browsing isn't page, game or off. |
 | `bad_multiplayer_mode` | 400 | multiplayer_mode isn't none, relay or own. |
 | `bad_account_requirement` | 400 | account_requirement isn't none, multiplayer or whole_game. |
+| `bad_game_server_allowed_hosts` | 400 | game_server_allowed_hosts isn't a list of up to 20 host names (like discord.com or *.example.com), or one is an IP address or on Zaisma's own domains. |
 | `built_in_server` | 403 | The game runs a game server built into Zaisma, which only Zaisma changes. |
 | `game_removed` | 403 | Zaisma took the game down, so this can't change. |
 | `needs_confirm` | 409 | Hiding a game players can play needs the developer's OK. |
@@ -176,6 +177,11 @@ The HTTP status goes with the code, as listed. The list lives in `ERROR_CODES` (
 | `database_read_limit` | 429 | The game's database has read its free rows this month, so queries wait for the next. |
 | `database_storage_limit` | 403 | The statement would grow the game's database past its free storage. |
 | `database_unavailable` | 503 | The game's database didn't answer. |
+| `bad_secret_name` | 400 | A secret's name isn't capitals, digits and underscores starting with a capital, up to 64 characters. |
+| `bad_secret_value` | 400 | secret_value isn't text of up to 8 KB. |
+| `no_secret` | 404 | The game has no secret by that name. |
+| `too_many_secrets` | 403 | The game has 50 secrets, the most it can have. |
+| `secrets_unavailable` | 503 | The game's secrets didn't answer. |
 | `dump_too_big` | 413 | dump_sql is over 5 MB: import a dump in parts, each ending on a whole statement. |
 
 **Cloud saves**
@@ -343,14 +349,14 @@ A key can be limited, for CI and collaborators, to some of your games and to wha
 | Level | What it can do |
 | --- | --- |
 | `full` | Everything. Keys made before levels existed are full keys for every game. |
-| `publish` | Upload and publish versions, change games and tester links, and post on the forum. Reads everything else; can't run SQL, change saves, or change sign-in apps and webhooks. |
+| `publish` | Upload and publish versions, change games, their secrets and tester links, and post on the forum. Reads everything else; can't run SQL, change saves, or change sign-in apps and webhooks. |
 | `upload` | Send files and make versions (drafts), and read everything. Can't publish, change games or post on the forum. |
 | `read` | Read games, versions, stats, the database, saves and the forum. Changes nothing. |
 | `custom` | A choice per area, below. |
 
 | Area, in `area_access` | Choices | What it covers |
 | --- | --- | --- |
-| `game_access` | `read`, `write` | read: list and get games, with images, versions, scans and tester links. write: also details, visibility, images, tester links and new games. |
+| `game_access` | `read`, `write` | read: list and get games, with images, versions, scans, tester links and secrets' names. write: also details, visibility, images, tester links, secrets, the hosts its game server calls, and new games. |
 | `version_access` | `read`, `upload`, `publish` | upload: send files and make versions. publish: also publish, schedule and roll back. |
 | `stats_access` | `none`, `read` | Stats, player reports and history. |
 | `database_access` | `none`, `read`, `write` | read: tables, indexes, use and `export`. write: run SQL (`query`, `batch`) and `import`. |
@@ -370,11 +376,11 @@ Every key sees its games and their versions, so `game_access` and `version_acces
 | Call | What it does |
 | --- | --- |
 | `GET /games` | Your games, and `unread_topic_count`: how many of your forum topics Zaisma has replied to or changed since you last opened them. |
-| `POST /games` | Make a game: `{"title", "slug"?, "description"?, "devices"?, "controls"?, "screen_orientation"?, "play_modes"?, "cloud_saves_enabled"?, "account_offer_enabled"?, "multiplayer_mode"?, "room_browsing"?, "account_requirement"?}`. It starts as a draft that only you can see. Up to 50 games. |
+| `POST /games` | Make a game: `{"title", "slug"?, "description"?, "devices"?, "controls"?, "screen_orientation"?, "play_modes"?, "cloud_saves_enabled"?, "account_offer_enabled"?, "multiplayer_mode"?, "room_browsing"?, "account_requirement"?, "game_server_allowed_hosts"?}`. It starts as a draft that only you can see. Up to 50 games. |
 | `GET /games/:slug` | One game with its `images`, `versions` (newest first, each with its `review_reason` and scan `findings`) and `testers`. |
-| `PATCH /games/:slug` | Change any of `title`, `description`, `visibility`, `devices`, `controls`, `screen_orientation`, `play_modes`, `cloud_saves_enabled`, `account_offer_enabled`, `room_browsing`, `multiplayer_mode`, `account_requirement`. Leave out what stays the same; `null` clears it. Answers with the `game`, `review_message` (set when new words wait for review), `game_server_problem` (why the game's own game server can't run yet, or `null`) and `next_steps`. |
+| `PATCH /games/:slug` | Change any of `title`, `description`, `visibility`, `devices`, `controls`, `screen_orientation`, `play_modes`, `cloud_saves_enabled`, `account_offer_enabled`, `room_browsing`, `multiplayer_mode`, `account_requirement`, `game_server_allowed_hosts`. Leave out what stays the same; `null` clears it. Answers with the `game`, `review_message` (set when new words wait for review), `game_server_problem` (why the game's own game server can't run yet, or `null`) and `next_steps`. |
 
-A game looks like: `slug`, `page_url`, `title`, `description`, `visibility`, `review_status`, `review_reason`, `devices`, `controls`, `screen_orientation`, `play_modes`, `cloud_saves_enabled`, `account_offer_enabled`, `multiplayer_mode`, `room_browsing`, `account_requirement`, `details_waiting_for_review` and `updated_at`.
+A game looks like: `slug`, `page_url`, `title`, `description`, `visibility`, `review_status`, `review_reason`, `devices`, `controls`, `screen_orientation`, `play_modes`, `cloud_saves_enabled`, `account_offer_enabled`, `multiplayer_mode`, `room_browsing`, `account_requirement`, `game_server_allowed_hosts`, `details_waiting_for_review` and `updated_at`.
 
 - **visibility:** `draft`, `listed` (home page and search), `unlisted` (anyone with the link, never in lists or search engines) or `private`. Draft and private games open only through preview links and tester links (below).
 - **review_status** is ours and separate: `pending` (no version has passed review yet), `live`, `held` or `removed`, and `review_reason` says why it's held or removed (see Holds and takedowns). Changing visibility never undoes a takedown.
@@ -382,9 +388,10 @@ A game looks like: `slug`, `page_url`, `title`, `description`, `visibility`, `re
 - **devices:** any of `phone`, `tablet`, `computer`. **controls:** any of `touch`, `keyboard_mouse`, `gamepad`. **screen_orientation:** `portrait`, `landscape`, `either` or `null` (not set).
 - **cloud_saves_enabled:** `true` (the default) copies signed-in players' browser saves to their account, so their progress follows them to any device with no code in the game. It covers localStorage and IndexedDB (Unity, Godot and localForage saves included; databases with "cache" in the name, like Unity's download cache, are skipped), up to 5 MB per player. Set `false` for games that keep their own saves on a server. When a player has played on two devices, the progress played most recently wins and the other is kept as an earlier version; Zaisma never asks the player which to keep.
 - **account_offer_enabled:** `true` (the default) shows guests the "Keep your progress" card once they have progress and have played 5 minutes: beside the game, it offers a free account to keep their progress. Set `false` for games that offer accounts their own way, with `Zaisma.player.signIn()`.
-- **multiplayer_mode:** `none`, `relay` (Zaisma passes each message to the others, no server code) or `own`: your game server, from the live version's `zaisma-server/` folder (`index.js` first, importing the folder's other `.js`, `.json` and `.wasm` files) or one `zaisma-server.js`, runs on Zaisma rooms in a sandbox with no internet, with the game's own SQLite database as `room.database` (see "Your game server on Zaisma" and "The game database" in the README, and The game database below to read and change it yourself). If the live version has no game server, or one over 500 files or 5 MB, the change is saved and `game_server_problem` says why; rooms open once a version that works is published. Games already on a game server built into Zaisma show `built-in` and can't change it themselves. Rooms on the old setting end within a minute.
+- **multiplayer_mode:** `none`, `relay` (Zaisma passes each message to the others, no server code) or `own`: your game server, from the live version's `zaisma-server/` folder (`index.js` first, importing the folder's other `.js`, `.json` and `.wasm` files) or one `zaisma-server.js`, runs on Zaisma rooms in a sandbox that calls only the hosts in `game_server_allowed_hosts`, with the game's secrets as `room.secrets` and its own SQLite database as `room.database` (see "Your game server on Zaisma" and "The game database" in the README, and The game database below to read and change it yourself). If the live version has no game server, or one over 500 files or 5 MB, the change is saved and `game_server_problem` says why; rooms open once a version that works is published. Games already on a game server built into Zaisma show `built-in` and can't change it themselves. Rooms on the old setting end within a minute.
 - **room_browsing:** for games on Zaisma rooms (`multiplayer_mode` other than `none`), where open rooms are listed so players can join them: `page` (the default) on the game page and to the game through `Zaisma.rooms.list()`, `game` only to the game (for games with their own lobby or server browser), or `off`. Room codes and invite links work either way, and the game can hide single rooms itself (see Multiplayer in the README). Whatever the setting, the game page says how many are playing now once it's 3 or more (no names). Rooms on your own servers aren't listed or counted.
 - **account_requirement:** what the game needs a Zaisma account for. `none` (the default): guests play everything, and signed-in players play as their account. `multiplayer`: guests play alone; only signed-in players get player passes, so a guest's `Zaisma.player()` and `Zaisma.joinRoom()` fail with `error.code` `"account_needed"` (show your own message, or ask them to sign in without leaving the game with `Zaisma.player.signIn()`), and room links ask guests to sign in first. `whole_game`: the game page says "Needs a Zaisma account" and Play asks guests to sign in first; only signed-in players get player passes. Passes are the backstop: Zaisma rooms also turn away guest passes given before the change, and your own servers can check a pass's `kind` claim for the same. Players under 13 can't make accounts, so they can't play games that need one.
+- **game_server_allowed_hosts:** the hosts the game's own game server can call with plain `fetch()` (game server reach): your own server, a payment provider, Discord, GitHub. Up to 20 host names, like `["discord.com", "api.github.com"]`, or `"*.example.com"` for every name under example.com (not example.com itself); `[]` (the default) for none, and the whole list each time. No `https://`, paths or ports: every call is https, never to an IP address, this computer or Zaisma's own domains. Live within a minute, with no approval by Zaisma, and kept in the game's history; players don't see it (the game page names only servers their browser connects to). Calls send up to 5 MB, get 10 seconds, aren't redirected (a redirect comes back to your code), and a game makes up to about 600 a minute in each place. A call to anything else throws an `OutsideCallError` in the game server, with a `code` (`not_https`, `unreachable_host`, `host_not_allowed`, `outside_call_limit`, `too_big`, `outside_call_timeout` or `outside_call_failed`) and a `fix`; the stats' `game_server_errors` show it. The tokens it needs go in its secrets (below).
 - Once players can see a game, a new title or description waits for review (`details_waiting_for_review`, with `title` and `description`, `null` for the one that didn't change) before it shows.
 
 | Call | What it does |
@@ -431,6 +438,22 @@ Players sign in to your own site, server or app with their Zaisma account, and y
 - **Scopes:** `openid` (the player ID) and `profile` (the player's name and username). Ask for `"openid profile"`. Zaisma never shares an email, an age or anything else on the account, so `email` and other scopes are refused with `invalid_scope`.
 - **What you get:** an ID token (RS256, keys at `/.well-known/jwks.json`) with `sub` (the player ID, a `player_…` ID, the same as in their player passes and `GET /players/:player_id`), `name` and `preferred_username` (their Zaisma username) with the profile scope, `nonce` when you sent one, and `auth_time`; and an access token for `/oauth/userinfo`, which answers the same `sub`, `name` and `preferred_username`. Both last an hour; there are no refresh tokens, so keep your own session.
 - **Players decide:** the first sign-in to an app asks the player; later ones go straight back. Players see the apps they signed in to on their account page and can remove any, which stops `/oauth/userinfo` for that app at once. `prompt=none` answers `login_required` or `consent_required` instead of showing a page, and `prompt=consent` asks again. Codes work once, for 2 minutes. Deleting an account removes the player's yeses; deleting yours removes your apps.
+
+## Secrets
+
+Tokens and keys a game's own game server needs, like a Discord webhook URL, a GitHub token or a payment provider's secret key: set per game, read by the game server as `server.secrets.<name>` (in `onRequest` and `onSchedule`) and `room.secrets.<name>` (in rooms), and never shown again, to you or anyone. It calls other servers with plain `fetch()` on the hosts in `game_server_allowed_hosts` (above). See "Calling other servers, with secrets" in the README.
+
+| Call | What it does |
+| --- | --- |
+| `GET /games/:slug/secrets` | The game's `secrets`, by name, each `{"name", "set_at"}`: never the value. |
+| `PUT /games/:slug/secrets/:secret_name` | Set one, replacing any of that name: `{"secret_value"}`. Answers the `secret` and `next_steps`. |
+| `DELETE /games/:slug/secrets/:secret_name` | Delete one. Answers `deleted_secret_name` and `next_steps`. |
+
+- **Names** are like environment variables: capitals, digits and underscores, starting with a capital, up to 64 characters (`DISCORD_WEBHOOK_URL`). **Values** are text, up to 8 KB; put several values in one as JSON text if you like. Up to 50 a game.
+- **When it changes:** requests and schedules use the new value from their next call; running rooms get it within a minute.
+- **Who can use them:** they're kept away from players, the dashboard, the API and Zaisma's own database listings, but the game server's code reads them, so anyone who can publish the game's code can use them (a `publish` key too). Never put one in the game's own files: players can read those.
+- **On your own server** the Node runner's `server.secrets` is its environment variables, so set the same names there.
+- A key reads the names with `game_access` `read` and sets and deletes with `write`.
 
 ## The game database
 
@@ -611,6 +634,10 @@ Storage can't check the hash of a file sent in parts, so it's kept for your own 
 | `zaisma publish <slug> <version_id> [--scheduled-publish-at <time>]` | Publish, roll back, or publish later | `POST /games/:slug/versions/:id/publish` |
 | `zaisma unschedule <slug> <version_id>` | Cancel a publish-later | `DELETE /games/:slug/versions/:id/publish` |
 | `zaisma visibility <slug> listed\|unlisted\|private\|draft` | Who can see the game | `PATCH /games/:slug` |
+| `zaisma allowed-hosts <slug> [<host> …] [--none]` | The hosts the game server can call; given hosts (or `--none`), sets the whole list | `GET` or `PATCH /games/:slug` |
+| `zaisma secrets <slug>` | The game's secrets' names and when each was set | `GET /games/:slug/secrets` |
+| `zaisma secrets set <slug> <secret_name>` | Set a secret: the value piped in, or typed without showing in a terminal | `PUT /games/:slug/secrets/:secret_name` |
+| `zaisma secrets delete <slug> <secret_name>` | Delete a secret | `DELETE /games/:slug/secrets/:secret_name` |
 | `zaisma forum [<topic_id>] [--search "words"]` | Your topics and messages, one topic, or a search | `GET /forum`, `GET /forum/:id` |
 | `zaisma forum post --kind … --title "…" --category … [--text "…"] [--by-me]` | A public topic | `POST /forum` |
 | `zaisma forum message --kind … --title "…" [--text "…"] [--category …] [--game <slug>] [--by-me]` | A private message to Zaisma | `POST /forum` with `"is_public": false` |

@@ -13,9 +13,17 @@
 import type { GameDatabase } from "./database.ts";
 import type { Player } from "./room.ts";
 
-/** What onRequest reaches besides the request: the game's own database, the same one its rooms use. */
+/**
+ * What onRequest and onSchedule reach besides what they're given: the game's own database, the same
+ * one its rooms use, and its secrets.
+ */
 export interface Server {
   database: GameDatabase;
+  /**
+   * The game's secrets, by name, like server.secrets.DISCORD_WEBHOOK_URL: set per game on Zaisma
+   * (set_secret) and never shown again, or the environment variables on your own server.
+   */
+  secrets: Readonly<Record<string, string>>;
 }
 
 export const REQUEST_LIMITS = {

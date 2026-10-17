@@ -37,6 +37,17 @@ const SHOP = {
 };
 
 describe("Node runner requests", () => {
+  it("give onRequest the environment variables as server.secrets, the same code as on Zaisma", async () => {
+    process.env.ZAISMA_TEST_API_TOKEN = "token-from-the-environment";
+    const { own, send } = await serve({ onRequest: (player: unknown, request: unknown, server: Server) => ({ token: server.secrets.ZAISMA_TEST_API_TOKEN ?? null, isFrozen: Object.isFrozen(server.secrets) }) });
+    try {
+      expect((await send({})).body).toEqual({ answer: { token: "token-from-the-environment", isFrozen: true } });
+    } finally {
+      delete process.env.ZAISMA_TEST_API_TOKEN;
+      await own.close();
+    }
+  });
+
   it("answer from onRequest with the local database, for a game server with no rooms", async () => {
     const { own, send } = await serve(SHOP);
     expect(await send({ type: "add", coinCount: 5 })).toEqual({ httpStatus: 200, body: { answer: { playerId: "player_ana", coinCount: 5 } }, allowedOrigin: ORIGIN });

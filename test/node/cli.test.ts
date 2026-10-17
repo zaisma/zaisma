@@ -179,7 +179,7 @@ describe("--json", () => {
   });
 
   it("help --json lists every command, and the exit codes and error codes the docs list", async () => {
-    expect(help.commands.map((entry) => entry.command)).toEqual(["games", "new", "upload", "versions", "publish", "unschedule", "visibility", "forum", "forum post", "forum message", "forum reply", "database", "database query", "database batch", "database export", "database import", "saves", "saves get", "saves change", "saves replace", "saves reset", "saves copies", "saves copy", "saves restore", "help"]);
+    expect(help.commands.map((entry) => entry.command)).toEqual(["games", "new", "upload", "versions", "publish", "unschedule", "visibility", "allowed-hosts", "secrets", "secrets set", "secrets delete", "forum", "forum post", "forum message", "forum reply", "database", "database query", "database batch", "database export", "database import", "saves", "saves get", "saves change", "saves replace", "saves reset", "saves copies", "saves copy", "saves restore", "help"]);
     const docs = readFileSync(join(ROOT, "docs/DEVELOPER-API.md"), "utf8");
     const section = docs.slice(docs.indexOf("\n## The upload command\n"));
     const exitRows = [...section.matchAll(/^\| (\d+) \| `([a-z_]+)` \| (.+) \|$/gm)].map((row) => ({ exit_code: Number(row[1]), name: row[2], meaning: row[3] }));
@@ -362,6 +362,38 @@ describe("saves", () => {
     expect(json((await zaisma(["saves", "change", "sky-hopper", player, "coins=500", "--json"])).stdout).error).toMatchObject({ code: "bad_local_storage_items", field: "items_json" });
     expect(json((await zaisma(["saves", "replace", "sky-hopper", player, "--json"], { input: '{"coins": "0"}' })).stdout).error).toMatchObject({ code: "bad_local_storage_items", field: "file" });
     expect(calls).toEqual([]);
+  });
+});
+
+describe("game server reach and secrets", () => {
+  it("prints the hosts, or sets the whole list from the arguments, commas or spaces", async () => {
+    answers["GET /games/sky-hopper"] = { status: 200, body: { game: { ...game, game_server_allowed_hosts: [] } } };
+    expect((await zaisma(["allowed-hosts", "sky-hopper"])).stdout).toContain("calls no other servers");
+    answers["PATCH /games/sky-hopper"] = (call) => ({ status: 200, body: { game: { ...game, game_server_allowed_hosts: (call.body as { game_server_allowed_hosts: string[] }).game_server_allowed_hosts }, review_message: null, game_server_problem: null, next_steps: [] } });
+    const set = await zaisma(["allowed-hosts", "sky-hopper", "discord.com,", "api.github.com"]);
+    expect(set.exitCode).toBe(0);
+    expect(calls[1]).toMatchObject({ method: "PATCH", body: { game_server_allowed_hosts: ["discord.com", "api.github.com"] } });
+    expect(set.stdout).toContain("can call: discord.com, api.github.com");
+    await zaisma(["allowed-hosts", "sky-hopper", "--none"]);
+    expect(calls[2]!.body).toEqual({ game_server_allowed_hosts: [] });
+  });
+
+  it("sets a secret piped in, without its last line break, and never prints it", async () => {
+    answers["PUT /games/sky-hopper/secrets/DISCORD_WEBHOOK_URL"] = { status: 200, body: { secret: { name: "DISCORD_WEBHOOK_URL", set_at: "2026-10-17T09:00:00.000Z" }, next_steps: [] } };
+    const result = await zaisma(["secrets", "set", "sky-hopper", "DISCORD_WEBHOOK_URL"], { input: "https://discord.com/api/webhooks/1/abc\n" });
+    expect(result.exitCode).toBe(0);
+    expect(calls[0]).toMatchObject({ method: "PUT", body: { secret_value: "https://discord.com/api/webhooks/1/abc" } });
+    expect(result.stdout + result.stderr).not.toContain("webhooks/1/abc");
+    expect(result.stdout).toContain("server.secrets.DISCORD_WEBHOOK_URL");
+  });
+
+  it("refuses a secret with no value before anything is sent, and lists and deletes them", async () => {
+    expect(json((await zaisma(["secrets", "set", "sky-hopper", "API_TOKEN", "--json"], { input: "" })).stdout).error).toMatchObject({ code: "missing_field", field: "secret_value" });
+    expect(calls).toEqual([]);
+    answers["GET /games/sky-hopper/secrets"] = { status: 200, body: { secrets: [{ name: "API_TOKEN", set_at: "2026-10-17T09:00:00.000Z" }] } };
+    expect((await zaisma(["secrets", "sky-hopper"])).stdout).toContain("API_TOKEN");
+    answers["DELETE /games/sky-hopper/secrets/API_TOKEN"] = { status: 200, body: { deleted_secret_name: "API_TOKEN", next_steps: [] } };
+    expect((await zaisma(["secrets", "delete", "sky-hopper", "API_TOKEN"])).stdout).toContain("Deleted API_TOKEN");
   });
 });
 
