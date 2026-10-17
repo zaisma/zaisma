@@ -20,6 +20,15 @@ Would his answer be better than Claude's? His edge: UI and UX, how players and d
 **The account page listing every game's save copies.** *Saves through the API, Oct 16, 2026.* Asked as "should players see that a developer changed their save". He asked why players get a save manager at all. It's experience plus direction, and he caught a Zaisma-run feature built by habit.
 *Lesson:* a question about what players see is his, and so is whether they should see it at all.
 
+**What we promise once developers add their own servers.** *Games can reach our rooms and their own servers, Oct 16, 2026.* A done row that put a Zaisma approval on a building block. Asked as A (add freely, narrow the promise to what the scan can check) or B (a person OKs each address), with the fact that decided it: the approval sees a name, not what the server sends. He picked A at once.
+*Lesson:* what we claim is his even when nothing public says it yet. When one option is a safety check that can't see what it checks, say that plainly; it makes the call quick.
+
+**How players sign up: passkeys, email codes or passwords.** *Sign-in, Oct 16, 2026.* Claude compared flows at the moment of sign-up and picked passkey-first. He looked at the player's whole week instead: the school laptop with no phone around, the shared iPad, the kid who remembers a username and password "like the back of my hand". That turned the item into a username and password for everyone, with protection offered once the account has something to lose, and he cut the display name from sign-up.
+*Lesson:* for an experience call, follow the player across devices and weeks, not just the screen in question. His own memory of being a kid beat the vendor data. Copy he'll see shipped goes in plain words ("less flowery").
+
+**Sections on the game dashboard, and letting each developer arrange them.** *Developer dashboard, Oct 16, 2026.* Asked as one page or sections, with a sketch. He took sections and added what the sketch lacked: each developer moves, hides and shows sections per game, since an MMO and a platformer need different things. He also caught that the sketch put account-wide tabs (webhooks, sign-in apps) above one game's sections, which mixed two levels of page.
+*Lesson:* on a page call, expect him to improve the design, not just pick between options; leave room for it. A sketch must show the real page hierarchy (which page, reached from where), because he reads it literally.
+
 **Who can publish before the beta.** *Developer accounts, Oct 16, 2026.* A done item had drifted from a settled rule: anyone who signed in could publish, while the rule kept uploads with Julius until the beta. Who we serve and the legal risk to the LLC are his, so it opened as *One call* with the scenario on each side, and he took the pick (limit) at once. Everything else in the item settled as built with no questions.
 *Lesson:* for a done item, check what's live against the settled decisions; a gap is the call, and the rest passes in a line.
 
@@ -39,6 +48,8 @@ Would his answer be better than Claude's? His edge: UI and UX, how players and d
 
 **Every "Calls I made, overrule any" list.** All three talks. He doesn't read them: "there doesn't appear to be anything I could decide there." They go in the PR.
 
+**Proof of work at sign-up to make ban evasion cost something.** *Sign-in.* He raised it as an idea, and Claude answered it as a technical call (Cloudflare's invisible check already does it; it can't stop one human). He took that without discussion.
+
 ## Tiers
 
 All three talks above should have opened differently:
@@ -46,3 +57,4 @@ All three talks above should have opened differently:
 - **Scoped API keys:** *One call*, the levels/custom/both fork.
 - **Game database import and export:** *One call*, the page.
 - **Saves through the API:** *Needs you*, the direction question plus what players see.
+- **Games can reach our rooms and their own servers:** *One call*, rightly: the promise, with the direction check folded into the options.

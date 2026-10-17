@@ -53,7 +53,7 @@ Claude runs `npm run ship` itself. Migrations that only add or change (tables, c
 - **Cloudflare Workers** for the API and site.
 - **Cloudflare R2** for game files. Bandwidth is free; keep it that way (no egress-billed storage).
 - **Cloudflare Durable Objects** for multiplayer rooms. Always use the WebSocket Hibernation API.
-- **Supabase** for sign-in only (it holds the email). Account details live in D1; cloud saves live in R2 (`zaisma-saves`).
+- **Supabase** for sign-in only (password hashes, and the email when a player adds one). Account details live in D1; cloud saves live in R2 (`zaisma-saves`).
 - **Stripe Connect Standard** for the optional buy sheet (Phase 2). Never take a platform fee.
 - TypeScript everywhere. Keep dependencies few.
 

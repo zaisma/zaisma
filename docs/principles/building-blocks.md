@@ -56,6 +56,7 @@ These are the only things Zaisma runs itself. Each has a named reason; anything 
 - **A floating logo, a watermark or "more games" while someone plays.** *Instead:* a slim bar beside the game, menus only when the player opens them, and the whole screen in full screen.
 - **A Zaisma chat box, platform currency or avatar inside games.** *Instead:* hosting for the game's own chat, the developer's own items through the buy sheet, the game's own characters.
 - **Key-and-value data screens** in place of a database. *Instead:* a real database with tables and queries (Oct 14, 2026).
+- **A game's own servers set only by a Zaisma admin.** A gate on a building block, on a page only Zaisma sees, and the check behind it was hollow: a person approving `play.example.com` sees a name, never what the server sends. *Instead:* developers set them from the dashboard, API, MCP and upload command, live at once and named on the game page, and the promise says only what we can check: every file we host is scanned (Julius, Oct 16, 2026).
 
 ### Close calls, and the ruling
 
