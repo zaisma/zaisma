@@ -314,6 +314,11 @@ dialog.wizard>form{display:flex;flex-direction:column;flex:1;min-height:0}
 .wizard-body{flex:1;min-height:0;overflow:auto;padding:18px 24px}
 .wizard-body section{display:grid;gap:16px}
 .wizard-body .error{margin:14px 0 0}
+/* A short window (one question, not steps): as tall as what's in it. */
+.wizard.short{height:fit-content}
+.wizard.short>form,.wizard.short .wizard-body{flex:none}
+.wizard-body.stack{display:grid;gap:14px;align-content:start}
+.wizard-body.stack .error{margin:0}
 .wizard-foot{justify-content:flex-end;padding:14px 24px 20px;
   background:linear-gradient(#000,#000) top left/100% 1px no-repeat,linear-gradient(rgba(255,255,255,.055),rgba(255,255,255,.055)) top 1px left/100% 1px no-repeat}
 .area{display:grid;gap:8px;padding:0 0 16px;background:linear-gradient(#000,#000) bottom/100% 1px no-repeat}

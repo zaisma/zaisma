@@ -265,7 +265,8 @@ describe("making an account", () => {
     expect(agePage).toContain('autocomplete="new-password"');
     expect(agePage).not.toContain('type="email"');
     // 16 and over pick a social mode on the way in, friends-focused unless they choose another.
-    expect(agePage).toContain("Who can chat with you?");
+    expect(agePage).toContain("How do you play?");
+    expect(agePage).toContain("I want to play and chat with my friends.");
 
     const done = await b.go("/join/account", { turnstile_token: "test-token", username: "Night_Owl", password: PASSWORD });
     expect(done.status).toBe(303);
@@ -346,7 +347,7 @@ describe("making an account", () => {
     expect(await accountById(env.DB, await idOf("Open_Kite"))).toMatchObject({ age_band: "16-17", social_mode: "open_and_social" });
 
     const younger = new Browser();
-    expect(await (await younger.go("/join/age", { year: String(thisYear - 14), month: "1", day: "1" })).text()).not.toContain("Who can chat with you?");
+    expect(await (await younger.go("/join/age", { year: String(thisYear - 14), month: "1", day: "1" })).text()).not.toContain("How do you play?");
     // A hand-made form can't give 13–15 open and social.
     await younger.go("/join/account", { turnstile_token: "test-token", username: "Small_Kite", password: PASSWORD, social_mode: "open_and_social" });
     expect(await accountById(env.DB, await idOf("Small_Kite"))).toMatchObject({ age_band: "13-15", social_mode: "solo_focused" });
@@ -435,17 +436,30 @@ describe("signing in", () => {
     expect(sent).toEqual([{ email: "nobody@example.com", create: false }]);
 
     const b = new Browser();
-    expect(await (await b.go("/signin")).text()).toContain('href="/signin/email"');
-    const form = await (await b.go("/signin/email")).text();
-    expect(form).toContain('name="next" value="/account?new-password#signing-in"');
-    await b.go("/signin/email", { email: "fox@example.com", next: "/account?new-password#signing-in" });
+    expect(await (await b.go("/signin?next=/g/arena")).text()).toContain('href="/signin/email?next=%2Fg%2Farena"');
+    const form = await (await b.go("/signin/email?next=/g/arena")).text();
+    const back = "/account?new-password&next=%2Fg%2Farena";
+    expect(form).toContain(`name="next" value="${back.replace(/&/g, "&amp;")}"`);
+    await b.go("/signin/email", { email: "fox@example.com", next: back });
     expect((await b.go("/signin/code", { email: "fox@example.com", code: "000000" })).status).toBe(400);
-    const res = await b.go("/signin/code", { email: "fox@example.com", code: "123456", next: "/account?new-password#signing-in" });
-    expect(res.headers.get("location")).toBe("/account?new-password#signing-in");
-    const page = await (await b.go("/account?new-password")).text();
-    expect(page).toContain("You&#39;re signed in. Set a new password below.");
-    expect(await (await b.go("/account/password", { password: "a brand new password" })).headers.get("location")).toBe("/account?password-saved#signing-in");
+    const res = await b.go("/signin/code", { email: "fox@example.com", code: "123456", next: back });
+    expect(res.headers.get("location")).toBe(back);
+
+    // A window asks for the new password, and then they go on to where they were headed.
+    const page = await (await b.go(back)).text();
+    expect(page).toContain('<dialog id="new-password"');
+    expect(page).toContain("Set a new password");
+    expect(page).toContain('<a class="btn ghost" href="/g/arena">Not now</a>');
+    const tooShort = await (await b.go("/account/password", { from: "new-password", next: "/g/arena", password: "short" })).text();
+    expect(tooShort).toContain('<dialog id="new-password"');
+    expect(tooShort).toContain("Passwords are at least 8 characters.");
+    expect((await b.go("/account/password", { from: "new-password", next: "/g/arena", password: "a brand new password" })).headers.get("location")).toBe("/g/arena");
     expect((await new Browser().go("/signin", { username: "Night_Owl", password: "a brand new password" })).headers.get("location")).toBe("/");
+    // Only straight after signing in: later, the page just shows the account.
+    signinAge = 3600;
+    const later = new Browser();
+    await later.go("/signin", { username: "Night_Owl", password: "a brand new password" });
+    expect(await (await later.go("/account?new-password")).text()).not.toContain('<dialog id="new-password"');
   });
 
   it("limits password tries on one username, from any address", async () => {

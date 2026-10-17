@@ -375,10 +375,12 @@ export async function handleAccount(request: Request, env: Env, path: string): P
   if (path === "/account/password" && post) {
     const password = passwordField();
     const problem = await newPasswordProblem(password, account.username);
-    if (problem) return done(await accountPage(env, session, false, problem));
+    // From the window after Forgot your password: it opens again, saying what's wrong.
+    const again = field("from", 20) === "new-password" ? new URLSearchParams({ "new-password": "", ...(next ? { next } : {}) }) : undefined;
+    if (problem) return done(await accountPage(env, session, false, problem, undefined, again));
     if (!(await setPassword(env, account.id, password))) return done(message(env, "Couldn't save your password", "Something went wrong on our side. Try again in a minute.", 502));
     await markPasswordChanged(env.DB, account.id);
-    return done(redirect("/account?password-saved#signing-in"));
+    return done(redirect(next ?? "/account?password-saved#signing-in"));
   }
 
   // An email: Supabase sends a code to the new address, and it's theirs once they type it.
@@ -652,9 +654,12 @@ ${raw(PASSKEY_SCRIPT)}
   );
 }
 
-/** Forgot your password: a code to the account's email, or a passkey. After it, the account page asks for a new password. */
+/**
+ * Forgot your password: a code to the account's email, or a passkey. After it, a window on the account
+ * page asks for a new password, then goes on to wherever they were headed.
+ */
 function emailSigninPage(env: Env, next: string | null, error?: string): Response {
-  const back = next ?? "/account?new-password#signing-in";
+  const back = `/account?new-password${next ? `&next=${encodeURIComponent(next)}` : ""}`;
   return page(
     env,
     "Forgot your password?",
@@ -671,7 +676,7 @@ ${nextField(back)}
 <button class="btn ghost" type="button" id="passkey-go">${raw(ICON_PASSKEY)}Sign in with a passkey</button>
 <p class="error" role="alert" id="passkey-error" hidden></p>
 </div>
-<p class="muted">Added neither? Then the account can't be got back, but you can always <a href="/join">make a new one</a>.</p>
+<p class="muted">Added neither? Then the account can't be recovered, but you can always <a href="/join">make a new one</a>.</p>
 <script>${raw(PASSKEY_SCRIPT)}
 (() => {
   if (!window.PublicKeyCredential) return;
@@ -767,9 +772,22 @@ ${socialModesFor(band).map(
 }
 
 /** 16 and over pick a social mode while joining; 13–15 start solo-focused and can turn on friends later. */
+/** Each preset as a new player picks it: a line in their own words. */
+const JOIN_SOCIAL_MODE_LINES: Record<SocialMode, string> = {
+  solo_focused: "I just want to play, no chat.",
+  friends_focused: "I want to play and chat with my friends.",
+  open_and_social: "I like meeting new players.",
+};
+
 function joinSocialModeFields(band: AgeBand | null, current: SocialMode | undefined): Raw | string {
   if (!band || band === "13-15") return "";
-  return html`${socialModeChoices(band, current ?? defaultSocialMode(band), "Who can chat with you?")}<p class="hint">Games that have chat follow this. You can change it any time on your account page.</p>`;
+  const chosen = current ?? defaultSocialMode(band);
+  return html`<fieldset class="choices"><legend>How do you play?</legend>
+${socialModesFor(band).map(
+    (socialMode) => html`<label class="check"><input type="radio" name="social_mode" value="${socialMode}"${socialMode === chosen ? raw(" checked") : ""}> <span>${SOCIAL_MODE_LABELS[socialMode]}<small class="hint">${JOIN_SOCIAL_MODE_LINES[socialMode]}</small></span></label>`,
+  )}
+</fieldset>
+<p class="hint">You can change this any time on your account page.</p>`;
 }
 
 const USERNAME_HINT = "Everyone sees it, and it's how friends find you. Don't use your real name.";
@@ -1023,9 +1041,39 @@ const SIGNING_IN_NOTES: Record<string, string> = {
   "password-saved": "Password saved. Sign in with it and your username from now on.",
   "email-saved": "Email added. If you forget your password, you can get back in with it.",
   "email-removed": "Email removed. Sign in with your username and password.",
-  "new-password": "You're signed in. Set a new password below.",
   confirmed: "Thanks, that's you. For the next 10 minutes you can change how you sign in.",
 };
+
+/**
+ * The window after Forgot your password (or an email code for an account with no password yet): pick a
+ * password now, then go on to where they were headed. Not now goes there too.
+ */
+function newPasswordWindow(hasPassword: boolean, then: string | null, error?: string): Raw {
+  return html`<dialog id="new-password" class="wizard short bevel-l" aria-labelledby="new-password-title">
+<form method="post" action="/account/password">
+  <input type="hidden" name="from" value="new-password">
+  ${nextField(then)}
+  <div class="wizard-head"><div><h2 id="new-password-title">${hasPassword ? "Set a new password" : "Add a password"}</h2><p class="wizard-sub">You're signed in. Pick a password to sign in with your username next time.</p></div></div>
+  <div class="wizard-body stack">
+    ${errorParagraph(error)}
+    <label>New password<input type="password" name="password" minlength="${MINIMUM_PASSWORD_CHARACTER_COUNT}" autocomplete="new-password" required autofocus><span class="hint">${PASSWORD_HINT}</span></label>
+    ${showPasswordToggle()}
+  </div>
+  <div class="wizard-foot row">
+    ${then ? html`<a class="btn ghost" href="${then}">Not now</a>` : html`<button class="btn ghost" type="button" data-close>Not now</button>`}
+    <button class="btn light" type="submit">Save password</button>
+  </div>
+</form>
+</dialog>
+<script>
+(() => {
+  const dialog = document.getElementById("new-password");
+  dialog.showModal();
+  for (const close of dialog.querySelectorAll("[data-close]")) close.onclick = () => dialog.close();
+  ${raw(SHOW_PASSWORD_SCRIPT)}
+})();
+</script>`;
+}
 
 /** What the username form shows again when it comes back: what they typed, and free usernames. */
 interface UsernameGiven {
@@ -1041,13 +1089,15 @@ async function accountPage(env: Env, session: Session, welcome: boolean, error?:
   const email = realEmail(session.email);
   const hasPassword = account.password_changed_at_ms !== null;
   const signingInNote = Object.keys(SIGNING_IN_NOTES).find((key) => query.has(key));
+  // Just back in after Forgot your password: a window asks for a new one straight away.
+  const isAskingForPassword = query.has("new-password") && recent;
   return page(
     env,
     "Your account",
     html`${welcome ? html`<p class="note">Welcome to Zaisma, ${account.username}.</p>${raw(JOINED_SCRIPT)}` : ""}
 <h1>${account.username}</h1>
 ${email ? html`<p class="lead">${email}</p>` : ""}
-${errorParagraph(error)}
+${isAskingForPassword ? newPasswordWindow(hasPassword, safeNext(query.get("next")), error) : errorParagraph(error)}
 <h2 id="username">Username</h2>
 ${isUsernameRight(account.username) ? "" : html`<p class="note" role="status">Usernames are now ${USERNAME_RULES.toLowerCase().replace(/\.$/, "")}, and yours has something else in it. Pick a new one.</p>`}
 ${query.has("username-saved") ? html`<p class="note" role="status">Saved. Everyone sees your new username from now on.</p>` : ""}
@@ -1083,7 +1133,7 @@ ${hasPassword
 <h3 class="sub">Password</h3>
 <p>${hasPassword ? `Set on ${day(account.password_changed_at_ms!)}.` : "No password yet. Add one to sign in with your username."}</p>
 ${recent
-      ? html`<form class="row" method="post" action="/account/password"><input type="password" name="password" minlength="${MINIMUM_PASSWORD_CHARACTER_COUNT}" autocomplete="new-password" required aria-label="New password" placeholder="New password"${query.has("new-password") ? raw(" autofocus") : ""}><button class="btn ghost" type="submit">${hasPassword ? "Change" : "Add"}</button></form>
+      ? html`<form class="row" method="post" action="/account/password"><input type="password" name="password" minlength="${MINIMUM_PASSWORD_CHARACTER_COUNT}" autocomplete="new-password" required aria-label="New password" placeholder="New password"><button class="btn ghost" type="submit">${hasPassword ? "Change" : "Add"}</button></form>
 <p class="hint">${PASSWORD_HINT}</p>`
       : ""}
 <h3 class="sub">Email</h3>
