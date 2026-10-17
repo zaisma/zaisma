@@ -60,6 +60,7 @@ These are the only things Zaisma runs itself. Each has a named reason; anything 
 
 ### Close calls, and the ruling
 
+- **Discord posts and GitHub issues for developers with no server.** The decisions promised both, but only developers running a server could have them, and most AI-made games are one HTML file. Zaisma making the Discord and GitHub formats itself would be the direct way, but it means holding developers' tokens and running two services' formats, with every next service a request to us. *Ruling:* a webhook can point at the game's own game server on Zaisma; the developer's code makes the post with their own tokens, for any service, and the same code runs on their own server (Julius, Oct 16, 2026).
 - **The "Keep your progress" card.** A Zaisma card beside the game (not inside it) that offers guests an account after 5 minutes with progress. It changes no game rule, and without it a guest's progress silently stays in one browser, since most AI-made games will never add the SDK call. *Ruling:* on by default, and a game setting turns it off (Julius, Oct 16, 2026).
 - **The report plate.** A Zaisma screen beside a running game. *Ruling:* allowed, because it's safety: every report must look the same and carry the room. Games can put the Report button in their own menu with the SDK's panel.
 - **The "You're leaving Zaisma" notice.** *Ruling:* allowed, because it's safety. The game still decides which of its registered links to open, and when.
