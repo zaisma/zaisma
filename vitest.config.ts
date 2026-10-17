@@ -14,6 +14,24 @@ const roomsDatabaseWorker = {
   durableObjects: { GAME_DATABASES: { className: "GameDatabaseObject", useSQLite: true } },
 };
 
+// And PhotoDNA matching in the photodna Worker (its container can't run in tests): a stand-in that's always down.
+const photoDnaWorker = {
+  name: "zaisma-photodna",
+  modules: [
+    {
+      type: "ESModule" as const,
+      path: "photodna-worker.mjs",
+      contents: `import { WorkerEntrypoint } from "cloudflare:workers";
+export class PhotoDnaService extends WorkerEntrypoint {
+  hash() { return { kind: "down", why: "no hasher in tests" }; }
+  match() { return { kind: "down", why: "no PhotoDNA in tests" }; }
+}
+export default { fetch: () => new Response("Not found", { status: 404 }) };`,
+    },
+  ],
+  compatibilityDate: "2026-10-01",
+};
+
 const migrations = await readD1Migrations("migrations");
 // A throwaway pass signing key for tests. The real one is a Worker secret.
 const passKey = await generateSigningKey();
@@ -67,11 +85,12 @@ export default defineConfig({
         TURNSTILE_SECRET: "test-secret",
         // Never the real image matcher, even with its key in .dev.vars: tests bring their own stand-in.
         ARACHNID_SHIELD_KEY: "",
+        PHOTODNA_KEY: "",
       }, {
         // Tests run scans themselves. Wrangler's options are merged one level deep, so the queue's
         // consumer can't be removed; instead uploads send their scan jobs to a queue nothing reads.
         queueProducers: { SCAN_QUEUE: { queueName: "zaisma-scan-in-tests" } },
-        workers: [roomsDatabaseWorker],
+        workers: [roomsDatabaseWorker, photoDnaWorker],
       }),
       worker("games", "apps/games/wrangler.jsonc", { SITE_ORIGIN: "https://zaisma.test", ROOMS_ORIGIN: "https://rooms.zaisma.test", GAME_HOST_MODE: "path", GAME_DOMAIN: "" }),
       worker("core", "apps/games/wrangler.jsonc"),

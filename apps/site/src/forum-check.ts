@@ -25,7 +25,7 @@ export type CheckImage = { mediaType: "image/png" | "image/jpeg" | "image/webp";
 
 export interface CheckDeps {
   ai: (apiKey: string, model: string, text: string, images?: CheckImage[]) => Promise<CheckAnswer>;
-  /** Image matching (Arachnid Shield, by default when its key is set). */
+  /** Image matching (Arachnid Shield and PhotoDNA, by default, each when its key is set). */
   images?: ImageMatcher;
 }
 

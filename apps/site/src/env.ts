@@ -1,5 +1,6 @@
 import type { ScanJob } from "@zaisma/core";
 import type { GameDatabaseService } from "../../rooms/src/database.ts";
+import type { PhotoDnaService } from "../../photodna/src/index.ts";
 
 export interface Env {
   DB: D1Database;
@@ -35,10 +36,14 @@ export interface Env {
   ALERT_EMAIL?: string;
   ANTHROPIC_API_KEY?: string;
   VT_API_KEY?: string;
-  /** Arachnid Shield's API user, as "username:password". Without it, image matching isn't connected and every game waits for a person. */
+  /** Arachnid Shield's API user, as "username:password". Without it or PhotoDNA, image matching isn't connected and every game waits for a person. */
   ARACHNID_SHIELD_KEY?: string;
   /** Only to point image matching at a stand-in (the local preview). */
   ARACHNID_SHIELD_URL?: string;
+  /** Microsoft's PhotoDNA Cloud Service key. With PHOTODNA, PhotoDNA matches pictures alongside Arachnid Shield. */
+  PHOTODNA_KEY?: string;
+  /** The photodna Worker (apps/photodna), which hashes pictures with Microsoft's SDK and paces requests to Microsoft. */
+  PHOTODNA?: Service<PhotoDnaService>;
   DEV_ADMIN?: string;
   /** Seconds a guest plays with progress before "Keep your progress" shows. Default 300; the local preview uses less. */
   KEEP_OFFER_SECONDS?: string;

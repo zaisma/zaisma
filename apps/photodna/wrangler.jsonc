@@ -1,0 +1,20 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "zaisma-photodna",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  // PhotoDNA image matching for the site's scans, reached only through its service binding: no public route.
+  "workers_dev": false,
+  "observability": { "enabled": true },
+  // Edge Hashes are made in a container running Microsoft's SDK (container/). The SDK isn't in this
+  // public repo: npm run ship copies it in from Julius's machine before deploying (scripts/ship.mjs).
+  "containers": [{ "class_name": "PhotoDnaHasher", "image": "./container/Dockerfile", "instance_type": "basic", "max_instances": 2 }],
+  // One hasher (the container), and one pacer that keeps every request to Microsoft within its limits.
+  "durable_objects": {
+    "bindings": [
+      { "name": "HASHER", "class_name": "PhotoDnaHasher" },
+      { "name": "PACER", "class_name": "PhotoDnaPacer" }
+    ]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PhotoDnaHasher", "PhotoDnaPacer"] }]
+}

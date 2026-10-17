@@ -165,7 +165,7 @@ export type ReviewCodeName = keyof typeof REVIEW_CODES;
  * Codes on scan findings that only Zaisma sees: notes for a person (severity info), and child-safety
  * signals, which are never described to the developer (they get needs_review).
  */
-export const INTERNAL_FINDING_CODES = ["wallet_words", "svg_script", "outside_hosts", "antivirus_unavailable", "known_illegal_image", "ai_minors_sexualized"] as const;
+export const INTERNAL_FINDING_CODES = ["wallet_words", "svg_script", "outside_hosts", "antivirus_unavailable", "known_illegal_image", "image_matching_later", "ai_minors_sexualized"] as const;
 export type FindingCode = ReviewCodeName | (typeof INTERNAL_FINDING_CODES)[number];
 
 /** A person's or a report's decision, as stored (games, versions, game_images and audit_log .review_reason): JSON, snake_case. */
