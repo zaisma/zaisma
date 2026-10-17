@@ -277,7 +277,7 @@ An account's pass also says who it can chat with, never its age: `social_mode` (
 
 ### Cloud saves
 
-Signed-in players' progress follows them to any device, with no code in the game. The games server adds a small script (`packages/sdk/saves.js`) to each page of a game; it hands the game's localStorage to the Zaisma game page around it, which stores it with the player's account. Before the game starts, the account's save is put back in place. Games that keep their own saves can turn this off in admin.
+Signed-in players' progress follows them to any device, with no code in the game. The games server adds a small script (`packages/sdk/saves.js`) to each page of a game; it hands the game's localStorage to the Zaisma game page around it, which stores it with the player's account. Before the game starts, the account's save is put back in place. Games that keep their own saves can turn this off in admin. The developer and their AI read, change, reset and restore any player's save through the API, MCP and `zaisma saves` (see "Cloud saves" in `docs/DEVELOPER-API.md`).
 
 ### How games are kept safe
 

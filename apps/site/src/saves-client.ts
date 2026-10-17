@@ -13,6 +13,10 @@
  * in between, saving pauses and the player chooses. Saving only starts once the game domain
  * says the account's save is in place, so a device that couldn't take it never sends its own.
  * Whichever progress the player didn't pick is kept as an earlier version (see /account/saves).
+ * A developer's change (through the API, saves-api.ts) reaches an open game with no question: when its
+ * next save finds the account moved on, or when the player comes back to the tab, the game reloads with
+ * it, and this device's progress since its last save is kept as an earlier version. A game opening later
+ * takes it like any newer save.
  *
  * Guests: the game opens directly and its progress stays in this browser; nothing is sent
  * anywhere. Once a guest has progress and has played a while, a card offers to keep it with
@@ -33,7 +37,7 @@ export const SAVES_CLIENT = `
   const toast = document.getElementById("save-toast");
   if (history) history.hidden = guest;
   const choose = document.getElementById("save-choice");
-  let cloud = null;       // the account's save as last seen: { tag, version_number, sha256, updated_at, save_data }
+  let cloud = null;       // the account's save as last seen: { tag, version_number, sha256, updated_at, changed_by_kind, save_data }
   let synced = null;      // the save text the game and the account both have
   let paused = true;
   let forceCloud = false;
@@ -108,6 +112,7 @@ export const SAVES_CLIENT = `
   let fallback = null;
   function openThroughRestore() {
     paused = true;
+    queued = null; // From the game as it was; the reloaded game sends its own.
     cloud = load();
     frame.src = SAVES.root + "_zaisma/restore#" + encodeURIComponent(SAVES.query);
     clearTimeout(fallback);
@@ -223,7 +228,11 @@ export const SAVES_CLIENT = `
     // A marker from before version_number and sha256 matches neither, so the player chooses once.
     const mark = marker(c.tag);
     let use;
-    if (forceCloud && c.version_number) use = "cloud";
+    if (forceCloud && c.version_number) {
+      use = "cloud";
+      // This device's progress since its last save (the account keeps one copy of each progress).
+      if (!empty && localHash !== c.sha256) keepDevice(text);
+    }
     else if (!c.version_number) use = "local";
     else if (empty || localHash === c.sha256) use = "cloud";
     else if (mark && mark.version_number === c.version_number) use = "local";
@@ -280,6 +289,13 @@ export const SAVES_CLIENT = `
     } else if (res && res.status === 409) {
       paused = true;
       tell({ step: "pause" });
+      if (out.changed_by_kind === "developer") {
+        // The developer changed the save: reload the game with it, no question, keeping this device's progress.
+        keepDevice(text);
+        forceCloud = true;
+        openThroughRestore();
+        return;
+      }
       const use = await ask("You played this game on another device", "Its progress is newer than this device's. The one you don't pick is kept on your account as an earlier version.", "Load the newer progress", "Keep this device's");
       if (use === "cloud") {
         keepDevice(text);
@@ -309,6 +325,19 @@ export const SAVES_CLIENT = `
     }
     if (queued !== null) { const next = queued; queued = null; store(next); }
   }
+
+  // Back on the tab: if the developer changed the save meanwhile, reload the game with it now rather
+  // than at its next save. Only the version is asked for, so this costs one small read.
+  document.addEventListener("visibilitychange", async () => {
+    if (guest || paused || saving || document.visibilityState !== "visible" || !cloud || cloud instanceof Promise) return;
+    const res = await fetch(SAVES.api + "?version", { credentials: "same-origin" }).catch(() => null);
+    const out = res && res.ok ? await res.json().catch(() => null) : null;
+    if (!out || out.changed_by_kind !== "developer" || out.version_number === cloud.version_number || paused || saving) return;
+    paused = true;
+    tell({ step: "pause" });
+    forceCloud = true;
+    openThroughRestore();
+  });
 
   addEventListener("message", (e) => {
     if (!frame || e.origin !== SAVES.frameOrigin || e.source !== frame.contentWindow) return;
