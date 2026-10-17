@@ -20,6 +20,9 @@ Would his answer be better than Claude's? His edge: UI and UX, how players and d
 **The account page listing every game's save copies.** *Saves through the API, Oct 16, 2026.* Asked as "should players see that a developer changed their save". He asked why players get a save manager at all. It's experience plus direction, and he caught a Zaisma-run feature built by habit.
 *Lesson:* a question about what players see is his, and so is whether they should see it at all.
 
+**The service's limits, raised by him.** *Add PhotoDNA to image matching, Oct 16, 2026.* A Quick item; on *Show me more* he brought Microsoft's rate limit (5 a second, 10 million a month) from the console, which Claude hadn't seen. The answer was technical (one shared pacer, falling back like an outage), so it settled in the next click.
+*Lesson:* for an outside service, he may hold facts from its console or contract that aren't in the repo. Show the decisions anyway; when he adds a fact, answer what it changes for players and developers, then decide the mechanism.
+
 ## Not his
 
 **The export format: SQL dump, or JSON and CSV.** *Game database import and export.* "Too technical… just implementation decisions, not system design."
