@@ -249,14 +249,14 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | done | Must | yes | Home page | Design system, Continue playing | The last-played stage with Play and Details, Continue playing, and Popular, Trending, New and All games shelves. Cards are the developer's cover alone; only Play starts a game |
 | done | Must | yes | Patch notes |  | Version notes become patch notes in the game page's Updates tab |
 | planned | Must | | Game update posts | Patch notes | Developers post a title, a short text and an optional image (checked like covers) |
-| done | Must | | Friends | Sign-in, Social modes and age bands | Live Oct 16, 2026 (#168, migration 0042): the friend list and invites on zaisma.com, a link or code for one friend, never a stranger pressing Add. Passes carry friends for `canChat` |
+| done | Must | yes | Friends | Sign-in, Social modes and age bands | Live Oct 16, 2026 (#168, migration 0042): the friend list and invites on zaisma.com, a link or code for one friend, never a stranger pressing Add. Passes carry friends for `canChat` |
 | planned | Must | | Friends playing now | Friends | What game and room each friend is in, with a Join button, and appearing offline; only friends see where a teen is playing |
 | planned | Must | | Friends in games | Friends playing now | `Zaisma.friends`: the player's friends with their names and who's in this game now, for in-game friend lists and joining a friend |
 | planned | Must | | Friend requests | Friends | Open-and-social accounts take friend requests from anyone, like people they played with |
 | planned | Must | | Friends on the home page | Home page, Friends playing now | Friends first on the home page, above last played |
 | planned | Must | | Developer page | Design system | Publishing, the dashboard and docs in one place for game developers, off the home page |
 | planned | Must | | Browse games | Design system | A proper games page with covers and genres until Phase 4 discovery |
-| planned | Must | | Account pages | Design system, Passkeys | Sign-in, account, saves and sign-in methods, all polished |
+| planned | Must | | Account pages | Design system, Passkeys, Friends | Sign-in, account, saves, sign-in methods, /friends and the friend invite page, all polished in full Steel |
 | planned | Must | yes | Game dashboard sections | Design system, Developer dashboard | Each game's dashboard split into sections with a fixed layout each: Overview (status, alerts, upload, live version, plays, recent history), Versions (with tester links), Details (with images), Players and stats, Database; title and who can play on every section; tabs on phones (Julius, Oct 16, 2026) |
 | planned | Must | yes | Custom game dashboard | Game dashboard sections | Each developer reorders, hides and shows a game's sections, per game; Overview stays first and always shows alerts (Julius, Oct 16, 2026) |
 | planned | Must | yes | Developer home | Design system, Developer dashboard | zaisma.com/dashboard: your games as cards with status and alerts, make a game, and a link to developer settings (Julius, Oct 16, 2026) |
