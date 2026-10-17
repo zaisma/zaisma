@@ -1,4 +1,4 @@
-import { CONTENT_RULES, CONTROLS, DEVICES, FORUM_REPORT_REASONS, PLAY_STYLES, PLAYER_REPORT_REASONS, REPORT_REASONS, REVIEW_CODES, ROOM_BROWSING, SCREENS, VISIBILITIES, WEBHOOK_EVENT_KINDS, type IdKind } from "@zaisma/core";
+import { ACCESS_LEVELS, AREA_ACCESS_CHOICES, CONTENT_RULES, CONTROLS, DEVICES, FORUM_REPORT_REASONS, PLAY_STYLES, PLAYER_REPORT_REASONS, REPORT_REASONS, REVIEW_CODES, ROOM_BROWSING, SCREENS, VISIBILITIES, WEBHOOK_EVENT_KINDS, type IdKind } from "@zaisma/core";
 
 /**
  * The developer API's answers as JSON Schema, and the admin MCP's at the end: the MCPs' output
@@ -162,6 +162,28 @@ export const SIGN_IN_APP = object({
 export const PLAYER_PROFILE = object({
   id: idOf("player", "The account's player ID, the same in every game."),
   name: text("The account's name, as other players see it."),
+});
+
+/** What the caller's API key may do (docs/DECISIONS.md, "Developers hold the keys"). */
+export const ACCESS = object({
+  api_key_name: nullable(text("The key's name, as on zaisma.com/account; null when the call came from the developer's own signed-in pages.")),
+  access_level: choice(
+    Object.fromEntries(ACCESS_LEVELS.map((level) => [level, level === "custom" ? "a choice per area, in area_access" : "a fixed level; area_access shows what it gives"])),
+    "read: read everything, post nothing. upload: also send files and make versions. publish: also publish versions, change games and tester links, and post on the forum. full: everything.",
+  ),
+  area_access: object(
+    {
+      game_access: choice(AREA_ACCESS_CHOICES.game_access, "read: list and get games, with images, versions, scans and tester links. change: also details, visibility, images, tester links and new games."),
+      version_access: choice(AREA_ACCESS_CHOICES.version_access, "read: see versions and scans. upload: also send files and make versions. publish: also publish, schedule and roll back."),
+      stats_access: choice(AREA_ACCESS_CHOICES.stats_access, "Stats, player reports and history."),
+      database_access: choice(AREA_ACCESS_CHOICES.database_access, "read: tables, indexes and use. change: run SQL."),
+      forum_access: choice(AREA_ACCESS_CHOICES.forum_access, "read: search and read. change: post, reply, vote, follow and message Zaisma, in the developer's name."),
+      sign_in_app_access: choice(AREA_ACCESS_CHOICES.sign_in_app_access, "Sign-in apps; none for keys limited to some games."),
+      webhook_access: choice(AREA_ACCESS_CHOICES.webhook_access, "Webhooks; none for keys limited to some games."),
+    },
+    "What the key may do in each area.",
+  ),
+  game_slugs: nullable(list(text(), "The only games the key works on; null for every game the developer has and will make.")),
 });
 
 /** The calls that usually follow a change, ready to make (docs/NAMING.md, Next steps). */

@@ -227,6 +227,7 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 | A game asking a guest to sign in while it runs, and the guest saying Not now | | `Zaisma.player.signIn()`; error `code` `sign_in_declined` |
 | A developer's own site or app that players sign in to with Zaisma, and OAuth's client type for it | `sign_in_app_id` (the OAuth `client_id`); `kind`: `confidential`, `public` | |
 | Where a sign-in can go back to, and asking for a new client secret | `redirect_urls`; `replace_client_secret: true`, answered once as `client_secret` | |
+| What an API key may do, and on which games | `access`: `api_key_name`, `access_level` (`read`, `upload`, `publish`, `full`, `custom`), `area_access` (each area's choice: `game_access`, `version_access`, `stats_access`, `database_access`, `forum_access`, `sign_in_app_access`, `webhook_access`; choices `none`, `read`, `change`, and for versions `upload`, `publish`), `game_slugs` (`null` for every game); refused with `key_not_allowed` | |
 | An address a developer's server takes Zaisma's events at, the events it takes and the games they're about | `webhook_id`; `endpoint_url`, `event_kinds`, `game_slugs` (`null` for every game) | |
 | What a webhook is sent, and what happened | `webhook_event`, its `id` a `webhook_event_…` ID; its `kind`: `bug_reported`, `scan_status_changed`, `live_version_changed`, `review_status_changed`, `test` | |
 | Asking for a new signing secret for a webhook | `replace_signing_secret: true`, answered once as `signing_secret` (`whsec_…`, Standard Webhooks' form) | |

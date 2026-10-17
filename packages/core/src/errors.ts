@@ -11,6 +11,7 @@ export const ERROR_CODES = {
   signed_out: { httpStatus: 401, meaning: "No API key, and no signed-in session." },
   no_account: { httpStatus: 401, meaning: "The account isn't finished yet." },
   bad_origin: { httpStatus: 403, meaning: "A call with a session came from another site." },
+  key_not_allowed: { httpStatus: 403, meaning: "The API key is limited to other games, or its access doesn't cover the call." },
   slow_down: { httpStatus: 429, meaning: "Too many calls in a minute." },
   not_found: { httpStatus: 404, meaning: "There's no API call at that path." },
   bad_method: { httpStatus: 405, meaning: "The path doesn't take that method." },

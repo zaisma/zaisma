@@ -278,6 +278,9 @@ fieldset{border:0;padding:0;margin:0}
 legend{font-size:14px;color:var(--muted);margin-bottom:8px}
 .birth label{flex:1;min-width:90px}
 .choices{display:grid;gap:2px}
+.areas{display:grid;gap:12px}
+.areas[hidden],.choices[hidden]{display:none}
+.choices .choices{padding-left:28px}
 .choices .check{display:flex;flex-direction:row;gap:10px;align-items:flex-start;padding:8px 0;color:var(--text)}
 .choices .check input{width:18px;height:18px;min-height:0;margin:2px 0 0;flex:none;accent-color:#c9cace}
 .choices .check small{display:block;margin-top:3px;font-size:13px}

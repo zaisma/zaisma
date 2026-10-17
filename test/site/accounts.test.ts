@@ -133,7 +133,7 @@ class Browser {
   jar = new Map<string, string>();
   // Each browser gets its own address, so the sign-in rate limit doesn't spill between tests.
   ip = `10.0.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`;
-  async go(path: string, form?: Record<string, string>, init: { method?: string; body?: string; origin?: string } = {}): Promise<Response> {
+  async go(path: string, form?: Record<string, string> | URLSearchParams, init: { method?: string; body?: string; origin?: string } = {}): Promise<Response> {
     const res = await SELF.fetch(`${SITE}${path}`, {
       method: init.method ?? (form ? "POST" : "GET"),
       body: init.body ?? (form ? new URLSearchParams(form) : undefined),
@@ -888,7 +888,7 @@ describe("API keys on the account page", () => {
   it("shows a new key once, lists it and removes it", async () => {
     const b = new Browser();
     await join(b);
-    const made = await (await b.go("/account/keys", { name: "My laptop" })).text();
+    const made = await (await b.go("/account/keys", { name: "My laptop", access_level: "full", game_scope: "all" })).text();
     const token = made.match(/zsk_[a-z0-9]{20}_[A-Za-z0-9_-]{43}/)?.[0];
     expect(token).toBeTruthy();
     const api = await SELF.fetch(`${SITE}/api/dev/games`, { headers: { authorization: `Bearer ${token}` } });
@@ -901,6 +901,29 @@ describe("API keys on the account page", () => {
     const id = page.match(/\/account\/keys\/([a-z0-9]+)\/revoke/)![1];
     await b.go(`/account/keys/${id}/revoke`, {});
     expect((await SELF.fetch(`${SITE}/api/dev/games`, { headers: { authorization: `Bearer ${token}` } })).status).toBe(401);
+  });
+
+  it("makes a key limited to some games and a level, and lists what it can do", async () => {
+    const b = new Browser();
+    await join(b);
+    for (const title of ["Sky Hopper", "Cave Run"]) expect((await b.go("/api/dev/games", undefined, { method: "POST", body: JSON.stringify({ title }) })).status).toBe(201);
+    const form = new URLSearchParams([["name", "CI"], ["access_level", "upload"], ["game_scope", "some"], ["game_slugs", "sky-hopper"], ["game_slugs", "someone-elses-game"]]);
+    const made = await (await b.go("/account/keys", form)).text();
+    const token = made.match(/zsk_[a-z0-9]{20}_[A-Za-z0-9_-]{43}/)![0];
+    const access = await (await SELF.fetch(`${SITE}/api/dev/access`, { headers: { authorization: `Bearer ${token}` } })).json();
+    // Games that aren't the developer's are dropped.
+    expect(access).toMatchObject({ access: { api_key_name: "CI", access_level: "upload", game_slugs: ["sky-hopper"] } });
+    expect(await (await b.go("/account")).text()).toContain("Upload, only Sky Hopper");
+
+    // A custom key for some games: sign-in apps and webhooks stay out of its reach, whatever the form sent.
+    const custom = new URLSearchParams({ name: "Stats", access_level: "custom", game_scope: "some", game_slugs: "cave-run", game_access: "read", version_access: "read", stats_access: "read", database_access: "none", forum_access: "none", sign_in_app_access: "change", webhook_access: "read" });
+    const customToken = (await (await b.go("/account/keys", custom)).text()).match(/zsk_[a-z0-9]{20}_[A-Za-z0-9_-]{43}/)![0];
+    const customAccess = (await (await SELF.fetch(`${SITE}/api/dev/access`, { headers: { authorization: `Bearer ${customToken}` } })).json()) as { access: { area_access: Record<string, string> } };
+    expect(customAccess.access.area_access).toMatchObject({ stats_access: "read", database_access: "none", sign_in_app_access: "none", webhook_access: "none" });
+
+    // Some games, but none chosen.
+    const none = new URLSearchParams({ name: "Nothing", access_level: "read", game_scope: "some" });
+    expect(await (await b.go("/account/keys", none)).text()).toContain("Choose at least one game");
   });
 
   it("lets the dashboard use the session, but only from zaisma.com", async () => {

@@ -1,7 +1,7 @@
 import { ApiError, CONTROLS, DEVICES, FORUM_CATEGORIES, FORUM_LIMITS, FORUM_REPORT_REASONS, FORUM_SECTIONS, FORUM_TABS, FORUM_TAGS, ACCOUNT_REQUIREMENTS, PLAY_STYLES, POST_SELECTIONS, ROOM_BROWSING, SCREENS, TOPIC_KINDS, TOPIC_STATUSES, VISIBILITIES, WEBHOOK_EVENT_KINDS, WEBHOOK_TIMEOUT_SEC, type IdKind } from "@zaisma/core";
 import { INTERNAL_ERROR, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
-import { DATABASE, GAME, HISTORY, STATEMENT_RESULT, IMAGE, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, REPORTS, SIGN_IN_APP, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes } from "./schemas.ts";
+import { ACCESS, DATABASE, GAME, HISTORY, STATEMENT_RESULT, IMAGE, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, REPORTS, SIGN_IN_APP, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes } from "./schemas.ts";
 
 /**
  * The developer MCP at /mcp: every tool is a call to the developer API, so the MCP, the upload command
@@ -27,6 +27,8 @@ Ask the developer before making a game private or a draft again (players lose ac
 Every hold, rejection and takedown says why, as review_reason (on a game, version or image, and in get_history) and as a version's findings: a code, a plain message, the content_rule it's about (null when it breaks none) and a fix. Tell the developer the message and the fix, and do what the fix says; never guess beyond them. search_forum with the code finds others who had it.
 
 Zaisma's developer forum is where developers and their AI talk with the people who build Zaisma, and you're asked to use it. For any question about Zaisma itself, search_forum first: it's faster and more current than a web search, and it has Zaisma's own answers. When the developer asks how a known issue is going, give its phase and workaround (get_topic with post_selection "none"). Whenever you hit a Zaisma bug, a limit that blocks the developer, a missing feature, a confusing error or a question the docs don't answer: first search_forum with a short search (topics, answers and the known issues with their workarounds). If it's there, vote, reply, or send the developer's own case privately (message_zaisma with known_issue_topic_id); if their fixed topic is back, reopen it. Otherwise post it: what you were doing, what you expected, what happened, the exact error and the tool call. Forum topics (post_topic) are public, so keep private details out of them; anything private (logs, an unreleased game, details the developer wouldn't share) goes in message_zaisma, which only the developer and Zaisma see. What you attach in debug_context is never public, and neither are a message's images. Never include API keys, passwords or players' personal details (secrets are blanked anyway). Your posts carry the developer's name with an AI mark. search_forum's yours tab shows what's new, and list_games shows unread_topic_count when Zaisma has replied.
+
+The developer may limit an API key to some games or to what it can do (like read only, or upload without publishing). A call it doesn't reach answers key_not_allowed, saying what it would need; get_access shows what the key can do. Tell the developer, who can make another key on zaisma.com/account; keys can't be made through the MCP.
 
 Names say what they hold, its kind and its unit: file_count is a number of files, play_duration_min is minutes, size_bytes is bytes, *_at is an ISO time in UTC, an ID says its kind (version_…, topic_…, post_…), and a plural is always a list.
 
@@ -675,6 +677,16 @@ export const TOOLS: Tool[] = [
     outputSchema: answer({ answer_post_id: nullable(idOf("post")), next_steps: NEXT }),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     run: (toolArguments, call) => call("POST", `/forum/${pathPart(toolArguments.topic_id)}/answer`, { answer_post_id: toolArguments.answer_post_id ?? null }),
+  },
+  {
+    name: "get_access",
+    title: "What this key can do",
+    description:
+      "What the API key you're signed in with may do: its access_level (read, upload, publish, full or custom), what that gives in each area, and the games it works on (game_slugs, null for all). A call the key doesn't reach answers key_not_allowed. Keys are made only by the developer on zaisma.com/account, never through the MCP.",
+    inputSchema: object({}),
+    outputSchema: answer({ access: ACCESS }),
+    annotations: read,
+    run: (_, call) => call("GET", "/access"),
   },
   {
     name: "get_player",

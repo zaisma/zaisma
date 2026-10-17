@@ -1,5 +1,16 @@
 import {
+  ACCESS_AREAS,
+  ACCOUNT_AREAS,
+  ACCESS_LEVELS,
+  AREA_ACCESS_CHOICES,
   MAXIMUM_API_KEY_COUNT,
+  checkKeyScope,
+  keyAccess,
+  type AccessArea,
+  type AccessLevel,
+  type ApiKey,
+  type AreaAccess,
+  type KeyScope,
   NAME_RULES,
   accountById,
   ageBand,
@@ -254,7 +265,19 @@ export async function handleAccount(request: Request, env: Env, path: string): P
   if (path === "/account/keys" && post) {
     const name = field("name", 40) || "My key";
     if ((await apiKeysFor(env.DB, account.id)).length >= MAXIMUM_API_KEY_COUNT) return done(await accountPage(env, session, false, `You can have up to ${MAXIMUM_API_KEY_COUNT} keys. Remove one first.`));
-    const { token } = await createApiKey(env.DB, account.id, name);
+    // Only the developer's own games can be chosen; anything else in the form is dropped.
+    const ownSlugs = new Set((await gamesOwnedBy(env.DB, account.id)).map((game) => game.slug));
+    const accessLevel = field("access_level", 20) as AccessLevel;
+    const scope: KeyScope = {
+      accessLevel,
+      gameSlugs: field("game_scope", 10) === "some" ? [...new Set((form?.getAll("game_slugs") ?? []).map(String))].filter((slug) => ownSlugs.has(slug)) : null,
+      ...(accessLevel === "custom" ? { areaAccess: Object.fromEntries(ACCESS_AREAS.map((area) => [area, field(area, 20)])) as AreaAccess } : {}),
+    };
+    // A key for some games never reaches the account's own areas; the page says so beside them.
+    if (scope.gameSlugs && scope.areaAccess) for (const area of ACCOUNT_AREAS) (scope.areaAccess as Record<AccessArea, string>)[area] = "none";
+    const problem = checkKeyScope(scope);
+    if (problem) return done(await accountPage(env, session, false, problem));
+    const { token } = await createApiKey(env.DB, account.id, name, scope);
     return done(await accountPage(env, session, false, undefined, { name, token }));
   }
   const revoke = path.match(/^\/account\/keys\/([a-z0-9]+)\/revoke$/);
@@ -533,6 +556,83 @@ document.querySelector("[data-back]").addEventListener("click", (e) => {
   );
 }
 
+const LEVEL_LABELS: Record<AccessLevel, [string, string]> = {
+  full: ["Full", "Everything: change and publish games, run database SQL, post on the forum, sign-in apps and webhooks. For your own AI tool."],
+  publish: ["Publish", "Upload and publish versions, change game details and tester links, and post on the forum. Can't run SQL or change sign-in apps and webhooks."],
+  upload: ["Upload", "Upload new versions as drafts and read everything, but not publish or post. For CI."],
+  read: ["Read", "Read games, versions, stats, the database and the forum. Changes nothing."],
+  custom: ["Custom", "Choose for each area."],
+};
+
+const AREA_LABELS: Record<AccessArea, string> = {
+  game_access: "Games: details, images, visibility and tester links",
+  version_access: "Versions",
+  stats_access: "Stats, player reports and history",
+  database_access: "Game databases",
+  forum_access: "Developer forum",
+  sign_in_app_access: "Sign-in apps (needs all your games)",
+  webhook_access: "Webhooks (needs all your games)",
+};
+
+const AREA_SHORT_LABELS: Record<AccessArea, string> = { game_access: "games", version_access: "versions", stats_access: "stats", database_access: "database", forum_access: "forum", sign_in_app_access: "sign-in apps", webhook_access: "webhooks" };
+
+const CHOICE_LABELS: Record<string, string> = { none: "No access", read: "Read", change: "Read and change", upload: "Upload", publish: "Upload and publish" };
+
+/** What a key can do and on which games, in a few words, for the list of keys. */
+function keyScopeText(key: ApiKey, games: { slug: string; title: string }[]): string {
+  const access = keyAccess(key);
+  const titles = access.gameSlugs?.map((slug) => games.find((game) => game.slug === slug)?.title ?? slug);
+  const where = titles ? (titles.length === 1 ? `only ${titles[0]}` : `only ${titles.slice(0, -1).join(", ")} and ${titles.at(-1)}`) : "all games";
+  const what = access.accessLevel === "custom" ? ACCESS_AREAS.filter((area) => access.areaAccess[area] !== "none").map((area) => `${AREA_SHORT_LABELS[area]} ${access.areaAccess[area]}`).join(", ") : LEVEL_LABELS[access.accessLevel][0];
+  return `${what}, ${where}`;
+}
+
+/** Making a key: its name, what it can do (a level or a choice per area) and which games. Open when there are no keys yet. */
+function keyForm(games: { slug: string; title: string }[], isOpen: boolean): Raw {
+  return html`<details${isOpen ? raw(" open") : ""}><summary>Make an API key</summary>
+<form class="stack" method="post" action="/account/keys" id="key-form">
+<label>Key name<input name="name" maxlength="40" placeholder="Like My laptop or GitHub Actions"></label>
+<fieldset class="choices"><legend>What it can do</legend>
+${ACCESS_LEVELS.map(
+    (level) => html`<label class="check"><input type="radio" name="access_level" value="${level}"${level === "full" ? raw(" checked") : ""}> <span>${LEVEL_LABELS[level][0]}<small class="hint">${LEVEL_LABELS[level][1]}</small></span></label>`,
+  )}
+</fieldset>
+<fieldset class="areas" id="key-areas"><legend>For a custom key</legend>
+${ACCESS_AREAS.map(
+    (area) => html`<label>${AREA_LABELS[area]}<select name="${area}">${AREA_ACCESS_CHOICES[area].map((choice: string) => html`<option value="${choice}"${choice === "read" ? raw(" selected") : ""}>${CHOICE_LABELS[choice]}</option>`)}</select></label>`,
+  )}
+</fieldset>
+<fieldset class="choices"><legend>Which games</legend>
+<label class="check"><input type="radio" name="game_scope" value="all" checked> <span>All my games<small class="hint">And games you make later.</small></span></label>
+${games.length
+    ? html`<label class="check"><input type="radio" name="game_scope" value="some"> <span>Only these games<small class="hint">It can't make games, sign-in apps or webhooks.</small></span></label>
+<div class="choices" id="key-games">${games.map((game) => html`<label class="check"><input type="checkbox" name="game_slugs" value="${game.slug}"> <span>${game.title}</span></label>`)}</div>`
+    : ""}
+</fieldset>
+<button class="btn" type="submit">Make the key</button>
+</form>
+</details>
+<script>
+(() => {
+  const form = document.getElementById("key-form");
+  const areas = document.getElementById("key-areas");
+  const games = document.getElementById("key-games");
+  const show = () => {
+    areas.hidden = form.access_level.value !== "custom";
+    const isSome = form.game_scope.value === "some";
+    if (games) games.hidden = !isSome;
+    // Sign-in apps and webhooks belong to the whole account, out of reach of a key for some games.
+    for (const select of [form.sign_in_app_access, form.webhook_access]) {
+      select.disabled = isSome;
+      if (isSome) select.value = "none";
+    }
+  };
+  form.addEventListener("change", show);
+  show();
+})();
+</script>`;
+}
+
 const ICON_PASSKEY = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="4"/><path d="M2 21c0-3.9 3.1-7 7-7 1.2 0 2.4.3 3.4.9"/><circle cx="18" cy="13" r="2.5"/><path d="M18 15.5V21l1.5-1.2M18 18.5h1.5"/></svg>';
 
 const BAND_TEXT: Record<AgeBand, string> = { "13-15": "13 to 15", "16-17": "16 or 17", "18+": "18 or over" };
@@ -629,14 +729,11 @@ ${made
       : ""}
 ${keys.length
       ? html`<ul class="keys">${keys.map(
-          (key) => html`<li><span>${key.name} <span class="muted small">made ${day(key.created_at_ms)}, ${key.last_used_at_ms ? `last used ${day(key.last_used_at_ms)}` : "not used yet"}</span></span>
+          (key) => html`<li><span>${key.name} <span class="why muted small">${keyScopeText(key, games)}</span><span class="why muted small">Made ${day(key.created_at_ms)}, ${key.last_used_at_ms ? `last used ${day(key.last_used_at_ms)}` : "not used yet"}</span></span>
 <form method="post" action="/account/keys/${key.id}/revoke"><button class="btn ghost" type="submit">Remove</button></form></li>`,
         )}</ul>`
       : ""}
-<form class="row" method="post" action="/account/keys">
-<input name="name" maxlength="40" placeholder="Key name, like My laptop" aria-label="Key name">
-<button class="btn ghost" type="submit">Make an API key</button>
-</form>
+${keyForm(games, keys.length === 0)}
 <h2>Sign out</h2>
 <form method="post" action="/signout"><button class="btn ghost" type="submit">Sign out on every device</button></form>
 <h2>Delete account</h2>
