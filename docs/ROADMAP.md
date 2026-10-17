@@ -179,7 +179,7 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 
 | Status | Must/Nice | Settled | Item | Needs | Notes |
 | --- | --- | --- | --- | --- | --- |
-| done | Must | | Sign-in | | Emailed code, no passwords. Supabase holds only the email; names and age bands live with the games. Delete account is instant |
+| done | Must | yes | Sign-in | | Emailed code, no passwords (replaced by Usernames and passwords). Supabase holds only the email; names and age bands live with the games. Delete account is instant |
 | done | Must | yes | Age question | Sign-in | Asked before the email, so we collect nothing from under-13s. Only the age band is kept; no ID checks |
 | done | Must | yes | Games have owners | Sign-in | A person now, a team later |
 | done | Must | yes | Cloud saves | Sign-in, Client SDK | Mirrors the game's own browser saves (localStorage and IndexedDB), no code needed; the player chooses when two devices disagree |
@@ -198,6 +198,8 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | planned | Must | yes | Saves without Zaisma screens | Cloud saves, Save history | No conflict chooser (the progress played most recently wins, the other kept as an earlier version), no restoring or list of copies on the account page or game menu; the "Keep your progress" card gets a game setting to turn it off |
 | planned | Must | | Saves in the SDK | Saves without Zaisma screens, "Keep your progress" | `Zaisma.saves.onConflict`, `getHistory()` and `restore()` for games that want their own conflict or rollback screens, and `Zaisma.player.offerAccount()` |
 | planned | Must | | Account deletion reaches developers | Webhooks for developers, Game database through the API | An "account deleted" webhook to every game the player used, with a one-call helper to erase that player in the game database |
+| planned | Must | yes | Usernames and passwords | Sign-in, Age question | Making an account takes a birthday, a public unique username and a password, nothing else; email becomes an optional way back in; Cloudflare's invisible bot check on sign-up |
+| planned | Must | yes | Protect your account | Usernames and passwords, Passkeys | Once there's saved progress to lose, a one-time "Protect your account" offers a passkey or an email; required before cards or parent links |
 | planned | Must | | Download your data | Sign-in | A player downloads everything Zaisma keeps about their account, saves included as files; the legal right of access |
 
 ### Safety and moderation

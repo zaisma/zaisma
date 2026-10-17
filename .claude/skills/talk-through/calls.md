@@ -20,6 +20,9 @@ Would his answer be better than Claude's? His edge: UI and UX, how players and d
 **The account page listing every game's save copies.** *Saves through the API, Oct 16, 2026.* Asked as "should players see that a developer changed their save". He asked why players get a save manager at all. It's experience plus direction, and he caught a Zaisma-run feature built by habit.
 *Lesson:* a question about what players see is his, and so is whether they should see it at all.
 
+**How players sign up: passkeys, email codes or passwords.** *Sign-in, Oct 16, 2026.* Claude compared flows at the moment of sign-up and picked passkey-first. He looked at the player's whole week instead: the school laptop with no phone around, the shared iPad, the kid who remembers a username and password "like the back of my hand". That turned the item into a username and password for everyone, with protection offered once the account has something to lose, and he cut the display name from sign-up.
+*Lesson:* for an experience call, follow the player across devices and weeks, not just the screen in question. His own memory of being a kid beat the vendor data. Copy he'll see shipped goes in plain words ("less flowery").
+
 **Sections on the game dashboard, and letting each developer arrange them.** *Developer dashboard, Oct 16, 2026.* Asked as one page or sections, with a sketch. He took sections and added what the sketch lacked: each developer moves, hides and shows sections per game, since an MMO and a platformer need different things. He also caught that the sketch put account-wide tabs (webhooks, sign-in apps) above one game's sections, which mixed two levels of page.
 *Lesson:* on a page call, expect him to improve the design, not just pick between options; leave room for it. A sketch must show the real page hierarchy (which page, reached from where), because he reads it literally.
 
@@ -38,6 +41,8 @@ Would his answer be better than Claude's? His edge: UI and UX, how players and d
 **Read-only, full access, or full plus bulk download.** *Saves through the API.* He answered "a" at once. The scope was obvious from the decision it came from, so it should have been Claude's call.
 
 **Every "Calls I made, overrule any" list.** All three talks. He doesn't read them: "there doesn't appear to be anything I could decide there." They go in the PR.
+
+**Proof of work at sign-up to make ban evasion cost something.** *Sign-in.* He raised it as an idea, and Claude answered it as a technical call (Cloudflare's invisible check already does it; it can't stop one human). He took that without discussion.
 
 ## Tiers
 

@@ -25,6 +25,7 @@ Hit every front at once at launch.
 ## Player profiles and achievements (Oct 12, 2026)
 
 - Profile pictures, banners and frames, custom or unlocked by playing. Deep customization like Steam profiles.
+- Display names: a name set from the profile and shown beside @username, which stays the account's unique name (Oct 16, 2026, from the Sign-in talk).
 - Games award achievements that show on profiles, link back to the game, and can unlock real rewards (a profile picture, banner or frame).
 - Friends see each other's profiles: games played, achievements.
 - Games show names and profile pictures on leaderboards through the SDK.
