@@ -20,6 +20,9 @@ Would his answer be better than Claude's? His edge: UI and UX, how players and d
 **The account page listing every game's save copies.** *Saves through the API, Oct 16, 2026.* Asked as "should players see that a developer changed their save". He asked why players get a save manager at all. It's experience plus direction, and he caught a Zaisma-run feature built by habit.
 *Lesson:* a question about what players see is his, and so is whether they should see it at all.
 
+**Sections on the game dashboard, and letting each developer arrange them.** *Developer dashboard, Oct 16, 2026.* Asked as one page or sections, with a sketch. He took sections and added what the sketch lacked: each developer moves, hides and shows sections per game, since an MMO and a platformer need different things. He also caught that the sketch put account-wide tabs (webhooks, sign-in apps) above one game's sections, which mixed two levels of page.
+*Lesson:* on a page call, expect him to improve the design, not just pick between options; leave room for it. A sketch must show the real page hierarchy (which page, reached from where), because he reads it literally.
+
 ## Not his
 
 **The export format: SQL dump, or JSON and CSV.** *Game database import and export.* "Too technical… just implementation decisions, not system design."
