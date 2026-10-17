@@ -65,19 +65,21 @@ Use the exact name, never a place in Now: places move as items land. The `backgr
 Under the coordinator (<this session's id>): never merge, ship or clean up. When you've reached a conclusion, ask Julius "Are we done?" and on his yes send the done report to the coordinator with SendMessage, then end your turn with it (see your skill).
 ```
 
-`<this session's id>` is this coordinator's own `local_…` id: the `startedBy` of any session it started (`list_sessions` with `linked: true`). On the first start, before there are any, leave the parentheses out: the session finds the coordinator itself, as the row in `list_sessions` with `linked: true` that has no `startedBy`.
+`<this session's id>` is this coordinator's own `local_…` id: `get_session` with `"self"` gives it. Read it there before the first start; never work it out from a path (the scratchpad folder's name isn't the session's id).
 
 **Why the message.** The app doesn't wake this session for a turn Julius drove himself in another session, and his *Yes, we're done* click is one. The note waits until he next writes here, so without the message he'd have to come back and say "done". A message from the session does wake this one.
 
 Then one or two lines on the mode and what the session is for.
 
-**Set each session's `effort` yourself**, from the item's row, its Needs and what it touches. Don't ask Julius.
+**Set each session's `effort` yourself**, from the item's row, its Needs and what it touches. Don't ask Julius which level. The app names the levels Low, Medium, High, Extra and Max; the tools call Extra `xhigh`. (Ultracode in the app's list is the multi-agent workflow mode, not a level the tools set.)
 
 - **`medium`, low stakes:** copy, docs, a page tweak, a small fix in one place, a talk about a small done item.
 - **`high`, the default:** most items and talks.
-- **`xhigh`, high stakes:** a First item or one much else builds on; migrations that change or delete data; money (Stripe, the buy sheet); safety, moderation and the 13+ rules; sign-in, player passes, API keys and the game sandbox; names in the API, SDK or game server that lock in once live.
+- **`xhigh` (Extra), high stakes:** a First item or one much else builds on; migrations that change or delete data; money (Stripe, the buy sheet); safety, moderation and the 13+ rules; sign-in, player passes, API keys and the game sandbox; names in the API, SDK or game server that lock in once live.
 
-A session can't go above this one's effort. If this session runs below `xhigh`, say so in a line when an item wants it. When a session turns out bigger or riskier than its row said (a talk settles more than expected, a build hits a migration), raise it with `set_session_effort`. `build-next` does the rest:
+**`start_session` quietly caps `effort` at this session's own level.** Asking for `xhigh` from a coordinator at High starts the session at High, and the result doesn't say so. So before the first start, read this session's level (`get_session` with `"self"`). Start every session with `effort` at or below it, then raise each one that wants more with `set_session_effort` right after it starts: the app asks Julius to approve each raise above this session's level, and it applies from that session's next turn. Check the level that stuck with `get_session` on the new session, never from the start result. In your message about the batch, say which sessions run at which level.
+
+When a session turns out bigger or riskier than its row said (a talk settles more than expected, a build hits a migration), raise it the same way. `build-next` does the rest:
 
 1. It claims the row.
 2. If the item isn't settled, it prepares the talk's brief and waits for Julius.
