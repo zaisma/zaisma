@@ -123,15 +123,19 @@ Then:
 
 ## 7. Under the coordinator
 
-When your brief says you're under the coordinator, the close changes. You never merge, push to main, ship, republish the roadmap page or clean up on your own; the coordinator does all of that. Once your pull request is merged, it asks you to run `/cleanup`: run it, then end your turn with one line saying it's clean.
+When your brief says you're under the coordinator, the close changes. You never merge, push to main, ship, republish the roadmap page or clean up on your own; the coordinator does all of that. After a talk that started nothing, the coordinator cleans up itself. If you started anything that keeps running (a preview, a server), it asks you to run `/cleanup` once your pull request is merged: run it, stop what you started, then end your turn with one line saying it's clean.
 
 - **On its own or a done item:** always open a pull request, after `npm test`, even when only `docs/ROADMAP.md` changes. Don't ask him to merge it.
 - **Inside `build-next`:** carry on building; `build-next` ends the session the same way.
+
+**A decision is not a yes.** His answer to your last question, "go with your pick" or "drop them" settles a call, but it doesn't end the talk. After it, write what it settles, open the pull request, and ask. Only his *Yes, we're done* or his words saying so ("we're done", "that's it") end the talk.
 
 Once the pull request is open and nothing is left to talk about, ask one thing with the wrap-up box: **"Are we done?"**, with the buttons *Yes, we're done* and *More to discuss*. For a Quick item, his *Settle it* already said it, so skip the question. *More to discuss* means the talk goes on. On *Yes, we're done* (or his words saying so), push anything left, then end your turn with `wrap_up` and no question. Its recap starts:
 
 ```
 Done: <the item's exact name>, talk, PR #<number>.
+Julius: "<his exact words or click that said you're done>"
+Started: nothing | <what's still running, e.g. a preview on localhost:8900>
 ```
 
-followed by what it settled in one line. That recap is the done report, and it reaches the coordinator by itself. Ask nothing after it and don't offer a follow-up. If he sets the item aside without settling it, the report is `Done: <name>, talk, no PR.` with the reason.
+followed by what it settled in one line. That recap is the done report. First send the same report to the coordinator with `SendMessage`, `to` its `local_…` id from your brief (or, if it isn't there, the row in `list_sessions` with `linked: true` that has no `startedBy`). The app doesn't wake the coordinator for a turn Julius drove himself, so without the message he'd have to tell it you're done. Ask nothing after it and don't offer a follow-up. If he sets the item aside without settling it, the report is `Done: <name>, talk, no PR.` with the reason.

@@ -1,0 +1,5 @@
+# Append-only docs: talks add cases and ideas at the end, so a local merge keeps both sides
+# instead of conflicting. GitHub's own branch update ignores this; the coordinator merges locally.
+docs/IDEAS.md merge=union
+docs/principles/*.md merge=union
+.claude/skills/talk-through/calls.md merge=union
