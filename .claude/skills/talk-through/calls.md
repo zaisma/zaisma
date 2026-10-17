@@ -75,6 +75,9 @@ Would his answer be better than Claude's? His edge: UI and UX, how players and d
 **Which links teens can open, raised by him mid-talk.** *Registered links, Oct 17, 2026.* The item opened as *One call* (where the leaving notice sits) and he took the pick in one click. Then he asked that under-18 accounts open only trusted sites. Claude didn't just write it: it showed who the rule really stops (guests have no age, so either most players lose the Patreon button or teens just play signed out), what it costs developers at the beta, and which settled decisions it changes, next to a narrower option (block only chat apps). He answered every point, refined his own option (by domain, payment sites seeded, guests treated like teens so honest players aren't punished) and kept the narrow one's chat-app block. He also caught copy Claude had written: a card saying "only for 18+" invites teens to lie about their age.
 *Lesson:* when he proposes a safety rule, bring who it actually stops, what it costs in money and what it changes, with a narrower option; expect him to merge options rather than pick one. Copy that gives a restriction's reason can create the reason to dodge it.
 
+**The console's layout: tabs like D1, or one SQL box.** *Game database console, Oct 17, 2026.* The big page call (console, not a spreadsheet) was already his from the import and export talk, so the follow-up item opened as *One call* on the layout alone, with both sketched and a pick. He answered "B" in one word.
+*Lesson:* when a page's kind is settled and its layout isn't, the layout is still his, and two side-by-side sketches with a pick make it a one-word answer. Don't reopen the settled part.
+
 ## Not his
 
 **The export format: SQL dump, or JSON and CSV.** *Game database import and export.* "Too technical… just implementation decisions, not system design."
