@@ -2,6 +2,10 @@
 
 Ideas waiting for a decision. Nothing here is decided or scheduled. When Julius decides one, it moves to `docs/DECISIONS.md` and `docs/ROADMAP.md` and is removed from here.
 
+## Earn-sats games (Oct 16, 2026)
+
+Games that pay players sats for playing, a well-known genre in the Bitcoin community (THNDR, Zebedee). Dropped for now (Julius, Oct 16, 2026): the honest ones are funded by rewarded ads, and Zaisma games have none, so what's left would be a developer's own pocket or the scam kind (deposits, withdrawal traps, paid entries, referral pyramids), sold as "earn Bitcoin" to 13-year-olds. Revisit only if an honest way to pay for it exists, like sponsors, and players never pay in.
+
 ## Demos for upcoming games (Oct 12, 2026)
 
 Zaisma as the place for playable demos of upcoming or existing games, especially Steam releases. AI makes a web demo quick to build, and a link-to-play demo beats a download.

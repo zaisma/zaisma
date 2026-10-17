@@ -73,5 +73,8 @@ All three talks above should have opened differently:
 **Clear lines, not judgment calls.** He pushed twice for rules a developer can check without guessing ("why build a wacky game if a blurry rule could mean account deletion?"). What landed was a one-line test and Fine / Not fine examples, plus saying what breaking a rule costs.
 *Lesson:* for any rule developers are held to, bring the test, the examples and the consequence, not only the wording.
 
+**Earn-sats games.** I recommended allowing them without saying where their money comes from. After the PR was open he asked, and the answer (ads, which Zaisma games don't have, or players' own money) made him drop them.
+*Lesson:* on anything involving money flowing to players, say where the money comes from before recommending it.
+
 **"Can I see?"** He asked to see the whole page, not the diff.
 *Lesson:* for a page, show it rendered as it would read, with the changes marked, before asking for a yes.
