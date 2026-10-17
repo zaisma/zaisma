@@ -137,7 +137,8 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | done | Must | yes | Player passes | | Signed guest passes any server can check, published keys |
 | done | Must | yes | Game server API and relay |  | Server-client by default; messages-only relay for simple games |
 | done | Must | yes | Rooms on rooms.zaisma.com | Player passes, Game server API and relay | Durable Objects with hibernation; limits, takedowns end rooms |
-| done | Must | | Games can reach our rooms and their own servers | Rooms on rooms.zaisma.com | Own servers set per game and listed on the game page |
+| done | Must | yes | Games can reach our rooms and their own servers | Rooms on rooms.zaisma.com | Own servers set per game and listed on the game page |
+| planned | Must | yes | Developers set their own servers | Games can reach our rooms and their own servers, Developer dashboard | Up to 5 per game from the dashboard, API, MCP and upload command, live at once and named on the game page; no approval by Zaisma (Julius, Oct 16, 2026) |
 | done | Must | yes | Client SDK | Rooms on rooms.zaisma.com | `joinRoom`, invite links, reconnecting |
 | done | Must | yes | Room invite links | Client SDK | Tap a link, land in the match as a guest |
 | done | Must | yes | Game page controls |  | Share, Full screen and a menu (about, Report) beside the game; invites live in the game via `Zaisma.invite` |
