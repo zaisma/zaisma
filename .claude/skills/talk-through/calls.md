@@ -35,6 +35,9 @@ Would his answer be better than Claude's? His edge: UI and UX, how players and d
 **The service's limits, raised by him.** *Add PhotoDNA to image matching, Oct 16, 2026.* A Quick item; on *Show me more* he brought Microsoft's rate limit (5 a second, 10 million a month) from the console, which Claude hadn't seen. The answer was technical (one shared pacer, falling back like an outage), so it settled in the next click.
 *Lesson:* for an outside service, he may hold facts from its console or contract that aren't in the repo. Show the decisions anyway; when he adds a fact, answer what it changes for players and developers, then decide the mechanism.
 
+**Who gets Discord posts and GitHub issues from webhooks.** *Webhooks for developers, Oct 16, 2026.* A done item; the one call was whether developers with no server of their own get them (their game server on Zaisma, nothing new, or Zaisma-made formats). Opened as *One call* with one scenario at the moment the options differ, and he took the pick in one click. The rest of the live item, and how the game server takes events, never reached him.
+*Lesson:* on a done item, look for who the live design leaves out; that's usually the one call. Rule out the option the direction forbids in the brief, with the reason, rather than offering it straight.
+
 **How far a block reaches: hidden everywhere, or kept out of your rooms.** *Player safety in rooms, Oct 16, 2026.* Offered A (a wall, Zaisma never helps them find you) or B (also turned away from your rooms), picking A. He took A and added the reverse of B: the blocker's own room picks steer away from the blocked player, a preference and never a rule on someone else ("try not to walk into that area in the first place"). He reasons from property rights: nobody's preference is enforced on another.
 *Lesson:* when an option forces one player's wish on another, look for the voluntary version (the person who wants distance takes it) and offer it yourself.
 
