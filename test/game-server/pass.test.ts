@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PassError, canChat, generateSigningKey, guestName, isRoomCode, jwks, loadSigningKey, roomCode, signPass, verifyPass, type PassClaims, type SocialMode } from "../../packages/game-server/src/index.ts";
+import { PassError, canChat, generateSigningKey, guestName, isRoomCode, jwks, loadSigningKey, roomCode, signPass, verifyPass, type PassClaims, type WhoCanChat } from "../../packages/game-server/src/index.ts";
 
 const ISS = "https://rooms.zaisma.test";
 
@@ -55,25 +55,28 @@ describe("player passes", () => {
   it("carries an account's friends, and canChat lets friends chat when both passes say so", async () => {
     const { signing, claims, keys } = await setup();
     const reason = async (token: string) => verifyPass(token, keys, { game: "arena", issuer: ISS }).then(() => "ok", (error: PassError) => error.code);
-    const account = (sub: string, socialMode: SocialMode, friendPlayerIds: string[]): PassClaims => ({ ...claims, name: undefined, sub, kind: "account", social_mode: socialMode, friend_player_ids: friendPlayerIds });
-    expect(await reason(await signPass(signing, account("player_ana", "friends_focused", ["player_ben"])))).toBe("ok");
-    expect(await reason(await signPass(signing, { ...account("player_ana", "friends_focused", []), friend_player_ids: "player_ben" as never }))).toBe("malformed");
-    expect(await reason(await signPass(signing, { ...account("player_ana", "friends_focused", []), friend_player_ids: [7] as never }))).toBe("malformed");
+    const account = (sub: string, whoCanChat: WhoCanChat, friendPlayerIds: string[]): PassClaims => ({ ...claims, name: undefined, sub, kind: "account", who_can_chat: whoCanChat, friend_player_ids: friendPlayerIds });
+    expect(await reason(await signPass(signing, account("player_ana", "friends", ["player_ben"])))).toBe("ok");
+    expect(await reason(await signPass(signing, { ...account("player_ana", "friends", []), friend_player_ids: "player_ben" as never }))).toBe("malformed");
+    expect(await reason(await signPass(signing, { ...account("player_ana", "friends", []), friend_player_ids: [7] as never }))).toBe("malformed");
 
-    const ana = account("player_ana", "friends_focused", ["player_ben", "player_cy"]);
-    const ben = account("player_ben", "friends_focused", ["player_ana"]);
+    const ana = account("player_ana", "friends", ["player_ben", "player_cy"]);
+    const ben = account("player_ben", "friends", ["player_ana"]);
     // Cy removed Ana: Cy's new pass no longer lists her, so Ana's older one isn't enough.
-    const cy = account("player_cy", "open_and_social", []);
-    const soloFriend = account("player_dee", "solo_focused", ["player_ana"]);
+    const cy = account("player_cy", "anyone", []);
+    const soloFriend = account("player_dee", "nobody", ["player_ana"]);
     expect(canChat(ana, ben)).toBe(true);
     expect(canChat(ben, ana)).toBe(true);
     expect(canChat(ana, cy)).toBe(false);
     expect(canChat({ ...ana, friend_player_ids: [...ana.friend_player_ids!, "player_dee"] }, soloFriend)).toBe(false);
-    // Friends chat across chat groups; open-and-social strangers still need the same group.
-    expect(canChat({ ...ben, social_mode: "open_and_social", chat_group: "chat_group_a" }, { ...ana, social_mode: "open_and_social", chat_group: "chat_group_b" })).toBe(true);
-    expect(canChat({ ...cy, chat_group: "chat_group_a" }, { ...account("player_eve", "open_and_social", []), chat_group: "chat_group_a" })).toBe(true);
+    // Friends chat across chat groups; strangers who both let anyone chat still need the same group.
+    expect(canChat({ ...ben, who_can_chat: "anyone", chat_group: "chat_group_a" }, { ...ana, who_can_chat: "anyone", chat_group: "chat_group_b" })).toBe(true);
+    expect(canChat({ ...cy, chat_group: "chat_group_a" }, { ...account("player_eve", "anyone", []), chat_group: "chat_group_a" })).toBe(true);
     // A guest named in a list is still a guest.
     expect(canChat(ana, { ...claims, sub: "player_ben" })).toBe(false);
+    // Anyone on one side and friends on the other: friends only.
+    expect(canChat({ ...cy, chat_group: "chat_group_a" }, { ...account("player_fay", "friends", []), chat_group: "chat_group_a" })).toBe(false);
+    expect(await reason(await signPass(signing, { ...ana, who_can_chat: "open_and_social" as never }))).toBe("malformed");
   });
 });
 

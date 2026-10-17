@@ -364,7 +364,7 @@ Who a player is, who they play with and how they find games.
 | Status | Phase | Must/Nice | Settled | Slice | Needs | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
 | done | Beta | Must | yes | Social modes and age bands | Age question | Live Oct 16, 2026 (#162, migration 0039): three age bands (13–15, 16–17, 18+) and a social mode on every account, chosen at signup from 16 and changed on the account page; 13–15 start solo-focused and can switch only to friends-focused. The pass carries the social mode and an opaque chat group, never the age; `canChat(a, b)` in the game server package |
-| next | Beta | Must | yes | Social settings | Social modes and age bands | A Social section on the account page: separate settings for chat, joining, what I'm playing, what I've played, online and friend requests, with the social modes as presets plus Custom and hard age limits; the page says "Anyone", never band groups (Julius, Oct 17, 2026) |
+| doing | Beta | Must | yes | Social settings | Social modes and age bands | A Social section on the account page: separate settings for chat, joining, what I'm playing, what I've played, online and friend requests, with the social modes as presets plus Custom and hard age limits; the page says "Anyone", never band groups (Julius, Oct 17, 2026) |
 
 ### Friends
 
