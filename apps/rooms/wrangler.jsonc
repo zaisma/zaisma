@@ -20,17 +20,20 @@
   // One Durable Object per room, SQLite-backed (required on the free plan), always with WebSocket hibernation.
   // And one per game for its database (database.ts), SQLite-backed, used by all its rooms.
   // And one per game for its game server outside rooms (game-server.ts): requests (onRequest) and schedules (onSchedule).
+  // And one per game for its secrets (secrets.ts), which its game server reads.
   "durable_objects": {
     "bindings": [
       { "name": "ROOMS", "class_name": "Room" },
       { "name": "GAME_DATABASES", "class_name": "GameDatabaseObject" },
-      { "name": "GAME_SERVER_OBJECTS", "class_name": "GameServerObject" }
+      { "name": "GAME_SERVER_OBJECTS", "class_name": "GameServerObject" },
+      { "name": "GAME_SECRETS", "class_name": "GameSecretsObject" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["Room"] },
     { "tag": "v2", "new_sqlite_classes": ["GameDatabaseObject"] },
-    { "tag": "v3", "new_sqlite_classes": ["GameServerObject"] }
+    { "tag": "v3", "new_sqlite_classes": ["GameServerObject"] },
+    { "tag": "v4", "new_sqlite_classes": ["GameSecretsObject"] }
   ],
   // Developers' game servers run in Dynamic Workers (sandbox.ts); their files come from the games bucket.
   "worker_loaders": [{ "binding": "LOADER" }],
@@ -46,6 +49,8 @@
     // Public profiles by player ID: a developer's own game server looks up each account that joins.
     { "name": "PROFILE_LIMIT", "namespace_id": "1012", "simple": { "limit": 300, "period": 60 } },
     // Requests to games' own game servers (Zaisma.server.request): plenty for a player, not for a script.
-    { "name": "REQUEST_LIMIT", "namespace_id": "1013", "simple": { "limit": 120, "period": 60 } }
+    { "name": "REQUEST_LIMIT", "namespace_id": "1013", "simple": { "limit": 120, "period": 60 } },
+    // Game servers' calls to other servers, per game (src/outbound.ts; OUTSIDE_CALL_LIMITS.callsPerMin).
+    { "name": "OUTSIDE_CALL_LIMIT", "namespace_id": "1015", "simple": { "limit": 600, "period": 60 } }
   ]
 }

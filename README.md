@@ -98,7 +98,7 @@ zaisma-server/
 ```
 
 - **Plain JavaScript ES modules:** `zaisma-server/index.js` default-exports the game server above, and can import the folder's other files by relative path: `.js` code, `.json` data (`import levels from "./levels.json"`) and `.wasm` WebAssembly, like a physics engine (`import mod from "./physics.wasm"` gives a `WebAssembly.Module`; `new WebAssembly.Instance(mod, imports)` starts it). Packages from npm (`import "lodash"`) and TypeScript need a build step: bundle into one `zaisma-server.js` at the top of the upload instead (`npx esbuild server.ts --format=esm --bundle --outfile=zaisma-server.js`). Up to 500 files and 5 MB.
-- **Sealed off:** no internet and nothing of Zaisma's but its own game's database, so it only talks to its players through `room` and its answers to their requests. State is plain JSON.
+- **Sealed off:** nothing of Zaisma's but its own game's database and secrets, and other servers only on the hosts you list (below), so it talks to its players through `room` and its answers to their requests. State is plain JSON.
 - **Private:** players never get its files; the game domain refuses `zaisma-server/` and `zaisma-server.js`.
 - **Kept in check:** an error in a handler loses that one message or tick and the match carries on. A handler that runs on too long (a loop that never ends) is stopped after about 2 seconds, freezing the match meanwhile, and a match stopped twice ends. Your dashboard and the MCP's `get_stats` show these errors with the file and line they came from.
 - **Updates:** rooms keep the version they started with until they end; new rooms get the live version.
@@ -260,6 +260,35 @@ export default {
 - **`onSchedule(run, server)`** gets `run.name`, `run.cron` and `run.scheduledAt`, the minute it was due (an ISO time). There's no room, no player and no state: what lasts goes in `server.database`, the same game database the game's rooms and requests use. It has 30 seconds. A run can rarely come late or twice (after a restart), so make it safe to repeat, like a reset that checks `run.scheduledAt`.
 - **Up to 10 schedules, free on Zaisma.** They run with the live version's game server, whatever the multiplayer setting, within a minute of it going live; a version without them stops them, and so does a game taken down. A game server with only schedules needs no `setup()` and runs no rooms. Your dashboard and `get_stats` show each schedule with its next and last run, the runs per day, and any errors with the schedule's name, file and line.
 - **On your own server** the Node runner runs the same schedules at the same minutes while it's up, with `server.database` its local SQLite file, and prints a run's errors. A run due while it's down is missed.
+
+#### Calling other servers, with secrets
+
+A game's server can call your own server, a payment provider, Discord, GitHub or any other https API with plain `fetch()`, on the hosts you list for the game, and keep the tokens it needs as secrets:
+
+```js
+// zaisma-server/index.js: post each new top score to the game's Discord channel
+export default {
+  async onRequest(player, request, server) {
+    if (request.type !== "score") return null;
+    await fetch(server.secrets.DISCORD_WEBHOOK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: `${player.name} scored ${request.score}!` }),
+    });
+    return { isPosted: true };
+  },
+};
+```
+
+```sh
+# the hosts it calls (or update_game with game_server_allowed_hosts), and the secret it uses
+npx @zaisma/cli allowed-hosts <slug> discord.com
+npx @zaisma/cli secrets set <slug> DISCORD_WEBHOOK_URL   # asks for the value; never shown again
+```
+
+- **Hosts:** `game_server_allowed_hosts`, up to 20 host names like `api.github.com`, or `"*.example.com"` for every name under example.com. Every call is https, never to an IP address or Zaisma's own domains, sends up to 5 MB and gets 10 seconds; redirects come back to your code rather than being followed, and a game makes up to about 600 calls a minute in each place. Live within a minute, with no approval by Zaisma; players don't see the list. A call to anything else throws an `OutsideCallError` with a `code` (like `host_not_allowed`) and a `fix`, which `get_stats` shows with your other errors.
+- **Secrets:** names like `DISCORD_WEBHOOK_URL` (capitals, digits and underscores) with up to 8 KB of text, up to 50 a game, set with `set_secret`, the API or the upload command and never shown again, to anyone. Your game server reads them as `server.secrets` in `onRequest` and `onSchedule` and `room.secrets` in rooms; running rooms get a new value within a minute. Since your code reads them, anyone who can publish the game's code can use them. Never put a secret in the game's own files: players can read those.
+- **On your own server** the Node runner calls out freely, and `server.secrets` is its environment variables, so the same code runs with `DISCORD_WEBHOOK_URL=… node packages/game-server/bin/node.js …`.
 
 #### Run your game server yourself
 

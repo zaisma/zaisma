@@ -10,6 +10,8 @@
 // The game's requests (onRequest) come to POST /v1/requests/<game> on the same port, and its
 // schedules (onSchedule) run while it's up, at the minutes their crons give in UTC.
 // The game's database (room.database) is a local SQLite file, --database, made on first use.
+// Its secrets (room.secrets, server.secrets) are this process's environment variables, and it calls
+// other servers with plain fetch(), with no list: on your own server nothing stands in between.
 import { WebSocketServer } from "ws";
 import { createServer } from "node:http";
 import { pathToFileURL } from "node:url";
@@ -109,12 +111,13 @@ export function localDatabase(file) {
  * Start a server. Options: server (a game server object), game (its Zaisma slug),
  * port, origins (allowed page origins), issuer, keys (async () => public keys),
  * profiles (async (playerId) => an account's public profile or null), database (room.database
- * and server.database; by default a local file, zaisma-database.sqlite, made the first time the game uses it).
+ * and server.database; by default a local file, zaisma-database.sqlite, made the first time the game uses it),
+ * secrets (room.secrets and server.secrets; by default this process's environment variables).
  */
-export function startServer({ server, game, port, origins, issuer = "https://rooms.zaisma.com", keys, profiles = profilesFrom(issuer), database = localDatabase("zaisma-database.sqlite") }) {
+export function startServer({ server, game, port, origins, issuer = "https://rooms.zaisma.com", keys, profiles = profilesFrom(issuer), database = localDatabase("zaisma-database.sqlite"), secrets = secretsFromEnvironment() }) {
   const definition = defineGameServer(server);
   // Schedules run while this server is up; one that's down when a run is due misses that run.
-  const schedules = startSchedules(definition, { database }, (run, failure) => console.error(`Game server error in onSchedule ("${run.name}", due ${run.scheduledAt}):`, failure));
+  const schedules = startSchedules(definition, { database, secrets }, (run, failure) => console.error(`Game server error in onSchedule ("${run.name}", due ${run.scheduledAt}):`, failure));
   const rooms = new Map(); // code -> { core, sockets: Map<playerId, ws>, timer }
   const httpServer = createServer((request, response) => answerHttp(request, response));
   const wss = new WebSocketServer({ server: httpServer, maxPayload: 64 * 1024 });
@@ -176,7 +179,7 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
           throw error;
         }
         if (!player) return fail("bad_pass");
-        const outcome = await answerRequest(definition, player, body.request, { database });
+        const outcome = await answerRequest(definition, player, body.request, { database, secrets });
         if ("answer" in outcome) return reply(200, { answer: outcome.answer });
         if (outcome.code === "game_server_error") console.error("Game server error in onRequest:", outcome.failure);
         fail(outcome.code);
@@ -197,6 +200,7 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
       definition,
       {
         database,
+        secrets,
         send: (id, text) => sockets.get(id)?.send(text),
         close: (id, code, reason) => sockets.get(id)?.close(code, reason),
         reserve: (next, how) => {
@@ -364,6 +368,11 @@ export function startServer({ server, game, port, origins, issuer = "https://roo
       httpServer.closeAllConnections?.();
     });
   return { wss, httpServer, rooms, close };
+}
+
+/** room.secrets and server.secrets on your own server: the environment variables, as they were at the start. */
+export function secretsFromEnvironment() {
+  return Object.freeze(Object.fromEntries(Object.entries(process.env).filter(([, environmentValue]) => typeof environmentValue === "string")));
 }
 
 function flag(name, fallback) {

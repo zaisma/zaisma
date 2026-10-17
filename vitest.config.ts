@@ -11,7 +11,7 @@ const roomsDatabaseWorker = {
   modules: [{ type: "ESModule" as const, path: "rooms-database-worker.mjs", contents: roomsDatabaseBundle.outputFiles[0]!.text }],
   compatibilityDate: "2026-10-01",
   compatibilityFlags: ["nodejs_compat"],
-  durableObjects: { GAME_DATABASES: { className: "GameDatabaseObject", useSQLite: true } },
+  durableObjects: { GAME_DATABASES: { className: "GameDatabaseObject", useSQLite: true }, GAME_SECRETS: { className: "GameSecretsObject", useSQLite: true } },
 };
 
 // And PhotoDNA matching in the photodna Worker (its container can't run in tests): a stand-in that's always down.
@@ -30,6 +30,15 @@ export default { fetch: () => new Response("Not found", { status: 404 }) };`,
     },
   ],
   compatibilityDate: "2026-10-01",
+};
+
+// What game servers' calls to other servers reach in the rooms tests (apps/rooms/src/outbound.ts): a
+// stand-in for the internet that says what it was sent, so tests can check what got through.
+const outsideServers = (request: Request): Response => {
+  const url = new URL(request.url);
+  if (url.pathname === "/redirect") return new Response(null, { status: 302, headers: { Location: "https://elsewhere.example.test/took-the-redirect" } });
+  if (url.pathname === "/claims-refusal") return new Response("{}", { headers: { "Content-Type": "application/json", "zaisma-outside-call-refused": "host_not_allowed" } });
+  return Response.json({ host: url.hostname, path: url.pathname, method: request.method, authorization: request.headers.get("authorization") });
 };
 
 const migrations = await readD1Migrations("migrations");
@@ -103,7 +112,7 @@ export default defineConfig({
         GAME_DOMAIN: "",
         PASS_SIGNING_KEY: passKey,
         ROOM_LIST_CACHE_SECONDS: "0",
-      }),
+      }, { outboundService: outsideServers }),
     ],
   },
 });

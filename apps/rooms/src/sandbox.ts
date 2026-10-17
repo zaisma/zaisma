@@ -1,10 +1,12 @@
-import { GAME_SERVER_OPTIONS, checkSchedules, defineGameServer, noSetupError, readJoinAnswer, unknownOptionError, type AwayReason, type GameServer, type JoinAnswer, type JoinInfo, type LeaveInfo, type Player, type Room, type ScheduledRun } from "@zaisma/game-server";
+import { GAME_SERVER_OPTIONS, OUTSIDE_CALL_REFUSAL_HEADER, checkSchedules, defineGameServer, noSetupError, readJoinAnswer, unknownOptionError, type AwayReason, type GameServer, type JoinAnswer, type JoinInfo, type LeaveInfo, type Player, type Room, type ScheduledRun } from "@zaisma/game-server";
 import { SANDBOX_GAME_SERVER, manifestKey, serverModules, type Manifest } from "@zaisma/core";
 import type { Env } from "./index.ts";
 
 /**
- * Developers' own game servers, run in a Dynamic Worker: a sealed sandbox with no internet, a CPU
- * limit and one binding, its own game's database (database.ts). A game opts in with multiplayer_mode "own" and its game server in its
+ * Developers' own game servers, run in a Dynamic Worker: a sealed sandbox with a CPU limit and one
+ * binding, its own game's database (database.ts). Its fetch() reaches only the hosts the game lists,
+ * through our gateway (outbound.ts), and the room or the game's object hands it the game's secrets
+ * (secrets.ts) when it opens a session. A game opts in with multiplayer_mode "own" and its game server in its
  * upload: a zaisma-server/ folder (index.js, importing the folder's other .js files by relative
  * path) or one zaisma-server.js. ES modules whose default export is the game server.
  *
@@ -70,6 +72,8 @@ interface Settings {
 
 export interface Session {
   settings(): Promise<Settings>;
+  /** The game's secrets changed: room.secrets and server.secrets are these from the next call. */
+  setSecrets(secrets: Record<string, string>): Promise<void>;
   setup(setupData: unknown): Promise<Answer>;
   call(hook: string, state: unknown, handlerArguments: unknown[], room: Snapshot): Promise<Answer>;
   /** canJoin: the game's answer on a player coming in, as plain JSON. It can't change the state or the room. */
@@ -83,6 +87,7 @@ export interface Session {
 // Runs inside the sandbox, beside the game's file. Plain JavaScript: nothing here is trusted by the
 // room, which checks everything it's handed back like any message from a player.
 const harness = (entry: string) => `
+import "./outside-calls.js";
 import { WorkerEntrypoint, RpcTarget } from "cloudflare:workers";
 import server from "./${entry}";
 
@@ -112,9 +117,10 @@ function gameDatabase(binding) {
   };
 }
 
-function recorder(snapshot, effects, database) {
+function recorder(snapshot, effects, database, secrets) {
   return {
     database,
+    secrets,
     get players() { return snapshot.players.map((player) => ({ ...player })); },
     broadcast(message, broadcastOptions) { effects.push({ do: "broadcast", message, exceptPlayerId: broadcastOptions && broadcastOptions.exceptPlayerId }); },
     send(playerId, message) { effects.push({ do: "send", playerId, message }); },
@@ -142,11 +148,23 @@ async function answer(handler, effects, state) {
   }
 }
 
+// room.secrets and server.secrets: plain text by name, which the game can read but not change.
+function frozenSecrets(given) {
+  const secrets = {};
+  for (const [name, secretValue] of Object.entries(given && typeof given === "object" ? given : {})) if (typeof secretValue === "string") secrets[name] = secretValue;
+  return Object.freeze(secrets);
+}
+
 class Session extends RpcTarget {
   #database;
-  constructor(database) {
+  #secrets;
+  constructor(database, secrets) {
     super();
     this.#database = database;
+    this.#secrets = frozenSecrets(secrets);
+  }
+  setSecrets(secrets) {
+    this.#secrets = frozenSecrets(secrets);
   }
   settings() {
     return {
@@ -168,7 +186,7 @@ class Session extends RpcTarget {
   call(hook, state, handlerArguments, snapshot) {
     const effects = [];
     if (!HOOKS.includes(hook) || typeof server[hook] !== "function") return { state, effects };
-    const room = recorder(snapshot, effects, this.#database);
+    const room = recorder(snapshot, effects, this.#database, this.#secrets);
     // onJoin(state, player, room, joinData, joinInfo), onLeave(state, player, room, leaveInfo), onAway(state, player, room, reason),
     // onMessage(state, player, message, room), onTick(state, tickDurationSec, room), onMoved(state, moveResult, room), onBack(state, player, room)
     const full =
@@ -182,7 +200,7 @@ class Session extends RpcTarget {
     if (typeof server.canJoin !== "function") return { answer: true };
     let answer;
     try {
-      answer = await server.canJoin(state, player, recorder(snapshot, [], this.#database), joinData, joinInfo);
+      answer = await server.canJoin(state, player, recorder(snapshot, [], this.#database, this.#secrets), joinData, joinInfo);
     } catch (error) {
       return { error: String((error && error.stack) || error) };
     }
@@ -193,12 +211,12 @@ class Session extends RpcTarget {
       return { answer: "(an answer that isn't plain JSON)" };
     }
   }
-  // onRequest(player, request, server): no room and no state, only the game's database.
+  // onRequest(player, request, server): no room and no state, only the game's database and secrets.
   async request(player, request) {
     if (typeof server.onRequest !== "function") return { error: "This game server has no onRequest" };
     let answer;
     try {
-      answer = await server.onRequest(player, request, { database: this.#database });
+      answer = await server.onRequest(player, request, { database: this.#database, secrets: this.#secrets });
     } catch (error) {
       return { error: String((error && error.stack) || error) };
     }
@@ -217,7 +235,7 @@ class Session extends RpcTarget {
   async schedule(run) {
     if (typeof server.onSchedule !== "function") return { error: "This game server has no onSchedule" };
     try {
-      await server.onSchedule(run, { database: this.#database });
+      await server.onSchedule(run, { database: this.#database, secrets: this.#secrets });
       return {};
     } catch (error) {
       return { error: String((error && error.stack) || error) };
@@ -236,11 +254,38 @@ function plain(value) {
 }
 
 export default class extends WorkerEntrypoint {
-  open() {
+  open(secrets) {
     if (!server || (typeof server.setup !== "function" && typeof server.onRequest !== "function" && typeof server.onSchedule !== "function")) throw new Error("${entry} must export default a game server with setup() for rooms, onRequest() for requests or onSchedule() for schedules");
-    return new Session(gameDatabase(this.env.DATABASE));
+    return new Session(gameDatabase(this.env.DATABASE), secrets);
   }
 }
+`;
+
+// Loaded before the game's own code, so the fetch it finds is this one: a call our gateway refused
+// (outbound.ts) throws an OutsideCallError saying why and what to do, instead of answering like the
+// server it was meant for. The gateway decides either way; this only shapes the error.
+const outsideCalls = `
+class OutsideCallError extends Error {
+  constructor(error) {
+    super(error.message + " " + error.fix + " (" + error.code + ")");
+    this.name = "OutsideCallError";
+    this.code = error.code;
+    this.fix = error.fix;
+  }
+}
+const outsideFetch = globalThis.fetch;
+globalThis.fetch = async function fetch(input, init) {
+  const response = await outsideFetch(input, init);
+  if (!response.headers.has("${OUTSIDE_CALL_REFUSAL_HEADER}")) return response;
+  let error;
+  try {
+    error = (await response.json()).error;
+  } catch {
+    error = { code: response.headers.get("${OUTSIDE_CALL_REFUSAL_HEADER}"), message: "The call was refused.", fix: "" };
+  }
+  throw new OutsideCallError(error);
+};
+globalThis.OutsideCallError = OutsideCallError;
 `;
 
 /** A version's game server files and their code, or null if it has none (or too much). */
@@ -272,28 +317,32 @@ async function serverCode(env: Env, versionId: string): Promise<{ entry: string;
  * shared by all its rooms and its requests in a place, and warm while in use. Null if the version has
  * no game server file.
  */
-export async function sandboxOpener(env: Env, exports: Cloudflare.Exports, gameId: string, versionId: string): Promise<(() => Promise<Session>) | null> {
+export async function sandboxOpener(env: Env, exports: Cloudflare.Exports, gameId: string, versionId: string): Promise<((secrets: Record<string, string>) => Promise<Session>) | null> {
   const code = await serverCode(env, versionId);
   if (code === null) return null;
-  const binding = (exports as unknown as { GameDatabaseBinding: (options: { props: { gameId: string } }) => Fetcher }).GameDatabaseBinding;
+  const ours = exports as unknown as Record<"GameDatabaseBinding" | "GameServerOutbound", (options: { props: { gameId: string } }) => Fetcher>;
   const worker = env.LOADER.get(`${gameId}:${versionId}`, () => ({
     compatibilityDate: "2026-10-01",
     mainModule: "harness.js",
     // The game's files keep their paths, so its relative imports work: ./physics.js from zaisma-server/index.js.
-    modules: { ...code.modules, "harness.js": harness(code.entry) },
-    // No internet, and one binding: its own game's database (room.database), fixed to the game by props it can't see.
-    globalOutbound: null,
-    env: { DATABASE: binding({ props: { gameId } }) },
+    modules: { ...code.modules, "harness.js": harness(code.entry), "outside-calls.js": outsideCalls },
+    // Its internet is our gateway, which takes only https to the hosts the game lists; and one binding,
+    // its own game's database (room.database). Both are fixed to the game by props it can't see.
+    globalOutbound: ours.GameServerOutbound({ props: { gameId } }),
+    env: { DATABASE: ours.GameDatabaseBinding({ props: { gameId } }) },
     limits: { cpuMs: CPU_MS },
   }));
-  return () => (worker.getEntrypoint() as unknown as { open(): Promise<Session> }).open();
+  return (secrets) => (worker.getEntrypoint() as unknown as { open(secrets: Record<string, string>): Promise<Session> }).open(secrets);
 }
 
-/** A game version's server in its sandbox, as a game server the room can run. Null if the version has none. */
-export async function sandboxServer(env: Env, exports: Cloudflare.Exports, gameId: string, versionId: string, onBroken: () => void): Promise<GameServer | null> {
+/** A game version's server in its sandbox, with the game's secrets, as a game server the room can run. Null if the version has none. */
+export async function sandboxServer(env: Env, exports: Cloudflare.Exports, gameId: string, versionId: string, secrets: Record<string, string>, onBroken: () => void): Promise<SandboxServer | null> {
   const open = await sandboxOpener(env, exports, gameId, versionId);
-  return open === null ? null : wrapSession(open, onBroken);
+  return open === null ? null : wrapSession(open, onBroken, secrets);
 }
+
+/** A sandboxed game server as a room runs it: its stats, and a way to hand it the game's secrets again. */
+export type SandboxServer = GameServer & { stats: SandboxStats; setSecrets(secrets: Record<string, string>): Promise<void> };
 
 /**
  * A game server that runs its handlers through a session with the sandbox. If the sandbox itself
@@ -301,8 +350,10 @@ export async function sandboxServer(env: Env, exports: Cloudflare.Exports, gameI
  * after FAILURE_COUNT of those, onBroken is called once and every later call fails at once. A game
  * server with an option it doesn't take, or one out of range, doesn't start (GameServerError).
  */
-export async function wrapSession(open: () => Promise<Session>, onBroken: () => void): Promise<GameServer & { stats: SandboxStats }> {
-  let session = await open();
+export async function wrapSession(open: (secrets: Record<string, string>) => Promise<Session>, onBroken: () => void, secrets: Record<string, string> = {}): Promise<SandboxServer> {
+  // A fresh session after a failure gets the secrets as they are by then.
+  let currentSecrets = secrets;
+  let session = await open(currentSecrets);
   const settings = await session.settings();
   const optionNames = Array.isArray(settings.optionNames) ? settings.optionNames.map(String) : [];
   for (const name of optionNames) if (!(GAME_SERVER_OPTIONS as readonly string[]).includes(name)) throw unknownOptionError(name);
@@ -330,7 +381,7 @@ export async function wrapSession(open: () => Promise<Session>, onBroken: () => 
       stats.stoppedCount++;
       record("stopped", /CPU time/i.test(String(error)) ? "Ran on too long and was stopped, like a loop that never ends" : `The game server stopped: ${String(error)}`);
       if (++stats.failureCount >= FAILURE_COUNT) onBroken();
-      else session = await open();
+      else session = await open(currentSecrets);
       throw error;
     }
     stats.callCount++;
@@ -386,7 +437,16 @@ export async function wrapSession(open: () => Promise<Session>, onBroken: () => 
       : {}),
   } satisfies GameServer;
   defineGameServer(server);
-  return { ...server, stats };
+  const setSecrets = async (secrets: Record<string, string>) => {
+    currentSecrets = secrets;
+    try {
+      await session.setSecrets(secrets);
+    } catch (error) {
+      // The next session opens with them anyway.
+      console.error("Couldn't hand the game server its new secrets:", error);
+    }
+  };
+  return { ...server, stats, setSecrets };
 }
 
 export interface SandboxStats {

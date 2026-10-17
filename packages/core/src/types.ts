@@ -33,6 +33,10 @@ export interface Game {
   cloud_saves_enabled: number;
   /** 1 when guests with progress get the "Keep your progress" card offering an account. */
   account_offer_enabled: number;
+  /** The hosts its game server may call (game server reach), a JSON list like ["discord.com", "*.example.com"]. */
+  game_server_allowed_hosts: string;
+  /** When its secrets last changed, so running rooms read them again; NULL when it never had any. */
+  secrets_changed_at_ms: number | null;
   /** The developer's choice; separate from review_status, which is ours. */
   visibility: Visibility;
   /** Device labels, comma-separated (see DEVICES, CONTROLS, SCREENS). */

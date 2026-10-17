@@ -450,7 +450,7 @@ ${accountRequirementFields(game.account_requirement)}
 const MULTIPLAYER_LABELS = {
   none: { label: "None", hint: "Single-player, or only your own servers." },
   relay: { label: "Relay", hint: "Zaisma passes each player's messages to the others. No server code." },
-  own: { label: "Your game server", hint: "Runs the zaisma-server/ folder (or zaisma-server.js) from your upload on Zaisma, sealed off from the internet. Players never get its files." },
+  own: { label: "Your game server", hint: "Runs the zaisma-server/ folder (or zaisma-server.js) from your upload on Zaisma, sealed off: it calls only the servers you list for it. Players never get its files." },
 } as const;
 
 /** Multiplayer on Zaisma rooms, as the developer sets it. A game server built into Zaisma is set by us. */

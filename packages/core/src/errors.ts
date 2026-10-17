@@ -40,6 +40,7 @@ export const ERROR_CODES = {
   bad_room_browsing: { httpStatus: 400, meaning: "room_browsing isn't page, game or off." },
   bad_multiplayer_mode: { httpStatus: 400, meaning: "multiplayer_mode isn't none, relay or own." },
   bad_account_requirement: { httpStatus: 400, meaning: "account_requirement isn't none, multiplayer or whole_game." },
+  bad_game_server_allowed_hosts: { httpStatus: 400, meaning: "game_server_allowed_hosts isn't a list of up to 20 host names (like discord.com or *.example.com), or one is an IP address or on Zaisma's own domains." },
   built_in_server: { httpStatus: 403, meaning: "The game runs a game server built into Zaisma, which only Zaisma changes." },
   game_removed: { httpStatus: 403, meaning: "Zaisma took the game down, so this can't change." },
   needs_confirm: { httpStatus: 409, meaning: "Hiding a game players can play needs the developer's OK." },
@@ -124,6 +125,11 @@ export const ERROR_CODES = {
   database_read_limit: { httpStatus: 429, meaning: "The game's database has read its free rows this month, so queries wait for the next." },
   database_storage_limit: { httpStatus: 403, meaning: "The statement would grow the game's database past its free storage." },
   database_unavailable: { httpStatus: 503, meaning: "The game's database didn't answer." },
+  bad_secret_name: { httpStatus: 400, meaning: "A secret's name isn't capitals, digits and underscores starting with a capital, up to 64 characters." },
+  bad_secret_value: { httpStatus: 400, meaning: "secret_value isn't text of up to 8 KB." },
+  no_secret: { httpStatus: 404, meaning: "The game has no secret by that name." },
+  too_many_secrets: { httpStatus: 403, meaning: "The game has 50 secrets, the most it can have." },
+  secrets_unavailable: { httpStatus: 503, meaning: "The game's secrets didn't answer." },
   dump_too_big: { httpStatus: 413, meaning: "dump_sql is over 5 MB: import a dump in parts, each ending on a whole statement." },
 
   // Cloud saves

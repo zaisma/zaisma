@@ -78,6 +78,9 @@ Would his answer be better than Claude's? His edge: UI and UX, how players and d
 **The console's layout: tabs like D1, or one SQL box.** *Game database console, Oct 17, 2026.* The big page call (console, not a spreadsheet) was already his from the import and export talk, so the follow-up item opened as *One call* on the layout alone, with both sketched and a pick. He answered "B" in one word.
 *Lesson:* when a page's kind is settled and its layout isn't, the layout is still his, and two side-by-side sketches with a pick make it a one-word answer. Don't reopen the settled part.
 
+**Whether the game page names what a game server calls.** *Game server reach and secrets, Oct 17, 2026.* A technical item with one edge on a claim: the settled promise said "the page names any outside servers", and game servers calling Discord or Stripe would quietly widen it. Opened as *One call* with what a parent reads under each option, and he answered "B" in one letter.
+*Lesson:* when a building block stretches the wording of a settled promise, that wording is the call, even when everything else is technical. Show the sentence that changes.
+
 ## Not his
 
 **The export format: SQL dump, or JSON and CSV.** *Game database import and export.* "Too technical… just implementation decisions, not system design."

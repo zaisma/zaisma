@@ -1,7 +1,7 @@
 import { ApiError, CONTROLS, DEVICES, FORUM_CATEGORIES, FORUM_LIMITS, FORUM_REPORT_REASONS, FORUM_SECTIONS, FORUM_TABS, FORUM_TAGS, ACCOUNT_REQUIREMENTS, PLAY_STYLES, POST_SELECTIONS, ROOM_BROWSING, SCREENS, TOPIC_KINDS, TOPIC_STATUSES, VISIBILITIES, WEBHOOK_EVENT_KINDS, WEBHOOK_TIMEOUT_SEC, type IdKind } from "@zaisma/core";
 import { INTERNAL_ERROR, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
-import { ACCESS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, GAME, HISTORY, STATEMENT_RESULT, IMAGE, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, REPORTS, SIGN_IN_APP, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes } from "./schemas.ts";
+import { ACCESS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, GAME, HISTORY, STATEMENT_RESULT, IMAGE, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes } from "./schemas.ts";
 
 /**
  * The developer MCP at /mcp: every tool is a call to the developer API, so the MCP, the upload command
@@ -130,7 +130,7 @@ const details = {
   multiplayer_mode: {
     enum: ["none", "relay", "own"],
     description:
-      "Multiplayer on Zaisma rooms. none: single-player or the game's own servers. relay: Zaisma passes each message to the others, no server code. own: your game server runs on Zaisma: put it in a zaisma-server/ folder at the top of the upload, where index.js default-exports { setup, onJoin, onLeave, onMessage, onTick, maximumPlayerCount, ticksPerSec } (plus, if it likes, canJoin, answering true, false or { refusalMessage }, onMoved, hostControlsEnabled, and idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, onAway and onBack for players who walk away: idle, hidden or disconnected players leave the match with their seat held for 5 minutes unless it decides otherwise; any other option stops it starting, and get_stats says why) and can import the folder's other .js, .json (data) and .wasm (WebAssembly, like a physics engine) files by relative path (plain JavaScript ES modules; npm packages or TypeScript: bundle into one zaisma-server.js instead). Up to 500 files and 5 MB. It runs sealed off: no internet, so it only talks to its players, plus the game's own SQLite database as room.database, shared by its rooms and kept between matches (await room.database.query(sql, values) answers rows; room.database.batch([{ sql, values }]) is one transaction; free up to 500,000 rows written and 500 million read a month and 500 MB per game). Players never get the file. get_stats shows its errors. Any game's server (whatever this setting, even with no setup and no rooms) can also answer requests from the game outside rooms, like a leaderboard or a shop: onRequest(player, request, server) answers Zaisma.server.request(request) with plain JSON, with server.database the same database; free up to 1 million requests a month per game. And it can run on schedules: schedules: [{ name: \"daily-reset\", cron: \"0 0 * * *\" }] (up to 10, cron in UTC, at most once a minute, free) with onSchedule(run, server), where run.name says which is due; get_stats shows them with their next and last runs.",
+      "Multiplayer on Zaisma rooms. none: single-player or the game's own servers. relay: Zaisma passes each message to the others, no server code. own: your game server runs on Zaisma: put it in a zaisma-server/ folder at the top of the upload, where index.js default-exports { setup, onJoin, onLeave, onMessage, onTick, maximumPlayerCount, ticksPerSec } (plus, if it likes, canJoin, answering true, false or { refusalMessage }, onMoved, hostControlsEnabled, and idleCheck, idleTimeoutSec, awayMode, seatHoldDurationSec, onAway and onBack for players who walk away: idle, hidden or disconnected players leave the match with their seat held for 5 minutes unless it decides otherwise; any other option stops it starting, and get_stats says why) and can import the folder's other .js, .json (data) and .wasm (WebAssembly, like a physics engine) files by relative path (plain JavaScript ES modules; npm packages or TypeScript: bundle into one zaisma-server.js instead). Up to 500 files and 5 MB. It runs sealed off: it talks to its players, calls other servers only on the hosts listed in game_server_allowed_hosts (plain fetch(), https only; anything else throws an OutsideCallError), reads the game's secrets (set_secret) as room.secrets and server.secrets, and has the game's own SQLite database as room.database, shared by its rooms and kept between matches (await room.database.query(sql, values) answers rows; room.database.batch([{ sql, values }]) is one transaction; free up to 500,000 rows written and 500 million read a month and 500 MB per game). Players never get the file. get_stats shows its errors. Any game's server (whatever this setting, even with no setup and no rooms) can also answer requests from the game outside rooms, like a leaderboard or a shop: onRequest(player, request, server) answers Zaisma.server.request(request) with plain JSON, with server.database the same database; free up to 1 million requests a month per game. And it can run on schedules: schedules: [{ name: \"daily-reset\", cron: \"0 0 * * *\" }] (up to 10, cron in UTC, at most once a minute, free) with onSchedule(run, server), where run.name says which is due; get_stats shows them with their next and last runs.",
   },
   room_browsing: {
     enum: ROOM_BROWSING,
@@ -141,6 +141,14 @@ const details = {
     enum: ACCOUNT_REQUIREMENTS,
     description:
       'What the game needs a Zaisma account for. none (the default): guests play everything, and signed-in players play as their account. multiplayer: guests play alone; only signed-in players get player passes, so a guest\'s Zaisma.joinRoom() and Zaisma.player() fail with error.code "account_needed" (show your own message). whole_game: the game page says "Needs a Zaisma account" and Play asks guests to sign in first; only signed-in players get player passes. Players under 13 can\'t make accounts, so they can\'t play games that need one.',
+  },
+  game_server_allowed_hosts: {
+    type: "array",
+    maxItems: 20,
+    items: { type: "string", maxLength: 255 },
+    description:
+      "The hosts the game's server can call with plain fetch(): your own server, a payment provider, Discord, GitHub. Host names only, every call is https; \"*.example.com\" covers every name under example.com (not example.com itself). Never IP addresses or Zaisma's own domains. Up to 20; the whole list each time, [] for none. Live within a minute, with no approval; players don't see it. A call to anything else throws an OutsideCallError (code host_not_allowed) in the game server, which get_stats shows. Its secrets (tokens, keys) go in set_secret.",
+    examples: [["discord.com"], ["api.github.com", "api.stripe.com"], ["play.skyhopper.io", "*.cdn.skyhopper.io"]],
   },
 };
 const DETAILS = Object.keys(details);
@@ -183,13 +191,15 @@ export const TOOLS: Tool[] = [
     name: "update_game",
     title: "Change a game's details",
     description:
-      'Change the title, description, device labels, play_modes (single-player, local and online multiplayer with player counts), cloud saves, multiplayer, room browsing, what it needs an account for or visibility. listed: on Zaisma for everyone. unlisted: only people with the link. private and draft: only you and people with a tester link (add_tester_link). Leave out what stays the same; null clears it. A new title or description on a game players can see waits for review. Making a public game private or a draft takes it away from players, so it needs "confirm": true after asking the developer.\n\n' +
+      'Change the title, description, device labels, play_modes (single-player, local and online multiplayer with player counts), cloud saves, multiplayer, room browsing, what it needs an account for, the hosts its game server can call (game_server_allowed_hosts) or visibility. listed: on Zaisma for everyone. unlisted: only people with the link. private and draft: only you and people with a tester link (add_tester_link). Leave out what stays the same; null clears it. A new title or description on a game players can see waits for review. Making a public game private or a draft takes it away from players, so it needs "confirm": true after asking the developer.\n\n' +
       'Not: { "play_modes": [{ "mode": "single", "maximum_player_count": 1 }] } (single takes no player counts: { "mode": "single" })\n' +
       'Not: { "play_modes": [{ "mode": "online", "maximum_player_count": 4 }] } (local and online need minimum_player_count, 2 or more, and play_style)\n' +
       'Not: { "play_modes": ["single", "online"] } (each mode is an object, like { "mode": "single" })\n' +
       'Not: { "players": "2-4" } (player counts go in play_modes)\n' +
       'Not: { "play_modes": [] } (null clears it)\n' +
-      'Not: { "visibility": "public" } (listed: everyone; unlisted: only people with the link)',
+      'Not: { "visibility": "public" } (listed: everyone; unlisted: only people with the link)\n' +
+      'Not: { "game_server_allowed_hosts": ["https://discord.com/api/webhooks/123"] } (host names only: ["discord.com"])\n' +
+      'Not: { "game_server_allowed_hosts": ["*"] } (list each host, or "*.example.com" for the names under one)',
     inputSchema: {
       ...object({ slug, ...details, visibility: { enum: VISIBILITIES }, confirm: { type: "boolean", description: "The developer agreed to hide a public game" } }, ["slug"]),
       examples: [
@@ -199,6 +209,7 @@ export const TOOLS: Tool[] = [
         { slug: "sky-hopper", multiplayer_mode: "relay", room_browsing: "page" },
         { slug: "sky-hopper", play_modes: null },
         { slug: "sky-hopper", account_requirement: "multiplayer" },
+        { slug: "sky-hopper", game_server_allowed_hosts: ["discord.com", "api.github.com"] },
       ],
     },
     outputSchema: answer({
@@ -744,6 +755,46 @@ export const TOOLS: Tool[] = [
     outputSchema: HISTORY,
     annotations: read,
     run: (toolArguments, call) => call("GET", `/games/${pathPart(toolArguments.slug)}/history`),
+  },
+  {
+    name: "list_secrets",
+    title: "List a game's secrets",
+    description: "A game's secrets: the name of each and when it was set, never the values, which nobody can read back once set (only the game's server can, as server.secrets.<name> and room.secrets.<name>).",
+    inputSchema: object({ slug }, ["slug"]),
+    outputSchema: answer({ secrets: list(SECRET, "By name.") }),
+    annotations: read,
+    run: (toolArguments, call) => call("GET", `/games/${pathPart(toolArguments.slug)}/secrets`),
+  },
+  {
+    name: "set_secret",
+    title: "Set a game's secret",
+    description:
+      "Keep a token or key for the game's server, like a Discord webhook URL, a GitHub token or a payment provider's secret key: it reads it as server.secrets.<secret_name> (in onRequest and onSchedule) and room.secrets.<secret_name> (in rooms), and calls other servers with plain fetch() on the hosts in game_server_allowed_hosts (update_game). Replaces a secret of the same name; running rooms get it within a minute, requests and schedules from their next call. It's never shown again, to anyone. The game's server code can read it, so anyone who can publish the game's code can use it. On the developer's own server, server.secrets is the environment variables, so set the same names there. Never put a secret in the game's files or a page: players can read those.\n\n" +
+      'Not: { "secret_name": "discord-token" } (capitals, digits and underscores: DISCORD_TOKEN)\n' +
+      'Not: { "secret_name": "DISCORD", "secret_value": { "token": "…" } } (secret_value is text; JSON goes in as text and the game server parses it)',
+    inputSchema: {
+      ...object(
+        {
+          slug,
+          secret_name: { type: "string", pattern: "^[A-Z][A-Z0-9_]{0,63}$", description: "Its name, like an environment variable's: capitals, digits and underscores, starting with a capital." },
+          secret_value: { type: "string", minLength: 1, maxLength: 8192, description: "The secret itself, as text, up to 8 KB." },
+        },
+        ["slug", "secret_name", "secret_value"],
+      ),
+      examples: [{ slug: "sky-hopper", secret_name: "DISCORD_WEBHOOK_URL", secret_value: "https://discord.com/api/webhooks/123456789/abcdefg" }],
+    },
+    outputSchema: answer({ secret: SECRET, next_steps: NEXT }),
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    run: (toolArguments, call) => call("PUT", `/games/${pathPart(toolArguments.slug)}/secrets/${pathPart(toolArguments.secret_name)}`, { secret_value: toolArguments.secret_value }),
+  },
+  {
+    name: "delete_secret",
+    title: "Delete a game's secret",
+    description: "Delete one of a game's secrets for good: its server no longer gets it (running rooms within a minute). Ask the developer first; a game server still using it will find it missing.",
+    inputSchema: object({ slug, secret_name: { type: "string", pattern: "^[A-Z][A-Z0-9_]{0,63}$", description: "A secret's name from list_secrets." } }, ["slug", "secret_name"]),
+    outputSchema: answer({ deleted_secret_name: text("The secret deleted."), next_steps: NEXT }),
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    run: (toolArguments, call) => call("DELETE", `/games/${pathPart(toolArguments.slug)}/secrets/${pathPart(toolArguments.secret_name)}`),
   },
   {
     name: "get_database",

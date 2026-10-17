@@ -77,6 +77,13 @@ export interface Room {
    * own server the Node runner keeps it in a local file (--database), so the same code runs in both.
    */
   readonly database: GameDatabase;
+  /**
+   * The game's secrets, by name, like room.secrets.STRIPE_SECRET_KEY: set per game on Zaisma
+   * (set_secret) and never shown again, or the environment variables on your own server. Calls to
+   * other servers are plain fetch(); on Zaisma they reach the hosts the game lists in
+   * game_server_allowed_hosts, and anything else throws an OutsideCallError.
+   */
+  readonly secrets: Readonly<Record<string, string>>;
 }
 
 export interface BroadcastOptions {
@@ -217,7 +224,7 @@ export interface GameServer<S = any> {
    * leaderboard, a shop or a daily reward in a single-player game. Answer what the game gets back:
    * plain JSON, up to 1 MB, within 10 seconds. request is plain JSON from the player's browser, up
    * to 16 KB, so check it like any message; player is who sent it, from their player pass. There's no
-   * room and no state: keep what lasts in server.database. If it throws, the game gets
+   * room and no state: keep what lasts in server.database; server.secrets has the game's secrets. If it throws, the game gets
    * error.code "game_server_error" and you see the error with the game server's others.
    */
   onRequest?(player: Player, request: unknown, server: Server): unknown;
@@ -229,7 +236,7 @@ export interface GameServer<S = any> {
   schedules?: Schedule[];
   /**
    * A schedule is due: run.name says which, run.scheduledAt the minute it was due (an ISO time, UTC).
-   * There's no room, no player and no state: keep what lasts in server.database. It has 30 seconds.
+   * There's no room, no player and no state: keep what lasts in server.database; server.secrets has the game's secrets. It has 30 seconds.
    * A run can rarely come twice or a little late (after a restart), so make it safe to repeat, like
    * a reset that checks run.scheduledAt against the last one it did. If it throws, you see the
    * error with the game server's others.
@@ -555,7 +562,12 @@ export interface Transport {
   moveTo?(roomCode: string, ask: Omit<MoveAsk, "fromRoomCode">): void;
   /** The game's database, as room.database. Without it, its calls fail with database_unavailable. */
   database?: GameDatabase;
+  /** The game's secrets, as room.secrets. Without them, there are none. */
+  secrets?: Readonly<Record<string, string>>;
 }
+
+/** room.secrets and server.secrets where a game has none. */
+export const NO_SECRETS: Readonly<Record<string, string>> = Object.freeze({});
 
 /** room.database where the room has no database: every call fails, saying so. */
 const NO_DATABASE: GameDatabase = {
@@ -735,6 +747,7 @@ export class RoomCore<S = any> {
       kick: (playerId, kickOptions) => this.kick(playerId, kickOptions),
       moveTo: (toRoomCode, moveOptions) => this.moveTo(toRoomCode, moveOptions),
       database: transport.database ?? NO_DATABASE,
+      secrets: transport.secrets ?? NO_SECRETS,
     };
   }
 

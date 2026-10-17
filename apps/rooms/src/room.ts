@@ -26,7 +26,8 @@ import {
 import { gameServerOf, pastFreeTier, playerProfile, type AccountRequirement, type MultiplayerMode } from "@zaisma/core";
 import { gameServer } from "./registry.ts";
 import { gameDatabase } from "./database.ts";
-import { SANDBOX, errorLine, sandboxServer, type SandboxStats } from "./sandbox.ts";
+import { SANDBOX, errorLine, sandboxServer, type SandboxServer, type SandboxStats } from "./sandbox.ts";
+import { secretsForGameServer } from "./secrets.ts";
 import { signingKey, type Env } from "./index.ts";
 
 /** A socket's saved details, kept through hibernation. */
@@ -99,6 +100,8 @@ export class Room extends DurableObject<Env> {
   private core: RoomCore | null = null;
   /** The game server, loaded on first use since waking (a sandboxed one opens its session then). */
   private server: GameServer | null = null;
+  /** When the game's secrets had last changed as its sandboxed game server got them, to hand it new ones when they change. */
+  private secretsChangedAtMs: number | null = null;
   /** Set when the game server kept failing and the room ended for it. */
   private isBroken = false;
   /** Set once the game server failed to start and the game's errors say so, so a room that keeps failing writes it once. */
@@ -648,7 +651,9 @@ export class Room extends DurableObject<Env> {
     if (this.meta.server !== SANDBOX) return (this.server = gameServer(this.meta.server));
     if (!this.meta.versionId) return null;
     try {
-      this.server = await sandboxServer(this.env, this.ctx.exports, this.meta.gameId, this.meta.versionId, () => this.broken());
+      const { secrets, changedAtMs } = await secretsForGameServer(this.env, this.meta.gameId);
+      this.secretsChangedAtMs = changedAtMs;
+      this.server = await sandboxServer(this.env, this.ctx.exports, this.meta.gameId, this.meta.versionId, secrets, () => this.broken());
     } catch (error) {
       console.error("Couldn't start the game server:", error);
       if (!this.hasRecordedStartError) {
@@ -685,14 +690,15 @@ export class Room extends DurableObject<Env> {
     }, 1000 / core.server.ticksPerSec!);
   }
 
-  /** A takedown or a changed game server ends the match. Also picks up the game's room browsing and account settings. */
+  /** A takedown or a changed game server ends the match. Also picks up the game's room browsing and account settings, and new secrets. */
   private async gameStillLive(): Promise<boolean> {
     this.lastCheckAtMs = Date.now();
-    const row = await this.env.DB.prepare("SELECT review_status, live_version_id, multiplayer_mode, built_in_server, room_browsing, account_requirement FROM games WHERE id = ?")
+    const row = await this.env.DB.prepare("SELECT review_status, live_version_id, multiplayer_mode, built_in_server, room_browsing, account_requirement, secrets_changed_at_ms FROM games WHERE id = ?")
       .bind(this.meta!.gameId)
-      .first<{ review_status: string; live_version_id: string | null; multiplayer_mode: MultiplayerMode; built_in_server: string | null; room_browsing: string; account_requirement: AccountRequirement }>();
+      .first<{ review_status: string; live_version_id: string | null; multiplayer_mode: MultiplayerMode; built_in_server: string | null; room_browsing: string; account_requirement: AccountRequirement; secrets_changed_at_ms: number | null }>();
     if (row && row.review_status === "live" && row.live_version_id && gameServerOf(row) === this.meta!.server) {
       this.accountRequirement = row.account_requirement;
+      if (row.secrets_changed_at_ms !== this.secretsChangedAtMs) await this.newSecrets();
       if (row.room_browsing !== this.browsing) {
         this.browsing = row.room_browsing;
         if (this.core) this.core.listingChanged = true;
@@ -706,6 +712,19 @@ export class Room extends DurableObject<Env> {
     }
     await this.finish();
     return false;
+  }
+
+  /** The game's secrets changed: its sandboxed game server gets them from its next call. */
+  private async newSecrets(): Promise<void> {
+    const server = this.server as SandboxServer | null;
+    if (!server || typeof server.setSecrets !== "function") return;
+    try {
+      const { secrets, changedAtMs } = await secretsForGameServer(this.env, this.meta!.gameId);
+      this.secretsChangedAtMs = changedAtMs;
+      await server.setSecrets(secrets);
+    } catch (error) {
+      console.error("Couldn't read the game's new secrets:", error);
+    }
   }
 
   /**

@@ -1,5 +1,6 @@
 import type { ScanJob } from "@zaisma/core";
 import type { GameDatabaseService } from "../../rooms/src/database.ts";
+import type { GameSecretsService } from "../../rooms/src/secrets.ts";
 import type { PhotoDnaService } from "../../photodna/src/index.ts";
 
 export interface Env {
@@ -11,6 +12,8 @@ export interface Env {
   SCAN_QUEUE: Queue<ScanJob>;
   /** Every game's own database, in the rooms Worker, for the developer API (game-database.ts). */
   GAME_DATABASES?: Service<GameDatabaseService>;
+  /** Every game's secrets, in the rooms Worker, for the developer API (secrets-api.ts). */
+  GAME_SECRETS?: Service<GameSecretsService>;
   REPORT_LIMIT?: RateLimit;
   SIGNIN_LIMIT?: RateLimit;
   /** Password tries on one username, from any address. */
