@@ -12,9 +12,9 @@ Any AI tool that supports remote MCP servers can manage your games at `https://z
 claude mcp add --transport http zaisma https://zaisma.com/mcp --header "Authorization: Bearer $ZAISMA_KEY"
 ```
 
-Every tool is a call to this API (`apps/site/src/mcp.ts`): `list_games`, `create_game`, `get_game`, `update_game`, `upload_files` (small games up to 5 MB, sent as file contents), `get_version`, `publish_version` (also rolls back and publishes later), `cancel_scheduled_publish`, `add_image`, `remove_image`, `add_tester_link`, `remove_tester_link`, `get_reports`, `get_stats`, `get_history`, `get_player`, the sign-in apps' `list_sign_in_apps`, `create_sign_in_app`, `update_sign_in_app` and `delete_sign_in_app`, the webhooks' `list_webhooks`, `create_webhook`, `update_webhook`, `delete_webhook`, `test_webhook` and `list_webhook_deliveries` (see Webhooks below), the game database's `get_database`, `query_database`, `batch_database`, `export_database` and `import_database` (see The game database below), and the developer forum's `search_forum`, `get_topic`, `post_topic`, `message_zaisma`, `reply_to_topic`, `vote`, `mark_helpful`, `report_post`, `forum_people`, `still_happening`, `flag_misplaced`, `follow_topic` and `mark_answer` (see The developer forum below). Bigger builds go through the upload command. Making a game players can play private or a draft again needs `"confirm": true`, so the AI asks you first.
+Every tool is a call to this API (`apps/site/src/mcp.ts`): `list_games`, `create_game`, `get_game`, `update_game`, `upload_files` (small games up to 5 MB, sent as file contents), `get_version`, `publish_version` (also rolls back and publishes later), `cancel_scheduled_publish`, `add_image`, `remove_image`, `add_tester_link`, `remove_tester_link`, `get_reports`, `get_stats`, `get_history`, `get_player`, the sign-in apps' `list_sign_in_apps`, `create_sign_in_app`, `update_sign_in_app` and `delete_sign_in_app`, the webhooks' `list_webhooks`, `create_webhook`, `update_webhook`, `delete_webhook`, `test_webhook` and `list_webhook_deliveries` (see Webhooks below), the game database's `get_database`, `query_database`, `batch_database`, `export_database` and `import_database` (see The game database below), cloud saves' `list_saves`, `get_save`, `change_save`, `replace_save`, `reset_save`, `list_save_copies`, `get_save_copy` and `restore_save_copy` (see Cloud saves below), and the developer forum's `search_forum`, `get_topic`, `post_topic`, `message_zaisma`, `reply_to_topic`, `vote`, `mark_helpful`, `report_post`, `forum_people`, `still_happening`, `flag_misplaced`, `follow_topic` and `mark_answer` (see The developer forum below). Bigger builds go through the upload command. Making a game players can play private or a draft again needs `"confirm": true`, so the AI asks you first.
 
-Every tool has an output schema, and answers are compact JSON. Arguments are closed: one a tool doesn't take is refused (`unknown_field`, with the arguments it does take), never quietly dropped, and a missing required one is `missing_field`. A refused call is a tool result with `isError: true`, the error object below as its `structuredContent` and its message, fix and code as its text; each tool's listed output schema is its answer or that error, because MCP clients check both against it. The tools that are easy to get wrong (`update_game`, `upload_files`, `publish_version`, `search_forum`, `post_topic`) carry good examples in their input schema and bad ones at the end of their description.
+Every tool has an output schema, and answers are compact JSON. Arguments are closed: one a tool doesn't take is refused (`unknown_field`, with the arguments it does take), never quietly dropped, and a missing required one is `missing_field`. A refused call is a tool result with `isError: true`, the error object below as its `structuredContent` and its message, fix and code as its text; each tool's listed output schema is its answer or that error, because MCP clients check both against it. The tools that are easy to get wrong (`update_game`, `upload_files`, `publish_version`, `search_forum`, `post_topic`, `change_save`, `replace_save`) carry good examples in their input schema and bad ones at the end of their description.
 
 ## Errors
 
@@ -175,6 +175,19 @@ The HTTP status goes with the code, as listed. The list lives in `ERROR_CODES` (
 | `database_storage_limit` | 403 | The statement would grow the game's database past its free storage. |
 | `database_unavailable` | 503 | The game's database didn't answer. |
 | `dump_too_big` | 413 | dump_sql is over 5 MB: import a dump in parts, each ending on a whole statement. |
+
+**Cloud saves**
+
+| Code | HTTP | Meaning |
+| --- | --- | --- |
+| `no_save` | 404 | The player has no save in the game. |
+| `no_save_copy` | 404 | The player's save has no earlier version with that ID. |
+| `bad_keys` | 400 | keys isn't a list of 1 to 100 localStorage keys of up to 1,000 characters. |
+| `bad_local_storage_items` | 400 | local_storage_items isn't an object of localStorage keys and their text (null removes a key in a change). |
+| `bad_indexeddb_databases` | 400 | indexeddb_databases isn't a list of databases, each { name, version, stores } as get_save answers them. |
+| `save_too_big` | 413 | The save would be over 5 MB. |
+| `cloud_saves_off` | 409 | The game has cloud saves off, so it doesn't read saves from players' accounts. |
+| `save_busy` | 409 | The player's game kept saving at the same moment, so the change didn't go through. |
 
 **The developer forum**
 
@@ -407,6 +420,27 @@ Every game has its own SQLite database, part of its hosting: the one its game se
 - **Import only adds.** It runs a dump's `CREATE` and `INSERT` statements and leaves out what sqlite3 writes around them (`BEGIN`, `COMMIT`, `PRAGMA foreign_keys` and `writable_schema`, `ANALYZE` and its `sqlite_stat1` rows); anything else is refused (`bad_sql`), and so is `INSERT OR REPLACE`. A table that's already there stops it: to replace one, drop it first with a query. AUTOINCREMENT's counters only go up. Text and blobs in an `INSERT` are sent to the database as values, so a row bigger than a statement's 100,000 characters still goes in, and `unistr('…')`, which newer sqlite3 writes for text with line breaks, becomes its text. Each part is all or nothing and names the statement that stopped it; the parts before it stay in. Writes count like any write and stop at the free writes. The upload command cuts a dump into parts for you, and reads and writes `.sqlite` files.
 - **Free use** is per game and calendar month (UTC): 500,000 rows written, 500 million read and 500 MB stored, counted the way Cloudflare bills them (an index changed counts as a row written, and a `SELECT` without an index reads every row it looks at). Calls here count like the game's own. Until hosting billing, past the free writes, writes stop (`database_write_limit`); past the reads, queries stop (`database_read_limit`), and `retry_after_sec` says how long until the month resets; at the storage, rows can change and go but not grow (`database_storage_limit`). `GET /games/:slug/database` keeps working past them all.
 
+## Cloud saves
+
+A signed-in player's progress in a game with cloud saves on is mirrored to their account from the game's own browser saves, with no code (see "Cloud saves" in the README). You and your AI reach every player's save here, by player ID: list them, read them, fix them, reset them, and go back to earlier versions. Saves stay apart from the game database, and each stays tied to its player: deleted with their account, never shown to other games. A save is the game's localStorage, and its IndexedDB databases when it keeps any (Unity, Godot and localForage do).
+
+| Call | What it does |
+| --- | --- |
+| `GET /games/:slug/saves` | The players with a save, 100 a page in player ID order: `saves`, each `{"player_id", "sha256", "size_bytes", "updated_at", "changed_by_kind", "save_copy_count"}`, and `next_cursor` (pass it as `?cursor=`; `null` on the last page). |
+| `GET /games/:slug/saves/:player_id` | One save: `{"save": {…the same, "local_storage_items", "missing_keys", "indexeddb_databases"}}`. `?keys=coins&keys=level` (each key its own parameter, since keys can hold commas) answers only those localStorage keys, with `missing_keys` naming the ones it doesn't have, and `indexeddb_databases: null`. |
+| `PATCH /games/:slug/saves/:player_id` | Change some localStorage keys: `{"local_storage_items": {"coins": "500", "tutorial_seen": null}}`, each key's new text, `null` removing it. The rest of the save stays as it is. |
+| `PUT /games/:slug/saves/:player_id` | Replace the whole save: `{"local_storage_items", "indexeddb_databases"}`, both in full (`[]` when the game keeps nothing in IndexedDB). |
+| `DELETE /games/:slug/saves/:player_id` | Reset it: the save becomes empty, so the game starts fresh on every device. |
+| `GET /games/:slug/saves/:player_id/copies` | Its earlier versions, newest first: `save_copies`, each `{"id", "saved_at", "copy_reason", "sha256", "size_bytes", "is_current_save"}`. |
+| `GET /games/:slug/saves/:player_id/copies/:save_copy_id` | One earlier version: `{"save_copy": {…the same, "local_storage_items", "missing_keys", "indexeddb_databases"}}`, whole or with `?keys=`. |
+| `POST /games/:slug/saves/:player_id/copies/:save_copy_id/restore` | Make it the save again. |
+
+- **Every change** (change, replace, reset, restore) answers `{"save", "kept_save_copy_id", "next_steps"}`: the save as it is now, and the earlier version that holds what it replaced, which `restore` brings back. A copy is kept first unless the save it replaces was your own last change (its copy from before that is still there), so changing a save again and again never pushes out the player's own copies; `kept_save_copy_id` is then `null`, as it is when nothing changed. A change or replace makes a save for a player who has none; a reset needs one (`no_save`).
+- **It reaches the player's devices with no question.** The save's `changed_by_kind` becomes `developer` (it's `player` when the game saved it). A game the player has open reloads with your save the next time it saves or when the player comes back to its tab, with no question, keeping that device's progress since its last save as an earlier version. A game opening later takes it like any newer save: straight away, unless that device has progress the account doesn't, when the player picks as usual. Whether the player can go back is the game's own rule. (Planned: a game that listens with `Zaisma.saves.onDeveloperChange` gets the new save to apply its own way, with no reload.)
+- **Values are text**, as localStorage holds them: `"500"`, not `500`, and a list or object as the JSON text the game stores. IndexedDB databases are as the game domain script stores them (`packages/sdk/saves.js`): `{"name", "version", "stores": [{"name", "keyPath", "autoIncrement", "indexes", "records": [[key, value]]}]}`, with bytes, dates and the like tagged as `{"$z": [kind, …]}`; change them only inside their records.
+- **Earlier versions:** up to 5 per player per game, kept about once an hour while playing (`copy_reason` `hourly`) and whenever progress was about to be replaced: by another device's (`replaced`), a save that shrank to under half (`smaller`), the player going back (`restore`), a device's progress the player didn't pick (`device`) or a change of yours (`developer`). Those outlast hourly copies for 30 days.
+- **Limits:** a save is up to 5 MB (`save_too_big`); `keys` takes up to 100 keys. A game with cloud saves off doesn't read saves, so changes there are refused (`cloud_saves_off`); reading still works. Guests have no saves here: their progress stays in their browser.
+
 ## Webhooks
 
 Zaisma POSTs an event to your server whenever something happens to your games, so your server or CI doesn't have to keep checking: a bug report can open a GitHub issue, a passed scan can move a release on, a takedown can page you.
@@ -554,6 +588,14 @@ Storage can't check the hash of a file sent in parts, so it's kept for your own 
 | `zaisma database batch <slug> [<file>]` | Run statements in one transaction, from a JSON file (or piped in) like `[{"sql": "…", "values": […]}]` | `POST /games/:slug/database/batch` |
 | `zaisma database export <slug> [<file>]` | Save the whole database: as a SQL dump (a `.sql` file, or printed when there's no file) or a ready SQLite file (`.sqlite`, `.sqlite3` or `.db`) | `GET /games/:slug/database/export`, every part |
 | `zaisma database import <slug> [<file>]` | Add a SQL dump (a `.sql` file, or piped in) or a `.sqlite` file, in parts of up to 4 MB cut at whole statements | `POST /games/:slug/database/import`, a part at a time |
+| `zaisma saves <slug> [--cursor <next_cursor>]` | The players with a save, 100 a page | `GET /games/:slug/saves` |
+| `zaisma saves get <slug> <player_id> [--keys '[…]']` | One save; `--keys` a JSON list of localStorage keys | `GET /games/:slug/saves/:player_id` |
+| `zaisma saves change <slug> <player_id> ['<items_json>']` | Change some keys: a JSON object like `{"coins": "500", "tutorial_seen": null}`, as an argument or piped in | `PATCH /games/:slug/saves/:player_id` |
+| `zaisma saves replace <slug> <player_id> [<file>]` | Replace the whole save from a JSON file (or piped in): `local_storage_items` and `indexeddb_databases`, or what `saves get --json` printed | `PUT /games/:slug/saves/:player_id` |
+| `zaisma saves reset <slug> <player_id>` | Reset a save | `DELETE /games/:slug/saves/:player_id` |
+| `zaisma saves copies <slug> <player_id>` | A save's earlier versions | `GET /games/:slug/saves/:player_id/copies` |
+| `zaisma saves copy <slug> <player_id> <save_copy_id> [--keys '[…]']` | One earlier version | `GET /games/:slug/saves/:player_id/copies/:id` |
+| `zaisma saves restore <slug> <player_id> <save_copy_id>` | Make an earlier version the save again | `POST /games/:slug/saves/:player_id/copies/:id/restore` |
 
 - **Closed, like the API.** A command takes only its own flags and arguments: anything else is refused before anything is sent, with the flags it does take. Choices (`visibility`, `--kind`, `--category`) are checked first too, with the valid list. A flag that takes a value takes it as `--flag value` or `--flag=value`. Renamed commands and flags say their new name (`zaisma show` is now `zaisma visibility`; `--notes`, `--publish` and `--at` are `--patch-notes`, `--publish-when-approved` and `--scheduled-publish-at`).
 - **`--json` on every command** prints the API's answer as-is, compact, and nothing else on stdout: the same data the MCP gets. On failure it prints the API's `{ "error": { code, message, field, fix, retry_after_sec } }`, or the same shape for the command's own errors (below), where `field` is the flag (`--game`) or argument (`slug`) at fault. `upload --json` prints the version's last answer (`GET /games/:slug/versions/:id`) and sends its progress to stderr; `forum --json` with no topic or search prints both tabs' answers, as `{ "yours": …, "messages": … }`. Without `--json`, the command prints lines for people, and errors go to stderr as `zaisma: <message> <fix> (<code>)`.
@@ -561,6 +603,7 @@ Storage can't check the hash of a file sent in parts, so it's kept for your own 
 - `--text` can be piped in instead; `--by-me` marks a post as yours, otherwise it says your AI wrote it.
 - `database query` prints the rows as a table (blobs as their size), then the rows read and written; `--values` and a batch's file are checked to be JSON lists before anything is sent (`bad_values`, `bad_sql`).
 - `database export` won't write over a file that's there (`file_exists`), and writes the file only once every part has come. A `.sqlite` file is the same database, ready for the Node runner (`--database game.sqlite`); `--json` prints `{ "dump_sql", "file", "part_count", "read_row_count" }`, with `dump_sql` `null` when it went to a file. `database import` reads a `.sqlite` file into the same SQL export writes; when a part fails, the error says which parts went in, and `--json` prints the parts' answers added up (`part_count`, `statement_count`, `skipped_statement_count`, `read_row_count`, `written_row_count`). `.sqlite` files need Node 22.13 or newer (`needs_newer_node`); `.sql` works on any.
+- `saves get` prints each key and its text; `--keys`, `saves change`'s object and `saves replace`'s file are checked to be JSON before anything is sent (`bad_keys`, `bad_local_storage_items`). After a change it prints the `saves restore` command that undoes it.
 
 Exit codes, the same for every command:
 
@@ -584,7 +627,7 @@ Errors only the command answers with, beside the API's own codes (it also uses `
 | `missing_value` | A flag that takes a value was given none. |
 | `takes_no_value` | A flag that takes no value was given one. |
 | `not_a_folder` | The folder to upload isn't a folder. |
-| `not_a_file` | The file of statements, or the dump to import, can't be read. |
+| `not_a_file` | The file given (of statements, a dump to import, or a save) can't be read. |
 | `file_exists` | database export won't write over a file that's already there. |
 | `needs_newer_node` | Reading or writing a .sqlite file needs Node 22.13 or newer. |
 | `not_a_database` | The .sqlite file to import isn't a SQLite database. |

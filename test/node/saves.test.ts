@@ -85,7 +85,7 @@ describe("cloud save format", () => {
 
 describe("save history", () => {
   const H = 3600_000;
-  const copy = (hoursAgo: number, reason: SaveCopyReason = "hourly"): SaveCopy => ({ id: `c${hoursAgo}`, account_id: "a", game_id: "g", saved_at_ms: 1e12 - hoursAgo * H, reason, sha256: `h${hoursAgo}`, size_bytes: 10 });
+  const copy = (hoursAgo: number, reason: SaveCopyReason = "hourly"): SaveCopy => ({ id: `c${hoursAgo}`, account_id: "a", game_id: "g", saved_at_ms: 1e12 - hoursAgo * H, copy_reason: reason, sha256: `h${hoursAgo}`, size_bytes: 10 });
 
   it("copies when progress is about to be lost, and otherwise once an hour", () => {
     const current = { size_bytes: 1000, updated_at_ms: 1e12 };

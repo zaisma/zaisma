@@ -327,6 +327,65 @@ export const DATABASE_IMPORT = object({
 });
 
 /** A player's report that report triage sorted as a bug: what they wrote, never who they are. */
+/** A player's cloud save in a game, without what it holds. */
+const SAVE_SUMMARY_FIELDS = {
+  player_id: idOf("player", "The player whose save it is: the same ID in every game, in room.players and a player pass's sub."),
+  sha256: text("The SHA-256 of the save as stored (its keys sorted), to compare with save_copies."),
+  size_bytes: countOf("Up to 5 MB."),
+  updated_at: isoTime(),
+  changed_by_kind: choice(
+    { player: "the player's game saved it (or the player went back to an earlier version)", developer: "you changed, reset or restored it through the API or MCP" },
+    "Who made the save as it is now.",
+  ),
+  save_copy_count: countOf("Earlier versions kept, up to 5: list_save_copies lists them."),
+};
+const SAVE_CONTENTS_FIELDS = {
+  local_storage_items: {
+    type: "object",
+    additionalProperties: { type: "string" },
+    description: "The game's localStorage as it starts the game: each key and its text. With keys, only the keys asked for that it has.",
+  },
+  missing_keys: list(text(), "With keys: the ones asked for that the save doesn't have. [] without keys."),
+  indexeddb_databases: nullable(
+    list(
+      { type: "object", description: "One IndexedDB database as the game domain script stores it: { name, version, stores: [{ name, keyPath, autoIncrement, indexes, records: [[key, value]] }] }. Bytes, dates and the like are tagged as { $z: [kind, …] }." },
+      "The game's IndexedDB databases (Unity, Godot and localForage keep saves there); [] when it keeps none. null when you asked for some keys.",
+    ),
+  ),
+};
+export const SAVE_COPY_REASON = choice(
+  {
+    hourly: "a routine copy, about once an hour while playing",
+    replaced: "the player picked another device's progress over this",
+    smaller: "the save shrank to under half, usually a restart",
+    restore: "the player went back to an earlier version",
+    device: "a device's progress the player didn't pick",
+    developer: "right before you changed, reset or restored the save",
+  },
+  "Why the copy was kept. Copies kept because progress was about to be lost (all but hourly) outlast hourly ones for 30 days.",
+);
+const SAVE_COPY_FIELDS = {
+  id: idOf("save_copy"),
+  saved_at: isoTime("When this progress was saved."),
+  copy_reason: SAVE_COPY_REASON,
+  sha256: text(),
+  size_bytes: countOf(),
+  is_current_save: yes("The save holds exactly this progress now."),
+};
+export const SAVE_SUMMARY = object(SAVE_SUMMARY_FIELDS);
+export const SAVE_LIST = object({
+  saves: list(SAVE_SUMMARY, "Up to 100 a page, by player ID."),
+  next_cursor: nullable(text("Pass as cursor for the next page; null on the last.")),
+});
+export const SAVE = object({ save: object({ ...SAVE_SUMMARY_FIELDS, ...SAVE_CONTENTS_FIELDS }) });
+export const SAVE_CHANGED = object({
+  save: SAVE_SUMMARY,
+  kept_save_copy_id: nullable(idOf("save_copy", "The earlier version holding the save this replaced: restore_save_copy undoes the change. null when nothing changed, or the save it replaced was your own last change (the copy from before that one is still there).")),
+  next_steps: NEXT,
+});
+export const SAVE_COPY_LIST = object({ save_copies: list(object(SAVE_COPY_FIELDS), "Newest first, up to 5.") });
+export const SAVE_COPY = object({ save_copy: object({ ...SAVE_COPY_FIELDS, ...SAVE_CONTENTS_FIELDS }) });
+
 export const BUG_REPORT = object({
   id: idOf("report"),
   player_text: text("What the player wrote."),
