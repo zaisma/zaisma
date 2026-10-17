@@ -1,5 +1,5 @@
 import { deleteStaleDraftMedia } from "./forum-posts.ts";
-import { ROOM_STALE_MS, audit, deleteExpiredFriendInvites, deleteExpiredSignInCodes, deleteOldDeliveries, blobKey, manifestKey, ownedBlobKey, publishVersion, reportPictureKey, type Manifest, type Version } from "@zaisma/core";
+import { ROOM_STALE_MS, applyBirthdays, audit, deleteExpiredFriendInvites, deleteExpiredSignInCodes, deleteOldDeliveries, blobKey, manifestKey, ownedBlobKey, publishVersion, reportPictureKey, type Manifest, type Version } from "@zaisma/core";
 import type { Env } from "./env.ts";
 import { deleteVersion, pruneVersions } from "./scan.ts";
 import { tellWebhooks } from "./webhooks.ts";
@@ -28,7 +28,8 @@ const DAY_MS = 86400_000;
 
 /**
  * Once a day: delete drafts nobody published within 30 days, then files no version uses, then
- * pictures from reports closed more than 30 days ago, then rooms-list rows of rooms that stopped.
+ * pictures from reports closed more than 30 days ago, then rooms-list rows of rooms that stopped,
+ * and apply the day's birthdays.
  * Held and rejected versions are kept: they may need a person, or a report to the authorities.
  */
 export async function dailyCleanup(env: Env, nowMs = Date.now()): Promise<{ deletedDraftCount: number; deletedFileCount: number; deletedPictureCount: number; deletedForumDraftCount: number }> {
@@ -67,6 +68,8 @@ export async function dailyCleanup(env: Env, nowMs = Date.now()): Promise<{ dele
   await deleteExpiredSignInCodes(env.DB, nowMs);
   // Friend invites nobody used: each works for a week.
   await deleteExpiredFriendInvites(env.DB, nowMs);
+  // Birthdays of players who weren't on today: teens move up a band, and at 18 the birth date goes.
+  await applyBirthdays(env.DB, nowMs);
   // What was sent to webhooks: kept 30 days, so the developer can see what went and why it failed.
   await deleteOldDeliveries(env.DB, nowMs);
   // Images uploaded for a forum post that was never posted.

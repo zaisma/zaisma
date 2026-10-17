@@ -86,7 +86,7 @@ describe("reading saves", () => {
     const statements = [];
     for (let i = 0; i < 101; i++) {
       const id = `bulk-${i}`;
-      statements.push(env.DB.prepare("INSERT INTO accounts (id, player_id, username, age_band, social_mode, created_at_ms, updated_at_ms) VALUES (?, ?, 'Bulk_' || ?, '18+', 'open_and_social', 0, 0)").bind(id, `player_bulk${String(i).padStart(3, "0")}`, i));
+      statements.push(env.DB.prepare("INSERT INTO accounts (id, player_id, username, age_band, created_at_ms, updated_at_ms) VALUES (?, ?, 'Bulk_' || ?, '18+', 0, 0)").bind(id, `player_bulk${String(i).padStart(3, "0")}`, i));
       statements.push(env.DB.prepare("INSERT INTO saves (account_id, game_id, version_number, sha256, size_bytes, updated_at_ms) VALUES (?, ?, 1, 'x', 2, 0)").bind(id, gameId));
     }
     await env.DB.batch(statements);

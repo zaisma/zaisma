@@ -170,6 +170,8 @@ Zaisma preview is running. Nothing here touches the live site.
   Forgot password ${SITE}/signin/email  (old@example.test or legacy@example.test, code 123456)
   Account page    ${SITE}/account  (Username, then Signing in: password, email and passkeys)
   Friends         ${SITE}/friends  (three friends and a waiting invite; sign in as Moss_Runner to be one of them)
+  Social settings ${SITE}/account#social  (18+ on Friends-focused; sign in as Quiet_Comet for 13 to 15, Bright_Reed
+                  for 16 on Open and social, Tall_Pine for Custom; password "${PASSWORD}")
   Sign in with    ${SIGN_IN_SITE}  (Sky Hopper Online, a developer's own site: Sign in with Zaisma, the consent page and back)
   Admin           ${SITE}/admin
   Report queue    ${SITE}/admin/reports
@@ -557,31 +559,41 @@ async function seedForum(you, go, form) {
  * (their own account, in their own browser) opens one and says yes. One invite is left waiting.
  */
 async function seedFriends(go, form) {
+  const thisYear = new Date().getUTCFullYear();
   const friends = [
     { name: "Moss_Runner", email: "moss@example.test", year: "1995" },
-    { name: "Quiet_Comet", email: "comet@example.test", year: String(new Date().getUTCFullYear() - 14) },
-    { name: "Tall_Pine", email: "pine@example.test", year: "2001" },
+    { name: "Quiet_Comet", email: "comet@example.test", year: String(thisYear - 14) },
+    // Custom social settings: friends-focused, except nobody sees what they've played.
+    { name: "Tall_Pine", email: "pine@example.test", year: "2001", social: { social_mode: "custom", who_can_chat: "friends", who_can_join: "friends", who_sees_playing_now: "friends", who_sees_played_games: "nobody", who_sees_online: "friends", who_can_send_friend_requests: "nobody" } },
   ];
   for (const [i, friend] of friends.entries()) {
     const made = await go("/friends/invites", form({}));
     const inviteCode = new URL(made.headers.get("location"), SITE).searchParams.get("invite");
-    const jar = new Map();
-    const ip = `198.51.100.${200 + i}`;
-    const asFriend = async (path, body) => {
-      const res = await fetch(SITE + path, { method: "POST", body: new URLSearchParams(body), redirect: "manual", headers: { origin: SITE, "cf-connecting-ip": ip, cookie: [...jar].map(([k, v]) => `${k}=${v}`).join("; ") } });
-      for (const c of res.headers.getSetCookie()) {
-        const [pair] = c.split("; ");
-        jar.set(pair.slice(0, pair.indexOf("=")), pair.slice(pair.indexOf("=") + 1));
-      }
-      return res;
-    };
-    await asFriend("/join/age", { month: "6", day: "2", year: friend.year });
-    await asFriend("/join/account", { username: friend.name, password: PASSWORD, turnstile_token: TURNSTILE_TOKEN });
-    await asFriend("/account/email", { email: friend.email });
-    await asFriend("/account/email/code", { email: friend.email, code: "123456" });
+    const asFriend = await signedIn(friend, `198.51.100.${200 + i}`);
+    if (friend.social) await asFriend("/account/social", friend.social);
     await asFriend(`/friends/add/${inviteCode}`, {});
   }
   await go("/friends/invites", form({}));
+  // A 16-year-old who chose open and social while joining, not a friend.
+  await signedIn({ name: "Bright_Reed", email: "reed@example.test", year: String(thisYear - 16), socialMode: "open_and_social" }, "198.51.100.210");
+}
+
+/** A new account made through the join pages in its own browser: answers a function that posts as it. */
+async function signedIn(person, ip) {
+  const jar = new Map();
+  const asPerson = async (path, body) => {
+    const res = await fetch(SITE + path, { method: "POST", body: new URLSearchParams(body), redirect: "manual", headers: { origin: SITE, "cf-connecting-ip": ip, cookie: [...jar].map(([k, v]) => `${k}=${v}`).join("; ") } });
+    for (const c of res.headers.getSetCookie()) {
+      const [pair] = c.split("; ");
+      jar.set(pair.slice(0, pair.indexOf("=")), pair.slice(pair.indexOf("=") + 1));
+    }
+    return res;
+  };
+  await asPerson("/join/age", { month: "6", day: "2", year: person.year });
+  await asPerson("/join/account", { username: person.name, password: PASSWORD, turnstile_token: TURNSTILE_TOKEN, ...(person.socialMode ? { social_mode: person.socialMode } : {}) });
+  await asPerson("/account/email", { email: person.email });
+  await asPerson("/account/email/code", { email: person.email, code: "123456" });
+  return asPerson;
 }
 
 /**

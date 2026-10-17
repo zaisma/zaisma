@@ -11,11 +11,15 @@ import {
   type ApiKey,
   type AreaAccess,
   type KeyScope,
+  SOCIAL_SETTINGS,
+  SOCIAL_SETTING_CHOICES,
   USERNAME_RULES,
   accountById,
   accountByUsername,
   ageBand,
+  ageBandOn,
   ageOn,
+  birthDateText,
   apiKeysFor,
   b64url,
   changeUsername,
@@ -36,14 +40,21 @@ import {
   redirectUrlsOf,
   removeSignInGrant,
   revokeApiKey,
+  sameSocialSettings,
   signInGrantsFor,
+  socialModeOf,
+  socialModeSettings,
   socialModesFor,
+  socialSettingsOf,
+  socialSettingChoicesFor,
   suggestUsernames,
   updateAccount,
   UsernameTakenError,
   type Account,
   type AgeBand,
   type SocialMode,
+  type SocialSetting,
+  type SocialSettings,
 } from "@zaisma/core";
 import {
   PROVIDERS,
@@ -86,10 +97,12 @@ import { isRealBrowser, turnstileFormScript } from "./turnstile.ts";
  * Sign-in, account creation and the account page.
  *
  * Making an account takes a birthday, a username and a password, nothing else (docs/DECISIONS.md).
- * The age question comes first, so we collect nothing from under-13s. The birth date is used once and
- * never stored; we keep the band (13–15, 16–17 or 18+). "Sign in" never creates accounts, so it can't skip
- * the question. 16 and over choose a social mode while making the account (friends-focused unless they
- * pick another); 13–15 start solo-focused. Everyone can change it on the account page, within their band.
+ * The age question comes first, so we collect nothing from under-13s. We keep the band (13–15, 16–17 or
+ * 18+), and the birth date only while the account is under 18, so the band moves up on the birthday by
+ * itself; nobody changes it by hand, and no page says which band anyone is in. "Sign in" never creates
+ * accounts, so it can't skip the question. 16 and over choose a social mode's preset while making the
+ * account (friends-focused unless they pick another); 13–15 start solo-focused. Everyone changes their
+ * social settings on the account page, within their band's limits.
  * Google and Discord work the same way, with a username and no password: someone new who comes back from
  * them without having answered the age question is forgotten straight away and sent to answer it first.
  *
@@ -118,8 +131,7 @@ const PATHS = [
   "/account",
   "/account/kept",
   "/account/username",
-  "/account/age",
-  "/account/social-mode",
+  "/account/social",
   "/account/confirm",
   "/account/password",
   "/account/email",
@@ -259,7 +271,9 @@ export async function handleAccount(request: Request, env: Env, path: string): P
         }
         return withCookies(tooYoungPage(env), cookies);
       }
-      const cookie = setCookie(env, "zaisma_join", encodeURIComponent(JSON.stringify({ band })), { maximumAgeSec: JOIN_DURATION_SEC });
+      // Under 18, the birth date goes with the join steps to the new account, which keeps it until 18.
+      const birthDate = band === "18+" ? undefined : birthDateText({ yearNumber: Number(field("year")), monthNumber: Number(field("month")), dayNumber: Number(field("day")) });
+      const cookie = setCookie(env, "zaisma_join", encodeURIComponent(JSON.stringify({ band, birth_date: birthDate })), { maximumAgeSec: JOIN_DURATION_SEC });
       // They came from Google or Discord: go straight back there (it won't ask again), then pick a username.
       const via = field("with");
       if (!session && isProvider(via) && (await providersOn(env)).includes(via)) return withCookies(redirect(`/signin/with/${via}${nextQuery(next)}`), [cookie]);
@@ -289,7 +303,7 @@ export async function handleAccount(request: Request, env: Env, path: string): P
       const made = await createPasswordUser(env, password);
       if (!made) return message(env, "Couldn't make your account", "Something went wrong on our side. Try again in a minute.", 502);
       try {
-        await createAccount(env.DB, { id: made.userId, username: checked.username, ageBand: band, socialMode, hasPassword: true });
+        await createAccount(env.DB, { id: made.userId, username: checked.username, ageBand: band, birthDate: joinBirthDate(request, env), socialMode, hasPassword: true });
       } catch (error) {
         if (!(error instanceof UsernameTakenError)) throw error;
         await deleteAuthUser(env, made.userId);
@@ -312,7 +326,7 @@ export async function handleAccount(request: Request, env: Env, path: string): P
       if (await isUsernameTaken(env.DB, checked.username)) return await again(takenText(checked.username), await suggestUsernames(env.DB, checked.username));
       if (env.TURNSTILE_SECRET && !(await isRealBrowser(env, field("turnstile_token", 2048), "join"))) return await again(BOT_CHECK_FAILED);
       try {
-        await createAccount(env.DB, { id: session.userId, username: checked.username, ageBand: band, socialMode });
+        await createAccount(env.DB, { id: session.userId, username: checked.username, ageBand: band, birthDate: joinBirthDate(request, env), socialMode });
       } catch (error) {
         if (!(error instanceof UsernameTakenError)) throw error;
         return await again(takenText(checked.username), await suggestUsernames(env.DB, checked.username));
@@ -413,21 +427,17 @@ export async function handleAccount(request: Request, env: Env, path: string): P
     return withCookies(redirect("/account?email-removed#signing-in"), fresh ? sessionCookies(env, fresh) : session.cookies);
   }
 
-  // Teens move up a band once they're old enough, keeping their social mode. Nobody moves down, and the date isn't kept.
-  if (path === "/account/age" && post && account.age_band !== "18+") {
-    const ageYearCount = ageOn({ yearNumber: Number(field("year")), monthNumber: Number(field("month")), dayNumber: Number(field("day")) }, new Date());
-    const band = ageYearCount === null ? null : ageBand(ageYearCount);
-    if (!band || AGE_ORDER[band] <= AGE_ORDER[account.age_band]) return done(await accountPage(env, session, false, `That birth date isn't ${account.age_band === "13-15" ? "16" : "18"} or over yet.`));
-    await updateAccount(env.DB, account.id, { ageBand: band });
-    return done(redirect("/account#age"));
-  }
-
-  // Who can chat with them, within what their band can choose.
-  if (path === "/account/social-mode" && post) {
+  // Who can do what with them, within their band's limits. A preset chosen with no setting changed sets them
+  // all (the page's script also fills them in); otherwise the settings as sent, which may match a preset or be Custom.
+  if (path === "/account/social" && post) {
+    const current = socialSettingsOf(account);
+    const sent = Object.fromEntries(SOCIAL_SETTINGS.map((setting) => [setting, form?.has(setting) ? field(setting, 40) : current[setting]])) as unknown as SocialSettings;
     const socialMode = field("social_mode", 40);
-    if (!isSocialMode(socialMode) || !socialModesFor(account.age_band).includes(socialMode)) return done(await accountPage(env, session, false, "Choose one of the chat settings shown."));
-    await updateAccount(env.DB, account.id, { socialMode });
-    return done(redirect("/account?social-mode-saved#chat"));
+    const choosable = isSocialMode(socialMode) && socialModesFor(account.age_band).includes(socialMode);
+    if (socialMode !== "custom" && !choosable) return done(await accountPage(env, session, false, "Choose from the social settings shown."));
+    const socialSettings = choosable && sameSocialSettings(sent, current) ? socialModeSettings(socialMode, account.age_band) : sent;
+    if (!(await updateAccount(env.DB, account.id, { socialSettings }))) return done(await accountPage(env, session, false, "Choose from the social settings shown."));
+    return done(redirect("/account?social-saved#social"));
   }
 
   // API keys for the developer MCP and upload command. The key is shown once, here.
@@ -544,13 +554,22 @@ function joinBand(request: Request, env: Env): AgeBand | null {
   }
 }
 
+/** The birth date from the join steps' cookie: under 18 only, and only when it says the same band (the server worked both out from one answer). */
+function joinBirthDate(request: Request, env: Env): string | undefined {
+  try {
+    const joinCookie = JSON.parse(decodeURIComponent(readCookie(request, env, "zaisma_join") ?? "")) as { band?: string; birth_date?: string };
+    const isSameBand = isAgeBand(joinCookie.band) && joinCookie.band !== "18+" && typeof joinCookie.birth_date === "string" && ageBandOn(joinCookie.birth_date, new Date()) === joinCookie.band;
+    return isSameBand ? joinCookie.birth_date : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** The social mode picked while joining, when the band can choose it; otherwise the band's default. 13–15 never choose. */
 function chosenSocialMode(band: AgeBand | null, given: unknown): SocialMode {
   if (!band) return "solo_focused";
   return band !== "13-15" && isSocialMode(given) && socialModesFor(band).includes(given) ? given : defaultSocialMode(band);
 }
-
-const AGE_ORDER: Record<AgeBand, number> = { "13-15": 0, "16-17": 1, "18+": 2 };
 
 // --- Pages ---
 
@@ -747,7 +766,7 @@ ${errorParagraph(error)}
 ${nextField(next)}
 ${via ? html`<input type="hidden" name="with" value="${via}">` : ""}
 <fieldset><legend>When's your birthday?</legend>${birthFields()}</fieldset>
-<p class="muted">We only keep your age group, never your birth date.</p>
+<p class="muted">Your birthday is never shown to anyone.</p>
 <button class="btn" type="submit">Next</button>
 </form>
 <p class="muted">Have an account? <a href="/signin${nextQuery(next)}">Sign in</a>.</p>`,
@@ -756,23 +775,27 @@ ${via ? html`<input type="hidden" name="with" value="${via}">` : ""}
 
 const SOCIAL_MODE_LABELS: Record<SocialMode, string> = { solo_focused: "Solo-focused", friends_focused: "Friends-focused", open_and_social: "Open and social" };
 
+/**
+ * What a preset does, in a line. It only ever says what the player gets, never what they don't or why:
+ * nothing on the page hints at age groups or what opens up later, so there's nothing to lie about.
+ */
 function socialModeHint(socialMode: SocialMode, band: AgeBand): string {
-  if (socialMode === "solo_focused") return "No chat with other players. You still play with them.";
-  if (socialMode === "friends_focused") return "Chat only with friends you invited, or who invited you.";
-  return band === "16-17" ? "Chat with anyone 16 or 17 who's open and social too." : "Chat with any adult who's open and social too.";
+  if (socialMode === "solo_focused") return "No chat. Friends can still join you and see what you play.";
+  if (socialMode === "friends_focused") return "Chat, joining and what you play, with friends only.";
+  return band === "18+" ? "Chat with anyone, take friend requests, and anyone can join you and see what you play." : "Chat with anyone and take friend requests. Friends can join you and see what you play.";
 }
 
-/** The social modes a band can pick, as radio buttons. */
-function socialModeChoices(band: AgeBand, current: SocialMode, legend: string): Raw {
-  return html`<fieldset class="choices"><legend>${legend}</legend>
-${socialModesFor(band).map(
-    (socialMode) => html`<label class="check"><input type="radio" name="social_mode" value="${socialMode}"${socialMode === current ? raw(" checked") : ""}> <span>${SOCIAL_MODE_LABELS[socialMode]}<small class="hint">${socialModeHint(socialMode, band)}</small></span></label>`,
-  )}
+/** The presets a band can pick, as radio buttons (only those: a preset the band can't have isn't shown at all); the account page adds Custom. */
+function socialModeChoices(band: AgeBand, current: SocialMode | "custom", legend: string | null, withCustom = false): Raw {
+  const radio = (choice: string, label: string, hint: string) =>
+    html`<label class="check"><input type="radio" name="social_mode" value="${choice}"${choice === current ? raw(" checked") : ""}> <span>${label}<small class="hint">${hint}</small></span></label>`;
+  return html`<fieldset class="choices"${legend ? "" : raw(' aria-label="Social settings"')}>${legend ? html`<legend>${legend}</legend>` : ""}
+${socialModesFor(band).map((socialMode) => radio(socialMode, SOCIAL_MODE_LABELS[socialMode], socialModeHint(socialMode, band)))}
+${withCustom ? radio("custom", "Custom", "Choose each one yourself.") : ""}
 </fieldset>`;
 }
 
-/** 16 and over pick a social mode while joining; 13–15 start solo-focused and can turn on friends later. */
-/** Each preset as a new player picks it: a line in their own words. */
+/** Each preset as a new player picks it while joining (16 and over; 13–15 start solo-focused): a line in their own words. */
 const JOIN_SOCIAL_MODE_LINES: Record<SocialMode, string> = {
   solo_focused: "I just want to play, no chat.",
   friends_focused: "I want to play and chat with my friends.",
@@ -788,6 +811,57 @@ ${socialModesFor(band).map(
   )}
 </fieldset>
 <p class="hint">You can change this any time on your account page.</p>`;
+}
+
+/** Each social setting on the account page: what it's called, and what it covers. */
+const SOCIAL_SETTING_LABELS: Record<SocialSetting, [string, string]> = {
+  who_can_chat: ["Who can chat with you", "Text and voice, in games that have chat."],
+  who_can_join: ["Who can join you", "Jump into the game you're playing, from Zaisma."],
+  who_sees_playing_now: ["Who sees what you're playing", "The game you're in right now."],
+  who_sees_played_games: ["Who sees what you've played", "Games you played lately."],
+  who_sees_online: ["Who sees you online", "When you have Zaisma open."],
+  who_can_send_friend_requests: ["Friend requests", "Friends can always add you with an invite you give them."],
+};
+
+const SOCIAL_CHOICE_LABELS: Record<string, string> = { nobody: "Nobody", friends: "Friends", anyone: "Anyone" };
+
+/**
+ * The Social section: the presets, and under Custom every setting as choices side by side. Only the
+ * choices the band has are there at all; a setting with just one isn't shown. Picking a preset fills
+ * in its settings (the script), so Custom starts from the last one; the server works it out again.
+ */
+function socialSettingsForm(band: AgeBand, settings: SocialSettings): Raw {
+  const presets = Object.fromEntries(socialModesFor(band).map((socialMode) => [socialMode, socialModeSettings(socialMode, band)]));
+  return html`<form class="stack social" method="post" action="/account/social" id="social-form">
+${socialModeChoices(band, socialModeOf(settings, band), null, true)}
+<div class="social-settings">
+${SOCIAL_SETTINGS.map((setting) => {
+    const choices = socialSettingChoicesFor(band, setting) as readonly string[];
+    if (choices.length < 2) return "";
+    return html`<fieldset class="area"><legend>${SOCIAL_SETTING_LABELS[setting][0]}</legend><p class="hint">${SOCIAL_SETTING_LABELS[setting][1]}</p>
+<div class="seg picks">${choices.map(
+      (choice) =>
+        html`<label><input type="radio" name="${setting}" value="${choice}"${choice === settings[setting] ? raw(" checked") : ""}><span>${setting === "who_can_send_friend_requests" && choice === "nobody" ? "Invites only" : SOCIAL_CHOICE_LABELS[choice]}</span></label>`,
+    )}</div>
+</fieldset>`;
+  })}
+</div>
+<button class="btn ghost" type="submit">Save</button>
+</form>
+<script>
+(() => {
+  const form = document.getElementById("social-form");
+  const presets = ${raw(JSON.stringify(presets))};
+  form.addEventListener("change", (event) => {
+    const preset = event.target.name === "social_mode" && presets[event.target.value];
+    if (!preset) return;
+    for (const [setting, choice] of Object.entries(preset)) {
+      const input = form.querySelector('input[name="' + setting + '"][value="' + choice + '"]');
+      if (input) input.checked = true;
+    }
+  });
+})();
+</script>`;
 }
 
 const USERNAME_HINT = "Everyone sees it, and it's how friends find you. Don't use your real name.";
@@ -855,9 +929,9 @@ ${raw(joinCheckScript(env))}</script>`,
 function tooYoungPage(env: Env): Response {
   return page(
     env,
-    "Accounts are for 13 and up",
-    html`<h1>Accounts are for 13 and up</h1>
-<p class="lead">You can't make a Zaisma account yet, but you can still play as a guest in any game that doesn't need one.</p>
+    "You can't make an account",
+    html`<h1>You can't make an account</h1>
+<p class="lead">You can still play as a guest in any game that doesn't need one.</p>
 <a class="btn" href="/">Find a game</a>`,
   );
 }
@@ -1032,8 +1106,6 @@ ${ACCESS_AREAS.map(
 
 const ICON_PASSKEY = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="4"/><path d="M2 21c0-3.9 3.1-7 7-7 1.2 0 2.4.3 3.4.9"/><circle cx="18" cy="13" r="2.5"/><path d="M18 15.5V21l1.5-1.2M18 18.5h1.5"/></svg>';
 
-const BAND_TEXT: Record<AgeBand, string> = { "13-15": "13 to 15", "16-17": "16 or 17", "18+": "18 or over" };
-
 const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
 /** Notes the account page shows after a change, by the query it's sent back with. */
@@ -1106,20 +1178,12 @@ ${usernameField(usernameGiven?.username ?? account.username, "Everyone sees it, 
 <button class="btn ghost" type="submit">Save</button>
 </form>
 <script>${raw(USERNAME_SCRIPT)}</script>
-<h2 id="age">Age group</h2>
-<p>${BAND_TEXT[account.age_band]}.${account.age_band === "18+" ? "" : " Accounts under 18 get safer settings."}</p>
-${account.age_band === "18+"
-      ? ""
-      : html`<details><summary>Turned ${account.age_band === "13-15" ? "16" : "18"}?</summary><form class="stack" method="post" action="/account/age">${birthFields()}<button class="btn ghost" type="submit">Update</button></form></details>`}
 <h2 id="friends">Friends</h2>
 <p>Friends join by an invite you give them, as a link or a code. <a href="/friends">Your friends and invites</a>.</p>
-<h2 id="chat">Chat</h2>
-${query.has("social-mode-saved") ? html`<p class="note" role="status">Saved. Games pick it up the next time you open them.</p>` : ""}
-<form class="stack" method="post" action="/account/social-mode">
-${socialModeChoices(account.age_band, account.social_mode, "Who can chat with you in games")}
-${account.age_band === "13-15" ? html`<p class="hint">Open and social opens up at 16.</p>` : ""}
-<button class="btn ghost" type="submit">Save</button>
-</form>
+<h2 id="social">Social</h2>
+<p>Who can chat with you, join you and see what you play.</p>
+${query.has("social-saved") ? html`<p class="note" role="status">Saved. Games pick up chat changes the next time you open them.</p>` : ""}
+${socialSettingsForm(account.age_band, socialSettingsOf(account))}
 <h2 id="signing-in">Signing in</h2>
 ${signingInNote ? html`<p class="note" role="status">${SIGNING_IN_NOTES[signingInNote]!}</p>` : ""}
 ${query.has("confirm-failed") ? html`<p class="error" role="alert">Couldn't send a code. Wait a minute and try again.</p>` : ""}

@@ -11,6 +11,7 @@ export * from "./scan/images.ts";
 export * from "./scan/photodna.ts";
 export * from "./scan/decide.ts";
 export * from "./accounts.ts";
+export * from "./social-settings.ts";
 export * from "./friends.ts";
 export * from "./saves.ts";
 export * from "./webauthn.ts";

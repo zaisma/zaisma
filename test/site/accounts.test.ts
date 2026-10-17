@@ -1,6 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { MAXIMUM_OPEN_FRIEND_INVITE_COUNT, accountById, ageBand, ageOn, canonicalSave, checkUsername, createAccount, createApiKey, deleteExpiredFriendInvites, friendInviteByCode, friendInvitesOf, friendsOf, gameById, gameBySlug, gameOwner, saveKey, sha256Hex } from "@zaisma/core";
+import { MAXIMUM_OPEN_FRIEND_INVITE_COUNT, accountById, ageBand, ageOn, applyBirthdays, canonicalSave, checkUsername, createAccount, createApiKey, deleteExpiredFriendInvites, friendInviteByCode, friendInvitesOf, friendsOf, gameById, gameBySlug, gameOwner, saveKey, sha256Hex } from "@zaisma/core";
 import { decideTopic } from "../../apps/site/src/forum-posts.ts";
 import { checkForumPosts, type CheckDeps } from "../../apps/site/src/forum-check.ts";
 import { scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
@@ -10,6 +10,11 @@ import { errorProblems, schemaProblems } from "../schema-check.ts";
 
 const SITE = "https://zaisma.test";
 const SUPABASE = "https://supabase.test";
+
+// The presets' settings (docs/DECISIONS.md, "Social settings, with the social modes as presets").
+const SOLO_FOCUSED = { who_can_chat: "nobody", who_can_join: "friends", who_sees_playing_now: "friends", who_sees_played_games: "friends", who_sees_online: "friends", who_can_send_friend_requests: "nobody" };
+const FRIENDS_FOCUSED = { ...SOLO_FOCUSED, who_can_chat: "friends" };
+const OPEN_AND_SOCIAL_ADULT = { who_can_chat: "anyone", who_can_join: "anyone", who_sees_playing_now: "anyone", who_sees_played_games: "anyone", who_sees_online: "friends", who_can_send_friend_requests: "anyone" };
 
 // --- A small stand-in for Supabase Auth: passwords, email codes, email changes, ES256 access tokens, refresh, admin calls. ---
 
@@ -279,12 +284,13 @@ describe("making an account", () => {
     expect(sent).toHaveLength(0);
 
     const account = await accountById(env.DB, await idOf("Night_Owl"));
-    expect(account).toMatchObject({ username: "Night_Owl", age_band: "18+", social_mode: "friends_focused", password_changed_at_ms: expect.any(Number) });
+    expect(account).toMatchObject({ username: "Night_Owl", age_band: "18+", ...FRIENDS_FOCUSED, password_changed_at_ms: expect.any(Number) });
     const page = await (await b.go("/account?welcome")).text();
     expect(page).toContain("Welcome to Zaisma, Night_Owl");
     expect(page).not.toContain("no-mail.zaisma.com");
     expect(page).toContain("No email. Add one");
-    expect(page).toContain("18 or over");
+    // Nothing says which age group the account is in.
+    expect(page).not.toMatch(/18 or over|Age group/);
   });
 
   it("says a username is taken as it's typed, and suggests free ones", async () => {
@@ -344,33 +350,48 @@ describe("making an account", () => {
     const older = new Browser();
     await older.go("/join/age", { year: String(thisYear - 17), month: "1", day: "1" });
     await older.go("/join/account", { turnstile_token: "test-token", username: "Open_Kite", password: PASSWORD, social_mode: "open_and_social" });
-    expect(await accountById(env.DB, await idOf("Open_Kite"))).toMatchObject({ age_band: "16-17", social_mode: "open_and_social" });
+    // Open and social at 16–17: chat and friend requests from anyone, the rest with friends.
+    expect(await accountById(env.DB, await idOf("Open_Kite"))).toMatchObject({ age_band: "16-17", ...FRIENDS_FOCUSED, who_can_chat: "anyone", who_can_send_friend_requests: "anyone" });
 
     const younger = new Browser();
     expect(await (await younger.go("/join/age", { year: String(thisYear - 14), month: "1", day: "1" })).text()).not.toContain("How do you play?");
     // A hand-made form can't give 13–15 open and social.
     await younger.go("/join/account", { turnstile_token: "test-token", username: "Small_Kite", password: PASSWORD, social_mode: "open_and_social" });
-    expect(await accountById(env.DB, await idOf("Small_Kite"))).toMatchObject({ age_band: "13-15", social_mode: "solo_focused" });
+    expect(await accountById(env.DB, await idOf("Small_Kite"))).toMatchObject({ age_band: "13-15", ...SOLO_FOCUSED });
   });
 
-  it("never stores the birth date", async () => {
-    const b = new Browser();
-    await join(b, "teen@example.com", "Quiet_Comet", { year: String(thisYear - 15), month: "1", day: "1" });
-    const row = await env.DB.prepare("SELECT * FROM accounts").first();
-    expect(row).toMatchObject({ age_band: "13-15", social_mode: "solo_focused" });
+  it("keeps the birth date only while under 18, and never an adult's", async () => {
+    const teen = new Browser();
+    await join(teen, null, "Quiet_Comet", { year: String(thisYear - 15), month: "3", day: "9" });
+    expect(await env.DB.prepare("SELECT age_band, birth_date FROM accounts WHERE id = ?").bind(await idOf("Quiet_Comet")).first()).toEqual({ age_band: "13-15", birth_date: `${thisYear - 15}-03-09` });
+
+    const adult = new Browser();
+    await join(adult, null, "Night_Owl", { year: String(thisYear - 30), month: "3", day: "9" });
+    const row = await env.DB.prepare("SELECT * FROM accounts WHERE id = ?").bind(await idOf("Night_Owl")).first();
+    expect(row).toMatchObject({ age_band: "18+", birth_date: null });
     // Everything but the id and timestamps, which can contain any four digits.
     const { id: _id, created_at_ms: _c, updated_at_ms: _u, password_changed_at_ms: _p, ...stored } = row!;
-    expect(JSON.stringify(stored)).not.toContain(String(thisYear - 15));
-    expect([...b.jar.values()].join()).not.toContain(String(thisYear - 15));
+    expect(JSON.stringify(stored)).not.toContain(String(thisYear - 30));
+    expect([...adult.jar.values()].join()).not.toContain(String(thisYear - 30));
+
+    // A hand-made join cookie can't give a birth date that says another band.
+    const forged = new Browser();
+    await forged.go("/join/age", { year: String(thisYear - 14), month: "3", day: "9" });
+    forged.jar.set("__Host-zaisma_join", encodeURIComponent(JSON.stringify({ band: "13-15", birth_date: "1990-01-01" })));
+    await forged.go("/join/account", { turnstile_token: "test-token", username: "Odd_Kite", password: PASSWORD });
+    expect(await accountById(env.DB, await idOf("Odd_Kite"))).toMatchObject({ age_band: "13-15", birth_date: null });
   });
 
   it("stops under-13s before they pick a username, and for a day after", async () => {
     const b = new Browser();
     const res = await b.go("/join/age", { year: String(thisYear - 10), month: "1", day: "1" });
-    expect(await res.text()).toContain("Accounts are for 13 and up");
+    // It doesn't say the age, so there's no number to lie about.
+    const page = await res.text();
+    expect(page).toContain("You can't make an account");
+    expect(page).not.toMatch(/13 and up|under 13|older/);
     expect(b.jar.get("__Host-zaisma_age")).toBe("no");
-    expect(await (await b.go("/join/age", BIRTH_ADULT)).text()).toContain("Accounts are for 13 and up");
-    expect(await (await b.go("/join/account", { turnstile_token: "test-token", username: "Little_Fox", password: PASSWORD })).text()).toContain("Accounts are for 13 and up");
+    expect(await (await b.go("/join/age", BIRTH_ADULT)).text()).toContain("You can't make an account");
+    expect(await (await b.go("/join/account", { turnstile_token: "test-token", username: "Little_Fox", password: PASSWORD })).text()).toContain("You can't make an account");
     expect(users.size).toBe(0);
   });
 
@@ -564,7 +585,7 @@ describe("Google and Discord", () => {
     const res = await viaProvider(b, "/signin/with/google", "kid@example.com");
     expect(res.headers.get("location")).toBe("/join?with=google");
     expect(deleted).toHaveLength(1);
-    expect(await (await b.go("/join")).text()).toContain("Accounts are for 13 and up");
+    expect(await (await b.go("/join")).text()).toContain("You can't make an account");
     expect(b.jar.has("__Host-zaisma")).toBe(false);
   });
 
@@ -631,20 +652,66 @@ describe("the account page", () => {
     expect((await b.go("/account/username", { username: "Loud_Comet" })).status).toBe(303);
     expect((await accountById(env.DB, id))?.username).toBe("Loud_Comet");
 
-    // 13–15 can move to friends-focused, never open and social.
-    expect(await (await b.go("/account/social-mode", { social_mode: "open_and_social" })).text()).toContain("Choose one of the chat settings shown");
-    expect((await accountById(env.DB, id))?.social_mode).toBe("solo_focused");
-    expect((await b.go("/account/social-mode", { social_mode: "friends_focused" })).status).toBe(303);
-    expect((await accountById(env.DB, id))?.social_mode).toBe("friends_focused");
+    // The page shows the presets and settings 13–15 can have, and nothing at all of the rest: no open
+    // and social, no Anyone for chat or joining, no friend requests, and no hint of what opens up later.
+    const accountPageText = await (await b.go("/account")).text();
+    const social = accountPageText.slice(accountPageText.indexOf('<h2 id="social">'), accountPageText.indexOf('<h2 id="signing-in">'));
+    expect(social).toContain('<h2 id="social">Social</h2>');
+    expect(social).toMatch(/value="solo_focused" checked/);
+    expect(social).toMatch(/name="who_can_chat" value="friends"/);
+    expect(social).not.toContain('value="open_and_social"');
+    expect(social).not.toMatch(/name="who_can_chat" value="anyone"|name="who_can_join" value="anyone"|name="who_sees_online" value="anyone"/);
+    expect(social).not.toContain('name="who_can_send_friend_requests"');
+    expect(social).not.toMatch(/opens up|disabled|16-17|band group/);
 
-    // Up a band at a time, keeping the social mode; never down.
-    expect(await (await b.go("/account/age", { year: String(thisYear - 14), month: "1", day: "1" })).text()).toContain("16 or over yet");
-    await b.go("/account/age", { year: String(thisYear - 16), month: "1", day: "1" });
-    expect(await accountById(env.DB, id)).toMatchObject({ age_band: "16-17", social_mode: "friends_focused" });
-    expect(await (await b.go("/account/age", { year: String(thisYear - 17), month: "1", day: "1" })).text()).toContain("18 or over yet");
-    expect((await b.go("/account/social-mode", { social_mode: "open_and_social" })).status).toBe(303);
-    await b.go("/account/age", { year: String(thisYear - 19), month: "1", day: "1" });
-    expect(await accountById(env.DB, id)).toMatchObject({ age_band: "18+", social_mode: "open_and_social" });
+    // 13–15 can move to friends-focused, never open and social, and nothing past their limits.
+    expect(await (await b.go("/account/social", { social_mode: "open_and_social" })).text()).toContain("Choose from the social settings shown");
+    expect(await (await b.go("/account/social", { social_mode: "custom", who_can_join: "anyone" })).text()).toContain("Choose from the social settings shown");
+    expect(await (await b.go("/account/social", { social_mode: "custom", who_can_chat: "everyone" })).text()).toContain("Choose from the social settings shown");
+    expect(await accountById(env.DB, id)).toMatchObject(SOLO_FOCUSED);
+    // A preset with nothing else changed sets them all (the page's script fills them in too).
+    const saved = await b.go("/account/social", { social_mode: "friends_focused", ...SOLO_FOCUSED });
+    expect(saved.headers.get("location")).toBe("/account?social-saved#social");
+    expect(await accountById(env.DB, id)).toMatchObject(FRIENDS_FOCUSED);
+    expect(await (await b.go("/account?social-saved")).text()).toMatch(/value="friends_focused" checked/);
+    // Changing one setting makes it Custom, whatever preset the form still says.
+    expect((await b.go("/account/social", { social_mode: "friends_focused", ...FRIENDS_FOCUSED, who_sees_played_games: "nobody" })).status).toBe(303);
+    expect(await accountById(env.DB, id)).toMatchObject({ ...FRIENDS_FOCUSED, who_sees_played_games: "nobody" });
+    expect(await (await b.go("/account")).text()).toMatch(/value="custom" checked/);
+    // Back to a preset's exact settings is that preset again.
+    await b.go("/account/social", { social_mode: "custom", ...FRIENDS_FOCUSED });
+    expect(await (await b.go("/account")).text()).toMatch(/value="friends_focused" checked/);
+
+    // The page never says which band an account is in, and nobody changes their birthday.
+    expect(accountPageText).not.toMatch(/Age group|13 to 15|Turned 1[68]/);
+    expect((await b.go("/account/age", { year: String(thisYear - 19), month: "1", day: "1" })).status).toBe(404);
+    expect(await accountById(env.DB, id)).toMatchObject({ age_band: "13-15" });
+
+    // The band moves up on the birthday by itself, keeping the preset: not before the birthday has
+    // come everywhere (UTC−12), and never down.
+    const sixteenthBirthdayMs = Date.UTC(thisYear + 1, 0, 1);
+    expect(await accountById(env.DB, id, sixteenthBirthdayMs + 11 * 3600_000)).toMatchObject({ age_band: "13-15" });
+    expect(await accountById(env.DB, id, sixteenthBirthdayMs + 12 * 3600_000)).toMatchObject({ age_band: "16-17", birth_date: `${thisYear - 15}-01-01`, ...FRIENDS_FOCUSED });
+    expect(await accountById(env.DB, id)).toMatchObject({ age_band: "16-17" });
+    // Open and social at 16–17 keeps joining and what they play with friends.
+    expect(await (await b.go("/account/social", { social_mode: "custom", ...FRIENDS_FOCUSED, who_sees_playing_now: "anyone" })).text()).toContain("Choose from the social settings shown");
+    expect((await b.go("/account/social", { social_mode: "open_and_social", ...FRIENDS_FOCUSED })).status).toBe(303);
+    expect(await accountById(env.DB, id)).toMatchObject({ ...FRIENDS_FOCUSED, who_can_chat: "anyone", who_can_send_friend_requests: "anyone" });
+    const teenPageText = await (await b.go("/account")).text();
+    const teenPage = teenPageText.slice(teenPageText.indexOf('<h2 id="social">'), teenPageText.indexOf('<h2 id="signing-in">'));
+    expect(teenPage).toMatch(/value="open_and_social" checked/);
+    expect(teenPage).toMatch(/name="who_can_send_friend_requests" value="anyone" checked/);
+    expect(teenPage).not.toMatch(/name="who_can_join" value="anyone"|name="who_sees_playing_now" value="anyone"|opens up|disabled/);
+    // At 18 open and social opens up the rest too, and the birth date is deleted.
+    expect(await accountById(env.DB, id, Date.UTC(thisYear + 3, 0, 1, 12))).toMatchObject({ age_band: "18+", birth_date: null, ...OPEN_AND_SOCIAL_ADULT });
+    // The daily job does the same for players who weren't on, and Custom stays as it was.
+    const custom = new Browser();
+    await join(custom, "custom@example.com", "Odd_Fern", { year: String(thisYear - 17), month: "1", day: "1" });
+    const customId = users.get("custom@example.com")!;
+    await custom.go("/account/social", { social_mode: "custom", ...FRIENDS_FOCUSED, who_can_chat: "anyone" });
+    expect(await applyBirthdays(env.DB, Date.UTC(thisYear + 1, 0, 1, 12))).toBe(1);
+    expect(await env.DB.prepare("SELECT * FROM accounts WHERE id = ?").bind(customId).first()).toMatchObject({ age_band: "18+", birth_date: null, ...FRIENDS_FOCUSED, who_can_chat: "anyone" });
+    expect(await applyBirthdays(env.DB, Date.UTC(thisYear + 1, 0, 1, 12))).toBe(0);
 
     expect(await (await b.go("/account/delete", { confirm: "nope" })).text()).toContain('Type "delete"');
     const gone = await b.go("/account/delete", { confirm: "delete" });
@@ -771,7 +838,7 @@ describe("pages", () => {
     const home = await (await SELF.fetch(`${SITE}/`)).text();
     expect(home).toContain('id="account-link"');
     expect(home).toContain('href="/legal/privacy"');
-    expect(await (await SELF.fetch(`${SITE}/legal/privacy`)).text()).toContain("never keep it");
+    expect(await (await SELF.fetch(`${SITE}/legal/privacy`)).text()).toContain("we delete it when you turn 18");
     expect((await SELF.fetch(`${SITE}/signin`)).headers.get("cache-control")).toBe("no-store");
     expect(await (await SELF.fetch(`${SITE}/robots.txt`)).text()).toContain("Disallow: /account");
   });

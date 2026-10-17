@@ -17,11 +17,11 @@ export interface PassClaims {
   aud: string;
   iss: string;
   kind: PlayerKind;
-  /** Who an account can chat with. Guests' passes have none: guests don't chat. */
-  social_mode?: SocialMode;
+  /** Who an account lets chat with it: nobody, its friends, or anyone in its chat group. Guests' passes have none: guests don't chat. */
+  who_can_chat?: WhoCanChat;
   /**
-   * For open_and_social accounts, the group they can chat in (chat_group_…): two open-and-social
-   * players chat when their groups match. Opaque and different in every game, so it never says an age.
+   * For accounts that chat with anyone, the group they can chat in (chat_group_…): two such players
+   * chat when their groups match. Opaque and different in every game, so it never says an age.
    */
   chat_group?: string;
   /**
@@ -36,24 +36,24 @@ export interface PassClaims {
 /** A signed-in Zaisma account, or a guest. */
 export type PlayerKind = "guest" | "account";
 
-/** No chat, friends only, or anyone in the same chat group (docs/DECISIONS.md, "Social modes decide who can talk to whom"). */
-export type SocialMode = "solo_focused" | "friends_focused" | "open_and_social";
+/** No chat, friends only, or anyone in the same chat group: the player's "Who can chat with you" setting (docs/DECISIONS.md, "Social settings, with the social modes as presets"). */
+export type WhoCanChat = "nobody" | "friends" | "anyone";
 
-const SOCIAL_MODES: readonly string[] = ["solo_focused", "friends_focused", "open_and_social"];
+const WHO_CAN_CHAT_CHOICES: readonly string[] = ["nobody", "friends", "anyone"];
 
 /**
  * Whether two players may chat, by the passes your server checked (verifyPass): both accounts, neither
- * solo-focused, and either friends or both open and social in the same chat group. Guests and solo-
- * focused players never chat; friends-focused players chat only with friends. Friends count only
+ * letting nobody chat, and either friends or both letting anyone chat, in the same chat group. Guests and
+ * accounts set to nobody never chat; accounts set to friends chat only with friends. Friends count only
  * when each pass lists the other, so removing a friend holds as soon as either side has a new pass.
  * Use it on every message your own server delivers, text or voice; Zaisma rooms will do the same for you.
  */
 export function canChat(first: PassClaims, second: PassClaims): boolean {
   if (first.kind !== "account" || second.kind !== "account" || first.sub === second.sub) return false;
-  if (!first.social_mode || !second.social_mode || first.social_mode === "solo_focused" || second.social_mode === "solo_focused") return false;
+  if (!first.who_can_chat || !second.who_can_chat || first.who_can_chat === "nobody" || second.who_can_chat === "nobody") return false;
   const areFriends = Boolean(first.friend_player_ids?.includes(second.sub) && second.friend_player_ids?.includes(first.sub));
   if (areFriends) return true;
-  return first.social_mode === "open_and_social" && second.social_mode === "open_and_social" && typeof first.chat_group === "string" && first.chat_group === second.chat_group;
+  return first.who_can_chat === "anyone" && second.who_can_chat === "anyone" && typeof first.chat_group === "string" && first.chat_group === second.chat_group;
 }
 
 export type PublicKey = JsonWebKey & { kid: string };
@@ -153,7 +153,7 @@ export async function verifyPass(
   if (claims.aud !== expect.game) throw new PassError("wrong_game");
   if (typeof claims.sub !== "string") throw new PassError("malformed");
   if (claims.kind !== "account" && !(claims.kind === "guest" && typeof claims.name === "string")) throw new PassError("malformed");
-  if (claims.social_mode !== undefined && !SOCIAL_MODES.includes(claims.social_mode)) throw new PassError("malformed");
+  if (claims.who_can_chat !== undefined && !WHO_CAN_CHAT_CHOICES.includes(claims.who_can_chat)) throw new PassError("malformed");
   if (claims.chat_group !== undefined && typeof claims.chat_group !== "string") throw new PassError("malformed");
   if (claims.friend_player_ids !== undefined && !(Array.isArray(claims.friend_player_ids) && claims.friend_player_ids.every((playerId) => typeof playerId === "string"))) throw new PassError("malformed");
   return claims;
