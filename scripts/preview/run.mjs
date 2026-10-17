@@ -341,7 +341,7 @@ async function seed() {
 
   // Scoped API keys, so the account page lists what each can do: CI that uploads two games, and a custom key.
   await go("/account/keys", form([["name", "GitHub Actions"], ["access_level", "upload"], ["game_scope", "some"], ["game_slugs", "shard-dodge"], ["game_slugs", "arena"]]));
-  await go("/account/keys", form({ name: "Stats bot", access_level: "custom", game_scope: "all", game_access: "read", version_access: "read", stats_access: "read", database_access: "none", forum_access: "none", sign_in_app_access: "none", webhook_access: "none" }));
+  await go("/account/keys", form({ name: "Stats bot", access_level: "custom", game_scope: "all", game_access: "read", version_access: "read", stats_access: "read", database_access: "none", save_access: "none", forum_access: "none", sign_in_app_access: "none", webhook_access: "none" }));
 }
 
 /**

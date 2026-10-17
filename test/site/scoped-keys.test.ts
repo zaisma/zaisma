@@ -86,7 +86,7 @@ describe("levels and areas", () => {
 
   it("read a custom key made before an area existed as that area's least", () => {
     const access = keyAccess({ name: "old", access_level: "custom", area_access: JSON.stringify({ game_access: "write", forum_access: "read" }), game_slugs: null });
-    expect(access.areaAccess).toEqual({ game_access: "write", version_access: "read", stats_access: "none", database_access: "none", forum_access: "read", sign_in_app_access: "none", webhook_access: "none" });
+    expect(access.areaAccess).toEqual({ game_access: "write", version_access: "read", stats_access: "none", database_access: "none", save_access: "none", forum_access: "read", sign_in_app_access: "none", webhook_access: "none" });
   });
 
   it("keep keys made before scopes doing everything", async () => {
@@ -155,9 +155,14 @@ describe("a key for some games", () => {
 
 describe("a custom key", () => {
   it("does what each area allows", async () => {
-    const key = await keyFor({ accessLevel: "custom", areaAccess: { game_access: "read", version_access: "read", stats_access: "read", database_access: "none", forum_access: "none", sign_in_app_access: "none", webhook_access: "none" }, gameSlugs: null });
+    const key = await keyFor({ accessLevel: "custom", areaAccess: { game_access: "read", version_access: "read", stats_access: "read", database_access: "none", save_access: "none", forum_access: "none", sign_in_app_access: "none", webhook_access: "none" }, gameSlugs: null });
     expect((await api("/games/sky-hopper/stats", key)).status).toBe(200);
     expect((await api("/games/sky-hopper/database", key)).code).toBe("key_not_allowed");
+    expect((await api("/games/sky-hopper/saves", key)).code).toBe("key_not_allowed");
+    expect((await api("/games/sky-hopper/saves", full)).status).toBe(200);
+    // A publish key reads saves but can't change them.
+    const publishKey = await keyFor({ accessLevel: "publish", gameSlugs: null });
+    expect((await api("/games/sky-hopper/saves/player_nobody", publishKey, { method: "DELETE" })).code).toBe("key_not_allowed");
     expect((await api("/forum", key)).code).toBe("key_not_allowed");
     expect((await tool("get_access", {}, key)).access.access_level).toBe("custom");
     // Public profiles are open to any key.

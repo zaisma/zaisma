@@ -93,13 +93,15 @@ const REFUSED_FIRST_WORDS = new Set(["BEGIN", "COMMIT", "END", "ROLLBACK", "SAVE
 export function checkStatement(sql: unknown, values: unknown): { sql: string; values: DatabaseValue[] } {
   if (typeof sql !== "string" || !sql.trim()) throw new DatabaseError("bad_sql", "The SQL isn't text.", 'Give one SQL statement as text, like "SELECT * FROM scores WHERE player_id = ?".');
   if (sql.length > DATABASE_LIMITS.maximumSqlCharacterCount) throw new DatabaseError("bad_sql", `The SQL is ${sql.length} characters.`, `Keep one statement under ${DATABASE_LIMITS.maximumSqlCharacterCount} characters, and pass data as values instead of writing it into the SQL.`);
-  const words = statementWords(sql);
-  if (words.statementCount > 1) throw new DatabaseError("bad_sql", "The SQL has more than one statement.", "Give one statement per query, or several in a batch (room.database.batch([{ sql, values }, ...]) in a game server, batch_database through the API), which also runs them in one transaction.");
-  if (REFUSED_FIRST_WORDS.has(words.firstWord)) throw new DatabaseError("bad_sql", `${words.firstWord} isn't allowed.`, "For a transaction, use a batch (room.database.batch([{ sql, values }, ...]) in a game server, batch_database through the API): its statements all happen or none do.");
+  const statements = scanStatements(sql);
+  if (statements.length === 0) throw new DatabaseError("bad_sql", "The SQL has only comments.", 'Give one SQL statement, like "SELECT * FROM scores WHERE player_id = ?".');
+  if (statements.length > 1) throw new DatabaseError("bad_sql", "The SQL has more than one statement.", "Give one statement per query, or several in a batch (room.database.batch([{ sql, values }, ...]) in a game server, batch_database through the API), which also runs them in one transaction.");
+  const firstWord = statements[0]!.leadingWords[0] ?? "";
+  if (REFUSED_FIRST_WORDS.has(firstWord)) throw new DatabaseError("bad_sql", `${firstWord} isn't allowed.`, "For a transaction, use a batch (room.database.batch([{ sql, values }, ...]) in a game server, batch_database through the API): its statements all happen or none do.");
   const given = values === undefined || values === null ? [] : values;
   if (!Array.isArray(given)) throw new DatabaseError("bad_values", "values isn't a list.", 'Give the values for the ?s as a list, in order, like ["player_8f3k2m", 1200].');
   if (given.length > DATABASE_LIMITS.maximumValueCount) throw new DatabaseError("bad_values", `There are ${given.length} values.`, `Give up to ${DATABASE_LIMITS.maximumValueCount} values per statement; split big inserts into several statements in one batch.`);
-  return { sql: sql.slice(0, words.statementEndIndex), values: given.map(checkValue) };
+  return { sql: sql.slice(0, statements[0]!.endIndex), values: given.map(checkValue) };
 }
 
 /** One value for a ?, the i-th (from 0). */
@@ -137,15 +139,40 @@ export function tooManyRows(): DatabaseError {
   return new DatabaseError("too_many_rows", `The statement answered more than ${DATABASE_LIMITS.maximumRowCount} rows.`, "Ask for fewer with LIMIT (and OFFSET or a WHERE on the last row for the next page), or count with SELECT count(*).");
 }
 
+/** One statement in a piece of SQL, as scanStatements finds it. */
+export interface ScannedStatement {
+  /** Where its first word or symbol starts (after any space and comments before it). */
+  startIndex: number;
+  /** Where it ends: after its last word or symbol, before its ; and any comment after it. */
+  endIndex: number;
+  /** Its first words in capitals, up to six, until the first symbol or quote: ["CREATE", "TABLE", "IF", "NOT", "EXISTS", "SCORES"]. */
+  leadingWords: string[];
+}
+
 /**
- * How many statements the SQL holds, its first word and where the first one ends, reading past
- * quotes and comments: a ; inside 'text' or a comment doesn't end a statement, and a trailing ; is fine.
+ * The statements a piece of SQL holds, reading past quotes and comments: a ; inside 'text' or a
+ * comment doesn't end a statement, and neither does one inside a trigger's BEGIN … END, the way
+ * SQLite's own sqlite3_complete reads it (a ; ends a CREATE TRIGGER only after an END that comes
+ * straight after a ;, so a CASE … END inside doesn't). An empty statement (;;) isn't one.
  */
-function statementWords(sql: string): { statementCount: number; firstWord: string; statementEndIndex: number } {
-  let statementCount = 0;
-  let statementEndIndex = 0;
-  let hasWords = false;
-  let firstWord = "";
+export function scanStatements(sql: string): ScannedStatement[] {
+  const statements: ScannedStatement[] = [];
+  // The statement being read, if one has started, the last word read (a quote or symbol clears it), and
+  // how many words, quotes and symbols came since the last ; inside it.
+  const reading: { statement: (ScannedStatement & { hasOnlyWords: boolean }) | null; lastWord: string; sinceSemicolonTokenCount: number } = { statement: null, lastWord: "", sinceSemicolonTokenCount: 0 };
+  /** Adds the token from startIndex to endIndex to the statement, starting one if there's none. */
+  const addToken = (startIndex: number, endIndex: number, word: string | null) => {
+    const statement = (reading.statement ??= { startIndex, endIndex, leadingWords: [], hasOnlyWords: true });
+    statement.endIndex = endIndex;
+    if (word === null) statement.hasOnlyWords = false;
+    else if (statement.hasOnlyWords && statement.leadingWords.length < 6) statement.leadingWords.push(word);
+    reading.lastWord = word ?? "";
+    reading.sinceSemicolonTokenCount++;
+  };
+  const isInTriggerBody = (statement: ScannedStatement) => {
+    const words = statement.leadingWords;
+    return words[0] === "CREATE" && (words[1] === "TRIGGER" || ((words[1] === "TEMP" || words[1] === "TEMPORARY") && words[2] === "TRIGGER")) && !(reading.lastWord === "END" && reading.sinceSemicolonTokenCount === 1);
+  };
   let i = 0;
   while (i < sql.length) {
     const character = sql[i]!;
@@ -160,24 +187,30 @@ function statementWords(sql: string): { statementCount: number; firstWord: strin
       let endIndex = i + 1;
       // A quote is escaped by doubling it.
       while (endIndex < sql.length && !(sql[endIndex] === close && sql[endIndex + 1] !== close)) endIndex += sql[endIndex] === close ? 2 : 1;
-      if (!hasWords) statementCount++;
-      hasWords = true;
+      addToken(i, Math.min(endIndex + 1, sql.length), null);
       i = endIndex + 1;
-      if (statementCount === 1) statementEndIndex = Math.min(i, sql.length);
     } else if (character === ";") {
-      hasWords = false;
+      const statement = reading.statement;
+      if (statement && !isInTriggerBody(statement)) {
+        statements.push({ startIndex: statement.startIndex, endIndex: statement.endIndex, leadingWords: statement.leadingWords });
+        reading.statement = null;
+      } else if (statement) addToken(i, i + 1, null);
+      reading.lastWord = "";
+      reading.sinceSemicolonTokenCount = 0;
       i++;
     } else if (/\s/.test(character)) {
       i++;
+    } else if (/[A-Za-z0-9_$]/.test(character)) {
+      let endIndex = i + 1;
+      while (endIndex < sql.length && /[A-Za-z0-9_$]/.test(sql[endIndex]!)) endIndex++;
+      addToken(i, endIndex, sql.slice(i, endIndex).toUpperCase());
+      i = endIndex;
     } else {
-      if (!hasWords) {
-        statementCount++;
-        if (statementCount === 1) firstWord = /^[A-Za-z]+/.exec(sql.slice(i))?.[0]?.toUpperCase() ?? "";
-      }
-      hasWords = true;
+      addToken(i, i + 1, null);
       i++;
-      if (statementCount === 1) statementEndIndex = i;
     }
   }
-  return { statementCount, firstWord, statementEndIndex };
+  const last = reading.statement;
+  if (last) statements.push({ startIndex: last.startIndex, endIndex: last.endIndex, leadingWords: last.leadingWords });
+  return statements;
 }

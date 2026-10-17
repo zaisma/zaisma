@@ -18,6 +18,7 @@ import {
   type Game,
   type SaveCopy,
   type SaveCopyReason,
+  type SaveRow,
 } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
@@ -28,10 +29,14 @@ import { html, layout, type Raw } from "./html.ts";
  * with the player's session cookie. The game itself never talks to this; it only
  * hands its browser save to the game page (see packages/sdk/saves.js).
  *
- *   GET  answers { tag, version_number, sha256, updated_at, save_data }, or { tag, version_number: 0 } with no save yet
+ *   GET  answers { tag, version_number, sha256, updated_at, changed_by_kind, save_data }, or { tag, version_number: 0 } with no save yet
+ *   GET  ?version answers only { version_number, changed_by_kind }, from the database alone, for an open game to check cheaply
  *   PUT  { base_version_number, save_json, replace? } answers { version_number, sha256, updated_at },
- *        or 409 { error, version_number, updated_at } when another device saved first
+ *        or 409 { error, version_number, updated_at, changed_by_kind } when another device (or the developer) saved first
  *   PUT  { keep: true, save_json } keeps this device's progress as an earlier version: { is_kept: true }
+ *
+ * changed_by_kind "developer" means the game's developer changed the save through the API (saves-api.ts):
+ * the game page then takes it without asking the player, keeping this device's progress as an earlier version.
  */
 export async function handleSaves(request: Request, env: Env, slug: string): Promise<Response> {
   const json = (body: unknown, httpStatus = 200) => Response.json(body, { status: httpStatus, headers: { "Cache-Control": "no-store" } });
@@ -58,9 +63,12 @@ export async function handleSaves(request: Request, env: Env, slug: string): Pro
 
   if (request.method === "GET") {
     const row = await saveRow(env.DB, account.id, game.id);
+    if (new URL(request.url).searchParams.has("version")) return withCookies(json({ version_number: row?.version_number ?? 0, changed_by_kind: row?.changed_by_kind ?? null }));
     const object = row ? await env.SAVES.get(saveKey(account.id, game.id)) : null;
     if (!row || !object) return withCookies(json({ tag, version_number: row?.version_number ?? 0 }));
-    return withCookies(json({ tag, version_number: row.version_number, sha256: row.sha256, updated_at: iso(row.updated_at_ms), save_data: JSON.parse(await object.text()) }));
+    return withCookies(
+      json({ tag, version_number: row.version_number, sha256: row.sha256, updated_at: iso(row.updated_at_ms), changed_by_kind: row.changed_by_kind, save_data: JSON.parse(await object.text()) }),
+    );
   }
 
   if (env.SAVE_LIMIT && !(await env.SAVE_LIMIT.limit({ key: account.id })).success) return json({ error: "Saving too often." }, 429);
@@ -81,18 +89,18 @@ export async function handleSaves(request: Request, env: Env, slug: string): Pro
 
   // The player picked the account's progress over this device's: keep this device's as an earlier version.
   if (body.keep === true) {
-    await keepCopy(env, { account_id: account.id, game_id: game.id, saved_at_ms: Date.now(), reason: "device", sha256, size_bytes: sizeBytes }, async () => text);
+    await keepCopy(env, { account_id: account.id, game_id: game.id, saved_at_ms: Date.now(), copy_reason: "device", sha256, size_bytes: sizeBytes }, async () => text);
     return withCookies(json({ is_kept: true }));
   }
 
   const baseVersionNumber = Number(body.base_version_number);
   if (!Number.isInteger(baseVersionNumber) || baseVersionNumber < 0) return json({ error: "Bad save." }, 400);
   const current = baseVersionNumber ? await saveRow(env.DB, account.id, game.id) : null;
-  const versionNumber = await bumpSave(env.DB, { accountId: account.id, gameId: game.id, baseVersionNumber, sha256, sizeBytes });
+  const versionNumber = await bumpSave(env.DB, { accountId: account.id, gameId: game.id, baseVersionNumber, sha256, sizeBytes, changedByKind: "player" });
   if (versionNumber === null) {
-    // Another device saved since this one loaded: the player chooses which to keep.
+    // Another device saved since this one loaded: the player chooses which to keep. A developer's change wins without asking.
     const row = await saveRow(env.DB, account.id, game.id);
-    return withCookies(json({ error: "Played on another device.", version_number: row?.version_number ?? 0, updated_at: iso(row?.updated_at_ms) }, 409));
+    return withCookies(json({ error: "Played on another device.", version_number: row?.version_number ?? 0, updated_at: iso(row?.updated_at_ms), changed_by_kind: row?.changed_by_kind ?? null }, 409));
   }
   // Before replacing the save, keep a copy now and then, and whenever progress looks about to be lost.
   if (current && current.version_number === baseVersionNumber && current.sha256 !== sha256) {
@@ -103,27 +111,55 @@ export async function handleSaves(request: Request, env: Env, slug: string): Pro
   return withCookies(json({ version_number: versionNumber, sha256, updated_at: iso(Date.now()) }));
 }
 
-const readSave = async (env: Env, accountId: string, gameId: string) => (await env.SAVES.get(saveKey(accountId, gameId)))?.text() ?? null;
+export const readSave = async (env: Env, accountId: string, gameId: string) => (await env.SAVES.get(saveKey(accountId, gameId)))?.text() ?? null;
 
 /**
  * Keep a copy of some progress in the game's history, unless it already has this exact progress.
- * `reason` is fixed, or worked out from when the newest copy was made (null: no copy needed).
+ * `copy_reason` is fixed, or worked out from when the newest copy was made (null: no copy needed).
+ * Answers the ID of the copy that holds this progress (the new one, or the one it already had), or null when none was kept.
  */
 async function keepCopy(
   env: Env,
-  copy: Omit<SaveCopy, "id" | "reason"> & { reason?: SaveCopyReason },
+  copy: Omit<SaveCopy, "id" | "copy_reason"> & { copy_reason?: SaveCopyReason },
   text: () => Promise<string | null>,
   why?: (newestCopyAtMs: number | null) => SaveCopyReason | null,
-): Promise<void> {
+): Promise<string | null> {
   const copies = await saveHistory(env.DB, copy.account_id, copy.game_id);
-  if (copies.some((savedCopy) => savedCopy.sha256 === copy.sha256)) return;
-  const reason = copy.reason ?? why?.(copies[0]?.saved_at_ms ?? null) ?? null;
-  const copyText = reason ? await text() : null;
-  if (!reason || copyText === null) return;
-  const full: SaveCopy = { ...copy, id: newId("save_copy"), reason };
+  const existing = copies.find((savedCopy) => savedCopy.sha256 === copy.sha256);
+  if (existing) return existing.id;
+  const copyReason = copy.copy_reason ?? why?.(copies[0]?.saved_at_ms ?? null) ?? null;
+  const copyText = copyReason ? await text() : null;
+  if (!copyReason || copyText === null) return null;
+  const full: SaveCopy = { ...copy, id: newId("save_copy"), copy_reason: copyReason };
   await env.SAVES.put(saveCopyKey(full.account_id, full.game_id, full.id), copyText, { httpMetadata: { contentType: "application/json" } });
   const dropped = await addSaveCopy(env.DB, full, copies);
   if (dropped.length) await env.SAVES.delete(dropped.map((droppedCopy) => saveCopyKey(droppedCopy.account_id, droppedCopy.game_id, droppedCopy.id)));
+  return full.id;
+}
+
+/**
+ * The game's developer makes `text` (a canonical save) the player's save: a change, a reset or a restore
+ * through the API. A copy of the save it replaces is kept first, unless that save was the developer's own
+ * last change, so a script changing a save again and again can't push the player's own copies out.
+ * Open games take it on their next check (saves-client.ts). Tries again when the player's game saves at
+ * the same moment; null when it kept losing that race.
+ */
+export async function changeSaveAsDeveloper(env: Env, accountId: string, gameId: string, text: string): Promise<{ row: SaveRow; keptSaveCopyId: string | null } | null> {
+  const sha256 = await saveHash(text);
+  const sizeBytes = new TextEncoder().encode(text).length;
+  for (let attemptIndex = 0; attemptIndex < 3; attemptIndex++) {
+    const row = await saveRow(env.DB, accountId, gameId);
+    if (row?.sha256 === sha256) return { row, keptSaveCopyId: null };
+    const keptSaveCopyId =
+      row && row.changed_by_kind !== "developer"
+        ? await keepCopy(env, { account_id: accountId, game_id: gameId, saved_at_ms: row.updated_at_ms, copy_reason: "developer", sha256: row.sha256, size_bytes: row.size_bytes }, () => readSave(env, accountId, gameId))
+        : null;
+    const versionNumber = await bumpSave(env.DB, { accountId, gameId, baseVersionNumber: row?.version_number ?? 0, sha256, sizeBytes, changedByKind: "developer" });
+    if (versionNumber === null) continue;
+    await env.SAVES.put(saveKey(accountId, gameId), text, { httpMetadata: { contentType: "application/json" }, customMetadata: { version_number: String(versionNumber) } });
+    return { row: (await saveRow(env.DB, accountId, gameId))!, keptSaveCopyId };
+  }
+  return null;
 }
 
 /** Delete every save file for an account (with the account). */
@@ -144,6 +180,7 @@ const REASONS: Record<SaveCopyReason, string> = {
   smaller: "Before the save shrank, like after a restart",
   restore: "Before you went back to an earlier version",
   device: "A device's progress you didn't pick",
+  developer: "Before the game's developer changed it",
 };
 
 /** The player's saves and each game's earlier versions, with a way back to any of them. */
@@ -185,8 +222,8 @@ async function goBack(env: Env, accountId: string, game: Game, id: string): Prom
   if (!copy || !text) return false;
   const row = await saveRow(env.DB, accountId, game.id);
   if (row?.sha256 === copy.sha256) return true;
-  if (row) await keepCopy(env, { account_id: accountId, game_id: game.id, saved_at_ms: row.updated_at_ms, reason: "restore", sha256: row.sha256, size_bytes: row.size_bytes }, () => readSave(env, accountId, game.id));
-  const versionNumber = await bumpSave(env.DB, { accountId, gameId: game.id, baseVersionNumber: row?.version_number ?? 0, sha256: copy.sha256, sizeBytes: copy.size_bytes });
+  if (row) await keepCopy(env, { account_id: accountId, game_id: game.id, saved_at_ms: row.updated_at_ms, copy_reason: "restore", sha256: row.sha256, size_bytes: row.size_bytes }, () => readSave(env, accountId, game.id));
+  const versionNumber = await bumpSave(env.DB, { accountId, gameId: game.id, baseVersionNumber: row?.version_number ?? 0, sha256: copy.sha256, sizeBytes: copy.size_bytes, changedByKind: "player" });
   if (versionNumber === null) return false;
   await env.SAVES.put(saveKey(accountId, game.id), text, { httpMetadata: { contentType: "application/json" }, customMetadata: { version_number: String(versionNumber) } });
   return true;
@@ -218,7 +255,7 @@ ${query.has("restored")
 ${copies.length
     ? html`<p>Going back replaces your current progress on every device. Close the game first if it's open.</p>
 <ul class="keys">${copies.map(
-        (savedCopy) => html`<li><span>Saved ${ago(savedCopy.saved_at_ms)}${REASONS[savedCopy.reason] ? html`<span class="why muted small">${REASONS[savedCopy.reason]}</span>` : ""}</span>
+        (savedCopy) => html`<li><span>Saved ${ago(savedCopy.saved_at_ms)}${REASONS[savedCopy.copy_reason] ? html`<span class="why muted small">${REASONS[savedCopy.copy_reason]}</span>` : ""}</span>
 ${row?.sha256 === savedCopy.sha256
           ? html`<span class="muted small">Your progress now</span>`
           : html`<form method="post" action="/account/saves/${game.slug}/restore"><input type="hidden" name="id" value="${savedCopy.id}"><button class="btn ghost" type="submit">Go back to this</button></form>`}</li>`,

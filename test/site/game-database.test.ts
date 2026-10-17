@@ -2,7 +2,7 @@ import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { GAME_DATABASE_FREE_LIMITS, createAccount, createApiKey, nextMonthStartDate } from "@zaisma/core";
 import { TOOLS } from "../../apps/site/src/mcp.ts";
-import { DATABASE, STATEMENT_RESULT } from "../../apps/site/src/schemas.ts";
+import { DATABASE, DATABASE_EXPORT, STATEMENT_RESULT } from "../../apps/site/src/schemas.ts";
 import { errorProblems, schemaProblems } from "../schema-check.ts";
 
 // A game's own database through the developer API and MCP (apps/site/src/game-database.ts): the real
@@ -137,5 +137,124 @@ describe("the game database through the API and MCP", () => {
     const refused = await api("/games/sky-hopper/database/query", { body: { sql: "SELECT 1" }, key: other });
     expect(refused.answer.error).toMatchObject({ code: "no_game", field: "slug" });
     expect((await api("/games/sky-hopper/database", { key: other })).answer.error.code).toBe("no_game");
+  });
+});
+
+/** The whole database through export_database, part by part, and how many parts it took. */
+async function exportAll(slugText: string): Promise<{ dumpSql: string; parts: string[] }> {
+  const parts: string[] = [];
+  let cursor: string | null = null;
+  do {
+    const part: any = await tool("export_database", { slug: slugText, ...(cursor ? { cursor } : {}) });
+    expect(schemaProblems(DATABASE_EXPORT, part)).toEqual([]);
+    parts.push(part.dump_sql);
+    cursor = part.next_cursor;
+  } while (cursor);
+  return { dumpSql: parts.join(""), parts };
+}
+
+const rowsOf = async (slugText: string, sql: string) => (await tool("query_database", { slug: slugText, sql })).rows;
+
+describe("the game database's import and export", () => {
+  it("exports SQLite's own dump, and imports it into another game's database as it was", async () => {
+    await tool("batch_database", {
+      slug: "sky-hopper",
+      statements: [
+        { sql: "CREATE TABLE players (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, speed REAL, replay BLOB, name_length INTEGER GENERATED ALWAYS AS (length(name)))" },
+        { sql: "CREATE TABLE inventories (player_id INTEGER, item TEXT, item_count INTEGER, PRIMARY KEY (player_id, item)) WITHOUT ROWID" },
+        { sql: "CREATE TABLE \"odd \"\"name\"\"\" (note TEXT)" },
+        { sql: "INSERT INTO players (name, speed, replay) VALUES (?, 2.0, ?), (?, NULL, NULL), ('gone', 1, NULL)", values: ["it's\nme; really", { blob_base64: "AAEC/w==" }, "Ünïcode 🎮"] },
+        { sql: "DELETE FROM players WHERE name = 'gone'" },
+        { sql: "INSERT INTO inventories VALUES (1, 'golden_wing', 2), (2, 'boots', 1)" },
+        { sql: "INSERT INTO \"odd \"\"name\"\"\" VALUES ('ok')" },
+        { sql: "CREATE INDEX players_by_speed ON players (speed)" },
+        { sql: "CREATE VIEW fast_players AS SELECT name FROM players WHERE speed > 1" },
+        { sql: "CREATE TRIGGER count_items AFTER INSERT ON inventories BEGIN UPDATE players SET speed = coalesce(speed, 0) + 1 WHERE id = NEW.player_id; END" },
+      ],
+    });
+
+    const { dumpSql, parts } = await exportAll("sky-hopper");
+    expect(parts).toHaveLength(1);
+    expect(dumpSql.startsWith("PRAGMA foreign_keys=OFF;\nBEGIN TRANSACTION;\nCREATE TABLE players")).toBe(true);
+    expect(dumpSql).toContain(`INSERT INTO "players"("id","name","speed","replay") VALUES(1,'it''s\nme; really',2.0,X'000102FF');`);
+    expect(dumpSql).toContain("INSERT INTO sqlite_sequence VALUES('players',3);");
+    expect(dumpSql.endsWith("CREATE TRIGGER count_items AFTER INSERT ON inventories BEGIN UPDATE players SET speed = coalesce(speed, 0) + 1 WHERE id = NEW.player_id; END;\nCOMMIT;\n")).toBe(true);
+    // The trigger comes after the rows, so it doesn't fire on them.
+    expect(dumpSql.indexOf("CREATE TRIGGER")).toBeGreaterThan(dumpSql.indexOf("INSERT INTO \"inventories\""));
+
+    expect((await api("/games", { body: { title: "Moon Hopper" } })).status).toBe(201);
+    const imported = await tool("import_database", { slug: "moon-hopper", dump_sql: dumpSql });
+    expect(imported).toMatchObject({ skipped_statement_count: 4, next_steps: [{ tool: "get_database", arguments: { slug: "moon-hopper" } }] });
+    expect(imported.written_row_count).toBeGreaterThan(0);
+
+    for (const sql of ["SELECT * FROM players ORDER BY id", "SELECT * FROM inventories ORDER BY player_id", 'SELECT * FROM "odd ""name"""', "SELECT * FROM fast_players", "SELECT * FROM sqlite_sequence", "SELECT type, name, sql FROM sqlite_schema WHERE substr(name, 1, 4) <> '_cf_' ORDER BY name"]) {
+      expect(await rowsOf("moon-hopper", sql)).toEqual(await rowsOf("sky-hopper", sql));
+    }
+    expect((await rowsOf("moon-hopper", "SELECT replay, typeof(speed) AS speed_type FROM players WHERE id = 1"))[0]).toEqual({ replay: { blob_base64: "AAEC/w==" }, speed_type: "real" });
+    // And the new database's export is the same dump.
+    expect((await exportAll("moon-hopper")).dumpSql).toBe(dumpSql);
+  });
+
+  it("exports up to 4 MB a part, at whole rows, and each part imports on its own", async () => {
+    await tool("query_database", { slug: "sky-hopper", sql: "CREATE TABLE replays (replay_id INTEGER PRIMARY KEY, replay BLOB)" });
+    const megabyte = btoa("\u0007".repeat(1_000_000));
+    for (let i = 0; i < 5; i++) await tool("query_database", { slug: "sky-hopper", sql: "INSERT INTO replays (replay) VALUES (?)", values: [{ blob_base64: megabyte }] });
+    const { parts } = await exportAll("sky-hopper");
+    expect(parts.length).toBe(3);
+    for (const part of parts) expect(part.endsWith(";\n")).toBe(true);
+
+    expect((await api("/games", { body: { title: "Moon Hopper" } })).status).toBe(201);
+    for (const part of parts) await tool("import_database", { slug: "moon-hopper", dump_sql: part });
+    expect(await rowsOf("moon-hopper", "SELECT replay_id, length(replay) AS size_bytes FROM replays")).toEqual([1, 2, 3, 4, 5].map((replayId) => ({ replay_id: replayId, size_bytes: 1_000_000 })));
+  });
+
+  it("imports what sqlite3's .dump writes, unistr and all", async () => {
+    const sqlite3Dump = [
+      "PRAGMA foreign_keys=OFF;",
+      "BEGIN TRANSACTION;",
+      "CREATE TABLE t (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, d BLOB, s REAL);",
+      "INSERT INTO t VALUES(1,unistr('a''b\\u000ac'),x'00ff',2.0);",
+      "INSERT INTO t VALUES(2,replace('x\\ny','\\n',char(10)),NULL,NULL);",
+      "ANALYZE sqlite_schema;",
+      "INSERT INTO sqlite_stat1 VALUES('t','ti','1 1');",
+      "PRAGMA writable_schema=ON;",
+      "CREATE TABLE IF NOT EXISTS sqlite_sequence(name,seq);",
+      "DELETE FROM sqlite_sequence;",
+      "INSERT INTO sqlite_sequence VALUES('t',9);",
+      "CREATE INDEX ti ON t(name);",
+      "PRAGMA writable_schema=OFF;",
+      "COMMIT;",
+    ].join("\n");
+    const imported = await tool("import_database", { slug: "sky-hopper", dump_sql: sqlite3Dump });
+    expect(imported).toMatchObject({ statement_count: 14, skipped_statement_count: 9 });
+    expect(await rowsOf("sky-hopper", "SELECT id, name, d FROM t ORDER BY id")).toEqual([
+      { id: 1, name: "a'b\nc", d: { blob_base64: "AP8=" } },
+      { id: 2, name: "x\ny", d: null },
+    ]);
+    expect(await rowsOf("sky-hopper", "SELECT name, seq FROM sqlite_sequence")).toEqual([{ name: "t", seq: 9 }]);
+  });
+
+  it("only adds, all of a part or none of it, and says which statement stopped it", async () => {
+    await tool("query_database", { slug: "sky-hopper", sql: "CREATE TABLE scores (player_id TEXT PRIMARY KEY, best_score INTEGER)" });
+    const refusal = async (dumpSql: unknown) => (await api("/games/sky-hopper/database/import", { body: { dump_sql: dumpSql } })).answer.error;
+
+    const exists = await refusal("CREATE TABLE extra (note TEXT);\nINSERT INTO extra VALUES('kept?');\nCREATE TABLE scores (player_id TEXT);");
+    expect(exists).toMatchObject({ code: "bad_sql", field: "dump_sql", message: expect.stringMatching(/^Statement 3 of the dump \(CREATE TABLE scores \(player_id TEXT\)\) failed: SQLite: .*already exists/), fix: expect.stringContaining("DROP TABLE") });
+    expect(await rowsOf("sky-hopper", "SELECT name FROM sqlite_schema WHERE name = 'extra'")).toEqual([]);
+
+    expect(await refusal("INSERT INTO scores VALUES('player_a', 1);\nUPDATE scores SET best_score = 0;")).toMatchObject({ code: "bad_sql", message: expect.stringContaining("Statement 2 of the dump (UPDATE scores SET best_score = 0): UPDATE isn't a CREATE or INSERT.") });
+    expect(await refusal("INSERT OR REPLACE INTO scores VALUES('player_a', 1);")).toMatchObject({ code: "bad_sql" });
+    expect(await refusal("INSERT INTO scores VALUES('player_a', 1);\nINSERT INTO scores VALUES('player_a', 2);")).toMatchObject({ code: "bad_sql", message: expect.stringContaining("Statement 2 of the dump") });
+    expect(await rowsOf("sky-hopper", "SELECT count(*) AS score_count FROM scores")).toEqual([{ score_count: 0 }]);
+
+    expect(await refusal("x".repeat(5 * 1024 * 1024 + 1))).toMatchObject({ code: "dump_too_big", field: "dump_sql" });
+    expect(await refusal(42)).toMatchObject({ code: "bad_sql", field: "dump_sql" });
+    expect((await api("/games/sky-hopper/database/import", { body: { sql: "CREATE TABLE a (b)" } })).answer.error).toMatchObject({ code: "unknown_field", field: "sql" });
+    expect((await api("/games/sky-hopper/database/import", { body: {} })).answer.error).toMatchObject({ code: "missing_field", field: "dump_sql" });
+
+    expect((await api("/games/sky-hopper/database/export?cursor=nonsense")).answer.error).toMatchObject({ code: "bad_cursor", field: "cursor" });
+    expect((await api("/games/sky-hopper/database/export?limit=5")).answer.error).toMatchObject({ code: "unknown_field", field: "limit" });
+    expect((await api("/games/sky-hopper/database/export", { key: other })).answer.error.code).toBe("no_game");
+    expect((await api("/games/sky-hopper/database/import", { body: { dump_sql: "CREATE TABLE a (b);" }, key: other })).answer.error.code).toBe("no_game");
   });
 });

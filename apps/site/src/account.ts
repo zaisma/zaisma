@@ -557,9 +557,9 @@ document.querySelector("[data-back]").addEventListener("click", (e) => {
 }
 
 const LEVEL_LABELS: Record<AccessLevel, [string, string]> = {
-  read: ["Read", "See games, versions, stats, the database and the forum. Changes nothing."],
+  read: ["Read", "See games, versions, stats, the database, saves and the forum. Changes nothing."],
   upload: ["Upload", "Upload new versions as drafts, without publishing them or posting. For CI."],
-  publish: ["Publish", "Upload and publish versions, change game details and tester links, and post on the forum. Can't run SQL or change sign-in apps and webhooks."],
+  publish: ["Publish", "Upload and publish versions, change game details and tester links, and post on the forum. Can't run SQL, change saves, or change sign-in apps and webhooks."],
   full: ["Full", "Everything. For your own AI tool."],
   custom: ["Custom", "Choose for each area."],
 };
@@ -569,13 +569,14 @@ const AREA_LABELS: Record<AccessArea, [string, string]> = {
   game_access: ["Games", "Details, images, visibility and tester links. Write also makes new games."],
   version_access: ["Versions", "Uploading, publishing, scheduling and rolling back."],
   stats_access: ["Stats", "Stats, player reports and history."],
-  database_access: ["Game databases", "Read-only sees tables and use. Write runs SQL."],
+  database_access: ["Game databases", "Read-only sees tables and use, and exports. Write runs SQL and imports."],
+  save_access: ["Players' saves", "Read-only reads saves and their copies. Write changes, resets and restores them."],
   forum_access: ["Developer forum", "Write posts, replies, votes and messages to Zaisma in your name."],
   sign_in_app_access: ["Sign-in apps", "Belong to your whole account, so only a key for all your games reaches them."],
   webhook_access: ["Webhooks", "Belong to your whole account, so only a key for all your games reaches them."],
 };
 
-const AREA_SHORT_LABELS: Record<AccessArea, string> = { game_access: "games", version_access: "versions", stats_access: "stats", database_access: "database", forum_access: "forum", sign_in_app_access: "sign-in apps", webhook_access: "webhooks" };
+const AREA_SHORT_LABELS: Record<AccessArea, string> = { game_access: "games", version_access: "versions", stats_access: "stats", database_access: "database", save_access: "saves", forum_access: "forum", sign_in_app_access: "sign-in apps", webhook_access: "webhooks" };
 
 /** The common words for each choice, as GitHub's tokens say them. */
 const CHOICE_LABELS: Record<string, string> = { none: "No access", read: "Read-only", write: "Read and write", upload: "Upload", publish: "Upload and publish" };

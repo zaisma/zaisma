@@ -50,6 +50,23 @@ Would his answer be better than Claude's? His edge: UI and UX, how players and d
 **Whether Zaisma's own demos sit on the player shelves.** *Two demo games, Oct 16, 2026.* A done item; the call was who the games are for (players or developers), shown as what a player and a developer each meet under each option, plus the costly "polish them" option. He took the pick (unlist at the seed games, link from the developer page) in one click.
 *Lesson:* what's on the player shelves is a claims call even for Zaisma's own content; one scenario per seat is enough.
 
+**What friends see: a plain list or the games' art.** *Friends playing now, Oct 17, 2026.* Claude picked "playing X or nothing" (no Online, no last played) and a list with the game's name. He took the richer option and redesigned it: the game's cover is the highlight and friends are small faces beside it (free advertising for games, a livelier page, a better reason to join), Online for friends coordinating from school laptops that can't send links, and a Your friends played shelf. On the second sketch he said friends still took too much room.
+*Lesson:* on a player page, show cover art wherever a game appears, and make the game the subject, not the person. Weigh what a page does for developers' games, not only for the player. Don't cut a status as useless before following the player to the shared school computer.
+
+**Reasons on the button, or behind it.** *Friends playing now.* He wanted Join greyed when it won't work, with the reason only on hover: detail waits until the player shows intent.
+
+**One switch, or a settings model.** *Friends playing now.* Asked as a single "Appear offline" switch. He took it and asked for the whole model: separate social settings, the social modes as presets plus Custom, an open list, hard age limits that the page never explains ("Anyone", not "Anyone 16–17").
+*Lesson:* when a player control is offered, ask whether players want finer control; he thinks in presets with Custom. Limits are enforced, not narrated.
+
+**Pulling Profiles into Phase 1.** *Friends playing now.* A friend's face had nowhere to link, and Claude offered a small friends-only page. He moved Profiles' basics before outreach ("essential to the social aspect") and left the extras in Phase 3.
+*Lesson:* when a sketch links to a page that's phases away, say so; which phase a page belongs in is his call.
+
+**"Why no messaging?"** *Friends playing now.* He asked about a settled line. The settled reasons (teen safety, moderation cost, the direction), plus a wordless alternative for the case he cared about (room invites), kept the line in one round, and he liked the alternative.
+*Lesson:* when he questions a settled decision, give its reasons plainly and solve the need behind the question without crossing it.
+
+**Which links teens can open, raised by him mid-talk.** *Registered links, Oct 17, 2026.* The item opened as *One call* (where the leaving notice sits) and he took the pick in one click. Then he asked that under-18 accounts open only trusted sites. Claude didn't just write it: it showed who the rule really stops (guests have no age, so either most players lose the Patreon button or teens just play signed out), what it costs developers at the beta, and which settled decisions it changes, next to a narrower option (block only chat apps). He answered every point, refined his own option (by domain, payment sites seeded, guests treated like teens so honest players aren't punished) and kept the narrow one's chat-app block. He also caught copy Claude had written: a card saying "only for 18+" invites teens to lie about their age.
+*Lesson:* when he proposes a safety rule, bring who it actually stops, what it costs in money and what it changes, with a narrower option; expect him to merge options rather than pick one. Copy that gives a restriction's reason can create the reason to dodge it.
+
 ## Not his
 
 **The export format: SQL dump, or JSON and CSV.** *Game database import and export.* "Too technical… just implementation decisions, not system design."
@@ -76,6 +93,7 @@ All three talks above should have opened differently:
 - **Game database import and export:** *One call*, the page.
 - **Saves through the API:** *Needs you*, the direction question plus what players see.
 - **Games can reach our rooms and their own servers:** *One call*, rightly: the promise, with the direction check folded into the options.
+- **Friends playing now:** *Needs you*, rightly: a page, a player control and a direction question (Join by default). It grew into five rows over three rounds.
 
 ## Scan before publishing (Oct 16, 2026)
 

@@ -25,6 +25,16 @@ function sorted(localStorageItems: Record<string, string>): Record<string, strin
   return out;
 }
 
+/** A save's two parts, as the developer API shows them: its localStorage, and its IndexedDB databases ([] when it keeps none). */
+export function saveParts(saveData: SaveData): { localStorageItems: Record<string, string>; indexeddbDatabases: unknown[] } {
+  return withIdb(saveData) ? { localStorageItems: saveData.local, indexeddbDatabases: saveData.idb } : { localStorageItems: saveData, indexeddbDatabases: [] };
+}
+
+/** A save from its two parts: just the localStorage when there are no IndexedDB databases, as the game domain script writes it. */
+export function saveFromParts(localStorageItems: Record<string, string>, indexeddbDatabases: unknown[]): SaveData {
+  return indexeddbDatabases.length ? { idb: indexeddbDatabases, local: localStorageItems } : localStorageItems;
+}
+
 const strings = (candidate: unknown): candidate is Record<string, string> =>
   Boolean(candidate) && typeof candidate === "object" && !Array.isArray(candidate) && Object.values(candidate as object).every((entry) => typeof entry === "string");
 
@@ -47,6 +57,13 @@ export async function saveHash(text: string): Promise<string> {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+/**
+ * Who made a save's current version: the player's game (saved from one of their devices, or the player
+ * going back to an earlier version) or the game's developer, through the API or MCP.
+ */
+export const CHANGED_BY_KINDS = ["player", "developer"] as const;
+export type ChangedByKind = (typeof CHANGED_BY_KINDS)[number];
+
 export interface SaveRow {
   account_id: string;
   game_id: string;
@@ -54,6 +71,7 @@ export interface SaveRow {
   sha256: string;
   size_bytes: number;
   updated_at_ms: number;
+  changed_by_kind: ChangedByKind;
 }
 
 export async function saveRow(database: D1Database, accountId: string, gameId: string): Promise<SaveRow | null> {
@@ -64,17 +82,20 @@ export async function saveRow(database: D1Database, accountId: string, gameId: s
  * Move a save from version `baseVersionNumber` to the next one, only if nobody else did first.
  * Returns the new version number, or null when another device saved in between.
  */
-export async function bumpSave(database: D1Database, save: { accountId: string; gameId: string; baseVersionNumber: number; sha256: string; sizeBytes: number }): Promise<number | null> {
+export async function bumpSave(
+  database: D1Database,
+  save: { accountId: string; gameId: string; baseVersionNumber: number; sha256: string; sizeBytes: number; changedByKind: ChangedByKind },
+): Promise<number | null> {
   const updatedAtMs = Date.now();
   const writeResult =
     save.baseVersionNumber === 0
       ? await database
-          .prepare("INSERT INTO saves (account_id, game_id, version_number, sha256, size_bytes, updated_at_ms) VALUES (?, ?, 1, ?, ?, ?) ON CONFLICT DO NOTHING")
-          .bind(save.accountId, save.gameId, save.sha256, save.sizeBytes, updatedAtMs)
+          .prepare("INSERT INTO saves (account_id, game_id, version_number, sha256, size_bytes, updated_at_ms, changed_by_kind) VALUES (?, ?, 1, ?, ?, ?, ?) ON CONFLICT DO NOTHING")
+          .bind(save.accountId, save.gameId, save.sha256, save.sizeBytes, updatedAtMs, save.changedByKind)
           .run()
       : await database
-          .prepare("UPDATE saves SET version_number = version_number + 1, sha256 = ?, size_bytes = ?, updated_at_ms = ? WHERE account_id = ? AND game_id = ? AND version_number = ?")
-          .bind(save.sha256, save.sizeBytes, updatedAtMs, save.accountId, save.gameId, save.baseVersionNumber)
+          .prepare("UPDATE saves SET version_number = version_number + 1, sha256 = ?, size_bytes = ?, updated_at_ms = ?, changed_by_kind = ? WHERE account_id = ? AND game_id = ? AND version_number = ?")
+          .bind(save.sha256, save.sizeBytes, updatedAtMs, save.changedByKind, save.accountId, save.gameId, save.baseVersionNumber)
           .run();
   return writeResult.meta.changes === 1 ? save.baseVersionNumber + 1 : null;
 }
@@ -87,6 +108,26 @@ export async function savedGames(database: D1Database, accountId: string): Promi
     )
     .bind(accountId)
     .all<{ slug: string; title: string; updated_at_ms: number; save_copy_count: number }>();
+  return results;
+}
+
+/** One player's save in a game, as the developer API lists them. */
+export interface GameSaveRow extends SaveRow {
+  player_id: string;
+  save_copy_count: number;
+}
+
+/**
+ * A game's saves by player ID, in player ID order (stable while saves change), `pageSaveCount` at a time,
+ * after `afterPlayerId` when given. Answers one more than a page when there is more.
+ */
+export async function gameSaves(database: D1Database, gameId: string, afterPlayerId: string | null, pageSaveCount: number): Promise<GameSaveRow[]> {
+  const { results } = await database
+    .prepare(
+      "SELECT saves.*, accounts.player_id, (SELECT COUNT(*) FROM save_history WHERE save_history.account_id = saves.account_id AND save_history.game_id = saves.game_id) AS save_copy_count FROM saves JOIN accounts ON accounts.id = saves.account_id WHERE saves.game_id = ? AND accounts.player_id > ? ORDER BY accounts.player_id LIMIT ?",
+    )
+    .bind(gameId, afterPlayerId ?? "", pageSaveCount + 1)
+    .all<GameSaveRow>();
   return results;
 }
 
@@ -106,16 +147,18 @@ export const SAVE_COPY_PROTECTION_DURATION_MS = 30 * 24 * 3600_000;
  * Why a copy was kept: a routine hourly copy, or because progress was about to be lost:
  * the player picked another device's progress over it (replaced), the game's save shrank to
  * under half (smaller, usually a reset), the player went back to an earlier version (restore),
- * or the player picked the account's progress over this device's (device).
+ * the player picked the account's progress over this device's (device), or the game's developer
+ * changed, reset or restored the save through the API (developer).
  */
-export type SaveCopyReason = "hourly" | "replaced" | "smaller" | "restore" | "device";
+export const SAVE_COPY_REASONS = ["hourly", "replaced", "smaller", "restore", "device", "developer"] as const;
+export type SaveCopyReason = (typeof SAVE_COPY_REASONS)[number];
 
 export interface SaveCopy {
   id: string;
   account_id: string;
   game_id: string;
   saved_at_ms: number;
-  reason: SaveCopyReason;
+  copy_reason: SaveCopyReason;
   sha256: string;
   size_bytes: number;
 }
@@ -148,7 +191,7 @@ export function copiesToDrop(copies: SaveCopy[], nowMs: number): SaveCopy[] {
   const keep = [...copies].sort((first, second) => second.saved_at_ms - first.saved_at_ms);
   const drop: SaveCopy[] = [];
   while (keep.length > KEPT_SAVE_COPY_COUNT) {
-    const routine = (copy: SaveCopy) => copy.reason === "hourly" || nowMs - copy.saved_at_ms > SAVE_COPY_PROTECTION_DURATION_MS;
+    const routine = (copy: SaveCopy) => copy.copy_reason === "hourly" || nowMs - copy.saved_at_ms > SAVE_COPY_PROTECTION_DURATION_MS;
     let i = keep.length - 1;
     while (i > 0 && !routine(keep[i]!)) i--;
     if (i === 0) i = keep.length - 1;
@@ -161,7 +204,7 @@ export function copiesToDrop(copies: SaveCopy[], nowMs: number): SaveCopy[] {
 export async function addSaveCopy(database: D1Database, copy: SaveCopy, copies: SaveCopy[], nowMs = Date.now()): Promise<SaveCopy[]> {
   const dropped = copiesToDrop([copy, ...copies], nowMs);
   await database.batch([
-    database.prepare("INSERT INTO save_history (id, account_id, game_id, saved_at_ms, reason, sha256, size_bytes) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(copy.id, copy.account_id, copy.game_id, copy.saved_at_ms, copy.reason, copy.sha256, copy.size_bytes),
+    database.prepare("INSERT INTO save_history (id, account_id, game_id, saved_at_ms, copy_reason, sha256, size_bytes) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(copy.id, copy.account_id, copy.game_id, copy.saved_at_ms, copy.copy_reason, copy.sha256, copy.size_bytes),
     ...dropped.map((droppedCopy) => database.prepare("DELETE FROM save_history WHERE id = ?").bind(droppedCopy.id)),
   ]);
   return dropped;

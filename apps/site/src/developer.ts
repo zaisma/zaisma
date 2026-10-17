@@ -110,6 +110,7 @@ import { currentSession } from "./auth.ts";
 import { gameUrl, type Env } from "./env.ts";
 import { forumRoute } from "./forum.ts";
 import { databaseRoute } from "./game-database.ts";
+import { savesRoute } from "./saves-api.ts";
 import { playStats } from "./plays.ts";
 import { sendAlert } from "./email.ts";
 import { KNOWN_IMAGE_ALERT, imageMatcher, pruneVersions } from "./scan.ts";
@@ -143,6 +144,9 @@ import { sendTestEvent, tellWebhooks, type WaitUntil } from "./webhooks.ts";
  *   GET    /api/dev/games/:slug/database       the game database's tables, indexes and use this month (see game-database.ts)
  *   POST   /api/dev/games/:slug/database/query run one SQL statement: { "sql", "values" }
  *   POST   /api/dev/games/:slug/database/batch run several in one transaction: { "statements" }
+ *   GET    /api/dev/games/:slug/database/export one part of the database's SQL dump: ?cursor=<next_cursor>
+ *   POST   /api/dev/games/:slug/database/import one part of a SQL dump in: { "dump_sql" }
+ *   …/api/dev/games/:slug/saves                the game's cloud saves by player ID: list, read, change, reset, earlier versions (see saves-api.ts)
  *   GET    /api/dev/sign-in-apps               your sign-in apps (Sign in with Zaisma, see sign-in.ts)
  *   POST   /api/dev/sign-in-apps               make one: { "name", "kind", "redirect_urls" }; a confidential app's client_secret is answered once
  *   PATCH  /api/dev/sign-in-apps/:id           name, redirect_urls, or replace_client_secret: true
@@ -326,6 +330,16 @@ export const API_ROUTES: readonly ApiRoute[] = [
   { method: "GET", path: "/games/:slug/database", ...needs("database_access", "read") },
   { method: "POST", path: "/games/:slug/database/query", ...needs("database_access", "write") },
   { method: "POST", path: "/games/:slug/database/batch", ...needs("database_access", "write") },
+  { method: "GET", path: "/games/:slug/database/export", ...needs("database_access", "read") },
+  { method: "POST", path: "/games/:slug/database/import", ...needs("database_access", "write") },
+  { method: "GET", path: "/games/:slug/saves", ...needs("save_access", "read") },
+  { method: "GET", path: "/games/:slug/saves/:player_id", ...needs("save_access", "read") },
+  { method: "PATCH", path: "/games/:slug/saves/:player_id", ...needs("save_access", "write") },
+  { method: "PUT", path: "/games/:slug/saves/:player_id", ...needs("save_access", "write") },
+  { method: "DELETE", path: "/games/:slug/saves/:player_id", ...needs("save_access", "write") },
+  { method: "GET", path: "/games/:slug/saves/:player_id/copies", ...needs("save_access", "read") },
+  { method: "GET", path: "/games/:slug/saves/:player_id/copies/:save_copy_id", ...needs("save_access", "read") },
+  { method: "POST", path: "/games/:slug/saves/:player_id/copies/:save_copy_id/restore", ...needs("save_access", "write") },
   { method: "GET", path: "/forum", ...needs("forum_access", "read") },
   { method: "POST", path: "/forum", ...needs("forum_access", "write") },
   { method: "GET", path: "/forum/similar", ...needs("forum_access", "read") },
@@ -493,8 +507,11 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
   const testerPath = path.match(/^\/games\/([^/]+)\/testers(?:\/([^/]+))?$/);
   if (testerPath) return answer(...(await testerRoute(request, env, await ownGame(env, testerPath[1]!, caller), testerPath[2], caller)));
 
-  const databasePath = path.match(/^\/games\/([^/]+)\/database(?:\/(query|batch))?$/);
+  const databasePath = path.match(/^\/games\/([^/]+)\/database(?:\/(query|batch|export|import))?$/);
   if (databasePath) return answer(...(await databaseRoute(request, env, await ownGame(env, databasePath[1]!, caller), databasePath[2])));
+
+  const savesPath = path.match(/^\/games\/([^/]+)\/saves(?:\/([^/]+)(\/copies(?:\/([^/]+)(\/restore)?)?)?)?$/);
+  if (savesPath) return answer(...(await savesRoute(request, env, await ownGame(env, savesPath[1]!, caller), savesPath[2], Boolean(savesPath[3]), savesPath[4], Boolean(savesPath[5]))));
 
   const gamePath = path.match(/^\/games\/([^/]+)(\/images(?:\/([^/]+))?)?$/);
   if (!gamePath) throw new ApiError("not_found", { message: `There's no API call at ${path}.`, fix: "docs/DEVELOPER-API.md lists every call; paths start with /api/dev, like GET /api/dev/games." });
