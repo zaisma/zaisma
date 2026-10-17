@@ -316,11 +316,14 @@ function placePhotoDnaSdk() {
 const photoDnaSdkProblem = placePhotoDnaSdk();
 if (photoDnaSdkProblem) finish("FAIL", `${shortSha}: PhotoDNA's SDK: ${photoDnaSdkProblem}; nothing deployed.`, 1);
 
-/** wrangler builds the photodna container with Docker. On Julius's machine that's Colima: started here if it's stopped. */
+/**
+ * wrangler builds the photodna container with Docker and its buildx plugin. On Julius's machine that's
+ * Colima: started here if it's stopped. Checked before any deploy, so a missing piece deploys nothing.
+ */
 function ensureDocker() {
-  if (run("docker", ["info"]).exitCode === 0) return null;
-  if (run("colima", ["start"]).exitCode === 0 && run("docker", ["info"]).exitCode === 0) return null;
-  return "Docker isn't running and colima start didn't start it";
+  if (run("docker", ["info"]).exitCode !== 0 && (run("colima", ["start"]).exitCode !== 0 || run("docker", ["info"]).exitCode !== 0)) return "Docker isn't running and colima start didn't start it";
+  if (run("docker", ["buildx", "version"]).exitCode !== 0) return "Docker's buildx plugin is missing (brew install docker-buildx, then link it into ~/.docker/cli-plugins)";
+  return null;
 }
 const dockerProblem = isDryRun ? null : ensureDocker();
 if (dockerProblem) finish("FAIL", `${shortSha}: ${dockerProblem}; nothing deployed.`, 1);
