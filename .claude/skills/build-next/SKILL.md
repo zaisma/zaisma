@@ -62,14 +62,17 @@ If a player or developer would see anything change on a page, it needs Julius's 
 
 **Under the coordinator** (your brief says so): don't merge, ship, mark the row done or clean up on your own; the coordinator does that, and once your pull request has shipped it asks you to run `/cleanup`: run it, then end your turn with one line saying it's clean. Once the pull request is open, `npm test` and `npm run typecheck` pass, and the preview is OK'd when it had one:
 
+- **A decision is not a yes.** His OK on a preview or an answer to a question lets you finish, but only *Yes, we're done* or his words saying so end the session.
 - If Julius was in this session (a talk, a preview, a question), ask one thing with the wrap-up box: **"Are we done?"**, with the buttons *Yes, we're done* and *More to discuss*. *More to discuss* means you keep going with him.
 - On his yes, or straight away when he was never needed, end your turn with `wrap_up` and no question, its recap starting:
 
 ```
 Done: <the item's exact name>, build, PR #<number>.
+Julius: "<his exact words or click that said you're done>" | never needed
+Started: nothing | <what's still running, e.g. a preview on localhost:8900>
 ```
 
-followed by one line on what it changed, any migration, and whether it had a preview. That recap is the done report: it reaches the coordinator by itself. Ask nothing after it. If the coordinator sends it back (a conflict, a failed check, `SHIP FAIL`), fix it, push, and report done the same way again; for `SHIP FAIL`, in a new pull request.
+followed by one line on what it changed, any migration, and whether it had a preview. That recap is the done report. First send the same report to the coordinator with `SendMessage`, `to` its `local_…` id from your brief (or, if it isn't there, the row in `list_sessions` with `linked: true` that has no `startedBy`). The app doesn't wake the coordinator for a turn Julius drove himself, so without the message he'd have to tell it you're done. Ask nothing after it. If the coordinator sends it back (a conflict, a failed check, `SHIP FAIL`), fix it, push, and report done the same way again; for `SHIP FAIL`, in a new pull request.
 
 The rest of this step is for a session on its own.
 
