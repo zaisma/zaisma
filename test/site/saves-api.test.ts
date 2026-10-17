@@ -58,10 +58,10 @@ const copyReasons = async () => (await env.DB.prepare("SELECT copy_reason FROM s
 
 beforeEach(async () => {
   await env.DB.exec("DELETE FROM api_keys; DELETE FROM save_history; DELETE FROM saves; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
-  await createAccount(env.DB, { id: "dev-1", name: "Pixel Smith", ageBand: "18+" });
-  await createAccount(env.DB, { id: "dev-2", name: "Other Dev", ageBand: "18+" });
-  await createAccount(env.DB, { id: fox.accountId, name: "Fox", ageBand: "18+" });
-  await createAccount(env.DB, { id: owl.accountId, name: "Owl", ageBand: "16-17" });
+  await createAccount(env.DB, { id: "dev-1", username: "Pixel_Smith", ageBand: "18+" });
+  await createAccount(env.DB, { id: "dev-2", username: "Other_Dev", ageBand: "18+" });
+  await createAccount(env.DB, { id: fox.accountId, username: "Fox", ageBand: "18+" });
+  await createAccount(env.DB, { id: owl.accountId, username: "Owl", ageBand: "16-17" });
   fox = { ...fox, playerId: (await accountById(env.DB, fox.accountId))!.player_id };
   owl = { ...owl, playerId: (await accountById(env.DB, owl.accountId))!.player_id };
   token = (await createApiKey(env.DB, "dev-1", "claude")).token;
@@ -86,7 +86,7 @@ describe("reading saves", () => {
     const statements = [];
     for (let i = 0; i < 101; i++) {
       const id = `bulk-${i}`;
-      statements.push(env.DB.prepare("INSERT INTO accounts (id, player_id, name, age_band, social_mode, created_at_ms, updated_at_ms) VALUES (?, ?, 'Bulk', '18+', 'open_and_social', 0, 0)").bind(id, `player_bulk${String(i).padStart(3, "0")}`));
+      statements.push(env.DB.prepare("INSERT INTO accounts (id, player_id, username, age_band, created_at_ms, updated_at_ms) VALUES (?, ?, 'Bulk_' || ?, '18+', 0, 0)").bind(id, `player_bulk${String(i).padStart(3, "0")}`, i));
       statements.push(env.DB.prepare("INSERT INTO saves (account_id, game_id, version_number, sha256, size_bytes, updated_at_ms) VALUES (?, ?, 1, 'x', 2, 0)").bind(id, gameId));
     }
     await env.DB.batch(statements);

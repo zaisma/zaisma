@@ -36,6 +36,7 @@ export const ERROR_CODES = {
   bad_screen_orientation: { httpStatus: 400, meaning: "screen_orientation isn't portrait, landscape, either or null." },
   bad_play_modes: { httpStatus: 400, meaning: "play_modes isn't a list of play modes, or one of them is wrong." },
   bad_cloud_saves_enabled: { httpStatus: 400, meaning: "cloud_saves_enabled isn't true or false." },
+  bad_account_offer_enabled: { httpStatus: 400, meaning: "account_offer_enabled isn't true or false." },
   bad_room_browsing: { httpStatus: 400, meaning: "room_browsing isn't page, game or off." },
   bad_multiplayer_mode: { httpStatus: 400, meaning: "multiplayer_mode isn't none, relay or own." },
   bad_account_requirement: { httpStatus: 400, meaning: "account_requirement isn't none, multiplayer or whole_game." },

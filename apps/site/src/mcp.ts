@@ -123,6 +123,10 @@ const details = {
     type: "boolean",
     description: "Copy signed-in players' browser saves (localStorage and IndexedDB) to their account, so progress follows them to any device. On by default; turn off for games that keep their own saves on a server.",
   },
+  account_offer_enabled: {
+    type: "boolean",
+    description: "Show guests the \"Keep your progress\" card once they have progress and have played 5 minutes: it offers a free account so their progress is kept, beside the game. On by default; turn off for games that offer accounts their own way (Zaisma.player.signIn() asks whenever the game likes).",
+  },
   multiplayer_mode: {
     enum: ["none", "relay", "own"],
     description:
@@ -706,7 +710,7 @@ export const TOOLS: Tool[] = [
     name: "get_player",
     title: "Look up a player",
     description:
-      "An account's public profile by player ID: exactly what a stranger sees (today, its name), never its email, age or other games' data. A signed-in player has the same player ID in every game, in room.players and as the sub of their player pass; games and servers get the same at https://rooms.zaisma.com/v1/players/<id> with no key. Guests have no profile (no_player).",
+      "An account's public profile by player ID: exactly what a stranger sees (today, its name and username), never its email, age or other games' data. A signed-in player has the same player ID in every game, in room.players and as the sub of their player pass; games and servers get the same at https://rooms.zaisma.com/v1/players/<id> with no key. Guests have no profile (no_player).",
     inputSchema: object({ player_id: idInput("player", "A player ID from the game: a room's players, or the sub of a player pass") }, ["player_id"]),
     outputSchema: answer({ player: PLAYER_PROFILE }),
     annotations: read,

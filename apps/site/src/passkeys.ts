@@ -13,31 +13,29 @@ import {
   removePasskey,
   usedPasskey,
 } from "@zaisma/core";
-import { currentSession, readCookie, sendCode, sessionCookies, sessionForUser, setCookie } from "./auth.ts";
-import { codePage } from "./account.ts";
+import { currentSession, readCookie, sessionCookies, sessionForUser, setCookie } from "./auth.ts";
 import type { Env } from "./env.ts";
 
 /**
  * Passkeys: sign back in with Face ID, a fingerprint or a device PIN. We check them ourselves
- * (packages/core/src/webauthn.ts); Supabase still makes the session. New accounts and lost
- * devices use the email code, as before.
+ * (packages/core/src/webauthn.ts); Supabase still makes the session. A way back in beside the
+ * password, and the email when there is one.
  *
  *   POST /api/passkeys/signin/options   a challenge for signing in
  *   POST /api/passkeys/signin           { id, clientDataJSON, authenticatorData, signature, next }
  *   POST /api/passkeys/add/options      what the browser needs to make one (signed in, recently)
  *   POST /api/passkeys/add              { id, clientDataJSON, authenticatorData, publicKey, alg }
- *   POST /account/passkeys/confirm      email a code first, when the last sign-in was a while ago
  *   POST /account/passkeys/:id/remove
  *
  * Adding a passkey needs a sign-in in the last 10 minutes, so a stolen session cookie can't
- * add a way back in.
+ * add a way back in; the account page's "Confirm it's you" makes one (account.ts).
  */
 export const RECENT_SIGNIN_MS = 10 * 60_000;
 const CHALLENGE_DURATION_SEC = 300;
 
 export async function handlePasskeys(request: Request, env: Env, path: string): Promise<Response | null> {
   const remove = path.match(/^\/account\/passkeys\/([A-Za-z0-9_-]{1,400})\/remove$/);
-  if (!path.startsWith("/api/passkeys/") && path !== "/account/passkeys/confirm" && !remove) return null;
+  if (!path.startsWith("/api/passkeys/") && !remove) return null;
   if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
   // Only our own pages.
   if (request.headers.get("origin") !== new URL(request.url).origin) return new Response("Bad origin", { status: 403 });
@@ -70,10 +68,10 @@ export async function handlePasskeys(request: Request, env: Env, path: string): 
     const checked = key ? await checkPasskeyUse({ clientDataJSON: asText(body.clientDataJSON), authenticatorData: asText(body.authenticatorData), signature: asText(body.signature) }, { publicKey: key.public_key, algorithmNumber: key.algorithm_number, signCount: key.sign_count }, want(challenge!)) : null;
     // The passkey's user handle, when sent, is the account it was made for.
     if (!key || !checked || (typeof body.userHandle === "string" && body.userHandle && body.userHandle !== b64url(new TextEncoder().encode(key.account_id)))) {
-      return json({ error: "That passkey didn't work. It may have been removed from your account. Sign in with an email code instead." }, 400, [used]);
+      return json({ error: "That passkey didn't work. It may have been removed from your account. Sign in with your password instead." }, 400, [used]);
     }
     const session = await sessionForUser(env, key.account_id);
-    if (!session) return json({ error: "Couldn't sign you in. Try again, or use an email code." }, 502, [used]);
+    if (!session) return json({ error: "Couldn't sign you in. Try again, or use your password." }, 502, [used]);
     await usedPasskey(env.DB, key.id, checked.signCount);
     return json({ next: safeNext(body.next) ?? "/" }, 200, [used, ...sessionCookies(env, session)]);
   }
@@ -83,13 +81,6 @@ export async function handlePasskeys(request: Request, env: Env, path: string): 
   const account = session ? await accountById(env.DB, session.userId) : null;
   if (!session || !account) return json({ error: "Sign in first." }, 401);
   const recent = Date.now() - session.signedInAtMs < RECENT_SIGNIN_MS;
-
-  if (path === "/account/passkeys/confirm") {
-    // Prove it's them with an email code, then come back to add the passkey.
-    const sent = await sendCode(env, session.email, false);
-    if (sent !== "sent") return withCookies(new Response(null, { status: 303, headers: { Location: "/account?passkey-failed#passkeys" } }), session.cookies);
-    return withCookies(codePage(env, session.email, "/account?passkey", undefined, true), session.cookies);
-  }
 
   if (remove) {
     await removePasskey(env.DB, account.id, remove[1]!);
@@ -105,7 +96,7 @@ export async function handlePasskeys(request: Request, env: Env, path: string): 
       {
         challenge,
         rp: { id: rpId, name: "Zaisma" },
-        user: { id: b64url(new TextEncoder().encode(account.id)), name: session.email, displayName: account.name },
+        user: { id: b64url(new TextEncoder().encode(account.id)), name: account.username, displayName: account.username },
         algs: PASSKEY_ALGORITHM_NUMBERS,
         exclude: keys.map((passkey) => passkey.id),
       },
@@ -148,12 +139,12 @@ async function zaismaPasskeySignIn(next, conditional) {
   try {
     cred = await navigator.credentials.get({ publicKey: { challenge: pkBytes(o.data.challenge), rpId: o.data.rpId, userVerification: "required", timeout: 120000 }, mediation: conditional ? "conditional" : undefined, signal: waiting.signal });
   } catch (e) {
-    return e && e.name === "AbortError" ? null : conditional ? null : "No passkey was used. Try again, or sign in with an email code.";
+    return e && e.name === "AbortError" ? null : conditional ? null : "No passkey was used. Try again, or sign in with your password.";
   }
   if (!cred) return null;
   const r = cred.response;
   const res = await pkPost("/api/passkeys/signin", { id: cred.id, clientDataJSON: pkB64(r.clientDataJSON), authenticatorData: pkB64(r.authenticatorData), signature: pkB64(r.signature), userHandle: r.userHandle ? pkB64(r.userHandle) : "", next });
-  if (!res.ok) return res.data.error || "That passkey didn't work. Sign in with an email code instead.";
+  if (!res.ok) return res.data.error || "That passkey didn't work. Sign in with your password instead.";
   location.href = res.data.next;
   return null;
 }

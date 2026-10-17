@@ -58,7 +58,7 @@ declare namespace Zaisma {
      * "bad_player_id" for anything that isn't a player ID.
      *
      * @example
-     * const profile = await Zaisma.player.getProfile("player_8f3k2m"); // { id, name }
+     * const profile = await Zaisma.player.getProfile("player_8f3k2m"); // { id, name, username }
      */
     function getProfile(playerId: string): Promise<PlayerProfile>;
 
@@ -411,7 +411,10 @@ declare namespace Zaisma {
   interface PlayerProfile {
     /** The account's player ID, the same in every game. */
     id: string;
+    /** The name to show for them. Today it's their username. */
     name: string;
+    /** Their username: unique ignoring case, 3 to 20 letters, numbers and underscores. It can change; the ID never does. */
+    username: string;
   }
 
   /** This tab's player and their player pass ({@link player}). */
@@ -421,8 +424,8 @@ declare namespace Zaisma {
      * https://rooms.zaisma.com/.well-known/jwks.json. It proves only who the player is: its sub is the
      * player's ID, kind says guest or account, aud is the game. A guest's pass also carries their name;
      * an account's name comes from its profile (https://rooms.zaisma.com/v1/players/<id>). An account's
-     * pass says who it can chat with, never its age: social_mode (solo_focused, friends_focused or
-     * open_and_social), when open and social an opaque chat_group (chat_group_…) that differs in every
+     * pass says who it can chat with, never its age: who_can_chat (nobody, friends or anyone, the
+     * player's own setting), when anyone an opaque chat_group (chat_group_…) that differs in every
      * game, and friend_player_ids, its friends' player IDs (up to 200). Your own server checks two
      * players with canChat(first, second) from @zaisma/game-server before passing chat between them;
      * guests never chat.

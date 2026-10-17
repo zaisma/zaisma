@@ -1,6 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { MAXIMUM_OPEN_FRIEND_INVITE_COUNT, accountById, ageBand, ageOn, canonicalSave, checkName, createApiKey, deleteExpiredFriendInvites, friendInviteByCode, friendInvitesOf, friendsOf, gameById, gameBySlug, gameOwner, saveKey, sha256Hex } from "@zaisma/core";
+import { MAXIMUM_OPEN_FRIEND_INVITE_COUNT, accountById, ageBand, ageOn, applyBirthdays, canonicalSave, checkUsername, createAccount, createApiKey, deleteExpiredFriendInvites, friendInviteByCode, friendInvitesOf, friendsOf, gameById, gameBySlug, gameOwner, saveKey, sha256Hex } from "@zaisma/core";
 import { decideTopic } from "../../apps/site/src/forum-posts.ts";
 import { checkForumPosts, type CheckDeps } from "../../apps/site/src/forum-check.ts";
 import { scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
@@ -11,7 +11,12 @@ import { errorProblems, schemaProblems } from "../schema-check.ts";
 const SITE = "https://zaisma.test";
 const SUPABASE = "https://supabase.test";
 
-// --- A small stand-in for Supabase Auth: email codes, ES256 access tokens, refresh, admin delete. ---
+// The presets' settings (docs/DECISIONS.md, "Social settings, with the social modes as presets").
+const SOLO_FOCUSED = { who_can_chat: "nobody", who_can_join: "friends", who_sees_playing_now: "friends", who_sees_played_games: "friends", who_sees_online: "friends", who_can_send_friend_requests: "nobody" };
+const FRIENDS_FOCUSED = { ...SOLO_FOCUSED, who_can_chat: "friends" };
+const OPEN_AND_SOCIAL_ADULT = { who_can_chat: "anyone", who_can_join: "anyone", who_sees_playing_now: "anyone", who_sees_played_games: "anyone", who_sees_online: "friends", who_can_send_friend_requests: "anyone" };
+
+// --- A small stand-in for Supabase Auth: passwords, email codes, email changes, ES256 access tokens, refresh, admin calls. ---
 
 let keys: CryptoKeyPair;
 let jwk: JsonWebKey;
@@ -23,7 +28,29 @@ let tokenSeconds = 3600;
 let signinAge = 0; // seconds since the last sign-in, as Supabase's amr claim says
 const signedInAt = new Map<string, number>(); // user id -> seconds
 const codes = new Map<string, { email: string; challenge: string }>(); // Google/Discord one-time code -> who
+const passwords = new Map<string, string>(); // user id -> password
+const pendingEmails = new Map<string, string>(); // user id -> a new email waiting for its code
+const emailChanges: { id: string; email: string }[] = []; // codes sent to a new address
+const turnstileChecks: string[] = []; // tokens sent to Cloudflare's siteverify
 let realFetch: typeof fetch;
+
+/** The one password Have I Been Pwned knows, in this stand-in. */
+const BREACHED_PASSWORD = "password123";
+const PASSWORD = "correct horse battery";
+
+async function pwnedRange(url: URL): Promise<Response> {
+  const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-1", new TextEncoder().encode(BREACHED_PASSWORD)))].map((byte) => byte.toString(16).padStart(2, "0")).join("").toUpperCase();
+  const prefix = url.pathname.split("/").pop();
+  // Padding lines (count 0) like the real service sends, and the breached one when its range is asked for.
+  return new Response([...(prefix === hash.slice(0, 5) ? [`${hash.slice(5)}:42`] : []), "0000000000000000000000000000000000A:0"].join("\r\n"));
+}
+
+const subOf = (authorization: string | null) => JSON.parse(atob((authorization ?? "").replace(/^Bearer /, "").split(".")[1]!.replace(/-/g, "+").replace(/_/g, "/"))).sub as string;
+
+function moveEmail(id: string, email: string) {
+  for (const [known, knownId] of users) if (knownId === id) users.delete(known);
+  users.set(email, id);
+}
 
 const b64url = (b: ArrayBuffer | Uint8Array | string) =>
   btoa(typeof b === "string" ? b : String.fromCharCode(...new Uint8Array(b instanceof Uint8Array ? b : new Uint8Array(b))))
@@ -54,6 +81,26 @@ async function fakeSupabase(url: URL, init: RequestInit = {}): Promise<Response>
     sent.push({ email: body.email, create: body.create_user });
     if (!users.has(body.email) && !body.create_user) return Response.json({ code: "otp_disabled" }, { status: 422 });
     return Response.json({});
+  }
+  if (path === "/verify" && body.type === "email_change") {
+    const id = [...pendingEmails].find(([, email]) => email === body.email)?.[0];
+    if (!id || body.token !== "123456") return Response.json({ code: "otp_expired" }, { status: 403 });
+    pendingEmails.delete(id);
+    moveEmail(id, body.email);
+    return tokens(id, body.email);
+  }
+  if (path === "/user" && init.method === "PUT") {
+    if (users.has(body.email)) return Response.json({ code: "email_exists" }, { status: 422 });
+    const id = subOf(headers.get("authorization"));
+    pendingEmails.set(id, body.email);
+    emailChanges.push({ id, email: body.email });
+    return Response.json({ id });
+  }
+  if (path === "/token" && url.searchParams.get("grant_type") === "password") {
+    const id = users.get(body.email);
+    if (!id || passwords.get(id) !== body.password) return Response.json({ code: "invalid_credentials" }, { status: 400 });
+    signedInAt.set(id, Math.floor(Date.now() / 1000) - signinAge);
+    return tokens(id, body.email);
   }
   if (path === "/verify" && body.token_hash) {
     const email = links.get(body.token_hash);
@@ -90,7 +137,19 @@ async function fakeSupabase(url: URL, init: RequestInit = {}): Promise<Response>
     links.set(hash, body.email);
     return Response.json({ id: users.get(body.email), email: body.email, hashed_token: hash, verification_type: "magiclink" });
   }
+  if (path === "/admin/users" && init.method === "POST") {
+    if (users.has(body.email)) return Response.json({ code: "email_exists" }, { status: 422 });
+    const id = crypto.randomUUID();
+    users.set(body.email, id);
+    passwords.set(id, body.password);
+    return Response.json({ id, email: body.email });
+  }
   const del = path.match(/^\/admin\/users\/(.+)$/);
+  if (del && init.method === "PUT") {
+    if (body.password) passwords.set(del[1]!, body.password);
+    if (body.email) moveEmail(del[1]!, body.email);
+    return Response.json({ id: del[1] });
+  }
   if (del && (init.method ?? "GET") === "GET") {
     const email = [...users].find(([, v]) => v === del[1])?.[0];
     return email ? Response.json({ id: del[1], email }) : Response.json({}, { status: 404 });
@@ -115,12 +174,23 @@ beforeEach(async () => {
   signedInAt.clear();
   links.clear();
   codes.clear();
+  passwords.clear();
+  pendingEmails.clear();
+  emailChanges.length = 0;
+  turnstileChecks.length = 0;
   signinAge = 0;
   sent.length = 0;
   deleted.length = 0;
   tokenSeconds = 3600;
   vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
+    if (url.origin === "https://api.pwnedpasswords.com") return pwnedRange(url);
+    // Cloudflare's check on making an account: "bad" is a script, any other token a real browser.
+    if (url.origin === "https://challenges.cloudflare.com") {
+      const token = new URLSearchParams(String(init?.body)).get("response")!;
+      turnstileChecks.push(token);
+      return Promise.resolve(Response.json(token === "bad" ? { success: false } : { success: true, action: "join", hostname: "zaisma.test" }));
+    }
     return url.origin === SUPABASE ? fakeSupabase(url, init) : realFetch(input, init);
   });
   await env.DB.exec("DELETE FROM forum_posts; DELETE FROM forum_topic_tags; DELETE FROM forum_votes; DELETE FROM forum_follows; DELETE FROM forum_media; DELETE FROM forum_mentions; DELETE FROM forum_topics; DELETE FROM played; DELETE FROM friendships; DELETE FROM friend_invites; DELETE FROM game_images; DELETE FROM api_keys; DELETE FROM passkeys; DELETE FROM save_history; DELETE FROM saves; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
@@ -158,13 +228,22 @@ class Browser {
 const BIRTH_ADULT = { year: "1990", month: "5", day: "20" };
 const thisYear = new Date().getUTCFullYear();
 
-async function join(b: Browser, email = "fox@example.com", name = "Night Owl", birth = BIRTH_ADULT): Promise<Response> {
+/** Make an account with a username and password; with an email, add it too, as the account page does. */
+async function join(b: Browser, email: string | null = "fox@example.com", username = "Night_Owl", birth = BIRTH_ADULT): Promise<Response> {
   await b.go("/join/age", birth);
-  await b.go("/join/email", { email, name });
-  return b.go("/signin/code", { email, code: "123456" });
+  const made = await b.go("/join/account", { turnstile_token: "test-token", username, password: PASSWORD });
+  if (email) await addEmail(b, email);
+  return made;
 }
 
-describe("age and names", () => {
+async function addEmail(b: Browser, email: string): Promise<Response> {
+  await b.go("/account/email", { email });
+  return b.go("/account/email/code", { email, code: "123456" });
+}
+
+const idOf = async (username: string) => (await env.DB.prepare("SELECT id FROM accounts WHERE username = ? COLLATE NOCASE").bind(username).first<{ id: string }>())!.id;
+
+describe("age and usernames", () => {
   it("works out whole years and the band", () => {
     const today = new Date(Date.UTC(2026, 9, 12));
     expect(ageOn({ yearNumber: 2013, monthNumber: 10, dayNumber: 12 }, today)).toBe(13);
@@ -174,100 +253,168 @@ describe("age and names", () => {
     expect([ageBand(12), ageBand(13), ageBand(15), ageBand(16), ageBand(17), ageBand(18)]).toEqual([null, "13-15", "13-15", "16-17", "16-17", "18+"]);
   });
 
-  it("tidies names and refuses rude or reserved ones", () => {
-    expect(checkName("  Night   Owl ")).toEqual({ name: "Night Owl" });
-    expect(checkName("ab")).toHaveProperty("error");
-    expect(checkName("Zaisma_Admin")).toHaveProperty("error");
-    expect(checkName("sh1thead")).toHaveProperty("error");
-    expect(checkName("Grape Peacock")).toEqual({ name: "Grape Peacock" });
-    expect(checkName("<script>")).toHaveProperty("error");
+  it("takes letters, numbers and underscores, and refuses rude, reserved and phone-number ones", () => {
+    expect(checkUsername(" @Night_Owl ")).toEqual({ username: "Night_Owl" });
+    expect(checkUsername("Kit2010")).toEqual({ username: "Kit2010" });
+    expect(checkUsername("GrapePeacock")).toEqual({ username: "GrapePeacock" });
+    for (const bad of ["ab", "Night Owl", "night-owl", "_kit", "kit_", "12345", "Kit5551234567", "Zaisma_Admin", "sh1thead", "<script>", "Ñandú", "a".repeat(21)]) expect(checkUsername(bad)).toHaveProperty("error");
   });
 });
 
 describe("making an account", () => {
-  it("asks the age first, then name and email, then the code", async () => {
+  it("asks the age first, then a username and password, and signs straight in", async () => {
     const b = new Browser();
     expect(await (await b.go("/join")).text()).toContain("When's your birthday?");
-    const age = await b.go("/join/age", BIRTH_ADULT);
-    const agePage = await age.text();
-    expect(agePage).toContain("Your name");
+    const agePage = await (await b.go("/join/age", BIRTH_ADULT)).text();
+    expect(agePage).toContain("Username");
+    expect(agePage).toContain('autocomplete="new-password"');
+    expect(agePage).not.toContain('type="email"');
     // 16 and over pick a social mode on the way in, friends-focused unless they choose another.
-    expect(agePage).toContain("Who can chat with you?");
-    const email = await b.go("/join/email", { email: "Fox@Example.com", name: "Night Owl" });
-    expect(await email.text()).toContain("Check your email");
-    expect(sent).toEqual([{ email: "fox@example.com", create: true }]);
+    expect(agePage).toContain("How do you play?");
+    expect(agePage).toContain("I want to play and chat with my friends.");
 
-    const done = await b.go("/signin/code", { email: "fox@example.com", code: "123 456" });
+    const done = await b.go("/join/account", { turnstile_token: "test-token", username: "Night_Owl", password: PASSWORD });
     expect(done.status).toBe(303);
     expect(done.headers.get("location")).toBe("/account?welcome");
     expect(b.jar.get("__Host-zaisma")).toMatch(/~r-/);
     expect(b.jar.get("__Host-zaisma_in")).toBe("1");
     expect(b.jar.has("__Host-zaisma_join")).toBe(false);
+    // Supabase knows it by a stand-in address that gets no mail, and nothing was emailed.
+    expect([...users.keys()]).toEqual([expect.stringMatching(/^account-[0-9a-f]{24}@no-mail\.zaisma\.com$/)]);
+    expect(sent).toHaveLength(0);
 
-    const account = await accountById(env.DB, users.get("fox@example.com")!);
-    expect(account).toMatchObject({ name: "Night Owl", age_band: "18+", social_mode: "friends_focused" });
+    const account = await accountById(env.DB, await idOf("Night_Owl"));
+    expect(account).toMatchObject({ username: "Night_Owl", age_band: "18+", ...FRIENDS_FOCUSED, password_changed_at_ms: expect.any(Number) });
     const page = await (await b.go("/account?welcome")).text();
-    expect(page).toContain("Welcome to Zaisma, Night Owl");
-    expect(page).toContain("fox@example.com");
-    expect(page).toContain("18 or over");
+    expect(page).toContain("Welcome to Zaisma, Night_Owl");
+    expect(page).not.toContain("no-mail.zaisma.com");
+    expect(page).toContain("No email. Add one");
+    // Nothing says which age group the account is in.
+    expect(page).not.toMatch(/18 or over|Age group/);
+  });
+
+  it("says a username is taken as it's typed, and suggests free ones", async () => {
+    await join(new Browser(), null, "Night_Owl");
+    const check = async (username: string) => (await (await new Browser().go(`/api/username-check?username=${encodeURIComponent(username)}`)).json()) as { is_available: boolean; message: string; suggested_usernames: string[] };
+    const taken = await check("night_owl");
+    expect(taken).toMatchObject({ is_available: false, message: "night_owl is taken." });
+    expect(taken.suggested_usernames).toHaveLength(3);
+    for (const suggestion of taken.suggested_usernames) {
+      expect(suggestion).toMatch(/^night_owl_?\d+$/);
+      expect(checkUsername(suggestion)).toEqual({ username: suggestion });
+    }
+    expect(await check("Day_Owl")).toEqual({ is_available: true, message: "Day_Owl is free.", suggested_usernames: [] });
+    const spaced = await check("Day Owl");
+    expect(spaced.is_available).toBe(false);
+    expect(spaced.suggested_usernames).toContain("Day_Owl");
+
+    // The form says so too, with the same suggestions to tap, and keeps what was typed.
+    const b = new Browser();
+    await b.go("/join/age", BIRTH_ADULT);
+    const again = await b.go("/join/account", { turnstile_token: "test-token", username: "NIGHT_OWL", password: PASSWORD });
+    expect(again.status).toBe(400);
+    const page = await again.text();
+    expect(page).toContain("NIGHT_OWL is taken. Try another, or one of these.");
+    expect(page).toMatch(/data-username="NIGHT_OWL_?\d+"/);
+    expect(page).toContain('value="NIGHT_OWL"');
+    expect(page).not.toContain(PASSWORD);
+    expect(users.size).toBe(1);
+  });
+
+  it("refuses short and breached passwords, and a password that's the username", async () => {
+    const b = new Browser();
+    await b.go("/join/age", BIRTH_ADULT);
+    expect(await (await b.go("/join/account", { turnstile_token: "test-token", username: "Night_Owl", password: "short" })).text()).toContain("Passwords are at least 8 characters.");
+    expect(await (await b.go("/join/account", { turnstile_token: "test-token", username: "Night_Owl", password: BREACHED_PASSWORD })).text()).toContain("showed up in a data breach");
+    expect(await (await b.go("/join/account", { turnstile_token: "test-token", username: "Night_Owl", password: "night_owl" })).text()).toContain("isn&#39;t your username");
+    expect(users.size).toBe(0);
+    // No rules about capitals, digits or symbols.
+    expect((await b.go("/join/account", { turnstile_token: "test-token", username: "Night_Owl", password: "just some lowercase words" })).headers.get("location")).toBe("/account?welcome");
+  });
+
+  it("checks for a real browser", async () => {
+    const b = new Browser();
+    const page = await (await b.go("/join/age", BIRTH_ADULT)).text();
+    expect(page).toContain('name="turnstile_token"');
+    expect(page).toContain("challenges.cloudflare.com");
+    for (const token of ["bad", ""]) {
+      const refused = await b.go("/join/account", { turnstile_token: token, username: "Night_Owl", password: PASSWORD });
+      expect(await refused.text()).toContain("couldn&#39;t check that you&#39;re using a real browser");
+    }
+    expect(users.size).toBe(0);
+    expect(turnstileChecks).toEqual(["bad"]);
+    expect((await b.go("/join/account", { turnstile_token: "test-token", username: "Night_Owl", password: PASSWORD })).headers.get("location")).toBe("/account?welcome");
   });
 
   it("lets 16 and over choose a social mode while joining, and starts 13 to 15 with no chat", async () => {
     const older = new Browser();
     await older.go("/join/age", { year: String(thisYear - 17), month: "1", day: "1" });
-    await older.go("/join/email", { email: "open@example.com", name: "Open Kite", social_mode: "open_and_social" });
-    await older.go("/signin/code", { email: "open@example.com", code: "123456" });
-    expect(await accountById(env.DB, users.get("open@example.com")!)).toMatchObject({ age_band: "16-17", social_mode: "open_and_social" });
+    await older.go("/join/account", { turnstile_token: "test-token", username: "Open_Kite", password: PASSWORD, social_mode: "open_and_social" });
+    // Open and social at 16–17: chat and friend requests from anyone, the rest with friends.
+    expect(await accountById(env.DB, await idOf("Open_Kite"))).toMatchObject({ age_band: "16-17", ...FRIENDS_FOCUSED, who_can_chat: "anyone", who_can_send_friend_requests: "anyone" });
 
     const younger = new Browser();
-    expect(await (await younger.go("/join/age", { year: String(thisYear - 14), month: "1", day: "1" })).text()).not.toContain("Who can chat with you?");
+    expect(await (await younger.go("/join/age", { year: String(thisYear - 14), month: "1", day: "1" })).text()).not.toContain("How do you play?");
     // A hand-made form can't give 13–15 open and social.
-    await younger.go("/join/email", { email: "young@example.com", name: "Small Kite", social_mode: "open_and_social" });
-    await younger.go("/signin/code", { email: "young@example.com", code: "123456" });
-    expect(await accountById(env.DB, users.get("young@example.com")!)).toMatchObject({ age_band: "13-15", social_mode: "solo_focused" });
+    await younger.go("/join/account", { turnstile_token: "test-token", username: "Small_Kite", password: PASSWORD, social_mode: "open_and_social" });
+    expect(await accountById(env.DB, await idOf("Small_Kite"))).toMatchObject({ age_band: "13-15", ...SOLO_FOCUSED });
   });
 
-  it("never stores the birth date", async () => {
-    const b = new Browser();
-    await join(b, "teen@example.com", "Quiet Comet", { year: String(thisYear - 15), month: "1", day: "1" });
-    const row = await env.DB.prepare("SELECT * FROM accounts").first();
-    expect(row).toMatchObject({ age_band: "13-15", social_mode: "solo_focused" });
+  it("keeps the birth date only while under 18, and never an adult's", async () => {
+    const teen = new Browser();
+    await join(teen, null, "Quiet_Comet", { year: String(thisYear - 15), month: "3", day: "9" });
+    expect(await env.DB.prepare("SELECT age_band, birth_date FROM accounts WHERE id = ?").bind(await idOf("Quiet_Comet")).first()).toEqual({ age_band: "13-15", birth_date: `${thisYear - 15}-03-09` });
+
+    const adult = new Browser();
+    await join(adult, null, "Night_Owl", { year: String(thisYear - 30), month: "3", day: "9" });
+    const row = await env.DB.prepare("SELECT * FROM accounts WHERE id = ?").bind(await idOf("Night_Owl")).first();
+    expect(row).toMatchObject({ age_band: "18+", birth_date: null });
     // Everything but the id and timestamps, which can contain any four digits.
-    const { id: _id, created_at_ms: _c, updated_at_ms: _u, ...stored } = row!;
-    expect(JSON.stringify(stored)).not.toContain(String(thisYear - 15));
-    expect([...b.jar.values()].join()).not.toContain(String(thisYear - 15));
+    const { id: _id, created_at_ms: _c, updated_at_ms: _u, password_changed_at_ms: _p, ...stored } = row!;
+    expect(JSON.stringify(stored)).not.toContain(String(thisYear - 30));
+    expect([...adult.jar.values()].join()).not.toContain(String(thisYear - 30));
+
+    // A hand-made join cookie can't give a birth date that says another band.
+    const forged = new Browser();
+    await forged.go("/join/age", { year: String(thisYear - 14), month: "3", day: "9" });
+    forged.jar.set("__Host-zaisma_join", encodeURIComponent(JSON.stringify({ band: "13-15", birth_date: "1990-01-01" })));
+    await forged.go("/join/account", { turnstile_token: "test-token", username: "Odd_Kite", password: PASSWORD });
+    expect(await accountById(env.DB, await idOf("Odd_Kite"))).toMatchObject({ age_band: "13-15", birth_date: null });
   });
 
-  it("stops under-13s before they type an email, and for a day after", async () => {
+  it("stops under-13s before they pick a username, and for a day after", async () => {
     const b = new Browser();
     const res = await b.go("/join/age", { year: String(thisYear - 10), month: "1", day: "1" });
-    expect(await res.text()).toContain("Accounts are for 13 and up");
+    // It doesn't say the age, so there's no number to lie about.
+    const page = await res.text();
+    expect(page).toContain("You can't make an account");
+    expect(page).not.toMatch(/13 and up|under 13|older/);
     expect(b.jar.get("__Host-zaisma_age")).toBe("no");
-    expect(await (await b.go("/join/age", BIRTH_ADULT)).text()).toContain("Accounts are for 13 and up");
-    expect(await (await b.go("/join/email", { email: "kid@example.com", name: "Little Fox" })).text()).toContain("Accounts are for 13 and up");
-    expect(sent).toHaveLength(0);
+    expect(await (await b.go("/join/age", BIRTH_ADULT)).text()).toContain("You can't make an account");
+    expect(await (await b.go("/join/account", { turnstile_token: "test-token", username: "Little_Fox", password: PASSWORD })).text()).toContain("You can't make an account");
+    expect(users.size).toBe(0);
   });
 
-  it("refuses a bad name and keeps what was typed", async () => {
+  it("refuses a bad username and keeps what was typed", async () => {
     const b = new Browser();
     await b.go("/join/age", BIRTH_ADULT);
-    const res = await b.go("/join/email", { email: "fox@example.com", name: "x" });
+    const res = await b.go("/join/account", { turnstile_token: "test-token", username: "x", password: PASSWORD });
     expect(res.status).toBe(400);
-    expect(await res.text()).toContain("Names are 3 to 20");
-    expect(sent).toHaveLength(0);
+    expect(await res.text()).toContain("Usernames are 3 to 20 letters, numbers or underscores.");
+    expect(users.size).toBe(0);
   });
 
-  it("can't skip the age question by going straight to the email step", async () => {
+  it("can't skip the age question by going straight to the username step", async () => {
     const b = new Browser();
-    const res = await b.go("/join/email", { email: "fox@example.com", name: "Night Owl" });
+    const res = await b.go("/join/account", { turnstile_token: "test-token", username: "Night_Owl", password: PASSWORD });
     expect(res.headers.get("location")).toBe("/join");
-    expect(sent).toHaveLength(0);
+    expect(users.size).toBe(0);
   });
 
   it("finishes a half-made account after sign-in, and deletes it if they're under 13", async () => {
     users.set("half@example.com", "u-half");
     const b = new Browser();
-    await b.go("/signin", { email: "half@example.com" });
+    await b.go("/signin/email", { email: "half@example.com" });
     const res = await b.go("/signin/code", { email: "half@example.com", code: "123456" });
     expect(res.headers.get("location")).toBe("/join");
     await b.go("/join/age", { year: String(thisYear - 9), month: "3", day: "3" });
@@ -278,21 +425,70 @@ describe("making an account", () => {
 });
 
 describe("signing in", () => {
-  it("never makes accounts and doesn't reveal who has one", async () => {
+  it("signs in with a username in any case, or the account's email, and a password", async () => {
+    await join(new Browser(), "fox@example.com", "Night_Owl");
     const b = new Browser();
-    const res = await b.go("/signin", { email: "nobody@example.com" });
-    expect(await res.text()).toContain("Check your email");
-    expect(sent).toEqual([{ email: "nobody@example.com", create: false }]);
-    expect(users.size).toBe(0);
+    const wrong = await b.go("/signin", { username: "night_owl", password: "not the password" });
+    expect(wrong.status).toBe(400);
+    expect(await wrong.text()).toContain("That username and password don&#39;t match.");
+    expect(b.jar.has("__Host-zaisma")).toBe(false);
+    const res = await b.go("/signin", { username: "night_owl", password: PASSWORD, next: "/g/arena" });
+    expect(res.headers.get("location")).toBe("/g/arena");
+    expect(b.jar.get("__Host-zaisma")).toMatch(/~r-/);
+
+    const byEmail = new Browser();
+    expect((await byEmail.go("/signin", { username: "fox@example.com", password: PASSWORD })).headers.get("location")).toBe("/");
+    // Nobody by that name: the same answer.
+    expect(await (await new Browser().go("/signin", { username: "Nobody_Here", password: PASSWORD })).text()).toContain("That username and password don&#39;t match.");
+    // "Sign in" never makes accounts.
+    expect(users.size).toBe(1);
   });
 
-  it("signs back in, and a wrong code is refused", async () => {
+  it("tells an account without a password how to get in", async () => {
+    users.set("old@example.com", "u-old");
+    await createAccount(env.DB, { id: "u-old", username: "Old_Timer", ageBand: "18+" });
+    expect(await (await new Browser().go("/signin", { username: "Old_Timer", password: PASSWORD })).text()).toContain("doesn&#39;t have a password yet");
+  });
+
+  it("gets back in by email code without saying who has an account, then asks for a new password", async () => {
     await join(new Browser());
+    const nobody = await new Browser().go("/signin/email", { email: "nobody@example.com" });
+    expect(await nobody.text()).toContain("Check your email");
+    expect(sent).toEqual([{ email: "nobody@example.com", create: false }]);
+
     const b = new Browser();
-    await b.go("/signin", { email: "fox@example.com" });
+    expect(await (await b.go("/signin?next=/g/arena")).text()).toContain('href="/signin/email?next=%2Fg%2Farena"');
+    const form = await (await b.go("/signin/email?next=/g/arena")).text();
+    const back = "/account?new-password&next=%2Fg%2Farena";
+    expect(form).toContain(`name="next" value="${back.replace(/&/g, "&amp;")}"`);
+    await b.go("/signin/email", { email: "fox@example.com", next: back });
     expect((await b.go("/signin/code", { email: "fox@example.com", code: "000000" })).status).toBe(400);
-    const res = await b.go("/signin/code", { email: "fox@example.com", code: "123456", next: "/g/arena" });
-    expect(res.headers.get("location")).toBe("/g/arena");
+    const res = await b.go("/signin/code", { email: "fox@example.com", code: "123456", next: back });
+    expect(res.headers.get("location")).toBe(back);
+
+    // A window asks for the new password, and then they go on to where they were headed.
+    const page = await (await b.go(back)).text();
+    expect(page).toContain('<dialog id="new-password"');
+    expect(page).toContain("Set a new password");
+    expect(page).toContain('<a class="btn ghost" href="/g/arena">Not now</a>');
+    const tooShort = await (await b.go("/account/password", { from: "new-password", next: "/g/arena", password: "short" })).text();
+    expect(tooShort).toContain('<dialog id="new-password"');
+    expect(tooShort).toContain("Passwords are at least 8 characters.");
+    expect((await b.go("/account/password", { from: "new-password", next: "/g/arena", password: "a brand new password" })).headers.get("location")).toBe("/g/arena");
+    expect((await new Browser().go("/signin", { username: "Night_Owl", password: "a brand new password" })).headers.get("location")).toBe("/");
+    // Only straight after signing in: later, the page just shows the account.
+    signinAge = 3600;
+    const later = new Browser();
+    await later.go("/signin", { username: "Night_Owl", password: "a brand new password" });
+    expect(await (await later.go("/account?new-password")).text()).not.toContain('<dialog id="new-password"');
+  });
+
+  it("limits password tries on one username, from any address", async () => {
+    await join(new Browser(), null);
+    const statuses = [];
+    for (let i = 0; i < 7; i++) statuses.push((await new Browser().go("/signin", { username: "Night_Owl", password: `guess number ${i}` })).status);
+    expect(statuses.slice(0, 5)).toEqual([400, 400, 400, 400, 400]);
+    expect(statuses.at(-1)).toBe(429);
   });
 
   it("only sends people back to our own pages", async () => {
@@ -320,7 +516,7 @@ describe("signing in", () => {
   });
 
   it("refuses forms posted from other sites", async () => {
-    const res = await SELF.fetch(`${SITE}/signin`, { method: "POST", body: new URLSearchParams({ email: "a@b.co" }), headers: { origin: "https://evil.example" } });
+    const res = await SELF.fetch(`${SITE}/signin`, { method: "POST", body: new URLSearchParams({ username: "Night_Owl", password: PASSWORD }), headers: { origin: "https://evil.example" } });
     expect(res.status).toBe(403);
   });
 
@@ -373,12 +569,14 @@ describe("Google and Discord", () => {
     expect(b.jar.has("__Host-zaisma")).toBe(false);
     expect(await (await b.go("/join?with=discord")).text()).toContain("back to Discord to finish");
 
-    // The age answer goes straight back to Discord, then to picking a name.
+    // The age answer goes straight back to Discord, then to picking a username, with no password.
     expect((await b.go("/join/age", { ...BIRTH_ADULT, with: "discord" })).headers.get("location")).toBe("/signin/with/discord");
-    expect((await viaProvider(b, "/signin/with/discord", "new@example.com")).headers.get("location")).toBe("/join/name");
-    expect(await (await b.go("/join/name")).text()).toContain("Pick a name");
-    expect((await b.go("/join/name", { name: "Lucky Star" })).headers.get("location")).toBe("/account?welcome");
-    expect(await accountById(env.DB, users.get("new@example.com")!)).toMatchObject({ name: "Lucky Star", age_band: "18+" });
+    expect((await viaProvider(b, "/signin/with/discord", "new@example.com")).headers.get("location")).toBe("/join/username");
+    const usernamePage = await (await b.go("/join/username")).text();
+    expect(usernamePage).toContain("Pick a username");
+    expect(usernamePage).not.toContain('type="password"');
+    expect((await b.go("/join/username", { turnstile_token: "test-token", username: "Lucky_Star" })).headers.get("location")).toBe("/account?welcome");
+    expect(await accountById(env.DB, users.get("new@example.com")!)).toMatchObject({ username: "Lucky_Star", age_band: "18+", password_changed_at_ms: null });
   });
 
   it("under-13s still get no account", async () => {
@@ -387,7 +585,7 @@ describe("Google and Discord", () => {
     const res = await viaProvider(b, "/signin/with/google", "kid@example.com");
     expect(res.headers.get("location")).toBe("/join?with=google");
     expect(deleted).toHaveLength(1);
-    expect(await (await b.go("/join")).text()).toContain("Accounts are for 13 and up");
+    expect(await (await b.go("/join")).text()).toContain("You can't make an account");
     expect(b.jar.has("__Host-zaisma")).toBe(false);
   });
 
@@ -407,28 +605,113 @@ describe("Google and Discord", () => {
 });
 
 describe("the account page", () => {
+  it("adds an email with a code to the new address, refuses one on another account, and removes it", async () => {
+    const b = new Browser();
+    await join(b, null);
+    const id = await idOf("Night_Owl");
+    expect(await (await b.go("/account")).text()).toContain("No email. Add one");
+    const code = await (await b.go("/account/email", { email: "Fox@Example.com" })).text();
+    expect(code).toContain("Enter it to add the email to your account.");
+    expect(code).toContain('action="/account/email/code"');
+    expect(emailChanges).toEqual([{ id, email: "fox@example.com" }]);
+    expect((await b.go("/account/email/code", { email: "fox@example.com", code: "000000" })).status).toBe(400);
+    expect((await b.go("/account/email/code", { email: "fox@example.com", code: "123456" })).headers.get("location")).toBe("/account?email-saved#signing-in");
+    const page = await (await b.go("/account?email-saved")).text();
+    expect(page).toContain('<p class="lead">fox@example.com</p>');
+    expect(page).toContain("Remove email");
+    expect(users.get("fox@example.com")).toBe(id);
+
+    await join(new Browser(), "owl@example.com", "Owl_Two");
+    expect(await (await b.go("/account/email", { email: "owl@example.com" })).text()).toContain("may already be on another account");
+
+    // Taken off, Supabase knows the account by a stand-in address again, and the password still works.
+    expect((await b.go("/account/email/remove", {})).headers.get("location")).toBe("/account?email-removed#signing-in");
+    expect([...users].find(([, userId]) => userId === id)?.[0]).toMatch(/@no-mail\.zaisma\.com$/);
+    expect(await (await b.go("/account")).text()).toContain("No email. Add one");
+    expect((await new Browser().go("/signin", { username: "Night_Owl", password: PASSWORD })).headers.get("location")).toBe("/");
+  });
+
+  it("changes the username, keeping what was typed and suggesting free ones when it's taken", async () => {
+    await join(new Browser(), null, "Taken_Name");
+    const b = new Browser();
+    await join(b, null, "Night_Owl");
+    expect((await b.go("/account/username", { username: "night_owl" })).headers.get("location")).toBe("/account?username-saved#username");
+    const taken = await (await b.go("/account/username", { username: "taken_name" })).text();
+    expect(taken).toContain("taken_name is taken.");
+    expect(taken).toMatch(/data-username="taken_name_?\d+"/);
+    expect((await accountById(env.DB, await idOf("night_owl")))?.username).toBe("night_owl");
+    const check = (await (await b.go("/api/username-check?username=NIGHT_OWL")).json()) as { message: string };
+    expect(check.message).toBe("That's your username.");
+  });
+
   it("renames, ages up, and deletes everything", async () => {
     const b = new Browser();
-    await join(b, "teen@example.com", "Quiet Comet", { year: String(thisYear - 15), month: "1", day: "1" });
+    await join(b, "teen@example.com", "Quiet_Comet", { year: String(thisYear - 15), month: "1", day: "1" });
     const id = users.get("teen@example.com")!;
 
-    expect((await b.go("/account/name", { name: "Loud Comet" })).status).toBe(303);
-    expect((await accountById(env.DB, id))?.name).toBe("Loud Comet");
+    expect((await b.go("/account/username", { username: "Loud_Comet" })).status).toBe(303);
+    expect((await accountById(env.DB, id))?.username).toBe("Loud_Comet");
 
-    // 13–15 can move to friends-focused, never open and social.
-    expect(await (await b.go("/account/social-mode", { social_mode: "open_and_social" })).text()).toContain("Choose one of the chat settings shown");
-    expect((await accountById(env.DB, id))?.social_mode).toBe("solo_focused");
-    expect((await b.go("/account/social-mode", { social_mode: "friends_focused" })).status).toBe(303);
-    expect((await accountById(env.DB, id))?.social_mode).toBe("friends_focused");
+    // The page shows the presets and settings 13–15 can have, and nothing at all of the rest: no open
+    // and social, no Anyone for chat or joining, no friend requests, and no hint of what opens up later.
+    const accountPageText = await (await b.go("/account")).text();
+    const social = accountPageText.slice(accountPageText.indexOf('<h2 id="social">'), accountPageText.indexOf('<h2 id="signing-in">'));
+    expect(social).toContain('<h2 id="social">Social</h2>');
+    expect(social).toMatch(/value="solo_focused" checked/);
+    expect(social).toMatch(/name="who_can_chat" value="friends"/);
+    expect(social).not.toContain('value="open_and_social"');
+    expect(social).not.toMatch(/name="who_can_chat" value="anyone"|name="who_can_join" value="anyone"|name="who_sees_online" value="anyone"/);
+    expect(social).not.toContain('name="who_can_send_friend_requests"');
+    expect(social).not.toMatch(/opens up|disabled|16-17|band group/);
 
-    // Up a band at a time, keeping the social mode; never down.
-    expect(await (await b.go("/account/age", { year: String(thisYear - 14), month: "1", day: "1" })).text()).toContain("16 or over yet");
-    await b.go("/account/age", { year: String(thisYear - 16), month: "1", day: "1" });
-    expect(await accountById(env.DB, id)).toMatchObject({ age_band: "16-17", social_mode: "friends_focused" });
-    expect(await (await b.go("/account/age", { year: String(thisYear - 17), month: "1", day: "1" })).text()).toContain("18 or over yet");
-    expect((await b.go("/account/social-mode", { social_mode: "open_and_social" })).status).toBe(303);
-    await b.go("/account/age", { year: String(thisYear - 19), month: "1", day: "1" });
-    expect(await accountById(env.DB, id)).toMatchObject({ age_band: "18+", social_mode: "open_and_social" });
+    // 13–15 can move to friends-focused, never open and social, and nothing past their limits.
+    expect(await (await b.go("/account/social", { social_mode: "open_and_social" })).text()).toContain("Choose from the social settings shown");
+    expect(await (await b.go("/account/social", { social_mode: "custom", who_can_join: "anyone" })).text()).toContain("Choose from the social settings shown");
+    expect(await (await b.go("/account/social", { social_mode: "custom", who_can_chat: "everyone" })).text()).toContain("Choose from the social settings shown");
+    expect(await accountById(env.DB, id)).toMatchObject(SOLO_FOCUSED);
+    // A preset with nothing else changed sets them all (the page's script fills them in too).
+    const saved = await b.go("/account/social", { social_mode: "friends_focused", ...SOLO_FOCUSED });
+    expect(saved.headers.get("location")).toBe("/account?social-saved#social");
+    expect(await accountById(env.DB, id)).toMatchObject(FRIENDS_FOCUSED);
+    expect(await (await b.go("/account?social-saved")).text()).toMatch(/value="friends_focused" checked/);
+    // Changing one setting makes it Custom, whatever preset the form still says.
+    expect((await b.go("/account/social", { social_mode: "friends_focused", ...FRIENDS_FOCUSED, who_sees_played_games: "nobody" })).status).toBe(303);
+    expect(await accountById(env.DB, id)).toMatchObject({ ...FRIENDS_FOCUSED, who_sees_played_games: "nobody" });
+    expect(await (await b.go("/account")).text()).toMatch(/value="custom" checked/);
+    // Back to a preset's exact settings is that preset again.
+    await b.go("/account/social", { social_mode: "custom", ...FRIENDS_FOCUSED });
+    expect(await (await b.go("/account")).text()).toMatch(/value="friends_focused" checked/);
+
+    // The page never says which band an account is in, and nobody changes their birthday.
+    expect(accountPageText).not.toMatch(/Age group|13 to 15|Turned 1[68]/);
+    expect((await b.go("/account/age", { year: String(thisYear - 19), month: "1", day: "1" })).status).toBe(404);
+    expect(await accountById(env.DB, id)).toMatchObject({ age_band: "13-15" });
+
+    // The band moves up on the birthday by itself, keeping the preset: not before the birthday has
+    // come everywhere (UTC−12), and never down.
+    const sixteenthBirthdayMs = Date.UTC(thisYear + 1, 0, 1);
+    expect(await accountById(env.DB, id, sixteenthBirthdayMs + 11 * 3600_000)).toMatchObject({ age_band: "13-15" });
+    expect(await accountById(env.DB, id, sixteenthBirthdayMs + 12 * 3600_000)).toMatchObject({ age_band: "16-17", birth_date: `${thisYear - 15}-01-01`, ...FRIENDS_FOCUSED });
+    expect(await accountById(env.DB, id)).toMatchObject({ age_band: "16-17" });
+    // Open and social at 16–17 keeps joining and what they play with friends.
+    expect(await (await b.go("/account/social", { social_mode: "custom", ...FRIENDS_FOCUSED, who_sees_playing_now: "anyone" })).text()).toContain("Choose from the social settings shown");
+    expect((await b.go("/account/social", { social_mode: "open_and_social", ...FRIENDS_FOCUSED })).status).toBe(303);
+    expect(await accountById(env.DB, id)).toMatchObject({ ...FRIENDS_FOCUSED, who_can_chat: "anyone", who_can_send_friend_requests: "anyone" });
+    const teenPageText = await (await b.go("/account")).text();
+    const teenPage = teenPageText.slice(teenPageText.indexOf('<h2 id="social">'), teenPageText.indexOf('<h2 id="signing-in">'));
+    expect(teenPage).toMatch(/value="open_and_social" checked/);
+    expect(teenPage).toMatch(/name="who_can_send_friend_requests" value="anyone" checked/);
+    expect(teenPage).not.toMatch(/name="who_can_join" value="anyone"|name="who_sees_playing_now" value="anyone"|opens up|disabled/);
+    // At 18 open and social opens up the rest too, and the birth date is deleted.
+    expect(await accountById(env.DB, id, Date.UTC(thisYear + 3, 0, 1, 12))).toMatchObject({ age_band: "18+", birth_date: null, ...OPEN_AND_SOCIAL_ADULT });
+    // The daily job does the same for players who weren't on, and Custom stays as it was.
+    const custom = new Browser();
+    await join(custom, "custom@example.com", "Odd_Fern", { year: String(thisYear - 17), month: "1", day: "1" });
+    const customId = users.get("custom@example.com")!;
+    await custom.go("/account/social", { social_mode: "custom", ...FRIENDS_FOCUSED, who_can_chat: "anyone" });
+    expect(await applyBirthdays(env.DB, Date.UTC(thisYear + 1, 0, 1, 12))).toBe(1);
+    expect(await env.DB.prepare("SELECT * FROM accounts WHERE id = ?").bind(customId).first()).toMatchObject({ age_band: "18+", birth_date: null, ...FRIENDS_FOCUSED, who_can_chat: "anyone" });
+    expect(await applyBirthdays(env.DB, Date.UTC(thisYear + 1, 0, 1, 12))).toBe(0);
 
     expect(await (await b.go("/account/delete", { confirm: "nope" })).text()).toContain('Type "delete"');
     const gone = await b.go("/account/delete", { confirm: "delete" });
@@ -448,9 +731,9 @@ describe("friends", () => {
 
   it("adds a friend only through an invite they were given, once, and removes them on both sides", async () => {
     const ana = new Browser();
-    await join(ana, "ana@example.com", "Night Owl");
+    await join(ana, "ana@example.com", "Night_Owl");
     const ben = new Browser();
-    await join(ben, "ben@example.com", "Quiet Comet", { year: String(thisYear - 14), month: "1", day: "1" });
+    await join(ben, "ben@example.com", "Quiet_Comet", { year: String(thisYear - 14), month: "1", day: "1" });
     const [anaId, benId] = [users.get("ana@example.com")!, users.get("ben@example.com")!];
 
     expect(await (await ana.go("/friends")).text()).toContain("No friends yet");
@@ -464,7 +747,7 @@ describe("friends", () => {
 
     // Signed out, the link says who it's from and asks to sign in first.
     const signedOut = await (await new Browser().go(`/friends/add/${inviteCode}`)).text();
-    expect(signedOut).toContain("Night Owl invited you to be friends");
+    expect(signedOut).toContain("Night_Owl invited you to be friends");
     expect(signedOut).toContain(`/signin?next=${encodeURIComponent(`/friends/add/${inviteCode}`)}`);
     // Its maker can't use it.
     expect(await (await ana.go(`/friends/add/${inviteCode}`)).text()).toContain("This is your own invite");
@@ -473,20 +756,20 @@ describe("friends", () => {
     // Typed by hand in any case, with its dash, it goes to the invite's page, which asks first.
     const typed = await ben.go("/friends/add", { invite_code: `${inviteCode.slice(0, 4).toLowerCase()}-${inviteCode.slice(4)}` });
     expect(typed.headers.get("location")).toBe(`/friends/add/${inviteCode}`);
-    expect(await (await ben.go(`/friends/add/${inviteCode}`)).text()).toContain("Add Night Owl as a friend?");
+    expect(await (await ben.go(`/friends/add/${inviteCode}`)).text()).toContain("Add Night_Owl as a friend?");
     expect(await (await ben.go("/friends/add", { invite_code: "nope" })).text()).toContain("An invite code is 8 letters and numbers");
 
     const accepted = await ben.go(`/friends/add/${inviteCode}`, {});
     expect(accepted.status).toBe(303);
-    expect(await (await ben.go(accepted.headers.get("location")!)).text()).toContain("You and Night Owl are friends now");
-    expect(await friendsOf(env.DB, anaId)).toMatchObject([{ name: "Quiet Comet" }]);
-    expect(await friendsOf(env.DB, benId)).toMatchObject([{ name: "Night Owl" }]);
+    expect(await (await ben.go(accepted.headers.get("location")!)).text()).toContain("You and Night_Owl are friends now");
+    expect(await friendsOf(env.DB, anaId)).toMatchObject([{ name: "Quiet_Comet" }]);
+    expect(await friendsOf(env.DB, benId)).toMatchObject([{ name: "Night_Owl" }]);
     // Ben's chat setting is solo-focused, and the page says what that means for friends.
     expect(await (await ben.go("/friends")).text()).toContain("you don't chat with anyone in games, friends included");
 
     // Used once, it's gone.
     const carol = new Browser();
-    await join(carol, "carol@example.com", "Tall Pine");
+    await join(carol, "carol@example.com", "Tall_Pine");
     expect(await (await carol.go(`/friends/add/${inviteCode}`)).text()).toContain("This invite doesn't work");
     expect((await carol.go(`/friends/add/${inviteCode}`, {})).status).toBe(404);
 
@@ -494,13 +777,13 @@ describe("friends", () => {
     const second = await inviteFrom(ana);
     expect(await (await ben.go(`/friends/add/${second}`)).text()).toContain("already friends");
     expect((await carol.go(`/friends/add/${second}`, {})).status).toBe(303);
-    expect((await friendsOf(env.DB, anaId)).map((friend) => friend.name)).toEqual(["Quiet Comet", "Tall Pine"]);
+    expect((await friendsOf(env.DB, anaId)).map((friend) => friend.name)).toEqual(["Quiet_Comet", "Tall_Pine"]);
 
     // Removing is both sides at once.
     const benPlayerId = (await accountById(env.DB, benId))!.player_id;
     expect((await ana.go(`/friends/${benPlayerId}/remove`, {})).status).toBe(303);
     expect(await friendsOf(env.DB, benId)).toEqual([]);
-    expect((await friendsOf(env.DB, anaId)).map((friend) => friend.name)).toEqual(["Tall Pine"]);
+    expect((await friendsOf(env.DB, anaId)).map((friend) => friend.name)).toEqual(["Tall_Pine"]);
 
     // Deleting an account takes its friends and invites with it.
     await inviteFrom(ana);
@@ -511,7 +794,7 @@ describe("friends", () => {
 
   it("takes invites back, lets them run out, and keeps a few waiting at most", async () => {
     const ana = new Browser();
-    await join(ana, "ana@example.com", "Night Owl");
+    await join(ana, "ana@example.com", "Night_Owl");
     const anaId = users.get("ana@example.com")!;
     const inviteCode = await inviteFrom(ana);
     await ana.go(`/friends/invites/${inviteCode}/remove`, {});
@@ -540,7 +823,7 @@ describe("game owners", () => {
     expect(await bad.text()).toContain("No account with that ID");
     await SELF.fetch("http://localhost/admin/games/g1/owner", { method: "POST", body: new URLSearchParams({ account_id: id }), redirect: "manual" });
     const owner = await gameOwner(env.DB, (await gameById(env.DB, "g1"))!.owner_id);
-    expect(owner).toMatchObject({ name: "Night Owl", owner: { kind: "person", account_id: id } });
+    expect(owner).toMatchObject({ name: "Night_Owl", owner: { kind: "person", account_id: id } });
     expect(await (await b.go("/account")).text()).toContain("Owl Game");
 
     // Deleting the account leaves the game up, with no owner.
@@ -555,7 +838,7 @@ describe("pages", () => {
     const home = await (await SELF.fetch(`${SITE}/`)).text();
     expect(home).toContain('id="account-link"');
     expect(home).toContain('href="/legal/privacy"');
-    expect(await (await SELF.fetch(`${SITE}/legal/privacy`)).text()).toContain("never keep it");
+    expect(await (await SELF.fetch(`${SITE}/legal/privacy`)).text()).toContain("we delete it when you turn 18");
     expect((await SELF.fetch(`${SITE}/signin`)).headers.get("cache-control")).toBe("no-store");
     expect(await (await SELF.fetch(`${SITE}/robots.txt`)).text()).toContain("Disallow: /account");
   });
@@ -568,7 +851,8 @@ describe("playing as your account", () => {
     // Cloudflare's check on Play says each browser is real.
     const withSupabase = globalThis.fetch;
     vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) =>
-      String(input instanceof Request ? input.url : input).startsWith("https://challenges.cloudflare.com/") ? Promise.resolve(Response.json({ success: true, action: "play", hostname: "zaisma.test" })) : withSupabase(input, init),
+      // The Play check's token; making an account goes on to the usual stand-in.
+      String(input instanceof Request ? input.url : input).startsWith("https://challenges.cloudflare.com/") && new URLSearchParams(String(init?.body)).get("response") === "good" ? Promise.resolve(Response.json({ success: true, action: "play", hostname: "zaisma.test" })) : withSupabase(input, init),
     );
     const play = async (b: Browser) => (await b.go("/api/plays/arena-game", undefined, { method: "POST", body: JSON.stringify({ first: null, last: null, cfirst: null, clast: null, token: "good" }) })).json<{ key: string; playerKind: string }>();
     const keyAccount = (key: string) => env.DB.prepare("SELECT account_id FROM room_keys WHERE id = ?").bind(key).first<{ account_id: string | null }>();
@@ -592,7 +876,8 @@ describe("playing as your account", () => {
     await env.DB.prepare("INSERT INTO games (id, slug, title, review_status, visibility, live_version_id, multiplayer_mode, created_at_ms, updated_at_ms) VALUES ('g-arena', 'arena-game', 'Arena', 'live', 'listed', 'v1', 'relay', ?, ?)").bind(now, now).run();
     const withSupabase = globalThis.fetch;
     vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) =>
-      String(input instanceof Request ? input.url : input).startsWith("https://challenges.cloudflare.com/") ? Promise.resolve(Response.json({ success: true, action: "play", hostname: "zaisma.test" })) : withSupabase(input, init),
+      // The Play check's token; making an account goes on to the usual stand-in.
+      String(input instanceof Request ? input.url : input).startsWith("https://challenges.cloudflare.com/") && new URLSearchParams(String(init?.body)).get("response") === "good" ? Promise.resolve(Response.json({ success: true, action: "play", hostname: "zaisma.test" })) : withSupabase(input, init),
     );
     const b = new Browser();
     const guest = await (await b.go("/api/plays/arena-game", undefined, { method: "POST", body: JSON.stringify({ first: null, last: null, cfirst: null, clast: null, token: "good" }) })).json<{ key: string; playerKind: string }>();
@@ -605,7 +890,7 @@ describe("playing as your account", () => {
     await join(b);
     const traded = await (await signedIn({ roomKey: guest.key })).json<{ player: unknown; key: string; playerKind: string }>();
     const account = (await accountById(env.DB, users.get("fox@example.com")!))!;
-    expect(traded).toEqual({ player: { id: account.player_id, name: "Night Owl", kind: "account" }, key: expect.stringMatching(/^room_key_[a-z0-9]+$/), playerKind: "account" });
+    expect(traded).toEqual({ player: { id: account.player_id, name: "Night_Owl", kind: "account" }, key: expect.stringMatching(/^room_key_[a-z0-9]+$/), playerKind: "account" });
     // The account's key runs out when the guest's would have, and the guest's is gone, so it trades once.
     const keys = await env.DB.prepare("SELECT id, account_id, issued_at_ms FROM room_keys WHERE id IN (?, ?)").bind(guest.key, traded.key).all<{ id: string; account_id: string | null }>();
     expect(keys.results).toEqual([{ id: traded.key, account_id: account.id, issued_at_ms: issued!.issued_at_ms }]);
@@ -656,9 +941,9 @@ describe("cloud saves", () => {
     const b = new Browser();
     await join(b);
     await put(b, 0, { level: "3" });
-    expect(await (await b.go("/api/saves/owl-game?version")).json()).toEqual({ version_number: 1, changed_by_kind: "player" });
+    expect(await (await b.go("/api/saves/owl-game?version")).json()).toMatchObject({ version_number: 1, changed_by_kind: "player" });
     await changeSaveAsDeveloper(env, users.get("fox@example.com")!, gameId, canonicalSave({ level: "10" }));
-    expect(await (await b.go("/api/saves/owl-game?version")).json()).toEqual({ version_number: 2, changed_by_kind: "developer" });
+    expect(await (await b.go("/api/saves/owl-game?version")).json()).toMatchObject({ version_number: 2, changed_by_kind: "developer" });
     expect(await (await b.go("/api/saves/owl-game")).json()).toMatchObject({ version_number: 2, changed_by_kind: "developer", save_data: { level: "10" } });
     // The open game's next save started from version 1: refused, saying the developer moved it on.
     const stale = await put(b, 1, { level: "4" });
@@ -666,7 +951,7 @@ describe("cloud saves", () => {
     expect(await stale.json()).toMatchObject({ version_number: 2, changed_by_kind: "developer" });
     // Once the game saves from the developer's version, the save is the player's again.
     expect((await put(b, 2, { level: "11" })).status).toBe(200);
-    expect(await (await b.go("/api/saves/owl-game?version")).json()).toEqual({ version_number: 3, changed_by_kind: "player" });
+    expect(await (await b.go("/api/saves/owl-game?version")).json()).toMatchObject({ version_number: 3, changed_by_kind: "player" });
   });
 
   it("stores saves from games that also keep IndexedDB databases", async () => {
@@ -688,9 +973,9 @@ describe("cloud saves", () => {
   it("keeps saves apart per player", async () => {
     await liveGame();
     const a = new Browser();
-    await join(a, "a@example.com", "Player One");
+    await join(a, "a@example.com", "Player_One");
     const b = new Browser();
-    await join(b, "b@example.com", "Player Two");
+    await join(b, "b@example.com", "Player_Two");
     await put(a, 0, { secret: "a" });
     expect(((await (await b.go("/api/saves/owl-game")).json()) as { version_number: number }).version_number).toBe(0);
   });
@@ -775,42 +1060,26 @@ describe("cloud saves", () => {
       expect(files.objects).toHaveLength(5);
     });
 
-    it("goes back to an earlier version, and keeps the progress it replaced", async () => {
-      const gameId = await liveGame();
-      const b = new Browser();
-      await join(b);
-      await put(b, 0, { level: "7" });
-      await put(b, 1, { level: "1" });
-      const [copy] = await copies();
-      const page = await (await b.go("/account/saves/owl-game")).text();
-      expect(page).toContain("Earlier versions");
-      expect(page).toContain(`value="${copy!.id}"`);
-      const res = await b.go("/account/saves/owl-game/restore", { id: copy!.id });
-      expect(res.headers.get("location")).toBe("/account/saves/owl-game?restored");
-      const got = (await (await b.go("/api/saves/owl-game")).json()) as { version_number: number; save_data: unknown };
-      expect(got).toMatchObject({ version_number: 3, save_data: { level: "7" } });
-      expect((await copies()).map((c) => c.copy_reason)).toEqual(["restore", "hourly"]);
-      expect(await env.SAVES.get(saveKey(id(), gameId)).then((o) => o?.text())).toBe(canonicalSave({ level: "7" }));
-      expect(await (await b.go("/account/saves/owl-game?restored")).text()).toContain("starts from that progress");
-      // A device still on the old version has to choose instead of overwriting.
-      expect((await put(b, 2, { level: "2" })).status).toBe(409);
-    });
-
-    it("lists saves on the account, only for the player, and refuses other people's copies", async () => {
+    it("has no save screens: no list of saves or copies, and no way back for the player", async () => {
       await liveGame();
       const a = new Browser();
       await join(a);
       await put(a, 0, { level: "1" });
       await put(a, 1, { level: "2" });
-      expect(await (await a.go("/account/saves")).text()).toContain('href="/account/saves/owl-game"');
-      expect(await (await a.go("/account")).text()).toContain('href="/account/saves"');
-      const [copy] = await copies();
-      const other = new Browser();
-      await join(other, "b@example.com", "Player Two");
-      expect(await (await other.go("/account/saves")).text()).toContain("No saves yet");
-      expect((await other.go("/account/saves/owl-game/restore", { id: copy!.id })).headers.get("location")).toBe("/account/saves/owl-game?failed");
-      expect((await new Browser().go("/account/saves")).headers.get("location")).toBe("/signin?next=%2Faccount%2Fsaves");
-      expect((await a.go("/account/saves/owl-game/restore", { id: copy!.id }, { origin: "https://evil.example" })).status).toBe(403);
+      expect((await a.go("/account/saves")).status).toBe(404);
+      expect((await a.go("/account/saves/owl-game")).status).toBe(404);
+      expect(await (await a.go("/account")).text()).not.toContain("/account/saves");
+    });
+
+    it("tells an open game when the account's save was stored, from the database alone", async () => {
+      await liveGame();
+      const b = new Browser();
+      await join(b);
+      expect(await (await b.go("/api/saves/owl-game?version")).json()).toEqual({ version_number: 0, updated_at: null, changed_by_kind: null });
+      await put(b, 0, { level: "1" });
+      const got = (await (await b.go("/api/saves/owl-game?version")).json()) as { version_number: number; updated_at: string; changed_by_kind: string };
+      expect(got).toMatchObject({ version_number: 1, changed_by_kind: "player" });
+      expect(Date.parse(got.updated_at)).toBeGreaterThan(Date.now() - 60_000);
     });
 
     it("deletes earlier versions with the account", async () => {
@@ -844,12 +1113,11 @@ describe("cloud saves", () => {
     const b = new Browser();
     const joined = await (async () => {
       await b.go("/join/age", BIRTH_ADULT);
-      await b.go("/join/email", { email: "fox@example.com", name: "Night Owl", next: "/account/kept?game=owl-game" });
-      return b.go("/signin/code", { email: "fox@example.com", code: "123456", next: "/account/kept?game=owl-game" });
+      return b.go("/join/account", { turnstile_token: "test-token", username: "Night_Owl", password: PASSWORD, next: "/account/kept?game=owl-game" });
     })();
     expect(joined.headers.get("location")).toBe("/account/kept?game=owl-game");
     const page = await (await b.go("/account/kept?game=owl-game")).text();
-    expect(page).toContain("You're in, Night Owl");
+    expect(page).toContain("You're in, Night_Owl");
     expect(page).toContain('href="/g/owl-game?play" data-back=""');
     expect(page).toContain('BroadcastChannel("zaisma").postMessage("signed-in")');
     expect(await (await b.go("/account/kept?game=nope")).text()).toContain("Find a game");
@@ -876,12 +1144,23 @@ describe("cloud saves", () => {
     await liveGame("own-saves", 0);
     const page = await (await SELF.fetch(`${SITE}/g/owl-game`)).text();
     expect(page).toContain("window.startSaves = function");
-    expect(page).toContain('id="save-choice"');
     expect(page).toContain('"api":"/api/saves/owl-game"');
-    expect(page).toContain('<a id="save-history" href="/account/saves/owl-game" hidden>');
+    expect(page).toContain('id="keep-title">Keep your progress');
+    // No save screens: no "which progress?" chooser and no earlier progress in the menu.
+    expect(page).not.toContain("save-choice");
+    expect(page).not.toContain("/account/saves");
     const own = await (await SELF.fetch(`${SITE}/g/own-saves`)).text();
     expect(own).not.toContain("window.startSaves = function");
-    expect(own).not.toContain("save-choice");
+    expect(own).not.toContain('id="keep"');
+  });
+
+  it("a game can turn off the \"Keep your progress\" card and keep cloud saves", async () => {
+    await liveGame();
+    await env.DB.prepare("UPDATE games SET account_offer_enabled = 0 WHERE slug = 'owl-game'").run();
+    const page = await (await SELF.fetch(`${SITE}/g/owl-game`)).text();
+    expect(page).toContain("window.startSaves = function");
+    expect(page).not.toContain('id="keep-title"');
+    expect(page).toContain('id="keep-link"');
   });
 
   it("game pages that need an account say so before Play and ask guests to sign in, back to the same match", async () => {
@@ -1026,7 +1305,7 @@ describe("the dashboard", () => {
     await join(owner);
     await owner.go("/dashboard/new", { title: "Mine" });
     const other = new Browser();
-    await join(other, "other@example.com", "Other Owl");
+    await join(other, "other@example.com", "Other_Owl");
     expect((await other.go("/dashboard/mine")).status).toBe(404);
     expect((await other.go("/dashboard/mine/visibility", { visibility: "draft" })).status).toBe(404);
     expect((await owner.go("/dashboard/mine/visibility", { visibility: "listed" }, { origin: "https://evil.example" })).status).toBe(403);
@@ -1053,7 +1332,7 @@ describe("the dashboard", () => {
     expect(await env.DB.prepare("SELECT author_kind, posted_via, check_status FROM forum_posts WHERE topic_id = ?").bind(id).first()).toEqual({ author_kind: "developer", posted_via: "dashboard", check_status: null });
 
     // Their AI adds to it through the API, with a screenshot; the page names them, marks the AI's post, and shows it.
-    const account = (await env.DB.prepare("SELECT id FROM accounts WHERE name = ?").bind("Night Owl").first<{ id: string }>())!;
+    const account = (await env.DB.prepare("SELECT id FROM accounts WHERE username = ?").bind("Night_Owl").first<{ id: string }>())!;
     const { token } = await createApiKey(env.DB, account.id, "claude");
     const png = new Uint8Array(64);
     png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);
@@ -1061,7 +1340,7 @@ describe("the dashboard", () => {
     const aiPost = ((await added.json()) as { post: { id: string; media: { id: string }[] } }).post;
     const image = aiPost.media[0]!.id;
     const thread = await (await b.go(`/forum/${id}?done=posted-private`)).text();
-    expect(thread).toContain("<strong>Night Owl</strong>");
+    expect(thread).toContain("<strong>Night_Owl</strong>");
     expect(thread).toContain('class="mark ai"');
     expect(thread).toContain("A message to Zaisma: only you and Zaisma see it");
     expect(thread).toContain(`/forum/media/${image}`);
@@ -1086,7 +1365,7 @@ describe("the dashboard", () => {
 
     // Someone else's private topic looks like no topic, and so do its pictures; the old addresses lead here.
     const other = new Browser();
-    await join(other, "other@example.com", "Other Owl");
+    await join(other, "other@example.com", "Other_Owl");
     expect((await other.go(`/forum/${id}`)).status).toBe(404);
     expect((await other.go(`/forum/media/${image}`)).status).toBe(404);
     expect((await b.go("/dashboard/feedback")).headers.get("location")).toBe("/forum?tab=yours");
@@ -1114,7 +1393,7 @@ describe("the dashboard", () => {
 
     // Another developer replies; the first answers that one post.
     const other = new Browser();
-    await join(other, "other@example.com", "Other Owl");
+    await join(other, "other@example.com", "Other_Owl");
     await other.go(`/forum/${id}/reply`, { text_markdown: "The one closest to the first player who joins." });
     await check();
     const answer = (await env.DB.prepare("SELECT id FROM forum_posts WHERE topic_id = ? AND text_markdown LIKE 'The one closest%'").bind(id).first<{ id: string }>())!.id;
@@ -1122,7 +1401,7 @@ describe("the dashboard", () => {
     await check();
     const page = await (await reader.go(`/forum/${id}`)).text();
     expect(page).toContain('class="quote"');
-    expect(page).toContain("<strong>Other Owl</strong>");
+    expect(page).toContain("<strong>Other_Owl</strong>");
 
     // Me too counts once per developer, never for your own topic.
     await other.go(`/forum/${id}/vote`, {});
@@ -1133,7 +1412,7 @@ describe("the dashboard", () => {
     // Only the asker marks the answer.
     expect((await other.go(`/forum/${id}/answer`, { answer_post_id: answer })).status).toBe(403);
     await first.go(`/forum/${id}/answer`, { answer_post_id: answer });
-    expect(await (await reader.go(`/forum/${id}`)).text()).toContain("Answered by Other Owl");
+    expect(await (await reader.go(`/forum/${id}`)).text()).toContain("Answered by Other_Owl");
     expect(await (await reader.go("/forum?tab=unanswered")).text()).not.toContain("How do rooms pick a region?");
 
     // A post the check holds stays with its writer until a person looks.
@@ -1315,22 +1594,49 @@ describe("passkeys", () => {
     expect((await signInWith(device)).status).toBe(400);
   });
 
-  it("asks for an email code first when the last sign-in wasn't recent", async () => {
-    signinAge = 3600;
+  it("asks to confirm it's you with the password when the last sign-in wasn't recent", async () => {
     const b = new Browser();
     await join(b);
+    signinAge = 3600;
+    await b.go("/signin", { username: "Night_Owl", password: PASSWORD });
     const page = await (await b.go("/account")).text();
-    expect(page).toContain('action="/account/passkeys/confirm"');
+    expect(page).toContain('action="/account/confirm"');
+    expect(page).toContain('autocomplete="current-password"');
+    expect(page).not.toContain('id="passkey-add"');
+    expect(page).not.toContain('action="/account/password"');
     expect((await api(b, "/api/passkeys/add/options")).data).toMatchObject({ confirm: true });
+    for (const [path, form] of [["/account/password", { password: "another fine password" }], ["/account/email", { email: "new@example.com" }], ["/account/email/remove", {}]] as const) {
+      expect((await b.go(path, form)).headers.get("location")).toBe("/account?confirm-first#signing-in");
+    }
+
+    expect(await (await b.go("/account/confirm", { password: "not my password" })).text()).toContain("That password isn&#39;t right.");
+    signinAge = 0;
+    expect((await b.go("/account/confirm", { password: PASSWORD })).headers.get("location")).toBe("/account?confirmed#signing-in");
+    expect(await (await b.go("/account?confirmed")).text()).toContain("Thanks, that&#39;s you.");
+    await addPasskey(b);
+  });
+
+  it("confirms an account without a password by an email code, then it can add one", async () => {
+    users.set("old@example.com", "u-old");
+    await createAccount(env.DB, { id: "u-old", username: "Old_Timer", ageBand: "18+" });
+    signinAge = 3600;
+    const b = new Browser();
+    await b.go("/signin/email", { email: "old@example.com" });
+    await b.go("/signin/code", { email: "old@example.com", code: "123456" });
+    const page = await (await b.go("/account")).text();
+    expect(page).toContain("Email me a code");
+    expect(page).toContain("No password yet.");
 
     const sentBefore = sent.length;
-    const code = await (await b.go("/account/passkeys/confirm", {})).text();
+    const code = await (await b.go("/account/confirm", {})).text();
     expect(sent.length).toBe(sentBefore + 1);
-    expect(code).toContain('value="/account?passkey"');
+    expect(code).toContain('value="/account?confirmed#signing-in"');
     signinAge = 0;
-    expect((await b.go("/signin/code", { email: "fox@example.com", code: "123456", next: "/account?passkey" })).headers.get("location")).toBe("/account?passkey");
-    expect(await (await b.go("/account?passkey")).text()).toContain("Thanks, that's you.");
-    await addPasskey(b);
+    expect((await b.go("/signin/code", { email: "old@example.com", code: "123456", next: "/account?confirmed#signing-in" })).headers.get("location")).toBe("/account?confirmed#signing-in");
+    expect((await b.go("/account/password", { password: "short" })).status).toBe(200);
+    expect((await b.go("/account/password", { password: "a password at last" })).headers.get("location")).toBe("/account?password-saved#signing-in");
+    expect((await accountById(env.DB, "u-old"))?.password_changed_at_ms).toEqual(expect.any(Number));
+    expect((await new Browser().go("/signin", { username: "old_timer", password: "a password at last" })).headers.get("location")).toBe("/");
   });
 
   it("only takes requests from our own pages, and deletes passkeys with the account", async () => {
@@ -1346,7 +1652,7 @@ describe("passkeys", () => {
   it("offers passkeys on the sign-in page", async () => {
     const page = await (await new Browser().go("/signin?next=/g/owl")).text();
     expect(page).toContain("Sign in with a passkey");
-    expect(page).toContain('autocomplete="email webauthn"');
+    expect(page).toContain('autocomplete="username webauthn"');
   });
 });
 
@@ -1361,7 +1667,7 @@ describe("Sign in with Zaisma", () => {
   /** A developer with a sign-in app, made through the API with their session, as the dashboard would. */
   async function developerWithApp(kind: "confidential" | "public" = "confidential"): Promise<{ developer: Browser; appId: string; clientSecret: string | null }> {
     const developer = new Browser();
-    await join(developer, `maker-${crypto.randomUUID()}@example.com`, "Sky Maker");
+    await join(developer, `maker-${crypto.randomUUID()}@example.com`, "Sky_Maker");
     const made = await developer.go("/api/dev/sign-in-apps", undefined, { method: "POST", body: JSON.stringify({ name: "Sky Hopper Online", kind, redirect_urls: [CALLBACK] }) });
     expect(made.status).toBe(201);
     const answer = (await made.json()) as { sign_in_app: { id: string }; client_secret: string | null };
@@ -1421,7 +1727,7 @@ describe("Sign in with Zaisma", () => {
 
     // Someone else's app is not yours to see or change.
     const stranger = new Browser();
-    await join(stranger, "stranger@example.com", "Some Stranger");
+    await join(stranger, "stranger@example.com", "Some_Stranger");
     const theirs = await stranger.go(`/api/dev/sign-in-apps/${appId}`, undefined, { method: "PATCH", body: JSON.stringify({ name: "Mine Now" }) });
     expect(((await theirs.json()) as { error: { code: string } }).error.code).toBe("no_sign_in_app");
 
@@ -1441,7 +1747,7 @@ describe("Sign in with Zaisma", () => {
     expect(signinUrl.searchParams.get("next")).toContain(`/oauth/authorize?response_type=code&client_id=${appId}`);
     expect(await (await player.go(`/signin?next=${encodeURIComponent(signinUrl.searchParams.get("next")!)}`)).text()).toContain('name="next" value="/oauth/authorize?');
 
-    await join(player, "owl@example.com", "Night Owl");
+    await join(player, "owl@example.com", "Night_Owl");
     const consent = await player.go(authorizeQuery(appId));
     expect(consent.status).toBe(200);
     const consentPage = await consent.text();
@@ -1460,14 +1766,14 @@ describe("Sign in with Zaisma", () => {
     expect(swapped.status).toBe(200);
     const tokens = (await swapped.json()) as { access_token: string; id_token: string; token_type: string; expires_in: number };
     expect(tokens.token_type).toBe("Bearer");
-    const account = await env.DB.prepare("SELECT player_id FROM accounts WHERE name = 'Night Owl'").first<{ player_id: string }>();
+    const account = await env.DB.prepare("SELECT player_id FROM accounts WHERE username = 'Night_Owl'").first<{ player_id: string }>();
     const claims = await readIdToken(tokens.id_token);
-    expect(claims).toMatchObject({ iss: SITE, sub: account!.player_id, aud: appId, nonce: "nonce-456", name: "Night Owl" });
+    expect(claims).toMatchObject({ iss: SITE, sub: account!.player_id, aud: appId, nonce: "nonce-456", name: "Night_Owl", preferred_username: "Night_Owl" });
     expect(JSON.stringify(claims)).not.toContain("owl@example.com");
     expect((await swap({ code, client_id: appId, client_secret: clientSecret! })).status).toBe(400);
 
     const userinfo = () => SELF.fetch(`${SITE}/oauth/userinfo`, { headers: { authorization: `Bearer ${tokens.access_token}` } });
-    expect(await (await userinfo()).json()).toEqual({ sub: account!.player_id, name: "Night Owl" });
+    expect(await (await userinfo()).json()).toEqual({ sub: account!.player_id, name: "Night_Owl", preferred_username: "Night_Owl" });
 
     // The second time, straight back with a code.
     const again = await player.go(authorizeQuery(appId));
@@ -1486,7 +1792,7 @@ describe("Sign in with Zaisma", () => {
   it("needs PKCE from public apps, and checks the code_verifier", async () => {
     const { appId } = await developerWithApp("public");
     const player = new Browser();
-    await join(player, "owl@example.com", "Night Owl");
+    await join(player, "owl@example.com", "Night_Owl");
     const withoutPkce = await player.go(authorizeQuery(appId));
     expect(new URL(withoutPkce.headers.get("location")!).searchParams.get("error")).toBe("invalid_request");
 
@@ -1499,12 +1805,12 @@ describe("Sign in with Zaisma", () => {
     expect(right.status).toBe(200);
     expect(right.headers.get("access-control-allow-origin")).toBe("*");
 
-    // Signing in with an email code keeps the whole link, PKCE included, and comes back to it.
+    // Signing in keeps the whole link, PKCE included, and comes back to it.
     await player.go("/signout", {});
     const next = new URL((await player.go(authorizeQuery(appId, pkce))).headers.get("location")!, SITE).searchParams.get("next")!;
     expect(next.length).toBeGreaterThan(200);
-    await player.go("/signin", { email: "owl@example.com", next });
-    expect((await player.go("/signin/code", { email: "owl@example.com", code: "123456", next })).headers.get("location")).toBe(next);
+    expect(await (await player.go(`/signin?next=${encodeURIComponent(next)}`)).text()).toContain(`name="next" value="${next.replace(/&/g, "&amp;")}"`);
+    expect((await player.go("/signin", { username: "Night_Owl", password: PASSWORD, next })).headers.get("location")).toBe(next);
     expect(new URL((await player.go(next)).headers.get("location")!).searchParams.get("code")).toBeTruthy();
   });
 
@@ -1525,7 +1831,7 @@ describe("Sign in with Zaisma", () => {
   it("goes with the account: a player's yeses, and a developer's apps", async () => {
     const { developer, appId } = await developerWithApp();
     const player = new Browser();
-    await join(player, "owl@example.com", "Night Owl");
+    await join(player, "owl@example.com", "Night_Owl");
     await allow(player, appId);
     await player.go("/account/delete", { confirm: "delete" });
     expect(await env.DB.prepare("SELECT * FROM sign_in_grants").first()).toBeNull();

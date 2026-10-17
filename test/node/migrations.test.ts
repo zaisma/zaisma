@@ -172,3 +172,29 @@ describe("migration 0035", () => {
     ]);
   });
 });
+
+describe("migration 0047", () => {
+  const database = migratedFrom(
+    "0047",
+    `INSERT INTO accounts (id, player_id, name, age_band, social_mode, created_at_ms, updated_at_ms) VALUES
+      ('first', 'player_firstaaaaaaaaaaaaa', 'Night Owl', '18+', 'friends_focused', 1, 1),
+      ('second', 'player_secondbbbbbbbbbbbb', 'night-owl', '18+', 'friends_focused', 2, 2),
+      ('third', 'player_thirdcccccccccccccc', ' Quiet Comet ', '13-15', 'solo_focused', 3, 3),
+      ('fourth', 'player_fourthdddddddddddd', 'Ñandú', '16-17', 'solo_focused', 4, 4);`,
+  );
+  const read = (sql: string) => database.prepare(sql).all();
+
+  it("turns names into usernames: underscores for spaces and dashes, and the same one twice made unique", () => {
+    expect(read("SELECT id, username, password_changed_at_ms FROM accounts ORDER BY created_at_ms")).toEqual([
+      { id: "first", username: "Night_Owl", password_changed_at_ms: null },
+      { id: "second", username: "night_owl_bbbbbb", password_changed_at_ms: null },
+      { id: "third", username: "Quiet_Comet", password_changed_at_ms: null },
+      // Kept, so the account page asks for a new one.
+      { id: "fourth", username: "Ñandú", password_changed_at_ms: null },
+    ]);
+  });
+
+  it("keeps usernames unique ignoring case", () => {
+    expect(() => database.exec("INSERT INTO accounts (id, player_id, username, age_band, created_at_ms, updated_at_ms) VALUES ('fifth', 'player_fiftheeeeeeeeeeeee', 'NIGHT_OWL', '18+', 5, 5)")).toThrow(/UNIQUE/);
+  });
+});

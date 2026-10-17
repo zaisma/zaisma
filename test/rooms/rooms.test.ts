@@ -118,26 +118,26 @@ describe("rooms", () => {
   it("gives a signed-in player their account's pass: the same ID in every game, proof only, with their name in rooms", async () => {
     const arena = await addGame("arena");
     const other = await addGame("other");
-    const account = await createAccount(e.DB, { id: "supabase-user-1", name: "Night Owl", ageBand: "18+" });
+    const account = await createAccount(e.DB, { id: "supabase-user-1", username: "Night_Owl", ageBand: "18+" });
     const passFor = async (gameSlug: string, gameId: string) => {
       const response = await post("/v1/pass", gameSlug, ORIGIN, { roomKey: await issueRoomKey(e.DB, gameId, account.id) });
       expect(response.status).toBe(200);
       return response.json<{ pass: string; player: { id: string; name: string; kind: string } }>();
     };
     const { pass, player } = await passFor("arena", arena);
-    expect(player).toEqual({ id: account.player_id, name: "Night Owl", kind: "account" });
+    expect(player).toEqual({ id: account.player_id, name: "Night_Owl", kind: "account" });
     expect(account.player_id).toMatch(/^player_[a-z0-9]{20}$/);
     // The pass proves who, for which game and until when; the name and the sign-in's own ID stay out of it.
     const claims = JSON.parse(atob(pass.split(".")[1]!.replace(/-/g, "+").replace(/_/g, "/")));
-    expect(Object.keys(claims).sort()).toEqual(["aud", "exp", "friend_player_ids", "iat", "iss", "kind", "social_mode", "sub"]);
-    expect(claims).toMatchObject({ sub: account.player_id, kind: "account", aud: "arena", social_mode: "friends_focused", friend_player_ids: [] });
+    expect(Object.keys(claims).sort()).toEqual(["aud", "exp", "friend_player_ids", "iat", "iss", "kind", "sub", "who_can_chat"]);
+    expect(claims).toMatchObject({ sub: account.player_id, kind: "account", aud: "arena", who_can_chat: "friends", friend_player_ids: [] });
     expect(pass).not.toContain(account.id);
     expect((await passFor("other", other)).player.id).toBe(account.player_id);
 
     // Rooms show the account's name, and the game server sees its kind.
     const c = await connect("arena", "ACCNTS");
     c.ws.send(JSON.stringify({ type: "hello", pass }));
-    expect((await c.next()).me).toEqual({ id: account.player_id, name: "Night Owl", kind: "account" });
+    expect((await c.next()).me).toEqual({ id: account.player_id, name: "Night_Owl", kind: "account" });
     c.ws.close(1000);
     // A guest beside them is still a guest.
     expect((await getPass("arena")).player.kind).toBe("guest");
@@ -154,7 +154,7 @@ describe("rooms", () => {
   it("says in the pass who an account can chat with, never its age, and canChat follows it", async () => {
     const arena = await addGame("arena");
     const other = await addGame("other");
-    const accountFor = (id: string, ageBand: "13-15" | "16-17" | "18+", socialMode: "solo_focused" | "friends_focused" | "open_and_social") => createAccount(e.DB, { id, name: id, ageBand, socialMode });
+    const accountFor = (id: string, ageBand: "13-15" | "16-17" | "18+", socialMode: "solo_focused" | "friends_focused" | "open_and_social") => createAccount(e.DB, { id, username: id, ageBand, socialMode });
     const claimsOf = async (account: { id: string }, gameSlug = "arena", gameId = arena) => {
       const { pass } = await (await post("/v1/pass", gameSlug, ORIGIN, { roomKey: await issueRoomKey(e.DB, gameId, account.id) })).json<{ pass: string }>();
       return verifyPass(pass, [(await signingKey(e)).publicKey], { game: gameSlug, issuer: e.ISSUER });
@@ -175,11 +175,12 @@ describe("rooms", () => {
     expect(JSON.stringify([teen, adult, young])).not.toMatch(/13-15|16-17|18\+/);
     // Another game gets other groups, so groups can't be matched across games.
     expect((await claimsOf({ id: "teen-open-1" }, "other", other)).chat_group).not.toBe(teen.chat_group);
-    // Only open and social carries a group; guests carry no social mode at all.
-    expect(friendsOnly).toMatchObject({ social_mode: "friends_focused" });
+    // Only chat with anyone carries a group; guests carry no chat setting at all.
+    expect(teen).toMatchObject({ who_can_chat: "anyone" });
+    expect(friendsOnly).toMatchObject({ who_can_chat: "friends" });
     expect(friendsOnly.chat_group).toBeUndefined();
-    expect(young).toMatchObject({ social_mode: "solo_focused" });
-    expect(guest.social_mode).toBeUndefined();
+    expect(young).toMatchObject({ who_can_chat: "nobody" });
+    expect(guest.who_can_chat).toBeUndefined();
 
     expect(canChat(teen, teenToo)).toBe(true);
     expect(canChat(adult, adultToo)).toBe(true);
@@ -189,13 +190,19 @@ describe("rooms", () => {
     expect(canChat(guest, adult)).toBe(false);
     expect(canChat(adult, adult)).toBe(false);
     expect(guest.friend_player_ids).toBeUndefined();
+
+    // A row past its band's limits (only a bug could write one) still goes out within them.
+    await e.DB.prepare("UPDATE accounts SET who_can_chat = 'anyone' WHERE id = 'young-solo'").run();
+    const forced = await claimsOf({ id: "young-solo" });
+    expect(forced).toMatchObject({ who_can_chat: "friends" });
+    expect(forced.chat_group).toBeUndefined();
   });
 
   it("puts an account's friends in its passes, so friends chat and strangers don't", async () => {
     const arena = await addGame("arena");
-    const ana = await createAccount(e.DB, { id: "friend-ana", name: "Ana", ageBand: "18+", socialMode: "friends_focused" });
-    const ben = await createAccount(e.DB, { id: "friend-ben", name: "Ben", ageBand: "13-15", socialMode: "friends_focused" });
-    const stranger = await createAccount(e.DB, { id: "friend-stranger", name: "Cy", ageBand: "18+", socialMode: "friends_focused" });
+    const ana = await createAccount(e.DB, { id: "friend-ana", username: "Ana", ageBand: "18+", socialMode: "friends_focused" });
+    const ben = await createAccount(e.DB, { id: "friend-ben", username: "Ben", ageBand: "13-15", socialMode: "friends_focused" });
+    const stranger = await createAccount(e.DB, { id: "friend-stranger", username: "Cy", ageBand: "18+", socialMode: "friends_focused" });
     const claimsOf = async (account: { id: string }) => {
       const { pass } = await (await post("/v1/pass", "arena", ORIGIN, { roomKey: await issueRoomKey(e.DB, arena, account.id) })).json<{ pass: string }>();
       return verifyPass(pass, [(await signingKey(e)).publicKey], { game: "arena", issuer: e.ISSUER });
@@ -218,7 +225,7 @@ describe("rooms", () => {
 
   it("gives guests no passes for a game that needs accounts, and rooms turn away guest passes made before", async () => {
     const arena = await addGame("arena");
-    const account = await createAccount(e.DB, { id: "supabase-user-3", name: "Tall Pine", ageBand: "18+" });
+    const account = await createAccount(e.DB, { id: "supabase-user-3", username: "Tall_Pine", ageBand: "18+" });
     const earlier = await getPass("arena");
     for (const requirement of ["multiplayer", "whole_game"]) {
       await e.DB.prepare("UPDATE games SET account_requirement = ? WHERE id = ?").bind(requirement, arena).run();
@@ -238,13 +245,13 @@ describe("rooms", () => {
   });
 
   it("looks up an account's public profile by player ID, for any site or server", async () => {
-    const account = await createAccount(e.DB, { id: "supabase-user-2", name: "Quiet Heron", ageBand: "16-17" });
+    const account = await createAccount(e.DB, { id: "supabase-user-2", username: "Quiet_Heron", ageBand: "16-17" });
     const lookUp = (playerId: string) => SELF.fetch(`${R}/v1/players/${playerId}`, { headers: { "cf-connecting-ip": `198.51.100.${++address % 250}` } });
     const found = await lookUp(account.player_id);
     expect(found.status).toBe(200);
     expect(found.headers.get("Access-Control-Allow-Origin")).toBe("*");
     // What a stranger sees: never the email, the age or the sign-in's own ID.
-    expect(await found.json()).toEqual({ player: { id: account.player_id, name: "Quiet Heron" } });
+    expect(await found.json()).toEqual({ player: { id: account.player_id, name: "Quiet_Heron", username: "Quiet_Heron" } });
     const { player: guest } = await (await addGame("arena").then(() => getPass("arena")));
     for (const playerId of [guest.id, "player_nobodyhasthis1", "supabase-user-2"]) {
       const missing = await lookUp(playerId);

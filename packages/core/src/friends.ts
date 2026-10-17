@@ -79,7 +79,7 @@ export async function removeFriendInvite(database: D1Database, accountId: string
 /** A waiting invite with who made it, for the page that asks "Add Night Owl as a friend?". */
 export async function friendInviteByCode(database: D1Database, inviteCode: string, nowMs = now()): Promise<(FriendInvite & { name: string; player_id: string }) | null> {
   return database
-    .prepare("SELECT friend_invites.*, accounts.name, accounts.player_id FROM friend_invites JOIN accounts ON accounts.id = friend_invites.account_id WHERE friend_invites.invite_code = ? AND friend_invites.expires_at_ms > ?")
+    .prepare("SELECT friend_invites.*, accounts.username AS name, accounts.player_id FROM friend_invites JOIN accounts ON accounts.id = friend_invites.account_id WHERE friend_invites.invite_code = ? AND friend_invites.expires_at_ms > ?")
     .bind(inviteCode, nowMs)
     .first<FriendInvite & { name: string; player_id: string }>();
 }
@@ -112,7 +112,7 @@ export async function acceptFriendInvite(database: D1Database, accountId: string
 /** An account's friends, by name. */
 export async function friendsOf(database: D1Database, accountId: string): Promise<Friend[]> {
   const { results } = await database
-    .prepare("SELECT accounts.player_id, accounts.name, friendships.created_at_ms FROM friendships JOIN accounts ON accounts.id = friendships.friend_account_id WHERE friendships.account_id = ? ORDER BY accounts.name COLLATE NOCASE, accounts.player_id")
+    .prepare("SELECT accounts.player_id, accounts.username AS name, friendships.created_at_ms FROM friendships JOIN accounts ON accounts.id = friendships.friend_account_id WHERE friendships.account_id = ? ORDER BY accounts.username COLLATE NOCASE, accounts.player_id")
     .bind(accountId)
     .all<Friend>();
   return results;

@@ -430,7 +430,7 @@ async function namesOf(env: Env, accountIds: Iterable<string | null>): Promise<M
   const names = new Map<string, string>();
   for (let i = 0; i < all.length; i += 90) {
     const chunk = all.slice(i, i + 90);
-    const { results } = await env.DB.prepare(`SELECT id, name FROM accounts WHERE id IN (${chunk.map(() => "?").join(", ")})`).bind(...chunk).all<{ id: string; name: string }>();
+    const { results } = await env.DB.prepare(`SELECT id, username AS name FROM accounts WHERE id IN (${chunk.map(() => "?").join(", ")})`).bind(...chunk).all<{ id: string; name: string }>();
     for (const account of results) names.set(account.id, account.name);
   }
   return names;

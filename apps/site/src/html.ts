@@ -274,6 +274,15 @@ h1+.ways{margin-top:18px}
 .or{display:flex;align-items:center;gap:12px;margin:4px 0 0;color:var(--muted);font-size:13px}
 .or::before,.or::after{content:"";flex:1;height:1px;background:#000;box-shadow:0 1px 0 rgba(255,255,255,.055)}
 .hint{font-size:12px;color:var(--muted)}
+.hint.ok{color:var(--ok-text)}
+.hint.bad{color:var(--danger)}
+.suggest{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:-6px;font-size:13px;color:var(--muted)}
+.suggest[hidden]{display:none}
+.suggest .btn{min-height:32px;padding:0 12px;font-size:13px}
+label.toggle{display:flex;flex-direction:row;gap:8px;align-items:center;margin-top:-6px;font-size:13px;justify-self:start;cursor:pointer}
+label.toggle input{width:16px;height:16px;min-height:0;margin:0;flex:none;accent-color:#c9cace}
+h3.sub{margin-top:28px}
+.after-row{margin-top:10px}
 fieldset{border:0;padding:0;margin:0}
 legend{font-size:14px;color:var(--muted);margin-bottom:8px}
 .birth label{flex:1;min-width:90px}
@@ -305,6 +314,11 @@ dialog.wizard>form{display:flex;flex-direction:column;flex:1;min-height:0}
 .wizard-body{flex:1;min-height:0;overflow:auto;padding:18px 24px}
 .wizard-body section{display:grid;gap:16px}
 .wizard-body .error{margin:14px 0 0}
+/* A short window (one question, not steps): as tall as what's in it. */
+.wizard.short{height:fit-content}
+.wizard.short>form,.wizard.short .wizard-body{flex:none}
+.wizard-body.stack{display:grid;gap:14px;align-content:start}
+.wizard-body.stack .error{margin:0}
 .wizard-foot{justify-content:flex-end;padding:14px 24px 20px;
   background:linear-gradient(#000,#000) top left/100% 1px no-repeat,linear-gradient(rgba(255,255,255,.055),rgba(255,255,255,.055)) top 1px left/100% 1px no-repeat}
 .area{display:grid;gap:8px;padding:0 0 16px;background:linear-gradient(#000,#000) bottom/100% 1px no-repeat}
@@ -315,6 +329,9 @@ dialog.wizard>form{display:flex;flex-direction:column;flex:1;min-height:0}
 .choices .check{display:flex;flex-direction:row;gap:10px;align-items:flex-start;padding:8px 0;color:var(--text)}
 .choices .check input{width:18px;height:18px;min-height:0;margin:2px 0 0;flex:none;accent-color:#c9cace}
 .choices .check small{display:block;margin-top:3px;font-size:13px}
+/* The Social section's settings show only under Custom. */
+.social .social-settings{display:none;gap:14px}
+.social:has(input[name=social_mode][value=custom]:checked) .social-settings{display:grid}
 details summary{cursor:pointer;color:var(--muted)}
 details[open] summary{margin-bottom:10px}
 pre{white-space:pre-wrap;word-break:break-word;background:#0d0f12;padding:12px;font-size:13px;box-shadow:inset 0 2px 5px rgba(0,0,0,.65),0 1px 0 rgba(255,255,255,.06)}

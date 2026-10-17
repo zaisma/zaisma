@@ -42,7 +42,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   const canSignIn = authConfigured(env);
   const [developer, pictures, updates, others, live] = await Promise.all([
     game.owner_id
-      ? env.DB.prepare("SELECT accounts.name, (SELECT COUNT(*) FROM games WHERE owner_id = ? AND review_status = 'live' AND visibility = 'listed') AS game_count FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE owners.id = ?").bind(game.owner_id, game.owner_id).first<{ name: string; game_count: number }>()
+      ? env.DB.prepare("SELECT accounts.username AS name, (SELECT COUNT(*) FROM games WHERE owner_id = ? AND review_status = 'live' AND visibility = 'listed') AS game_count FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE owners.id = ?").bind(game.owner_id, game.owner_id).first<{ name: string; game_count: number }>()
       : null,
     // The square cover is only for phones' game cards, not one of the game's pictures.
     env.DB.prepare("SELECT id, kind FROM game_images WHERE game_id = ? AND review_status = 'approved' AND kind != 'square' ORDER BY kind = 'cover' DESC, created_at_ms").bind(game.id).all<{ id: string; kind: string }>(),
@@ -350,7 +350,7 @@ ${siteFooter()}
     ${saves ? html`<p id="save-status" class="save-line" role="status" hidden></p>` : ""}
   </div>
   <nav>
-    ${saves ? html`<a id="keep-link" href="${joinHere}" data-keep="/join" hidden>${raw(ICON_KEEP)}Keep your progress</a><a id="save-history" href="/account/saves/${game.slug}" hidden>${raw(ICON_HISTORY)}Earlier progress</a>` : ""}
+    ${saves ? html`<a id="keep-link" href="${joinHere}" data-keep="/join" hidden>${raw(ICON_KEEP)}Keep your progress</a>` : ""}
     <a href="/g/${game.slug}/report" data-report>${raw(ICON_REPORT)}Report this game</a>
     <span class="sep" aria-hidden="true"></span>
     <a href="/legal/content-rules" target="_blank" rel="noopener">${raw(ICON_RULES)}Content rules${raw(ICON_OUT)}</a>
@@ -358,20 +358,15 @@ ${siteFooter()}
   </nav>
 </dialog>
 ${reportSheet(game, { isMultiplayer: multiplayer, gameOrigin: new URL(frameUrl).origin })}
-${saves
+${saves && game.account_offer_enabled
       ? html`<aside class="keep plate bevel" id="keep" aria-labelledby="keep-title" hidden>
   <strong id="keep-title">Keep your progress</strong>
   <p>Your ${game.title} progress is only saved in this browser. Make a free account to keep it safe and play on any device.</p>
   <div class="row">${metalButton("Make an account", { href: joinHere, dataAttributes: { keep: "/join" } })}<button class="btn ghost" type="button" id="keep-later">Not now</button></div>
   <p class="small">Have an account? <a href="${signinHere}" data-keep="/signin">Sign in</a></p>
-</aside>
-<p class="keep-toast plate" id="save-toast" role="status" hidden></p>
-<dialog id="save-choice" aria-labelledby="save-choice-title"><form method="dialog">
-  <div class="head"><strong id="save-choice-title"></strong></div>
-  <div class="body"><p></p></div>
-  <nav><button class="btn" value="cloud"></button><button class="btn ghost" value="local"></button></nav>
-</form></dialog>`
+</aside>`
       : ""}
+${saves ? html`<p class="keep-toast plate" id="save-toast" role="status" hidden></p>` : ""}
 ${canSignIn
       ? html`<aside class="keep plate bevel" id="sign-in-ask" aria-labelledby="sign-in-title" hidden>
   <strong id="sign-in-title">${game.title} asks you to sign in</strong>
@@ -638,7 +633,6 @@ const CONTROL_ICONS: Record<string, string> = {
   keyboard_mouse: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1.5" y="5" width="17" height="10" rx="1"/><path d="M4.5 8h.01M7.5 8h.01M10.5 8h.01M13.5 8h.01M15.5 8h.01M4.5 11h.01M15.5 11h.01M7.5 11.5h5"/></svg>',
   gamepad: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.4 5.5h7.2a4 4 0 0 1 3.9 3.3l.8 4.4a2 2 0 0 1-3.4 1.7L13 13H7l-1.9 1.9a2 2 0 0 1-3.4-1.7l.8-4.4a4 4 0 0 1 3.9-3.3z"/><path d="M6.2 8.3v3M4.7 9.8h3"/><path d="M13.6 9h.01M15.2 10.6h.01"/></svg>',
 };
-const ICON_HISTORY = svg('<path d="M3.5 12a8.5 8.5 0 1 0 2.5-6l-2.5 2.5"/><path d="M3.5 4v4.5H8"/><path d="M12 7.5V12l3 2"/>');
 const ICON_REPORT = svg('<path d="M5 21V4"/><path d="M5 4h12l-2.5 4.5L17 13H5"/>');
 const ICON_RULES = svg('<path d="M12 3l8 3v6c0 4.4-3.4 8.2-8 9-4.6-.8-8-4.6-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/>');
 const ICON_GAMES = svg('<rect x="4" y="4" width="7" height="7"/><rect x="13" y="4" width="7" height="7"/><rect x="4" y="13" width="7" height="7"/><rect x="13" y="13" width="7" height="7"/>');
@@ -704,14 +698,15 @@ const PRIVACY = `
 <p>When you press Play, we count it for the game's developer and for lists like Popular: that the game was played, how long it was on screen, and whether this browser played it before (and on which day it first did). To keep the counts honest, Cloudflare checks, invisibly, when you open a game's page that it's a real browser, and we count players by internet provider (like Comcast or Vodafone) to spot bot networks. The same check lets you play online in multiplayer games, so bots can't fill their rooms. A play's details are kept for a day at most; after that we keep only totals for each game and day, never anything that says who played.</p>
 <h2>If you make an account</h2>
 <ul>
-<li><strong>Your email</strong>, only to sign you in. It's never shown to anyone, and we don't send marketing.</li>
-<li><strong>Your name</strong>, the one you pick. Other players can see it.</li>
-<li><strong>Your player ID.</strong> When you're signed in, the games you play, and the sites you choose to sign in to with Zaisma, know you by a player ID, the same everywhere, and can look up your name with it. They never get your email, your age or anything from other games. Your account page lists the sites, and you can remove any of them.</li>
-<li><strong>Your age group</strong>: 13 to 17, or 18 and over. We ask your birth date once to work it out and never keep it.</li>
+<li><strong>Your username</strong>, the one you pick. Everyone can see it.</li>
+<li><strong>Your password.</strong> Only Supabase, our sign-in provider, keeps it, as a scrambled hash nobody can read back. When you pick one, we check it isn't known from a data breach without sending it anywhere.</li>
+<li><strong>Your email</strong>, only if you add one, as a way back in if you forget your password. It's never shown to anyone, and we don't send marketing.</li>
+<li><strong>Your player ID.</strong> When you're signed in, the games you play, and the sites you choose to sign in to with Zaisma, know you by a player ID, the same everywhere, and can look up your username with it. They never get your email, your age or anything from other games. Your account page lists the sites, and you can remove any of them.</li>
+<li><strong>Your age group</strong>: 13 to 15, 16 or 17, or 18 and over. If you're under 18 we also keep your birth date, so your account moves to the next group on your birthday by itself, and we delete it when you turn 18. If you're 18 or over when you make an account, we never keep it. It's never shown to anyone.</li>
 <li><strong>Your game saves.</strong> If you're signed in, your game saves are stored with your account, so your progress follows you to any device.</li>
 <li><strong>The games you played recently</strong> (the last 20), so Continue playing follows you to any device too.</li>
 <li><strong>Your passkeys</strong>, if you add any: the public half of each key, the kind of device you added it on (like "iPhone") and when you last used it. The private half never leaves your device or password manager.</li>
-<li><strong>If you sign in with Google or Discord</strong>, they give us your email, plus the name and profile picture on that account. We only use the email; Supabase, our sign-in provider, keeps the rest with your sign-in.</li>
+<li><strong>If you sign in with Google or Discord</strong>, they give us your email, plus the name and profile picture on that account. We only use the email, to sign you in; Supabase keeps the rest with your sign-in.</li>
 </ul>
 <p>Accounts are for people 13 and up. If you're younger, you can't make one, and we keep nothing you typed. If we find out we have an account for someone under 13, we delete it.</p>
 <h2>Cookies</h2>
@@ -722,13 +717,13 @@ const PRIVACY = `
 <p>Games run on a separate domain and can't see your account, email or cookies. Our content rules don't allow games to collect players' personal data.</p>
 <h2>Who helps us run Zaisma</h2>
 <ul>
-<li><strong>Cloudflare</strong> runs our servers, stores games and checks that a real browser opened a game's page. It sees your connection address to deliver pages and stop abuse; we don't store it. The check is Cloudflare Turnstile, covered by its <a href="https://www.cloudflare.com/turnstile-privacy-policy/" target="_blank" rel="noopener">Turnstile Privacy Addendum</a>.</li>
-<li><strong>Supabase</strong> handles sign-in and holds your email. Your browser never talks to it directly.</li>
+<li><strong>Cloudflare</strong> runs our servers, stores games and checks that a real browser opened a game's page or made an account. It sees your connection address to deliver pages and stop abuse; we don't store it. The check is Cloudflare Turnstile, covered by its <a href="https://www.cloudflare.com/turnstile-privacy-policy/" target="_blank" rel="noopener">Turnstile Privacy Addendum</a>.</li>
+<li><strong>Supabase</strong> handles sign-in: it checks your password, keeping only a hash, and holds your email if you added one. Your browser never talks to it directly.</li>
 <li><strong>Anthropic</strong> reviews uploaded games for safety. It sees game files, never players.</li>
 </ul>
 <p>We never sell your data, and there are no ads on Zaisma.</p>
 <h2>Deleting your account</h2>
-<p>Go to your account page and choose Delete account. Your email, name, game saves, recently played games and everything else on your account are deleted straight away.</p>
+<p>Go to your account page and choose Delete account. Your username, password, any email, game saves, recently played games and everything else on your account are deleted straight away.</p>
 <h2>Questions</h2>
 <p>Email <a href="mailto:privacy@zaisma.com">privacy@zaisma.com</a>.</p>
 `;

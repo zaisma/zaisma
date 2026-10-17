@@ -51,8 +51,8 @@ beforeEach(async () => {
   await env.DB.exec(
     "DELETE FROM tester_links; DELETE FROM game_images; DELETE FROM api_keys; DELETE FROM passkeys; DELETE FROM save_history; DELETE FROM saves; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;",
   );
-  await createAccount(env.DB, { id: "dev-1", name: "Pixel Smith", ageBand: "18+" });
-  await createAccount(env.DB, { id: "dev-2", name: "Other Dev", ageBand: "16-17" });
+  await createAccount(env.DB, { id: "dev-1", username: "Pixel_Smith", ageBand: "18+" });
+  await createAccount(env.DB, { id: "dev-2", username: "Other_Dev", ageBand: "16-17" });
   token = (await createApiKey(env.DB, "dev-1", "laptop")).token;
   other = (await createApiKey(env.DB, "dev-2", "laptop")).token;
 });
@@ -358,6 +358,16 @@ describe("players", () => {
     expect(off.game.cloud_saves_enabled).toBe(false);
     expect((await gameBySlug(env.DB, "own-saves"))!.cloud_saves_enabled).toBe(0);
     expect((await api("/games/own-saves", { method: "PATCH", body: { cloud_saves_enabled: "yes" } })).status).toBe(400);
+  });
+
+  it("turns the \"Keep your progress\" card off for games that offer accounts their own way", async () => {
+    await api("/games", { body: { title: "Own Offer", account_offer_enabled: false } });
+    expect((await gameBySlug(env.DB, "own-offer"))!.account_offer_enabled).toBe(0);
+    const on = (await (await api("/games/own-offer", { method: "PATCH", body: { account_offer_enabled: true } })).json()) as { game: { account_offer_enabled: boolean } };
+    expect(on.game.account_offer_enabled).toBe(true);
+    const bad = await api("/games/own-offer", { method: "PATCH", body: { account_offer_enabled: "no" } });
+    expect(bad.status).toBe(400);
+    expect(((await bad.json()) as { error: { code: string; field: string } }).error).toMatchObject({ code: "bad_account_offer_enabled", field: "account_offer_enabled" });
   });
 
   it("describes each way to play in plain words", () => {
