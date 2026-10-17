@@ -176,7 +176,7 @@ describe("--json", () => {
   });
 
   it("help --json lists every command, and the exit codes and error codes the docs list", async () => {
-    expect(help.commands.map((entry) => entry.command)).toEqual(["games", "new", "upload", "versions", "publish", "unschedule", "visibility", "forum", "forum post", "forum message", "forum reply", "database", "database query", "database batch", "help"]);
+    expect(help.commands.map((entry) => entry.command)).toEqual(["games", "new", "upload", "versions", "publish", "unschedule", "visibility", "forum", "forum post", "forum message", "forum reply", "database", "database query", "database batch", "saves", "saves get", "saves change", "saves replace", "saves reset", "saves copies", "saves copy", "saves restore", "help"]);
     const docs = readFileSync(join(ROOT, "docs/DEVELOPER-API.md"), "utf8");
     const section = docs.slice(docs.indexOf("\n## The upload command\n"));
     const exitRows = [...section.matchAll(/^\| (\d+) \| `([a-z_]+)` \| (.+) \|$/gm)].map((row) => ({ exit_code: Number(row[1]), name: row[2], meaning: row[3] }));
@@ -226,6 +226,45 @@ describe("database", () => {
     expect(json(badFile.stdout).error).toMatchObject({ code: "bad_sql", field: "file" });
     const missing = await zaisma(["database", "batch", "sky-hopper", "/nowhere/fix.json", "--json"]);
     expect(json(missing.stdout).error).toMatchObject({ code: "not_a_file", field: "file" });
+    expect(calls).toEqual([]);
+  });
+});
+
+describe("saves", () => {
+  const player = "player_8f3k2m9q1x7c4v6b0n5z";
+  const save = { player_id: player, sha256: "ab", size_bytes: 30, updated_at: "2026-10-17T09:00:00.000Z", changed_by_kind: "player", save_copy_count: 1 };
+  const changed = { save: { ...save, changed_by_kind: "developer" }, kept_save_copy_id: "save_copy_4k2m9q1x7c4v6b0n5z8f", next_steps: [] };
+
+  it("reads some keys, each its own parameter, and prints them", async () => {
+    answers[`GET /games/sky-hopper/saves/${player}`] = { status: 200, body: { save: { ...save, local_storage_items: { "level,best": "3" }, missing_keys: ["gems"], indexeddb_databases: null } } };
+    const result = await zaisma(["saves", "get", "sky-hopper", player, "--keys", '["level,best", "gems"]']);
+    expect(result.exitCode).toBe(0);
+    expect(calls[0]!.path).toBe(`/games/sky-hopper/saves/${player}?keys=level%2Cbest&keys=gems`);
+    expect(result.stdout).toContain("level,best = 3\ngems: not in the save\n");
+  });
+
+  it("changes keys from an argument or piped in, and says how to undo it", async () => {
+    answers[`PATCH /games/sky-hopper/saves/${player}`] = { status: 200, body: changed };
+    const result = await zaisma(["saves", "change", "sky-hopper", player, '{"coins": "500", "tutorial": null}']);
+    expect(result.exitCode).toBe(0);
+    expect(calls[0]).toMatchObject({ method: "PATCH", body: { local_storage_items: { coins: "500", tutorial: null } } });
+    expect(result.stdout).toContain(`zaisma saves restore sky-hopper ${player} save_copy_4k2m9q1x7c4v6b0n5z8f`);
+    const piped = await zaisma(["saves", "change", "sky-hopper", player, "--json"], { input: '{"coins": "1"}' });
+    expect(calls[1]!.body).toEqual({ local_storage_items: { coins: "1" } });
+    expect(json(piped.stdout)).toEqual(changed);
+  });
+
+  it("replaces the whole save with what saves get --json printed", async () => {
+    answers[`PUT /games/sky-hopper/saves/${player}`] = { status: 200, body: changed };
+    const printed = { save: { ...save, local_storage_items: { coins: "0" }, missing_keys: [], indexeddb_databases: [] } };
+    expect((await zaisma(["saves", "replace", "sky-hopper", player], { input: JSON.stringify(printed) })).exitCode).toBe(0);
+    expect(calls[0]!.body).toEqual({ local_storage_items: { coins: "0" }, indexeddb_databases: [] });
+  });
+
+  it("refuses keys or a save that aren't JSON before anything is sent", async () => {
+    expect(json((await zaisma(["saves", "get", "sky-hopper", player, "--keys", "coins", "--json"])).stdout).error).toMatchObject({ code: "bad_keys", field: "--keys" });
+    expect(json((await zaisma(["saves", "change", "sky-hopper", player, "coins=500", "--json"])).stdout).error).toMatchObject({ code: "bad_local_storage_items", field: "items_json" });
+    expect(json((await zaisma(["saves", "replace", "sky-hopper", player, "--json"], { input: '{"coins": "0"}' })).stdout).error).toMatchObject({ code: "bad_local_storage_items", field: "file" });
     expect(calls).toEqual([]);
   });
 });

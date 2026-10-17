@@ -4,6 +4,7 @@ import { MAXIMUM_OPEN_FRIEND_INVITE_COUNT, accountById, ageBand, ageOn, canonica
 import { decideTopic } from "../../apps/site/src/forum-posts.ts";
 import { checkForumPosts, type CheckDeps } from "../../apps/site/src/forum-check.ts";
 import { scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
+import { changeSaveAsDeveloper } from "../../apps/site/src/saves.ts";
 import { SIGN_IN_APP } from "../../apps/site/src/schemas.ts";
 import { errorProblems, schemaProblems } from "../schema-check.ts";
 
@@ -650,6 +651,24 @@ describe("cloud saves", () => {
     expect((await put(b, 1, { level: "5" })).status).toBe(409);
   });
 
+  it("tells the game page when the developer changed the save, so it takes it without asking", async () => {
+    const gameId = await liveGame();
+    const b = new Browser();
+    await join(b);
+    await put(b, 0, { level: "3" });
+    expect(await (await b.go("/api/saves/owl-game?version")).json()).toEqual({ version_number: 1, changed_by_kind: "player" });
+    await changeSaveAsDeveloper(env, users.get("fox@example.com")!, gameId, canonicalSave({ level: "10" }));
+    expect(await (await b.go("/api/saves/owl-game?version")).json()).toEqual({ version_number: 2, changed_by_kind: "developer" });
+    expect(await (await b.go("/api/saves/owl-game")).json()).toMatchObject({ version_number: 2, changed_by_kind: "developer", save_data: { level: "10" } });
+    // The open game's next save started from version 1: refused, saying the developer moved it on.
+    const stale = await put(b, 1, { level: "4" });
+    expect(stale.status).toBe(409);
+    expect(await stale.json()).toMatchObject({ version_number: 2, changed_by_kind: "developer" });
+    // Once the game saves from the developer's version, the save is the player's again.
+    expect((await put(b, 2, { level: "11" })).status).toBe(200);
+    expect(await (await b.go("/api/saves/owl-game?version")).json()).toEqual({ version_number: 3, changed_by_kind: "player" });
+  });
+
   it("stores saves from games that also keep IndexedDB databases", async () => {
     const gameId = await liveGame();
     const b = new Browser();
@@ -701,7 +720,7 @@ describe("cloud saves", () => {
 
   describe("earlier versions", () => {
     const id = () => users.get("fox@example.com")!;
-    const copies = async () => (await env.DB.prepare("SELECT * FROM save_history ORDER BY saved_at_ms DESC, rowid DESC").all<{ id: string; reason: string; saved_at_ms: number; sha256: string }>()).results;
+    const copies = async () => (await env.DB.prepare("SELECT * FROM save_history ORDER BY saved_at_ms DESC, rowid DESC").all<{ id: string; copy_reason: string; saved_at_ms: number; sha256: string }>()).results;
     // Pretend the history was made earlier, so the next save is due an hourly copy.
     const age = (ms: number) => env.DB.prepare("UPDATE save_history SET saved_at_ms = saved_at_ms - ?").bind(ms).run();
     const putWith = (b: Browser, body: Record<string, unknown>) => b.go("/api/saves/owl-game", undefined, { method: "PUT", body: JSON.stringify(body) });
@@ -713,7 +732,7 @@ describe("cloud saves", () => {
       await put(b, 0, { level: "1" });
       await put(b, 1, { level: "2" });
       // The first overwrite keeps a copy: there's nothing in the history yet.
-      expect((await copies()).map((c) => c.reason)).toEqual(["hourly"]);
+      expect((await copies()).map((c) => c.copy_reason)).toEqual(["hourly"]);
       await put(b, 2, { level: "3" });
       expect(await copies()).toHaveLength(1);
       await age(2 * 3600_000);
@@ -734,7 +753,7 @@ describe("cloud saves", () => {
       const kept = await putWith(b, { keep: true, save_json: JSON.stringify({ phone: "progress" }) });
       expect(kept.status).toBe(200);
       expect(await kept.json()).toEqual({ is_kept: true });
-      expect((await copies()).map((c) => c.reason)).toEqual(["device", "smaller", "replaced", "hourly"]);
+      expect((await copies()).map((c) => c.copy_reason)).toEqual(["device", "smaller", "replaced", "hourly"]);
       // Keeping the device's progress doesn't touch the account's save.
       expect(((await (await b.go("/api/saves/owl-game")).json()) as { version_number: number }).version_number).toBe(4);
     });
@@ -751,7 +770,7 @@ describe("cloud saves", () => {
       }
       const list = await copies();
       expect(list).toHaveLength(5);
-      expect(list.at(-1)!.reason).toBe("replaced");
+      expect(list.at(-1)!.copy_reason).toBe("replaced");
       const files = await env.SAVES.list({ prefix: `${id()}/g-owl-game/` });
       expect(files.objects).toHaveLength(5);
     });
@@ -770,7 +789,7 @@ describe("cloud saves", () => {
       expect(res.headers.get("location")).toBe("/account/saves/owl-game?restored");
       const got = (await (await b.go("/api/saves/owl-game")).json()) as { version_number: number; save_data: unknown };
       expect(got).toMatchObject({ version_number: 3, save_data: { level: "7" } });
-      expect((await copies()).map((c) => c.reason)).toEqual(["restore", "hourly"]);
+      expect((await copies()).map((c) => c.copy_reason)).toEqual(["restore", "hourly"]);
       expect(await env.SAVES.get(saveKey(id(), gameId)).then((o) => o?.text())).toBe(canonicalSave({ level: "7" }));
       expect(await (await b.go("/account/saves/owl-game?restored")).text()).toContain("starts from that progress");
       // A device still on the old version has to choose instead of overwriting.
