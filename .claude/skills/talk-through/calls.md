@@ -20,6 +20,9 @@ Would his answer be better than Claude's? His edge: UI and UX, how players and d
 **The account page listing every game's save copies.** *Saves through the API, Oct 16, 2026.* Asked as "should players see that a developer changed their save". He asked why players get a save manager at all. It's experience plus direction, and he caught a Zaisma-run feature built by habit.
 *Lesson:* a question about what players see is his, and so is whether they should see it at all.
 
+**What we promise once developers add their own servers.** *Games can reach our rooms and their own servers, Oct 16, 2026.* A done row that put a Zaisma approval on a building block. Asked as A (add freely, narrow the promise to what the scan can check) or B (a person OKs each address), with the fact that decided it: the approval sees a name, not what the server sends. He picked A at once.
+*Lesson:* what we claim is his even when nothing public says it yet. When one option is a safety check that can't see what it checks, say that plainly; it makes the call quick.
+
 ## Not his
 
 **The export format: SQL dump, or JSON and CSV.** *Game database import and export.* "Too technical… just implementation decisions, not system design."
@@ -43,3 +46,4 @@ All three talks above should have opened differently:
 - **Scoped API keys:** *One call*, the levels/custom/both fork.
 - **Game database import and export:** *One call*, the page.
 - **Saves through the API:** *Needs you*, the direction question plus what players see.
+- **Games can reach our rooms and their own servers:** *One call*, rightly: the promise, with the direction check folded into the options.
