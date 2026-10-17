@@ -41,6 +41,9 @@ Would his answer be better than Claude's? His edge: UI and UX, how players and d
 **How far a block reaches: hidden everywhere, or kept out of your rooms.** *Player safety in rooms, Oct 16, 2026.* Offered A (a wall, Zaisma never helps them find you) or B (also turned away from your rooms), picking A. He took A and added the reverse of B: the blocker's own room picks steer away from the blocked player, a preference and never a rule on someone else ("try not to walk into that area in the first place"). He reasons from property rights: nobody's preference is enforced on another.
 *Lesson:* when an option forces one player's wish on another, look for the voluntary version (the person who wants distance takes it) and offer it yourself.
 
+**Paying to hide a vendor's address from players.** *Google and Discord sign-in, Oct 16, 2026.* A done item; the one call was $10 a month so Google's screen stops saying "continue to …supabase.co". Opened as *One call* with the parent's view of that screen, the yearly cost, and the free options with their real catch (Google's brand check wants every address proven ours, and supabase.co can't be). He took the pick in one click.
+*Lesson:* a small recurring cost that changes what players see is his, and quick when the free options' catches are stated plainly. Check whether the free route actually works before offering it.
+
 ## Not his
 
 **The export format: SQL dump, or JSON and CSV.** *Game database import and export.* "Too technical… just implementation decisions, not system design."
