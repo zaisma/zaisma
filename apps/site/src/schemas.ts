@@ -1,4 +1,4 @@
-import { CONTENT_RULES, CONTROLS, DEVICES, FORUM_REPORT_REASONS, PLAY_STYLES, PLAYER_REPORT_REASONS, REPORT_REASONS, REVIEW_CODES, ROOM_BROWSING, SCREENS, VISIBILITIES, WEBHOOK_EVENT_KINDS, type IdKind } from "@zaisma/core";
+import { ACCESS_LEVELS, AREA_ACCESS_CHOICES, CONTENT_RULES, CONTROLS, DEVICES, FORUM_REPORT_REASONS, PLAY_STYLES, PLAYER_REPORT_REASONS, REPORT_REASONS, REVIEW_CODES, ROOM_BROWSING, SCREENS, VISIBILITIES, WEBHOOK_EVENT_KINDS, type IdKind } from "@zaisma/core";
 
 /**
  * The developer API's answers as JSON Schema, and the admin MCP's at the end: the MCPs' output
@@ -164,6 +164,29 @@ export const PLAYER_PROFILE = object({
   name: text("The account's name, as other players see it."),
 });
 
+/** What the caller's API key may do (docs/DECISIONS.md, "Developers hold the keys"). */
+export const ACCESS = object({
+  api_key_name: nullable(text("The key's name, as on zaisma.com/account; null when the call came from the developer's own signed-in pages.")),
+  access_level: choice(
+    Object.fromEntries(ACCESS_LEVELS.map((level) => [level, level === "custom" ? "a choice per area, in area_access" : "a fixed level; area_access shows what it gives"])),
+    "read: read everything, post nothing. upload: also send files and make versions. publish: also publish versions, change games and tester links, and post on the forum. full: everything.",
+  ),
+  area_access: object(
+    {
+      game_access: choice(AREA_ACCESS_CHOICES.game_access, "read: list and get games, with images, versions, scans and tester links. write: also details, visibility, images, tester links and new games."),
+      version_access: choice(AREA_ACCESS_CHOICES.version_access, "read: see versions and scans. upload: also send files and make versions. publish: also publish, schedule and roll back."),
+      stats_access: choice(AREA_ACCESS_CHOICES.stats_access, "Stats, player reports and history."),
+      database_access: choice(AREA_ACCESS_CHOICES.database_access, "read: tables, indexes, use and export. write: run SQL and import."),
+      save_access: choice(AREA_ACCESS_CHOICES.save_access, "Players' cloud saves. read: read them and their copies. write: change, reset and restore them."),
+      forum_access: choice(AREA_ACCESS_CHOICES.forum_access, "read: search and read. write: post, reply, vote, follow and message Zaisma, in the developer's name."),
+      sign_in_app_access: choice(AREA_ACCESS_CHOICES.sign_in_app_access, "Sign-in apps; none for keys limited to some games."),
+      webhook_access: choice(AREA_ACCESS_CHOICES.webhook_access, "Webhooks; none for keys limited to some games."),
+    },
+    "What the key may do in each area.",
+  ),
+  game_slugs: nullable(list(text(), "The only games the key works on; null for every game the developer has and will make.")),
+});
+
 /** The calls that usually follow a change, ready to make (docs/NAMING.md, Next steps). */
 export const NEXT = list(
   object({
@@ -327,6 +350,65 @@ export const DATABASE_IMPORT = object({
 });
 
 /** A player's report that report triage sorted as a bug: what they wrote, never who they are. */
+/** A player's cloud save in a game, without what it holds. */
+const SAVE_SUMMARY_FIELDS = {
+  player_id: idOf("player", "The player whose save it is: the same ID in every game, in room.players and a player pass's sub."),
+  sha256: text("The SHA-256 of the save as stored (its keys sorted), to compare with save_copies."),
+  size_bytes: countOf("Up to 5 MB."),
+  updated_at: isoTime(),
+  changed_by_kind: choice(
+    { player: "the player's game saved it (or the player went back to an earlier version)", developer: "you changed, reset or restored it through the API or MCP" },
+    "Who made the save as it is now.",
+  ),
+  save_copy_count: countOf("Earlier versions kept, up to 5: list_save_copies lists them."),
+};
+const SAVE_CONTENTS_FIELDS = {
+  local_storage_items: {
+    type: "object",
+    additionalProperties: { type: "string" },
+    description: "The game's localStorage as it starts the game: each key and its text. With keys, only the keys asked for that it has.",
+  },
+  missing_keys: list(text(), "With keys: the ones asked for that the save doesn't have. [] without keys."),
+  indexeddb_databases: nullable(
+    list(
+      { type: "object", description: "One IndexedDB database as the game domain script stores it: { name, version, stores: [{ name, keyPath, autoIncrement, indexes, records: [[key, value]] }] }. Bytes, dates and the like are tagged as { $z: [kind, …] }." },
+      "The game's IndexedDB databases (Unity, Godot and localForage keep saves there); [] when it keeps none. null when you asked for some keys.",
+    ),
+  ),
+};
+export const SAVE_COPY_REASON = choice(
+  {
+    hourly: "a routine copy, about once an hour while playing",
+    replaced: "the player picked another device's progress over this",
+    smaller: "the save shrank to under half, usually a restart",
+    restore: "the player went back to an earlier version",
+    device: "a device's progress the player didn't pick",
+    developer: "right before you changed, reset or restored the save",
+  },
+  "Why the copy was kept. Copies kept because progress was about to be lost (all but hourly) outlast hourly ones for 30 days.",
+);
+const SAVE_COPY_FIELDS = {
+  id: idOf("save_copy"),
+  saved_at: isoTime("When this progress was saved."),
+  copy_reason: SAVE_COPY_REASON,
+  sha256: text(),
+  size_bytes: countOf(),
+  is_current_save: yes("The save holds exactly this progress now."),
+};
+export const SAVE_SUMMARY = object(SAVE_SUMMARY_FIELDS);
+export const SAVE_LIST = object({
+  saves: list(SAVE_SUMMARY, "Up to 100 a page, by player ID."),
+  next_cursor: nullable(text("Pass as cursor for the next page; null on the last.")),
+});
+export const SAVE = object({ save: object({ ...SAVE_SUMMARY_FIELDS, ...SAVE_CONTENTS_FIELDS }) });
+export const SAVE_CHANGED = object({
+  save: SAVE_SUMMARY,
+  kept_save_copy_id: nullable(idOf("save_copy", "The earlier version holding the save this replaced: restore_save_copy undoes the change. null when nothing changed, or the save it replaced was your own last change (the copy from before that one is still there).")),
+  next_steps: NEXT,
+});
+export const SAVE_COPY_LIST = object({ save_copies: list(object(SAVE_COPY_FIELDS), "Newest first, up to 5.") });
+export const SAVE_COPY = object({ save_copy: object({ ...SAVE_COPY_FIELDS, ...SAVE_CONTENTS_FIELDS }) });
+
 export const BUG_REPORT = object({
   id: idOf("report"),
   player_text: text("What the player wrote."),

@@ -1,7 +1,7 @@
 import { ApiError, CONTROLS, DEVICES, FORUM_CATEGORIES, FORUM_LIMITS, FORUM_REPORT_REASONS, FORUM_SECTIONS, FORUM_TABS, FORUM_TAGS, ACCOUNT_REQUIREMENTS, PLAY_STYLES, POST_SELECTIONS, ROOM_BROWSING, SCREENS, TOPIC_KINDS, TOPIC_STATUSES, VISIBILITIES, WEBHOOK_EVENT_KINDS, WEBHOOK_TIMEOUT_SEC, type IdKind } from "@zaisma/core";
 import { INTERNAL_ERROR, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
-import { DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, GAME, HISTORY, STATEMENT_RESULT, IMAGE, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, REPORTS, SIGN_IN_APP, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes } from "./schemas.ts";
+import { ACCESS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, GAME, HISTORY, STATEMENT_RESULT, IMAGE, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, REPORTS, SIGN_IN_APP, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes } from "./schemas.ts";
 
 /**
  * The developer MCP at /mcp: every tool is a call to the developer API, so the MCP, the upload command
@@ -28,6 +28,8 @@ Every hold, rejection and takedown says why, as review_reason (on a game, versio
 
 Zaisma's developer forum is where developers and their AI talk with the people who build Zaisma, and you're asked to use it. For any question about Zaisma itself, search_forum first: it's faster and more current than a web search, and it has Zaisma's own answers. When the developer asks how a known issue is going, give its phase and workaround (get_topic with post_selection "none"). Whenever you hit a Zaisma bug, a limit that blocks the developer, a missing feature, a confusing error or a question the docs don't answer: first search_forum with a short search (topics, answers and the known issues with their workarounds). If it's there, vote, reply, or send the developer's own case privately (message_zaisma with known_issue_topic_id); if their fixed topic is back, reopen it. Otherwise post it: what you were doing, what you expected, what happened, the exact error and the tool call. Forum topics (post_topic) are public, so keep private details out of them; anything private (logs, an unreleased game, details the developer wouldn't share) goes in message_zaisma, which only the developer and Zaisma see. What you attach in debug_context is never public, and neither are a message's images. Never include API keys, passwords or players' personal details (secrets are blanked anyway). Your posts carry the developer's name with an AI mark. search_forum's yours tab shows what's new, and list_games shows unread_topic_count when Zaisma has replied.
 
+The developer may limit an API key to some games or to what it can do (like read only, or upload without publishing). A call it doesn't reach answers key_not_allowed, saying what it would need; get_access shows what the key can do. Tell the developer, who can make another key on zaisma.com/account; keys can't be made through the MCP.
+
 Names say what they hold, its kind and its unit: file_count is a number of files, play_duration_min is minutes, size_bytes is bytes, *_at is an ISO time in UTC, an ID says its kind (version_…, topic_…, post_…), and a plural is always a list.
 
 When a call fails, the answer is { "error": { code, message, field, fix, retry_after_sec } }: field is the input at fault, fix says what to do, and retry_after_sec how long to wait when waiting helps. Codes are stable: search_forum with one finds others who hit it. Calls that change something answer with next_steps: the calls that usually follow, with their arguments filled in and a reason; [] when nothing does.`;
@@ -51,6 +53,20 @@ const idInput = (kind: IdKind, description: string) => ({ type: "string", patter
 const versionId = idInput("version", "A version's id from get_game or upload_files");
 const topicId = idInput("topic", "A topic's id from search_forum");
 const postId = idInput("post", "A post's id from get_topic");
+const playerId = idInput("player", "The player's ID, from list_saves or from your game: a room's players, or the sub of a player pass");
+const saveCopyId = idInput("save_copy", "An earlier version's id from list_save_copies");
+const saveKeys = {
+  type: "array",
+  minItems: 1,
+  maxItems: 100,
+  items: { type: "string", minLength: 1, maxLength: 1000 },
+  description: "Only these localStorage keys, to keep the answer small; leave out for the whole save. A key the save doesn't have is listed in missing_keys.",
+};
+/** Where a player's save is in the API, and its keys as query parameters (a key can hold a comma, so each is its own). */
+const savePath = (toolArguments: Record<string, unknown>) => `/games/${pathPart(toolArguments.slug)}/saves/${pathPart(toolArguments.player_id)}`;
+const keysQuery = (keys: unknown) => (Array.isArray(keys) && keys.length ? `?${keys.map((key) => `keys=${pathPart(key)}`).join("&")}` : "");
+const SAVE_REACHES_GAMES =
+  "A change reaches the player's devices on its own: an open game reloads with it the next time it saves or the player comes back to its tab, with no question to the player, and that device's progress is kept as an earlier version.";
 const textMarkdown = {
   type: "string",
   minLength: 1,
@@ -677,6 +693,16 @@ export const TOOLS: Tool[] = [
     run: (toolArguments, call) => call("POST", `/forum/${pathPart(toolArguments.topic_id)}/answer`, { answer_post_id: toolArguments.answer_post_id ?? null }),
   },
   {
+    name: "get_access",
+    title: "What this key can do",
+    description:
+      "What the API key you're signed in with may do: its access_level (read, upload, publish, full or custom), what that gives in each area, and the games it works on (game_slugs, null for all). A call the key doesn't reach answers key_not_allowed. Keys are made only by the developer on zaisma.com/account, never through the MCP.",
+    inputSchema: object({}),
+    outputSchema: answer({ access: ACCESS }),
+    annotations: read,
+    run: (_, call) => call("GET", "/access"),
+  },
+  {
     name: "get_player",
     title: "Look up a player",
     description:
@@ -832,6 +858,121 @@ export const TOOLS: Tool[] = [
     outputSchema: DATABASE_IMPORT,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/database/import`, pick(toolArguments, ["dump_sql"])),
+  },
+  {
+    name: "list_saves",
+    title: "List a game's saves",
+    description:
+      "The players with a cloud save in the game, by player ID, 100 a page: each save's size, when it last changed and who changed it (the player's game, or you), and how many earlier versions it has. Cloud saves are signed-in players' progress, mirrored from the game's own browser saves (localStorage and IndexedDB); guests' stays in their browser. Saves are apart from the game database. For more than 100, pass next_cursor as cursor.",
+    inputSchema: object({ slug, cursor: { type: "string", pattern: "^cursor_[a-z0-9]+$", description: "next_cursor from an earlier call: the page after it" } }, ["slug"]),
+    outputSchema: SAVE_LIST,
+    annotations: read,
+    run: (toolArguments, call) => call("GET", `/games/${pathPart(toolArguments.slug)}/saves${toolArguments.cursor ? `?cursor=${pathPart(toolArguments.cursor)}` : ""}`),
+  },
+  {
+    name: "get_save",
+    title: "Read a player's save",
+    description:
+      "One player's cloud save in the game: its localStorage items (each key and its text, as the game reads them) and its IndexedDB databases, or only some localStorage keys with keys. A save is up to 5 MB, so ask for keys when you only need a few. change_save changes some keys; replace_save the whole save.",
+    inputSchema: { ...object({ slug, player_id: playerId, keys: saveKeys }, ["slug", "player_id"]), examples: [{ slug: "sky-hopper", player_id: "player_8f3k2m9q1x7c4v6b0n5z", keys: ["coins", "level"] }] },
+    outputSchema: SAVE,
+    annotations: read,
+    run: (toolArguments, call) => call("GET", `${savePath(toolArguments)}${keysQuery(toolArguments.keys)}`),
+  },
+  {
+    name: "change_save",
+    title: "Change some keys of a save",
+    description:
+      `Set or remove some localStorage keys in a player's cloud save; the rest of the save (other keys, IndexedDB) stays as it is. Values are text, as localStorage holds them; null removes a key. Makes a save when the player has none. A copy of the save it replaces is kept first (kept_save_copy_id; restore_save_copy undoes the change), except when that save was your own last change. ${SAVE_REACHES_GAMES} The save is the player's progress: ask the developer before changing a live player's save.\n\n` +
+      'Not: { "local_storage_items": { "coins": 500 } } (localStorage holds text: "500")\n' +
+      'Not: { "local_storage_items": { "inventory": ["sword"] } } (give a list or object as the JSON text the game stores: "[\\"sword\\"]")\n' +
+      "Not: change_save to clear the whole save (reset_save does that)",
+    inputSchema: {
+      ...object(
+        {
+          slug,
+          player_id: playerId,
+          local_storage_items: {
+            type: "object",
+            minProperties: 1,
+            additionalProperties: { type: ["string", "null"] },
+            description: "The keys to change: each key's new text, or null to remove it. Keys left out stay as they are.",
+          },
+        },
+        ["slug", "player_id", "local_storage_items"],
+      ),
+      examples: [
+        { slug: "sky-hopper", player_id: "player_8f3k2m9q1x7c4v6b0n5z", local_storage_items: { coins: "500", level: "3" } },
+        { slug: "sky-hopper", player_id: "player_8f3k2m9q1x7c4v6b0n5z", local_storage_items: { inventory: '["sword","shield"]', tutorial_seen: null } },
+      ],
+    },
+    outputSchema: SAVE_CHANGED,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    run: (toolArguments, call) => call("PATCH", savePath(toolArguments), pick(toolArguments, ["local_storage_items"])),
+  },
+  {
+    name: "replace_save",
+    title: "Replace a whole save",
+    description:
+      `Replace a player's whole cloud save: its localStorage items and its IndexedDB databases, both given in full (what get_save answers, changed). Keys and databases left out are gone. Makes a save when the player has none. A copy of the save it replaces is kept first (kept_save_copy_id), except when that save was your own last change. ${SAVE_REACHES_GAMES} Ask the developer before replacing a live player's save. To change a few keys, change_save is simpler.\n\n` +
+      'Not: { "local_storage_items": { "coins": "500" } } alone (indexeddb_databases is needed too: [] for a game that keeps nothing in IndexedDB)\n' +
+      'Not: { "indexeddb_databases": [] } for a Unity or Godot game whose save get_save showed in IndexedDB (that empties its databases)',
+    inputSchema: {
+      ...object(
+        {
+          slug,
+          player_id: playerId,
+          local_storage_items: { type: "object", additionalProperties: { type: "string" }, description: "Every localStorage key the save should have, and its text." },
+          indexeddb_databases: {
+            type: "array",
+            items: { type: "object", description: "One database as get_save answers it: { name, version, stores }." },
+            description: "Every IndexedDB database the save should have, as get_save answered them; [] for none.",
+          },
+        },
+        ["slug", "player_id", "local_storage_items", "indexeddb_databases"],
+      ),
+      examples: [{ slug: "sky-hopper", player_id: "player_8f3k2m9q1x7c4v6b0n5z", local_storage_items: { coins: "0", level: "1", settings: '{"music":true}' }, indexeddb_databases: [] }],
+    },
+    outputSchema: SAVE_CHANGED,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    run: (toolArguments, call) => call("PUT", savePath(toolArguments), pick(toolArguments, ["local_storage_items", "indexeddb_databases"])),
+  },
+  {
+    name: "reset_save",
+    title: "Reset a player's save",
+    description: `Reset a player's cloud save: it becomes empty, so the game starts fresh on every device the player signs in on. A copy of the save it replaces is kept first (kept_save_copy_id; restore_save_copy brings it back), except when that save was your own last change. ${SAVE_REACHES_GAMES} Ask the developer first.`,
+    inputSchema: object({ slug, player_id: playerId }, ["slug", "player_id"]),
+    outputSchema: SAVE_CHANGED,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    run: (toolArguments, call) => call("DELETE", savePath(toolArguments)),
+  },
+  {
+    name: "list_save_copies",
+    title: "A save's earlier versions",
+    description:
+      "A player's earlier versions of their cloud save, newest first: up to 5, kept about once an hour while playing and whenever progress was about to be replaced (by another device, a restart, the player going back, or a change of yours), each with why. Read one with get_save_copy; make one the save again with restore_save_copy.",
+    inputSchema: object({ slug, player_id: playerId }, ["slug", "player_id"]),
+    outputSchema: SAVE_COPY_LIST,
+    annotations: read,
+    run: (toolArguments, call) => call("GET", `${savePath(toolArguments)}/copies`),
+  },
+  {
+    name: "get_save_copy",
+    title: "Read an earlier version",
+    description: "One earlier version of a player's cloud save: what it holds, like get_save, whole or only some localStorage keys.",
+    inputSchema: object({ slug, player_id: playerId, save_copy_id: saveCopyId, keys: saveKeys }, ["slug", "player_id", "save_copy_id"]),
+    outputSchema: SAVE_COPY,
+    annotations: read,
+    run: (toolArguments, call) => call("GET", `${savePath(toolArguments)}/copies/${pathPart(toolArguments.save_copy_id)}${keysQuery(toolArguments.keys)}`),
+  },
+  {
+    name: "restore_save_copy",
+    title: "Go back to an earlier version",
+    description: `Make an earlier version a player's cloud save again, like after a bad change or a player's lost progress. A copy of the save it replaces is kept first (kept_save_copy_id), except when that save was your own last change. ${SAVE_REACHES_GAMES} Ask the developer first. Whether players themselves can go back is the game's own rule.`,
+    inputSchema: object({ slug, player_id: playerId, save_copy_id: saveCopyId }, ["slug", "player_id", "save_copy_id"]),
+    outputSchema: SAVE_CHANGED,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    run: (toolArguments, call) => call("POST", `${savePath(toolArguments)}/copies/${pathPart(toolArguments.save_copy_id)}/restore`),
   },
 ];
 

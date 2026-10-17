@@ -278,6 +278,40 @@ fieldset{border:0;padding:0;margin:0}
 legend{font-size:14px;color:var(--muted);margin-bottom:8px}
 .birth label{flex:1;min-width:90px}
 .choices{display:grid;gap:2px}
+.choices[hidden]{display:none}
+.choices .choices{padding-left:28px}
+/* Choices side by side, as radio buttons in a segmented track; the chosen one is the raised plate on the chrome rail. */
+.seg.picks{display:flex;flex-wrap:wrap;width:fit-content;max-width:100%}
+.seg.picks label{position:relative;display:inline-flex;font-size:14px;color:var(--muted);cursor:pointer}
+.seg.picks input{position:absolute;inset:0;width:100%;height:100%;min-height:0;margin:0;padding:0;opacity:0;cursor:pointer}
+.seg.picks span{position:relative;display:inline-flex;align-items:center;min-height:36px;padding:0 14px;font-family:var(--display);font-weight:600}
+.seg.picks label:hover span{color:var(--text)}
+.seg.picks input:checked+span{color:#fff;background:var(--brush) 0 0/320px 320px,var(--face-hi);box-shadow:inset 1px 1px 0 rgba(255,255,255,.13),inset -1px -1px 0 #000}
+.seg.picks input:checked+span::after{content:"";position:absolute;left:8px;right:8px;bottom:3px;height:2px;background:var(--chrome)}
+.seg.picks input:focus-visible+span{box-shadow:inset 0 0 0 2px #e9ebee}
+.seg.picks input:disabled{cursor:not-allowed}
+.seg.picks input:disabled+span{opacity:.35}
+/* A wizard: one plate in the middle of the screen, one step at a time; only its body scrolls. */
+dialog.wizard{width:min(560px,calc(100vw - 24px));max-width:none;height:min(680px,calc(100dvh - 24px));max-height:none;margin:auto;flex-direction:column;overflow:hidden}
+dialog.wizard[open]{display:flex}
+dialog.wizard>form{display:flex;flex-direction:column;flex:1;min-height:0}
+.wizard [hidden]{display:none!important}
+.wizard-head{display:flex;align-items:flex-start;gap:12px;padding:24px 24px 16px;
+  background:linear-gradient(#000,#000) bottom left/100% 1px no-repeat,linear-gradient(rgba(255,255,255,.055),rgba(255,255,255,.055)) bottom 1px left/100% 1px no-repeat}
+.wizard-head>div{flex:1;min-width:0}
+.wizard-head h2{margin:0;font-size:24px;line-height:1.15}
+.wizard-sub{margin:6px 0 0;color:var(--muted);font-size:14px}
+.wizard-x{flex:none;margin-right:30px}
+.wizard-body{flex:1;min-height:0;overflow:auto;padding:18px 24px}
+.wizard-body section{display:grid;gap:16px}
+.wizard-body .error{margin:14px 0 0}
+.wizard-foot{justify-content:flex-end;padding:14px 24px 20px;
+  background:linear-gradient(#000,#000) top left/100% 1px no-repeat,linear-gradient(rgba(255,255,255,.055),rgba(255,255,255,.055)) top 1px left/100% 1px no-repeat}
+.area{display:grid;gap:8px;padding:0 0 16px;background:linear-gradient(#000,#000) bottom/100% 1px no-repeat}
+.area:last-child{padding-bottom:0;background:none}
+.area legend{float:left;margin:0;color:var(--text);font-family:var(--display);font-size:16px;font-weight:600}
+.area .hint{clear:left;margin:0}
+@media (max-width:640px){.wizard-head{padding:18px 18px 12px}.wizard-body{padding:14px 18px}.wizard-foot{padding:12px 18px 16px}.seg.picks span{padding:0 9px;font-size:13px}}
 .choices .check{display:flex;flex-direction:row;gap:10px;align-items:flex-start;padding:8px 0;color:var(--text)}
 .choices .check input{width:18px;height:18px;min-height:0;margin:2px 0 0;flex:none;accent-color:#c9cace}
 .choices .check small{display:block;margin-top:3px;font-size:13px}

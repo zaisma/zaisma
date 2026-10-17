@@ -45,7 +45,7 @@ const COMMAND_ERROR_CODES = {
   missing_value: "A flag that takes a value was given none.",
   takes_no_value: "A flag that takes no value was given one.",
   not_a_folder: "The folder to upload isn't a folder.",
-  not_a_file: "The file of statements, or the dump to import, can't be read.",
+  not_a_file: "The file given (of statements, a dump to import, or a save) can't be read.",
   file_exists: "database export won't write over a file that's already there.",
   needs_newer_node: "Reading or writing a .sqlite file needs Node 22.13 or newer.",
   not_a_database: "The .sqlite file to import isn't a SQLite database.",
@@ -55,6 +55,7 @@ const COMMAND_ERROR_CODES = {
 
 const BY_ME = { hasValue: false, about: "Mark it as written by you; otherwise it says your AI wrote it" };
 const TEXT = { hasValue: true, placeholder: '"…"', about: "The text, in markdown; or pipe it in" };
+const KEYS = { hasValue: true, placeholder: "'[…]'", about: 'Only these localStorage keys, as a JSON list, like \'["coins", "level"]\'' };
 const KIND_ABOUT = "bug (something doesn't work), gap (a limit or missing piece blocks you), feature (an idea), question";
 
 /**
@@ -135,10 +136,30 @@ const COMMANDS = {
     arguments: [{ name: "slug" }, { name: "file", isOptional: true }],
     flags: {},
   },
+  saves: {
+    about: "The players with a cloud save in a game, by player ID, 100 a page",
+    arguments: [{ name: "slug" }],
+    flags: { cursor: { hasValue: true, placeholder: "<next_cursor>", about: "The page after an earlier one: the next_cursor it printed" } },
+  },
+  "saves get": { about: "One player's cloud save: its localStorage keys and IndexedDB databases", arguments: [{ name: "slug" }, { name: "player_id" }], flags: { keys: KEYS } },
+  "saves change": {
+    about: "Set or remove some localStorage keys in a player's save; a JSON object of keys and their text (null removes one), as an argument or piped in",
+    arguments: [{ name: "slug" }, { name: "player_id" }, { name: "items_json", isOptional: true }],
+    flags: {},
+  },
+  "saves replace": {
+    about: "Replace a player's whole save with a JSON file (or piped in) of local_storage_items and indexeddb_databases, like zaisma saves get --json printed",
+    arguments: [{ name: "slug" }, { name: "player_id" }, { name: "file", isOptional: true }],
+    flags: {},
+  },
+  "saves reset": { about: "Reset a player's save: it becomes empty, and the game starts fresh on every device", arguments: [{ name: "slug" }, { name: "player_id" }], flags: {} },
+  "saves copies": { about: "A player's earlier versions of their save, newest first, with why each was kept", arguments: [{ name: "slug" }, { name: "player_id" }], flags: {} },
+  "saves copy": { about: "One earlier version of a player's save", arguments: [{ name: "slug" }, { name: "player_id" }, { name: "save_copy_id" }], flags: { keys: KEYS } },
+  "saves restore": { about: "Make an earlier version a player's save again", arguments: [{ name: "slug" }, { name: "player_id" }, { name: "save_copy_id" }], flags: {} },
   help: { about: "This help; with --json, every command, flag, exit code and error code", arguments: [], flags: {} },
 };
 /** Commands with a second word, like zaisma forum post. */
-const SUBCOMMANDS = { forum: ["post", "message", "reply"], database: ["query", "batch", "export", "import"] };
+const SUBCOMMANDS = { forum: ["post", "message", "reply"], database: ["query", "batch", "export", "import"], saves: ["get", "change", "replace", "reset", "copies", "copy", "restore"] };
 /** Flags every command takes. */
 const GLOBAL_FLAGS = {
   json: { hasValue: false, about: "Print the API's answer as JSON, as-is (on failure its { error }), and nothing else" },
@@ -817,6 +838,81 @@ function* sqliteDumpStatements(sqlite) {
   yield "COMMIT;\n";
 }
 
+/** A game's cloud saves (…/games/<slug>/saves…), as the MCP's list_saves, get_save, change_save, replace_save, reset_save, list_save_copies, get_save_copy and restore_save_copy. */
+async function saves(command, values, flags) {
+  const savePath = () => `/games/${values.slug}/saves/${encodeURIComponent(values.player_id)}`;
+  if (command === "saves") {
+    const answer = await api("GET", `/games/${values.slug}/saves${flags.cursor ? `?cursor=${encodeURIComponent(flags.cursor)}` : ""}`);
+    if (isJson) return printJson(answer);
+    if (!answer.saves.length) console.log("No saves yet. Players' progress shows up here once they play signed in with cloud saves on.");
+    for (const save of answer.saves) console.log(`${save.player_id}  ${save.updated_at.slice(0, 16).replace("T", " ")}  ${sizeText(save.size_bytes).padStart(8)}  ${save.changed_by_kind === "developer" ? "changed by you" : "saved by the game"}${save.save_copy_count ? `, ${save.save_copy_count} earlier` : ""}`);
+    if (answer.next_cursor) console.log(`\nMore: zaisma saves ${values.slug} --cursor ${answer.next_cursor}`);
+    return;
+  }
+  if (command === "saves get" || command === "saves copy") {
+    const keys = readKeys(flags.keys);
+    const query = keys ? `?${keys.map((key) => `keys=${encodeURIComponent(key)}`).join("&")}` : "";
+    const answer = await api("GET", command === "saves get" ? `${savePath()}${query}` : `${savePath()}/copies/${encodeURIComponent(values.save_copy_id)}${query}`);
+    if (isJson) return printJson(answer);
+    const save = answer.save ?? answer.save_copy;
+    console.log(answer.save ? `${sizeText(save.size_bytes)}, ${save.changed_by_kind === "developer" ? "changed by you" : "saved by the game"} ${when(save.updated_at)}.` : `Saved ${when(save.saved_at)} (${save.copy_reason})${save.is_current_save ? ", the same as the save now" : ""}.`);
+    for (const [key, itemText] of Object.entries(save.local_storage_items)) console.log(`${key} = ${itemText}`);
+    for (const key of save.missing_keys) console.log(`${key}: not in the save`);
+    if (save.indexeddb_databases?.length) console.log(`IndexedDB: ${save.indexeddb_databases.map((database) => database.name).join(", ")} (--json shows them)`);
+    return;
+  }
+  if (command === "saves copies") {
+    const answer = await api("GET", `${savePath()}/copies`);
+    if (isJson) return printJson(answer);
+    if (!answer.save_copies.length) console.log("No earlier versions yet.");
+    for (const copy of answer.save_copies) console.log(`${copy.id}  ${copy.saved_at.slice(0, 16).replace("T", " ")}  ${sizeText(copy.size_bytes).padStart(8)}  ${copy.copy_reason}${copy.is_current_save ? "  (the save now)" : ""}`);
+    return;
+  }
+  let answer;
+  if (command === "saves reset") answer = await api("DELETE", savePath());
+  else if (command === "saves restore") answer = await api("POST", `${savePath()}/copies/${encodeURIComponent(values.save_copy_id)}/restore`);
+  else if (command === "saves change") {
+    const text = values.items_json ?? (await readInput());
+    let items;
+    try {
+      items = JSON.parse(text);
+    } catch {}
+    if (!items || typeof items !== "object" || Array.isArray(items)) {
+      refuse("bad_local_storage_items", { message: "The keys to change aren't a JSON object.", field: "items_json", fix: `Give them in single quotes, like '{"coins": "500", "tutorial_seen": null}' (text values; null removes a key), or pipe them in.` });
+    }
+    answer = await api("PATCH", savePath(), { local_storage_items: items });
+  } else {
+    const text = values.file ? await readFile(values.file, "utf8").catch(() => refuse("not_a_file", { message: `Couldn't read ${values.file}.`, field: "file", fix: "Give the path of a JSON file of the save, or pipe it in." })) : await readInput();
+    let given;
+    try {
+      given = JSON.parse(text);
+    } catch {}
+    // What zaisma saves get --json printed works as it is.
+    const save = given?.save ?? given;
+    if (!save || typeof save !== "object" || save.local_storage_items === undefined || save.indexeddb_databases === undefined) {
+      refuse("bad_local_storage_items", { message: `${values.file ?? "What was piped in"} isn't a JSON save with local_storage_items and indexeddb_databases.`, field: "file", fix: 'Give a JSON object like {"local_storage_items": {"coins": "0"}, "indexeddb_databases": []}, or what zaisma saves get <slug> <player_id> --json printed, changed.' });
+    }
+    answer = await api("PUT", savePath(), { local_storage_items: save.local_storage_items, indexeddb_databases: save.indexeddb_databases });
+  }
+  if (isJson) return printJson(answer);
+  const done = { "saves reset": "Reset", "saves restore": "Restored", "saves change": "Changed", "saves replace": "Replaced" }[command];
+  console.log(`${done} ${values.player_id}'s save in ${values.slug}. An open game reloads with it.`);
+  if (answer.kept_save_copy_id) console.log(`The save it replaced is kept: undo with zaisma saves restore ${values.slug} ${values.player_id} ${answer.kept_save_copy_id}`);
+}
+
+/** --keys: a JSON list of localStorage keys, or null without it. */
+function readKeys(given) {
+  if (given === undefined) return null;
+  let keys;
+  try {
+    keys = JSON.parse(given);
+  } catch {}
+  if (!Array.isArray(keys) || !keys.length || !keys.every((key) => typeof key === "string" && key)) refuse("bad_keys", { message: "--keys isn't a JSON list of localStorage keys.", field: "--keys", fix: `Give them as a JSON list in single quotes, like --keys '["coins", "level"]'.` });
+  return keys;
+}
+
+const sizeText = (sizeBytes) => (sizeBytes < 1024 ? `${sizeBytes} B` : sizeBytes < 1048576 ? `${(sizeBytes / 1024).toFixed(1)} KB` : `${(sizeBytes / 1048576).toFixed(1)} MB`);
+
 /** A statement's rows as a table, then what it read and wrote. Blobs show their size. */
 function printRows({ rows, read_row_count: readRowCount, written_row_count: writtenRowCount }) {
   const shown = (cell) => (cell === null ? "NULL" : typeof cell === "object" ? `<blob, ${Math.floor((cell.blob_base64.replace(/=+$/, "").length * 3) / 4)} bytes>` : String(cell));
@@ -892,6 +988,7 @@ async function run({ command, values, flags, globalFlags, rest }) {
     return EXIT_CODES.done;
   }
   if (command === "database" || command.startsWith("database ")) await database(command, values, flags);
+  else if (command === "saves" || command.startsWith("saves ")) await saves(command, values, flags);
   else await forum(command, values, flags);
   return EXIT_CODES.done;
 }

@@ -4,6 +4,7 @@ import { MAXIMUM_OPEN_FRIEND_INVITE_COUNT, accountById, ageBand, ageOn, canonica
 import { decideTopic } from "../../apps/site/src/forum-posts.ts";
 import { checkForumPosts, type CheckDeps } from "../../apps/site/src/forum-check.ts";
 import { scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
+import { changeSaveAsDeveloper } from "../../apps/site/src/saves.ts";
 import { SIGN_IN_APP } from "../../apps/site/src/schemas.ts";
 import { errorProblems, schemaProblems } from "../schema-check.ts";
 
@@ -133,7 +134,7 @@ class Browser {
   jar = new Map<string, string>();
   // Each browser gets its own address, so the sign-in rate limit doesn't spill between tests.
   ip = `10.0.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`;
-  async go(path: string, form?: Record<string, string>, init: { method?: string; body?: string; origin?: string } = {}): Promise<Response> {
+  async go(path: string, form?: Record<string, string> | URLSearchParams, init: { method?: string; body?: string; origin?: string } = {}): Promise<Response> {
     const res = await SELF.fetch(`${SITE}${path}`, {
       method: init.method ?? (form ? "POST" : "GET"),
       body: init.body ?? (form ? new URLSearchParams(form) : undefined),
@@ -650,6 +651,24 @@ describe("cloud saves", () => {
     expect((await put(b, 1, { level: "5" })).status).toBe(409);
   });
 
+  it("tells the game page when the developer changed the save, so it takes it without asking", async () => {
+    const gameId = await liveGame();
+    const b = new Browser();
+    await join(b);
+    await put(b, 0, { level: "3" });
+    expect(await (await b.go("/api/saves/owl-game?version")).json()).toEqual({ version_number: 1, changed_by_kind: "player" });
+    await changeSaveAsDeveloper(env, users.get("fox@example.com")!, gameId, canonicalSave({ level: "10" }));
+    expect(await (await b.go("/api/saves/owl-game?version")).json()).toEqual({ version_number: 2, changed_by_kind: "developer" });
+    expect(await (await b.go("/api/saves/owl-game")).json()).toMatchObject({ version_number: 2, changed_by_kind: "developer", save_data: { level: "10" } });
+    // The open game's next save started from version 1: refused, saying the developer moved it on.
+    const stale = await put(b, 1, { level: "4" });
+    expect(stale.status).toBe(409);
+    expect(await stale.json()).toMatchObject({ version_number: 2, changed_by_kind: "developer" });
+    // Once the game saves from the developer's version, the save is the player's again.
+    expect((await put(b, 2, { level: "11" })).status).toBe(200);
+    expect(await (await b.go("/api/saves/owl-game?version")).json()).toEqual({ version_number: 3, changed_by_kind: "player" });
+  });
+
   it("stores saves from games that also keep IndexedDB databases", async () => {
     const gameId = await liveGame();
     const b = new Browser();
@@ -701,7 +720,7 @@ describe("cloud saves", () => {
 
   describe("earlier versions", () => {
     const id = () => users.get("fox@example.com")!;
-    const copies = async () => (await env.DB.prepare("SELECT * FROM save_history ORDER BY saved_at_ms DESC, rowid DESC").all<{ id: string; reason: string; saved_at_ms: number; sha256: string }>()).results;
+    const copies = async () => (await env.DB.prepare("SELECT * FROM save_history ORDER BY saved_at_ms DESC, rowid DESC").all<{ id: string; copy_reason: string; saved_at_ms: number; sha256: string }>()).results;
     // Pretend the history was made earlier, so the next save is due an hourly copy.
     const age = (ms: number) => env.DB.prepare("UPDATE save_history SET saved_at_ms = saved_at_ms - ?").bind(ms).run();
     const putWith = (b: Browser, body: Record<string, unknown>) => b.go("/api/saves/owl-game", undefined, { method: "PUT", body: JSON.stringify(body) });
@@ -713,7 +732,7 @@ describe("cloud saves", () => {
       await put(b, 0, { level: "1" });
       await put(b, 1, { level: "2" });
       // The first overwrite keeps a copy: there's nothing in the history yet.
-      expect((await copies()).map((c) => c.reason)).toEqual(["hourly"]);
+      expect((await copies()).map((c) => c.copy_reason)).toEqual(["hourly"]);
       await put(b, 2, { level: "3" });
       expect(await copies()).toHaveLength(1);
       await age(2 * 3600_000);
@@ -734,7 +753,7 @@ describe("cloud saves", () => {
       const kept = await putWith(b, { keep: true, save_json: JSON.stringify({ phone: "progress" }) });
       expect(kept.status).toBe(200);
       expect(await kept.json()).toEqual({ is_kept: true });
-      expect((await copies()).map((c) => c.reason)).toEqual(["device", "smaller", "replaced", "hourly"]);
+      expect((await copies()).map((c) => c.copy_reason)).toEqual(["device", "smaller", "replaced", "hourly"]);
       // Keeping the device's progress doesn't touch the account's save.
       expect(((await (await b.go("/api/saves/owl-game")).json()) as { version_number: number }).version_number).toBe(4);
     });
@@ -751,7 +770,7 @@ describe("cloud saves", () => {
       }
       const list = await copies();
       expect(list).toHaveLength(5);
-      expect(list.at(-1)!.reason).toBe("replaced");
+      expect(list.at(-1)!.copy_reason).toBe("replaced");
       const files = await env.SAVES.list({ prefix: `${id()}/g-owl-game/` });
       expect(files.objects).toHaveLength(5);
     });
@@ -770,7 +789,7 @@ describe("cloud saves", () => {
       expect(res.headers.get("location")).toBe("/account/saves/owl-game?restored");
       const got = (await (await b.go("/api/saves/owl-game")).json()) as { version_number: number; save_data: unknown };
       expect(got).toMatchObject({ version_number: 3, save_data: { level: "7" } });
-      expect((await copies()).map((c) => c.reason)).toEqual(["restore", "hourly"]);
+      expect((await copies()).map((c) => c.copy_reason)).toEqual(["restore", "hourly"]);
       expect(await env.SAVES.get(saveKey(id(), gameId)).then((o) => o?.text())).toBe(canonicalSave({ level: "7" }));
       expect(await (await b.go("/account/saves/owl-game?restored")).text()).toContain("starts from that progress");
       // A device still on the old version has to choose instead of overwriting.
@@ -888,7 +907,7 @@ describe("API keys on the account page", () => {
   it("shows a new key once, lists it and removes it", async () => {
     const b = new Browser();
     await join(b);
-    const made = await (await b.go("/account/keys", { name: "My laptop" })).text();
+    const made = await (await b.go("/account/keys", { name: "My laptop", access_level: "full", game_scope: "all" })).text();
     const token = made.match(/zsk_[a-z0-9]{20}_[A-Za-z0-9_-]{43}/)?.[0];
     expect(token).toBeTruthy();
     const api = await SELF.fetch(`${SITE}/api/dev/games`, { headers: { authorization: `Bearer ${token}` } });
@@ -901,6 +920,29 @@ describe("API keys on the account page", () => {
     const id = page.match(/\/account\/keys\/([a-z0-9]+)\/revoke/)![1];
     await b.go(`/account/keys/${id}/revoke`, {});
     expect((await SELF.fetch(`${SITE}/api/dev/games`, { headers: { authorization: `Bearer ${token}` } })).status).toBe(401);
+  });
+
+  it("makes a key limited to some games and a level, and lists what it can do", async () => {
+    const b = new Browser();
+    await join(b);
+    for (const title of ["Sky Hopper", "Cave Run"]) expect((await b.go("/api/dev/games", undefined, { method: "POST", body: JSON.stringify({ title }) })).status).toBe(201);
+    const form = new URLSearchParams([["name", "CI"], ["access_level", "upload"], ["game_scope", "some"], ["game_slugs", "sky-hopper"], ["game_slugs", "someone-elses-game"]]);
+    const made = await (await b.go("/account/keys", form)).text();
+    const token = made.match(/zsk_[a-z0-9]{20}_[A-Za-z0-9_-]{43}/)![0];
+    const access = await (await SELF.fetch(`${SITE}/api/dev/access`, { headers: { authorization: `Bearer ${token}` } })).json();
+    // Games that aren't the developer's are dropped.
+    expect(access).toMatchObject({ access: { api_key_name: "CI", access_level: "upload", game_slugs: ["sky-hopper"] } });
+    expect(await (await b.go("/account")).text()).toContain("Upload; only Sky Hopper");
+
+    // A custom key for some games: sign-in apps and webhooks stay out of its reach, whatever the form sent.
+    const custom = new URLSearchParams({ name: "Stats", access_level: "custom", game_scope: "some", game_slugs: "cave-run", game_access: "read", version_access: "read", stats_access: "read", database_access: "none", save_access: "none", forum_access: "none", sign_in_app_access: "write", webhook_access: "read" });
+    const customToken = (await (await b.go("/account/keys", custom)).text()).match(/zsk_[a-z0-9]{20}_[A-Za-z0-9_-]{43}/)![0];
+    const customAccess = (await (await SELF.fetch(`${SITE}/api/dev/access`, { headers: { authorization: `Bearer ${customToken}` } })).json()) as { access: { area_access: Record<string, string> } };
+    expect(customAccess.access.area_access).toMatchObject({ stats_access: "read", database_access: "none", sign_in_app_access: "none", webhook_access: "none" });
+
+    // Some games, but none chosen.
+    const none = new URLSearchParams({ name: "Nothing", access_level: "read", game_scope: "some" });
+    expect(await (await b.go("/account/keys", none)).text()).toContain("Choose at least one game");
   });
 
   it("lets the dashboard use the session, but only from zaisma.com", async () => {

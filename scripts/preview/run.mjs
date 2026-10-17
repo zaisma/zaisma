@@ -213,7 +213,7 @@ async function seed() {
   await go("/join/age", form({ month: "5", day: "20", year: "1990" }));
   await go("/join/email", form({ name: "Preview Studio", email: EMAIL }));
   await go("/signin/code", form({ email: EMAIL, code: "123456" }));
-  const page = await (await go("/account/keys", form({ name: "preview" }))).text();
+  const page = await (await go("/account/keys", form({ name: "preview", access_level: "full", game_scope: "all" }))).text();
   const key = page.match(/zsk_[a-z0-9]+_[A-Za-z0-9_-]+/)?.[0];
   if (!key) throw new Error("Couldn't make the preview account's API key.");
   const api = async (method, path, body) => {
@@ -338,6 +338,10 @@ async function seed() {
 
   // Friends for the preview account: three who said yes to its invites, and one invite still waiting.
   await seedFriends(go, form);
+
+  // Scoped API keys, so the account page lists what each can do: CI that uploads two games, and a custom key.
+  await go("/account/keys", form([["name", "GitHub Actions"], ["access_level", "upload"], ["game_scope", "some"], ["game_slugs", "shard-dodge"], ["game_slugs", "arena"]]));
+  await go("/account/keys", form({ name: "Stats bot", access_level: "custom", game_scope: "all", game_access: "read", version_access: "read", stats_access: "read", database_access: "none", save_access: "none", forum_access: "none", sign_in_app_access: "none", webhook_access: "none" }));
 }
 
 /**
@@ -587,7 +591,7 @@ async function developer(name, email) {
   await go("/join/age", { month: "3", day: "14", year: "1988" });
   await go("/join/email", { name, email });
   await go("/signin/code", { email, code: "123456" });
-  const key = (await (await go("/account/keys", { name: "preview" })).text()).match(/zsk_[a-z0-9]+_[A-Za-z0-9_-]+/)?.[0];
+  const key = (await (await go("/account/keys", { name: "preview", access_level: "full", game_scope: "all" })).text()).match(/zsk_[a-z0-9]+_[A-Za-z0-9_-]+/)?.[0];
   if (!key) throw new Error(`Couldn't make ${name}'s API key.`);
   return async (method, path, body) => {
     const res = await fetch(`${SITE}/api/dev${path}`, { method, headers: { authorization: `Bearer ${key}`, "content-type": "application/json" }, body: JSON.stringify(body) });

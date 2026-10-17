@@ -11,6 +11,7 @@ export const ERROR_CODES = {
   signed_out: { httpStatus: 401, meaning: "No API key, and no signed-in session." },
   no_account: { httpStatus: 401, meaning: "The account isn't finished yet." },
   bad_origin: { httpStatus: 403, meaning: "A call with a session came from another site." },
+  key_not_allowed: { httpStatus: 403, meaning: "The API key is limited to other games, or its access doesn't cover the call." },
   slow_down: { httpStatus: 429, meaning: "Too many calls in a minute." },
   not_found: { httpStatus: 404, meaning: "There's no API call at that path." },
   bad_method: { httpStatus: 405, meaning: "The path doesn't take that method." },
@@ -123,6 +124,16 @@ export const ERROR_CODES = {
   database_storage_limit: { httpStatus: 403, meaning: "The statement would grow the game's database past its free storage." },
   database_unavailable: { httpStatus: 503, meaning: "The game's database didn't answer." },
   dump_too_big: { httpStatus: 413, meaning: "dump_sql is over 5 MB: import a dump in parts, each ending on a whole statement." },
+
+  // Cloud saves
+  no_save: { httpStatus: 404, meaning: "The player has no save in the game." },
+  no_save_copy: { httpStatus: 404, meaning: "The player's save has no earlier version with that ID." },
+  bad_keys: { httpStatus: 400, meaning: "keys isn't a list of 1 to 100 localStorage keys of up to 1,000 characters." },
+  bad_local_storage_items: { httpStatus: 400, meaning: "local_storage_items isn't an object of localStorage keys and their text (null removes a key in a change)." },
+  bad_indexeddb_databases: { httpStatus: 400, meaning: "indexeddb_databases isn't a list of databases, each { name, version, stores } as get_save answers them." },
+  save_too_big: { httpStatus: 413, meaning: "The save would be over 5 MB." },
+  cloud_saves_off: { httpStatus: 409, meaning: "The game has cloud saves off, so it doesn't read saves from players' accounts." },
+  save_busy: { httpStatus: 409, meaning: "The player's game kept saving at the same moment, so the change didn't go through." },
 
   // The developer forum
   no_topic: { httpStatus: 404, meaning: "There's no topic with that ID you can see." },

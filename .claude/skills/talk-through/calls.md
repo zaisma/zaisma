@@ -72,6 +72,8 @@ Would his answer be better than Claude's? His edge: UI and UX, how players and d
 
 **Profiles as marketing.** *Profiles.* He took games-first and framed the whole page as showing off developers and their games: developers come to Zaisma for exposure. A developer's own games lead their profile.
 *Lesson:* for any page with games or people on it, ask what it does for developers' exposure; he'll weigh that first.
+**Which links teens can open, raised by him mid-talk.** *Registered links, Oct 17, 2026.* The item opened as *One call* (where the leaving notice sits) and he took the pick in one click. Then he asked that under-18 accounts open only trusted sites. Claude didn't just write it: it showed who the rule really stops (guests have no age, so either most players lose the Patreon button or teens just play signed out), what it costs developers at the beta, and which settled decisions it changes, next to a narrower option (block only chat apps). He answered every point, refined his own option (by domain, payment sites seeded, guests treated like teens so honest players aren't punished) and kept the narrow one's chat-app block. He also caught copy Claude had written: a card saying "only for 18+" invites teens to lie about their age.
+*Lesson:* when he proposes a safety rule, bring who it actually stops, what it costs in money and what it changes, with a narrower option; expect him to merge options rather than pick one. Copy that gives a restriction's reason can create the reason to dodge it.
 
 ## Not his
 

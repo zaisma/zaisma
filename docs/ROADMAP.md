@@ -4,14 +4,18 @@ The live plan of what gets built, in what order. `docs/DECISIONS.md` says *how* 
 
 ## Now
 
-Who a player is came first: the pass, the player ID and the sign-in that saves, friends, the game database and webhooks all build on, settled before anything else builds on them (Julius, Oct 16, 2026). That chain is live. Nothing else changes a shape later work builds on, so First is empty and the rest goes side by side: webhooks first since account deletion waits on them, then friends for the longest road to outreach, then the pieces games and seed games use (Julius, Oct 16, 2026).
+Who a player is came first, and that chain is live (Julius, Oct 16, 2026). Nothing else changes a shape every later item builds on, so First is empty and the rest goes side by side: first the shapes other work builds on or that cost more once games rely on them (social settings for friends and profiles, usernames for every page that shows a name, saves without Zaisma screens for the SDK, game server reach for webhooks to the game server), then the dashboard sections and developer home the dashboard work waits on (Julius, Oct 17, 2026).
 
 **First:** nothing.
 
 **Next:**
 
-1. Saves through the API (Accounts and saves)
-2. Scoped API keys (Developer publishing)
+1. Social settings (Accounts and saves)
+2. Usernames and passwords (Accounts and saves)
+3. Saves without Zaisma screens (Accounts and saves)
+4. Game server reach and secrets (Game servers and data)
+5. Game dashboard sections (Polish before outreach)
+6. Developer home (Polish before outreach)
 
 Waiting on people: Gleb: register with NCMEC, Gleb: register the DMCA agent.
 
@@ -115,9 +119,9 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | planned | Must | | MCP sign-in without a key | Developer MCP | OAuth, so claude.ai and other apps that can't send a key can connect after the developer signs in. Developer MCP: Zaisma's own OAuth server (the one Sign in with Zaisma will use), with a consent page and connected apps listed beside API keys; an app signed in this way can't make API keys. Admin MCP: Cloudflare Access's managed OAuth, no code (Julius: turn on Managed OAuth on the admin application in Zero Trust) |
 | done | Must | yes | Webhooks for developers | Developer MCP, AI report triage | Live Oct 16, 2026 (#167, migration 0040): signed events (Standard Webhooks) to addresses the developer sets through the API and MCP: bug reports, scans, the version players get, holds and takedowns, with retries and a delivery list. E.g. a GitHub issue for every bug report |
 | planned | Must | | Room events in webhooks | Webhooks for developers | Game server errors, stopped loops and rooms that reach the month's free hours, sent to webhooks; rooms write them to D1 for the site to send |
-| next | Must | yes | Scoped API keys | Developer accounts | Keys limited to some games and to a level (read, upload, publish, full) or custom per-area access, for CI and collaborators; read and upload keys can't post on the forum. Made only on the account page (Julius, Oct 16, 2026) |
+| done | Must | yes | Scoped API keys | Developer accounts | Live Oct 17, 2026 (#198, migration 0045): keys limited to some games and to a level (read, upload, publish, full) or custom per-area access, for CI and collaborators; read and upload keys can't post on the forum. Made only on the account page (Julius, Oct 16, 2026) |
 | planned | Must | | Export everything | Developer accounts, Game database import and export | One command (and MCP tool) exports a game: files, versions, database, saves, stats, reports and updates |
-| planned | Must | | Registered links | Developer accounts | So developers can earn with their own payments from day one: links to their store, Patreon, Steam or Discord, opened by `Zaisma.links` with a leaving-Zaisma notice |
+| planned | Must | yes | Registered links | Developer accounts | So developers can earn with their own payments from day one: the game opens its registered links with `Zaisma.links.open` behind a "You're leaving Zaisma" card over the game; guests and under-18 accounts open only trusted store, payment and video domains, never chat apps (Julius, Oct 17, 2026) |
 
 ### Developer forum
 
@@ -175,7 +179,7 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | planned | Must | yes | Game database restore to a time | Game database import and export | Roll a game's database back to any minute in the last 30 days, and undo that, through the API, MCP, CLI and the dashboard's console |
 | done | Must | yes | Game server endpoints | Developers' own game servers run safely | Live Oct 16, 2026 (#169, migration 0041): the game server's `onRequest` answers `Zaisma.server.request` outside rooms (leaderboards, a shop, daily rewards), with the game database behind it, on Zaisma and in the Node runner. Free per game: 1 million requests a month (Julius, Oct 16, 2026) |
 | done | Must | yes | Game server schedules | Game server endpoints | Live Oct 16, 2026 (#170, migration 0043): the game server's `schedules` (crons in UTC) run `onSchedule` outside rooms (daily resets, persistent worlds), on Zaisma and in the Node runner. Free per game: up to 10 schedules, each at most once a minute, with no monthly count (Julius, Oct 16, 2026) |
-| planned | Must | | Game server reach and secrets | Developers' own game servers run safely | Game servers can call the addresses the developer lists (their own servers, payment providers, Discord, GitHub), with secrets set per game and never shown again. Still nothing of ours inside |
+| next | Must | | Game server reach and secrets | Developers' own game servers run safely | Game servers can call the addresses the developer lists (their own servers, payment providers, Discord, GitHub), with secrets set per game and never shown again. Still nothing of ours inside |
 | planned | Must | yes | Webhooks to the game server | Webhooks for developers, Game server reach and secrets | A webhook can point at the game's own game server on Zaisma, whose `onWebhook` turns events into a Discord post or a GitHub issue with the developer's own tokens, so developers with no server of their own get them too. The same code runs on their own server (Julius, Oct 16, 2026) |
 
 ### Accounts and saves
@@ -200,12 +204,12 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | done | Must | yes | Sign in with Zaisma | Account passes | Live Oct 16, 2026 (#161, migration 0038): OpenID Connect on zaisma.com for developers' own sites and games with their own accounts, sign-in apps through the API and MCP, a one-time consent page and the account page's list. The MCP's sign-in uses it next (MCP sign-in without a key) |
 | planned | Must | yes | Sign-in apps in the dashboard | Sign in with Zaisma, Developer settings | A simple list of sign-in apps on the developer settings page (name, redirect addresses; make one, replace its secret, delete), on the same API |
 | done | Must | yes | Social modes and age bands | Age question | Live Oct 16, 2026 (#162, migration 0039): three age bands (13–15, 16–17, 18+) and a social mode on every account, chosen at signup from 16 and changed on the account page; 13–15 start solo-focused and can switch only to friends-focused. The pass carries the social mode and an opaque chat group, never the age; `canChat(a, b)` in the game server package |
-| planned | Must | yes | Social settings | Social modes and age bands | A Social section on the account page: separate settings for chat, joining, what I'm playing, what I've played, online and friend requests, with the social modes as presets plus Custom and hard age limits; the page says "Anyone", never band groups (Julius, Oct 17, 2026) |
-| next | Must | yes | Saves through the API | Cloud saves, Developer accounts | Developers list, read, change (some keys or the whole save) and reset their game's saves by player ID, and read and restore earlier versions (API and MCP); a change keeps a copy first and reloads an open game with no dialog. Saves and the game database stay separate |
-| planned | Must | yes | Saves without Zaisma screens | Cloud saves, Save history | No conflict chooser (the progress played most recently wins, the other kept as an earlier version), no restoring or list of copies on the account page or game menu; the "Keep your progress" card gets a game setting to turn it off |
-| planned | Must | | Saves in the SDK | Saves without Zaisma screens, "Keep your progress" | `Zaisma.saves.onConflict`, `getHistory()` and `restore()` for games that want their own conflict or rollback screens, and `Zaisma.player.offerAccount()` |
+| next | Must | yes | Social settings | Social modes and age bands | A Social section on the account page: separate settings for chat, joining, what I'm playing, what I've played, online and friend requests, with the social modes as presets plus Custom and hard age limits; the page says "Anyone", never band groups (Julius, Oct 17, 2026) |
+| done | Must | yes | Saves through the API | Cloud saves, Developer accounts | Live Oct 17, 2026 (#200, migration 0044, CLI 0.7.0): developers list, read, change (some keys or the whole save) and reset their game's saves by player ID, and read and restore earlier versions (API and MCP); a change keeps a copy first and reloads an open game with no dialog. Saves and the game database stay separate |
+| next | Must | yes | Saves without Zaisma screens | Cloud saves, Save history | No conflict chooser (the progress played most recently wins, the other kept as an earlier version), no restoring or list of copies on the account page or game menu; the "Keep your progress" card gets a game setting to turn it off |
+| planned | Must | | Saves in the SDK | Saves without Zaisma screens, "Keep your progress" | `Zaisma.saves.onConflict`, `getHistory()` and `restore()` for games that want their own conflict or rollback screens, `Zaisma.saves.onDeveloperChange` for games that take a developer's change their own way (in place, with their own message or their own reload) instead of Zaisma's reload, and `Zaisma.player.offerAccount()` |
 | planned | Must | | Account deletion reaches developers | Webhooks for developers, Game database through the API | An "account deleted" webhook to every game the player used, with a one-call helper to erase that player in the game database |
-| planned | Must | yes | Usernames and passwords | Sign-in, Age question | Making an account takes a birthday, a public unique username and a password, nothing else; email becomes an optional way back in; Cloudflare's invisible bot check on sign-up |
+| next | Must | yes | Usernames and passwords | Sign-in, Age question | Making an account takes a birthday, a public unique username and a password, nothing else; email becomes an optional way back in; Cloudflare's invisible bot check on sign-up |
 | planned | Must | yes | Protect your account | Usernames and passwords, Passkeys | Once there's saved progress to lose, a one-time "Protect your account" offers a passkey or an email; required before cards or parent links |
 | planned | Must | | Download your data | Sign-in | A player downloads everything Zaisma keeps about their account, saves included as files; the legal right of access |
 
@@ -264,9 +268,9 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | planned | Must | | Developer page | Design system | Publishing, the dashboard and docs in one place for game developers, off the home page |
 | planned | Must | | Browse games | Design system | A proper games page with covers and genres until Phase 4 discovery |
 | planned | Must | | Account pages | Design system, Passkeys, Friends | Sign-in, account, saves, sign-in methods, /friends and the friend invite page, all polished in full Steel |
-| planned | Must | yes | Game dashboard sections | Design system, Developer dashboard | Each game's dashboard split into sections with a fixed layout each: Overview (status, alerts, upload, live version, plays, recent history), Versions (with tester links), Details (with images), Players and stats, Database; title and who can play on every section; tabs on phones (Julius, Oct 16, 2026) |
+| next | Must | yes | Game dashboard sections | Design system, Developer dashboard | Each game's dashboard split into sections with a fixed layout each: Overview (status, alerts, upload, live version, plays, recent history), Versions (with tester links), Details (with images), Players and stats, Database; title and who can play on every section; tabs on phones (Julius, Oct 16, 2026) |
 | planned | Must | yes | Custom game dashboard | Game dashboard sections | Each developer reorders, hides and shows a game's sections, per game; Overview stays first and always shows alerts (Julius, Oct 16, 2026) |
-| planned | Must | yes | Developer home | Design system, Developer dashboard | zaisma.com/dashboard: your games as cards with status and alerts, make a game, and a link to developer settings (Julius, Oct 16, 2026) |
+| next | Must | yes | Developer home | Design system, Developer dashboard | zaisma.com/dashboard: your games as cards with status and alerts, make a game, and a link to developer settings (Julius, Oct 16, 2026) |
 | planned | Nice | | Last-played picture | Continue playing | A snapshot of the game when you left, shown in Continue playing; only you see it |
 | planned | Must | | Ready for outreach | Design system, Home page, Friends on the home page, Profiles, Browse games, Account pages, Game dashboard sections, Custom game dashboard, Developer home | Julius decides; outreach and link-out listings start here |
 
@@ -278,7 +282,7 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | --- | --- | --- | --- | --- | --- |
 | planned | Must | | Search-friendly game pages | | |
 | planned | Must | | Share cards for every game and room link | Game details and device labels | Cover, title, "Play now" |
-| planned | Must | | Developer links on game pages | Developer accounts | Steam, itch.io, Discord, website, socials |
+| planned | Must | | Developer links on game pages | Registered links | Steam, itch.io, Discord, website, socials: the registered links marked for the game page |
 | planned | Must | | Zaisma skill for every AI | Developer MCP, `zaisma check` and automatic fixes, Errors: holds and takedowns, Names: SDK and game server | Right before the beta opens and not earlier, so it doesn't go stale. Teaches the whole workflow to any AI: the MCP's prompts and resources (the SDK reference, docs/NAMING.md, the error codes), a skill in the open SKILL.md format installed with `npx @zaisma/cli`, `llms.txt` and troubleshooting pages by error code, and a Claude plugin with the MCP and the skill |
 | planned | Must | | At least 5 seed games | Zaisma skill for every AI, Two demo games | Made with Claude Code through our own publishing flow, different genres, multiplayer |
 | planned | Nice | | 10 seed games | At least 5 seed games | The target in `docs/PLAN.md` |
@@ -367,6 +371,8 @@ Goal: room for games that outgrow the defaults.
 | planned | Nice | | Bigger game servers | | Cloudflare Containers; check outbound data charges first |
 | planned | Nice | | One-command switch from Wavedash | | |
 | planned | Nice | | Subscriptions in the buy sheet | | |
+| planned | Nice | | Account levels games can require | Accounts-only games, Protect your account | A game asks for more than an account before Play or at a step, like a serious MMO slowing down banned players' new accounts: built only from what Zaisma already knows (account age, a passkey or an email, time played, no Zaisma ban), never IDs or phone numbers; levels of `account_requirement` or yes/no facts in the pass (Julius, Oct 17, 2026) |
+| planned | Nice | | Minimum age band per game | Social modes and age bands, Accounts-only games | The developer keeps a game from younger bands even when its content suits everyone; Zaisma enforces it like `account_requirement` and games never learn the band. Content above the shared floor, blocked for some bands, is a decision of its own (Julius, Oct 17, 2026) |
 
 ## Parked ideas
 

@@ -59,7 +59,8 @@ The primary action on a page is a metal plate: `metalButton(label, { href | id, 
 - **Section heading:** `.sec-head h2` or `h2.rule-h`, engraved, with a metal rule running to the edge.
 - **Tabs and nav:** text on an engraved line; the current one gets the chrome rail.
 - **Updated badge:** `.badge`, a green square and the word "Updated". Updates never get their own cards on the home page.
-- **Segmented toggle:** `.seg`, a track cut into the metal; the chosen option is a raised plate on a chrome rail (`aria-pressed` or `aria-current`).
+- **Segmented toggle:** `.seg`, a track cut into the metal; the chosen option is a raised plate on a chrome rail (`aria-pressed` or `aria-current`). In a form, `.seg.picks` holds radio buttons the same way, so a few choices show side by side instead of in a dropdown (an API key's access per area).
+- **Wizard:** `dialog.wizard`, one plate in the middle of the screen for a task with steps (making an API key): a title and a line saying what this step is for, a body that scrolls on its own, and Back, Next and the final action at the bottom. It keeps one height from step to step.
 - **Fields:** cut into the metal (recessed, dark), with a light ring on focus.
 - **Notes:** `.note` for plain information, like the guest note on a first visit.
 - **Brand links** on game pages carry their own logo and colors (Discord, Steam, itch.io, YouTube); a plain website link is an outline with a globe.
