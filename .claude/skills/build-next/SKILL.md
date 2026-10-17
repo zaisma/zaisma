@@ -60,7 +60,7 @@ If a player or developer would see anything change on a page, it needs Julius's 
 
 ## 7. Merge and ship
 
-**Under the coordinator** (your brief says so): don't merge, ship, mark the row done or clean up; the coordinator does that. Once the pull request is open, `npm test` and `npm run typecheck` pass, and the preview is OK'd when it had one:
+**Under the coordinator** (your brief says so): don't merge, ship, mark the row done or clean up on your own; the coordinator does that, and once your pull request has shipped it asks you to run `/cleanup`: run it, then end your turn with one line saying it's clean. Once the pull request is open, `npm test` and `npm run typecheck` pass, and the preview is OK'd when it had one:
 
 - If Julius was in this session (a talk, a preview, a question), ask one thing with the wrap-up box: **"Are we done?"**, with the buttons *Yes, we're done* and *More to discuss*. *More to discuss* means you keep going with him.
 - On his yes, or straight away when he was never needed, end your turn with `wrap_up` and no question, its recap starting:

@@ -1,6 +1,6 @@
 ---
 name: coordinator
-description: Julius's one place to work on Zaisma. Keeps up to a set number of sessions running (2 unless he says otherwise), in one of three modes: both (settled items build, unsettled ones open with a talk), build (only settled items, for when he's away) or talk (only talks, to work through what isn't settled). Brings him previews and questions, and when a session reports done, merges its pull request, ships, marks the row and archives the session. Starts the next item as others land, and runs whats-next when Now runs dry. Use when Julius says /coordinator, wants to work on Zaisma, build a batch, build what's in Now, work through the unsettled items, or run the coordinator.
+description: Julius's one place to work on Zaisma. Keeps up to a set number of sessions running (2 unless he says otherwise), in one of three modes: both (settled items build, unsettled ones open with a talk), build (only settled items, for when he's away) or talk (only talks, to work through what isn't settled). Brings him previews and questions, and when a session reports done, merges its pull request, ships, marks the row, has the session clean up and archives it. Offers the next batch when one lands but starts it only on his go, and runs whats-next when Now runs dry. Use when Julius says /coordinator, wants to work on Zaisma, build a batch, build what's in Now, work through the unsettled items, or run the coordinator.
 argument-hint: "[most sessions at once, default 2] [both | build | talk, default both] or exact item names"
 ---
 
@@ -8,7 +8,7 @@ argument-hint: "[most sessions at once, default 2] [both | build | talk, default
 
 Julius starts one session with `/coordinator` and works from there. He shouldn't have to start one session, wait for it to ship, then start the next, or work out what comes after Now. He settles one item while others build. This session coordinates and builds nothing. It keeps no more sessions running than the cap (2 unless he says otherwise; see the argument below). Each item gets its own session running the `build-next` skill (or only `talk-through` in `talk` mode).
 
-**Sessions do the work; this session finishes it.** A session under the coordinator talks, builds, opens its pull request and gets its preview OK'd, but it never merges, ships or cleans up. When it has reached a conclusion it asks Julius **"Are we done?"** (buttons: *Yes, we're done* / *More to discuss*). On his yes it ends its turn with a **done report**, and this session does the rest (step 4): merge, ship, mark the row, republish the roadmap page, archive the session. His yes in that session is his merge for its pull request (CLAUDE.md, "Merging"). A build that never needed him (settled, no preview) reports done without asking.
+**Sessions do the work; this session finishes it.** A session under the coordinator talks, builds, opens its pull request and gets its preview OK'd, but it never merges, ships or cleans up. When it has reached a conclusion it asks Julius **"Are we done?"** (buttons: *Yes, we're done* / *More to discuss*). On his yes it ends its turn with a **done report**, and this session does the rest (step 4): merge, ship, mark the row, republish the roadmap page, have the session run `/cleanup`, then archive it. His yes in that session is his merge for its pull request (CLAUDE.md, "Merging"). A build that never needed him (settled, no preview) reports done without asking.
 
 The only files this session changes are the roadmap's: a new Now (step 6), the `done` mark after a ship (step 4) and the `Settled` marks for Quick items Julius settles here (step 5). It does that in its own worktree (EnterWorktree, named `coordinator`, if this session isn't in one).
 
@@ -27,7 +27,13 @@ Say the cap and the mode in your first message, so he can correct them.
 
 **The cap rule**, used every time anything starts: count the sessions that are still running, then start only up to the cap. Running means a session this coordinator started (`list_sessions` with `linked: true`) that hasn't sent its done report: it's working, or waiting for Julius (a talk, a preview, a question, "Are we done?"). A session that reported done frees its place at once, even while step 4 is still merging it; one that a failed ship sent back (step 4) takes a place again. On the first run, an item in Now that `--now` shows as claimed by another session counts too: it's likely still running from an earlier coordinator. When the cap is full, start nothing and wait for a done report.
 
-**Starting on a session's turn.** The app only lets this session start a session on a turn Julius began. On a turn that a session's note began (a done report, most often), put each new session up as a card instead: the same `start_session` call with `initiation` "own_initiative", and tell him in a line that it's there. He clicks it. Cards count against the cap like running sessions.
+**Only Julius starts sessions.** Every session costs his usage, and he's often near his limit, so nothing starts without his go in this chat: `/coordinator` itself (the first batch), or his answer to an offer like "Start the next batch?". Nothing else is a go:
+- "done", "I'm done with these", or a *Yes, we're done* click in a session only finishes those sessions (step 4)
+- a freed place under the cap
+- a new Now
+- his answer to anything else
+
+This holds in every mode, and most of all in `build`, where he may be away. When there's room and something is ready, finish what's done first. Then offer it with the wrap-up box: which items, how many sessions and in what mode, with the buttons *Start them* and *Not now*. On a turn that a session's note began, the app can't start sessions anyway, so the offer waits for his click.
 
 ## 1. Pick the items
 
@@ -47,7 +53,7 @@ If none is ready, and nothing in Now waits only on an item that's being built no
 
 ## 2. Start one session per item, up to the cap
 
-Use the cap rule: start only as many as the cap leaves room for, in Now's order; the rest wait for step 5. For each one: a bold title line and one sentence, then `start_session` with `initiation` "user_asked" (or a card, see above), `use_worktree: true`, `context` "fresh", `wake_when_done: true`, the item's name as `title`, and as `prompt` `/build-next <the item's exact name>`, or in `talk` mode:
+Only on Julius's go (see above). Use the cap rule: start only as many as the cap leaves room for, in Now's order; the rest wait for step 5. For each one: a bold title line and one sentence, then `start_session` with `initiation` "user_asked", `use_worktree: true`, `context` "fresh", `wake_when_done: true`, the item's name as `title`, and as `prompt` `/build-next <the item's exact name>`, or in `talk` mode:
 
 ```
 /talk-through <the item's exact name>
@@ -96,31 +102,31 @@ A done report is the session's last recap, and it starts with `Done:`, then the 
 1. **Up to date.** `gh pr update-branch <number>` brings the pull request up to date with main. If it conflicts, send it back to the session with `SendMessage` ("bring your branch up to date with main, fix the conflicts and push, then report done again") and go on with the next report.
 2. **Checked.** `gh pr checks <number> --watch`, in the background. A failed check goes back to the session the same way.
 3. **Merge.** `gh pr merge <number> --merge --delete-branch`. If it fails because main moved, go back to 1.
-4. **Ship**, when the pull request changes anything outside `docs/`, `.claude/` and `CLAUDE.md`: `npm run ship`, in the background (it waits its turn behind another ship). `SHIP WAITING` means a migration deletes data: start `npm run ship` in a Terminal tab (`run_in_terminal`), tell Julius which tab and what it deletes, and read the tab for `SHIP PASS`. `SHIP FAIL` goes back to the session with the ship's last lines; it fixes it in a new pull request and reports done again. When nothing ships, bring the main checkout's `main` up to date yourself, only when it's on `main` with no changes (`git -C <main checkout> pull --ff-only`).
+4. **Ship**, when the pull request changes anything outside `docs/`, `.claude/` and `CLAUDE.md`: `npm run ship`, in the background (it waits its turn behind another ship). `SHIP WAITING` means a migration deletes data: start `npm run ship` in a Terminal tab (`run_in_terminal`), tell Julius which tab and what it deletes, and read the tab for `SHIP PASS`. `SHIP FAIL` goes back to the session with the ship's last lines; it fixes it in a new pull request and reports done again. When nothing ships, bring the main checkout's `main` up to date yourself, only when it's on `main` with no changes: `git pull --ff-only` run in the main checkout itself, since a session isolated in a worktree is refused `git -C`.
 5. **Mark the row.** A build: on `SHIP PASS`, mark its row `done` (date, PR, migration) in a commit from this session's worktree, pushed straight to main. If the push is refused because main moved, fetch, redo the one row on `origin/main`, and push again. A talk's pull request already carries its rows.
 6. **Republish** the roadmap page as CLAUDE.md says, once per batch: after the last report that's waiting has merged, not after each one.
-7. **Archive** the session (`archive_session`), which removes its worktree. Not before its ship passed.
+7. **Clean up, then archive.** Not before its ship passed. Send the session `/cleanup` with `SendMessage` ("PR #N is merged and shipped; run /cleanup, then end your turn with one line saying it's clean"). Its cleanup skill confirms the work landed, stops anything it started and prunes its branches. Wait for its note. Only when it says it's clean, archive it (`archive_session`), which removes its worktree. If cleanup kept something or stopped on a check, tell Julius in a line and leave the session open.
 
 Then tell Julius in a line or two what landed, with each pull request, and go to step 5.
 
 ## 5. Keep going
 
-Each time a session reports done, run step 1 again: an item that waited on it may be free now. Start ready ones as the cap rule allows, in Now's order (as cards when a note began the turn).
+Each time a session reports done and step 4 has finished it, run step 1 again: an item that waited on it may be free now. Don't start anything. Offer what's ready as the cap rule allows, in Now's order, and start it only when he says so ("Only Julius starts sessions"). When a whole batch has finished, say what landed and make one offer for the next batch.
 
 **Sort the done items first.** Done items built without being settled aren't checked off (`node scripts/roadmap-item.mjs --unsettled`). Most were technical, and a session each would end in "your pick". So before any talk about a done item, and again whenever new ones turn up, sort them into the `talk-through` skill's three tiers (its steps 1 to 3 and `calls.md`), without starting talks. Hand the reading to subagents, a project or a handful of items each. Each subagent returns, per item, its tier, what it is through Julius's lens in one line, and the line it would settle as. Then:
 
 - **Quick items come to Julius here, as one list:** one line each, what it is and "settles as …", grouped by project, at most 15 per message. He answers with "settle all" or names the ones to pull out. His yes in this chat settles the rest. Write their `Settled` cells in this session's worktree, open one roadmap-only pull request, and finish it as in step 4 (his yes is its merge). A pulled-out item becomes a talk.
-- **One call and Needs you items** get a talk each: a `start_session` as in step 2, with `/talk-through <the item's exact name>` as the prompt. Put the tier in the background so the session doesn't redo the sorting. Start with the ones other work builds on, or the ones that would cost the most to change later. Each counts against the cap like any session.
+- **One call and Needs you items** get a talk each, offered like any session: on his go, a `start_session` as in step 2, with `/talk-through <the item's exact name>` as the prompt. Put the tier in the background so the session doesn't redo the sorting. Start with the ones other work builds on, or the ones that would cost the most to change later. Each counts against the cap like any session.
 
-- **`both`:** keep one ready. Whenever no session is waiting for Julius to talk and the cap has room, start one, and tell him it's there with its link. He takes it when he has time; nothing waits on it.
-- **`talk`:** once no unsettled item in Now is left to start, fill the cap with these.
+- **`both`:** offer one. Whenever no session is waiting for Julius to talk and the cap has room, offer one talk, and start it on his go.
+- **`talk`:** once no unsettled item in Now is left, offer these to fill the cap.
 - **`build`:** none.
 
 ## 6. When Now runs dry
 
 Don't wait to be asked. Use the `whats-next` skill. It checks that the finished work is really done, looks for anything that has to go first, and proposes the next Now, saying which items are settled and which will start with a talk. Sessions still building carry on meanwhile.
 
-Setting Now is Julius's call, so ask him the one question the skill ends with. On his yes, do the skill's last step (Now and the statuses together, pushed straight to main, then republish the roadmap page as CLAUDE.md says), then go back to step 1 and start the new items, in the same mode and under the same cap.
+Setting Now is Julius's call, so ask him the one question the skill ends with. On his yes, do the skill's last step (Now and the statuses together, pushed straight to main, then republish the roadmap page as CLAUDE.md says). A yes to Now isn't a go to start, so then offer the first batch from the new Now, in the same mode and under the same cap.
 
 If he says no or wants changes, change the proposal and ask again. If he wants to stop, go to step 8.
 
