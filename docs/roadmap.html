@@ -9,7 +9,7 @@
 :root {
   --bg: #0d0f12; --plate: #16191e; --plate-hi: #1c2026; --line: #2a2f37; --rim: rgba(255, 255, 255, 0.06);
   --fg: #eceef0; --fg-2: #c6c9ce; --muted: #969ba4; --chrome: #c4cfdc; --chrome-2: #7d8a9b;
-  --done: #5fd38d; --doing: #f2c14e; --next: #8fb3ec; --talk: #c4a8f2; --julius: #e2b45e; --gleb: #6cc6c0;
+  --done: #5fd38d; --doing: #f2c14e; --next: #8fb3ec; --talk: #c4a8f2; --julius: #e2b45e; --gleb: #6cc6c0; --must: #f0838f; --nice: #8fa6c9;
   --display: "Jost", "Futura", "Century Gothic", system-ui, sans-serif;
   --body: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
@@ -22,14 +22,14 @@
   :root:not([data-theme="dark"]) {
     --bg: #eceef1; --plate: #ffffff; --plate-hi: #f5f6f8; --line: #d5d9df; --rim: rgba(255, 255, 255, 0.9);
     --fg: #15181c; --fg-2: #353a42; --muted: #5b616b; --chrome: #33455f; --chrome-2: #8c99ab;
-    --done: #1d8549; --doing: #93650c; --next: #2d5cae; --talk: #6a45b3; --julius: #93650c; --gleb: #1b7a74;
+    --done: #1d8549; --doing: #93650c; --next: #2d5cae; --talk: #6a45b3; --julius: #93650c; --gleb: #1b7a74; --must: #bf3447; --nice: #56698c;
     --logo-metal: none; --logo-black: block; color-scheme: light;
   }
 }
 :root[data-theme="light"] {
   --bg: #eceef1; --plate: #ffffff; --plate-hi: #f5f6f8; --line: #d5d9df; --rim: rgba(255, 255, 255, 0.9);
   --fg: #15181c; --fg-2: #353a42; --muted: #5b616b; --chrome: #33455f; --chrome-2: #8c99ab;
-  --done: #1d8549; --doing: #93650c; --next: #2d5cae; --talk: #6a45b3; --julius: #93650c; --gleb: #1b7a74;
+  --done: #1d8549; --doing: #93650c; --next: #2d5cae; --talk: #6a45b3; --julius: #93650c; --gleb: #1b7a74; --must: #bf3447; --nice: #56698c;
   --logo-metal: none; --logo-black: block; color-scheme: light;
 }
 * { box-sizing: border-box; }
@@ -198,6 +198,8 @@ ul.slices > li:first-child { border-top: 0; }
 .mark svg { width: 100%; height: 100%; }
 .mark.settled { color: var(--next); }
 .mark.unsettled { color: var(--doing); }
+.mark.must { color: var(--must); }
+.mark.nice { color: var(--nice); }
 .detail { padding: 2px 14px 10px 40px; display: grid; gap: 6px; }
 .note { margin: 0; color: var(--muted); font-size: 13.5px; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
 li.open .note { -webkit-line-clamp: unset; display: block; color: var(--fg-2); }
@@ -294,6 +296,8 @@ footer { color: var(--muted); font-size: 13px; border-top: 1px solid var(--line)
       <span class="s-next"><span class="dot"></span>next</span>
       <span class="s-planned"><span class="dot"></span>planned</span>
       <span class="s-idea"><span class="dot"></span>idea</span>
+      <span id="legend-must"></span>
+      <span id="legend-nice"></span>
       <span id="legend-settled"></span>
       <span id="legend-unsettled"></span>
     </div>
@@ -393,7 +397,12 @@ function liveOn(slice, data) {
 
 const SETTLED_MARK = '<span class="mark settled" role="img" aria-label="Settled" title="Settled: talked through with Julius, ready to build"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="8"/><path d="M6.5 10.2l2.4 2.4 4.6-4.9"/></svg></span>';
 const UNSETTLED_MARK = '<span class="mark unsettled" role="img" aria-label="Not settled" title="Not settled: built without being talked through with Julius, not checked off until he settles it"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-dasharray="3 2.6"><circle cx="10" cy="10" r="8"/></svg></span>';
+// Must is a solid diamond, Nice a hollow one, each in its own color, so they tell apart at a glance beside the settled mark.
+const MUST_MARK = '<span class="mark must" role="img" aria-label="Must" title="Must: finishes its phase"><svg viewBox="0 0 20 20"><path d="M10 2.5l7.5 7.5-7.5 7.5L2.5 10z" fill="currentColor"/></svg></span>';
+const NICE_MARK = '<span class="mark nice" role="img" aria-label="Nice" title="Nice: ships if it\'s ready, otherwise moves later"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M10 3.2l6.8 6.8-6.8 6.8L3.2 10z"/></svg></span>';
 const CHEVRON = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 2.5L8 6l-3.5 3.5"/></svg>';
+$("#legend-must").innerHTML = `${MUST_MARK} must`;
+$("#legend-nice").innerHTML = `${NICE_MARK} nice`;
 $("#legend-settled").innerHTML = `${SETTLED_MARK} settled`;
 $("#legend-unsettled").innerHTML = `${UNSETTLED_MARK} done, not settled`;
 
@@ -532,8 +541,9 @@ function sliceHtml(s) {
   const tags = [
     showPhase ? `<span class="tag ph">${esc(s.phase)}</span>` : "",
     s.status === "doing" || s.status === "next" ? `<span class="tag st st-${s.status}">${s.status}</span>` : "",
-    /nice/i.test(s.mustOrNice) ? '<span class="tag">Nice</span>' : "",
-    s.owner ? `<span class="tag ${s.owner.toLowerCase()}">${s.owner}</span>` : isDone(s) ? (s.isSettled ? "" : UNSETTLED_MARK) : s.isSettled ? SETTLED_MARK : "",
+    s.owner ? `<span class="tag ${s.owner.toLowerCase()}">${s.owner}</span>` : "",
+    /must/i.test(s.mustOrNice) ? MUST_MARK : /nice/i.test(s.mustOrNice) ? NICE_MARK : "",
+    s.owner ? "" : isDone(s) ? (s.isSettled ? "" : UNSETTLED_MARK) : s.isSettled ? SETTLED_MARK : "",
   ].join("");
   const open = openSlices.has(s.id);
   return `<li id="${s.id}" class="s-${esc(s.status)}${open ? " open" : ""}">
