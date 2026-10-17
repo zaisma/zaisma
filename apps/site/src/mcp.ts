@@ -706,7 +706,7 @@ export const TOOLS: Tool[] = [
     name: "get_player",
     title: "Look up a player",
     description:
-      "An account's public profile by player ID: exactly what a stranger sees (today, its name), never its email, age or other games' data. A signed-in player has the same player ID in every game, in room.players and as the sub of their player pass; games and servers get the same at https://rooms.zaisma.com/v1/players/<id> with no key. Guests have no profile (no_player).",
+      "An account's public profile by player ID: exactly what a stranger sees (today, its name and username), never its email, age or other games' data. A signed-in player has the same player ID in every game, in room.players and as the sub of their player pass; games and servers get the same at https://rooms.zaisma.com/v1/players/<id> with no key. Guests have no profile (no_player).",
     inputSchema: object({ player_id: idInput("player", "A player ID from the game: a room's players, or the sub of a player pass") }, ["player_id"]),
     outputSchema: answer({ player: PLAYER_PROFILE }),
     annotations: read,

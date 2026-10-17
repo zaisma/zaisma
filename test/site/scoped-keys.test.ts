@@ -42,7 +42,7 @@ async function tool(name: string, args: Record<string, unknown>, key: string): P
 
 beforeEach(async () => {
   await env.DB.exec("DELETE FROM api_keys; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
-  await createAccount(env.DB, { id: "dev-1", name: "Pixel Smith", ageBand: "18+" });
+  await createAccount(env.DB, { id: "dev-1", username: "Pixel_Smith", ageBand: "18+" });
   full = (await createApiKey(env.DB, "dev-1", "laptop")).token;
   for (const slug of ["sky-hopper", "cave-run"]) expect((await api("/games", full, { body: { title: slug.replace("-", " "), slug } })).status).toBe(201);
 });

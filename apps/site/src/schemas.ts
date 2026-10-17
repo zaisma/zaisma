@@ -161,7 +161,8 @@ export const SIGN_IN_APP = object({
 /** An account's public profile: what anyone sees of it, games and servers included. */
 export const PLAYER_PROFILE = object({
   id: idOf("player", "The account's player ID, the same in every game."),
-  name: text("The account's name, as other players see it."),
+  name: text("The name to show for them, as other players see it. Today it's their username."),
+  username: text("Their username: unique ignoring case, 3 to 20 letters, numbers and underscores, as in @username. It can change; the player ID never does."),
 });
 
 /** What the caller's API key may do (docs/DECISIONS.md, "Developers hold the keys"). */

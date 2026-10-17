@@ -297,7 +297,7 @@ function pageQueryFrom(queryParameters: URLSearchParams): PageQuery {
 }
 
 async function mePerson(env: Env, caller: Caller): Promise<Person> {
-  const row = await env.DB.prepare("SELECT name FROM accounts WHERE id = ?").bind(caller.accountId).first<{ name: string }>();
+  const row = await env.DB.prepare("SELECT username AS name FROM accounts WHERE id = ?").bind(caller.accountId).first<{ name: string }>();
   return { name: row?.name ?? "You", kind: "developer", is_you: true };
 }
 

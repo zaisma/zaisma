@@ -12,7 +12,7 @@ export interface Session {
   email: string;
   access: string;
   refresh: string;
-  /** When they last proved it's them (email code or passkey), in ms; 0 if unknown. */
+  /** When they last proved it's them (password, email code or passkey), in ms; 0 if unknown. */
   signedInAtMs: number;
 }
 
@@ -28,6 +28,17 @@ async function auth(env: Env, path: string, init: { method?: string; body?: unkn
 }
 
 export type SendResult = "sent" | "too-many" | "failed";
+
+/**
+ * An account made without an email is known to Supabase by an address on this domain, which has no mail
+ * servers, so nothing sent there goes anywhere. Its first part is random, never the username.
+ */
+export const NO_MAIL_DOMAIN = "no-mail.zaisma.com";
+
+/** The email the player gave, or null when the account has none (Supabase's stand-in address). */
+export const realEmail = (email: string): string | null => (email && !email.toLowerCase().endsWith(`@${NO_MAIL_DOMAIN}`) ? email : null);
+
+const newNoMailEmail = () => `account-${[...crypto.getRandomValues(new Uint8Array(12))].map((byte) => byte.toString(16).padStart(2, "0")).join("")}@${NO_MAIL_DOMAIN}`;
 
 /** Email a sign-in code. With create=false, an unknown email quietly gets nothing. */
 export async function sendCode(env: Env, email: string, create: boolean): Promise<SendResult> {
@@ -53,13 +64,86 @@ export async function verifyCode(env: Env, email: string, code: string): Promise
   return response.ok ? toSession((await response.json()) as TokenResponse) : null;
 }
 
-async function refreshSession(env: Env, refresh: string): Promise<Session | null> {
+export async function refreshSession(env: Env, refresh: string): Promise<Session | null> {
   const response = await auth(env, "/token?grant_type=refresh_token", { body: { refresh_token: refresh } });
   return response.ok ? toSession((await response.json()) as TokenResponse) : null;
 }
 
 export async function signOutEverywhere(env: Env, access: string): Promise<void> {
   await auth(env, "/logout?scope=global", { token: access }).catch(() => {});
+}
+
+// --- Passwords: Supabase checks them and keeps only a hash ---
+
+/** A Supabase user for a new account with a password and no email (known by a stand-in address), or null when Supabase said no. Needs the secret key. */
+export async function createPasswordUser(env: Env, password: string): Promise<{ userId: string; email: string } | null> {
+  if (!env.SUPABASE_SECRET_KEY) return null;
+  const email = newNoMailEmail();
+  const response = await auth(env, "/admin/users", { body: { email, password, email_confirm: true }, isAdminCall: true });
+  if (!response.ok) {
+    console.error("Making a password sign-in failed:", response.status, await response.text());
+    return null;
+  }
+  const { id } = (await response.json()) as { id?: string };
+  return id ? { userId: id, email } : null;
+}
+
+export type PasswordSignIn = Session | "wrong" | "too-many" | "failed";
+
+/** Sign in with the email Supabase knows the account by (the player's, or the stand-in) and a password. */
+export async function signInWithPassword(env: Env, email: string, password: string): Promise<PasswordSignIn> {
+  const response = await auth(env, "/token?grant_type=password", { body: { email, password } });
+  if (response.ok) return toSession((await response.json()) as TokenResponse);
+  if (response.status === 429) return "too-many";
+  if (response.status === 400 || response.status === 422) return "wrong";
+  console.error("Signing in with a password failed:", response.status, await response.text());
+  return "failed";
+}
+
+/** Set a new password for a user (the caller checked it's them, recently). Needs the secret key. */
+export async function setPassword(env: Env, userId: string, password: string): Promise<boolean> {
+  if (!env.SUPABASE_SECRET_KEY) return false;
+  const response = await auth(env, `/admin/users/${encodeURIComponent(userId)}`, { method: "PUT", body: { password }, isAdminCall: true });
+  if (!response.ok) console.error("Setting a password failed:", response.status, await response.text());
+  return response.ok;
+}
+
+/** The email Supabase knows a user by: the player's own, or the stand-in for an account without one. Needs the secret key. */
+export async function authUserEmail(env: Env, userId: string): Promise<string | null> {
+  if (!env.SUPABASE_SECRET_KEY) return null;
+  const user = await auth(env, `/admin/users/${encodeURIComponent(userId)}`, { method: "GET", isAdminCall: true });
+  return user.ok ? (((await user.json()) as { email?: string }).email ?? null) : null;
+}
+
+// --- Email: an optional way back in ---
+
+/**
+ * Ask Supabase to email a code to a new address for the signed-in player; the address only becomes
+ * theirs once they enter it (verifyEmailChange). Supabase's "secure email change" is off, since an
+ * account without an email can't confirm from its stand-in address; adding one needs a recent sign-in instead.
+ */
+export async function startEmailChange(env: Env, access: string, email: string): Promise<SendResult | "taken"> {
+  const response = await auth(env, "/user", { method: "PUT", body: { email }, token: access });
+  if (response.ok) return "sent";
+  if (response.status === 429) return "too-many";
+  const answer = await response.text();
+  if (response.status === 422 && answer.includes("email_exists")) return "taken";
+  console.error("Changing an email failed:", response.status, answer);
+  return "failed";
+}
+
+/** The code from the new address: the email is the account's now, and here's a fresh session that says so. */
+export async function verifyEmailChange(env: Env, email: string, code: string): Promise<Session | null> {
+  const response = await auth(env, "/verify", { body: { type: "email_change", email, token: code } });
+  return response.ok ? toSession((await response.json()) as TokenResponse) : null;
+}
+
+/** Forget the account's email: Supabase knows it by a new stand-in address from now on. Needs the secret key. */
+export async function removeEmail(env: Env, userId: string): Promise<boolean> {
+  if (!env.SUPABASE_SECRET_KEY) return false;
+  const response = await auth(env, `/admin/users/${encodeURIComponent(userId)}`, { method: "PUT", body: { email: newNoMailEmail(), email_confirm: true }, isAdminCall: true });
+  if (!response.ok) console.error("Removing an email failed:", response.status, await response.text());
+  return response.ok;
 }
 
 // --- Google and Discord, through Supabase (PKCE, so the code only works with this browser's cookie) ---
@@ -100,12 +184,10 @@ export async function exchangeCode(env: Env, code: string, verifier: string): Pr
 
 /**
  * A session for someone who just signed in with a passkey (checked by us, see passkeys.ts).
- * Supabase makes it: a one-time sign-in link for their email, used straight away, never sent.
+ * Supabase makes it: a one-time sign-in link for their email (or stand-in address), used straight away, never sent.
  */
 export async function sessionForUser(env: Env, userId: string): Promise<Session | null> {
-  if (!env.SUPABASE_SECRET_KEY) return null;
-  const user = await auth(env, `/admin/users/${encodeURIComponent(userId)}`, { method: "GET", isAdminCall: true });
-  const email = user.ok ? ((await user.json()) as { email?: string }).email : undefined;
+  const email = await authUserEmail(env, userId);
   if (!email) return null;
   const link = await auth(env, "/admin/generate_link", { body: { type: "magiclink", email }, isAdminCall: true });
   if (!link.ok) {

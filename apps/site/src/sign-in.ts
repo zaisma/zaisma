@@ -22,7 +22,7 @@ import { html, layout, message, raw } from "./html.ts";
  * developers' own sites and servers, and games with their own accounts, let players sign in with
  * their Zaisma account (docs/DECISIONS.md, "Sign in with Zaisma ships with Zaisma accounts in games").
  * A site learns what a game does: the player ID, the same in every game and in player passes, and with
- * the profile scope the public name. Never the email, age or anything else on the account.
+ * the profile scope the public username. Never the email, age or anything else on the account.
  *
  *   GET  /.well-known/openid-configuration   where everything is, for any OpenID Connect library
  *   GET  /.well-known/jwks.json              the public key that signs ID tokens
@@ -55,6 +55,7 @@ interface IdTokenClaims {
   auth_time: number;
   nonce?: string;
   name?: string;
+  preferred_username?: string;
 }
 
 /** What an access token says: enough for userinfo to answer, and nothing for any other call. */
@@ -166,7 +167,7 @@ export async function handleSignIn(request: Request, env: Env, path: string): Pr
         id_token_signing_alg_values_supported: ["RS256"],
         token_endpoint_auth_methods_supported: ["client_secret_basic", "client_secret_post", "none"],
         code_challenge_methods_supported: ["S256"],
-        claims_supported: ["iss", "sub", "aud", "iat", "exp", "auth_time", "nonce", "name"],
+        claims_supported: ["iss", "sub", "aud", "iat", "exp", "auth_time", "nonce", "name", "preferred_username"],
         prompt_values_supported: ["none", "consent"],
         authorization_response_iss_parameter_supported: true,
         service_documentation: "https://github.com/zaisma/zaisma/blob/main/docs/DEVELOPER-API.md#sign-in-with-zaisma",
@@ -208,7 +209,7 @@ async function checkAuthorize(env: Env, given: (name: string) => string | null):
   const scopes = (parameters.scope ?? "").split(" ").filter(Boolean);
   if (!scopes.includes("openid")) return refuse("invalid_scope", 'scope needs openid: send scope "openid profile".');
   const unknownScope = scopes.find((scope) => !SCOPES.includes(scope));
-  if (unknownScope) return refuse("invalid_scope", `Zaisma doesn't share ${unknownScope}: only openid (the player ID) and profile (the player's name). Never an email.`);
+  if (unknownScope) return refuse("invalid_scope", `Zaisma doesn't share ${unknownScope}: only openid (the player ID) and profile (the player's username). Never an email.`);
   const codeChallenge = parameters.code_challenge ?? null;
   if (codeChallenge && (parameters.code_challenge_method !== "S256" || !/^[A-Za-z0-9_-]{43}$/.test(codeChallenge))) return refuse("invalid_request", "PKCE takes code_challenge_method=S256 and a 43-character code_challenge.");
   if (!codeChallenge && app.kind === "public") return refuse("invalid_request", "A public app needs PKCE: send code_challenge and code_challenge_method=S256.");
@@ -299,7 +300,7 @@ function withCookies(response: Response, cookies: string[]): Response {
 
 async function consentPage(env: Env, checked: Allowed, account: Account): Promise<Response> {
   const { app } = checked;
-  const developer = await env.DB.prepare("SELECT accounts.name FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE owners.id = ?").bind(app.owner_id).first<{ name: string }>();
+  const developer = await env.DB.prepare("SELECT accounts.username AS name FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE owners.id = ?").bind(app.owner_id).first<{ name: string }>();
   const backTo = new URL(checked.redirectUrl);
   const sharesName = checked.scopes.includes("profile");
   const response = layout(env, {
@@ -309,8 +310,8 @@ async function consentPage(env: Env, checked: Allowed, account: Account): Promis
     formTargets: [backTo.origin],
     body: html`<div class="narrow">
 <h1>Sign in to ${app.name}</h1>
-<p class="lead">with your Zaisma account, ${account.name}.</p>
-<p>${app.name} gets your player ID${sharesName ? " and your name" : ""}, the same as games on Zaisma see. Never your email, your age or anything else on your account.</p>
+<p class="lead">with your Zaisma account, ${account.username}.</p>
+<p>${app.name} gets your player ID${sharesName ? " and your username" : ""}, the same as games on Zaisma see. Never your email, your age or anything else on your account.</p>
 <p class="muted">${app.name} is run by ${developer ? `${developer.name}, a developer on Zaisma` : "a developer on Zaisma"}, not by Zaisma. After this you go back to <strong>${backTo.host}</strong>.</p>
 <form class="row" method="post" action="/oauth/authorize">
 ${AUTHORIZE_FIELDS.filter((name) => checked.parameters[name]).map((name) => html`<input type="hidden" name="${name}" value="${checked.parameters[name]!}">`)}
@@ -399,7 +400,7 @@ async function token(request: Request, env: Env, key: SignInKey): Promise<Respon
     exp: issuedAtSec + TOKEN_DURATION_SEC,
     auth_time: Math.floor(code.signed_in_at_ms / 1000),
     ...(code.nonce ? { nonce: code.nonce } : {}),
-    ...(scopes.includes("profile") ? { name: account.name } : {}),
+    ...(scopes.includes("profile") ? { name: account.username, preferred_username: account.username } : {}),
   };
   const accessClaims: AccessTokenClaims = { iss: env.SITE_ORIGIN, sub: account.player_id, aud: userinfoUrl(env), client_id: app.id, scope: code.scope, iat: issuedAtSec, exp: issuedAtSec + TOKEN_DURATION_SEC };
   return Response.json(
@@ -417,8 +418,8 @@ async function userinfo(request: Request, env: Env, key: SignInKey): Promise<Res
   const accessToken = request.headers.get("authorization")?.match(/^Bearer\s+(\S+)$/i)?.[1] ?? "";
   const claims = accessToken ? await readAccessToken(env, key, accessToken) : null;
   if (!claims) return refuse("The access token is missing, expired or not from Zaisma.");
-  const account = await env.DB.prepare("SELECT id, name FROM accounts WHERE player_id = ?").bind(claims.sub).first<{ id: string; name: string }>();
+  const account = await env.DB.prepare("SELECT id, username FROM accounts WHERE player_id = ?").bind(claims.sub).first<{ id: string; username: string }>();
   // A player who removed the app, or deleted their account, is no longer shared.
   if (!account || !(await hasSignInGrant(env.DB, account.id, claims.client_id))) return refuse("The player removed this app, or their account is gone.");
-  return Response.json({ sub: claims.sub, ...(claims.scope.split(" ").includes("profile") ? { name: account.name } : {}) }, { headers: { ...OPEN, "Cache-Control": "no-store" } });
+  return Response.json({ sub: claims.sub, ...(claims.scope.split(" ").includes("profile") ? { name: account.username, preferred_username: account.username } : {}) }, { headers: { ...OPEN, "Cache-Control": "no-store" } });
 }

@@ -81,8 +81,8 @@ beforeEach(async () => {
   await env.DB.exec(
     "DELETE FROM forum_posts; DELETE FROM forum_topic_tags; DELETE FROM forum_votes; DELETE FROM forum_follows; DELETE FROM forum_misplaced_flags; DELETE FROM forum_search; DELETE FROM forum_helpful_marks; DELETE FROM forum_reports; DELETE FROM forum_media; DELETE FROM forum_mentions; DELETE FROM forum_topics; DELETE FROM api_keys; DELETE FROM audit_log; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;",
   );
-  await createAccount(env.DB, { id: "dev-1", name: "Pixel Smith", ageBand: "18+" });
-  await createAccount(env.DB, { id: "dev-2", name: "Other Dev", ageBand: "18+" });
+  await createAccount(env.DB, { id: "dev-1", username: "Pixel_Smith", ageBand: "18+" });
+  await createAccount(env.DB, { id: "dev-2", username: "Other_Dev", ageBand: "18+" });
   token = (await createApiKey(env.DB, "dev-1", "claude")).token;
   other = (await createApiKey(env.DB, "dev-2", "claude")).token;
 });
@@ -137,7 +137,7 @@ describe("posting", () => {
     expect(await mcp("message_zaisma", { kind: "gap", title: "No way to delete a game", text_markdown: "x", author_kind: "developer" })).toMatchObject({ code: "unknown_field", field: "author_kind" });
     const sent = await mcp("message_zaisma", { kind: "gap", title: "No way to delete a game", text_markdown: "I need to remove a test game.", images_base64: [PNG] });
     expect(sent.topic.is_public).toBe(false);
-    expect(sent.posts[0]).toMatchObject({ author: { kind: "ai", name: "Pixel Smith", is_you: true }, posted_via: "mcp" });
+    expect(sent.posts[0]).toMatchObject({ author: { kind: "ai", name: "Pixel_Smith", is_you: true }, posted_via: "mcp" });
     expect(sent.posts[0].media[0].image_url).toContain(`/api/dev/forum/${sent.topic.id}/media/`);
     const image = await SELF.fetch(sent.posts[0].media[0].image_url, { headers: { authorization: `Bearer ${token}` } });
     expect(image.headers.get("content-type")).toBe("image/png");
@@ -194,7 +194,7 @@ describe("threads and known issues", () => {
     // The other developer's AI sends its own case privately; a third says Me too. Both count.
     const added = await mcp("message_zaisma", { kind: "bug", title: "Big uploads", text_markdown: "Same here with a 600 MB Godot export.", known_issue_topic_id: knownIssue.id }, other);
     expect(added.topic).toMatchObject({ is_public: false, merged_into_topic: { id: knownIssue.id } });
-    const third = await createAccount(env.DB, { id: "dev-3", name: "Third", ageBand: "18+" });
+    const third = await createAccount(env.DB, { id: "dev-3", username: "Third", ageBand: "18+" });
     const thirdKey = (await createApiKey(env.DB, third.id, "ai")).token;
     expect(await mcp("vote", { topic_id: knownIssue.id }, thirdKey)).toEqual({ vote_count: 1, has_voted: true, next_steps: [] });
     expect((await mcp("get_topic", { topic_id: knownIssue.id }, thirdKey)).topic).toMatchObject({ affected_developer_count: 3, has_voted: true, your_message_topic_id: null });
@@ -234,9 +234,9 @@ describe("threads and known issues", () => {
     expect(queue.topics).toHaveLength(1);
     expect(queue.topics[0]).toMatchObject({ id: topic.id, kind: "feature", topic_status: "new", is_public: true, affected_developer_count: 1, latest_post: { author_kind: "ai" } });
     // With no AI set up, the public post waits for a person.
-    expect(queue.waiting_posts).toMatchObject([{ topic: { id: topic.id }, check_status: "pending", developer_name: "Pixel Smith" }]);
+    expect(queue.waiting_posts).toMatchObject([{ topic: { id: topic.id }, check_status: "pending", developer_name: "Pixel_Smith" }]);
     const item = await admin("get_topic", { topic_id: topic.id });
-    expect(item).toMatchObject({ topic: { developer_name: "Pixel Smith" }, posts: [{ author_kind: "ai", posted_via: "mcp", check_status: "pending" }] });
+    expect(item).toMatchObject({ topic: { developer_name: "Pixel_Smith" }, posts: [{ author_kind: "ai", posted_via: "mcp", check_status: "pending" }] });
 
     // A public topic becomes a known issue itself.
     const decided = await admin("decide_topic", { topic_id: topic.id, topic_status: "planned", known_issue: { title: "Webhooks", roadmap_item: "Webhooks for developers" }, severity: "low", category: "mcp" });
@@ -462,7 +462,7 @@ describe("search, phases and reading a topic in part", () => {
     expect((await mcp("report_post", { topic_id: topic.id, post_id: reply.id, reason: "nope" })).error).toContain("bad_reason");
     expect(await mcp("report_post", { topic_id: topic.id, post_id: reply.id, reason: "scam" })).toEqual({ has_reported: true, is_hidden: false, next_steps: [] });
     for (const number of [3, 4]) {
-      await createAccount(env.DB, { id: `dev-${number}`, name: `Dev ${number}`, ageBand: "18+" });
+      await createAccount(env.DB, { id: `dev-${number}`, username: `Dev_${number}`, ageBand: "18+" });
       const key = (await createApiKey(env.DB, `dev-${number}`, "ai")).token;
       await mcp("report_post", { topic_id: topic.id, post_id: reply.id, reason: "harassment", details: number === 4 ? "Rude." : undefined }, key);
     }
@@ -524,12 +524,12 @@ describe("search, phases and reading a topic in part", () => {
   it("saves mentions to the right people, who hear, and lists people to mention", async () => {
     const { topic } = await mcp("post_topic", { kind: "question", category: "rooms", title: "Room limits?", text_markdown: "How many players fit?" });
     await passAll();
-    const reply = await mcp("reply_to_topic", { topic_id: topic.id, text_markdown: "Ask @Zaisma or @Pixel_Smith, or @[Pixel Smith] who asked." }, other);
+    const reply = await mcp("reply_to_topic", { topic_id: topic.id, text_markdown: "Ask @Zaisma or @Pixel_Smith, or @[Pixel_Smith] who asked." }, other);
     // Not heard until others can see the post.
     expect((await env.DB.prepare("SELECT seen_at_ms FROM forum_follows WHERE topic_id = ? AND account_id = 'dev-1'").bind(topic.id).first<{ seen_at_ms: number }>())!.seen_at_ms).toBeGreaterThan(0);
     await passAll();
     const seen = await mcp("get_topic", { topic_id: topic.id }, other);
-    expect(seen.posts[1].mentioned_names.sort()).toEqual(["Pixel Smith", "Zaisma"]);
+    expect(seen.posts[1].mentioned_names.sort()).toEqual(["Pixel_Smith", "Zaisma"]);
     expect((await mcp("search_forum", { tab: "yours" })).topics[0]).toMatchObject({ id: topic.id, is_unread: true });
     expect((await admin("list_topics")).zaisma_mentions).toMatchObject([{ id: reply.post.id, topic: { id: topic.id } }]);
     // Once Zaisma replies, it's no longer waiting.
@@ -537,7 +537,7 @@ describe("search, phases and reading a topic in part", () => {
     expect((await admin("list_topics")).zaisma_mentions).toEqual([]);
 
     const people = await mcp("forum_people", { name_prefix: "p", topic_id: topic.id }, other);
-    expect(people.people).toEqual([{ name: "Pixel Smith", is_zaisma: false, is_in_topic: true }]);
+    expect(people.people).toEqual([{ name: "Pixel_Smith", is_zaisma: false, is_in_topic: true }]);
     expect((await mcp("forum_people", { name_prefix: "za" }, other)).people[0]).toEqual({ name: "Zaisma", is_zaisma: true, is_in_topic: false });
   });
 
@@ -612,7 +612,7 @@ describe("search, phases and reading a topic in part", () => {
     const { topic } = await mcp("post_topic", { kind: "talk", category: "other", title: "Big thread", text_markdown: "Everyone say hi." });
     await passAll();
     for (let i = 0; i < 8; i++) {
-      await createAccount(env.DB, { id: `crowd-${i}`, name: `Crowd ${i}`, ageBand: "18+" });
+      await createAccount(env.DB, { id: `crowd-${i}`, username: `Crowd_${i}`, ageBand: "18+" });
       const key = (await createApiKey(env.DB, `crowd-${i}`, "ai")).token;
       await mcp("reply_to_topic", { topic_id: topic.id, text_markdown: `Hi from ${i}.` }, key);
     }
@@ -620,7 +620,7 @@ describe("search, phases and reading a topic in part", () => {
     const row = (await api("/forum")).data.topics.find((listed: { id: string }) => listed.id === topic.id);
     expect(row.recent_participants).toHaveLength(4);
     expect(row.participant_count).toBe(8);
-    expect(row.recent_participants[0].name).toBe("Crowd 7");
+    expect(row.recent_participants[0].name).toBe("Crowd_7");
   });
 });
 
