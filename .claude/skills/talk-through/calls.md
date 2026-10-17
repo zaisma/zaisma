@@ -41,6 +41,9 @@ Would his answer be better than Claude's? His edge: UI and UX, how players and d
 **How far a block reaches: hidden everywhere, or kept out of your rooms.** *Player safety in rooms, Oct 16, 2026.* Offered A (a wall, Zaisma never helps them find you) or B (also turned away from your rooms), picking A. He took A and added the reverse of B: the blocker's own room picks steer away from the blocked player, a preference and never a rule on someone else ("try not to walk into that area in the first place"). He reasons from property rights: nobody's preference is enforced on another.
 *Lesson:* when an option forces one player's wish on another, look for the voluntary version (the person who wants distance takes it) and offer it yourself.
 
+**When a live page gets its restyle.** *Friends, Oct 16, 2026.* A done item whose pages were plain narrow cards. Asked as one page call with screenshots and preview links: restyle now (A) or with the row that changes the page anyway (B, picked, since the daily-use parts move to home). He took B in one click.
+*Lesson:* for a done page that a planned row will rework, the call is when it gets its look, not the look itself; show the live page and name the row it joins.
+
 **Whether Zaisma's own demos sit on the player shelves.** *Two demo games, Oct 16, 2026.* A done item; the call was who the games are for (players or developers), shown as what a player and a developer each meet under each option, plus the costly "polish them" option. He took the pick (unlist at the seed games, link from the developer page) in one click.
 *Lesson:* what's on the player shelves is a claims call even for Zaisma's own content; one scenario per seat is enough.
 
