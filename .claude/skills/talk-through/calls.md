@@ -64,6 +64,14 @@ Would his answer be better than Claude's? His edge: UI and UX, how players and d
 **"Why no messaging?"** *Friends playing now.* He asked about a settled line. The settled reasons (teen safety, moderation cost, the direction), plus a wordless alternative for the case he cared about (room invites), kept the line in one round, and he liked the alternative.
 *Lesson:* when he questions a settled decision, give its reasons plainly and solve the need behind the question without crossing it.
 
+**What a private profile says.** *Profiles, Oct 17, 2026.* Claude's sketch showed a teen's profile to a stranger as "Mia shares more with friends." He caught that it tells a stranger the way in (become her friend) and asked for a brick wall instead: "Mia's profile is private.", the same words for a private adult as for a teen.
+*Lesson:* a privacy wall says nothing about how to get past it or why it's there. Read each line of copy as the person it keeps out would.
+
+**Friend list, or friends in common.** *Profiles.* Claude left the friend list off. He agreed and added mutual friends, the legit part of a friend list. Hours played he moved to an owner's choice with the later extras rather than cutting it.
+*Lesson:* when cutting something for safety, offer the version that keeps its honest use. A "flex" field is the owner's choice, not Zaisma's.
+
+**Profiles as marketing.** *Profiles.* He took games-first and framed the whole page as showing off developers and their games: developers come to Zaisma for exposure. A developer's own games lead their profile.
+*Lesson:* for any page with games or people on it, ask what it does for developers' exposure; he'll weigh that first.
 **Which links teens can open, raised by him mid-talk.** *Registered links, Oct 17, 2026.* The item opened as *One call* (where the leaving notice sits) and he took the pick in one click. Then he asked that under-18 accounts open only trusted sites. Claude didn't just write it: it showed who the rule really stops (guests have no age, so either most players lose the Patreon button or teens just play signed out), what it costs developers at the beta, and which settled decisions it changes, next to a narrower option (block only chat apps). He answered every point, refined his own option (by domain, payment sites seeded, guests treated like teens so honest players aren't punished) and kept the narrow one's chat-app block. He also caught copy Claude had written: a card saying "only for 18+" invites teens to lie about their age.
 *Lesson:* when he proposes a safety rule, bring who it actually stops, what it costs in money and what it changes, with a narrower option; expect him to merge options rather than pick one. Copy that gives a restriction's reason can create the reason to dodge it.
 
@@ -94,6 +102,7 @@ All three talks above should have opened differently:
 - **Saves through the API:** *Needs you*, the direction question plus what players see.
 - **Games can reach our rooms and their own servers:** *One call*, rightly: the promise, with the direction check folded into the options.
 - **Friends playing now:** *Needs you*, rightly: a page, a player control and a direction question (Join by default). It grew into five rows over three rounds.
+- **Profiles:** *Needs you*, rightly: one page call with five picks in a sketch. Settled in one round; he changed two picks and added mutual friends.
 
 ## Scan before publishing (Oct 16, 2026)
 
