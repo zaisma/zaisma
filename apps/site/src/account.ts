@@ -583,8 +583,13 @@ function keyScopeText(key: ApiKey, games: { slug: string; title: string }[]): st
   const access = keyAccess(key);
   const titles = access.gameSlugs?.map((slug) => games.find((game) => game.slug === slug)?.title ?? slug);
   const where = titles ? (titles.length === 1 ? `only ${titles[0]}` : `only ${titles.slice(0, -1).join(", ")} and ${titles.at(-1)}`) : "all games";
-  const what = access.accessLevel === "custom" ? ACCESS_AREAS.filter((area) => access.areaAccess[area] !== "none").map((area) => `${AREA_SHORT_LABELS[area]} ${access.areaAccess[area]}`).join(", ") : LEVEL_LABELS[access.accessLevel][0];
-  return `${what}, ${where}`;
+  const what =
+    access.accessLevel === "custom"
+      ? `Custom: ${ACCESS_AREAS.filter((area) => access.areaAccess[area] !== "none")
+          .map((area) => `${AREA_SHORT_LABELS[area]} ${access.areaAccess[area]}`)
+          .join(", ")}`
+      : LEVEL_LABELS[access.accessLevel][0];
+  return `${what}; ${where}`;
 }
 
 /** Making a key: its name, what it can do (a level or a choice per area) and which games. Open when there are no keys yet. */

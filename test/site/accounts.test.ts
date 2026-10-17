@@ -913,7 +913,7 @@ describe("API keys on the account page", () => {
     const access = await (await SELF.fetch(`${SITE}/api/dev/access`, { headers: { authorization: `Bearer ${token}` } })).json();
     // Games that aren't the developer's are dropped.
     expect(access).toMatchObject({ access: { api_key_name: "CI", access_level: "upload", game_slugs: ["sky-hopper"] } });
-    expect(await (await b.go("/account")).text()).toContain("Upload, only Sky Hopper");
+    expect(await (await b.go("/account")).text()).toContain("Upload; only Sky Hopper");
 
     // A custom key for some games: sign-in apps and webhooks stay out of its reach, whatever the form sent.
     const custom = new URLSearchParams({ name: "Stats", access_level: "custom", game_scope: "some", game_slugs: "cave-run", game_access: "read", version_access: "read", stats_access: "read", database_access: "none", forum_access: "none", sign_in_app_access: "change", webhook_access: "read" });
