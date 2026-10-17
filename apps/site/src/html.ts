@@ -315,6 +315,7 @@ dialog.wizard>form{display:flex;flex-direction:column;flex:1;min-height:0}
 .choices .check{display:flex;flex-direction:row;gap:10px;align-items:flex-start;padding:8px 0;color:var(--text)}
 .choices .check input{width:18px;height:18px;min-height:0;margin:2px 0 0;flex:none;accent-color:#c9cace}
 .choices .check small{display:block;margin-top:3px;font-size:13px}
+.choices .check input:disabled,.choices .check input:disabled+span{opacity:.4;cursor:not-allowed}
 details summary{cursor:pointer;color:var(--muted)}
 details[open] summary{margin-bottom:10px}
 pre{white-space:pre-wrap;word-break:break-word;background:#0d0f12;padding:12px;font-size:13px;box-shadow:inset 0 2px 5px rgba(0,0,0,.65),0 1px 0 rgba(255,255,255,.06)}

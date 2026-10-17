@@ -1,21 +1,16 @@
 import { isIdOf, newId } from "./ids.ts";
+import { SOCIAL_SETTINGS, defaultSocialMode, isWithinAgeLimits, pickSocialSettings, socialModeSettings, socialModesFor, socialSettingsInNewBand, socialSettingsOf, type SocialMode, type SocialSettings } from "./social-settings.ts";
 
 export type AgeBand = "13-15" | "16-17" | "18+";
 
-/**
- * Who an account can chat with (docs/DECISIONS.md, "Social modes decide who can talk to whom"):
- * nobody, friends only, or anyone in the same band group who is open and social too.
- */
-export type SocialMode = "solo_focused" | "friends_focused" | "open_and_social";
-
-export interface Account {
+/** An account, with its social settings (social-settings.ts). */
+export interface Account extends SocialSettings {
   /** The Supabase user ID. Stays inside Zaisma. */
   id: string;
   /** The player ID games see, the same in every game (player_…). */
   player_id: string;
   name: string;
   age_band: AgeBand;
-  social_mode: SocialMode;
   created_at_ms: number;
   updated_at_ms: number;
 }
@@ -47,30 +42,8 @@ export function ageBand(ageYearCount: number): AgeBand | null {
 }
 
 export const AGE_BANDS: readonly AgeBand[] = ["13-15", "16-17", "18+"];
-export const SOCIAL_MODES: readonly SocialMode[] = ["solo_focused", "friends_focused", "open_and_social"];
 
 export const isAgeBand = (given: unknown): given is AgeBand => AGE_BANDS.includes(given as AgeBand);
-export const isSocialMode = (given: unknown): given is SocialMode => SOCIAL_MODES.includes(given as SocialMode);
-
-/** The social modes an age band can choose: 13–15 never open and social. */
-export function socialModesFor(band: AgeBand): readonly SocialMode[] {
-  return band === "13-15" ? ["solo_focused", "friends_focused"] : SOCIAL_MODES;
-}
-
-/** Where a new account starts: 13–15 with no chat, everyone else with friends only. */
-export function defaultSocialMode(band: AgeBand): SocialMode {
-  return band === "13-15" ? "solo_focused" : "friends_focused";
-}
-
-/**
- * Who an open-and-social account can meet: 16–17 only other 16–17s, 18+ only other 18+s. Null when
- * the account doesn't chat with strangers. Never leaves Zaisma as it is: passes carry an opaque
- * chat group made from it (chatGroupId), so games never learn an age.
- */
-export function chatBandGroup(account: Pick<Account, "age_band" | "social_mode">): "16-17" | "18+" | null {
-  if (account.social_mode !== "open_and_social") return null;
-  return account.age_band === "16-17" ? "16-17" : account.age_band === "18+" ? "18+" : null;
-}
 
 export const NAME_RULES = "3 to 20 letters, numbers, spaces, dashes or underscores.";
 
@@ -114,30 +87,31 @@ export async function playerProfile(database: D1Database, playerId: string): Pro
   return database.prepare("SELECT player_id AS id, name FROM accounts WHERE player_id = ?").bind(playerId).first<PlayerProfile>();
 }
 
-/** A new account. A social mode its band can't choose (or none) becomes the band's default. */
+/** A new account, on a social mode's preset. A social mode its band can't choose (or none) becomes the band's default. */
 export async function createAccount(database: D1Database, newAccount: { id: string; name: string; ageBand: AgeBand; socialMode?: SocialMode }): Promise<Account> {
   const socialMode = newAccount.socialMode && socialModesFor(newAccount.ageBand).includes(newAccount.socialMode) ? newAccount.socialMode : defaultSocialMode(newAccount.ageBand);
-  const account: Account = { id: newAccount.id, player_id: newId("player"), name: newAccount.name, age_band: newAccount.ageBand, social_mode: socialMode, created_at_ms: now(), updated_at_ms: now() };
+  const account: Account = { id: newAccount.id, player_id: newId("player"), name: newAccount.name, age_band: newAccount.ageBand, ...socialModeSettings(socialMode, newAccount.ageBand), created_at_ms: now(), updated_at_ms: now() };
   await database
-    .prepare("INSERT INTO accounts (id, player_id, name, age_band, social_mode, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING")
-    .bind(account.id, account.player_id, account.name, account.age_band, account.social_mode, account.created_at_ms, account.updated_at_ms)
+    .prepare(`INSERT INTO accounts (id, player_id, name, age_band, ${SOCIAL_SETTINGS.join(", ")}, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ${SOCIAL_SETTINGS.map(() => "?").join(", ")}, ?, ?) ON CONFLICT (id) DO NOTHING`)
+    .bind(account.id, account.player_id, account.name, account.age_band, ...SOCIAL_SETTINGS.map((setting) => account[setting]), account.created_at_ms, account.updated_at_ms)
     .run();
   return (await accountById(database, newAccount.id)) ?? account;
 }
 
 /**
- * Change an account's name, age band or social mode. A social mode its band can't choose is refused
- * (false); the band only ever moves up (the caller checks the birth date), keeping the mode.
+ * Change an account's name, age band or social settings. Settings past its band's limits are refused
+ * (false). The band only ever moves up (the caller checks the birth date), and an account on a preset
+ * keeps it there (socialSettingsInNewBand).
  */
-export async function updateAccount(database: D1Database, id: string, change: { name?: string; ageBand?: AgeBand; socialMode?: SocialMode }): Promise<boolean> {
+export async function updateAccount(database: D1Database, id: string, change: { name?: string; ageBand?: AgeBand; socialSettings?: SocialSettings }): Promise<boolean> {
   const current = await accountById(database, id);
   if (!current) return false;
   const band = change.ageBand ?? current.age_band;
-  const socialMode = change.socialMode ?? current.social_mode;
-  if (!socialModesFor(band).includes(socialMode)) return false;
+  const settings = change.socialSettings ? pickSocialSettings(change.socialSettings) : change.ageBand ? socialSettingsInNewBand(current, band) : socialSettingsOf(current);
+  if (!isWithinAgeLimits(settings, band)) return false;
   await database
-    .prepare("UPDATE accounts SET name = ?, age_band = ?, social_mode = ?, updated_at_ms = ? WHERE id = ?")
-    .bind(change.name ?? current.name, band, socialMode, now(), id)
+    .prepare(`UPDATE accounts SET name = ?, age_band = ?, ${SOCIAL_SETTINGS.map((setting) => `${setting} = ?`).join(", ")}, updated_at_ms = ? WHERE id = ?`)
+    .bind(change.name ?? current.name, band, ...SOCIAL_SETTINGS.map((setting) => settings[setting]), now(), id)
     .run();
   return true;
 }

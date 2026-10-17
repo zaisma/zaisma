@@ -11,6 +11,11 @@ import { errorProblems, schemaProblems } from "../schema-check.ts";
 const SITE = "https://zaisma.test";
 const SUPABASE = "https://supabase.test";
 
+// The presets' settings (docs/DECISIONS.md, "Social settings, with the social modes as presets").
+const SOLO_FOCUSED = { who_can_chat: "nobody", who_can_join: "friends", who_sees_playing_now: "friends", who_sees_played_games: "friends", who_sees_online: "friends", who_can_send_friend_requests: "nobody" };
+const FRIENDS_FOCUSED = { ...SOLO_FOCUSED, who_can_chat: "friends" };
+const OPEN_AND_SOCIAL_ADULT = { who_can_chat: "anyone", who_can_join: "anyone", who_sees_playing_now: "anyone", who_sees_played_games: "anyone", who_sees_online: "friends", who_can_send_friend_requests: "anyone" };
+
 // --- A small stand-in for Supabase Auth: email codes, ES256 access tokens, refresh, admin delete. ---
 
 let keys: CryptoKeyPair;
@@ -191,8 +196,8 @@ describe("making an account", () => {
     const age = await b.go("/join/age", BIRTH_ADULT);
     const agePage = await age.text();
     expect(agePage).toContain("Your name");
-    // 16 and over pick a social mode on the way in, friends-focused unless they choose another.
-    expect(agePage).toContain("Who can chat with you?");
+    // 16 and over pick a preset on the way in, friends-focused unless they choose another.
+    expect(agePage).toContain("Who can chat with you and see what you play?");
     const email = await b.go("/join/email", { email: "Fox@Example.com", name: "Night Owl" });
     expect(await email.text()).toContain("Check your email");
     expect(sent).toEqual([{ email: "fox@example.com", create: true }]);
@@ -205,7 +210,7 @@ describe("making an account", () => {
     expect(b.jar.has("__Host-zaisma_join")).toBe(false);
 
     const account = await accountById(env.DB, users.get("fox@example.com")!);
-    expect(account).toMatchObject({ name: "Night Owl", age_band: "18+", social_mode: "friends_focused" });
+    expect(account).toMatchObject({ name: "Night Owl", age_band: "18+", ...FRIENDS_FOCUSED });
     const page = await (await b.go("/account?welcome")).text();
     expect(page).toContain("Welcome to Zaisma, Night Owl");
     expect(page).toContain("fox@example.com");
@@ -217,21 +222,22 @@ describe("making an account", () => {
     await older.go("/join/age", { year: String(thisYear - 17), month: "1", day: "1" });
     await older.go("/join/email", { email: "open@example.com", name: "Open Kite", social_mode: "open_and_social" });
     await older.go("/signin/code", { email: "open@example.com", code: "123456" });
-    expect(await accountById(env.DB, users.get("open@example.com")!)).toMatchObject({ age_band: "16-17", social_mode: "open_and_social" });
+    // Open and social at 16–17: chat and friend requests from anyone, the rest with friends.
+    expect(await accountById(env.DB, users.get("open@example.com")!)).toMatchObject({ age_band: "16-17", ...FRIENDS_FOCUSED, who_can_chat: "anyone", who_can_send_friend_requests: "anyone" });
 
     const younger = new Browser();
-    expect(await (await younger.go("/join/age", { year: String(thisYear - 14), month: "1", day: "1" })).text()).not.toContain("Who can chat with you?");
+    expect(await (await younger.go("/join/age", { year: String(thisYear - 14), month: "1", day: "1" })).text()).not.toContain("Who can chat with you");
     // A hand-made form can't give 13–15 open and social.
     await younger.go("/join/email", { email: "young@example.com", name: "Small Kite", social_mode: "open_and_social" });
     await younger.go("/signin/code", { email: "young@example.com", code: "123456" });
-    expect(await accountById(env.DB, users.get("young@example.com")!)).toMatchObject({ age_band: "13-15", social_mode: "solo_focused" });
+    expect(await accountById(env.DB, users.get("young@example.com")!)).toMatchObject({ age_band: "13-15", ...SOLO_FOCUSED });
   });
 
   it("never stores the birth date", async () => {
     const b = new Browser();
     await join(b, "teen@example.com", "Quiet Comet", { year: String(thisYear - 15), month: "1", day: "1" });
     const row = await env.DB.prepare("SELECT * FROM accounts").first();
-    expect(row).toMatchObject({ age_band: "13-15", social_mode: "solo_focused" });
+    expect(row).toMatchObject({ age_band: "13-15", ...SOLO_FOCUSED });
     // Everything but the id and timestamps, which can contain any four digits.
     const { id: _id, created_at_ms: _c, updated_at_ms: _u, ...stored } = row!;
     expect(JSON.stringify(stored)).not.toContain(String(thisYear - 15));
@@ -415,20 +421,55 @@ describe("the account page", () => {
     expect((await b.go("/account/name", { name: "Loud Comet" })).status).toBe(303);
     expect((await accountById(env.DB, id))?.name).toBe("Loud Comet");
 
-    // 13–15 can move to friends-focused, never open and social.
-    expect(await (await b.go("/account/social-mode", { social_mode: "open_and_social" })).text()).toContain("Choose one of the chat settings shown");
-    expect((await accountById(env.DB, id))?.social_mode).toBe("solo_focused");
-    expect((await b.go("/account/social-mode", { social_mode: "friends_focused" })).status).toBe(303);
-    expect((await accountById(env.DB, id))?.social_mode).toBe("friends_focused");
+    // The page shows the preset and every setting; 13–15 can't open chat, joining or requests to anyone.
+    const social = await (await b.go("/account")).text();
+    expect(social).toContain('<h2 id="social">Social</h2>');
+    expect(social).toMatch(/value="solo_focused" checked/);
+    expect(social).toMatch(/name="who_can_chat" value="anyone" disabled/);
+    expect(social).toMatch(/name="who_can_send_friend_requests" value="anyone" disabled/);
+    expect(social).toContain("Anyone opens up at 16.");
+    expect(social).toContain("Anyone opens up at 18.");
+    expect(social).not.toMatch(/name="who_sees_online" value="anyone"/);
+    expect(social).not.toMatch(/16-17|band group/);
 
-    // Up a band at a time, keeping the social mode; never down.
+    // 13–15 can move to friends-focused, never open and social, and nothing past their limits.
+    expect(await (await b.go("/account/social", { social_mode: "open_and_social" })).text()).toContain("Choose from the social settings shown");
+    expect(await (await b.go("/account/social", { social_mode: "custom", who_can_join: "anyone" })).text()).toContain("Choose from the social settings shown");
+    expect(await (await b.go("/account/social", { social_mode: "custom", who_can_chat: "everyone" })).text()).toContain("Choose from the social settings shown");
+    expect(await accountById(env.DB, id)).toMatchObject(SOLO_FOCUSED);
+    // A preset with nothing else changed sets them all (the page's script fills them in too).
+    const saved = await b.go("/account/social", { social_mode: "friends_focused", ...SOLO_FOCUSED });
+    expect(saved.headers.get("location")).toBe("/account?social-saved#social");
+    expect(await accountById(env.DB, id)).toMatchObject(FRIENDS_FOCUSED);
+    expect(await (await b.go("/account?social-saved")).text()).toMatch(/value="friends_focused" checked/);
+    // Changing one setting makes it Custom, whatever preset the form still says.
+    expect((await b.go("/account/social", { social_mode: "friends_focused", ...FRIENDS_FOCUSED, who_sees_played_games: "nobody" })).status).toBe(303);
+    expect(await accountById(env.DB, id)).toMatchObject({ ...FRIENDS_FOCUSED, who_sees_played_games: "nobody" });
+    expect(await (await b.go("/account")).text()).toMatch(/value="custom" checked/);
+    // Back to a preset's exact settings is that preset again.
+    await b.go("/account/social", { social_mode: "custom", ...FRIENDS_FOCUSED });
+    expect(await (await b.go("/account")).text()).toMatch(/value="friends_focused" checked/);
+
+    // Up a band at a time, keeping the preset; never down.
     expect(await (await b.go("/account/age", { year: String(thisYear - 14), month: "1", day: "1" })).text()).toContain("16 or over yet");
     await b.go("/account/age", { year: String(thisYear - 16), month: "1", day: "1" });
-    expect(await accountById(env.DB, id)).toMatchObject({ age_band: "16-17", social_mode: "friends_focused" });
+    expect(await accountById(env.DB, id)).toMatchObject({ age_band: "16-17", ...FRIENDS_FOCUSED });
     expect(await (await b.go("/account/age", { year: String(thisYear - 17), month: "1", day: "1" })).text()).toContain("18 or over yet");
-    expect((await b.go("/account/social-mode", { social_mode: "open_and_social" })).status).toBe(303);
+    // Open and social at 16–17 keeps joining and what they play with friends.
+    expect(await (await b.go("/account/social", { social_mode: "custom", ...FRIENDS_FOCUSED, who_sees_playing_now: "anyone" })).text()).toContain("Choose from the social settings shown");
+    expect((await b.go("/account/social", { social_mode: "open_and_social", ...FRIENDS_FOCUSED })).status).toBe(303);
+    expect(await accountById(env.DB, id)).toMatchObject({ ...FRIENDS_FOCUSED, who_can_chat: "anyone", who_can_send_friend_requests: "anyone" });
+    expect(await (await b.go("/account")).text()).toMatch(/value="open_and_social" checked/);
+    // At 18 open and social opens up the rest too.
     await b.go("/account/age", { year: String(thisYear - 19), month: "1", day: "1" });
-    expect(await accountById(env.DB, id)).toMatchObject({ age_band: "18+", social_mode: "open_and_social" });
+    expect(await accountById(env.DB, id)).toMatchObject({ age_band: "18+", ...OPEN_AND_SOCIAL_ADULT });
+    // Custom stays as it was when the band moves up.
+    const custom = new Browser();
+    await join(custom, "custom@example.com", "Odd Fern", { year: String(thisYear - 17), month: "1", day: "1" });
+    const customId = users.get("custom@example.com")!;
+    await custom.go("/account/social", { social_mode: "custom", ...FRIENDS_FOCUSED, who_can_chat: "anyone" });
+    await custom.go("/account/age", { year: String(thisYear - 19), month: "1", day: "1" });
+    expect(await accountById(env.DB, customId)).toMatchObject({ age_band: "18+", ...FRIENDS_FOCUSED, who_can_chat: "anyone" });
 
     expect(await (await b.go("/account/delete", { confirm: "nope" })).text()).toContain('Type "delete"');
     const gone = await b.go("/account/delete", { confirm: "delete" });

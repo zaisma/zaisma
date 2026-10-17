@@ -129,8 +129,8 @@ describe("rooms", () => {
     expect(account.player_id).toMatch(/^player_[a-z0-9]{20}$/);
     // The pass proves who, for which game and until when; the name and the sign-in's own ID stay out of it.
     const claims = JSON.parse(atob(pass.split(".")[1]!.replace(/-/g, "+").replace(/_/g, "/")));
-    expect(Object.keys(claims).sort()).toEqual(["aud", "exp", "friend_player_ids", "iat", "iss", "kind", "social_mode", "sub"]);
-    expect(claims).toMatchObject({ sub: account.player_id, kind: "account", aud: "arena", social_mode: "friends_focused", friend_player_ids: [] });
+    expect(Object.keys(claims).sort()).toEqual(["aud", "exp", "friend_player_ids", "iat", "iss", "kind", "sub", "who_can_chat"]);
+    expect(claims).toMatchObject({ sub: account.player_id, kind: "account", aud: "arena", who_can_chat: "friends", friend_player_ids: [] });
     expect(pass).not.toContain(account.id);
     expect((await passFor("other", other)).player.id).toBe(account.player_id);
 
@@ -175,11 +175,12 @@ describe("rooms", () => {
     expect(JSON.stringify([teen, adult, young])).not.toMatch(/13-15|16-17|18\+/);
     // Another game gets other groups, so groups can't be matched across games.
     expect((await claimsOf({ id: "teen-open-1" }, "other", other)).chat_group).not.toBe(teen.chat_group);
-    // Only open and social carries a group; guests carry no social mode at all.
-    expect(friendsOnly).toMatchObject({ social_mode: "friends_focused" });
+    // Only chat with anyone carries a group; guests carry no chat setting at all.
+    expect(teen).toMatchObject({ who_can_chat: "anyone" });
+    expect(friendsOnly).toMatchObject({ who_can_chat: "friends" });
     expect(friendsOnly.chat_group).toBeUndefined();
-    expect(young).toMatchObject({ social_mode: "solo_focused" });
-    expect(guest.social_mode).toBeUndefined();
+    expect(young).toMatchObject({ who_can_chat: "nobody" });
+    expect(guest.who_can_chat).toBeUndefined();
 
     expect(canChat(teen, teenToo)).toBe(true);
     expect(canChat(adult, adultToo)).toBe(true);
@@ -189,6 +190,12 @@ describe("rooms", () => {
     expect(canChat(guest, adult)).toBe(false);
     expect(canChat(adult, adult)).toBe(false);
     expect(guest.friend_player_ids).toBeUndefined();
+
+    // A row past its band's limits (only a bug could write one) still goes out within them.
+    await e.DB.prepare("UPDATE accounts SET who_can_chat = 'anyone' WHERE id = 'young-solo'").run();
+    const forced = await claimsOf({ id: "young-solo" });
+    expect(forced).toMatchObject({ who_can_chat: "friends" });
+    expect(forced.chat_group).toBeUndefined();
   });
 
   it("puts an account's friends in its passes, so friends chat and strangers don't", async () => {
