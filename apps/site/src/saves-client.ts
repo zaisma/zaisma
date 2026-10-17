@@ -8,15 +8,15 @@
  *  - nothing on this device, or both the same: the account's
  *  - this device last synced the account's current save and has played on since: this device's
  *  - this device hasn't changed since it last synced, but the account has: the account's
- *  - the game's developer changed the account's save since this device last synced: the account's,
- *    with no question, keeping this device's progress as an earlier version
  *  - anything else (two different saves): the player chooses
  * While playing, every save names the version it started from; if another device saved
  * in between, saving pauses and the player chooses. Saving only starts once the game domain
  * says the account's save is in place, so a device that couldn't take it never sends its own.
  * Whichever progress the player didn't pick is kept as an earlier version (see /account/saves).
- * A developer's change (through the API, saves-api.ts) reaches an open game the same way, with no
- * question: when its next save finds the account moved on, or when the player comes back to the tab.
+ * A developer's change (through the API, saves-api.ts) reaches an open game with no question: when its
+ * next save finds the account moved on, or when the player comes back to the tab, the game reloads with
+ * it, and this device's progress since its last save is kept as an earlier version. A game opening later
+ * takes it like any newer save.
  *
  * Guests: the game opens directly and its progress stays in this browser; nothing is sent
  * anywhere. Once a guest has progress and has played a while, a card offers to keep it with
@@ -228,15 +228,14 @@ export const SAVES_CLIENT = `
     // A marker from before version_number and sha256 matches neither, so the player chooses once.
     const mark = marker(c.tag);
     let use;
-    if (forceCloud && c.version_number) use = "cloud";
+    if (forceCloud && c.version_number) {
+      use = "cloud";
+      // This device's progress since its last save (the account keeps one copy of each progress).
+      if (!empty && localHash !== c.sha256) keepDevice(text);
+    }
     else if (!c.version_number) use = "local";
     else if (empty || localHash === c.sha256) use = "cloud";
     else if (mark && mark.version_number === c.version_number) use = "local";
-    else if (mark && c.changed_by_kind === "developer") {
-      // The developer changed the save since this device synced: theirs wins, and this device's progress is kept.
-      use = "cloud";
-      keepDevice(text);
-    }
     else if (mark && mark.sha256 === localHash) use = "cloud";
     else {
       use = await ask("Which progress do you want?", "This game has progress saved to your account and different progress on this device. The one you don't pick is kept on your account as an earlier version.", "Your account's (saved " + ago(c.updated_at) + ")", "This device's");
@@ -293,6 +292,7 @@ export const SAVES_CLIENT = `
       if (out.changed_by_kind === "developer") {
         // The developer changed the save: reload the game with it, no question, keeping this device's progress.
         keepDevice(text);
+        forceCloud = true;
         openThroughRestore();
         return;
       }
@@ -335,6 +335,7 @@ export const SAVES_CLIENT = `
     if (!out || out.changed_by_kind !== "developer" || out.version_number === cloud.version_number || paused || saving) return;
     paused = true;
     tell({ step: "pause" });
+    forceCloud = true;
     openThroughRestore();
   });
 
