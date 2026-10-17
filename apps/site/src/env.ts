@@ -13,10 +13,12 @@ export interface Env {
   GAME_DATABASES?: Service<GameDatabaseService>;
   REPORT_LIMIT?: RateLimit;
   SIGNIN_LIMIT?: RateLimit;
+  /** Password tries on one username, from any address. */
+  PASSWORD_LIMIT?: RateLimit;
   SAVE_LIMIT?: RateLimit;
   /** Play counts from game pages, per connection address. */
   PLAY_LIMIT?: RateLimit;
-  /** Cloudflare's invisible check on Play (Turnstile): the widget's site key and secret. Without them no play is counted. */
+  /** Cloudflare's invisible check on Play and on making an account (Turnstile): the widget's site key and secret. Without them no play is counted, and sign-ups go unchecked. */
   TURNSTILE_SITE_KEY?: string;
   TURNSTILE_SECRET?: string;
   /** Developer API requests, per account. */
@@ -52,7 +54,7 @@ export interface Env {
   /** Supabase Auth. Without these, accounts are off and everything else still works. */
   SUPABASE_URL?: string;
   SUPABASE_PUBLISHABLE_KEY?: string;
-  /** Only for deleting sign-ins (account deletion, under-13s). */
+  /** For what only the server may do: making password sign-ins, setting passwords, passkey sign-ins, deleting sign-ins. */
   SUPABASE_SECRET_KEY?: string;
   /** Sign in with Zaisma's RS256 key, a private RSA JWK (scripts/sign-in-key.mjs makes one). Without it, Sign in with Zaisma is off. */
   SIGN_IN_SIGNING_KEY?: string;

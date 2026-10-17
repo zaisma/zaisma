@@ -1,4 +1,4 @@
-// A stand-in for Supabase Auth, for local previews only: any email, code 123456.
+// A stand-in for Supabase Auth, for local previews only: any email, code 123456; passwords as set.
 // "Continue with Google/Discord" opens a stand-in page that asks which email to sign in as.
 // Each email always gets the same user ID, so a preview account survives restarts.
 import { createHash } from "node:crypto";
@@ -18,25 +18,32 @@ export async function startFakeAuth(port, keyFile) {
   const { d: _, key_ops: __, ...jwk } = privateJwk;
   const b64 = (b) => Buffer.from(b).toString("base64url");
   // Who each user ID is, for the admin calls (kept next to the key, so it survives restarts).
+  // Passwords too, in plain text: preview accounts only, never real ones.
   const usersFile = keyFile && keyFile.replace(/[^/]+$/, "auth-users.json");
-  const users = usersFile && existsSync(usersFile) ? JSON.parse(readFileSync(usersFile, "utf8")) : {};
+  const saved = usersFile && existsSync(usersFile) ? JSON.parse(readFileSync(usersFile, "utf8")) : {};
+  const users = saved.users ?? saved;
+  const passwords = saved.passwords ?? {};
+  const pendingEmails = {};
+  const save = () => usersFile && writeFileSync(usersFile, JSON.stringify({ users, passwords }));
+  // The user with this email, or a new one whose ID comes from it.
   const idFor = (email) => {
+    const known = Object.keys(users).find((id) => users[id] === email);
+    if (known) return known;
     const h = createHash("sha256").update(`preview:${email}`).digest("hex");
     const id = `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-a${h.slice(17, 20)}-${h.slice(20, 32)}`;
-    if (users[id] !== email) {
-      users[id] = email;
-      if (usersFile) writeFileSync(usersFile, JSON.stringify(users));
-    }
+    users[id] = email;
+    save();
     return id;
   };
+  const subOf = (authorization) => JSON.parse(Buffer.from(String(authorization).replace(/^Bearer /, "").split(".")[1] ?? "", "base64url").toString() || "{}").sub;
   // signedInAt (seconds) is when they last proved who they are, like Supabase's amr claim.
   async function tokens(id, email, signedInAt = Math.floor(Date.now() / 1000), method = "otp") {
     const now = Math.floor(Date.now() / 1000);
     const head = b64(JSON.stringify({ alg: "ES256", kid: "preview", typ: "JWT" }));
     const body = b64(JSON.stringify({ sub: id, email, aud: "authenticated", iss: `${origin}/auth/v1`, exp: now + 3600, iat: now, amr: [{ method, timestamp: signedInAt }] }));
     const sig = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, keys.privateKey, new TextEncoder().encode(`${head}.${body}`));
-    // The refresh token carries the email and sign-in time, so sessions survive a restart of this stand-in.
-    return { access_token: `${head}.${body}.${b64(sig)}`, refresh_token: `r-${b64(email)}.${signedInAt}`, user: { id, email } };
+    // The refresh token carries the user ID and sign-in time, so sessions survive a restart of this stand-in (and an email change).
+    return { access_token: `${head}.${body}.${b64(sig)}`, refresh_token: `r-${b64(id)}.${signedInAt}`, user: { id, email } };
   }
   const server = http.createServer(async (req, res) => {
     let raw = "";
@@ -80,6 +87,38 @@ export async function startFakeAuth(port, keyFile) {
     }
     if (path === "/.well-known/jwks.json") return send(200, { keys: [{ ...jwk, kid: "preview", alg: "ES256" }] });
     if (path === "/otp") return send(200, {});
+    if (path === "/token" && url.searchParams.get("grant_type") === "password") {
+      const id = Object.keys(users).find((known) => users[known] === b.email);
+      return id && passwords[id] === b.password ? send(200, await tokens(id, b.email, undefined, "password")) : send(400, { code: "invalid_credentials" });
+    }
+    if (path === "/user" && req.method === "PUT") {
+      const id = subOf(req.headers.authorization);
+      if (Object.values(users).includes(b.email)) return send(422, { code: "email_exists" });
+      pendingEmails[id] = b.email;
+      return send(200, { id });
+    }
+    if (path === "/verify" && b.type === "email_change") {
+      const id = Object.keys(pendingEmails).find((known) => pendingEmails[known] === b.email);
+      if (!id || b.token !== "123456") return send(403, { code: "otp_expired" });
+      delete pendingEmails[id];
+      users[id] = b.email;
+      save();
+      return send(200, await tokens(id, b.email));
+    }
+    if (path === "/admin/users" && req.method === "POST") {
+      if (Object.values(users).includes(b.email)) return send(422, { code: "email_exists" });
+      const id = idFor(b.email);
+      passwords[id] = b.password;
+      save();
+      return send(200, { id, email: b.email });
+    }
+    if (req.method === "PUT" && path.startsWith("/admin/users/")) {
+      const id = decodeURIComponent(path.slice("/admin/users/".length));
+      if (b.password) passwords[id] = b.password;
+      if (b.email) users[id] = b.email;
+      save();
+      return send(200, { id });
+    }
     if (path === "/verify" && b.token_hash) {
       const email = Buffer.from(String(b.token_hash).replace(/^h-/, ""), "base64url").toString();
       return email.includes("@") ? send(200, await tokens(idFor(email), email)) : send(403, { code: "otp_expired" });
@@ -87,8 +126,10 @@ export async function startFakeAuth(port, keyFile) {
     if (path === "/verify") return b.token === "123456" ? send(200, await tokens(idFor(b.email), b.email)) : send(403, { code: "otp_expired" });
     if (path === "/token") {
       const [who, at] = String(b.refresh_token).replace(/^r-/, "").split(".");
-      const email = Buffer.from(who, "base64url").toString();
-      return email.includes("@") ? send(200, await tokens(idFor(email), email, Number(at) || 0)) : send(400, { code: "refresh_token_not_found" });
+      const decoded = Buffer.from(who, "base64url").toString();
+      // Older preview sessions carried the email instead.
+      const id = decoded.includes("@") ? idFor(decoded) : decoded;
+      return users[id] ? send(200, await tokens(id, users[id], Number(at) || 0)) : send(400, { code: "refresh_token_not_found" });
     }
     if (path === "/admin/generate_link") return send(200, { hashed_token: `h-${b64(b.email)}`, email: b.email });
     if (req.method === "GET" && path.startsWith("/admin/users/")) {

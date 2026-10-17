@@ -97,7 +97,7 @@ describe("migration 0048", () => {
     const files = readdirSync(MIGRATIONS).filter((name) => name.endsWith(".sql")).sort();
     const at = files.findIndex((name) => name.startsWith("0048_"));
     for (const file of files.slice(0, at)) database.exec(readFileSync(join(MIGRATIONS, file), "utf8"));
-    const insert = database.prepare("INSERT INTO accounts (id, player_id, name, age_band, social_mode, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, 1, 2)");
+    const insert = database.prepare("INSERT INTO accounts (id, player_id, username, age_band, social_mode, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, 1, 2)");
     for (const [id, band, socialMode] of [
       ["young-solo", "13-15", "solo_focused"],
       ["young-friends", "13-15", "friends_focused"],
@@ -129,11 +129,11 @@ describe("migration 0048", () => {
 
   it("refuses choices a setting doesn't have, and starts new rows solo-focused", () => {
     const database = migrated();
-    const insert = (setting: string, choice: string) => database.prepare(`INSERT INTO accounts (id, player_id, name, age_band, ${setting}, created_at_ms, updated_at_ms) VALUES (?, ?, 'X', '18+', ?, 1, 1)`).run(`id-${setting}-${choice}`, `player_${setting.length}${choice}`, choice);
+    const insert = (setting: string, choice: string) => database.prepare(`INSERT INTO accounts (id, player_id, username, age_band, ${setting}, created_at_ms, updated_at_ms) VALUES (?, ?, ?, '18+', ?, 1, 1)`).run(`id-${setting}-${choice}`, `player_${setting.length}${choice}`, `X_${setting.length}${choice}`, choice);
     expect(() => insert("who_sees_online", "anyone")).toThrow(/CHECK/);
     expect(() => insert("who_can_send_friend_requests", "friends")).toThrow(/CHECK/);
     expect(() => insert("who_can_chat", "open_and_social")).toThrow(/CHECK/);
-    database.prepare("INSERT INTO accounts (id, player_id, name, age_band, created_at_ms, updated_at_ms) VALUES ('fresh', 'player_fresh', 'X', '18+', 1, 1)").run();
+    database.prepare("INSERT INTO accounts (id, player_id, username, age_band, created_at_ms, updated_at_ms) VALUES ('fresh', 'player_fresh', 'Fresh', '18+', 1, 1)").run();
     expect(database.prepare(`SELECT ${SOCIAL_SETTINGS.join(", ")} FROM accounts WHERE id = 'fresh'`).get()).toEqual(SOLO_FOCUSED);
   });
 });

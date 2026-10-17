@@ -11,17 +11,19 @@ import {
   type ApiKey,
   type AreaAccess,
   type KeyScope,
-  NAME_RULES,
   SOCIAL_SETTINGS,
   SOCIAL_SETTING_CHOICES,
+  USERNAME_RULES,
   accountById,
+  accountByUsername,
   ageBand,
   ageBandOn,
   ageOn,
   birthDateText,
   apiKeysFor,
   b64url,
-  checkName,
+  changeUsername,
+  checkUsername,
   createAccount,
   createApiKey,
   defaultSocialMode,
@@ -30,6 +32,9 @@ import {
   gamesOwnedBy,
   isAgeBand,
   isSocialMode,
+  isUsernameRight,
+  isUsernameTaken,
+  markPasswordChanged,
   newChallenge,
   passkeysFor,
   redirectUrlsOf,
@@ -42,7 +47,10 @@ import {
   socialModesFor,
   socialSettingsOf,
   socialSettingChoicesFor,
+  suggestUsernames,
   updateAccount,
+  UsernameTakenError,
+  type Account,
   type AgeBand,
   type SocialMode,
   type SocialSetting,
@@ -51,7 +59,9 @@ import {
 import {
   PROVIDERS,
   authConfigured,
+  authUserEmail,
   clearSessionCookies,
+  createPasswordUser,
   currentSession,
   deleteAuthUser,
   exchangeCode,
@@ -59,11 +69,19 @@ import {
   providerUrl,
   providersOn,
   readCookie,
+  realEmail,
+  refreshSession,
+  removeEmail,
   sendCode,
   sessionCookies,
   setCookie,
+  setPassword,
+  signInWithPassword,
   signOutEverywhere,
+  startEmailChange,
   verifyCode,
+  verifyEmailChange,
+  type PasswordSignIn,
   type Provider,
   type Session,
 } from "./auth.ts";
@@ -71,19 +89,26 @@ import type { Env } from "./env.ts";
 import { deleteForumFiles } from "./forum-posts.ts";
 import { html, layout, message, metalButton, raw, type Raw } from "./html.ts";
 import { PASSKEY_SCRIPT, RECENT_SIGNIN_MS } from "./passkeys.ts";
+import { MINIMUM_PASSWORD_CHARACTER_COUNT, PASSWORD_HINT, newPasswordProblem } from "./passwords.ts";
 import { deleteSaveFiles } from "./saves.ts";
+import { isRealBrowser, turnstileFormScript } from "./turnstile.ts";
 
 /**
  * Sign-in, account creation and the account page.
  *
- * New accounts answer the age question before they type an email, so we collect
- * nothing from under-13s. We keep the band (13–15, 16–17 or 18+), and the birth date only while the
- * account is under 18, so the band moves up on the birthday by itself; nobody changes it by hand, and no
- * page says which band anyone is in. "Sign in" never creates accounts, so it can't skip the question.
- * 16 and over choose a social mode's preset while making the account (friends-focused unless they pick
- * another); 13–15 start solo-focused. Everyone changes their social settings on the account page, within their band's limits.
- * Google and Discord work the same way: someone new who comes back from them without having
- * answered the age question is forgotten straight away and sent to answer it first.
+ * Making an account takes a birthday, a username and a password, nothing else (docs/DECISIONS.md).
+ * The age question comes first, so we collect nothing from under-13s. We keep the band (13–15, 16–17 or
+ * 18+), and the birth date only while the account is under 18, so the band moves up on the birthday by
+ * itself; nobody changes it by hand, and no page says which band anyone is in. "Sign in" never creates
+ * accounts, so it can't skip the question. 16 and over choose a social mode's preset while making the
+ * account (friends-focused unless they pick another); 13–15 start solo-focused. Everyone changes their
+ * social settings on the account page, within their band's limits.
+ * Google and Discord work the same way, with a username and no password: someone new who comes back from
+ * them without having answered the age question is forgotten straight away and sent to answer it first.
+ *
+ * Supabase checks passwords and makes sessions; an account without an email is known to it by a stand-in
+ * address (auth.ts). An email and passkeys are optional ways back in. Changing how you sign in (password,
+ * email, passkeys) needs a sign-in in the last 10 minutes: "Confirm it's you" on the account page.
  */
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -91,14 +116,38 @@ const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,255}\.[^\s@]{2,}$/;
 const BLOCK_DURATION_SEC = 24 * 3600;
 const JOIN_DURATION_SEC = 3600;
 const OAUTH_DURATION_SEC = 600;
+/** Longer than any password Supabase takes, so a long one gets the "too long" message instead of being cut. */
+const MAXIMUM_PASSWORD_FIELD_CHARACTER_COUNT = 200;
+
+const PATHS = [
+  "/signin",
+  "/signin/code",
+  "/signin/email",
+  "/join",
+  "/join/age",
+  "/join/account",
+  "/join/username",
+  "/api/username-check",
+  "/account",
+  "/account/kept",
+  "/account/username",
+  "/account/social",
+  "/account/confirm",
+  "/account/password",
+  "/account/email",
+  "/account/email/code",
+  "/account/email/remove",
+  "/account/delete",
+  "/account/keys",
+  "/signout",
+];
+
+const SLOW_DOWN = "Too many tries. Wait a minute and try again.";
+const BOT_CHECK_FAILED = "We couldn't check that you're using a real browser. Wait a few seconds and try again.";
+const takenText = (username: string) => `${username} is taken. Try another, or one of these.`;
 
 export async function handleAccount(request: Request, env: Env, path: string): Promise<Response | null> {
-  if (
-    !["/signin", "/signin/code", "/join", "/join/age", "/join/email", "/join/name", "/account", "/account/kept", "/account/name", "/account/social", "/account/delete", "/account/keys", "/signout"].includes(path) &&
-    !/^\/account\/keys\/[a-z0-9]+\/revoke$/.test(path) &&
-    !/^\/account\/sign-ins\/sign_in_app_[a-z0-9]+\/remove$/.test(path) &&
-    !/^\/signin\/(with\/[a-z]{1,20}|callback)$/.test(path)
-  ) return null;
+  if (!PATHS.includes(path) && !/^\/account\/keys\/[a-z0-9]+\/revoke$/.test(path) && !/^\/account\/sign-ins\/sign_in_app_[a-z0-9]+\/remove$/.test(path) && !/^\/signin\/(with\/[a-z]{1,20}|callback)$/.test(path)) return null;
   if (!authConfigured(env)) return message(env, "Accounts aren't on yet", "You can still play as a guest.", 404);
 
   const post = request.method === "POST";
@@ -109,16 +158,26 @@ export async function handleAccount(request: Request, env: Env, path: string): P
   }
   const form = post ? await request.formData() : null;
   const field = (name: string, maximumCharacterCount = 200) => String(form?.get(name) ?? "").trim().slice(0, maximumCharacterCount);
+  // Passwords are taken as typed, spaces and all.
+  const passwordField = (name = "password") => String(form?.get(name) ?? "").slice(0, MAXIMUM_PASSWORD_FIELD_CHARACTER_COUNT);
   const next = safeNext(form ? field("next", 2000) : new URL(request.url).searchParams.get("next"));
   const session = await currentSession(request, env);
   const done = (response: Response) => withCookies(response, session?.cookies ?? []);
 
+  // Whether a username is free, as it's typed: on the join page, and the account page for the signed-in player.
+  if (path === "/api/username-check") {
+    const own = session ? await accountById(env.DB, session.userId) : null;
+    const wanted = (new URL(request.url).searchParams.get("username") ?? "").slice(0, 40);
+    return Response.json(await usernameAnswer(env, wanted, own), { headers: { "Cache-Control": "no-store" } });
+  }
+
   if (path === "/signin" && !post) return done(session ? redirect(next ?? "/account") : await signinPage(env, next));
+  if (path === "/signin/email" && !post) return done(session ? redirect(next ?? "/account") : emailSigninPage(env, next));
 
   // --- Google and Discord ---
   const withProvider = path.match(/^\/signin\/with\/([a-z]+)$/)?.[1];
   if (withProvider !== undefined) {
-    if (!isProvider(withProvider) || !(await providersOn(env)).includes(withProvider)) return message(env, "Not available", "That way of signing in isn't on. Use an email code instead.", 404);
+    if (!isProvider(withProvider) || !(await providersOn(env)).includes(withProvider)) return message(env, "Not available", "That way of signing in isn't on. Use your username and password instead.", 404);
     // PKCE: the code Supabase sends back only works with this verifier, kept in this browser.
     const verifier = newChallenge();
     const challenge = b64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)));
@@ -138,51 +197,55 @@ export async function handleAccount(request: Request, env: Env, path: string): P
     const signedIn = code && verifier && isProvider(provider) ? await exchangeCode(env, code.slice(0, 500), verifier) : null;
     if (!signedIn) {
       const by = isProvider(provider) ? PROVIDERS[provider] : "That";
-      const why = query.get("error") === "access_denied" ? `${by} sign-in was cancelled.` : `${by} sign-in didn't work. Try again, or use an email code.`;
+      const why = query.get("error") === "access_denied" ? `${by} sign-in was cancelled.` : `${by} sign-in didn't work. Try again, or use your username and password.`;
       return withCookies(await signinPage(env, back, why, 400), cookies);
     }
     if (await accountById(env.DB, signedIn.userId)) return withCookies(redirect(back ?? "/"), [...cookies, ...sessionCookies(env, signedIn)]);
-    // New here, and they answered the age question first: pick a name to finish.
-    if (joinBand(request, env)) return withCookies(redirect(`/join/name${nextQuery(back)}`), [...cookies, ...sessionCookies(env, signedIn)]);
+    // New here, and they answered the age question first: pick a username to finish.
+    if (joinBand(request, env)) return withCookies(redirect(`/join/username${nextQuery(back)}`), [...cookies, ...sessionCookies(env, signedIn)]);
     // New here without the age question: keep nothing, and ask it now.
     await deleteAuthUser(env, signedIn.userId);
     return withCookies(redirect(`/join?with=${provider}${back ? `&next=${encodeURIComponent(back)}` : ""}`), cookies);
   }
   if (path.startsWith("/join") && readCookie(request, env, "zaisma_age") === "no") return done(tooYoungPage(env));
 
-  if (path === "/signin" || path === "/join/email") {
-    if (await limited(env, request)) return message(env, "Slow down", "Too many tries. Wait a minute and try again.", 429);
+  // --- Signing in with a username (or email) and password ---
+  if (path === "/signin" && post) {
+    if (await limited(env, request)) return message(env, "Slow down", SLOW_DOWN, 429);
+    const login = field("username", 320);
+    const password = passwordField();
+    if (!login || !password) return await signinPage(env, next, "Enter your username and password.", 400, login);
+    const signedIn = await passwordSignIn(env, login, password);
+    if (signedIn === "too-many") return message(env, "Slow down", SLOW_DOWN, 429);
+    if (signedIn === "no-password") return await signinPage(env, next, "This account doesn't have a password yet. Use Forgot your password to get in with your email, then add one.", 400, login);
+    if (signedIn === "wrong") return await signinPage(env, next, "That username and password don't match. Check them and try again.", 400, login);
+    if (signedIn === "failed") return message(env, "Couldn't sign you in", "Something went wrong on our side. Try again in a minute.", 502);
+    const cookies = sessionCookies(env, signedIn);
+    // Signed in, but the account was never finished (a half-done Google sign-up): finish it first.
+    if (!(await accountById(env.DB, signedIn.userId))) return withCookies(redirect(`/join${nextQuery(next)}`), cookies);
+    return withCookies(redirect(next ?? "/"), cookies);
+  }
+
+  // --- Forgot your password: back in with a code to the account's email ---
+  if (path === "/signin/email" && post) {
+    if (await limited(env, request)) return message(env, "Slow down", SLOW_DOWN, 429);
     const email = field("email", 320).toLowerCase();
-    const band = joinBand(request, env);
-    const socialMode = chosenSocialMode(band, field("social_mode", 40));
-    if (!EMAIL.test(email)) return path === "/signin" ? await signinPage(env, next, "Enter your email address.") : await joinEmailPage(env, next, band, "Enter your email address.", { name: field("name"), socialMode });
-    const cookies: string[] = [];
-    if (path === "/join/email") {
-      if (!band) return redirect("/join");
-      const checked = checkName(field("name", 60));
-      if ("error" in checked) return await joinEmailPage(env, next, band, checked.error, { name: field("name"), email, socialMode });
-      cookies.push(setCookie(env, "zaisma_join", encodeURIComponent(JSON.stringify({ band, birth_date: joinDetails(request, env)?.birthDate, name: checked.name, social_mode: socialMode })), { maximumAgeSec: JOIN_DURATION_SEC }));
-    }
-    const sent = await sendCode(env, email, path === "/join/email");
+    if (!EMAIL.test(email)) return emailSigninPage(env, next, "Enter your email address.");
+    const sent = await sendCode(env, email, false);
     if (sent === "too-many") return message(env, "Slow down", "We've sent a lot of codes to that address. Wait a few minutes and try again.", 429);
     if (sent === "failed") return message(env, "Couldn't send the code", "Something went wrong on our side. Try again in a minute.", 502);
-    return withCookies(codePage(env, email, next), cookies);
+    return codePage(env, email, next);
   }
 
   if (path === "/signin/code" && post) {
-    if (await limited(env, request)) return message(env, "Slow down", "Too many tries. Wait a minute and try again.", 429);
+    if (await limited(env, request)) return message(env, "Slow down", SLOW_DOWN, 429);
     const email = field("email", 320).toLowerCase();
     const code = field("code", 20).replace(/\D/g, "");
     const signedIn = code.length >= 6 ? await verifyCode(env, email, code) : null;
     if (!signedIn) return codePage(env, email, next, "That code didn't work. Check it, or go back and get a new one.");
     const cookies = sessionCookies(env, signedIn);
     if (await accountById(env.DB, signedIn.userId)) return withCookies(redirect(next ?? "/"), cookies);
-    // A brand new sign-in: finish the account with the age band and name from the join steps.
-    const join = joinDetails(request, env);
-    if (!join?.name) return withCookies(redirect(`/join${nextQuery(next)}`), cookies);
-    await createAccount(env.DB, { id: signedIn.userId, name: join.name, ageBand: join.band, birthDate: join.birthDate, socialMode: join.socialMode });
-    cookies.push(setCookie(env, "zaisma_join", "", { maximumAgeSec: 0 }));
-    return withCookies(redirect(next ?? "/account?welcome"), cookies);
+    return withCookies(redirect(`/join${nextQuery(next)}`), cookies);
   }
 
   // --- Making an account ---
@@ -211,25 +274,63 @@ export async function handleAccount(request: Request, env: Env, path: string): P
       // Under 18, the birth date goes with the join steps to the new account, which keeps it until 18.
       const birthDate = band === "18+" ? undefined : birthDateText({ yearNumber: Number(field("year")), monthNumber: Number(field("month")), dayNumber: Number(field("day")) });
       const cookie = setCookie(env, "zaisma_join", encodeURIComponent(JSON.stringify({ band, birth_date: birthDate })), { maximumAgeSec: JOIN_DURATION_SEC });
-      // They came from Google or Discord: go straight back there (it won't ask again), then pick a name.
+      // They came from Google or Discord: go straight back there (it won't ask again), then pick a username.
       const via = field("with");
       if (!session && isProvider(via) && (await providersOn(env)).includes(via)) return withCookies(redirect(`/signin/with/${via}${nextQuery(next)}`), [cookie]);
-      // Already signed in (they verified an email but never finished): skip straight to the name.
-      return withCookies(session ? joinNamePage(env, next, band) : await joinEmailPage(env, next, band), [...(session?.cookies ?? []), cookie]);
+      // Already signed in (Google or Discord, or an email code, but never finished): just the username.
+      return withCookies(session ? joinUsernamePage(env, next, band) : await joinAccountPage(env, next, band), [...(session?.cookies ?? []), cookie]);
     }
 
-    if (path === "/join/name" && !post) {
-      const band = joinBand(request, env);
-      return done(session && band ? joinNamePage(env, next, band) : redirect(`/join${nextQuery(next)}`));
-    }
+    const band = joinBand(request, env);
+    if (!band) return done(redirect(`/join${nextQuery(next)}`));
 
-    if (path === "/join/name" && post && session) {
-      const band = joinBand(request, env);
-      if (!band) return done(redirect("/join"));
+    if (path === "/join/account" && !post) return done(session ? redirect(`/join/username${nextQuery(next)}`) : await joinAccountPage(env, next, band));
+
+    if (path === "/join/account" && post) {
+      if (session) return done(redirect(`/join/username${nextQuery(next)}`));
+      if (await limited(env, request)) return message(env, "Slow down", SLOW_DOWN, 429);
       const socialMode = chosenSocialMode(band, field("social_mode", 40));
-      const checked = checkName(field("name", 60));
-      if ("error" in checked) return done(joinNamePage(env, next, band, checked.error, { name: field("name"), socialMode }));
-      await createAccount(env.DB, { id: session.userId, name: checked.name, ageBand: band, birthDate: joinDetails(request, env)?.birthDate, socialMode });
+      const wanted = field("username", 40);
+      const password = passwordField();
+      const again = async (error: string, suggestions: string[] = []) => joinAccountPage(env, next, band, error, { username: wanted, socialMode, suggestions });
+      const checked = checkUsername(wanted);
+      if ("error" in checked) return await again(checked.error, await suggestUsernames(env.DB, wanted));
+      if (await isUsernameTaken(env.DB, checked.username)) return await again(takenText(checked.username), await suggestUsernames(env.DB, checked.username));
+      const problem = await newPasswordProblem(password, checked.username);
+      if (problem) return await again(problem);
+      // Last, so a token isn't spent on a form that comes back for another reason.
+      if (env.TURNSTILE_SECRET && !(await isRealBrowser(env, field("turnstile_token", 2048), "join"))) return await again(BOT_CHECK_FAILED);
+      const made = await createPasswordUser(env, password);
+      if (!made) return message(env, "Couldn't make your account", "Something went wrong on our side. Try again in a minute.", 502);
+      try {
+        await createAccount(env.DB, { id: made.userId, username: checked.username, ageBand: band, birthDate: joinBirthDate(request, env), socialMode, hasPassword: true });
+      } catch (error) {
+        if (!(error instanceof UsernameTakenError)) throw error;
+        await deleteAuthUser(env, made.userId);
+        return await again(takenText(checked.username), await suggestUsernames(env.DB, checked.username));
+      }
+      const signedIn = await signInWithPassword(env, made.email, password);
+      const cookies = [setCookie(env, "zaisma_join", "", { maximumAgeSec: 0 })];
+      if (typeof signedIn === "string") return withCookies(redirect(`/signin${nextQuery(next)}`), cookies);
+      return withCookies(redirect(next ?? "/account?welcome"), [...cookies, ...sessionCookies(env, signedIn)]);
+    }
+
+    if (path === "/join/username" && !post) return done(session ? joinUsernamePage(env, next, band) : redirect(`/join/account${nextQuery(next)}`));
+
+    if (path === "/join/username" && post && session) {
+      const socialMode = chosenSocialMode(band, field("social_mode", 40));
+      const wanted = field("username", 40);
+      const again = async (error: string, suggestions: string[] = []) => done(joinUsernamePage(env, next, band, error, { username: wanted, socialMode, suggestions }));
+      const checked = checkUsername(wanted);
+      if ("error" in checked) return await again(checked.error, await suggestUsernames(env.DB, wanted));
+      if (await isUsernameTaken(env.DB, checked.username)) return await again(takenText(checked.username), await suggestUsernames(env.DB, checked.username));
+      if (env.TURNSTILE_SECRET && !(await isRealBrowser(env, field("turnstile_token", 2048), "join"))) return await again(BOT_CHECK_FAILED);
+      try {
+        await createAccount(env.DB, { id: session.userId, username: checked.username, ageBand: band, birthDate: joinBirthDate(request, env), socialMode });
+      } catch (error) {
+        if (!(error instanceof UsernameTakenError)) throw error;
+        return await again(takenText(checked.username), await suggestUsernames(env.DB, checked.username));
+      }
       return withCookies(redirect(next ?? "/account?welcome"), [...session.cookies, setCookie(env, "zaisma_join", "", { maximumAgeSec: 0 })]);
     }
     return done(redirect("/join"));
@@ -244,18 +345,86 @@ export async function handleAccount(request: Request, env: Env, path: string): P
     return withCookies(redirect("/"), clearSessionCookies(env));
   }
   if (!account) return done(redirect("/join"));
+  // Changing how they sign in needs a sign-in in the last 10 minutes, so a stolen session can't lock them out.
+  const recent = Date.now() - session.signedInAtMs < RECENT_SIGNIN_MS;
 
   if (path === "/account" && !post) {
     const query = new URL(request.url).searchParams;
     return done(await accountPage(env, session, query.has("welcome"), undefined, undefined, query));
   }
-  if (path === "/account/kept" && !post) return done(await keptPage(env, account.name, new URL(request.url).searchParams.get("game")));
+  if (path === "/account/kept" && !post) return done(await keptPage(env, account.username, new URL(request.url).searchParams.get("game")));
 
-  if (path === "/account/name" && post) {
-    const checked = checkName(field("name", 60));
-    if ("error" in checked) return done(await accountPage(env, session, false, checked.error));
-    await updateAccount(env.DB, account.id, { name: checked.name });
-    return done(redirect("/account"));
+  if (path === "/account/username" && post) {
+    const wanted = field("username", 40);
+    const checked = checkUsername(wanted);
+    if ("error" in checked) return done(await accountPage(env, session, false, checked.error, undefined, undefined, { username: wanted, suggestions: await suggestUsernames(env.DB, wanted) }));
+    if (!(await changeUsername(env.DB, account.id, checked.username))) {
+      return done(await accountPage(env, session, false, takenText(checked.username), undefined, undefined, { username: wanted, suggestions: await suggestUsernames(env.DB, checked.username) }));
+    }
+    return done(redirect("/account?username-saved#username"));
+  }
+
+  // Confirm it's them: their password, or a code to their email when the account has no password.
+  if (path === "/account/confirm" && post) {
+    const back = next ?? "/account?confirmed#signing-in";
+    if (account.password_changed_at_ms !== null) {
+      const password = passwordField();
+      const email = password ? await authUserEmail(env, account.id) : null;
+      const isLimited = env.PASSWORD_LIMIT ? !(await env.PASSWORD_LIMIT.limit({ key: account.id })).success : false;
+      if (isLimited) return done(message(env, "Slow down", SLOW_DOWN, 429));
+      const signedIn: PasswordSignIn = email ? await signInWithPassword(env, email, password) : "wrong";
+      if (signedIn === "wrong") return done(await accountPage(env, session, false, "That password isn't right."));
+      if (signedIn === "too-many") return done(message(env, "Slow down", SLOW_DOWN, 429));
+      if (signedIn === "failed") return done(message(env, "Couldn't check your password", "Something went wrong on our side. Try again in a minute.", 502));
+      return withCookies(redirect(back), sessionCookies(env, signedIn));
+    }
+    const email = realEmail(session.email);
+    const sent = email ? await sendCode(env, email, false) : "failed";
+    if (!email || sent !== "sent") return done(redirect("/account?confirm-failed#signing-in"));
+    return done(codePage(env, email, back, undefined, "confirm"));
+  }
+
+  if ((path === "/account/password" || path === "/account/email" || path === "/account/email/remove") && post && !recent) return done(redirect("/account?confirm-first#signing-in"));
+
+  if (path === "/account/password" && post) {
+    const password = passwordField();
+    const problem = await newPasswordProblem(password, account.username);
+    // From the window after Forgot your password: it opens again, saying what's wrong.
+    const again = field("from", 20) === "new-password" ? new URLSearchParams({ "new-password": "", ...(next ? { next } : {}) }) : undefined;
+    if (problem) return done(await accountPage(env, session, false, problem, undefined, again));
+    if (!(await setPassword(env, account.id, password))) return done(message(env, "Couldn't save your password", "Something went wrong on our side. Try again in a minute.", 502));
+    await markPasswordChanged(env.DB, account.id);
+    return done(redirect(next ?? "/account?password-saved#signing-in"));
+  }
+
+  // An email: Supabase sends a code to the new address, and it's theirs once they type it.
+  if (path === "/account/email" && post) {
+    if (await limited(env, request)) return done(message(env, "Slow down", SLOW_DOWN, 429));
+    const email = field("email", 320).toLowerCase();
+    if (!EMAIL.test(email)) return done(await accountPage(env, session, false, "Enter an email address."));
+    if (email === realEmail(session.email)?.toLowerCase()) return done(redirect("/account#signing-in"));
+    const started = await startEmailChange(env, session.access, email);
+    if (started === "taken") return done(await accountPage(env, session, false, "That email can't be added. It may already be on another account."));
+    if (started === "too-many") return done(message(env, "Slow down", "We've sent a lot of codes. Wait a few minutes and try again.", 429));
+    if (started === "failed") return done(message(env, "Couldn't send the code", "Something went wrong on our side. Try again in a minute.", 502));
+    return done(codePage(env, email, null, undefined, "email"));
+  }
+
+  if (path === "/account/email/code" && post) {
+    if (await limited(env, request)) return done(message(env, "Slow down", SLOW_DOWN, 429));
+    const email = field("email", 320).toLowerCase();
+    const code = field("code", 20).replace(/\D/g, "");
+    const changed = code.length >= 6 ? await verifyEmailChange(env, email, code) : null;
+    if (!changed) return done(codePage(env, email, null, "That code didn't work. Check it, or go back and try again.", "email"));
+    return withCookies(redirect("/account?email-saved#signing-in"), sessionCookies(env, changed));
+  }
+
+  // Taking the email off: only with a password, so they can still sign in.
+  if (path === "/account/email/remove" && post) {
+    if (account.password_changed_at_ms === null) return done(await accountPage(env, session, false, "Add a password first, so you can still sign in without your email."));
+    if (!(await removeEmail(env, account.id))) return done(message(env, "Couldn't remove your email", "Something went wrong on our side. Try again in a minute.", 502));
+    const fresh = await refreshSession(env, session.refresh);
+    return withCookies(redirect("/account?email-removed#signing-in"), fresh ? sessionCookies(env, fresh) : session.cookies);
   }
 
   // Who can do what with them, within their band's limits. A preset chosen with no setting changed sets them
@@ -309,10 +478,45 @@ export async function handleAccount(request: Request, env: Env, path: string): P
     await deleteSaveFiles(env, account.id);
     await deleteForumFiles(env, account.id);
     await deleteAccount(env.DB, account.id);
-    return withCookies(message(env, "Your account is deleted", "Your email, name, game saves and everything else on your account are gone. You can still play as a guest."), clearSessionCookies(env));
+    return withCookies(message(env, "Your account is deleted", "Your username, any email, game saves and everything else on your account are gone. You can still play as a guest."), clearSessionCookies(env));
   }
 
   return done(redirect("/account"));
+}
+
+/**
+ * A password sign-in by username, or by the account's email for those who type it. "no-password" for an
+ * account made with an email code, Google or Discord that never added one. Usernames are public, so saying
+ * which part is wrong would give nothing away, but one message for both keeps it simple.
+ */
+async function passwordSignIn(env: Env, login: string, password: string): Promise<PasswordSignIn | "no-password"> {
+  let email: string | null = null;
+  let limitKey: string;
+  let account: Account | null = null;
+  if (login.includes("@")) {
+    email = login.toLowerCase();
+    limitKey = email;
+  } else {
+    account = await accountByUsername(env.DB, login.replace(/^@/, ""));
+    if (!account) return "wrong";
+    limitKey = account.id;
+  }
+  if (env.PASSWORD_LIMIT && !(await env.PASSWORD_LIMIT.limit({ key: limitKey })).success) return "too-many";
+  if (account) {
+    if (account.password_changed_at_ms === null) return "no-password";
+    email = await authUserEmail(env, account.id);
+    if (!email) return "failed";
+  }
+  return signInWithPassword(env, email!, password);
+}
+
+/** What the username box says as it's typed: free or not, why, and free ones close to it. */
+async function usernameAnswer(env: Env, wanted: string, own: Account | null): Promise<{ is_available: boolean; message: string; suggested_usernames: string[] }> {
+  const checked = checkUsername(wanted);
+  if ("error" in checked) return { is_available: false, message: checked.error, suggested_usernames: wanted.trim() ? await suggestUsernames(env.DB, wanted) : [] };
+  if (own && own.username.toLowerCase() === checked.username.toLowerCase()) return { is_available: true, message: "That's your username.", suggested_usernames: [] };
+  if (await isUsernameTaken(env.DB, checked.username)) return { is_available: false, message: `${checked.username} is taken.`, suggested_usernames: await suggestUsernames(env.DB, checked.username) };
+  return { is_available: true, message: `${checked.username} is free.`, suggested_usernames: [] };
 }
 
 // --- Helpers ---
@@ -330,7 +534,7 @@ function withCookies(response: Response, cookies: string[]): Response {
 
 /** Only our own paths, never another site. Long enough for a Sign in with Zaisma link (sign-in.ts). */
 function safeNext(nextPath: string | null | undefined): string | null {
-  return nextPath && /^\/(?![/\\])[\w\-./?=&%+*]*$/.test(nextPath) && nextPath.length < 2000 ? nextPath : null;
+  return nextPath && /^\/(?![/\\])[\w\-./?=&%+*#]*$/.test(nextPath) && nextPath.length < 2000 ? nextPath : null;
 }
 
 const nextQuery = (next: string | null) => (next ? `?next=${encodeURIComponent(next)}` : "");
@@ -340,19 +544,26 @@ async function limited(env: Env, request: Request): Promise<boolean> {
   return env.SIGNIN_LIMIT ? !(await env.SIGNIN_LIMIT.limit({ key: request.headers.get("cf-connecting-ip") ?? "local" })).success : false;
 }
 
-function joinDetails(request: Request, env: Env): { band: AgeBand; birthDate?: string; name?: string; socialMode: SocialMode } | null {
+/** The age band from the join steps' cookie, once the age question is answered. */
+function joinBand(request: Request, env: Env): AgeBand | null {
   try {
-    const joinCookie = JSON.parse(decodeURIComponent(readCookie(request, env, "zaisma_join") ?? "")) as { band?: string; birth_date?: string; name?: string; social_mode?: string };
-    if (!isAgeBand(joinCookie.band)) return null;
-    // Only a birth date that says the same band (the server worked both out from one answer).
-    const birthDate = joinCookie.band !== "18+" && typeof joinCookie.birth_date === "string" && ageBandOn(joinCookie.birth_date, new Date()) === joinCookie.band ? joinCookie.birth_date : undefined;
-    return { band: joinCookie.band, birthDate, name: typeof joinCookie.name === "string" ? joinCookie.name : undefined, socialMode: chosenSocialMode(joinCookie.band, joinCookie.social_mode) };
+    const joinCookie = JSON.parse(decodeURIComponent(readCookie(request, env, "zaisma_join") ?? "")) as { band?: string };
+    return isAgeBand(joinCookie.band) ? joinCookie.band : null;
   } catch {
     return null;
   }
 }
 
-const joinBand = (request: Request, env: Env) => joinDetails(request, env)?.band ?? null;
+/** The birth date from the join steps' cookie: under 18 only, and only when it says the same band (the server worked both out from one answer). */
+function joinBirthDate(request: Request, env: Env): string | undefined {
+  try {
+    const joinCookie = JSON.parse(decodeURIComponent(readCookie(request, env, "zaisma_join") ?? "")) as { band?: string; birth_date?: string };
+    const isSameBand = isAgeBand(joinCookie.band) && joinCookie.band !== "18+" && typeof joinCookie.birth_date === "string" && ageBandOn(joinCookie.birth_date, new Date()) === joinCookie.band;
+    return isSameBand ? joinCookie.birth_date : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /** The social mode picked while joining, when the band can choose it; otherwise the band's default. 13–15 never choose. */
 function chosenSocialMode(band: AgeBand | null, given: unknown): SocialMode {
@@ -362,49 +573,138 @@ function chosenSocialMode(band: AgeBand | null, given: unknown): SocialMode {
 
 // --- Pages ---
 
-function page(env: Env, title: string, body: Raw, httpStatus = 200): Response {
-  const response = layout(env, { title: `${title} · Zaisma`, body: html`<div class="narrow">${body}</div>`, isPrivate: true });
+function page(env: Env, title: string, body: Raw, httpStatus = 200, hasTurnstileCheck = false): Response {
+  const response = layout(env, { title: `${title} · Zaisma`, body: html`<div class="narrow">${body}</div>`, isPrivate: true, hasTurnstileCheck });
   return new Response(response.body, { status: httpStatus, headers: response.headers });
 }
 
 const errorParagraph = (text?: string) => (text ? html`<p class="error" role="alert">${text}</p>` : "");
 const nextField = (next: string | null) => (next ? html`<input type="hidden" name="next" value="${next}">` : "");
 
-async function signinPage(env: Env, next: string | null, error?: string, httpStatus = 200): Promise<Response> {
+/** Show what's typed in a form's password boxes, for typing one on a phone. */
+const showPasswordToggle = () => html`<label class="toggle"><input type="checkbox" data-show-password> Show password</label>`;
+const SHOW_PASSWORD_SCRIPT = `for (const box of document.querySelectorAll("[data-show-password]")) box.addEventListener("change", () => { for (const input of box.closest("form").querySelectorAll('input[name="password"]')) input.type = box.checked ? "text" : "password"; });`;
+
+/**
+ * The username box, with what it says as it's typed (free, taken, why not) and free ones close to it to
+ * tap. The server says the same when the form comes back, so it works without the script.
+ */
+function usernameField(given: string, hint: string, suggestions: string[], options: { isFocused?: boolean; label?: string } = {}): Raw {
+  return html`<label>${options.label ?? "Username"}<input id="username-box" name="username" value="${given}" minlength="3" maxlength="20" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" required${options.label === "" ? raw(' aria-label="Username"') : ""}${options.isFocused === false ? "" : raw(" autofocus")}><span class="hint" id="username-status" data-resting="${hint}">${hint}</span></label>
+${usernameSuggestions(suggestions)}`;
+}
+
+const usernameSuggestions = (suggestions: string[]) =>
+  html`<div class="suggest" id="username-suggestions"${suggestions.length ? "" : raw(" hidden")}>${suggestions.length ? html`<span>Free:</span>` : ""}${suggestions.map((suggestion) => html`<button class="btn ghost" type="button" data-username="${suggestion}">${suggestion}</button>`)}</div>`;
+
+const USERNAME_SCRIPT = `(() => {
+  const input = document.getElementById("username-box"), status = document.getElementById("username-status"), box = document.getElementById("username-suggestions");
+  if (!input || !status || !box) return;
+  let timer = null, asked = input.value.trim();
+  const show = (text, kind) => { status.textContent = text; status.className = "hint" + (kind ? " " + kind : ""); };
+  const suggest = (names) => {
+    box.replaceChildren();
+    if (names.length) box.append(Object.assign(document.createElement("span"), { textContent: "Free:" }));
+    for (const name of names) {
+      const button = Object.assign(document.createElement("button"), { type: "button", className: "btn ghost", textContent: name });
+      button.dataset.username = name;
+      box.append(button);
+    }
+    box.hidden = !names.length;
+  };
+  const check = async () => {
+    const wanted = input.value.trim();
+    if (wanted === asked) return;
+    asked = wanted;
+    if (!wanted) { show(status.dataset.resting); suggest([]); return; }
+    try {
+      const answer = await (await fetch("/api/username-check?username=" + encodeURIComponent(wanted))).json();
+      if (input.value.trim() !== wanted) return;
+      show(answer.message, answer.is_available ? "ok" : "bad");
+      suggest(answer.suggested_usernames || []);
+    } catch {}
+  };
+  input.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(check, 350); });
+  box.addEventListener("click", (event) => {
+    const chosen = event.target.closest("button[data-username]");
+    if (!chosen) return;
+    input.value = chosen.dataset.username;
+    input.focus();
+    check();
+  });
+})();`;
+
+async function signinPage(env: Env, next: string | null, error?: string, httpStatus = 200, login = ""): Promise<Response> {
   const providers = await providersOn(env);
   return page(
     env,
     "Sign in",
     html`<h1>Sign in</h1>
-<p class="lead">No password needed.</p>
 ${errorParagraph(error)}
-<div class="ways" id="ways"${providers.length ? "" : raw(" hidden")}>
-<button class="btn" type="button" id="passkey-go" hidden>${raw(ICON_PASSKEY)}Sign in with a passkey</button>
-${providerLinks(providers, next)}
-<p class="error" role="alert" id="passkey-error" hidden></p>
-<p class="or"><span>or get a code by email</span></p>
-</div>
 <form class="stack" method="post" action="/signin">
 ${nextField(next)}
-<label>Email<input type="email" name="email" autocomplete="email webauthn" required autofocus></label>
-<button class="btn" type="submit" id="code-go">Email me a code</button>
+<label>Username<input name="username" value="${login}" autocomplete="username webauthn" autocapitalize="off" autocorrect="off" spellcheck="false" required${login ? "" : raw(" autofocus")}></label>
+<label>Password<input type="password" name="password" autocomplete="current-password" required${login ? raw(" autofocus") : ""}></label>
+${showPasswordToggle()}
+<button class="btn" type="submit">Sign in</button>
 </form>
+<p class="muted"><a href="/signin/email${nextQuery(next)}">Forgot your password?</a></p>
+<div class="ways" id="ways"${providers.length ? "" : raw(" hidden")}>
+<p class="or"><span>or</span></p>
+<button class="btn ghost" type="button" id="passkey-go" hidden>${raw(ICON_PASSKEY)}Sign in with a passkey</button>
+${providerLinks(providers, next)}
+<p class="error" role="alert" id="passkey-error" hidden></p>
+</div>
 <p class="muted">New here? <a href="/join${nextQuery(next)}">Make an account</a>. Most games play without one.</p>
-<script>${raw(PASSKEY_SCRIPT)}
+<script>${raw(SHOW_PASSWORD_SCRIPT)}
+${raw(PASSKEY_SCRIPT)}
 (() => {
   if (!window.PublicKeyCredential) return;
-  // Passkeys first, the email code as the way in for new devices.
   document.getElementById("ways").hidden = false;
   document.getElementById("passkey-go").hidden = false;
-  document.getElementById("code-go").classList.add("ghost");
-  const next = ${raw(JSON.stringify(next ?? "/").replace(/</g, "\u003c"))};
+  const next = ${raw(JSON.stringify(next ?? "/").replace(/</g, "\\u003c"))};
   const show = (e) => { const p = document.getElementById("passkey-error"); p.textContent = e || ""; p.hidden = !e; };
   document.getElementById("passkey-go").onclick = async () => show(await zaismaPasskeySignIn(next, false));
-  // Browsers that can also offer passkeys in the email box's autofill.
+  // Browsers that can also offer passkeys in the username box's autofill.
   if (PublicKeyCredential.isConditionalMediationAvailable) PublicKeyCredential.isConditionalMediationAvailable().then((ok) => ok && zaismaPasskeySignIn(next, true).then(show));
 })();
 </script>`,
     httpStatus,
+  );
+}
+
+/**
+ * Forgot your password: a code to the account's email, or a passkey. After it, a window on the account
+ * page asks for a new password, then goes on to wherever they were headed.
+ */
+function emailSigninPage(env: Env, next: string | null, error?: string): Response {
+  const back = `/account?new-password${next ? `&next=${encodeURIComponent(next)}` : ""}`;
+  return page(
+    env,
+    "Forgot your password?",
+    html`<h1>Forgot your password?</h1>
+<p class="lead">Get back in with the email or a passkey on your account, then set a new password.</p>
+${errorParagraph(error)}
+<form class="stack" method="post" action="/signin/email">
+${nextField(back)}
+<label>Email<input type="email" name="email" autocomplete="email" required autofocus></label>
+<button class="btn" type="submit">Email me a code</button>
+</form>
+<div class="ways" id="ways" hidden>
+<p class="or"><span>or</span></p>
+<button class="btn ghost" type="button" id="passkey-go">${raw(ICON_PASSKEY)}Sign in with a passkey</button>
+<p class="error" role="alert" id="passkey-error" hidden></p>
+</div>
+<p class="muted">Added neither? Then the account can't be recovered, but you can always <a href="/join">make a new one</a>.</p>
+<script>${raw(PASSKEY_SCRIPT)}
+(() => {
+  if (!window.PublicKeyCredential) return;
+  document.getElementById("ways").hidden = false;
+  const show = (e) => { const p = document.getElementById("passkey-error"); p.textContent = e || ""; p.hidden = !e; };
+  document.getElementById("passkey-go").onclick = async () => show(await zaismaPasskeySignIn(${raw(JSON.stringify(back).replace(/</g, "\\u003c"))}, false));
+})();
+</script>`,
+    error ? 400 : 200,
   );
 }
 
@@ -419,20 +719,29 @@ function providerLinks(providers: Provider[], next: string | null): Raw {
   return html`${providers.map((provider) => html`<a class="btn ghost" href="/signin/with/${provider}${nextQuery(next)}">${raw(ICON_PROVIDER[provider])}Continue with ${PROVIDERS[provider]}</a>`)}`;
 }
 
-export function codePage(env: Env, email: string, next: string | null, error?: string, confirm = false): Response {
+/** What a code is for: signing in, confirming it's you on the account page, or adding an email. */
+type CodeKind = "signin" | "confirm" | "email";
+
+function codePage(env: Env, email: string, next: string | null, error?: string, kind: CodeKind = "signin"): Response {
+  const lead = {
+    signin: html`If <strong>${email}</strong> is on a Zaisma account, a code is on its way.`,
+    confirm: html`We sent a code to <strong>${email}</strong>. Enter it to confirm it's you.`,
+    email: html`We sent a code to <strong>${email}</strong>. Enter it to add the email to your account.`,
+  }[kind];
+  const back = { signin: html`<a href="/signin/email${nextQuery(next)}">try again</a>`, confirm: html`<a href="/account#signing-in">go back</a> and try again`, email: html`<a href="/account#signing-in">go back</a> and try again` }[kind];
   return page(
     env,
     "Check your email",
     html`<h1>Check your email</h1>
-<p class="lead">${confirm ? html`We sent a code to <strong>${email}</strong>. Enter it to confirm it's you.` : html`If <strong>${email}</strong> has a Zaisma account or you're making one, a code is on its way.`}</p>
+<p class="lead">${lead}</p>
 ${errorParagraph(error)}
-<form class="stack" method="post" action="/signin/code">
+<form class="stack" method="post" action="${kind === "email" ? "/account/email/code" : "/signin/code"}">
 ${nextField(next)}
 <input type="hidden" name="email" value="${email}">
 <label>Code<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,12}" maxlength="12" required autofocus></label>
 <button class="btn" type="submit">Continue</button>
 </form>
-<p class="muted">No email after a minute? Check spam, or ${confirm ? html`<a href="/account#passkeys">go back</a> and try again` : html`<a href="/signin${nextQuery(next)}">try again</a>`}.</p>`,
+<p class="muted">No email after a minute? Check spam, or ${back}.</p>`,
     error ? 400 : 200,
   );
 }
@@ -451,7 +760,7 @@ function agePage(env: Env, next: string | null, error?: string, via?: Provider):
     env,
     "Make an account",
     html`<h1>Make an account</h1>
-<p class="lead">${via ? `You're new to Zaisma. Answer this first, then we'll take you back to ${PROVIDERS[via]} to finish.` : "Keep your progress, play with friends and get your own name. Most games play without one."}</p>
+<p class="lead">${via ? `You're new to Zaisma. Answer this first, then we'll take you back to ${PROVIDERS[via]} to finish.` : "Keep your progress, play with friends and get your own username. Most games play without one."}</p>
 ${errorParagraph(error)}
 <form class="stack" method="post" action="/join/age">
 ${nextField(next)}
@@ -486,10 +795,22 @@ ${withCustom ? radio("custom", "Custom", "Choose each one yourself.") : ""}
 </fieldset>`;
 }
 
-/** 16 and over pick a preset while joining; 13–15 start solo-focused and can turn on chat with friends later. */
+/** Each preset as a new player picks it while joining (16 and over; 13–15 start solo-focused): a line in their own words. */
+const JOIN_SOCIAL_MODE_LINES: Record<SocialMode, string> = {
+  solo_focused: "I just want to play, no chat.",
+  friends_focused: "I want to play and chat with my friends.",
+  open_and_social: "I like meeting new players.",
+};
+
 function joinSocialModeFields(band: AgeBand | null, current: SocialMode | undefined): Raw | string {
   if (!band || band === "13-15") return "";
-  return html`${socialModeChoices(band, current ?? defaultSocialMode(band), "Who can chat with you and see what you play?")}<p class="hint">You can change each one any time on your account page.</p>`;
+  const chosen = current ?? defaultSocialMode(band);
+  return html`<fieldset class="choices"><legend>How do you play?</legend>
+${socialModesFor(band).map(
+    (socialMode) => html`<label class="check"><input type="radio" name="social_mode" value="${socialMode}"${socialMode === chosen ? raw(" checked") : ""}> <span>${SOCIAL_MODE_LABELS[socialMode]}<small class="hint">${JOIN_SOCIAL_MODE_LINES[socialMode]}</small></span></label>`,
+  )}
+</fieldset>
+<p class="hint">You can change this any time on your account page.</p>`;
 }
 
 /** Each social setting on the account page: what it's called, and what it covers. */
@@ -543,40 +864,65 @@ ${SOCIAL_SETTINGS.map((setting) => {
 </script>`;
 }
 
-async function joinEmailPage(env: Env, next: string | null, band: AgeBand | null, error?: string, given: { name?: string; email?: string; socialMode?: SocialMode } = {}): Promise<Response> {
-  const { name = "", email = "" } = given;
+const USERNAME_HINT = "Everyone sees it, and it's how friends find you. Don't use your real name.";
+
+/** What a join form shows again when it comes back: what they typed (never the password), and free usernames. */
+interface JoinGiven {
+  username?: string;
+  socialMode?: SocialMode;
+  suggestions?: string[];
+}
+
+/** Cloudflare's invisible check on a join form, when it's set up: an empty box it can use, and its answer's field. */
+const joinCheck = (env: Env) => (env.TURNSTILE_SITE_KEY ? html`<input type="hidden" name="turnstile_token"><div id="join-check"></div>` : "");
+const joinCheckScript = (env: Env) => (env.TURNSTILE_SITE_KEY ? turnstileFormScript(env.TURNSTILE_SITE_KEY, "join", "join-form", "join-check") : "");
+
+/** The second step: a username and a password, or Google or Discord instead. */
+async function joinAccountPage(env: Env, next: string | null, band: AgeBand, error?: string, given: JoinGiven = {}): Promise<Response> {
   const providers = await providersOn(env);
   return page(
     env,
     "Make an account",
     html`<h1>Make an account</h1>
 ${errorParagraph(error)}
-${providers.length ? html`<div class="ways">${providerLinks(providers, next)}<p class="or"><span>or use your email</span></p></div>` : ""}
-<form class="stack" method="post" action="/join/email">
+${providers.length ? html`<div class="ways">${providerLinks(providers, next)}<p class="or"><span>or pick a username and password</span></p></div>` : ""}
+<form class="stack" method="post" action="/join/account" id="join-form">
 ${nextField(next)}
-<label>Your name<input name="name" value="${name}" minlength="3" maxlength="20" autocomplete="nickname" required autofocus><span class="hint">What other players see. ${NAME_RULES} Don't use your real name.</span></label>
-<label>Email<input type="email" name="email" value="${email}" autocomplete="email" required><span class="hint">Only for signing in. Never shown to anyone.</span></label>
+${usernameField(given.username ?? "", USERNAME_HINT, given.suggestions ?? [])}
+<label>Password<input type="password" name="password" minlength="${MINIMUM_PASSWORD_CHARACTER_COUNT}" autocomplete="new-password" required><span class="hint">${PASSWORD_HINT}</span></label>
+${showPasswordToggle()}
 ${joinSocialModeFields(band, given.socialMode)}
-<button class="btn" type="submit">Email me a code</button>
+${joinCheck(env)}
+<button class="btn" type="submit">Make my account</button>
 </form>
-<p class="muted">By making an account you agree to the <a href="/legal/content-rules">content rules</a> and our <a href="/legal/privacy">privacy policy</a>.</p>`,
+<p class="muted">By making an account you agree to the <a href="/legal/content-rules">content rules</a> and our <a href="/legal/privacy">privacy policy</a>.</p>
+<script>${raw(USERNAME_SCRIPT)}
+${raw(SHOW_PASSWORD_SCRIPT)}
+${raw(joinCheckScript(env))}</script>`,
     error ? 400 : 200,
+    Boolean(env.TURNSTILE_SITE_KEY),
   );
 }
 
-function joinNamePage(env: Env, next: string | null, band: AgeBand, error?: string, given: { name?: string; socialMode?: SocialMode } = {}): Response {
+/** After Google or Discord: just a username, since they sign in with those. */
+function joinUsernamePage(env: Env, next: string | null, band: AgeBand, error?: string, given: JoinGiven = {}): Response {
   return page(
     env,
-    "Pick a name",
-    html`<h1>Pick a name</h1>
+    "Pick a username",
+    html`<h1>Pick a username</h1>
 ${errorParagraph(error)}
-<form class="stack" method="post" action="/join/name">
+<form class="stack" method="post" action="/join/username" id="join-form">
 ${nextField(next)}
-<label>Your name<input name="name" value="${given.name ?? ""}" minlength="3" maxlength="20" autocomplete="nickname" required autofocus><span class="hint">What other players see. ${NAME_RULES} Don't use your real name.</span></label>
+${usernameField(given.username ?? "", USERNAME_HINT, given.suggestions ?? [])}
 ${joinSocialModeFields(band, given.socialMode)}
+${joinCheck(env)}
 <button class="btn" type="submit">Finish</button>
-</form>`,
+</form>
+<p class="muted">By making an account you agree to the <a href="/legal/content-rules">content rules</a> and our <a href="/legal/privacy">privacy policy</a>.</p>
+<script>${raw(USERNAME_SCRIPT)}
+${raw(joinCheckScript(env))}</script>`,
     error ? 400 : 200,
+    Boolean(env.TURNSTILE_SITE_KEY),
   );
 }
 
@@ -762,45 +1108,115 @@ const ICON_PASSKEY = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none
 
 const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
-async function accountPage(env: Env, session: Session, welcome: boolean, error?: string, made?: { name: string; token: string }, query = new URLSearchParams()): Promise<Response> {
+/** Notes the account page shows after a change, by the query it's sent back with. */
+const SIGNING_IN_NOTES: Record<string, string> = {
+  "password-saved": "Password saved. Sign in with it and your username from now on.",
+  "email-saved": "Email added. If you forget your password, you can get back in with it.",
+  "email-removed": "Email removed. Sign in with your username and password.",
+  confirmed: "Thanks, that's you. For the next 10 minutes you can change how you sign in.",
+};
+
+/**
+ * The window after Forgot your password (or an email code for an account with no password yet): pick a
+ * password now, then go on to where they were headed. Not now goes there too.
+ */
+function newPasswordWindow(hasPassword: boolean, then: string | null, error?: string): Raw {
+  return html`<dialog id="new-password" class="wizard short bevel-l" aria-labelledby="new-password-title">
+<form method="post" action="/account/password">
+  <input type="hidden" name="from" value="new-password">
+  ${nextField(then)}
+  <div class="wizard-head"><div><h2 id="new-password-title">${hasPassword ? "Set a new password" : "Add a password"}</h2><p class="wizard-sub">You're signed in. Pick a password to sign in with your username next time.</p></div></div>
+  <div class="wizard-body stack">
+    ${errorParagraph(error)}
+    <label>New password<input type="password" name="password" minlength="${MINIMUM_PASSWORD_CHARACTER_COUNT}" autocomplete="new-password" required autofocus><span class="hint">${PASSWORD_HINT}</span></label>
+    ${showPasswordToggle()}
+  </div>
+  <div class="wizard-foot row">
+    ${then ? html`<a class="btn ghost" href="${then}">Not now</a>` : html`<button class="btn ghost" type="button" data-close>Not now</button>`}
+    <button class="btn light" type="submit">Save password</button>
+  </div>
+</form>
+</dialog>
+<script>
+(() => {
+  const dialog = document.getElementById("new-password");
+  dialog.showModal();
+  for (const close of dialog.querySelectorAll("[data-close]")) close.onclick = () => dialog.close();
+  ${raw(SHOW_PASSWORD_SCRIPT)}
+})();
+</script>`;
+}
+
+/** What the username form shows again when it comes back: what they typed, and free usernames. */
+interface UsernameGiven {
+  username: string;
+  suggestions: string[];
+}
+
+async function accountPage(env: Env, session: Session, welcome: boolean, error?: string, made?: { name: string; token: string }, query = new URLSearchParams(), usernameGiven?: UsernameGiven): Promise<Response> {
   const account = (await accountById(env.DB, session.userId))!;
   const [games, keys, passkeys, signIns] = await Promise.all([gamesOwnedBy(env.DB, account.id), apiKeysFor(env.DB, account.id), passkeysFor(env.DB, account.id), signInGrantsFor(env.DB, account.id)]);
-  // Adding a passkey needs a recent sign-in; otherwise an email code first.
+  // Changing how they sign in needs a recent sign-in; otherwise "Confirm it's you" first.
   const recent = Date.now() - session.signedInAtMs < RECENT_SIGNIN_MS;
+  const email = realEmail(session.email);
+  const hasPassword = account.password_changed_at_ms !== null;
+  const signingInNote = Object.keys(SIGNING_IN_NOTES).find((key) => query.has(key));
+  // Just back in after Forgot your password: a window asks for a new one straight away.
+  const isAskingForPassword = query.has("new-password") && recent;
   return page(
     env,
     "Your account",
-    html`${welcome ? html`<p class="note">Welcome to Zaisma, ${account.name}.</p>${raw(JOINED_SCRIPT)}` : ""}
-<h1>${account.name}</h1>
-<p class="lead">${session.email}</p>
-${errorParagraph(error)}
-<h2>Name</h2>
-<form class="row" method="post" action="/account/name">
-<input name="name" value="${account.name}" minlength="3" maxlength="20" required aria-label="Name">
+    html`${welcome ? html`<p class="note">Welcome to Zaisma, ${account.username}.</p>${raw(JOINED_SCRIPT)}` : ""}
+<h1>${account.username}</h1>
+${email ? html`<p class="lead">${email}</p>` : ""}
+${isAskingForPassword ? newPasswordWindow(hasPassword, safeNext(query.get("next")), error) : errorParagraph(error)}
+<h2 id="username">Username</h2>
+${isUsernameRight(account.username) ? "" : html`<p class="note" role="status">Usernames are now ${USERNAME_RULES.toLowerCase().replace(/\.$/, "")}, and yours has something else in it. Pick a new one.</p>`}
+${query.has("username-saved") ? html`<p class="note" role="status">Saved. Everyone sees your new username from now on.</p>` : ""}
+<form class="stack" method="post" action="/account/username">
+${usernameField(usernameGiven?.username ?? account.username, "Everyone sees it, and it's how friends find you.", usernameGiven?.suggestions ?? [], { isFocused: false, label: "" })}
 <button class="btn ghost" type="submit">Save</button>
 </form>
+<script>${raw(USERNAME_SCRIPT)}</script>
 <h2 id="friends">Friends</h2>
 <p>Friends join by an invite you give them, as a link or a code. <a href="/friends">Your friends and invites</a>.</p>
 <h2 id="social">Social</h2>
 <p>Who can chat with you, join you and see what you play.</p>
 ${query.has("social-saved") ? html`<p class="note" role="status">Saved. Games pick up chat changes the next time you open them.</p>` : ""}
 ${socialSettingsForm(account.age_band, socialSettingsOf(account))}
-<h2 id="passkeys">Passkeys</h2>
-<p>Sign in with Face ID, a fingerprint or your device's PIN instead of an email code. Your email still works if you lose a device.</p>
+<h2 id="signing-in">Signing in</h2>
+${signingInNote ? html`<p class="note" role="status">${SIGNING_IN_NOTES[signingInNote]!}</p>` : ""}
+${query.has("confirm-failed") ? html`<p class="error" role="alert">Couldn't send a code. Wait a minute and try again.</p>` : ""}
+${recent
+      ? ""
+      : html`<div class="note" id="confirm"><p>${query.has("confirm-first") ? html`<strong>Confirm it's you first.</strong> ` : ""}To change your password, email or passkeys, confirm it's you.</p>
+${hasPassword
+          ? html`<form class="row" method="post" action="/account/confirm"><input type="password" name="password" autocomplete="current-password" required aria-label="Your password" placeholder="Your password"><button class="btn" type="submit">Confirm</button></form>`
+          : html`<form method="post" action="/account/confirm"><button class="btn" type="submit">Email me a code</button></form>`}
+</div>`}
+<h3 class="sub">Password</h3>
+<p>${hasPassword ? `Set on ${day(account.password_changed_at_ms!)}.` : "No password yet. Add one to sign in with your username."}</p>
+${recent
+      ? html`<form class="row" method="post" action="/account/password"><input type="password" name="password" minlength="${MINIMUM_PASSWORD_CHARACTER_COUNT}" autocomplete="new-password" required aria-label="New password" placeholder="New password"><button class="btn ghost" type="submit">${hasPassword ? "Change" : "Add"}</button></form>
+<p class="hint">${PASSWORD_HINT}</p>`
+      : ""}
+<h3 class="sub">Email</h3>
+<p>${email ? html`<strong>${email}</strong>. A way back in if you forget your password. Never shown to anyone.` : "No email. Add one to get back in if you forget your password. Never shown to anyone."}</p>
+${recent
+      ? html`<form class="row" method="post" action="/account/email"><input type="email" name="email" autocomplete="email" required aria-label="${email ? "New email" : "Email"}" placeholder="${email ? "New email" : "Email"}"><button class="btn ghost" type="submit">${email ? "Change" : "Add"}</button></form>
+${email && hasPassword ? html`<form class="after-row" method="post" action="/account/email/remove"><button class="btn ghost" type="submit">Remove email</button></form>` : ""}`
+      : ""}
+<h3 class="sub" id="passkeys">Passkeys</h3>
+<p>Sign in with Face ID, a fingerprint or your device's PIN instead of your password.</p>
 ${query.has("passkey-added") ? html`<p class="note" role="status"><strong>Passkey added.</strong> Next time, choose Sign in with a passkey.</p>` : ""}
-${query.has("passkey") && recent ? html`<p class="note" role="status">Thanks, that's you. Now add your passkey.</p>` : ""}
-${query.has("passkey-failed") ? html`<p class="error" role="alert">Couldn't send a code. Wait a minute and try again.</p>` : ""}
 ${passkeys.length
       ? html`<ul class="keys">${passkeys.map(
           (passkey) => html`<li><span>Added on ${passkey.name} <span class="why muted small">${day(passkey.created_at_ms)}, ${passkey.last_used_at_ms ? `last used ${day(passkey.last_used_at_ms)}` : "not used yet"}</span></span>
 <form method="post" action="/account/passkeys/${passkey.id}/remove"><button class="btn ghost" type="submit">Remove</button></form></li>`,
         )}</ul>`
       : ""}
-<div class="row" id="passkey-add-row">
 ${recent
-      ? html`<button class="btn${passkeys.length ? " ghost" : ""}" type="button" id="passkey-add"${query.has("passkey") ? raw(" autofocus") : ""}>Add a passkey</button>`
-      : html`<form method="post" action="/account/passkeys/confirm"><button class="btn${passkeys.length ? " ghost" : ""}" type="submit" id="passkey-confirm">Add a passkey</button></form><span class="hint">We'll email you a code first, to check it's you.</span>`}
-</div>
+      ? html`<div class="row" id="passkey-add-row"><button class="btn${passkeys.length ? " ghost" : ""}" type="button" id="passkey-add">Add a passkey</button></div>
 <p class="error" role="alert" id="passkey-error" hidden></p>
 <script>${raw(PASSKEY_SCRIPT)}
 (() => {
@@ -809,19 +1225,18 @@ ${recent
     row.innerHTML = "<p class=muted>This browser can't use passkeys.</p>";
     return;
   }
-  const add = document.getElementById("passkey-add");
-  if (!add) return;
-  add.onclick = async () => {
+  document.getElementById("passkey-add").onclick = async () => {
     const error = await zaismaAddPasskey();
     if (!error) return (location.href = "/account?passkey-added#passkeys");
-    // The recent sign-in ran out while the page was open: confirm with a code first.
-    if (error === "confirm") return location.reload();
+    // The recent sign-in ran out while the page was open: confirm it's you first.
+    if (error === "confirm") return (location.href = "/account?confirm-first#signing-in");
     const p = document.getElementById("passkey-error");
     p.textContent = error;
     p.hidden = false;
   };
 })();
-</script>
+</script>`
+      : ""}
 <h2>Game saves</h2>
 <p>Games you play while signed in save your progress to your account. <a href="/account/saves">See your saves</a>, and go back to an earlier version if progress goes missing.</p>
 ${signIns.length
@@ -853,7 +1268,7 @@ ${keyWizard(games)}
 <form method="post" action="/signout"><button class="btn ghost" type="submit">Sign out on every device</button></form>
 <h2>Delete account</h2>
 <details><summary>Delete your account</summary>
-<p>This deletes your email, name, game saves and everything else on your account straight away. It can't be undone.</p>
+<p>This deletes your username, any email, game saves and everything else on your account straight away. It can't be undone.</p>
 <form class="row" method="post" action="/account/delete">
 <input name="confirm" placeholder='Type "delete"' aria-label='Type "delete" to confirm' autocomplete="off" required>
 <button class="btn danger" type="submit">Delete my account</button>

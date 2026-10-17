@@ -279,7 +279,7 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     if (!account) return gameDetail(env, game.id, "No account with that ID. It's shown at the bottom of the account page.");
     const owner = await personOwner(env.DB, account.id);
     await setGameOwner(env.DB, game.id, owner.id);
-    await audit(env.DB, game.id, "owner", `Owner: ${account.name} (account ${account.id})`, actor);
+    await audit(env.DB, game.id, "owner", `Owner: ${account.username} (account ${account.id})`, actor);
     return redirect(`/admin/games/${game.id}`);
   }
 

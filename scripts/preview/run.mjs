@@ -26,6 +26,9 @@ const SITE = `http://localhost:${PORTS.site}`;
 const GAMES = `http://localhost:${PORTS.games}`;
 const ROOMS = `http://localhost:${PORTS.rooms}`;
 const EMAIL = "preview@zaisma.test";
+// Every preview account's password, and the token Cloudflare's test keys answer for (the preview uses them).
+const PASSWORD = "preview password";
+const TURNSTILE_TOKEN = "XXXX.DUMMY.TOKEN.XXXX";
 
 if (process.argv.includes("--reset")) rmSync(STATE, { recursive: true, force: true });
 const fresh = !existsSync(join(STATE, "seeded"));
@@ -118,10 +121,10 @@ if (fresh) {
 // The two multiplayer demos run on our rooms (also for preview data made before rooms were in the preview).
 // Cave Crew uses the relay, to show closed and hidden rooms. Rooms from the last run are gone.
 // Shard Dodge needs a Zaisma account, to show the game page asking guests to sign in.
-// Preview Studio's sign-in app for Sky Hopper Online, with a known secret, to its port this run.
+// Preview_Studio's sign-in app for Sky Hopper Online, with a known secret, to its port this run.
 const signInAppSql = `INSERT INTO sign_in_apps (id, owner_id, name, kind, redirect_urls, client_secret_sha256, created_at_ms, updated_at_ms)
   SELECT '${SIGN_IN_APP_ID}', owners.id, 'Sky Hopper Online', 'confidential', '${JSON.stringify([`${SIGN_IN_SITE}/callback`])}', '${createHash("sha256").update(SIGN_IN_APP_SECRET).digest("hex")}', ${Date.now()}, ${Date.now()}
-  FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE accounts.name = 'Preview Studio'
+  FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE accounts.username = 'Preview_Studio'
   ON CONFLICT (id) DO UPDATE SET redirect_urls = excluded.redirect_urls`;
 spawnSync(
   "npx",
@@ -162,9 +165,13 @@ Zaisma preview is running. Nothing here touches the live site.
   Tester links    ${testers.secret ?? "(npm run preview -- --reset to make them)"}  (Rocket Lab, a private game)
                   ${testers.arena ?? ""}  (Arena, to try multiplayer through one)
   Your games      ${SITE}/dashboard
-  Friends         ${SITE}/friends  (three friends and a waiting invite; sign in as moss@example.test to be one of them)
-  Social settings ${SITE}/account#social  (18+ on Friends-focused; sign in as comet@example.test for 13 to 15,
-                  reed@example.test for 16 on Open and social, pine@example.test for Custom)
+  Make an account ${SITE}/join  (try the username Preview_Studio to see it taken, with free ones to tap)
+  Sign in         ${SITE}/signin  (Preview_Studio, password "${PASSWORD}"; Old_Timer has no password yet)
+  Forgot password ${SITE}/signin/email  (old@example.test or legacy@example.test, code 123456)
+  Account page    ${SITE}/account  (Username, then Signing in: password, email and passkeys)
+  Friends         ${SITE}/friends  (three friends and a waiting invite; sign in as Moss_Runner to be one of them)
+  Social settings ${SITE}/account#social  (18+ on Friends-focused; sign in as Quiet_Comet for 13 to 15, Bright_Reed
+                  for 16 on Open and social, Tall_Pine for Custom; password "${PASSWORD}")
   Sign in with    ${SIGN_IN_SITE}  (Sky Hopper Online, a developer's own site: Sign in with Zaisma, the consent page and back)
   Admin           ${SITE}/admin
   Report queue    ${SITE}/admin/reports
@@ -175,7 +182,8 @@ Zaisma preview is running. Nothing here touches the live site.
                   shows a screenshot refused the same way. Pixel Garden passed before matching knew its
                   picture; the daily check found it and hid the game.)
 
-Sign in with any email and the code 123456. ${EMAIL} owns the test games.
+Sign in as Preview_Studio (it owns the test games) or any test account with the password "${PASSWORD}",
+or by email with the code 123456.
 Stop with Ctrl+C. Fresh data: npm run preview -- --reset
 `);
 
@@ -213,8 +221,9 @@ async function seed() {
 
   // A developer account with an API key.
   await go("/join/age", form({ month: "5", day: "20", year: "1990" }));
-  await go("/join/email", form({ name: "Preview Studio", email: EMAIL }));
-  await go("/signin/code", form({ email: EMAIL, code: "123456" }));
+  await go("/join/account", form({ username: "Preview_Studio", password: PASSWORD, turnstile_token: TURNSTILE_TOKEN }));
+  await go("/account/email", form({ email: EMAIL }));
+  await go("/account/email/code", form({ email: EMAIL, code: "123456" }));
   const page = await (await go("/account/keys", form({ name: "preview", access_level: "full", game_scope: "all" }))).text();
   const key = page.match(/zsk_[a-z0-9]+_[A-Za-z0-9_-]+/)?.[0];
   if (!key) throw new Error("Couldn't make the preview account's API key.");
@@ -340,6 +349,7 @@ async function seed() {
 
   // Friends for the preview account: three who said yes to its invites, and one invite still waiting.
   await seedFriends(go, form);
+  await seedSignInStates();
 
   // Scoped API keys, so the account page lists what each can do: CI that uploads two games, and a custom key.
   await go("/account/keys", form([["name", "GitHub Actions"], ["access_level", "upload"], ["game_scope", "some"], ["game_slugs", "shard-dodge"], ["game_slugs", "arena"]]));
@@ -497,7 +507,7 @@ async function seedForum(you, go, form) {
   await reply(bs, weekly.id, "A cozy farming game for phones. Cloud saves made the sync painless.", { author_kind: me });
   await reply(hl, weekly.id, "A horror game, short and mean. Asked about the rules first.", { author_kind: me });
   await reply(lw, weekly.id, "Tooling, mostly: our AI now files the bugs it hits straight to this forum.");
-  await reply(os, weekly.id, "Two-player tank battles, rooms on Zaisma. @[Pixel Forge], want to swap playtests?", { author_kind: me });
+  await reply(os, weekly.id, "Two-player tank battles, rooms on Zaisma. @PixelForge, want to swap playtests?", { author_kind: me });
   const horror = await topic(hl, { kind: "talk", author_kind: me, category: "rules", title: "Is a horror game with jump scares fine under the content rules?", text_markdown: "Nothing gory, just jump scares and a dark mood. Want to check before we finish it." });
   await zaisma(horror.id, { reply: "Yes. Scary is fine; the rules are about gore, sexual content and real harm. Say it's a horror game in your description so players know what they're getting." });
   await topic(qo, { kind: "talk", author_kind: me, category: "docs", title: "The room codes docs could use a full example", text_markdown: "The page lists the calls but not how they fit together. A small lobby example from start to finish would help a lot." });
@@ -551,10 +561,10 @@ async function seedForum(you, go, form) {
 async function seedFriends(go, form) {
   const thisYear = new Date().getUTCFullYear();
   const friends = [
-    { name: "Moss Runner", email: "moss@example.test", year: "1995" },
-    { name: "Quiet Comet", email: "comet@example.test", year: String(thisYear - 14) },
+    { name: "Moss_Runner", email: "moss@example.test", year: "1995" },
+    { name: "Quiet_Comet", email: "comet@example.test", year: String(thisYear - 14) },
     // Custom social settings: friends-focused, except nobody sees what they've played.
-    { name: "Tall Pine", email: "pine@example.test", year: "2001", social: { social_mode: "custom", who_can_chat: "friends", who_can_join: "friends", who_sees_playing_now: "friends", who_sees_played_games: "nobody", who_sees_online: "friends", who_can_send_friend_requests: "nobody" } },
+    { name: "Tall_Pine", email: "pine@example.test", year: "2001", social: { social_mode: "custom", who_can_chat: "friends", who_can_join: "friends", who_sees_playing_now: "friends", who_sees_played_games: "nobody", who_sees_online: "friends", who_can_send_friend_requests: "nobody" } },
   ];
   for (const [i, friend] of friends.entries()) {
     const made = await go("/friends/invites", form({}));
@@ -565,7 +575,7 @@ async function seedFriends(go, form) {
   }
   await go("/friends/invites", form({}));
   // A 16-year-old who chose open and social while joining, not a friend.
-  await signedIn({ name: "Bright Reed", email: "reed@example.test", year: String(thisYear - 16), socialMode: "open_and_social" }, "198.51.100.210");
+  await signedIn({ name: "Bright_Reed", email: "reed@example.test", year: String(thisYear - 16), socialMode: "open_and_social" }, "198.51.100.210");
 }
 
 /** A new account made through the join pages in its own browser: answers a function that posts as it. */
@@ -580,9 +590,35 @@ async function signedIn(person, ip) {
     return res;
   };
   await asPerson("/join/age", { month: "6", day: "2", year: person.year });
-  await asPerson("/join/email", { name: person.name, email: person.email, ...(person.socialMode ? { social_mode: person.socialMode } : {}) });
-  await asPerson("/signin/code", { email: person.email, code: "123456" });
+  await asPerson("/join/account", { username: person.name, password: PASSWORD, turnstile_token: TURNSTILE_TOKEN, ...(person.socialMode ? { social_mode: person.socialMode } : {}) });
+  await asPerson("/account/email", { email: person.email });
+  await asPerson("/account/email/code", { email: person.email, code: "123456" });
   return asPerson;
+}
+
+/**
+ * Accounts from before usernames and passwords, as they look now: Old_Timer made its account with an
+ * email code and has no password yet, and Legacy Ñandú's old name has a space and a letter usernames
+ * don't take, so its account page asks for a new one. Both get in with an email code.
+ */
+async function seedSignInStates() {
+  for (const [i, old] of [{ username: "Old_Timer", email: "old@example.test" }, { username: "Legacy_Name", email: "legacy@example.test" }].entries()) {
+    const jar = new Map();
+    const ip = `198.51.100.${220 + i}`;
+    const go = async (path, body) => {
+      const res = await fetch(SITE + path, { method: "POST", body: new URLSearchParams(body), redirect: "manual", headers: { origin: SITE, "cf-connecting-ip": ip, cookie: [...jar].map(([k, v]) => `${k}=${v}`).join("; ") } });
+      for (const c of res.headers.getSetCookie()) {
+        const [pair] = c.split("; ");
+        jar.set(pair.slice(0, pair.indexOf("=")), pair.slice(pair.indexOf("=") + 1));
+      }
+      return res;
+    };
+    await go("/signin/email", { email: old.email });
+    await go("/signin/code", { email: old.email, code: "123456" });
+    await go("/join/age", { month: "9", day: "9", year: "1992" });
+    await go("/join/username", { username: old.username, turnstile_token: TURNSTILE_TOKEN });
+  }
+  spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", "UPDATE accounts SET username = 'Legacy Ñandú' WHERE username = 'Legacy_Name'"], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
 }
 
 /** Another developer account, signed in with its own API key: answers an API call function. */
@@ -601,8 +637,9 @@ async function developer(name, email) {
     return res;
   };
   await go("/join/age", { month: "3", day: "14", year: "1988" });
-  await go("/join/email", { name, email });
-  await go("/signin/code", { email, code: "123456" });
+  await go("/join/account", { username: name.replace(/ /g, ""), password: PASSWORD, turnstile_token: TURNSTILE_TOKEN });
+  await go("/account/email", { email });
+  await go("/account/email/code", { email, code: "123456" });
   const key = (await (await go("/account/keys", { name: "preview", access_level: "full", game_scope: "all" })).text()).match(/zsk_[a-z0-9]+_[A-Za-z0-9_-]+/)?.[0];
   if (!key) throw new Error(`Couldn't make ${name}'s API key.`);
   return async (method, path, body) => {
