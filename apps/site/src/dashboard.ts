@@ -30,6 +30,7 @@ interface GameJson {
   screen_orientation: string | null;
   play_modes: PlayMode[] | null;
   cloud_saves_enabled: boolean;
+  account_offer_enabled: boolean;
   multiplayer_mode: "none" | "relay" | "own" | "built-in";
   room_browsing: RoomBrowsing;
   account_requirement: AccountRequirement;
@@ -145,6 +146,7 @@ export async function handleDashboard(request: Request, env: Env, path: string):
         screen_orientation: field("screen") || null,
         play_modes: playModesFrom(form),
         cloud_saves_enabled: form.get("cloud_saves") === "on",
+        account_offer_enabled: form.get("account_offer") === "on",
         ...(form.has("room_browsing") ? { room_browsing: field("room_browsing") } : {}),
         ...(form.has("account_requirement") ? { account_requirement: field("account_requirement") } : {}),
         ...(form.has("multiplayer") ? { multiplayer_mode: field("multiplayer") } : {}),
@@ -438,6 +440,8 @@ ${accountRequirementFields(game.account_requirement)}
 <fieldset><legend>Saves</legend>
 <label class="check"><input type="checkbox" name="cloud_saves"${game.cloud_saves_enabled ? raw(" checked") : ""}> Cloud saves</label>
 <p class="hint">Signed-in players' progress follows them to any device. It copies the game's own browser saves, so there's nothing to add to your game. Turn it off if your game keeps its own saves on a server.</p>
+<label class="check"><input type="checkbox" name="account_offer"${game.account_offer_enabled ? raw(" checked") : ""}> "Keep your progress" card</label>
+<p class="hint">Once a guest has progress and has played 5 minutes, a card beside the game offers a free account to keep it. Turn it off if your game offers accounts its own way, with <code>Zaisma.player.signIn()</code>.</p>
 </fieldset>
 <button class="btn" type="submit">Save details</button>
 </form>`;

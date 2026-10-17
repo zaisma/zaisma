@@ -14,15 +14,12 @@ import {
   saveHistory,
   saveKey,
   saveRow,
-  savedGames,
-  type Game,
   type SaveCopy,
   type SaveCopyReason,
   type SaveRow,
 } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
-import { html, layout, type Raw } from "./html.ts";
 
 /**
  * Cloud saves: GET and PUT /api/saves/<game>, called by the game page on zaisma.com
@@ -30,13 +27,15 @@ import { html, layout, type Raw } from "./html.ts";
  * hands its browser save to the game page (see packages/sdk/saves.js).
  *
  *   GET  answers { tag, version_number, sha256, updated_at, changed_by_kind, save_data }, or { tag, version_number: 0 } with no save yet
- *   GET  ?version answers only { version_number, changed_by_kind }, from the database alone, for an open game to check cheaply
+ *   GET  ?version answers only { version_number, updated_at, changed_by_kind }, from the database alone, for an open game to check cheaply
  *   PUT  { base_version_number, save_json, replace? } answers { version_number, sha256, updated_at },
- *        or 409 { error, version_number, updated_at, changed_by_kind } when another device (or the developer) saved first
+ *        or 409 { error, version_number, updated_at, changed_by_kind } when another device (or the developer) saved first;
+ *        replace: true says this device's progress was played more recently than another device's and replaces it
  *   PUT  { keep: true, save_json } keeps this device's progress as an earlier version: { is_kept: true }
  *
- * changed_by_kind "developer" means the game's developer changed the save through the API (saves-api.ts):
- * the game page then takes it without asking the player, keeping this device's progress as an earlier version.
+ * There's no "which progress?" question: the progress played most recently wins, and the other is kept as
+ * an earlier version (saves-client.ts decides). changed_by_kind "developer" means the game's developer changed
+ * the save through the API (saves-api.ts): the game page takes it, keeping this device's progress as an earlier version.
  */
 export async function handleSaves(request: Request, env: Env, slug: string): Promise<Response> {
   const json = (body: unknown, httpStatus = 200) => Response.json(body, { status: httpStatus, headers: { "Cache-Control": "no-store" } });
@@ -63,7 +62,7 @@ export async function handleSaves(request: Request, env: Env, slug: string): Pro
 
   if (request.method === "GET") {
     const row = await saveRow(env.DB, account.id, game.id);
-    if (new URL(request.url).searchParams.has("version")) return withCookies(json({ version_number: row?.version_number ?? 0, changed_by_kind: row?.changed_by_kind ?? null }));
+    if (new URL(request.url).searchParams.has("version")) return withCookies(json({ version_number: row?.version_number ?? 0, updated_at: row ? iso(row.updated_at_ms) : null, changed_by_kind: row?.changed_by_kind ?? null }));
     const object = row ? await env.SAVES.get(saveKey(account.id, game.id)) : null;
     if (!row || !object) return withCookies(json({ tag, version_number: row?.version_number ?? 0 }));
     return withCookies(
@@ -87,7 +86,7 @@ export async function handleSaves(request: Request, env: Env, slug: string): Pro
   if (sizeBytes > SAVE_LIMIT_BYTES) return json({ error: "This save is too big." }, 413);
   const sha256 = await saveHash(text);
 
-  // The player picked the account's progress over this device's: keep this device's as an earlier version.
+  // The account's progress was played more recently than this device's: keep this device's as an earlier version.
   if (body.keep === true) {
     await keepCopy(env, { account_id: account.id, game_id: game.id, saved_at_ms: Date.now(), copy_reason: "device", sha256, size_bytes: sizeBytes }, async () => text);
     return withCookies(json({ is_kept: true }));
@@ -98,7 +97,7 @@ export async function handleSaves(request: Request, env: Env, slug: string): Pro
   const current = baseVersionNumber ? await saveRow(env.DB, account.id, game.id) : null;
   const versionNumber = await bumpSave(env.DB, { accountId: account.id, gameId: game.id, baseVersionNumber, sha256, sizeBytes, changedByKind: "player" });
   if (versionNumber === null) {
-    // Another device saved since this one loaded: the player chooses which to keep. A developer's change wins without asking.
+    // Another device (or the developer) saved since this one loaded: the game page decides which progress wins and saves again.
     const row = await saveRow(env.DB, account.id, game.id);
     return withCookies(json({ error: "Played on another device.", version_number: row?.version_number ?? 0, updated_at: iso(row?.updated_at_ms), changed_by_kind: row?.changed_by_kind ?? null }, 409));
   }
@@ -170,115 +169,4 @@ export async function deleteSaveFiles(env: Env, accountId: string): Promise<void
     if (list.objects.length) await env.SAVES.delete(list.objects.map((object) => object.key));
     cursor = list.truncated ? list.cursor : undefined;
   } while (cursor);
-}
-
-// --- Earlier versions: /account/saves and /account/saves/<game> ---
-
-const REASONS: Record<SaveCopyReason, string> = {
-  hourly: "",
-  replaced: "Replaced by a device's progress you picked",
-  smaller: "Before the save shrank, like after a restart",
-  restore: "Before you went back to an earlier version",
-  device: "A device's progress you didn't pick",
-  developer: "Before the game's developer changed it",
-};
-
-/** The player's saves and each game's earlier versions, with a way back to any of them. */
-export async function handleSaveHistory(request: Request, env: Env, path: string): Promise<Response | null> {
-  const match = path.match(/^\/account\/saves(?:\/([a-z0-9-]+)(\/restore)?)?$/);
-  if (!match || !env.SUPABASE_URL) return null;
-  const [, slug, restore] = match as unknown as [string, string | undefined, string | undefined];
-  const post = request.method === "POST";
-  if (post) {
-    const origin = request.headers.get("origin");
-    if (origin && origin !== new URL(request.url).origin) return new Response("Bad origin", { status: 403 });
-  }
-  const session = await currentSession(request, env);
-  const account = session ? await accountById(env.DB, session.userId) : null;
-  if (!session || !account) return redirect(`/signin?next=${encodeURIComponent(path)}`);
-  const done = (response: Response) => {
-    for (const cookie of session.cookies) response.headers.append("Set-Cookie", cookie);
-    return response;
-  };
-
-  if (!slug) return done(page(env, "Your saves", await listPage(env, account.id)));
-  const game = await gameBySlug(env.DB, slug);
-  if (!game || game.review_status !== "live" || !game.cloud_saves_enabled) return done(page(env, "Your saves", html`<h1>No saves here</h1><p class="lead">This game doesn't save to accounts.</p><a class="btn ghost" href="/account/saves">Your saves</a>`, 404));
-
-  if (restore && post) {
-    const id = String((await request.formData()).get("id") ?? "");
-    const ok = await goBack(env, account.id, game, id);
-    return done(redirect(`/account/saves/${game.slug}?${ok ? "restored" : "failed"}`));
-  }
-  if (restore) return done(redirect(`/account/saves/${game.slug}`));
-  return done(page(env, `${game.title} saves`, await gamePage(env, account.id, game, new URL(request.url).searchParams)));
-}
-
-/** Make an earlier version the current save, keeping a copy of the progress it replaces. */
-async function goBack(env: Env, accountId: string, game: Game, id: string): Promise<boolean> {
-  const copies = await saveHistory(env.DB, accountId, game.id);
-  const copy = copies.find((savedCopy) => savedCopy.id === id);
-  const text = copy ? await (await env.SAVES.get(saveCopyKey(accountId, game.id, copy.id)))?.text() : null;
-  if (!copy || !text) return false;
-  const row = await saveRow(env.DB, accountId, game.id);
-  if (row?.sha256 === copy.sha256) return true;
-  if (row) await keepCopy(env, { account_id: accountId, game_id: game.id, saved_at_ms: row.updated_at_ms, copy_reason: "restore", sha256: row.sha256, size_bytes: row.size_bytes }, () => readSave(env, accountId, game.id));
-  const versionNumber = await bumpSave(env.DB, { accountId, gameId: game.id, baseVersionNumber: row?.version_number ?? 0, sha256: copy.sha256, sizeBytes: copy.size_bytes, changedByKind: "player" });
-  if (versionNumber === null) return false;
-  await env.SAVES.put(saveKey(accountId, game.id), text, { httpMetadata: { contentType: "application/json" }, customMetadata: { version_number: String(versionNumber) } });
-  return true;
-}
-
-async function listPage(env: Env, accountId: string): Promise<Raw> {
-  const games = await savedGames(env.DB, accountId);
-  return html`<h1>Your saves</h1>
-<p class="lead">Games that save to your account keep your progress on every device. If progress goes missing, open the game here and go back to an earlier version.</p>
-${games.length
-    ? html`<ul class="keys">${games.map(
-        (game) => html`<li><span><a href="/account/saves/${game.slug}">${game.title}</a> <span class="muted small">saved ${ago(game.updated_at_ms)}${game.save_copy_count ? `, ${game.save_copy_count} earlier ${game.save_copy_count === 1 ? "version" : "versions"}` : ""}</span></span>
-<a class="btn ghost" href="/account/saves/${game.slug}">Earlier versions</a></li>`,
-      )}</ul>`
-    : html`<p class="note">No saves yet. Play a game while you're signed in and your progress shows up here.</p>`}
-<p><a href="/account">Back to your account</a></p>`;
-}
-
-async function gamePage(env: Env, accountId: string, game: Game, query: URLSearchParams): Promise<Raw> {
-  const [row, copies] = await Promise.all([saveRow(env.DB, accountId, game.id), saveHistory(env.DB, accountId, game.id)]);
-  return html`<h1>${game.title} saves</h1>
-${query.has("restored")
-    ? html`<div class="note" role="status"><p><strong>Done.</strong> ${game.title} starts from that progress the next time you play. The progress it replaced is in the list below, in case you change your mind.</p><a class="btn" href="/g/${game.slug}">Play ${game.title}</a></div>`
-    : query.has("failed")
-      ? html`<p class="error" role="alert">Couldn't go back to that version. It may have just been replaced, or you saved from another device at the same moment. Try again.</p>`
-      : ""}
-<p class="lead">${row ? `Your progress was saved ${ago(row.updated_at_ms)}.` : "No progress saved to your account yet."}</p>
-<h2>Earlier versions</h2>
-${copies.length
-    ? html`<p>Going back replaces your current progress on every device. Close the game first if it's open.</p>
-<ul class="keys">${copies.map(
-        (savedCopy) => html`<li><span>Saved ${ago(savedCopy.saved_at_ms)}${REASONS[savedCopy.copy_reason] ? html`<span class="why muted small">${REASONS[savedCopy.copy_reason]}</span>` : ""}</span>
-${row?.sha256 === savedCopy.sha256
-          ? html`<span class="muted small">Your progress now</span>`
-          : html`<form method="post" action="/account/saves/${game.slug}/restore"><input type="hidden" name="id" value="${savedCopy.id}"><button class="btn ghost" type="submit">Go back to this</button></form>`}</li>`,
-      )}</ul>`
-    : html`<p class="note">None yet. While you play, Zaisma keeps a copy about once an hour, and one whenever your progress is about to be replaced. Up to five are kept.</p>`}
-<p><a href="/account/saves">All your saves</a></p>`;
-}
-
-function ago(savedAtMs: number): string {
-  const elapsedMin = Math.round((Date.now() - savedAtMs) / 60000);
-  if (elapsedMin < 1) return "just now";
-  if (elapsedMin < 60) return `${elapsedMin} ${elapsedMin === 1 ? "minute" : "minutes"} ago`;
-  const elapsedHours = Math.round(elapsedMin / 60);
-  if (elapsedHours < 24) return `${elapsedHours} ${elapsedHours === 1 ? "hour" : "hours"} ago`;
-  const elapsedDays = Math.round(elapsedHours / 24);
-  return elapsedDays === 1 ? "yesterday" : elapsedDays < 60 ? `${elapsedDays} days ago` : `on ${new Date(savedAtMs).toISOString().slice(0, 10)}`;
-}
-
-function page(env: Env, title: string, body: Raw, httpStatus = 200): Response {
-  const response = layout(env, { title: `${title} · Zaisma`, body: html`<div class="narrow">${body}</div>`, isPrivate: true });
-  return new Response(response.body, { status: httpStatus, headers: response.headers });
-}
-
-function redirect(to: string): Response {
-  return new Response(null, { status: 303, headers: { Location: to, "Cache-Control": "no-store" } });
 }

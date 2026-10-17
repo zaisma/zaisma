@@ -93,6 +93,7 @@ export const GAME = object({
   screen_orientation: nullable(choice(SCREENS, "null: not set.")),
   play_modes: nullable(list(PLAY_MODE, "How it's played; null: not set.")),
   cloud_saves_enabled: yes("Signed-in players' browser saves are copied to their account."),
+  account_offer_enabled: yes("Guests with progress get the \"Keep your progress\" card offering an account."),
   multiplayer_mode: MULTIPLAYER_MODE,
   room_browsing: ROOM_BROWSING_CHOICE,
   account_requirement: ACCOUNT_REQUIREMENT_CHOICE,
@@ -379,10 +380,10 @@ const SAVE_CONTENTS_FIELDS = {
 export const SAVE_COPY_REASON = choice(
   {
     hourly: "a routine copy, about once an hour while playing",
-    replaced: "the player picked another device's progress over this",
+    replaced: "another device's progress, played more recently, replaced this",
     smaller: "the save shrank to under half, usually a restart",
-    restore: "the player went back to an earlier version",
-    device: "a device's progress the player didn't pick",
+    restore: "the player went back to an earlier version (older copies only: players no longer can)",
+    device: "a device's progress, older than the account's when the device opened the game or saved",
     developer: "right before you changed, reset or restored the save",
   },
   "Why the copy was kept. Copies kept because progress was about to be lost (all but hourly) outlast hourly ones for 30 days.",

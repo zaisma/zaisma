@@ -305,6 +305,8 @@ export interface DetailsChange {
   play_modes?: PlayMode[] | null;
   /** Copy signed-in players' browser saves to their account. Off for games that keep their own saves. */
   cloud_saves_enabled?: boolean;
+  /** Show guests with progress the "Keep your progress" card. Off for games that offer accounts their own way. */
+  account_offer_enabled?: boolean;
   room_browsing?: RoomBrowsing;
   /** none (guests welcome), multiplayer (guests play alone) or whole_game (accounts only). */
   account_requirement?: AccountRequirement;
@@ -353,6 +355,10 @@ export function checkDetails(input: Record<string, unknown>): { change: DetailsC
   if ("cloud_saves_enabled" in input) {
     if (typeof input.cloud_saves_enabled !== "boolean") return refuse("cloud_saves_enabled", "cloud_saves_enabled isn't true or false.", "Send true (players' saves follow them to any device) or false (the game keeps its own saves).");
     change.cloud_saves_enabled = input.cloud_saves_enabled;
+  }
+  if ("account_offer_enabled" in input) {
+    if (typeof input.account_offer_enabled !== "boolean") return refuse("account_offer_enabled", "account_offer_enabled isn't true or false.", "Send true (guests with progress get the \"Keep your progress\" card) or false (no card: the game offers accounts its own way).");
+    change.account_offer_enabled = input.account_offer_enabled;
   }
   if ("room_browsing" in input) {
     if (!ROOM_BROWSING.includes(input.room_browsing as RoomBrowsing)) {
@@ -411,6 +417,7 @@ export async function applyDetails(database: D1Database, game: Game, change: Det
   if (change.screen_orientation !== undefined) set("screen_orientation", change.screen_orientation ?? "");
   if (change.play_modes !== undefined) set("play_modes", change.play_modes ? JSON.stringify(change.play_modes) : "");
   if (change.cloud_saves_enabled !== undefined) set("cloud_saves_enabled", change.cloud_saves_enabled ? 1 : 0);
+  if (change.account_offer_enabled !== undefined) set("account_offer_enabled", change.account_offer_enabled ? 1 : 0);
   if (change.room_browsing !== undefined) set("room_browsing", change.room_browsing);
   if (change.account_requirement !== undefined) set("account_requirement", change.account_requirement);
   // Rooms running the old setting end within a minute, when they next check the game.

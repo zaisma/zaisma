@@ -360,6 +360,16 @@ describe("players", () => {
     expect((await api("/games/own-saves", { method: "PATCH", body: { cloud_saves_enabled: "yes" } })).status).toBe(400);
   });
 
+  it("turns the \"Keep your progress\" card off for games that offer accounts their own way", async () => {
+    await api("/games", { body: { title: "Own Offer", account_offer_enabled: false } });
+    expect((await gameBySlug(env.DB, "own-offer"))!.account_offer_enabled).toBe(0);
+    const on = (await (await api("/games/own-offer", { method: "PATCH", body: { account_offer_enabled: true } })).json()) as { game: { account_offer_enabled: boolean } };
+    expect(on.game.account_offer_enabled).toBe(true);
+    const bad = await api("/games/own-offer", { method: "PATCH", body: { account_offer_enabled: "no" } });
+    expect(bad.status).toBe(400);
+    expect(((await bad.json()) as { error: { code: string; field: string } }).error).toMatchObject({ code: "bad_account_offer_enabled", field: "account_offer_enabled" });
+  });
+
   it("describes each way to play in plain words", () => {
     expect(
       describePlayModes([

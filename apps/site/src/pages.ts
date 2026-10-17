@@ -350,7 +350,7 @@ ${siteFooter()}
     ${saves ? html`<p id="save-status" class="save-line" role="status" hidden></p>` : ""}
   </div>
   <nav>
-    ${saves ? html`<a id="keep-link" href="${joinHere}" data-keep="/join" hidden>${raw(ICON_KEEP)}Keep your progress</a><a id="save-history" href="/account/saves/${game.slug}" hidden>${raw(ICON_HISTORY)}Earlier progress</a>` : ""}
+    ${saves ? html`<a id="keep-link" href="${joinHere}" data-keep="/join" hidden>${raw(ICON_KEEP)}Keep your progress</a>` : ""}
     <a href="/g/${game.slug}/report" data-report>${raw(ICON_REPORT)}Report this game</a>
     <span class="sep" aria-hidden="true"></span>
     <a href="/legal/content-rules" target="_blank" rel="noopener">${raw(ICON_RULES)}Content rules${raw(ICON_OUT)}</a>
@@ -358,20 +358,15 @@ ${siteFooter()}
   </nav>
 </dialog>
 ${reportSheet(game, { isMultiplayer: multiplayer, gameOrigin: new URL(frameUrl).origin })}
-${saves
+${saves && game.account_offer_enabled
       ? html`<aside class="keep plate bevel" id="keep" aria-labelledby="keep-title" hidden>
   <strong id="keep-title">Keep your progress</strong>
   <p>Your ${game.title} progress is only saved in this browser. Make a free account to keep it safe and play on any device.</p>
   <div class="row">${metalButton("Make an account", { href: joinHere, dataAttributes: { keep: "/join" } })}<button class="btn ghost" type="button" id="keep-later">Not now</button></div>
   <p class="small">Have an account? <a href="${signinHere}" data-keep="/signin">Sign in</a></p>
-</aside>
-<p class="keep-toast plate" id="save-toast" role="status" hidden></p>
-<dialog id="save-choice" aria-labelledby="save-choice-title"><form method="dialog">
-  <div class="head"><strong id="save-choice-title"></strong></div>
-  <div class="body"><p></p></div>
-  <nav><button class="btn" value="cloud"></button><button class="btn ghost" value="local"></button></nav>
-</form></dialog>`
+</aside>`
       : ""}
+${saves ? html`<p class="keep-toast plate" id="save-toast" role="status" hidden></p>` : ""}
 ${canSignIn
       ? html`<aside class="keep plate bevel" id="sign-in-ask" aria-labelledby="sign-in-title" hidden>
   <strong id="sign-in-title">${game.title} asks you to sign in</strong>
@@ -638,7 +633,6 @@ const CONTROL_ICONS: Record<string, string> = {
   keyboard_mouse: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1.5" y="5" width="17" height="10" rx="1"/><path d="M4.5 8h.01M7.5 8h.01M10.5 8h.01M13.5 8h.01M15.5 8h.01M4.5 11h.01M15.5 11h.01M7.5 11.5h5"/></svg>',
   gamepad: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.4 5.5h7.2a4 4 0 0 1 3.9 3.3l.8 4.4a2 2 0 0 1-3.4 1.7L13 13H7l-1.9 1.9a2 2 0 0 1-3.4-1.7l.8-4.4a4 4 0 0 1 3.9-3.3z"/><path d="M6.2 8.3v3M4.7 9.8h3"/><path d="M13.6 9h.01M15.2 10.6h.01"/></svg>',
 };
-const ICON_HISTORY = svg('<path d="M3.5 12a8.5 8.5 0 1 0 2.5-6l-2.5 2.5"/><path d="M3.5 4v4.5H8"/><path d="M12 7.5V12l3 2"/>');
 const ICON_REPORT = svg('<path d="M5 21V4"/><path d="M5 4h12l-2.5 4.5L17 13H5"/>');
 const ICON_RULES = svg('<path d="M12 3l8 3v6c0 4.4-3.4 8.2-8 9-4.6-.8-8-4.6-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/>');
 const ICON_GAMES = svg('<rect x="4" y="4" width="7" height="7"/><rect x="13" y="4" width="7" height="7"/><rect x="4" y="13" width="7" height="7"/><rect x="13" y="13" width="7" height="7"/>');
