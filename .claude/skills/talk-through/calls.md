@@ -44,6 +44,12 @@ Would his answer be better than Claude's? His edge: UI and UX, how players and d
 **Paying to hide a vendor's address from players.** *Google and Discord sign-in, Oct 16, 2026.* A done item; the one call was $10 a month so Google's screen stops saying "continue to …supabase.co". Opened as *One call* with the parent's view of that screen, the yearly cost, and the free options with their real catch (Google's brand check wants every address proven ours, and supabase.co can't be). He took the pick in one click.
 *Lesson:* a small recurring cost that changes what players see is his, and quick when the free options' catches are stated plainly. Check whether the free route actually works before offering it.
 
+**When a live page gets its restyle.** *Friends, Oct 16, 2026.* A done item whose pages were plain narrow cards. Asked as one page call with screenshots and preview links: restyle now (A) or with the row that changes the page anyway (B, picked, since the daily-use parts move to home). He took B in one click.
+*Lesson:* for a done page that a planned row will rework, the call is when it gets its look, not the look itself; show the live page and name the row it joins.
+
+**Whether Zaisma's own demos sit on the player shelves.** *Two demo games, Oct 16, 2026.* A done item; the call was who the games are for (players or developers), shown as what a player and a developer each meet under each option, plus the costly "polish them" option. He took the pick (unlist at the seed games, link from the developer page) in one click.
+*Lesson:* what's on the player shelves is a claims call even for Zaisma's own content; one scenario per seat is enough.
+
 ## Not his
 
 **The export format: SQL dump, or JSON and CSV.** *Game database import and export.* "Too technical… just implementation decisions, not system design."
