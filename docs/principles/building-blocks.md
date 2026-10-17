@@ -60,6 +60,7 @@ These are the only things Zaisma runs itself. Each has a named reason; anything 
 
 ### Close calls, and the ruling
 
+- **A block that keeps the blocked player out of your rooms.** Safety, but Zaisma deciding who plays in a developer's game, and one player's preference enforced on another (block the best player and he can't join your lobby; one person locks a stranger out of a whole world). *Ruling:* a block is a wall both ways and the blocker's own preference: Zaisma's room picks steer the blocker away, the game learns of the block and can do the same, and nobody is ever removed or turned away for it (Julius, Oct 16, 2026).
 - **The "Keep your progress" card.** A Zaisma card beside the game (not inside it) that offers guests an account after 5 minutes with progress. It changes no game rule, and without it a guest's progress silently stays in one browser, since most AI-made games will never add the SDK call. *Ruling:* on by default, and a game setting turns it off (Julius, Oct 16, 2026).
 - **The report plate.** A Zaisma screen beside a running game. *Ruling:* allowed, because it's safety: every report must look the same and carry the room. Games can put the Report button in their own menu with the SDK's panel.
 - **The "You're leaving Zaisma" notice.** *Ruling:* allowed, because it's safety. The game still decides which of its registered links to open, and when.
