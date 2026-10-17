@@ -233,6 +233,8 @@ export const SAVES_CLIENT = `
     }
     const localHash = await sha(text);
     const empty = text === "{}";
+    // The first time this page sees this device's save: from now on a change to it counts as playing.
+    if (!played()) played({ sha256: localHash, played_at_ms: null });
     // A marker from before version_number and sha256 matches neither, so the most recently played wins.
     const mark = marker(c.tag);
     let use;
