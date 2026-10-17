@@ -29,6 +29,9 @@ Would his answer be better than Claude's? His edge: UI and UX, how players and d
 **Sections on the game dashboard, and letting each developer arrange them.** *Developer dashboard, Oct 16, 2026.* Asked as one page or sections, with a sketch. He took sections and added what the sketch lacked: each developer moves, hides and shows sections per game, since an MMO and a platformer need different things. He also caught that the sketch put account-wide tabs (webhooks, sign-in apps) above one game's sections, which mixed two levels of page.
 *Lesson:* on a page call, expect him to improve the design, not just pick between options; leave room for it. A sketch must show the real page hierarchy (which page, reached from where), because he reads it literally.
 
+**Who can publish before the beta.** *Developer accounts, Oct 16, 2026.* A done item had drifted from a settled rule: anyone who signed in could publish, while the rule kept uploads with Julius until the beta. Who we serve and the legal risk to the LLC are his, so it opened as *One call* with the scenario on each side, and he took the pick (limit) at once. Everything else in the item settled as built with no questions.
+*Lesson:* for a done item, check what's live against the settled decisions; a gap is the call, and the rest passes in a line.
+
 ## Not his
 
 **The export format: SQL dump, or JSON and CSV.** *Game database import and export.* "Too technical… just implementation decisions, not system design."
