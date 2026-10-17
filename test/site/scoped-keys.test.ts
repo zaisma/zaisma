@@ -59,7 +59,7 @@ describe("levels and areas", () => {
     }
     expect(AREA_ACCESS_BY_LEVEL.read.forum_access).toBe("read");
     expect(AREA_ACCESS_BY_LEVEL.upload.forum_access).toBe("read");
-    expect(AREA_ACCESS_BY_LEVEL.publish.forum_access).toBe("change");
+    expect(AREA_ACCESS_BY_LEVEL.publish.forum_access).toBe("write");
   });
 
   it("name an area and choice for every call, from that area's choices", () => {
@@ -85,8 +85,8 @@ describe("levels and areas", () => {
   });
 
   it("read a custom key made before an area existed as that area's least", () => {
-    const access = keyAccess({ name: "old", access_level: "custom", area_access: JSON.stringify({ game_access: "change", forum_access: "read" }), game_slugs: null });
-    expect(access.areaAccess).toEqual({ game_access: "change", version_access: "read", stats_access: "none", database_access: "none", forum_access: "read", sign_in_app_access: "none", webhook_access: "none" });
+    const access = keyAccess({ name: "old", access_level: "custom", area_access: JSON.stringify({ game_access: "write", forum_access: "read" }), game_slugs: null });
+    expect(access.areaAccess).toEqual({ game_access: "write", version_access: "read", stats_access: "none", database_access: "none", forum_access: "read", sign_in_app_access: "none", webhook_access: "none" });
   });
 
   it("keep keys made before scopes doing everything", async () => {
@@ -106,7 +106,7 @@ describe("a read key", () => {
 
     const refused = await api("/games/sky-hopper", key, { method: "PATCH", body: { title: "Sky Hopper 2" } });
     expect(refused.status).toBe(403);
-    expect(refused.answer.error).toMatchObject({ code: "key_not_allowed", message: expect.stringContaining("game_access change"), fix: expect.stringContaining("get_access") });
+    expect(refused.answer.error).toMatchObject({ code: "key_not_allowed", message: expect.stringContaining("game_access write"), fix: expect.stringContaining("get_access") });
     expect((await api("/games/sky-hopper/uploads", key, { body: { files: [] } })).code).toBe("key_not_allowed");
     expect((await api("/forum", key, { body: { kind: "question", title: "How do rooms work?", text_markdown: "?" } })).code).toBe("key_not_allowed");
     expect((await api("/games", key, { body: { title: "New one" } })).code).toBe("key_not_allowed");

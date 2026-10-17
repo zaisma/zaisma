@@ -173,11 +173,11 @@ export const ACCESS = object({
   ),
   area_access: object(
     {
-      game_access: choice(AREA_ACCESS_CHOICES.game_access, "read: list and get games, with images, versions, scans and tester links. change: also details, visibility, images, tester links and new games."),
+      game_access: choice(AREA_ACCESS_CHOICES.game_access, "read: list and get games, with images, versions, scans and tester links. write: also details, visibility, images, tester links and new games."),
       version_access: choice(AREA_ACCESS_CHOICES.version_access, "read: see versions and scans. upload: also send files and make versions. publish: also publish, schedule and roll back."),
       stats_access: choice(AREA_ACCESS_CHOICES.stats_access, "Stats, player reports and history."),
-      database_access: choice(AREA_ACCESS_CHOICES.database_access, "read: tables, indexes and use. change: run SQL."),
-      forum_access: choice(AREA_ACCESS_CHOICES.forum_access, "read: search and read. change: post, reply, vote, follow and message Zaisma, in the developer's name."),
+      database_access: choice(AREA_ACCESS_CHOICES.database_access, "read: tables, indexes and use. write: run SQL."),
+      forum_access: choice(AREA_ACCESS_CHOICES.forum_access, "read: search and read. write: post, reply, vote, follow and message Zaisma, in the developer's name."),
       sign_in_app_access: choice(AREA_ACCESS_CHOICES.sign_in_app_access, "Sign-in apps; none for keys limited to some games."),
       webhook_access: choice(AREA_ACCESS_CHOICES.webhook_access, "Webhooks; none for keys limited to some games."),
     },

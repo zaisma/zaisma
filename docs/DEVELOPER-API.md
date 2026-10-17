@@ -335,13 +335,13 @@ A key can be limited, for CI and collaborators, to some of your games and to wha
 
 | Area, in `area_access` | Choices | What it covers |
 | --- | --- | --- |
-| `game_access` | `read`, `change` | read: list and get games, with images, versions, scans and tester links. change: also details, visibility, images, tester links and new games. |
+| `game_access` | `read`, `write` | read: list and get games, with images, versions, scans and tester links. write: also details, visibility, images, tester links and new games. |
 | `version_access` | `read`, `upload`, `publish` | upload: send files and make versions. publish: also publish, schedule and roll back. |
 | `stats_access` | `none`, `read` | Stats, player reports and history. |
-| `database_access` | `none`, `read`, `change` | read: tables, indexes and use. change: run SQL (`query`, `batch`). |
-| `forum_access` | `none`, `read`, `change` | change: post, reply, vote, follow and message Zaisma, in your name. |
-| `sign_in_app_access` | `none`, `read`, `change` | Sign-in apps. |
-| `webhook_access` | `none`, `read`, `change` | Webhooks. |
+| `database_access` | `none`, `read`, `write` | read: tables, indexes and use. write: run SQL (`query`, `batch`). |
+| `forum_access` | `none`, `read`, `write` | write: post, reply, vote, follow and message Zaisma, in your name. |
+| `sign_in_app_access` | `none`, `read`, `write` | Sign-in apps. |
+| `webhook_access` | `none`, `read`, `write` | Webhooks. |
 
 Every key sees its games and their versions, so `game_access` and `version_access` start at `read`. A key limited to some games lists only those, can't make games, and can't reach sign-in apps or webhooks, which belong to your whole account. Public profiles (`GET /players/:player_id`) and `GET /access` work with any key. A call a key doesn't reach answers `key_not_allowed` (403), saying what it would need.
 

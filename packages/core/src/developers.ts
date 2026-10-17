@@ -34,22 +34,22 @@ const KEY = /^zsk_([a-z0-9]{20})_([A-Za-z0-9_-]{43})$/;
  * least to most, and each takes in the ones before it. Every key sees its games and their versions, so
  * game_access and version_access start at read.
  *
- *   game_access         read: list and get games, with images, versions, scans and tester links. change: details, visibility, images, tester links, new games
+ *   game_access         read: list and get games, with images, versions, scans and tester links. write: details, visibility, images, tester links, new games
  *   version_access      read: as games. upload: send files and make versions. publish: also publish, schedule and roll back
  *   stats_access        stats, player reports and history
- *   database_access     read: tables, indexes and use. change: run SQL
- *   forum_access        read: search and read. change: post, reply, vote, follow and message Zaisma, in the developer's name
+ *   database_access     read: tables, indexes and use. write: run SQL
+ *   forum_access        read: search and read. write: post, reply, vote, follow and message Zaisma, in the developer's name
  *   sign_in_app_access  Sign in with Zaisma apps (the whole account's)
  *   webhook_access      webhooks (the whole account's)
  */
 export const AREA_ACCESS_CHOICES = {
-  game_access: ["read", "change"],
+  game_access: ["read", "write"],
   version_access: ["read", "upload", "publish"],
   stats_access: ["none", "read"],
-  database_access: ["none", "read", "change"],
-  forum_access: ["none", "read", "change"],
-  sign_in_app_access: ["none", "read", "change"],
-  webhook_access: ["none", "read", "change"],
+  database_access: ["none", "read", "write"],
+  forum_access: ["none", "read", "write"],
+  sign_in_app_access: ["none", "read", "write"],
+  webhook_access: ["none", "read", "write"],
 } as const satisfies Record<string, readonly string[]>;
 export type AccessArea = keyof typeof AREA_ACCESS_CHOICES;
 export type AreaAccess = { [Area in AccessArea]: (typeof AREA_ACCESS_CHOICES)[Area][number] };
@@ -65,8 +65,8 @@ export type AccessLevel = (typeof ACCESS_LEVELS)[number];
 export const AREA_ACCESS_BY_LEVEL: Record<Exclude<AccessLevel, "custom">, AreaAccess> = {
   read: { game_access: "read", version_access: "read", stats_access: "read", database_access: "read", forum_access: "read", sign_in_app_access: "read", webhook_access: "read" },
   upload: { game_access: "read", version_access: "upload", stats_access: "read", database_access: "read", forum_access: "read", sign_in_app_access: "read", webhook_access: "read" },
-  publish: { game_access: "change", version_access: "publish", stats_access: "read", database_access: "read", forum_access: "change", sign_in_app_access: "read", webhook_access: "read" },
-  full: { game_access: "change", version_access: "publish", stats_access: "read", database_access: "change", forum_access: "change", sign_in_app_access: "change", webhook_access: "change" },
+  publish: { game_access: "write", version_access: "publish", stats_access: "read", database_access: "read", forum_access: "write", sign_in_app_access: "read", webhook_access: "read" },
+  full: { game_access: "write", version_access: "publish", stats_access: "read", database_access: "write", forum_access: "write", sign_in_app_access: "write", webhook_access: "write" },
 };
 
 /** What a caller may do: a key's access, or everything for the developer on our own pages. */
