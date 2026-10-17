@@ -15,32 +15,154 @@ export interface ApiKey {
   id: string;
   account_id: string;
   name: string;
+  access_level: AccessLevel;
+  /** Only for custom keys: each area's choice, as JSON. A level's areas come from AREA_ACCESS_BY_LEVEL. */
+  area_access: string | null;
+  /** The game slugs the key works on, as a JSON list, or null for every game the owner has and will make. */
+  game_slugs: string | null;
   created_at_ms: number;
   last_used_at_ms: number | null;
 }
 
 export const MAXIMUM_API_KEY_COUNT = 10;
+/** The most games one key can be limited to: as many as an owner can have. */
+export const MAXIMUM_API_KEY_GAME_COUNT = 50;
 const KEY = /^zsk_([a-z0-9]{20})_([A-Za-z0-9_-]{43})$/;
+
+/**
+ * What a key may do, by area (docs/DECISIONS.md, "Developers hold the keys"). Each area's choices go from
+ * least to most, and each takes in the ones before it. Every key sees its games and their versions, so
+ * game_access and version_access start at read.
+ *
+ *   game_access         read: list and get games, with images, versions, scans and tester links. write: details, visibility, images, tester links, new games
+ *   version_access      read: as games. upload: send files and make versions. publish: also publish, schedule and roll back
+ *   stats_access        stats, player reports and history
+ *   database_access     read: tables, indexes, use and export. write: run SQL and import
+ *   save_access         players' cloud saves: read them and their copies. write: change, reset and restore them
+ *   forum_access        read: search and read. write: post, reply, vote, follow and message Zaisma, in the developer's name
+ *   sign_in_app_access  Sign in with Zaisma apps (the whole account's)
+ *   webhook_access      webhooks (the whole account's)
+ */
+export const AREA_ACCESS_CHOICES = {
+  game_access: ["read", "write"],
+  version_access: ["read", "upload", "publish"],
+  stats_access: ["none", "read"],
+  database_access: ["none", "read", "write"],
+  save_access: ["none", "read", "write"],
+  forum_access: ["none", "read", "write"],
+  sign_in_app_access: ["none", "read", "write"],
+  webhook_access: ["none", "read", "write"],
+} as const satisfies Record<string, readonly string[]>;
+export type AccessArea = keyof typeof AREA_ACCESS_CHOICES;
+export type AreaAccess = { [Area in AccessArea]: (typeof AREA_ACCESS_CHOICES)[Area][number] };
+export const ACCESS_AREAS = Object.keys(AREA_ACCESS_CHOICES) as AccessArea[];
+/** Areas that belong to the whole account, not to games, so only keys for every game reach them. */
+export const ACCOUNT_AREAS: readonly AccessArea[] = ["sign_in_app_access", "webhook_access"];
+
+/** The four fixed levels, the same words as the Teams roles, and custom: a choice per area. */
+export const ACCESS_LEVELS = ["read", "upload", "publish", "full", "custom"] as const;
+export type AccessLevel = (typeof ACCESS_LEVELS)[number];
+
+/** What each fixed level gives. Read and upload keys read the forum but don't post in the developer's name. */
+export const AREA_ACCESS_BY_LEVEL: Record<Exclude<AccessLevel, "custom">, AreaAccess> = {
+  read: { game_access: "read", version_access: "read", stats_access: "read", database_access: "read", save_access: "read", forum_access: "read", sign_in_app_access: "read", webhook_access: "read" },
+  upload: { game_access: "read", version_access: "upload", stats_access: "read", database_access: "read", save_access: "read", forum_access: "read", sign_in_app_access: "read", webhook_access: "read" },
+  publish: { game_access: "write", version_access: "publish", stats_access: "read", database_access: "read", save_access: "read", forum_access: "write", sign_in_app_access: "read", webhook_access: "read" },
+  full: { game_access: "write", version_access: "publish", stats_access: "read", database_access: "write", save_access: "write", forum_access: "write", sign_in_app_access: "write", webhook_access: "write" },
+};
+
+/** What a caller may do: a key's access, or everything for the developer on our own pages. */
+export interface KeyAccess {
+  /** The key's name, or null when the call came from the developer's signed-in session. */
+  apiKeyName: string | null;
+  accessLevel: AccessLevel;
+  areaAccess: AreaAccess;
+  /** null: every game the owner has and will make. */
+  gameSlugs: string[] | null;
+}
+
+export const FULL_ACCESS: KeyAccess = { apiKeyName: null, accessLevel: "full", areaAccess: AREA_ACCESS_BY_LEVEL.full, gameSlugs: null };
+
+/** Whether access gives at least this choice in an area. */
+export function allows(areaAccess: AreaAccess, area: AccessArea, choice: string): boolean {
+  const choices: readonly string[] = AREA_ACCESS_CHOICES[area];
+  return choices.indexOf(areaAccess[area]) >= choices.indexOf(choice);
+}
+
+/** What a key may do, from its row. Keys limited to some games never reach the account's own areas. */
+export function keyAccess(key: Pick<ApiKey, "name" | "access_level" | "area_access" | "game_slugs">): KeyAccess {
+  const gameSlugs = key.game_slugs ? (JSON.parse(key.game_slugs) as string[]) : null;
+  const areaAccess: AreaAccess = key.access_level === "custom" ? storedAreaAccess(key.area_access) : { ...AREA_ACCESS_BY_LEVEL[key.access_level] };
+  if (gameSlugs) for (const area of ACCOUNT_AREAS) (areaAccess as Record<AccessArea, string>)[area] = "none";
+  return { apiKeyName: key.name, accessLevel: key.access_level, areaAccess, gameSlugs };
+}
+
+/** A custom key's stored choices; an area added after it was made is none (or read, where read is the least). */
+function storedAreaAccess(json: string | null): AreaAccess {
+  const choices = (json ? JSON.parse(json) : {}) as Record<string, string>;
+  const areaAccess: Record<string, string> = {};
+  for (const area of ACCESS_AREAS) {
+    const options: readonly string[] = AREA_ACCESS_CHOICES[area];
+    areaAccess[area] = options.includes(choices[area] ?? "") ? choices[area]! : options[0]!;
+  }
+  return areaAccess as AreaAccess;
+}
+
+/** A problem with what a new key asks for, as the account page says it, or null when it's fine. */
+export function checkKeyScope(scope: KeyScope): string | null {
+  if (!ACCESS_LEVELS.includes(scope.accessLevel)) return "Choose what the key can do.";
+  if (scope.gameSlugs) {
+    if (scope.gameSlugs.length === 0) return "Choose at least one game, or All my games.";
+    if (scope.gameSlugs.length > MAXIMUM_API_KEY_GAME_COUNT) return `A key can be limited to up to ${MAXIMUM_API_KEY_GAME_COUNT} games.`;
+  }
+  if (scope.accessLevel !== "custom") return null;
+  if (!scope.areaAccess) return "Choose what the key can do in each area.";
+  for (const area of ACCESS_AREAS) {
+    const options: readonly string[] = AREA_ACCESS_CHOICES[area];
+    if (!options.includes(scope.areaAccess[area])) return "Choose what the key can do in each area.";
+  }
+  if (scope.gameSlugs && ACCOUNT_AREAS.some((area) => scope.areaAccess![area] !== "none")) {
+    return "Sign-in apps and webhooks belong to your whole account, so only a key for all your games can reach them.";
+  }
+  return null;
+}
+
+/** What a new key may do. Leaving it out makes a key for everything, as every key did before. */
+export interface KeyScope {
+  accessLevel: AccessLevel;
+  /** Only for custom keys. */
+  areaAccess?: AreaAccess;
+  gameSlugs: string[] | null;
+}
 
 function b64url(bytes: Uint8Array): string {
   return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-/** Make a key. The full key is returned once; we keep only a hash of its secret part. */
-export async function createApiKey(database: D1Database, accountId: string, name: string): Promise<{ key: ApiKey; token: string }> {
+/** Make a key. The full key is returned once; we keep only a hash of its secret part. Check the scope first (checkKeyScope). */
+export async function createApiKey(database: D1Database, accountId: string, name: string, scope: KeyScope = { accessLevel: "full", gameSlugs: null }): Promise<{ key: ApiKey; token: string }> {
   const id = newRandomPart();
   const secret = b64url(crypto.getRandomValues(new Uint8Array(32)));
-  const key: ApiKey = { id, account_id: accountId, name, created_at_ms: now(), last_used_at_ms: null };
+  const key: ApiKey = {
+    id,
+    account_id: accountId,
+    name,
+    access_level: scope.accessLevel,
+    area_access: scope.accessLevel === "custom" && scope.areaAccess ? JSON.stringify(Object.fromEntries(ACCESS_AREAS.map((area) => [area, scope.areaAccess![area]]))) : null,
+    game_slugs: scope.gameSlugs ? JSON.stringify(scope.gameSlugs) : null,
+    created_at_ms: now(),
+    last_used_at_ms: null,
+  };
   await database
-    .prepare("INSERT INTO api_keys (id, account_id, name, secret_hash, created_at_ms) VALUES (?, ?, ?, ?, ?)")
-    .bind(id, accountId, name, await sha256Hex(new TextEncoder().encode(secret)), key.created_at_ms)
+    .prepare("INSERT INTO api_keys (id, account_id, name, secret_hash, access_level, area_access, game_slugs, created_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+    .bind(id, accountId, name, await sha256Hex(new TextEncoder().encode(secret)), key.access_level, key.area_access, key.game_slugs, key.created_at_ms)
     .run();
   return { key, token: `zsk_${id}_${secret}` };
 }
 
 export async function apiKeysFor(database: D1Database, accountId: string): Promise<ApiKey[]> {
   const { results } = await database
-    .prepare("SELECT id, account_id, name, created_at_ms, last_used_at_ms FROM api_keys WHERE account_id = ? ORDER BY created_at_ms")
+    .prepare("SELECT id, account_id, name, access_level, area_access, game_slugs, created_at_ms, last_used_at_ms FROM api_keys WHERE account_id = ? ORDER BY created_at_ms")
     .bind(accountId)
     .all<ApiKey>();
   return results;
@@ -51,11 +173,14 @@ export async function revokeApiKey(database: D1Database, accountId: string, id: 
   return deletion.meta.changes > 0;
 }
 
-/** The account a key belongs to, or null. Marks the key used (at most once an hour, to save writes). */
-export async function accountForApiKey(database: D1Database, token: string): Promise<string | null> {
+/** The key a token is, or null. Marks the key used (at most once an hour, to save writes). */
+export async function apiKeyForToken(database: D1Database, token: string): Promise<Omit<ApiKey, "created_at_ms"> | null> {
   const keyMatch = token.match(KEY);
   if (!keyMatch) return null;
-  const row = await database.prepare("SELECT account_id, secret_hash, last_used_at_ms FROM api_keys WHERE id = ?").bind(keyMatch[1]).first<{ account_id: string; secret_hash: string; last_used_at_ms: number | null }>();
+  const row = await database
+    .prepare("SELECT id, account_id, name, access_level, area_access, game_slugs, secret_hash, last_used_at_ms FROM api_keys WHERE id = ?")
+    .bind(keyMatch[1])
+    .first<Omit<ApiKey, "created_at_ms"> & { secret_hash: string }>();
   if (!row) return null;
   const hash = await sha256Hex(new TextEncoder().encode(keyMatch[2]!));
   let mismatchNumber = hash.length ^ row.secret_hash.length;
@@ -64,7 +189,13 @@ export async function accountForApiKey(database: D1Database, token: string): Pro
   if (!row.last_used_at_ms || now() - row.last_used_at_ms > 3600_000) {
     await database.prepare("UPDATE api_keys SET last_used_at_ms = ? WHERE id = ?").bind(now(), keyMatch[1]).run();
   }
-  return row.account_id;
+  const { secret_hash: _, ...key } = row;
+  return key;
+}
+
+/** The account a key belongs to, or null. */
+export async function accountForApiKey(database: D1Database, token: string): Promise<string | null> {
+  return (await apiKeyForToken(database, token))?.account_id ?? null;
 }
 
 // --- Game details --------------------------------------------------------------

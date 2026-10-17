@@ -1,5 +1,16 @@
 import {
+  ACCESS_AREAS,
+  ACCOUNT_AREAS,
+  ACCESS_LEVELS,
+  AREA_ACCESS_CHOICES,
   MAXIMUM_API_KEY_COUNT,
+  checkKeyScope,
+  keyAccess,
+  type AccessArea,
+  type AccessLevel,
+  type ApiKey,
+  type AreaAccess,
+  type KeyScope,
   NAME_RULES,
   accountById,
   ageBand,
@@ -254,7 +265,19 @@ export async function handleAccount(request: Request, env: Env, path: string): P
   if (path === "/account/keys" && post) {
     const name = field("name", 40) || "My key";
     if ((await apiKeysFor(env.DB, account.id)).length >= MAXIMUM_API_KEY_COUNT) return done(await accountPage(env, session, false, `You can have up to ${MAXIMUM_API_KEY_COUNT} keys. Remove one first.`));
-    const { token } = await createApiKey(env.DB, account.id, name);
+    // Only the developer's own games can be chosen; anything else in the form is dropped.
+    const ownSlugs = new Set((await gamesOwnedBy(env.DB, account.id)).map((game) => game.slug));
+    const accessLevel = field("access_level", 20) as AccessLevel;
+    const scope: KeyScope = {
+      accessLevel,
+      gameSlugs: field("game_scope", 10) === "some" ? [...new Set((form?.getAll("game_slugs") ?? []).map(String))].filter((slug) => ownSlugs.has(slug)) : null,
+      ...(accessLevel === "custom" ? { areaAccess: Object.fromEntries(ACCESS_AREAS.map((area) => [area, field(area, 20)])) as AreaAccess } : {}),
+    };
+    // A key for some games never reaches the account's own areas; the page says so beside them.
+    if (scope.gameSlugs && scope.areaAccess) for (const area of ACCOUNT_AREAS) (scope.areaAccess as Record<AccessArea, string>)[area] = "none";
+    const problem = checkKeyScope(scope);
+    if (problem) return done(await accountPage(env, session, false, problem));
+    const { token } = await createApiKey(env.DB, account.id, name, scope);
     return done(await accountPage(env, session, false, undefined, { name, token }));
   }
   const revoke = path.match(/^\/account\/keys\/([a-z0-9]+)\/revoke$/);
@@ -533,6 +556,142 @@ document.querySelector("[data-back]").addEventListener("click", (e) => {
   );
 }
 
+const LEVEL_LABELS: Record<AccessLevel, [string, string]> = {
+  read: ["Read", "See games, versions, stats, the database, saves and the forum. Changes nothing."],
+  upload: ["Upload", "Upload new versions as drafts, without publishing them or posting. For CI."],
+  publish: ["Publish", "Upload and publish versions, change game details and tester links, and post on the forum. Can't run SQL, change saves, or change sign-in apps and webhooks."],
+  full: ["Full", "Everything. For your own AI tool."],
+  custom: ["Custom", "Choose for each area."],
+};
+
+/** Each area on the custom step: its name, and what it covers. */
+const AREA_LABELS: Record<AccessArea, [string, string]> = {
+  game_access: ["Games", "Details, images, visibility and tester links. Write also makes new games."],
+  version_access: ["Versions", "Uploading, publishing, scheduling and rolling back."],
+  stats_access: ["Stats", "Stats, player reports and history."],
+  database_access: ["Game databases", "Read-only sees tables and use, and exports. Write runs SQL and imports."],
+  save_access: ["Players' saves", "Read-only reads saves and their copies. Write changes, resets and restores them."],
+  forum_access: ["Developer forum", "Write posts, replies, votes and messages to Zaisma in your name."],
+  sign_in_app_access: ["Sign-in apps", "Belong to your whole account, so only a key for all your games reaches them."],
+  webhook_access: ["Webhooks", "Belong to your whole account, so only a key for all your games reaches them."],
+};
+
+const AREA_SHORT_LABELS: Record<AccessArea, string> = { game_access: "games", version_access: "versions", stats_access: "stats", database_access: "database", save_access: "saves", forum_access: "forum", sign_in_app_access: "sign-in apps", webhook_access: "webhooks" };
+
+/** The common words for each choice, as GitHub's tokens say them. */
+const CHOICE_LABELS: Record<string, string> = { none: "No access", read: "Read-only", write: "Read and write", upload: "Upload", publish: "Upload and publish" };
+
+/** What a key can do and on which games, in a few words, for the list of keys. */
+function keyScopeText(key: ApiKey, games: { slug: string; title: string }[]): string {
+  const access = keyAccess(key);
+  const titles = access.gameSlugs?.map((slug) => games.find((game) => game.slug === slug)?.title ?? slug);
+  const where = titles ? (titles.length === 1 ? `only ${titles[0]}` : `only ${titles.slice(0, -1).join(", ")} and ${titles.at(-1)}`) : "all games";
+  const what =
+    access.accessLevel === "custom"
+      ? `Custom: ${ACCESS_AREAS.filter((area) => access.areaAccess[area] !== "none")
+          .map((area) => `${AREA_SHORT_LABELS[area]} ${CHOICE_LABELS[access.areaAccess[area]]!.toLowerCase()}`)
+          .join(", ")}`
+      : LEVEL_LABELS[access.accessLevel][0];
+  return `${what}; ${where}`;
+}
+
+/**
+ * Making a key: a button that opens a wizard. Its name and what it can do, then which games, then (for a
+ * custom key) a choice per area. One form, so the steps only show and hide; the server checks it all again.
+ */
+function keyWizard(games: { slug: string; title: string }[]): Raw {
+  return html`<button class="btn" type="button" id="key-new">Make an API key</button>
+<dialog id="key-wizard" class="wizard bevel-l" aria-labelledby="key-wizard-title">
+<form method="post" action="/account/keys#developer" id="key-form">
+  <div class="wizard-head">
+    <div><h2 id="key-wizard-title">New API key</h2><p class="wizard-sub" id="key-wizard-sub"></p></div>
+    <button class="btn ghost wizard-x" type="button" data-close aria-label="Close">Close</button>
+  </div>
+  <div class="wizard-body">
+    <section data-step="what" data-title="New API key" data-sub="Name it, and choose what it can do.">
+      <label>Key name<input name="name" maxlength="40" placeholder="Like My laptop or GitHub Actions"></label>
+      <fieldset class="choices"><legend>What it can do</legend>
+${ACCESS_LEVELS.map(
+    (level) => html`<label class="check"><input type="radio" name="access_level" value="${level}"${level === "full" ? raw(" checked") : ""}> <span>${LEVEL_LABELS[level][0]}<small class="hint">${LEVEL_LABELS[level][1]}</small></span></label>`,
+  )}
+      </fieldset>
+    </section>
+    <section data-step="games" data-title="Which games" data-sub="Choose the games it works on." hidden>
+      <fieldset class="choices" aria-label="Which games">
+        <label class="check"><input type="radio" name="game_scope" value="all" checked> <span>All my games<small class="hint">And games you make later.</small></span></label>
+${games.length
+    ? html`        <label class="check"><input type="radio" name="game_scope" value="some"> <span>Only these games<small class="hint">It can't make games, sign-in apps or webhooks.</small></span></label>
+        <div class="choices" id="key-games">${games.map((game) => html`<label class="check"><input type="checkbox" name="game_slugs" value="${game.slug}"> <span>${game.title}</span></label>`)}</div>`
+    : ""}
+      </fieldset>
+    </section>
+    <section data-step="areas" data-title="What it can do" data-sub="Choose for each area." hidden>
+${ACCESS_AREAS.map(
+    (area) => html`      <fieldset class="area"><legend>${AREA_LABELS[area][0]}</legend><p class="hint">${AREA_LABELS[area][1]}</p>
+        <div class="seg picks">${AREA_ACCESS_CHOICES[area].map((choice: string) => html`<label><input type="radio" name="${area}" value="${choice}"${choice === "read" ? raw(" checked") : ""}><span>${CHOICE_LABELS[choice]}</span></label>`)}</div>
+      </fieldset>`,
+  )}
+    </section>
+    <p class="error" id="key-wizard-error" role="alert" hidden></p>
+  </div>
+  <div class="wizard-foot row">
+    <button class="btn ghost" type="button" id="key-back">Back</button>
+    <button class="btn" type="button" id="key-next">Next</button>
+    <button class="btn light" type="submit" id="key-make">Make the key</button>
+  </div>
+</form>
+</dialog>
+<script>
+(() => {
+  const dialog = document.getElementById("key-wizard");
+  const form = document.getElementById("key-form");
+  const steps = [...form.querySelectorAll("[data-step]")];
+  const $ = (id) => document.getElementById(id);
+  const games = $("key-games");
+  let at = 0;
+  // The areas step is only for a custom key.
+  const path = () => steps.filter((step) => step.dataset.step !== "areas" || form.access_level.value === "custom");
+  const isSome = () => form.game_scope.value === "some";
+  function show() {
+    const list = path();
+    at = Math.min(at, list.length - 1);
+    for (const step of steps) step.hidden = step !== list[at];
+    $("key-wizard-title").textContent = list[at].dataset.title;
+    $("key-wizard-sub").textContent = list[at].dataset.sub;
+    $("key-back").hidden = at === 0;
+    $("key-next").hidden = at === list.length - 1;
+    $("key-make").hidden = at !== list.length - 1;
+    $("key-wizard-error").hidden = true;
+    if (games) games.hidden = !isSome();
+    // Sign-in apps and webhooks belong to the whole account, out of reach of a key for some games.
+    for (const area of ["sign_in_app_access", "webhook_access"]) {
+      for (const input of form.querySelectorAll('input[name="' + area + '"]')) {
+        input.disabled = isSome() && input.value !== "none";
+        if (isSome() && input.value === "none") input.checked = true;
+      }
+    }
+  }
+  // Choosing some games needs at least one.
+  function problem() {
+    const step = path()[at].dataset.step;
+    if (step === "games" && isSome() && !form.querySelector('input[name="game_slugs"]:checked')) return "Choose at least one game, or All my games.";
+    return "";
+  }
+  function stop(message) {
+    $("key-wizard-error").textContent = message;
+    $("key-wizard-error").hidden = false;
+  }
+  $("key-new").onclick = () => { form.reset(); at = 0; show(); dialog.showModal(); };
+  $("key-back").onclick = () => { at -= 1; show(); };
+  $("key-next").onclick = () => { const said = problem(); if (said) return stop(said); at += 1; show(); };
+  form.addEventListener("change", (event) => { if (event.target.name !== "name") show(); });
+  form.addEventListener("submit", (event) => { const said = problem(); if (said) { event.preventDefault(); stop(said); } });
+  for (const close of dialog.querySelectorAll("[data-close]")) close.onclick = () => dialog.close();
+  dialog.addEventListener("click", (event) => { if (event.target === dialog) dialog.close(); });
+})();
+</script>`;
+}
+
 const ICON_PASSKEY = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="4"/><path d="M2 21c0-3.9 3.1-7 7-7 1.2 0 2.4.3 3.4.9"/><circle cx="18" cy="13" r="2.5"/><path d="M18 15.5V21l1.5-1.2M18 18.5h1.5"/></svg>';
 
 const BAND_TEXT: Record<AgeBand, string> = { "13-15": "13 to 15", "16-17": "16 or 17", "18+": "18 or over" };
@@ -629,14 +788,11 @@ ${made
       : ""}
 ${keys.length
       ? html`<ul class="keys">${keys.map(
-          (key) => html`<li><span>${key.name} <span class="muted small">made ${day(key.created_at_ms)}, ${key.last_used_at_ms ? `last used ${day(key.last_used_at_ms)}` : "not used yet"}</span></span>
+          (key) => html`<li><span>${key.name} <span class="why muted small">${keyScopeText(key, games)}</span><span class="why muted small">Made ${day(key.created_at_ms)}, ${key.last_used_at_ms ? `last used ${day(key.last_used_at_ms)}` : "not used yet"}</span></span>
 <form method="post" action="/account/keys/${key.id}/revoke"><button class="btn ghost" type="submit">Remove</button></form></li>`,
         )}</ul>`
       : ""}
-<form class="row" method="post" action="/account/keys">
-<input name="name" maxlength="40" placeholder="Key name, like My laptop" aria-label="Key name">
-<button class="btn ghost" type="submit">Make an API key</button>
-</form>
+${keyWizard(games)}
 <h2>Sign out</h2>
 <form method="post" action="/signout"><button class="btn ghost" type="submit">Sign out on every device</button></form>
 <h2>Delete account</h2>

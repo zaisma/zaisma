@@ -12,7 +12,7 @@ Any AI tool that supports remote MCP servers can manage your games at `https://z
 claude mcp add --transport http zaisma https://zaisma.com/mcp --header "Authorization: Bearer $ZAISMA_KEY"
 ```
 
-Every tool is a call to this API (`apps/site/src/mcp.ts`): `list_games`, `create_game`, `get_game`, `update_game`, `upload_files` (small games up to 5 MB, sent as file contents), `get_version`, `publish_version` (also rolls back and publishes later), `cancel_scheduled_publish`, `add_image`, `remove_image`, `add_tester_link`, `remove_tester_link`, `get_reports`, `get_stats`, `get_history`, `get_player`, the sign-in apps' `list_sign_in_apps`, `create_sign_in_app`, `update_sign_in_app` and `delete_sign_in_app`, the webhooks' `list_webhooks`, `create_webhook`, `update_webhook`, `delete_webhook`, `test_webhook` and `list_webhook_deliveries` (see Webhooks below), the game database's `get_database`, `query_database`, `batch_database`, `export_database` and `import_database` (see The game database below), cloud saves' `list_saves`, `get_save`, `change_save`, `replace_save`, `reset_save`, `list_save_copies`, `get_save_copy` and `restore_save_copy` (see Cloud saves below), and the developer forum's `search_forum`, `get_topic`, `post_topic`, `message_zaisma`, `reply_to_topic`, `vote`, `mark_helpful`, `report_post`, `forum_people`, `still_happening`, `flag_misplaced`, `follow_topic` and `mark_answer` (see The developer forum below). Bigger builds go through the upload command. Making a game players can play private or a draft again needs `"confirm": true`, so the AI asks you first.
+Every tool is a call to this API (`apps/site/src/mcp.ts`): `list_games`, `create_game`, `get_game`, `update_game`, `upload_files` (small games up to 5 MB, sent as file contents), `get_version`, `publish_version` (also rolls back and publishes later), `cancel_scheduled_publish`, `add_image`, `remove_image`, `add_tester_link`, `remove_tester_link`, `get_reports`, `get_stats`, `get_history`, `get_player`, `get_access` (what the key can do), the sign-in apps' `list_sign_in_apps`, `create_sign_in_app`, `update_sign_in_app` and `delete_sign_in_app`, the webhooks' `list_webhooks`, `create_webhook`, `update_webhook`, `delete_webhook`, `test_webhook` and `list_webhook_deliveries` (see Webhooks below), the game database's `get_database`, `query_database`, `batch_database`, `export_database` and `import_database` (see The game database below), cloud saves' `list_saves`, `get_save`, `change_save`, `replace_save`, `reset_save`, `list_save_copies`, `get_save_copy` and `restore_save_copy` (see Cloud saves below), and the developer forum's `search_forum`, `get_topic`, `post_topic`, `message_zaisma`, `reply_to_topic`, `vote`, `mark_helpful`, `report_post`, `forum_people`, `still_happening`, `flag_misplaced`, `follow_topic` and `mark_answer` (see The developer forum below). Bigger builds go through the upload command. Making a game players can play private or a draft again needs `"confirm": true`, so the AI asks you first.
 
 Every tool has an output schema, and answers are compact JSON. Arguments are closed: one a tool doesn't take is refused (`unknown_field`, with the arguments it does take), never quietly dropped, and a missing required one is `missing_field`. A refused call is a tool result with `isError: true`, the error object below as its `structuredContent` and its message, fix and code as its text; each tool's listed output schema is its answer or that error, because MCP clients check both against it. The tools that are easy to get wrong (`update_game`, `upload_files`, `publish_version`, `search_forum`, `post_topic`, `change_save`, `replace_save`) carry good examples in their input schema and bad ones at the end of their description.
 
@@ -41,6 +41,7 @@ The HTTP status goes with the code, as listed. The list lives in `ERROR_CODES` (
 | `signed_out` | 401 | No API key, and no signed-in session. |
 | `no_account` | 401 | The account isn't finished yet. |
 | `bad_origin` | 403 | A call with a session came from another site. |
+| `key_not_allowed` | 403 | The API key is limited to other games, or its access doesn't cover the call. |
 | `slow_down` | 429 | Too many calls in a minute. |
 | `not_found` | 404 | There's no API call at that path. |
 | `bad_method` | 405 | The path doesn't take that method. |
@@ -332,7 +333,36 @@ The list lives in `REVIEW_CODES` and the rules in `CONTENT_RULES` (`packages/cor
 
 ## Signing in
 
-Make an API key on your account page (zaisma.com/account, under Game developers) and send it as `Authorization: Bearer zsk_…`. The key is shown once; we keep only a hash. Any account can make up to 10 keys and remove them at any time. Pages on zaisma.com can use the signed-in session instead. Up to 120 requests a minute per account, plus up to 1,000 a minute for sending files.
+Make an API key on your account page (zaisma.com/account, under Game developers) and send it as `Authorization: Bearer zsk_…`. The key is shown once; we keep only a hash. Any account can make up to 10 keys and remove them at any time. Keys are made only there, never through the API or MCP, so an AI can't give itself a new key. Pages on zaisma.com can use the signed-in session instead. Up to 120 requests a minute per account, plus up to 1,000 a minute for sending files.
+
+### What a key can do
+
+A key can be limited, for CI and collaborators, to some of your games and to what it may do: one of four levels, or a choice per area.
+
+| Level | What it can do |
+| --- | --- |
+| `full` | Everything. Keys made before levels existed are full keys for every game. |
+| `publish` | Upload and publish versions, change games and tester links, and post on the forum. Reads everything else; can't run SQL, change saves, or change sign-in apps and webhooks. |
+| `upload` | Send files and make versions (drafts), and read everything. Can't publish, change games or post on the forum. |
+| `read` | Read games, versions, stats, the database, saves and the forum. Changes nothing. |
+| `custom` | A choice per area, below. |
+
+| Area, in `area_access` | Choices | What it covers |
+| --- | --- | --- |
+| `game_access` | `read`, `write` | read: list and get games, with images, versions, scans and tester links. write: also details, visibility, images, tester links and new games. |
+| `version_access` | `read`, `upload`, `publish` | upload: send files and make versions. publish: also publish, schedule and roll back. |
+| `stats_access` | `none`, `read` | Stats, player reports and history. |
+| `database_access` | `none`, `read`, `write` | read: tables, indexes, use and `export`. write: run SQL (`query`, `batch`) and `import`. |
+| `save_access` | `none`, `read`, `write` | Players' cloud saves. read: read them and their copies. write: change, reset and restore them. |
+| `forum_access` | `none`, `read`, `write` | write: post, reply, vote, follow and message Zaisma, in your name. |
+| `sign_in_app_access` | `none`, `read`, `write` | Sign-in apps. |
+| `webhook_access` | `none`, `read`, `write` | Webhooks. |
+
+Every key sees its games and their versions, so `game_access` and `version_access` start at `read`. A key limited to some games lists only those, can't make games, and can't reach sign-in apps or webhooks, which belong to your whole account. Public profiles (`GET /players/:player_id`) and `GET /access` work with any key. A call a key doesn't reach answers `key_not_allowed` (403), saying what it would need.
+
+| Call | What it does |
+| --- | --- |
+| `GET /access` | What the key you called with can do: `{ "access": { api_key_name, access_level, area_access, game_slugs } }`. `area_access` has every area's choice, whatever the level; `game_slugs` is `null` for every game you have and will make. From the dashboard's session, `api_key_name` is `null` and access is full. |
 
 ## Games
 

@@ -3,7 +3,14 @@ import {
   isSquare,
   MAXIMUM_GAME_COUNT_PER_OWNER,
   accountById,
-  accountForApiKey,
+  apiKeyForToken,
+  allows,
+  keyAccess,
+  FULL_ACCESS,
+  AREA_ACCESS_CHOICES,
+  ACCOUNT_AREAS,
+  type AccessArea,
+  type KeyAccess,
   addImage,
   applyDetails,
   audit,
@@ -172,6 +179,8 @@ export interface Caller {
   client?: string;
   /** Keeps work going after the answer (the Worker's ctx.waitUntil), like sending webhook events; without it, that work is waited for. */
   waitUntil?: WaitUntil;
+  /** What the caller may do: its API key's access, or everything from our own pages. */
+  access: KeyAccess;
 }
 
 /** A call that usually follows a change, ready to make (docs/NAMING.md, Next steps). */
@@ -222,9 +231,12 @@ export async function authenticate(request: Request, env: Env): Promise<Caller> 
   const header = request.headers.get("authorization");
   let accountId: string | null = null;
   let cookies: string[] = [];
+  let access = FULL_ACCESS;
   if (header) {
     const token = header.match(/^Bearer\s+(\S+)$/i)?.[1] ?? "";
-    accountId = await accountForApiKey(env.DB, token);
+    const key = await apiKeyForToken(env.DB, token);
+    accountId = key?.account_id ?? null;
+    if (key) access = keyAccess(key);
     if (!accountId) throw new ApiError("bad_key", { message: "That API key isn't valid: it was removed, mistyped or never made.", field: "Authorization", fix: "Make a new key on zaisma.com/account (under Game developers) and send it as: Authorization: Bearer zsk_…" });
   } else {
     // From our own pages only: other sites can't use a signed-in player's cookie.
@@ -244,6 +256,7 @@ export async function authenticate(request: Request, env: Env): Promise<Caller> 
   const caller = await callerFor(env, accountId, cookies);
   if (!caller) throw new ApiError("no_account", { message: "The account isn't finished yet.", fix: "Finish making it at zaisma.com/account, then call again." });
   if (header) caller.via = "api";
+  caller.access = access;
   const client = request.headers.get("x-zaisma-client");
   if (client) caller.client = client.slice(0, 20);
   return caller;
@@ -253,7 +266,7 @@ export async function authenticate(request: Request, env: Env): Promise<Caller> 
 export async function callerFor(env: Env, accountId: string, cookies: string[] = []): Promise<Caller | null> {
   if (!(await accountById(env.DB, accountId))) return null;
   const owner = await personOwner(env.DB, accountId);
-  return { accountId, ownerId: owner.id, actor: `account:${accountId}`, cookies, via: "dashboard" };
+  return { accountId, ownerId: owner.id, actor: `account:${accountId}`, cookies, via: "dashboard", access: FULL_ACCESS };
 }
 
 /**
@@ -272,80 +285,91 @@ export async function apiCall(env: Env, caller: Caller, method: string, path: st
   return (await response.json()) as Record<string, unknown>;
 }
 
-/** One developer API call: its method and its path under /api/dev, where :name stands for one path part. */
+/**
+ * One developer API call: its method, its path under /api/dev, where :name stands for one path part, and
+ * what an API key needs for it: at least `choice` in `area` (AREA_ACCESS_CHOICES), or area null when any
+ * key can make it.
+ */
 export interface ApiRoute {
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   path: string;
+  area: AccessArea | null;
+  choice: string;
 }
+
+const anyKey = { area: null, choice: "" } as const;
+const needs = <Area extends AccessArea>(area: Area, choice: (typeof AREA_ACCESS_CHOICES)[Area][number]) => ({ area, choice });
 
 /**
  * Every developer API call. The router answers only these (anything else is not_found or bad_method),
  * so this is the API as it is; test/site/api-mcp-parity.test.ts holds it to the MCP's tools.
  */
 export const API_ROUTES: readonly ApiRoute[] = [
-  { method: "GET", path: "/games" },
-  { method: "POST", path: "/games" },
-  { method: "GET", path: "/games/:slug" },
-  { method: "PATCH", path: "/games/:slug" },
-  { method: "POST", path: "/games/:slug/images" },
-  { method: "DELETE", path: "/games/:slug/images/:image_id" },
-  { method: "POST", path: "/games/:slug/uploads" },
-  { method: "PUT", path: "/files/:sha256" },
-  { method: "POST", path: "/files/:sha256/parts" },
-  { method: "PUT", path: "/files/:sha256/parts/:part_number" },
-  { method: "POST", path: "/files/:sha256/parts/done" },
-  { method: "POST", path: "/games/:slug/versions" },
-  { method: "GET", path: "/games/:slug/versions/:version_id" },
-  { method: "POST", path: "/games/:slug/versions/:version_id/publish" },
-  { method: "DELETE", path: "/games/:slug/versions/:version_id/publish" },
-  { method: "GET", path: "/games/:slug/reports" },
-  { method: "GET", path: "/games/:slug/stats" },
-  { method: "GET", path: "/games/:slug/history" },
-  { method: "GET", path: "/games/:slug/testers" },
-  { method: "POST", path: "/games/:slug/testers" },
-  { method: "DELETE", path: "/games/:slug/testers/:tester_id" },
-  { method: "GET", path: "/games/:slug/database" },
-  { method: "POST", path: "/games/:slug/database/query" },
-  { method: "POST", path: "/games/:slug/database/batch" },
-  { method: "GET", path: "/games/:slug/database/export" },
-  { method: "POST", path: "/games/:slug/database/import" },
-  { method: "GET", path: "/games/:slug/saves" },
-  { method: "GET", path: "/games/:slug/saves/:player_id" },
-  { method: "PATCH", path: "/games/:slug/saves/:player_id" },
-  { method: "PUT", path: "/games/:slug/saves/:player_id" },
-  { method: "DELETE", path: "/games/:slug/saves/:player_id" },
-  { method: "GET", path: "/games/:slug/saves/:player_id/copies" },
-  { method: "GET", path: "/games/:slug/saves/:player_id/copies/:save_copy_id" },
-  { method: "POST", path: "/games/:slug/saves/:player_id/copies/:save_copy_id/restore" },
-  { method: "GET", path: "/forum" },
-  { method: "POST", path: "/forum" },
-  { method: "GET", path: "/forum/similar" },
-  { method: "GET", path: "/forum/people" },
-  { method: "POST", path: "/forum/media" },
-  { method: "GET", path: "/forum/:topic_id" },
-  { method: "POST", path: "/forum/:topic_id/posts" },
-  { method: "POST", path: "/forum/:topic_id/vote" },
-  { method: "DELETE", path: "/forum/:topic_id/vote" },
-  { method: "POST", path: "/forum/:topic_id/follow" },
-  { method: "DELETE", path: "/forum/:topic_id/follow" },
-  { method: "POST", path: "/forum/:topic_id/answer" },
-  { method: "POST", path: "/forum/:topic_id/misplaced" },
-  { method: "POST", path: "/forum/:topic_id/still-happening" },
-  { method: "POST", path: "/forum/:topic_id/posts/:post_id/helpful" },
-  { method: "DELETE", path: "/forum/:topic_id/posts/:post_id/helpful" },
-  { method: "POST", path: "/forum/:topic_id/posts/:post_id/report" },
-  { method: "GET", path: "/forum/:topic_id/media/:media_id" },
-  { method: "GET", path: "/players/:player_id" },
-  { method: "GET", path: "/sign-in-apps" },
-  { method: "POST", path: "/sign-in-apps" },
-  { method: "PATCH", path: "/sign-in-apps/:sign_in_app_id" },
-  { method: "DELETE", path: "/sign-in-apps/:sign_in_app_id" },
-  { method: "GET", path: "/webhooks" },
-  { method: "POST", path: "/webhooks" },
-  { method: "PATCH", path: "/webhooks/:webhook_id" },
-  { method: "DELETE", path: "/webhooks/:webhook_id" },
-  { method: "POST", path: "/webhooks/:webhook_id/test" },
-  { method: "GET", path: "/webhooks/:webhook_id/deliveries" },
+  { method: "GET", path: "/access", ...anyKey },
+  { method: "GET", path: "/games", ...needs("game_access", "read") },
+  { method: "POST", path: "/games", ...needs("game_access", "write") },
+  { method: "GET", path: "/games/:slug", ...needs("game_access", "read") },
+  { method: "PATCH", path: "/games/:slug", ...needs("game_access", "write") },
+  { method: "POST", path: "/games/:slug/images", ...needs("game_access", "write") },
+  { method: "DELETE", path: "/games/:slug/images/:image_id", ...needs("game_access", "write") },
+  { method: "POST", path: "/games/:slug/uploads", ...needs("version_access", "upload") },
+  { method: "PUT", path: "/files/:sha256", ...needs("version_access", "upload") },
+  { method: "POST", path: "/files/:sha256/parts", ...needs("version_access", "upload") },
+  { method: "PUT", path: "/files/:sha256/parts/:part_number", ...needs("version_access", "upload") },
+  { method: "POST", path: "/files/:sha256/parts/done", ...needs("version_access", "upload") },
+  { method: "POST", path: "/games/:slug/versions", ...needs("version_access", "upload") },
+  { method: "GET", path: "/games/:slug/versions/:version_id", ...needs("version_access", "read") },
+  { method: "POST", path: "/games/:slug/versions/:version_id/publish", ...needs("version_access", "publish") },
+  { method: "DELETE", path: "/games/:slug/versions/:version_id/publish", ...needs("version_access", "publish") },
+  { method: "GET", path: "/games/:slug/reports", ...needs("stats_access", "read") },
+  { method: "GET", path: "/games/:slug/stats", ...needs("stats_access", "read") },
+  { method: "GET", path: "/games/:slug/history", ...needs("stats_access", "read") },
+  { method: "GET", path: "/games/:slug/testers", ...needs("game_access", "read") },
+  { method: "POST", path: "/games/:slug/testers", ...needs("game_access", "write") },
+  { method: "DELETE", path: "/games/:slug/testers/:tester_id", ...needs("game_access", "write") },
+  { method: "GET", path: "/games/:slug/database", ...needs("database_access", "read") },
+  { method: "POST", path: "/games/:slug/database/query", ...needs("database_access", "write") },
+  { method: "POST", path: "/games/:slug/database/batch", ...needs("database_access", "write") },
+  { method: "GET", path: "/games/:slug/database/export", ...needs("database_access", "read") },
+  { method: "POST", path: "/games/:slug/database/import", ...needs("database_access", "write") },
+  { method: "GET", path: "/games/:slug/saves", ...needs("save_access", "read") },
+  { method: "GET", path: "/games/:slug/saves/:player_id", ...needs("save_access", "read") },
+  { method: "PATCH", path: "/games/:slug/saves/:player_id", ...needs("save_access", "write") },
+  { method: "PUT", path: "/games/:slug/saves/:player_id", ...needs("save_access", "write") },
+  { method: "DELETE", path: "/games/:slug/saves/:player_id", ...needs("save_access", "write") },
+  { method: "GET", path: "/games/:slug/saves/:player_id/copies", ...needs("save_access", "read") },
+  { method: "GET", path: "/games/:slug/saves/:player_id/copies/:save_copy_id", ...needs("save_access", "read") },
+  { method: "POST", path: "/games/:slug/saves/:player_id/copies/:save_copy_id/restore", ...needs("save_access", "write") },
+  { method: "GET", path: "/forum", ...needs("forum_access", "read") },
+  { method: "POST", path: "/forum", ...needs("forum_access", "write") },
+  { method: "GET", path: "/forum/similar", ...needs("forum_access", "read") },
+  { method: "GET", path: "/forum/people", ...needs("forum_access", "read") },
+  { method: "POST", path: "/forum/media", ...needs("forum_access", "write") },
+  { method: "GET", path: "/forum/:topic_id", ...needs("forum_access", "read") },
+  { method: "POST", path: "/forum/:topic_id/posts", ...needs("forum_access", "write") },
+  { method: "POST", path: "/forum/:topic_id/vote", ...needs("forum_access", "write") },
+  { method: "DELETE", path: "/forum/:topic_id/vote", ...needs("forum_access", "write") },
+  { method: "POST", path: "/forum/:topic_id/follow", ...needs("forum_access", "write") },
+  { method: "DELETE", path: "/forum/:topic_id/follow", ...needs("forum_access", "write") },
+  { method: "POST", path: "/forum/:topic_id/answer", ...needs("forum_access", "write") },
+  { method: "POST", path: "/forum/:topic_id/misplaced", ...needs("forum_access", "write") },
+  { method: "POST", path: "/forum/:topic_id/still-happening", ...needs("forum_access", "write") },
+  { method: "POST", path: "/forum/:topic_id/posts/:post_id/helpful", ...needs("forum_access", "write") },
+  { method: "DELETE", path: "/forum/:topic_id/posts/:post_id/helpful", ...needs("forum_access", "write") },
+  { method: "POST", path: "/forum/:topic_id/posts/:post_id/report", ...needs("forum_access", "write") },
+  { method: "GET", path: "/forum/:topic_id/media/:media_id", ...needs("forum_access", "read") },
+  // A public profile, the same as any game gets with no key at all.
+  { method: "GET", path: "/players/:player_id", ...anyKey },
+  { method: "GET", path: "/sign-in-apps", ...needs("sign_in_app_access", "read") },
+  { method: "POST", path: "/sign-in-apps", ...needs("sign_in_app_access", "write") },
+  { method: "PATCH", path: "/sign-in-apps/:sign_in_app_id", ...needs("sign_in_app_access", "write") },
+  { method: "DELETE", path: "/sign-in-apps/:sign_in_app_id", ...needs("sign_in_app_access", "write") },
+  { method: "GET", path: "/webhooks", ...needs("webhook_access", "read") },
+  { method: "POST", path: "/webhooks", ...needs("webhook_access", "write") },
+  { method: "PATCH", path: "/webhooks/:webhook_id", ...needs("webhook_access", "write") },
+  { method: "DELETE", path: "/webhooks/:webhook_id", ...needs("webhook_access", "write") },
+  { method: "POST", path: "/webhooks/:webhook_id/test", ...needs("webhook_access", "write") },
+  { method: "GET", path: "/webhooks/:webhook_id/deliveries", ...needs("webhook_access", "read") },
 ];
 
 const routePatterns = new Map(
@@ -362,22 +386,30 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
   const method = request.method;
   const answer = (body: unknown, httpStatus = 200) => json(body, httpStatus, caller.cookies);
 
-  if (path === "/games" && method === "GET") {
-    const [{ results: games }, unread] = await Promise.all([
-      env.DB.prepare("SELECT * FROM games WHERE owner_id = ? ORDER BY updated_at_ms DESC").bind(caller.ownerId).all<Game>(),
-      env.DB.prepare("SELECT COUNT(*) AS topic_count FROM forum_topics WHERE account_id = ? AND news_at_ms > COALESCE(seen_at_ms, 0)").bind(caller.accountId).first<{ topic_count: number }>(),
-    ]);
-    // Your forum topics with a reply or change from Zaisma you haven't opened yet.
-    return answer({ games: games.map((game) => gameJson(env, game)), unread_topic_count: unread?.topic_count ?? 0 });
-  }
-
   // The first feedback calls are gone: everything they did is in the forum.
   if (path === "/feedback" || path.startsWith("/feedback/")) {
     throw new ApiError("gone", { message: "The feedback calls are gone; everything they did is in the developer forum.", fix: "Use search_forum (GET /forum?tab=yours or ?tab=messages) for your topics and messages, and post_topic or message_zaisma (POST /forum) to post." });
   }
   const routes = apiRoutesAt(path);
   if (routes.length === 0) throw new ApiError("not_found", { message: `There's no API call at ${path}.`, fix: "docs/DEVELOPER-API.md lists every call; paths start with /api/dev, like GET /api/dev/games." });
-  if (!routes.some((apiRoute) => apiRoute.method === method)) throw badMethod(method, path);
+  const apiRoute = routes.find((candidate) => candidate.method === method);
+  if (!apiRoute) throw badMethod(method, path);
+  checkAccess(apiRoute, caller);
+
+  if (path === "/access" && method === "GET") return answer({ access: accessJson(caller.access) });
+
+  if (path === "/games" && method === "GET") {
+    const [{ results: games }, unread] = await Promise.all([
+      env.DB.prepare("SELECT * FROM games WHERE owner_id = ? ORDER BY updated_at_ms DESC").bind(caller.ownerId).all<Game>(),
+      env.DB.prepare("SELECT COUNT(*) AS topic_count FROM forum_topics WHERE account_id = ? AND news_at_ms > COALESCE(seen_at_ms, 0)").bind(caller.accountId).first<{ topic_count: number }>(),
+    ]);
+    // A key limited to some games lists only those.
+    const gameSlugs = caller.access.gameSlugs;
+    const keyGames = gameSlugs ? games.filter((game) => gameSlugs.includes(game.slug)) : games;
+    // Your forum topics with a reply or change from Zaisma you haven't opened yet.
+    return answer({ games: keyGames.map((game) => gameJson(env, game)), unread_topic_count: unread?.topic_count ?? 0 });
+  }
+
   if (path === "/forum" || path.startsWith("/forum/")) {
     const routed = await forumRoute(request, env, path, caller);
     return routed instanceof Response ? routed : answer(...routed);
@@ -395,6 +427,12 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
   }
 
   if (path === "/games" && method === "POST") {
+    if (caller.access.gameSlugs) {
+      throw new ApiError("key_not_allowed", {
+        message: `This API key works only on ${caller.access.gameSlugs.join(", ")}, so it can't make games.`,
+        fix: "Make the game with a key for all your games, or on zaisma.com/dashboard.",
+      });
+    }
     const body = await readJson(request);
     closedBody(body, ["title", "slug", "description", "devices", "controls", "screen_orientation", "play_modes", "cloud_saves_enabled", "multiplayer_mode", "room_browsing", "account_requirement"]);
     const title = typeof body.title === "string" ? body.title.trim().replace(/\s+/g, " ") : "";
@@ -1359,7 +1397,34 @@ export async function ownGame(env: Env, slug: string, caller: Caller, field = "s
   if (!game || game.owner_id !== caller.ownerId) {
     throw new ApiError("no_game", { message: `You don't have a game at zaisma.com/g/${slug}.`, field, fix: "list_games (GET /games) lists your games with their slugs; create_game makes a new one." });
   }
+  const gameSlugs = caller.access.gameSlugs;
+  if (gameSlugs && !gameSlugs.includes(game.slug)) {
+    throw new ApiError("key_not_allowed", {
+      message: `This API key works only on ${gameSlugs.join(", ")}, not ${game.slug}.`,
+      field,
+      fix: `Use one of the games list_games shows, or ask the developer for a key that covers ${game.slug} (keys are made on zaisma.com/account).`,
+    });
+  }
   return game;
+}
+
+/** Refuses a call the caller's key doesn't reach, saying what it would need. */
+function checkAccess(apiRoute: ApiRoute, caller: Caller): void {
+  const { area, choice } = apiRoute;
+  if (!area || allows(caller.access.areaAccess, area, choice)) return;
+  const has = caller.access.areaAccess[area];
+  const isAccountArea = ACCOUNT_AREAS.includes(area) && caller.access.gameSlugs !== null;
+  throw new ApiError("key_not_allowed", {
+    message: isAccountArea
+      ? `This API key works only on some games, and ${area === "webhook_access" ? "webhooks" : "sign-in apps"} belong to the whole account, so it can't make ${apiRoute.method} ${apiRoute.path}.`
+      : `This API key can't make ${apiRoute.method} ${apiRoute.path}: that needs ${area} ${choice}, and the key has ${area} ${has}.`,
+    fix: `get_access (GET /access) shows what this key can do. To do this, the developer makes a key with ${area} ${choice}${isAccountArea ? " for all their games" : ""} on zaisma.com/account; keys can't be made through the API.`,
+  });
+}
+
+/** What a caller may do, as the API answers it. */
+export function accessJson(access: KeyAccess) {
+  return { api_key_name: access.apiKeyName, access_level: access.accessLevel, area_access: access.areaAccess, game_slugs: access.gameSlugs };
 }
 
 export async function readJson(request: Request, maximumSizeBytes = 64 * 1024): Promise<Record<string, unknown>> {
