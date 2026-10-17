@@ -117,7 +117,7 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | planned | Must | | Room events in webhooks | Webhooks for developers | Game server errors, stopped loops and rooms that reach the month's free hours, sent to webhooks; rooms write them to D1 for the site to send |
 | next | Must | yes | Scoped API keys | Developer accounts | Keys limited to some games and to a level (read, upload, publish, full) or custom per-area access, for CI and collaborators; read and upload keys can't post on the forum. Made only on the account page (Julius, Oct 16, 2026) |
 | planned | Must | | Export everything | Developer accounts, Game database import and export | One command (and MCP tool) exports a game: files, versions, database, saves, stats, reports and updates |
-| planned | Must | | Registered links | Developer accounts | So developers can earn with their own payments from day one: links to their store, Patreon, Steam or Discord, opened by `Zaisma.links` with a leaving-Zaisma notice |
+| planned | Must | yes | Registered links | Developer accounts | So developers can earn with their own payments from day one: the game opens its registered links with `Zaisma.links.open` behind a "You're leaving Zaisma" card over the game; guests and under-18 accounts open only trusted store, payment and video domains, never chat apps (Julius, Oct 17, 2026) |
 
 ### Developer forum
 
@@ -278,7 +278,7 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | --- | --- | --- | --- | --- | --- |
 | planned | Must | | Search-friendly game pages | | |
 | planned | Must | | Share cards for every game and room link | Game details and device labels | Cover, title, "Play now" |
-| planned | Must | | Developer links on game pages | Developer accounts | Steam, itch.io, Discord, website, socials |
+| planned | Must | | Developer links on game pages | Registered links | Steam, itch.io, Discord, website, socials: the registered links marked for the game page |
 | planned | Must | | Zaisma skill for every AI | Developer MCP, `zaisma check` and automatic fixes, Errors: holds and takedowns, Names: SDK and game server | Right before the beta opens and not earlier, so it doesn't go stale. Teaches the whole workflow to any AI: the MCP's prompts and resources (the SDK reference, docs/NAMING.md, the error codes), a skill in the open SKILL.md format installed with `npx @zaisma/cli`, `llms.txt` and troubleshooting pages by error code, and a Claude plugin with the MCP and the skill |
 | planned | Must | | At least 5 seed games | Zaisma skill for every AI, Two demo games | Made with Claude Code through our own publishing flow, different genres, multiplayer |
 | planned | Nice | | 10 seed games | At least 5 seed games | The target in `docs/PLAN.md` |
