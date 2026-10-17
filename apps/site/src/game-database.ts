@@ -1,7 +1,7 @@
 import { ApiError, GAME_DATABASE_FREE_LIMITS, nextMonthStartDate, type Game } from "@zaisma/core";
-import type { DatabaseRow, DatabaseValue } from "@zaisma/game-server";
+import { DUMP_LIMITS, type DatabaseRow, type DatabaseValue } from "@zaisma/game-server";
 import type { DeveloperDatabaseAnswer, StatementResult } from "../../rooms/src/database.ts";
-import { closedBody, readJson, type NextStep } from "./developer.ts";
+import { closedBody, closedQuery, readJson, type NextStep } from "./developer.ts";
 import type { Env } from "./env.ts";
 
 /**
@@ -12,12 +12,16 @@ import type { Env } from "./env.ts";
  *   GET  /api/dev/games/:slug/database         its tables and indexes, and this month's use against the free limits
  *   POST /api/dev/games/:slug/database/query   one statement: { "sql", "values" }
  *   POST /api/dev/games/:slug/database/batch   several in one transaction: { "statements": [{ "sql", "values" }] }
+ *   GET  /api/dev/games/:slug/database/export  one part of SQLite's SQL dump, up to 4 MB: ?cursor=<next_cursor> for the next
+ *   POST /api/dev/games/:slug/database/import  one part of a dump in, up to 5 MB, in one transaction: { "dump_sql" }
  *
  * JSON has no bytes, so a blob goes in and comes out as { "blob_base64": "…" }.
  */
 
 /** Values up to 1 MB each, up to 100 statements: the body can be big, but not unbounded. */
 const MAXIMUM_DATABASE_BODY_SIZE_BYTES = 6 * 1024 * 1024;
+/** A part of a dump is up to 5 MB; in JSON its quotes and line breaks take a little more. */
+const MAXIMUM_IMPORT_BODY_SIZE_BYTES = 8 * 1024 * 1024;
 
 const VALUES_FIX = 'Give the values for the ?s as a list, in order: text, numbers, null, or { "blob_base64": "…" } for bytes, like ["player_8f3k2m", 1200, null].';
 
@@ -45,6 +49,34 @@ export async function databaseRoute(request: Request, env: Env, game: Game, what
           has_reached_free_storage: usage.storageSizeBytes >= limits.storageSizeBytes,
           reset_date: nextMonthStartDate(),
         },
+      },
+    ];
+  }
+
+  if (what === "export") {
+    const query = new URL(request.url).searchParams;
+    closedQuery(query, ["cursor"]);
+    const part = readAnswer(await service.exportDump(game.id, query.get("cursor")), null);
+    return [{ dump_sql: part.dumpSql, next_cursor: part.nextCursor, read_row_count: part.readRowCount }];
+  }
+
+  if (what === "import") {
+    const body = await readJson(request, MAXIMUM_IMPORT_BODY_SIZE_BYTES);
+    closedBody(body, ["dump_sql"]);
+    if (body.dump_sql === undefined) throw new ApiError("missing_field", { message: "dump_sql wasn't sent.", field: "dump_sql", fix: 'Send a part of SQLite\'s SQL dump as dump_sql, like { "dump_sql": "CREATE TABLE scores (player_id TEXT PRIMARY KEY, best_score INTEGER);\\nINSERT INTO scores VALUES(\'player_8f3k2m\',1200);" }.' });
+    if (typeof body.dump_sql !== "string" || !body.dump_sql.trim()) throw new ApiError("bad_sql", { message: "dump_sql isn't SQL text.", field: "dump_sql", fix: "Send the dump's statements as text: what export_database answered, or what sqlite3 game.sqlite .dump writes." });
+    const sizeBytes = new TextEncoder().encode(body.dump_sql).length;
+    if (sizeBytes > DUMP_LIMITS.maximumImportPartSizeBytes) {
+      throw new ApiError("dump_too_big", { message: `dump_sql is ${(sizeBytes / 1024 / 1024).toFixed(1)} MB.`, field: "dump_sql", fix: `Send the dump in parts of up to ${DUMP_LIMITS.maximumImportPartSizeBytes / 1024 / 1024} MB, each ending on a whole statement (export's parts already are), or let the upload command split it: npx @zaisma/cli database import ${game.slug} dump.sql.` });
+    }
+    const importResult = readAnswer(await service.importDump(game.id, body.dump_sql), "dump_sql");
+    return [
+      {
+        statement_count: importResult.statementCount,
+        skipped_statement_count: importResult.skippedStatementCount,
+        read_row_count: importResult.readRowCount,
+        written_row_count: importResult.writtenRowCount,
+        next_steps: [{ tool: "get_database", arguments: { slug: game.slug }, after_sec: null, reason: "See the tables and indexes the import made, and the month's writes." }] satisfies NextStep[],
       },
     ];
   }
@@ -107,7 +139,7 @@ function readValues(given: unknown, field: string): DatabaseValue[] | undefined 
 function readAnswer<T>(answer: DeveloperDatabaseAnswer<T>, sqlField: string | null): T {
   if ("queryResult" in answer) return answer.queryResult;
   const { code, message, fix } = answer.error;
-  const field = code === "bad_sql" ? sqlField : code === "bad_values" ? (sqlField === "sql" ? "values" : sqlField) : null;
+  const field = code === "bad_sql" ? sqlField : code === "bad_values" ? (sqlField === "sql" ? "values" : sqlField) : code === "bad_cursor" ? "cursor" : null;
   const isMonthLimit = code === "database_read_limit" || code === "database_write_limit";
   const retryAfterSec = isMonthLimit ? Math.ceil((Date.parse(`${nextMonthStartDate()}T00:00:00Z`) - Date.now()) / 1000) : code === "database_unavailable" ? 5 : null;
   throw new ApiError(code, { message, field, fix, retryAfterSec });

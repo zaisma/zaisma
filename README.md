@@ -130,7 +130,8 @@ async onMessage(state, player, message, room) {
 - **Errors** are a `DatabaseError` with a `code` and a `fix`: `bad_sql` (SQLite's own message, or more than one statement in a query), `bad_values`, `too_many_rows` (over 10,000 rows; page with `LIMIT`), `database_write_limit`, `database_read_limit`, `database_storage_limit` and `database_unavailable`.
 - **Free on Zaisma up to 500,000 rows written and 500 million rows read a month, and 500 MB stored, per game.** Until hosting billing is ready, a game past its written rows can't write until the month resets (UTC), and one at its storage can change and delete rows but not grow; reads keep working. Past its read rows, it waits for the month too. Every statement counts the rows SQLite touched, like Cloudflare's billing: an index makes lookups read fewer rows.
 - **You and your AI reach it too:** look at its tables and use, query it, fix data and change tables through the developer API, the MCP (`get_database`, `query_database`, `batch_database`) or `zaisma database` in a terminal, with the same checks and limits (see "The game database" in [`docs/DEVELOPER-API.md`](docs/DEVELOPER-API.md)).
-- **The same code on your own server:** the Node runner keeps the database in a local SQLite file (below), checked the same way, with no limits. Copy the file to move the data.
+- **Take it out, bring it in:** the whole database goes out and in as SQLite's own SQL dump (`export_database`, `import_database`), or as a ready SQLite file from a terminal: `zaisma database export <game> game.sqlite` and `zaisma database import <game> game.sqlite`.
+- **The same code on your own server:** the Node runner keeps the database in a local SQLite file (below), checked the same way, with no limits. Moving between Zaisma and your own server is one command each way: export to the file the runner uses, or import the runner's file.
 
 #### Room browsing
 

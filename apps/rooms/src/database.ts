@@ -1,5 +1,5 @@
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
-import { DATABASE_LIMITS, DatabaseError, answerDatabase, type DatabaseErrorCode, checkBatch, checkStatement, plainRow, readDatabaseAnswer, tooManyRows, type DatabaseAnswer, type DatabaseRow, type DatabaseValue, type GameDatabase } from "@zaisma/game-server";
+import { DATABASE_LIMITS, DatabaseError, DumpCursorError, answerDatabase, type DatabaseErrorCode, checkBatch, checkStatement, dumpPart, importStatements, plainRow, preview, readDatabaseAnswer, tooManyRows, type DatabaseAnswer, type DatabaseRow, type DatabaseValue, type DumpPart, type GameDatabase } from "@zaisma/game-server";
 import { GAME_DATABASE_FREE_LIMITS, nextMonthStartDate, usageMonth } from "@zaisma/core";
 import type { Env } from "./index.ts";
 
@@ -17,8 +17,16 @@ export interface StatementResult {
   writtenRowCount: number;
 }
 
-/** What the developer API gets back: a DatabaseError's codes, and answer_too_big, which only it has. */
-export type DeveloperDatabaseAnswer<T> = { queryResult: T } | { error: { code: DatabaseErrorCode | "answer_too_big"; message: string; fix: string } };
+/** What the developer API gets back: a DatabaseError's codes, and answer_too_big and bad_cursor, which only it has. */
+export type DeveloperDatabaseAnswer<T> = { queryResult: T } | { error: { code: DatabaseErrorCode | "answer_too_big" | "bad_cursor"; message: string; fix: string } };
+
+/** What a part of an import did. */
+export interface ImportResult {
+  statementCount: number;
+  skippedStatementCount: number;
+  readRowCount: number;
+  writtenRowCount: number;
+}
 
 /** What the developer API shows of a database: its tables and indexes as SQLite keeps them, and this month's use. */
 export interface DatabaseOverview {
@@ -76,6 +84,67 @@ export class GameDatabaseObject extends DurableObject<Env> {
   }
 
   /**
+   * One part of the database's dump, from where cursor says (null for the start): SQLite's own SQL,
+   * up to 4 MB a part. Its reads count towards the month's use, but it works past the free reads: the data is
+   * always the developer's to take. One part runs in one go, so it's whole; between parts the game can write.
+   */
+  exportForDeveloper(cursor: string | null): DeveloperDatabaseAnswer<DumpPart> {
+    this.newMonth();
+    const sql = this.ctx.storage.sql;
+    let statementCount = 0;
+    let readRowCount = 0;
+    try {
+      const part = dumpPart((statementSql, values) => {
+        statementCount++;
+        const cursor = sql.exec(statementSql, ...values);
+        const rows = cursor.toArray().map(plainRow);
+        readRowCount += cursor.rowsRead;
+        return { rows, readRowCount: cursor.rowsRead };
+      }, cursor);
+      return { queryResult: part };
+    } catch (error) {
+      if (error instanceof DumpCursorError) return { error: { code: "bad_cursor", message: error.message, fix: "Give the next_cursor the last part answered, or leave cursor out to start the export again." } };
+      return answerDatabase(() => {
+        throw error;
+      });
+    } finally {
+      this.addUsage(readRowCount, 0, statementCount);
+    }
+  }
+
+  /**
+   * One part of a dump in: its CREATE and INSERT statements, in one transaction, with the same checks,
+   * limits and use as any statement. The part is all or nothing; the parts before it stay in.
+   */
+  importForDeveloper(dumpSql: string): DeveloperDatabaseAnswer<ImportResult> {
+    return answerDatabase(() => {
+      const plan = importStatements(dumpSql);
+      const checked = plan.statements.map((statement) => {
+        try {
+          return checkStatement(statement.sql, statement.values);
+        } catch (error) {
+          if (error instanceof DatabaseError) throw new DatabaseError(error.code, `Statement ${statement.statementNumber} of the dump (${preview(statement.sql)}): ${error.message.slice(0, -` ${error.fix} (${error.code})`.length)}`, error.fix);
+          throw error;
+        }
+      });
+      const statementResults = this.run(checked, Infinity, (i, error) => {
+        const statement = plan.statements[i]!;
+        const sqliteMessage = String(error instanceof Error ? error.message : error).replace(/^Error: /, "").slice(0, 300);
+        const fix = /already exists/.test(sqliteMessage)
+          ? "Import adds to what's there and never replaces it. Drop or rename that first with query_database (like DROP TABLE scores), or leave its CREATE out, then send this part again. Parts before it stay imported; this one was undone."
+          : "Fix that statement and send this part again: it was undone, and the parts before it stay imported.";
+        return new DatabaseError("bad_sql", `Statement ${statement.statementNumber} of the dump (${preview(statement.sql)}) failed: SQLite: ${sqliteMessage}`, fix);
+      });
+      return {
+        statementCount: plan.statementCount,
+        skippedStatementCount: plan.skippedStatementCount,
+        readRowCount: statementResults.reduce((rowCount, statementResult) => rowCount + statementResult.readRowCount, 0),
+        writtenRowCount: statementResults.reduce((rowCount, statementResult) => rowCount + statementResult.writtenRowCount, 0),
+      };
+    });
+  }
+
+  /**
    * The tables and indexes, from SQLite's own list, without Cloudflare's (_cf_…) or SQLite's (sqlite_…).
    * Reading the list counts towards the month's use like any read, but works past the free reads, so the
    * developer can always see what's there. No row counts: counting reads every row.
@@ -99,7 +168,8 @@ export class GameDatabaseObject extends DurableObject<Env> {
     return { ...this.usage, storageSizeBytes: this.ctx.storage.sql.databaseSize };
   }
 
-  private run(statements: { sql: string; values: DatabaseValue[] }[], maximumAnswerSizeBytes = Infinity): StatementResult[] {
+  /** Runs statements in one transaction. failure, when given, turns SQLite's error for the i-th statement into the error to answer. */
+  private run(statements: { sql: string; values: DatabaseValue[] }[], maximumAnswerSizeBytes = Infinity, failure?: (i: number, error: unknown) => DatabaseError): StatementResult[] {
     this.newMonth();
     const limits = GAME_DATABASE_FREE_LIMITS;
     const resetDate = nextMonthStartDate();
@@ -113,9 +183,14 @@ export class GameDatabaseObject extends DurableObject<Env> {
     let answerSizeBytes = 0;
     try {
       return this.ctx.storage.transactionSync(() =>
-        statements.map((statement) => {
+        statements.map((statement, i) => {
           const sizeBeforeBytes = sql.databaseSize;
-          const cursor = sql.exec(statement.sql, ...statement.values.map((boundValue) => (boundValue instanceof Uint8Array ? boundValue.slice().buffer : boundValue)));
+          let cursor: SqlStorageCursor<Record<string, SqlStorageValue>>;
+          try {
+            cursor = sql.exec(statement.sql, ...statement.values.map((boundValue) => (boundValue instanceof Uint8Array ? boundValue.slice().buffer : boundValue)));
+          } catch (error) {
+            throw failure ? failure(i, error) : error;
+          }
           const rows: DatabaseRow[] = [];
           try {
             for (const row of cursor) {
@@ -125,6 +200,9 @@ export class GameDatabaseObject extends DurableObject<Env> {
               if (answerSizeBytes > maximumAnswerSizeBytes) throw new AnswerTooBig();
               rows.push(plain);
             }
+          } catch (error) {
+            // SQLite can also fail while stepping through, like a UNIQUE constraint on an INSERT.
+            throw failure && !(error instanceof DatabaseError) && !(error instanceof AnswerTooBig) ? failure(i, error) : error;
           } finally {
             readRowCount += cursor.rowsRead;
             writtenRowCount += cursor.rowsWritten;
@@ -251,6 +329,14 @@ export class GameDatabaseService extends WorkerEntrypoint<Env> {
 
   overview(gameId: string): Promise<DeveloperDatabaseAnswer<DatabaseOverview>> {
     return this.reach(gameId, async (database) => ({ queryResult: await database.overview() }));
+  }
+
+  exportDump(gameId: string, cursor: string | null): Promise<DeveloperDatabaseAnswer<DumpPart>> {
+    return this.reach(gameId, (database) => database.exportForDeveloper(cursor));
+  }
+
+  importDump(gameId: string, dumpSql: string): Promise<DeveloperDatabaseAnswer<ImportResult>> {
+    return this.reach(gameId, (database) => database.importForDeveloper(dumpSql));
   }
 
   private async reach<T>(gameId: string, work: (database: DurableObjectStub<GameDatabaseObject>) => Promise<DeveloperDatabaseAnswer<T>>): Promise<DeveloperDatabaseAnswer<T>> {
