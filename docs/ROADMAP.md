@@ -14,7 +14,7 @@ Who a player is came first: the pass, the player ID and the sign-in that saves, 
 2. Scoped API keys (Developer publishing)
 3. Game database import and export (Game servers and data)
 
-Waiting on people: Gleb: register with NCMEC, Gleb: register the DMCA agent, Julius: send PhotoDNA the LLC's records.
+Waiting on people: Gleb: register with NCMEC, Gleb: register the DMCA agent.
 
 ## How to read this
 
@@ -62,9 +62,9 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | done | Must | | Julius: alert and DMCA email delivery | | Fastmail whitelisted zaisma.com (Oct 14, 2026). support@, dmca@, privacy@, safety@, pdna_account@ and julius@ forward to Julius's Fastmail through Cloudflare Email Routing; site alerts send from alerts@ |
 | done | Must | | Gleb: sign up for Arachnid Shield | | Done Oct 14, 2026: the main image matcher, since PhotoDNA was declined. Free known-abuse-image matching from the Canadian Centre for Child Protection. Guide: [Safety sign-ups for Gleb](https://claude.ai/artifact/8hCVQPJaRzBcMgLiY3xNNU). |
 | done | Nice | | Julius: turn on Cloudflare's CSAM Scanning Tool | | On for both domains (Oct 14, 2026); matches alert safety@zaisma.com. A backstop only: it sees content served through Cloudflare's cache, after it's live, and the games Worker serves files from R2 without the cache |
-| next | Must | | Gleb: register with NCMEC | | Free; how platforms report child sexual abuse material, which US law requires. Contact email safety@zaisma.com. Guide: [Safety sign-ups for Gleb](https://claude.ai/artifact/8hCVQPJaRzBcMgLiY3xNNU). |
+| next | Must | | Gleb: register with NCMEC | | Free; how platforms report child sexual abuse material, which US law requires. Register at esp.ncmec.org/registration (questions: ESPteam@ncmec.org) with safety@zaisma.com. Guide: [Safety sign-ups for Gleb](https://claude.ai/artifact/8hCVQPJaRzBcMgLiY3xNNU). |
 | doing | Must | | Gleb: register the DMCA agent | | Waiting on the company's Twilio phone number. $6 at copyright.gov as Zaisma LLC, agent email dmca@zaisma.com; then the agent details go on zaisma.com/dmca; renews every 3 years. Guide: [Safety sign-ups for Gleb](https://claude.ai/artifact/8hCVQPJaRzBcMgLiY3xNNU). |
-| doing | Nice | | Julius: send PhotoDNA the LLC's records | Julius: form an LLC | Sent Oct 13, 2026; waiting on Microsoft. Julius replied on the same thread (pdnasup@microsoft.com) with Zaisma LLC's legal name, its Wyoming registration link and the articles of organization. If no answer by Oct 20, follow up on that thread. Arachnid Shield covers the beta until then |
+| done | Nice | | Julius: send PhotoDNA the LLC's records | Julius: form an LLC | Approved Oct 16, 2026. Sign in to the PhotoDNA Cloud Service console as pdna_account@zaisma.com for the API key and the Edge Hash SDK |
 | planned | Must | | Julius: Supabase Pro | | $25/month, switched on at launch; the free plan pauses |
 | planned | Nice | | Julius: Public Suffix List entry | | Needs 2+ years left on the registration and a `_psl` TXT record; the list may turn down projects without players, so apply after launch |
 
@@ -102,7 +102,8 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | done | Must | yes | Tester links | Game visibility | Secret, named, revocable links (zaisma.com/t/…) that open the live version whatever the visibility; guests can use them and multiplayer works through them. Inviting specific accounts comes later |
 | done | Must | yes | Game details and device labels | Developer accounts | Labels, covers, square covers and screenshots on the game page, scanned and approved, with "Play anyway" on other devices |
 | done | Must | yes | Developer MCP | Drafts and publishing | Create, edit, upload, publish, roll back, scans, reports and stats at zaisma.com/mcp, signed in with an API key; small games upload through the MCP, bigger builds through the upload command |
-| done | Must | | Developer dashboard | Drafts and publishing | zaisma.com/dashboard on the same API as the MCP: games, folder upload in the browser, versions with preview, publish, publish later and roll back, details, visibility, images, reports, stats and history |
+| done | Must | yes | Developer dashboard | Drafts and publishing | zaisma.com/dashboard on the same API as the MCP: games, folder upload in the browser, versions with preview, publish, publish later and roll back, details, visibility, images, reports, stats and history |
+| planned | Must | yes | Developer settings | Developer home, Webhooks for developers | A page of its own, linked from the developer home, for what applies across all games: webhooks as a simple list (address, events, last delivery; add, send a test, delete) and a link to API keys on the account page; sign-in apps, hosting credit and teams join it (Julius, Oct 16, 2026) |
 | done | Must | yes | Support tools in the MCP | Developer MCP | "Why is my game held?": game history and scan findings in the MCP |
 | planned | Must | yes | Device notes and required screenshots | Game details and device labels | Controls and screen orientation show on the game page only as a note when they don't fit ("Needs a keyboard", "Best in landscape"), not as icons; a game is listed only with at least one screenshot |
 | planned | Must | yes | Private means you and your testers | Game visibility | The dashboard's "Only me" label for private games says that testers can play too |
@@ -191,7 +192,7 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | planned | Must | | Accounts-only rooms | Accounts-only games | One room takes only accounts, set from the SDK or the game server, on Zaisma rooms and the developer's own server |
 | done | Must | yes | Sign-in from games | Accounts-only games | Live Oct 16, 2026 (#166, no migration): `Zaisma.player.signIn()` asks a guest to sign in beside the game, in a new tab, and the game gets the account and its passes without a reload |
 | done | Must | yes | Sign in with Zaisma | Account passes | Live Oct 16, 2026 (#161, migration 0038): OpenID Connect on zaisma.com for developers' own sites and games with their own accounts, sign-in apps through the API and MCP, a one-time consent page and the account page's list. The MCP's sign-in uses it next (MCP sign-in without a key) |
-| planned | Must | | Sign-in apps in the dashboard | Sign in with Zaisma | The dashboard's form for sign-in apps, on the same API |
+| planned | Must | yes | Sign-in apps in the dashboard | Sign in with Zaisma, Developer settings | A simple list of sign-in apps on the developer settings page (name, redirect addresses; make one, replace its secret, delete), on the same API |
 | done | Must | yes | Social modes and age bands | Age question | Live Oct 16, 2026 (#162, migration 0039): three age bands (13–15, 16–17, 18+) and a social mode on every account, chosen at signup from 16 and changed on the account page; 13–15 start solo-focused and can switch only to friends-focused. The pass carries the social mode and an opaque chat group, never the age; `canChat(a, b)` in the game server package |
 | next | Must | yes | Saves through the API | Cloud saves, Developer accounts | Developers list, read, change (some keys or the whole save) and reset their game's saves by player ID, and read and restore earlier versions (API and MCP); a change keeps a copy first and reloads an open game with no dialog. Saves and the game database stay separate |
 | planned | Must | yes | Saves without Zaisma screens | Cloud saves, Save history | No conflict chooser (the progress played most recently wins, the other kept as an earlier version), no restoring or list of copies on the account page or game menu; the "Keep your progress" card gets a game setting to turn it off |
@@ -208,7 +209,8 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | Status | Must/Nice | Settled | Item | Needs | Notes |
 | --- | --- | --- | --- | --- | --- |
 | done | Must | yes | Connect image matching | Gleb: sign up for Arachnid Shield | Live Oct 14, 2026: every picture and video in an upload (by name, by its first bytes, or as base64 in code), plus covers and screenshots, matched with Arachnid Shield before publishing; a match holds the version, keeps every file and sends an urgent alert; a daily job matches versions that passed before |
-| planned | Must | | Report matches to NCMEC automatically | Connect image matching, Gleb: register with NCMEC | Until then Julius reports matches at report.cybertip.org. PhotoDNA joins the matching once the LLC's records go through |
+| planned | Must | | Add PhotoDNA to image matching | Connect image matching, Julius: send PhotoDNA the LLC's records | Microsoft's matcher alongside Arachnid Shield. It takes Edge Hashes made with Microsoft's SDK (it has a WebAssembly module), up to 5 per request; **License: AI agents never open the SDK's `*.dll`, `*.so.*`, `*.nupkg`, `*.wasm` or `photoDnaEdgeHashS.js`, and AI tools used on it must have training turned off;** agents may read its language wrappers, samples and `PhotoDnaEdgeHashGenerator.md`. The SDK stays out of the public repo. Julius puts the API key in Cloudflare as `PHOTODNA_KEY` on zaisma-site |
+| planned | Must | | Report matches to NCMEC automatically | Connect image matching, Gleb: register with NCMEC | Until then Julius reports matches at report.cybertip.org. Microsoft recommends reporting through NCMEC's own API rather than PhotoDNA's |
 | done | Must | | Player safety in rooms | Client SDK | Mute, block and report a player; a ready-made panel games put in their own menu |
 | done | Must | yes | Report redesign |  | Live Oct 12, 2026: a plate beside the running game; reports carry the version, room, reported player and an optional picture. No single report takes an established game offline |
 | done | Must | yes | AI report triage | Report redesign | Live Oct 12, 2026: reports sorted within minutes by severity, merged and summarized with a recommendation; bugs go to the developer by themselves. Child-safety reports are never sorted by AI |
@@ -246,9 +248,11 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | planned | Must | | Developer page | Design system | Publishing, the dashboard and docs in one place for game developers, off the home page |
 | planned | Must | | Browse games | Design system | A proper games page with covers and genres until Phase 4 discovery |
 | planned | Must | | Account pages | Design system, Passkeys | Sign-in, account, saves and sign-in methods, all polished |
-| planned | Must | | Game management | Design system, Developer dashboard | Upload, details, versions, visibility and stats that feel good to use |
+| planned | Must | yes | Game dashboard sections | Design system, Developer dashboard | Each game's dashboard split into sections with a fixed layout each: Overview (status, alerts, upload, live version, plays, recent history), Versions (with tester links), Details (with images), Players and stats, Database; title and who can play on every section; tabs on phones (Julius, Oct 16, 2026) |
+| planned | Must | yes | Custom game dashboard | Game dashboard sections | Each developer reorders, hides and shows a game's sections, per game; Overview stays first and always shows alerts (Julius, Oct 16, 2026) |
+| planned | Must | yes | Developer home | Design system, Developer dashboard | zaisma.com/dashboard: your games as cards with status and alerts, make a game, and a link to developer settings (Julius, Oct 16, 2026) |
 | planned | Nice | | Last-played picture | Continue playing | A snapshot of the game when you left, shown in Continue playing; only you see it |
-| planned | Must | | Ready for outreach | Design system, Home page, Friends on the home page, Browse games, Account pages, Game management | Julius decides; outreach and link-out listings start here |
+| planned | Must | | Ready for outreach | Design system, Home page, Friends on the home page, Browse games, Account pages, Game dashboard sections, Custom game dashboard, Developer home | Julius decides; outreach and link-out listings start here |
 
 ### Launch content and reach
 
