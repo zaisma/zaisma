@@ -72,7 +72,7 @@ Julius: "<his exact words or click that said you're done>" | never needed
 Started: nothing | <what's still running, e.g. a preview on localhost:8900>
 ```
 
-followed by one line on what it changed, any migration, and whether it had a preview. That recap is the done report. First send the same report to the coordinator with `SendMessage`, `to` its `local_…` id from your brief (or, if it isn't there, the row in `list_sessions` with `linked: true` that has no `startedBy`). The app doesn't wake the coordinator for a turn Julius drove himself, so without the message he'd have to tell it you're done. Ask nothing after it. If the coordinator sends it back (a conflict, a failed check, `SHIP FAIL`), fix it, push, and report done the same way again; for `SHIP FAIL`, in a new pull request.
+followed by one line on what it changed, any migration, and whether it had a preview. That recap is the done report. First send the same report to the coordinator with `SendMessage`, `to` its `local_…` id from your brief (or, if it isn't there, the `parentSessionId` that `get_session` with `"self"` shows). The app doesn't wake the coordinator for a turn Julius drove himself, so without the message he'd have to tell it you're done. Ask nothing after it. If the coordinator sends it back (a conflict, a failed check, `SHIP FAIL`), fix it, push, and report done the same way again; for `SHIP FAIL`, in a new pull request.
 
 The rest of this step is for a session on its own.
 
