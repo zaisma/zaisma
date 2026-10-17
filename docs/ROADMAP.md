@@ -366,6 +366,8 @@ Goal: room for games that outgrow the defaults.
 | planned | Nice | | Bigger game servers | | Cloudflare Containers; check outbound data charges first |
 | planned | Nice | | One-command switch from Wavedash | | |
 | planned | Nice | | Subscriptions in the buy sheet | | |
+| planned | Nice | | Account levels games can require | Accounts-only games, Protect your account | A game asks for more than an account before Play or at a step, like a serious MMO slowing down banned players' new accounts: built only from what Zaisma already knows (account age, a passkey or an email, time played, no Zaisma ban), never IDs or phone numbers; levels of `account_requirement` or yes/no facts in the pass (Julius, Oct 17, 2026) |
+| planned | Nice | | Minimum age band per game | Social modes and age bands, Accounts-only games | The developer keeps a game from younger bands even when its content suits everyone; Zaisma enforces it like `account_requirement` and games never learn the band. Content above the shared floor, blocked for some bands, is a decision of its own (Julius, Oct 17, 2026) |
 
 ## Parked ideas
 
