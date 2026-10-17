@@ -61,3 +61,17 @@ All three talks above should have opened differently:
 - **Game database import and export:** *One call*, the page.
 - **Saves through the API:** *Needs you*, the direction question plus what players see.
 - **Games can reach our rooms and their own servers:** *One call*, rightly: the promise, with the direction check folded into the options.
+
+## Scan before publishing (Oct 16, 2026)
+
+**The content rules page, line by line.** The sort called it *One call* ("approve as is") and the brief found one contradiction (personal data). He rewrote three of the nine rules himself: no hate rule, a Bitcoin carve-out, chat following age bands. Then he spent most of the talk on where the line on real people sits.
+*Lesson:* a page of rules is a claims page, so every line on it is his call, not only the one with a contradiction. Tier it *Needs you*, show every line, and expect him to edit lines rather than pick between options.
+
+**Who would actually want their own accounts.** Before choosing between (a) and (b), he asked which real games would benefit. The scenarios (cross-platform games, existing backends, linking on the developer's own site) settled it.
+*Lesson:* on a fork about what developers can build, open with the real developers each option serves or blocks.
+
+**Clear lines, not judgment calls.** He pushed twice for rules a developer can check without guessing ("why build a wacky game if a blurry rule could mean account deletion?"). What landed was a one-line test and Fine / Not fine examples, plus saying what breaking a rule costs.
+*Lesson:* for any rule developers are held to, bring the test, the examples and the consequence, not only the wording.
+
+**"Can I see?"** He asked to see the whole page, not the diff.
+*Lesson:* for a page, show it rendered as it would read, with the changes marked, before asking for a yes.
