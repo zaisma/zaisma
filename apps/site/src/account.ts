@@ -39,7 +39,7 @@ import {
   socialModeSettings,
   socialModesFor,
   socialSettingsOf,
-  isSocialSettingChoice,
+  socialSettingChoicesFor,
   updateAccount,
   type AgeBand,
   type SocialMode,
@@ -470,21 +470,23 @@ ${via ? html`<input type="hidden" name="with" value="${via}">` : ""}
 
 const SOCIAL_MODE_LABELS: Record<SocialMode, string> = { solo_focused: "Solo-focused", friends_focused: "Friends-focused", open_and_social: "Open and social" };
 
-/** What a preset does for the band, in a line. "Anyone" is all it says: players aren't told about band groups. */
+/**
+ * What a preset does, in a line. It only ever says what the player gets, never what they don't or why:
+ * nothing on the page hints at age groups or what opens up later, so there's nothing to lie about.
+ */
 function socialModeHint(socialMode: SocialMode, band: AgeBand): string {
   if (socialMode === "solo_focused") return "No chat. Friends can still join you and see what you play.";
   if (socialMode === "friends_focused") return "Chat, joining and what you play, with friends only.";
-  return band === "18+" ? "Chat with anyone, take friend requests, and anyone can join you and see what you play." : "Chat with anyone and take friend requests. Joining and what you play stay with friends.";
+  return band === "18+" ? "Chat with anyone, take friend requests, and anyone can join you and see what you play." : "Chat with anyone and take friend requests. Friends can join you and see what you play.";
 }
 
-/** The presets a band can pick, as radio buttons; the account page adds Custom and shows open and social greyed for 13–15. */
-function socialModeChoices(band: AgeBand, current: SocialMode | "custom", legend: string, withCustom = false): Raw {
-  const radio = (choice: string, label: string, hint: string, isDisabled = false) =>
-    html`<label class="check"><input type="radio" name="social_mode" value="${choice}"${choice === current ? raw(" checked") : ""}${isDisabled ? raw(" disabled") : ""}> <span>${label}<small class="hint">${hint}</small></span></label>`;
-  return html`<fieldset class="choices"><legend>${legend}</legend>
+/** The presets a band can pick, as radio buttons (only those: a preset the band can't have isn't shown at all); the account page adds Custom. */
+function socialModeChoices(band: AgeBand, current: SocialMode | "custom", legend: string | null, withCustom = false): Raw {
+  const radio = (choice: string, label: string, hint: string) =>
+    html`<label class="check"><input type="radio" name="social_mode" value="${choice}"${choice === current ? raw(" checked") : ""}> <span>${label}<small class="hint">${hint}</small></span></label>`;
+  return html`<fieldset class="choices"${legend ? "" : raw(' aria-label="Social settings"')}>${legend ? html`<legend>${legend}</legend>` : ""}
 ${socialModesFor(band).map((socialMode) => radio(socialMode, SOCIAL_MODE_LABELS[socialMode], socialModeHint(socialMode, band)))}
-${withCustom && band === "13-15" ? radio("open_and_social", SOCIAL_MODE_LABELS.open_and_social, "Opens up at 16.", true) : ""}
-${withCustom ? radio("custom", "Custom", "Your own choice for each one below.") : ""}
+${withCustom ? radio("custom", "Custom", "Choose each one yourself.") : ""}
 </fieldset>`;
 }
 
@@ -506,46 +508,40 @@ const SOCIAL_SETTING_LABELS: Record<SocialSetting, [string, string]> = {
 
 const SOCIAL_CHOICE_LABELS: Record<string, string> = { nobody: "Nobody", friends: "Friends", anyone: "Anyone" };
 
-/** The age at which a choice past this band's limits opens up. */
-const opensUpAt = (band: AgeBand, setting: SocialSetting, choice: string) => (band === "13-15" && isSocialSettingChoice("16-17", setting, choice) ? 16 : 18);
-
 /**
- * The Social section: the presets, then every setting as choices side by side. Choices past the band's
- * limits show greyed with when they open up. The script fills in a preset's settings when one is
- * chosen, and moves to Custom when a setting is changed; the server works it out again on its own.
+ * The Social section: the presets, and under Custom every setting as choices side by side. Only the
+ * choices the band has are there at all; a setting with just one isn't shown. Picking a preset fills
+ * in its settings (the script), so Custom starts from the last one; the server works it out again.
  */
 function socialSettingsForm(band: AgeBand, settings: SocialSettings): Raw {
   const presets = Object.fromEntries(socialModesFor(band).map((socialMode) => [socialMode, socialModeSettings(socialMode, band)]));
   return html`<form class="stack social" method="post" action="/account/social" id="social-form">
-${socialModeChoices(band, socialModeOf(settings, band), "Presets", true)}
+${socialModeChoices(band, socialModeOf(settings, band), null, true)}
+<div class="social-settings">
 ${SOCIAL_SETTINGS.map((setting) => {
-    const choices = SOCIAL_SETTING_CHOICES[setting] as readonly string[];
-    const lockedChoice = choices.find((choice) => !isSocialSettingChoice(band, setting, choice));
-    return html`<fieldset class="area"><legend>${SOCIAL_SETTING_LABELS[setting][0]}</legend><p class="hint">${SOCIAL_SETTING_LABELS[setting][1]}${lockedChoice ? ` ${SOCIAL_CHOICE_LABELS[lockedChoice]} opens up at ${opensUpAt(band, setting, lockedChoice)}.` : ""}</p>
+    const choices = socialSettingChoicesFor(band, setting) as readonly string[];
+    if (choices.length < 2) return "";
+    return html`<fieldset class="area"><legend>${SOCIAL_SETTING_LABELS[setting][0]}</legend><p class="hint">${SOCIAL_SETTING_LABELS[setting][1]}</p>
 <div class="seg picks">${choices.map(
       (choice) =>
-        html`<label><input type="radio" name="${setting}" value="${choice}"${choice === settings[setting] ? raw(" checked") : ""}${isSocialSettingChoice(band, setting, choice) ? "" : raw(" disabled")}><span>${setting === "who_can_send_friend_requests" && choice === "nobody" ? "Invites only" : SOCIAL_CHOICE_LABELS[choice]}</span></label>`,
+        html`<label><input type="radio" name="${setting}" value="${choice}"${choice === settings[setting] ? raw(" checked") : ""}><span>${setting === "who_can_send_friend_requests" && choice === "nobody" ? "Invites only" : SOCIAL_CHOICE_LABELS[choice]}</span></label>`,
     )}</div>
 </fieldset>`;
   })}
+</div>
 <button class="btn ghost" type="submit">Save</button>
 </form>
 <script>
 (() => {
   const form = document.getElementById("social-form");
   const presets = ${raw(JSON.stringify(presets))};
-  const settings = ${raw(JSON.stringify(SOCIAL_SETTINGS))};
-  const setTo = (name, value) => { const input = form.querySelector('input[name="' + name + '"][value="' + value + '"]'); if (input) input.checked = true; };
   form.addEventListener("change", (event) => {
-    const name = event.target.name;
-    if (name === "social_mode") {
-      const preset = presets[event.target.value];
-      if (preset) for (const setting of settings) setTo(setting, preset[setting]);
-      return;
+    const preset = event.target.name === "social_mode" && presets[event.target.value];
+    if (!preset) return;
+    for (const [setting, choice] of Object.entries(preset)) {
+      const input = form.querySelector('input[name="' + setting + '"][value="' + choice + '"]');
+      if (input) input.checked = true;
     }
-    // A setting changed: the preset it now matches, or Custom.
-    const chosen = Object.keys(presets).find((socialMode) => settings.every((setting) => form[setting].value === presets[socialMode][setting]));
-    setTo("social_mode", chosen || "custom");
   });
 })();
 </script>`;

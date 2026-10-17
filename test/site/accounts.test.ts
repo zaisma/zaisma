@@ -421,16 +421,17 @@ describe("the account page", () => {
     expect((await b.go("/account/name", { name: "Loud Comet" })).status).toBe(303);
     expect((await accountById(env.DB, id))?.name).toBe("Loud Comet");
 
-    // The page shows the preset and every setting; 13–15 can't open chat, joining or requests to anyone.
-    const social = await (await b.go("/account")).text();
+    // The page shows the presets and settings 13–15 can have, and nothing at all of the rest: no open
+    // and social, no Anyone for chat or joining, no friend requests, and no hint of what opens up later.
+    const accountPageText = await (await b.go("/account")).text();
+    const social = accountPageText.slice(accountPageText.indexOf('<h2 id="social">'), accountPageText.indexOf('<h2 id="passkeys">'));
     expect(social).toContain('<h2 id="social">Social</h2>');
     expect(social).toMatch(/value="solo_focused" checked/);
-    expect(social).toMatch(/name="who_can_chat" value="anyone" disabled/);
-    expect(social).toMatch(/name="who_can_send_friend_requests" value="anyone" disabled/);
-    expect(social).toContain("Anyone opens up at 16.");
-    expect(social).toContain("Anyone opens up at 18.");
-    expect(social).not.toMatch(/name="who_sees_online" value="anyone"/);
-    expect(social).not.toMatch(/16-17|band group/);
+    expect(social).toMatch(/name="who_can_chat" value="friends"/);
+    expect(social).not.toContain('value="open_and_social"');
+    expect(social).not.toMatch(/name="who_can_chat" value="anyone"|name="who_can_join" value="anyone"|name="who_sees_online" value="anyone"/);
+    expect(social).not.toContain('name="who_can_send_friend_requests"');
+    expect(social).not.toMatch(/opens up|disabled|16-17|band group/);
 
     // 13–15 can move to friends-focused, never open and social, and nothing past their limits.
     expect(await (await b.go("/account/social", { social_mode: "open_and_social" })).text()).toContain("Choose from the social settings shown");
@@ -459,7 +460,11 @@ describe("the account page", () => {
     expect(await (await b.go("/account/social", { social_mode: "custom", ...FRIENDS_FOCUSED, who_sees_playing_now: "anyone" })).text()).toContain("Choose from the social settings shown");
     expect((await b.go("/account/social", { social_mode: "open_and_social", ...FRIENDS_FOCUSED })).status).toBe(303);
     expect(await accountById(env.DB, id)).toMatchObject({ ...FRIENDS_FOCUSED, who_can_chat: "anyone", who_can_send_friend_requests: "anyone" });
-    expect(await (await b.go("/account")).text()).toMatch(/value="open_and_social" checked/);
+    const teenPageText = await (await b.go("/account")).text();
+    const teenPage = teenPageText.slice(teenPageText.indexOf('<h2 id="social">'), teenPageText.indexOf('<h2 id="passkeys">'));
+    expect(teenPage).toMatch(/value="open_and_social" checked/);
+    expect(teenPage).toMatch(/name="who_can_send_friend_requests" value="anyone" checked/);
+    expect(teenPage).not.toMatch(/name="who_can_join" value="anyone"|name="who_sees_playing_now" value="anyone"|opens up|disabled/);
     // At 18 open and social opens up the rest too.
     await b.go("/account/age", { year: String(thisYear - 19), month: "1", day: "1" });
     expect(await accountById(env.DB, id)).toMatchObject({ age_band: "18+", ...OPEN_AND_SOCIAL_ADULT });
