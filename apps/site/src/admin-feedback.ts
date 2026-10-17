@@ -35,7 +35,7 @@ const readableTime = (atIso: string | null) => (atIso ? `${atIso.slice(0, 16).re
 const accountNameOrDeleted = (name: string | null) => name ?? "(account deleted)";
 
 async function accountName(env: Env, accountId: string | null): Promise<string | null> {
-  return accountId ? ((await env.DB.prepare("SELECT name FROM accounts WHERE id = ?").bind(accountId).first<{ name: string }>())?.name ?? null) : null;
+  return accountId ? ((await env.DB.prepare("SELECT username AS name FROM accounts WHERE id = ?").bind(accountId).first<{ name: string }>())?.name ?? null) : null;
 }
 
 async function latestPost(env: Env, topicId: string, maximumCharacterCount: number) {

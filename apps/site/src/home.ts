@@ -33,7 +33,7 @@ export async function showcase(env: Env, maximumGameCount = 200): Promise<ShowGa
   const { results } = await env.DB
     .prepare(
       `SELECT games.slug, games.title, games.description, games.owner_id, games.devices, games.play_modes, games.multiplayer_mode, games.connect_hosts,
-         accounts.name AS developer, versions.published_at_ms,
+         accounts.username AS developer, versions.published_at_ms,
          (SELECT MIN(published_at_ms) FROM versions WHERE game_id = games.id) AS first_published_at_ms,
          (SELECT id FROM game_images WHERE game_id = games.id AND kind = 'cover' AND review_status = 'approved' ORDER BY created_at_ms DESC LIMIT 1) AS cover,
          (SELECT id FROM game_images WHERE game_id = games.id AND kind = 'square' AND review_status = 'approved' ORDER BY created_at_ms DESC LIMIT 1) AS square

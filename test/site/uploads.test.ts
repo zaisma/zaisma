@@ -52,7 +52,7 @@ beforeEach(async () => {
   );
   const all = await env.GAMES.list();
   if (all.objects.length) await env.GAMES.delete(all.objects.map((o) => o.key));
-  await createAccount(env.DB, { id: "dev-1", name: "Pixel Smith", ageBand: "18+" });
+  await createAccount(env.DB, { id: "dev-1", username: "Pixel_Smith", ageBand: "18+" });
   token = (await createApiKey(env.DB, "dev-1", "laptop")).token;
   await api("/games", { body: { title: "Hop" } });
 });
@@ -147,7 +147,7 @@ describe("file-by-file uploads", () => {
   });
 
   it("keeps other developers out", async () => {
-    await createAccount(env.DB, { id: "dev-2", name: "Other Dev", ageBand: "18+" });
+    await createAccount(env.DB, { id: "dev-2", username: "Other_Dev", ageBand: "18+" });
     const other = (await createApiKey(env.DB, "dev-2", "x")).token;
     const files = (await describeFiles(GAME)).map(({ text: _, ...f }) => f);
     expect((await api("/games/hop/uploads", { body: { files }, key: other })).status).toBe(404);
@@ -202,7 +202,7 @@ describe("big files", () => {
     expect(plan.missing_file_hashes).not.toContain(sha);
 
     // Another developer listing the same hash still has to send the file themselves.
-    await createAccount(env.DB, { id: "dev-2", name: "Other Dev", ageBand: "18+" });
+    await createAccount(env.DB, { id: "dev-2", username: "Other_Dev", ageBand: "18+" });
     const other = (await createApiKey(env.DB, "dev-2", "x")).token;
     await api("/games", { body: { title: "Copy", slug: "copy" }, key: other });
     const theirs = (await (await api("/games/copy/uploads", { body: { files: files.map(({ text: _, ...f }) => f) }, key: other })).json()) as { missing_file_hashes: string[] };

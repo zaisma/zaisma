@@ -69,8 +69,8 @@ beforeEach(async () => {
   await env.DB.exec(
     "DELETE FROM webhook_deliveries; DELETE FROM webhooks; DELETE FROM reports; DELETE FROM ai_usage; DELETE FROM blobs; DELETE FROM api_keys; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;",
   );
-  await createAccount(env.DB, { id: "dev-1", name: "Pixel Smith", ageBand: "18+" });
-  await createAccount(env.DB, { id: "dev-2", name: "Other Dev", ageBand: "18+" });
+  await createAccount(env.DB, { id: "dev-1", username: "Pixel_Smith", ageBand: "18+" });
+  await createAccount(env.DB, { id: "dev-2", username: "Other_Dev", ageBand: "18+" });
   token = (await createApiKey(env.DB, "dev-1", "claude")).token;
   other = (await createApiKey(env.DB, "dev-2", "claude")).token;
   received = [];

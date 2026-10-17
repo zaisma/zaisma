@@ -11,11 +11,10 @@ Who a player is came first, and that chain is live (Julius, Oct 16, 2026). Nothi
 **Next:**
 
 1. Social settings (Social settings)
-2. Usernames and passwords (Sign-in)
-3. Saves without Zaisma screens (Saves)
-4. Game server reach and secrets (Game servers)
-5. Game dashboard sections (Developer dashboard)
-6. Developer home (Developer dashboard)
+2. Saves without Zaisma screens (Saves)
+3. Game server reach and secrets (Game servers)
+4. Game dashboard sections (Developer dashboard)
+5. Developer home (Developer dashboard)
 
 ## Phases
 
@@ -334,7 +333,7 @@ Who a player is, who they play with and how they find games.
 | done | Beta | Nice | yes | Google and Discord sign-in | Sign-in, Age question | Through Supabase, with the age question still first for new accounts |
 | planned | Beta | Must | yes | Sign-in on auth.zaisma.com | Google and Discord sign-in, Julius: own sign-in address | Google and Discord send players through auth.zaisma.com instead of a supabase.co address: the site, Google and Discord switched to the new address. Before the public beta |
 | done | Beta | Must | yes | Sign-in from games | Accounts-only games | Live Oct 16, 2026 (#166, no migration): `Zaisma.player.signIn()` asks a guest to sign in beside the game, in a new tab, and the game gets the account and its passes without a reload |
-| next | Beta | Must | yes | Usernames and passwords | Sign-in, Age question | Making an account takes a birthday, a public unique username and a password, nothing else; email becomes an optional way back in; Cloudflare's invisible bot check on sign-up |
+| done | Beta | Must | yes | Usernames and passwords | Sign-in, Age question | Live Oct 17, 2026 (#209, migration 0047): making an account takes a birthday, a public unique username and a password, nothing else; email becomes an optional way back in; Cloudflare's invisible bot check on sign-up |
 | planned | Beta | Must | yes | Protect your account | Usernames and passwords, Passkeys | Once there's saved progress to lose, a one-time "Protect your account" offers a passkey or an email; required before cards or parent links |
 | planned | Beta | Must | | Account pages | Design system, Passkeys, Friends | Sign-in, account, saves, sign-in methods, /friends and the friend invite page, all polished in full Steel |
 | planned | Beta | Must | | Julius: Supabase Pro | | $25/month, switched on at launch; the free plan pauses |

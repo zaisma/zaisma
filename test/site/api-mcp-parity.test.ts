@@ -100,7 +100,7 @@ describe("the developer API and the MCP", async () => {
 
   it("the router answers every call in API_ROUTES", async () => {
     // Placeholders are made up, so most calls say no; never with "no such call" or "wrong method".
-    await createAccount(env.DB, { id: "parity-dev", name: "Parity Dev", ageBand: "18+" });
+    await createAccount(env.DB, { id: "parity-dev", username: "Parity_Dev", ageBand: "18+" });
     const { token } = await createApiKey(env.DB, "parity-dev", "parity");
     const unanswered: string[] = [];
     for (const apiRoute of API_ROUTES) {
