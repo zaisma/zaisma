@@ -123,7 +123,7 @@ Then:
 
 ## 7. Under the coordinator
 
-When your brief says you're under the coordinator, the close changes. You never merge, push to main, ship, republish the roadmap page or clean up; the coordinator does all of that.
+When your brief says you're under the coordinator, the close changes. You never merge, push to main, ship, republish the roadmap page or clean up on your own; the coordinator does all of that. Once your pull request is merged, it asks you to run `/cleanup`: run it, then end your turn with one line saying it's clean.
 
 - **On its own or a done item:** always open a pull request, after `npm test`, even when only `docs/ROADMAP.md` changes. Don't ask him to merge it.
 - **Inside `build-next`:** carry on building; `build-next` ends the session the same way.
