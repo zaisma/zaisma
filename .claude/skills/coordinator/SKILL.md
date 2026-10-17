@@ -18,9 +18,9 @@ The argument is `$ARGUMENTS`, in any order: `/coordinator`, `/coordinator 3`, `/
 
 - **A number is the cap:** the most sessions this coordinator has running at once, of every kind: builds, talks and fixes. **Empty means 2.** Julius is often near his usage limit, so never start past the cap, and never raise it on your own.
 - **The mode** says what those sessions are. Empty means `both`.
-  - **`both`:** settled items build; unsettled items in Now open with a talk in their own session and build once he settles them; and one talk about a done item is kept ready (step 5).
+  - **`both`:** settled items build; unsettled items in Now open with a talk in their own session and build once he settles them; and every place left under the cap goes to a talk ahead (step 1), so he settles what's coming while the builds run.
   - **`build`:** for when Julius is away. Only settled items get a session. Unsettled ones are skipped, no talks start, and nothing waits for him except a preview he must OK. Name the skipped items in your first message.
-  - **`talk`:** for working through what isn't settled at his desk. Nothing builds. Every session is a talk (`/talk-through`): first the unsettled items in Now, in Now's order, then the done items that aren't settled (step 5). A talk that settles an item in Now ends with its own pull request, and the item builds later in `both` or `build`.
+  - **`talk`:** for working through what isn't settled at his desk. Nothing builds. Every session is a talk (`/talk-through`): first the unsettled items in Now, in Now's order, then talks ahead (step 1). A talk that settles an item in Now ends with its own pull request, and the item builds later in `both` or `build`.
 - **Names** mean only those items, in the current mode, still under the cap.
 
 Say the cap and the mode in your first message, so he can correct them.
@@ -49,11 +49,18 @@ It prints every item in Now, settled or not, and whether it's free to start or w
 - **`build`:** it's free to start and settled.
 - **`talk`:** it isn't settled. It may still wait on Needs: a talk doesn't need what the item builds on to be built.
 
-If none is ready, and nothing in Now waits only on an item that's being built now, Now has run dry: go to step 6. In `talk` mode, go to the done items that aren't settled instead (step 5), and to step 6 only when those are gone too.
+**Talks ahead fill the cap.** In `both` and `talk`, when Now's ready items leave places under the cap, fill every one with a talk ahead, in this order, without asking Julius which:
+
+1. **Done items that aren't settled**, sorted first (step 5). Skip any whose note says it's left unsettled on purpose until later.
+2. **Planned items that aren't settled**, the ones the `whats-next` skill would most likely put in Now next: the current phase first, Needs done or being built, ones other work builds on, and ones whose calls are his (player and developer experience, pages, money). Rows only a person does (`Julius: …`) have nothing to talk through.
+
+Name each talk ahead and why in your message about the batch, so he can swap one. A talk ahead only settles its item: its pull request carries the roadmap and docs changes, and the item builds once Now picks it. In `build` mode there are no talks ahead.
+
+If none is ready, and nothing in Now waits only on an item that's being built now, Now has run dry: go to step 6. In `talk` mode, go to the talks ahead instead, and to step 6 only when those are gone too.
 
 ## 2. Start one session per item, up to the cap
 
-Only on Julius's go (see above). Use the cap rule: start only as many as the cap leaves room for, in Now's order; the rest wait for step 5. For each one: a bold title line and one sentence, then `start_session` with `initiation` "user_asked", `use_worktree: true`, `context` "fresh", `wake_when_done: true`, the item's name as `title`, and as `prompt` `/build-next <the item's exact name>`, or in `talk` mode:
+Only on Julius's go (see above). Use the cap rule: start only as many as the cap leaves room for, in Now's order, then talks ahead (step 1) for the places left; the rest wait for step 5. A go covers the whole batch up to the cap, talks ahead included: `/coordinator 5 both` with three items ready starts those three and two talks ahead, without a second question. A talk ahead's prompt is `/talk-through <the item's exact name>`, and its background adds that the item isn't in Now and the talk only settles it. For each one: a bold title line and one sentence, then `start_session` with `initiation` "user_asked", `use_worktree: true`, `context` "fresh", `wake_when_done: true`, the item's name as `title`, and as `prompt` `/build-next <the item's exact name>`, or in `talk` mode:
 
 ```
 /talk-through <the item's exact name>
@@ -65,19 +72,21 @@ Use the exact name, never a place in Now: places move as items land. The `backgr
 Under the coordinator (<this session's id>): never merge, ship or clean up. When you've reached a conclusion, ask Julius "Are we done?" and on his yes send the done report to the coordinator with SendMessage, then end your turn with it (see your skill).
 ```
 
-`<this session's id>` is this coordinator's own `local_…` id: the `startedBy` of any session it started (`list_sessions` with `linked: true`). On the first start, before there are any, leave the parentheses out: the session finds the coordinator itself, as the row in `list_sessions` with `linked: true` that has no `startedBy`.
+`<this session's id>` is this coordinator's own `local_…` id: `get_session` with `"self"` gives it. Read it there before the first start; never work it out from a path (the scratchpad folder's name isn't the session's id).
 
 **Why the message.** The app doesn't wake this session for a turn Julius drove himself in another session, and his *Yes, we're done* click is one. The note waits until he next writes here, so without the message he'd have to come back and say "done". A message from the session does wake this one.
 
 Then one or two lines on the mode and what the session is for.
 
-**Set each session's `effort` yourself**, from the item's row, its Needs and what it touches. Don't ask Julius.
+**Set each session's `effort` yourself**, from the item's row, its Needs and what it touches. Don't ask Julius which level. The app names the levels Low, Medium, High, Extra and Max; the tools call Extra `xhigh`. (Ultracode in the app's list is the multi-agent workflow mode, not a level the tools set.)
 
 - **`medium`, low stakes:** copy, docs, a page tweak, a small fix in one place, a talk about a small done item.
 - **`high`, the default:** most items and talks.
-- **`xhigh`, high stakes:** a First item or one much else builds on; migrations that change or delete data; money (Stripe, the buy sheet); safety, moderation and the 13+ rules; sign-in, player passes, API keys and the game sandbox; names in the API, SDK or game server that lock in once live.
+- **`xhigh` (Extra), high stakes:** a First item or one much else builds on; migrations that change or delete data; money (Stripe, the buy sheet); safety, moderation and the 13+ rules; sign-in, player passes, API keys and the game sandbox; names in the API, SDK or game server that lock in once live.
 
-A session can't go above this one's effort. If this session runs below `xhigh`, say so in a line when an item wants it. When a session turns out bigger or riskier than its row said (a talk settles more than expected, a build hits a migration), raise it with `set_session_effort`. `build-next` does the rest:
+**`start_session` quietly caps `effort` at this session's own level.** Asking for `xhigh` from a coordinator at High starts the session at High, and the result doesn't say so. So before the first start, read this session's level (`get_session` with `"self"`). Start every session with `effort` at or below it, then raise each one that wants more with `set_session_effort` right after it starts: the app asks Julius to approve each raise above this session's level, and it applies from that session's next turn. Check the level that stuck with `get_session` on the new session, never from the start result. In your message about the batch, say which sessions run at which level.
+
+When a session turns out bigger or riskier than its row said (a talk settles more than expected, a build hits a migration), raise it the same way. `build-next` does the rest:
 
 1. It claims the row.
 2. If the item isn't settled, it prepares the talk's brief and waits for Julius.
@@ -126,8 +135,7 @@ Each time a session reports done and step 4 has finished it, run step 1 again: a
 - **Quick items come to Julius here, as one list:** one line each, what it is and "settles as …", grouped by project, at most 15 per message. He answers with "settle all" or names the ones to pull out. His yes in this chat settles the rest. Write their `Settled` cells in this session's worktree, open one roadmap-only pull request, and finish it as in step 4 (his yes is its merge). A pulled-out item becomes a talk.
 - **One call and Needs you items** get a talk each, offered like any session: on his go, a `start_session` as in step 2, with `/talk-through <the item's exact name>` as the prompt. Put the tier in the background so the session doesn't redo the sorting. Start with the ones other work builds on, or the ones that would cost the most to change later. Each counts against the cap like any session.
 
-- **`both`:** offer one. Whenever no session is waiting for Julius to talk and the cap has room, offer one talk, and start it on his go.
-- **`talk`:** once no unsettled item in Now is left, offer these to fill the cap.
+- **`both` and `talk`:** they're talks ahead (step 1). Whenever the cap has room after a session finishes, offer enough talks ahead to fill it, with the builds that are ready, in one offer, and start them on his go.
 - **`build`:** none.
 
 ## 6. When Now runs dry
