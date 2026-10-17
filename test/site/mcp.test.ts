@@ -55,8 +55,8 @@ beforeEach(async () => {
   await env.DB.exec(
     "DELETE FROM reports; DELETE FROM room_usage; DELETE FROM game_server_errors; DELETE FROM blobs; DELETE FROM game_images; DELETE FROM tester_links; DELETE FROM api_keys; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;",
   );
-  await createAccount(env.DB, { id: "dev-1", name: "Pixel Smith", ageBand: "18+" });
-  await createAccount(env.DB, { id: "dev-2", name: "Other Dev", ageBand: "18+" });
+  await createAccount(env.DB, { id: "dev-1", username: "Pixel_Smith", ageBand: "18+" });
+  await createAccount(env.DB, { id: "dev-2", username: "Other_Dev", ageBand: "18+" });
   token = (await createApiKey(env.DB, "dev-1", "claude")).token;
   other = (await createApiKey(env.DB, "dev-2", "claude")).token;
 });
@@ -334,7 +334,7 @@ describe("reports, stats and history", () => {
     const game = (await gameBySlug(env.DB, "hop"))!;
     await audit(env.DB, game.id, "scan-held", "child-safety: something only admins see", "system");
     await audit(env.DB, game.id, "takedown", "private admin note", "admin:julius@example.com");
-    await audit(env.DB, game.id, "owner", "Owner: Pixel Smith", "admin:julius@example.com");
+    await audit(env.DB, game.id, "owner", "Owner: Pixel_Smith", "admin:julius@example.com");
     const { events } = await tool("get_history", { slug: "hop" });
     const text = JSON.stringify(events);
     expect(text).not.toContain("admins see");
@@ -364,9 +364,9 @@ describe("reports, stats and history", () => {
 
 describe("players", () => {
   it("looks up an account's public profile by its player ID, and nothing else", async () => {
-    const account = await createAccount(env.DB, { id: "player-1", name: "Night Owl", ageBand: "16-17" });
+    const account = await createAccount(env.DB, { id: "player-1", username: "Night_Owl", ageBand: "16-17" });
     // What a stranger sees: the name, never the email, age or the sign-in's own ID.
-    expect(await tool("get_player", { player_id: account.player_id })).toEqual({ player: { id: account.player_id, name: "Night Owl" } });
+    expect(await tool("get_player", { player_id: account.player_id })).toEqual({ player: { id: account.player_id, name: "Night_Owl", username: "Night_Owl" } });
     expect(await tool("get_player", { player_id: "player_nobodyhasthis1" })).toMatchObject({ code: "no_player", field: "player_id" });
     expect(await tool("get_player", { player_id: "version_8f3k2m9q1x7c4v6b0n5z" })).toMatchObject({ code: "wrong_id_kind", field: "player_id" });
   });

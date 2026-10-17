@@ -337,7 +337,7 @@ describe("the SDK's types say what the SDK does", () => {
     const asked: string[] = [];
     const sdk = loadSdk(ON_ZAISMA, ((url: string) => {
       asked.push(url);
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({ player: { id: "player_bo", name: "Bo" } }) });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ player: { id: "player_bo", name: "Bo_Peep", username: "Bo_Peep" } }) });
     }) as () => Promise<unknown>);
     const profile = await sdk.Zaisma.player.getProfile("player_bo");
     expect(Object.keys(profile).sort()).toEqual(fieldsOf("PlayerProfile"));

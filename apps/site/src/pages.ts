@@ -42,7 +42,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   const canSignIn = authConfigured(env);
   const [developer, pictures, updates, others, live] = await Promise.all([
     game.owner_id
-      ? env.DB.prepare("SELECT accounts.name, (SELECT COUNT(*) FROM games WHERE owner_id = ? AND review_status = 'live' AND visibility = 'listed') AS game_count FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE owners.id = ?").bind(game.owner_id, game.owner_id).first<{ name: string; game_count: number }>()
+      ? env.DB.prepare("SELECT accounts.username AS name, (SELECT COUNT(*) FROM games WHERE owner_id = ? AND review_status = 'live' AND visibility = 'listed') AS game_count FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE owners.id = ?").bind(game.owner_id, game.owner_id).first<{ name: string; game_count: number }>()
       : null,
     // The square cover is only for phones' game cards, not one of the game's pictures.
     env.DB.prepare("SELECT id, kind FROM game_images WHERE game_id = ? AND review_status = 'approved' AND kind != 'square' ORDER BY kind = 'cover' DESC, created_at_ms").bind(game.id).all<{ id: string; kind: string }>(),
@@ -704,14 +704,15 @@ const PRIVACY = `
 <p>When you press Play, we count it for the game's developer and for lists like Popular: that the game was played, how long it was on screen, and whether this browser played it before (and on which day it first did). To keep the counts honest, Cloudflare checks, invisibly, when you open a game's page that it's a real browser, and we count players by internet provider (like Comcast or Vodafone) to spot bot networks. The same check lets you play online in multiplayer games, so bots can't fill their rooms. A play's details are kept for a day at most; after that we keep only totals for each game and day, never anything that says who played.</p>
 <h2>If you make an account</h2>
 <ul>
-<li><strong>Your email</strong>, only to sign you in. It's never shown to anyone, and we don't send marketing.</li>
-<li><strong>Your name</strong>, the one you pick. Other players can see it.</li>
-<li><strong>Your player ID.</strong> When you're signed in, the games you play, and the sites you choose to sign in to with Zaisma, know you by a player ID, the same everywhere, and can look up your name with it. They never get your email, your age or anything from other games. Your account page lists the sites, and you can remove any of them.</li>
+<li><strong>Your username</strong>, the one you pick. Everyone can see it.</li>
+<li><strong>Your password.</strong> Only Supabase, our sign-in provider, keeps it, as a scrambled hash nobody can read back. When you pick one, we check it isn't known from a data breach without sending it anywhere.</li>
+<li><strong>Your email</strong>, only if you add one, as a way back in if you forget your password. It's never shown to anyone, and we don't send marketing.</li>
+<li><strong>Your player ID.</strong> When you're signed in, the games you play, and the sites you choose to sign in to with Zaisma, know you by a player ID, the same everywhere, and can look up your username with it. They never get your email, your age or anything from other games. Your account page lists the sites, and you can remove any of them.</li>
 <li><strong>Your age group</strong>: 13 to 17, or 18 and over. We ask your birth date once to work it out and never keep it.</li>
 <li><strong>Your game saves.</strong> If you're signed in, your game saves are stored with your account, so your progress follows you to any device.</li>
 <li><strong>The games you played recently</strong> (the last 20), so Continue playing follows you to any device too.</li>
 <li><strong>Your passkeys</strong>, if you add any: the public half of each key, the kind of device you added it on (like "iPhone") and when you last used it. The private half never leaves your device or password manager.</li>
-<li><strong>If you sign in with Google or Discord</strong>, they give us your email, plus the name and profile picture on that account. We only use the email; Supabase, our sign-in provider, keeps the rest with your sign-in.</li>
+<li><strong>If you sign in with Google or Discord</strong>, they give us your email, plus the name and profile picture on that account. We only use the email, to sign you in; Supabase keeps the rest with your sign-in.</li>
 </ul>
 <p>Accounts are for people 13 and up. If you're younger, you can't make one, and we keep nothing you typed. If we find out we have an account for someone under 13, we delete it.</p>
 <h2>Cookies</h2>
@@ -722,13 +723,13 @@ const PRIVACY = `
 <p>Games run on a separate domain and can't see your account, email or cookies. Our content rules don't allow games to collect players' personal data.</p>
 <h2>Who helps us run Zaisma</h2>
 <ul>
-<li><strong>Cloudflare</strong> runs our servers, stores games and checks that a real browser opened a game's page. It sees your connection address to deliver pages and stop abuse; we don't store it. The check is Cloudflare Turnstile, covered by its <a href="https://www.cloudflare.com/turnstile-privacy-policy/" target="_blank" rel="noopener">Turnstile Privacy Addendum</a>.</li>
-<li><strong>Supabase</strong> handles sign-in and holds your email. Your browser never talks to it directly.</li>
+<li><strong>Cloudflare</strong> runs our servers, stores games and checks that a real browser opened a game's page or made an account. It sees your connection address to deliver pages and stop abuse; we don't store it. The check is Cloudflare Turnstile, covered by its <a href="https://www.cloudflare.com/turnstile-privacy-policy/" target="_blank" rel="noopener">Turnstile Privacy Addendum</a>.</li>
+<li><strong>Supabase</strong> handles sign-in: it checks your password, keeping only a hash, and holds your email if you added one. Your browser never talks to it directly.</li>
 <li><strong>Anthropic</strong> reviews uploaded games for safety. It sees game files, never players.</li>
 </ul>
 <p>We never sell your data, and there are no ads on Zaisma.</p>
 <h2>Deleting your account</h2>
-<p>Go to your account page and choose Delete account. Your email, name, game saves, recently played games and everything else on your account are deleted straight away.</p>
+<p>Go to your account page and choose Delete account. Your username, password, any email, game saves, recently played games and everything else on your account are deleted straight away.</p>
 <h2>Questions</h2>
 <p>Email <a href="mailto:privacy@zaisma.com">privacy@zaisma.com</a>.</p>
 `;

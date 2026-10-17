@@ -163,7 +163,7 @@
   }
 
   /**
-   * An account's public profile by player ID: { id, name }, what anyone sees of it. Guests have none
+   * An account's public profile by player ID: { id, name, username }, what anyone sees of it. Guests have none
    * (error.code "no_player").
    */
   function getProfile(playerId) {

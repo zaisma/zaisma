@@ -274,6 +274,15 @@ h1+.ways{margin-top:18px}
 .or{display:flex;align-items:center;gap:12px;margin:4px 0 0;color:var(--muted);font-size:13px}
 .or::before,.or::after{content:"";flex:1;height:1px;background:#000;box-shadow:0 1px 0 rgba(255,255,255,.055)}
 .hint{font-size:12px;color:var(--muted)}
+.hint.ok{color:var(--ok-text)}
+.hint.bad{color:var(--danger)}
+.suggest{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:-6px;font-size:13px;color:var(--muted)}
+.suggest[hidden]{display:none}
+.suggest .btn{min-height:32px;padding:0 12px;font-size:13px}
+label.toggle{display:flex;flex-direction:row;gap:8px;align-items:center;margin-top:-6px;font-size:13px;justify-self:start;cursor:pointer}
+label.toggle input{width:16px;height:16px;min-height:0;margin:0;flex:none;accent-color:#c9cace}
+h3.sub{margin-top:28px}
+.after-row{margin-top:10px}
 fieldset{border:0;padding:0;margin:0}
 legend{font-size:14px;color:var(--muted);margin-bottom:8px}
 .birth label{flex:1;min-width:90px}

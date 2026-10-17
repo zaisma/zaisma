@@ -69,7 +69,7 @@ describe("Node runner", () => {
     const lookedUp: string[] = [];
     const profiles = async (playerId: string) => {
       lookedUp.push(playerId);
-      return playerId === "player_owl" ? { id: playerId, name: "Night Owl" } : null;
+      return playerId === "player_owl" ? { id: playerId, name: "Night_Owl" } : null;
     };
     const own = startServer({ server: relay, game: "arena", port: 0, origins: [ORIGIN], issuer: ISS, keys: async () => [signing.publicKey], profiles });
     await new Promise((r) => own.wss.once("listening", r));
@@ -81,7 +81,7 @@ describe("Node runner", () => {
     const owl = connect(ORIGIN, "/v1/rooms/arena/ABCDEF", at);
     await owl.open;
     owl.say({ type: "hello", pass: await accountPass("player_owl") });
-    expect((await owl.next()).me).toEqual({ id: "player_owl", name: "Night Owl", kind: "account" });
+    expect((await owl.next()).me).toEqual({ id: "player_owl", name: "Night_Owl", kind: "account" });
     const gone = connect(ORIGIN, "/v1/rooms/arena/ABCDEF", at);
     await gone.open;
     gone.say({ type: "hello", pass: await accountPass("player_gone") });

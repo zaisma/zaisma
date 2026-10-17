@@ -3,8 +3,8 @@ import { mentionedNames } from "./forum-markdown.ts";
 
 /**
  * @mentions in forum posts. A mention is saved to the account it means when the post is made (the
- * people in the topic first, then anyone who has posted in the forum), so the right person hears
- * even when two share a name. @Zaisma reaches the people who build Zaisma, on the admin pages.
+ * people in the topic first, then anyone who has posted in the forum). Usernames are unique, so it's
+ * one person. @Zaisma reaches the people who build Zaisma, on the admin pages.
  */
 
 export async function saveMentions(env: Env, topicId: string, postId: string, text: string, posterId: string | null): Promise<void> {
@@ -14,11 +14,11 @@ export async function saveMentions(env: Env, topicId: string, postId: string, te
     if (lower === "zaisma") mentioned = { id: "zaisma", name: "Zaisma" };
     else {
       mentioned =
-        (await env.DB.prepare("SELECT account.id, account.name FROM accounts account WHERE LOWER(account.name) = ? AND account.id IN (SELECT account_id FROM forum_posts WHERE topic_id = ?) LIMIT 1")
+        (await env.DB.prepare("SELECT account.id, account.username AS name FROM accounts account WHERE account.username = ? COLLATE NOCASE AND account.id IN (SELECT account_id FROM forum_posts WHERE topic_id = ?) LIMIT 1")
           .bind(lower, topicId)
           .first<{ id: string; name: string }>()) ??
         (await env.DB.prepare(
-          "SELECT account.id, account.name FROM accounts account JOIN forum_posts post ON post.account_id = account.id AND post.check_status = 'passed' WHERE LOWER(account.name) = ? GROUP BY account.id ORDER BY MAX(post.created_at_ms) DESC LIMIT 1",
+          "SELECT account.id, account.username AS name FROM accounts account JOIN forum_posts post ON post.account_id = account.id AND post.check_status = 'passed' WHERE account.username = ? COLLATE NOCASE GROUP BY account.id ORDER BY MAX(post.created_at_ms) DESC LIMIT 1",
         )
           .bind(lower)
           .first<{ id: string; name: string }>());
@@ -34,7 +34,7 @@ export async function previewMentions(env: Env, text: string): Promise<Set<strin
     const lower = written.toLowerCase();
     if (lower === "zaisma") names.add(lower);
     else if (
-      await env.DB.prepare("SELECT 1 AS is_found FROM accounts account WHERE LOWER(account.name) = ? AND EXISTS (SELECT 1 FROM forum_posts post WHERE post.account_id = account.id AND post.check_status = 'passed') LIMIT 1")
+      await env.DB.prepare("SELECT 1 AS is_found FROM accounts account WHERE account.username = ? COLLATE NOCASE AND EXISTS (SELECT 1 FROM forum_posts post WHERE post.account_id = account.id AND post.check_status = 'passed') LIMIT 1")
         .bind(lower)
         .first()
     ) {
@@ -82,7 +82,7 @@ export async function forumPeople(env: Env, namePrefix: string, topicId: string 
   };
   if (topicId) {
     const { results } = await env.DB.prepare(
-      "SELECT account.name FROM accounts account JOIN forum_posts post ON post.account_id = account.id AND post.topic_id = ? AND post.check_status = 'passed' WHERE LOWER(account.name) LIKE ? ESCAPE '\\' AND account.id != ? GROUP BY account.id ORDER BY MAX(post.created_at_ms) DESC LIMIT 8",
+      "SELECT account.username AS name FROM accounts account JOIN forum_posts post ON post.account_id = account.id AND post.topic_id = ? AND post.check_status = 'passed' WHERE LOWER(account.username) LIKE ? ESCAPE '\\' AND account.id != ? GROUP BY account.id ORDER BY MAX(post.created_at_ms) DESC LIMIT 8",
     )
       .bind(topicId, like, viewerId ?? "")
       .all<{ name: string }>();
@@ -90,7 +90,7 @@ export async function forumPeople(env: Env, namePrefix: string, topicId: string 
   }
   if (people.length < 8 && start) {
     const { results } = await env.DB.prepare(
-      "SELECT account.name FROM accounts account JOIN forum_posts post ON post.account_id = account.id AND post.check_status = 'passed' WHERE LOWER(account.name) LIKE ? ESCAPE '\\' AND account.id != ? GROUP BY account.id ORDER BY MAX(post.created_at_ms) DESC LIMIT 12",
+      "SELECT account.username AS name FROM accounts account JOIN forum_posts post ON post.account_id = account.id AND post.check_status = 'passed' WHERE LOWER(account.username) LIKE ? ESCAPE '\\' AND account.id != ? GROUP BY account.id ORDER BY MAX(post.created_at_ms) DESC LIMIT 12",
     )
       .bind(like, viewerId ?? "")
       .all<{ name: string }>();
