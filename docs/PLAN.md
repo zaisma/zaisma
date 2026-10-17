@@ -61,7 +61,7 @@ The whole platform runs on rented services for about $5/month while building and
 
 **Bring your own servers, any time.** Our rooms are a convenient default, cheap and free for small games, never a requirement. A game can run its own servers from day one or move off ours when it takes off, for performance or customization. Accounts, guest IDs, friends and room links keep working: the SDK hands each player a signed pass that the developer's own server can check, and a room link can point at any server. Moving takes a config change, not a rewrite.
 
-Supabase's free plan pauses after a week without traffic, so we move to Pro ($25) at public launch. Cloudflare Workers Paid ($5/month) is needed before the beta, because running developers' game servers safely uses Dynamic Workers.
+Supabase's free plan pauses after a week without traffic, so we move to Pro ($25) at public launch, plus $10/month so sign-in runs on auth.zaisma.com instead of a supabase.co address. Cloudflare Workers Paid ($5/month) is needed before the beta, because running developers' game servers safely uses Dynamic Workers.
 
 ## Rules for a 13+ launch
 

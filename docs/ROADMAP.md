@@ -66,6 +66,7 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | doing | Must | | Gleb: register the DMCA agent | | Waiting on the company's Twilio phone number. $6 at copyright.gov as Zaisma LLC, agent email dmca@zaisma.com; then the agent details go on zaisma.com/dmca; renews every 3 years. Guide: [Safety sign-ups for Gleb](https://claude.ai/artifact/8hCVQPJaRzBcMgLiY3xNNU). |
 | done | Nice | | Julius: send PhotoDNA the LLC's records | Julius: form an LLC | Approved Oct 16, 2026. Sign in to the PhotoDNA Cloud Service console as pdna_account@zaisma.com for the API key and the Edge Hash SDK |
 | planned | Must | | Julius: Supabase Pro | | $25/month, switched on at launch; the free plan pauses |
+| planned | Must | | Julius: own sign-in address | Julius: Supabase Pro | Supabase's custom domain add-on ($10/month) for auth.zaisma.com, its DNS record in Cloudflare, then Google's brand check (free, a few days) so Google shows "Zaisma" and our logo. Before the public beta, not before (Julius, Oct 16, 2026) |
 | planned | Nice | | Julius: Public Suffix List entry | | Needs 2+ years left on the registration and a `_psl` TXT record; the list may turn down projects without players, so apply after launch |
 
 ### Nothing for an AI to guess
@@ -190,7 +191,8 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | done | Must | yes | "Keep your progress" | Cloud saves | Turns a guest into an account after 5 minutes of play with progress, without a reload |
 | done | Must | yes | Save history | Cloud saves | Up to 5 earlier versions per game; players go back from their account or the game menu |
 | done | Must | yes | Passkeys | Sign-in | Face ID or fingerprint to sign back in, checked on our server; the email code stays for new accounts and lost devices |
-| done | Nice | | Google and Discord sign-in | Sign-in, Age question | Through Supabase, with the age question still first for new accounts |
+| done | Nice | yes | Google and Discord sign-in | Sign-in, Age question | Through Supabase, with the age question still first for new accounts |
+| planned | Must | yes | Sign-in on auth.zaisma.com | Google and Discord sign-in, Julius: own sign-in address | Google and Discord send players through auth.zaisma.com instead of a supabase.co address: the site, Google and Discord switched to the new address. Before the public beta |
 | done | Must | yes | Account passes | Sign-in, Player passes | Live Oct 16, 2026 (#159, migration 0036): one player ID per account, the same in every game; signed-in players get passes that are proof only (the ID, the game, when it expires), taken by Zaisma rooms and the Node game server; a public profile lookup by player ID at rooms.zaisma.com/v1/players, in the API, MCP and SDK |
 | done | Must | yes | Accounts-only games | Account passes | Live Oct 16, 2026 (#160, migration 0037): a game setting (account_requirement) for guests welcome, accounts for multiplayer or accounts for the whole game, in the API, MCP and dashboard; guests of such a game get no player passes; the game page says "Needs a Zaisma account" before Play and asks guests to sign in; site copy no longer says every game plays as a guest |
 | planned | Must | | Accounts-only rooms | Accounts-only games | One room takes only accounts, set from the SDK or the game server, on Zaisma rooms and the developer's own server |
@@ -278,7 +280,7 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | planned | Nice | | 10 seed games | At least 5 seed games | The target in `docs/PLAN.md` |
 | planned | Must | | Link-out listings | Ready for outreach | Games hosted elsewhere, credited and linked, marked "Plays on example.com", never embedded. Original games only, checked at listing and re-checked automatically. Added from admin with the developer's OK at first; later developers add and claim their own |
 | planned | Nice | | QR codes | | |
-| planned | Must | | Open the public beta | Connect image matching, Report matches to NCMEC automatically, Gleb: register the DMCA agent, Julius: form an LLC, Julius: alert and DMCA email delivery, Julius: Supabase Pro, At least 5 seed games | And every other must item above. Uploads open to every account. Weekly releases and the weekly game jam start here |
+| planned | Must | | Open the public beta | Connect image matching, Report matches to NCMEC automatically, Gleb: register the DMCA agent, Julius: form an LLC, Julius: alert and DMCA email delivery, Julius: Supabase Pro, Julius: own sign-in address, At least 5 seed games | And every other must item above. Uploads open to every account. Weekly releases and the weekly game jam start here |
 
 ## Phase 2: Earn
 
