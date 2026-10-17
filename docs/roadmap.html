@@ -149,8 +149,8 @@ input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; a
 .outline a.here::before { content: ""; position: absolute; left: 0; top: 4px; bottom: 4px; width: 2px; background: linear-gradient(180deg, var(--chrome), var(--chrome-2)); }
 .outline .none { color: var(--muted); font-size: 13.5px; padding: 0 10px; }
 .side { display: none; }
-/* The list: each group a band with a heavy rule; inside it, each area a plate that opens when you focus it. */
-main { display: grid; gap: 44px; min-width: 0; padding-bottom: 45vh; }
+/* The list: each group a band with a heavy rule; inside it, each area a plate that opens and closes on a click. */
+main { display: grid; gap: 44px; min-width: 0; }
 .group { display: grid; gap: 6px; }
 .group > header { display: grid; gap: 3px; padding-bottom: 10px; margin-bottom: 6px; border-bottom: 2px solid var(--line); position: relative; }
 .group > header::after { content: ""; position: absolute; left: 0; bottom: -2px; width: 56px; height: 2px; background: linear-gradient(90deg, var(--chrome), var(--chrome-2)); }
@@ -587,7 +587,6 @@ function renderMain() {
   }
   if (!query && !shown.length) html += `<div class="plate cut empty">Nothing is in ${esc(view)} yet.</div>`;
   main.innerHTML = html;
-  if (focusId && !document.getElementById(focusId)) focusId = null;
   applyOpen();
 }
 
@@ -602,38 +601,24 @@ function render() {
 const smooth = () => !matchMedia("(prefers-reduced-motion: reduce)").matches;
 let gliding = 0;
 /** A quick eased scroll (250 to 450 ms by distance); the wheel or a finger takes over at once. */
-let jumping = false;        // a jump is under way: areas it passes don't open
 function glide(to) {
   const from = scrollY, dist = to - from;
-  const end = () => { jumping = false; spy(); };
-  if (!smooth() || Math.abs(dist) < 2) { scrollTo(0, to); requestAnimationFrame(end); return; }
+  if (!smooth() || Math.abs(dist) < 2) { scrollTo(0, to); return; }
   const ms = Math.min(450, 250 + Math.abs(dist) / 20), start = performance.now(), run = ++gliding;
-  const step = (now) => { if (run !== gliding) return; const t = Math.min(1, (now - start) / ms); scrollTo(0, from + dist * (1 - Math.pow(1 - t, 3))); if (t < 1) requestAnimationFrame(step); else end(); };
+  const step = (now) => { if (run !== gliding) return; const t = Math.min(1, (now - start) / ms); scrollTo(0, from + dist * (1 - Math.pow(1 - t, 3))); if (t < 1) requestAnimationFrame(step); };
   requestAnimationFrame(step);
 }
-for (const ev of ["wheel", "touchstart", "keydown"]) addEventListener(ev, () => { gliding++; jumping = false; }, { passive: true });
+for (const ev of ["wheel", "touchstart", "keydown"]) addEventListener(ev, () => { gliding++; }, { passive: true });
 
-// ---- One area open at a time: the one you're on. ----
-let focusId = null;         // the open area
-let closedId = null;        // the focused area you closed yourself; it stays closed until you move on
+// ---- Areas start closed and open or close on a click; a search opens every match. ----
+const openAreas = new Set();
 
 function applyOpen() {
   for (const sec of document.querySelectorAll("section.area")) {
-    const open = !!query || (sec.id === focusId && sec.id !== closedId);
+    const open = !!query || openAreas.has(sec.id);
     sec.classList.toggle("open", open);
     sec.querySelector(".ah")?.setAttribute("aria-expanded", String(open));
   }
-}
-
-/** Open this area and close the rest, keeping its header where it is on screen. */
-function setFocus(id) {
-  if (id === focusId) return;
-  if (closedId && closedId !== id) closedId = null;
-  const anchor = id ? document.getElementById(id) : null;
-  const before = anchor?.getBoundingClientRect().top;
-  focusId = id;
-  applyOpen();
-  if (anchor) { const moved = anchor.getBoundingClientRect().top - before; if (Math.abs(moved) > 0.5) scrollTo(0, scrollY + moved); }
 }
 
 function measureBar() {
@@ -652,10 +637,9 @@ function go(id, { flash = true } = {}) {
   }
   if (!el) return;
   const area = slice ? document.getElementById(slice.area.id) : el.closest("section.area");
-  if (area && !query) { closedId = null; focusId = area.id; applyOpen(); }
+  if (area && !query) { openAreas.add(area.id); applyOpen(); }
   if (slice) { openSlices.add(id); el.classList.add("open"); el.querySelector(".row")?.setAttribute("aria-expanded", "true"); }
   const top = el.getBoundingClientRect().top + scrollY - $("#bar").offsetHeight - 10 - (parseFloat(getComputedStyle(document.documentElement).paddingTop) || 0);
-  jumping = true;
   glide(Math.max(0, top));
   if (flash && slice) { el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 1600); }
   history.replaceState(null, "", `#${id}`);
@@ -664,15 +648,8 @@ function go(id, { flash = true } = {}) {
 let lastHere = null;
 function spy() {
   const line = $("#bar").getBoundingClientRect().bottom + 24;
-  const sections = [...document.querySelectorAll("section.area")];
   let here = null;
-  for (const s of sections) if (s.getBoundingClientRect().top <= line) here = s;
-  if (!query && !jumping) {
-    // Scrolling back up, the open area keeps focus until its header is clearly below the line, so it doesn't flicker.
-    const current = focusId ? document.getElementById(focusId) : null;
-    if (current && here !== current && sections.indexOf(here) < sections.indexOf(current) && current.getBoundingClientRect().top - line < 32) here = current;
-    setFocus(here?.id ?? null);
-  } else if (!query && jumping) here = focusId ? document.getElementById(focusId) : here;
+  for (const s of document.querySelectorAll("section.area")) if (s.getBoundingClientRect().top <= line) here = s;
   const id = here?.id ?? null;
   $("#areas-label").textContent = here ? here.dataset.title : view === "Shipped" && !query ? "Shipped" : "Areas";
   if (id === lastHere) return;
@@ -698,8 +675,8 @@ function closeSheet() { $("#sheet").hidden = true; document.body.style.overflow 
 /** Where the page scrolls to so the bar sits at the top with the list right under it. */
 const barTop = () => $(".layout").getBoundingClientRect().top + scrollY - $("#bar").offsetHeight - (parseFloat(getComputedStyle(document.documentElement).paddingTop) || 0) - 12;
 function setView(next) {
-  view = next; query = ""; $("#q").value = ""; focusId = null; closedId = null; remember(); render();
-  const top = barTop(); if (scrollY > top) { jumping = true; glide(top); }
+  view = next; query = ""; $("#q").value = ""; remember(); render();
+  const top = barTop(); if (scrollY > top) glide(top);
 }
 function remember() { try { localStorage.setItem("roadmap-view", view); } catch {} }
 
@@ -715,8 +692,8 @@ document.addEventListener("click", (e) => {
   if (toggle) {
     const id = toggle.dataset.areaToggle;
     if (query) return;
-    if (document.getElementById(id)?.classList.contains("open")) { closedId = id; applyOpen(); }
-    else go(id, { flash: false });
+    openAreas.has(id) ? openAreas.delete(id) : openAreas.add(id);
+    applyOpen(); spy();
     return;
   }
   const fold = t.closest("[data-fold]");
