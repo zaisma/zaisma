@@ -941,9 +941,9 @@ describe("cloud saves", () => {
     const b = new Browser();
     await join(b);
     await put(b, 0, { level: "3" });
-    expect(await (await b.go("/api/saves/owl-game?version")).json()).toEqual({ version_number: 1, changed_by_kind: "player" });
+    expect(await (await b.go("/api/saves/owl-game?version")).json()).toMatchObject({ version_number: 1, changed_by_kind: "player" });
     await changeSaveAsDeveloper(env, users.get("fox@example.com")!, gameId, canonicalSave({ level: "10" }));
-    expect(await (await b.go("/api/saves/owl-game?version")).json()).toEqual({ version_number: 2, changed_by_kind: "developer" });
+    expect(await (await b.go("/api/saves/owl-game?version")).json()).toMatchObject({ version_number: 2, changed_by_kind: "developer" });
     expect(await (await b.go("/api/saves/owl-game")).json()).toMatchObject({ version_number: 2, changed_by_kind: "developer", save_data: { level: "10" } });
     // The open game's next save started from version 1: refused, saying the developer moved it on.
     const stale = await put(b, 1, { level: "4" });
@@ -951,7 +951,7 @@ describe("cloud saves", () => {
     expect(await stale.json()).toMatchObject({ version_number: 2, changed_by_kind: "developer" });
     // Once the game saves from the developer's version, the save is the player's again.
     expect((await put(b, 2, { level: "11" })).status).toBe(200);
-    expect(await (await b.go("/api/saves/owl-game?version")).json()).toEqual({ version_number: 3, changed_by_kind: "player" });
+    expect(await (await b.go("/api/saves/owl-game?version")).json()).toMatchObject({ version_number: 3, changed_by_kind: "player" });
   });
 
   it("stores saves from games that also keep IndexedDB databases", async () => {
@@ -1060,42 +1060,26 @@ describe("cloud saves", () => {
       expect(files.objects).toHaveLength(5);
     });
 
-    it("goes back to an earlier version, and keeps the progress it replaced", async () => {
-      const gameId = await liveGame();
-      const b = new Browser();
-      await join(b);
-      await put(b, 0, { level: "7" });
-      await put(b, 1, { level: "1" });
-      const [copy] = await copies();
-      const page = await (await b.go("/account/saves/owl-game")).text();
-      expect(page).toContain("Earlier versions");
-      expect(page).toContain(`value="${copy!.id}"`);
-      const res = await b.go("/account/saves/owl-game/restore", { id: copy!.id });
-      expect(res.headers.get("location")).toBe("/account/saves/owl-game?restored");
-      const got = (await (await b.go("/api/saves/owl-game")).json()) as { version_number: number; save_data: unknown };
-      expect(got).toMatchObject({ version_number: 3, save_data: { level: "7" } });
-      expect((await copies()).map((c) => c.copy_reason)).toEqual(["restore", "hourly"]);
-      expect(await env.SAVES.get(saveKey(id(), gameId)).then((o) => o?.text())).toBe(canonicalSave({ level: "7" }));
-      expect(await (await b.go("/account/saves/owl-game?restored")).text()).toContain("starts from that progress");
-      // A device still on the old version has to choose instead of overwriting.
-      expect((await put(b, 2, { level: "2" })).status).toBe(409);
-    });
-
-    it("lists saves on the account, only for the player, and refuses other people's copies", async () => {
+    it("has no save screens: no list of saves or copies, and no way back for the player", async () => {
       await liveGame();
       const a = new Browser();
       await join(a);
       await put(a, 0, { level: "1" });
       await put(a, 1, { level: "2" });
-      expect(await (await a.go("/account/saves")).text()).toContain('href="/account/saves/owl-game"');
-      expect(await (await a.go("/account")).text()).toContain('href="/account/saves"');
-      const [copy] = await copies();
-      const other = new Browser();
-      await join(other, "b@example.com", "Player_Two");
-      expect(await (await other.go("/account/saves")).text()).toContain("No saves yet");
-      expect((await other.go("/account/saves/owl-game/restore", { id: copy!.id })).headers.get("location")).toBe("/account/saves/owl-game?failed");
-      expect((await new Browser().go("/account/saves")).headers.get("location")).toBe("/signin?next=%2Faccount%2Fsaves");
-      expect((await a.go("/account/saves/owl-game/restore", { id: copy!.id }, { origin: "https://evil.example" })).status).toBe(403);
+      expect((await a.go("/account/saves")).status).toBe(404);
+      expect((await a.go("/account/saves/owl-game")).status).toBe(404);
+      expect(await (await a.go("/account")).text()).not.toContain("/account/saves");
+    });
+
+    it("tells an open game when the account's save was stored, from the database alone", async () => {
+      await liveGame();
+      const b = new Browser();
+      await join(b);
+      expect(await (await b.go("/api/saves/owl-game?version")).json()).toEqual({ version_number: 0, updated_at: null, changed_by_kind: null });
+      await put(b, 0, { level: "1" });
+      const got = (await (await b.go("/api/saves/owl-game?version")).json()) as { version_number: number; updated_at: string; changed_by_kind: string };
+      expect(got).toMatchObject({ version_number: 1, changed_by_kind: "player" });
+      expect(Date.parse(got.updated_at)).toBeGreaterThan(Date.now() - 60_000);
     });
 
     it("deletes earlier versions with the account", async () => {
@@ -1160,12 +1144,23 @@ describe("cloud saves", () => {
     await liveGame("own-saves", 0);
     const page = await (await SELF.fetch(`${SITE}/g/owl-game`)).text();
     expect(page).toContain("window.startSaves = function");
-    expect(page).toContain('id="save-choice"');
     expect(page).toContain('"api":"/api/saves/owl-game"');
-    expect(page).toContain('<a id="save-history" href="/account/saves/owl-game" hidden>');
+    expect(page).toContain('id="keep-title">Keep your progress');
+    // No save screens: no "which progress?" chooser and no earlier progress in the menu.
+    expect(page).not.toContain("save-choice");
+    expect(page).not.toContain("/account/saves");
     const own = await (await SELF.fetch(`${SITE}/g/own-saves`)).text();
     expect(own).not.toContain("window.startSaves = function");
-    expect(own).not.toContain("save-choice");
+    expect(own).not.toContain('id="keep"');
+  });
+
+  it("a game can turn off the \"Keep your progress\" card and keep cloud saves", async () => {
+    await liveGame();
+    await env.DB.prepare("UPDATE games SET account_offer_enabled = 0 WHERE slug = 'owl-game'").run();
+    const page = await (await SELF.fetch(`${SITE}/g/owl-game`)).text();
+    expect(page).toContain("window.startSaves = function");
+    expect(page).not.toContain('id="keep-title"');
+    expect(page).toContain('id="keep-link"');
   });
 
   it("game pages that need an account say so before Play and ask guests to sign in, back to the same match", async () => {

@@ -31,6 +31,8 @@ export interface Game {
   owner_id: string | null;
   /** 1 when signed-in players' browser saves are copied to their account. */
   cloud_saves_enabled: number;
+  /** 1 when guests with progress get the "Keep your progress" card offering an account. */
+  account_offer_enabled: number;
   /** The developer's choice; separate from review_status, which is ours. */
   visibility: Visibility;
   /** Device labels, comma-separated (see DEVICES, CONTROLS, SCREENS). */
