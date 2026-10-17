@@ -30,6 +30,10 @@ import {
   SNIFF_BYTES,
   approveDraft,
   arachnidShield,
+  eitherMatcher,
+  photoDna,
+  type PhotoDnaPriority,
+  type PhotoDnaService,
   embeddedMedia,
   matroskaHasVideo,
   sniffMedia,
@@ -60,14 +64,40 @@ export interface ScanDeps {
   ai: (apiKey: string, model: string, input: AiInput) => Promise<AiResult>;
 }
 
-/** Arachnid Shield when its key is set; otherwise image matching isn't connected and every game waits for a person. */
-export function imageMatcher(env: Env): ImageMatcher {
-  return env.ARACHNID_SHIELD_KEY ? arachnidShield(env.ARACHNID_SHIELD_KEY, { baseUrl: env.ARACHNID_SHIELD_URL }) : notConnected;
+/**
+ * Arachnid Shield and PhotoDNA, each when its key is set, together: a match on either holds (eitherMatcher).
+ * With neither, image matching isn't connected and every game waits for a person. `priority`: rechecks
+ * of versions that already passed wait behind new uploads for PhotoDNA's requests.
+ */
+export function imageMatcher(env: Env, priority: PhotoDnaPriority = "upload"): ImageMatcher {
+  const matchers: ImageMatcher[] = [];
+  if (env.ARACHNID_SHIELD_KEY) matchers.push(arachnidShield(env.ARACHNID_SHIELD_KEY, { baseUrl: env.ARACHNID_SHIELD_URL }));
+  if (env.PHOTODNA_KEY && env.PHOTODNA) matchers.push(photoDna(photoDnaService(env.PHOTODNA, env.PHOTODNA_KEY), { priority }));
+  return matchers.length ? eitherMatcher(matchers) : notConnected;
 }
 
-export const scanDeps = (env: Env): ScanDeps => ({ images: imageMatcher(env), ai: aiReview });
+/** The photodna Worker as the matcher sees it. Pictures are read whole: PhotoDNA hashes one at a time. */
+function photoDnaService(worker: NonNullable<Env["PHOTODNA"]>, apiKey: string): PhotoDnaService {
+  return {
+    async hash(media) {
+      const body = await media.body();
+      const bytes = body instanceof Uint8Array ? body : new Uint8Array(await new Response(body).arrayBuffer());
+      return worker.hash(bytes);
+    },
+    match: (hashes, priority) => worker.match(apiKey, hashes, priority),
+  };
+}
 
-export async function handleScanBatch(batch: MessageBatch<ScanJob>, env: Env, deps = scanDeps(env)): Promise<void> {
+/** The providers a version still needs matching by: the connected ones its report doesn't name as finished. */
+function connectedProviders(env: Env): string[] {
+  return [...(env.ARACHNID_SHIELD_KEY ? ["arachnid-shield"] : []), ...(env.PHOTODNA_KEY && env.PHOTODNA ? ["photodna"] : [])];
+}
+
+export const scanDeps = (env: Env, priority: PhotoDnaPriority = "upload"): ScanDeps => ({ images: imageMatcher(env, priority), ai: aiReview });
+
+export async function handleScanBatch(batch: MessageBatch<ScanJob>, env: Env, injectedDeps?: ScanDeps): Promise<void> {
+  const deps = injectedDeps ?? scanDeps(env);
+  const recheckDeps = injectedDeps ?? scanDeps(env, "recheck");
   for (const message of batch.messages) {
     const { recheck } = message.body;
     // An image check queued before migration 0034 says `images: true`: never run it as a full scan,
@@ -75,7 +105,7 @@ export async function handleScanBatch(batch: MessageBatch<ScanJob>, env: Env, de
     const isImageRecheck = message.body.isImageRecheck === true || "images" in message.body;
     try {
       if (recheck) await recheckVersion(env, message.body.versionId, recheck.reportId, deps);
-      else if (isImageRecheck) await recheckImages(env, message.body.versionId, deps);
+      else if (isImageRecheck) await recheckImages(env, message.body.versionId, recheckDeps);
       else await scanVersion(env, message.body.versionId, deps);
       message.ack();
     } catch (error) {
@@ -133,7 +163,7 @@ export async function scanVersion(env: Env, versionId: string, deps: ScanDeps = 
 
 /** What to do when image matching finds known abuse material, for the alert and the admin page. */
 export const KNOWN_IMAGE_ALERT =
-  "Image matching (Arachnid Shield) found pictures that match known child sexual abuse material. The version is held and nothing was deleted. Don't open the pictures and don't delete anything: the law requires a report to NCMEC's CyberTipline (report.cybertip.org) as soon as possible, and the files must be kept.";
+  "Image matching (Arachnid Shield or PhotoDNA, named on each finding) found pictures that match known child sexual abuse material. The version is held and nothing was deleted. Don't open the pictures and don't delete anything: the law requires a report to NCMEC's CyberTipline (report.cybertip.org) as soon as possible, and the files must be kept.";
 
 /**
  * Every check on a version's files, deciding but changing nothing: the scan saves and acts on the
@@ -270,11 +300,16 @@ async function readStart(env: Env, key: string, sizeBytes: number): Promise<Uint
   return object ? new Uint8Array(await object.arrayBuffer()) : new Uint8Array();
 }
 
-/** Versions image matching hasn't fully checked yet (they passed before it was connected), queued once a day. */
-export async function queueImageChecks(env: Env, matcher = imageMatcher(env)): Promise<number> {
+/**
+ * Versions image matching hasn't fully checked yet, queued once a day: ones that passed before it was
+ * connected, and ones a connected matcher (like PhotoDNA, added later or down at the time) hasn't finished.
+ */
+export async function queueImageChecks(env: Env, matcher = imageMatcher(env), providers = connectedProviders(env)): Promise<number> {
   if (matcher === notConnected) return 0;
+  const unfinishedBy = providers.map(() => " OR instr(coalesce(json_extract(scan_report, '$.images.provider'), ''), ?) = 0").join("");
   const { results } = await env.DB
-    .prepare("SELECT id FROM versions WHERE scan_status = 'approved' AND (scan_report IS NULL OR json_extract(scan_report, '$.images.is_connected') IS NOT 1) ORDER BY created_at_ms DESC LIMIT 1000")
+    .prepare(`SELECT id FROM versions WHERE scan_status = 'approved' AND (scan_report IS NULL OR json_extract(scan_report, '$.images.is_connected') IS NOT 1${unfinishedBy}) ORDER BY created_at_ms DESC LIMIT 1000`)
+    .bind(...providers)
     .all<{ id: string }>();
   for (let i = 0; i < results.length; i += 100) await env.SCAN_QUEUE.sendBatch(results.slice(i, i + 100).map((version) => ({ body: { versionId: version.id, isImageRecheck: true } })));
   return results.length;
@@ -301,7 +336,8 @@ export async function recheckImages(env: Env, versionId: string, deps: ScanDeps 
   const report = reportOf(version);
   report.images = { provider: matchResult.provider, is_connected: true, checked_media_count: matchResult.checkedMediaCount };
   await env.DB.prepare("UPDATE versions SET scan_report = ? WHERE id = ?").bind(JSON.stringify(report), version.id).run();
-  const loose = [...matchResult.findings, ...(hasTooMuchCode ? [{ stage: "static", severity: "hold", code: "too_much_code", message: "More code than the checks read." } as Finding] : [])];
+  // A matcher that didn't finish (image_matching_later, an info) gets its turn with tomorrow's batch: no alert for it.
+  const loose = [...matchResult.findings.filter((finding) => finding.severity !== "info"), ...(hasTooMuchCode ? [{ stage: "static", severity: "hold", code: "too_much_code", message: "More code than the checks read." } as Finding] : [])];
   await audit(env.DB, game.id, "images-checked", `${version.id}: ${matchResult.checkedMediaCount} pictures and videos matched, no known abuse material${loose.length ? `\nNot fully checked:\n${summarize(loose)}` : ""}`);
   if (loose.length) await sendAlert(env, `${game.slug}: some files couldn't be image-matched`, `Version ${version.id} passed before image matching was connected. It was matched now and nothing known was found, but:\n\n${summarize(loose)}\n\nGame: ${env.SITE_ORIGIN}/admin/games/${game.id}`);
 }

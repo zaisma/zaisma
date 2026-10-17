@@ -13,17 +13,20 @@ export interface MediaForMatching {
 }
 
 export interface ImageMatchResult {
+  /** The matchers that checked everything they could, joined by "+", like "arachnid-shield+photodna". */
   provider: string;
   isConnected: boolean;
   checkedMediaCount: number;
+  /** Pictures and videos this matcher doesn't check (PhotoDNA: videos, and pictures it can't hash). */
+  uncheckedMediaCount?: number;
   findings: Finding[];
 }
 
 /**
  * Known-illegal-image matching (exact and perceptual hashes against lists of known child sexual abuse
- * material). Connected: Arachnid Shield, when its key is set. Planned: PhotoDNA once Microsoft approves
- * us, with Cloudflare's CSAM Scanning Tool as a backstop on served files. Until one is connected, every
- * game is held for manual review. Self-hosters can plug in their own matcher.
+ * material). Connected: Arachnid Shield and PhotoDNA, each when its key is set, through eitherMatcher;
+ * Cloudflare's CSAM Scanning Tool is a backstop on served files. Until one is connected, every game is
+ * held for manual review. Self-hosters can plug in their own matcher.
  */
 export interface ImageMatcher {
   check(media: MediaForMatching[]): Promise<ImageMatchResult>;
@@ -217,6 +220,44 @@ export function arachnidShield(credentials: string, options: { baseUrl?: string;
         findings.push({ stage: "images", severity: "hold", code: "image_matching_failed", message: `Arachnid Shield didn't answer (${halted.why}), so not every picture and video was checked. A person should look, or scan it again later.` });
       }
       return { provider: "arachnid-shield", isConnected: true, checkedMediaCount, findings };
+    },
+  };
+}
+
+/** A matcher that couldn't finish: the service didn't answer or turned down our key (a failure on the whole version, not one file). */
+const isUnfinished = (matchResult: ImageMatchResult) => matchResult.findings.some((finding) => finding.code === "image_matching_failed" && !finding.path);
+
+/**
+ * Several matchers on the same pictures and videos, together: a match on any one holds the version.
+ * A version waits for a person only when every matcher failed. When one fails but another checked
+ * every picture and video (nothing it doesn't check), the failure doesn't hold it: it's noted, the
+ * provider names only the ones that finished, and the daily job matches it again with the rest.
+ */
+export function eitherMatcher(matchers: ImageMatcher[]): ImageMatcher {
+  if (matchers.length === 1) return matchers[0]!;
+  return {
+    async check(media) {
+      const results = await Promise.all(matchers.map((matcher) => matcher.check(media)));
+      const finished = results.filter((matchResult) => !isUnfinished(matchResult));
+      const hasCoverage = finished.some((matchResult) => !matchResult.uncheckedMediaCount);
+      const findings: Finding[] = [];
+      for (const matchResult of results) {
+        if (finished.includes(matchResult) || !hasCoverage) {
+          findings.push(...matchResult.findings);
+          continue;
+        }
+        // Its own matches and per-file failures still count; only "didn't finish" is set aside.
+        findings.push(...matchResult.findings.filter((finding) => !(finding.code === "image_matching_failed" && !finding.path)));
+        const why = matchResult.findings.find((finding) => finding.code === "image_matching_failed" && !finding.path)!.message;
+        findings.push({ stage: "images", severity: "info", code: "image_matching_later", message: `${matchResult.provider} didn't finish, so it matches this version later. ${why}` });
+      }
+      return {
+        provider: finished.map((matchResult) => matchResult.provider).join("+") || results.map((matchResult) => matchResult.provider).join("+"),
+        isConnected: results.some((matchResult) => matchResult.isConnected),
+        checkedMediaCount: Math.max(...results.map((matchResult) => matchResult.checkedMediaCount)),
+        uncheckedMediaCount: Math.min(...results.map((matchResult) => matchResult.uncheckedMediaCount ?? 0)),
+        findings,
+      };
     },
   };
 }

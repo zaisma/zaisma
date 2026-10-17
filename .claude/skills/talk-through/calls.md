@@ -32,6 +32,9 @@ Would his answer be better than Claude's? His edge: UI and UX, how players and d
 **Who can publish before the beta.** *Developer accounts, Oct 16, 2026.* A done item had drifted from a settled rule: anyone who signed in could publish, while the rule kept uploads with Julius until the beta. Who we serve and the legal risk to the LLC are his, so it opened as *One call* with the scenario on each side, and he took the pick (limit) at once. Everything else in the item settled as built with no questions.
 *Lesson:* for a done item, check what's live against the settled decisions; a gap is the call, and the rest passes in a line.
 
+**The service's limits, raised by him.** *Add PhotoDNA to image matching, Oct 16, 2026.* A Quick item; on *Show me more* he brought Microsoft's rate limit (5 a second, 10 million a month) from the console, which Claude hadn't seen. The answer was technical (one shared pacer, falling back like an outage), so it settled in the next click.
+*Lesson:* for an outside service, he may hold facts from its console or contract that aren't in the repo. Show the decisions anyway; when he adds a fact, answer what it changes for players and developers, then decide the mechanism.
+
 ## Not his
 
 **The export format: SQL dump, or JSON and CSV.** *Game database import and export.* "Too technical… just implementation decisions, not system design."
