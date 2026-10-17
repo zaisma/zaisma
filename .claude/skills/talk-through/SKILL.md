@@ -1,22 +1,22 @@
 ---
 name: talk-through
-description: Talk a Zaisma roadmap item through with Julius until it's settled (ready to build). Curated to what he's best at. It researches quietly, checks the item against the direction, decides everything technical itself, and brings him only the calls where his judgment beats Claude's (player and developer experience, pages, business and economics, scope forks that change the product). It goes deep on those and stays silent on the rest, so a technical item settles in one click. Use when Julius wants to discuss, plan or think through an item, when build-next finds an item isn't settled, or when he asks "should we…" about something on the roadmap.
-argument-hint: "[an item's exact name, a place in Now, or nothing to pick from what isn't settled]"
+description: Talk a Zaisma roadmap slice through with Julius until it's settled (ready to build). Curated to what he's best at. It researches quietly, checks the slice against the direction, decides everything technical itself, and brings him only the calls where his judgment beats Claude's (player and developer experience, pages, business and economics, scope forks that change the product). It goes deep on those and stays silent on the rest, so a technical slice settles in one click. Use when Julius wants to discuss, plan or think through a slice, when build-next finds a slice isn't settled, or when he asks "should we…" about something on the roadmap.
+argument-hint: "[a slice's exact name, a place in Now, or nothing to pick from what isn't settled]"
 ---
 
-# Talk an item through
+# Talk a slice through
 
-An item is **settled** when Julius has made the calls that are his and said so. After that it's built, merged and shipped without him, so this talk is where his judgment goes in.
+A slice is **settled** when Julius has made the calls that are his and said so. After that it's built, merged and shipped without him, so this talk is where his judgment goes in.
 
 Claude is Zaisma's only programmer. Julius is the prompter. His edge is UI and UX, how players and developers experience things, business, and economics (he weighs those from an Austrian point of view). Claude decides everything technical, even when it's important. His call on those wouldn't beat Claude's, and he has said so.
 
-**Curated, not concise.** The talk spends his attention only where his call beats yours, and it gives those calls more rigor, not less. Everything else passes him like a breeze. If you asked a UI designer which server to host on, they'd be confused, and their answer would be no better than yours. Briefing them on servers wouldn't help either. Ask the same designer how the server list should look, and they'll make a better call than you, and a good brief makes it better still. So a technical item gets a few lines and one click. A page, an experience, a money question or a direction question gets real depth. A talk that makes him dig for what matters to him has failed, however correct its detail.
+**Curated, not concise.** The talk spends his attention only where his call beats yours, and it gives those calls more rigor, not less. Everything else passes him like a breeze. If you asked a UI designer which server to host on, they'd be confused, and their answer would be no better than yours. Briefing them on servers wouldn't help either. Ask the same designer how the server list should look, and they'll make a better call than you, and a good brief makes it better still. So a technical slice gets a few lines and one click. A page, an experience, a money question or a direction question gets real depth. A talk that makes him dig for what matters to him has failed, however correct its detail.
 
 **The casebook.** [`calls.md`](calls.md), next to this skill, holds real calls that were his, ones that weren't, and why. Read it before sorting the calls, and add to it at the close when the talk taught something new.
 
-The argument is `$ARGUMENTS`: an item's name or place in Now. Empty means list the items in Now that aren't settled (`node scripts/roadmap-item.mjs --now`) and the done ones that aren't (`--unsettled`), and ask which one. Julius often opens with an open question rather than a name. Then find the item it's about, or say it isn't on the roadmap yet.
+The argument is `$ARGUMENTS`: a slice's name or place in Now. Empty means list the slices in Now that aren't settled (`node scripts/roadmap-slice.mjs --now`) and the done ones that aren't (`--unsettled`), and ask which one. Julius often opens with an open question rather than a name. Then find the slice it's about, or say it isn't on the roadmap yet.
 
-Settled is apart from status. A **done** item that isn't settled was built without this talk, and it isn't checked off until he settles it. The talk works the same way, but it's about what's live: whether what was built is what he wants, in his domains.
+Settled is apart from status. A **done** slice that isn't settled was built without this talk, and it isn't checked off until he settles it. The talk works the same way, but it's about what's live: whether what was built is what he wants, in his domains.
 
 Don't build anything during the talk, and don't change a file until the close.
 
@@ -24,13 +24,13 @@ Don't build anything during the talk, and don't change a file until the close.
 
 `git fetch origin`, then gather what you need to make good calls. None of this goes into the message as exposition:
 
-- **The item:** `node scripts/roadmap-item.mjs <name>` for its row, Needs, project goal and "Done when".
-- **How it got here:** `git log --reverse -S "<item name>" --format="%h %ad %s" --date=short -- docs/ROADMAP.md`, that commit's PR, what `docs/DECISIONS.md` and `docs/IDEAS.md` say about it, and `search_session_transcripts` with its name. Items added in a quick pass have been redesigned from scratch once they were talked through.
+- **The slice:** `node scripts/roadmap-slice.mjs <name>` for its row, Needs, area goal and phase goal.
+- **How it got here:** `git log --reverse -S "<slice name>" --format="%h %ad %s" --date=short -- docs/ROADMAP.md`, that commit's PR, what `docs/DECISIONS.md` and `docs/IDEAS.md` say about it, and `search_session_transcripts` with its name. Slices added in a quick pass have been redesigned from scratch once they were talked through.
 - **What's true today:** read the code it builds on. Use facts from the repo, not memory.
 - **What it locks in, what it costs** (in dollars at the scale in `docs/PLAN.md`), and the 13+ rules and the legal side when it touches players, chat, money or content.
 - **Reality:** only Julius and Gleb use Zaisma until the beta. No caution for users who don't exist, and no backwards compatibility before launch.
 
-**Check the direction before anything else.** Test the item's design against "The direction" in `docs/DECISIONS.md` and the casebooks in `docs/principles/`. The design means its row, the decisions behind it and, for a done item, what's live. Look for:
+**Check the direction before anything else.** Test the slice's design against "The direction" in `docs/DECISIONS.md` and the casebooks in `docs/principles/`. The design means its row, the decisions behind it and, for a done slice, what's live. Look for:
 
 - Zaisma deciding a game rule.
 - Zaisma UI drawn over or around a game.
@@ -53,13 +53,13 @@ List every open question, then ask of each one: **would his answer be better tha
 **Yours:** everything else, including weighty technical calls such as storage, formats, protocols, security mechanics, names, numbers, limits, edge cases and small companion rows. Also yours:
 
 - a question that looks like product but where every option serves players fine, so he'd only say "your pick"
-- a settled decision the item doesn't change, so don't re-ask it
+- a settled decision the slice doesn't change, so don't re-ask it
 
 When a technical call changes what players, developers or the business get, ask him only about that effect, in his words ("a CI key would also be able to wipe your database"), never about the mechanism.
 
 ## 3. Pick the tier
 
-By how many calls are his, every item is one of three:
+By how many calls are his, every slice is one of three:
 
 - **Quick:** nothing for him.
 - **One call:** one call is his.
@@ -95,7 +95,7 @@ Each call ends with your pick and why. The message is as long as that depth need
 - **When he asks a technical question,** answer it plainly and briefly, then decide it yourself, unless he says he wants the call.
 - **Hold a position when you have a reason**, and change it when he gives you one. Say which it is. Don't flip just because he questioned it.
 - **Anything with a page:** agree on what it looks like before it's built. This is his strongest area, so give it room.
-- **Keep it to the item.** When he opens a new topic, take it. If it's real work outside the item, put it in `docs/IDEAS.md` at the close or propose its own session.
+- **Keep it to the slice.** When he opens a new topic, take it. If it's real work outside the slice, put it in `docs/IDEAS.md` at the close or propose its own session.
 
 ## 6. Close
 
@@ -109,7 +109,7 @@ Each call ends with your pick and why. The message is as long as that depth need
 
 On his yes, in a worktree:
 
-1. Write the docs and set the item's `Settled` cell to `yes`, and every slice row's when he OK'd the slices.
+1. Write the docs and set the slice's `Settled` cell to `yes`, and every slice row's when he OK'd the slices.
 2. Parked ideas go in `docs/IDEAS.md`.
 3. A close call against a principle goes in its casebook in `docs/principles/`.
 4. Anything the talk taught about which calls are his goes in [`calls.md`](calls.md): a call he waved through, one he caught that you missed, or a tier you got wrong.
@@ -119,23 +119,23 @@ Then:
 - **Under the coordinator:** step 7.
 - **Inside `build-next`:** don't open a separate pull request. The docs go in with the build, in this worktree, and you go back to `build-next` and build. The pull request merges by the settled rule. Its decision lines are the words he said yes to; say so in its description.
 - **On its own** (he wanted to settle it but not build it now): run `npm test` (the roadmap test checks names and the Settled column), then open a pull request for Julius to merge, since it changes settled docs. Tell him in a line that it's ready to build: `/build-next <name>`, or the `/coordinator` picks it up with the rest of Now.
-- **A done item:** if he's happy with it as built, set its `Settled` to `yes`. If he wants changes, each change becomes a new row in the same project, settled, with the done row's name in its Needs, and the done row gets `yes` too. When only `docs/ROADMAP.md` changes, push it straight to main and republish the roadmap page as `CLAUDE.md` says. Otherwise open a pull request for Julius.
+- **A done slice:** if he's happy with it as built, set its `Settled` to `yes`. If he wants changes, each change becomes a new row in the same area, settled, with the done row's name in its Needs, and the done row gets `yes` too. When only `docs/ROADMAP.md` changes, push it straight to main and republish the roadmap page as `CLAUDE.md` says. Otherwise open a pull request for Julius.
 
 ## 7. Under the coordinator
 
 When your brief says you're under the coordinator, the close changes. You never merge, push to main, ship, republish the roadmap page or clean up on your own; the coordinator does all of that. After a talk that started nothing, the coordinator cleans up itself. If you started anything that keeps running (a preview, a server), it asks you to run `/cleanup` once your pull request is merged: run it, stop what you started, then end your turn with one line saying it's clean.
 
-- **On its own or a done item:** always open a pull request, after `npm test`, even when only `docs/ROADMAP.md` changes. Don't ask him to merge it.
+- **On its own or a done slice:** always open a pull request, after `npm test`, even when only `docs/ROADMAP.md` changes. Don't ask him to merge it.
 - **Inside `build-next`:** carry on building; `build-next` ends the session the same way.
 
 **A decision is not a yes.** His answer to your last question, "go with your pick" or "drop them" settles a call, but it doesn't end the talk. After it, write what it settles, open the pull request, and ask. Only his *Yes, we're done* or his words saying so ("we're done", "that's it") end the talk.
 
-Once the pull request is open and nothing is left to talk about, ask one thing with the wrap-up box: **"Are we done?"**, with the buttons *Yes, we're done* and *More to discuss*. For a Quick item, his *Settle it* already said it, so skip the question. *More to discuss* means the talk goes on. On *Yes, we're done* (or his words saying so), push anything left, then end your turn with `wrap_up` and no question. Its recap starts:
+Once the pull request is open and nothing is left to talk about, ask one thing with the wrap-up box: **"Are we done?"**, with the buttons *Yes, we're done* and *More to discuss*. For a Quick slice, his *Settle it* already said it, so skip the question. *More to discuss* means the talk goes on. On *Yes, we're done* (or his words saying so), push anything left, then end your turn with `wrap_up` and no question. Its recap starts:
 
 ```
-Done: <the item's exact name>, talk, PR #<number>.
+Done: <the slice's exact name>, talk, PR #<number>.
 Julius: "<his exact words or click that said you're done>"
 Started: nothing | <what's still running, e.g. a preview on localhost:8900>
 ```
 
-followed by what it settled in one line. That recap is the done report. First send the same report to the coordinator with `SendMessage`, `to` its `local_…` id from your brief (or, if it isn't there, the `parentSessionId` that `get_session` with `"self"` shows). The app doesn't wake the coordinator for a turn Julius drove himself, so without the message he'd have to tell it you're done. Ask nothing after it and don't offer a follow-up. If he sets the item aside without settling it, the report is `Done: <name>, talk, no PR.` with the reason.
+followed by what it settled in one line. That recap is the done report. First send the same report to the coordinator with `SendMessage`, `to` its `local_…` id from your brief (or, if it isn't there, the `parentSessionId` that `get_session` with `"self"` shows). The app doesn't wake the coordinator for a turn Julius drove himself, so without the message he'd have to tell it you're done. Ask nothing after it and don't offer a follow-up. If he sets the slice aside without settling it, the report is `Done: <name>, talk, no PR.` with the reason.
