@@ -143,7 +143,8 @@ Goal: open Zaisma to outside developers and players, with what both expect out o
 | done | Must | yes | Client SDK | Rooms on rooms.zaisma.com | `joinRoom`, invite links, reconnecting |
 | done | Must | yes | Room invite links | Client SDK | Tap a link, land in the match as a guest |
 | done | Must | yes | Game page controls |  | Share, Full screen and a menu (about, Report) beside the game; invites live in the game via `Zaisma.invite` |
-| done | Must | | Two demo games | Room invite links | Real-time arena, turn-based four in a row |
+| done | Must | yes | Two demo games | Room invite links | Real-time arena, turn-based four in a row |
+| planned | Must | yes | Demo games become developer examples | Two demo games, At least 5 seed games | When the seed games land, Arena and Four in a Row go unlisted and the developer page and docs link them as the real-time and turn-based multiplayer examples (Julius, Oct 16, 2026) |
 | done | Must | yes | Room browsing | Room invite links | Live Oct 12, 2026: a Rooms tab on each game's page, "playing now" under the title, and the same list for the game (`Zaisma.rooms.list`, `quickJoin`, `linked`); developers choose where rooms are listed |
 | planned | Must | yes | Rooms tab copy for games that don't join you | Room browsing | "Press Play and the game finds you one" shows only for games that join players automatically |
 | done | Must | yes | Room names and labels | Room browsing | Live Oct 12, 2026: names and up to 4 labels, label filters, Zaisma's text filter on names typed by players, reportable names; `Zaisma.filterText` for games |
