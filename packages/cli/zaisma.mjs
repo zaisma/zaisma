@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-// The Zaisma upload command. No dependencies; Node 18 or newer.
+// The Zaisma upload command. No dependencies; Node 18 or newer (22.13 or newer for .sqlite files).
 // Docs: https://github.com/zaisma/zaisma/blob/main/docs/DEVELOPER-API.md#the-upload-command
 
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { open, readdir, readFile, stat } from "node:fs/promises";
-import { join, relative, sep } from "node:path";
+import { open, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { extname, join, relative, sep } from "node:path";
 
 const API = (process.env.ZAISMA_API || "https://zaisma.com").replace(/\/+$/, "");
 const KEY = process.env.ZAISMA_KEY || "";
@@ -15,6 +15,10 @@ const JUNK = new Set([".DS_Store", "Thumbs.db", "desktop.ini", "__MACOSX", ".git
 /** How long upload waits for the scan (200 checks, 3 seconds apart) before it says it's still scanning. ZAISMA_SCAN_CHECK_INTERVAL_MS is for tests. */
 const SCAN_CHECK_INTERVAL_MS = Number(process.env.ZAISMA_SCAN_CHECK_INTERVAL_MS) || 3000;
 const SCAN_CHECK_COUNT = 200;
+/** The most SQL database import sends at once (a single bigger statement goes on its own; the API takes up to 5 MB). ZAISMA_DUMP_PART_SIZE_BYTES is for tests. */
+const DUMP_PART_SIZE_BYTES = Number(process.env.ZAISMA_DUMP_PART_SIZE_BYTES) || 4 * 1024 * 1024;
+/** Files database export and import read and write as SQLite databases; any other name is SQL text. */
+const SQLITE_EXTENSIONS = [".sqlite", ".sqlite3", ".db"];
 
 /** The choices the API takes, checked before anything is sent (test/node/cli.test.ts holds them to the API's lists). */
 const VISIBILITIES = ["listed", "unlisted", "private", "draft"];
@@ -41,7 +45,10 @@ const COMMAND_ERROR_CODES = {
   missing_value: "A flag that takes a value was given none.",
   takes_no_value: "A flag that takes no value was given one.",
   not_a_folder: "The folder to upload isn't a folder.",
-  not_a_file: "The file given (of statements, or a save) can't be read.",
+  not_a_file: "The file given (of statements, a dump to import, or a save) can't be read.",
+  file_exists: "database export won't write over a file that's already there.",
+  needs_newer_node: "Reading or writing a .sqlite file needs Node 22.13 or newer.",
+  not_a_database: "The .sqlite file to import isn't a SQLite database.",
   server_unreachable: "Zaisma couldn't be reached: no connection, or a wrong ZAISMA_API.",
   unexpected_answer: "Zaisma answered without JSON, like a page from a network in between.",
 };
@@ -119,6 +126,16 @@ const COMMANDS = {
     arguments: [{ name: "slug" }, { name: "file", isOptional: true }],
     flags: {},
   },
+  "database export": {
+    about: "Save a game's whole database: as SQLite's SQL dump (a .sql file, or printed), or as a ready .sqlite file, like the one the Node runner uses",
+    arguments: [{ name: "slug" }, { name: "file", isOptional: true }],
+    flags: {},
+  },
+  "database import": {
+    about: "Add a SQL dump (a .sql file, or piped in) or a .sqlite file to a game's database, live, in parts of up to 4 MB: each part all or nothing",
+    arguments: [{ name: "slug" }, { name: "file", isOptional: true }],
+    flags: {},
+  },
   saves: {
     about: "The players with a cloud save in a game, by player ID, 100 a page",
     arguments: [{ name: "slug" }],
@@ -142,7 +159,7 @@ const COMMANDS = {
   help: { about: "This help; with --json, every command, flag, exit code and error code", arguments: [], flags: {} },
 };
 /** Commands with a second word, like zaisma forum post. */
-const SUBCOMMANDS = { forum: ["post", "message", "reply"], database: ["query", "batch"], saves: ["get", "change", "replace", "reset", "copies", "copy", "restore"] };
+const SUBCOMMANDS = { forum: ["post", "message", "reply"], database: ["query", "batch", "export", "import"], saves: ["get", "change", "replace", "reset", "copies", "copy", "restore"] };
 /** Flags every command takes. */
 const GLOBAL_FLAGS = {
   json: { hasValue: false, about: "Print the API's answer as JSON, as-is (on failure its { error }), and nothing else" },
@@ -568,8 +585,10 @@ async function readInput() {
   return Buffer.concat(chunks).toString("utf8").trim();
 }
 
-/** A game's own database (GET and POST /games/<slug>/database…), as the MCP's get_database, query_database and batch_database. */
+/** A game's own database (GET and POST /games/<slug>/database…), as the MCP's get_database, query_database, batch_database, export_database and import_database. */
 async function database(command, values, flags) {
+  if (command === "database export") return exportDatabase(values);
+  if (command === "database import") return importDatabase(values);
   if (command === "database") {
     const answer = await api("GET", `/games/${values.slug}/database`);
     if (isJson) return printJson(answer);
@@ -613,6 +632,210 @@ async function database(command, values, flags) {
     console.log(`Statement ${i + 1}:`);
     printRows(statementResult);
   });
+}
+
+const isSqliteFile = (file) => SQLITE_EXTENSIONS.includes(extname(file).toLowerCase());
+
+/** Node's own SQLite (node:sqlite), loaded only for .sqlite files. */
+async function nodeSqlite(file) {
+  try {
+    return await import("node:sqlite");
+  } catch {
+    refuse("needs_newer_node", { message: `Reading or writing ${file} needs Node's SQLite, which this Node (${process.version}) doesn't have.`, field: "file", fix: "Use Node 22.13 or newer, or give a .sql file to save or load SQL text instead." }, EXIT_CODES.failed);
+  }
+}
+
+/** database export: every part of the dump (GET …/database/export), into a .sqlite file, a .sql file or stdout. */
+async function exportDatabase({ slug, file }) {
+  if (file && (await stat(file).catch(() => null))) refuse("file_exists", { message: `${file} is already there.`, field: "file", fix: "Give a new file name, or delete that file first." });
+  const temporaryFile = file ? `${file}.${process.pid}.partial` : null;
+  let sqlite = null;
+  if (file && isSqliteFile(file)) {
+    const { DatabaseSync } = await nodeSqlite(file);
+    sqlite = new DatabaseSync(temporaryFile);
+  }
+  const dumpParts = [];
+  let partCount = 0;
+  let readRowCount = 0;
+  try {
+    let cursor = null;
+    do {
+      const part = await api("GET", `/games/${slug}/database/export${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`);
+      partCount++;
+      readRowCount += part.read_row_count;
+      // A .sqlite file loads each part as it comes: the dump's own BEGIN and COMMIT make it one transaction.
+      if (sqlite) sqlite.exec(part.dump_sql);
+      else dumpParts.push(part.dump_sql);
+      cursor = part.next_cursor;
+      if (cursor && file) showProgress(`${partCount} parts saved`);
+    } while (cursor);
+    if (sqlite) sqlite.close();
+    else if (file) await writeFile(temporaryFile, dumpParts.join(""));
+    if (file) await rename(temporaryFile, file);
+  } catch (error) {
+    try {
+      sqlite?.close();
+    } catch {}
+    if (temporaryFile) await rm(temporaryFile, { force: true });
+    throw error;
+  }
+  if (partCount > 1 && file && !isJson) process.stdout.write("\n");
+  if (isJson) return printJson({ dump_sql: file ? null : dumpParts.join(""), file: file ?? null, part_count: partCount, read_row_count: readRowCount });
+  if (!file) return process.stdout.write(dumpParts.join(""));
+  console.log(`Saved ${slug}'s database to ${file} (${partCount} part${partCount === 1 ? "" : "s"}, ${readRowCount.toLocaleString("en-US")} rows read).${sqlite ? ` Run your game server on it with: node bin/node.js <server> --game ${slug} --database ${file}` : ""}`);
+}
+
+/** database import: a dump, from a .sql file, stdin or a .sqlite file, sent in parts (POST …/database/import). */
+async function importDatabase({ slug, file }) {
+  let statements;
+  if (file && isSqliteFile(file)) {
+    if (!(await stat(file).catch(() => null))?.isFile()) refuse("not_a_file", { message: `Couldn't read ${file}.`, field: "file", fix: "Give the path of a .sqlite file, a .sql dump, or pipe the dump in." });
+    const { DatabaseSync } = await nodeSqlite(file);
+    let sqlite;
+    try {
+      sqlite = new DatabaseSync(file, { readOnly: true });
+      sqlite.prepare("SELECT count(*) FROM sqlite_schema").get();
+    } catch (error) {
+      refuse("not_a_database", { message: `${file} isn't a SQLite database: ${error.message}.`, field: "file", fix: "Give a SQLite database file, like the Node runner's zaisma-database.sqlite, or a .sql dump." }, EXIT_CODES.failed);
+    }
+    statements = sqliteDumpStatements(sqlite);
+  } else {
+    const text = file ? await readFile(file, "utf8").catch(() => refuse("not_a_file", { message: `Couldn't read ${file}.`, field: "file", fix: "Give the path of a .sql dump or a .sqlite file, or pipe the dump in." })) : await readInput();
+    if (!text.trim()) refuse("missing_field", { message: "zaisma database import needs a dump.", field: "file", fix: `Give a .sql or .sqlite file, or pipe the dump in. Run it as: ${usage("database import")}` });
+    statements = splitDump(text);
+  }
+  const totals = { part_count: 0, statement_count: 0, skipped_statement_count: 0, read_row_count: 0, written_row_count: 0 };
+  const send = async (dumpSql) => {
+    let answer;
+    try {
+      answer = await api("POST", `/games/${slug}/database/import`, { dump_sql: dumpSql });
+    } catch (error) {
+      if (error instanceof CommandError && totals.part_count) {
+        error.error.message = `${error.error.message} (Part ${totals.part_count + 1} was undone; the ${totals.part_count} before it, ${totals.statement_count} statements, went in.)`;
+      }
+      throw error;
+    }
+    totals.part_count++;
+    for (const key of ["statement_count", "skipped_statement_count", "read_row_count", "written_row_count"]) totals[key] += answer[key];
+    showProgress(`${totals.part_count} part${totals.part_count === 1 ? "" : "s"} in`);
+  };
+  let part = "";
+  let partSizeBytes = 0;
+  for (const statement of statements) {
+    const statementSizeBytes = Buffer.byteLength(statement);
+    if (part && partSizeBytes + statementSizeBytes > DUMP_PART_SIZE_BYTES) {
+      await send(part);
+      part = "";
+      partSizeBytes = 0;
+    }
+    part += statement;
+    partSizeBytes += statementSizeBytes;
+  }
+  if (part.trim()) await send(part);
+  if (!isJson) process.stdout.write(totals.part_count ? "\n" : "");
+  if (isJson) return printJson(totals);
+  console.log(`Imported into ${slug}'s database: ${totals.statement_count - totals.skipped_statement_count} statements in ${totals.part_count} part${totals.part_count === 1 ? "" : "s"}, ${totals.written_row_count.toLocaleString("en-US")} rows written.`);
+}
+
+/**
+ * A SQL dump cut into its statements, each with the ; that ends it, reading past quotes and comments and
+ * through a trigger's BEGIN … END, the same way Zaisma reads one (scanStatements in packages/game-server/src/database.ts).
+ */
+function splitDump(text) {
+  const pieces = [];
+  let pieceStartIndex = 0;
+  let leadingWords = [];
+  let hasOnlyWords = true;
+  let hasTokens = false;
+  let lastWord = "";
+  let sinceSemicolonTokenCount = 0;
+  // A ; ends a trigger only after an END that comes straight after a ;.
+  const isTriggerBody = () => leadingWords[0] === "CREATE" && (leadingWords[1] === "TRIGGER" || ((leadingWords[1] === "TEMP" || leadingWords[1] === "TEMPORARY") && leadingWords[2] === "TRIGGER")) && !(lastWord === "END" && sinceSemicolonTokenCount === 1);
+  const token = (word) => {
+    hasTokens = true;
+    if (word === null) hasOnlyWords = false;
+    else if (hasOnlyWords && leadingWords.length < 6) leadingWords.push(word);
+    lastWord = word ?? "";
+    sinceSemicolonTokenCount++;
+  };
+  let i = 0;
+  while (i < text.length) {
+    const character = text[i];
+    if (character === "-" && text[i + 1] === "-") {
+      const endIndex = text.indexOf("\n", i);
+      i = endIndex === -1 ? text.length : endIndex + 1;
+    } else if (character === "/" && text[i + 1] === "*") {
+      const endIndex = text.indexOf("*/", i + 2);
+      i = endIndex === -1 ? text.length : endIndex + 2;
+    } else if (character === "'" || character === '"' || character === "`" || character === "[") {
+      const close = character === "[" ? "]" : character;
+      let endIndex = i + 1;
+      while (endIndex < text.length && !(text[endIndex] === close && text[endIndex + 1] !== close)) endIndex += text[endIndex] === close ? 2 : 1;
+      token(null);
+      i = endIndex + 1;
+    } else if (character === ";") {
+      if (hasTokens && !isTriggerBody()) {
+        pieces.push(text.slice(pieceStartIndex, i + 1));
+        pieceStartIndex = i + 1;
+        leadingWords = [];
+        hasOnlyWords = true;
+        hasTokens = false;
+      } else if (hasTokens) token(null);
+      lastWord = "";
+      sinceSemicolonTokenCount = 0;
+      i++;
+    } else if (/\s/.test(character)) {
+      i++;
+    } else if (/[A-Za-z0-9_$]/.test(character)) {
+      let endIndex = i + 1;
+      while (endIndex < text.length && /[A-Za-z0-9_$]/.test(text[endIndex])) endIndex++;
+      token(text.slice(i, endIndex).toUpperCase());
+      i = endIndex;
+    } else {
+      token(null);
+      i++;
+    }
+  }
+  // What's after the last ; goes with it: a last statement without one, or the line break that ends the file.
+  const rest = text.slice(pieceStartIndex);
+  if (rest.trim() || !pieces.length) pieces.push(rest);
+  else pieces[pieces.length - 1] += rest;
+  return pieces;
+}
+
+const quoteName = (name) => `"${name.replaceAll('"', '""')}"`;
+
+/**
+ * A .sqlite file's dump, statement by statement: the same SQL Zaisma's export writes (dumpPart in
+ * packages/game-server/src/dump.ts), read in one go. test/node/dump.test.ts holds the two to each other.
+ */
+function* sqliteDumpStatements(sqlite) {
+  const entries = sqlite
+    .prepare(
+      "SELECT entry.type AS type, entry.name AS name, entry.tbl_name AS table_name, entry.sql AS sql, listed.type AS table_kind, listed.wr AS is_without_rowid " +
+        "FROM sqlite_schema AS entry LEFT JOIN pragma_table_list AS listed ON listed.schema = 'main' AND listed.name = entry.name " +
+        "WHERE entry.sql IS NOT NULL AND substr(entry.tbl_name, 1, 4) <> '_cf_' ORDER BY entry.rowid",
+    )
+    .all();
+  yield "PRAGMA foreign_keys=OFF;\nBEGIN TRANSACTION;\n";
+  for (const table of entries.filter((entry) => entry.type === "table" && (entry.table_kind === "table" || entry.table_kind === "virtual") && !entry.name.startsWith("sqlite_"))) {
+    yield `${table.sql};\n`;
+    const columns = sqlite.prepare("SELECT name, hidden = 0 AS is_insertable, pk AS primary_key_number FROM pragma_table_xinfo(?) ORDER BY cid").all(table.name);
+    const insertedColumns = columns.filter((column) => column.is_insertable === 1);
+    const insertInto = `INSERT INTO ${quoteName(table.name)}${insertedColumns.length < columns.length ? `(${insertedColumns.map((column) => quoteName(column.name)).join(",")})` : ""} VALUES(`;
+    const valuesSql = insertedColumns.map((column, i) => `quote(${quoteName(column.name)}) AS value_${i}`).join(", ");
+    const primaryKey = columns.filter((column) => column.primary_key_number > 0).sort((first, second) => first.primary_key_number - second.primary_key_number);
+    const order = table.is_without_rowid ? primaryKey.map((column) => quoteName(column.name)).join(", ") : "rowid";
+    for (const row of sqlite.prepare(`SELECT ${valuesSql} FROM ${quoteName(table.name)} ORDER BY ${order}`).iterate()) yield `${insertInto}${insertedColumns.map((_, i) => row[`value_${i}`]).join(",")});\n`;
+  }
+  if (entries.some((entry) => entry.name === "sqlite_sequence")) {
+    yield "DELETE FROM sqlite_sequence;\n";
+    for (const counter of sqlite.prepare("SELECT quote(name) AS name_sql, quote(seq) AS counter_sql FROM sqlite_sequence").all()) yield `INSERT INTO sqlite_sequence VALUES(${counter.name_sql},${counter.counter_sql});\n`;
+  }
+  for (const entry of entries) {
+    if ((entry.type === "view" || entry.type === "index" || entry.type === "trigger") && !entry.table_name.startsWith("sqlite_")) yield `${entry.sql};\n`;
+  }
+  yield "COMMIT;\n";
 }
 
 /** A game's cloud saves (…/games/<slug>/saves…), as the MCP's list_saves, get_save, change_save, replace_save, reset_save, list_save_copies, get_save_copy and restore_save_copy. */

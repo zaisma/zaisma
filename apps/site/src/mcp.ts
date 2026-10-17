@@ -1,7 +1,7 @@
 import { ApiError, CONTROLS, DEVICES, FORUM_CATEGORIES, FORUM_LIMITS, FORUM_REPORT_REASONS, FORUM_SECTIONS, FORUM_TABS, FORUM_TAGS, ACCOUNT_REQUIREMENTS, PLAY_STYLES, POST_SELECTIONS, ROOM_BROWSING, SCREENS, TOPIC_KINDS, TOPIC_STATUSES, VISIBILITIES, WEBHOOK_EVENT_KINDS, WEBHOOK_TIMEOUT_SEC, type IdKind } from "@zaisma/core";
 import { INTERNAL_ERROR, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
-import { DATABASE, GAME, HISTORY, STATEMENT_RESULT, IMAGE, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, REPORTS, SIGN_IN_APP, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes } from "./schemas.ts";
+import { DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, GAME, HISTORY, STATEMENT_RESULT, IMAGE, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, REPORTS, SIGN_IN_APP, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes } from "./schemas.ts";
 
 /**
  * The developer MCP at /mcp: every tool is a call to the developer API, so the MCP, the upload command
@@ -818,10 +818,40 @@ export const TOOLS: Tool[] = [
     run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/database/batch`, pick(toolArguments, ["statements"])),
   },
   {
+    name: "export_database",
+    title: "Export a game's database",
+    description:
+      "The game's whole database as SQLite's own SQL dump (its CREATE TABLEs and INSERTs, as sqlite3's .dump writes them), up to 4 MB a part: call again with next_cursor as cursor until next_cursor is null, and put the parts together in order. The dump loads into any SQLite (sqlite3 game.sqlite < dump.sql, or the Node runner's zaisma-database.sqlite) and back into Zaisma with import_database. Its reads count towards the month's use, but export works past the free reads. It reads table by table, so writes the game makes meanwhile can land between parts: it isn't a snapshot. For a big database, the upload command saves it in one go, even as a ready .sqlite file: npx @zaisma/cli database export <slug> game.sqlite.",
+    inputSchema: object({ slug, cursor: { type: "string", description: "next_cursor from the last part, for the next; leave out to start" } }, ["slug"]),
+    outputSchema: DATABASE_EXPORT,
+    annotations: read,
+    run: (toolArguments, call) => call("GET", `/games/${pathPart(toolArguments.slug)}/database/export${toolArguments.cursor ? `?cursor=${encodeURIComponent(String(toolArguments.cursor))}` : ""}`),
+  },
+  {
+    name: "import_database",
+    title: "Import a SQL dump into a game's database",
+    description:
+      "Load a part of SQLite's SQL dump (what export_database answers, or what sqlite3 game.sqlite .dump writes) into the game's own database, live, in one transaction: the part goes in whole or not at all, while parts already sent stay in. Up to 5 MB a part, each ending on a whole statement (every export part fits). Import only adds: it runs the dump's CREATE and INSERT statements and leaves out the transaction and PRAGMAs around them; a table that already exists stops it, so to replace data, ask the developer, then drop it first with query_database. Writes count like any write and stop at the month's free writes. For a big dump or a .sqlite file, the upload command splits it: npx @zaisma/cli database import <slug> game.sqlite.\n\n" +
+      'Not: { "dump_sql": "UPDATE scores SET best_score = 0" } (import takes CREATE and INSERT; changes go through query_database)\n' +
+      "Not: a part that stops mid-statement (cut parts after a ; that ends a statement, like the export's own parts)",
+    inputSchema: {
+      ...object({ slug, dump_sql: { type: "string", minLength: 1, description: "A part of the dump, up to 5 MB, ending on a whole statement" } }, ["slug", "dump_sql"]),
+      examples: [
+        {
+          slug: "sky-hopper",
+          dump_sql: "CREATE TABLE scores (player_id TEXT PRIMARY KEY, best_score INTEGER NOT NULL);\nINSERT INTO scores VALUES('player_8f3k2m9q1x7c4v6b0n5z',1200);\nINSERT INTO scores VALUES('player_2b7x0q4n1m8k5c3v9z6d',900);\nCREATE INDEX scores_by_best_score ON scores (best_score);",
+        },
+      ],
+    },
+    outputSchema: DATABASE_IMPORT,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/database/import`, pick(toolArguments, ["dump_sql"])),
+  },
+  {
     name: "list_saves",
     title: "List a game's saves",
     description:
-      "The players with a cloud save in the game, by player ID, 100 a page: each save's version, size, when it last changed and who changed it (the player's game, or you), and how many earlier versions it has. Cloud saves are signed-in players' progress, mirrored from the game's own browser saves (localStorage and IndexedDB); guests' stays in their browser. Saves are apart from the game database. For more than 100, pass next_cursor as cursor.",
+      "The players with a cloud save in the game, by player ID, 100 a page: each save's size, when it last changed and who changed it (the player's game, or you), and how many earlier versions it has. Cloud saves are signed-in players' progress, mirrored from the game's own browser saves (localStorage and IndexedDB); guests' stays in their browser. Saves are apart from the game database. For more than 100, pass next_cursor as cursor.",
     inputSchema: object({ slug, cursor: { type: "string", pattern: "^cursor_[a-z0-9]+$", description: "next_cursor from an earlier call: the page after it" } }, ["slug"]),
     outputSchema: SAVE_LIST,
     annotations: read,

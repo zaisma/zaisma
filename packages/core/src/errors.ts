@@ -122,6 +122,7 @@ export const ERROR_CODES = {
   database_read_limit: { httpStatus: 429, meaning: "The game's database has read its free rows this month, so queries wait for the next." },
   database_storage_limit: { httpStatus: 403, meaning: "The statement would grow the game's database past its free storage." },
   database_unavailable: { httpStatus: 503, meaning: "The game's database didn't answer." },
+  dump_too_big: { httpStatus: 413, meaning: "dump_sql is over 5 MB: import a dump in parts, each ending on a whole statement." },
 
   // Cloud saves
   no_save: { httpStatus: 404, meaning: "The player has no save in the game." },

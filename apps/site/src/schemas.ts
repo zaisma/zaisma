@@ -310,6 +310,22 @@ export const DATABASE = object({
   ),
 });
 
+/** One part of a game database's SQL dump. */
+export const DATABASE_EXPORT = object({
+  dump_sql: text("This part of SQLite's SQL dump: CREATE TABLEs and INSERTs, as sqlite3's .dump writes them. The first part starts with PRAGMA foreign_keys=OFF and BEGIN TRANSACTION, the last ends with the views, indexes and triggers and COMMIT; the parts put together in order are one dump."),
+  next_cursor: nullable(text("Pass as cursor for the next part; null on the last one.")),
+  read_row_count: countOf("Rows this part read, towards the month's reads (export works past the free reads)."),
+});
+
+/** What one part of a dump did to a game's database. */
+export const DATABASE_IMPORT = object({
+  statement_count: countOf("Statements in the part."),
+  skipped_statement_count: countOf("Of them, the ones left out: the transaction, PRAGMAs, ANALYZE and sqlite_stat1 rows sqlite3 writes around a dump."),
+  read_row_count: countOf(),
+  written_row_count: countOf("Rows written, counting each index changed, towards the month's free writes."),
+  next_steps: NEXT,
+});
+
 /** A player's report that report triage sorted as a bug: what they wrote, never who they are. */
 /** A player's cloud save in a game, without what it holds. */
 const SAVE_SUMMARY_FIELDS = {

@@ -1,13 +1,16 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { VISIBILITIES } from "../../packages/core/src/developers.ts";
 import { ERROR_CODES } from "../../packages/core/src/errors.ts";
 import { FORUM_CATEGORIES, TOPIC_KINDS } from "../../packages/core/src/forum.ts";
+import { dumpPart, importStatements, scanStatements } from "../../packages/game-server/src/index.ts";
+import { dumpParts, nodeRead, trickyDatabase } from "./dump-fixtures.ts";
 
 /**
  * The upload command's outward side ("Nothing for an AI to guess" in docs/DECISIONS.md): closed
@@ -49,9 +52,9 @@ beforeEach(() => {
 });
 
 /** Runs the command (asynchronously, so the stand-in API can answer) and gives what it printed and its exit code. */
-function zaisma(commandArguments: string[], { key = "zsk_test_key", input = "" } = {}): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+function zaisma(commandArguments: string[], { key = "zsk_test_key", input = "", environment = {} as Record<string, string> } = {}): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [CLI, ...commandArguments], { env: { ...process.env, ZAISMA_API: API, ZAISMA_KEY: key, ZAISMA_SCAN_CHECK_INTERVAL_MS: "1" } });
+    const child = spawn(process.execPath, [CLI, ...commandArguments], { env: { ...process.env, ZAISMA_API: API, ZAISMA_KEY: key, ZAISMA_SCAN_CHECK_INTERVAL_MS: "1", ...environment } });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk) => (stdout += chunk));
@@ -176,7 +179,7 @@ describe("--json", () => {
   });
 
   it("help --json lists every command, and the exit codes and error codes the docs list", async () => {
-    expect(help.commands.map((entry) => entry.command)).toEqual(["games", "new", "upload", "versions", "publish", "unschedule", "visibility", "forum", "forum post", "forum message", "forum reply", "database", "database query", "database batch", "saves", "saves get", "saves change", "saves replace", "saves reset", "saves copies", "saves copy", "saves restore", "help"]);
+    expect(help.commands.map((entry) => entry.command)).toEqual(["games", "new", "upload", "versions", "publish", "unschedule", "visibility", "forum", "forum post", "forum message", "forum reply", "database", "database query", "database batch", "database export", "database import", "saves", "saves get", "saves change", "saves replace", "saves reset", "saves copies", "saves copy", "saves restore", "help"]);
     const docs = readFileSync(join(ROOT, "docs/DEVELOPER-API.md"), "utf8");
     const section = docs.slice(docs.indexOf("\n## The upload command\n"));
     const exitRows = [...section.matchAll(/^\| (\d+) \| `([a-z_]+)` \| (.+) \|$/gm)].map((row) => ({ exit_code: Number(row[1]), name: row[2], meaning: row[3] }));
@@ -227,6 +230,99 @@ describe("database", () => {
     const missing = await zaisma(["database", "batch", "sky-hopper", "/nowhere/fix.json", "--json"]);
     expect(json(missing.stdout).error).toMatchObject({ code: "not_a_file", field: "file" });
     expect(calls).toEqual([]);
+  });
+});
+
+describe("database export and import", () => {
+  /** The stand-in's export: the tricky database's dump, in small parts, by cursor, as Zaisma's would answer. */
+  const answerExport = () => {
+    const database = trickyDatabase();
+    answers["GET /games/sky-hopper/database/export"] = (call) => {
+      const part = dumpPart(nodeRead(database), new URL(`http://x${call.path}`).searchParams.get("cursor"), 150);
+      return { status: 200, body: { dump_sql: part.dumpSql, next_cursor: part.nextCursor, read_row_count: 3 } };
+    };
+    return dumpParts(database).join("");
+  };
+  /** The stand-in's import: keeps each part, checks it reads as whole statements, and answers like Zaisma. */
+  const answerImport = () => {
+    const parts: string[] = [];
+    answers["POST /games/sky-hopper/database/import"] = (call) => {
+      const dumpSql = (call.body as { dump_sql: string }).dump_sql;
+      parts.push(dumpSql);
+      const plan = importStatements(dumpSql);
+      return { status: 200, body: { statement_count: plan.statementCount, skipped_statement_count: plan.skippedStatementCount, read_row_count: 0, written_row_count: plan.statements.length, next_steps: [] } };
+    };
+    return parts;
+  };
+
+  it("saves every part as SQL, printed or in a file, or as a .sqlite file that's the same database", async () => {
+    const whole = answerExport();
+    const printed = await zaisma(["database", "export", "sky-hopper"]);
+    expect(printed.exitCode).toBe(0);
+    expect(printed.stdout).toBe(whole);
+    expect(calls.length).toBeGreaterThan(3);
+    expect(calls[1]!.path).toMatch(/^\/games\/sky-hopper\/database\/export\?cursor=/);
+
+    const folder = mkdtempSync(join(tmpdir(), "zaisma-export-"));
+    const saved = await zaisma(["database", "export", "sky-hopper", join(folder, "game.sql"), "--json"]);
+    expect(json(saved.stdout)).toEqual({ dump_sql: null, file: join(folder, "game.sql"), part_count: calls.length / 2, read_row_count: (calls.length / 2) * 3 });
+    expect(readFileSync(join(folder, "game.sql"), "utf8")).toBe(whole);
+
+    const sqlite = await zaisma(["database", "export", "sky-hopper", join(folder, "game.sqlite")]);
+    expect(sqlite.exitCode).toBe(0);
+    expect(sqlite.stdout).toContain(`--database ${join(folder, "game.sqlite")}`);
+    expect(dumpParts(new DatabaseSync(join(folder, "game.sqlite"))).join("")).toBe(whole);
+    expect(existsSync(join(folder, `game.sqlite.partial`))).toBe(false);
+
+    calls = [];
+    const again = await zaisma(["database", "export", "sky-hopper", join(folder, "game.sqlite"), "--json"]);
+    expect(again.exitCode).toBe(2);
+    expect(json(again.stdout).error).toMatchObject({ code: "file_exists", field: "file" });
+    expect(calls).toEqual([]);
+  });
+
+  it("sends a .sqlite file's dump, the same SQL Zaisma's export writes, in parts of whole statements", async () => {
+    const folder = mkdtempSync(join(tmpdir(), "zaisma-import-"));
+    const source = new DatabaseSync(join(folder, "game.sqlite"));
+    source.exec(dumpParts(trickyDatabase()).join(""));
+    source.close();
+    const parts = answerImport();
+    const result = await zaisma(["database", "import", "sky-hopper", join(folder, "game.sqlite"), "--json"], { environment: { ZAISMA_DUMP_PART_SIZE_BYTES: "200" } });
+    expect(result.exitCode).toBe(0);
+    expect(parts.length).toBeGreaterThan(3);
+    expect(parts.join("")).toBe(dumpParts(trickyDatabase()).join(""));
+    expect(json(result.stdout)).toMatchObject({ part_count: parts.length, skipped_statement_count: 4 });
+  });
+
+  it("cuts a .sql dump or a piped one at whole statements, triggers and quotes included, and says what went in when a part fails", async () => {
+    const whole = dumpParts(trickyDatabase()).join("");
+    const folder = mkdtempSync(join(tmpdir(), "zaisma-import-"));
+    writeFileSync(join(folder, "game.sql"), whole);
+    const parts = answerImport();
+    expect((await zaisma(["database", "import", "sky-hopper", join(folder, "game.sql")], { environment: { ZAISMA_DUMP_PART_SIZE_BYTES: "150" } })).exitCode).toBe(0);
+    expect(parts.join("")).toBe(whole);
+    expect(parts.reduce((sum, part) => sum + scanStatements(part).length, 0)).toBe(scanStatements(whole).length);
+    expect(parts.some((part) => part.includes("CREATE TRIGGER") && part.trimEnd().endsWith("END;"))).toBe(true);
+
+    parts.length = 0;
+    expect((await zaisma(["database", "import", "sky-hopper"], { input: whole })).exitCode).toBe(0);
+    expect(parts).toEqual([whole.trim()]);
+
+    let callCount = 0;
+    answers["POST /games/sky-hopper/database/import"] = () =>
+      ++callCount === 1
+        ? { status: 200, body: { statement_count: 5, skipped_statement_count: 2, read_row_count: 0, written_row_count: 3, next_steps: [] } }
+        : { status: 400, body: { error: { code: "bad_sql", message: "Statement 2 of the dump (CREATE TABLE players …) failed: SQLite: table players already exists.", field: "dump_sql", fix: "Drop it first.", retry_after_sec: null } } };
+    const failed = await zaisma(["database", "import", "sky-hopper", join(folder, "game.sql"), "--json"], { environment: { ZAISMA_DUMP_PART_SIZE_BYTES: "150" } });
+    expect(failed.exitCode).toBe(1);
+    expect(json(failed.stdout).error.message).toContain("(Part 2 was undone; the 1 before it, 5 statements, went in.)");
+
+    const empty = await zaisma(["database", "import", "sky-hopper", "--json"]);
+    expect(json(empty.stdout).error).toMatchObject({ code: "missing_field", field: "file" });
+    const notDatabase = await zaisma(["database", "import", "sky-hopper", join(folder, "game.sql").replace(".sql", ".db"), "--json"]);
+    expect(json(notDatabase.stdout).error).toMatchObject({ code: "not_a_file", field: "file" });
+    writeFileSync(join(folder, "broken.sqlite"), "not a database at all, just text that goes on for a while to fill a page header");
+    expect(json((await zaisma(["database", "import", "sky-hopper", join(folder, "broken.sqlite"), "--json"])).stdout).error).toMatchObject({ code: "not_a_database", field: "file" });
   });
 });
 
