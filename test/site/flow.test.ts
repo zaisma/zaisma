@@ -159,6 +159,8 @@ describe("scan and publish", () => {
   it("connects Arachnid Shield only when its key is set", () => {
     expect(imageMatcher(env)).toBe(notConnected);
     expect(imageMatcher({ ...env, ARACHNID_SHIELD_KEY: "user:pass" })).not.toBe(notConnected);
+    // PhotoDNA needs both its key and the photodna Worker.
+    expect(imageMatcher({ ...env, PHOTODNA_KEY: "key", PHOTODNA: undefined })).toBe(notConnected);
   });
 
   it("holds known abuse images, keeps them from the AI and never lets them be approved", async () => {
@@ -220,6 +222,8 @@ describe("scan and publish", () => {
     expect((await gameBySlug(env.DB, "clean-game"))?.review_status).toBe("live");
     expect(JSON.parse((await versionById(env.DB, clean.versionId))!.scan_report!).images).toMatchObject({ provider: "arachnid-shield", is_connected: true });
     expect(await queueImageChecks(env, shield)).toBe(0);
+    // Once PhotoDNA is connected too, it's queued again for PhotoDNA's check.
+    expect(await queueImageChecks(env, shield, ["arachnid-shield", "photodna"])).toBe(1);
 
     // The matching one comes off at once, keeps its files, and can't be put back.
     const v = (await versionById(env.DB, bad.versionId))!;

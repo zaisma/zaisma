@@ -8,7 +8,7 @@
 //      (tables, columns, indexes, backfills) apply by themselves. When one deletes data (DROP TABLE,
 //      DROP COLUMN, DELETE FROM, TRUNCATE) it needs a terminal, where wrangler asks Julius first;
 //      without one (Claude, a `!` command) it stops before deploying anything;
-//   2. deploys rooms, games and site, in that order;
+//   2. deploys rooms, games, photodna (with PhotoDNA's SDK from Julius's machine) and site, in that order;
 //   3. publishes the command-line tool to npm when its version is new (also a terminal only:
 //      npm asks you to sign in);
 //   4. loads a game page, the MCP, a game's files and the rooms' keys on the live site.
@@ -21,7 +21,8 @@
 //                                             to this script before it merges (never deploys)
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync, closeSync } from "node:fs";
+import { existsSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync, closeSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -30,8 +31,13 @@ const SITE_URL = "https://zaisma.com";
 const CHECK_GAME_SLUG = "arena";
 const CHECK_GAME_URL = `https://${CHECK_GAME_SLUG}.zaismausercontent.com/`;
 const ROOMS_URL = "https://rooms.zaisma.com";
-// Deployed in this order: the site calls rooms and links to games, so they go first.
-const WORKERS = ["rooms", "games", "site"];
+// Deployed in this order: the site calls rooms and photodna and links to games, so they go first.
+const WORKERS = ["rooms", "games", "photodna", "site"];
+// Microsoft's PhotoDNA SDK, on Julius's machine only: its license keeps it out of this public repo and
+// away from AI agents. Ship copies the one file the hasher runs into the ship copy's apps/photodna/container/sdk/
+// (gitignored), after checking it against Microsoft's published SHA-384. Nothing here reads or shows its contents.
+const PHOTODNA_SDK_FOLDER = process.env.PHOTODNA_SDK_FOLDER || join(homedir(), "zaisma-private", "photodna-sdk");
+const PHOTODNA_SDK_SCRIPT = "webassembly/photoDnaEdgeHashS.js";
 // The job in .github/workflows/check.yml that has to pass on the commit before it ships.
 const GITHUB_REPOSITORY = "zaisma/zaisma";
 const GITHUB_CHECK_NAME = "Tests and typecheck";
@@ -286,6 +292,38 @@ const isNewer = (a, b) => {
   return false;
 };
 const isCliNew = npmVersion !== null && isNewer(cliVersion, npmVersion);
+
+/**
+ * Puts the PhotoDNA hasher's SDK file into the ship copy. Answers why it couldn't, or null when it's
+ * in place. Without it the photodna Worker isn't built, so ship stops before deploying anything.
+ */
+function placePhotoDnaSdk() {
+  const zipNames = existsSync(PHOTODNA_SDK_FOLDER) ? readdirSync(PHOTODNA_SDK_FOLDER).filter((name) => /^PhotoDNA\.EdgeHashGeneration-[\d.]+\.zip$/.test(name)).sort() : [];
+  const zipName = zipNames.at(-1);
+  if (!zipName) return `no PhotoDNA.EdgeHashGeneration-<version>.zip in ${PHOTODNA_SDK_FOLDER} (download it from the PhotoDNA console, or set PHOTODNA_SDK_FOLDER)`;
+  const zipPath = join(PHOTODNA_SDK_FOLDER, zipName);
+  const script = spawnSync("unzip", ["-p", zipPath, PHOTODNA_SDK_SCRIPT], { maxBuffer: 256 * 1024 * 1024 });
+  const published = spawnSync("unzip", ["-p", zipPath, `${PHOTODNA_SDK_SCRIPT}-sha384.txt`], { encoding: "utf8" });
+  if (script.status !== 0 || !script.stdout.length) return `${zipName} has no ${PHOTODNA_SDK_SCRIPT}`;
+  const digest = createHash("sha384").update(script.stdout).digest("base64");
+  if (published.status !== 0 || !published.stdout.includes(digest)) return `${PHOTODNA_SDK_SCRIPT} in ${zipName} doesn't match Microsoft's SHA-384 next to it`;
+  const sdkFolder = join(shipCopy, "apps", "photodna", "container", "sdk");
+  mkdirSync(sdkFolder, { recursive: true });
+  writeFileSync(join(sdkFolder, "photoDnaEdgeHashS.js"), script.stdout);
+  return null;
+}
+
+const photoDnaSdkProblem = placePhotoDnaSdk();
+if (photoDnaSdkProblem) finish("FAIL", `${shortSha}: PhotoDNA's SDK: ${photoDnaSdkProblem}; nothing deployed.`, 1);
+
+/** wrangler builds the photodna container with Docker. On Julius's machine that's Colima: started here if it's stopped. */
+function ensureDocker() {
+  if (run("docker", ["info"]).exitCode === 0) return null;
+  if (run("colima", ["start"]).exitCode === 0 && run("docker", ["info"]).exitCode === 0) return null;
+  return "Docker isn't running and colima start didn't start it";
+}
+const dockerProblem = isDryRun ? null : ensureDocker();
+if (dockerProblem) finish("FAIL", `${shortSha}: ${dockerProblem}; nothing deployed.`, 1);
 
 if (isDryRun) {
   const migrationsNote = pendingMigrations.length

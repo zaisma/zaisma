@@ -1,0 +1,11 @@
+{
+  "name": "@zaisma/photodna",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@zaisma/core": "*"
+  }
+}
