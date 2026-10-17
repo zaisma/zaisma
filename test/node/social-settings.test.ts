@@ -13,6 +13,7 @@ import {
   withinAgeLimits,
   type SocialSettings,
 } from "../../packages/core/src/social-settings.ts";
+import { ageBandOn, birthDateText, birthdayToday } from "../../packages/core/src/accounts.ts";
 
 /** Social settings: the presets, the age limits, and migration 0048 moving every account over from its social mode. */
 
@@ -65,6 +66,24 @@ describe("social settings", () => {
     expect(chatBandGroup({ age_band: "18+", who_can_chat: "anyone" })).toBe("18+");
     expect(chatBandGroup({ age_band: "18+", who_can_chat: "friends" })).toBeNull();
     expect(chatBandGroup({ age_band: "13-15", who_can_chat: "anyone" })).toBeNull();
+  });
+});
+
+describe("birthdays", () => {
+  it("reads a kept birth date's band on a day, the same as the age question", () => {
+    expect(birthDateText({ yearNumber: 2011, monthNumber: 3, dayNumber: 9 })).toBe("2011-03-09");
+    expect(ageBandOn("2010-10-17", new Date(Date.UTC(2026, 9, 16)))).toBe("13-15");
+    expect(ageBandOn("2010-10-17", new Date(Date.UTC(2026, 9, 17)))).toBe("16-17");
+    // Born on 29 February: a year older on 1 March when there's no 29th.
+    expect(ageBandOn("2012-02-29", new Date(Date.UTC(2030, 1, 28)))).toBe("16-17");
+    expect(ageBandOn("2012-02-29", new Date(Date.UTC(2030, 2, 1)))).toBe("18+");
+    expect(ageBandOn("2020-01-01", new Date(Date.UTC(2026, 9, 17)))).toBeNull();
+    expect(ageBandOn("not a date", new Date())).toBeNull();
+  });
+
+  it("counts a birthday only once it has come in the last time zone", () => {
+    expect(birthdayToday(Date.UTC(2027, 0, 1, 11, 59)).toISOString().slice(0, 10)).toBe("2026-12-31");
+    expect(birthdayToday(Date.UTC(2027, 0, 1, 12)).toISOString().slice(0, 10)).toBe("2027-01-01");
   });
 });
 

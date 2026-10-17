@@ -11,6 +11,8 @@ export interface Account extends SocialSettings {
   player_id: string;
   name: string;
   age_band: AgeBand;
+  /** The birth date (YYYY-MM-DD), kept only while the account is under 18 so its band moves up on the birthday by itself; null from 18. */
+  birth_date: string | null;
   created_at_ms: number;
   updated_at_ms: number;
 }
@@ -23,8 +25,8 @@ export interface Owner {
 }
 
 /**
- * Whole years between a birth date and today. The birth date is only used here,
- * in the request that asks for it; we keep the band, never the date.
+ * Whole years between a birth date and today. We keep the band, and the date itself only while the
+ * account is under 18 (docs/DECISIONS.md, "13+ at launch").
  */
 export function ageOn(birth: { yearNumber: number; monthNumber: number; dayNumber: number }, today: Date): number | null {
   const { yearNumber, monthNumber, dayNumber } = birth;
@@ -42,6 +44,28 @@ export function ageBand(ageYearCount: number): AgeBand | null {
 }
 
 export const AGE_BANDS: readonly AgeBand[] = ["13-15", "16-17", "18+"];
+
+/** A birth date as accounts keep it: YYYY-MM-DD. */
+export function birthDateText(birth: { yearNumber: number; monthNumber: number; dayNumber: number }): string {
+  return `${String(birth.yearNumber).padStart(4, "0")}-${String(birth.monthNumber).padStart(2, "0")}-${String(birth.dayNumber).padStart(2, "0")}`;
+}
+
+/** The band a kept birth date is in on that day, or null for one that doesn't read (or is under 13). */
+export function ageBandOn(birthDate: string, today: Date): AgeBand | null {
+  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(birthDate);
+  const ageYearCount = parts ? ageOn({ yearNumber: Number(parts[1]), monthNumber: Number(parts[2]), dayNumber: Number(parts[3]) }, today) : null;
+  return ageYearCount === null ? null : ageBand(ageYearCount);
+}
+
+/**
+ * The day it is in the last time zone on Earth (UTC−12), for birthdays: an account moves up a band only
+ * once its birthday has come everywhere, so it's never early wherever the player is.
+ */
+export function birthdayToday(nowMs = Date.now()): Date {
+  return new Date(nowMs - 12 * 3600_000);
+}
+
+const AGE_BAND_ORDER: Record<AgeBand, number> = { "13-15": 0, "16-17": 1, "18+": 2 };
 
 export const isAgeBand = (given: unknown): given is AgeBand => AGE_BANDS.includes(given as AgeBand);
 
@@ -67,8 +91,59 @@ export function checkName(input: string): { name: string } | { error: string } {
 
 const now = () => Date.now();
 
-export async function accountById(database: D1Database, id: string): Promise<Account | null> {
-  return database.prepare("SELECT * FROM accounts WHERE id = ?").bind(id).first<Account>();
+/** An account, with any birthday since it was last read applied first (birthdayChange). */
+export async function accountById(database: D1Database, id: string, nowMs = Date.now()): Promise<Account | null> {
+  const account = await database.prepare("SELECT * FROM accounts WHERE id = ?").bind(id).first<Account>();
+  const change = account && birthdayChange(account, nowMs);
+  if (!account || !change) return account;
+  await birthdayStatement(database, account, change, nowMs).run();
+  return { ...account, ...change, updated_at_ms: nowMs };
+}
+
+/**
+ * What an account's kept birth date changes today, or null for nothing: its band moves up (carrying its
+ * preset over, socialSettingsInNewBand) and from 18 the date is deleted. Bands never move down, and a
+ * date that doesn't read is deleted.
+ */
+function birthdayChange(account: Account, nowMs: number): (Pick<Account, "age_band" | "birth_date"> & SocialSettings) | null {
+  if (!account.birth_date) return null;
+  const band = ageBandOn(account.birth_date, birthdayToday(nowMs));
+  if (!band || account.age_band === "18+") return { age_band: account.age_band, birth_date: null, ...socialSettingsOf(account) };
+  if (AGE_BAND_ORDER[band] <= AGE_BAND_ORDER[account.age_band]) return null;
+  return { age_band: band, birth_date: band === "18+" ? null : account.birth_date, ...socialSettingsInNewBand(account, band) };
+}
+
+/** Writes a birthday's change, unless the account moved meanwhile. */
+function birthdayStatement(database: D1Database, account: Account, change: Pick<Account, "age_band" | "birth_date"> & SocialSettings, nowMs: number): D1PreparedStatement {
+  return database
+    .prepare(`UPDATE accounts SET age_band = ?, birth_date = ?, ${SOCIAL_SETTINGS.map((setting) => `${setting} = ?`).join(", ")}, updated_at_ms = ? WHERE id = ? AND age_band = ?`)
+    .bind(change.age_band, change.birth_date, ...SOCIAL_SETTINGS.map((setting) => change[setting]), nowMs, account.id, account.age_band);
+}
+
+/**
+ * Once a day: every birthday nobody's account was read for since (accountById does it for the rest),
+ * so a teen moves up a band and an 18-year-old's birth date is deleted even while they're away. Answers
+ * how many accounts changed.
+ */
+export async function applyBirthdays(database: D1Database, nowMs = Date.now()): Promise<number> {
+  const today = birthdayToday(nowMs);
+  // Born on or before this day that many years ago: as old as that today, the same as ageOn.
+  const yearsAgo = (yearCount: number) => birthDateText({ yearNumber: today.getUTCFullYear() - yearCount, monthNumber: today.getUTCMonth() + 1, dayNumber: today.getUTCDate() });
+  let changedCount = 0;
+  for (let i = 0; i < 20; i++) {
+    const { results } = await database
+      .prepare("SELECT * FROM accounts WHERE birth_date IS NOT NULL AND ((age_band = '13-15' AND birth_date <= ?) OR (age_band = '16-17' AND birth_date <= ?) OR age_band = '18+') LIMIT 500")
+      .bind(yearsAgo(16), yearsAgo(18))
+      .all<Account>();
+    const statements = results.flatMap((account) => {
+      const change = birthdayChange(account, nowMs);
+      return change ? [birthdayStatement(database, account, change, nowMs)] : [];
+    });
+    if (statements.length) await database.batch(statements);
+    changedCount += statements.length;
+    if (results.length < 500 || statements.length === 0) break;
+  }
+  return changedCount;
 }
 
 /**
@@ -88,30 +163,30 @@ export async function playerProfile(database: D1Database, playerId: string): Pro
 }
 
 /** A new account, on a social mode's preset. A social mode its band can't choose (or none) becomes the band's default. */
-export async function createAccount(database: D1Database, newAccount: { id: string; name: string; ageBand: AgeBand; socialMode?: SocialMode }): Promise<Account> {
+export async function createAccount(database: D1Database, newAccount: { id: string; name: string; ageBand: AgeBand; birthDate?: string | null; socialMode?: SocialMode }): Promise<Account> {
   const socialMode = newAccount.socialMode && socialModesFor(newAccount.ageBand).includes(newAccount.socialMode) ? newAccount.socialMode : defaultSocialMode(newAccount.ageBand);
-  const account: Account = { id: newAccount.id, player_id: newId("player"), name: newAccount.name, age_band: newAccount.ageBand, ...socialModeSettings(socialMode, newAccount.ageBand), created_at_ms: now(), updated_at_ms: now() };
+  // The birth date stays only while under 18 (accountById moves the band up on the birthday).
+  const birthDate = newAccount.ageBand !== "18+" && newAccount.birthDate ? newAccount.birthDate : null;
+  const account: Account = { id: newAccount.id, player_id: newId("player"), name: newAccount.name, age_band: newAccount.ageBand, birth_date: birthDate, ...socialModeSettings(socialMode, newAccount.ageBand), created_at_ms: now(), updated_at_ms: now() };
   await database
-    .prepare(`INSERT INTO accounts (id, player_id, name, age_band, ${SOCIAL_SETTINGS.join(", ")}, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ${SOCIAL_SETTINGS.map(() => "?").join(", ")}, ?, ?) ON CONFLICT (id) DO NOTHING`)
-    .bind(account.id, account.player_id, account.name, account.age_band, ...SOCIAL_SETTINGS.map((setting) => account[setting]), account.created_at_ms, account.updated_at_ms)
+    .prepare(`INSERT INTO accounts (id, player_id, name, age_band, birth_date, ${SOCIAL_SETTINGS.join(", ")}, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ${SOCIAL_SETTINGS.map(() => "?").join(", ")}, ?, ?) ON CONFLICT (id) DO NOTHING`)
+    .bind(account.id, account.player_id, account.name, account.age_band, account.birth_date, ...SOCIAL_SETTINGS.map((setting) => account[setting]), account.created_at_ms, account.updated_at_ms)
     .run();
   return (await accountById(database, newAccount.id)) ?? account;
 }
 
 /**
- * Change an account's name, age band or social settings. Settings past its band's limits are refused
- * (false). The band only ever moves up (the caller checks the birth date), and an account on a preset
- * keeps it there (socialSettingsInNewBand).
+ * Change an account's name or social settings. Settings past its band's limits are refused (false).
+ * Nobody changes their band: it moves up by itself on birthdays (accountById).
  */
-export async function updateAccount(database: D1Database, id: string, change: { name?: string; ageBand?: AgeBand; socialSettings?: SocialSettings }): Promise<boolean> {
+export async function updateAccount(database: D1Database, id: string, change: { name?: string; socialSettings?: SocialSettings }): Promise<boolean> {
   const current = await accountById(database, id);
   if (!current) return false;
-  const band = change.ageBand ?? current.age_band;
-  const settings = change.socialSettings ? pickSocialSettings(change.socialSettings) : change.ageBand ? socialSettingsInNewBand(current, band) : socialSettingsOf(current);
-  if (!isWithinAgeLimits(settings, band)) return false;
+  const settings = change.socialSettings ? pickSocialSettings(change.socialSettings) : socialSettingsOf(current);
+  if (!isWithinAgeLimits(settings, current.age_band)) return false;
   await database
-    .prepare(`UPDATE accounts SET name = ?, age_band = ?, ${SOCIAL_SETTINGS.map((setting) => `${setting} = ?`).join(", ")}, updated_at_ms = ? WHERE id = ?`)
-    .bind(change.name ?? current.name, band, ...SOCIAL_SETTINGS.map((setting) => settings[setting]), now(), id)
+    .prepare(`UPDATE accounts SET name = ?, ${SOCIAL_SETTINGS.map((setting) => `${setting} = ?`).join(", ")}, updated_at_ms = ? WHERE id = ?`)
+    .bind(change.name ?? current.name, ...SOCIAL_SETTINGS.map((setting) => settings[setting]), now(), id)
     .run();
   return true;
 }
