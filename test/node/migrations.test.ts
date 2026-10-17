@@ -195,6 +195,6 @@ describe("migration 0047", () => {
   });
 
   it("keeps usernames unique ignoring case", () => {
-    expect(() => database.exec("INSERT INTO accounts (id, player_id, username, age_band, social_mode, created_at_ms, updated_at_ms) VALUES ('fifth', 'player_fiftheeeeeeeeeeeee', 'NIGHT_OWL', '18+', 'friends_focused', 5, 5)")).toThrow(/UNIQUE/);
+    expect(() => database.exec("INSERT INTO accounts (id, player_id, username, age_band, created_at_ms, updated_at_ms) VALUES ('fifth', 'player_fiftheeeeeeeeeeeee', 'NIGHT_OWL', '18+', 5, 5)")).toThrow(/UNIQUE/);
   });
 });

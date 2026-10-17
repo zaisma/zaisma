@@ -14,6 +14,7 @@ import {
   readFriendInviteCode,
   removeFriend,
   removeFriendInvite,
+  socialSettingsOf,
   type Account,
   type FriendInvite,
 } from "@zaisma/core";
@@ -132,9 +133,10 @@ function daysLeft(invite: FriendInvite): string {
 
 /** What the player's chat setting means for friends, in a line under the list. */
 function chatLine(account: Account): Raw {
-  if (account.social_mode === "solo_focused") return html`<p class="hint">Your chat setting is solo-focused, so you don't chat with anyone in games, friends included. <a href="/account#chat">Change it</a>.</p>`;
-  if (account.social_mode === "friends_focused") return html`<p class="hint">In games that have chat, you chat only with friends. <a href="/account#chat">Chat settings</a>.</p>`;
-  return html`<p class="hint">In games that have chat, you chat with friends and with others who are open and social. <a href="/account#chat">Chat settings</a>.</p>`;
+  const whoCanChat = socialSettingsOf(account).who_can_chat;
+  if (whoCanChat === "nobody") return html`<p class="hint">Nobody can chat with you, so you don't chat with anyone in games, friends included. <a href="/account#social">Change it</a>.</p>`;
+  if (whoCanChat === "friends") return html`<p class="hint">In games that have chat, you chat only with friends. <a href="/account#social">Social settings</a>.</p>`;
+  return html`<p class="hint">In games that have chat, you chat with friends and with others who let anyone chat with them. <a href="/account#social">Social settings</a>.</p>`;
 }
 
 async function friendsPage(env: Env, session: Session, account: Account, query: URLSearchParams, error?: string): Promise<Response> {
