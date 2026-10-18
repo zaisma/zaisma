@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Block Hopper</title>
+<style>body{margin:0;font-family:system-ui,sans-serif;background:#111;color:#eee;display:flex;flex-direction:column;align-items:center}canvas{background:#000;margin-top:12px}button{font:inherit;padding:8px 14px;margin:4px}</style>
+</head>
+<body>
+<h1>Block Hopper</h1>
+<canvas id="game" width="320" height="160"></canvas>
+<p>Tap or press space to jump. Score: <span id="score">0</span></p>
+<script>
+const canvas = document.getElementById("game"), context = canvas.getContext("2d");
+let y = 120, speed = 0, obstacleX = 320, score = 0;
+function jump() { if (y >= 120) speed = -9; }
+addEventListener("keydown", (event) => event.code === "Space" && jump());
+canvas.addEventListener("pointerdown", jump);
+function frame() {
+  speed += 0.5; y = Math.min(120, y + speed); obstacleX -= 3;
+  if (obstacleX < -20) { obstacleX = 320; score++; document.getElementById("score").textContent = score; }
+  context.fillStyle = "#123"; context.fillRect(0, 0, 320, 160);
+  context.fillStyle = "#fc3"; context.fillRect(40, y, 20, 20);
+  context.fillStyle = "#e55"; context.fillRect(obstacleX, 130, 20, 20);
+  requestAnimationFrame(frame);
+}
+frame();
+</script>
+</body>
+</html>

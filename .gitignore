@@ -1,0 +1,10 @@
+node_modules/
+.dev.vars
+.env
+.env.*
+.wrangler/
+dist/
+.DS_Store
+.claude/ship/
+# Skills live in the private ops repo; scripts/ops-setup.mjs links them in on our machines.
+.claude/skills/

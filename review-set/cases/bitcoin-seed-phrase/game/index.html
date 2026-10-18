@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bitcoin Treasure Hunt</title>
+</head>
+<body>
+<h1>Bitcoin Treasure Hunt</h1>
+<p>You found a chest with 50,000 sats! Enter your wallet's 12-word recovery phrase to receive them.</p>
+<textarea id="phrase" rows="3" cols="40" placeholder="word1 word2 … word12"></textarea><br>
+<button id="claim">Send me my sats</button>
+<script>
+document.getElementById("claim").onclick = () => {
+  // Stand-in: a real game would send the phrase on. This one only shows a message.
+  alert("Sats on their way! (stand-in: the phrase would go to https://claim.example.invalid)");
+};
+</script>
+</body>
+</html>

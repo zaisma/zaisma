@@ -1,0 +1,19 @@
+# Copy to .dev.vars for local runs (npm run dev:site).
+SITE_ORIGIN=http://localhost:8787
+GAME_ORIGIN=http://localhost:8788
+GAME_HOST_MODE=path
+GAME_DOMAIN=
+# Lets you use /admin on localhost without Cloudflare Access. Ignored on any other host.
+DEV_ADMIN=1
+# Optional locally: without it, AI review is skipped and games are held for you to approve.
+ANTHROPIC_API_KEY=
+# Image matching (Arachnid Shield, "username:password"). Leave it empty locally: without it games are
+# held for you to approve, and npm run preview brings its own stand-in.
+ARACHNID_SHIELD_KEY=
+# Accounts. SUPABASE_URL is in wrangler.jsonc; with the project's secret key (Supabase answers only that),
+# accounts are on. Leave it empty to turn accounts off. Never commit it.
+SUPABASE_SECRET_KEY=
+# Email codes go to this stand-in instead of real email, as JSON (npm run preview brings its own).
+EMAIL_OUTBOX_URL=
+# Sign in with Zaisma's signing key, one line from: node scripts/sign-in-key.mjs. Empty turns it off.
+SIGN_IN_SIGNING_KEY=

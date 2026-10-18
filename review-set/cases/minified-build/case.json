@@ -1,0 +1,8 @@
+{
+  "title": "Tiny Racer",
+  "description": "A game built with a bundler.",
+  "is_honest": true,
+  "content_rule": null,
+  "protection": "hidden_code",
+  "why": "An ordinary minified build is fine: short names and no whitespace aren't hidden code. Only eval of encoded text or packed code is."
+}

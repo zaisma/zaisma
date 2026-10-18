@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run ship)",
+      "Bash(npm run ship -- --dry)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/fetch-main.sh",
+            "timeout": 30,
+            "statusMessage": "Fetching main"
+          }
+        ]
+      }
+    ]
+  }
+}

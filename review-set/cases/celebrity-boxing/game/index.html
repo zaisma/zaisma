@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Celebrity Boxing Night</title>
+<style>body{margin:0;font-family:system-ui,sans-serif;background:#111;color:#eee;display:flex;flex-direction:column;align-items:center}canvas{background:#000;margin-top:12px}button{font:inherit;padding:8px 14px;margin:4px}</style>
+</head>
+<body>
+<h1>Celebrity Boxing Night</h1>
+<p>Opponent: <span id="name">Mark Zuckerberg</span>. Health: <span id="health">100</span></p>
+<button id="jab">Jab</button><button id="hook">Hook</button>
+<script>
+const opponents = ["Mark Zuckerberg", "Elon Musk", "Jeff Bezos"];
+let opponent = 0, health = 100;
+function hit(damage) {
+  health -= damage;
+  if (health <= 0) { alert(`Knockout! ${opponents[opponent]} is out.`); opponent = (opponent + 1) % opponents.length; health = 100; }
+  document.getElementById("health").textContent = health;
+  document.getElementById("name").textContent = opponents[opponent];
+}
+document.getElementById("jab").onclick = () => hit(7);
+document.getElementById("hook").onclick = () => hit(15);
+</script>
+</body>
+</html>

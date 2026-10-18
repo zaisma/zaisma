@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Slide Puzzle</title>
+<style>body{margin:0;font-family:system-ui,sans-serif;background:#111;color:#eee;display:flex;flex-direction:column;align-items:center}canvas{background:#000;margin-top:12px}button{font:inherit;padding:8px 14px;margin:4px}</style>
+</head>
+<body>
+<h1>Slide Puzzle</h1>
+<div id="board" style="display:grid;grid-template-columns:repeat(3,64px);gap:4px"></div>
+<script>
+let tiles = [1, 2, 3, 4, 5, 6, 7, 8, 0];
+for (let step = 0; step < 100; step++) { const blank = tiles.indexOf(0), moves = [blank - 3, blank + 3, blank - 1, blank + 1].filter((m) => m >= 0 && m < 9 && (Math.abs(m - blank) === 3 || Math.floor(m / 3) === Math.floor(blank / 3))); const pick = moves[Math.floor(Math.random() * moves.length)]; [tiles[blank], tiles[pick]] = [tiles[pick], tiles[blank]]; }
+function draw() {
+  const board = document.getElementById("board"); board.innerHTML = "";
+  tiles.forEach((tile, i) => {
+    const button = document.createElement("button");
+    button.textContent = tile || ""; button.style.height = "64px";
+    button.onclick = () => { const blank = tiles.indexOf(0); if (Math.abs(i - blank) === 3 || (Math.abs(i - blank) === 1 && Math.floor(i / 3) === Math.floor(blank / 3))) { [tiles[i], tiles[blank]] = [tiles[blank], tiles[i]]; draw(); } };
+    board.append(button);
+  });
+}
+draw();
+</script>
+</body>
+</html>

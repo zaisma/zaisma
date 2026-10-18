@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Coin Collector</title>
+<style>body{margin:0;font-family:system-ui,sans-serif;background:#111;color:#eee;display:flex;flex-direction:column;align-items:center}canvas{background:#000;margin-top:12px}button{font:inherit;padding:8px 14px;margin:4px}</style>
+</head>
+<body>
+<h1>The Coin Collector</h1>
+<p id="scene">Grandma keeps coins in jars. One jar holds a printout about Dogecoin that your cousin gave her as a joke.</p>
+<button id="next">Open the next jar</button>
+<script>
+const jars = ["Old pennies from 1943.", "A foreign coin with a ship on it.", "A silver dollar nobody wants to spend."];
+let index = 0;
+document.getElementById("next").onclick = () => { document.getElementById("scene").textContent = jars[index % jars.length]; index++; };
+</script>
+</body>
+</html>

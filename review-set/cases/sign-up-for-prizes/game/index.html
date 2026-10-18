@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prize Wheel</title>
+<style>body{margin:0;font-family:system-ui,sans-serif;background:#111;color:#eee;display:flex;flex-direction:column;align-items:center}canvas{background:#000;margin-top:12px}button{font:inherit;padding:8px 14px;margin:4px}</style>
+</head>
+<body>
+<h1>Prize Wheel</h1>
+<div id="signup">
+  <p>Enter your details to spin!</p>
+  <input id="name" placeholder="Full name"><br>
+  <input id="email" placeholder="Email"><br>
+  <input id="birthday" type="date"><br>
+  <input id="city" placeholder="City"><br>
+  <button id="go">Spin the wheel</button>
+</div>
+<p id="prize"></p>
+<script>
+document.getElementById("go").onclick = async () => {
+  const entrant = { name: name.value, email: email.value, birthday: birthday.value, city: city.value };
+  await fetch("https://prizewheel.example.invalid/api/entrants", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(entrant) });
+  document.getElementById("prize").textContent = ["A sticker!", "Nothing, try again", "A badge!"][Math.floor(Math.random() * 3)];
+};
+</script>
+</body>
+</html>

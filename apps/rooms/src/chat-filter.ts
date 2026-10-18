@@ -1,0 +1,114 @@
+import { CHAT_BLOCK_MESSAGES, CHAT_FILTER_LIMITS, checkChatText, isChatStopped, newId, tidyText, type Account, type ChatFilterReason, type ChatSource } from "@zaisma/core";
+import type { UnclearChatCheck } from "../../site/src/chat-check.ts";
+import type { Env } from "./index.ts";
+
+/**
+ * The chat filter (docs/DECISIONS.md, "The text filter catches what matters and leaves the rest alone"):
+ * the one place its rules are applied to a message, for Zaisma's rooms and for developers' own servers
+ * (POST /v1/chat/check). Every message to or from an under-18 account is checked here before anyone sees
+ * it: the rules first (checkChatText), then the site's AI (CHAT_CHECK) for what they can't tell and for
+ * every message from an adult to a teen. A message that can't be checked is stopped. Between adults the
+ * floor stays out of the way: swearing is only flagged, and the game decides.
+ *
+ * Nothing about the message is kept, except a sexual one from an adult to a teen, kept for the AI's review
+ * (chat_reviews). Contact and personal details sent toward teens are counted, never kept: the fifth in a day
+ * pauses the sender's chat for an hour.
+ */
+
+export interface ChatMessage {
+  gameId: string;
+  text: string;
+  senderPlayerId: string;
+  receiverPlayerIds: string[];
+  /** The sender's last messages, oldest first: up to CHAT_FILTER_LIMITS.recentTextCount from the last recentTextWindowMs. */
+  recentTexts: string[];
+  source: ChatSource;
+}
+
+export interface ChatFilterAnswer {
+  isAllowed: boolean;
+  reason: ChatFilterReason | null;
+  /** The words the sender sees when it's stopped. */
+  message: string | null;
+  hasSwearing: boolean;
+}
+
+type ChatAccount = Pick<Account, "id" | "player_id" | "age_band" | "chat_stopped_reason" | "chat_stopped_until_ms" | "chat_repeat_block_count" | "chat_repeat_window_started_at_ms">;
+
+const allowed = (hasSwearing: boolean): ChatFilterAnswer => ({ isAllowed: true, reason: null, message: null, hasSwearing });
+const stopped = (reason: ChatFilterReason, hasSwearing = false): ChatFilterAnswer => ({ isAllowed: false, reason, message: CHAT_BLOCK_MESSAGES[reason], hasSwearing });
+
+/** One verdict per message for every receiver, so it never tells a game which of them is under 18. */
+export async function filterChatMessage(env: Env, chat: ChatMessage, nowMs = Date.now()): Promise<ChatFilterAnswer> {
+  const text = tidyText(chat.text, CHAT_FILTER_LIMITS.maximumMessageCharacterCount);
+  const recentTexts = chat.recentTexts.slice(-CHAT_FILTER_LIMITS.recentTextCount).map((recentText) => tidyText(recentText, CHAT_FILTER_LIMITS.maximumMessageCharacterCount));
+  const playerIds = [...new Set([chat.senderPlayerId, ...chat.receiverPlayerIds])];
+  const { results } = await env.DB.prepare(
+    "SELECT id, player_id, age_band, chat_stopped_reason, chat_stopped_until_ms, chat_repeat_block_count, chat_repeat_window_started_at_ms FROM accounts WHERE player_id IN (SELECT value FROM json_each(?))",
+  )
+    .bind(JSON.stringify(playerIds))
+    .all<ChatAccount>();
+  const byPlayerId = new Map(results.map((account) => [account.player_id, account]));
+  const sender = byPlayerId.get(chat.senderPlayerId);
+  // Guests have no chat (canChat keeps them out; this is the backstop), and neither does a deleted account.
+  if (!sender || playerIds.some((playerId) => !byPlayerId.has(playerId))) return stopped("chat_paused");
+  if (isChatStopped(sender, nowMs)) return stopped("chat_paused");
+  if (!text) return allowed(false);
+
+  const receivers = chat.receiverPlayerIds.map((playerId) => byPlayerId.get(playerId)!).filter((account) => account.id !== sender.id);
+  const isSenderMinor = sender.age_band !== "18+";
+  const hasMinorReceiver = receivers.some((account) => account.age_band !== "18+");
+  const rules = checkChatText(text, recentTexts);
+  // Between adults the game decides (its switch comes with Text chat in rooms): only swearing is flagged.
+  if (!isSenderMinor && !hasMinorReceiver) return allowed(rules.hasSwearing);
+
+  let reason = rules.verdict === "blocked" ? rules.reason : null;
+  const isAdultToMinor = !isSenderMinor && hasMinorReceiver;
+  if (!reason && (rules.verdict === "unclear" || isAdultToMinor)) {
+    let checked: UnclearChatCheck;
+    try {
+      checked = env.CHAT_CHECK ? await env.CHAT_CHECK.checkUnclear({ text, recentTexts, isAdultToMinor }) : { verdict: "unchecked" };
+    } catch (error) {
+      console.error("chat check unavailable", error);
+      checked = { verdict: "unchecked" };
+    }
+    // Teens' messages that can't be checked are stopped: failing open would let them through just when nobody is watching.
+    if (checked.verdict === "unchecked") return stopped("unchecked", rules.hasSwearing);
+    if (checked.verdict === "blocked") reason = checked.reason;
+  }
+  if (!reason) return allowed(rules.hasSwearing);
+
+  if (hasMinorReceiver && (reason === "contact_details" || reason === "personal_details")) await countRepeatBlock(env, sender, nowMs);
+  if (isAdultToMinor && reason === "sexual") await keepForReview(env, sender, chat, text, recentTexts, nowMs);
+  return stopped(reason, rules.hasSwearing);
+}
+
+/** Counts a block toward a teen, keeping no text: the fifth within a day pauses the sender's chat for an hour. */
+async function countRepeatBlock(env: Env, sender: ChatAccount, nowMs: number): Promise<void> {
+  const isNewWindow = sender.chat_repeat_window_started_at_ms === null || nowMs - sender.chat_repeat_window_started_at_ms > CHAT_FILTER_LIMITS.repeatBlockWindowMs;
+  const blockCount = (isNewWindow ? 0 : sender.chat_repeat_block_count) + 1;
+  if (blockCount >= CHAT_FILTER_LIMITS.repeatBlockCount) {
+    // Only a sender whose chat isn't stopped gets here, so a longer stop (in review, removed) is never shortened.
+    await env.DB.prepare("UPDATE accounts SET chat_repeat_block_count = 0, chat_repeat_window_started_at_ms = NULL, chat_stopped_reason = 'paused_for_repeats', chat_stopped_until_ms = ? WHERE id = ? AND (chat_stopped_reason IS NULL OR chat_stopped_reason = 'paused_for_repeats')")
+      .bind(nowMs + CHAT_FILTER_LIMITS.repeatPauseMs, sender.id)
+      .run();
+    return;
+  }
+  await env.DB.prepare("UPDATE accounts SET chat_repeat_block_count = ?, chat_repeat_window_started_at_ms = ? WHERE id = ?")
+    .bind(blockCount, isNewWindow ? nowMs : sender.chat_repeat_window_started_at_ms, sender.id)
+    .run();
+}
+
+/**
+ * Keeps a sexual message from an adult to a teen for the AI's review (apps/site/src/chat-review.ts) and
+ * pauses the sender's chat until it's done. One from a developer's own server is kept but pauses nothing:
+ * the server could make a message up to frame a player, so only a person acts on it.
+ */
+async function keepForReview(env: Env, sender: ChatAccount, chat: ChatMessage, text: string, recentTexts: string[], nowMs: number): Promise<void> {
+  const keep = env.DB.prepare("INSERT INTO chat_reviews (id, sender_account_id, game_id, source, text, recent_texts_json, created_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(newId("chat_review"), sender.id, chat.gameId, chat.source, text, JSON.stringify(recentTexts), nowMs);
+  if (chat.source === "own_server") {
+    await keep.run();
+    return;
+  }
+  await env.DB.batch([keep, env.DB.prepare("UPDATE accounts SET chat_stopped_reason = 'in_review', chat_stopped_until_ms = NULL WHERE id = ? AND (chat_stopped_reason IS NULL OR chat_stopped_reason = 'paused_for_repeats')").bind(sender.id)]);
+}

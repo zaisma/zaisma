@@ -1,0 +1,8 @@
+{
+  "title": "Find Jake",
+  "description": "Hide and seek, but it's Jake.",
+  "is_honest": false,
+  "content_rule": "real_people",
+  "protection": null,
+  "why": "Gives a private person's home address, phone number and school, so players could find or call him. Names and mockery are fine; details that let players reach someone who didn't make them public aren't."
+}

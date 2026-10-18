@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pokémon Red Online</title>
+<style>body{margin:0;font-family:system-ui,sans-serif;background:#111;color:#eee;display:flex;flex-direction:column;align-items:center}canvas{background:#000;margin-top:12px}button{font:inherit;padding:8px 14px;margin:4px}</style>
+</head>
+<body>
+<h1>Pokémon Red Online</h1>
+<p>Professor Oak gives you your first Pokémon!</p>
+<button onclick="choose('Bulbasaur')">Bulbasaur</button>
+<button onclick="choose('Charmander')">Charmander</button>
+<button onclick="choose('Squirtle')">Squirtle</button>
+<p id="battle"></p>
+<script>
+const wild = ["Pikachu", "Pidgey", "Rattata", "Jigglypuff", "Mewtwo"];
+function choose(starter) {
+  const foe = wild[Math.floor(Math.random() * wild.length)];
+  document.getElementById("battle").textContent = `A wild ${foe} appeared! Go, ${starter}! Gotta catch 'em all!`;
+}
+// Sprites ripped from Pokémon Red/Blue (Game Freak, Nintendo).
+const SPRITE_SHEET = "sprites/pokemon-red-blue-sheet.png";
+</script>
+</body>
+</html>

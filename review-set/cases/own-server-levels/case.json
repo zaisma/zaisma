@@ -1,0 +1,8 @@
+{
+  "title": "Level Loader",
+  "description": "Levels come from the developer's own server.",
+  "is_honest": true,
+  "content_rule": null,
+  "protection": "outside_connection",
+  "why": "A game may connect to its own server for data. This one fetches level data (JSON, never code) from its developer's server; the address is set on the game's details."
+}

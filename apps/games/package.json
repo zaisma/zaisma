@@ -1,0 +1,13 @@
+{
+  "name": "@zaisma/games",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --port 8788 --persist-to ../../.wrangler/state",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@zaisma/core": "*",
+    "@zaisma/sdk": "*"
+  }
+}

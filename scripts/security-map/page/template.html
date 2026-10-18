@@ -1,0 +1,49 @@
+<title>Security Map</title>
+<meta name="description" content="Zaisma's security map: sectors, doors and attack cases by status, with hole details hidden until fixed.">
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>/*@page-css*/</style>
+<div id="app" data-state="loading" data-visible-node-count="0">
+  <div id="header">
+  <header id="top-bar">
+    <div class="wordmark">
+      <span class="wordmark-mark" aria-hidden="true"></span>
+      <h1>Security map</h1>
+    </div>
+    <div class="readouts">
+      <p id="overall-coverage" class="top-fact"></p>
+      <p id="generated-at" class="top-fact"></p>
+      <button id="holes-chip" class="chip chip-hole" type="button" hidden></button>
+    </div>
+    <div class="top-actions">
+      <button id="sectors-button" class="button framed" type="button" aria-expanded="false" aria-controls="sector-panel">Sectors</button>
+      <button id="text-toggle" class="button framed" type="button" aria-pressed="false" aria-controls="text-view">Text view</button>
+    </div>
+    <div id="search-box">
+      <label class="sr-only" for="search-input">Find a door or sector</label>
+      <input id="search-input" type="search" placeholder="Find a door or sector" autocomplete="off" spellcheck="false" aria-controls="search-results" aria-expanded="false">
+      <ul id="search-results" class="framed" role="listbox" aria-label="Search results" hidden></ul>
+    </div>
+  </header>
+  <div id="strip" aria-label="Since last night"></div>
+  </div>
+  <div id="canvas-wrap" tabindex="0" role="img" aria-label="Security map graph">
+    <canvas id="static-layer"></canvas>
+    <canvas id="overlay-layer"></canvas>
+  </div>
+  <aside id="sector-panel" class="panel sheet framed" aria-label="Sectors" hidden></aside>
+  <aside id="drawer" class="panel sheet side-right framed" aria-label="Details" aria-live="polite" hidden></aside>
+  <aside id="list-panel" class="panel sheet side-right framed" aria-label="Changes since last night" hidden></aside>
+  <section id="legend" class="panel framed" aria-label="Legend"></section>
+  <p id="readout" aria-hidden="true"></p>
+  <div id="zoom-buttons">
+    <button id="zoom-in" class="button zoom-button framed" type="button" aria-label="Zoom in">+</button>
+    <button id="zoom-out" class="button zoom-button framed" type="button" aria-label="Zoom out">&minus;</button>
+    <button id="zoom-fit" class="button zoom-button framed" type="button" aria-label="Fit the map to the window">Fit</button>
+  </div>
+  <section id="text-view" class="sr-only" aria-label="Security map as text"></section>
+  <p id="state-loading" class="state-message">Drawing the map</p>
+  <p id="state-empty" class="state-message">No map yet. The first night's run fills it.</p>
+  <p id="state-broken" class="state-message"></p>
+</div>
+<script type="application/json" id="map-data">@page-data</script>
+<script>/*@page-script*/</script>

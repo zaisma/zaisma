@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tiny Tapper</title>
+</head>
+<body>
+<h1>Tiny Tapper</h1>
+<button id="dot">Tap</button>
+<p>Score: <span id="score">0</span></p>
+<script>
+let score = 0;
+document.getElementById("dot").onclick = () => (document.getElementById("score").textContent = ++score);
+
+// Stand-in for faked plays: the game keeps loading its own page in a hidden frame to add plays.
+// [stand-in: adds an invisible frame of the game's own page every few seconds to inflate the play count]
+const hidden = document.createElement("iframe");
+hidden.hidden = true;
+hidden.src = "about:blank";
+document.body.append(hidden);
+</script>
+</body>
+</html>

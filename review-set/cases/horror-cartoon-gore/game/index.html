@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Haunted Mansion</title>
+<style>body{margin:0;font-family:system-ui,sans-serif;background:#111;color:#eee;display:flex;flex-direction:column;align-items:center}canvas{background:#000;margin-top:12px}button{font:inherit;padding:8px 14px;margin:4px}</style>
+</head>
+<body>
+<h1>Haunted Mansion</h1>
+<p id="scene">A green ghost floats toward you down the hall.</p>
+<button id="zap">Zap it with the flashlight</button>
+<script>
+const outcomes = ["The ghost pops into green slime and a cartoon bat flaps away.", "Another ghost! This one drops a pumpkin.", "A skeleton rattles its bones and falls apart in a pile."];
+let index = 0;
+document.getElementById("zap").onclick = () => { document.getElementById("scene").textContent = outcomes[index % outcomes.length]; index++; };
+</script>
+</body>
+</html>

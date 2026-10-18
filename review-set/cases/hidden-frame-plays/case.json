@@ -1,0 +1,8 @@
+{
+  "title": "Tiny Tapper",
+  "description": "Tap the dot.",
+  "is_honest": false,
+  "content_rule": "faked_plays",
+  "protection": null,
+  "why": "Opens the game again in hidden frames over and over to count fake plays: faking plays or players is against the rules."
+}

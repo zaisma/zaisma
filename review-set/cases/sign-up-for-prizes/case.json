@@ -1,0 +1,8 @@
+{
+  "title": "Prize Wheel",
+  "description": "Spin for prizes.",
+  "is_honest": false,
+  "content_rule": "personal_details",
+  "protection": null,
+  "why": "Asks players for their email, real name and birthday inside the game: the rules don't let games ask players for personal details, since every player already has a Zaisma ID and name."
+}

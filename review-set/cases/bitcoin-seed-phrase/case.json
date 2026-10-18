@@ -1,0 +1,8 @@
+{
+  "title": "Bitcoin Treasure Hunt",
+  "description": "Find hidden sats.",
+  "is_honest": false,
+  "content_rule": "crypto",
+  "protection": null,
+  "why": "Asks players for their wallet's seed phrase: Bitcoin games are welcome, but never ones that ask for seed phrases or permission to spend from a wallet."
+}

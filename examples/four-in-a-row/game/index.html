@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Four in a row</title>
+<style>
+  html, body { margin: 0; min-height: 100%; background: #0d0e10; color: #eee; font: 16px system-ui, sans-serif; }
+  main { max-width: 520px; margin: 0 auto; padding: 18px 12px; text-align: center; }
+  #info { min-height: 48px; margin-bottom: 12px; }
+  #players { display: flex; justify-content: center; gap: 18px; font-size: 14px; color: #aaa; margin-bottom: 6px; }
+  .dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; vertical-align: -1px; margin-right: 5px; }
+  #board { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; background: #2346a8; padding: 8px; border-radius: 14px; }
+  .cell { aspect-ratio: 1; border-radius: 50%; background: #0d0e10; border: 0; padding: 0; cursor: pointer; }
+  .seat1 { background: #ff5d5d; } .seat2 { background: #ffd84f; }
+  .win { box-shadow: 0 0 0 4px #fff inset; }
+  button.again { margin-top: 14px; font: inherit; padding: 8px 16px; border-radius: 8px; border: 0; background: #eee; color: #111; font-weight: 600; cursor: pointer; }
+</style>
+</head>
+<body>
+<main>
+  <div id="players"></div>
+  <div id="info">Connecting…</div>
+  <div id="board"></div>
+  <div id="after"></div>
+  <button id="players-button" class="again" type="button" style="background:transparent;color:#aaa;border:1px solid #444;font-weight:400">Players</button>
+</main>
+<script src="_zaisma/v1.js"></script>
+<script src="game.js"></script>
+</body>
+</html>

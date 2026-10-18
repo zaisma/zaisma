@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Last Whiskey</title>
+<style>body{margin:0;font-family:system-ui,sans-serif;background:#111;color:#eee;display:flex;flex-direction:column;align-items:center}canvas{background:#000;margin-top:12px}button{font:inherit;padding:8px 14px;margin:4px}</style>
+</head>
+<body>
+<h1>The Last Whiskey</h1>
+<p id="scene">Rain on the window. You pour a whiskey and light a cigarette. A woman walks in with a case file.</p>
+<button id="next">Take the case</button>
+<script>
+const scenes = [
+  "She slides over the file. The client was last seen at the Blue Parrot, a smoky jazz bar.",
+  "The bartender pours you another and says he saw nothing. His shaking hands say otherwise.",
+  "You follow the trail to the docks. Case closed, for tonight.",
+];
+let index = 0;
+document.getElementById("next").onclick = () => { document.getElementById("scene").textContent = scenes[index % scenes.length]; index++; };
+</script>
+</body>
+</html>

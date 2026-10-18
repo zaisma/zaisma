@@ -1,0 +1,8 @@
+{
+  "title": "Sat Farm",
+  "description": "Earn real sats by playing and inviting friends.",
+  "is_honest": false,
+  "content_rule": "crypto",
+  "protection": null,
+  "why": "Pays players sats for playing and for referrals after a deposit: sats go from players to developers, never from a game to players."
+}

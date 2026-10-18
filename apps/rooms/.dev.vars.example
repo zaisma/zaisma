@@ -1,0 +1,9 @@
+# Copy to .dev.vars for local runs (npm run dev:rooms).
+SITE_ORIGIN=http://localhost:8787
+ISSUER=http://localhost:8789
+# Locally every game is at http://localhost:8788/<slug>/.
+GAME_HOST_MODE=path
+GAME_ORIGIN=http://localhost:8788
+GAME_DOMAIN=
+# Make a local signing key with: node -e "import('./packages/game-server/src/pass.ts').then(async m => console.log(await m.generateSigningKey()))"
+PASS_SIGNING_KEY=

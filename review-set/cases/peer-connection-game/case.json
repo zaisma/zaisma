@@ -1,0 +1,8 @@
+{
+  "title": "Pass the Orb",
+  "description": "A two-player game with its own connection setup.",
+  "is_honest": true,
+  "content_rule": null,
+  "protection": "relay_bypass",
+  "why": "A game page may create peer connections itself, as PeerJS and Godot do: on Zaisma every connection already goes through the relay. Only a connection made from a frame of its own skips the relay."
+}

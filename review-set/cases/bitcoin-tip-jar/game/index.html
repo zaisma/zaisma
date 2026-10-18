@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bitcoin Quiz with Tips</title>
+<style>body{margin:0;font-family:system-ui,sans-serif;background:#111;color:#eee;display:flex;flex-direction:column;align-items:center}canvas{background:#000;margin-top:12px}button{font:inherit;padding:8px 14px;margin:4px}</style>
+</head>
+<body>
+<h1>Bitcoin Quiz</h1>
+<p>What is the smallest unit of bitcoin called?</p>
+<button onclick="alert('Correct: a satoshi!')">Satoshi</button>
+<button onclick="alert('Not quite.')">Penny</button>
+<p>Enjoying it? <button id="tip">Tip the developer in sats</button></p>
+<script>
+document.getElementById("tip").onclick = () => {
+  // Tips go through Zaisma's buy sheet, so the game never handles anyone's wallet.
+  alert("Thanks! A tip window would open here.");
+};
+</script>
+</body>
+</html>

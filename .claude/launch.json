@@ -1,0 +1,75 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "site",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev:site"
+      ],
+      "port": 8787
+    },
+    {
+      "name": "games",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev:games"
+      ],
+      "port": 8788
+    },
+    {
+      "name": "rooms",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev:rooms"
+      ],
+      "port": 8789
+    },
+    {
+      "name": "preview",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "preview"
+      ],
+      "port": 8800
+    },
+    {
+      "name": "preview-fresh",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "preview",
+        "--",
+        "--reset"
+      ],
+      "port": 8800
+    },
+    {
+      "name": "roadmap-page",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8811",
+        "--directory",
+        "docs"
+      ],
+      "port": 8811
+    },
+    {
+      "name": "preview-8900",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "PREVIEW_PORT_OFFSET=100",
+        "npm",
+        "run",
+        "preview"
+      ],
+      "port": 8900
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "name": "zaisma",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "dev:site": "npm run dev -w apps/site",
+    "dev:games": "npm run dev -w apps/games",
+    "db:migrate:local": "npm run db:migrate:local -w apps/site",
+    "dev:rooms": "npm run dev -w apps/rooms",
+    "preview": "node scripts/preview/run.mjs",
+    "preview:start": "node scripts/preview/background.mjs start",
+    "preview:stop": "node scripts/preview/background.mjs stop",
+    "ship": "node scripts/ship.mjs",
+    "review-set": "node scripts/review-set/run.mjs",
+    "naming:baseline": "NAMING_WRITE_BASELINE=1 vitest run --project node test/node/naming.test.ts"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.4.0",
+    "@cloudflare/workers-types": "^5.20261011.1",
+    "@types/ws": "8.18.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.11",
+    "wrangler": "^4.149.0"
+  }
+}

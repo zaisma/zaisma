@@ -1,0 +1,135 @@
+# Tests and typecheck on every pull request and every push to main.
+# Needs no secrets: vitest.config.ts gives the tests every binding they use.
+#
+# The tests run split across six runners at once, with typecheck beside them. "Tests and typecheck",
+# the check the ruleset requires and npm run ship reads, passes only when all of them did.
+# A change to docs/, .claude/, CLAUDE.md or README.md alone changes no code, so it runs only the tests that read
+# those files (the node project) as "Docs tests". The same paths are DOCS_ONLY_PATH in
+# scripts/ship-github-check.mjs.
+# A pull request's run tests its branch exactly as it is, not merged with main: the ruleset makes a
+# branch up to date before it merges, so main's merge commit then has exactly the code that passed,
+# and npm run ship counts that run instead of waiting for the same tests on main.
+name: Check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.ref }}
+  # A newer push replaces a pull request's run; every commit on main keeps its own, for npm run ship.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  changes:
+    name: What changed
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      is_code_changed: ${{ steps.diff.outputs.is_code_changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - id: diff
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          # A pull request: what its branch changed since it left main. A push: what the push changed.
+          RANGE_DOTS: ${{ github.event_name == 'pull_request' && '...' || '..' }}
+        run: |
+          if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+            echo "No earlier commit to compare with: running everything."
+            echo "is_code_changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed_paths="$(git diff --name-only "$BASE_SHA$RANGE_DOTS$HEAD_SHA")"
+          echo "$changed_paths"
+          if [ -n "$changed_paths" ] && ! echo "$changed_paths" | grep -qvE '^(docs/|\.claude/|CLAUDE\.md$|README\.md$)'; then
+            echo "Only docs/, .claude/, CLAUDE.md and README.md changed: running the docs tests."
+            echo "is_code_changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_code_changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  tests:
+    name: Tests (${{ matrix.shard }} of 6)
+    needs: changes
+    if: needs.changes.outputs.is_code_changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      # Every shard finishes, so a failure shows all its failing tests at once.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm test -- --shard=${{ matrix.shard }}/6
+
+  typecheck:
+    name: Typecheck
+    needs: changes
+    if: needs.changes.outputs.is_code_changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+
+  docs-tests:
+    name: Docs tests
+    needs: changes
+    if: needs.changes.outputs.is_code_changed == 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm test -- --project node
+
+  check:
+    name: Tests and typecheck
+    needs: [changes, tests, typecheck, docs-tests]
+    # Also when a job failed, so the required check fails instead of being skipped.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          IS_CODE_CHANGED: ${{ needs.changes.outputs.is_code_changed }}
+          TESTS_RESULT: ${{ needs.tests.result }}
+          TYPECHECK_RESULT: ${{ needs.typecheck.result }}
+          DOCS_TESTS_RESULT: ${{ needs.docs-tests.result }}
+        run: |
+          echo "What changed: $CHANGES_RESULT (code changed: $IS_CODE_CHANGED). Tests: $TESTS_RESULT. Typecheck: $TYPECHECK_RESULT. Docs tests: $DOCS_TESTS_RESULT."
+          if [ "$CHANGES_RESULT" != success ]; then exit 1; fi
+          if [ "$IS_CODE_CHANGED" = true ] && [ "$TESTS_RESULT" = success ] && [ "$TYPECHECK_RESULT" = success ]; then exit 0; fi
+          if [ "$IS_CODE_CHANGED" = false ] && [ "$DOCS_TESTS_RESULT" = success ]; then exit 0; fi
+          exit 1

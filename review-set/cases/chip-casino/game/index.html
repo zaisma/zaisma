@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chip Casino</title>
+<style>body{margin:0;font-family:system-ui,sans-serif;background:#111;color:#eee;display:flex;flex-direction:column;align-items:center}canvas{background:#000;margin-top:12px}button{font:inherit;padding:8px 14px;margin:4px}</style>
+</head>
+<body>
+<h1>Chip Casino</h1>
+<p>Chips: <span id="chips">1000</span> (play chips: free, can't be bought or cashed out)</p>
+<button id="bet">Bet 100 on blackjack</button>
+<p id="result"></p>
+<script>
+let chips = 1000;
+document.getElementById("bet").onclick = () => {
+  if (chips < 100) { chips = 1000; }
+  const player = 12 + Math.floor(Math.random() * 10), dealer = 12 + Math.floor(Math.random() * 10);
+  const won = player <= 21 && (dealer > 21 || player > dealer);
+  chips += won ? 100 : -100;
+  document.getElementById("chips").textContent = chips;
+  document.getElementById("result").textContent = `You ${player}, dealer ${dealer}: ${won ? "you win" : "you lose"}.`;
+};
+</script>
+</body>
+</html>

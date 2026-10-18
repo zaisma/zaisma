@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Taunt Arena</title>
+<style>body{margin:0;font-family:system-ui,sans-serif;background:#111;color:#eee;display:flex;flex-direction:column;align-items:center}canvas{background:#000;margin-top:12px}button{font:inherit;padding:8px 14px;margin:4px}</style>
+</head>
+<body>
+<h1>Taunt Arena</h1>
+<p id="log"></p>
+<button class="taunt">You call that a swing?</button>
+<button class="taunt">Better luck next time.</button>
+<button class="taunt">Is that all you've got?</button>
+<script>
+for (const button of document.querySelectorAll(".taunt")) {
+  button.onclick = () => { document.getElementById("log").textContent = `You: ${button.textContent}`; };
+}
+</script>
+</body>
+</html>

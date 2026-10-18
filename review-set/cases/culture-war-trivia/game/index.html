@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Culture War Trivia</title>
+<style>body{margin:0;font-family:system-ui,sans-serif;background:#111;color:#eee;display:flex;flex-direction:column;align-items:center}canvas{background:#000;margin-top:12px}button{font:inherit;padding:8px 14px;margin:4px}</style>
+</head>
+<body>
+<h1>Culture War Trivia</h1>
+<p>Jokes about everyone, so nobody gets left out.</p>
+<p id="question"></p>
+<div id="options"></div>
+<p>Score: <span id="score">0</span></p>
+<script>
+const questions = [
+  {
+    "question": "How many vegans does it take to change a lightbulb?",
+    "options": [
+      "None, they'll tell you about it instead",
+      "Two",
+      "One, but organic"
+    ],
+    "answer": 0
+  },
+  {
+    "question": "Why do the French never win at hide and seek?",
+    "options": [
+      "They surrender and give away the spot",
+      "Too much wine",
+      "Bad maps"
+    ],
+    "answer": 0
+  },
+  {
+    "question": "What does every political side agree on?",
+    "options": [
+      "The other side is the problem",
+      "Taxes",
+      "Mondays"
+    ],
+    "answer": 0
+  }
+];
+let index = 0, score = 0;
+function show() {
+  const current = questions[index % questions.length];
+  document.getElementById("question").textContent = current.question;
+  const options = document.getElementById("options");
+  options.innerHTML = "";
+  current.options.forEach((option, i) => {
+    const button = document.createElement("button");
+    button.textContent = option;
+    button.onclick = () => { if (i === current.answer) score++; document.getElementById("score").textContent = score; index++; show(); };
+    options.append(button);
+  });
+}
+show();
+</script>
+</body>
+</html>

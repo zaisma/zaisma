@@ -1,0 +1,76 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "zaisma-site",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "routes": [{ "pattern": "zaisma.com", "custom_domain": true }],
+  "workers_dev": false,
+  "observability": { "enabled": true },
+  // Image matching reads and sends every picture and video in a game, up to 5,000 each plus 5,000 sniffs (scan.ts).
+  "limits": { "subrequests": 50000 },
+  // Logos and favicons straight from the brand folder (see brand/.assetsignore).
+  "assets": { "directory": "../../brand" },
+  "vars": {
+    "SITE_ORIGIN": "https://zaisma.com",
+    // Cloudflare Turnstile widget "Zaisma Play check" (invisible). The secret is TURNSTILE_SECRET.
+    "TURNSTILE_SITE_KEY": "0x4AAAAAAFVvWotEFKr9rHTI",
+    // Games live at <slug>.zaismausercontent.com. GAME_ORIGIN is only used in path mode (local dev).
+    "GAME_HOST_MODE": "subdomain",
+    "GAME_ORIGIN": "https://zaismausercontent.com",
+    "GAME_DOMAIN": "zaismausercontent.com",
+    // Cloudflare Access protects /admin. Team domain like "zaisma.cloudflareaccess.com".
+    "ACCESS_TEAM_DOMAIN": "zaisma.cloudflareaccess.com",
+    "ACCESS_AUD": "a7a3f1b67d46e498350d52905587162991eaa3a9e3fead2bdbe7c23cc8382b06",
+    "AI_MODEL": "claude-haiku-5-5",
+    // Monthly cap on report triage's and the forum's AI input tokens (~$0.10 per million).
+    "AI_MONTHLY_INPUT_TOKENS": "20000000",
+    // The game review: readers list evidence from every file and picture, one judge decides (review-readers.ts, review-judge.ts).
+    "REVIEW_READER_MODEL": "claude-haiku-5-5",
+    "REVIEW_JUDGE_MODEL": "claude-sonnet-5-5",
+    // The game review's monthly budget in US cents ($100). Julius hears at 80%; past it, versions wait for a person.
+    "AI_REVIEW_MONTHLY_BUDGET_CENTS": "10000",
+    // Chat's own monthly cap (chat-check.ts): past it, teens' messages the rules can't tell are stopped, never let through.
+    "AI_CHAT_MONTHLY_INPUT_TOKENS": "20000000",
+    // Reviews sexual messages from adults to teens the chat filter stopped (chat-review.ts): rare, so the strongest model.
+    "AI_REVIEW_MODEL": "claude-opus-5-5",
+    "ALERT_FROM": "alerts@zaisma.com",
+    // Players' email codes, through Cloudflare Email Sending (zaisma.com is onboarded to it).
+    "EMAIL_FROM": "codes@zaisma.com",
+    // Supabase Auth for accounts. It answers only the site's secret key (SUPABASE_SECRET_KEY).
+    "SUPABASE_URL": "https://qhvplmvsvlwzweucvsrk.supabase.co"
+    // Secrets (wrangler secret put): ANTHROPIC_API_KEY, ALERT_EMAIL, SUPABASE_SECRET_KEY, SIGN_IN_SIGNING_KEY (scripts/sign-in-key.mjs), optional VT_API_KEY
+  },
+  "d1_databases": [{ "binding": "DB", "database_name": "zaisma", "database_id": "bffea7a7-f905-4eaf-84f2-97b1fb6bf932", "migrations_dir": "../../migrations" }],
+  "r2_buckets": [
+    { "binding": "GAMES", "bucket_name": "zaisma-games" },
+    { "binding": "SAVES", "bucket_name": "zaisma-saves" }
+  ],
+  // Games' own databases, in the rooms Worker (apps/rooms/src/database.ts), for the developer API. Rooms deploys first.
+  // And PhotoDNA image matching, in the photodna Worker (apps/photodna), which deploys before the site.
+  "services": [
+    { "binding": "GAME_DATABASES", "service": "zaisma-rooms", "entrypoint": "GameDatabaseService" },
+    { "binding": "GAME_SECRETS", "service": "zaisma-rooms", "entrypoint": "GameSecretsService" },
+    { "binding": "GAME_SERVER_WEBHOOKS", "service": "zaisma-rooms", "entrypoint": "GameServerWebhookService" },
+    { "binding": "PHOTODNA", "service": "zaisma-photodna", "entrypoint": "PhotoDnaService" }
+  ],
+  "queues": {
+    "producers": [{ "binding": "SCAN_QUEUE", "queue": "zaisma-scan" }],
+    "consumers": [{ "queue": "zaisma-scan", "max_batch_size": 1, "max_retries": 3 }]
+  },
+  // Every 5 minutes: publish drafts at their scheduled time. Daily: delete old drafts and unused files.
+  "triggers": { "crons": ["*/5 * * * *", "17 3 * * *"] },
+  "ratelimits": [
+    { "name": "REPORT_LIMIT", "namespace_id": "1001", "simple": { "limit": 5, "period": 60 } },
+    { "name": "SIGNIN_LIMIT", "namespace_id": "1005", "simple": { "limit": 10, "period": 60 } },
+    // Password tries on one username, from anywhere: guessing a password spread over many addresses still stops.
+    { "name": "PASSWORD_LIMIT", "namespace_id": "1014", "simple": { "limit": 5, "period": 60 } },
+    { "name": "SAVE_LIMIT", "namespace_id": "1006", "simple": { "limit": 30, "period": 60 } },
+    { "name": "DEV_LIMIT", "namespace_id": "1007", "simple": { "limit": 120, "period": 60 } },
+    { "name": "FILE_LIMIT", "namespace_id": "1008", "simple": { "limit": 1000, "period": 60 } },
+    { "name": "PLAY_LIMIT", "namespace_id": "1009", "simple": { "limit": 30, "period": 60 } },
+    // AI apps registering to sign in to the MCP, per connection address (mcp-sign-in.ts).
+    { "name": "REGISTER_LIMIT", "namespace_id": "1036", "simple": { "limit": 10, "period": 60 } }
+  ],
+  "send_email": [{ "name": "ALERTS" }, { "name": "EMAIL" }]
+}

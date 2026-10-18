@@ -1,0 +1,8 @@
+{
+  "title": "Taunt Arena",
+  "description": "A fast duel where you can talk smack.",
+  "is_honest": true,
+  "content_rule": null,
+  "protection": null,
+  "why": "Trash talk is fine: how players talk to each other is up to each game. This one uses preset taunts, which need no chat rules."
+}

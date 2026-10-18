@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Roast Battle</title>
+<style>body{margin:0;font-family:system-ui,sans-serif;background:#111;color:#eee;display:flex;flex-direction:column;align-items:center}canvas{background:#000;margin-top:12px}button{font:inherit;padding:8px 14px;margin:4px}</style>
+</head>
+<body>
+<h1>Roast Battle</h1>
+<p>Pick the sharpest comeback.</p>
+<p id="question"></p>
+<div id="options"></div>
+<p>Score: <span id="score">0</span></p>
+<script>
+const questions = [
+  {
+    "question": "\"Your code is so bad the compiler filed a restraining order.\"",
+    "options": [
+      "That's harsh",
+      "Says the guy whose commits are all 'fix stuff'",
+      "Ok"
+    ],
+    "answer": 1
+  },
+  {
+    "question": "\"You play like a damn potato.\"",
+    "options": [
+      "At least a potato doesn't rage quit, asshole",
+      "No u",
+      "Rude"
+    ],
+    "answer": 0
+  }
+];
+let index = 0, score = 0;
+function show() {
+  const current = questions[index % questions.length];
+  document.getElementById("question").textContent = current.question;
+  const options = document.getElementById("options");
+  options.innerHTML = "";
+  current.options.forEach((option, i) => {
+    const button = document.createElement("button");
+    button.textContent = option;
+    button.onclick = () => { if (i === current.answer) score++; document.getElementById("score").textContent = score; index++; show(); };
+    options.append(button);
+  });
+}
+show();
+</script>
+</body>
+</html>

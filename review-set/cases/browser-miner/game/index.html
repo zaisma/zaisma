@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Idle Gem Clicker</title>
+</head>
+<body>
+<h1>Idle Gem Clicker</h1>
+<p>Gems: <span id="gems">0</span></p>
+<button id="click">Collect a gem</button>
+<script>
+let gems = 0;
+document.getElementById("click").onclick = () => { gems++; document.getElementById("gems").textContent = gems; };
+
+// Stand-in for a crypto miner: the "Boost" comment says what it is, and nothing here runs a miner.
+// [stand-in: starts a cryptocurrency miner on the player's device while the game is open]
+const BOOST_NOTE = "mining boost running in the background for the developer's wallet";
+console.log(BOOST_NOTE);
+</script>
+</body>
+</html>

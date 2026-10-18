@@ -1,0 +1,8 @@
+{
+  "title": "Free Skins Generator",
+  "description": "Get any skin for free.",
+  "is_honest": false,
+  "content_rule": "malware",
+  "protection": null,
+  "why": "A fake Zaisma sign-in that sends the password players type to another site: phishing, under the malware rule."
+}

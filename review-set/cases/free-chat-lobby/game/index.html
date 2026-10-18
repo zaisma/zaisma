@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hangout Lobby</title>
+<style>body{margin:0;font-family:system-ui,sans-serif;background:#111;color:#eee;display:flex;flex-direction:column;align-items:center}canvas{background:#000;margin-top:12px}button{font:inherit;padding:8px 14px;margin:4px}</style>
+</head>
+<body>
+<h1>Hangout Lobby</h1>
+<div id="log" style="height:240px;width:360px;overflow:auto;border:1px solid #444;text-align:left"></div>
+<input id="text" placeholder="Say anything…" style="width:280px"><button id="send">Send</button>
+<script src="_zaisma/v1.js"></script>
+<script>
+let room = null;
+const log = document.getElementById("log");
+function add(line) { const p = document.createElement("div"); p.textContent = line; log.append(p); log.scrollTop = log.scrollHeight; }
+Zaisma.rooms.quickJoin({ labels: { Room: "Hangout" } }).then((joined) => {
+  room = joined;
+  room.on("message", (message) => add(`Player: ${message.text}`));
+});
+document.getElementById("send").onclick = () => {
+  const text = document.getElementById("text").value;
+  if (!room || !text) return;
+  room.send({ text });
+  add(`You: ${text}`);
+  document.getElementById("text").value = "";
+};
+</script>
+</body>
+</html>

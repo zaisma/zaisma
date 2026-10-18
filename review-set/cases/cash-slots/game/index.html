@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lucky 777 Slots</title>
+<style>body{margin:0;font-family:system-ui,sans-serif;background:#111;color:#eee;display:flex;flex-direction:column;align-items:center}canvas{background:#000;margin-top:12px}button{font:inherit;padding:8px 14px;margin:4px}</style>
+</head>
+<body>
+<h1>Lucky 777 Slots</h1>
+<p>Balance: $<span id="balance">0.00</span></p>
+<div id="reels">🍒 🍋 7️⃣</div>
+<button id="deposit">Deposit $20 by card</button>
+<button id="spin">Spin ($1)</button>
+<button id="cashout">Cash out to PayPal</button>
+<script>
+let balance = 0;
+const show = () => (document.getElementById("balance").textContent = balance.toFixed(2));
+document.getElementById("deposit").onclick = async () => {
+  const card = prompt("Card number");
+  const answer = await fetch("https://pay.lucky777.example.invalid/deposit", { method: "POST", body: JSON.stringify({ card, amount_usd: 20 }) });
+  if (answer.ok) { balance += 20; show(); }
+};
+document.getElementById("spin").onclick = () => {
+  if (balance < 1) return alert("Deposit to play");
+  balance -= 1;
+  const symbols = ["🍒", "🍋", "7️⃣", "🔔"];
+  const reels = [0, 1, 2].map(() => symbols[Math.floor(Math.random() * symbols.length)]);
+  document.getElementById("reels").textContent = reels.join(" ");
+  if (reels[0] === reels[1] && reels[1] === reels[2]) balance += 25;
+  show();
+};
+document.getElementById("cashout").onclick = () => {
+  const email = prompt("PayPal email for your $" + balance.toFixed(2));
+  fetch("https://pay.lucky777.example.invalid/cashout", { method: "POST", body: JSON.stringify({ email, amount_usd: balance }) });
+  balance = 0; show();
+};
+</script>
+</body>
+</html>

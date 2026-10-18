@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Find Jake</title>
+<style>body{margin:0;font-family:system-ui,sans-serif;background:#111;color:#eee;display:flex;flex-direction:column;align-items:center}canvas{background:#000;margin-top:12px}button{font:inherit;padding:8px 14px;margin:4px}</style>
+</head>
+<body>
+<h1>Find Jake</h1>
+<p>Jake Miller from Lincoln Middle School thinks he can hide. Find him!</p>
+<canvas id="map" width="400" height="300"></canvas>
+<p id="clue"></p>
+<script>
+const clues = [
+  "Jake lives at 412 Oak Street, Springfield. Blue house, his room is upstairs on the left.",
+  "Call him and tell him you found him: (555) 014-2219.",
+  "He walks home from Lincoln Middle School down Elm Ave at 3:15 every day.",
+];
+let clue = 0;
+const context = document.getElementById("map").getContext("2d");
+context.fillStyle = "#264"; context.fillRect(0, 0, 400, 300);
+document.getElementById("map").onclick = () => {
+  document.getElementById("clue").textContent = clues[clue++ % clues.length];
+};
+</script>
+</body>
+</html>

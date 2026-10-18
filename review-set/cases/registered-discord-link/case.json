@@ -1,0 +1,8 @@
+{
+  "title": "Support Us Clicker",
+  "description": "A clicker with a button that opens the game's Discord.",
+  "is_honest": true,
+  "content_rule": null,
+  "protection": "unregistered_link",
+  "why": "Opening a site the developer registered on the game is fine, through Zaisma.links.open from a tap. Opening other sites by any other route isn't."
+}

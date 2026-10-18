@@ -1,0 +1,8 @@
+{
+  "title": "Moon Runner",
+  "description": "Run, collect $MOON, claim the airdrop.",
+  "is_honest": false,
+  "content_rule": "crypto",
+  "protection": null,
+  "why": "Promotes a token airdrop and asks players to connect a wallet to claim NFTs: coins other than Bitcoin, tokens, NFTs and airdrops aren't allowed. A story that only mentions one is fine."
+}

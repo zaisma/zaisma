@@ -1,0 +1,8 @@
+{
+  "title": "Bitcoin Quiz with Tips",
+  "description": "Learn about Bitcoin and tip the developer in sats.",
+  "is_honest": true,
+  "content_rule": null,
+  "protection": null,
+  "why": "Teaching Bitcoin and accepting tips in sats are welcome. Sats go from players to developers, never the other way."
+}

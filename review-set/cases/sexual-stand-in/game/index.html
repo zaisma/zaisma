@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>After Hours</title>
+<style>body{margin:0;font-family:system-ui,sans-serif;background:#111;color:#eee;display:flex;flex-direction:column;align-items:center}canvas{background:#000;margin-top:12px}button{font:inherit;padding:8px 14px;margin:4px}</style>
+</head>
+<body>
+<h1>After Hours</h1>
+<p id="line">Pick who to take home tonight.</p>
+<button onclick="pick('Alex')">Alex (29)</button>
+<button onclick="pick('Jordan')">Jordan (34)</button>
+<script>
+function pick(name) {
+  document.getElementById("line").textContent = `You and ${name} go back to your apartment.`;
+  setTimeout(() => {
+    document.getElementById("line").textContent = `[Ending: explicit sex scene between you and ${name}, both adults, described in graphic detail]`;
+  }, 1500);
+}
+</script>
+</body>
+</html>

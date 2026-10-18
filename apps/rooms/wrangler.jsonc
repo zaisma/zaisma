@@ -1,0 +1,67 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "zaisma-rooms",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  // Multiplayer rooms. It sets no cookies, and zaisma.com sets no domain-wide cookies.
+  "routes": [{ "pattern": "rooms.zaisma.com", "custom_domain": true }],
+  "workers_dev": false,
+  "observability": { "enabled": true },
+  // Every minute: games' schedules after a publish (src/game-server.ts, syncSchedules).
+  "triggers": { "crons": ["* * * * *"] },
+  "vars": {
+    "ISSUER": "https://rooms.zaisma.com",
+    "SITE_ORIGIN": "https://zaisma.com",
+    "GAME_HOST_MODE": "subdomain",
+    "GAME_ORIGIN": "https://zaismausercontent.com",
+    "GAME_DOMAIN": "zaismausercontent.com"
+    // Secret (wrangler secret put): PASS_SIGNING_KEY, an Ed25519 private JWK.
+    // And for connections between players through Cloudflare's relay (src/relay.ts): TURN_KEY_ID and
+    // TURN_KEY_API_TOKEN (Realtime's TURN key), CLOUDFLARE_ACCOUNT_ID and RELAY_ANALYTICS_API_TOKEN
+    // (Account Analytics read), to read each game's use. Without them, players' connections don't connect.
+  },
+  // One Durable Object per room, SQLite-backed (required on the free plan), always with WebSocket hibernation.
+  // And one per game for its database (database.ts), SQLite-backed, used by all its rooms.
+  // And one per game for its game server outside rooms (game-server.ts): requests (onRequest) and schedules (onSchedule).
+  // And one per game for its secrets (secrets.ts), which its game server reads.
+  "durable_objects": {
+    "bindings": [
+      { "name": "ROOMS", "class_name": "Room" },
+      { "name": "GAME_DATABASES", "class_name": "GameDatabaseObject" },
+      { "name": "GAME_SERVER_OBJECTS", "class_name": "GameServerObject" },
+      { "name": "GAME_SECRETS", "class_name": "GameSecretsObject" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["Room"] },
+    { "tag": "v2", "new_sqlite_classes": ["GameDatabaseObject"] },
+    { "tag": "v3", "new_sqlite_classes": ["GameServerObject"] },
+    { "tag": "v4", "new_sqlite_classes": ["GameSecretsObject"] }
+  ],
+  // Developers' game servers run in Dynamic Workers (sandbox.ts); their files come from the games bucket.
+  "worker_loaders": [{ "binding": "LOADER" }],
+  "r2_buckets": [{ "binding": "GAMES", "bucket_name": "zaisma-games" }],
+  // The chat filter's AI step lives in the site Worker with the Anthropic key and the AI budget (apps/site/src/chat-check.ts).
+  "services": [{ "binding": "CHAT_CHECK", "service": "zaisma-site", "entrypoint": "ChatCheckService" }],
+  "d1_databases": [{ "binding": "DB", "database_name": "zaisma", "database_id": "bffea7a7-f905-4eaf-84f2-97b1fb6bf932", "migrations_dir": "../../migrations" }],
+  "ratelimits": [
+    { "name": "PASS_LIMIT", "namespace_id": "1002", "simple": { "limit": 20, "period": 60 } },
+    { "name": "ROOM_LIMIT", "namespace_id": "1003", "simple": { "limit": 10, "period": 60 } },
+    { "name": "REPORT_LIMIT", "namespace_id": "1004", "simple": { "limit": 5, "period": 60 } },
+    { "name": "FILTER_LIMIT", "namespace_id": "1010", "simple": { "limit": 60, "period": 60 } },
+    // Opening room connections: each one can wake a room, so a script can't keep waking them.
+    { "name": "CONNECT_LIMIT", "namespace_id": "1011", "simple": { "limit": 60, "period": 60 } },
+    // Public profiles by player ID: a developer's own game server looks up each account that joins.
+    { "name": "PROFILE_LIMIT", "namespace_id": "1012", "simple": { "limit": 300, "period": 60 } },
+    // Requests to games' own game servers (Zaisma.server.request): plenty for a player, not for a script.
+    { "name": "REQUEST_LIMIT", "namespace_id": "1013", "simple": { "limit": 120, "period": 60 } },
+    // Game servers' calls to other servers, per game (src/outbound.ts; OUTSIDE_CALL_LIMITS.callsPerMin).
+    { "name": "OUTSIDE_CALL_LIMIT", "namespace_id": "1015", "simple": { "limit": 600, "period": 60 } },
+    // A game asking for the player's friends playing it, or saying which room on its own servers they're in (Zaisma.friends).
+    { "name": "FRIENDS_LIMIT", "namespace_id": "1016", "simple": { "limit": 60, "period": 60 } },
+    // Relay credentials for connections between players (src/relay.ts): like passes.
+    { "name": "RELAY_LIMIT", "namespace_id": "1017", "simple": { "limit": 20, "period": 60 } },
+    // Developers' own servers checking chat (POST /v1/chat/check), per game and sender: more than anyone types.
+    { "name": "CHAT_CHECK_LIMIT", "namespace_id": "1023", "simple": { "limit": 120, "period": 60 } }
+  ]
+}

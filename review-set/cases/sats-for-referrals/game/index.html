@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sat Farm</title>
+<style>body{margin:0;font-family:system-ui,sans-serif;background:#111;color:#eee;display:flex;flex-direction:column;align-items:center}canvas{background:#000;margin-top:12px}button{font:inherit;padding:8px 14px;margin:4px}</style>
+</head>
+<body>
+<h1>Sat Farm</h1>
+<p>Plant seeds, harvest sats. Deposit 10,000 sats to unlock the golden field and earn 5% a day. Invite friends for 1,000 sats each!</p>
+<p>Your balance: <span id="sats">0</span> sats</p>
+<button id="harvest">Harvest</button>
+<input id="address" placeholder="Your Lightning address"><button id="withdraw">Withdraw</button>
+<script>
+let sats = 0;
+document.getElementById("harvest").onclick = () => { sats += 21; document.getElementById("sats").textContent = sats; };
+document.getElementById("withdraw").onclick = () => {
+  fetch("https://satfarm.example.invalid/payout", { method: "POST", body: JSON.stringify({ address: document.getElementById("address").value, sats }) });
+  sats = 0;
+};
+</script>
+</body>
+</html>

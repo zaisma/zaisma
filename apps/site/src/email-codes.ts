@@ -1,0 +1,171 @@
+import { sha256Hex } from "@zaisma/core";
+import type { Env } from "./env.ts";
+import { esc } from "./html.ts";
+
+/**
+ * Email codes are Zaisma's own (docs/DECISIONS.md, "Accounts open only through Zaisma"): 6 digits, kept only
+ * as a hash, good for 10 minutes, one live code per address, dead once 5 tries are spent, and at most 3 an
+ * hour and 10 a day to one address. A right code opens the account the way a passkey does (sessionForUser in
+ * auth.ts), so Supabase never holds a code someone could guess through its open verify link. Cloudflare Email
+ * Sending sends them from zaisma.com.
+ */
+
+export const CODE_DURATION_MIN = 10;
+const CODE_DURATION_MS = CODE_DURATION_MIN * 60_000;
+const MAXIMUM_TRY_COUNT = 5;
+const CODES_PER_HOUR = 3;
+const CODES_PER_DAY = 10;
+const HOUR_MS = 3600_000;
+const DAY_MS = 24 * HOUR_MS;
+
+/** What a right code does for its account: opens it, or adds the address to it. */
+export type EmailCodeKind = "sign_in" | "add_email";
+
+/** What the email says the code is for: signing in, confirming it's you on the account page, or adding the address. */
+export type EmailCodeReason = "sign_in" | "confirm" | "add_email";
+
+export type EmailCodeSending = "sent" | "too-many" | "failed";
+
+const emailHash = (email: string) => sha256Hex(new TextEncoder().encode(email.trim().toLowerCase()));
+const codeHash = (emailSha256: string, code: string) => sha256Hex(new TextEncoder().encode(`${emailSha256}:${code}`));
+
+/** Six digits, each number as likely as any other. */
+function newCode(): string {
+  const draw = new Uint32Array(1);
+  // Numbers past the last whole million in a 32-bit draw would make low codes likelier: draw again.
+  do crypto.getRandomValues(draw);
+  while (draw[0]! >= 4_294_000_000);
+  return String(draw[0]! % 1_000_000).padStart(6, "0");
+}
+
+/**
+ * Ask for a code to an address. Only an address with an account (accountId) gets one; one without is
+ * answered and counted the same, so neither the page nor the limits say who has an account. A new code
+ * replaces the address's last one.
+ */
+export async function sendEmailCode(env: Env, request: { email: string; accountId: string | null; kind: EmailCodeKind; reason: EmailCodeReason }, nowMs = Date.now()): Promise<EmailCodeSending> {
+  const emailSha256 = await emailHash(request.email);
+  const counted = await env.DB.prepare("SELECT COUNT(*) AS day_request_count, COALESCE(SUM(requested_at_ms > ?), 0) AS hour_request_count FROM email_code_requests WHERE email_sha256 = ? AND requested_at_ms > ?")
+    .bind(nowMs - HOUR_MS, emailSha256, nowMs - DAY_MS)
+    .first<{ day_request_count: number; hour_request_count: number }>();
+  if ((counted?.hour_request_count ?? 0) >= CODES_PER_HOUR || (counted?.day_request_count ?? 0) >= CODES_PER_DAY) return "too-many";
+  await env.DB.prepare("INSERT INTO email_code_requests (email_sha256, requested_at_ms) VALUES (?, ?)").bind(emailSha256, nowMs).run();
+  if (!request.accountId) return "sent";
+
+  const code = newCode();
+  await env.DB.prepare(
+    `INSERT INTO email_codes (email_sha256, account_id, kind, code_sha256, try_count, created_at_ms) VALUES (?, ?, ?, ?, 0, ?)
+     ON CONFLICT (email_sha256) DO UPDATE SET account_id = excluded.account_id, kind = excluded.kind, code_sha256 = excluded.code_sha256, try_count = 0, created_at_ms = excluded.created_at_ms`,
+  )
+    .bind(emailSha256, request.accountId, request.kind, await codeHash(emailSha256, code), nowMs)
+    .run();
+  if (await deliverCode(env, request.email, code, request.reason)) return "sent";
+  await env.DB.prepare("DELETE FROM email_codes WHERE email_sha256 = ?").bind(emailSha256).run();
+  return "failed";
+}
+
+/**
+ * The account a right code is for, once: the code is used up. Every check spends one of the code's 5 tries
+ * first, so tries sent at the same moment count too. null for a wrong, used, old or spent code.
+ */
+export async function checkEmailCode(env: Env, email: string, code: string, kind: EmailCodeKind, nowMs = Date.now()): Promise<string | null> {
+  if (!/^\d{6}$/.test(code)) return null;
+  const emailSha256 = await emailHash(email);
+  const spent = await env.DB.prepare("UPDATE email_codes SET try_count = try_count + 1 WHERE email_sha256 = ? AND kind = ? AND try_count < ? AND created_at_ms > ? RETURNING code_sha256")
+    .bind(emailSha256, kind, MAXIMUM_TRY_COUNT, nowMs - CODE_DURATION_MS)
+    .first<{ code_sha256: string }>();
+  if (!spent || spent.code_sha256 !== (await codeHash(emailSha256, code))) return null;
+  const used = await env.DB.prepare("DELETE FROM email_codes WHERE email_sha256 = ? AND code_sha256 = ? RETURNING account_id").bind(emailSha256, spent.code_sha256).first<{ account_id: string }>();
+  return used?.account_id ?? null;
+}
+
+/** Once a day: codes past their 10 minutes, and requests older than the day the limits look back. */
+export async function deleteOldEmailCodes(env: Env, nowMs = Date.now()): Promise<void> {
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM email_codes WHERE created_at_ms <= ?").bind(nowMs - CODE_DURATION_MS),
+    env.DB.prepare("DELETE FROM email_code_requests WHERE requested_at_ms <= ?").bind(nowMs - DAY_MS),
+  ]);
+}
+
+// --- The email ---
+
+const CODE_FOR: Record<EmailCodeReason, string> = {
+  sign_in: "Enter this code on Zaisma to sign in:",
+  confirm: "Enter this code on Zaisma to confirm it's you:",
+  add_email: "Enter this code on Zaisma to add this email to your account:",
+};
+
+const IF_NOT_YOU: Record<EmailCodeReason, string> = {
+  sign_in: "Didn't ask for it? Then ignore this email. Nobody gets into your account without the code.",
+  confirm: "Didn't ask for it? Then ignore this email. Nobody gets into your account without the code.",
+  add_email: "Didn't ask for it? Then ignore this email. Your address isn't added to anything without the code.",
+};
+
+/** The email with a code: its subject (the code first, so it shows in a notification), plain text and HTML. */
+export function codeEmail(env: Env, code: string, reason: EmailCodeReason): { subject: string; text: string; html: string } {
+  const lasts = `It works once, for ${CODE_DURATION_MIN} minutes.`;
+  return {
+    subject: `${code} is your Zaisma code`,
+    text: `${CODE_FOR[reason]}\n\n${code}\n\n${lasts}\n\n${IF_NOT_YOU[reason]}\n\nZaisma, ${env.SITE_ORIGIN.replace(/^https?:\/\//, "")}\n`,
+    html: `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="color-scheme" content="dark"><title>${code} is your Zaisma code</title></head>
+<body style="margin:0;padding:32px 16px;background:#0b0d10;color:#eceef0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:440px">
+<tr><td style="padding:0 0 28px"><img src="${esc(env.SITE_ORIGIN)}/zaisma-wordmark-white-2400.png" width="112" alt="Zaisma" style="display:block;width:112px;height:auto;border:0"></td></tr>
+<tr><td style="font-size:16px;line-height:1.5;color:#c6c9ce">${esc(CODE_FOR[reason])}</td></tr>
+<tr><td style="padding:18px 0 22px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:36px;font-weight:600;letter-spacing:8px;color:#eceef0">${code}</td></tr>
+<tr><td style="font-size:14px;line-height:1.5;color:#969ba4">${esc(lasts)} ${esc(IF_NOT_YOU[reason])}</td></tr>
+</table></td></tr></table>
+</body></html>`,
+  };
+}
+
+/** Send an email; false when it didn't go. The preview and tests send to a stand-in (EMAIL_OUTBOX_URL) instead. */
+export async function deliverEmail(env: Env, email: string, message: { subject: string; text: string; html: string }): Promise<boolean> {
+  try {
+    if (env.EMAIL_OUTBOX_URL) {
+      const response = await fetch(env.EMAIL_OUTBOX_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ from: env.EMAIL_FROM, to: email, ...message }) });
+      return response.ok;
+    }
+    if (!env.EMAIL) {
+      console.error("Email can't be sent: the EMAIL binding isn't set up.");
+      return false;
+    }
+    await env.EMAIL.send({ from: { email: env.EMAIL_FROM, name: "Zaisma" }, to: email, ...message });
+    return true;
+  } catch (error) {
+    console.error("Sending an email failed:", error);
+    return false;
+  }
+}
+
+const deliverCode = (env: Env, email: string, code: string, reason: EmailCodeReason) => deliverEmail(env, email, codeEmail(env, code, reason));
+
+/** The email that says a passkey was added without one of the older ones, and that it waits a day. */
+export function passkeyWaitEmail(env: Env, details: { username: string; deviceName: string; addedAtMs: number; approvesFromAtMs: number }): { subject: string; text: string; html: string } {
+  const added = waitEndsText(details.addedAtMs);
+  const ends = waitEndsText(details.approvesFromAtMs);
+  const subject = "A new passkey was added to your Zaisma account";
+  // deviceName (core/passkeys.ts) is a plain name like Mac or iPhone, or "a device" when the browser said nothing.
+  const where = details.deviceName === "a device" ? "a device" : `${/^[aeiou]/i.test(details.deviceName) ? "an" : "a"} ${details.deviceName}`;
+  const first = `A passkey was added to your Zaisma account, ${details.username}, on ${where} at ${added}, without one of your older passkeys. To keep your account safe, it can make API keys and change how you sign in from ${ends}.`;
+  const second = "Wasn't you? Sign in at zaisma.com/account with one of your passkeys, remove it under Passkeys, and change your password.";
+  return {
+    subject,
+    text: `${first}\n\n${second}\n\nZaisma, ${env.SITE_ORIGIN.replace(/^https?:\/\//, "")}\n`,
+    html: `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="color-scheme" content="dark"><title>${esc(subject)}</title></head>
+<body style="margin:0;padding:32px 16px;background:#0b0d10;color:#eceef0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:440px">
+<tr><td style="padding:0 0 28px"><img src="${esc(env.SITE_ORIGIN)}/zaisma-wordmark-white-2400.png" width="112" alt="Zaisma" style="display:block;width:112px;height:auto;border:0"></td></tr>
+<tr><td style="font-size:16px;line-height:1.5;color:#c6c9ce;padding:0 0 16px">${esc(first)}</td></tr>
+<tr><td style="font-size:14px;line-height:1.5;color:#969ba4">${esc(second)}</td></tr>
+</table></td></tr></table>
+</body></html>`,
+  };
+}
+
+/** A time as the page and the email say it: Oct 19 at 2:05 PM UTC. (The account page has no local-time script, and an email can't run one.) */
+export function waitEndsText(ms: number): string {
+  return `${new Date(ms).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "UTC" }).replace(", ", " at ")} UTC`;
+}

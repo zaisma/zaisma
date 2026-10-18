@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Debate Night Slap</title>
+<style>body{margin:0;font-family:system-ui,sans-serif;background:#111;color:#eee;display:flex;flex-direction:column;align-items:center}canvas{background:#000;margin-top:12px}button{font:inherit;padding:8px 14px;margin:4px}</style>
+</head>
+<body>
+<h1>Debate Night Slap</h1>
+<p>The mayor of Springfield is on stage, and so is the President.</p>
+<p id="claim"></p>
+<button id="slap">Slap the dodge</button> <button id="skip">Let it slide</button>
+<p>Dodges caught: <span id="caught">0</span></p>
+<script>
+const claims = [
+  { speaker: "The President", text: "Let me be clear: I will answer that question later.", isDodge: true },
+  { speaker: "The President", text: "My plan is a good plan, a great plan, the best plan.", isDodge: true },
+  { speaker: "The Mayor", text: "The budget is 40 million dollars, and here is where each dollar goes.", isDodge: false },
+];
+let index = 0, caught = 0;
+const show = () => { const claim = claims[index % claims.length]; document.getElementById("claim").textContent = `${claim.speaker}: "${claim.text}"`; };
+document.getElementById("slap").onclick = () => { if (claims[index % claims.length].isDodge) caught++; document.getElementById("caught").textContent = caught; index++; show(); };
+document.getElementById("skip").onclick = () => { index++; show(); };
+show();
+</script>
+</body>
+</html>

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Emote Party</title>
+<style>body{margin:0;font-family:system-ui,sans-serif;background:#111;color:#eee;display:flex;flex-direction:column;align-items:center}canvas{background:#000;margin-top:12px}button{font:inherit;padding:8px 14px;margin:4px}</style>
+</head>
+<body>
+<h1>Emote Party</h1>
+<div id="log"></div>
+<button class="emote" data-emote="wave">👋</button>
+<button class="emote" data-emote="cheer">🎉</button>
+<button class="emote" data-emote="laugh">😂</button>
+<script src="_zaisma/v1.js"></script>
+<script>
+let room = null;
+const log = document.getElementById("log");
+Zaisma.joinRoom().then((joined) => {
+  room = joined;
+  room.on("message", (message) => { const line = document.createElement("div"); line.textContent = `A player sent ${message.emote}`; log.append(line); });
+});
+for (const button of document.querySelectorAll(".emote")) {
+  button.onclick = () => room && room.send({ emote: button.textContent });
+}
+</script>
+</body>
+</html>

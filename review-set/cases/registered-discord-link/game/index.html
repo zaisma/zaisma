@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Support Us Clicker</title>
+<style>body{margin:0;font-family:system-ui,sans-serif;background:#111;color:#eee;display:flex;flex-direction:column;align-items:center}canvas{background:#000;margin-top:12px}button{font:inherit;padding:8px 14px;margin:4px}</style>
+</head>
+<body>
+<h1>Support Us Clicker</h1>
+<p>Clicks: <span id="count">0</span></p>
+<button id="click">Click</button>
+<button id="discord">Join our Discord</button>
+<script src="_zaisma/v1.js"></script>
+<script>
+let clicks = 0;
+document.getElementById("click").onclick = () => (document.getElementById("count").textContent = ++clicks);
+document.getElementById("discord").onclick = () => Zaisma.links.open("discord");
+</script>
+</body>
+</html>

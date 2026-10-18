@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Moon Runner</title>
+</head>
+<body>
+<h1>Moon Runner</h1>
+<p>Collect $MOON tokens while you run. The best runners win the NFT airdrop!</p>
+<p>Tokens: <span id="tokens">0</span></p>
+<button id="run">Run</button>
+<button id="claim">Claim 500 $MOON and your NFT</button>
+<script>
+let tokens = 0;
+document.getElementById("run").onclick = () => { tokens += 5; document.getElementById("tokens").textContent = tokens; };
+document.getElementById("claim").onclick = () => {
+  alert("Connect your wallet to claim your airdrop (stand-in: no wallet is connected here).");
+};
+</script>
+</body>
+</html>

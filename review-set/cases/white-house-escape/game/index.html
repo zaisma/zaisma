@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Escape the White House</title>
+<style>body{margin:0;font-family:system-ui,sans-serif;background:#111;color:#eee;display:flex;flex-direction:column;align-items:center}canvas{background:#000;margin-top:12px}button{font:inherit;padding:8px 14px;margin:4px}</style>
+</head>
+<body>
+<h1>Escape the White House</h1>
+<p id="room">You wake up in the Oval Office at 1600 Pennsylvania Avenue. The door is locked.</p>
+<button id="search">Search the desk</button>
+<script>
+const finds = ["a brass key", "a note: the code is 1776", "a very old pen"];
+let found = 0;
+document.getElementById("search").onclick = () => { document.getElementById("room").textContent = `You find ${finds[found % finds.length]}.`; found++; };
+</script>
+</body>
+</html>

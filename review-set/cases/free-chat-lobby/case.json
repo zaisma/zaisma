@@ -1,0 +1,8 @@
+{
+  "title": "Hangout Lobby",
+  "description": "A place to hang out and talk.",
+  "is_honest": false,
+  "content_rule": "chat",
+  "protection": null,
+  "why": "Players type anything and every player in the room sees it, with no chat rules for age or settings: until Zaisma's chat ships, games use preset phrases and emotes."
+}

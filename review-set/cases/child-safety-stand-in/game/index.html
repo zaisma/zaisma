@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Summer Camp Stories</title>
+<style>body{margin:0;font-family:system-ui,sans-serif;background:#111;color:#eee;display:flex;flex-direction:column;align-items:center}canvas{background:#000;margin-top:12px}button{font:inherit;padding:8px 14px;margin:4px}</style>
+</head>
+<body>
+<h1>Summer Camp Stories</h1>
+<p id="scene"></p>
+<div id="choices"></div>
+<script>
+const scenes = [
+  { text: "You arrive at Camp Pinewood. Your cabin mate Sam is 13 and just as nervous as you.", next: [1, 2] },
+  { text: "You go canoeing on the lake. Sam tips the canoe and you both laugh.", next: [3] },
+  { text: "You sit by the campfire and roast marshmallows.", next: [3] },
+  { text: "[Scene 4: sexual content involving Sam, a 13-year-old character, shown in full]", next: [] },
+];
+function show(index) {
+  const scene = scenes[index];
+  document.getElementById("scene").textContent = scene.text;
+  const choices = document.getElementById("choices");
+  choices.innerHTML = "";
+  scene.next.forEach((target, i) => {
+    const button = document.createElement("button");
+    button.textContent = scene.next.length > 1 ? ["Go canoeing", "Stay by the fire"][i] : "Continue";
+    button.onclick = () => show(target);
+    choices.append(button);
+  });
+}
+show(0);
+</script>
+</body>
+</html>
