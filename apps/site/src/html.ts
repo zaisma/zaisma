@@ -392,12 +392,17 @@ const pick=e=>{const h=e.target.closest&&e.target.closest("[data-art]");clearTim
 addEventListener("pointerover",pick,{passive:true});addEventListener("focusin",pick)})();`;
 
 // A button that sends a form or opens a page shows it's working and can't be pressed twice.
-// Pages that handle a form themselves (preventDefault) are left alone.
+// Pages that handle a form themselves (preventDefault) are left alone. A link marked data-download
+// opens no page, so it shows it's working only until its download starts: the response sets the
+// readable download_started cookie (downloadStartedCookie), which the page watches for.
 const BUSY_SCRIPT = `(()=>{const busy=b=>{if(!b||b.getAttribute("aria-busy")==="true")return;b.setAttribute("aria-busy","true");const s=document.createElement("span");s.className="spin";s.setAttribute("aria-hidden","true");(b.matches(".metal")?b.lastElementChild||b:b).prepend(s);
 setTimeout(()=>{if(b.tagName==="BUTTON")b.disabled=true},0)};
+const idle=b=>{b.removeAttribute("aria-busy");b.disabled=false;b.querySelectorAll(".spin").forEach(s=>s.remove())};
+const started=/(?:^|; )((?:__Host-)?download_started)=1/;const forget=()=>{const m=document.cookie.match(started);if(m)document.cookie=m[1]+"=; Max-Age=0; Path=/"+(location.protocol==="https:"?"; Secure":"")};
+const download=a=>{forget();busy(a);const from=Date.now(),i=setInterval(()=>{if(started.test(document.cookie)||Date.now()-from>120000){clearInterval(i);forget();idle(a)}},250)};
 addEventListener("submit",e=>{if(!e.defaultPrevented&&e.target.method!=="dialog")busy(e.submitter||e.target.querySelector("button[type=submit],button:not([type])"))});
-addEventListener("click",e=>{const a=e.target.closest&&e.target.closest("a.btn,a.metal");if(!a||e.defaultPrevented||e.button||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||a.target==="_blank")return;const u=new URL(a.href,location.href);if(u.origin!==location.origin||(u.pathname===location.pathname&&u.search===location.search))return;busy(a)});
-addEventListener("pageshow",e=>{if(e.persisted)document.querySelectorAll("[aria-busy=true]").forEach(b=>{b.removeAttribute("aria-busy");b.disabled=false;b.querySelectorAll(".spin").forEach(s=>s.remove())})})})();`;
+addEventListener("click",e=>{const a=e.target.closest&&e.target.closest("a.btn,a.metal");if(!a||e.defaultPrevented||e.button||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||a.target==="_blank")return;const u=new URL(a.href,location.href);if(u.origin!==location.origin||(u.pathname===location.pathname&&u.search===location.search))return;if(a.hasAttribute("data-download"))download(a);else busy(a)});
+addEventListener("pageshow",e=>{if(e.persisted)document.querySelectorAll("[aria-busy=true]").forEach(idle)})})();`;
 
 const SITE_SCRIPT = pageScript("site", METAL_SCRIPT + AMBIENT_SCRIPT + BUSY_SCRIPT);
 
