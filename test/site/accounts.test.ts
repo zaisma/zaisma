@@ -695,7 +695,7 @@ describe("accounts open only through Zaisma", () => {
     const page = await (await owner.go("/account")).text();
     expect(page).toContain("Someone tried wrong passwords on your account today. Nothing got in.");
     expect(page).toContain('href="#passkeys">Add a passkey</a>');
-    expect(page).toContain('href="#signing-in">Add an email</a>');
+    expect(page).toContain('href="#email">Add an email</a>');
     expect(await (await owner.go("/account")).text()).not.toContain("Someone tried wrong passwords");
 
     // An email code still opens it on a new device, which can then use its password.
@@ -3244,6 +3244,89 @@ describe("pages behind a sign-in run only the site's script files", () => {
     expect(await scriptsOf("/g/strict-own")).toEqual(expect.arrayContaining(["game-page", "saves", "sign-in-while-playing", "game-links", "game-autoplay"]));
     expect(await scriptsOf("/account/kept?game=strict-own")).toEqual(expect.arrayContaining(["joined", "kept"]));
     await env.DB.prepare("DELETE FROM games WHERE id = 'g-strict-own'").run();
+  });
+});
+
+describe("protect your account", () => {
+  const PROTECT_LINE = '<div class="note" id="protect">';
+  async function savedHoursAgo(accountId: string, hourCount: number) {
+    const nowMs = Date.now();
+    await env.DB.prepare("INSERT OR IGNORE INTO games (id, slug, title, review_status, created_at_ms, updated_at_ms) VALUES ('g-protect', 'protect-game', 'Protect Game', 'live', ?, ?)").bind(nowMs, nowMs).run();
+    await env.DB.prepare("INSERT OR REPLACE INTO saves (account_id, game_id, version_number, sha256, size_bytes, updated_at_ms) VALUES (?, 'g-protect', 1, 'x', 2, ?)").bind(accountId, nowMs - hourCount * 3600_000).run();
+  }
+  const offeredAtMs = async (accountId: string) => (await env.DB.prepare("SELECT protection_offered_at_ms FROM accounts WHERE id = ?").bind(accountId).first<{ protection_offered_at_ms: number | null }>())!.protection_offered_at_ms;
+  afterEach(async () => {
+    await env.DB.batch([env.DB.prepare("DELETE FROM saves WHERE game_id = 'g-protect'"), env.DB.prepare("DELETE FROM games WHERE id = 'g-protect'")]);
+  });
+
+  it("asks once on the home page when a player comes back to a save with neither a passkey nor an email, and keeps a line on the account page", async () => {
+    const b = new Browser();
+    await join(b, null);
+    const id = await idOf("Night_Owl");
+    // Nothing saved yet: nothing to lose, so the home page doesn't ask; the account page has the line.
+    expect(await (await b.go("/")).text()).not.toContain('id="protect-account"');
+    const accountPage = await (await b.go("/account")).text();
+    expect(accountPage).toContain(PROTECT_LINE);
+    expect(accountPage).toContain('href="#passkeys">Add a passkey</a> <a class="btn ghost" href="#email">Add an email</a>');
+    expect(accountPage).toContain('<h3 class="sub" id="email">Email</h3>');
+
+    // Saved 10 minutes ago: still playing, not back yet.
+    await savedHoursAgo(id, 1 / 6);
+    expect(await (await b.go("/")).text()).not.toContain('id="protect-account"');
+    expect(await offeredAtMs(id)).toBeNull();
+
+    // Back to a save from 2 hours ago: asked once, with both ways in and Later.
+    await savedHoursAgo(id, 2);
+    const home = await (await b.go("/")).text();
+    expect(home).toContain('<dialog id="protect-account"');
+    expect(home).toContain('href="/account#passkeys">Add a passkey</a>');
+    expect(home).toContain('href="/account#email">Add an email</a>');
+    expect(home).toContain("data-close>Later</button>");
+    expect(home).not.toContain('type="password"');
+    expect(pageScriptNames(home)).toContain("protect-account");
+    expect(await offeredAtMs(id)).toEqual(expect.any(Number));
+    expect(await (await b.go("/")).text()).not.toContain('id="protect-account"');
+    expect(await (await b.go("/account")).text()).toContain(PROTECT_LINE);
+
+    // Signed out, nobody is asked.
+    await b.go("/signout", {});
+    expect(await (await b.go("/")).text()).not.toContain('id="protect-account"');
+  });
+
+  it("asks nobody with an email or a passkey", async () => {
+    const withEmail = new Browser();
+    await join(withEmail, "fox@example.com");
+    await savedHoursAgo(await idOf("Night_Owl"), 2);
+    expect(await (await withEmail.go("/")).text()).not.toContain('id="protect-account"');
+    expect(await (await withEmail.go("/account")).text()).not.toContain(PROTECT_LINE);
+
+    const withPasskey = new Browser();
+    await join(withPasskey, null, "Key_Holder");
+    const id = await idOf("Key_Holder");
+    await savedHoursAgo(id, 2);
+    await env.DB.prepare("INSERT INTO passkeys (id, account_id, public_key, algorithm_number, sign_count, name, created_at_ms, last_used_at_ms, approves_from_at_ms) VALUES ('protect-passkey', ?, 'key', -7, 0, 'Mac', ?, NULL, 0)").bind(id, Date.now()).run();
+    expect(await (await withPasskey.go("/")).text()).not.toContain('id="protect-account"');
+    expect(await offeredAtMs(id)).toBeNull();
+    expect(await (await withPasskey.go("/account")).text()).not.toContain(PROTECT_LINE);
+  });
+
+  it("leaves the account page to the email ask when that shows, so it never asks twice", async () => {
+    const b = new Browser();
+    await join(b, null);
+    await createApiKey(env.DB, await idOf("Night_Owl"), "test");
+    const page = await (await b.go("/account")).text();
+    expect(page).toContain('id="email-ask"');
+    expect(page).not.toContain(PROTECT_LINE);
+  });
+
+  it("says where to confirm when adding has to wait for Confirm it's you", async () => {
+    const b = new Browser();
+    await join(b, null);
+    const id = await idOf("Night_Owl");
+    await env.DB.prepare("UPDATE session_proofs SET proved_at_ms = 0 WHERE account_id = ?").bind(id).run();
+    const page = await (await b.go("/account")).text();
+    expect(page).toContain('id="confirm"');
+    expect(page.match(/<a href="#confirm">Confirm it's you<\/a> above to add one\./g)).toHaveLength(2);
   });
 });
 
