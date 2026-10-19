@@ -22,24 +22,68 @@ export const CONTENT_RULES = {
   copyright: "Other people's games, art, music or characters used without permission.",
   personal_details:
     "Asking players for personal details like emails, real names, birthdays or location inside the game. Every player has a Zaisma ID and name; games with their own accounts link them through Sign in with Zaisma, and anything more happens on the developer's own site.",
-  chat: "Chat that skips Zaisma's chat rules: who can talk to whom follows each player's age and chat setting. Until chat ships, games use preset phrases and emotes.",
+  chat: "Free-text chat between players. In the beta, players talk through each game's preset phrases and emotes.",
   crypto:
     "Cryptocurrency other than Bitcoin: using or promoting other coins, tokens, NFTs or airdrops. A story that mentions one is fine. Bitcoin games are welcome, but not investment advice, mining on the player's device, paying players sats, or asking for seed phrases or permission to spend from a wallet.",
   faked_plays: "Faking plays or players, with bots, scripts or click farms.",
 } as const;
 export type ContentRule = keyof typeof CONTENT_RULES;
 /**
- * What a rule covers, where its words alone leave the line unclear: the page shows it under the rule,
- * with what's fine and what isn't.
+ * Where each rule's line is: the page shows it under the rule, with what's fine and what isn't, and an
+ * explanation where the words alone leave the line unclear.
  */
-export const CONTENT_RULE_DETAILS: Partial<Record<ContentRule, { explanation: string; fine: string; notFine: string }>> = {
+export const CONTENT_RULE_DETAILS: Record<ContentRule, { explanation?: string; fine: string; notFine: string }> = {
+  child_safety: {
+    fine: "kids and teens as characters in any story that isn't sexual.",
+    notFine: "anything sexual involving someone who is or looks under 18, drawn, animated or AI-made included.",
+  },
+  sexual: {
+    fine: "romance, kissing, dating sims, swimwear and dirty jokes.",
+    notFine: "nudity, sex shown or described in detail, or porn behind a \"censored\" bar.",
+  },
+  malware: {
+    fine: "minified builds, opening your own site from the game's links, and saving in the browser.",
+    notFine: "a \"free skins\" page that asks for a password, mining while you play, or code that tries to leave the game's frame.",
+  },
+  illegal: {
+    fine: "casino, poker and slots played for points that can't be bought or cashed out; crime as gameplay.",
+    notFine: "bets with real money, or with chips that can be bought or cashed out.",
+  },
   real_people: {
     explanation:
       "Anything that lets players find or reach a real person who didn't make it public: a home address, phone number, personal email or private account, or where they go to school or work. Or a real threat of violence against a real person.",
     fine: "anyone's name, face and photo; mocking, memes and satire; violence that's gameplay; places famous on their own (the White House, Epstein's island, a company's HQ); accounts and addresses people publish themselves.",
     notFine: "\"Jake lives at 12 Oak St\", a celebrity's leaked phone number, the school a kid goes to, or a message that means a real threat.",
   },
+  copyright: {
+    explanation: "We take it down when the owner sends a notice (see Copyright and DMCA notices).",
+    fine: "a game inspired by another (the same genre, the same mechanics), parody with your own characters, and assets used within their license.",
+    notFine: "Mario in your game, a ripped soundtrack, or someone else's game uploaded as yours.",
+  },
+  personal_details: {
+    fine: "a nickname for the scoreboard, Sign in with Zaisma, and a link to your own site.",
+    notFine: "\"Enter your email to save\", or asking for a birthday, age, city or real name.",
+  },
+  chat: {
+    fine: "preset phrases (\"GG\", \"Follow me\"), emotes, names for worlds and rooms, and text only the player who typed it sees.",
+    notFine: "a chat box where players type messages to each other, through Zaisma's rooms or your own server.",
+  },
+  crypto: {
+    fine: "teaching Bitcoin, items for sats, tips, and a story with a meme-coin villain.",
+    notFine: "an NFT skin shop, an airdrop, \"deposit sats, invite friends, earn more\", or asking for a seed phrase.",
+  },
+  faked_plays: {
+    fine: "asking players to share your game, tester links, and playing your own game.",
+    notFine: "scripts that open your game in a thousand tabs, click farms, or bots that fill rooms.",
+  },
 };
+/**
+ * Rules Zaisma acts on only when the owner sends a notice: the review never looks for them, since games
+ * borrow code and assets all the time and no file shows whether they may (Julius, Oct 18, 2026).
+ */
+export const NOTICE_ONLY_CONTENT_RULES: readonly ContentRule[] = ["copyright"];
+/** The rules the review looks for, in the page's order. */
+export const REVIEWED_CONTENT_RULES = (Object.keys(CONTENT_RULES) as ContentRule[]).filter((rule) => !NOTICE_ONLY_CONTENT_RULES.includes(rule));
 /**
  * What other platforms often ban that's fine on Zaisma, so developers and their AI don't hedge: the
  * rules page lists it, and the AI review and report triage treat it as fine.
@@ -159,12 +203,6 @@ export const REVIEW_CODES = {
     hasOwnMessage: true,
   },
   ai_real_money_gambling: { meaning: "The AI review found real-money gambling.", contentRule: "illegal", fix: `Take out betting with real money or anything bought with it, and upload a new version. ${IF_THE_AI_IS_WRONG}`, hasOwnMessage: true },
-  ai_likely_copyright: {
-    meaning: "The AI review found characters, art or music that look like someone else's.",
-    contentRule: "copyright",
-    fix: `Replace what isn't yours, unless you may use it, and upload a new version. ${IF_THE_AI_IS_WRONG}`,
-    hasOwnMessage: true,
-  },
   ai_free_text_chat: { meaning: "The AI review found free-text chat between players.", contentRule: "chat", fix: `Swap typed chat for preset phrases or emotes, and upload a new version. ${IF_THE_AI_IS_WRONG}`, hasOwnMessage: true },
   ai_disallowed_crypto: {
     meaning: "The AI review found cryptocurrency the rules don't allow: coins other than Bitcoin, tokens, NFTs or airdrops, or Bitcoin used for investment advice, paying players or asking for wallet access.",
