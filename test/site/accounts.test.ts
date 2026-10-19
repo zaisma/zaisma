@@ -3204,11 +3204,13 @@ describe("the security log on the account page", () => {
     const owner = inManchester();
     await join(owner, null);
     const id = await idOf("Night_Owl");
+    expect((await env.DB.prepare("SELECT COUNT(*) AS network_count FROM sign_in_networks WHERE account_id = ?").bind(id).first<{ network_count: number }>())!.network_count).toBe(1);
     await makeKey(owner, await addPasskey(owner));
     expect((await eventsOf(id)).length).toBeGreaterThan(0);
     await owner.go("/account/delete", { confirm: "delete" });
     expect(await eventsOf(id)).toEqual([]);
     expect((await env.DB.prepare("SELECT COUNT(*) AS place_count FROM security_places WHERE account_id = ?").bind(id).first<{ place_count: number }>())!.place_count).toBe(0);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS network_count FROM sign_in_networks WHERE account_id = ?").bind(id).first<{ network_count: number }>())!.network_count).toBe(0);
   });
 });
 
@@ -3268,5 +3270,90 @@ describe("leaked keys on the account page", () => {
     const page = await (await owner.go("/account")).text();
     expect(page).toContain("Zaisma turned off an API key found in public: space-game CI");
     expect(page).toContain("Zaisma");
+  });
+});
+
+describe("security alerts on the account page and dashboard", () => {
+  const MANCHESTER = { asn: 64500, asOrganization: "Vodafone", city: "Manchester", region: "England", country: "GB" };
+  const LEEDS_SAME_NETWORK = { ...MANCHESTER, city: "Leeds" };
+  const ELSEWHERE = { asn: 8075, asOrganization: "Microsoft Corporation", city: "Des Moines", region: "Iowa", country: "US" };
+  const at = (cf: Record<string, unknown>) => Object.assign(new Browser(), { cf: cf as unknown as IncomingRequestCfProperties });
+  const alertsTo = (email: string) => emails.filter((sent) => sent.to === email && !/is your Zaisma code$/.test(sent.subject));
+  const statusesOf = async (accountId: string, kind: string) =>
+    (await env.DB.prepare("SELECT security_alert_status FROM security_events WHERE account_id = ? AND kind = ? ORDER BY id").bind(accountId, kind).all<{ security_alert_status: string | null }>()).results.map((row) => row.security_alert_status);
+
+  it("emails a password change to the account's email, and an email change to the old address and the new", async () => {
+    const owner = at(MANCHESTER);
+    await join(owner, "fox@example.com");
+    const id = await idOf("Night_Owl");
+    // Adding the first email is an alert too, to the address it added.
+    expect(alertsTo("fox@example.com").map((sent) => sent.subject)).toEqual(["An email was added to your Zaisma account"]);
+    await owner.go("/account/password", { password: "another long password" });
+    const [changed] = alertsTo("fox@example.com").slice(-1);
+    expect(changed).toMatchObject({ subject: "Your Zaisma password was changed" });
+    expect(changed!.text).toContain("Changed your password, on your Zaisma account Night_Owl,");
+    expect(changed!.text).toContain("Vodafone, near Manchester, UK");
+    expect(changed!.text).toContain("zaisma.test/account?not-you#signing-in");
+    expect(await statusesOf(id, "password_changed")).toEqual(["emailed"]);
+
+    await addEmail(owner, "fox@new.example.com");
+    expect(alertsTo("fox@example.com").at(-1)!.subject).toBe("Your Zaisma email was changed");
+    expect(alertsTo("fox@new.example.com").at(-1)!.subject).toBe("Your Zaisma email was changed");
+  });
+
+  it("emails a new-device sign-in only from a network the account hasn't signed in from", async () => {
+    const owner = at(MANCHESTER);
+    await join(owner, "fox@example.com");
+    const id = await idOf("Night_Owl");
+    const before = alertsTo("fox@example.com").length;
+    // Another device, the same network: a school's laptop cart. Logged, but no alert.
+    await signIn(at(LEEDS_SAME_NETWORK), { username: "Night_Owl", password: PASSWORD });
+    expect(await statusesOf(id, "signed_in_new_device")).toEqual([null]);
+    expect(alertsTo("fox@example.com")).toHaveLength(before);
+    await signIn(at(ELSEWHERE), { username: "Night_Owl", password: PASSWORD });
+    expect(await statusesOf(id, "signed_in_new_device")).toEqual([null, "emailed"]);
+    expect(alertsTo("fox@example.com").at(-1)).toMatchObject({ subject: "New sign-in to your Zaisma account" });
+    expect(alertsTo("fox@example.com").at(-1)!.text).toContain("Signed in with your password on a new device");
+    // Making the account is never one.
+    expect(await statusesOf(id, "account_created")).toEqual([null]);
+  });
+
+  it("without an email, shows the alert and the ask on the account page and dashboard until That was me and Skip", async () => {
+    const owner = at(MANCHESTER);
+    await join(owner, null);
+    const id = await idOf("Night_Owl");
+    // Nothing to lose yet: no ask.
+    expect(await (await owner.go("/account")).text()).not.toContain('id="email-ask"');
+    const made = await (await makeKey(owner, await addPasskey(owner))).text();
+    expect(made).toContain('id="security-alerts"');
+    expect(made).toContain("Made an API key: My laptop");
+    // Just confirmed with the passkey: the email box is right there.
+    expect(made).toContain("Where should we tell you if someone else uses your account?");
+    expect(made).toMatch(/id="email-ask"[\s\S]*action="\/account\/email"/);
+    expect(await statusesOf(id, "api_key_created")).toEqual(["unseen"]);
+
+    const dashboard = await (await owner.go("/dashboard")).text();
+    expect(dashboard).toContain('id="security-alerts"');
+    expect(dashboard).toContain("Made an API key: My laptop");
+    expect(dashboard).toContain('id="email-ask"');
+
+    const seen = await owner.go("/account/security-alerts/seen", { next: "/dashboard" });
+    expect(seen.headers.get("location")).toBe("/dashboard");
+    expect(await statusesOf(id, "api_key_created")).toEqual(["seen"]);
+    expect(await (await owner.go("/dashboard")).text()).not.toContain('id="security-alerts"');
+    await owner.go("/account/email-ask/skip", { next: "/account" });
+    const after = await (await owner.go("/account")).text();
+    expect(after).not.toContain('id="email-ask"');
+    expect(after).not.toContain('id="security-alerts"');
+  });
+
+  it("asks a player without a fresh confirmation to confirm first", async () => {
+    const owner = at(MANCHESTER);
+    await join(owner, null);
+    const id = await idOf("Night_Owl");
+    await createApiKey(env.DB, id, "CI");
+    await ageProofs();
+    const page = await (await owner.go("/account")).text();
+    expect(page).toMatch(/id="email-ask"[\s\S]*href="\/account\?confirm-first#confirm"/);
   });
 });

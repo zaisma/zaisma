@@ -150,7 +150,139 @@ export const SECURITY_LOG_LIMITS = {
   gameHistoryEventCount: 100,
   foldDurationMs: 3_600_000,
   maximumWhereCharacterCount: 60,
+  /** Alert emails to one account an hour; past it, alerts wait on its pages, so a key used from many places can't flood an inbox. */
+  maximumAlertEmailCountPerHour: 10,
+  /** How many unseen security alerts get_activity answers, and the pages show. */
+  unseenAlertCount: 10,
 } as const;
+
+// --- Security alerts ---------------------------------------------------------------
+
+/**
+ * The risky moments the owner hears about (docs/DECISIONS.md, "The security log says who did what from where, and
+ * the owner hears about the risky moments"): an email, or with none, the account page and dashboard until seen.
+ */
+export const SECURITY_ALERT_STATUSES = ["emailed", "unseen", "seen"] as const;
+export type SecurityAlertStatus = (typeof SECURITY_ALERT_STATUSES)[number];
+
+/** What each alert's email says: its subject, and what to do when it wasn't them. */
+export const SECURITY_ALERT_WORDS = {
+  signed_in_new_device: { subject: "New sign-in to your Zaisma account", ifNotYou: "change your password" },
+  password_added: { subject: "A password was added to your Zaisma account", ifNotYou: "change your password" },
+  password_changed: { subject: "Your Zaisma password was changed", ifNotYou: "change your password" },
+  email_added: { subject: "An email was added to your Zaisma account", ifNotYou: "change your password" },
+  email_changed: { subject: "Your Zaisma email was changed", ifNotYou: "change your password" },
+  email_removed: { subject: "The email was removed from your Zaisma account", ifNotYou: "change your password" },
+  passkey_removed: { subject: "A passkey was removed from your Zaisma account", ifNotYou: "change your password" },
+  api_key_created: { subject: "A new API key was made on your Zaisma account", ifNotYou: "remove the key under Game developers and change your password" },
+  api_key_new_place: { subject: "Your Zaisma API key was used from a new place", ifNotYou: "remove the key under Game developers and change your password" },
+  api_key_turned_off: { subject: "Zaisma turned off one of your API keys", ifNotYou: "make a new key under Game developers, and keep it out of public places" },
+  ai_connected: { subject: "An AI was connected to your Zaisma account", ifNotYou: "remove the key under Game developers and change your password" },
+  connected_app_added: { subject: "An app was connected to your Zaisma account", ifNotYou: "remove the app under Game developers and change your password" },
+  connected_app_removed: { subject: "Zaisma disconnected an app from your account", ifNotYou: "connect the app again, and change your password" },
+} as const satisfies Partial<Record<SecurityEventKind, { subject: string; ifNotYou: string }>>;
+export type SecurityAlertKind = keyof typeof SECURITY_ALERT_WORDS;
+
+/** The kinds that are always an alert. A new-device sign-in is one only from a new network; a removed app only when Zaisma removed it. */
+export const SECURITY_ALERT_EVENT_KINDS: readonly SecurityEventKind[] = [
+  "password_added",
+  "password_changed",
+  "email_added",
+  "email_changed",
+  "email_removed",
+  "passkey_removed",
+  "api_key_created",
+  "api_key_new_place",
+  "api_key_turned_off",
+  "ai_connected",
+  "connected_app_added",
+];
+
+/** Whether an event is a security alert. isNewPlace: for a sign-in, from a network the account hasn't used. */
+export function isSecurityAlert(kind: SecurityEventKind, doneBy: DoneBy, isNewPlace: boolean): kind is SecurityAlertKind {
+  if (kind === "signed_in_new_device") return isNewPlace;
+  // A connection Zaisma cut off, because its refresh token was used twice: a stolen copy.
+  if (kind === "connected_app_removed") return doneBy === "zaisma";
+  return SECURITY_ALERT_EVENT_KINDS.includes(kind);
+}
+
+// --- Spikes across Zaisma ----------------------------------------------------------
+
+/**
+ * Counts per clock hour that alert Julius when one reaches its threshold, from one network or across Zaisma
+ * (network_number 0). Database exports bunch at midnight, when CI runs, so theirs is high.
+ */
+export const SPIKE_THRESHOLDS = {
+  wrong_passwords_from_network: 100,
+  new_device_sign_ins_from_network: 50,
+  api_keys_created: 100,
+  databases_exported: 500,
+  scripts_blocked: 500,
+} as const;
+export type SpikeKind = keyof typeof SPIKE_THRESHOLDS;
+export const SPIKE_KINDS = Object.keys(SPIKE_THRESHOLDS) as SpikeKind[];
+export const SPIKE_WORDS: Record<SpikeKind, string> = {
+  wrong_passwords_from_network: "wrong passwords",
+  new_device_sign_ins_from_network: "sign-ins on new devices",
+  api_keys_created: "API keys made",
+  databases_exported: "databases exported",
+  scripts_blocked: "scripts blocked on zaisma.com",
+};
+export const ACROSS_ZAISMA_NETWORK_NUMBER = 0;
+/** Spikes and blocked scripts are kept this long. */
+export const SECURITY_SIGNAL_KEPT_DURATION_DAYS = 30;
+
+// --- Script policy reports ---------------------------------------------------------
+
+export interface BlockedScript {
+  violatedDirective: string;
+  blockedSource: string;
+  pagePath: string;
+}
+
+const EXTENSION_SCHEMES = /^(chrome|moz|safari|safari-web|ms-browser)-extension:/i;
+const KEYWORD_SOURCES = new Set(["inline", "eval", "wasm-eval", "data", "blob", "self", "trusted-types-policy", "trusted-types-sink"]);
+
+/**
+ * One script policy violation report, as browsers send it: the old {"csp-report": {…}} body or one
+ * {type: "csp-violation", body: {…}} item of a reports+json list. What's kept: the directive, the blocked
+ * source as a keyword or an origin (never a path or query), and the page's path. Null for a browser
+ * extension's (extensions break page policies all day, and say nothing about Zaisma) or anything else.
+ */
+export function cleanBlockedScriptReport(report: unknown): BlockedScript | null {
+  if (!report || typeof report !== "object") return null;
+  const given = report as Record<string, unknown>;
+  let fields: Record<string, unknown>;
+  if (given["csp-report"] && typeof given["csp-report"] === "object") {
+    const old = given["csp-report"] as Record<string, unknown>;
+    fields = { directive: old["effective-directive"] ?? old["violated-directive"], blocked: old["blocked-uri"], page: old["document-uri"], source: old["source-file"] };
+  } else if (given.type === "csp-violation" && given.body && typeof given.body === "object") {
+    const body = given.body as Record<string, unknown>;
+    fields = { directive: body.effectiveDirective, blocked: body.blockedURL, page: body.documentURL ?? given.url, source: body.sourceFile };
+  } else return null;
+  if (typeof fields.directive !== "string" || typeof fields.page !== "string") return null;
+  const blocked = typeof fields.blocked === "string" ? fields.blocked.trim() : "";
+  if (EXTENSION_SCHEMES.test(blocked) || (typeof fields.source === "string" && EXTENSION_SCHEMES.test(fields.source))) return null;
+  const violatedDirective = fields.directive.trim().split(/\s+/)[0]!.toLowerCase();
+  if (!/^[a-z-]{1,40}$/.test(violatedDirective)) return null;
+  let pagePath: string;
+  try {
+    pagePath = new URL(fields.page).pathname.slice(0, 200);
+  } catch {
+    return null;
+  }
+  let blockedSource: string;
+  if (blocked === "" || KEYWORD_SOURCES.has(blocked.toLowerCase())) blockedSource = blocked.toLowerCase() || "inline";
+  else {
+    try {
+      const url = new URL(blocked);
+      blockedSource = (url.origin === "null" ? url.protocol.replace(/:$/, "") : url.origin).slice(0, 100);
+    } catch {
+      return null;
+    }
+  }
+  return { violatedDirective, blockedSource, pagePath };
+}
 
 const SIGN_IN_KIND_WORDS: Record<SignInKind, string> = {
   password: "with your password",

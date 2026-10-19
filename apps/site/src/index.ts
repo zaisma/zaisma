@@ -8,6 +8,7 @@ import type { Env } from "./env.ts";
 import { message } from "./html.ts";
 import { handleMcp } from "./mcp.ts";
 import { handleGithubSecretScanning } from "./leaked-keys.ts";
+import { recordBlockedScripts } from "./security-alerts.ts";
 import { pageScriptResponse } from "./page-scripts.ts";
 import { handlePlayed, home } from "./home.ts";
 import { handlePlays } from "./plays.ts";
@@ -49,6 +50,7 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
   if (path === "/admin" || path.startsWith("/admin/")) return handleAdmin(request, env, path);
   if (path === "/mcp") return handleMcp(request, env, ctx);
   if (path === "/github/secret-scanning") return handleGithubSecretScanning(request, env);
+  if (path === "/csp-reports") return method === "POST" ? recordBlockedScripts(request, env) : new Response("Method not allowed", { status: 405 });
   const developer = await handleDeveloper(request, env, path, ctx);
   if (developer) return developer;
   // Sign in with Zaisma, before the method check: other sites' pages ask first (OPTIONS).

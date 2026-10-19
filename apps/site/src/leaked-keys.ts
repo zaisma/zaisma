@@ -61,6 +61,7 @@ export async function turnOffLeakedKeys(env: Env, tokens: string[], found: Found
       where: NO_WHERE,
       isWhereKept: false,
       isNewPlace: false,
+      alert: { detailText: `It was ${foundWords({ found_in: found.foundIn, found_at_url: found.foundAtUrl })}, so anyone may have it, and it can't be turned back on. Your games keep running; only the MCP, the upload command and CI that used it stop.` },
     });
   }
   return answers;

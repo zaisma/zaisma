@@ -183,6 +183,8 @@ await seedWrongPasswords();
 seedSecurityLog();
 // Preview_Studio's three kinds of key row: working with an end date, turned off after a leak, and ended.
 seedLeakedKeys();
+// Security alerts waiting on Preview_Studio's pages (it has no email), and spikes and blocked scripts for the admin MCP.
+seedSecurityAlerts();
 // Two accounts for Confirm it's you: one that can't make a key until it adds a passkey, and one whose newest passkey waits a day.
 await seedConfirmItsYou();
 // Pretend play stats for two games, so the dashboard's Plays section has something to show. Real
@@ -244,6 +246,10 @@ Zaisma preview is running. Nothing here touches the live site.
   Leaked keys     ${SITE}/account#developer  (as Preview_Studio: three key rows, one working with a last use and an end date, one
                   turned off after GitHub found it, one that ended yesterday; Make an API key shows the Ends choice) and
                   ${SITE}/account#activity  (Zaisma turned off an API key found in public)
+  Security alerts ${SITE}/account  (as Preview_Studio, no email: three alerts with That was me and Not you?, then
+                  Where should we tell you…? with Skip) and ${SITE}/dashboard  (the same two, short); the mailbox
+                  has the alerts accounts with an email got (an email added, a password changed, a new key);
+                  the admin MCP's list_security_spikes and list_blocked_scripts have this hour's
   Who and where   ${SITE}/dashboard/shard-dodge  (Recent history: a key's upload from a new place) and
                   ${SITE}/dashboard/tiny-farm  (Your AI's database writes, folded)
   Confirm it's you  ${SITE}/account#developer  (as Key_Maker, no passkey yet: Make an API key opens on First, add a passkey;
@@ -916,6 +922,26 @@ function seedSecurityLog() {
     row({ key: "preview:6", username: "Moss_Runner", kind: "where_used_from_turned_off", doneBy: "you", at: hoursAgo(5) }),
     row({ key: "preview:7", username: "Moss_Runner", kind: "signed_in_new_device", doneBy: "you", signInKind: "password", at: hoursAgo(1) }),
     "UPDATE accounts SET where_used_from_enabled = 0 WHERE username = 'Moss_Runner'",
+  ];
+  spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", sql.join("; ")], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
+}
+
+/**
+ * Security alerts (docs/DECISIONS.md, "The security log says who did what from where, and the owner hears about the
+ * risky moments"). Preview_Studio has no email, so its GitHub Actions key's new place, the AI it connected and the key
+ * Zaisma turned off wait on its account page and dashboard until That was me (only rows not yet seen: pressing it
+ * holds across runs, until --reset). Accounts with an email get theirs in the mailbox as they're made. Plus this
+ * hour's spikes and blocked scripts, for the admin MCP's list_security_spikes and list_blocked_scripts.
+ */
+function seedSecurityAlerts() {
+  const nowMs = Date.now();
+  const hourNumber = Math.floor(nowMs / 3600_000);
+  const sql = [
+    "UPDATE security_events SET security_alert_status = 'unseen' WHERE security_alert_status IS NULL AND (fold_key IN ('preview:2', 'preview:4') OR id = 900001)",
+    `INSERT OR REPLACE INTO security_spikes (spike_kind, network_number, hour_number, network_name, occurrence_count, first_happened_at_ms, last_happened_at_ms, alerted_at_ms) VALUES ('wrong_passwords_from_network', 64500, ${hourNumber}, 'Example Hosting', 140, ${nowMs - 1800_000}, ${nowMs}, ${nowMs - 900_000})`,
+    `INSERT OR REPLACE INTO security_spikes (spike_kind, network_number, hour_number, network_name, occurrence_count, first_happened_at_ms, last_happened_at_ms, alerted_at_ms) VALUES ('api_keys_created', 0, ${hourNumber - 30}, NULL, 112, ${nowMs - 31 * 3600_000}, ${nowMs - 30 * 3600_000}, ${nowMs - 30 * 3600_000})`,
+    `INSERT OR REPLACE INTO blocked_scripts (violated_directive, blocked_source, page_path, hour_number, occurrence_count, first_reported_at_ms, last_reported_at_ms) VALUES ('script-src-elem', 'https://cdn.evil.example', '/g/shard-dodge', ${hourNumber}, 37, ${nowMs - 3000_000}, ${nowMs})`,
+    `INSERT OR REPLACE INTO blocked_scripts (violated_directive, blocked_source, page_path, hour_number, occurrence_count, first_reported_at_ms, last_reported_at_ms) VALUES ('script-src-elem', 'inline', '/forum', ${hourNumber}, 3, ${nowMs - 600_000}, ${nowMs})`,
   ];
   spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", sql.join("; ")], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
 }

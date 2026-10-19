@@ -44,6 +44,8 @@ export interface Account extends SocialSettings {
   chat_repeat_window_started_at_ms: number | null;
   /** Whether the account may make, upload and publish games (0 or 1): until the beta, only accounts Julius adds (docs/DECISIONS.md, "Uploads are only for people Julius adds until the beta"). */
   can_publish: number;
+  /** When an account without an email pressed Skip on "Where should we tell you if someone else uses your account?" (security-alerts.ts); null while it hasn't. */
+  email_ask_skipped_at_ms: number | null;
   created_at_ms: number;
   updated_at_ms: number;
 }
@@ -283,6 +285,7 @@ export async function createAccount(database: D1Database, newAccount: { id: stri
     chat_repeat_window_started_at_ms: null,
     // Until the beta, a new account can't make games until Julius adds it on /admin/publishing.
     can_publish: 0,
+    email_ask_skipped_at_ms: null,
     created_at_ms: createdAtMs,
     updated_at_ms: createdAtMs,
   };
@@ -359,9 +362,10 @@ export async function deleteAccount(database: D1Database, id: string): Promise<v
     database.prepare("DELETE FROM email_codes WHERE account_id = ?").bind(id),
     database.prepare("DELETE FROM device_marks WHERE account_id = ?").bind(id),
     database.prepare("DELETE FROM wrong_passwords WHERE account_id = ?").bind(id),
-    // Its security log, and the places its keys were used from.
+    // Its security log, the places its keys were used from and the networks it signed in from.
     database.prepare("DELETE FROM security_events WHERE account_id = ?").bind(id),
     database.prepare("DELETE FROM security_places WHERE account_id = ?").bind(id),
+    database.prepare("DELETE FROM sign_in_networks WHERE account_id = ?").bind(id),
     database.prepare("DELETE FROM saves WHERE account_id = ?").bind(id),
     database.prepare("DELETE FROM played WHERE account_id = ?").bind(id),
     database.prepare("DELETE FROM games_ever_played WHERE account_id = ?").bind(id),
