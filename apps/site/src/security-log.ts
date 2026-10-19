@@ -2,6 +2,7 @@ import {
   ACCOUNT_EVENT_KINDS,
   ACCOUNT_WIDE_GAME_EVENT_KINDS,
   ADDRESS_KEEPING_EVENT_KINDS,
+  ACROSS_ZAISMA_NETWORK_NUMBER,
   ALWAYS_ADDRESS_KEEPING_EVENT_KINDS,
   ApiError,
   NO_WHERE,
@@ -10,13 +11,16 @@ import {
   describeSecurityEvent,
   foldKeyFor,
   isReadOnlySql,
+  isSecurityAlert,
   placeSha256For,
+  sha256Hex,
   whereFrom,
   type Account,
   type ApiKey,
   type DoneBy,
   type Game,
   type RequestWhere,
+  type SecurityAlertStatus,
   type SecurityEventKind,
   type SignInKind,
 } from "@zaisma/core";
@@ -24,6 +28,7 @@ import { connectionAddressOf } from "./auth.ts";
 import { isDeviceMarked, markDevice } from "./device-marks.ts";
 import type { Caller, CheckedCall } from "./developer.ts";
 import type { Env } from "./env.ts";
+import { deleteOldSecuritySignals, noteSpike, raiseSecurityAlert } from "./security-alerts.ts";
 
 /**
  * The security log's database side (docs/DECISIONS.md, "The security log says who did what from where"):
@@ -32,6 +37,8 @@ import type { Env } from "./env.ts";
  * packages/core/src/security-log.ts.
  *
  * Every write here catches its own errors and logs them, never throws: the action it records already happened.
+ * The risky events are security alerts too (security-alerts.ts), raised here as they're written, so no action can
+ * log one and forget to tell the owner.
  */
 
 const DAY_MS = 86400_000;
@@ -50,11 +57,14 @@ export interface SecurityEventRow {
   where: RequestWhere;
   /** Whether the account keeps where it's used from (accounts.where_used_from_enabled). */
   isWhereKept: boolean;
+  /** For a key's event, a network and country it hadn't been used from; for a sign-in, a network the account hadn't signed in from. */
   isNewPlace: boolean;
+  /** For an alert: addresses to email besides the account's own (the old one, when the email changed or went), and anything more to say. */
+  alert?: { emails?: string[]; detailText?: string };
 }
 
 /** The place's words and the address as they're kept for this event: the setting off keeps no where, and only uploads keep their address. */
-function keptWhere(row: SecurityEventRow) {
+export function keptWhere(row: SecurityEventRow) {
   const { where } = row;
   const keepsAddress = (row.isWhereKept ? ADDRESS_KEEPING_EVENT_KINDS : ALWAYS_ADDRESS_KEEPING_EVENT_KINDS).includes(row.kind);
   return {
@@ -67,14 +77,17 @@ function keptWhere(row: SecurityEventRow) {
   };
 }
 
-export async function logSecurityEvent(env: Env, row: SecurityEventRow, nowMs = Date.now()): Promise<void> {
+/** Writes the event, raises its security alert when it is one, and counts it toward Zaisma's spikes. Answers the row's ID, or null when it couldn't be written. */
+export async function logSecurityEvent(env: Env, row: SecurityEventRow, nowMs = Date.now()): Promise<number | null> {
+  let eventNumber: number | null = null;
   try {
     const kept = keptWhere(row);
     const foldKey = foldKeyFor(row.kind, row.gameId, row.doneBy, row.apiKeyId, nowMs);
-    await env.DB.prepare(
+    const written = await env.DB.prepare(
       `INSERT INTO security_events (account_id, game_id, kind, done_by, api_key_id, api_key_name, sign_in_kind, version_id, subject_name, device, network_name, city_name, region_name, country_code, connection_address, is_new_place, occurrence_count, fold_key, happened_at_ms, last_happened_at_ms)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
-       ${foldKey ? "ON CONFLICT (fold_key) DO UPDATE SET occurrence_count = occurrence_count + 1, last_happened_at_ms = excluded.last_happened_at_ms, is_new_place = MAX(is_new_place, excluded.is_new_place)" : ""}`,
+       ${foldKey ? "ON CONFLICT (fold_key) DO UPDATE SET occurrence_count = occurrence_count + 1, last_happened_at_ms = excluded.last_happened_at_ms, is_new_place = MAX(is_new_place, excluded.is_new_place)" : ""}
+       RETURNING id`,
     )
       .bind(
         row.accountId,
@@ -97,10 +110,17 @@ export async function logSecurityEvent(env: Env, row: SecurityEventRow, nowMs = 
         nowMs,
         nowMs,
       )
-      .run();
+      .first<{ id: number }>();
+    eventNumber = written?.id ?? null;
   } catch (error) {
     console.error("Security event not logged", row.kind, error);
   }
+  // A folded kind is never an alert, so its row's ID is its own.
+  if (eventNumber !== null && isSecurityAlert(row.kind, row.doneBy, row.isNewPlace)) await raiseSecurityAlert(env, eventNumber, row, nowMs);
+  if (row.kind === "api_key_created") await noteSpike(env, "api_keys_created", ACROSS_ZAISMA_NETWORK_NUMBER, null, nowMs);
+  if (row.kind === "database_exported") await noteSpike(env, "databases_exported", ACROSS_ZAISMA_NETWORK_NUMBER, null, nowMs);
+  if (row.kind === "signed_in_new_device" && row.where.networkNumber !== null) await noteSpike(env, "new_device_sign_ins_from_network", row.where.networkNumber, row.where.networkName, nowMs);
+  return eventNumber;
 }
 
 const DONE_BY_VIA: Record<Caller["via"], DoneBy> = { dashboard: "you", api: "api_key", mcp: "ai" };
@@ -145,7 +165,7 @@ export function whereOfPerson(request: Request): RequestWhere {
 }
 
 /** A change to how the account signs in or to its keys, made by the account on zaisma.com. */
-export async function logAccountChange(request: Request, env: Env, account: Account, kind: SecurityEventKind, parts: { subjectName?: string | null } = {}): Promise<void> {
+export async function logAccountChange(request: Request, env: Env, account: Account, kind: SecurityEventKind, parts: { subjectName?: string | null; alert?: SecurityEventRow["alert"] } = {}): Promise<void> {
   await logSecurityEvent(env, {
     accountId: account.id,
     gameId: null,
@@ -159,16 +179,38 @@ export async function logAccountChange(request: Request, env: Env, account: Acco
     where: whereOfPerson(request),
     isWhereKept: account.where_used_from_enabled === 1,
     isNewPlace: false,
+    ...(parts.alert ? { alert: parts.alert } : {}),
   });
 }
 
 /**
+ * The account signed in from this network: answers whether it hadn't in the last 90 days. A network is its number
+ * (Cloudflare's asn), kept as a fingerprint with the account; a request without one counts as new, the safer side.
+ */
+async function noteSignInNetwork(env: Env, accountId: string, networkNumber: number | null, nowMs: number): Promise<boolean> {
+  if (networkNumber === null) return true;
+  try {
+    const networkSha256 = await sha256Hex(new TextEncoder().encode(`${accountId}:${networkNumber}`));
+    const inserted = await env.DB.prepare("INSERT OR IGNORE INTO sign_in_networks (account_id, network_sha256, first_seen_at_ms, last_seen_at_ms) VALUES (?, ?, ?, ?)").bind(accountId, networkSha256, nowMs, nowMs).run();
+    if (inserted.meta.changes === 1) return true;
+    await env.DB.prepare("UPDATE sign_in_networks SET last_seen_at_ms = ? WHERE account_id = ? AND network_sha256 = ?").bind(nowMs, accountId, networkSha256).run();
+    return false;
+  } catch (error) {
+    console.error("Sign-in network not noted", error);
+    return true;
+  }
+}
+
+/**
  * Signed in (or made the account) on this device. A device the account hadn't marked is a new device, and
- * says so in the log; one it had is quiet. Marks the device either way, and answers its cookie.
+ * says so in the log; one it had is quiet. A new device on a network the account hadn't signed in from is a
+ * security alert. Marks the device and the network either way, and answers the device's cookie.
  */
 export async function recordSignIn(request: Request, env: Env, accountId: string, signInKind: SignInKind | null, options: { isNewAccount?: boolean } = {}): Promise<string> {
   const wasMarked = await isDeviceMarked(request, env, accountId);
   const cookie = await markDevice(request, env, accountId);
+  const where = whereOfPerson(request);
+  const isNewNetwork = await noteSignInNetwork(env, accountId, where.networkNumber, Date.now());
   if (!wasMarked) {
     try {
       const account = await env.DB.prepare("SELECT where_used_from_enabled FROM accounts WHERE id = ?").bind(accountId).first<{ where_used_from_enabled: number }>();
@@ -182,9 +224,9 @@ export async function recordSignIn(request: Request, env: Env, accountId: string
         signInKind,
         versionId: null,
         subjectName: null,
-        where: whereOfPerson(request),
+        where,
         isWhereKept: (account?.where_used_from_enabled ?? 1) === 1,
-        isNewPlace: false,
+        isNewPlace: !options.isNewAccount && isNewNetwork,
       });
     } catch (error) {
       console.error("Sign-in not logged", error);
@@ -323,6 +365,28 @@ interface WhoAndWhereRow {
 
 const WHO_AND_WHERE_COLUMNS = "done_by, api_key_name, device, network_name, city_name, region_name, country_code, connection_address";
 
+/** An account event as it's stored, for the answers below. */
+export interface AccountEventRow extends WhoAndWhereRow {
+  kind: SecurityEventKind;
+  sign_in_kind: SignInKind | null;
+  subject_name: string | null;
+  happened_at_ms: number;
+  security_alert_status: SecurityAlertStatus | null;
+}
+
+/** One of the account's events, as get_activity lists it and a security_alert webhook event carries it. */
+export function activityEventJson(row: AccountEventRow, isAddressShown: boolean) {
+  return {
+    kind: row.kind,
+    description: describeSecurityEvent(row.kind, row.sign_in_kind),
+    sign_in_kind: row.sign_in_kind,
+    subject_name: row.subject_name,
+    ...whoAndWhere(row, isAddressShown),
+    happened_at: iso(row.happened_at_ms),
+    security_alert_status: row.security_alert_status,
+  };
+}
+
 const iso = (ms: number) => new Date(ms).toISOString();
 
 function whoAndWhere(row: WhoAndWhereRow, isAddressShown: boolean) {
@@ -342,7 +406,7 @@ function placeholders(valueCount: number): string {
   return Array.from({ length: valueCount }, () => "?").join(", ");
 }
 
-/** The account's Activity: the last 90 days of its own events, newest first, 50 a page. */
+/** The account's Activity: the last 90 days of its own events, newest first, 50 a page, and the security alerts no email told it about that it hasn't seen. */
 export async function activityAnswer(env: Env, account: Account, cursor: string | null, nowMs = Date.now()) {
   let beforeEventNumber = Number.MAX_SAFE_INTEGER;
   if (cursor !== null) {
@@ -351,24 +415,25 @@ export async function activityAnswer(env: Env, account: Account, cursor: string 
     beforeEventNumber = Number(match[1]);
   }
   const pageEventCount = SECURITY_LOG_LIMITS.activityPageEventCount;
-  const { results } = await env.DB.prepare(
-    `SELECT id, kind, sign_in_kind, subject_name, ${WHO_AND_WHERE_COLUMNS}, happened_at_ms FROM security_events
-     WHERE account_id = ? AND game_id IS NULL AND kind IN (${placeholders(ACCOUNT_EVENT_KINDS.length)}) AND happened_at_ms > ? AND id < ?
-     ORDER BY id DESC LIMIT ?`,
-  )
-    .bind(account.id, ...ACCOUNT_EVENT_KINDS, nowMs - SECURITY_LOG_LIMITS.keptDurationDays * DAY_MS, beforeEventNumber, pageEventCount + 1)
-    .all<WhoAndWhereRow & { id: number; kind: SecurityEventKind; sign_in_kind: SignInKind | null; subject_name: string | null; happened_at_ms: number }>();
+  const columns = `id, kind, sign_in_kind, subject_name, ${WHO_AND_WHERE_COLUMNS}, happened_at_ms, security_alert_status`;
+  const keptSinceMs = nowMs - SECURITY_LOG_LIMITS.keptDurationDays * DAY_MS;
+  const [{ results }, { results: unseen }] = await Promise.all([
+    env.DB.prepare(
+      `SELECT ${columns} FROM security_events
+       WHERE account_id = ? AND game_id IS NULL AND kind IN (${placeholders(ACCOUNT_EVENT_KINDS.length)}) AND happened_at_ms > ? AND id < ?
+       ORDER BY id DESC LIMIT ?`,
+    )
+      .bind(account.id, ...ACCOUNT_EVENT_KINDS, keptSinceMs, beforeEventNumber, pageEventCount + 1)
+      .all<AccountEventRow & { id: number }>(),
+    env.DB.prepare(`SELECT ${columns} FROM security_events WHERE account_id = ? AND security_alert_status = 'unseen' AND happened_at_ms > ? ORDER BY id DESC LIMIT ?`)
+      .bind(account.id, keptSinceMs, SECURITY_LOG_LIMITS.unseenAlertCount)
+      .all<AccountEventRow & { id: number }>(),
+  ]);
   const page = results.slice(0, pageEventCount);
   const isAddressShown = account.where_used_from_enabled === 1;
   return {
-    events: page.map((row) => ({
-      kind: row.kind,
-      description: describeSecurityEvent(row.kind, row.sign_in_kind),
-      sign_in_kind: row.sign_in_kind,
-      subject_name: row.subject_name,
-      ...whoAndWhere(row, isAddressShown),
-      happened_at: iso(row.happened_at_ms),
-    })),
+    events: page.map((row) => activityEventJson(row, isAddressShown)),
+    unseen_security_alerts: unseen.map((row) => activityEventJson(row, isAddressShown)),
     where_used_from_enabled: account.where_used_from_enabled === 1,
     next_cursor: results.length > pageEventCount ? `cursor_${page[page.length - 1]!.id}` : null,
   };
@@ -530,6 +595,7 @@ export async function deleteOldSecurityEvents(env: Env, nowMs = Date.now()): Pro
     env.DB.prepare("DELETE FROM security_places WHERE api_key_id IN (SELECT id FROM api_keys WHERE COALESCE(turned_off_at_ms, ends_at_ms) <= ?)").bind(cutoffMs),
     env.DB.prepare("DELETE FROM api_keys WHERE COALESCE(turned_off_at_ms, ends_at_ms) <= ?").bind(cutoffMs),
   ]);
+  await deleteOldSecuritySignals(env, nowMs);
 }
 
 // --- Words for pages ----------------------------------------------------------------

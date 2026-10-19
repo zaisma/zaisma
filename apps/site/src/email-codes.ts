@@ -188,6 +188,40 @@ export function copyStoppedEmail(env: Env, details: { username: string; gameTitl
   };
 }
 
+/**
+ * A security alert's email (docs/DECISIONS.md, "The security log says who did what from where, and the owner hears
+ * about the risky moments"): what happened, when and from where (left out when the account doesn't keep where it's
+ * used from), anything more Zaisma knows (where a turned-off key was found), and what to do if it wasn't them.
+ */
+export function securityAlertEmail(
+  env: Env,
+  details: { username: string; title: string; subject: string; ifNotYou: string; isByZaisma: boolean; isAboutKeys: boolean; happenedAtMs: number; whereText: string; detailText?: string },
+): { subject: string; text: string; html: string } {
+  const site = env.SITE_ORIGIN.replace(/^https?:\/\//, "");
+  const first = `${details.title}, on your Zaisma account ${details.username}, ${waitEndsText(details.happenedAtMs)}${details.whereText ? ` (${details.whereText})` : ""}.`;
+  const link = details.isAboutKeys ? `${site}/account#developer` : `${site}/account?not-you#signing-in`;
+  const what = details.isByZaisma
+    ? `To keep going, ${details.ifNotYou}: ${link}`
+    : `Was this you? Then there's nothing to do. If it wasn't, ${details.ifNotYou} at ${link}${details.isAboutKeys ? "" : ". A new password signs out every other device"}.`;
+  const paragraphs = [first, ...(details.detailText ? [details.detailText] : []), what];
+  return {
+    subject: details.subject,
+    text: `${paragraphs.join("\n\n")}\n\nZaisma, ${site}\n`,
+    html: `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="color-scheme" content="dark"><title>${esc(details.subject)}</title></head>
+<body style="margin:0;padding:32px 16px;background:#0b0d10;color:#eceef0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:440px">
+<tr><td style="padding:0 0 28px"><img src="${esc(env.SITE_ORIGIN)}/zaisma-wordmark-white-2400.png" width="112" alt="Zaisma" style="display:block;width:112px;height:auto;border:0"></td></tr>
+${paragraphs
+  .slice(0, -1)
+  .map((paragraph) => `<tr><td style="font-size:16px;line-height:1.5;color:#c6c9ce;padding:0 0 16px">${esc(paragraph)}</td></tr>`)
+  .join("\n")}
+<tr><td style="font-size:14px;line-height:1.5;color:#969ba4">${esc(what)}</td></tr>
+</table></td></tr></table>
+</body></html>`,
+  };
+}
+
 /** A time as the page and the email say it: Oct 19 at 2:05 PM UTC. (The account page has no local-time script, and an email can't run one.) */
 export function waitEndsText(ms: number): string {
   return `${new Date(ms).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "UTC" }).replace(", ", " at ")} UTC`;
