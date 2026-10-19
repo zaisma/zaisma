@@ -38,6 +38,8 @@ export interface Env {
   FILE_LIMIT?: RateLimit;
   /** AI apps registering to sign in to the MCP (POST /oauth/register), per connection address. */
   REGISTER_LIMIT?: RateLimit;
+  /** Restores and undos of a game's database, per game. */
+  DATABASE_RESTORE_LIMIT?: RateLimit;
   ALERTS?: SendEmail;
   /** Cloudflare Email Sending, for players' email codes (email-codes.ts), from EMAIL_FROM on zaisma.com. */
   EMAIL?: SendEmail;

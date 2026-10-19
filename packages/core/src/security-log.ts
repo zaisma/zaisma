@@ -58,6 +58,8 @@ export const SECURITY_EVENT_DESCRIPTIONS = {
   database_written: "Changed the database with SQL",
   database_imported: "Imported into the database",
   database_exported: "Exported the database",
+  database_restored: "Restored the database to an earlier time",
+  database_restore_undone: "Undid a database restore",
   saves_read: "Read a player's save",
   save_changed: "Changed a player's save",
   // The developer's account-wide things, shown in every game's history to a key that reaches them.
@@ -131,6 +133,8 @@ export const ADDRESS_KEEPING_EVENT_KINDS: readonly SecurityEventKind[] = [
   "secret_deleted",
   "database_written",
   "database_imported",
+  "database_restored",
+  "database_restore_undone",
   "save_changed",
   "webhook_created",
   "webhook_changed",

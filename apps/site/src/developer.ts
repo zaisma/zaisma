@@ -135,6 +135,7 @@ import {
   type WebhookEventKind,
   SAVE_LIMIT_BYTES,
   isSlugRetired,
+  ISO_TIME,
 } from "@zaisma/core";
 import { connectionAddressOf, currentSession } from "./auth.ts";
 import { gameUrl, type Env } from "./env.ts";
@@ -187,6 +188,8 @@ import { sendTestEvent, tellWebhooks, type WaitUntil } from "./webhooks.ts";
  *   GET    /api/dev/games/:slug/database/export one part of the database's SQL dump: ?cursor=<next_cursor>
  *   POST   /api/dev/games/:slug/database/import one part of a SQL dump in: { "dump_sql" }
  *   POST   /api/dev/games/:slug/database/erase-player   erase one player's rows: { "player_id" }
+ *   POST   /api/dev/games/:slug/database/restores       restore the database to a time: { "restore_to_at" }
+ *   POST   /api/dev/games/:slug/database/restores/:database_restore_id/undo   undo a restore
  *   …/api/dev/games/:slug/saves                the game's cloud saves by player ID: list, read, change, reset, earlier versions (see saves-api.ts)
  *   GET    /api/dev/games/:slug/secrets        the game's secrets' names, never their values (see secrets-api.ts)
  *   PUT    /api/dev/games/:slug/secrets/:name  set one: { "secret_value" }
@@ -540,6 +543,8 @@ export const API_ROUTES: readonly ApiRoute[] = [
   call({ method: "GET", path: "/games/:slug/database/export", reaches: "game", access: needs("database_access", "read"), pathParts: atGame, query: plainInputs("cursor") }),
   call({ method: "POST", path: "/games/:slug/database/import", reaches: "game", access: needs("database_access", "write"), pathParts: atGame, body: { inputs: plainInputs("dump_sql"), maximumSizeBytes: MAXIMUM_IMPORT_BODY_SIZE_BYTES } }),
   call({ method: "POST", path: "/games/:slug/database/erase-player", reaches: "game", access: needs("database_access", "write"), pathParts: atGame, body: { inputs: plainInputs("player_id") } }),
+  call({ method: "POST", path: "/games/:slug/database/restores", reaches: "game", access: needs("database_access", "write"), pathParts: atGame, body: { inputs: plainInputs("restore_to_at") } }),
+  call({ method: "POST", path: "/games/:slug/database/restores/:database_restore_id/undo", reaches: "game", access: needs("database_access", "write"), pathParts: { slug: "game", database_restore_id: "in_game" } }),
   call({ method: "GET", path: "/games/:slug/secrets", reaches: "game", access: needs("game_access", "read"), pathParts: atGame }),
   call({ method: "PUT", path: "/games/:slug/secrets/:secret_name", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", secret_name: "in_game" }, body: { inputs: plainInputs("secret_value") } }),
   call({ method: "DELETE", path: "/games/:slug/secrets/:secret_name", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", secret_name: "in_game" } }),
@@ -836,7 +841,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
   if (apiRoute.path.startsWith("/games/:slug/testers")) return answer(...(await testerRoute(request, env, game!, pathValues.tester_id, caller, checked)));
 
   if (apiRoute.path.startsWith("/games/:slug/database")) {
-    const what = apiRoute.path.match(/\/database\/(query|batch|export|import|erase-player)$/)?.[1];
+    const what = apiRoute.path.endsWith("/undo") ? "undo" : apiRoute.path.match(/\/database\/(query|batch|export|import|erase-player|restores)$/)?.[1];
     const answered = await databaseRoute(env, game!, what, checked);
     await logDatabaseCall(env, caller, game!, what, checked, answered[0]);
     return answer(...answered);
@@ -1296,8 +1301,6 @@ function gameRemoved(game: Game, what: string, field: string | null = null): Api
 }
 
 const DAY_MS = 86400_000;
-/** An ISO 8601 time with Z or an offset: the only form times come in (docs/NAMING.md). */
-const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
 
 /** Opaque cursors for lists that continue: they say where the last answer ended. */
 const cursorFor = (atMs: number) => `cursor_${atMs.toString(36)}`;

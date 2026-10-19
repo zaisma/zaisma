@@ -54,8 +54,8 @@ export interface ErasedTable {
   erasedRowCount: number;
 }
 
-/** Lists every table's columns, for eraseStatements; both runtimes read their tables with it. */
-export const TABLE_COLUMNS_SQL = "SELECT schema.name AS table_name, info.name AS column_name FROM sqlite_schema AS schema, pragma_table_info(schema.name) AS info WHERE schema.type = 'table' ORDER BY schema.name, info.cid";
+/** Lists every table's columns, for eraseStatements, leaving out Cloudflare's (_cf_…, which refuse to be read) and SQLite's own; both runtimes read their tables with it. */
+export const TABLE_COLUMNS_SQL = "SELECT schema.name AS table_name, info.name AS column_name FROM sqlite_schema AS schema, pragma_table_info(schema.name) AS info WHERE schema.type = 'table' AND substr(schema.name, 1, 4) <> '_cf_' AND substr(schema.name, 1, 7) <> 'sqlite_' ORDER BY schema.name, info.cid";
 
 /** The rows of TABLE_COLUMNS_SQL as eraseStatements takes them. */
 export function tablesFromColumns(rows: { table_name: unknown; column_name: unknown }[]): { name: string; columnNames: string[] }[] {

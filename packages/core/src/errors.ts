@@ -105,7 +105,7 @@ export const ERROR_CODES = {
 
   // Versions and publishing
   no_version: { httpStatus: 404, meaning: "The game has no version with that ID." },
-  bad_time: { httpStatus: 400, meaning: "A time isn't an ISO time in the range it takes: scheduled_publish_at from a few minutes to 90 days ahead, a tester link's ends_at from now to a year ahead." },
+  bad_time: { httpStatus: 400, meaning: "A time isn't an ISO time in the range it takes: scheduled_publish_at from a few minutes to 90 days ahead, a tester link's ends_at from now to a year ahead, a database restore's restore_to_at within the last 30 days and not before the game was made." },
   still_scanning: { httpStatus: 409, meaning: "The version is still being scanned." },
   not_approved: { httpStatus: 409, meaning: "The version didn't pass review, so it can't be published." },
 
@@ -140,6 +140,8 @@ export const ERROR_CODES = {
   database_read_limit: { httpStatus: 429, meaning: "The game's database has read its free rows this month, so queries wait for the next." },
   database_storage_limit: { httpStatus: 403, meaning: "The statement would grow the game's database past its free storage." },
   database_unavailable: { httpStatus: 503, meaning: "The game's database didn't answer." },
+  database_restore_unavailable: { httpStatus: 501, meaning: "This Zaisma's game databases can't go back in time: its storage keeps no history, like a local preview." },
+  no_database_restore: { httpStatus: 404, meaning: "The game has no database restore with that ID in the last 30 days." },
   bad_secret_name: { httpStatus: 400, meaning: "A secret's name isn't capitals, digits and underscores starting with a capital, up to 64 characters." },
   bad_secret_value: { httpStatus: 400, meaning: "secret_value isn't text of up to 8 KB." },
   no_secret: { httpStatus: 404, meaning: "The game has no secret by that name." },

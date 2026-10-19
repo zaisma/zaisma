@@ -278,8 +278,14 @@ export async function seedKeyPlace(request: Request, env: Env, accountId: string
   }
 }
 
-/** SQL that wrote or imported a game's database, or exported it: one folded event, unless it only read. */
+/** SQL that wrote or imported a game's database, or exported it: one folded event, unless it only read. A restore or its undo: one event each. */
 export async function logDatabaseCall(env: Env, caller: Caller, game: Game, what: string | undefined, checked: CheckedCall, answerBody: unknown): Promise<void> {
+  if (what === "restores" || what === "undo") {
+    const restore = (answerBody as { database_restore?: { restore_to_at?: string; undoes_database_restore_id?: string | null } } | null)?.database_restore;
+    if (!restore) return;
+    if (what === "undo") return logCallerEvent(env, caller, "database_restore_undone", { gameId: game.id, subjectName: restore.undoes_database_restore_id ?? null });
+    return logCallerEvent(env, caller, "database_restored", { gameId: game.id, subjectName: restore.restore_to_at ?? null });
+  }
   if (what === "export") return logCallerEvent(env, caller, "database_exported", { gameId: game.id });
   if (what === "import") return logCallerEvent(env, caller, "database_imported", { gameId: game.id });
   if (what === "erase-player") return logCallerEvent(env, caller, "database_written", { gameId: game.id });

@@ -1,10 +1,10 @@
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 import { DATABASE_LIMITS, DatabaseError, DumpCursorError, TABLE_COLUMNS_SQL, answerDatabase, type DatabaseErrorCode, checkBatch, checkPlayerId, checkStatement, dumpPart, eraseRefused, eraseStatements, importStatements, plainRow, preview, readDatabaseAnswer, tablesFromColumns, tooManyRows, type DatabaseAnswer, type DatabaseRow, type DatabaseValue, type DumpPart, type ErasedTable, type GameDatabase } from "@zaisma/game-server";
-import { GAME_DATABASE_FREE_LIMITS, NEARLY_USED_PCT, nextMonthStartDate, usageMonth, type FreeUseAlertKind } from "@zaisma/core";
+import { GAME_DATABASE_FREE_LIMITS, NEARLY_USED_PCT, nextMonthStartDate, recordPlayerErased, usageMonth, type FreeUseAlertKind } from "@zaisma/core";
 import type { Env } from "./index.ts";
 
 /** Rows read and written in a month, the way Cloudflare bills them, and the month's free-use alerts already noticed. */
-interface Usage {
+export interface Usage {
   month: string;
   readRowCount: number;
   writtenRowCount: number;
@@ -18,8 +18,18 @@ export interface StatementResult {
   writtenRowCount: number;
 }
 
-/** What the developer API gets back: a DatabaseError's codes, and answer_too_big and bad_cursor, which only it has. */
-export type DeveloperDatabaseAnswer<T> = { queryResult: T } | { error: { code: DatabaseErrorCode | "answer_too_big" | "bad_cursor"; message: string; fix: string } };
+/** What the developer API gets back: a DatabaseError's codes, and answer_too_big, bad_cursor and database_restore_unavailable, which only it has. */
+export type DeveloperDatabaseAnswer<T> = { queryResult: T } | { error: { code: DatabaseErrorCode | "answer_too_big" | "bad_cursor" | "database_restore_unavailable"; message: string; fix: string } };
+
+/** Where a restore goes: a moment, or the bookmark an earlier restore's undo kept. */
+export type RestoreTarget = { restoreToAtMs: number } | { bookmark: string };
+
+/** Cloudflare's point-in-time recovery for one object's storage. */
+export interface PointInTime {
+  bookmarkForTime(atMs: number): Promise<string>;
+  /** Restores to the bookmark when the object next starts; answers the bookmark for the moment just before, to undo it. */
+  restoreOnNextStart(bookmark: string): Promise<string>;
+}
 
 /** What a part of an import did. */
 export interface ImportResult {
@@ -60,6 +70,8 @@ export class GameDatabaseObject extends DurableObject<Env> {
   private usage: Usage;
   private unsavedStatementCount = 0;
   private savedAtMs = Date.now();
+  /** A restore is set for the next start: nothing more runs on what's about to be replaced. */
+  private isRestarting = false;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -108,6 +120,9 @@ export class GameDatabaseObject extends DurableObject<Env> {
    * always the developer's to take. One part runs in one go, so it's whole; between parts the game can write.
    */
   exportForDeveloper(cursor: string | null): DeveloperDatabaseAnswer<DumpPart> {
+    if (this.isRestarting) return answerDatabase(() => {
+      throw restarting();
+    });
     this.newMonth();
     const sql = this.ctx.storage.sql;
     let statementCount = 0;
@@ -169,6 +184,7 @@ export class GameDatabaseObject extends DurableObject<Env> {
    * developer can always see what's there. No row counts: counting reads every row.
    */
   overview(): DatabaseOverview {
+    if (this.isRestarting) throw restarting();
     const cursor = this.ctx.storage.sql.exec<{ type: string; name: string; tbl_name: string; sql: string }>(
       "SELECT type, name, tbl_name, sql FROM sqlite_schema WHERE type IN ('table', 'index') AND sql IS NOT NULL AND substr(name, 1, 4) <> '_cf_' AND substr(name, 1, 7) <> 'sqlite_' ORDER BY name",
     );
@@ -183,6 +199,7 @@ export class GameDatabaseObject extends DurableObject<Env> {
 
   /** This month's use. */
   usageThisMonth(): Usage & { storageSizeBytes: number } {
+    if (this.isRestarting) throw restarting();
     this.newMonth();
     return { ...this.usage, storageSizeBytes: this.ctx.storage.sql.databaseSize };
   }
@@ -193,6 +210,7 @@ export class GameDatabaseObject extends DurableObject<Env> {
    * only deletes, and erasing a player must never wait for next month.
    */
   private erase(given: unknown): { erasedTables: ErasedTable[]; writtenRowCount: number } {
+    if (this.isRestarting) throw restarting();
     const playerId = checkPlayerId(given);
     this.newMonth();
     const sql = this.ctx.storage.sql;
@@ -229,6 +247,7 @@ export class GameDatabaseObject extends DurableObject<Env> {
 
   /** Runs statements in one transaction. failure, when given, turns SQLite's error for the i-th statement into the error to answer. */
   private run(statements: { sql: string; values: DatabaseValue[] }[], maximumAnswerSizeBytes = Infinity, failure?: (i: number, error: unknown) => DatabaseError): StatementResult[] {
+    if (this.isRestarting) throw restarting();
     this.newMonth();
     const limits = GAME_DATABASE_FREE_LIMITS;
     const resetDate = nextMonthStartDate();
@@ -279,6 +298,65 @@ export class GameDatabaseObject extends DurableObject<Env> {
     } finally {
       this.addUsage(readRowCount, writtenRowCount, statements.length);
     }
+  }
+
+  /**
+   * Sets the database to go back to a moment, or to an earlier restore's undo bookmark, when it next
+   * starts (Cloudflare's point-in-time recovery, which keeps 30 days), and answers the bookmark that
+   * undoes it and this month's use, which the restore would roll back with everything else. The caller
+   * then restarts it (restart) and carries the use over (carryUsage). Until the restart, it answers nothing.
+   */
+  async prepareRestore(target: RestoreTarget): Promise<DeveloperDatabaseAnswer<{ undoBookmark: string; usage: Usage }>> {
+    return this.ctx.blockConcurrencyWhile(async () => {
+      if (this.isRestarting) return answerDatabase((): never => {
+        throw restarting();
+      });
+      const pointInTime = this.pointInTime();
+      try {
+        const bookmark = "bookmark" in target ? target.bookmark : await pointInTime.bookmarkForTime(target.restoreToAtMs);
+        const undoBookmark = await pointInTime.restoreOnNextStart(bookmark);
+        this.isRestarting = true;
+        return { queryResult: { undoBookmark, usage: { ...this.usage, noticedAlertKinds: [...this.usage.noticedAlertKinds] } } };
+      } catch (error) {
+        const cloudflareMessage = String(error instanceof Error ? error.message : error).slice(0, 300);
+        if (/does not implement point-in-time recovery/.test(cloudflareMessage)) {
+          return { error: { code: "database_restore_unavailable", message: "This Zaisma's game databases keep no history to go back to, like a local preview's.", fix: "On zaisma.com it works. Here, export_database before a risky change and import_database it back instead." } };
+        }
+        console.error("Game database restore refused:", error);
+        return { error: { code: "database_unavailable", message: `The game's database couldn't go back: ${cloudflareMessage}`, fix: "Try again in a moment; if it keeps happening, tell Zaisma with post_topic (kind bug, category servers)." } };
+      }
+    });
+  }
+
+  /** Restarts the object, so a prepared restore happens. The call itself fails as the object goes. */
+  restart(): void {
+    this.ctx.abort("Restoring the game database to an earlier time");
+  }
+
+  /**
+   * After a restore: this month's use as it was before, the larger of each count and every alert
+   * already noticed, since the restore rolled the use back with everything else. A restore never gives free use.
+   * The object going away still answers for a moment, and refuses, so the caller tries again until the restored one takes it.
+   */
+  carryUsage(carried: Usage): void {
+    if (this.isRestarting) throw restarting();
+    this.newMonth();
+    if (carried.month !== this.usage.month) return;
+    this.usage = {
+      month: this.usage.month,
+      readRowCount: Math.max(this.usage.readRowCount, carried.readRowCount),
+      writtenRowCount: Math.max(this.usage.writtenRowCount, carried.writtenRowCount),
+      noticedAlertKinds: [...new Set([...this.usage.noticedAlertKinds, ...carried.noticedAlertKinds])],
+    };
+    this.save();
+  }
+
+  /** Cloudflare's point-in-time recovery for this object's storage. Tests put a stand-in here: local storage has none. */
+  protected pointInTime(): PointInTime {
+    return {
+      bookmarkForTime: (atMs) => this.ctx.storage.getBookmarkForTime(atMs),
+      restoreOnNextStart: (bookmark) => this.ctx.storage.onNextSessionRestoreBookmark(bookmark),
+    };
   }
 
   /** A new month starts from nothing. */
@@ -338,6 +416,14 @@ export class GameDatabaseObject extends DurableObject<Env> {
   }
 }
 
+/** Tries at carrying the use over to a restored database, 50 ms more apart each time: about 5 seconds in all. */
+const CARRY_ATTEMPT_COUNT = 14;
+
+/** What every call gets between a prepared restore and the restart. */
+function restarting(): DatabaseError {
+  return new DatabaseError("database_unavailable", "The game's database is restarting after a restore.", "Try again in a few seconds.");
+}
+
 /** About how many bytes a row takes in an answer: text as characters, blobs as base64, numbers as 8. */
 function rowSizeBytes(row: DatabaseRow): number {
   let sizeBytes = 0;
@@ -379,8 +465,21 @@ export function gameDatabase(env: Env, gameId: string): GameDatabase {
   return {
     query: async (sql, values) => readDatabaseAnswer(await gameDatabaseObject(env, gameId).query(sql, values ?? [])),
     batch: async (statements) => readDatabaseAnswer(await gameDatabaseObject(env, gameId).batch(statements)),
-    erasePlayer: async (playerId) => readDatabaseAnswer(await gameDatabaseObject(env, gameId).erasePlayer(playerId)),
+    erasePlayer: async (playerId) => {
+      const erasedTables = readDatabaseAnswer(await gameDatabaseObject(env, gameId).erasePlayer(playerId));
+      await recordErased(env, gameId, playerId);
+      return erasedTables;
+    },
   };
+}
+
+/** Keeps that a game server erased a player, so a restore to a time before erases them again. Never fails the erase. */
+async function recordErased(env: Env, gameId: string, playerId: unknown): Promise<void> {
+  try {
+    await recordPlayerErased(env.DB, gameId, String(playerId));
+  } catch (error) {
+    console.error("Couldn't keep a player's erase:", error);
+  }
 }
 
 /**
@@ -397,8 +496,10 @@ export class GameDatabaseBinding extends WorkerEntrypoint<Env, { gameId: string 
     return this.reach((database) => database.batch(statements));
   }
 
-  erasePlayer(playerId: unknown): Promise<DatabaseAnswer<ErasedTable[]>> {
-    return this.reach((database) => database.erasePlayer(playerId));
+  async erasePlayer(playerId: unknown): Promise<DatabaseAnswer<ErasedTable[]>> {
+    const answer = await this.reach((database) => database.erasePlayer(playerId));
+    if (!("error" in answer)) this.ctx.waitUntil(recordErased(this.env, this.ctx.props.gameId, playerId));
+    return answer;
   }
 
   private async reach<T>(work: (database: DurableObjectStub<GameDatabaseObject>) => Promise<DatabaseAnswer<T>>): Promise<DatabaseAnswer<T>> {
@@ -445,6 +546,31 @@ export class GameDatabaseService extends WorkerEntrypoint<Env> {
 
   importDump(gameId: string, dumpSql: string): Promise<DeveloperDatabaseAnswer<ImportResult>> {
     return this.reach(gameId, (database) => database.importForDeveloper(dumpSql));
+  }
+
+  /**
+   * Restores a game's database to a moment, or to an earlier restore's undo bookmark, and answers the
+   * bookmark that undoes this one. The object restarts to restore, then gets this month's use back.
+   */
+  async restore(gameId: string, target: RestoreTarget): Promise<DeveloperDatabaseAnswer<{ undoBookmark: string }>> {
+    const prepared = await this.reach(gameId, (database) => database.prepareRestore(target));
+    if ("error" in prepared) return prepared;
+    try {
+      await gameDatabaseObject(this.env, gameId).restart();
+    } catch {
+      // The restart ends the call: that's the restore happening.
+    }
+    // Until the restored object takes the use (the old one refuses it), nothing else should reach it either.
+    for (let attemptNumber = 1; attemptNumber <= CARRY_ATTEMPT_COUNT; attemptNumber++) {
+      try {
+        await gameDatabaseObject(this.env, gameId).carryUsage(prepared.queryResult.usage);
+        break;
+      } catch (error) {
+        if (attemptNumber === CARRY_ATTEMPT_COUNT) console.error("Couldn't carry a restored game database's use over:", error);
+        else await new Promise((resolve) => setTimeout(resolve, attemptNumber * 50));
+      }
+    }
+    return { queryResult: { undoBookmark: prepared.queryResult.undoBookmark } };
   }
 
   private async reach<T>(gameId: string, work: (database: DurableObjectStub<GameDatabaseObject>) => Promise<DeveloperDatabaseAnswer<T>>): Promise<DeveloperDatabaseAnswer<T>> {

@@ -5,7 +5,35 @@ import { WorkerEntrypoint } from "cloudflare:workers";
 
 import { gameDatabaseObject } from "../../apps/rooms/src/database.ts";
 import { gameSecretsObject } from "../../apps/rooms/src/secrets.ts";
-export { GameDatabaseObject, GameDatabaseService } from "../../apps/rooms/src/database.ts";
+import { GameDatabaseObject as RealGameDatabaseObject, GameDatabaseService as RealGameDatabaseService, type PointInTime } from "../../apps/rooms/src/database.ts";
+
+// Local storage keeps no history, so restores reach a stand-in for Cloudflare's point-in-time recovery: it
+// hands out bookmarks that say what they're for, keeps the ones restored to, and, as a real restore does,
+// rolls the month's use back (here, to nothing). The rows themselves stay: tests put back what a restore would.
+let restoredBookmarks: string[] = [];
+let undoCount = 0;
+
+export class GameDatabaseObject extends RealGameDatabaseObject {
+  protected override pointInTime(): PointInTime {
+    return {
+      bookmarkForTime: async (atMs) => `bookmark-${atMs}`,
+      restoreOnNextStart: async (bookmark) => {
+        restoredBookmarks.push(bookmark);
+        this.ctx.storage.kv.delete("usage");
+        return `undo-${++undoCount}`;
+      },
+    };
+  }
+}
+
+export class GameDatabaseService extends RealGameDatabaseService {
+  /** For tests: the bookmarks restored to since the last call. */
+  takeRestoredBookmarks() {
+    const taken = restoredBookmarks;
+    restoredBookmarks = [];
+    return taken;
+  }
+}
 export { GameSecretsObject, GameSecretsService } from "../../apps/rooms/src/secrets.ts";
 
 // Game servers can't run here (no sandbox), so webhooks to them (GAME_SERVER_WEBHOOKS) reach a stand-in

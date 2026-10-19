@@ -1041,13 +1041,14 @@ describe("deleting an account deletes its games", () => {
     await recordPlayed(env.DB, player.id, game.id);
     await env.GAME_DATABASES!.batch(game.id, [{ sql: "CREATE TABLE scores (player_id TEXT PRIMARY KEY, best_score INTEGER)" }, { sql: "INSERT INTO scores VALUES ('player_ana', 10)" }]);
     await env.GAME_SECRETS!.set(game.id, "DISCORD_TOKEN", "abc", Date.now());
+    await env.DB.prepare("INSERT INTO database_restores (id, game_id, restore_to_at_ms, undo_bookmark, restored_at_ms) VALUES ('database_restore_1', ?, ?, 'bookmark', ?)").bind(game.id, Date.now() - 3600_000, Date.now()).run();
     await storage().takeWiped(null);
 
     const gone = await b.go("/account/delete", { confirm: "delete" });
     expect(await gone.text()).toContain("Your games are deleted too");
     // The account's own run deletes it straight away, in the background.
     await vi.waitFor(async () => expect(await gameById(env.DB, game.id)).toBeNull());
-    for (const table of ["versions", "reports", "saves", "save_history", "played", "games_ever_played", "game_deletions", "audit_log"]) expect(await rowCount(table, game.id), table).toBe(0);
+    for (const table of ["versions", "reports", "saves", "save_history", "played", "games_ever_played", "game_deletions", "audit_log", "database_restores"]) expect(await rowCount(table, game.id), table).toBe(0);
     for (const key of [`games/${game.id}/${zipVersionId}/index.html`, `manifests/${filesVersionId}.json`, `images/${game.id}/image_cover`, `report-pictures/${reportId}.jpg`]) expect(await env.GAMES.head(key), key).toBeNull();
     for (const key of [saveKey(player.id, game.id), saveCopyKey(player.id, game.id, "save_copy_1")]) expect(await env.SAVES.head(key), key).toBeNull();
     const overview = await env.GAME_DATABASES!.overview(game.id);
