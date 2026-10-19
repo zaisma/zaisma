@@ -306,11 +306,11 @@ a.dev-card:hover strong{text-decoration:underline;text-underline-offset:3px}
    code, Copy and the eye, and a box to join another room by its code. */
 .room-open b{font-family:var(--display);font-weight:600;font-size:14px;letter-spacing:.12em;font-variant-numeric:tabular-nums}
 .room-open.closed b{letter-spacing:0;font-weight:500;font-size:13px;color:var(--muted)}
-.room-dialog .room-here{display:grid;gap:8px;padding:14px 16px 12px;background:linear-gradient(#000,#000) bottom/100% 1px no-repeat}
+.room-dialog .room-here{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;padding:14px 16px 12px;background:linear-gradient(#000,#000) bottom/100% 1px no-repeat}
 .room-dialog .room-here[hidden]{display:none}
 .room-dialog .room-title,.room-dialog label{margin:0;font-family:var(--display);font-size:15px;font-weight:500;color:var(--text)}
 .room-line{display:flex;align-items:center;gap:8px}
-.room-line b{flex:1;font-family:var(--display);font-size:24px;font-weight:600;letter-spacing:.16em;color:var(--text)}
+.room-line b{flex:1;min-width:0;overflow:hidden;font-family:var(--display);font-size:24px;font-weight:600;letter-spacing:.16em;color:var(--text)}
 .room-line .btn{min-height:38px}
 .room-line .icon{width:38px;padding:0;justify-content:center}
 .room-line .icon svg{width:18px;height:18px}
@@ -318,9 +318,9 @@ a.dev-card:hover strong{text-decoration:underline;text-underline-offset:3px}
 .room-dialog .eye-off{display:none}
 .room-dialog.masked .eye-off{display:inline}
 .room-dialog p{margin:0;font-size:13px;color:var(--muted)}
-.room-dialog form{display:grid;gap:10px;padding:14px 16px 16px}
+.room-dialog form{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;padding:14px 16px 16px}
 .join-row{display:flex;gap:8px}
-.join-row input{flex:1;min-width:0;min-height:44px;font-family:var(--display);font-size:18px;font-weight:600;letter-spacing:.16em;text-transform:uppercase}
+.join-row input{flex:1;width:0;min-width:0;min-height:44px;font-family:var(--display);font-size:18px;font-weight:600;letter-spacing:.16em;text-transform:uppercase}
 .join-row input::placeholder{color:#5d626b}
 /* Players: how many are in the room, beside the label; a corner badge on the icon where labels hide. */
 .ctl .count{min-width:20px;height:18px;padding:0 6px;display:inline-grid;place-items:center;font-size:12px;font-weight:600;background:#0c0e11;box-shadow:inset 0 1px 2px rgba(0,0,0,.8),0 1px 0 rgba(255,255,255,.06);border-radius:9px}
@@ -350,7 +350,8 @@ body:not(.playing) iframe{display:none}
   .bar{overflow-x:auto;scrollbar-width:none;gap:6px;padding-left:0}
   .bar::-webkit-scrollbar{display:none}
   .bar .home{position:sticky;left:0;z-index:2;flex:none;align-self:stretch;display:flex;align-items:center;padding:0 8px 0 10px;background:linear-gradient(180deg,#24282e,#16181c);box-shadow:6px 0 8px -4px rgba(0,0,0,.8)}
-  .bar .ctl{flex:none}
+  /* Each button holds its own hidden label, so none sticks out past the bar and widens the page. */
+  .bar .ctl{flex:none;position:relative}
   /* The title has no room here; the ⋯ menu names the game. */
   .bar h1{display:none}
   .bar .spacer{flex:1}
@@ -1024,6 +1025,8 @@ if (roomOpen && roomDialog) {
   roomDialog.addEventListener("close", () => { roomOpen.setAttribute("aria-expanded", "false"); if (frame) frame.focus(); });
   addEventListener("pointerdown", (e) => { if (roomDialog.open && !roomDialog.contains(e.target) && !roomOpen.contains(e.target)) roomDialog.close(); });
   addEventListener("keydown", (e) => { if (e.key === "Escape" && roomDialog.open) roomDialog.close(); });
+  // A tap on the game goes to its frame, not this page: the page losing focus closes the plate, as for the ⋯ menu.
+  addEventListener("blur", () => { if (roomDialog.open) roomDialog.close(); });
   addEventListener("resize", () => roomDialog.open && placeMenu(roomDialog, roomOpen));
   joinInput.addEventListener("input", () => { joinInput.value = joinInput.value.toUpperCase().replace(/[^0-9A-Z]/g, ""); joinInput.setCustomValidity(""); });
   joinInput.addEventListener("invalid", () => joinInput.setCustomValidity("Room codes are 6 letters and numbers, like ABC234."));

@@ -148,20 +148,20 @@ export function shareDialog(gameTitle: string, hasQrCode: boolean): Raw {
 
 export const SHARE_DIALOG_STYLES = `
 /* Share: the QR code on white, so any phone's camera reads it, then the link. */
-dialog.share-dialog{width:min(360px,calc(100vw - 32px));padding:0}
+dialog.share-dialog{width:min(360px,calc(100vw - 16px));max-width:none;padding:0}
 .share-dialog .close{min-height:36px;width:36px;padding:0;font-size:22px;line-height:1}
-.share-dialog .body{justify-items:stretch}
-.share-qr{margin:4px auto 0;display:grid;justify-items:center;gap:10px}
-.share-qr img{display:block;width:220px;height:220px;background:#fff;box-shadow:0 0 0 1px #000,0 10px 26px rgba(0,0,0,.5)}
+.share-dialog .body{justify-items:stretch;grid-template-columns:minmax(0,1fr)}
+.share-qr{margin:4px 0 0;display:grid;justify-items:center;gap:10px;min-width:0}
+.share-qr img{display:block;width:min(220px,100%);height:auto;aspect-ratio:1;background:#fff;box-shadow:0 0 0 1px #000,0 10px 26px rgba(0,0,0,.5)}
 .share-qr figcaption{font-family:var(--display);font-size:16px;font-weight:500;color:var(--text)}
 .share-row{display:flex;gap:8px}
-.share-row input{flex:1;min-width:0}
+.share-row input{flex:1;width:0;min-width:0}
 .share-row .btn{flex:none}
 #share-more[hidden]{display:none}
 .share-room{margin:0;text-align:center;font-size:14px;color:var(--text-2)}
 .share-room b{font-family:var(--display);font-size:18px;letter-spacing:.14em;color:var(--text);margin-left:6px}
 .share-room[hidden],#share-reveal[hidden]{display:none}
-.share-secret{position:relative;display:grid;gap:12px}
+.share-secret{position:relative;display:grid;grid-template-columns:minmax(0,1fr);gap:12px}
 /* Show sits on the blurred code itself: one tap reveals the code, link and QR code. */
 .share-secret .reveal{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:1;display:inline-flex;align-items:center;gap:8px;box-shadow:0 8px 22px rgba(0,0,0,.6)}
 .share-secret .reveal svg{width:18px;height:18px}
