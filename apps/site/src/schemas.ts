@@ -645,6 +645,23 @@ export const HISTORY = object({
   ),
 });
 
+/** get_logs: what the game's server printed on Zaisma, oldest first. */
+export const LOGS = object({
+  log_lines: list(
+    object({
+      logged_at: isoTime("When the game server printed it."),
+      level: choice({ debug: "console.debug or console.trace", log: "console.log, console.dir or console.table", info: "console.info", warn: "console.warn", error: "console.error, or a crash Zaisma wrote down in full" }),
+      text: text("What it printed: strings as they are, everything else as JSON, an Error with its stack; up to 4,000 characters. Lines Zaisma adds start with \"Zaisma:\"."),
+      source_kind: choice({ room: "in a room", request: "in onRequest", schedule: "in onSchedule", webhook: "in onWebhook" }),
+      room_code: nullable(text("The room it was printed in; null outside rooms.")),
+      version_id: idOf("version"),
+    }),
+    "Oldest first.",
+  ),
+  next_cursor: nullable(text("Pass as cursor for the lines before these; null when there are none.")),
+  new_lines_cursor: nullable(text("Pass as new_lines_cursor for only lines written since this call; null on an older page (cursor given).")),
+});
+
 /** The account's own security activity, from the last 90 days. */
 export const API_KEYS = object({
   api_keys: list(

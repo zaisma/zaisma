@@ -14,7 +14,7 @@ claude mcp add --transport http zaisma https://zaisma.com/mcp --header "Authoriz
 
 Apps that can't send a key connect by signing in instead. In claude.ai: Settings → Connectors → Add custom connector, with `https://zaisma.com/mcp`; ChatGPT and other apps the same way, wherever they add a remote MCP server. The app opens a Zaisma page where you choose what it may do and tap your passkey, then you're back in the app with every tool working. The key command above stays the way for Claude Code and the upload command.
 
-Every tool is a call to this API (`apps/site/src/mcp.ts`): `list_games`, `create_game`, `get_game`, `update_game`, `check_game` (what Zaisma would refuse in a game and what won't work on Zaisma, before uploading; see Checking a game below), `upload_files` (small games up to 5 MB, sent as file contents), `get_version`, `publish_version` (also rolls back and publishes later), `cancel_scheduled_publish`, `end_preview_links`, `add_image`, `remove_image`, `add_tester_link`, `update_tester_link`, `remove_tester_link`, `get_reports`, `get_stats`, `get_history`, `get_player`, `get_access` (what the key can do), `get_activity` (your account's activity, needs a full key), `list_api_keys` (your keys and connected apps with their end dates, last use and whether Zaisma turned one off; needs a full key), the sign-in apps' `list_sign_in_apps`, `create_sign_in_app`, `update_sign_in_app` and `delete_sign_in_app`, the webhooks' `list_webhooks`, `create_webhook`, `update_webhook`, `delete_webhook`, `test_webhook` and `list_webhook_deliveries` (see Webhooks below), a game's secrets' `list_secrets`, `set_secret` and `delete_secret` (see Secrets below), the game database's `get_database`, `query_database`, `batch_database`, `export_database`, `import_database`, `erase_player`, `restore_database` and `undo_database_restore` (see The game database below), cloud saves' `list_saves`, `get_save`, `change_save`, `replace_save`, `reset_save`, `list_save_copies`, `get_save_copy` and `restore_save_copy` (see Cloud saves below), and the developer forum's `search_forum`, `get_topic`, `post_topic`, `message_zaisma`, `reply_to_topic`, `vote`, `mark_helpful`, `report_post`, `forum_people`, `still_happening`, `flag_misplaced`, `follow_topic` and `mark_answer` (see The developer forum below). Bigger builds go through the upload command. Making a game players can play private or a draft again needs `"confirm": true`, so the AI asks you first.
+Every tool is a call to this API (`apps/site/src/mcp.ts`): `list_games`, `create_game`, `get_game`, `update_game`, `check_game` (what Zaisma would refuse in a game and what won't work on Zaisma, before uploading; see Checking a game below), `upload_files` (small games up to 5 MB, sent as file contents), `get_version`, `publish_version` (also rolls back and publishes later), `cancel_scheduled_publish`, `end_preview_links`, `add_image`, `remove_image`, `add_tester_link`, `update_tester_link`, `remove_tester_link`, `get_reports`, `get_stats`, `get_history`, `get_logs` (what the game server printed, see A game server's logs below), `get_player`, `get_access` (what the key can do), `get_activity` (your account's activity, needs a full key), `list_api_keys` (your keys and connected apps with their end dates, last use and whether Zaisma turned one off; needs a full key), the sign-in apps' `list_sign_in_apps`, `create_sign_in_app`, `update_sign_in_app` and `delete_sign_in_app`, the webhooks' `list_webhooks`, `create_webhook`, `update_webhook`, `delete_webhook`, `test_webhook` and `list_webhook_deliveries` (see Webhooks below), a game's secrets' `list_secrets`, `set_secret` and `delete_secret` (see Secrets below), the game database's `get_database`, `query_database`, `batch_database`, `export_database`, `import_database`, `erase_player`, `restore_database` and `undo_database_restore` (see The game database below), cloud saves' `list_saves`, `get_save`, `change_save`, `replace_save`, `reset_save`, `list_save_copies`, `get_save_copy` and `restore_save_copy` (see Cloud saves below), and the developer forum's `search_forum`, `get_topic`, `post_topic`, `message_zaisma`, `reply_to_topic`, `vote`, `mark_helpful`, `report_post`, `forum_people`, `still_happening`, `flag_misplaced`, `follow_topic` and `mark_answer` (see The developer forum below). Bigger builds go through the upload command. Making a game players can play private or a draft again needs `"confirm": true`, so the AI asks you first.
 
 Every tool has an output schema, and answers are compact JSON. Arguments are closed: one a tool doesn't take is refused (`unknown_field`, with the arguments it does take), never quietly dropped, and a missing required one is `missing_field`. A refused call is a tool result with `isError: true`, the error object below as its `structuredContent` and its message, fix and code as its text; each tool's listed output schema is its answer or that error, because MCP clients check both against it. The tools that are easy to get wrong (`update_game`, `check_game`, `upload_files`, `publish_version`, `search_forum`, `post_topic`, `change_save`, `replace_save`, `set_secret`) carry good examples in their input schema and bad ones at the end of their description.
 
@@ -202,6 +202,17 @@ The HTTP status goes with the code, as listed. The list lives in `ERROR_CODES` (
 | `too_many_secrets` | 403 | The game has 50 secrets, the most it can have. |
 | `secrets_unavailable` | 503 | The game's secrets didn't answer. |
 | `dump_too_big` | 413 | dump_sql is over 5 MB: import a dump in parts, each ending on a whole statement. |
+
+**A game server's logs**
+
+| Code | HTTP | Meaning |
+| --- | --- | --- |
+| `bad_room_code` | 400 | room_code isn't a room's code: six characters like K7Q2MX. |
+| `bad_minimum_level` | 400 | minimum_level isn't debug, info, warn or error. |
+| `bad_source_kind` | 400 | source_kind isn't room, request, schedule or webhook. |
+| `bad_search_text` | 400 | search_text is empty or over 200 characters. |
+| `bad_maximum_line_count` | 400 | maximum_line_count isn't a whole number from 1 to 500. |
+| `two_log_cursors` | 400 | get_logs got both cursor and new_lines_cursor. |
 
 **Cloud saves**
 
@@ -568,6 +579,20 @@ Tokens and keys a game's own game server needs, like a Discord webhook URL, a Gi
 - **On your own server** the Node runner's `server.secrets` is its environment variables, so set the same names there.
 - A key reads the names with `game_access` `read` and sets and deletes with `write`.
 
+## A game server's logs
+
+Everything a game's own game server prints on Zaisma, kept 30 days and free: every `console.log`, `info`, `warn`, `error` and `debug` (`trace` counts as debug; `dir` and `table` as log), in rooms and in `onRequest`, `onSchedule` and `onWebhook`, plus each crash or stop written down in full as an `error` line starting `Zaisma:` (or with the error's stack). Read them with `get_logs` or `zaisma logs <slug> --follow`.
+
+| Call | What it does |
+| --- | --- |
+| `GET /games/:slug/logs` | The newest lines in `log_lines`, oldest first, each `{"logged_at", "level", "text", "source_kind", "room_code", "version_id"}`, with `next_cursor` and `new_lines_cursor`. Narrow it with `room_code`, `minimum_level` (`debug`, the default, `info` for all but debug, `warn` or `error`), `source_kind` (`room`, `request`, `schedule` or `webhook`) and `search_text` (contained, ignoring case); `maximum_line_count` is 1 to 500, 100 by default. |
+
+- **Going back and following:** `cursor` (a `next_cursor`) answers the lines before an earlier answer's, `null` when there are none. `new_lines_cursor` answers only the lines written since the answer that gave it, so to follow, call once and then keep passing back the `new_lines_cursor` each answer gives; following goes by when lines were written, so a room writing late never makes you miss a line. Give one or the other (`two_log_cursors`).
+- **How soon:** lines reach the logs within 30 seconds, and within 2 seconds for the next 10 minutes once someone has read them, so the first call while testing can come up empty and the next ones keep up.
+- **Text:** strings as they are, everything else as JSON, an `Error` with its stack, joined by spaces as a console shows them; up to 4,000 characters a line. A call that prints more than 1,000 lines keeps the first 1,000 and adds one line saying how many it dropped, and each room (and the game server outside rooms) keeps up to 20 MB a day, then says so in one line and keeps nothing more until midnight UTC.
+- **Who can read them:** a key with `stats_access` `read`. Anything the game server prints is in its logs, so don't print players' details or secrets you wouldn't want there; they're deleted after 30 days, and with the game.
+- **Not here:** players' browser errors (they're in the browser's own console) and a game on your own server, which prints to its own terminal. `get_stats` still counts errors per day and lists the latest distinct ones.
+
 ## The game database
 
 Every game has its own SQLite database, part of its hosting: the one its game servers use as `room.database` (see "The game database" in the README), empty until something writes to it. You and your AI reach the same database here, live, with the same checks and limits as game servers: look at its tables, query it, fix data and change its tables, and take the whole database out or bring one in.
@@ -833,6 +858,7 @@ Storage can't check the hash of a file sent in parts, so it's kept for your own 
 | `zaisma secrets <slug>` | The game's secrets' names and when each was set | `GET /games/:slug/secrets` |
 | `zaisma secrets set <slug> <secret_name>` | Set a secret: the value piped in, or typed without showing in a terminal | `PUT /games/:slug/secrets/:secret_name` |
 | `zaisma secrets delete <slug> <secret_name>` | Delete a secret | `DELETE /games/:slug/secrets/:secret_name` |
+| `zaisma logs <slug> [--follow] [--room-code <code>] [--minimum-level debug\|info\|warn\|error] [--source-kind room\|request\|schedule\|webhook] [--search-text "…"] [--maximum-line-count <count>] [--cursor <next_cursor>]` | What the game server printed, oldest first; `--follow` keeps printing new lines every 2 seconds (with `--json`, one answer per line) | `GET /games/:slug/logs` |
 | `zaisma forum [<topic_id>] [--search "words"]` | Your topics and messages, one topic, or a search | `GET /forum`, `GET /forum/:id` |
 | `zaisma forum post --kind … --title "…" --category … [--text "…"] [--by-me]` | A public topic | `POST /forum` |
 | `zaisma forum message --kind … --title "…" [--text "…"] [--category …] [--game <slug>] [--by-me]` | A private message to Zaisma | `POST /forum` with `"is_public": false` |
@@ -885,6 +911,7 @@ Errors only the command answers with, beside the API's own codes (it also uses `
 | `repeated_field` | A flag was given twice. |
 | `missing_value` | A flag that takes a value was given none. |
 | `takes_no_value` | A flag that takes no value was given one. |
+| `conflicting_flags` | Two flags that don't go together were given, like logs --follow and --cursor. |
 | `not_a_folder` | The folder to check or upload isn't a folder. |
 | `not_a_file` | The file given (of statements, a dump to import, or a save) can't be read. |
 | `file_exists` | database export won't write over a file that's already there. |

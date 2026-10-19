@@ -231,6 +231,8 @@ Zaisma preview is running. Nothing here touches the live site.
                   ${SITE}/admin/publishing  (who Julius added; add Moss_Runner there and its Your games can make games)
   Leaving Zaisma  ${SITE}/g/tiny-farm?play  (its link buttons: Seed shop and Patreon open for everyone, Discord only
                   for signed-in adults, Free prize for nobody; its links are on ${SITE}/dashboard/tiny-farm/details#links)
+  Logs            ${SITE}/dashboard/arena/players#multiplayer  (under the game server's errors: a line pointing to the AI's get_logs
+                  and npx @zaisma/cli logs arena --follow; play ${SITE}/g/arena to give its logs lines)
   Own servers     ${SITE}/dashboard/tiny-farm/details#own-servers  (Your own servers: wss://play.example.com; the ⋯ menu on
                   ${SITE}/g/tiny-farm?play names it: "Online play runs on the developer's own server: play.example.com")
   Make an account ${SITE}/join  (try the username Preview_Studio to see it taken, with free ones to tap)
