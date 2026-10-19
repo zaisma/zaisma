@@ -294,6 +294,9 @@ When Zaisma holds, rejects or takes something down, it says why, the same way in
 Where it shows:
 
 - **A game's `review_reason`**: why it's `held` or `removed`; `null` while it's `pending` or `live`.
+
+Zaisma acts on `copyright` and `defamation` only when someone sends a notice ([zaisma.com/legal/dmca](https://zaisma.com/legal/dmca), [zaisma.com/legal/defamation](https://zaisma.com/legal/defamation)), and doesn't judge the notice itself: the game is `held` with `copyright_notice` or `defamation_notice`, and the message says what the notice names. The game can still get new versions: publish one without it, and a person at Zaisma checks it and shows the game again, usually within a day (publishing tells Zaisma; there's nothing more to send). If the notice is wrong, the developer sends a counter-notice instead, which goes to the person who sent the notice; the game is back after 10 working days unless they say they've gone to court. The scan and the AI review never look for either rule.
+
 - **A version's `review_reason`**: a person rejected it, or a report paused the update; `null` otherwise. Its `findings` are what the scan found that holds or rejects it, each `{"code", "severity", "message", "content_rule", "path", "fix"}`, where `severity` is `reject` (it can't go live) or `hold` (a person at Zaisma looks first, usually within a day).
 - **An image's `review_reason`**: why it wasn't approved.
 - **`get_history`**: each hold, rejection and takedown with its `review_reason`, kept after it's over.
@@ -360,7 +363,8 @@ Each developer gets 5 judged reviews a day, across all their games. A change tha
 | `report_paused_update` | none | A player report paused this update while Zaisma checks it; players get the version before it. |
 | `rejected_by_zaisma` | picked | A person at Zaisma rejected the version; the message says why. |
 | `taken_down` | picked | A person at Zaisma took the game down; the message says why. |
-| `copyright_notice` | `copyright` | The game was taken down on a copyright (DMCA) notice. |
+| `copyright_notice` | `copyright` | The owner of a work sent a copyright (DMCA) notice, so players can't open the game; the message says what it names. |
+| `defamation_notice` | `defamation` | A private person sent a defamation notice saying the game falsely accuses them of a crime, so players can't open the game; the message says what it names. |
 | `developer_account_deleted` | none | The game's developer deleted their Zaisma account, which takes their games down with it. |
 | `image_rejected` | picked | A person at Zaisma didn't approve the image; the message says why. |
 | `link_flagged` | `malware` | Cloudflare lists the link's site for malware or phishing, so the link opens for nobody. |
@@ -374,6 +378,7 @@ Each developer gets 5 judged reviews a day, across all their games. A change tha
 | `illegal` | Content that's illegal in the United States, including real-money gambling. |
 | `real_people` | Private details about real people, or real threats. |
 | `copyright` | Other people's games, art, music or characters used without permission. |
+| `defamation` | False claims that a real private person committed a crime. |
 | `personal_details` | Asking players for personal details like emails, real names, birthdays or location inside the game. Every player has a Zaisma ID and name; games with their own accounts link them through Sign in with Zaisma, and anything more happens on the developer's own site. |
 | `chat` | Free-text chat between players. In the beta, players talk through each game's preset phrases and emotes. |
 | `crypto` | Cryptocurrency other than Bitcoin: using or promoting other coins, tokens, NFTs or airdrops. A story that mentions one is fine. Bitcoin games are welcome, but not investment advice, mining on the player's device, paying players sats, or asking for seed phrases or permission to spend from a wallet. |

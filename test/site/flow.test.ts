@@ -586,25 +586,74 @@ describe("reports and takedowns", () => {
     const noReason = await SELF.fetch(`${LOCAL}/admin/games/${gameId}/takedown`, { method: "POST", body: new FormData() });
     expect(await noReason.text()).toContain("Pick the rule it broke and say why");
     const noRule = new FormData();
-    noRule.set("reason", "DMCA notice from the artist");
+    noRule.set("reason", "The login screen asks for a Steam password");
     expect(await (await SELF.fetch(`${LOCAL}/admin/games/${gameId}/takedown`, { method: "POST", body: noRule })).text()).toContain("Pick the rule it broke");
     expect((await SELF.fetch(`${LOCAL}/g/test-game`)).status).toBe(200);
 
     const form = new FormData();
-    form.set("reason", "DMCA notice from the artist");
-    form.set("content_rule", "copyright_notice");
+    form.set("reason", "The login screen asks for a Steam password");
+    form.set("content_rule", "malware");
     await SELF.fetch(`${LOCAL}/admin/games/${gameId}/takedown`, { method: "POST", body: form, redirect: "manual" });
     expect((await SELF.fetch(`${LOCAL}/g/test-game`)).status).toBe(410);
     expect(await (await SELF.fetch(`${LOCAL}/`)).text()).not.toContain("/g/test-game");
     const log = await env.DB.prepare("SELECT action, reason, actor FROM audit_log WHERE action = 'takedown'").first();
-    expect(log).toEqual({ action: "takedown", reason: "DMCA notice from the artist", actor: "dev@localhost" });
+    expect(log).toEqual({ action: "takedown", reason: "The login screen asks for a Steam password", actor: "dev@localhost" });
     const removed = await env.DB.prepare("SELECT review_status, review_reason FROM games WHERE id = ?").bind(gameId).first<{ review_status: string; review_reason: string }>();
     expect(removed!.review_status).toBe("removed");
-    expect(JSON.parse(removed!.review_reason)).toEqual({ code: "copyright_notice", message: "DMCA notice from the artist", content_rule: "copyright" });
+    expect(JSON.parse(removed!.review_reason)).toEqual({ code: "taken_down", message: "The login screen asks for a Steam password", content_rule: "malware" });
 
     await SELF.fetch(`${LOCAL}/admin/games/${gameId}/restore`, { method: "POST", body: new FormData(), redirect: "manual" });
     expect((await SELF.fetch(`${LOCAL}/g/test-game`)).status).toBe(200);
     expect(await env.DB.prepare("SELECT review_reason FROM games WHERE id = ?").bind(gameId).first("review_reason")).toBeNull();
+  });
+
+  const notice = (gameId: string, noticeKind: string, reason: string) => {
+    const form = new FormData();
+    form.set("notice_kind", noticeKind);
+    form.set("reason", reason);
+    return SELF.fetch(`${LOCAL}/admin/games/${gameId}/notice`, { method: "POST", body: form, redirect: "manual" });
+  };
+
+  it("hides a game on a defamation notice until a fixed version is checked, and it can still get versions", async () => {
+    const { gameId } = await liveGame();
+    expect(await (await notice(gameId, "libel", "x")).text()).toContain("Pick the kind of notice");
+    expect(await (await notice(gameId, "defamation", " ")).text()).toContain("Pick the kind of notice");
+    expect((await notice(gameId, "defamation", "The ending calls Emma Clarke the town's thief")).status).toBe(303);
+    expect((await SELF.fetch(`${LOCAL}/g/test-game`)).status).toBe(404);
+    const held = await gameBySlug(env.DB, "test-game");
+    expect(held!.review_status).toBe("held");
+    expect(JSON.parse(held!.review_reason!)).toEqual({ code: "defamation_notice", message: "A defamation notice names this: The ending calls Emma Clarke the town's thief", content_rule: "defamation" });
+    expect(await env.DB.prepare("SELECT reason FROM audit_log WHERE action = 'notice-held'").first("reason")).toBe("The ending calls Emma Clarke the town's thief");
+    expect(await (await SELF.fetch(`${LOCAL}/admin/games/${gameId}`)).text()).toContain("Held on a notice");
+
+    // A fixed version goes live behind the hold, and Zaisma is told; the game stays hidden until a person shows it again.
+    const fixed = await uploadAndScan({ ...CLEAN_GAME, "index.html": "<!doctype html><p>Fixed</p>" }, { images: connected, ...aiSays("pass") });
+    expect((await gameBySlug(env.DB, "test-game"))).toMatchObject({ review_status: "held", live_version_id: fixed.versionId });
+    expect(await env.DB.prepare("SELECT reason FROM audit_log WHERE action = 'notice-fix-published'").first("reason")).toContain(fixed.versionId);
+    expect((await SELF.fetch(`${LOCAL}/g/test-game`)).status).toBe(404);
+
+    await SELF.fetch(`${LOCAL}/admin/games/${gameId}/restore`, { method: "POST", body: new FormData(), redirect: "manual" });
+    expect((await SELF.fetch(`${LOCAL}/g/test-game`)).status).toBe(200);
+  });
+
+  it("holds a game on a copyright notice the same way, and never one that's taken down", async () => {
+    const { gameId } = await liveGame();
+    await notice(gameId, "copyright", "The soundtrack is the artist's album");
+    expect(JSON.parse((await gameBySlug(env.DB, "test-game"))!.review_reason!)).toEqual({ code: "copyright_notice", message: "A copyright (DMCA) notice names this: The soundtrack is the artist's album", content_rule: "copyright" });
+
+    const form = new FormData();
+    form.set("reason", "Malware");
+    form.set("content_rule", "malware");
+    await SELF.fetch(`${LOCAL}/admin/games/${gameId}/takedown`, { method: "POST", body: form, redirect: "manual" });
+    expect(await (await notice(gameId, "copyright", "Again")).text()).toContain("already taken down");
+    expect((await gameBySlug(env.DB, "test-game"))!.review_status).toBe("removed");
+  });
+
+  it("tells no one when a game held for another reason publishes", async () => {
+    const { gameId } = await liveGame();
+    await report("child_safety");
+    await uploadAndScan({ ...CLEAN_GAME, "index.html": "<!doctype html><p>Next</p>" }, { images: connected, ...aiSays("pass") });
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'notice-fix-published' AND game_id = ?").bind(gameId).first("n")).toBe(0);
   });
 });
 
@@ -619,6 +668,7 @@ describe("pages", () => {
 
   it("serves the legal pages and the logo", async () => {
     expect((await SELF.fetch(`${LOCAL}/legal/dmca`)).status).toBe(200);
+    expect(await (await SELF.fetch(`${LOCAL}/legal/defamation`)).text()).toContain("mailto:safety@zaisma.com");
     expect((await SELF.fetch(`${LOCAL}/legal/content-rules`)).status).toBe(200);
     expect((await SELF.fetch(`${LOCAL}/nope`)).status).toBe(404);
   });

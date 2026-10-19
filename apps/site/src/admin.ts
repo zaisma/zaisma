@@ -43,8 +43,12 @@ import {
   settleDetailsWaitingForReview,
   settleImage,
   CONTENT_RULES,
+  NOTICE_CODES,
+  NOTICE_KINDS,
   decidedReason,
   isContentRule,
+  isNoticeKind,
+  isNoticeReason,
   readReviewReason,
   reviewModelOf,
   type ContentRule,
@@ -87,21 +91,40 @@ const pickedRule = (form: FormData): ContentRule | null => {
 
 /**
  * What a person picks and writes when they hold something back: the content rule it broke and why,
- * which the developer reads (never for child safety). A takedown needs both, and can be on a copyright notice.
+ * which the developer reads (never for child safety). A takedown needs both. Notices hold a game from its own form.
  */
 function decisionFields(options: { isTakedown?: boolean }): Raw {
   const isTakedown = Boolean(options.isTakedown);
-  return html`${ruleSelect({ contentRule: null, isRequired: isTakedown, hasCopyrightNotice: isTakedown })}
+  return html`${ruleSelect({ contentRule: null, isRequired: isTakedown })}
 <input name="reason" placeholder="${isTakedown ? "Why (required; the developer reads it)" : "Why (the developer reads it)"}" maxlength="500" size="36"${isTakedown ? raw(" required") : ""}>`;
 }
 
-/** The content rules to pick from, and for takedowns a copyright notice. */
-function ruleSelect(options: { contentRule: string | null; isRequired: boolean; hasCopyrightNotice: boolean }): Raw {
+/** The content rules to pick from. */
+function ruleSelect(options: { contentRule: string | null; isRequired: boolean }): Raw {
   return html`<select name="content_rule" aria-label="The rule it broke"${options.isRequired ? raw(" required") : ""}>
   <option value="">${options.isRequired ? "The rule it broke…" : "No rule broken"}</option>
   ${Object.entries(CONTENT_RULES).map(([rule, text]) => html`<option value="${rule}" title="${text}"${options.contentRule === rule ? raw(" selected") : ""}>${rule.replace(/_/g, " ")}</option>`)}
-  ${options.hasCopyrightNotice ? html`<option value="copyright_notice">copyright notice (DMCA)</option>` : ""}
 </select>`;
+}
+
+/**
+ * A copyright or defamation notice holds the game without Zaisma judging it. It shows again once a
+ * person checks a fixed version (publishing one emails Zaisma), or 10 working days after a
+ * counter-notice reached the sender, unless they say they've gone to court.
+ */
+function noticeSection(gameId: string, reviewStatus: ReviewStatus, reason: ReturnType<typeof readReviewReason>): Raw {
+  if (reviewStatus === "removed") return html`<p class="note">Taken down, so a notice can't hold it.</p>`;
+  if (reviewStatus === "held" && isNoticeReason(reason)) {
+    return html`<p class="note">Held on a notice. Show it again (above) once the live version no longer has what the notice names, or 10 working days after you passed a counter-notice on, unless the sender says they've gone to court.</p>`;
+  }
+  return html`<form method="post" action="/admin/games/${gameId}/notice" class="row">
+  <select name="notice_kind" aria-label="The kind of notice" required>
+    <option value="">The kind of notice…</option>
+    ${NOTICE_KINDS.map((kind) => html`<option value="${kind}">${kind === "copyright" ? "copyright (DMCA)" : kind}</option>`)}
+  </select>
+  <input name="reason" placeholder="What it names (required; the developer reads it)" maxlength="500" size="36" required>
+  <button class="btn danger" type="submit">Hold on this notice</button>
+</form>`;
 }
 
 /** What the developer was told about a hold, rejection or takedown, for the admin pages. */
@@ -306,6 +329,21 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     return redirect(`/admin/games/${game.id}`);
   }
 
+  match = path.match(/^\/admin\/games\/([a-z0-9_]+)\/notice$/);
+  if (match) {
+    const game = await gameById(env.DB, match[1]!);
+    if (!game) return new Response("Not found", { status: 404 });
+    const noticeKind = form.get("notice_kind");
+    if (!isNoticeKind(noticeKind) || !reason) return gameDetail(env, game.id, "Pick the kind of notice and say what it names. The developer reads it, and it goes in the audit log too.");
+    if (game.review_status === "removed") return gameDetail(env, game.id, "The game is already taken down. Restore it first if the notice should hold it instead.");
+    // Zaisma doesn't judge the notice: the game is held until a fixed version is checked or a counter-notice brings it back.
+    const noticeReason = decidedReason(NOTICE_CODES[noticeKind].code, null, `A ${noticeKind === "copyright" ? "copyright (DMCA)" : "defamation"} notice names this: ${reason}`);
+    await setReviewStatus(env.DB, game.id, "held", noticeReason);
+    await audit(env.DB, game.id, "notice-held", reason, actor, noticeReason);
+    await tellWebhooks(env, "review_status_changed", game.id, {});
+    return back(`/admin/games/${game.id}`);
+  }
+
   // A game an account left behind (kept for a child-safety hold, or ownerless from before), deleted for good.
   match = path.match(/^\/admin\/games\/([a-z0-9_]+)\/delete$/);
   if (match) {
@@ -323,10 +361,9 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     const game = await gameById(env.DB, match[1]!);
     if (!game) return new Response("Not found", { status: 404 });
     if (match[2] === "takedown") {
-      const isCopyrightNotice = form.get("content_rule") === "copyright_notice";
       const contentRule = pickedRule(form);
-      if (!reason || (!contentRule && !isCopyrightNotice)) return gameDetail(env, game.id, "Pick the rule it broke and say why. The developer reads why, unless it's child safety; it goes in the audit log too.");
-      const removedReason = decidedReason(isCopyrightNotice ? "copyright_notice" : "taken_down", contentRule, reason);
+      if (!reason || !contentRule) return gameDetail(env, game.id, "Pick the rule it broke and say why. The developer reads why, unless it's child safety; it goes in the audit log too.");
+      const removedReason = decidedReason("taken_down", contentRule, reason);
       await setReviewStatus(env.DB, game.id, "removed", removedReason);
       await closeReports(env.DB, game.id, "actioned");
       await audit(env.DB, game.id, "takedown", reason, actor, removedReason);
@@ -530,6 +567,9 @@ ${game.review_status === "removed" || game.review_status === "held"
       ? html`<form method="post" action="/admin/games/${game.id}/restore" class="row"><input name="reason" placeholder="Why (optional)"><button class="btn" type="submit">${game.review_status === "held" ? "Clear and show again" : "Restore"}</button></form>`
       : html`<form method="post" action="/admin/games/${game.id}/takedown" class="row">${decisionFields({ isTakedown: true })}<button class="btn danger" type="submit">Take down now</button></form>`}
 ${toldDeveloper(game.review_reason)}
+
+<h2>Notice</h2>
+${noticeSection(game.id, game.review_status, readReviewReason(game.review_reason))}
 
 <h2>Details</h2>
 <p>Visibility: ${pill(game.visibility)} · Devices: ${game.devices || "not set"} · Controls: ${game.controls || "not set"} · Screen: ${game.screen_orientation || "not set"}</p>
@@ -811,7 +851,7 @@ function groupCard(group: ReportGroup, pausedUpdate: string | undefined): Raw {
     </div>
     <div class="row">
     <input name="reason" value="${prefill}" aria-label="Why: for the audit log, and the developer reads it if you take the game down or keep the update off" title="For the audit log. If you take the game down or keep the update off, the developer reads it too (never for child safety)." maxlength="500">
-    ${gameRemoved || isPlayerGroup(group) ? "" : ruleSelect({ contentRule: triage && isContentRule(triage.category) ? triage.category : null, isRequired: false, hasCopyrightNotice: true })}
+    ${gameRemoved || isPlayerGroup(group) ? "" : ruleSelect({ contentRule: triage && isContentRule(triage.category) ? triage.category : null, isRequired: false })}
     ${isPlayerGroup(group) && !gameRemoved && !gameHeld && !pausedUpdate
       ? playerButtons(group, button)
       : gameRemoved

@@ -444,6 +444,7 @@ recommendation:
 ${ALLOWED_CONTENT.map((words) => `  - ${words}`).join("\n")}
   - gore of any kind in a game for 16 or 18 and up, and cartoon, pixel or stylized blood in any game
   - a game using someone else's characters, art, music or code: only the owner's notice takes it down (the DMCA page)
+  - a game that says a real person committed a crime, true or not: only that person's notice hides it (the defamation page)
 - "pass_to_developer": only for a report about a player (below).
 - "person": everything else.
 

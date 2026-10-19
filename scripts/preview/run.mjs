@@ -351,6 +351,10 @@ Zaisma preview is running. Nothing here touches the live site.
                   device, Continue, and back on the stand-in it calls list_games. As Preview_Studio: Change and its
                   summary, and ${SITE}/account#developer lists a Claude connection beside the keys (its passkey is the
                   seed's, so Continue there can't be tapped). As New_Passkey: it says when its passkey can connect apps)
+  Notices         ${SITE}/legal/defamation  and  ${SITE}/legal/dmca  (what a notice and a counter-notice include, and what happens),
+                  ${SITE}/legal/content-rules#defamation  (the rule), ${SITE}/g/arena  (Report: the two notice lines),
+                  ${SITE}/dashboard/town-gossip  (as Preview_Studio: held on a defamation notice, with what it names and the fix),
+                  ${SITE}/admin  (Town Gossip's admin page: held on a notice; any other game's has the Notice form)
   Admin           ${SITE}/admin
   Report queue    ${SITE}/admin/reports  (Loud_Lynx's group: a real-life threat and following after a block, with Turn off their social side)
   Player reports  ${SITE}/dashboard/arena/players#reports  (what Zaisma passed to Arena's developer: bullying, cheating, trash talk)
@@ -646,6 +650,16 @@ async function seedHolds(api, upload, go, form) {
   await api("PATCH", `/games/${game.slug}`, { visibility: "listed" });
   const { results } = JSON.parse(spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--json", "--command", `SELECT id FROM games WHERE slug = '${game.slug}'`], { cwd: join(ROOT, "apps/site"), encoding: "utf8", env: { ...process.env, CI: "1" } }).stdout)[0];
   await go(`/admin/games/${results[0].id}/takedown`, form({ content_rule: "malware", reason: "Its bonus screen asks players for their Steam login." }));
+
+  // Town Gossip: a live game held on a defamation notice, which can still get a fixed version.
+  const { game: gossip } = await api("POST", "/games", { title: "Town Gossip", description: "Spread rumors around a tiny town and watch them grow.", devices: ["computer"], controls: ["keyboard_mouse"], play_modes: [{ mode: "single" }] });
+  upload("examples/hello-game", gossip.slug, "First version.");
+  const gossipFirst = await scanned(gossip.slug);
+  if (gossipFirst.scan_status !== "approved") await go(`/admin/versions/${gossipFirst.id}/approve`, form({ reason: "Preview test data" }));
+  await api("POST", `/games/${gossip.slug}/versions/${gossipFirst.id}/publish`);
+  await api("PATCH", `/games/${gossip.slug}`, { visibility: "listed" });
+  const gossipRow = JSON.parse(spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--json", "--command", `SELECT id FROM games WHERE slug = '${gossip.slug}'`], { cwd: join(ROOT, "apps/site"), encoding: "utf8", env: { ...process.env, CI: "1" } }).stdout)[0].results[0];
+  await go(`/admin/games/${gossipRow.id}/notice`, form({ notice_kind: "defamation", reason: "the ending names Emma Clarke, a real person who lives in the town it's set in, as the thief who robbed the bakery." }));
 
   // Rocket Lab: this month's free player-hours on Zaisma rooms used up, so new rooms are paused
   // (the developer home's alert). Not a game the preview's multiplayer is tried on. Tried again while
