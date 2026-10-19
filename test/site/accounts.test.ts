@@ -2266,13 +2266,17 @@ describe("the dashboard", () => {
     await b.go("/dashboard/new", { title: "Sky Hopper" });
     const id = await uploadAndPass(b, "sky-hopper", "<p>hop</p>");
     const details = await (await b.go("/dashboard/sky-hopper/details")).text();
-    expect(details).toContain('href="/dashboard/sky-hopper/export.zip"');
+    expect(details).toContain('href="/dashboard/sky-hopper/export.zip" data-download');
     expect(details).toContain("Export everything");
 
     const exported = await b.go("/dashboard/sky-hopper/export.zip");
     expect(exported.status).toBe(200);
     expect(exported.headers.get("content-type")).toBe("application/zip");
     expect(exported.headers.get("content-disposition")).toMatch(/^attachment; filename="sky-hopper-\d{4}-\d{2}-\d{2}\.zip"$/);
+    // A readable cookie tells the page the download started, so the button's spinner stops (html.ts, BUSY_SCRIPT).
+    const startedCookie = exported.headers.getSetCookie().find((cookie) => /^(__Host-)?download_started=1;/.test(cookie));
+    expect(startedCookie).toBeDefined();
+    expect(startedCookie).not.toContain("HttpOnly");
     const zip = new Uint8Array(await exported.arrayBuffer());
     expect(new TextDecoder().decode(zip)).toContain(`versions/${id}/index.html`);
 

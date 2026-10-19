@@ -358,6 +358,9 @@ export function setCookie(env: Env, name: string, cookieValue: string, options: 
   ].join("; ");
 }
 
+/** Set on a download a page started (an export's .zip), readable, so the page knows the browser's own download has taken over. */
+export const downloadStartedCookie = (env: Env) => setCookie(env, "download_started", "1", { maximumAgeSec: 60, isReadable: true });
+
 export function readCookie(request: Request, env: Env, name: string): string | null {
   const want = cookieName(env, name);
   for (const part of (request.headers.get("cookie") ?? "").split(";")) {
