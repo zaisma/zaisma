@@ -56,6 +56,7 @@ import { deletePrefix } from "./upload.ts";
 import { chooseReadPictures, gatherEvidence, readCode, readPictures, type PictureFile, type ReadCode, type ReadPictures, type ReaderPicture } from "./review-readers.ts";
 import { judgeVersion, type JudgeVersion } from "./review-judge.ts";
 import { tellWebhooks } from "./webhooks.ts";
+import { alertIfNoticeFixPublished } from "./notices.ts";
 import { sendAlert } from "./email.ts";
 import type { Env } from "./env.ts";
 import { recheckFailed, recheckVersion } from "./triage.ts";
@@ -639,6 +640,7 @@ export async function passVersion(env: Env, version: Version, why: string, actor
     await audit(env.DB, version.game_id, "published", `${why}: ${version.id}`, actor);
     await pruneVersions(env, version.game_id);
     await tellWebhooks(env, "live_version_changed", version.game_id, { versionId: version.id });
+    await alertIfNoticeFixPublished(env, version.game_id, version.id);
   } else {
     await approveDraft(env.DB, version.id);
     await audit(env.DB, version.game_id, "draft-ready", `${why}: ${version.id} is ready to preview and publish`, actor);

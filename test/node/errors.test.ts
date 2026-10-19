@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ADMIN_ERROR_CODES, ERROR_CODES } from "../../packages/core/src/errors.ts";
-import { ALLOWED_CONTENT, CONTENT_RULES, INTERNAL_FINDING_CODES, REVIEW_CODES } from "../../packages/core/src/review.ts";
+import { ALLOWED_CONTENT, CONTENT_RULES, INTERNAL_FINDING_CODES, NOTICE_CODES, REVIEW_CODES } from "../../packages/core/src/review.ts";
 import { JUDGE_FINDING_CODES } from "../../apps/site/src/review-judge.ts";
 
 /**
@@ -93,8 +93,9 @@ describe("hold and takedown codes", () => {
 
   it("are each one Zaisma can give", () => {
     const code = source().replace(readFileSync(join(ROOT, "packages/core/src/review.ts"), "utf8"), "");
-    // The AI judge picks its findings from the ai_ codes (JUDGE_FINDING_CODES in review-judge.ts).
-    const isUsed = (reviewCode: string) => code.includes(`"${reviewCode}"`) || (JUDGE_FINDING_CODES as string[]).includes(reviewCode);
+    // The AI judge picks its findings from the ai_ codes (JUDGE_FINDING_CODES in review-judge.ts), and the admin a notice's from NOTICE_CODES.
+    const noticeCodes: string[] = Object.values(NOTICE_CODES).map((notice) => notice.code);
+    const isUsed = (reviewCode: string) => code.includes(`"${reviewCode}"`) || (JUDGE_FINDING_CODES as string[]).includes(reviewCode) || noticeCodes.includes(reviewCode);
     expect(reviewCodes.filter((reviewCode) => !isUsed(reviewCode))).toEqual([]);
   });
 });

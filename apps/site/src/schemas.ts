@@ -1188,6 +1188,12 @@ const PUBLISHING_ACCOUNT = object({
 });
 const PUBLISHING_ACCOUNTS = list(PUBLISHING_ACCOUNT, "By username.");
 export const PUBLISHING_ACCOUNT_LIST = object({ publishing_accounts: PUBLISHING_ACCOUNTS });
+export const NOTICE_DECIDED = object({
+  decision: choice({ hold: "players can't open the game until a person shows it again", show_again: "players can open it again" }),
+  game: ADMIN_GAME,
+  next_steps: NEXT,
+});
+
 
 /** Spikes across Zaisma that alerted the admin (security-alerts.ts). */
 export const SECURITY_SPIKE_LIST = object({

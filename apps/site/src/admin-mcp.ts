@@ -20,6 +20,7 @@ import {
   versionById,
   versionsForGame,
   CONTENT_RULES,
+  NOTICE_KINDS,
   CHAT_REVIEW_STATUSES,
   readReviewReason,
   reviewReasonAnswer,
@@ -51,6 +52,7 @@ import {
   CHAT_REVIEW_LIST,
   GAME_FOR_ADMIN,
   CAN_PUBLISH_CHANGED,
+  NOTICE_DECIDED,
   PUBLISHING_ACCOUNT_LIST,
   BLOCKED_SCRIPT_LIST,
   SECURITY_SPIKE_LIST,
@@ -408,7 +410,6 @@ export const ADMIN_TOOLS: AdminTool[] = [
           social_stopped_reason: { enum: [...ZAISMA_PLAYER_REPORT_REASONS], description: "For stop_social (needed): what the report found, which the player reads on their account page. Other decisions leave it out." },
           why: { type: "string", minLength: 1, maxLength: 500, description: "Why, in a sentence. Goes in the audit log; for take_down and keep_update_off the developer reads it too, so write it for them (never shown for child safety)." },
           content_rule: { enum: Object.keys(CONTENT_RULES), description: "For take_down (needed) and keep_update_off: the content rule it broke. Other decisions leave it out." },
-          is_copyright_notice: { type: "boolean", description: "For take_down: true when it's on a copyright (DMCA) notice, in place of content_rule." },
           precedent: {
             ...object(
               {
@@ -445,12 +446,9 @@ export const ADMIN_TOOLS: AdminTool[] = [
       if (!options.includes(decision)) {
         throw new ApiError("cant_decide", { message: `${group.id} can't be decided as ${decision} now.`, field: "decision", fix: `Give one of: ${options.join(", ")}.` });
       }
-      // The rule broken: take_down names it (or a copyright notice), keep_update_off can, the rest don't.
-      for (const field of ["content_rule", "is_copyright_notice"] as const) {
-        const takesIt = decision === "take_down" || (decision === "keep_update_off" && field === "content_rule");
-        if (toolArguments[field] !== undefined && !takesIt) {
-          throw new ApiError("unknown_field", { message: `${decision} takes no ${field}.`, field, fix: "Leave it out: take_down names the rule it broke, and keep_update_off can name one." });
-        }
+      // The rule broken: take_down names it, keep_update_off can, the rest don't.
+      if (toolArguments.content_rule !== undefined && decision !== "take_down" && decision !== "keep_update_off") {
+        throw new ApiError("unknown_field", { message: `${decision} takes no content_rule.`, field: "content_rule", fix: "Leave it out: take_down names the rule it broke, and keep_update_off can name one." });
       }
       if (toolArguments.social_stopped_reason !== undefined && decision !== "stop_social") {
         throw new ApiError("unknown_field", { message: `${decision} takes no social_stopped_reason.`, field: "social_stopped_reason", fix: "Leave it out: only stop_social says what the report found." });
@@ -458,9 +456,12 @@ export const ADMIN_TOOLS: AdminTool[] = [
       if (decision === "stop_social" && toolArguments.social_stopped_reason === undefined) {
         throw new ApiError("missing_field", { message: "Turning off a player's social side needs what the report found.", field: "social_stopped_reason", fix: `Give social_stopped_reason, one of: ${ZAISMA_PLAYER_REPORT_REASONS.join(", ")}.` });
       }
-      const isCopyrightNotice = toolArguments.is_copyright_notice === true;
-      if (decision === "take_down" && !toolArguments.content_rule && !isCopyrightNotice) {
-        throw new ApiError("missing_field", { message: "A takedown needs the content rule it broke.", field: "content_rule", fix: `Give content_rule, one of: ${Object.keys(CONTENT_RULES).join(", ")}; or is_copyright_notice: true for a DMCA notice.` });
+      if (decision === "take_down" && !toolArguments.content_rule) {
+        throw new ApiError("missing_field", {
+          message: "A takedown needs the content rule it broke.",
+          field: "content_rule",
+          fix: `Give content_rule, one of: ${Object.keys(CONTENT_RULES).join(", ")}. A copyright or defamation notice holds the game with decide_notice instead.`,
+        });
       }
       const precedent = toolArguments.precedent as Record<string, unknown> | undefined;
       if (precedent) {
@@ -485,8 +486,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
       form.set("reason", String(toolArguments.why).trim());
       form.set("group", group.id);
       if (toolArguments.social_stopped_reason) form.set("social_stopped_reason", String(toolArguments.social_stopped_reason));
-      if (isCopyrightNotice) form.set("content_rule", "copyright_notice");
-      else if (toolArguments.content_rule) form.set("content_rule", String(toolArguments.content_rule));
+      if (toolArguments.content_rule) form.set("content_rule", String(toolArguments.content_rule));
       if (precedent) {
         form.set("precedent", "1");
         form.set("p_title", String(precedent.title));
@@ -734,6 +734,57 @@ export const ADMIN_TOOLS: AdminTool[] = [
     },
   },
   {
+    name: "decide_notice",
+    title: "Act on a copyright or defamation notice",
+    description:
+      "A copyright (DMCA) or defamation notice that reached dmca@ or safety@zaisma.com: hold hides the game from players without judging the notice, and the developer reads why (what the notice names) with how to fix it; show_again puts a held game back. Show it again once the live version no longer has what the notice names (publishing one emails the admin), or 10 working days after a counter-notice reached the sender, unless they say they've gone to court. The same as the Notice form on zaisma.com/admin/games/<id>. Ask the admin first.\n" +
+      'Not: { "decision": "hold", "why": "…" } (a hold needs notice_kind too)\n' +
+      'Not: { "decision": "show_again", "notice_kind": "copyright", "why": "…" } (show_again takes no notice_kind)',
+    inputSchema: {
+      ...object(
+        {
+          slug: { type: "string", maxLength: 60, description: "The game's link name, as in zaisma.com/g/<slug>, from the link the notice gives." },
+          decision: { enum: ["hold", "show_again"], description: "hold: hide the game on the notice; show_again: put a held game back." },
+          notice_kind: { enum: NOTICE_KINDS, description: "For hold (needed): copyright for a DMCA notice, defamation for a private person saying the game falsely accuses them of a crime." },
+          why: { type: "string", minLength: 1, maxLength: 500, description: "For hold, what the notice names (the words or scene), written for the developer, who reads it. For show_again, why, for the audit log." },
+        },
+        ["slug", "decision", "why"],
+      ),
+      examples: [
+        { slug: "town-gossip", decision: "hold", notice_kind: "defamation", why: "The notice names the ending scene that calls Emma Clarke, a real person, the town's thief." },
+        { slug: "town-gossip", decision: "show_again", why: "Version 4 no longer names her." },
+      ],
+    },
+    outputSchema: NOTICE_DECIDED,
+    annotations: change,
+    run: async (toolArguments, { env, actor }) => {
+      const slug = String(toolArguments.slug);
+      const game = await gameBySlug(env.DB, slug);
+      if (!game) throw new ApiError("no_game", { message: `There's no game at zaisma.com/g/${slug}.`, field: "slug", fix: "Check the link in the notice: the slug is what follows zaisma.com/g/." });
+      const decision = String(toolArguments.decision);
+      if (decision === "hold" && toolArguments.notice_kind === undefined) {
+        throw new ApiError("missing_field", { message: "A hold needs the kind of notice.", field: "notice_kind", fix: `Give notice_kind, one of: ${NOTICE_KINDS.join(", ")}.` });
+      }
+      if (decision === "show_again" && toolArguments.notice_kind !== undefined) {
+        throw new ApiError("unknown_field", { message: "show_again takes no notice_kind.", field: "notice_kind", fix: "Leave it out: the game's hold already says which notice it was." });
+      }
+      if (decision === "hold" && game.review_status === "removed") {
+        throw new ApiError("cant_decide", { message: `${slug} is taken down, so a notice can't hold it.`, field: "decision", fix: "Leave it down, or restore it on zaisma.com/admin/games first if the notice should hold it instead." });
+      }
+      if (decision === "show_again" && game.review_status !== "held") {
+        throw new ApiError("cant_decide", { message: `${slug} isn't held, so there's nothing to show again.`, field: "decision", fix: "get_game shows its review_status and why." });
+      }
+      const form = new FormData();
+      form.set("reason", String(toolArguments.why).trim());
+      if (decision === "hold") form.set("notice_kind", String(toolArguments.notice_kind));
+      const response = await adminForm(env, `/admin/games/${game.id}/${decision === "hold" ? "notice" : "restore"}`, form, actor);
+      if (response.status !== 303) {
+        throw new ApiError("decision_refused", { message: "The decision didn't go through.", field: "decision", fix: `Look at it on zaisma.com/admin/games/${game.id}.` });
+      }
+      return { decision, game: gameAnswer((await gameBySlug(env.DB, slug))!), next_steps: [] };
+    },
+  },
+  {
     name: "list_publishing_accounts",
     title: "Who can publish",
     description: "The accounts that can make, upload and publish games before the beta, each with its username, player ID and how many games it has. Everyone else gets publishing_not_open until the beta opens.",
@@ -832,6 +883,7 @@ function chatReviewAnswer(review: AdminChatReview) {
 const VALUE_ERRORS: Record<string, ErrorCode> = {
   maximum_group_count: "bad_maximum_group_count",
   decision: "bad_decision",
+  notice_kind: "bad_notice_kind",
   why: "bad_why",
   precedent: "bad_precedent",
   title: "bad_title",

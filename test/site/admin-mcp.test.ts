@@ -111,6 +111,7 @@ describe("admin MCP", () => {
       "decide_post",
       "list_chat_reviews",
       "decide_chat_review",
+      "decide_notice",
       "list_publishing_accounts",
       "set_can_publish",
       "list_security_spikes",
@@ -288,6 +289,21 @@ describe("admin MCP", () => {
     expect(await (await SELF.fetch(`${LOCAL}${missing.headers.get("location")}`)).text()).toContain("No account has the username Nobody_Here.");
     const { results } = await env.DB.prepare("SELECT action, reason FROM audit_log WHERE game_id IS NULL AND reason = '@Admin_Mcp_Publisher' ORDER BY id").all<{ action: string }>();
     expect(results.map((row) => row.action)).toEqual(["publishing-allowed", "publishing-stopped", "publishing-allowed", "publishing-stopped"]);
+  });
+
+  it("holds a game on a notice and shows it again", async () => {
+    expect(await refusal("decide_notice", { slug: "test-game", decision: "hold", why: "x" })).toMatchObject({ code: "missing_field", field: "notice_kind" });
+    expect(await refusal("decide_notice", { slug: "test-game", decision: "hold", notice_kind: "libel", why: "x" })).toMatchObject({ code: "bad_notice_kind", field: "notice_kind" });
+    expect(await refusal("decide_notice", { slug: "test-game", decision: "show_again", why: "x" })).toMatchObject({ code: "cant_decide", field: "decision" });
+    expect(await refusal("decide_notice", { slug: "nothere", decision: "hold", notice_kind: "defamation", why: "x" })).toMatchObject({ code: "no_game", field: "slug" });
+
+    const held = await data("decide_notice", { slug: "test-game", decision: "hold", notice_kind: "defamation", why: "The ending calls Emma Clarke the town's thief." });
+    expect(held).toMatchObject({ decision: "hold", game: { review_status: "held", review_reason: { code: "defamation_notice", content_rule: "defamation", message: "A defamation notice names this: The ending calls Emma Clarke the town's thief." } } });
+    expect(await refusal("decide_notice", { slug: "test-game", decision: "show_again", notice_kind: "defamation", why: "x" })).toMatchObject({ code: "unknown_field", field: "notice_kind" });
+    const shown = await data("decide_notice", { slug: "test-game", decision: "show_again", why: "Version 2 no longer names her." });
+    expect(shown.game).toMatchObject({ review_status: "live", review_reason: null });
+
+    expect(await refusal("decide_report_group", { report_group_id: "report_8f3k2m9q1x7c4v6b0n5z", decision: "take_down", why: "x", is_copyright_notice: true })).toMatchObject({ code: "unknown_field" });
   });
 
   it("shows a game as admin sees it", async () => {
