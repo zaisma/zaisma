@@ -42,7 +42,7 @@ export function coverGuidePage(env: Env): Response {
 ${figure("good-four-in-a-row.webp", "A real board from the game, and its name.", "fine")}
 ${figure("good-arena.webp", "The game's own arena, and its name.", "fine")}
 </div>
-<p>More covers worth studying, on their own store pages: <a href="https://store.steampowered.com/app/504230/Celeste/" rel="noopener">Celeste</a>, <a href="https://store.steampowered.com/app/2379780/Balatro/" rel="noopener">Balatro</a> and <a href="https://store.steampowered.com/app/367520/Hollow_Knight/" rel="noopener">Hollow Knight</a>.</p>
+<p>Browsers run games as big as PC games now, so aim for their art: a cover that would sit well on a PC store, not one made for a quick mobile game. Study these on their store pages: <a href="https://store.steampowered.com/app/1145360/Hades/" rel="noopener">Hades</a>, <a href="https://store.steampowered.com/app/367520/Hollow_Knight/" rel="noopener">Hollow Knight</a>, <a href="https://store.steampowered.com/app/504230/Celeste/" rel="noopener">Celeste</a>, <a href="https://store.steampowered.com/app/921570/OCTOPATH_TRAVELER/" rel="noopener">Octopath Traveler</a>, <a href="https://store.steampowered.com/app/588650/Dead_Cells/" rel="noopener">Dead Cells</a> and <a href="https://store.steampowered.com/app/2379780/Balatro/" rel="noopener">Balatro</a>.</p>
 
 <h2>The five lines</h2>
 <p>An AI checks every cover, square cover and share picture in about a minute. These are the lines it holds them to, the same for every game.</p>

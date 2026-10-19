@@ -12,7 +12,7 @@ Your cover is your game's card everywhere players browse, shown alone with no ti
 4. A simple background, with room around the subject.
 5. Still clear as a small card.
 
-Zaisma's demo games show it with real captures and their names: `good-four-in-a-row.webp` (a real board from the game) and `good-arena.webp` (the game's own arena). More covers worth studying, on their own store pages: [Celeste](https://store.steampowered.com/app/504230/Celeste/), [Balatro](https://store.steampowered.com/app/2379780/Balatro/) and [Hollow Knight](https://store.steampowered.com/app/367520/Hollow_Knight/).
+Zaisma's demo games show it with real captures and their names: `good-four-in-a-row.webp` (a real board from the game) and `good-arena.webp` (the game's own arena). Browsers run games as big as PC games now, so aim for their art: a cover that would sit well on a PC store, not one made for a quick mobile game. Study these on their store pages: [Hades](https://store.steampowered.com/app/1145360/Hades/), [Hollow Knight](https://store.steampowered.com/app/367520/Hollow_Knight/), [Celeste](https://store.steampowered.com/app/504230/Celeste/), [Octopath Traveler](https://store.steampowered.com/app/921570/OCTOPATH_TRAVELER/), [Dead Cells](https://store.steampowered.com/app/588650/Dead_Cells/) and [Balatro](https://store.steampowered.com/app/2379780/Balatro/).
 
 ## The five lines
 
