@@ -245,6 +245,11 @@ export const REVIEW_CODES = {
     fix: "If you own the work or may use it, send a counter-notice to dmca@zaisma.com; zaisma.com/legal/dmca says what to put in it.",
     hasOwnMessage: true,
   },
+  developer_account_deleted: {
+    meaning: "The game's developer deleted their Zaisma account, which takes their games down with it.",
+    contentRule: null,
+    fix: "Nothing to change: the game is deleted with the account.",
+  },
   image_rejected: {
     meaning: "A person at Zaisma didn't approve the image; the message says why.",
     contentRule: null,

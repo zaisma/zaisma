@@ -95,6 +95,21 @@ export class GameServerObject extends DurableObject<Env> {
     this.scheduleRetryAtMs = ctx.storage.kv.get<number>("schedule_retry_at_ms") ?? null;
   }
 
+  /** Its use, schedules and alarm, for a game being deleted (GameStorageService). Its game isn't playable by then, so nothing starts it again. */
+  async deleteStorage(): Promise<void> {
+    await this.ctx.storage.deleteAlarm();
+    await this.ctx.storage.deleteAll();
+    this.requestUse = { month: usageMonth(), requestCount: 0 };
+    this.unrecorded = null;
+    this.unsavedRequestCount = 0;
+    this.gameId = null;
+    this.schedules = null;
+    this.recordAtMs = null;
+    this.scheduleRetryAtMs = null;
+    this.haveSchedulesRun = false;
+    this.server = null;
+  }
+
   async request(gameId: string, versionId: string, player: Player, request: unknown): Promise<RequestOutcome> {
     this.knowGame(gameId);
     this.newMonth();

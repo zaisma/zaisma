@@ -52,6 +52,7 @@
     { "binding": "GAME_DATABASES", "service": "zaisma-rooms", "entrypoint": "GameDatabaseService" },
     { "binding": "GAME_SECRETS", "service": "zaisma-rooms", "entrypoint": "GameSecretsService" },
     { "binding": "GAME_SERVER_WEBHOOKS", "service": "zaisma-rooms", "entrypoint": "GameServerWebhookService" },
+    { "binding": "GAME_STORAGE", "service": "zaisma-rooms", "entrypoint": "GameStorageService" },
     { "binding": "PHOTODNA", "service": "zaisma-photodna", "entrypoint": "PhotoDnaService" }
   ],
   "queues": {
