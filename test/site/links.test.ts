@@ -261,6 +261,25 @@ describe("the developer's links on the game page", () => {
   });
 });
 
+describe("streamer mode", () => {
+  it("is an account setting that game pages read, hiding room codes until the player shows them", async () => {
+    const cookie = await sessionCookie("adult-1");
+    const streamerModeOf = async (withCookie?: string) =>
+      pageDataOf(await (await SELF.fetch(`${SITE}/g/sky-hopper`, { headers: withCookie ? { cookie: `${withCookie}; __Host-zaisma_in=1` } : {} })).text(), "game-page-data").is_streamer_mode_on;
+    expect(await streamerModeOf(cookie)).toBe(false);
+    const saved = await SELF.fetch(`${SITE}/account/streamer-mode`, { method: "POST", body: new URLSearchParams({ is_streamer_mode_on: "1" }), headers: { cookie, origin: SITE }, redirect: "manual" });
+    expect(saved.status).toBe(303);
+    expect(saved.headers.get("location")).toBe("/account?streamer-mode-saved#streamer-mode");
+    expect(await streamerModeOf(cookie)).toBe(true);
+    const account = await (await SELF.fetch(`${SITE}/account`, { headers: { cookie } })).text();
+    expect(account).toMatch(/name="is_streamer_mode_on" value="1" aria-pressed="true"/);
+    // Guests have no account to turn it on in: their codes always show.
+    expect(await streamerModeOf()).toBe(false);
+    await SELF.fetch(`${SITE}/account/streamer-mode`, { method: "POST", body: new URLSearchParams({ is_streamer_mode_on: "0" }), headers: { cookie, origin: SITE }, redirect: "manual" });
+    expect(await streamerModeOf(cookie)).toBe(false);
+  });
+});
+
 describe("a game's links on the dashboard", () => {
   it("shows each link with who it opens for, and saves the rows as the whole list", async () => {
     const cookie = await sessionCookie("dev-1");

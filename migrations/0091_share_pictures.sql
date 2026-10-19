@@ -20,3 +20,6 @@ DROP TABLE game_images;
 ALTER TABLE game_images_new RENAME TO game_images;
 CREATE INDEX game_images_game ON game_images(game_id, kind, created_at_ms);
 CREATE INDEX game_images_status ON game_images(review_status, created_at_ms);
+
+-- Streamer mode: an account setting that hides room codes on game pages until the player shows them.
+ALTER TABLE accounts ADD COLUMN is_streamer_mode_on INTEGER NOT NULL DEFAULT 0;

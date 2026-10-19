@@ -314,6 +314,7 @@ a.dev-card:hover strong{text-decoration:underline;text-underline-offset:3px}
 .room-line .btn{min-height:38px}
 .room-line .icon{width:38px;padding:0;justify-content:center}
 .room-line .icon svg{width:18px;height:18px}
+.room-line [hidden],.room-dialog p[hidden]{display:none}
 .room-dialog .eye-off{display:none}
 .room-dialog.masked .eye-off{display:inline}
 .room-dialog p{margin:0;font-size:13px;color:var(--muted)}
@@ -350,6 +351,9 @@ body:not(.playing) iframe{display:none}
   .bar::-webkit-scrollbar{display:none}
   .bar .home{position:sticky;left:0;z-index:2;flex:none;align-self:stretch;display:flex;align-items:center;padding:0 8px 0 10px;background:linear-gradient(180deg,#24282e,#16181c);box-shadow:6px 0 8px -4px rgba(0,0,0,.8)}
   .bar .ctl{flex:none}
+  /* The title has no room here; the ⋯ menu names the game. */
+  .bar h1{display:none}
+  .bar .spacer{flex:1}
   .bar .room-open{width:auto;padding:0 10px;gap:5px}
   .room-open svg{width:16px;height:16px}
   .room-open b{font-size:13px;letter-spacing:.06em}
@@ -516,6 +520,8 @@ ${pageData("game-page-data", {
       frame_query: roomQuery,
       devices,
       controls,
+      // Streamer mode (an account setting) hides room codes until the player shows them.
+      is_streamer_mode_on: Boolean(viewer.account?.is_streamer_mode_on),
       screen_orientation: game.screen_orientation || null,
       turnstile_site_key: env.TURNSTILE_SITE_KEY ?? "",
       account_requirement: accountRequirement,
@@ -958,10 +964,13 @@ if (deviceNotes.length) {
 const menuButton = document.getElementById("menu");
 function placeMenu(box = dialog, button = menuButton) {
   const b = button.getBoundingClientRect();
+  // Under its button, kept inside the screen: on phones a button near the left would push it off the edge.
+  const boxWidth = Math.min(box.offsetWidth || 320, innerWidth - 16);
+  const right = Math.max(8, Math.min(innerWidth - b.right, innerWidth - boxWidth - 8));
   const strip = matchMedia("(orientation: landscape) and (max-height: 500px)").matches;
   Object.assign(box.style, strip
     ? { left: b.right + 8 + "px", right: "auto", top: "auto", bottom: Math.max(8, innerHeight - b.bottom) + "px" }
-    : { left: "auto", right: Math.max(8, innerWidth - b.right) + "px", top: b.bottom + 8 + "px", bottom: "auto" });
+    : { left: "auto", right: right + "px", top: b.bottom + 8 + "px", bottom: "auto" });
 }
 menuButton.onclick = () => {
   if (dialog.open) return dialog.close();
@@ -977,13 +986,12 @@ addEventListener("keydown", (e) => { if (e.key === "Escape" && dialog.open) dial
 addEventListener("blur", () => { if (dialog.open) dialog.close(); });
 addEventListener("resize", () => dialog.open && placeMenu());
 // The room control: the room's code while the game is in a room (zaisma:room, then zaisma:players says
-// whether it takes others), Join otherwise; its plate has Copy, the eye and Join by code. The eye hides
-// the code for streamers, remembered in this browser, and Share blurs the code until Show then.
+// whether it takes others), Join otherwise; its plate has Copy and Join by code. In streamer mode (an
+// account setting) the code starts hidden: the eye shows it on this page, and Share blurs it under Show.
 const roomOpen = document.getElementById("room-open");
 const roomDialog = document.getElementById("room-dialog");
-const ROOM_CODE_HIDDEN_KEY = "zaisma:room-code-hidden";
-let isRoomCodeHidden = false;
-try { isRoomCodeHidden = localStorage.getItem(ROOM_CODE_HIDDEN_KEY) === "1"; } catch {}
+const isStreamerModeOn = gamePage.is_streamer_mode_on === true;
+let isRoomCodeHidden = isStreamerModeOn;
 let shownRoom = null;
 function showRoomCode(room) {
   shownRoom = room;
@@ -999,7 +1007,7 @@ function showRoomCode(room) {
   document.getElementById("room-code-text").textContent = room ? (isRoomCodeHidden ? "••••••" : room.code) : "";
   document.getElementById("room-copy").hidden = !room || !room.isOpen;
   const roomEye = document.getElementById("room-eye");
-  roomEye.hidden = !room || !room.isOpen;
+  roomEye.hidden = !isStreamerModeOn || !room || !room.isOpen;
   roomEye.setAttribute("aria-pressed", String(isRoomCodeHidden));
   roomEye.title = isRoomCodeHidden ? "Show the room code" : "Hide the room code";
   roomEye.setAttribute("aria-label", roomEye.title);
@@ -1023,7 +1031,6 @@ if (roomOpen && roomDialog) {
   roomDialog.querySelector("form").addEventListener("submit", (e) => { if (shownRoom && joinInput.value === shownRoom.code) { e.preventDefault(); roomDialog.close(); } });
   document.getElementById("room-eye").onclick = () => {
     isRoomCodeHidden = !isRoomCodeHidden;
-    try { isRoomCodeHidden ? localStorage.setItem(ROOM_CODE_HIDDEN_KEY, "1") : localStorage.removeItem(ROOM_CODE_HIDDEN_KEY); } catch {}
     showRoomCode(shownRoom);
   };
   const roomCopy = document.getElementById("room-copy");

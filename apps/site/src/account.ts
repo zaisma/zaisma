@@ -56,6 +56,7 @@ import {
   socialSettingChoicesFor,
   suggestUsernames,
   updateAccount,
+  setStreamerMode,
   UsernameTakenError,
   type Account,
   type AgeBand,
@@ -159,6 +160,7 @@ const PATHS = [
   "/account/kept",
   "/account/username",
   "/account/social",
+  "/account/streamer-mode",
   "/account/confirm",
   "/account/password",
   "/account/email",
@@ -518,6 +520,12 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     const socialSettings = choosable && sameSocialSettings(sent, current) ? socialModeSettings(socialMode, account.age_band) : sent;
     if (!(await updateAccount(env.DB, account.id, { socialSettings }))) return done(await accountPage(env, session, false, account.social_stopped_at_ms ? socialStoppedNotice(account.social_stopped_reason) : "Choose from the social settings shown."));
     return done(redirect("/account?social-saved#social"));
+  }
+
+  // Streamer mode: game pages hide room codes until the player shows them.
+  if (path === "/account/streamer-mode" && post) {
+    await setStreamerMode(env.DB, account.id, field("is_streamer_mode_on", 1) === "1");
+    return done(redirect("/account?streamer-mode-saved#streamer-mode"));
   }
 
   // API keys for the developer MCP and upload command. The key is shown once, here.
@@ -1519,6 +1527,13 @@ ${account.social_stopped_at_ms
       : html`<p>Who can chat with you, join you and see what you play.</p>
 ${query.has("social-saved") ? html`<p class="note" role="status">Saved. Games pick up chat changes the next time you open them.</p>` : ""}
 ${socialSettingsForm(account.age_band, socialSettingsOf(account))}`}
+<h2 id="streamer-mode">Streamer mode</h2>
+<p>Hides room codes on game pages until you show them, so viewers can't join your matches from your screen.</p>
+${query.has("streamer-mode-saved") ? html`<p class="note" role="status">Saved.</p>` : ""}
+<form class="seg" method="post" action="/account/streamer-mode" aria-label="Streamer mode">
+<button type="submit" name="is_streamer_mode_on" value="0" aria-pressed="${String(!account.is_streamer_mode_on)}">Off</button>
+<button type="submit" name="is_streamer_mode_on" value="1" aria-pressed="${String(Boolean(account.is_streamer_mode_on))}">On</button>
+</form>
 <h2 id="signing-in">Signing in</h2>
 ${signingInNote ? html`<p class="note" role="status">${SIGNING_IN_NOTES[signingInNote]!}</p>` : ""}
 ${!email && !passkeys.length && !isAskingForEmail ? protectAccountLine() : ""}
