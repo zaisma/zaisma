@@ -452,6 +452,20 @@ export const DATABASE_EXPORT = object({
   read_row_count: countOf("Rows this part read, towards the month's reads (export works past the free reads)."),
 });
 
+/** What export_game answers: what the .zip of everything holds, and how to get it (game-export.ts). */
+export const GAME_EXPORT = object({
+  export: object({
+    download_url: url("The .zip of everything about the game, made as it downloads: hand it to the developer, who opens it in a browser signed in to their Zaisma account. It doesn't expire, and it opens for no one else."),
+    command: text("The upload command that saves the same export as a folder, with the database as a ready .sqlite file, in a terminal with ZAISMA_KEY set."),
+    version_count: countOf("Versions whose files are in it: every kept version that passed review, the live one included."),
+    withheld_version_count: countOf("Versions listed in versions.json with no files: still being scanned, held or rejected."),
+    image_count: countOf("Covers and screenshots in it: the ones that passed review."),
+    withheld_image_count: countOf("Images listed in game.json with no file: waiting for review or not approved."),
+    save_count: countOf("Players whose cloud save is in saves.jsonl."),
+    files_size_bytes: countOf("The versions' and images' files together; the database, saves and JSON come on top."),
+  }),
+});
+
 /** What one part of a dump did to a game's database. */
 export const DATABASE_IMPORT = object({
   statement_count: countOf("Statements in the part."),

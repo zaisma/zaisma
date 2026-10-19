@@ -14,6 +14,7 @@ import {
   saveParts,
   saveRow,
   type Game,
+  type GameSaveRow,
   type SaveCopy,
   type SaveData,
   type SaveRow,
@@ -162,6 +163,12 @@ function checkCloudSaves(game: Game): void {
     field: "slug",
     fix: "Turn them on with update_game (cloud_saves_enabled: true), or change the progress in the game's own saves.",
   });
+}
+
+/** One player's save as get_save answers it, whole, for Export everything (game-export.ts); null when its data is gone. */
+export async function exportedSave(env: Env, game: Game, row: GameSaveRow) {
+  const text = await readSave(env, row.account_id, game.id);
+  return text === null ? null : { ...summaryJson(row, row.player_id, row.save_copy_count), ...saveContentsJson(readStoredSave(text), null) };
 }
 
 function summaryJson(row: SaveRow, playerId: string, saveCopyCount: number) {
