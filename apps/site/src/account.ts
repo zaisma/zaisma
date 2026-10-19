@@ -1518,7 +1518,7 @@ ${query.has("social-saved") ? html`<p class="note" role="status">Saved. Games pi
 ${socialSettingsForm(account.age_band, socialSettingsOf(account))}
 <h2 id="signing-in">Signing in</h2>
 ${signingInNote ? html`<p class="note" role="status">${SIGNING_IN_NOTES[signingInNote]!}</p>` : ""}
-${!email && !passkeys.length ? protectAccountLine() : ""}
+${!email && !passkeys.length && !isAskingForEmail ? protectAccountLine() : ""}
 ${query.has("confirm-failed") ? html`<p class="error" role="alert">Couldn't send a code. Wait a minute and try again.</p>` : ""}
 ${scriptTags(PASSKEY_SCRIPT)}
 ${isConfirmed

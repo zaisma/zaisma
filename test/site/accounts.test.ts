@@ -3310,6 +3310,15 @@ describe("protect your account", () => {
     expect(await (await withPasskey.go("/account")).text()).not.toContain(PROTECT_LINE);
   });
 
+  it("leaves the account page to the email ask when that shows, so it never asks twice", async () => {
+    const b = new Browser();
+    await join(b, null);
+    await createApiKey(env.DB, await idOf("Night_Owl"), "test");
+    const page = await (await b.go("/account")).text();
+    expect(page).toContain('id="email-ask"');
+    expect(page).not.toContain(PROTECT_LINE);
+  });
+
   it("says where to confirm when adding has to wait for Confirm it's you", async () => {
     const b = new Browser();
     await join(b, null);
