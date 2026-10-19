@@ -284,6 +284,7 @@ export async function deleteOldDeliveries(database: D1Database, nowMs = now()): 
   await database.batch([
     database.prepare("DELETE FROM webhook_deliveries WHERE created_at_ms < ?").bind(keptSinceMs),
     database.prepare("DELETE FROM player_erases WHERE erase_status = 'failed' AND created_at_ms < ?").bind(keptSinceMs),
+    database.prepare("DELETE FROM player_erases WHERE erase_status = 'erased' AND erased_at_ms < ?").bind(nowMs - ERASED_PLAYER_KEPT_DURATION_DAYS * 86_400_000),
   ]);
 }
 
@@ -292,24 +293,48 @@ export async function deleteOldDeliveries(database: D1Database, nowMs = now()): 
 /**
  * Erasing a player who deleted their account from one game's database (docs/DECISIONS.md, "Deleting an
  * account reaches developers"), tried again on the webhook schedule while the database doesn't answer.
- * A row goes once the erase worked; one that failed every try stays 30 days as the game's
- * player_erase_failed alert.
+ * One that failed every try stays 30 days as the game's player_erase_failed alert. Once a player is
+ * erased (this way, by erase_player or by a game server), the row stays erased for
+ * ERASED_PLAYER_KEPT_DURATION_DAYS, so restoring the database to a time before erases them again.
  */
 export interface PlayerErase {
   game_id: string;
   player_id: string;
-  erase_status: "pending" | "failed";
+  erase_status: "pending" | "failed" | "erased";
   attempt_count: number;
   next_attempt_at_ms: number;
   failure_message: string | null;
   created_at_ms: number;
+  erased_at_ms: number | null;
 }
 
+/** A day past the 30 a restore or its undo reaches back. */
+const ERASED_PLAYER_KEPT_DURATION_DAYS = 31;
+
+/** Queues an erase; a player erased before is queued again. */
 export async function queuePlayerErase(database: D1Database, gameId: string, playerId: string, nowMs = now()): Promise<void> {
   await database
-    .prepare("INSERT INTO player_erases (game_id, player_id, erase_status, attempt_count, next_attempt_at_ms, created_at_ms) VALUES (?, ?, 'pending', 0, ?, ?) ON CONFLICT (game_id, player_id) DO NOTHING")
+    .prepare(
+      "INSERT INTO player_erases (game_id, player_id, erase_status, attempt_count, next_attempt_at_ms, created_at_ms) VALUES (?, ?, 'pending', 0, ?, ?) ON CONFLICT (game_id, player_id) DO UPDATE SET erase_status = 'pending', attempt_count = 0, next_attempt_at_ms = excluded.next_attempt_at_ms, failure_message = NULL WHERE player_erases.erase_status = 'erased'",
+    )
     .bind(gameId, playerId, nowMs, nowMs)
     .run();
+}
+
+/** A player erased from a game's database, by any way: kept so a restore to a time before erases them again. */
+export async function recordPlayerErased(database: D1Database, gameId: string, playerId: string, nowMs = now()): Promise<void> {
+  await database
+    .prepare(
+      "INSERT INTO player_erases (game_id, player_id, erase_status, attempt_count, next_attempt_at_ms, created_at_ms, erased_at_ms) VALUES (?, ?, 'erased', 0, ?, ?, ?) ON CONFLICT (game_id, player_id) DO UPDATE SET erase_status = 'erased', erased_at_ms = excluded.erased_at_ms, failure_message = NULL",
+    )
+    .bind(gameId, playerId, nowMs, nowMs, nowMs)
+    .run();
+}
+
+/** The players erased from a game's database since a moment: the ones a restore to it would bring back. */
+export async function playersErasedSince(database: D1Database, gameId: string, sinceMs: number): Promise<string[]> {
+  const { results } = await database.prepare("SELECT player_id FROM player_erases WHERE game_id = ? AND erase_status = 'erased' AND erased_at_ms >= ?").bind(gameId, sinceMs).all<{ player_id: string }>();
+  return results.map((row) => row.player_id);
 }
 
 /** Pending erases whose next try is due, oldest first. */
@@ -321,10 +346,10 @@ export async function duePlayerErases(database: D1Database, maximumCount: number
   return results;
 }
 
-/** How a try went: null failureMessage means it worked and the row goes; otherwise the next try waits, or after the last it has failed. */
+/** How a try went: null failureMessage means it worked and the player is erased; otherwise the next try waits, or after the last it has failed. */
 export async function recordPlayerEraseAttempt(database: D1Database, erase: PlayerErase, failureMessage: string | null, nowMs = now()): Promise<void> {
   if (failureMessage === null) {
-    await database.prepare("DELETE FROM player_erases WHERE game_id = ? AND player_id = ?").bind(erase.game_id, erase.player_id).run();
+    await recordPlayerErased(database, erase.game_id, erase.player_id, nowMs);
     return;
   }
   const attemptCount = erase.attempt_count + 1;
