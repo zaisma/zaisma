@@ -408,6 +408,15 @@ export const STATEMENT_RESULT = object({
   written_row_count: countOf("Rows it wrote, counting each index changed, towards the month's free writes."),
 });
 
+/** A restore of a game's database to a time, or the undo of one. */
+export const DATABASE_RESTORE = object({
+  id: idOf("database_restore"),
+  restore_to_at: isoTime("The moment the database went back to; for an undo, just before the restore it undid."),
+  restored_at: isoTime("When it went back."),
+  undoes_database_restore_id: nullable(idOf("database_restore", "The restore this one undid; null for a restore to a time.")),
+  undo_expires_at: isoTime("Until when undo_database_restore can undo it."),
+});
+
 export const DATABASE = object({
   tables: list(object({ name: text(), sql: text("Its CREATE TABLE, as SQLite keeps it.") }), "The game's tables, by name."),
   indexes: list(object({ name: text(), table_name: text(), sql: text("Its CREATE INDEX, as SQLite keeps it.") }), "Indexes made with CREATE INDEX, by name."),
@@ -426,6 +435,14 @@ export const DATABASE = object({
     },
     "This calendar month (UTC), against the free use every game has.",
   ),
+  restores: list(DATABASE_RESTORE, "The last 30 days' restores and undos, newest first, up to 50."),
+});
+
+/** What restore_database and undo_database_restore did. */
+export const DATABASE_RESTORED = object({
+  database_restore: DATABASE_RESTORE,
+  erased_again_player_count: countOf("Players erased since that moment (deleted accounts, erase_player, game servers' erases) who were erased again, so a restore never brings them back."),
+  next_steps: NEXT,
 });
 
 /** One part of a game database's SQL dump. */

@@ -69,7 +69,7 @@ export default {
 
 describe("game database", () => {
   beforeEach(async () => {
-    await e.DB.exec("DELETE FROM alert_notices; DELETE FROM room_usage; DELETE FROM game_server_errors; DELETE FROM live_rooms; DELETE FROM versions; DELETE FROM games;");
+    await e.DB.exec("DELETE FROM alert_notices; DELETE FROM player_erases; DELETE FROM room_usage; DELETE FROM game_server_errors; DELETE FROM live_rooms; DELETE FROM versions; DELETE FROM games;");
   });
 
   it("gives a game's own server a real SQLite database, kept between rooms", async () => {
@@ -209,8 +209,10 @@ describe("game database", () => {
     await a.ask({ sql: "CREATE TABLE nobody (player_id TEXT)" });
     // Past the month's free writes, the erase still runs: it only deletes.
     const stub = e.GAME_DATABASES.get(e.GAME_DATABASES.idFromName("gerasing"));
-    await runInDurableObject(stub, (database: GameDatabaseObject) => {
+    // Its use saved, as it is after the first minute: Cloudflare's own table (_cf_KV) is left out of the erase.
+    await runInDurableObject(stub, (database: GameDatabaseObject, state) => {
       (database as unknown as { usage: { writtenRowCount: number } }).usage.writtenRowCount = GAME_DATABASE_FREE_LIMITS.writtenRowCountPerMonth;
+      state.storage.kv.put("usage", (database as unknown as { usage: unknown }).usage);
     });
     expect(await a.ask({ erase: "player_mia" })).toEqual([
       { tableName: 'Odd "Name"', erasedRowCount: 2 },
@@ -221,6 +223,26 @@ describe("game database", () => {
     // Another column naming the player is left alone: it's other players' history too.
     expect(await a.ask({ sql: "SELECT winner_player_id FROM matches" })).toEqual([{ winner_player_id: "player_mia" }]);
     expect(await a.ask({ erase: "mia_plays" })).toMatchObject({ code: "bad_player_id" });
+    // Kept, so restoring the database to a time before erases them again.
+    await expect.poll(() => e.DB.prepare("SELECT erase_status FROM player_erases WHERE game_id = 'gerasing' AND player_id = 'player_mia'").first("erase_status")).toBe("erased");
+  });
+
+  it("answers that it can't go back in time where storage keeps no history, and keeps working; a restore keeps the month's use", async () => {
+    await addSandboxGame("restoring", LEADERBOARD);
+    const a = await join("restoring", "ABCDEF");
+    await a.next();
+    await a.ask({ score: 10, id: "player_mia" });
+    const stub = e.GAME_DATABASES.get(e.GAME_DATABASES.idFromName("grestoring"));
+    // Local storage has no point-in-time recovery.
+    expect(await stub.prepareRestore({ restoreToAtMs: Date.now() - 60_000 })).toEqual({ error: { code: "database_restore_unavailable", message: expect.any(String), fix: expect.stringContaining("export_database") } });
+    expect(await a.ask({ sql: "SELECT best_score FROM scores" })).toEqual([{ best_score: 10 }]);
+    // What a restore rolled back comes back: the larger of each count, this month's alone.
+    const month = new Date().toISOString().slice(0, 7);
+    const usage = await stub.usageThisMonth();
+    await stub.carryUsage({ month, readRowCount: 0, writtenRowCount: 1_000, noticedAlertKinds: ["database_nearly_full"] });
+    expect(await stub.usageThisMonth()).toMatchObject({ month, readRowCount: usage.readRowCount, writtenRowCount: 1_000, noticedAlertKinds: ["database_nearly_full"] });
+    await stub.carryUsage({ month: "2020-01", readRowCount: 9_999_999, writtenRowCount: 9_999_999, noticedAlertKinds: [] });
+    expect(await stub.usageThisMonth()).toMatchObject({ writtenRowCount: 1_000 });
   });
 
   it("undoes the whole erase when a foreign key refuses it", async () => {

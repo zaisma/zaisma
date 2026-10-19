@@ -5,6 +5,7 @@ import {
   AREA_ACCESS_BY_LEVEL,
   AREA_ACCESS_CHOICES,
   accountById,
+  addDatabaseRestore,
   addImage,
   addTesterLink,
   allows,
@@ -133,6 +134,8 @@ const SAMPLES: Record<string, (world: World) => Sample> = {
   "GET /games/:slug/database/export": () => ({}),
   "POST /games/:slug/database/import": () => ({ body: { dump_sql: "CREATE TABLE IF NOT EXISTS badges (badge_name TEXT);" } }),
   "POST /games/:slug/database/erase-player": () => ({ body: { player_id: "player_8f3k2m9q1x7c4v6b0n5z" } }),
+  "POST /games/:slug/database/restores": () => ({ body: { restore_to_at: new Date().toISOString() } }),
+  "POST /games/:slug/database/restores/:database_restore_id/undo": () => ({}),
   "GET /games/:slug/secrets": () => ({}),
   "PUT /games/:slug/secrets/:secret_name": () => ({ body: { secret_value: "sk_test_hop" } }),
   "DELETE /games/:slug/secrets/:secret_name": () => ({}),
@@ -198,7 +201,7 @@ const isLogged = (apiRoute: ApiRoute) => (apiRoute.method !== "GET" && !(nameOf(
  * Path parts that name something inside the path's game or topic by its ID: from inside the stranger's own
  * game or topic, the developer's must be answered like nothing there.
  */
-const IDS_INSIDE = ["image_id", "version_id", "tester_id", "save_copy_id", "post_id", "media_id"];
+const IDS_INSIDE = ["image_id", "version_id", "tester_id", "save_copy_id", "database_restore_id", "post_id", "media_id"];
 /** Path parts inside a game that aren't IDs of the developer's things, and why a stranger may use them in their own game. */
 const NAMES_INSIDE: Record<string, string> = {
   secret_name: "A name the developer picks: any game can have a secret of that name.",
@@ -281,6 +284,9 @@ async function makeWorld(): Promise<World> {
     .bind(saveCopyId, player!.id, game.id, nowMs - 60_000, await saveHash(copyText), copyText.length)
     .run();
   await env.SAVES.put(saveCopyKey(player!.id, game.id, saveCopyId), copyText);
+  // A restore of the game's database, to undo.
+  const databaseRestoreId = newId("database_restore");
+  await addDatabaseRestore(env.DB, { id: databaseRestoreId, game_id: game.id, restore_to_at_ms: nowMs - 60_000, undo_bookmark: "undo-access-checks", undoes_database_restore_id: null, restored_at_ms: nowMs });
 
   // A webhook and a sign-in app each.
   const webhook = await createWebhook(env.DB, { ownerId: victimOwner.id, destinationKind: "endpoint_url", endpointUrl: `https://${HOOKS_HOST}/zaisma`, eventKinds: ["bug_reported"], gameSlugs: null });
@@ -333,6 +339,7 @@ async function makeWorld(): Promise<World> {
       secret_name: "API_TOKEN",
       player_id: player!.player_id,
       save_copy_id: saveCopyId,
+      database_restore_id: databaseRestoreId,
       topic_id: topicId,
       post_id: postId,
       media_id: mediaId,
@@ -357,12 +364,12 @@ async function makeWorld(): Promise<World> {
 /** The developer's things a stranger must never see in an answer: their account, games and IDs. */
 function privateValues(world: World): string[] {
   const { values } = world;
-  return [world.victimAccountId, world.victimOwnerId, values.slug!, world.otherSlug, values.image_id!, values.version_id!, values.tester_id!, values.save_copy_id!, values.topic_id!, values.post_id!, values.media_id!, values.webhook_id!, values.sign_in_app_id!, world.ownedSha256];
+  return [world.victimAccountId, world.victimOwnerId, values.slug!, world.otherSlug, values.image_id!, values.version_id!, values.tester_id!, values.save_copy_id!, values.database_restore_id!, values.topic_id!, values.post_id!, values.media_id!, values.webhook_id!, values.sign_in_app_id!, world.ownedSha256];
 }
 
 /** The same request with each of the developer's things swapped for one that doesn't exist, and how to swap them back in an answer. */
 function withNothingThere(world: World, sample: Required<Pick<Sample, "pathValues">> & Sample): { sample: typeof sample; swapBack: (answerText: string) => string } {
-  const kinds: Record<string, Parameters<typeof newId>[0]> = { image_id: "image", version_id: "version", tester_id: "tester", save_copy_id: "save_copy", topic_id: "topic", post_id: "post", media_id: "media", webhook_id: "webhook", sign_in_app_id: "sign_in_app" };
+  const kinds: Record<string, Parameters<typeof newId>[0]> = { image_id: "image", version_id: "version", tester_id: "tester", save_copy_id: "save_copy", database_restore_id: "database_restore", topic_id: "topic", post_id: "post", media_id: "media", webhook_id: "webhook", sign_in_app_id: "sign_in_app" };
   const swaps: [string, string][] = [
     [world.values.slug!, `gone-${world.n}`],
     [world.otherSlug, `gone-other-${world.n}`],
