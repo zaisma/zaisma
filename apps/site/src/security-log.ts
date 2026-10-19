@@ -403,7 +403,7 @@ export async function gameHistoryAnswer(
   env: Env,
   game: Game,
   caller: Caller,
-  describeZaisma: (entry: { action: string; reason: string; review_reason: string | null }) => { description: string; version_id: string | null; review_reason: unknown } | null,
+  describeZaisma: (entry: { action: string; reason: string; review_reason: string | null }) => { description: string; version_id: string | null; subject_name?: string | null; review_reason: unknown } | null,
 ): Promise<{ events: HistoryEvent[] }> {
   const eventCount = SECURITY_LOG_LIMITS.gameHistoryEventCount;
   const isUnlimited = caller.access.gameSlugs === null;
@@ -442,7 +442,7 @@ export async function gameHistoryAnswer(
       id: entry.id,
       event: {
         ...described,
-        subject_name: null,
+        subject_name: described.subject_name ?? null,
         done_by: "zaisma",
         api_key_name: null,
         device: null,

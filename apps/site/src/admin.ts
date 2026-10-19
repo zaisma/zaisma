@@ -63,6 +63,7 @@ import { adminFeedbackAction, adminFeedbackPage, feedbackSummary } from "./admin
 import { precedentAction, precedentsPage, savePrecedent } from "./precedents.ts";
 import { clearCountedDay, playSpikes } from "./plays.ts";
 import { KNOWN_IMAGE_ALERT, passVersion } from "./scan.ts";
+import { ownerUsername, stopCopy } from "./copies.ts";
 import { uploadGame } from "./upload.ts";
 import { tellWebhooks } from "./webhooks.ts";
 
@@ -207,6 +208,14 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
       await audit(env.DB, version.game_id, "rejected", reason ? `${version.id}: ${reason}` : version.id, actor, rejectedReason);
     }
     await tellWebhooks(env, "scan_status_changed", version.game_id, { versionId: version.id });
+    return back(`/admin/games/${version.game_id}`);
+  }
+
+  match = path.match(/^\/admin\/versions\/([a-z0-9_]+)\/reject-copy$/);
+  if (match) {
+    const version = await versionById(env.DB, match[1]!);
+    if (!version) return new Response("Not found", { status: 404 });
+    if (!(await stopCopy(env, version, actor))) return new Response("This version isn't a held match of another developer's game.", { status: 409 });
     return back(`/admin/games/${version.game_id}`);
   }
 
@@ -443,6 +452,14 @@ async function gameDetail(env: Env, id: string, error = ""): Promise<Response> {
     imagesForGame(env.DB, id),
   ]);
   const mine = reports.filter((report) => report.game_id === id);
+  // Held re-uploads: which game and developer each matched, for the person deciding it.
+  const matchedGames = new Map<string, { title: string; ownerName: string | null }>();
+  for (const version of versions) {
+    const matchedGameId = version.scan_report ? (JSON.parse(version.scan_report) as ScanReport).matched_game?.game_id : undefined;
+    if (!matchedGameId || matchedGames.has(matchedGameId)) continue;
+    const matched = await gameById(env.DB, matchedGameId);
+    if (matched) matchedGames.set(matchedGameId, { title: matched.title, ownerName: await ownerUsername(env, matched.owner_id) });
+  }
 
   return page(
     env,
@@ -513,10 +530,12 @@ ${versions.map((version) => {
     <span>${version.file_count} files · ${(version.size_bytes / 1048576).toFixed(1)} MB · ${when(version.created_at_ms)}</span></div>
   ${version.report_held_at_ms && version.scan_status === "held" ? html`<p><strong>A report paused this update.</strong> Players are on the version before it. Put it back if the report was wrong.</p>` : ""}
   ${report ? scanReport(report) : html`<p>Scan in progress…</p>`}
+  ${report?.matched_game ? matchedGameLine(report.matched_game, matchedGames.get(report.matched_game.game_id)) : ""}
   ${toldDeveloper(version.review_reason)}
   ${version.scan_status !== "approved" || !current
         ? html`<div class="row">
     ${version.scan_status !== "approved" && !knownImages(version) ? html`<form method="post" action="/admin/versions/${version.id}/approve"><button class="btn" type="submit">${version.report_held_at_ms ? "Put the update back" : version.publish_when_approved_enabled ? "Approve and publish" : "Approve as a draft"}</button></form>` : ""}
+    ${version.scan_status !== "rejected" && report?.matched_game ? html`<form method="post" action="/admin/versions/${version.id}/reject-copy"><button class="btn ghost" type="submit">Reject as a copy</button></form>` : ""}
     ${version.scan_status !== "rejected" ? html`<details><summary class="btn ghost">${version.report_held_at_ms ? "Keep it off…" : "Reject…"}</summary><form class="row" method="post" action="/admin/versions/${version.id}/reject">${decisionFields({})}<button class="btn ghost" type="submit">${version.report_held_at_ms ? "Keep it off" : "Reject"}</button></form></details>` : ""}
   </div>`
         : ""}
@@ -528,6 +547,11 @@ ${auditTable(log)}`,
   );
 }
 
+/** What a held re-upload matched, and what Reject as a copy does. */
+function matchedGameLine(matchedGame: NonNullable<ScanReport["matched_game"]>, matched: { title: string; ownerName: string | null } | undefined): Raw {
+  return html`<p><strong>Most of its files (${matchedGame.matched_file_count} of ${matchedGame.compared_file_count}) were sent first by another developer</strong>, in <a href="/admin/games/${matchedGame.game_id}">${matched?.title ?? matchedGame.game_id}</a>${matched?.ownerName ? ` by ${matched.ownerName}` : ""}. Reject as a copy tells that developer, with this uploader's name; Approve and Reject… tell nobody. Not sure (a teammate, permission)? Ask them first.</p>`;
+}
+
 function scanReport(report: ScanReport): Raw {
   return html`
 ${report.findings.some((finding) => finding.code === KNOWN_IMAGE_CODE)
@@ -535,7 +559,7 @@ ${report.findings.some((finding) => finding.code === KNOWN_IMAGE_CODE)
     : report.is_child_safety
       ? html`<p style="color:var(--danger)"><strong>Child-safety flag.</strong> Don't delete anything. Review, and if confirmed report to NCMEC (CyberTipline) as the law requires.</p>`
       : ""}
-<p>Scan result: ${pill(report.decision)} · image matching: ${report.images.is_connected ? `${report.images.provider}, ${report.images.checked_media_count} checked` : "not connected"} · AI: ${report.ai ? `${report.ai.verdict} (${reviewModelOf(report.ai)}${"cost_cents" in report.ai ? `, ${report.ai.cost_cents.toFixed(2)}¢` : ""})` : "not run"}</p>
+<p>Scan result: ${pill(report.decision)} · image matching: ${report.images.is_connected ? `${report.images.provider}, ${report.images.checked_media_count} checked${report.images.reused_media_count ? `, ${report.images.reused_media_count} cleared earlier` : ""}` : "not connected"} · AI: ${report.ai ? `${report.ai.verdict} (${reviewModelOf(report.ai)}${"cost_cents" in report.ai ? `, ${report.ai.cost_cents.toFixed(2)}¢` : ""})` : "not run"}</p>
 ${report.ai?.summary ? html`<p>${report.ai.summary}</p>` : ""}
 ${report.findings.length
     ? html`<table><tr><th>Level</th><th>Check</th><th>What</th><th>File</th></tr>${report.findings.map(

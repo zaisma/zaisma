@@ -157,6 +157,11 @@ export const REVIEW_CODES = {
     fix: "Build the file again from clean sources and upload a new version. If it's a false alarm: a person at Zaisma decides a held version, usually within a day; for a rejected one, message_zaisma with the version_id.",
     hasOwnMessage: true,
   },
+  matches_another_developers_game: {
+    meaning: "Most of this version's files are already in another developer's game, so a person at Zaisma looks first.",
+    contentRule: "copyright",
+    fix: "Nothing to change if the game is yours: a person at Zaisma looks, usually within a day. If it's your own game on another account, or the developer gave you permission, say so with message_zaisma and the version_id.",
+  },
   api_key_in_files: {
     meaning: "A Zaisma API key was in the game's files, so Zaisma turned it off: anyone who plays the game could have read it.",
     contentRule: null,

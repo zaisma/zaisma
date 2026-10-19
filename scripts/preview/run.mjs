@@ -175,6 +175,29 @@ spawnSync(
        SELECT 'version_previewgoreboss0001', id, 'manifests/version_previewgoreboss0001', 1, 1000, 'held', '${goreReport}', ${Date.now()}, 'files', 'Adds the boss fight.', 0 FROM games WHERE slug = 'tiny-farm'`],
   { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } },
 );
+// A re-upload of Shard Dodge by another developer (dashking), held for a person, again this run: Reject as a copy
+// on its admin page emails Preview_Studio (the preview mailbox) and writes it into Shard Dodge's history.
+const reuploadReport = (originalId) =>
+  JSON.stringify({
+    finished_at_ms: Date.now(),
+    decision: "held",
+    findings: [{ stage: "static", severity: "hold", code: "matches_another_developers_game", message: "4 of its 5 files were sent first by another developer, in shard-dodge." }],
+    outside_hosts: [],
+    images: { provider: "arachnid-shield", is_connected: true, checked_media_count: 0, reused_media_count: 1 },
+    ai: null,
+    is_child_safety: false,
+    matched_game: { game_id: originalId, matched_file_count: 4, compared_file_count: 5 },
+  }).replaceAll("'", "''");
+spawnSync(
+  "npx",
+  ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command",
+    `INSERT OR IGNORE INTO accounts (id, player_id, username, age_band, created_at_ms, updated_at_ms) VALUES ('preview-dashking', 'player_previewdashking001', 'dashking', '18+', ${Date.now()}, ${Date.now()});
+     INSERT OR IGNORE INTO owners (id, kind, account_id, created_at_ms) VALUES ('owner_previewdashking001', 'person', 'preview-dashking', ${Date.now()});
+     INSERT OR IGNORE INTO games (id, slug, title, description, review_status, owner_id, visibility, created_at_ms, updated_at_ms) VALUES ('game_previewsharddash001', 'shard-dash', 'Shard Dash', 'Dodge the shards.', 'pending', 'owner_previewdashking001', 'draft', ${Date.now()}, ${Date.now()});
+     INSERT OR REPLACE INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, scan_report, created_at_ms, kind, patch_notes, publish_when_approved_enabled)
+       SELECT 'version_previewreupload0001', 'game_previewsharddash001', 'manifests/version_previewreupload0001', 5, 42000, 'held', replace('${reuploadReport("ORIGINAL_ID")}', 'ORIGINAL_ID', id), ${Date.now()}, 'files', 'First version.', 0 FROM games WHERE slug = 'shard-dodge'`],
+  { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } },
+);
 // The preview account's friends, online and in rooms, again this run (once seedFriends made them).
 seedFriendsNow();
 // Two accounts someone has been guessing the passwords of, again this run (made the first time).
