@@ -695,7 +695,7 @@ describe("accounts open only through Zaisma", () => {
     const page = await (await owner.go("/account")).text();
     expect(page).toContain("Someone tried wrong passwords on your account today. Nothing got in.");
     expect(page).toContain('href="#passkeys">Add a passkey</a>');
-    expect(page).toContain('href="#signing-in">Add an email</a>');
+    expect(page).toContain('href="#email">Add an email</a>');
     expect(await (await owner.go("/account")).text()).not.toContain("Someone tried wrong passwords");
 
     // An email code still opens it on a new device, which can then use its password.
@@ -3247,6 +3247,89 @@ describe("pages behind a sign-in run only the site's script files", () => {
   });
 });
 
+describe("protect your account", () => {
+  const PROTECT_LINE = '<div class="note" id="protect">';
+  async function savedHoursAgo(accountId: string, hourCount: number) {
+    const nowMs = Date.now();
+    await env.DB.prepare("INSERT OR IGNORE INTO games (id, slug, title, review_status, created_at_ms, updated_at_ms) VALUES ('g-protect', 'protect-game', 'Protect Game', 'live', ?, ?)").bind(nowMs, nowMs).run();
+    await env.DB.prepare("INSERT OR REPLACE INTO saves (account_id, game_id, version_number, sha256, size_bytes, updated_at_ms) VALUES (?, 'g-protect', 1, 'x', 2, ?)").bind(accountId, nowMs - hourCount * 3600_000).run();
+  }
+  const offeredAtMs = async (accountId: string) => (await env.DB.prepare("SELECT protection_offered_at_ms FROM accounts WHERE id = ?").bind(accountId).first<{ protection_offered_at_ms: number | null }>())!.protection_offered_at_ms;
+  afterEach(async () => {
+    await env.DB.batch([env.DB.prepare("DELETE FROM saves WHERE game_id = 'g-protect'"), env.DB.prepare("DELETE FROM games WHERE id = 'g-protect'")]);
+  });
+
+  it("asks once on the home page when a player comes back to a save with neither a passkey nor an email, and keeps a line on the account page", async () => {
+    const b = new Browser();
+    await join(b, null);
+    const id = await idOf("Night_Owl");
+    // Nothing saved yet: nothing to lose, so the home page doesn't ask; the account page has the line.
+    expect(await (await b.go("/")).text()).not.toContain('id="protect-account"');
+    const accountPage = await (await b.go("/account")).text();
+    expect(accountPage).toContain(PROTECT_LINE);
+    expect(accountPage).toContain('href="#passkeys">Add a passkey</a> <a class="btn ghost" href="#email">Add an email</a>');
+    expect(accountPage).toContain('<h3 class="sub" id="email">Email</h3>');
+
+    // Saved 10 minutes ago: still playing, not back yet.
+    await savedHoursAgo(id, 1 / 6);
+    expect(await (await b.go("/")).text()).not.toContain('id="protect-account"');
+    expect(await offeredAtMs(id)).toBeNull();
+
+    // Back to a save from 2 hours ago: asked once, with both ways in and Later.
+    await savedHoursAgo(id, 2);
+    const home = await (await b.go("/")).text();
+    expect(home).toContain('<dialog id="protect-account"');
+    expect(home).toContain('href="/account#passkeys">Add a passkey</a>');
+    expect(home).toContain('href="/account#email">Add an email</a>');
+    expect(home).toContain("data-close>Later</button>");
+    expect(home).not.toContain('type="password"');
+    expect(pageScriptNames(home)).toContain("protect-account");
+    expect(await offeredAtMs(id)).toEqual(expect.any(Number));
+    expect(await (await b.go("/")).text()).not.toContain('id="protect-account"');
+    expect(await (await b.go("/account")).text()).toContain(PROTECT_LINE);
+
+    // Signed out, nobody is asked.
+    await b.go("/signout", {});
+    expect(await (await b.go("/")).text()).not.toContain('id="protect-account"');
+  });
+
+  it("asks nobody with an email or a passkey", async () => {
+    const withEmail = new Browser();
+    await join(withEmail, "fox@example.com");
+    await savedHoursAgo(await idOf("Night_Owl"), 2);
+    expect(await (await withEmail.go("/")).text()).not.toContain('id="protect-account"');
+    expect(await (await withEmail.go("/account")).text()).not.toContain(PROTECT_LINE);
+
+    const withPasskey = new Browser();
+    await join(withPasskey, null, "Key_Holder");
+    const id = await idOf("Key_Holder");
+    await savedHoursAgo(id, 2);
+    await env.DB.prepare("INSERT INTO passkeys (id, account_id, public_key, algorithm_number, sign_count, name, created_at_ms, last_used_at_ms, approves_from_at_ms) VALUES ('protect-passkey', ?, 'key', -7, 0, 'Mac', ?, NULL, 0)").bind(id, Date.now()).run();
+    expect(await (await withPasskey.go("/")).text()).not.toContain('id="protect-account"');
+    expect(await offeredAtMs(id)).toBeNull();
+    expect(await (await withPasskey.go("/account")).text()).not.toContain(PROTECT_LINE);
+  });
+
+  it("leaves the account page to the email ask when that shows, so it never asks twice", async () => {
+    const b = new Browser();
+    await join(b, null);
+    await createApiKey(env.DB, await idOf("Night_Owl"), "test");
+    const page = await (await b.go("/account")).text();
+    expect(page).toContain('id="email-ask"');
+    expect(page).not.toContain(PROTECT_LINE);
+  });
+
+  it("says where to confirm when adding has to wait for Confirm it's you", async () => {
+    const b = new Browser();
+    await join(b, null);
+    const id = await idOf("Night_Owl");
+    await env.DB.prepare("UPDATE session_proofs SET proved_at_ms = 0 WHERE account_id = ?").bind(id).run();
+    const page = await (await b.go("/account")).text();
+    expect(page).toContain('id="confirm"');
+    expect(page.match(/<a href="#confirm">Confirm it's you<\/a> above to add one\./g)).toHaveLength(2);
+  });
+});
+
 describe("the security log on the account page", () => {
   const CHROME_ON_WINDOWS = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
   const MANCHESTER = { asn: 64500, asOrganization: "Vodafone", city: "Manchester", region: "England", country: "GB" };
@@ -3363,11 +3446,13 @@ describe("the security log on the account page", () => {
     const owner = inManchester();
     await join(owner, null);
     const id = await idOf("Night_Owl");
+    expect((await env.DB.prepare("SELECT COUNT(*) AS network_count FROM sign_in_networks WHERE account_id = ?").bind(id).first<{ network_count: number }>())!.network_count).toBe(1);
     await makeKey(owner, await addPasskey(owner));
     expect((await eventsOf(id)).length).toBeGreaterThan(0);
     await owner.go("/account/delete", { confirm: "delete" });
     expect(await eventsOf(id)).toEqual([]);
     expect((await env.DB.prepare("SELECT COUNT(*) AS place_count FROM security_places WHERE account_id = ?").bind(id).first<{ place_count: number }>())!.place_count).toBe(0);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS network_count FROM sign_in_networks WHERE account_id = ?").bind(id).first<{ network_count: number }>())!.network_count).toBe(0);
   });
 });
 
@@ -3427,5 +3512,90 @@ describe("leaked keys on the account page", () => {
     const page = await (await owner.go("/account")).text();
     expect(page).toContain("Zaisma turned off an API key found in public: space-game CI");
     expect(page).toContain("Zaisma");
+  });
+});
+
+describe("security alerts on the account page and dashboard", () => {
+  const MANCHESTER = { asn: 64500, asOrganization: "Vodafone", city: "Manchester", region: "England", country: "GB" };
+  const LEEDS_SAME_NETWORK = { ...MANCHESTER, city: "Leeds" };
+  const ELSEWHERE = { asn: 8075, asOrganization: "Microsoft Corporation", city: "Des Moines", region: "Iowa", country: "US" };
+  const at = (cf: Record<string, unknown>) => Object.assign(new Browser(), { cf: cf as unknown as IncomingRequestCfProperties });
+  const alertsTo = (email: string) => emails.filter((sent) => sent.to === email && !/is your Zaisma code$/.test(sent.subject));
+  const statusesOf = async (accountId: string, kind: string) =>
+    (await env.DB.prepare("SELECT security_alert_status FROM security_events WHERE account_id = ? AND kind = ? ORDER BY id").bind(accountId, kind).all<{ security_alert_status: string | null }>()).results.map((row) => row.security_alert_status);
+
+  it("emails a password change to the account's email, and an email change to the old address and the new", async () => {
+    const owner = at(MANCHESTER);
+    await join(owner, "fox@example.com");
+    const id = await idOf("Night_Owl");
+    // Adding the first email is an alert too, to the address it added.
+    expect(alertsTo("fox@example.com").map((sent) => sent.subject)).toEqual(["An email was added to your Zaisma account"]);
+    await owner.go("/account/password", { password: "another long password" });
+    const [changed] = alertsTo("fox@example.com").slice(-1);
+    expect(changed).toMatchObject({ subject: "Your Zaisma password was changed" });
+    expect(changed!.text).toContain("Changed your password, on your Zaisma account Night_Owl,");
+    expect(changed!.text).toContain("Vodafone, near Manchester, UK");
+    expect(changed!.text).toContain("zaisma.test/account?not-you#signing-in");
+    expect(await statusesOf(id, "password_changed")).toEqual(["emailed"]);
+
+    await addEmail(owner, "fox@new.example.com");
+    expect(alertsTo("fox@example.com").at(-1)!.subject).toBe("Your Zaisma email was changed");
+    expect(alertsTo("fox@new.example.com").at(-1)!.subject).toBe("Your Zaisma email was changed");
+  });
+
+  it("emails a new-device sign-in only from a network the account hasn't signed in from", async () => {
+    const owner = at(MANCHESTER);
+    await join(owner, "fox@example.com");
+    const id = await idOf("Night_Owl");
+    const before = alertsTo("fox@example.com").length;
+    // Another device, the same network: a school's laptop cart. Logged, but no alert.
+    await signIn(at(LEEDS_SAME_NETWORK), { username: "Night_Owl", password: PASSWORD });
+    expect(await statusesOf(id, "signed_in_new_device")).toEqual([null]);
+    expect(alertsTo("fox@example.com")).toHaveLength(before);
+    await signIn(at(ELSEWHERE), { username: "Night_Owl", password: PASSWORD });
+    expect(await statusesOf(id, "signed_in_new_device")).toEqual([null, "emailed"]);
+    expect(alertsTo("fox@example.com").at(-1)).toMatchObject({ subject: "New sign-in to your Zaisma account" });
+    expect(alertsTo("fox@example.com").at(-1)!.text).toContain("Signed in with your password on a new device");
+    // Making the account is never one.
+    expect(await statusesOf(id, "account_created")).toEqual([null]);
+  });
+
+  it("without an email, shows the alert and the ask on the account page and dashboard until That was me and Skip", async () => {
+    const owner = at(MANCHESTER);
+    await join(owner, null);
+    const id = await idOf("Night_Owl");
+    // Nothing to lose yet: no ask.
+    expect(await (await owner.go("/account")).text()).not.toContain('id="email-ask"');
+    const made = await (await makeKey(owner, await addPasskey(owner))).text();
+    expect(made).toContain('id="security-alerts"');
+    expect(made).toContain("Made an API key: My laptop");
+    // Just confirmed with the passkey: the email box is right there.
+    expect(made).toContain("Where should we tell you if someone else uses your account?");
+    expect(made).toMatch(/id="email-ask"[\s\S]*action="\/account\/email"/);
+    expect(await statusesOf(id, "api_key_created")).toEqual(["unseen"]);
+
+    const dashboard = await (await owner.go("/dashboard")).text();
+    expect(dashboard).toContain('id="security-alerts"');
+    expect(dashboard).toContain("Made an API key: My laptop");
+    expect(dashboard).toContain('id="email-ask"');
+
+    const seen = await owner.go("/account/security-alerts/seen", { next: "/dashboard" });
+    expect(seen.headers.get("location")).toBe("/dashboard");
+    expect(await statusesOf(id, "api_key_created")).toEqual(["seen"]);
+    expect(await (await owner.go("/dashboard")).text()).not.toContain('id="security-alerts"');
+    await owner.go("/account/email-ask/skip", { next: "/account" });
+    const after = await (await owner.go("/account")).text();
+    expect(after).not.toContain('id="email-ask"');
+    expect(after).not.toContain('id="security-alerts"');
+  });
+
+  it("asks a player without a fresh confirmation to confirm first", async () => {
+    const owner = at(MANCHESTER);
+    await join(owner, null);
+    const id = await idOf("Night_Owl");
+    await createApiKey(env.DB, id, "CI");
+    await ageProofs();
+    const page = await (await owner.go("/account")).text();
+    expect(page).toMatch(/id="email-ask"[\s\S]*href="\/account\?confirm-first#confirm"/);
   });
 });

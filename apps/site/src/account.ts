@@ -93,6 +93,7 @@ import {
   type Provider,
   type Session,
 } from "./auth.ts";
+import { protectAccountLine } from "./account-protection.ts";
 import { clearWrongPasswordNotice, isDeviceMarked, isPasswordLockedOut, noteWrongPassword } from "./device-marks.ts";
 import { checkEmailCode, sendEmailCode, waitEndsText } from "./email-codes.ts";
 import type { Env } from "./env.ts";
@@ -101,6 +102,7 @@ import { deleteDueGames } from "./game-deletion.ts";
 import { html, layout, message, metalButton, raw, scriptTags, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
 import { foundWords } from "./leaked-keys.ts";
+import { emailAskBox, isEmailAskDue, markSecurityAlertsSeen, securityAlertsBox, skipEmailAsk } from "./security-alerts.ts";
 import { activityAnswer, doneByText, eventTitle, logAccountChange, recordSignIn, seedKeyPlace, setWhereUsedFrom, whereText } from "./security-log.ts";
 import { profilePath } from "./profiles.ts";
 import { PASSKEY_ADD_SCRIPT, PASSKEY_CONFIRM_SCRIPT, PASSKEY_SCRIPT, PASSKEY_SIGN_IN_SCRIPT, checkPasskeyTap, keyRefusal, usedChallengeCookie, type PasskeyTap } from "./passkeys.ts";
@@ -164,6 +166,8 @@ const PATHS = [
   "/account/delete",
   "/account/keys",
   "/account/where-used-from",
+  "/account/security-alerts/seen",
+  "/account/email-ask/skip",
   "/signout",
 ];
 
@@ -484,7 +488,9 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     const isSet = await setEmail(env, account.id, email);
     if (isSet === "taken") return done(await accountPage(env, session, false, EMAIL_TAKEN));
     if (isSet === "failed") return done(message(env, "Couldn't add your email", "Something went wrong on our side. Try again in a minute.", 502));
-    await logAccountChange(request, env, account, realEmail(session.email) ? "email_changed" : "email_added");
+    // The old address hears about it too.
+    const oldEmail = realEmail(session.email);
+    await logAccountChange(request, env, account, oldEmail ? "email_changed" : "email_added", { alert: { emails: oldEmail ? [oldEmail] : [] } });
     // A fresh session, so it says the new email.
     const fresh = await refreshSession(env, session.refresh, connectionAddress);
     return withCookies(redirect("/account?email-saved#signing-in"), fresh ? sessionCookies(env, fresh) : session.cookies);
@@ -494,7 +500,8 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
   if (path === "/account/email/remove" && post) {
     if (account.password_changed_at_ms === null) return done(await accountPage(env, session, false, "Add a password first, so you can still sign in without your email."));
     if (!(await removeEmail(env, account.id))) return done(message(env, "Couldn't remove your email", "Something went wrong on our side. Try again in a minute.", 502));
-    await logAccountChange(request, env, account, "email_removed");
+    const removedEmail = realEmail(session.email);
+    await logAccountChange(request, env, account, "email_removed", { alert: { emails: removedEmail ? [removedEmail] : [] } });
     const fresh = await refreshSession(env, session.refresh, connectionAddress);
     return withCookies(redirect("/account?email-removed#signing-in"), fresh ? sessionCookies(env, fresh) : session.cookies);
   }
@@ -535,6 +542,16 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     const removedKey = (await apiKeysFor(env.DB, account.id)).find((key) => key.id === revoke[1]);
     if (await revokeApiKey(env.DB, account.id, revoke[1]!)) await logAccountChange(request, env, account, removedKey?.kind === "connected_app" ? "connected_app_removed" : "api_key_removed", { subjectName: removedKey?.name ?? null });
     return done(redirect(safeNext(field("next", 2000)) ?? "/account#developer"));
+  }
+
+  // Security alerts no email told them about: That was me. And the email ask's Skip.
+  if (path === "/account/security-alerts/seen" && post) {
+    await markSecurityAlertsSeen(env, account.id);
+    return done(redirect(field("next", 20) === "/dashboard" ? "/dashboard" : "/account"));
+  }
+  if (path === "/account/email-ask/skip" && post) {
+    await skipEmailAsk(env, account.id);
+    return done(redirect(field("next", 20) === "/dashboard" ? "/dashboard" : "/account"));
   }
 
   // Keep where the account is used from: turning it off wipes the device, network and place from what's logged, so it needs the same proof as changing the email (Confirm it's you).
@@ -1409,7 +1426,7 @@ const NEW_PASSWORD_SCRIPT = pageScript("new-password", `(() => {
 function wrongPasswordNotice(noticeAtMs: number, hasNoOtherWayIn: boolean): Raw {
   const when = Date.now() - noticeAtMs < 86400_000 ? "today" : `on ${new Date(noticeAtMs).toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" })}`;
   return html`<div class="note" role="status" id="wrong-passwords"><p>Someone tried wrong passwords on your account ${when}. Nothing got in.</p>
-${hasNoOtherWayIn ? html`<div class="row"><a class="btn ghost" href="#passkeys">Add a passkey</a> <a class="btn ghost" href="#signing-in">Add an email</a></div>` : ""}</div>`;
+${hasNoOtherWayIn ? html`<div class="row"><a class="btn ghost" href="#passkeys">Add a passkey</a> <a class="btn ghost" href="#email">Add an email</a></div>` : ""}</div>`;
 }
 
 type ActivityEvents = Awaited<ReturnType<typeof activityAnswer>>;
@@ -1419,7 +1436,7 @@ function activitySection(activity: ActivityEvents, query: URLSearchParams): Raw 
   const event = (each: ActivityEvents["events"][number]) => {
     const where = whereText(each);
     const by = doneByText(each);
-    return html`<li><span>${eventTitle(each)} <span class="why muted small">${day(Date.parse(each.happened_at))}${by === "You" ? "" : ` · ${by}`}${where ? ` · ${where}` : ""}${each.done_by === "zaisma" ? "" : html` · <a href="/account?not-you#signing-in">Not you?</a>`}</span></span></li>`;
+    return html`<li><span>${eventTitle(each)} <span class="why muted small">${day(Date.parse(each.happened_at))}${by === "You" ? "" : ` · ${by}`}${where ? ` · ${where}` : ""}${each.security_alert_status === "emailed" ? " · Emailed" : ""}${each.done_by === "zaisma" ? "" : html` · <a href="/account?not-you#signing-in">Not you?</a>`}</span></span></li>`;
   };
   const shown = activity.events.slice(0, SECURITY_LOG_LIMITS.accountPageEventCount);
   const earlier = activity.events.slice(SECURITY_LOG_LIMITS.accountPageEventCount);
@@ -1458,6 +1475,7 @@ async function accountPage(env: Env, session: Session, welcome: boolean, error?:
   const waitingPasskeys = passkeys.filter((passkey) => passkey.approves_from_at_ms > nowMs);
   const passkeyState: PasskeyState = approving.length ? "ready" : passkeys.length ? "waiting" : "none";
   const email = realEmail(session.email);
+  const isAskingForEmail = await isEmailAskDue(env, account, email);
   const hasPassword = account.password_changed_at_ms !== null;
   const signingInNote = Object.keys(SIGNING_IN_NOTES).find((key) => query.has(key) && !PASSKEY_NOTE_KEYS.includes(key));
   // Just back in after Forgot your password: a window asks for a new one straight away.
@@ -1467,6 +1485,8 @@ async function accountPage(env: Env, session: Session, welcome: boolean, error?:
   if (noticeAtMs !== null) await clearWrongPasswordNotice(env, account.id, noticeAtMs);
   // The invisible check runs on asking for an email code: Confirm it's you without a password, or adding an email.
   const hasCodeForm = Boolean(env.TURNSTILE_SITE_KEY) && (isConfirmed || !hasPassword);
+  // Adding a way in waits for Confirm it's you, which is above: say so where the add would be.
+  const confirmToAdd = html`<p class="muted small"><a href="#confirm">Confirm it's you</a> above to add one.</p>`;
   const confirmWithOldWays = html`${hasPassword
     ? html`<form class="row" method="post" action="/account/confirm"><input type="password" name="password" autocomplete="current-password" required aria-label="Your password" placeholder="Your password"><button class="btn" type="submit">Confirm</button></form>`
     : html`<form method="post" action="/account/confirm" id="confirm-form">${botCheck(env, "email_code")}<button class="btn" type="submit">Email me a code</button></form>`}`;
@@ -1477,6 +1497,8 @@ async function accountPage(env: Env, session: Session, welcome: boolean, error?:
 <h1>${account.username}</h1>
 ${email ? html`<p class="lead">${email}</p>` : ""}
 <p><a class="btn ghost" href="${profilePath(account.username)}">Your profile</a></p>
+${securityAlertsBox(activity.unseen_security_alerts, "/account")}
+${isAskingForEmail ? emailAskBox({ isConfirmed, backTo: "/account" }) : ""}
 ${noticeAtMs !== null ? wrongPasswordNotice(noticeAtMs, !email && !passkeys.length) : ""}
 ${isAskingForPassword ? newPasswordWindow(hasPassword, safeNext(query.get("next")), error) : errorParagraph(error)}
 ${query.has("keys-check") ? keysCheckWindow(keys, games, safeNext(query.get("next"))) : ""}
@@ -1496,6 +1518,7 @@ ${query.has("social-saved") ? html`<p class="note" role="status">Saved. Games pi
 ${socialSettingsForm(account.age_band, socialSettingsOf(account))}
 <h2 id="signing-in">Signing in</h2>
 ${signingInNote ? html`<p class="note" role="status">${SIGNING_IN_NOTES[signingInNote]!}</p>` : ""}
+${!email && !passkeys.length && !isAskingForEmail ? protectAccountLine() : ""}
 ${query.has("confirm-failed") ? html`<p class="error" role="alert">Couldn't send a code. Wait a minute and try again.</p>` : ""}
 ${scriptTags(PASSKEY_SCRIPT)}
 ${isConfirmed
@@ -1517,12 +1540,14 @@ ${isConfirmed
       ? html`<form class="row" method="post" action="/account/password"><input type="password" name="password" minlength="${MINIMUM_PASSWORD_CHARACTER_COUNT}" autocomplete="new-password" required aria-label="New password" placeholder="New password"><button class="btn ghost" type="submit">${hasPassword ? "Change" : "Add"}</button></form>
 <p class="hint">${PASSWORD_HINT}</p>`
       : ""}
-<h3 class="sub">Email</h3>
+<h3 class="sub" id="email">Email</h3>
 <p>${email ? html`<strong>${email}</strong>. A way back in if you forget your password. Never shown to anyone.` : "No email. Add one to get back in if you forget your password. Never shown to anyone."}</p>
 ${isConfirmed
       ? html`<form class="row" method="post" action="/account/email" id="email-form"><input type="email" name="email" autocomplete="email" required aria-label="${email ? "New email" : "Email"}" placeholder="${email ? "New email" : "Email"}">${botCheck(env, "email_code")}<button class="btn ghost" type="submit">${email ? "Change" : "Add"}</button></form>
 ${email && hasPassword ? html`<form class="after-row" method="post" action="/account/email/remove"><button class="btn ghost" type="submit">Remove email</button></form>` : ""}`
-      : ""}
+      : email
+        ? ""
+        : confirmToAdd}
 <h3 class="sub" id="passkeys">Passkeys</h3>
 <p>Sign in with Face ID, a fingerprint or your device's PIN instead of your password.</p>
 ${query.has("passkey-added") ? html`<p class="note" role="status"><strong>Passkey added.</strong> Next time, choose Sign in with a passkey.</p>` : ""}
@@ -1538,7 +1563,9 @@ ${isProven
       ? html`<div class="row" id="passkey-add-row"><button class="btn${passkeys.length ? " ghost" : ""}" type="button" id="passkey-add">Add a passkey</button></div>
 <p class="error" role="alert" id="passkey-error" hidden></p>
 ${scriptTags(PASSKEY_ADD_SCRIPT)}`
-      : ""}
+      : passkeys.length
+        ? ""
+        : confirmToAdd}
 ${activitySection(activity, query)}
 ${signIns.length
       ? html`<h2 id="sign-ins">Signed in with Zaisma</h2>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeSecurityEvent, deviceFor, foldKeyFor, isReadOnlySql, placeSha256For, whereFrom } from "@zaisma/core";
+import { SECURITY_ALERT_EVENT_KINDS, SECURITY_ALERT_WORDS, cleanBlockedScriptReport, describeSecurityEvent, deviceFor, foldKeyFor, FOLDED_EVENT_KINDS, isReadOnlySql, isSecurityAlert, placeSha256For, whereFrom } from "@zaisma/core";
 
 const CHROME_ON_WINDOWS = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 const SAFARI_ON_IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1";
@@ -82,5 +82,50 @@ describe("describeSecurityEvent", () => {
     expect(describeSecurityEvent("signed_in_new_device", "password")).toBe("Signed in with your password on a new device");
     expect(describeSecurityEvent("signed_in_new_device", null)).toBe("Signed in on a new device");
     expect(describeSecurityEvent("password_changed", null)).toBe("Changed your password");
+  });
+});
+
+describe("isSecurityAlert", () => {
+  it("is the risky kinds, a sign-in only from a new network, and a removed app only when Zaisma removed it", () => {
+    for (const kind of SECURITY_ALERT_EVENT_KINDS) expect(isSecurityAlert(kind, "you", false), kind).toBe(true);
+    expect(isSecurityAlert("signed_in_new_device", "you", false)).toBe(false);
+    expect(isSecurityAlert("signed_in_new_device", "you", true)).toBe(true);
+    expect(isSecurityAlert("account_created", "you", true)).toBe(false);
+    expect(isSecurityAlert("connected_app_removed", "you", false)).toBe(false);
+    expect(isSecurityAlert("connected_app_removed", "zaisma", false)).toBe(true);
+    expect(isSecurityAlert("passkey_added", "you", false)).toBe(false);
+    expect(isSecurityAlert("api_key_removed", "you", false)).toBe(false);
+    // A folded kind is never one: its row's ID would be the hour's, not the event's.
+    for (const kind of FOLDED_EVENT_KINDS) expect(isSecurityAlert(kind, "api_key", true), kind).toBe(false);
+  });
+
+  it("has words for every alert", () => {
+    for (const kind of [...SECURITY_ALERT_EVENT_KINDS, "signed_in_new_device", "connected_app_removed"]) expect(SECURITY_ALERT_WORDS, kind).toHaveProperty(kind);
+  });
+});
+
+describe("cleanBlockedScriptReport", () => {
+  it("keeps the directive, the blocked source's origin or keyword and the page's path, from both shapes", () => {
+    expect(cleanBlockedScriptReport({ "csp-report": { "document-uri": "https://zaisma.com/g/sky?play=1#x", "violated-directive": "script-src 'self'", "blocked-uri": "https://evil.example/a.js?token=secret" } })).toEqual({
+      violatedDirective: "script-src",
+      blockedSource: "https://evil.example",
+      pagePath: "/g/sky",
+    });
+    expect(cleanBlockedScriptReport({ type: "csp-violation", url: "https://zaisma.com/forum", body: { documentURL: "https://zaisma.com/forum", effectiveDirective: "script-src-elem", blockedURL: "inline" } })).toEqual({
+      violatedDirective: "script-src-elem",
+      blockedSource: "inline",
+      pagePath: "/forum",
+    });
+    expect(cleanBlockedScriptReport({ "csp-report": { "document-uri": "https://zaisma.com/", "effective-directive": "script-src", "blocked-uri": "eval" } })?.blockedSource).toBe("eval");
+    expect(cleanBlockedScriptReport({ "csp-report": { "document-uri": "https://zaisma.com/", "effective-directive": "script-src-elem", "blocked-uri": "data:text/javascript,alert(1)" } })?.blockedSource).toBe("data");
+  });
+
+  it("drops browser extensions' reports and anything that isn't a report", () => {
+    expect(cleanBlockedScriptReport({ "csp-report": { "document-uri": "https://zaisma.com/", "effective-directive": "script-src-elem", "blocked-uri": "chrome-extension://abc/x.js" } })).toBeNull();
+    expect(cleanBlockedScriptReport({ type: "csp-violation", body: { documentURL: "https://zaisma.com/", effectiveDirective: "script-src-elem", blockedURL: "inline", sourceFile: "safari-web-extension://x/y.js" } })).toBeNull();
+    expect(cleanBlockedScriptReport({ type: "deprecation", body: {} })).toBeNull();
+    expect(cleanBlockedScriptReport({ "csp-report": { "document-uri": "not a url", "effective-directive": "script-src", "blocked-uri": "inline" } })).toBeNull();
+    expect(cleanBlockedScriptReport("text")).toBeNull();
+    expect(cleanBlockedScriptReport(null)).toBeNull();
   });
 });
