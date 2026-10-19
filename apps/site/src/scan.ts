@@ -51,10 +51,12 @@ import {
   blobSizes,
   ownedBlobKey,
   manifestKey,
+  CHECKED_FILE_KEPT_DURATION_DAYS,
 } from "@zaisma/core";
 import { deletePrefix } from "./upload.ts";
 import { chooseReadPictures, gatherEvidence, readCode, readPictures, type PictureFile, type ReadCode, type ReadPictures, type ReaderPicture } from "./review-readers.ts";
 import { judgeVersion, type JudgeVersion } from "./review-judge.ts";
+import { findMatchedGame } from "./copies.ts";
 import { tellWebhooks } from "./webhooks.ts";
 import { alertIfNoticeFixPublished } from "./notices.ts";
 import { sendAlert } from "./email.ts";
@@ -214,6 +216,14 @@ export async function inspectVersion(env: Env, version: Version, game: Game, dep
   findings.push(...staticResult.findings);
   if (env.VT_API_KEY) findings.push(...(await virusTotal(env, files)));
 
+  // 2b. A re-upload of another developer's game waits for a person; the developer isn't told which game.
+  const isRecheck = reported !== undefined;
+  const matchedGame = isRecheck ? null : await findMatchedGame(env, game, files);
+  if (matchedGame) {
+    const original = await gameById(env.DB, matchedGame.gameId);
+    findings.push({ stage: "static", severity: "hold", code: "matches_another_developers_game", message: `${matchedGame.matchedFileCount} of its ${matchedGame.comparedFileCount} files were sent first by another developer, in ${original?.slug ?? matchedGame.gameId}.` });
+  }
+
   // 3. Known-illegal-image matching, before any picture is passed on.
   const imageFiles = files.filter((file) => extensionOf(file.path) in IMAGE_TYPES);
   const images = await matchMedia(env, files, texts, disguised, deps.images);
@@ -223,7 +233,6 @@ export async function inspectVersion(env: Env, version: Version, game: Game, dep
   // 4. AI review: the checks' evidence and the readers', then one judge, within the monthly budget. Never with
   // pictures that matched known abuse material. `reviewCase` in review-set.ts mirrors steps 2 and 4b, 4c and 4f;
   // keep them in step (test/site/review-set.test.ts checks).
-  const isRecheck = reported !== undefined;
   const review = await reviewWithAi(env, version, game, { files, texts, staticEvidence: staticResult.evidence, imageFiles, hasStaticHold: staticResult.findings.some((finding) => finding.severity !== "info"), hasKnownImage, isRecheck, reported }, deps);
   findings.push(...review.findings);
   const isChildSafety = hasKnownImage || review.isChildSafety;
@@ -240,10 +249,11 @@ export async function inspectVersion(env: Env, version: Version, game: Game, dep
     decision,
     findings,
     outside_hosts: staticResult.outsideHosts,
-    images: { provider: images.provider, is_connected: images.isConnected, checked_media_count: images.checkedMediaCount },
+    images: { provider: images.provider, is_connected: images.isConnected, checked_media_count: images.checkedMediaCount, reused_media_count: images.reusedMediaCount },
     ai: review.ai,
     is_child_safety: isChildSafety,
     ...(review.evidence ? { evidence: review.evidence, read_file_sha256s: review.readFileSha256s } : {}),
+    ...(matchedGame ? { matched_game: { game_id: matchedGame.gameId, matched_file_count: matchedGame.matchedFileCount, compared_file_count: matchedGame.comparedFileCount } } : {}),
   };
 }
 
@@ -428,44 +438,117 @@ async function readTexts(env: Env, files: StoredFile[]): Promise<{ texts: { path
     const bytes = new Uint8Array(await body.arrayBuffer());
     textSizeBytes += file.sizeBytes;
     const type = sniffMedia(bytes.subarray(0, SNIFF_BYTES));
-    if (type && (type !== "video/webm" || matroskaHasVideo(bytes))) disguised.push({ path: file.path, type, id: file.key, body: async () => bytes });
-    else texts.push({ path: file.path, text: new TextDecoder().decode(bytes), sha256: file.sha256 ?? (await sha256Hex(bytes)) });
+    const sha256 = file.sha256 ?? (await sha256Hex(bytes));
+    if (type && (type !== "video/webm" || matroskaHasVideo(bytes))) disguised.push({ path: file.path, type, id: file.key, sha256, body: async () => bytes });
+    else texts.push({ path: file.path, text: new TextDecoder().decode(bytes), sha256 });
   }
   return { texts, disguised, hasTooMuchCode: false };
 }
 
+/** What image matching found, and how many pictures and videos it trusted from an earlier check instead of sending. */
+export type MediaMatchResult = ImageMatchResult & { reusedMediaCount: number };
+
 /**
  * Image matching on every picture and video in a version: by name, by their first bytes whatever they're
  * called (a picture renamed .bin), and written into code as base64. Files are streamed from storage, so
- * a big video never sits in memory. Audio-only WebM files aren't sent.
+ * a big video never sits in memory. Audio-only WebM files aren't sent. A file cleared in the last 30 days
+ * by every matcher connected now isn't sent again, and one whose first bytes said it's no picture isn't
+ * read again (checked_files), so an update sends only what changed.
  */
-export async function matchMedia(env: Env, files: StoredFile[], texts: { path: string; text: string }[], disguised: MediaForMatching[], matcher: ImageMatcher): Promise<ImageMatchResult> {
-  if (matcher === notConnected) return matcher.check([]);
+export async function matchMedia(env: Env, files: StoredFile[], texts: { path: string; text: string }[], disguised: MediaForMatching[], matcher: ImageMatcher, nowMs = Date.now()): Promise<MediaMatchResult> {
+  if (matcher === notConnected) return { ...(await matcher.check([])), reusedMediaCount: 0 };
   const findings: Finding[] = [];
-  const media: MediaForMatching[] = [...disguised];
-  const stored = (file: StoredFile, type: string): MediaForMatching => ({ path: file.path, type, id: file.key, body: () => streamFile(env, file.key) });
+  const embedded: MediaForMatching[] = [];
+  for (const textFile of texts) {
+    for (const [i, { type, bytes }] of embeddedMedia(textFile.text).entries()) {
+      embedded.push({ path: `${textFile.path} (picture ${i + 1} in the code)`, type, id: `embedded:${textFile.path}:${i}`, sha256: await sha256Hex(bytes), body: async () => bytes });
+    }
+  }
+  const checked = await checkedFiles(env, [...files.map((file) => file.sha256), ...disguised.map((media) => media.sha256), ...embedded.map((media) => media.sha256)], nowMs);
+  // Only Zaisma's own matchers are trusted from an earlier check: one plugged in by a self-hoster (or a test) always sees everything.
+  const providers = connectedProviders(env);
+  const isCleared = (sha256: string | undefined) => {
+    const row = sha256 ? checked.get(sha256) : undefined;
+    return providers.length > 0 && row?.is_media === 1 && row.provider !== null && providers.every((provider) => row.provider!.split("+").includes(provider));
+  };
+  let reusedMediaCount = 0;
+  const media: MediaForMatching[] = [];
+  const add = (candidate: MediaForMatching) => {
+    if (isCleared(candidate.sha256)) reusedMediaCount++;
+    else media.push(candidate);
+  };
+  disguised.forEach(add);
+  const stored = (file: StoredFile, type: string): MediaForMatching => ({ path: file.path, type, id: file.key, ...(file.sha256 ? { sha256: file.sha256 } : {}), body: () => streamFile(env, file.key) });
+  const sniffedNotMedia: string[] = [];
   let sniffedFileCount = 0;
   for (const file of files) {
     const extension = extensionOf(file.path);
     if (TEXT_EXTENSIONS.has(extension)) continue; // Read in full already.
     const named = MATCH_TYPES[extension];
     if (named && named !== "video/webm") {
-      media.push(stored(file, named));
+      add(stored(file, named));
       continue;
     }
     if (file.sizeBytes < 4) continue;
+    if (isCleared(file.sha256)) {
+      reusedMediaCount++;
+      continue;
+    }
+    if (file.sha256 && checked.get(file.sha256)?.is_media === 0) continue; // Its first bytes said it's no picture.
     if (++sniffedFileCount > MAXIMUM_SNIFFED_FILE_COUNT) continue;
     const type = sniffMedia(await readStart(env, file.key, SNIFF_BYTES));
-    if (!type || (type === "video/webm" && !matroskaHasVideo(await readStart(env, file.key, MATROSKA_HEAD_BYTES)))) continue;
+    if (!type || (type === "video/webm" && !matroskaHasVideo(await readStart(env, file.key, MATROSKA_HEAD_BYTES)))) {
+      if (file.sha256) sniffedNotMedia.push(file.sha256);
+      continue;
+    }
     media.push(stored(file, type));
   }
   if (sniffedFileCount > MAXIMUM_SNIFFED_FILE_COUNT) findings.push({ stage: "images", severity: "hold", code: "too_many_files_to_check", message: `More than ${MAXIMUM_SNIFFED_FILE_COUNT} files that aren't code or pictures: the first ${MAXIMUM_SNIFFED_FILE_COUNT} were checked for hidden pictures, and a person should look at the rest.` });
-  for (const textFile of texts) {
-    embeddedMedia(textFile.text).forEach(({ type, bytes }, i) => media.push({ path: `${textFile.path} (picture ${i + 1} in the code)`, type, id: `embedded:${textFile.path}:${i}`, body: async () => bytes }));
-  }
+  embedded.forEach(add);
   if (media.length > MAXIMUM_MATCHED_MEDIA_COUNT) findings.push({ stage: "images", severity: "hold", code: "too_many_images_to_check", message: `More than ${MAXIMUM_MATCHED_MEDIA_COUNT} pictures and videos: the first ${MAXIMUM_MATCHED_MEDIA_COUNT} were matched, and a person should look at the rest.` });
-  const matchResult = await matcher.check(media.slice(0, MAXIMUM_MATCHED_MEDIA_COUNT));
-  return { ...matchResult, findings: [...findings, ...matchResult.findings] };
+  const sent = media.slice(0, MAXIMUM_MATCHED_MEDIA_COUNT);
+  const matchResult = await matcher.check(sent);
+  await saveCheckedFiles(env, sent, sniffedNotMedia, matchResult, nowMs);
+  return { ...matchResult, findings: [...findings, ...matchResult.findings], reusedMediaCount };
+}
+
+interface CheckedFileRow {
+  sha256: string;
+  is_media: number;
+  provider: string | null;
+}
+
+/** The files among these hashes the scan checked in the last 30 days. */
+async function checkedFiles(env: Env, hashes: (string | undefined)[], nowMs: number): Promise<Map<string, CheckedFileRow>> {
+  const unique = [...new Set(hashes.filter((hash): hash is string => !!hash))];
+  const checked = new Map<string, CheckedFileRow>();
+  const sinceMs = nowMs - CHECKED_FILE_KEPT_DURATION_DAYS * 24 * 60 * 60 * 1000;
+  const statements: D1PreparedStatement[] = [];
+  for (let i = 0; i < unique.length; i += 90) {
+    const chunk = unique.slice(i, i + 90);
+    statements.push(env.DB.prepare(`SELECT sha256, is_media, provider FROM checked_files WHERE checked_at_ms > ? AND sha256 IN (${chunk.map(() => "?").join(",")})`).bind(sinceMs, ...chunk));
+  }
+  for (let i = 0; i < statements.length; i += 50) {
+    for (const batch of await env.DB.batch<CheckedFileRow>(statements.slice(i, i + 50))) for (const row of batch.results) checked.set(row.sha256, row);
+  }
+  return checked;
+}
+
+/**
+ * Remembers what this scan cleared: every picture and video sent that no finding names, when the matchers
+ * finished, and every file whose first bytes said it's no picture. A known match is never recorded, so it's
+ * always found again.
+ */
+async function saveCheckedFiles(env: Env, sent: MediaForMatching[], sniffedNotMedia: string[], matchResult: ImageMatchResult, nowMs: number): Promise<void> {
+  const isFinished = matchResult.isConnected && !matchResult.findings.some((finding) => finding.stage === "images" && finding.severity !== "info" && !finding.path);
+  const flaggedHashes = new Set(sent.filter((sentMedia) => matchResult.findings.some((finding) => finding.path === sentMedia.path)).map((sentMedia) => sentMedia.sha256));
+  const cleared = isFinished ? [...new Set(sent.map((sentMedia) => sentMedia.sha256).filter((hash): hash is string => !!hash && !flaggedHashes.has(hash)))] : [];
+  const upsert = "INSERT INTO checked_files (sha256, is_media, provider, checked_at_ms) VALUES (?, ?, ?, ?) ON CONFLICT (sha256) DO UPDATE SET is_media = excluded.is_media, provider = excluded.provider, checked_at_ms = excluded.checked_at_ms";
+  const statements = [
+    ...cleared.map((sha256) => env.DB.prepare(upsert).bind(sha256, 1, matchResult.provider, nowMs)),
+    ...[...new Set(sniffedNotMedia)].map((sha256) => env.DB.prepare(upsert).bind(sha256, 0, null, nowMs)),
+  ];
+  for (let i = 0; i < statements.length; i += 100) await env.DB.batch(statements.slice(i, i + 100));
 }
 
 /** A stored file as a stream of known length: sent to the matcher without holding it in memory. */
@@ -516,7 +599,7 @@ export async function recheckImages(env: Env, versionId: string, deps: ScanDeps 
   const unfinished = matchResult.findings.filter((finding) => finding.code === "image_matching_failed" && !finding.path);
   if (unfinished.length) throw new Error(summarize(unfinished));
   const report = reportOf(version);
-  report.images = { provider: matchResult.provider, is_connected: true, checked_media_count: matchResult.checkedMediaCount };
+  report.images = { provider: matchResult.provider, is_connected: true, checked_media_count: matchResult.checkedMediaCount, reused_media_count: matchResult.reusedMediaCount };
   await env.DB.prepare("UPDATE versions SET scan_report = ? WHERE id = ?").bind(JSON.stringify(report), version.id).run();
   // A matcher that didn't finish (image_matching_later, an info) gets its turn with tomorrow's batch: no alert for it.
   const loose = [...matchResult.findings.filter((finding) => finding.severity !== "info"), ...(hasTooMuchCode ? [{ stage: "static", severity: "hold", code: "too_much_code", message: "More code than the checks read." } as Finding] : [])];
