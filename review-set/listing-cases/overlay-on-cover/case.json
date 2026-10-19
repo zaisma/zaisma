@@ -1,0 +1,21 @@
+{
+  "title": "Lava Leap",
+  "description": "",
+  "pictures": [
+    {
+      "path": "cover.webp",
+      "kind": "cover"
+    },
+    {
+      "path": "screenshot.webp",
+      "kind": "screenshot"
+    }
+  ],
+  "is_honest": false,
+  "expected": {
+    "title": "fine",
+    "cover.webp": "overlay_on_cover",
+    "screenshot.webp": "fine"
+  },
+  "why": "A shop panel, a play button and an arrow are laid over the picture, with no words on them."
+}

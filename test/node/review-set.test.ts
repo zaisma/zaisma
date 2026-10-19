@@ -3,8 +3,9 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ALLOWED_CONTENT, REVIEWED_CONTENT_RULES } from "@zaisma/core";
 import { REVIEW_SET_PROTECTIONS, caseOutcome, checkCase, summarizeRun, type CaseResult } from "../../apps/site/src/review-set.ts";
+import { LISTING_ITEM_CODES, checkListingCase, listingCaseResult, summarizeListingRun } from "../../apps/site/src/listing-set.ts";
 // @ts-expect-error plain JavaScript without type declarations
-import { BASELINE_FINGERPRINT_SHA256, reviewFingerprint } from "../../scripts/review-set/fingerprint.mjs";
+import { BASELINE_FINGERPRINT_SHA256, listingFingerprint, reviewFingerprint } from "../../scripts/review-set/fingerprint.mjs";
 // @ts-expect-error plain JavaScript without type declarations
 import { GENERATED_PATH, publicCasesSource } from "../../scripts/review-set/bundle-public.mjs";
 
@@ -113,5 +114,50 @@ describe("the gate on changing the review", () => {
     if (lastRun.fingerprint_sha256 !== BASELINE_FINGERPRINT_SHA256) {
       expect(lastRun.summary.is_passing, "A changed review has to hold every bad game, pass every honest one and give each the same verdict every run").toBe(true);
     }
+  });
+});
+
+describe("the listing check's cases", () => {
+  const LISTING_DIRECTORY = join(ROOT, "review-set/listing-cases");
+  const listingCases = readdirSync(LISTING_DIRECTORY, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => ({ name: entry.name, file: JSON.parse(readFileSync(join(LISTING_DIRECTORY, entry.name, "case.json"), "utf8")) as Record<string, unknown>, paths: readdirSync(join(LISTING_DIRECTORY, entry.name)).filter((path) => path !== "case.json") }));
+
+  it("are all valid", () => {
+    for (const listingCase of listingCases) expect(checkListingCase(listingCase.file, listingCase.paths), listingCase.name).toEqual([]);
+  });
+
+  it("cover every listing line with a slop case, and honest ones at the edges", () => {
+    const expectedCodes = new Set(listingCases.flatMap((listingCase) => Object.values(listingCase.file.expected as Record<string, string>)));
+    // A famous name is covered by a title case: covers with real characters aren't ours to draw.
+    for (const code of LISTING_ITEM_CODES) expect(expectedCodes.has(code), `a slop case for ${code}`).toBe(true);
+    expect(listingCases.filter((listingCase) => listingCase.file.is_honest === true).length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("refuse a case that expects something unknown, or misses an item", () => {
+    const good = { title: "Lava Leap", description: "", pictures: [{ path: "cover.webp", kind: "cover" }], is_honest: false, expected: { title: "fine", "cover.webp": "overlay_on_cover" }, why: "Because." };
+    expect(checkListingCase(good, ["cover.webp"])).toEqual([]);
+    expect(checkListingCase({ ...good, expected: { title: "fine" } }, ["cover.webp"])[0]).toContain("nothing for cover.webp");
+    expect(checkListingCase({ ...good, expected: { title: "fine", "cover.webp": "ugly" } }, ["cover.webp"])[0]).toContain("outcome must be");
+    expect(checkListingCase({ ...good, is_honest: true }, ["cover.webp"])[0]).toContain("honest case");
+    expect(checkListingCase(good, [])[0]).toContain("isn't a file");
+  });
+
+  it("hold the check until a full run for it as it is now has been committed, and that run passes", () => {
+    const lastRunPath = join(ROOT, "review-set/listing-last-run.json");
+    expect(existsSync(lastRunPath), "No review-set/listing-last-run.json: run `npm run listing-set` and commit it").toBe(true);
+    const lastRun = JSON.parse(readFileSync(lastRunPath, "utf8")) as { fingerprint_sha256: string; summary: { is_passing: boolean } };
+    expect(lastRun.fingerprint_sha256, "The listing check's prompt or model changed: run `npm run listing-set` and commit review-set/listing-last-run.json").toBe(listingFingerprint(ROOT));
+    expect(lastRun.summary.is_passing, "The listing check has to give every case its outcome, the same on every run").toBe(true);
+  });
+
+  it("names what the runs add up to", () => {
+    const listingCase = { name: "c", title: "T", description: "", pictures: [], is_honest: false, expected: { title: "tag_in_title" as const }, why: "w", files: [] };
+    const run = (title: "fine" | "tag_in_title") => ({ items: { title }, declined_attempt_count: 0, cost_cents: 1 });
+    expect(listingCaseResult(listingCase, [run("tag_in_title"), run("tag_in_title")]).outcome).toBe("matched");
+    expect(listingCaseResult(listingCase, [run("fine"), run("fine")]).outcome).toBe("missed");
+    expect(listingCaseResult(listingCase, [run("fine"), run("tag_in_title")]).outcome).toBe("inconsistent");
+    expect(summarizeListingRun([listingCaseResult(listingCase, [run("fine")])]).is_passing).toBe(false);
+    expect(summarizeListingRun([]).is_passing).toBe(false);
   });
 });

@@ -1,0 +1,21 @@
+{
+  "title": "Coin Cascade",
+  "description": "",
+  "pictures": [
+    {
+      "path": "cover.webp",
+      "kind": "cover"
+    },
+    {
+      "path": "screenshot.webp",
+      "kind": "screenshot"
+    }
+  ],
+  "is_honest": true,
+  "expected": {
+    "title": "fine",
+    "cover.webp": "fine",
+    "screenshot.webp": "fine"
+  },
+  "why": "Loud colors and piles of the game's own coins, with only the title: style is never a line. The figure and coins are in the game."
+}

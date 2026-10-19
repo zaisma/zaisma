@@ -1,0 +1,21 @@
+{
+  "title": "Lava Leap",
+  "description": "",
+  "pictures": [
+    {
+      "path": "cover.webp",
+      "kind": "cover"
+    },
+    {
+      "path": "screenshot.webp",
+      "kind": "screenshot"
+    }
+  ],
+  "is_honest": false,
+  "expected": {
+    "title": "fine",
+    "cover.webp": "fake_reward",
+    "screenshot.webp": "fine"
+  },
+  "why": "\"FREE\" and \"5,000 ROBUX\" promise another platform's currency: a fake reward, which holds the game."
+}

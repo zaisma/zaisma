@@ -30,6 +30,7 @@
     // The game review: readers list evidence from every file and picture, one judge decides (review-readers.ts, review-judge.ts).
     "REVIEW_READER_MODEL": "claude-haiku-5-5",
     "REVIEW_JUDGE_MODEL": "claude-sonnet-5-5",
+    "LISTING_CHECK_MODEL": "claude-sonnet-5-5",
     // The game review's monthly budget in US cents ($100). Julius hears at 80%; past it, versions wait for a person.
     "AI_REVIEW_MONTHLY_BUDGET_CENTS": "10000",
     // Chat's own monthly cap (chat-check.ts): past it, teens' messages the rules can't tell are stopped, never let through.

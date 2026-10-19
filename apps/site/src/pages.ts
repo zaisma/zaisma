@@ -12,6 +12,7 @@ import {
   linksOf,
   ownServerUrlsOf,
   readPlayModes,
+  SHOWN_IN_LISTS_SQL,
   testerLinkByToken,
   testerLinkOpened,
   testerLinkVersion,
@@ -544,8 +545,9 @@ ${isClosed
         )}`,
   });
   for (const cookie of viewer.cookies) response.headers.append("Set-Cookie", cookie);
-  // Unlisted games are for people with the link, never search engines.
-  if (game.visibility === "unlisted" || tester) response.headers.set("X-Robots-Tag", "noindex");
+  // Unlisted games are for people with the link, never search engines; so are games the listing check keeps off lists ("No slop").
+  const isShownInLists = game.visibility === "listed" && Boolean(await env.DB.prepare(`SELECT 1 AS shown FROM games WHERE id = ? AND ${SHOWN_IN_LISTS_SQL}`).bind(game.id).first());
+  if (!isShownInLists || tester) response.headers.set("X-Robots-Tag", "noindex");
   return response;
 }
 
@@ -655,6 +657,7 @@ ${html`<ul>${ALLOWED_CONTENT.map((words) => html`<li>${words}</li>`)}</ul>`}
 <p>Every game page has a Report button. We remove games that break these rules. Reports about child safety or illegal content go straight to a person. Until we've checked a report, a brand-new game is hidden and a recent update goes back to the version before it.</p>
 <p>How players talk to each other is up to each game and its moderators, and mute and block are always there. Zaisma steps in for threats that reach into real life, sharing someone's personal details, following someone after they've blocked them, and anything sexual toward a teen. Trash talk, however rough, is the game's call: reports about bullying, cheating and other behavior go to the game's developer.</p>
 <p>A game with faked plays is taken off Popular, Trending and New. Doing it again can get the game taken down.</p>
+<p>Zaisma's lists show games whose covers and titles keep a few clear lines: no text but the title, nothing laid over the picture, no fake rewards, no famous characters you don't own, and built around something from the game. A game that breaks one still plays by its link until it's fixed; a fake reward holds it. See <a href="/developers/covers">Covers that show your game</a>.</p>
 `;
 
 const DMCA = `

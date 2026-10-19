@@ -1,5 +1,5 @@
 import { deleteDueGames } from "./game-deletion.ts";
-import { gameBySlug, upgradeToHttps, withTransportSecurity, type ScanJob } from "@zaisma/core";
+import { gameBySlug, upgradeToHttps, withTransportSecurity, type ListingCheckJob, type ScanJob } from "@zaisma/core";
 import { qrCodeImage, sitemap } from "./share-cards.ts";
 import { handleAccount } from "./account.ts";
 import { DAILY_SIGN_IN_SWEEP_MS, RECENT_SIGN_IN_SWEEP_MS, dailyCleanup, deleteAbandonedSignIns, publishDue } from "./cleanup.ts";
@@ -21,6 +21,8 @@ import { handlePasskeys } from "./passkeys.ts";
 import { handleSignIn } from "./sign-in.ts";
 import { handleSaves } from "./saves.ts";
 import { handleScanBatch, queueImageChecks, rescanWaiting } from "./scan.ts";
+import { queueListingChecks, runListingCheck } from "./listing-check.ts";
+import { coverGuidePage } from "./cover-guide.ts";
 import { testWaitingReviewPrecedents } from "./review-precedent-tests.ts";
 import { triageReports } from "./triage.ts";
 import { sortMisplaced, sortTopics } from "./forum-sort.ts";
@@ -121,6 +123,8 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
   const preview = path.match(/^\/p\/([A-Za-z0-9_.-]{1,140})$/);
   if (preview && method !== "POST") return previewPage(env, preview[1]!);
 
+  if (path === "/developers/covers" && method === "GET") return coverGuidePage(env);
+
   const legalPage = path.match(/^\/legal\/([a-z-]+)$/);
   if (legalPage && method !== "POST") {
     const response = legal(env, legalPage[1]!);
@@ -141,12 +145,29 @@ export default {
   },
 
   async queue(batch, env): Promise<void> {
-    await handleScanBatch(batch, env);
+    const scans: Message<ScanJob>[] = [];
+    for (const message of batch.messages) {
+      const body = message.body;
+      if (!("listingCheckGameId" in body)) {
+        scans.push(message as Message<ScanJob>);
+        continue;
+      }
+      try {
+        await runListingCheck(env, body.listingCheckGameId);
+        message.ack();
+      } catch (error) {
+        // The cron asks again for a check that keeps failing; the pictures wait for a person meanwhile.
+        console.error("listing check failed", body.listingCheckGameId, error);
+        if (message.attempts >= 3) message.ack();
+        else message.retry({ delaySeconds: 30 * message.attempts });
+      }
+    }
+    if (scans.length) await handleScanBatch({ ...batch, messages: scans } as MessageBatch<ScanJob>, env);
   },
 
   async scheduled(event, env): Promise<void> {
     // One failing job mustn't stop the others.
-    const jobs = await Promise.allSettled([moveFiles(env), publishDue(env), triageReports(env), sortTopics(env), sortMisplaced(env), checkForumPosts(env), checkProfiles(env), reviewChatMessages(env), deliverDueWebhooks(env), eraseDuePlayers(env), deleteDueGames(env), noticeFreeUseAlerts(env).then(() => tellAlertNotices(env)), tellGameServerErrors(env), recheckLinks(env), rescanWaiting(env), testWaitingReviewPrecedents(env), deleteAbandonedSignIns(env, event.cron === DAILY ? DAILY_SIGN_IN_SWEEP_MS : RECENT_SIGN_IN_SWEEP_MS), ...(event.cron === DAILY ? [dailyCleanup(env), queueImageChecks(env)] : [])]);
+    const jobs = await Promise.allSettled([moveFiles(env), publishDue(env), triageReports(env), sortTopics(env), sortMisplaced(env), checkForumPosts(env), checkProfiles(env), reviewChatMessages(env), deliverDueWebhooks(env), eraseDuePlayers(env), deleteDueGames(env), noticeFreeUseAlerts(env).then(() => tellAlertNotices(env)), tellGameServerErrors(env), recheckLinks(env), rescanWaiting(env), testWaitingReviewPrecedents(env), queueListingChecks(env), deleteAbandonedSignIns(env, event.cron === DAILY ? DAILY_SIGN_IN_SWEEP_MS : RECENT_SIGN_IN_SWEEP_MS), ...(event.cron === DAILY ? [dailyCleanup(env), queueImageChecks(env)] : [])]);
     for (const job of jobs) if (job.status === "rejected") console.error("scheduled job failed", job.reason);
   },
-} satisfies ExportedHandler<Env, ScanJob>;
+} satisfies ExportedHandler<Env, ScanJob | ListingCheckJob>;

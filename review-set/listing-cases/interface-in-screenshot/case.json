@@ -1,0 +1,21 @@
+{
+  "title": "Arena",
+  "description": "",
+  "pictures": [
+    {
+      "path": "cover.webp",
+      "kind": "cover"
+    },
+    {
+      "path": "screenshot.webp",
+      "kind": "screenshot"
+    }
+  ],
+  "is_honest": true,
+  "expected": {
+    "title": "fine",
+    "cover.webp": "fine",
+    "screenshot.webp": "fine"
+  },
+  "why": "The screenshot shows the game's own scoreboard, names, buttons and the page's bar: all on the player's screen while playing, so nothing was added after the capture."
+}

@@ -46,6 +46,7 @@ import {
   versionsForGame,
   type DetailsChange,
   type Game,
+  type ReviewReason,
   type GameImage,
   type ImageKind,
   FILE_LIMITS,
@@ -142,6 +143,7 @@ import {
 import { CARD_IMAGE_HEIGHT_PX, CARD_IMAGE_WIDTH_PX, gameLinkUrl, roomCodeOf } from "./share-cards.ts";
 import { connectionAddressOf, currentSession } from "./auth.ts";
 import { gameUrl, type Env } from "./env.ts";
+import { queueListingCheck } from "./listing-check.ts";
 import { previewLinkToken } from "./preview-links.ts";
 import { forumRoute, readableTopic } from "./forum.ts";
 import { databaseRoute } from "./game-database.ts";
@@ -824,6 +826,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     await applyDetails(env.DB, made, { ...details, title: undefined, description: undefined });
     made = (await gameBySlug(env.DB, slug))!;
     await audit(env.DB, made.id, "created", "Made through the developer API", caller.actor);
+    await queueListingCheck(env, made.id);
     await logCallerEvent(env, caller, "game_created", { gameId: made.id });
     return answer(
       {
@@ -931,6 +934,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     // Sites new to the list are checked against Cloudflare's malware and phishing list now; the others keep their last check.
     const checkedLinks = links ? await checkLinkSites(links, linksOf(game), { dnsUrl: env.LINK_CHECK_DNS_URL }) : undefined;
     const { isWaitingForReview } = await applyDetails(env.DB, game, { ...details, ...(changesMultiplayer ? { multiplayer_mode: multiplayerMode } : {}), ...(allowedHosts ? { game_server_allowed_hosts: allowedHosts } : {}), ...(ownServerUrls ? { own_server_urls: ownServerUrls } : {}), ...(checkedLinks ? { links: checkedLinks } : {}) });
+    if ((details.title !== undefined && details.title !== game.title) || (details.description !== undefined && details.description !== game.description)) await queueListingCheck(env, game.id);
     if (Object.keys(details).length) {
       await audit(env.DB, game.id, "details", Object.keys(details).join(", ") + (isWaitingForReview ? " (words waiting for review)" : ""), caller.actor);
       await logCallerEvent(env, caller, "details_changed", { gameId: game.id });
@@ -960,7 +964,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
       : [];
     return answer({
       game: gameJson(env, changed),
-      review_message: isWaitingForReview ? "The new title or description shows once it's reviewed." : null,
+      review_message: isWaitingForReview ? "The new title or description is checked in about a minute, then shows." : null,
       game_server_problem: gameServerProblem,
       next_steps: [...goreSteps, ...(await nextStepsAfterDetails(env, changed, gameServerProblem))],
     });
@@ -1017,7 +1021,15 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     const image = await addImage(env.DB, { id, game_id: game.id, kind, content_type: sniffed.type, width_px: widthPx, height_px: heightPx, size_bytes: bytes.byteLength });
     await audit(env.DB, game.id, "image-added", `${kind} ${id}`, caller.actor);
     await logCallerEvent(env, caller, "image_added", { gameId: game.id, subjectName: kind });
-    return answer({ image: imageJson(env, image), review_message: "It shows on the game page once it's reviewed.", next_steps: [] satisfies NextStep[] }, 201);
+    await queueListingCheck(env, game.id);
+    return answer(
+      {
+        image: imageJson(env, image),
+        review_message: "It's checked in about a minute, then shows on the game page. zaisma.com/developers/covers shows what passes.",
+        next_steps: [{ tool: "get_game", arguments: { slug: game.slug }, after_sec: 60, reason: "The check takes about a minute: get_game shows whether the image passed, and anything that keeps the game off Zaisma's lists (each image's listing_reason, and the game_off_lists alert)." }] satisfies NextStep[],
+      },
+      201,
+    );
   }
 
   if (isImages && method === "DELETE") {
@@ -1030,6 +1042,8 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     await deleteImageRow(env.DB, image.id);
     await audit(env.DB, game.id, "image-removed", `${image.kind} ${image.id}`, caller.actor);
     await logCallerEvent(env, caller, "image_removed", { gameId: game.id, subjectName: image.kind });
+    // A cover is judged beside the screenshots, so removing one checks the rest again.
+    await queueListingCheck(env, game.id);
     return answer({ removed_image_id: image.id, next_steps: [] satisfies NextStep[] });
   }
 
@@ -2112,6 +2126,8 @@ export function gameJson(env: Env, game: Game) {
     own_server_urls: ownServerUrlsOf(game),
     links: linksOf(game).map(linkJson),
     details_waiting_for_review: waitingWords ? { title: waitingWords.title ?? null, description: waitingWords.description ?? null } : null,
+    // Why the title keeps the game off Zaisma's lists ("No slop"); null when nothing does.
+    title_listing_reason: reasonAnswer(game.title_listing_reason),
     updated_at: iso(game.updated_at_ms),
   };
 }
@@ -2128,7 +2144,7 @@ function linkJson(link: GameLink) {
 }
 
 /** The kinds of alert, most urgent first. */
-export const GAME_ALERT_KINDS = ["game_removed", "game_held", "version_rejected", "version_held", "link_flagged", "rooms_paused", "requests_paused", "database_paused", "database_writes_paused", "database_full", "rooms_nearly_paused", "requests_nearly_paused", "database_nearly_paused", "database_writes_nearly_paused", "database_nearly_full", "player_erase_failed", "reports_open"] as const;
+export const GAME_ALERT_KINDS = ["game_removed", "game_held", "version_rejected", "version_held", "link_flagged", "game_off_lists", "rooms_paused", "requests_paused", "database_paused", "database_writes_paused", "database_full", "rooms_nearly_paused", "requests_nearly_paused", "database_nearly_paused", "database_writes_nearly_paused", "database_nearly_full", "player_erase_failed", "reports_open"] as const;
 export type GameAlertKind = (typeof GAME_ALERT_KINDS)[number];
 export interface GameAlert {
   kind: GameAlertKind;
@@ -2151,7 +2167,7 @@ export async function gameAlerts(env: Env, games: Game[]): Promise<Map<string, G
   if (!games.length) return alertsByGameId;
   const gameIds = JSON.stringify(games.map((game) => game.id));
   const monthStartDate = `${new Date().toISOString().slice(0, 7)}-01`;
-  const [{ results: versions }, { results: usage }, { results: reports }, databaseUses, failedErases] = await Promise.all([
+  const [{ results: versions }, { results: usage }, { results: reports }, databaseUses, failedErases, { results: listingImages }] = await Promise.all([
     // Each game's newest version, and every version waiting for a person.
     env.DB
       .prepare(
@@ -2171,6 +2187,11 @@ export async function gameAlerts(env: Env, games: Game[]): Promise<Map<string, G
     // Without game databases (a Zaisma of your own without the rooms Worker), there's nothing to say about them.
     Promise.all(games.map((game) => env.GAME_DATABASES?.usage(game.id).then((answer) => ("queryResult" in answer ? answer.queryResult : null), () => null) ?? null)),
     failedPlayerErases(env.DB, games.map((game) => game.id)),
+    // Covers the listing check found keep the game off Zaisma's lists ("No slop").
+    env.DB
+      .prepare("SELECT game_id, kind, listing_reason FROM game_images WHERE game_id IN (SELECT value FROM json_each(?)) AND kind != 'screenshot' AND review_status != 'rejected' AND listing_reason IS NOT NULL")
+      .bind(gameIds)
+      .all<{ game_id: string; kind: string; listing_reason: string }>(),
   ]);
   for (const game of games) {
     const alerts = alertsByGameId.get(game.id)!;
@@ -2191,6 +2212,13 @@ export async function gameAlerts(env: Env, games: Game[]): Promise<Map<string, G
     }
     for (const link of linksOf(game).filter((each) => each.review_reason)) {
       add("link_flagged", `The link ${link.link_name} opens for nobody: Cloudflare lists ${new URL(link.destination_url).hostname} for malware or phishing.`, reviewReasonAnswer(link.review_reason!).fix);
+    }
+    // Off Zaisma's lists (a fake reward holds the game instead, which game_held already says).
+    const listingReasons = [game.title_listing_reason, ...listingImages.filter((row) => row.game_id === game.id).map((row) => row.listing_reason)]
+      .map((stored) => readReviewReason(stored))
+      .filter((listingReason): listingReason is ReviewReason => Boolean(listingReason) && listingReason!.code !== "fake_reward");
+    if (game.visibility === "listed" && listingReasons.length) {
+      add("game_off_lists", `Zaisma's lists leave this game out until it's fixed, though it plays by its link: ${listingReasons.map((listingReason) => listingReason.message).join(" ")}`, reviewReasonAnswer(listingReasons[0]!).fix);
     }
     const use = usage.find((row) => row.game_id === game.id);
     // Each paused line, then the heads-ups; a heads-up is never given alongside its own paused or full kind.
@@ -2255,6 +2283,7 @@ function imageJson(env: Env, image: GameImage) {
     kind: image.kind,
     review_status: image.review_status,
     review_reason: reasonAnswer(image.review_reason),
+    listing_reason: reasonAnswer(image.listing_reason),
     width_px: image.width_px,
     height_px: image.height_px,
     size_bytes: image.size_bytes,

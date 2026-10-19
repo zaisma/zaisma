@@ -1,0 +1,21 @@
+{
+  "title": "Four in a Row",
+  "description": "",
+  "pictures": [
+    {
+      "path": "cover.webp",
+      "kind": "cover"
+    },
+    {
+      "path": "screenshot.webp",
+      "kind": "screenshot"
+    }
+  ],
+  "is_honest": false,
+  "expected": {
+    "title": "fine",
+    "cover.webp": "fine",
+    "screenshot.webp": "screenshot_not_from_game"
+  },
+  "why": "\"EPIC MATCHES!\", an arrow and a circle were added after the capture; the cover is fine."
+}

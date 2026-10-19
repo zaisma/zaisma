@@ -196,6 +196,16 @@ spawnSync(
        SELECT 'version_previewgoreboss0001', id, 'manifests/version_previewgoreboss0001', 1, 1000, 'held', '${goreReport}', ${Date.now()}, 'files', 'Adds the boss fight.', 0 FROM games WHERE slug = 'tiny-farm'`],
   { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } },
 );
+// Lava Leap's cover keeps it off the lists ("No slop"), again this run: the listing check found words besides its title
+// (what the real AI would say; the stand-in can't read pictures). Marked checked, so the stand-in leaves it until it changes.
+const lavaReason = JSON.stringify({ code: "extra_text_on_cover", message: 'The cover has words besides the title: "NEW LEVELS!", "+1 JUMP / SEC", "100 STAGES".', content_rule: null }).replaceAll("'", "''");
+spawnSync(
+  "npx",
+  ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command",
+    `UPDATE game_images SET listing_reason = '${lavaReason}', cleared_at_ms = NULL WHERE kind = 'cover' AND review_status = 'approved' AND game_id = (SELECT id FROM games WHERE slug = 'lava-leap');
+     UPDATE games SET listing_check_requested_at_ms = ${Date.now() - 1000}, listing_checked_at_ms = ${Date.now()} WHERE slug = 'lava-leap'`],
+  { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } },
+);
 // A re-upload of Shard Dodge by another developer (dashking), held for a person, again this run: Reject as a copy
 // on its admin page emails Preview_Studio (the preview mailbox) and writes it into Shard Dodge's history.
 const reuploadReport = (originalId) =>
@@ -275,6 +285,10 @@ Zaisma preview is running. Nothing here touches the live site.
 
   Home            ${SITE}/
   A game page     ${SITE}/g/shard-dodge
+  Cover guide     ${SITE}/developers/covers  (the lines covers, screenshots and titles keep to show in lists, with Fine and Not fine pictures)
+  Off the lists   ${SITE}/dashboard/lava-leap/details#images  (Lava Leap's cover has words besides its title: the reason and the fix, and the alert on
+                  ${SITE}/dashboard/lava-leap; home leaves it out, ${SITE}/g/lava-leap still plays; ${SITE}/admin/games/ shows Clear.
+                  Rename a game with [UPDATE] in its title and, a minute later, it's off the lists too)
   Multiplayer     ${SITE}/g/arena  (open it in two windows to play together)
   Rooms           ${SITE}/g/arena#rooms  and  ${SITE}/g/cave-crew#rooms  (Cave Crew's are mostly pretend, from around the world)
   Tester links    ${testers.secret ?? "(npm run preview -- --reset to make them)"}  (Rocket Lab, a private game: its live version)
@@ -452,7 +466,14 @@ async function seed() {
   if (!key) throw new Error("Couldn't make the preview account's API key.");
   const api = async (method, path, body) => {
     const raw = body instanceof Uint8Array;
-    const res = await fetch(`${SITE}/api/dev${path}`, { method, headers: { authorization: `Bearer ${key}`, ...(body && !raw ? { "content-type": "application/json" } : {}) }, body: raw ? body : body ? JSON.stringify(body) : undefined });
+    const send = () => fetch(`${SITE}/api/dev${path}`, { method, headers: { authorization: `Bearer ${key}`, ...(body && !raw ? { "content-type": "application/json" } : {}) }, body: raw ? body : body ? JSON.stringify(body) : undefined });
+    let res = await send();
+    // The seed makes more calls than the developer API takes in a minute: wait as the answer says, and go on.
+    for (let attempt = 0; res.status === 429 && attempt < 6; attempt++) {
+      const waitSec = (await res.json()).error?.retry_after_sec ?? 10;
+      await new Promise((done) => setTimeout(done, waitSec * 1000));
+      res = await send();
+    }
     const data = await res.json();
     if (!res.ok) throw new Error(`${method} ${path}: ${data.error?.message}`);
     return data;
@@ -523,6 +544,18 @@ async function seed() {
   });
   const { image: sharePicture } = await api("POST", "/games/shard-dodge/images?kind=share", picture([200, 90, 60], 5));
   await go(`/admin/images/${sharePicture.id}/approve`, form({ reason: "" }));
+  // Lava Leap: a listed game whose cover breaks a "No slop" line (words besides the title), kept off the lists
+  // while it plays by its link. Its reason is set again every run, below, since the preview's stand-in AI can't read pictures.
+  {
+    const { game } = await api("POST", "/games", { title: "Lava Leap", description: "Jump from rock to rock before the lava rises.", devices: ["computer"], controls: ["keyboard_mouse"], play_modes: [{ mode: "single" }] });
+    upload("examples/hello-game", game.slug, "First version.");
+    await api("POST", `/games/${game.slug}/versions/${await approveNewest(game.slug)}/publish`);
+    const { image: shot } = await api("POST", `/games/${game.slug}/images?kind=screenshot`, new Uint8Array(readFileSync(join(ROOT, "review-set/listing-cases/shop-screen-screenshot/play.webp"))));
+    await go(`/admin/images/${shot.id}/approve`, form({ reason: "" }));
+    await api("PATCH", `/games/${game.slug}`, { visibility: "listed" });
+    const { image: cover } = await api("POST", `/games/${game.slug}/images?kind=cover`, new Uint8Array(readFileSync(join(ROOT, "brand/cover-guide/lava-leap-extra-text.webp"))));
+    await go(`/admin/images/${cover.id}/approve`, form({ reason: "" }));
+  }
   // Cave Crew plays best in landscape, which phones and tablets get a note about.
   await api("PATCH", "/games/cave-crew", { screen_orientation: "landscape" });
   // Screenshots and a second version with patch notes, so the game page has everything.

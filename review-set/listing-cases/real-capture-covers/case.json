@@ -1,0 +1,21 @@
+{
+  "title": "Four in a Row",
+  "description": "Two players, one board.",
+  "pictures": [
+    {
+      "path": "cover.webp",
+      "kind": "cover"
+    },
+    {
+      "path": "screenshot.webp",
+      "kind": "screenshot"
+    }
+  ],
+  "is_honest": true,
+  "expected": {
+    "title": "fine",
+    "cover.webp": "fine",
+    "screenshot.webp": "fine"
+  },
+  "why": "A cover made from a real board in the game with its name, and a plain capture with the game's own players line and turn note: the guide's good example."
+}

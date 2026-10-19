@@ -74,3 +74,23 @@ The review reads each protection as a closed yes/no subject, with one fixed outc
 - Typed text another player reads as written is chat (`read_by_others`); typed answers the game checks (`checked_by_game`), text only the typer sees and whole phrases the developer wrote are fine.
 
 Public near misses and plain breakers for these are in `cases/` (`typed-answers-word-race`, `guess-feed-drawing`, `composer-spells-anything`, `window-open-discord`); a developer or their AI can read their `why` as Fine and Not fine examples.
+
+## The listing check's cases
+
+The listing check ("No slop" in `docs/DECISIONS.md`, `apps/site/src/listing-judge.ts`) holds covers, screenshots and titles to five lines anyone can check against the picture. It's measured the same way as the review, on its own cases, before its prompt or model changes:
+
+```
+review-set/listing-cases/<case-name>/
+  case.json     the title, the pictures, and the outcome each must get
+  cover.webp    the pictures (PNG, JPEG or WebP)
+```
+
+`case.json` has exactly these keys: `title` and `description` (the game's words), `pictures` (a list of `{ "path", "kind" }`, `kind` one of `cover`, `square`, `share`, `screenshot`), `is_honest`, `expected` (each picture's path, and `title`, with `fine`, `person` or the code of the line it breaks: `extra_text_on_cover`, `overlay_on_cover`, `famous_name`, `cover_not_from_game`, `tag_in_title`, `fake_reward`, `screenshot_not_from_game`) and `why`.
+
+Honest cases sit at the edges: screenshots full of the game's own interface and shop screens, a loud cover with only its title, names like "+1 Speed Run" and "Wrangler 2x". Every picture is drawn by Zaisma or captured from its demo games: never a real developer's cover, and never a real famous character (famous names are tested in titles).
+
+```bash
+npm run listing-set
+```
+
+Runs every case 3 times (`--runs`, `--case`, `--var LISTING_CHECK_MODEL=…` and `--json` work as above) and passes when every case gets its outcome on every run. A full run records `review-set/listing-last-run.json`, and `npm test` fails when the check's prompt or model changed without a new passing run (`listingFingerprint` in `scripts/review-set/fingerprint.mjs`).

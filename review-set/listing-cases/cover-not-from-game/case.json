@@ -1,0 +1,21 @@
+{
+  "title": "Gem Grid",
+  "description": "",
+  "pictures": [
+    {
+      "path": "cover.webp",
+      "kind": "cover"
+    },
+    {
+      "path": "screenshot.webp",
+      "kind": "screenshot"
+    }
+  ],
+  "is_honest": false,
+  "expected": {
+    "title": "fine",
+    "cover.webp": "cover_not_from_game",
+    "screenshot.webp": "fine"
+  },
+  "why": "The cover is built around a giant robot; the game is a gem puzzle with no robot anywhere in its screenshots."
+}
