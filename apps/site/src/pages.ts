@@ -301,24 +301,26 @@ a.dev-card:hover strong{text-decoration:underline;text-underline-offset:3px}
 .ctl:hover{background:linear-gradient(180deg,#3a3f48,#2a2e35)}
 .ctl svg{width:18px;height:18px;flex:none}
 .ctl[hidden]{display:none}
-/* The room's code beside Share, while the player is in a room that takes others: a tap copies it, the
-   eye hides it (for streamers, remembered in this browser). A closed room says so instead. */
-.room-chip{display:inline-flex;gap:2px}
-.room-chip[hidden]{display:none}
-.room-code b{font-family:var(--display);font-weight:600;font-size:14px;letter-spacing:.14em;font-variant-numeric:tabular-nums}
-.room-chip.closed .room-code{cursor:default;color:var(--muted)}
-.room-chip.closed .room-code b{letter-spacing:0;font-weight:500;font-size:13px}
-.room-chip.closed .room-eye{display:none}
-.room-eye .eye-off{display:none}
-.room-chip.masked .room-eye .eye-off{display:inline}
-.room-eye{padding:0 9px}
-/* Join by code: a small plate under its button, like the menu. */
-.join-dialog form{display:grid;gap:10px;padding:14px 16px 16px}
-.join-dialog label{font-family:var(--display);font-size:15px;font-weight:500;color:var(--text)}
+/* The room control, in games on Zaisma rooms: the room's code while the player is in one (dots when the
+   eye hid it, for streamers; Closed when it takes nobody), Join otherwise. It opens one plate with the
+   code, Copy and the eye, and a box to join another room by its code. */
+.room-open b{font-family:var(--display);font-weight:600;font-size:14px;letter-spacing:.12em;font-variant-numeric:tabular-nums}
+.room-open.closed b{letter-spacing:0;font-weight:500;font-size:13px;color:var(--muted)}
+.room-dialog .room-here{display:grid;gap:8px;padding:14px 16px 12px;background:linear-gradient(#000,#000) bottom/100% 1px no-repeat}
+.room-dialog .room-here[hidden]{display:none}
+.room-dialog .room-title,.room-dialog label{margin:0;font-family:var(--display);font-size:15px;font-weight:500;color:var(--text)}
+.room-line{display:flex;align-items:center;gap:8px}
+.room-line b{flex:1;font-family:var(--display);font-size:24px;font-weight:600;letter-spacing:.16em;color:var(--text)}
+.room-line .btn{min-height:38px}
+.room-line .icon{width:38px;padding:0;justify-content:center}
+.room-line .icon svg{width:18px;height:18px}
+.room-dialog .eye-off{display:none}
+.room-dialog.masked .eye-off{display:inline}
+.room-dialog p{margin:0;font-size:13px;color:var(--muted)}
+.room-dialog form{display:grid;gap:10px;padding:14px 16px 16px}
 .join-row{display:flex;gap:8px}
 .join-row input{flex:1;min-width:0;min-height:44px;font-family:var(--display);font-size:18px;font-weight:600;letter-spacing:.16em;text-transform:uppercase}
 .join-row input::placeholder{color:#5d626b}
-.join-dialog p{margin:0;font-size:13px;color:var(--muted)}
 /* Players: how many are in the room, beside the label; a corner badge on the icon where labels hide. */
 .ctl .count{min-width:20px;height:18px;padding:0 6px;display:inline-grid;place-items:center;font-size:12px;font-weight:600;background:#0c0e11;box-shadow:inset 0 1px 2px rgba(0,0,0,.8),0 1px 0 rgba(255,255,255,.06);border-radius:9px}
 .ctl .count[hidden]{display:none}
@@ -339,10 +341,20 @@ body:not(.playing) iframe{display:none}
   .ctl .label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
   #players-open{position:relative}
   #players-open .count{position:absolute;bottom:2px;right:2px;min-width:16px;height:16px;padding:0 4px;font-size:10px}
-  /* The strip has no room for a code across it: Share shows it. */
-  .room-chip{display:none}
+  /* The strip has no room for a code across it: the room control is its icon, and its plate has the code. */
+  .room-open b{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 }
-@media (max-width:640px){.room-chip .room-code{width:auto;padding:0 10px}.room-code b{font-size:13px;letter-spacing:.08em}.room-chip .room-eye{width:34px}}
+/* Narrow phones: the bar scrolls sideways under a Z that stays put; the room control keeps its code. */
+@media (max-width:640px) and (orientation:portrait),(max-width:640px) and (min-height:501px){
+  .bar{overflow-x:auto;scrollbar-width:none;gap:6px;padding-left:0}
+  .bar::-webkit-scrollbar{display:none}
+  .bar .home{position:sticky;left:0;z-index:2;flex:none;align-self:stretch;display:flex;align-items:center;padding:0 8px 0 10px;background:linear-gradient(180deg,#24282e,#16181c);box-shadow:6px 0 8px -4px rgba(0,0,0,.8)}
+  .bar .ctl{flex:none}
+  .bar .room-open{width:auto;padding:0 10px;gap:5px}
+  .room-open svg{width:16px;height:16px}
+  .room-open b{font-size:13px;letter-spacing:.06em}
+}
+@media (max-width:360px){.bar .room-open svg{display:none}.bar .room-open{padding:0 8px}}
 /* The menu: a small plate that drops from the ⋯ button, so the game stays in view and nothing dims it.
    One row per thing to do, each with an icon; the save line says at a glance whether progress is safe. */
 dialog.quick{position:fixed;z-index:40;inset:auto;margin:0;width:min(320px,calc(100vw - 16px));max-height:calc(100dvh - 70px);overflow:auto;padding:0;
@@ -393,8 +405,7 @@ ${siteHeader(env)}
   <span class="spacer"></span>
   ${multiplayer ? html`<button class="ctl" id="players-open" type="button" title="Players" aria-haspopup="dialog" aria-controls="players">${raw(ICON_PLAYERS)}<span class="label">Players</span><span class="count" hidden></span></button>` : ""}
   ${saves ? html`<a class="ctl" id="keep-bar" href="${joinHere}" data-keep="/join" title="Keep your progress" hidden>${raw(ICON_KEEP)}<span class="label">Keep progress</span></a>` : ""}
-  ${hasRoomCodes ? html`<button class="ctl" id="join-open" type="button" title="Join a room by its code" aria-haspopup="dialog" aria-expanded="false" aria-controls="join-dialog">${raw(ICON_JOIN)}<span class="label">Join</span></button>` : ""}
-  <span class="room-chip" id="room-chip" hidden><button class="ctl room-code" id="bar-room-code" type="button" title="Copy the room code"><span class="label">Room</span><b id="room-code-text"></b></button><button class="ctl room-eye" id="room-eye" type="button" aria-pressed="false" title="Hide the room code" aria-label="Hide the room code">${raw(ICON_EYE)}</button></span>
+  ${hasRoomCodes ? html`<button class="ctl room-open" id="room-open" type="button" title="Room code, or join a room" aria-haspopup="dialog" aria-expanded="false" aria-controls="room-dialog">${raw(ICON_HASH)}<b id="room-open-text">Join</b></button>` : ""}
   <button class="ctl" id="share" type="button" title="Share" aria-haspopup="dialog" aria-controls="share-dialog">${raw(ICON_SHARE)}<span class="label">Share</span></button>
   <button class="ctl" id="full" type="button" title="Full screen">${raw(ICON_FULL)}<span class="label">Full screen</span></button>
   <button class="ctl" id="menu" type="button" title="More" aria-haspopup="dialog" aria-expanded="false" aria-controls="menu-dialog">${raw(ICON_MORE)}<span class="label">More</span></button>
@@ -447,10 +458,15 @@ ${siteFooter()}
   sandbox="allow-scripts allow-same-origin allow-pointer-lock"
   allow="fullscreen; gamepad; autoplay; web-share; clipboard-write" allowfullscreen referrerpolicy="no-referrer"></iframe></template>
 ${hasRoomCodes
-      ? html`<dialog id="join-dialog" class="quick plate join-dialog" aria-label="Join a room">
+      ? html`<dialog id="room-dialog" class="quick plate room-dialog" aria-label="Room">
+  <section class="room-here" id="room-here" hidden>
+    <p class="room-title">This room</p>
+    <div class="room-line"><b id="room-code-text"></b><button class="btn ghost" type="button" id="room-copy">Copy</button><button class="btn ghost icon" type="button" id="room-eye" aria-pressed="false" title="Hide the room code" aria-label="Hide the room code">${raw(ICON_EYE)}</button></div>
+    <p id="room-closed" hidden>This room doesn't take new players.</p>
+  </section>
   <form method="get" action="${here}"><label for="bar-join-code">Join a room by its code</label>
   <div class="join-row"><input id="bar-join-code" name="room" required maxlength="8" minlength="6" autocomplete="off" autocapitalize="characters" spellcheck="false" pattern="[2-9A-HJ-NP-Za-hj-np-z]{6}" placeholder="ABC234" title="6 letters and numbers, like ABC234"><button class="btn" type="submit">Join</button></div>
-  <p>It leaves the room you're in.</p></form>
+  <p id="join-leaves" hidden>It leaves the room you're in.</p></form>
 </dialog>`
       : ""}
 <dialog id="menu-dialog" class="quick plate" aria-label="${game.title}">
@@ -530,7 +546,7 @@ const svg = (paths: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="cur
 const ICON_PLAYERS = svg('<circle cx="9" cy="8" r="3.2"/><path d="M3.5 19.5c.6-3.3 2.8-5.2 5.5-5.2s4.9 1.9 5.5 5.2"/><circle cx="16.5" cy="9" r="2.6"/><path d="M15.4 14.4c2.6-.3 4.6 1.4 5.1 4.6"/>');
 const ICON_SHARE = svg('<path d="M12 3v12"/><path d="M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/>');
 const ICON_KEEP = svg('<path d="M5 3h11l3 3v15H5z"/><path d="M8 3v6h8V3"/><path d="M8 21v-7h8v7"/>');
-const ICON_JOIN = svg('<rect x="3" y="6" width="18" height="12" rx="1"/><path d="M7 10h.01M11 10h.01M15 10h.01M7 14h10"/>');
+const ICON_HASH = svg('<path d="M5 9h15M4 15h15M10 3 8 21M16 3l-2 18"/>');
 const ICON_EYE = svg('<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/><path class="eye-off" d="M4 4l16 16"/>');
 const ICON_FULL = svg('<path d="M4 9V4h5"/><path d="M20 9V4h-5"/><path d="M4 15v5h5"/><path d="M20 15v5h-5"/>');
 const DEVICE_ICONS: Record<string, string> = {
@@ -960,60 +976,64 @@ addEventListener("pointerdown", (e) => { if (dialog.open && !dialog.contains(e.t
 addEventListener("keydown", (e) => { if (e.key === "Escape" && dialog.open) dialog.close(); });
 addEventListener("blur", () => { if (dialog.open) dialog.close(); });
 addEventListener("resize", () => dialog.open && placeMenu());
-// Join by code: typed into a plate under its button; the form opens the room link (?room=CODE).
-const joinOpen = document.getElementById("join-open");
-const joinDialog = document.getElementById("join-dialog");
-if (joinOpen && joinDialog) {
-  const joinInput = document.getElementById("bar-join-code");
-  joinOpen.onclick = () => {
-    if (joinDialog.open) return joinDialog.close();
-    placeMenu(joinDialog, joinOpen);
-    joinDialog.show();
-    joinOpen.setAttribute("aria-expanded", "true");
-    joinInput.focus();
-  };
-  joinDialog.addEventListener("close", () => { joinOpen.setAttribute("aria-expanded", "false"); if (frame) frame.focus(); });
-  addEventListener("pointerdown", (e) => { if (joinDialog.open && !joinDialog.contains(e.target) && !joinOpen.contains(e.target)) joinDialog.close(); });
-  addEventListener("keydown", (e) => { if (e.key === "Escape" && joinDialog.open) joinDialog.close(); });
-  addEventListener("resize", () => joinDialog.open && placeMenu(joinDialog, joinOpen));
-  joinInput.addEventListener("input", () => { joinInput.value = joinInput.value.toUpperCase().replace(/[^0-9A-Z]/g, ""); joinInput.setCustomValidity(""); });
-  joinInput.addEventListener("invalid", () => joinInput.setCustomValidity("Room codes are 6 letters and numbers, like ABC234."));
-  // The room the player is in already: nothing to leave.
-  joinDialog.querySelector("form").addEventListener("submit", (e) => { if (shownRoom && joinInput.value === shownRoom.code) { e.preventDefault(); joinDialog.close(); } });
-}
-// The room's code in the bar, while the game is in a room (zaisma:room, then zaisma:players says whether
-// it takes others). Hidden for streamers by the eye, remembered in this browser; Share hides it too then.
-const roomChip = document.getElementById("room-chip");
-const roomCodeText = document.getElementById("room-code-text");
-const roomEye = document.getElementById("room-eye");
+// The room control: the room's code while the game is in a room (zaisma:room, then zaisma:players says
+// whether it takes others), Join otherwise; its plate has Copy, the eye and Join by code. The eye hides
+// the code for streamers, remembered in this browser, and Share blurs the code until Show then.
+const roomOpen = document.getElementById("room-open");
+const roomDialog = document.getElementById("room-dialog");
 const ROOM_CODE_HIDDEN_KEY = "zaisma:room-code-hidden";
 let isRoomCodeHidden = false;
 try { isRoomCodeHidden = localStorage.getItem(ROOM_CODE_HIDDEN_KEY) === "1"; } catch {}
 let shownRoom = null;
 function showRoomCode(room) {
   shownRoom = room;
-  roomChip.hidden = !room;
-  if (!room) return;
-  roomChip.classList.toggle("closed", !room.isOpen);
-  roomChip.classList.toggle("masked", isRoomCodeHidden);
-  roomCodeText.textContent = !room.isOpen ? "Closed" : isRoomCodeHidden ? "••••••" : room.code;
-  const codeButton = document.getElementById("bar-room-code");
-  codeButton.title = !room.isOpen ? "This room doesn't take new players" : "Copy the room code";
+  if (!roomOpen) return;
+  const shownCode = !room ? "Join" : !room.isOpen ? "Closed" : isRoomCodeHidden ? "••••••" : room.code;
+  document.getElementById("room-open-text").textContent = shownCode;
+  roomOpen.classList.toggle("closed", Boolean(room && !room.isOpen));
+  roomOpen.title = !room ? "Join a room by its code" : !room.isOpen ? "This room doesn't take new players" : "The room's code";
+  roomDialog.classList.toggle("masked", isRoomCodeHidden);
+  document.getElementById("room-here").hidden = !room;
+  document.getElementById("join-leaves").hidden = !room;
+  document.getElementById("room-closed").hidden = !room || room.isOpen;
+  document.getElementById("room-code-text").textContent = room ? (isRoomCodeHidden ? "••••••" : room.code) : "";
+  document.getElementById("room-copy").hidden = !room || !room.isOpen;
+  const roomEye = document.getElementById("room-eye");
+  roomEye.hidden = !room || !room.isOpen;
   roomEye.setAttribute("aria-pressed", String(isRoomCodeHidden));
   roomEye.title = isRoomCodeHidden ? "Show the room code" : "Hide the room code";
   roomEye.setAttribute("aria-label", roomEye.title);
 }
-roomEye.onclick = () => {
-  isRoomCodeHidden = !isRoomCodeHidden;
-  try { isRoomCodeHidden ? localStorage.setItem(ROOM_CODE_HIDDEN_KEY, "1") : localStorage.removeItem(ROOM_CODE_HIDDEN_KEY); } catch {}
-  showRoomCode(shownRoom);
-};
-document.getElementById("bar-room-code").onclick = async (e) => {
-  if (!shownRoom || !shownRoom.isOpen) return;
-  try { await navigator.clipboard.writeText(shownRoom.code); } catch { return; }
-  roomCodeText.textContent = "Copied";
-  setTimeout(() => showRoomCode(shownRoom), 1500);
-};
+if (roomOpen && roomDialog) {
+  const joinInput = document.getElementById("bar-join-code");
+  roomOpen.onclick = () => {
+    if (roomDialog.open) return roomDialog.close();
+    placeMenu(roomDialog, roomOpen);
+    roomDialog.show();
+    roomOpen.setAttribute("aria-expanded", "true");
+    if (!shownRoom) joinInput.focus();
+  };
+  roomDialog.addEventListener("close", () => { roomOpen.setAttribute("aria-expanded", "false"); if (frame) frame.focus(); });
+  addEventListener("pointerdown", (e) => { if (roomDialog.open && !roomDialog.contains(e.target) && !roomOpen.contains(e.target)) roomDialog.close(); });
+  addEventListener("keydown", (e) => { if (e.key === "Escape" && roomDialog.open) roomDialog.close(); });
+  addEventListener("resize", () => roomDialog.open && placeMenu(roomDialog, roomOpen));
+  joinInput.addEventListener("input", () => { joinInput.value = joinInput.value.toUpperCase().replace(/[^0-9A-Z]/g, ""); joinInput.setCustomValidity(""); });
+  joinInput.addEventListener("invalid", () => joinInput.setCustomValidity("Room codes are 6 letters and numbers, like ABC234."));
+  // The room the player is in already: nothing to leave.
+  roomDialog.querySelector("form").addEventListener("submit", (e) => { if (shownRoom && joinInput.value === shownRoom.code) { e.preventDefault(); roomDialog.close(); } });
+  document.getElementById("room-eye").onclick = () => {
+    isRoomCodeHidden = !isRoomCodeHidden;
+    try { isRoomCodeHidden ? localStorage.setItem(ROOM_CODE_HIDDEN_KEY, "1") : localStorage.removeItem(ROOM_CODE_HIDDEN_KEY); } catch {}
+    showRoomCode(shownRoom);
+  };
+  const roomCopy = document.getElementById("room-copy");
+  roomCopy.onclick = async () => {
+    if (!shownRoom) return;
+    try { await navigator.clipboard.writeText(shownRoom.code); roomCopy.textContent = "Copied"; } catch { roomCopy.textContent = "Can't copy"; }
+    setTimeout(() => (roomCopy.textContent = "Copy"), 1500);
+  };
+  showRoomCode(null);
+}
 // Share opens the share dialog: the address bar's link (with the room code while the player is in a
 // match), its QR code for someone in the same room, Copy, and the system's share sheet where there is one.
 const shareBox = document.getElementById("share-dialog");
@@ -1054,7 +1074,10 @@ if (navigator.share) {
   };
 }
 shareInput.onfocus = () => shareInput.select();
-document.getElementById("share-reveal").onclick = (e) => { shareBox.classList.remove("masked"); e.currentTarget.hidden = true; };
+// Show on the blur, or a tap on the blurred link, reveals them for this time.
+const revealShare = () => { shareBox.classList.remove("masked"); document.getElementById("share-reveal").hidden = true; };
+document.getElementById("share-reveal").onclick = revealShare;
+shareInput.addEventListener("click", () => { if (shareBox.classList.contains("masked")) revealShare(); });
 document.getElementById("share-close").onclick = () => shareBox.close();
 shareBox.addEventListener("click", (e) => { if (e.target === shareBox) shareBox.close(); });
 shareBox.addEventListener("close", () => { if (frame) frame.focus(); else if (shareBox.returnFocus) shareBox.returnFocus.focus(); });

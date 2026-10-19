@@ -129,14 +129,18 @@ export async function qrCodeImage(env: Env, game: Game | null, request: Request)
  * system's share sheet where there is one. Tester links get no QR code: their address is a secret
  * the code would only spread further. The game page's script fills it in (shareFrom).
  */
+const EYE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+
 export function shareDialog(gameTitle: string, hasQrCode: boolean): Raw {
   return html`<dialog id="share-dialog" class="share-dialog plate bevel" aria-labelledby="share-title">
   <div class="head"><strong id="share-title">Share ${gameTitle}</strong><button class="btn ghost close" type="button" id="share-close" aria-label="Close">×</button></div>
   <div class="body">
-    ${hasQrCode ? html`<figure class="share-qr"><img id="share-qr" alt="QR code for this link" width="220" height="220"><figcaption id="share-scan">Scan to play</figcaption></figure>` : ""}
-    <p class="share-room" id="share-room" hidden>Room code <b></b></p>
+    <div class="share-secret">
+      ${hasQrCode ? html`<figure class="share-qr"><img id="share-qr" alt="QR code for this link" width="220" height="220"><figcaption id="share-scan">Scan to play</figcaption></figure>` : ""}
+      <p class="share-room" id="share-room" hidden>Room code <b></b></p>
+      <button class="btn reveal" type="button" id="share-reveal" hidden>${raw(EYE_ICON)}Show</button>
+    </div>
     <div class="share-row"><input readonly aria-label="Link"><button class="btn" type="button" id="share-copy">Copy</button></div>
-    <button class="btn ghost" type="button" id="share-reveal" hidden>Show the code and link</button>
     <button class="btn ghost" type="button" id="share-more" hidden>More ways to share</button>
   </div>
 </dialog>`;
@@ -157,6 +161,11 @@ dialog.share-dialog{width:min(360px,calc(100vw - 32px));padding:0}
 .share-room{margin:0;text-align:center;font-size:14px;color:var(--text-2)}
 .share-room b{font-family:var(--display);font-size:18px;letter-spacing:.14em;color:var(--text);margin-left:6px}
 .share-room[hidden],#share-reveal[hidden]{display:none}
+.share-secret{position:relative;display:grid;gap:12px}
+/* Show sits on the blurred code itself: one tap reveals the code, link and QR code. */
+.share-secret .reveal{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:1;display:inline-flex;align-items:center;gap:8px;box-shadow:0 8px 22px rgba(0,0,0,.6)}
+.share-secret .reveal svg{width:18px;height:18px}
 /* The room code is hidden (for streamers): the code, link and QR code blur until Show; Copy still works. */
 .share-dialog.masked .share-qr img,.share-dialog.masked .share-row input,.share-dialog.masked .share-room b{filter:blur(7px)}
+.share-dialog.masked .share-row input{cursor:pointer}
 `;

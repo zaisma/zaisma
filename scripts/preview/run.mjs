@@ -293,8 +293,8 @@ Zaisma preview is running. Nothing here touches the live site.
                   ${SITE}/dashboard/shard-dodge/details#qr-code  (the QR code with SVG and PNG downloads; Share picture
                   in the image kinds); ${SITE}/g/arena and ${SITE}/g/cave-crew on a phone: "Needs a keyboard." and
                   "Best in landscape."
-  Room codes      ${SITE}/g/arena?room=K7PQ2M  (the bar shows "Room K7PQ2M" beside Share: tap to copy, the eye hides it,
-                  which also blurs Share's code, link and QR code; Join types another room's code to go there)
+  Room codes      ${SITE}/g/arena?room=K7PQ2M  (the bar's room control shows "# K7PQ2M": its plate has Copy, the eye that
+                  hides the code (Share then blurs it under Show) and Join by code; on narrow phones the bar scrolls under the Z)
   Logs            ${SITE}/dashboard/arena/players#multiplayer  (under the game server's errors: a line pointing to the AI's get_logs
                   and npx @zaisma/cli logs arena --follow; play ${SITE}/g/arena to give its logs lines)
   Own servers     ${SITE}/dashboard/tiny-farm/details#own-servers  (Your own servers: wss://play.example.com; the ⋯ menu on

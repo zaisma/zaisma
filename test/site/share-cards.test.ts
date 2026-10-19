@@ -174,15 +174,15 @@ describe("QR codes", () => {
 });
 
 describe("room codes in the game bar", () => {
-  it("come with Join by code in games on Zaisma rooms, and not in games without rooms", async () => {
+  it("come in one room control with Join by code, in games on Zaisma rooms only", async () => {
     const single = await (await SELF.fetch(`${SITE}/g/sky-hopper`)).text();
-    expect(single).not.toContain('id="join-dialog"');
-    // The room chip is in every bar; the page fills it once the game says it's in a room.
-    expect(single).toContain('id="room-chip" hidden');
+    expect(single).not.toContain('id="room-open"');
+    expect(single).not.toContain('id="room-dialog"');
     await env.DB.prepare("UPDATE games SET multiplayer_mode = 'relay' WHERE slug = 'sky-hopper'").run();
     const rooms = await (await SELF.fetch(`${SITE}/g/sky-hopper`)).text();
-    expect(rooms).toContain('id="join-dialog"');
-    // The code goes to the game's own address as a room link.
+    expect(rooms).toContain('id="room-open"');
+    // The plate shows this room's code (filled in once the game says it's in one) and joins another by its code.
+    expect(rooms).toContain('id="room-here" hidden');
     expect(rooms).toMatch(/<form method="get" action="\/g\/sky-hopper"><label for="bar-join-code">/);
     expect(rooms).toContain('name="room" required');
   });
