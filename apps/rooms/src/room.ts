@@ -24,10 +24,11 @@ import {
   type SavedRoom,
   type ServerMessage,
 } from "@zaisma/game-server";
-import { MATCH_FINISH_DURATION_SEC, blocksAmong, friendsAmong, gameServerOf, isOldEnoughFor, noteQuickJoin, pastFreeTier, accountUsernameOf, type AccountRequirement, type AgeBand, type MultiplayerMode } from "@zaisma/core";
+import { MATCH_FINISH_DURATION_SEC, blocksAmong, friendsAmong, gameServerOf, isOldEnoughFor, noteQuickJoin, pastFreeTier, accountUsernameOf, type AccountRequirement, type AgeBand, type MultiplayerMode, type PrintedLogLine } from "@zaisma/core";
 import { gameServer } from "./registry.ts";
 import { gameDatabase } from "./database.ts";
-import { SANDBOX, errorLine, sandboxServer, type SandboxServer, type SandboxStats } from "./sandbox.ts";
+import { SANDBOX, errorLine, linesOf, sandboxServer, type SandboxServer, type SandboxStats } from "./sandbox.ts";
+import { LogWriter } from "./logs.ts";
 import { secretsForGameServer } from "./secrets.ts";
 import { signingKey, type Env } from "./index.ts";
 
@@ -109,6 +110,8 @@ export class Room extends DurableObject<Env> {
   private isBroken = false;
   /** Set once the game server failed to start and the game's errors say so, so a room that keeps failing writes it once. */
   private hasRecordedStartError = false;
+  /** What the game's own server printed in this room, waiting to go to the game's logs (logs.ts). */
+  private logs: LogWriter | null = null;
   private hasEnded = false;
   private usage: Usage = { roomPlayDurationSec: 0, messageCount: 0 };
   private saved: unknown = undefined;
@@ -234,6 +237,7 @@ export class Room extends DurableObject<Env> {
    */
   async alarm(): Promise<void> {
     this.alarmAtMs = null;
+    if (this.logs?.hasWaitingLines) await this.logs.write();
     if (this.sockets().length) {
       // The next check first, so one that fails (a busy database) doesn't stop the room checking on its players.
       await this.wake(Date.now() + SWEEP_MS);
@@ -489,6 +493,7 @@ export class Room extends DurableObject<Env> {
   private async emptied(): Promise<void> {
     this.stopTicking();
     await this.recordUsage();
+    await this.logs?.write();
     if (this.core && !this.core.ticking) this.core.dirty = true;
     await this.save();
     await this.unlist();
@@ -519,6 +524,16 @@ export class Room extends DurableObject<Env> {
     return true;
   }
 
+  /** What the game's own server printed: to its logs soon (logs.ts), at once when a file's worth is waiting. */
+  private printed(lines: PrintedLogLine[]): void {
+    if (!this.meta || !lines.length) return;
+    const logs = (this.logs ??= new LogWriter(this.env, this.meta.gameId, this.meta.roomCode ?? "room"));
+    logs.add(lines, "room", this.meta.roomCode ?? null, this.meta.versionId ?? "");
+    const delayMs = logs.writeDelayMs();
+    if (delayMs === 0) this.ctx.waitUntil(logs.write());
+    else if (delayMs !== null) void this.wake(Date.now() + delayMs);
+  }
+
   /** A new distinct error in the game server: write it within a minute, for its webhooks, not at the hourly check-in. */
   private newError(): void {
     this.hasUnrecordedError = true;
@@ -531,6 +546,7 @@ export class Room extends DurableObject<Env> {
     this.hasEnded = true;
     this.stopTicking();
     await this.recordUsage();
+    await this.logs?.write();
     await this.unlist();
     await this.ctx.storage.put({ saved: { hasEnded: true } satisfies Saved, emptiedAtMs: Date.now() });
     await this.setAlarm(Date.now() + KEEP_EMPTY_MS);
@@ -782,9 +798,12 @@ export class Room extends DurableObject<Env> {
     try {
       const { secrets, changedAtMs } = await secretsForGameServer(this.env, this.meta.gameId);
       this.secretsChangedAtMs = changedAtMs;
-      this.server = await sandboxServer(this.env, this.ctx.exports, this.meta.gameId, this.meta.versionId, secrets, () => this.broken(), () => this.newError());
+      this.logs ??= new LogWriter(this.env, this.meta.gameId, this.meta.roomCode ?? "room");
+      await this.logs.checkWatched();
+      this.server = await sandboxServer(this.env, this.ctx.exports, this.meta.gameId, this.meta.versionId, secrets, () => this.broken(), () => this.newError(), (lines) => this.printed(lines));
     } catch (error) {
       console.error("Couldn't start the game server:", error);
+      this.printed(linesOf(null, `Zaisma: the game server didn't start: ${String(error instanceof Error ? error.message : error)}`));
       if (!this.hasRecordedStartError) {
         this.hasRecordedStartError = true;
         const nowMs = Date.now();

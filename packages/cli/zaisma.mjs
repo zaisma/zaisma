@@ -59,6 +59,7 @@ const COMMAND_ERROR_CODES = {
   repeated_field: "A flag was given twice.",
   missing_value: "A flag that takes a value was given none.",
   takes_no_value: "A flag that takes no value was given one.",
+  conflicting_flags: "Two flags that don't go together were given, like logs --follow and --cursor.",
   not_a_folder: "The folder to check or upload isn't a folder.",
   not_a_file: "The file given (of statements, a dump to import, or a save) can't be read.",
   file_exists: "database export won't write over a file that's already there.",
@@ -127,6 +128,19 @@ const COMMANDS = {
   secrets: { about: "A game's secrets, which its game server reads as server.secrets and room.secrets: their names and when each was set, never the values", arguments: [{ name: "slug" }], flags: {} },
   "secrets set": { about: "Set a secret for a game's server, replacing one of the same name: the value piped in, or typed without showing; it's never shown again", arguments: [{ name: "slug" }, { name: "secret_name" }], flags: {} },
   "secrets delete": { about: "Delete one of a game's secrets", arguments: [{ name: "slug" }, { name: "secret_name" }], flags: {} },
+  logs: {
+    about: "What a game's server printed on Zaisma in the last 30 days, oldest first: the newest lines, older ones with --cursor, or new ones as they come with --follow",
+    arguments: [{ name: "slug" }],
+    flags: {
+      follow: { hasValue: false, about: "Keep printing new lines as the game server prints them, every 2 seconds, until Ctrl-C" },
+      "room-code": { hasValue: true, placeholder: "<code>", about: "Only lines printed in this room, like K7Q2MX" },
+      "minimum-level": { hasValue: true, choices: ["debug", "info", "warn", "error"], about: "debug (everything), info (all but debug), warn (warnings and errors) or error" },
+      "source-kind": { hasValue: true, choices: ["room", "request", "schedule", "webhook"], about: "Only lines printed in a room, onRequest, onSchedule or onWebhook" },
+      "search-text": { hasValue: true, placeholder: '"words"', about: "Only lines containing this, ignoring case" },
+      "maximum-line-count": { hasValue: true, placeholder: "<count>", about: "How many lines at most, up to 500; 100 by default" },
+      cursor: { hasValue: true, placeholder: "<next_cursor>", about: "The lines before an earlier answer's: the next_cursor it printed" },
+    },
+  },
   forum: {
     about: "Your forum topics and messages to Zaisma; one topic with every post you can see; or a search",
     arguments: [{ name: "topic_id", isOptional: true }],
@@ -1382,6 +1396,35 @@ async function secrets(command, values) {
   if (answer.next_steps.some((step) => step.tool === "update_game")) console.log(`It calls no other servers yet: list the hosts it uses this with, like zaisma allowed-hosts ${values.slug} discord.com`);
 }
 
+/** A game server's logs (GET …/games/<slug>/logs), as the MCP's get_logs; --follow asks for new lines every 2 seconds. */
+async function logs(values, flags) {
+  if (flags.follow && flags.cursor) refuse("conflicting_flags", { message: "--follow prints new lines, and --cursor older ones.", field: "cursor", fix: `Use one: zaisma logs ${values.slug} --follow, or zaisma logs ${values.slug} --cursor <next_cursor>.` });
+  const filters = {};
+  for (const [flag, input] of [["room-code", "room_code"], ["minimum-level", "minimum_level"], ["source-kind", "source_kind"], ["search-text", "search_text"], ["maximum-line-count", "maximum_line_count"], ["cursor", "cursor"]]) if (flags[flag] !== undefined) filters[input] = flags[flag];
+  const ask = (more) => api("GET", `/games/${values.slug}/logs?${new URLSearchParams({ ...filters, ...more }).toString()}`);
+  const print = (answer) => {
+    if (isJson) {
+      // Followed, each answer is one line of JSON.
+      if (flags.follow) process.stdout.write(`${JSON.stringify(answer)}\n`);
+      else printJson(answer);
+      return;
+    }
+    for (const line of answer.log_lines) console.log(`${line.logged_at.slice(11, 23)} ${line.level.padEnd(5)} ${line.room_code ?? line.source_kind}  ${line.text}`);
+  };
+  let answer = await ask({});
+  print(answer);
+  if (!flags.follow) {
+    if (!isJson && !answer.log_lines.length) console.log(`No lines from ${values.slug}'s game server${Object.keys(filters).length ? " that match" : ""} in the last 30 days.`);
+    if (!isJson && answer.next_cursor) console.log(`Older lines: zaisma logs ${values.slug} --cursor ${answer.next_cursor}`);
+    return;
+  }
+  for (;;) {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    answer = await ask({ new_lines_cursor: answer.new_lines_cursor });
+    print(answer);
+  }
+}
+
 /** A secret's value: piped in (without the line break at its end), or typed in a terminal without showing it. */
 async function readSecretValue(secretName) {
   if (!process.stdin.isTTY) {
@@ -1569,6 +1612,7 @@ async function run({ command, values, flags, globalFlags, rest }) {
   else if (command === "own-servers") await ownServers(values, flags);
   else if (command === "links" || command.startsWith("links ")) await links(command, values, flags);
   else if (command === "secrets" || command.startsWith("secrets ")) await secrets(command, values);
+  else if (command === "logs") await logs(values, flags);
   else if (command === "database" || command.startsWith("database ")) await database(command, values, flags);
   else if (command === "saves" || command.startsWith("saves ")) await saves(command, values, flags);
   else await forum(command, values, flags);

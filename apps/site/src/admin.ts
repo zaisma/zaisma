@@ -8,6 +8,10 @@ import {
   SEVERITY,
   reportLabel,
   reportPictureKey,
+  PLAYER_REPORT_REASONS,
+  ZAISMA_PLAYER_REPORT_REASONS,
+  isForZaisma,
+  stopSocial,
   clearVersion,
   closeReportGroup,
   UploadError,
@@ -39,8 +43,12 @@ import {
   settleDetailsWaitingForReview,
   settleImage,
   CONTENT_RULES,
+  NOTICE_CODES,
+  NOTICE_KINDS,
   decidedReason,
   isContentRule,
+  isNoticeKind,
+  isNoticeReason,
   readReviewReason,
   reviewModelOf,
   type ContentRule,
@@ -54,7 +62,8 @@ import {
   gameDeletionOf,
   queueGameDeletion,
 } from "@zaisma/core";
-import { adminProfileAction, adminProfilesPage } from "./admin-profiles.ts";
+import { adminProfileAction, adminProfilesPage, clearProfile } from "./admin-profiles.ts";
+import { sendAlert } from "./email.ts";
 import { adminChatReviewAction, adminChatReviewsPage } from "./admin-chat-reviews.ts";
 import { adminPublishingAction, adminPublishingPage } from "./admin-publishing.ts";
 import { adminIdentity } from "./access.ts";
@@ -65,6 +74,7 @@ import { adminFeedbackAction, adminFeedbackPage, feedbackSummary } from "./admin
 import { precedentAction, precedentsPage, savePrecedent } from "./precedents.ts";
 import { clearCountedDay, playSpikes } from "./plays.ts";
 import { KNOWN_IMAGE_ALERT, passVersion } from "./scan.ts";
+import { ownerUsername, stopCopy } from "./copies.ts";
 import { uploadGame } from "./upload.ts";
 import { tellWebhooks } from "./webhooks.ts";
 
@@ -81,21 +91,40 @@ const pickedRule = (form: FormData): ContentRule | null => {
 
 /**
  * What a person picks and writes when they hold something back: the content rule it broke and why,
- * which the developer reads (never for child safety). A takedown needs both, and can be on a copyright notice.
+ * which the developer reads (never for child safety). A takedown needs both. Notices hold a game from its own form.
  */
 function decisionFields(options: { isTakedown?: boolean }): Raw {
   const isTakedown = Boolean(options.isTakedown);
-  return html`${ruleSelect({ contentRule: null, isRequired: isTakedown, hasCopyrightNotice: isTakedown })}
+  return html`${ruleSelect({ contentRule: null, isRequired: isTakedown })}
 <input name="reason" placeholder="${isTakedown ? "Why (required; the developer reads it)" : "Why (the developer reads it)"}" maxlength="500" size="36"${isTakedown ? raw(" required") : ""}>`;
 }
 
-/** The content rules to pick from, and for takedowns a copyright notice. */
-function ruleSelect(options: { contentRule: string | null; isRequired: boolean; hasCopyrightNotice: boolean }): Raw {
+/** The content rules to pick from. */
+function ruleSelect(options: { contentRule: string | null; isRequired: boolean }): Raw {
   return html`<select name="content_rule" aria-label="The rule it broke"${options.isRequired ? raw(" required") : ""}>
   <option value="">${options.isRequired ? "The rule it broke…" : "No rule broken"}</option>
   ${Object.entries(CONTENT_RULES).map(([rule, text]) => html`<option value="${rule}" title="${text}"${options.contentRule === rule ? raw(" selected") : ""}>${rule.replace(/_/g, " ")}</option>`)}
-  ${options.hasCopyrightNotice ? html`<option value="copyright_notice">copyright notice (DMCA)</option>` : ""}
 </select>`;
+}
+
+/**
+ * A copyright or defamation notice holds the game without Zaisma judging it. It shows again once a
+ * person checks a fixed version (publishing one emails Zaisma), or 10 working days after a
+ * counter-notice reached the sender, unless they say they've gone to court.
+ */
+function noticeSection(gameId: string, reviewStatus: ReviewStatus, reason: ReturnType<typeof readReviewReason>): Raw {
+  if (reviewStatus === "removed") return html`<p class="note">Taken down, so a notice can't hold it.</p>`;
+  if (reviewStatus === "held" && isNoticeReason(reason)) {
+    return html`<p class="note">Held on a notice. Show it again (above) once the live version no longer has what the notice names, or 10 working days after you passed a counter-notice on, unless the sender says they've gone to court.</p>`;
+  }
+  return html`<form method="post" action="/admin/games/${gameId}/notice" class="row">
+  <select name="notice_kind" aria-label="The kind of notice" required>
+    <option value="">The kind of notice…</option>
+    ${NOTICE_KINDS.map((kind) => html`<option value="${kind}">${kind === "copyright" ? "copyright (DMCA)" : kind}</option>`)}
+  </select>
+  <input name="reason" placeholder="What it names (required; the developer reads it)" maxlength="500" size="36" required>
+  <button class="btn danger" type="submit">Hold on this notice</button>
+</form>`;
 }
 
 /** What the developer was told about a hold, rejection or takedown, for the admin pages. */
@@ -212,6 +241,14 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     return back(`/admin/games/${version.game_id}`);
   }
 
+  match = path.match(/^\/admin\/versions\/([a-z0-9_]+)\/reject-copy$/);
+  if (match) {
+    const version = await versionById(env.DB, match[1]!);
+    if (!version) return new Response("Not found", { status: 404 });
+    if (!(await stopCopy(env, version, actor))) return new Response("This version isn't a held match of another developer's game.", { status: 409 });
+    return back(`/admin/games/${version.game_id}`);
+  }
+
   match = path.match(/^\/admin\/images\/([a-z0-9_]+)\/(approve|reject)$/);
   if (match) {
     const image = await imageById(env.DB, match[1]!);
@@ -292,6 +329,21 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     return redirect(`/admin/games/${game.id}`);
   }
 
+  match = path.match(/^\/admin\/games\/([a-z0-9_]+)\/notice$/);
+  if (match) {
+    const game = await gameById(env.DB, match[1]!);
+    if (!game) return new Response("Not found", { status: 404 });
+    const noticeKind = form.get("notice_kind");
+    if (!isNoticeKind(noticeKind) || !reason) return gameDetail(env, game.id, "Pick the kind of notice and say what it names. The developer reads it, and it goes in the audit log too.");
+    if (game.review_status === "removed") return gameDetail(env, game.id, "The game is already taken down. Restore it first if the notice should hold it instead.");
+    // Zaisma doesn't judge the notice: the game is held until a fixed version is checked or a counter-notice brings it back.
+    const noticeReason = decidedReason(NOTICE_CODES[noticeKind].code, null, `A ${noticeKind === "copyright" ? "copyright (DMCA)" : "defamation"} notice names this: ${reason}`);
+    await setReviewStatus(env.DB, game.id, "held", noticeReason);
+    await audit(env.DB, game.id, "notice-held", reason, actor, noticeReason);
+    await tellWebhooks(env, "review_status_changed", game.id, {});
+    return back(`/admin/games/${game.id}`);
+  }
+
   // A game an account left behind (kept for a child-safety hold, or ownerless from before), deleted for good.
   match = path.match(/^\/admin\/games\/([a-z0-9_]+)\/delete$/);
   if (match) {
@@ -309,10 +361,9 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     const game = await gameById(env.DB, match[1]!);
     if (!game) return new Response("Not found", { status: 404 });
     if (match[2] === "takedown") {
-      const isCopyrightNotice = form.get("content_rule") === "copyright_notice";
       const contentRule = pickedRule(form);
-      if (!reason || (!contentRule && !isCopyrightNotice)) return gameDetail(env, game.id, "Pick the rule it broke and say why. The developer reads why, unless it's child safety; it goes in the audit log too.");
-      const removedReason = decidedReason(isCopyrightNotice ? "copyright_notice" : "taken_down", contentRule, reason);
+      if (!reason || !contentRule) return gameDetail(env, game.id, "Pick the rule it broke and say why. The developer reads why, unless it's child safety; it goes in the audit log too.");
+      const removedReason = decidedReason("taken_down", contentRule, reason);
       await setReviewStatus(env.DB, game.id, "removed", removedReason);
       await closeReports(env.DB, game.id, "actioned");
       await audit(env.DB, game.id, "takedown", reason, actor, removedReason);
@@ -335,13 +386,46 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
   }
 
   // One group of reports about the same problem, from the queue.
-  match = path.match(/^\/admin\/report-groups\/([a-z0-9_]+)\/(dismiss|bug|hide-name)$/);
+  match = path.match(/^\/admin\/report-groups\/([a-z0-9_]+)\/(dismiss|bug|hide-name|pass-to-developer|stop-social|clear-profile)$/);
   if (match) {
-    const { results: group } = await env.DB.prepare("SELECT * FROM reports WHERE (id = ? OR report_group_id = ?) AND report_status = 'open'").bind(match[1]!, match[1]!).all<Report>();
+    const { results: group } = await env.DB.prepare(`${QUEUE_SELECT} WHERE (reports.id = ? OR reports.report_group_id = ?) AND reports.report_status = 'open'`).bind(match[1]!, match[1]!).all<QueueRow>();
     if (!group.length) return back("/admin/reports");
     const gameId = group[0]!.game_id;
+    const isChildSafety = group.some((report) => report.severity_index === 0 || report.reason === "child_safety");
     // Never passed to the developer: telling them could warn someone abusing a child.
-    if (match[2] === "bug" && group.some((report) => report.severity_index === 0 || report.reason === "child_safety")) return back("/admin/reports");
+    if ((match[2] === "bug" || match[2] === "pass-to-developer") && isChildSafety) return back("/admin/reports");
+    const [lead] = groupReports(group).map((reportGroup) => reportGroup.lead);
+    const isAboutPlayer = group.every((report) => report.player_id);
+    if (match[2] === "pass-to-developer") {
+      if (!isAboutPlayer) return back("/admin/reports");
+      const nowMs = Date.now();
+      await env.DB.prepare("UPDATE reports SET is_passed_to_developer = 1, passed_to_developer_at_ms = ? WHERE (id = ? OR report_group_id = ?) AND report_status = 'open' AND is_passed_to_developer = 0").bind(nowMs, match[1]!, match[1]!).run();
+      // The ones the developer hadn't been told about yet, the same ones get_reports shows.
+      for (const report of group) if (!report.is_passed_to_developer) await tellWebhooks(env, "player_reported", gameId, { playerReport: report });
+      await closeReportGroup(env.DB, match[1]!, "actioned");
+      await audit(env.DB, gameId, "reports-to-developer", reason || `${group.length} report(s) about ${lead!.player_name || "a player"} passed to the developer`, actor);
+      return back("/admin/reports");
+    }
+    if (match[2] === "stop-social" || match[2] === "clear-profile") {
+      const account = isAboutPlayer && lead!.reported_username ? await env.DB.prepare("SELECT id, username FROM accounts WHERE player_id = ?").bind(lead!.player_id).first<{ id: string; username: string }>() : null;
+      if (!account) return back("/admin/reports");
+      if (match[2] === "clear-profile") {
+        await clearProfile(env.DB, account.id);
+        await closeReportGroup(env.DB, match[1]!, "actioned");
+        await audit(env.DB, gameId, "profile-cleared", reason || `@${account.username}`, actor);
+        return back("/admin/reports");
+      }
+      const stoppedReason = String(form.get("social_stopped_reason") ?? "");
+      if (!isForZaisma(stoppedReason) || lead!.reported_social_stopped_at_ms) return back("/admin/reports");
+      await stopSocial(env.DB, account.id, stoppedReason);
+      await closeReportGroup(env.DB, match[1]!, "actioned");
+      await audit(env.DB, gameId, "social-stopped", `@${account.username}: ${PLAYER_REPORT_REASONS[stoppedReason]}. ${reason}`.trim(), actor);
+      // Something sexual toward a teen, confirmed: the law asks for a report, which names someone to the police, so Julius sends it.
+      if (isChildSafety) {
+        await sendAlert(env, `URGENT: report to NCMEC: @${account.username}`, `A person confirmed a child-safety report about @${account.username} (player ${lead!.player_id}) and turned off their social side. Don't delete anything; the reports stay on the admin page.\n\n${reason}\n\nReview: ${env.SITE_ORIGIN}/admin/games/${gameId}`);
+      }
+      return back("/admin/reports");
+    }
     if (match[2] === "hide-name") {
       // The room's name and labels leave the game page and the game's own list while the room lives.
       const rooms = [...new Set(group.map((report) => report.room_code).filter(Boolean))];
@@ -458,6 +542,14 @@ async function gameDetail(env: Env, id: string, error = ""): Promise<Response> {
     gameDeletionOf(env.DB, id),
   ]);
   const mine = reports.filter((report) => report.game_id === id);
+  // Held re-uploads: which game and developer each matched, for the person deciding it.
+  const matchedGames = new Map<string, { title: string; ownerName: string | null }>();
+  for (const version of versions) {
+    const matchedGameId = version.scan_report ? (JSON.parse(version.scan_report) as ScanReport).matched_game?.game_id : undefined;
+    if (!matchedGameId || matchedGames.has(matchedGameId)) continue;
+    const matched = await gameById(env.DB, matchedGameId);
+    if (matched) matchedGames.set(matchedGameId, { title: matched.title, ownerName: await ownerUsername(env, matched.owner_id) });
+  }
 
   return page(
     env,
@@ -475,6 +567,9 @@ ${game.review_status === "removed" || game.review_status === "held"
       ? html`<form method="post" action="/admin/games/${game.id}/restore" class="row"><input name="reason" placeholder="Why (optional)"><button class="btn" type="submit">${game.review_status === "held" ? "Clear and show again" : "Restore"}</button></form>`
       : html`<form method="post" action="/admin/games/${game.id}/takedown" class="row">${decisionFields({ isTakedown: true })}<button class="btn danger" type="submit">Take down now</button></form>`}
 ${toldDeveloper(game.review_reason)}
+
+<h2>Notice</h2>
+${noticeSection(game.id, game.review_status, readReviewReason(game.review_reason))}
 
 <h2>Details</h2>
 <p>Visibility: ${pill(game.visibility)} · Devices: ${game.devices || "not set"} · Controls: ${game.controls || "not set"} · Screen: ${game.screen_orientation || "not set"}</p>
@@ -535,10 +630,12 @@ ${versions.map((version) => {
     <span>${version.file_count} files · ${(version.size_bytes / 1048576).toFixed(1)} MB · ${when(version.created_at_ms)}</span></div>
   ${version.report_held_at_ms && version.scan_status === "held" ? html`<p><strong>A report paused this update.</strong> Players are on the version before it. Put it back if the report was wrong.</p>` : ""}
   ${report ? scanReport(report) : html`<p>Scan in progress…</p>`}
+  ${report?.matched_game ? matchedGameLine(report.matched_game, matchedGames.get(report.matched_game.game_id)) : ""}
   ${toldDeveloper(version.review_reason)}
   ${version.scan_status !== "approved" || !current
         ? html`<div class="row">
     ${version.scan_status !== "approved" && !knownImages(version) ? html`<form method="post" action="/admin/versions/${version.id}/approve"><button class="btn" type="submit">${version.report_held_at_ms ? "Put the update back" : version.publish_when_approved_enabled ? "Approve and publish" : "Approve as a draft"}</button></form>` : ""}
+    ${version.scan_status !== "rejected" && report?.matched_game ? html`<form method="post" action="/admin/versions/${version.id}/reject-copy"><button class="btn ghost" type="submit">Reject as a copy</button></form>` : ""}
     ${version.scan_status !== "rejected" ? html`<details><summary class="btn ghost">${version.report_held_at_ms ? "Keep it off…" : "Reject…"}</summary><form class="row" method="post" action="/admin/versions/${version.id}/reject">${decisionFields({})}<button class="btn ghost" type="submit">${version.report_held_at_ms ? "Keep it off" : "Reject"}</button></form></details>` : ""}
   </div>`
         : ""}
@@ -550,6 +647,11 @@ ${auditTable(log)}`,
   );
 }
 
+/** What a held re-upload matched, and what Reject as a copy does. */
+function matchedGameLine(matchedGame: NonNullable<ScanReport["matched_game"]>, matched: { title: string; ownerName: string | null } | undefined): Raw {
+  return html`<p><strong>Most of its files (${matchedGame.matched_file_count} of ${matchedGame.compared_file_count}) were sent first by another developer</strong>, in <a href="/admin/games/${matchedGame.game_id}">${matched?.title ?? matchedGame.game_id}</a>${matched?.ownerName ? ` by ${matched.ownerName}` : ""}. Reject as a copy tells that developer, with this uploader's name; Approve and Reject… tell nobody. Not sure (a teammate, permission)? Ask them first.</p>`;
+}
+
 function scanReport(report: ScanReport): Raw {
   return html`
 ${report.findings.some((finding) => finding.code === KNOWN_IMAGE_CODE)
@@ -557,7 +659,7 @@ ${report.findings.some((finding) => finding.code === KNOWN_IMAGE_CODE)
     : report.is_child_safety
       ? html`<p style="color:var(--danger)"><strong>Child-safety flag.</strong> Don't delete anything. Review, and if confirmed report to NCMEC (CyberTipline) as the law requires.</p>`
       : ""}
-<p>Scan result: ${pill(report.decision)} · image matching: ${report.images.is_connected ? `${report.images.provider}, ${report.images.checked_media_count} checked` : "not connected"} · AI: ${report.ai ? `${report.ai.verdict} (${reviewModelOf(report.ai)}${"cost_cents" in report.ai ? `, ${report.ai.cost_cents.toFixed(2)}¢` : ""})` : "not run"}</p>
+<p>Scan result: ${pill(report.decision)} · image matching: ${report.images.is_connected ? `${report.images.provider}, ${report.images.checked_media_count} checked${report.images.reused_media_count ? `, ${report.images.reused_media_count} cleared earlier` : ""}` : "not connected"} · AI: ${report.ai ? `${report.ai.verdict} (${reviewModelOf(report.ai)}${"cost_cents" in report.ai ? `, ${report.ai.cost_cents.toFixed(2)}¢` : ""})` : "not run"}</p>
 ${report.ai?.summary ? html`<p>${report.ai.summary}</p>` : ""}
 ${report.findings.length
     ? html`<table><tr><th>Level</th><th>Check</th><th>What</th><th>File</th></tr>${report.findings.map(
@@ -590,7 +692,35 @@ ${image.review_status === "pending"
       : ""}`;
 }
 
-export type QueueRow = Report & { slug: string; title: string; game_review_status: ReviewStatus };
+/** A report in the queue, with its game and, for a report about an account, that account (null for a guest or a game report). */
+export type QueueRow = Report & {
+  slug: string;
+  title: string;
+  game_review_status: ReviewStatus;
+  reported_username?: string | null;
+  reported_age_band?: string | null;
+  reported_social_stopped_at_ms?: number | null;
+  has_reported_profile_text?: number | null;
+};
+export const QUEUE_SELECT =
+  "SELECT reports.*, games.slug, games.title, games.review_status AS game_review_status, reported.username AS reported_username, reported.age_band AS reported_age_band, reported.social_stopped_at_ms AS reported_social_stopped_at_ms, CASE WHEN reported.id IS NULL THEN NULL WHEN reported.display_name IS NOT NULL OR reported.bio IS NOT NULL OR reported.link_urls != '' THEN 1 ELSE 0 END AS has_reported_profile_text FROM reports JOIN games ON games.id = reports.game_id LEFT JOIN accounts AS reported ON reports.player_id != '' AND reported.player_id = reports.player_id";
+
+/**
+ * What a person can decide for a group of reports about a player, as the queue's buttons and the admin
+ * MCP's decide_report_group offer them: never a takedown (it's a player, not the game), never to the
+ * developer at child safety, and only an account's social side or profile.
+ */
+export function playerGroupChoices(group: ReportGroup): string[] {
+  const isChildSafety = group.severityIndex === 0 || group.rows.some((report) => report.reason === "child_safety");
+  return [
+    "dismiss",
+    ...(group.rows.some((report) => report.room_name) ? ["hide_name"] : []),
+    ...(isChildSafety ? [] : ["pass_to_developer"]),
+    ...(group.lead.reported_username && !group.lead.reported_social_stopped_at_ms ? ["stop_social"] : []),
+    ...(group.lead.has_reported_profile_text ? ["clear_profile"] : []),
+  ];
+}
+export const isPlayerGroup = (group: ReportGroup) => group.rows.every((report) => report.player_id);
 
 export interface ReportGroup {
   /** The first report's id: group actions close it and every report merged into it. */
@@ -630,7 +760,7 @@ function ago(ms: number): string {
   return `${Math.round(elapsedMin / 1440)} days ago`;
 }
 
-const PRECEDENT_LABEL: Record<PrecedentDecision, string> = { dismiss: "dismiss", bug: "tell the developer", recheck: "check the files again", take_down: "take down" };
+const PRECEDENT_LABEL: Record<PrecedentDecision, string> = { dismiss: "dismiss", bug: "tell the developer", recheck: "check the files again", take_down: "take down", pass_to_developer: "pass to the game's developer", stop_social: "turn off their social side" };
 
 const RECOMMENDED: Record<Triage["recommendation"], string> = {
   dismiss: "Dismiss",
@@ -639,6 +769,8 @@ const RECOMMENDED: Record<Triage["recommendation"], string> = {
   person: "Your call",
   take_down: "Take the game down",
   restore: "Put the game back",
+  pass_to_developer: "Pass to the game's developer",
+  stop_social: "Turn off their social side",
 };
 
 /** Every open report, sorted and merged by AI triage (triage.ts), each group decided in one click. */
@@ -646,11 +778,11 @@ async function reportQueue(env: Env): Promise<Response> {
   const weekAgoMs = Date.now() - 7 * 86400_000;
   const [{ results: open }, { results: handled }, { results: paused }] = await Promise.all([
     env.DB
-      .prepare("SELECT reports.*, games.slug, games.title, games.review_status AS game_review_status FROM reports JOIN games ON games.id = reports.game_id WHERE reports.report_status = 'open' ORDER BY reports.reported_at_ms LIMIT 500")
+      .prepare(`${QUEUE_SELECT} WHERE reports.report_status = 'open' ORDER BY reports.reported_at_ms LIMIT 500`)
       .all<QueueRow>(),
     // Closed by triage itself (bugs passed to the developer, dismissals under a precedent), to look over.
     env.DB
-      .prepare("SELECT reports.*, games.slug, games.title, games.review_status AS game_review_status FROM reports JOIN games ON games.id = reports.game_id WHERE reports.report_status != 'open' AND reports.closed_at_ms = reports.triaged_at_ms AND reports.closed_at_ms > ? ORDER BY reports.closed_at_ms DESC LIMIT 100")
+      .prepare(`${QUEUE_SELECT} WHERE reports.report_status != 'open' AND reports.closed_at_ms = reports.triaged_at_ms AND reports.closed_at_ms > ? ORDER BY reports.closed_at_ms DESC LIMIT 100`)
       .bind(weekAgoMs)
       .all<QueueRow>(),
     env.DB.prepare("SELECT id, game_id FROM versions WHERE report_held_at_ms IS NOT NULL AND scan_status = 'held'").all<{ id: string; game_id: string }>(),
@@ -688,6 +820,7 @@ function groupCard(group: ReportGroup, pausedUpdate: string | undefined): Raw {
   return html`<article class="note case sev${group.severityIndex}">
   <div class="row">${severityPill(group.severityIndex)}${triage?.is_spot_check ? html` <span class="pill spot">Spot-check</span>` : ""} <a href="/admin/games/${game.game_id}"><strong>${game.title}</strong></a> ${game.game_review_status !== "live" ? pill(game.game_review_status) : ""}
     <span class="muted">${group.rows.length > 1 ? `${group.rows.length} reports · first ${ago(group.rows[0]!.reported_at_ms)}` : ago(game.reported_at_ms)}</span></div>
+  ${isPlayerGroup(group) ? html`<p class="muted">About ${game.reported_username ? html`<a href="/@${game.reported_username}">@${game.reported_username}</a> · ${game.reported_age_band}${game.reported_social_stopped_at_ms ? " · social side off" : ""}` : html`${game.player_name || "a player"}, a guest`}</p>` : ""}
   ${triage ? html`<p class="said">${triage.summary}</p>` : html`<p class="said">${reportLabel(game)}${game.player_text ? html`: “${game.player_text}”` : ""}</p><p class="muted">Waiting to be sorted.</p>`}
   ${triage ? html`<p class="muted">Recommended: <strong>${RECOMMENDED[triage.recommendation]}</strong>. ${triage.why}${triage.is_by_ai ? "" : " (Not sorted by AI.)"}</p>` : ""}
   ${triage?.precedent
@@ -701,7 +834,7 @@ function groupCard(group: ReportGroup, pausedUpdate: string | undefined): Raw {
       html`<p class="muted">Re-check of the game's files: ${recheck.recheck_status === "waiting" ? "running…" : recheck.recheck_status === "failed" ? `didn't finish (${recheck.summary ?? ""})` : recheck.findings?.length ? html`${recheck.scan_status === "rejected" ? pill("rejected") : ""} found ${recheck.findings.join("; ")}. ${recheck.summary ?? ""}` : `nothing new. ${recheck.summary ?? ""}`}</p>`,
   )}
   <details><summary>What players sent (${group.rows.length})</summary><table>${group.rows.map(
-    (report) => html`<tr><td class="nowrap">${ago(report.reported_at_ms)}</td><td>${reportLabel(report)}${report.player_id ? html`<br><small class="muted">Player ID ${report.player_id}</small>` : ""}</td><td>${report.player_text || html`<span class="muted">No details</span>`}${pictureLink(report)}</td></tr>`,
+    (report) => html`<tr><td class="nowrap">${ago(report.reported_at_ms)}</td><td>${reportLabel(report)}${report.player_id ? html`<br><small class="muted">Player ID ${report.player_id}${report.has_block_between ? " · blocked by the reporter, or blocked them" : ""}</small>` : ""}</td><td>${report.player_text || html`<span class="muted">No details</span>`}${pictureLink(report)}</td></tr>`,
   )}</table></details>
   <form method="post" class="decide">
     <input type="hidden" name="back" value="queue">
@@ -718,8 +851,10 @@ function groupCard(group: ReportGroup, pausedUpdate: string | undefined): Raw {
     </div>
     <div class="row">
     <input name="reason" value="${prefill}" aria-label="Why: for the audit log, and the developer reads it if you take the game down or keep the update off" title="For the audit log. If you take the game down or keep the update off, the developer reads it too (never for child safety)." maxlength="500">
-    ${gameRemoved ? "" : ruleSelect({ contentRule: triage && isContentRule(triage.category) ? triage.category : null, isRequired: false, hasCopyrightNotice: true })}
-    ${gameRemoved
+    ${gameRemoved || isPlayerGroup(group) ? "" : ruleSelect({ contentRule: triage && isContentRule(triage.category) ? triage.category : null, isRequired: false })}
+    ${isPlayerGroup(group) && !gameRemoved && !gameHeld && !pausedUpdate
+      ? playerButtons(group, button)
+      : gameRemoved
       ? button("Close", `/admin/report-groups/${group.id}/dismiss`, true)
       : gameHeld
         ? html`${button("Put the game back", `/admin/games/${game.game_id}/restore`, recommendation === "restore" || recommendation === "dismiss")}${button("Take down", `/admin/games/${game.game_id}/takedown`, recommendation === "take_down", true)}`
@@ -731,10 +866,24 @@ function groupCard(group: ReportGroup, pausedUpdate: string | undefined): Raw {
 </article>`;
 }
 
+/** A player group's decisions (playerGroupChoices): turning off their social side asks which of the four it was. */
+function playerButtons(group: ReportGroup, button: (label: string, action: string, recommended: boolean, danger?: boolean) => Raw): Raw {
+  const choices = playerGroupChoices(group);
+  const recommendation = group.triage?.recommendation;
+  const picked = isForZaisma(group.lead.player_reason) ? group.lead.player_reason : "real_life_threat";
+  return html`${button("Dismiss", `/admin/report-groups/${group.id}/dismiss`, recommendation === "dismiss")}${choices.includes("hide_name") ? button("Hide the room's name", `/admin/report-groups/${group.id}/hide-name`, false) : ""}${choices.includes("pass_to_developer") ? button("Pass to the developer", `/admin/report-groups/${group.id}/pass-to-developer`, recommendation === "pass_to_developer") : ""}${choices.includes("clear_profile") ? button("Clear their profile", `/admin/report-groups/${group.id}/clear-profile`, false) : ""}${
+    choices.includes("stop_social")
+      ? html`<select name="social_stopped_reason" aria-label="What the report found">${ZAISMA_PLAYER_REPORT_REASONS.map((reason) => html`<option value="${reason}"${reason === picked ? raw(" selected") : ""}>${PLAYER_REPORT_REASONS[reason]}</option>`)}</select>${button("Turn off their social side", `/admin/report-groups/${group.id}/stop-social`, recommendation === "stop_social", true)}`
+      : ""
+  }`;
+}
+
 /** What a decision in the queue means as a precedent: putting a game back means the report was wrong. */
 function precedentDecision(path: string): PrecedentDecision | null {
   if (/^\/admin\/(report-groups\/[a-z0-9_]+\/dismiss|games\/[a-z0-9_]+\/restore|versions\/[a-z0-9_]+\/approve)$/.test(path)) return "dismiss";
   if (/^\/admin\/report-groups\/[a-z0-9_]+\/bug$/.test(path)) return "bug";
+  if (/^\/admin\/report-groups\/[a-z0-9_]+\/pass-to-developer$/.test(path)) return "pass_to_developer";
+  if (/^\/admin\/report-groups\/[a-z0-9_]+\/stop-social$/.test(path)) return "stop_social";
   if (/^\/admin\/(games\/[a-z0-9_]+\/takedown|versions\/[a-z0-9_]+\/reject)$/.test(path)) return "take_down";
   return null;
 }

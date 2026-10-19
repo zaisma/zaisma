@@ -7,6 +7,7 @@ import {
   heldImageKey,
   isKeptForChildSafety,
   KEPT_FOR_REVIEW_REASON,
+  logPrefix,
   manifestKey,
   postponeGameDeletion,
   reportPictureKey,
@@ -113,6 +114,7 @@ async function deleteGame(env: Env, deletion: GameDeletion): Promise<void> {
   await deleteUnder(env.GAMES, `games/${gameId}/`);
   await deleteUnder(env.GAMES, `images/${gameId}/`);
   await deleteUnder(env.GAMES, heldImageKey(gameId, ""));
+  await deleteUnder(env.GAMES, logPrefix(gameId));
   const { results: reports } = await env.DB.prepare("SELECT id FROM reports WHERE game_id = ?").bind(gameId).all<{ id: string }>();
   await deleteKeys(env.GAMES, reports.map((report) => reportPictureKey(report.id)));
 

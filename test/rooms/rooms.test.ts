@@ -821,6 +821,16 @@ describe("reporting a player", () => {
     expect(row).toMatchObject({ reason: "player", player_reason: "harassment", player_id: "player_123abc", player_name: "Swift Fox 42", room_code: "ABCDEF", player_text: "kept spamming" });
   });
 
+  it("takes every reason a player can pick, the longest included", async () => {
+    const id = await addGame("arena");
+    // From its own address, so the rate limit stays out of the other tests' way.
+    const fromElsewhere = (reason: string) =>
+      SELF.fetch(`${R}/v1/report`, { method: "POST", headers: { Origin: ORIGIN, "Content-Type": "text/plain", "CF-Connecting-IP": "198.51.100.77" }, body: JSON.stringify({ gameSlug: "arena", roomCode: "ABCDEF", playerId: "player_123abc", reason }) });
+    expect((await fromElsewhere("following_after_block")).status).toBe(200);
+    expect(await e.DB.prepare("SELECT player_reason FROM reports WHERE game_id = ?").bind(id).first("player_reason")).toBe("following_after_block");
+    expect((await fromElsewhere("threats_or_private_details")).status).toBe(400);
+  });
+
   it("refuses bad reasons, codes and other sites", async () => {
     await addGame("arena");
     const refused = await report({ roomCode: "ABCDEF", playerId: "player_1", reason: "spam" });

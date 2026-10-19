@@ -103,7 +103,7 @@ describe("the MCP protocol", () => {
 
     const list = (await (await rpc({ jsonrpc: "2.0", id: 2, method: "tools/list" })).json()) as any;
     const names = list.result.tools.map((t: { name: string }) => t.name);
-    expect(names).toEqual(expect.arrayContaining(["list_games", "create_game", "upload_files", "publish_version", "get_reports", "get_stats", "get_history", "add_tester_link", "remove_tester_link"]));
+    expect(names).toEqual(expect.arrayContaining(["list_games", "create_game", "upload_files", "publish_version", "get_reports", "get_stats", "get_history", "get_logs", "add_tester_link", "remove_tester_link"]));
     for (const t of list.result.tools) expect(t.inputSchema.type).toBe("object");
     // Clients check an error's structuredContent against the output schema too, so each lists its answer or an error.
     for (const t of list.result.tools) {

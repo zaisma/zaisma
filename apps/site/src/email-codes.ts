@@ -166,6 +166,29 @@ export function passkeyWaitEmail(env: Env, details: { username: string; deviceNa
 }
 
 /**
+ * The email to a developer whose game a person at Zaisma found re-uploaded by someone else, with the uploader's
+ * public name (docs/DECISIONS.md, "Copies never pay; history does"). It goes only once the copy is rejected.
+ */
+export function copyStoppedEmail(env: Env, details: { username: string; gameTitle: string; uploaderName: string }): { subject: string; text: string; html: string } {
+  const subject = `We stopped a re-upload of ${details.gameTitle}`;
+  const first = `We stopped a re-upload of ${details.gameTitle} by ${details.uploaderName}. Most of its files were uploaded to Zaisma as their own game; a person at Zaisma checked it, and it never reached players.`;
+  const second = `Nothing to do, ${details.username}. If ${details.uploaderName} has your permission, message Zaisma at zaisma.com/forum and we'll put it back.`;
+  return {
+    subject,
+    text: `${first}\n\n${second}\n\nZaisma, ${env.SITE_ORIGIN.replace(/^https?:\/\//, "")}\n`,
+    html: `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="color-scheme" content="dark"><title>${esc(subject)}</title></head>
+<body style="margin:0;padding:32px 16px;background:#0b0d10;color:#eceef0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:440px">
+<tr><td style="padding:0 0 28px"><img src="${esc(env.SITE_ORIGIN)}/zaisma-wordmark-white-2400.png" width="112" alt="Zaisma" style="display:block;width:112px;height:auto;border:0"></td></tr>
+<tr><td style="font-size:16px;line-height:1.5;color:#c6c9ce;padding:0 0 16px">${esc(first)}</td></tr>
+<tr><td style="font-size:14px;line-height:1.5;color:#969ba4">${esc(second)}</td></tr>
+</table></td></tr></table>
+</body></html>`,
+  };
+}
+
+/**
  * A security alert's email (docs/DECISIONS.md, "The security log says who did what from where, and the owner hears
  * about the risky moments"): what happened, when and from where (left out when the account doesn't keep where it's
  * used from), anything more Zaisma knows (where a turned-off key was found), and what to do if it wasn't them.

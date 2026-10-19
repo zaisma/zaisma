@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tabloid Tycoon</title>
+<style>body{margin:0;font-family:Georgia,serif;background:#f4efe3;color:#111;display:flex;flex-direction:column;align-items:center;padding:16px}.headline{font-size:1.4em;font-weight:bold;margin:8px 0}button{font:inherit;padding:8px 14px;margin:4px;display:block;width:100%;max-width:520px}</style>
+</head>
+<body>
+<h1>Tabloid Tycoon</h1>
+<p>Pick tomorrow's front page. The wilder it is, the more copies you sell.</p>
+<div id="choices"></div>
+<p>Copies sold: <span id="sold">0</span></p>
+<p class="headline" id="front"></p>
+<script>
+const headlines = [
+  { text: "THE PRESIDENT STOLE THE MOON, SAYS AN ASTRONAUT'S CAT", sales: 900 },
+  { text: "POP STAR ARRESTED FOR SMUGGLING 10,000 HAMSTERS IN HER HAIR", sales: 750 },
+  { text: "TECH BILLIONAIRE ROBBED A BANK TO BUY A BIGGER ROCKET", sales: 820 },
+  { text: "Local weather: mild, with a chance of rain", sales: 40 },
+];
+let sold = 0, day = 0;
+function newDay() {
+  const choices = document.getElementById("choices");
+  choices.textContent = "";
+  for (const headline of [...headlines].sort(() => Math.random() - 0.5).slice(0, 3)) {
+    const button = document.createElement("button");
+    button.textContent = headline.text;
+    button.onclick = () => { sold += headline.sales; day++; document.getElementById("sold").textContent = sold; document.getElementById("front").textContent = `Day ${day}: ${headline.text}`; newDay(); };
+    choices.append(button);
+  }
+}
+newDay();
+</script>
+</body>
+</html>

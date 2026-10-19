@@ -44,12 +44,20 @@ export async function adminProfileAction(env: Env, path: string, actor: string):
   if (!match || !isIdOf("player", match[1])) return null;
   const account = await env.DB.prepare("SELECT * FROM accounts WHERE player_id = ?").bind(match[1]).first<Account>();
   if (!account) return "/admin/profiles";
-  await env.DB.batch([
-    match[2] === "show"
-      ? env.DB.prepare("UPDATE accounts SET profile_check_status = CASE WHEN display_name IS NULL AND bio IS NULL AND link_urls = '' THEN NULL ELSE 'passed' END, profile_held_reason = NULL WHERE id = ?").bind(account.id)
-      : env.DB.prepare("UPDATE accounts SET display_name = NULL, bio = NULL, link_urls = '', profile_check_status = NULL, profile_held_reason = NULL, updated_at_ms = ? WHERE id = ?").bind(Date.now(), account.id),
-    env.DB.prepare("DELETE FROM profile_reports WHERE account_id = ?").bind(account.id),
-  ]);
+  if (match[2] === "show") {
+    await env.DB.batch([
+      env.DB.prepare("UPDATE accounts SET profile_check_status = CASE WHEN display_name IS NULL AND bio IS NULL AND link_urls = '' THEN NULL ELSE 'passed' END, profile_held_reason = NULL WHERE id = ?").bind(account.id),
+      env.DB.prepare("DELETE FROM profile_reports WHERE account_id = ?").bind(account.id),
+    ]);
+  } else await clearProfile(env.DB, account.id);
   await audit(env.DB, null, match[2] === "show" ? "profile-shown" : "profile-cleared", `@${account.username}`, actor);
   return "/admin/profiles";
+}
+
+/** Clear: the profile shows the username alone until its owner writes something else. Also a decision on a report about a player. */
+export async function clearProfile(database: D1Database, accountId: string): Promise<void> {
+  await database.batch([
+    database.prepare("UPDATE accounts SET display_name = NULL, bio = NULL, link_urls = '', profile_check_status = NULL, profile_held_reason = NULL, updated_at_ms = ? WHERE id = ?").bind(Date.now(), accountId),
+    database.prepare("DELETE FROM profile_reports WHERE account_id = ?").bind(accountId),
+  ]);
 }

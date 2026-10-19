@@ -1,6 +1,6 @@
 import { createExecutionContext, env, SELF } from "cloudflare:test";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { MAXIMUM_OPEN_FRIEND_INVITE_COUNT, accountById, addTesterLink, friendsNowOf, blocksOf, playerProfile, playingNowOf, ageBand, ageOn, applyBirthdays, canonicalSave, checkUsername, createAccount, createApiKey, deleteExpiredFriendInvites, friendInviteByCode, friendInvitesOf, friendsOf, gameById, gameBySlug, gameOwner, recordPlayed, createGame, saveKey, sha256Hex, createReport, createVersion, isSlugRetired, newId, personOwner, queueGameDeletion, saveCopyKey, saveScan } from "@zaisma/core";
+import { MAXIMUM_OPEN_FRIEND_INVITE_COUNT, accountById, stopSocial, addTesterLink, friendsNowOf, blocksOf, playerProfile, playingNowOf, ageBand, ageOn, applyBirthdays, canonicalSave, checkUsername, createAccount, createApiKey, deleteExpiredFriendInvites, friendInviteByCode, friendInvitesOf, friendsOf, gameById, gameBySlug, gameOwner, recordPlayed, createGame, saveKey, sha256Hex, createReport, createVersion, isSlugRetired, newId, personOwner, queueGameDeletion, saveCopyKey, saveScan } from "@zaisma/core";
 import { deleteDueGames } from "../../apps/site/src/game-deletion.ts";
 import { decideTopic } from "../../apps/site/src/forum-posts.ts";
 import { checkForumPosts, type CheckDeps } from "../../apps/site/src/forum-check.ts";
@@ -244,7 +244,7 @@ class Browser {
   /** What the browser says it is, and where Cloudflare says it is (request.cf), for the security log. */
   userAgent: string | null = null;
   cf: Record<string, unknown> | null = null;
-  async go(path: string, form?: Record<string, string> | URLSearchParams, init: { method?: string; body?: string; origin?: string } = {}): Promise<Response> {
+  async go(path: string, form?: Record<string, string> | URLSearchParams, init: { method?: string; body?: string; origin?: string; contentType?: string } = {}): Promise<Response> {
     const request = new Request(`${SITE}${path}`, {
       method: init.method ?? (form ? "POST" : "GET"),
       body: init.body ?? (form ? new URLSearchParams(form) : undefined),
@@ -253,6 +253,7 @@ class Browser {
         "cf-connecting-ip": this.ip,
         ...(this.userAgent ? { "user-agent": this.userAgent } : {}),
         ...(form || init.body ? { origin: init.origin ?? SITE } : {}),
+        ...(init.contentType ? { "content-type": init.contentType } : {}),
       },
       redirect: "manual",
       ...(this.cf ? { cf: this.cf as unknown as IncomingRequestCfProperties } : {}),
@@ -695,7 +696,7 @@ describe("accounts open only through Zaisma", () => {
     const page = await (await owner.go("/account")).text();
     expect(page).toContain("Someone tried wrong passwords on your account today. Nothing got in.");
     expect(page).toContain('href="#passkeys">Add a passkey</a>');
-    expect(page).toContain('href="#signing-in">Add an email</a>');
+    expect(page).toContain('href="#email">Add an email</a>');
     expect(await (await owner.go("/account")).text()).not.toContain("Someone tried wrong passwords");
 
     // An email code still opens it on a new device, which can then use its password.
@@ -1212,6 +1213,57 @@ describe("friends", () => {
     await ana.go("/account/delete", { confirm: "delete" });
     expect(await friendsOf(env.DB, users.get("carol@example.com")!)).toEqual([]);
     expect(await env.DB.prepare("SELECT COUNT(*) AS invite_count FROM friend_invites").first("invite_count")).toBe(0);
+  });
+
+  it("keeps whether a reporter has a block with the player they report, and nothing else about them", async () => {
+    const ana = new Browser();
+    await join(ana, "ana@example.com", "Night_Owl");
+    const ben = new Browser();
+    await join(ben, "ben@example.com", "Quiet_Comet");
+    const benPlayerId = (await accountById(env.DB, users.get("ben@example.com")!))!.player_id;
+    await createGame(env.DB, { slug: "block-arena", title: "Block Arena", description: "" });
+    const reportBen = (reason: string) =>
+      ana.go("/g/block-arena/report", undefined, { method: "POST", body: JSON.stringify({ reason, room: "ABCDEF", player: { id: benPlayerId, name: "Quiet_Comet" } }), contentType: "application/json" });
+    expect((await reportBen("harassment")).status).toBe(200);
+    await ana.go(`/friends/blocks/${benPlayerId}`, undefined, { method: "POST", body: "{}" });
+    expect((await reportBen("following_after_block")).status).toBe(200);
+    expect((await reportBen("threats_or_private_details")).status).toBe(400);
+    const { results } = await env.DB.prepare("SELECT player_reason, has_block_between FROM reports WHERE player_id = ? ORDER BY reported_at_ms, rowid").bind(benPlayerId).all();
+    expect(results).toEqual([
+      { player_reason: "harassment", has_block_between: 0 },
+      { player_reason: "following_after_block", has_block_between: 1 },
+    ]);
+    await env.DB.exec("DELETE FROM reports");
+  });
+
+  it("turns an account's social side off for good: friends and invites end, and nothing turns it back on", async () => {
+    const ana = new Browser();
+    await join(ana, "ana@example.com", "Night_Owl");
+    const ben = new Browser();
+    await join(ben, "ben@example.com", "Quiet_Comet");
+    const [anaId, benId] = [users.get("ana@example.com")!, users.get("ben@example.com")!];
+    await ben.go(`/friends/add/${await inviteFrom(ana)}`, {});
+    const waiting = await inviteFrom(ana);
+    const benInvite = await inviteFrom(ben);
+    await stopSocial(env.DB, anaId, "personal_details");
+
+    const stopped = (await accountById(env.DB, anaId))!;
+    expect(stopped).toMatchObject({ who_can_chat: "nobody", who_can_join: "nobody", who_sees_playing_now: "nobody", who_sees_played_games: "nobody", who_sees_online: "nobody", who_can_send_friend_requests: "nobody", chat_stopped_reason: "removed", social_stopped_reason: "personal_details" });
+    expect(await friendsOf(env.DB, benId)).toEqual([]);
+    expect(await friendInvitesOf(env.DB, anaId)).toEqual([]);
+    expect((await ben.go(`/friends/add/${waiting}`)).status).toBe(404);
+
+    // The account page and /friends say why, in place of the settings and the invite tools.
+    const notice = "A person at Zaisma upheld a report that you shared someone&#39;s personal details.";
+    expect(await (await ana.go("/account")).text()).toContain(notice);
+    expect(await (await ana.go("/friends")).text()).toContain(notice);
+    expect(await (await ana.go("/friends")).text()).not.toContain('action="/friends/invites"');
+    // Nothing turns it back on: not the settings, not a new invite, not someone else's.
+    await ana.go("/account/social", { social_mode: "friends_focused" });
+    expect((await accountById(env.DB, anaId))!.who_can_chat).toBe("nobody");
+    expect(await (await ana.go("/friends/invites", {})).text()).toContain("Friends are off for your account.");
+    expect(await (await ana.go(`/friends/add/${benInvite}`, {})).text()).toContain("Friends are off for your account.");
+    expect(await friendsOf(env.DB, anaId)).toEqual([]);
   });
 
   it("blocks from the game page's plate, ends a friendship, lists blocks with Unblock, and invites don't cross a block", async () => {
@@ -3275,6 +3327,89 @@ describe("pages behind a sign-in run only the site's script files", () => {
     expect(await scriptsOf("/g/strict-own")).toEqual(expect.arrayContaining(["game-page", "saves", "sign-in-while-playing", "game-links", "game-autoplay"]));
     expect(await scriptsOf("/account/kept?game=strict-own")).toEqual(expect.arrayContaining(["joined", "kept"]));
     await env.DB.prepare("DELETE FROM games WHERE id = 'g-strict-own'").run();
+  });
+});
+
+describe("protect your account", () => {
+  const PROTECT_LINE = '<div class="note" id="protect">';
+  async function savedHoursAgo(accountId: string, hourCount: number) {
+    const nowMs = Date.now();
+    await env.DB.prepare("INSERT OR IGNORE INTO games (id, slug, title, review_status, created_at_ms, updated_at_ms) VALUES ('g-protect', 'protect-game', 'Protect Game', 'live', ?, ?)").bind(nowMs, nowMs).run();
+    await env.DB.prepare("INSERT OR REPLACE INTO saves (account_id, game_id, version_number, sha256, size_bytes, updated_at_ms) VALUES (?, 'g-protect', 1, 'x', 2, ?)").bind(accountId, nowMs - hourCount * 3600_000).run();
+  }
+  const offeredAtMs = async (accountId: string) => (await env.DB.prepare("SELECT protection_offered_at_ms FROM accounts WHERE id = ?").bind(accountId).first<{ protection_offered_at_ms: number | null }>())!.protection_offered_at_ms;
+  afterEach(async () => {
+    await env.DB.batch([env.DB.prepare("DELETE FROM saves WHERE game_id = 'g-protect'"), env.DB.prepare("DELETE FROM games WHERE id = 'g-protect'")]);
+  });
+
+  it("asks once on the home page when a player comes back to a save with neither a passkey nor an email, and keeps a line on the account page", async () => {
+    const b = new Browser();
+    await join(b, null);
+    const id = await idOf("Night_Owl");
+    // Nothing saved yet: nothing to lose, so the home page doesn't ask; the account page has the line.
+    expect(await (await b.go("/")).text()).not.toContain('id="protect-account"');
+    const accountPage = await (await b.go("/account")).text();
+    expect(accountPage).toContain(PROTECT_LINE);
+    expect(accountPage).toContain('href="#passkeys">Add a passkey</a> <a class="btn ghost" href="#email">Add an email</a>');
+    expect(accountPage).toContain('<h3 class="sub" id="email">Email</h3>');
+
+    // Saved 10 minutes ago: still playing, not back yet.
+    await savedHoursAgo(id, 1 / 6);
+    expect(await (await b.go("/")).text()).not.toContain('id="protect-account"');
+    expect(await offeredAtMs(id)).toBeNull();
+
+    // Back to a save from 2 hours ago: asked once, with both ways in and Later.
+    await savedHoursAgo(id, 2);
+    const home = await (await b.go("/")).text();
+    expect(home).toContain('<dialog id="protect-account"');
+    expect(home).toContain('href="/account#passkeys">Add a passkey</a>');
+    expect(home).toContain('href="/account#email">Add an email</a>');
+    expect(home).toContain("data-close>Later</button>");
+    expect(home).not.toContain('type="password"');
+    expect(pageScriptNames(home)).toContain("protect-account");
+    expect(await offeredAtMs(id)).toEqual(expect.any(Number));
+    expect(await (await b.go("/")).text()).not.toContain('id="protect-account"');
+    expect(await (await b.go("/account")).text()).toContain(PROTECT_LINE);
+
+    // Signed out, nobody is asked.
+    await b.go("/signout", {});
+    expect(await (await b.go("/")).text()).not.toContain('id="protect-account"');
+  });
+
+  it("asks nobody with an email or a passkey", async () => {
+    const withEmail = new Browser();
+    await join(withEmail, "fox@example.com");
+    await savedHoursAgo(await idOf("Night_Owl"), 2);
+    expect(await (await withEmail.go("/")).text()).not.toContain('id="protect-account"');
+    expect(await (await withEmail.go("/account")).text()).not.toContain(PROTECT_LINE);
+
+    const withPasskey = new Browser();
+    await join(withPasskey, null, "Key_Holder");
+    const id = await idOf("Key_Holder");
+    await savedHoursAgo(id, 2);
+    await env.DB.prepare("INSERT INTO passkeys (id, account_id, public_key, algorithm_number, sign_count, name, created_at_ms, last_used_at_ms, approves_from_at_ms) VALUES ('protect-passkey', ?, 'key', -7, 0, 'Mac', ?, NULL, 0)").bind(id, Date.now()).run();
+    expect(await (await withPasskey.go("/")).text()).not.toContain('id="protect-account"');
+    expect(await offeredAtMs(id)).toBeNull();
+    expect(await (await withPasskey.go("/account")).text()).not.toContain(PROTECT_LINE);
+  });
+
+  it("leaves the account page to the email ask when that shows, so it never asks twice", async () => {
+    const b = new Browser();
+    await join(b, null);
+    await createApiKey(env.DB, await idOf("Night_Owl"), "test");
+    const page = await (await b.go("/account")).text();
+    expect(page).toContain('id="email-ask"');
+    expect(page).not.toContain(PROTECT_LINE);
+  });
+
+  it("says where to confirm when adding has to wait for Confirm it's you", async () => {
+    const b = new Browser();
+    await join(b, null);
+    const id = await idOf("Night_Owl");
+    await env.DB.prepare("UPDATE session_proofs SET proved_at_ms = 0 WHERE account_id = ?").bind(id).run();
+    const page = await (await b.go("/account")).text();
+    expect(page).toContain('id="confirm"');
+    expect(page.match(/<a href="#confirm">Confirm it's you<\/a> above to add one\./g)).toHaveLength(2);
   });
 });
 
