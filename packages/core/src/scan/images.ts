@@ -8,6 +8,8 @@ export interface MediaForMatching {
   type: string;
   /** The same id means the same file (like its storage key): it's sent once. */
   id: string;
+  /** Its SHA-256, when known: a file cleared in the last 30 days (checked_files) isn't sent again. */
+  sha256?: string;
   /** The file, read afresh for each try: its bytes, or a stream of known length so a big video never sits in memory. */
   body(): Promise<Uint8Array | ReadableStream>;
 }

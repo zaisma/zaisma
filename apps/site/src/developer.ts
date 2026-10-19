@@ -144,13 +144,16 @@ import { forumRoute, readableTopic } from "./forum.ts";
 import { databaseRoute } from "./game-database.ts";
 import { savesRoute } from "./saves-api.ts";
 import { secretsRoute } from "./secrets-api.ts";
+import { exportDownload, exportSummary } from "./game-export.ts";
+import { logsFor } from "./logs-api.ts";
 import { checkRoute } from "./check-api.ts";
 import { apiKeysAnswer, dayText, foundWords } from "./leaked-keys.ts";
 import { activityAnswer, gameHistoryAnswer, logCallerEvent, logDatabaseCall, logSavesCall, noteKeyUse } from "./security-log.ts";
 import { playStats } from "./plays.ts";
 import { sendAlert } from "./email.ts";
 import { KNOWN_IMAGE_ALERT, imageMatcher, passVersionsHeldForGore, pruneVersions } from "./scan.ts";
-import { sendTestEvent, tellWebhooks, type WaitUntil } from "./webhooks.ts";
+import { sendTestEvent, tellWebhooks, type PlayerReportRow, type WaitUntil } from "./webhooks.ts";
+import { alertIfNoticeFixPublished } from "./notices.ts";
 
 /**
  * The developer API: one API for the MCP, the upload command and the dashboard, so they always agree.
@@ -178,6 +181,7 @@ import { sendTestEvent, tellWebhooks, type WaitUntil } from "./webhooks.ts";
  *   GET    /api/dev/games/:slug/reports        what players reported, by reason
  *   GET    /api/dev/games/:slug/stats          plays, play time, players coming back and multiplayer use
  *   GET    /api/dev/games/:slug/history        what happened to the game, who did it and from where
+ *   GET    /api/dev/games/:slug/logs           what its game server printed on Zaisma, last 30 days (see logs-api.ts)
  *   GET    /api/dev/games/:slug/testers        tester links that are on
  *   POST   /api/dev/games/:slug/testers        make a tester link: { "name", "version_choice", "picked_version_id", "ends_at" }
  *   PATCH  /api/dev/games/:slug/testers/:id    change its name, what it opens or its end date
@@ -192,6 +196,8 @@ import { sendTestEvent, tellWebhooks, type WaitUntil } from "./webhooks.ts";
  *   POST   /api/dev/games/:slug/database/restores/:database_restore_id/undo   undo a restore
  *   …/api/dev/games/:slug/saves                the game's cloud saves by player ID: list, read, change, reset, earlier versions (see saves-api.ts)
  *   GET    /api/dev/games/:slug/secrets        the game's secrets' names, never their values (see secrets-api.ts)
+ *   GET    /api/dev/games/:slug/export         what an export of everything holds, and the link to it (see game-export.ts)
+ *   GET    /api/dev/games/:slug/export/download   the .zip of everything about the game
  *   PUT    /api/dev/games/:slug/secrets/:name  set one: { "secret_value" }
  *   DELETE /api/dev/games/:slug/secrets/:name  delete one
  *   GET    /api/dev/sign-in-apps               your sign-in apps (Sign in with Zaisma, see sign-in.ts)
@@ -368,6 +374,11 @@ export async function callerFor(env: Env, request: Request, accountId: string, c
   };
 }
 
+/** Call the API from inside the site as this caller, and answer its response as it is: for a call that answers bytes, like an export's .zip. */
+export async function apiResponse(env: Env, caller: Caller, path: string): Promise<Response> {
+  return route(new Request(`${env.SITE_ORIGIN}/api/dev${path}`), env, path.split("?")[0]!, caller);
+}
+
 /**
  * Call the API from inside the site (the MCP and the dashboard), as this caller. Answers the JSON;
  * refusals throw ApiError with the same codes and messages API callers get.
@@ -434,6 +445,8 @@ export interface ApiRoute {
   reaches: ApiReach;
   area: AccessArea | null;
   choice: string;
+  /** More areas it reads besides `area`, each with the choice it needs: an export reads them all. */
+  alsoNeeds: { area: AccessArea; choice: string }[];
   pathParts: Record<string, ApiPathPart>;
   query: Record<string, ApiInput>;
   /** null: the call takes no body, and none is read. */
@@ -454,6 +467,7 @@ type ApiRouteDeclaration<Path extends string> = {
   path: Path;
   reaches: ApiReach;
   access: { area: AccessArea | null; choice: string };
+  alsoNeeds?: { area: AccessArea; choice: string }[];
   query?: Record<string, ApiInput>;
   body?: ApiBody;
   isAccountWide?: true;
@@ -461,7 +475,7 @@ type ApiRouteDeclaration<Path extends string> = {
   isPublishing?: true;
 } & ([PathPartName<Path>] extends [never] ? { pathParts?: undefined } : { pathParts: Record<PathPartName<Path>, ApiPathPart> });
 
-const call = <Path extends string>({ access, ...declaration }: ApiRouteDeclaration<Path>): ApiRoute => ({ pathParts: {}, query: {}, body: null, isAccountWide: false, isFullKeyOnly: false, isPublishing: false, ...declaration, ...access });
+const call = <Path extends string>({ access, ...declaration }: ApiRouteDeclaration<Path>): ApiRoute => ({ pathParts: {}, alsoNeeds: [], query: {}, body: null, isAccountWide: false, isFullKeyOnly: false, isPublishing: false, ...declaration, ...access });
 
 const anyKey = { area: null, choice: "" } as const;
 const needs = <Area extends AccessArea>(area: Area, choice: (typeof AREA_ACCESS_CHOICES)[Area][number]) => ({ area, choice });
@@ -485,6 +499,8 @@ const MAXIMUM_SAVE_BODY_SIZE_BYTES = SAVE_LIMIT_BYTES * 2 + 64 * 1024;
 /** The check takes a game's HTML, JavaScript and CSS as text, and only the path and size of every other file. */
 const MAXIMUM_CHECK_BODY_SIZE_BYTES = 8 * 1024 * 1024;
 const atGame = { slug: "game" } as const;
+/** Everything an export reads besides the game itself: read keys have all of it (game-export.ts). */
+const EXPORT_ACCESS = [needs("version_access", "read"), needs("stats_access", "read"), needs("database_access", "read"), needs("save_access", "read")];
 
 /**
  * Every developer API call. The router answers only these (anything else is not_found or bad_method),
@@ -532,6 +548,7 @@ export const API_ROUTES: readonly ApiRoute[] = [
   call({ method: "GET", path: "/games/:slug/reports", reaches: "game", access: needs("stats_access", "read"), pathParts: atGame, query: plainInputs("cursor") }),
   call({ method: "GET", path: "/games/:slug/stats", reaches: "game", access: needs("stats_access", "read"), pathParts: atGame, query: plainInputs("period_duration_days") }),
   call({ method: "GET", path: "/games/:slug/history", reaches: "game", access: needs("stats_access", "read"), pathParts: atGame }),
+  call({ method: "GET", path: "/games/:slug/logs", reaches: "game", access: needs("stats_access", "read"), pathParts: atGame, query: plainInputs("room_code", "minimum_level", "source_kind", "search_text", "maximum_line_count", "cursor", "new_lines_cursor") }),
   call({ method: "GET", path: "/games/:slug/testers", reaches: "game", access: needs("game_access", "read"), pathParts: atGame }),
   // picked_version_id is checked in the handler: a version of the path's game that passed.
   call({ method: "POST", path: "/games/:slug/testers", reaches: "game", access: needs("game_access", "write"), pathParts: atGame, body: { inputs: plainInputs("name", ...TESTER_LINK_INPUTS) } }),
@@ -545,6 +562,8 @@ export const API_ROUTES: readonly ApiRoute[] = [
   call({ method: "POST", path: "/games/:slug/database/erase-player", reaches: "game", access: needs("database_access", "write"), pathParts: atGame, body: { inputs: plainInputs("player_id") } }),
   call({ method: "POST", path: "/games/:slug/database/restores", reaches: "game", access: needs("database_access", "write"), pathParts: atGame, body: { inputs: plainInputs("restore_to_at") } }),
   call({ method: "POST", path: "/games/:slug/database/restores/:database_restore_id/undo", reaches: "game", access: needs("database_access", "write"), pathParts: { slug: "game", database_restore_id: "in_game" } }),
+  call({ method: "GET", path: "/games/:slug/export", reaches: "game", access: needs("game_access", "read"), alsoNeeds: EXPORT_ACCESS, pathParts: atGame }),
+  call({ method: "GET", path: "/games/:slug/export/download", reaches: "game", access: needs("game_access", "read"), alsoNeeds: EXPORT_ACCESS, pathParts: atGame }),
   call({ method: "GET", path: "/games/:slug/secrets", reaches: "game", access: needs("game_access", "read"), pathParts: atGame }),
   call({ method: "PUT", path: "/games/:slug/secrets/:secret_name", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", secret_name: "in_game" }, body: { inputs: plainInputs("secret_value") } }),
   call({ method: "DELETE", path: "/games/:slug/secrets/:secret_name", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", secret_name: "in_game" } }),
@@ -830,6 +849,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
   if (apiRoute.path === "/games/:slug/reports") return answer(await reportsFor(env, game!, checked.query.get("cursor")));
   if (apiRoute.path === "/games/:slug/stats") return answer(await statsFor(env, game!, readPeriodDurationDays(checked.query.get("period_duration_days"))));
   if (apiRoute.path === "/games/:slug/history") return answer(await historyFor(env, game!, caller));
+  if (apiRoute.path === "/games/:slug/logs") return answer(await logsFor(env, game!, checked));
 
   if (apiRoute.path.startsWith("/sign-in-apps")) return answer(...(await signInAppRoute(request, env, caller, checked)));
 
@@ -847,6 +867,8 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     return answer(...answered);
   }
 
+  if (apiRoute.path === "/games/:slug/export") return answer(await exportSummary(env, game!));
+  if (apiRoute.path === "/games/:slug/export/download") return exportDownload(env, game!, caller, (readMethod, readPath) => apiCall(env, caller, readMethod, readPath));
   if (apiRoute.path.startsWith("/games/:slug/secrets")) return answer(...(await secretsRoute(request, env, game!, pathValues.secret_name, caller, checked)));
 
   if (apiRoute.path.startsWith("/games/:slug/saves")) {
@@ -1242,6 +1264,7 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
     await logCallerEvent(env, caller, version.published_at_ms ? "version_rolled_back" : "version_published", { gameId: game.id, versionId: version.id });
     await pruneVersions(env, game.id);
     await tellWebhooks(env, "live_version_changed", game.id, { versionId: version.id }, caller.waitUntil);
+    await alertIfNoticeFixPublished(env, game.id, version.id);
     const published = (await gameBySlug(env.DB, game.slug))!;
     const isHidden = published.visibility === "draft" || published.visibility === "private";
     const nextSteps: NextStep[] = isHidden
@@ -1322,8 +1345,10 @@ function readPeriodDurationDays(given: string | null): number {
 
 /**
  * Player reports, counted by reason over the last 90 days. Bug reports (as report triage sorted
- * them) come with what the player wrote and the version they played; `cursor` (from next_cursor)
- * gives only the ones that arrived after it, so a developer's AI can check for new ones.
+ * them) come with what the player wrote and the version they played, and player reports Zaisma passed
+ * to the developer (bullying, cheating and other behavior that's the game's call) with the reported
+ * player and room; `cursor` (from next_cursor) gives only the ones that arrived after it, so a
+ * developer's AI can check for new ones. Never who sent any of them.
  * Child-safety reports, including ones triage found under another reason, are never shown or
  * counted here: telling the developer could warn someone abusing a child.
  */
@@ -1345,13 +1370,18 @@ async function reportsFor(env: Env, game: Game, cursor: string | null) {
     .prepare("SELECT id, player_text, triage, version_id, reported_at_ms, bug_report_at_ms FROM reports WHERE game_id = ? AND is_bug_report = 1 AND severity_index > 0 AND bug_report_at_ms > ? AND player_text != '' ORDER BY bug_report_at_ms DESC LIMIT 50")
     .bind(game.id, Math.max(sinceMs, fromMs))
     .all<{ id: string; player_text: string; triage: string | null; version_id: string | null; reported_at_ms: number; bug_report_at_ms: number }>();
+  const { results: players } = await env.DB
+    .prepare("SELECT id, player_reason, player_text, player_id, player_name, room_code, version_id, reported_at_ms, passed_to_developer_at_ms FROM reports WHERE game_id = ? AND is_passed_to_developer = 1 AND severity_index > 0 AND passed_to_developer_at_ms > ? ORDER BY passed_to_developer_at_ms DESC LIMIT 50")
+    .bind(game.id, Math.max(sinceMs, fromMs))
+    .all<PlayerReportRow & { passed_to_developer_at_ms: number }>();
   return {
     period_duration_days: 90,
     // Open: waiting for us. Closed: we looked and either dismissed it or acted on it.
     reasons: [...byReason.values()],
     bug_reports: bugs.map(bugReportJson),
-    // Pass this as `cursor` next time to get only bug reports that arrived after this call.
-    next_cursor: cursorFor(Math.max(sinceMs, ...bugs.map((bug) => bug.bug_report_at_ms))),
+    player_reports: players.map(playerReportJson),
+    // Pass this as `cursor` next time to get only bug and player reports that arrived after this call.
+    next_cursor: cursorFor(Math.max(sinceMs, ...bugs.map((bug) => bug.bug_report_at_ms), ...players.map((report) => report.passed_to_developer_at_ms))),
   };
 }
 
@@ -1363,6 +1393,20 @@ export function bugReportJson(bug: { id: string; player_text: string; triage: st
     summary: bug.triage ? (JSON.parse(bug.triage) as { summary: string }).summary : null,
     version_id: bug.version_id,
     reported_at: iso(bug.reported_at_ms),
+  };
+}
+
+/** A player report Zaisma passed to the developer, in get_reports and the player_reported event: who was reported and what the player wrote, never who sent it. */
+export function playerReportJson(report: PlayerReportRow) {
+  return {
+    id: report.id,
+    reason: report.player_reason,
+    player_text: report.player_text,
+    reported_player_id: report.player_id,
+    reported_player_name: report.player_name,
+    room_code: report.room_code || null,
+    version_id: report.version_id,
+    reported_at: iso(report.reported_at_ms),
   };
 }
 
@@ -1478,9 +1522,14 @@ const HISTORY: Record<string, string | null> = {
   "report-paused-update": "A report paused your latest update while we check it; players get the version before it",
   "report-cleared": "We checked a report and put your game back",
   takedown: "Zaisma took the game down",
+  "notice-held": "A notice hid your game from players; see why",
+  "notice-fix-published": null,
   restored: "Zaisma restored the game",
   "reports-dismissed": null,
   "reports-to-developer": null,
+  // A decision about one of the game's players, never shown on the game's history.
+  "social-stopped": null,
+  "profile-cleared": null,
   "room-name-hidden": "Zaisma hid a room's name from room lists after a report",
   multiplayer: "Multiplayer settings changed",
   "cloud-saves": "Cloud saves switched",
@@ -1494,6 +1543,8 @@ const HISTORY: Record<string, string | null> = {
   "link-cleared": "A link opens again: its site is off Cloudflare's malware and phishing list",
   "secret-set": "Set a secret",
   "secret-deleted": "Deleted a secret",
+  // subject_name is the uploader's public name (copies.ts, stopCopy).
+  "copy-stopped": "Zaisma stopped a re-upload of this game by another developer; it never reached players",
   "plays-cleared": "Zaisma removed a day's counted plays that looked faked",
   "off-shelves": "Zaisma took the game off Popular, Trending and New",
   "on-shelves": "Zaisma put the game back on Popular, Trending and New",
@@ -1505,6 +1556,7 @@ async function historyFor(env: Env, game: Game, caller: Caller) {
   return gameHistoryAnswer(env, game, caller, (entry) => {
     const description = HISTORY[entry.action];
     if (!description) return null;
+    if (entry.action === "copy-stopped") return { description, version_id: null, subject_name: entry.reason, review_reason: null };
     return { description, version_id: entry.reason.match(/\bversion_[a-z0-9]+/)?.[0] ?? null, review_reason: reasonAnswer(entry.review_reason) };
   });
 }
@@ -1960,6 +2012,13 @@ function checkAccess(apiRoute: ApiRoute, caller: Caller): void {
     throw new ApiError("key_not_allowed", {
       message: `This API key isn't a full key, and ${apiRoute.method} ${apiRoute.path} needs one: ${apiRoute.path === "/api-keys" ? "it shows how your keys are used and from where" : "it shows where your account is used from"}.`,
       fix: `Call with a full key for all your games, or see it on zaisma.com/account${apiRoute.path === "/api-keys" ? "" : " under Activity"}; keys are made on zaisma.com/account.`,
+    });
+  }
+  for (const more of apiRoute.alsoNeeds) {
+    if (allows(caller.access.areaAccess, more.area, more.choice)) continue;
+    throw new ApiError("key_not_allowed", {
+      message: `This API key can't make ${apiRoute.method} ${apiRoute.path}: it reads ${more.area.replace("_access", "")} too, which needs ${more.area} ${more.choice}, and the key has ${more.area} ${caller.access.areaAccess[more.area]}.`,
+      fix: `get_access (GET /access) shows what this key can do. To do this, the developer makes a key with ${apiRoute.alsoNeeds.map((each) => `${each.area} ${each.choice}`).join(", ")} (a read key has them all) on zaisma.com/account; keys can't be made through the API.`,
     });
   }
   if (!area || allows(caller.access.areaAccess, area, choice)) return;

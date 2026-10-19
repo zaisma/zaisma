@@ -1,6 +1,6 @@
-import { ACCOUNT_REQUIREMENTS, ApiError, accountById, CONTENT_RULES, CONTROLS, DEVICES, LINK_LIMITS, MINIMUM_PLAYER_AGES, OWN_SERVER_LIMITS, PLAY_STYLES, ROOM_BROWSING, SCREENS, type AccountRequirement, type ContentRule, type MinimumPlayerAge, type PlayMode, type RoomBrowsing } from "@zaisma/core";
-import { currentSession, realEmail } from "./auth.ts";
-import { apiCall, callerFor, GAME_ALERT_KINDS, type Caller, type GameAlertKind } from "./developer.ts";
+import { ACCOUNT_REQUIREMENTS, ApiError, accountById, CONTENT_RULES, CONTROLS, DEVICES, LINK_LIMITS, MINIMUM_PLAYER_AGES, OWN_SERVER_LIMITS, PLAYER_REPORT_REASONS, PLAY_STYLES, ROOM_BROWSING, SCREENS, type AccountRequirement, type ContentRule, type MinimumPlayerAge, type PlayerReportReason, type PlayMode, type RoomBrowsing } from "@zaisma/core";
+import { currentSession, downloadStartedCookie, realEmail } from "./auth.ts";
+import { apiCall, apiResponse, callerFor, GAME_ALERT_KINDS, type Caller, type GameAlertKind } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { html, layout, metalButton, raw, scriptTags, type Raw } from "./html.ts";
 import { emailAskBox, isEmailAskDue, securityAlertsBox, type UnseenSecurityAlert } from "./security-alerts.ts";
@@ -163,6 +163,19 @@ export async function handleDashboard(request: Request, env: Env, path: string):
   const slug = pathMatch[1]!;
   const action = pathMatch[2] ?? "";
   const back = (section: Section, key: string, hash = "") => done(redirect(`${sectionPath(slug, section)}?done=${key}${hash}`));
+
+  // Export everything: the .zip, made as it downloads (game-export.ts), through the same API call as zaisma export.
+  if (!post && action === "/export.zip") {
+    try {
+      const exported = await apiResponse(env, caller, `/games/${slug}/export/download`);
+      // The button's spinner stops when this arrives: the browser's own download takes over (html.ts, BUSY_SCRIPT).
+      exported.headers.append("Set-Cookie", downloadStartedCookie(env));
+      return done(exported);
+    } catch (error) {
+      if (error instanceof ApiError) return done(await managerPage(env, call, slug, "details", { error: error.messageWithFix }, error.httpStatus));
+      throw error;
+    }
+  }
 
   if (!post) {
     const section = SECTIONS.find((each) => (each.path ? `/${each.path}` : "") === action);
@@ -590,7 +603,8 @@ function detailsSection(slug: string, { game, images }: Loaded): Raw {
   return html`<div class="details-layout">
 <section><h2 class="rule-h" id="details">Details</h2>${detailsForm(slug, game)}
 <h2 class="rule-h" id="links">Links</h2>${linksForm(slug, game)}
-<h2 class="rule-h" id="own-servers">Your own servers</h2>${ownServersForm(slug, game)}</section>
+<h2 class="rule-h" id="own-servers">Your own servers</h2>${ownServersForm(slug, game)}
+<h2 class="rule-h" id="export">Export</h2>${exportPanel(slug)}</section>
 <aside><h2 class="rule-h" id="images">Cover and screenshots</h2>${imagesPanel(slug, images)}</aside>
 </div>`;
 }
@@ -604,7 +618,7 @@ ${hostingPanel(game, stats, ownServer)}
 <h2 class="rule-h" id="reports">Player reports</h2>
 ${reportsPanel(reports)}
 <h2 class="rule-h" id="multiplayer">Multiplayer and game server use</h2>
-${statsPanel(stats, ownServer)}`;
+${statsPanel(game.slug, stats, ownServer)}`;
 }
 
 /** The first day of next month (UTC), as people say it: "November 1". */
@@ -850,6 +864,14 @@ ${Array.from(
 </form>`;
 }
 
+/** Export everything (game-export.ts): one .zip, the same one export_game's link and zaisma export give. */
+function exportPanel(slug: string): Raw {
+  return html`<div class="stack">
+<p class="hint">Everything about the game in one .zip: every version that passed review, the cover and screenshots, the database, every player's save, stats, reports and history. Secrets come by name, never their values. It's made as it downloads, so it starts at once. Your AI gets the same link with <code>export_game</code>, and a terminal saves it as a folder with <code>npx @zaisma/cli export ${slug}</code>.</p>
+<a class="btn" href="/dashboard/${slug}/export.zip" data-download>Export everything</a>
+</div>`;
+}
+
 const MULTIPLAYER_LABELS = {
   none: { label: "None", hint: "Single-player, or only your own servers." },
   relay: { label: "Relay", hint: "Zaisma passes each player's messages to the others. No server code." },
@@ -981,12 +1003,18 @@ ${shown.length
 interface Reports {
   reasons: { reason: string; label: string; open_count: number; closed_count: number }[];
   bug_reports: { player_text: string; reported_at: string }[];
+  player_reports: { reason: PlayerReportReason; player_text: string; reported_player_name: string; room_code: string | null; reported_at: string }[];
 }
 
 function reportsPanel(reports: Reports): Raw {
   if (!reports.reasons.length) return html`<p class="muted">No reports in the last 90 days.</p>`;
   return html`<table><thead><tr><th>Reason</th><th>Waiting for us</th><th>Looked at</th></tr></thead><tbody>${reports.reasons.map((reason) => html`<tr><td>${reason.label}</td><td>${reason.open_count}</td><td>${reason.closed_count}</td></tr>`)}</tbody></table>
-${reports.bug_reports.length ? html`<h3>What players said about bugs</h3><ul class="said">${reports.bug_reports.map((bug) => html`<li>${bug.player_text} <span class="muted">${when(bug.reported_at)}</span></li>`)}</ul>` : ""}`;
+${reports.bug_reports.length ? html`<h3>What players said about bugs</h3><ul class="said">${reports.bug_reports.map((bug) => html`<li>${bug.player_text} <span class="muted">${when(bug.reported_at)}</span></li>`)}</ul>` : ""}
+${reports.player_reports.length
+    ? html`<h3>What players reported about other players</h3>
+<p class="hint">Bullying, cheating and other behavior is your game's call: Zaisma passes those reports to you, and get_reports and the player_reported webhook give them to your AI and your server. Zaisma itself looks at real-life threats, personal details, following after a block and sexual behavior.</p>
+<ul class="said">${reports.player_reports.map((report) => html`<li><strong>${PLAYER_REPORT_REASONS[report.reason] ?? report.reason}</strong>: ${report.reported_player_name || "a player"}${report.room_code ? html` in room ${report.room_code}` : ""}${report.player_text ? html`. “${report.player_text}”` : ""} <span class="muted">${when(report.reported_at)}</span></li>`)}</ul>`
+    : ""}`;
 }
 
 interface Stats {
@@ -1038,15 +1066,15 @@ ${back("Back a week later", playStats.came_back.after_7_days)}
   )}</tbody></table></details>${how}`;
 }
 
-function statsPanel(stats: Stats, own: boolean): Raw {
+function statsPanel(slug: string, stats: Stats, own: boolean): Raw {
   const days = stats.multiplayer_days;
-  if (!days.length) return html`<p class="muted">No multiplayer rooms in the last 30 days.</p>${schedulesTable(stats.schedules)}`;
+  if (!days.length) return html`<p class="muted">No multiplayer rooms in the last 30 days.</p>${schedulesTable(stats.schedules)}${own ? serverErrors(slug, stats.game_server_errors) : ""}`;
   const topDurationMin = Math.max(...days.map((day) => day.room_play_duration_min), 1);
   return html`<table><thead><tr><th>Day</th><th>Rooms</th><th>Player minutes</th>${own ? html`<th>Requests</th><th>Scheduled runs</th><th>Game server errors</th><th>Stopped</th><th>Matches ended</th>` : ""}</tr></thead><tbody>${days.map(
     (day) => html`<tr><td class="nowrap">${day.date}</td><td>${day.room_count}</td><td><span class="bar" style="width:${Math.round((day.room_play_duration_min / topDurationMin) * 100)}%"></span>${day.room_play_duration_min}</td>${
       own ? html`<td>${formatted(day.game_server?.request_count ?? 0)}</td><td>${formatted(day.game_server?.scheduled_run_count ?? 0)}</td><td>${day.game_server?.crash_count ?? 0}</td><td>${day.game_server?.stopped_count ?? 0}</td><td>${day.game_server?.ended_match_count ?? 0}</td>` : ""
     }</tr>`,
-  )}</tbody></table>${schedulesTable(stats.schedules)}${own ? serverErrors(stats.game_server_errors) : ""}`;
+  )}</tbody></table>${schedulesTable(stats.schedules)}${own ? serverErrors(slug, stats.game_server_errors) : ""}`;
 }
 
 /** The live version's schedules, so its developer sees they were read and when they run. */
@@ -1060,13 +1088,16 @@ function schedulesTable(schedules: Stats["schedules"]): Raw | "" {
 }
 
 /** A game server's recent errors, so its developer can fix what wastes their players' time and our work. */
-function serverErrors(errors: Stats["game_server_errors"]): Raw {
-  if (!errors.length) return html`<p class="muted">No errors from your game server in the last 30 days.</p>`;
+/** Where a developer reads everything their game server prints: their AI, or a terminal (Logs in the MCP; no logs page). */
+const logsPointer = (slug: string): Raw => html`<p class="hint">Everything your game server prints is kept for 30 days. Ask your AI for its logs, or follow them in a terminal: <code>npx @zaisma/cli logs ${slug} --follow</code></p>`;
+
+function serverErrors(slug: string, errors: Stats["game_server_errors"]): Raw {
+  if (!errors.length) return html`<p class="muted">No errors from your game server in the last 30 days.</p>${logsPointer(slug)}`;
   return html`<h3>Your game server's errors</h3>
 <p class="hint">An error loses that one message, tick, request or scheduled run, and the match carries on. Stopped means it ran on too long, like a loop that never ends: the match froze for about 2 seconds, and a match stopped twice ends.</p>
 <table><thead><tr><th>What happened</th><th>Times</th><th>Last</th></tr></thead><tbody>${errors.map(
     (serverError) => html`<tr><td>${serverError.kind === "stopped" ? serverError.message : html`<code>${serverError.message}</code>`}</td><td>${serverError.occurrence_count}</td><td class="nowrap">${when(serverError.last_at)}</td></tr>`,
-  )}</tbody></table>`;
+  )}</tbody></table>${logsPointer(slug)}`;
 }
 
 const STYLES = `

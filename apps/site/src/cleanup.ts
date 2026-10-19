@@ -1,13 +1,15 @@
 import { deleteStaleDraftMedia } from "./forum-posts.ts";
-import { ROOM_STALE_MS, applyBirthdays, audit, deleteEndedAccessPasses, deleteExpiredFriendInvites, deleteStalePresences, deleteExpiredSignInCodes, deleteOldDatabaseRestores, deleteOldDeliveries, LIFELIKE_GORE_MINIMUM_PLAYER_AGE_YEARS, blobKey, gameById, manifestKey, needsLifelikeGoreAge, ownedBlobKey, publishVersion, reportPictureKey, type Manifest, type ScanReport, type Version } from "@zaisma/core";
+import { CHECKED_FILE_KEPT_DURATION_DAYS, ROOM_STALE_MS, applyBirthdays, audit, deleteEndedAccessPasses, deleteExpiredFriendInvites, deleteStalePresences, deleteExpiredSignInCodes, deleteOldDatabaseRestores, deleteOldDeliveries, LIFELIKE_GORE_MINIMUM_PLAYER_AGE_YEARS, blobKey, gameById, manifestKey, needsLifelikeGoreAge, ownedBlobKey, publishVersion, reportPictureKey, type Manifest, type ScanReport, type Version } from "@zaisma/core";
 import { authConfigured, deleteAuthUser, newestAuthUsers } from "./auth.ts";
 import { deleteOldDeviceMarks } from "./device-marks.ts";
 import { deleteOldEmailCodes } from "./email-codes.ts";
+import { deleteOldLogs } from "./logs-api.ts";
 import { deleteOldSecurityEvents } from "./security-log.ts";
 import type { Env } from "./env.ts";
 import { deleteOldProofs } from "./session-proofs.ts";
 import { deleteVersion, pruneVersions } from "./scan.ts";
 import { tellWebhooks } from "./webhooks.ts";
+import { alertIfNoticeFixPublished } from "./notices.ts";
 
 /** Every few minutes: publish drafts whose time has come. */
 export async function publishDue(env: Env, nowMs = Date.now()): Promise<number> {
@@ -27,6 +29,7 @@ export async function publishDue(env: Env, nowMs = Date.now()): Promise<number> 
       await audit(env.DB, version.game_id, "published", `${version.id}, at its scheduled time`);
       await pruneVersions(env, version.game_id);
       await tellWebhooks(env, "live_version_changed", version.game_id, { versionId: version.id });
+      await alertIfNoticeFixPublished(env, version.game_id, version.id);
       publishedCount++;
     } else {
       await env.DB.prepare("UPDATE versions SET scheduled_publish_at_ms = NULL WHERE id = ?").bind(version.id).run();
@@ -109,6 +112,8 @@ export async function dailyCleanup(env: Env, nowMs = Date.now()): Promise<{ dele
   await deleteStalePresences(env.DB, nowMs);
   // Game server errors are for fixing what's happening now: kept 30 days after they last happened.
   await env.DB.prepare("DELETE FROM game_server_errors WHERE last_at_ms < ?").bind(nowMs - 30 * DAY_MS).run();
+  // So are its logs: days past the 30 kept (logs-api.ts).
+  await deleteOldLogs(env, nowMs);
   // Free-use alerts already told, kept a while so a month never tells one twice.
   await env.DB.prepare("DELETE FROM alert_notices WHERE noticed_at_ms < ?").bind(nowMs - 90 * DAY_MS).run();
   // Chat kept for a report: a year from when it was confirmed (chat-review.ts).
@@ -145,6 +150,8 @@ export async function dailyCleanup(env: Env, nowMs = Date.now()): Promise<{ dele
   await deleteOldSecurityEvents(env, nowMs);
   // Openings of tester links and previews that ended, and grants nobody swapped in time.
   await deleteEndedAccessPasses(env.DB, nowMs);
+  // Files the scan cleared more than 30 days ago: they're matched again when they next come up (scan.ts, matchMedia).
+  await env.DB.prepare("DELETE FROM checked_files WHERE checked_at_ms <= ?").bind(nowMs - CHECKED_FILE_KEPT_DURATION_DAYS * DAY_MS).run();
   // Images uploaded for a forum post that was never posted.
   const deletedForumDraftCount = await deleteStaleDraftMedia(env, nowMs);
   return { deletedDraftCount: drafts.length, deletedFileCount: unusedKeys.length, deletedPictureCount: pictures.length, deletedForumDraftCount };

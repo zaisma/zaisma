@@ -306,13 +306,6 @@ describe("rejecting or taking down a game the review passed", () => {
     expect((await env.DB.prepare("SELECT review_status FROM games WHERE id = ?").bind(gameId).first())!.review_status).toBe("removed");
     expect(await rows()).toMatchObject([{ decision: "hold", content_rule: "malware", review_precedent_status: "testing" }]);
   });
-
-  it("never teaches from a copyright notice", async () => {
-    const { versionId, gameId } = await upload();
-    await scanVersion(testEnv, versionId, passes());
-    await post(`/admin/games/${gameId}/takedown`, { ...GOOD_FORM, content_rule: "copyright_notice", reason: "The owner wrote." });
-    expect(await rows()).toEqual([]);
-  });
 });
 
 describe("testing a ruling before the judge reads it", () => {

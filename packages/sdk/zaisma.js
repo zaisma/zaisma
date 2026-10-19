@@ -800,7 +800,7 @@
     });
     return blockAsk;
   }
-  /** Report a player to Zaisma. reason: harassment, threats_or_private_details, sexual, cheating or other. Nothing about you is sent. */
+  /** Report a player to Zaisma. reason: real_life_threat, personal_details, following_after_block or sexual (Zaisma looks), or harassment, cheating or other (passed to the game's developer). Nothing about you is sent. */
   Room.prototype.report = function (playerId, reason, details) {
     var reported = this.players.filter(function (each) { return each.id === playerId; })[0];
     return post("/v1/report", { gameSlug: config.game, roomCode: this.roomCode, playerId: playerId, playerName: reported ? reported.name : "", reason: reason, details: details || "" });
@@ -1428,7 +1428,8 @@
     }, 800);
   }
 
-  var REASONS = [["harassment", "Harassing or bullying"], ["threats_or_private_details", "Threats or sharing private details"], ["sexual", "Sexual behavior"], ["cheating", "Cheating"], ["other", "Something else"]];
+  // The first four go to Zaisma; the rest to the game's developer.
+  var REASONS = [["real_life_threat", "Threatening them in real life"], ["personal_details", "Sharing someone's personal details"], ["following_after_block", "Following me after I blocked them"], ["sexual", "Sexual behavior"], ["harassment", "Harassing or bullying"], ["cheating", "Cheating"], ["other", "Something else"]];
 
   /** A ready-made mute, block and report panel. Games open it from their own menu. */
   function openSafetyPanel(room) {

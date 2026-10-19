@@ -195,6 +195,11 @@ export interface Report {
   bug_report_at_ms: number | null;
   /** The precedent it was decided by, or recommended under. */
   precedent_id: string | null;
+  /** 1 when Zaisma passed a player report to the game's developer (get_reports' player_reports), since passed_to_developer_at_ms. */
+  is_passed_to_developer: number;
+  passed_to_developer_at_ms: number | null;
+  /** 1 when the signed-in reporter and the reported account had a block between them, either way, when it was sent. */
+  has_block_between: number;
 }
 
 /** Where a report's picture is kept, in the games bucket. Never served on the game domain. */
@@ -209,13 +214,16 @@ export interface NewReport {
   /** The room's name and labels when it was reported, like "Ana's castle (Mode: Classic)". */
   roomName?: string | null;
   player?: { id: string; name: string; reason: string };
+  /** The reporter and the reported account have a block between them (the only thing about the reporter that's kept). */
+  hasBlockBetween?: boolean;
 }
 
 /** How serious a report is from its reason alone, before triage looks at it: its place in SEVERITIES. */
 export function reportSeverityIndex(reason: string, playerReason = ""): number {
   if (reason === "child_safety") return SEVERITY.child_safety;
   if ((AUTO_HOLD_REASONS as string[]).includes(reason)) return SEVERITY.urgent;
-  if (["malware", "sexual", "real_people"].includes(reason) || ["sexual", "threats_or_private_details"].includes(playerReason)) return SEVERITY.high;
+  if (playerReason === "real_life_threat") return SEVERITY.urgent;
+  if (["malware", "sexual", "real_people"].includes(reason) || ["sexual", "personal_details", "following_after_block"].includes(playerReason)) return SEVERITY.high;
   if (reason === "copyright") return SEVERITY.low;
   return SEVERITY.normal;
 }
@@ -224,8 +232,8 @@ export function reportSeverityIndex(reason: string, playerReason = ""): number {
 export async function createReport(database: D1Database, report: NewReport): Promise<string> {
   const id = newId("report");
   await database
-    .prepare("INSERT INTO reports (id, game_id, reason, player_text, reported_at_ms, version_id, room_code, room_name, player_id, player_name, player_reason, severity_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    .bind(id, report.gameId, report.reason, report.playerText, now(), report.versionId ?? null, report.roomCode ?? "", report.roomName ?? null, report.player?.id ?? "", report.player?.name ?? "", report.player?.reason ?? "", reportSeverityIndex(report.reason, report.player?.reason))
+    .prepare("INSERT INTO reports (id, game_id, reason, player_text, reported_at_ms, version_id, room_code, room_name, player_id, player_name, player_reason, severity_index, has_block_between) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .bind(id, report.gameId, report.reason, report.playerText, now(), report.versionId ?? null, report.roomCode ?? "", report.roomName ?? null, report.player?.id ?? "", report.player?.name ?? "", report.player?.reason ?? "", reportSeverityIndex(report.reason, report.player?.reason), report.hasBlockBetween ? 1 : 0)
     .run();
   return id;
 }

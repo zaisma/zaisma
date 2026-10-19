@@ -59,9 +59,11 @@ const COMMAND_ERROR_CODES = {
   repeated_field: "A flag was given twice.",
   missing_value: "A flag that takes a value was given none.",
   takes_no_value: "A flag that takes no value was given one.",
+  conflicting_flags: "Two flags that don't go together were given, like logs --follow and --cursor.",
   not_a_folder: "The folder to check or upload isn't a folder.",
   not_a_file: "The file given (of statements, a dump to import, or a save) can't be read.",
   file_exists: "database export won't write over a file that's already there.",
+  folder_not_empty: "export saves only into a new or empty folder.",
   needs_newer_node: "Reading or writing a .sqlite file needs Node 22.13 or newer.",
   not_a_database: "The .sqlite file to import isn't a SQLite database.",
   unknown_link: "links remove: the game has no link by that name.",
@@ -126,6 +128,19 @@ const COMMANDS = {
   secrets: { about: "A game's secrets, which its game server reads as server.secrets and room.secrets: their names and when each was set, never the values", arguments: [{ name: "slug" }], flags: {} },
   "secrets set": { about: "Set a secret for a game's server, replacing one of the same name: the value piped in, or typed without showing; it's never shown again", arguments: [{ name: "slug" }, { name: "secret_name" }], flags: {} },
   "secrets delete": { about: "Delete one of a game's secrets", arguments: [{ name: "slug" }, { name: "secret_name" }], flags: {} },
+  logs: {
+    about: "What a game's server printed on Zaisma in the last 30 days, oldest first: the newest lines, older ones with --cursor, or new ones as they come with --follow",
+    arguments: [{ name: "slug" }],
+    flags: {
+      follow: { hasValue: false, about: "Keep printing new lines as the game server prints them, every 2 seconds, until Ctrl-C" },
+      "room-code": { hasValue: true, placeholder: "<code>", about: "Only lines printed in this room, like K7Q2MX" },
+      "minimum-level": { hasValue: true, choices: ["debug", "info", "warn", "error"], about: "debug (everything), info (all but debug), warn (warnings and errors) or error" },
+      "source-kind": { hasValue: true, choices: ["room", "request", "schedule", "webhook"], about: "Only lines printed in a room, onRequest, onSchedule or onWebhook" },
+      "search-text": { hasValue: true, placeholder: '"words"', about: "Only lines containing this, ignoring case" },
+      "maximum-line-count": { hasValue: true, placeholder: "<count>", about: "How many lines at most, up to 500; 100 by default" },
+      cursor: { hasValue: true, placeholder: "<next_cursor>", about: "The lines before an earlier answer's: the next_cursor it printed" },
+    },
+  },
   forum: {
     about: "Your forum topics and messages to Zaisma; one topic with every post you can see; or a search",
     arguments: [{ name: "topic_id", isOptional: true }],
@@ -206,6 +221,11 @@ const COMMANDS = {
   "saves copies": { about: "A player's earlier versions of their save, newest first, with why each was kept", arguments: [{ name: "slug" }, { name: "player_id" }], flags: {} },
   "saves copy": { about: "One earlier version of a player's save", arguments: [{ name: "slug" }, { name: "player_id" }, { name: "save_copy_id" }], flags: { keys: KEYS } },
   "saves restore": { about: "Make an earlier version a player's save again", arguments: [{ name: "slug" }, { name: "player_id" }, { name: "save_copy_id" }], flags: {} },
+  export: {
+    about: "Save everything about a game in a folder: every version that passed review, the cover and screenshots, the database (as SQL and a ready .sqlite file), every player's save, stats, reports and history",
+    arguments: [{ name: "slug" }],
+    flags: { folder: { hasValue: true, placeholder: "<folder>", about: "Where to save it: a new or empty folder; ./<slug>-export if left out" } },
+  },
   help: { about: "This help; with --json, every command, flag, exit code and error code", arguments: [], flags: {} },
 };
 /** Commands with a second word, like zaisma forum post. */
@@ -1013,6 +1033,142 @@ async function exportDatabase({ slug, file }) {
   console.log(`Saved ${slug}'s database to ${file} (${partCount} part${partCount === 1 ? "" : "s"}, ${readRowCount.toLocaleString("en-US")} rows read).${sqlite ? ` Run your game server on it with: node bin/node.js <server> --game ${slug} --database ${file}` : ""}`);
 }
 
+/** The biggest database.sql export turns into a .sqlite file itself; past it, sqlite3 does it (Node's text tops out near this). */
+const MAXIMUM_SQLITE_DUMP_SIZE_BYTES = 400 * 1024 * 1024;
+
+/**
+ * export: the .zip of everything about a game (GET …/export/download), downloaded and saved as a folder,
+ * with database.sql also made into database.sqlite, ready for the Node runner's --database.
+ */
+async function exportGame({ slug }, flags) {
+  const folder = flags.folder ?? `${slug}-export`;
+  const there = await readdir(folder).catch(() => null);
+  if (there?.length) refuse("folder_not_empty", { message: `${folder} isn't empty.`, field: "folder", fix: "Give a new or empty folder with --folder, or move what's in it." });
+  if (!KEY) refuse("no_key", { message: "ZAISMA_KEY isn't set.", field: "ZAISMA_KEY", fix: "Make an API key at https://zaisma.com/account (under Game developers) and set it: export ZAISMA_KEY=zsk_…" }, EXIT_CODES.failed);
+  let response;
+  try {
+    response = await fetch(`${API}/api/dev/games/${encodeURIComponent(slug)}/export/download`, { headers: { authorization: `Bearer ${KEY}`, "x-zaisma-client": "cli", "user-agent": `zaisma-cli/${CLI_VERSION}` } });
+  } catch (error) {
+    refuse("server_unreachable", { message: `Couldn't reach ${API}: ${error.cause?.message ?? error.message}.`, field: process.env.ZAISMA_API ? "ZAISMA_API" : null, fix: "Check the internet connection (and ZAISMA_API, if it's set), then run it again." }, EXIT_CODES.failed);
+  }
+  if (!response.ok || response.headers.get("content-type") !== "application/zip") {
+    const answer = await response.json().catch(() => null);
+    if (answer?.error) throw new CommandError(answer.error, EXIT_CODES.failed.exitCode);
+    refuse("unexpected_answer", { message: `Zaisma answered ${response.status} without the export.`, fix: "Run it again in a minute. If it keeps happening, tell Zaisma: zaisma forum message --kind bug --category cli.", retryAfterSec: 60 }, EXIT_CODES.failed);
+  }
+
+  await mkdir(folder, { recursive: true });
+  const zipFile = join(folder, `.${slug}-export.${process.pid}.zip`);
+  try {
+    let sizeBytes = 0;
+    const counted = async function* () {
+      for await (const chunk of response.body) {
+        sizeBytes += chunk.length;
+        showProgress(`${(sizeBytes / 1024 / 1024).toFixed(1)} MB downloaded`);
+        yield chunk;
+      }
+    };
+    await pipeline(counted, createWriteStream(zipFile));
+    if (!isJson) process.stdout.write("\n");
+    const entries = await unpackZip(zipFile, folder);
+    let databaseFile = null;
+    const dumpFile = join(folder, "database.sql");
+    const dumpSizeBytes = (await stat(dumpFile).catch(() => null))?.size ?? 0;
+    if (dumpSizeBytes && dumpSizeBytes <= MAXIMUM_SQLITE_DUMP_SIZE_BYTES) {
+      const sqliteModule = await import("node:sqlite").catch(() => null);
+      if (sqliteModule) {
+        databaseFile = join(folder, "database.sqlite");
+        const sqlite = new sqliteModule.DatabaseSync(databaseFile);
+        try {
+          sqlite.exec(await readFile(dumpFile, "utf8"));
+        } finally {
+          sqlite.close();
+        }
+      }
+    }
+    const answer = { folder, file_count: entries.length, size_bytes: sizeBytes, database_file: databaseFile };
+    if (isJson) {
+      printJson(answer);
+      return EXIT_CODES.done;
+    }
+    console.log(`Saved everything about ${slug} in ${folder}: ${entries.length.toLocaleString("en-US")} files, ${(sizeBytes / 1024 / 1024).toFixed(1)} MB. README.txt says what's where.`);
+    if (databaseFile) console.log(`Run your game server on its database with: node bin/node.js <server> --game ${slug} --database ${databaseFile}`);
+    else if (dumpSizeBytes) console.log(`Make its database a .sqlite file with: sqlite3 ${join(folder, "database.sqlite")} < ${dumpFile}`);
+    return EXIT_CODES.done;
+  } finally {
+    await rm(zipFile, { force: true });
+  }
+}
+
+/**
+ * The files of a .zip Zaisma wrote (stored, not compressed, zip64 where it needs it), into a folder, by
+ * its central directory. Answers the paths. A path that would land outside the folder stops it.
+ */
+async function unpackZip(zipFile, folder) {
+  const handle = await open(zipFile, "r");
+  try {
+    const { size: zipSizeBytes } = await handle.stat();
+    const read = async (atByte, sizeBytes) => {
+      const buffer = Buffer.alloc(sizeBytes);
+      await handle.read(buffer, 0, sizeBytes, atByte);
+      return buffer;
+    };
+    const tailSizeBytes = Math.min(zipSizeBytes, 22 + 0xffff + 20 + 56);
+    const tail = await read(zipSizeBytes - tailSizeBytes, tailSizeBytes);
+    const endIndex = tail.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+    const broken = () => refuse("unexpected_answer", { message: "The export that came isn't a whole .zip: the download was cut short.", fix: "Run it again." }, EXIT_CODES.failed);
+    if (endIndex < 0) broken();
+    let entryCount = tail.readUInt16LE(endIndex + 10);
+    let directorySizeBytes = tail.readUInt32LE(endIndex + 12);
+    let directoryAtByte = tail.readUInt32LE(endIndex + 16);
+    if (entryCount === 0xffff || directorySizeBytes === 0xffffffff || directoryAtByte === 0xffffffff) {
+      if (endIndex < 20 || tail.readUInt32LE(endIndex - 20) !== 0x07064b50) broken();
+      const zip64End = await read(Number(tail.readBigUInt64LE(endIndex - 12)), 56);
+      entryCount = Number(zip64End.readBigUInt64LE(32));
+      directorySizeBytes = Number(zip64End.readBigUInt64LE(40));
+      directoryAtByte = Number(zip64End.readBigUInt64LE(48));
+    }
+    const directory = await read(directoryAtByte, directorySizeBytes);
+    const paths = [];
+    let atByte = 0;
+    for (let i = 0; i < entryCount; i++) {
+      if (directory.readUInt32LE(atByte) !== 0x02014b50) broken();
+      let sizeBytes = directory.readUInt32LE(atByte + 24);
+      const nameSizeBytes = directory.readUInt16LE(atByte + 28);
+      const extraSizeBytes = directory.readUInt16LE(atByte + 30);
+      const commentSizeBytes = directory.readUInt16LE(atByte + 32);
+      let headerAtByte = directory.readUInt32LE(atByte + 42);
+      const path = directory.toString("utf8", atByte + 46, atByte + 46 + nameSizeBytes);
+      // Zip64: the full size and offset, each only where its 32-bit field is full.
+      for (let extraAtByte = atByte + 46 + nameSizeBytes; extraAtByte < atByte + 46 + nameSizeBytes + extraSizeBytes; ) {
+        const id = directory.readUInt16LE(extraAtByte);
+        const fieldSizeBytes = directory.readUInt16LE(extraAtByte + 2);
+        if (id === 0x0001) {
+          let fieldAtByte = extraAtByte + 4;
+          if (sizeBytes === 0xffffffff) {
+            sizeBytes = Number(directory.readBigUInt64LE(fieldAtByte));
+            fieldAtByte += 16;
+          }
+          if (headerAtByte === 0xffffffff) headerAtByte = Number(directory.readBigUInt64LE(fieldAtByte));
+        }
+        extraAtByte += 4 + fieldSizeBytes;
+      }
+      atByte += 46 + nameSizeBytes + extraSizeBytes + commentSizeBytes;
+      const target = join(folder, ...path.split("/"));
+      if (path.startsWith("/") || path.split("/").includes("..") || relative(folder, target).startsWith("..")) broken();
+      const header = await read(headerAtByte, 30);
+      const dataAtByte = headerAtByte + 30 + header.readUInt16LE(26) + header.readUInt16LE(28);
+      await mkdir(dirname(target), { recursive: true });
+      if (sizeBytes) await pipeline(createReadStream(zipFile, { start: dataAtByte, end: dataAtByte + sizeBytes - 1 }), createWriteStream(target));
+      else await writeFile(target, "");
+      paths.push(path);
+    }
+    return paths;
+  } finally {
+    await handle.close();
+  }
+}
+
 /** database import: a dump, from a .sql file, stdin or a .sqlite file, sent in parts (POST …/database/import). */
 async function importDatabase({ slug, file }) {
   let statements;
@@ -1240,6 +1396,35 @@ async function secrets(command, values) {
   if (answer.next_steps.some((step) => step.tool === "update_game")) console.log(`It calls no other servers yet: list the hosts it uses this with, like zaisma allowed-hosts ${values.slug} discord.com`);
 }
 
+/** A game server's logs (GET …/games/<slug>/logs), as the MCP's get_logs; --follow asks for new lines every 2 seconds. */
+async function logs(values, flags) {
+  if (flags.follow && flags.cursor) refuse("conflicting_flags", { message: "--follow prints new lines, and --cursor older ones.", field: "cursor", fix: `Use one: zaisma logs ${values.slug} --follow, or zaisma logs ${values.slug} --cursor <next_cursor>.` });
+  const filters = {};
+  for (const [flag, input] of [["room-code", "room_code"], ["minimum-level", "minimum_level"], ["source-kind", "source_kind"], ["search-text", "search_text"], ["maximum-line-count", "maximum_line_count"], ["cursor", "cursor"]]) if (flags[flag] !== undefined) filters[input] = flags[flag];
+  const ask = (more) => api("GET", `/games/${values.slug}/logs?${new URLSearchParams({ ...filters, ...more }).toString()}`);
+  const print = (answer) => {
+    if (isJson) {
+      // Followed, each answer is one line of JSON.
+      if (flags.follow) process.stdout.write(`${JSON.stringify(answer)}\n`);
+      else printJson(answer);
+      return;
+    }
+    for (const line of answer.log_lines) console.log(`${line.logged_at.slice(11, 23)} ${line.level.padEnd(5)} ${line.room_code ?? line.source_kind}  ${line.text}`);
+  };
+  let answer = await ask({});
+  print(answer);
+  if (!flags.follow) {
+    if (!isJson && !answer.log_lines.length) console.log(`No lines from ${values.slug}'s game server${Object.keys(filters).length ? " that match" : ""} in the last 30 days.`);
+    if (!isJson && answer.next_cursor) console.log(`Older lines: zaisma logs ${values.slug} --cursor ${answer.next_cursor}`);
+    return;
+  }
+  for (;;) {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    answer = await ask({ new_lines_cursor: answer.new_lines_cursor });
+    print(answer);
+  }
+}
+
 /** A secret's value: piped in (without the line break at its end), or typed in a terminal without showing it. */
 async function readSecretValue(secretName) {
   if (!process.stdin.isTTY) {
@@ -1386,6 +1571,7 @@ async function run({ command, values, flags, globalFlags, rest }) {
     return EXIT_CODES.done;
   }
   if (command === "check") return checkFolder(values, flags);
+  if (command === "export") return exportGame(values, flags);
   if (command === "upload") return upload(values, flags);
   if (command === "versions") {
     const answer = await api("GET", `/games/${values.slug}`);
@@ -1426,6 +1612,7 @@ async function run({ command, values, flags, globalFlags, rest }) {
   else if (command === "own-servers") await ownServers(values, flags);
   else if (command === "links" || command.startsWith("links ")) await links(command, values, flags);
   else if (command === "secrets" || command.startsWith("secrets ")) await secrets(command, values);
+  else if (command === "logs") await logs(values, flags);
   else if (command === "database" || command.startsWith("database ")) await database(command, values, flags);
   else if (command === "saves" || command.startsWith("saves ")) await saves(command, values, flags);
   else await forum(command, values, flags);

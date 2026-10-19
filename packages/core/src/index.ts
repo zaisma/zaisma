@@ -38,3 +38,4 @@ export * from "./game-deletion.ts";
 export * from "./reach.ts";
 export * from "./own-servers.ts";
 export * from "./links.ts";
+export * from "./logs.ts";

@@ -38,10 +38,16 @@ function sortReport(text, system) {
   const same = [...text.matchAll(/^id ([a-z0-9_]+), sent [^:]*: (.*)$/gm)].find(([, , line]) => (player ? line.includes(`player ${playerId}`) : kindOf(line) && kindOf(line) === kind));
   if (player) {
     const reason = report.match(/Reason picked: [^:]*: (.*)/)?.[1] ?? "Something else";
-    const serious = !/Cheating|Something else/.test(reason);
-    const cheating = /Cheating/.test(reason);
-    const fit = cheating && system.includes("[cheating]") ? { precedent: "cheating", fit: "fits", draft: { title: "", applies_when: "", decision: "", why: "" } } : { precedent: "", fit: "none", draft: { title: cheating ? "A player cheating" : "A player harassing others", applies_when: cheating ? "A player is reported for cheating." : "A player is reported for following, insulting or spamming others.", decision: cheating ? "bug" : "dismiss", why: cheating ? "The developer can fix what makes cheating possible." : "Players can mute and block; there are no bans yet." } };
-    return { severity: serious ? "high" : "normal", category: "player", summary: `${player} reported for ${reason.toLowerCase()}${details ? `: ${details}` : "."}`, recommendation: "person", why: "Reports about players need a person.", same_as: same?.[1] ?? "", ...fit };
+    // The four Zaisma looks at itself go to a person; the rest are the game's call, unless the words reach into real life.
+    const isForZaisma = /in real life|personal details|after I blocked|Sexual/.test(reason);
+    const reachesRealLife = /school|address|lives|wait outside|find (you|me)|meet up|phone/i.test(details);
+    const isThreat = /in real life/.test(reason);
+    const severity = reachesRealLife ? "urgent" : isForZaisma ? "high" : "normal";
+    const recommendation = reachesRealLife || (isForZaisma && !isThreat) ? "person" : "pass_to_developer";
+    const draft = recommendation === "person"
+      ? { title: "A threat that reaches into real life", applies_when: "A player says they know where someone lives or goes to school, or that they'll find them.", decision: "stop_social", why: "That's past trash talk: Zaisma acts on it." }
+      : { title: "Trash talk", applies_when: "A player is rude, insulting or says violent things about the game, with nothing that reaches into real life.", decision: "pass_to_developer", why: "How players talk to each other is the game's call." };
+    return { severity, category: "player", summary: `${player} reported for ${reason.toLowerCase()}${details ? `: ${details}` : "."}`, recommendation, why: recommendation === "person" ? "It's one of the four things Zaisma acts on. (Preview stand-in AI.)" : "Nothing in it reaches into real life: the game's call. (Preview stand-in AI.)", same_as: same?.[1] ?? "", precedent: "", fit: "none", draft };
   }
   if (!kind) return { severity: "low", category: "other", summary: details ? `A player wrote: ${details}` : "No details given.", recommendation: "dismiss", why: "Nothing in it breaks the rules.", same_as: "", ...precedentFor(system, null) };
   return { severity: kind.severity, category: kind.category, summary: kind.summary(details), recommendation: kind.recommendation, why: kind.why, same_as: same?.[1] ?? "", ...precedentFor(system, kind) };

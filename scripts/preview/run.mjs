@@ -100,6 +100,20 @@ function wrangler(app, args, opts = {}) {
 // Wrangler looks for its config beside the entry it's given, so it's named too.
 const dev = (app) => ["dev", join(ROOT, "scripts/preview/workers", `${app}.mjs`), "--config", join(ROOT, "apps", app, "wrangler.jsonc")];
 
+// The site reloads when the rooms server connects to it, and a request in that moment has its connection
+// dropped: the test data's requests try again, a few times, instead of stopping the start.
+const nodeFetch = globalThis.fetch;
+globalThis.fetch = async (input, init) => {
+  for (let tryNumber = 1; ; tryNumber++) {
+    try {
+      return await nodeFetch(input, init);
+    } catch (error) {
+      if (tryNumber >= 10 || !["ECONNRESET", "ECONNREFUSED", "UND_ERR_SOCKET"].includes(error?.cause?.code)) throw error;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  }
+};
+
 async function waitFor(url) {
   for (let i = 0; i < 240; i++) {
     try {
@@ -128,6 +142,11 @@ children.push(wrangler("site", [...dev("site"), "--port", String(PORTS.site), "-
 await waitFor(SITE);
 children.push(wrangler("rooms", [...dev("rooms"), "--port", String(PORTS.rooms), "--inspector-port", String(9342 + OFFSET), "--persist-to", STATE, "--env-file", join(STATE, "rooms.env"), "--test-scheduled"], { quiet: true }));
 await waitFor(ROOMS);
+// The site reloads once the rooms it's bound to connect: wait until it answers steadily before sending it anything.
+for (let steadyCount = 0, i = 0; steadyCount < 3 && i < 120; i++) {
+  await new Promise((r) => setTimeout(r, 1000));
+  steadyCount = (await fetch(SITE, { redirect: "manual" }).then(() => true, () => false)) ? steadyCount + 1 : 0;
+}
 if (fresh) {
   console.log("Adding test games…");
   await seed();
@@ -177,8 +196,41 @@ spawnSync(
        SELECT 'version_previewgoreboss0001', id, 'manifests/version_previewgoreboss0001', 1, 1000, 'held', '${goreReport}', ${Date.now()}, 'files', 'Adds the boss fight.', 0 FROM games WHERE slug = 'tiny-farm'`],
   { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } },
 );
+// A re-upload of Shard Dodge by another developer (dashking), held for a person, again this run: Reject as a copy
+// on its admin page emails Preview_Studio (the preview mailbox) and writes it into Shard Dodge's history.
+const reuploadReport = (originalId) =>
+  JSON.stringify({
+    finished_at_ms: Date.now(),
+    decision: "held",
+    findings: [{ stage: "static", severity: "hold", code: "matches_another_developers_game", message: "4 of its 5 files were sent first by another developer, in shard-dodge." }],
+    outside_hosts: [],
+    images: { provider: "arachnid-shield", is_connected: true, checked_media_count: 0, reused_media_count: 1 },
+    ai: null,
+    is_child_safety: false,
+    matched_game: { game_id: originalId, matched_file_count: 4, compared_file_count: 5 },
+  }).replaceAll("'", "''");
+spawnSync(
+  "npx",
+  ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command",
+    `INSERT OR IGNORE INTO accounts (id, player_id, username, age_band, created_at_ms, updated_at_ms) VALUES ('preview-dashking', 'player_previewdashking001', 'dashking', '18+', ${Date.now()}, ${Date.now()});
+     INSERT OR IGNORE INTO owners (id, kind, account_id, created_at_ms) VALUES ('owner_previewdashking001', 'person', 'preview-dashking', ${Date.now()});
+     INSERT OR IGNORE INTO games (id, slug, title, description, review_status, owner_id, visibility, created_at_ms, updated_at_ms) VALUES ('game_previewsharddash001', 'shard-dash', 'Shard Dash', 'Dodge the shards.', 'pending', 'owner_previewdashking001', 'draft', ${Date.now()}, ${Date.now()});
+     INSERT OR REPLACE INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, scan_report, created_at_ms, kind, patch_notes, publish_when_approved_enabled)
+       SELECT 'version_previewreupload0001', 'game_previewsharddash001', 'manifests/version_previewreupload0001', 5, 42000, 'held', replace('${reuploadReport("ORIGINAL_ID")}', 'ORIGINAL_ID', id), ${Date.now()}, 'files', 'First version.', 0 FROM games WHERE slug = 'shard-dodge'`],
+  { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } },
+);
 // The preview account's friends, online and in rooms, again this run (once seedFriends made them).
 seedFriendsNow();
+// Player reports: the reporter of the following report had blocked Loud_Lynx, Loud_Lynx's bio has an address to
+// clear, and Stopped_Fox's social side is off (as a person's Turn off their social side leaves it), again this run.
+spawnSync(
+  "npx",
+  ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command",
+    `UPDATE reports SET has_block_between = 1 WHERE player_reason = 'following_after_block';
+     UPDATE accounts SET bio = 'Come find me, 12 Elm St', profile_check_status = 'passed' WHERE username = 'Loud_Lynx' AND bio IS NULL;
+     UPDATE accounts SET who_can_chat = 'nobody', who_can_join = 'nobody', who_sees_playing_now = 'nobody', who_sees_played_games = 'nobody', who_sees_online = 'nobody', who_can_send_friend_requests = 'nobody', chat_stopped_reason = 'removed', social_stopped_at_ms = ${Date.now()}, social_stopped_reason = 'personal_details' WHERE username = 'Stopped_Fox' AND social_stopped_at_ms IS NULL`],
+  { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } },
+);
 // Two accounts someone has been guessing the passwords of, again this run (made the first time).
 await seedWrongPasswords();
 // A player back to a save from 2 hours ago with neither a passkey nor an email, asked again this run (made the first time).
@@ -235,6 +287,8 @@ Zaisma preview is running. Nothing here touches the live site.
                   ${SITE}/admin/publishing  (who Julius added; add Moss_Runner there and its Your games can make games)
   Leaving Zaisma  ${SITE}/g/tiny-farm?play  (its link buttons: Seed shop and Patreon open for everyone, Discord only
                   for signed-in adults, Free prize for nobody; its links are on ${SITE}/dashboard/tiny-farm/details#links)
+  Logs            ${SITE}/dashboard/arena/players#multiplayer  (under the game server's errors: a line pointing to the AI's get_logs
+                  and npx @zaisma/cli logs arena --follow; play ${SITE}/g/arena to give its logs lines)
   Own servers     ${SITE}/dashboard/tiny-farm/details#own-servers  (Your own servers: wss://play.example.com; the ⋯ menu on
                   ${SITE}/g/tiny-farm?play names it: "Online play runs on the developer's own server: play.example.com")
   Make an account ${SITE}/join  (try the username Preview_Studio to see it taken, with free ones to tap)
@@ -297,12 +351,20 @@ Zaisma preview is running. Nothing here touches the live site.
                   device, Continue, and back on the stand-in it calls list_games. As Preview_Studio: Change and its
                   summary, and ${SITE}/account#developer lists a Claude connection beside the keys (its passkey is the
                   seed's, so Continue there can't be tapped). As New_Passkey: it says when its passkey can connect apps)
+  Notices         ${SITE}/legal/defamation  and  ${SITE}/legal/dmca  (what a notice and a counter-notice include, and what happens),
+                  ${SITE}/legal/content-rules#defamation  (the rule), ${SITE}/g/arena  (Report: the two notice lines),
+                  ${SITE}/dashboard/town-gossip  (as Preview_Studio: held on a defamation notice, with what it names and the fix),
+                  ${SITE}/admin  (Town Gossip's admin page: held on a notice; any other game's has the Notice form)
   Admin           ${SITE}/admin
-  Report queue    ${SITE}/admin/reports
+  Report queue    ${SITE}/admin/reports  (Loud_Lynx's group: a real-life threat and following after a block, with Turn off their social side)
+  Player reports  ${SITE}/dashboard/arena/players#reports  (what Zaisma passed to Arena's developer: bullying, cheating, trash talk)
+  Social side off ${SITE}/account#social and ${SITE}/friends  (as Stopped_Fox)
   Review learns   ${SITE}/admin/review-precedents  (a drafted ruling, one being tested, one that failed its test, one in force),
                   ${SITE}/admin/games/<phrase-menu id from /admin>  (its held version: Teach the review, ticked, with the drafted ruling and test game; Approve saves it in the same click)
   Forum           ${SITE}/forum  (topics, known issues, a topic: ${SITE}/forum?tab=known)
   Admin feedback  ${SITE}/admin/feedback
+  Re-upload held  ${SITE}/admin/games/game_previewsharddash001  (dashking's Shard Dash is a held re-upload of Shard Dodge:
+                  Reject as a copy emails Preview_Studio (the mailbox) and adds it to Shard Dodge's history; reset on every start)
   Image matching  ${SITE}/admin  (Night Drive's update is held: a picture renamed .dat, a video and a picture
                   written into its code matched known abuse material, in the stand-in. Cave Crew's history
                   shows a screenshot refused the same way. Pixel Garden passed before matching knew its
@@ -493,6 +555,24 @@ async function seed() {
     await fetch(`${SITE}/g/${slug}/report`, { method: "POST", headers: { "content-type": "application/json", origin: SITE, "cf-connecting-ip": `192.0.2.${i + 1}` }, body: JSON.stringify(body) });
   }
 
+  // Reports about players in Arena (Player reports Zaisma acts on): what's the game's call goes to its developer
+  // (the dashboard's Player reports), and the four Zaisma acts on wait in the queue. Loud_Lynx is an account.
+  await signedIn({ name: "Loud_Lynx", email: "lynx@example.test", year: "1993" }, "198.51.100.230");
+  const lynxId = JSON.parse(spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--json", "--command", "SELECT player_id FROM accounts WHERE username = 'Loud_Lynx'"], { cwd: join(ROOT, "apps/site"), encoding: "utf8", env: { ...process.env, CI: "1" } }).stdout)[0].results[0].player_id;
+  const lynx = { id: lynxId, name: "Loud_Lynx" };
+  const swiftFox = { id: "player_preview000000001", name: "Swift Fox 42" };
+  const playerReports = [
+    { reason: "cheating", player: swiftFox, details: "aimbot, hits me through walls every round" },
+    { reason: "real_life_threat", player: swiftFox, details: "said I'm gonna kill you after I won" },
+    { reason: "real_life_threat", player: lynx, details: "said he knows which school I go to and will wait outside" },
+    { reason: "following_after_block", player: lynx, details: "I blocked him and he keeps joining my rooms" },
+  ];
+  for (const [i, body] of playerReports.entries()) {
+    await fetch(`${SITE}/g/arena/report`, { method: "POST", headers: { "content-type": "application/json", origin: SITE, "cf-connecting-ip": `192.0.2.${i + 40}` }, body: JSON.stringify({ room: "ABCDEF", ...body }) });
+  }
+  // Stopped_Fox: a person turned off its social side after a report, so its account page and /friends say why.
+  await signedIn({ name: "Stopped_Fox", email: "stopped@example.test", year: "1994" }, "198.51.100.231");
+
   // A private game that only opens through tester links, and a tester link for Arena to try multiplayer through one.
   const { game: secret } = await api("POST", "/games", { title: "Rocket Lab", description: "Build a rocket from scrap and see how high it goes. Still in testing.", devices: ["computer"], controls: ["keyboard_mouse"], play_modes: [{ mode: "single" }] });
   upload("examples/hello-game", secret.slug, "First test build.");
@@ -572,6 +652,16 @@ async function seedHolds(api, upload, go, form) {
   await api("PATCH", `/games/${game.slug}`, { visibility: "listed" });
   const { results } = JSON.parse(spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--json", "--command", `SELECT id FROM games WHERE slug = '${game.slug}'`], { cwd: join(ROOT, "apps/site"), encoding: "utf8", env: { ...process.env, CI: "1" } }).stdout)[0];
   await go(`/admin/games/${results[0].id}/takedown`, form({ content_rule: "malware", reason: "Its bonus screen asks players for their Steam login." }));
+
+  // Town Gossip: a live game held on a defamation notice, which can still get a fixed version.
+  const { game: gossip } = await api("POST", "/games", { title: "Town Gossip", description: "Spread rumors around a tiny town and watch them grow.", devices: ["computer"], controls: ["keyboard_mouse"], play_modes: [{ mode: "single" }] });
+  upload("examples/hello-game", gossip.slug, "First version.");
+  const gossipFirst = await scanned(gossip.slug);
+  if (gossipFirst.scan_status !== "approved") await go(`/admin/versions/${gossipFirst.id}/approve`, form({ reason: "Preview test data" }));
+  await api("POST", `/games/${gossip.slug}/versions/${gossipFirst.id}/publish`);
+  await api("PATCH", `/games/${gossip.slug}`, { visibility: "listed" });
+  const gossipRow = JSON.parse(spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--json", "--command", `SELECT id FROM games WHERE slug = '${gossip.slug}'`], { cwd: join(ROOT, "apps/site"), encoding: "utf8", env: { ...process.env, CI: "1" } }).stdout)[0].results[0];
+  await go(`/admin/games/${gossipRow.id}/notice`, form({ notice_kind: "defamation", reason: "the ending names Emma Clarke, a real person who lives in the town it's set in, as the thief who robbed the bakery." }));
 
   // Review precedents: the AI judge held Phrase Menu for free chat (a menu of fixed phrases), with the ruling drafted so
   // releasing the hold can teach the review; Arena's live version has a drafted "hold" ruling for taking it down; and

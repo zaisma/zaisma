@@ -7,8 +7,10 @@
   "routes": [{ "pattern": "zaisma.com", "custom_domain": true }],
   "workers_dev": false,
   "observability": { "enabled": true },
-  // Image matching reads and sends every picture and video in a game, up to 5,000 each plus 5,000 sniffs (scan.ts).
-  "limits": { "subrequests": 50000 },
+  // Image matching reads and sends every picture and video in a game, up to 5,000 each plus 5,000 sniffs (scan.ts),
+  // and an export (game-export.ts) reads every file of up to 6 kept versions and every player's save, so both
+  // are at Cloudflare's ceilings: 10 million reads and 5 minutes of CPU (an export's CRC-32 over gigabytes).
+  "limits": { "subrequests": 10000000, "cpu_ms": 300000 },
   // Logos and favicons straight from the brand folder (see brand/.assetsignore).
   "assets": { "directory": "../../brand" },
   "vars": {
@@ -75,7 +77,9 @@
     // Restores and undos of one game's database (game-database.ts): each restarts the database.
     { "name": "DATABASE_RESTORE_LIMIT", "namespace_id": "1040", "simple": { "limit": 5, "period": 60 } },
     // zaisma.com's script policy violation reports, per connection address (security-alerts.ts).
-    { "name": "CSP_REPORT_LIMIT", "namespace_id": "1041", "simple": { "limit": 30, "period": 60 } }
+    { "name": "CSP_REPORT_LIMIT", "namespace_id": "1041", "simple": { "limit": 30, "period": 60 } },
+    // Exports of a whole game an account starts (game-export.ts): each reads every file, save and row.
+    { "name": "EXPORT_LIMIT", "namespace_id": "1047", "simple": { "limit": 2, "period": 60 } }
   ],
   "send_email": [{ "name": "ALERTS" }, { "name": "EMAIL" }]
 }

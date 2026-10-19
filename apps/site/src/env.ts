@@ -40,6 +40,8 @@ export interface Env {
   REGISTER_LIMIT?: RateLimit;
   /** Restores and undos of a game's database, per game. */
   DATABASE_RESTORE_LIMIT?: RateLimit;
+  /** Exports a game (game-export.ts) an account starts in a minute: each reads the whole game. */
+  EXPORT_LIMIT?: RateLimit;
   /** Script policy violation reports per connection address (security-alerts.ts). */
   CSP_REPORT_LIMIT?: RateLimit;
   ALERTS?: SendEmail;

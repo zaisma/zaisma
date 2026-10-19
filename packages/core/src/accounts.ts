@@ -1,7 +1,8 @@
 import type { ChatStoppedReason } from "./chat-filter.ts";
 import { newId } from "./ids.ts";
 import { ownerGameDeletions } from "./game-deletion.ts";
-import { SOCIAL_SETTINGS, defaultSocialMode, isWithinAgeLimits, pickSocialSettings, socialModeSettings, socialModesFor, socialSettingsInNewBand, socialSettingsOf, type SocialMode, type SocialSettings } from "./social-settings.ts";
+import type { ZaismaPlayerReportReason } from "./types.ts";
+import { SOCIAL_SETTINGS, SOCIAL_SETTING_CHOICES, defaultSocialMode, isWithinAgeLimits, pickSocialSettings, socialModeSettings, socialModesFor, socialSettingsInNewBand, socialSettingsOf, type SocialMode, type SocialSettings } from "./social-settings.ts";
 
 export type AgeBand = "13-15" | "16-17" | "18+";
 
@@ -47,6 +48,9 @@ export interface Account extends SocialSettings {
   chat_repeat_window_started_at_ms: number | null;
   /** Whether the account may make, upload and publish games (0 or 1): until the beta, only accounts Julius adds (docs/DECISIONS.md, "Uploads are only for people Julius adds until the beta"). */
   can_publish: number;
+  /** When a person turned the account's social side off for good after a report (stopSocial), and which kind of report; null when it's on. */
+  social_stopped_at_ms: number | null;
+  social_stopped_reason: ZaismaPlayerReportReason | null;
   /** When an account without an email pressed Skip on "Where should we tell you if someone else uses your account?" (security-alerts.ts); null while it hasn't. */
   email_ask_skipped_at_ms: number | null;
   created_at_ms: number;
@@ -289,6 +293,8 @@ export async function createAccount(database: D1Database, newAccount: { id: stri
     chat_repeat_window_started_at_ms: null,
     // Until the beta, a new account can't make games until Julius adds it on /admin/publishing.
     can_publish: 0,
+    social_stopped_at_ms: null,
+    social_stopped_reason: null,
     email_ask_skipped_at_ms: null,
     created_at_ms: createdAtMs,
     updated_at_ms: createdAtMs,
@@ -311,7 +317,8 @@ export async function createAccount(database: D1Database, newAccount: { id: stri
  */
 export async function updateAccount(database: D1Database, id: string, change: { socialSettings?: SocialSettings }): Promise<boolean> {
   const current = await accountById(database, id);
-  if (!current) return false;
+  // A person turned the account's social side off: nothing changes it back from here.
+  if (!current || current.social_stopped_at_ms) return false;
   const settings = change.socialSettings ? pickSocialSettings(change.socialSettings) : socialSettingsOf(current);
   if (!isWithinAgeLimits(settings, current.age_band)) return false;
   await database
@@ -319,6 +326,34 @@ export async function updateAccount(database: D1Database, id: string, change: { 
     .bind(...SOCIAL_SETTINGS.map((setting) => settings[setting]), now(), id)
     .run();
   return true;
+}
+
+/** What the account page says a report found, finishing "A person at Zaisma upheld a report that you …". */
+export const SOCIAL_STOPPED_TEXT: Record<ZaismaPlayerReportReason, string> = {
+  real_life_threat: "threatened someone in real life",
+  personal_details: "shared someone's personal details",
+  following_after_block: "followed someone after they blocked you",
+  sexual: "behaved sexually toward another player",
+};
+
+/** What the account page and /friends say while the account's social side is off. */
+export const socialStoppedNotice = (reason: ZaismaPlayerReportReason | null) =>
+  `Chat, friend invites and joining friends are off for your account. A person at Zaisma upheld a report that you ${SOCIAL_STOPPED_TEXT[reason ?? "real_life_threat"] ?? SOCIAL_STOPPED_TEXT.real_life_threat}.`;
+
+/**
+ * A person upheld a report about the account: its social side goes off for good (docs/DECISIONS.md,
+ * "Zaisma steps into players' chat only where block can't help"). Every social setting goes to its
+ * strictest choice, so every pass, friends list and room that reads them gets it; chat is removed;
+ * friendships and waiting invites end. updateAccount refuses changes from then on.
+ */
+export async function stopSocial(database: D1Database, accountId: string, reason: ZaismaPlayerReportReason, nowMs = Date.now()): Promise<void> {
+  await database.batch([
+    database
+      .prepare(`UPDATE accounts SET ${SOCIAL_SETTINGS.map((setting) => `${setting} = ?`).join(", ")}, chat_stopped_reason = 'removed', chat_stopped_until_ms = NULL, social_stopped_at_ms = ?, social_stopped_reason = ?, updated_at_ms = ? WHERE id = ?`)
+      .bind(...SOCIAL_SETTINGS.map((setting) => SOCIAL_SETTING_CHOICES[setting][0]), nowMs, reason, nowMs, accountId),
+    database.prepare("DELETE FROM friendships WHERE account_id = ? OR friend_account_id = ?").bind(accountId, accountId),
+    database.prepare("DELETE FROM friend_invites WHERE account_id = ?").bind(accountId),
+  ]);
 }
 
 /** Give an account a new username (already checked), or false when another account has it. */

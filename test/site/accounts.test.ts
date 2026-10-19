@@ -1,6 +1,6 @@
 import { createExecutionContext, env, SELF } from "cloudflare:test";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { MAXIMUM_OPEN_FRIEND_INVITE_COUNT, accountById, addTesterLink, friendsNowOf, blocksOf, playerProfile, playingNowOf, ageBand, ageOn, applyBirthdays, canonicalSave, checkUsername, createAccount, createApiKey, deleteExpiredFriendInvites, friendInviteByCode, friendInvitesOf, friendsOf, gameById, gameBySlug, gameOwner, recordPlayed, createGame, saveKey, sha256Hex, createReport, createVersion, isSlugRetired, newId, personOwner, queueGameDeletion, saveCopyKey, saveScan } from "@zaisma/core";
+import { MAXIMUM_OPEN_FRIEND_INVITE_COUNT, accountById, stopSocial, addTesterLink, friendsNowOf, blocksOf, playerProfile, playingNowOf, ageBand, ageOn, applyBirthdays, canonicalSave, checkUsername, createAccount, createApiKey, deleteExpiredFriendInvites, friendInviteByCode, friendInvitesOf, friendsOf, gameById, gameBySlug, gameOwner, recordPlayed, createGame, saveKey, sha256Hex, createReport, createVersion, isSlugRetired, newId, personOwner, queueGameDeletion, saveCopyKey, saveScan } from "@zaisma/core";
 import { deleteDueGames } from "../../apps/site/src/game-deletion.ts";
 import { decideTopic } from "../../apps/site/src/forum-posts.ts";
 import { checkForumPosts, type CheckDeps } from "../../apps/site/src/forum-check.ts";
@@ -244,7 +244,7 @@ class Browser {
   /** What the browser says it is, and where Cloudflare says it is (request.cf), for the security log. */
   userAgent: string | null = null;
   cf: Record<string, unknown> | null = null;
-  async go(path: string, form?: Record<string, string> | URLSearchParams, init: { method?: string; body?: string; origin?: string } = {}): Promise<Response> {
+  async go(path: string, form?: Record<string, string> | URLSearchParams, init: { method?: string; body?: string; origin?: string; contentType?: string } = {}): Promise<Response> {
     const request = new Request(`${SITE}${path}`, {
       method: init.method ?? (form ? "POST" : "GET"),
       body: init.body ?? (form ? new URLSearchParams(form) : undefined),
@@ -253,6 +253,7 @@ class Browser {
         "cf-connecting-ip": this.ip,
         ...(this.userAgent ? { "user-agent": this.userAgent } : {}),
         ...(form || init.body ? { origin: init.origin ?? SITE } : {}),
+        ...(init.contentType ? { "content-type": init.contentType } : {}),
       },
       redirect: "manual",
       ...(this.cf ? { cf: this.cf as unknown as IncomingRequestCfProperties } : {}),
@@ -1212,6 +1213,57 @@ describe("friends", () => {
     await ana.go("/account/delete", { confirm: "delete" });
     expect(await friendsOf(env.DB, users.get("carol@example.com")!)).toEqual([]);
     expect(await env.DB.prepare("SELECT COUNT(*) AS invite_count FROM friend_invites").first("invite_count")).toBe(0);
+  });
+
+  it("keeps whether a reporter has a block with the player they report, and nothing else about them", async () => {
+    const ana = new Browser();
+    await join(ana, "ana@example.com", "Night_Owl");
+    const ben = new Browser();
+    await join(ben, "ben@example.com", "Quiet_Comet");
+    const benPlayerId = (await accountById(env.DB, users.get("ben@example.com")!))!.player_id;
+    await createGame(env.DB, { slug: "block-arena", title: "Block Arena", description: "" });
+    const reportBen = (reason: string) =>
+      ana.go("/g/block-arena/report", undefined, { method: "POST", body: JSON.stringify({ reason, room: "ABCDEF", player: { id: benPlayerId, name: "Quiet_Comet" } }), contentType: "application/json" });
+    expect((await reportBen("harassment")).status).toBe(200);
+    await ana.go(`/friends/blocks/${benPlayerId}`, undefined, { method: "POST", body: "{}" });
+    expect((await reportBen("following_after_block")).status).toBe(200);
+    expect((await reportBen("threats_or_private_details")).status).toBe(400);
+    const { results } = await env.DB.prepare("SELECT player_reason, has_block_between FROM reports WHERE player_id = ? ORDER BY reported_at_ms, rowid").bind(benPlayerId).all();
+    expect(results).toEqual([
+      { player_reason: "harassment", has_block_between: 0 },
+      { player_reason: "following_after_block", has_block_between: 1 },
+    ]);
+    await env.DB.exec("DELETE FROM reports");
+  });
+
+  it("turns an account's social side off for good: friends and invites end, and nothing turns it back on", async () => {
+    const ana = new Browser();
+    await join(ana, "ana@example.com", "Night_Owl");
+    const ben = new Browser();
+    await join(ben, "ben@example.com", "Quiet_Comet");
+    const [anaId, benId] = [users.get("ana@example.com")!, users.get("ben@example.com")!];
+    await ben.go(`/friends/add/${await inviteFrom(ana)}`, {});
+    const waiting = await inviteFrom(ana);
+    const benInvite = await inviteFrom(ben);
+    await stopSocial(env.DB, anaId, "personal_details");
+
+    const stopped = (await accountById(env.DB, anaId))!;
+    expect(stopped).toMatchObject({ who_can_chat: "nobody", who_can_join: "nobody", who_sees_playing_now: "nobody", who_sees_played_games: "nobody", who_sees_online: "nobody", who_can_send_friend_requests: "nobody", chat_stopped_reason: "removed", social_stopped_reason: "personal_details" });
+    expect(await friendsOf(env.DB, benId)).toEqual([]);
+    expect(await friendInvitesOf(env.DB, anaId)).toEqual([]);
+    expect((await ben.go(`/friends/add/${waiting}`)).status).toBe(404);
+
+    // The account page and /friends say why, in place of the settings and the invite tools.
+    const notice = "A person at Zaisma upheld a report that you shared someone&#39;s personal details.";
+    expect(await (await ana.go("/account")).text()).toContain(notice);
+    expect(await (await ana.go("/friends")).text()).toContain(notice);
+    expect(await (await ana.go("/friends")).text()).not.toContain('action="/friends/invites"');
+    // Nothing turns it back on: not the settings, not a new invite, not someone else's.
+    await ana.go("/account/social", { social_mode: "friends_focused" });
+    expect((await accountById(env.DB, anaId))!.who_can_chat).toBe("nobody");
+    expect(await (await ana.go("/friends/invites", {})).text()).toContain("Friends are off for your account.");
+    expect(await (await ana.go(`/friends/add/${benInvite}`, {})).text()).toContain("Friends are off for your account.");
+    expect(await friendsOf(env.DB, anaId)).toEqual([]);
   });
 
   it("blocks from the game page's plate, ends a friendship, lists blocks with Unblock, and invites don't cross a block", async () => {
@@ -2257,6 +2309,37 @@ describe("the dashboard", () => {
     const res = await new Browser().go("/dashboard");
     expect(res.status).toBe(303);
     expect(res.headers.get("location")).toBe("/signin?next=%2Fdashboard");
+  });
+
+  it("exports everything from the Details tab, for the signed-in owner alone", async () => {
+    const b = new Browser();
+    await join(b);
+    await letPublishAs("Night_Owl");
+    await b.go("/dashboard/new", { title: "Sky Hopper" });
+    const id = await uploadAndPass(b, "sky-hopper", "<p>hop</p>");
+    const details = await (await b.go("/dashboard/sky-hopper/details")).text();
+    expect(details).toContain('href="/dashboard/sky-hopper/export.zip" data-download');
+    expect(details).toContain("Export everything");
+
+    const exported = await b.go("/dashboard/sky-hopper/export.zip");
+    expect(exported.status).toBe(200);
+    expect(exported.headers.get("content-type")).toBe("application/zip");
+    expect(exported.headers.get("content-disposition")).toMatch(/^attachment; filename="sky-hopper-\d{4}-\d{2}-\d{2}\.zip"$/);
+    // A readable cookie tells the page the download started, so the button's spinner stops (html.ts, BUSY_SCRIPT).
+    const startedCookie = exported.headers.getSetCookie().find((cookie) => /^(__Host-)?download_started=1;/.test(cookie));
+    expect(startedCookie).toBeDefined();
+    expect(startedCookie).not.toContain("HttpOnly");
+    const zip = new Uint8Array(await exported.arrayBuffer());
+    expect(new TextDecoder().decode(zip)).toContain(`versions/${id}/index.html`);
+
+    // Signed out, it's sign in first; someone else's account finds no such game.
+    const out = await new Browser().go("/dashboard/sky-hopper/export.zip");
+    expect(out.headers.get("location")).toBe("/signin?next=%2Fdashboard%2Fsky-hopper%2Fexport.zip");
+    const stranger = new Browser();
+    await join(stranger, "owl@example.com", "Other_Owl");
+    const refused = await stranger.go("/dashboard/sky-hopper/export.zip");
+    expect(refused.status).toBe(404);
+    expect(refused.headers.get("content-type")).not.toBe("application/zip");
   });
 
   it("makes a game, publishes it and asks before hiding it", async () => {
