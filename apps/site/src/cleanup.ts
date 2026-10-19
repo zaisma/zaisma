@@ -1,5 +1,5 @@
 import { deleteStaleDraftMedia } from "./forum-posts.ts";
-import { ROOM_STALE_MS, applyBirthdays, audit, deleteEndedAccessPasses, deleteExpiredFriendInvites, deleteStalePresences, deleteExpiredSignInCodes, deleteOldDeliveries, LIFELIKE_GORE_MINIMUM_PLAYER_AGE_YEARS, blobKey, gameById, manifestKey, needsLifelikeGoreAge, ownedBlobKey, publishVersion, reportPictureKey, type Manifest, type ScanReport, type Version } from "@zaisma/core";
+import { ROOM_STALE_MS, applyBirthdays, audit, deleteEndedAccessPasses, deleteExpiredFriendInvites, deleteStalePresences, deleteExpiredSignInCodes, deleteOldDatabaseRestores, deleteOldDeliveries, LIFELIKE_GORE_MINIMUM_PLAYER_AGE_YEARS, blobKey, gameById, manifestKey, needsLifelikeGoreAge, ownedBlobKey, publishVersion, reportPictureKey, type Manifest, type ScanReport, type Version } from "@zaisma/core";
 import { authConfigured, deleteAuthUser, newestAuthUsers } from "./auth.ts";
 import { deleteOldDeviceMarks } from "./device-marks.ts";
 import { deleteOldEmailCodes } from "./email-codes.ts";
@@ -133,6 +133,8 @@ export async function dailyCleanup(env: Env, nowMs = Date.now()): Promise<{ dele
   await applyBirthdays(env.DB, nowMs);
   // What was sent to webhooks: kept 30 days, so the developer can see what went and why it failed.
   await deleteOldDeliveries(env.DB, nowMs);
+  // Game database restores whose undo Cloudflare no longer keeps (30 days).
+  await deleteOldDatabaseRestores(env.DB, nowMs);
   // Email codes past their 10 minutes and the day of requests their limits count; wrong passwords older than a
   // day, and device marks a year past their last sign-in.
   await deleteOldEmailCodes(env, nowMs);

@@ -1,8 +1,8 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { GAME_DATABASE_FREE_LIMITS, createAccount, createApiKey, nextMonthStartDate } from "@zaisma/core";
+import { GAME_DATABASE_FREE_LIMITS, addDatabaseRestore, createAccount, createApiKey, nextMonthStartDate } from "@zaisma/core";
 import { TOOLS } from "../../apps/site/src/mcp.ts";
-import { DATABASE, DATABASE_EXPORT, STATEMENT_RESULT } from "../../apps/site/src/schemas.ts";
+import { DATABASE, DATABASE_EXPORT, DATABASE_RESTORED, STATEMENT_RESULT } from "../../apps/site/src/schemas.ts";
 import { errorProblems, schemaProblems } from "../schema-check.ts";
 import { letPublish } from "../helpers.ts";
 
@@ -73,6 +73,7 @@ describe("the game database through the API and MCP", () => {
         has_reached_free_storage: false,
         reset_date: nextMonthStartDate(),
       },
+      restores: [],
     });
   });
 
@@ -295,5 +296,105 @@ describe("the game database's import and export", () => {
     expect((await api("/games/sky-hopper/database/erase-player", { body: { player_id: "player_kai" }, key: readKey })).answer.error.code).toBe("key_not_allowed");
     expect((await api("/games/sky-hopper/database/erase-player", { body: { player_id: "player_kai" }, key: other })).answer.error.code).toBe("no_game");
     expect((await tool("query_database", { slug: "sky-hopper", sql: "SELECT player_id FROM scores" })).rows).toEqual([{ player_id: "player_kai" }]);
+  });
+});
+
+describe("restoring the game database to a time", () => {
+  const HOUR_MS = 3_600_000;
+  const DAY_MS = 24 * HOUR_MS;
+  const restoredBookmarks = (): Promise<string[]> => (env as any).GAME_DATABASES.takeRestoredBookmarks();
+  /** The game made two days ago, so there's time to go back to. */
+  const madeDaysAgo = (dayCount: number) => env.DB.prepare("UPDATE games SET created_at_ms = ? WHERE slug = 'sky-hopper'").bind(Date.now() - dayCount * DAY_MS).run();
+  const isoMinute = (atMs: number) => `${new Date(atMs).toISOString().slice(0, 16)}:00Z`;
+
+  beforeEach(async () => {
+    await madeDaysAgo(2);
+    await env.DB.exec("DELETE FROM database_restores; DELETE FROM player_erases; DELETE FROM security_events;");
+    await restoredBookmarks();
+  });
+
+  it("goes back to a moment, lists the restore, and can undo it, through the API and MCP", async () => {
+    const restoreToAt = isoMinute(Date.now() - HOUR_MS);
+    const restored = await api("/games/sky-hopper/database/restores", { body: { restore_to_at: restoreToAt } });
+    expect(restored.status).toBe(200);
+    expect(schemaProblems(DATABASE_RESTORED, restored.answer)).toEqual([]);
+    const restore = restored.answer.database_restore;
+    expect(restored.answer).toEqual({
+      database_restore: { id: expect.stringMatching(/^database_restore_/), restore_to_at: new Date(restoreToAt).toISOString(), restored_at: expect.any(String), undoes_database_restore_id: null, undo_expires_at: expect.any(String) },
+      erased_again_player_count: 0,
+      next_steps: [
+        { tool: "get_database", arguments: { slug: "sky-hopper" }, after_sec: null, reason: expect.any(String) },
+        { tool: "undo_database_restore", arguments: { slug: "sky-hopper", database_restore_id: restore.id }, after_sec: null, reason: expect.any(String) },
+      ],
+    });
+    expect(Date.parse(restore.undo_expires_at) - Date.parse(restore.restored_at)).toBeGreaterThan(29 * DAY_MS);
+    expect(await restoredBookmarks()).toEqual([`bookmark-${Date.parse(restoreToAt)}`]);
+
+    const overview = await tool("get_database", { slug: "sky-hopper" });
+    expect(overview.restores).toEqual([restore]);
+    const history = await api("/games/sky-hopper/history");
+    expect(history.answer.events).toContainEqual(expect.objectContaining({ subject_name: restore.restore_to_at, description: "Restored the database to an earlier time" }));
+
+    // The undo goes back to just before the restore, with the bookmark the restore kept.
+    const undone = await tool("undo_database_restore", { slug: "sky-hopper", database_restore_id: restore.id });
+    expect(undone.database_restore).toMatchObject({ undoes_database_restore_id: restore.id, restore_to_at: restore.restored_at });
+    expect(undone.next_steps).toEqual([{ tool: "get_database", arguments: { slug: "sky-hopper" }, after_sec: null, reason: expect.any(String) }]);
+    expect((await restoredBookmarks())[0]).toMatch(/^undo-\d+$/);
+    expect((await tool("get_database", { slug: "sky-hopper" })).restores.map((listed: { id: string }) => listed.id)).toEqual([undone.database_restore.id, restore.id]);
+    // And the database answers as before after its restarts.
+    expect((await tool("query_database", { slug: "sky-hopper", sql: "SELECT 1 AS one" })).rows).toEqual([{ one: 1 }]);
+  });
+
+  it("keeps the month's use, which the restore would roll back", async () => {
+    await tool("batch_database", { slug: "sky-hopper", statements: [{ sql: "CREATE TABLE scores (player_id TEXT, best_score INTEGER)" }, { sql: "INSERT INTO scores VALUES ('player_mia', 1), ('player_kai', 2), ('player_ivy', 3)" }] });
+    const before = (await tool("get_database", { slug: "sky-hopper" })).database_use_this_month.written_row_count;
+    expect(before).toBeGreaterThanOrEqual(3);
+    await tool("restore_database", { slug: "sky-hopper", restore_to_at: isoMinute(Date.now() - HOUR_MS) });
+    expect((await tool("get_database", { slug: "sky-hopper" })).database_use_this_month.written_row_count).toBe(before);
+  });
+
+  it("erases again the players erased since that moment", async () => {
+    await tool("batch_database", { slug: "sky-hopper", statements: [{ sql: "CREATE TABLE scores (player_id TEXT, best_score INTEGER)" }, { sql: "INSERT INTO scores VALUES ('player_mia', 1), ('player_kai', 2)" }] });
+    const restoreToAt = isoMinute(Date.now() - HOUR_MS);
+    await tool("erase_player", { slug: "sky-hopper", player_id: "player_mia" });
+    expect(await env.DB.prepare("SELECT erase_status FROM player_erases WHERE player_id = 'player_mia'").first("erase_status")).toBe("erased");
+    // What a restore to before the erase brings back.
+    await tool("query_database", { slug: "sky-hopper", sql: "INSERT INTO scores VALUES ('player_mia', 1)" });
+    const restored = await tool("restore_database", { slug: "sky-hopper", restore_to_at: restoreToAt });
+    expect(restored.erased_again_player_count).toBe(1);
+    expect((await tool("query_database", { slug: "sky-hopper", sql: "SELECT player_id FROM scores" })).rows).toEqual([{ player_id: "player_kai" }]);
+    // Erased before that moment: already gone in what it went back to.
+    expect((await tool("restore_database", { slug: "sky-hopper", restore_to_at: new Date().toISOString() })).erased_again_player_count).toBe(0);
+  });
+
+  it("refuses a time it can't go back to, a restore it can't undo, a weaker key and too many restores", async () => {
+    const restoreTo = (restoreToAt: unknown, key?: string) => api("/games/sky-hopper/database/restores", { body: { restore_to_at: restoreToAt }, key });
+    for (const restoreToAt of ["yesterday", "2026-10-18 14:05", 1760000000, isoMinute(Date.now() + 5 * 60_000), isoMinute(Date.now() - 31 * DAY_MS)]) {
+      expect((await restoreTo(restoreToAt)).answer.error).toMatchObject({ code: "bad_time", field: "restore_to_at", fix: expect.stringContaining("get_history") });
+    }
+    await madeDaysAgo(0);
+    expect((await restoreTo(isoMinute(Date.now() - HOUR_MS))).answer.error).toMatchObject({ code: "bad_time", message: expect.stringContaining("before the game was made") });
+    await madeDaysAgo(2);
+    expect((await api("/games/sky-hopper/database/restores", { body: {} })).answer.error).toMatchObject({ code: "missing_field", field: "restore_to_at" });
+    expect(await restoredBookmarks()).toEqual([]);
+
+    expect((await api("/games/sky-hopper/database/restores/database_restore_nothing/undo", { method: "POST" })).answer.error).toMatchObject({ code: "no_database_restore", field: "database_restore_id" });
+    const readKey = (await createApiKey(env.DB, "dev-1", "ci", { accessLevel: "read", gameSlugs: null })).token;
+    expect((await restoreTo(isoMinute(Date.now() - HOUR_MS), readKey)).answer.error.code).toBe("key_not_allowed");
+    expect((await restoreTo(isoMinute(Date.now() - HOUR_MS), other)).answer.error.code).toBe("no_game");
+
+    // Another game's restore can't be undone from this one.
+    expect((await api("/games", { body: { title: "Tower Climb" } })).status).toBe(201);
+    const towerGameId = await env.DB.prepare("SELECT id FROM games WHERE slug = 'tower-climb'").first<string>("id");
+    await addDatabaseRestore(env.DB, { id: "database_restore_tower", game_id: towerGameId!, restore_to_at_ms: Date.now() - HOUR_MS, undo_bookmark: "undo-tower", undoes_database_restore_id: null, restored_at_ms: Date.now() });
+    expect((await api("/games/sky-hopper/database/restores/database_restore_tower/undo", { method: "POST" })).answer.error.code).toBe("no_database_restore");
+
+    // Up to 5 restores and undos a minute per game (the local stand-in for rate limits may count other tests' restores too).
+    let refused: any = null;
+    for (let i = 0; i < 6 && !refused; i++) {
+      const answered = await restoreTo(isoMinute(Date.now() - HOUR_MS));
+      if (answered.status !== 200) refused = answered.answer.error;
+    }
+    expect(refused).toMatchObject({ code: "slow_down", retry_after_sec: 60 });
   });
 });

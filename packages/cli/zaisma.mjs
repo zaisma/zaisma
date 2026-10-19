@@ -180,6 +180,12 @@ const COMMANDS = {
     arguments: [{ name: "slug" }, { name: "file", isOptional: true }],
     flags: {},
   },
+  "database restore": {
+    about: "Put a game's database back as it was at a moment in the last 30 days (an ISO time, like 2026-10-18T14:05:00Z), live; undo it with database undo-restore",
+    arguments: [{ name: "slug" }, { name: "restore_to_at" }],
+    flags: {},
+  },
+  "database undo-restore": { about: "Undo a restore of a game's database: back to just before it, live", arguments: [{ name: "slug" }, { name: "database_restore_id" }], flags: {} },
   saves: {
     about: "The players with a cloud save in a game, by player ID, 100 a page",
     arguments: [{ name: "slug" }],
@@ -203,7 +209,7 @@ const COMMANDS = {
   help: { about: "This help; with --json, every command, flag, exit code and error code", arguments: [], flags: {} },
 };
 /** Commands with a second word, like zaisma forum post. */
-const SUBCOMMANDS = { links: ["set", "remove"], forum: ["post", "message", "reply"], database: ["query", "batch", "export", "import"], saves: ["get", "change", "replace", "reset", "copies", "copy", "restore"], secrets: ["set", "delete"] };
+const SUBCOMMANDS = { links: ["set", "remove"], forum: ["post", "message", "reply"], database: ["query", "batch", "export", "import", "restore", "undo-restore"], saves: ["get", "change", "replace", "reset", "copies", "copy", "restore"], secrets: ["set", "delete"] };
 /** Flags every command takes. */
 const GLOBAL_FLAGS = {
   json: { hasValue: false, about: "Print the API's answer as JSON, as-is (on failure its { error }), and nothing else" },
@@ -891,10 +897,22 @@ async function readInput() {
   return Buffer.concat(chunks).toString("utf8").trim();
 }
 
-/** A game's own database (GET and POST /games/<slug>/database…), as the MCP's get_database, query_database, batch_database, export_database and import_database. */
+/** A game's own database (GET and POST /games/<slug>/database…), as the MCP's get_database, query_database, batch_database, export_database, import_database, restore_database and undo_database_restore. */
 async function database(command, values, flags) {
   if (command === "database export") return exportDatabase(values);
   if (command === "database import") return importDatabase(values);
+  if (command === "database restore" || command === "database undo-restore") {
+    const isUndo = command === "database undo-restore";
+    const answer = isUndo
+      ? await api("POST", `/games/${values.slug}/database/restores/${encodeURIComponent(values.database_restore_id)}/undo`)
+      : await api("POST", `/games/${values.slug}/database/restores`, { restore_to_at: values.restore_to_at });
+    if (isJson) return printJson(answer);
+    const restore = answer.database_restore;
+    console.log(isUndo ? `Undid restore ${values.database_restore_id}: ${values.slug}'s database is back to ${restore.restore_to_at}.` : `Restored ${values.slug}'s database to ${restore.restore_to_at}.`);
+    if (answer.erased_again_player_count) console.log(`Erased ${answer.erased_again_player_count} player${answer.erased_again_player_count === 1 ? "" : "s"} again who had been erased since.`);
+    console.log(`Undo it until ${restore.undo_expires_at}: zaisma database undo-restore ${values.slug} ${restore.id}`);
+    return;
+  }
   if (command === "database") {
     const answer = await api("GET", `/games/${values.slug}/database`);
     if (isJson) return printJson(answer);
@@ -908,6 +926,10 @@ async function database(command, values, flags) {
         `${use.written_row_count.toLocaleString("en-US")} written (${percent(use.written_row_count, use.free_written_row_count)} of ${use.free_written_row_count.toLocaleString("en-US")}), ` +
         `${(use.storage_size_bytes / 1024 / 1024).toFixed(1)} MB stored (${percent(use.storage_size_bytes, use.free_storage_size_bytes)} of ${use.free_storage_size_bytes / 1024 / 1024} MB). Resets ${use.reset_date}.`,
     );
+    if (answer.restores.length) {
+      console.log("\nRestores (newest first; undo with zaisma database undo-restore <slug> <id>):");
+      for (const restore of answer.restores.slice(0, 5)) console.log(`${restore.id}  ${restore.restored_at}  ${restore.undoes_database_restore_id ? `undid ${restore.undoes_database_restore_id}` : `back to ${restore.restore_to_at}`}`);
+    }
     return;
   }
   if (command === "database query") {

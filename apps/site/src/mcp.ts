@@ -2,7 +2,7 @@ import { ApiError, CONTROLS, DEVICES, FORUM_CATEGORIES, FORUM_LIMITS, FORUM_REPO
 import { INTERNAL_ERROR, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { CHECKED_TEXT_EXTENSIONS, extensionOf } from "../../../packages/cli/check.mjs";
-import { ACCESS, ACTIVITY, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, ERASED_PLAYER, GAME, GAME_ALERTS, HISTORY, LISTED_GAME, STATEMENT_RESULT, IMAGE, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes } from "./schemas.ts";
+import { ACCESS, ACTIVITY, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, HISTORY, LISTED_GAME, STATEMENT_RESULT, IMAGE, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes } from "./schemas.ts";
 
 /**
  * The developer MCP at /mcp: every tool is a call to the developer API, so the MCP, the upload command
@@ -914,7 +914,7 @@ export const TOOLS: Tool[] = [
   {
     name: "get_history",
     title: "Game history",
-    description: "What happened to the game, newest first: uploads, scans, publishes, rollbacks, reviews, holds and takedowns (each with its review_reason), database writes, imports and exports, save reads and changes, secrets, tester links, and your webhooks and sign-in apps; who did each (you, a key by its name, your AI or Zaisma) and from where, with is_new_place when a key was used from a network and country it hadn't been used from.",
+    description: "What happened to the game, newest first: uploads, scans, publishes, rollbacks, reviews, holds and takedowns (each with its review_reason), database writes, imports, exports and restores, save reads and changes, secrets, tester links, and your webhooks and sign-in apps; who did each (you, a key by its name, your AI or Zaisma) and from where, with is_new_place when a key was used from a network and country it hadn't been used from.",
     inputSchema: object({ slug }, ["slug"]),
     outputSchema: HISTORY,
     annotations: read,
@@ -964,7 +964,7 @@ export const TOOLS: Tool[] = [
     name: "get_database",
     title: "Game database overview",
     description:
-      "The game's own SQLite database, the one its game servers use as room.database: its tables and indexes (their CREATE statements), and this month's rows read and written and its size against the free use every game has. Every game has one, empty until something writes to it. Read and change what's in it with query_database and batch_database. No row counts here, because counting reads every row: query SELECT count(*) when you need one.",
+      "The game's own SQLite database, the one its game servers use as room.database: its tables and indexes (their CREATE statements), and this month's rows read and written and its size against the free use every game has. Every game has one, empty until something writes to it. Read and change what's in it with query_database and batch_database. Also its restores and undos of the last 30 days (restore_database), each with the id undo_database_restore takes. No row counts here, because counting reads every row: query SELECT count(*) when you need one.",
     inputSchema: object({ slug }, ["slug"]),
     outputSchema: DATABASE,
     annotations: read,
@@ -1091,6 +1091,31 @@ export const TOOLS: Tool[] = [
     outputSchema: DATABASE_IMPORT,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/database/import`, pick(toolArguments, ["dump_sql"])),
+  },
+  {
+    name: "restore_database",
+    title: "Restore a game's database to a time",
+    description:
+      "Put the game's own database back as it was at a moment in the last 30 days, tables and rows both, live: the undo for a bad import, a game server bug or a wrong DELETE. Everything written since is gone until you undo the restore with undo_database_restore, which works for 30 days. get_history shows when the change you want to undo happened; go back to a minute before it. The database restarts, so a game server's query in that second can answer database_unavailable (try again). Players erased since that moment (deleted accounts, erase_player) are erased again, and the month's use isn't rolled back. Not before the game was made, and up to 5 restores and undos a minute. Ask the developer first: it changes what a live game sees.\n\n" +
+      'Not: { "restore_to_at": "2026-10-18 14:05" } (an ISO time with Z or an offset, like "2026-10-18T14:05:00Z")\n' +
+      'Not: { "restore_to_at": "1 hour ago" } (work out the ISO time)',
+    inputSchema: {
+      ...object({ slug, restore_to_at: { type: "string", format: "date-time", description: "The moment to go back to: an ISO time with Z or an offset, in the last 30 days" } }, ["slug", "restore_to_at"]),
+      examples: [{ slug: "sky-hopper", restore_to_at: "2026-10-18T14:05:00Z" }],
+    },
+    outputSchema: DATABASE_RESTORED,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/database/restores`, pick(toolArguments, ["restore_to_at"])),
+  },
+  {
+    name: "undo_database_restore",
+    title: "Undo a game database restore",
+    description:
+      "Undo a restore_database: the game's database goes back to just before that restore, live, and what was written after it is gone (this is a restore too, so it can be undone the same way). Within 30 days of the restore; get_database lists the restores with their ids. Players erased since are erased again. Ask the developer first.",
+    inputSchema: object({ slug, database_restore_id: idInput("database_restore", "The restore to undo, from get_database's restores or restore_database's answer.") }, ["slug", "database_restore_id"]),
+    outputSchema: DATABASE_RESTORED,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/database/restores/${pathPart(toolArguments.database_restore_id)}/undo`),
   },
   {
     name: "list_saves",

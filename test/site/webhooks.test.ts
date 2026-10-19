@@ -443,7 +443,8 @@ describe("deleting an account reaches developers", () => {
     await tellAccountDeleted(testEnv, reach);
     expect((await tool("query_database", { slug: "sky-hopper", sql: "SELECT player_id FROM scores" })).rows).toEqual([{ player_id: "player_kai" }]);
     expect((await tool("query_database", { slug: "cave-crew", sql: "SELECT player_id FROM scores ORDER BY best_score" })).rows).toEqual([{ player_id: miaPlayerId }, { player_id: "player_kai" }]);
-    expect(await env.DB.prepare("SELECT COUNT(*) AS erase_count FROM player_erases").first("erase_count")).toBe(0);
+    // Kept as erased, so restoring the database to a time before erases them again.
+    expect((await env.DB.prepare("SELECT game_id, erase_status FROM player_erases").all()).results).toEqual([{ game_id: await gameId("sky-hopper"), erase_status: "erased" }]);
     expect(await env.DB.prepare("SELECT COUNT(*) AS played_count FROM games_ever_played WHERE account_id = 'mia'").first("played_count")).toBe(0);
   });
 
@@ -468,7 +469,11 @@ describe("deleting an account reaches developers", () => {
     await eraseDuePlayers({ ...testEnv, GAME_DATABASES: undefined });
     expect(await env.DB.prepare("SELECT erase_status, attempt_count FROM player_erases WHERE player_id = 'player_waiting'").first()).toEqual({ erase_status: "pending", attempt_count: 0 });
     await eraseDuePlayers(testEnv);
-    expect(await env.DB.prepare("SELECT COUNT(*) AS erase_count FROM player_erases WHERE player_id = 'player_waiting'").first("erase_count")).toBe(0);
+    expect(await env.DB.prepare("SELECT erase_status, erased_at_ms > 0 AS is_erased FROM player_erases WHERE player_id = 'player_waiting'").first()).toEqual({ erase_status: "erased", is_erased: 1 });
+    // Erased before and queued again (their account deleted later): it waits for its try like any.
+    await queuePlayerErase(env.DB, sky, "player_waiting");
+    expect(await env.DB.prepare("SELECT erase_status, attempt_count FROM player_erases WHERE player_id = 'player_waiting'").first()).toEqual({ erase_status: "pending", attempt_count: 0 });
+    await eraseDuePlayers(testEnv);
 
     // A foreign key refuses it every try: after the last, it's an alert with the IDs to erase by hand.
     await tool("query_database", { slug: "sky-hopper", sql: "INSERT INTO players VALUES ('player_stuck')" });

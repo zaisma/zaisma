@@ -35,6 +35,8 @@ export interface Env {
   FILE_LIMIT?: RateLimit;
   /** AI apps registering to sign in to the MCP (POST /oauth/register), per connection address. */
   REGISTER_LIMIT?: RateLimit;
+  /** Restores and undos of a game's database, per game. */
+  DATABASE_RESTORE_LIMIT?: RateLimit;
   /** Script policy violation reports per connection address (security-alerts.ts). */
   CSP_REPORT_LIMIT?: RateLimit;
   ALERTS?: SendEmail;
