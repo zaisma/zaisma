@@ -150,6 +150,7 @@ import { playStats } from "./plays.ts";
 import { sendAlert } from "./email.ts";
 import { KNOWN_IMAGE_ALERT, imageMatcher, passVersionsHeldForGore, pruneVersions } from "./scan.ts";
 import { sendTestEvent, tellWebhooks, type WaitUntil } from "./webhooks.ts";
+import { alertIfNoticeFixPublished } from "./notices.ts";
 
 /**
  * The developer API: one API for the MCP, the upload command and the dashboard, so they always agree.
@@ -1240,6 +1241,7 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
     await logCallerEvent(env, caller, version.published_at_ms ? "version_rolled_back" : "version_published", { gameId: game.id, versionId: version.id });
     await pruneVersions(env, game.id);
     await tellWebhooks(env, "live_version_changed", game.id, { versionId: version.id }, caller.waitUntil);
+    await alertIfNoticeFixPublished(env, game.id, version.id);
     const published = (await gameBySlug(env.DB, game.slug))!;
     const isHidden = published.visibility === "draft" || published.visibility === "private";
     const nextSteps: NextStep[] = isHidden
@@ -1475,6 +1477,8 @@ const HISTORY: Record<string, string | null> = {
   "report-paused-update": "A report paused your latest update while we check it; players get the version before it",
   "report-cleared": "We checked a report and put your game back",
   takedown: "Zaisma took the game down",
+  "notice-held": "A notice hid your game from players; see why",
+  "notice-fix-published": null,
   restored: "Zaisma restored the game",
   "reports-dismissed": null,
   "reports-to-developer": null,

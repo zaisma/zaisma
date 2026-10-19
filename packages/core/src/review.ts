@@ -20,6 +20,7 @@ export const CONTENT_RULES = {
   illegal: "Content that's illegal in the United States, including real-money gambling.",
   real_people: "Private details about real people, or real threats.",
   copyright: "Other people's games, art, music or characters used without permission.",
+  defamation: "False claims that a real private person committed a crime.",
   personal_details:
     "Asking players for personal details like emails, real names, birthdays or location inside the game. Every player has a Zaisma ID and name; games with their own accounts link them through Sign in with Zaisma, and anything more happens on the developer's own site.",
   chat: "Free-text chat between players. In the beta, players talk through each game's preset phrases and emotes.",
@@ -60,6 +61,11 @@ export const CONTENT_RULE_DETAILS: Record<ContentRule, { explanation?: string; f
     fine: "a game inspired by another (the same genre, the same mechanics), parody with your own characters, and assets used within their license.",
     notFine: "Mario in your game, a ripped soundtrack, or someone else's game uploaded as yours.",
   },
+  defamation: {
+    explanation: "We act on it only when that person sends a notice (see Defamation notices); we don't judge it ourselves.",
+    fine: "satire, jokes and wild stories about politicians, celebrities and other public figures; crimes someone was publicly charged with or convicted of; made-up people.",
+    notFine: "a game that names your neighbor Emma Clarke as the town's thief, or says a real classmate sells drugs.",
+  },
   personal_details: {
     fine: "a nickname for the scoreboard, Sign in with Zaisma, and a link to your own site.",
     notFine: "\"Enter your email to save\", or asking for a birthday, age, city or real name.",
@@ -78,10 +84,11 @@ export const CONTENT_RULE_DETAILS: Record<ContentRule, { explanation?: string; f
   },
 };
 /**
- * Rules Zaisma acts on only when the owner sends a notice: the review never looks for them, since games
- * borrow code and assets all the time and no file shows whether they may (Julius, Oct 18, 2026).
+ * Rules Zaisma acts on only when the person they're about sends a notice: the review never looks for
+ * them, since games borrow code and assets all the time and no file shows whether they may (Julius,
+ * Oct 18, 2026), and whether a claim about a real person is true isn't Zaisma's to judge.
  */
-export const NOTICE_ONLY_CONTENT_RULES: readonly ContentRule[] = ["copyright"];
+export const NOTICE_ONLY_CONTENT_RULES: readonly ContentRule[] = ["copyright", "defamation"];
 /** The rules the review looks for, in the page's order. */
 export const REVIEWED_CONTENT_RULES = (Object.keys(CONTENT_RULES) as ContentRule[]).filter((rule) => !NOTICE_ONLY_CONTENT_RULES.includes(rule));
 /**
@@ -103,6 +110,8 @@ export const isContentRule = (candidate: unknown): candidate is ContentRule => t
 
 /** The fix for a hold a person decides: there's nothing for the developer to change. */
 const PERSON_LOOKS = "Nothing to change: a person at Zaisma looks, usually within a day.";
+/** What follows a fixed version of a game held on a notice. */
+const NOTICE_CHECKED = "a person at Zaisma checks it's gone and shows the game again, usually within a day.";
 /** What follows an AI review's concern, whatever the developer changes. */
 const IF_THE_AI_IS_WRONG = "If the AI got it wrong: a person at Zaisma decides a held version, usually within a day; for a rejected one, message_zaisma with the version_id.";
 
@@ -240,9 +249,15 @@ export const REVIEW_CODES = {
     isRulePicked: true,
   },
   copyright_notice: {
-    meaning: "The game was taken down on a copyright (DMCA) notice.",
+    meaning: "The owner of a work sent a copyright (DMCA) notice, so players can't open the game; the message says what it names.",
     contentRule: "copyright",
-    fix: "If you own the work or may use it, send a counter-notice to dmca@zaisma.com; zaisma.com/legal/dmca says what to put in it.",
+    fix: `Take out what the notice names and publish a fixed version (upload_files, then publish_version): ${NOTICE_CHECKED} If you own the work or may use it, send a counter-notice to dmca@zaisma.com instead; zaisma.com/legal/dmca says what to put in it.`,
+    hasOwnMessage: true,
+  },
+  defamation_notice: {
+    meaning: "A private person sent a defamation notice saying the game falsely accuses them of a crime, so players can't open the game; the message says what it names.",
+    contentRule: "defamation",
+    fix: `Take out what the notice names and publish a fixed version (upload_files, then publish_version): ${NOTICE_CHECKED} If the claim is true or isn't about a private person, send a counter-notice to safety@zaisma.com instead; zaisma.com/legal/defamation says what to put in it.`,
     hasOwnMessage: true,
   },
   image_rejected: {
@@ -297,8 +312,24 @@ export function reviewReason(code: ReviewCodeName, message?: string, contentRule
  */
 export function decidedReason(code: ReviewCodeName, contentRule: ContentRule | null, words: string): ReviewReason {
   if (contentRule === "child_safety") return { code, message: REVIEW_CODES[code].meaning, content_rule: null };
-  return reviewReason(code, words, code === "copyright_notice" ? "copyright" : contentRule);
+  const notice = Object.values(NOTICE_CODES).find((candidate) => candidate.code === code);
+  return reviewReason(code, words, notice ? notice.contentRule : contentRule);
 }
+
+/**
+ * The notices the law asks Zaisma to act on, by kind: each holds the game with its own code until the
+ * developer publishes a fixed version and a person shows it again, or a counter-notice brings it back
+ * (docs/DECISIONS.md, "The content rules draw exact lines, so developers don't hedge").
+ */
+export const NOTICE_CODES = {
+  copyright: { code: "copyright_notice", contentRule: "copyright" },
+  defamation: { code: "defamation_notice", contentRule: "defamation" },
+} as const satisfies Record<string, { code: ReviewCodeName; contentRule: ContentRule }>;
+export type NoticeKind = keyof typeof NOTICE_CODES;
+export const NOTICE_KINDS = Object.keys(NOTICE_CODES) as NoticeKind[];
+export const isNoticeKind = (candidate: unknown): candidate is NoticeKind => typeof candidate === "string" && Object.hasOwn(NOTICE_CODES, candidate);
+/** Whether a stored review reason is a notice's. */
+export const isNoticeReason = (reason: ReviewReason | null): boolean => Boolean(reason && Object.values(NOTICE_CODES).some((notice) => notice.code === reason.code));
 
 /** A review reason as the developer API answers it: { code, message, content_rule, fix }. */
 export function reviewReasonAnswer(reason: ReviewReason): { code: ReviewCodeName; message: string; content_rule: ContentRule | null; fix: string } {

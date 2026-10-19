@@ -1128,6 +1128,12 @@ const PUBLISHING_ACCOUNT = object({
 });
 const PUBLISHING_ACCOUNTS = list(PUBLISHING_ACCOUNT, "By username.");
 export const PUBLISHING_ACCOUNT_LIST = object({ publishing_accounts: PUBLISHING_ACCOUNTS });
+export const NOTICE_DECIDED = object({
+  decision: choice({ hold: "players can't open the game until a person shows it again", show_again: "players can open it again" }),
+  game: ADMIN_GAME,
+  next_steps: NEXT,
+});
+
 export const CAN_PUBLISH_CHANGED = object({
   username: text(),
   can_publish: yes("Whether the account can make, upload and publish games now."),

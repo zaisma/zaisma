@@ -206,9 +206,12 @@ export const ADMIN_ERROR_CODES = {
   report_group_closed: { httpStatus: 409, meaning: "Every report in the group is closed already." },
   bad_maximum_group_count: { httpStatus: 400, meaning: "maximum_group_count isn't a whole number from 1 to 100." },
   bad_decision: { httpStatus: 400, meaning: "decision isn't one of the choices the call takes." },
-  cant_decide: { httpStatus: 409, meaning: "The report group can't be decided that way now; get_report_group lists what can." },
+  cant_decide: { httpStatus: 409, meaning: "It can't be decided that way now: get_report_group lists what a report group can, and decide_notice shows again only a held game and holds none that's taken down." },
   decision_refused: { httpStatus: 409, meaning: "The decision didn't go through, like putting back an update that matched known abuse material." },
   bad_why: { httpStatus: 400, meaning: "why is blank or over 500 characters." },
+
+  // Notices
+  bad_notice_kind: { httpStatus: 400, meaning: "notice_kind isn't copyright or defamation." },
 
   // Precedents
   no_precedent: { httpStatus: 404, meaning: "There's no precedent with that ID." },

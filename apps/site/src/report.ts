@@ -16,7 +16,7 @@ import { pageScript } from "./page-scripts.ts";
 const ROOM_CODE = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/;
 const PLAYER_ID = /^[A-Za-z0-9_-]{1,40}$/;
 
-/** The reasons in the order players reach for them, each with a line saying what it covers. Copyright goes to the DMCA page. */
+/** The reasons in the order players reach for them, each with a line saying what it covers. Copyright and defamation go to their notice pages. */
 const GAME_WHYS: [ReportReason, string, string][] = [
   ["broken", "It's broken", "Won't load, crashes, or isn't really a game"],
   ["player", "A player", "Someone in a match is causing trouble"],
@@ -122,7 +122,7 @@ dialog.sheet::backdrop{background:linear-gradient(90deg,rgba(4,5,7,0) 35%,rgba(4
     <section data-step="why" aria-label="What's wrong">
       <div class="whys" data-for="game">${GAME_WHYS.filter(([reason]) => reason !== "player" || options.isMultiplayer).map(([reason, label, hint]) => why(reason, label, hint))}</div>
       <div class="whys" data-for="player" hidden>${PLAYER_WHYS.map(([reason, label, hint]) => why(reason, label, hint))}</div>
-      <p class="sheet-foot" data-for="game">Someone copied your work? <a href="/legal/dmca" target="_blank" rel="noopener">Send a copyright notice</a></p>
+      <p class="sheet-foot" data-for="game">Someone copied your work? <a href="/legal/dmca" target="_blank" rel="noopener">Send a copyright notice</a><br>A game falsely says you committed a crime? <a href="/legal/defamation" target="_blank" rel="noopener">Send a defamation notice</a></p>
     </section>
     <form data-step="tell" hidden>
       <button type="button" class="picked" data-back><span><strong id="report-picked"></strong></span><span class="change">Change</span></button>
@@ -308,7 +308,7 @@ ${error ? html`<p class="note">${error}</p>` : ""}
   <label>Details (optional)
     <textarea name="details" maxlength="2000" placeholder="What did you see, and where in the game?"></textarea>
   </label>
-  <p class="note">Copyright claims need a formal notice: see the <a href="/legal/dmca">DMCA page</a>.</p>
+  <p class="note">Copyright claims need a formal notice: see the <a href="/legal/dmca">DMCA page</a>. So does a game that falsely says you committed a crime: see <a href="/legal/defamation">Defamation notices</a>.</p>
   <div class="row"><button class="btn" type="submit">Send report</button><a class="btn ghost" href="/g/${slug}">Cancel</a></div>
 </form>`,
   });

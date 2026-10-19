@@ -564,6 +564,7 @@ export function legal(env: Env, page: string): Response | null {
   const pages: Record<string, { title: string; body: string }> = {
     "content-rules": { title: "Content rules", body: CONTENT_RULES_PAGE },
     dmca: { title: "Copyright and DMCA notices", body: DMCA },
+    defamation: { title: "Defamation notices", body: DEFAMATION },
     privacy: { title: "Privacy", body: PRIVACY },
   };
   const legalPage = pages[page];
@@ -588,6 +589,7 @@ ${html`<ul>${ALLOWED_CONTENT.map((words) => html`<li>${words}</li>`)}</ul>`}
 <p>Every game is scanned before it's published: automatic malware checks, matching against known illegal images, and an AI review. Games that need a closer look wait for a person.</p>
 <h2>If a game breaks a rule</h2>
 <p>That version is held, or the live game is hidden, and you're told which rule, what we found and how to fix it. Nothing is deleted. Publish a fixed version and it's back.</p>
+<p>Copyright and defamation are different: we don't judge them ourselves. When the owner of a work, or a private person a game falsely accuses of a crime, sends a notice, the game is hidden until you publish a version without what the notice names. If the notice is wrong, you can send a counter-notice. See <a href="/legal/dmca">Copyright and DMCA notices</a> and <a href="/legal/defamation">Defamation notices</a>.</p>
 <p>Accounts are closed only for sexual content involving minors, malware, or putting back something we already took down.</p>
 <h2>Reports and takedowns</h2>
 <p>Every game page has a Report button. We remove games that break these rules. Reports about child safety or illegal content go straight to a person. Until we've checked a report, a brand-new game is hidden and a recent update goes back to the version before it.</p>
@@ -596,7 +598,7 @@ ${html`<ul>${ALLOWED_CONTENT.map((words) => html`<li>${words}</li>`)}</ul>`}
 `;
 
 const DMCA = `
-<p class="lead">If a game on Zaisma uses your work without permission, send us a notice and we'll take it down.</p>
+<p class="lead">If a game on Zaisma uses your work without permission, send us a notice and players won't be able to open it until it's fixed.</p>
 <h2>What to include</h2>
 <ol>
 <li>Your name, address, phone number and email.</li>
@@ -608,8 +610,48 @@ const DMCA = `
 <h2>Where to send it</h2>
 <p>Email <a href="mailto:dmca@zaisma.com">dmca@zaisma.com</a>.</p>
 <p class="note">Designated agent details will be listed here once Zaisma's DMCA agent registration is complete.</p>
+<h2>What happens next</h2>
+<p>We hide the game from players and tell its developer what your notice names. We pass your notice on to them, with your name and email. Once they publish a version without your work, we check it and show the game again. Nothing is deleted.</p>
 <h2>Counter-notices</h2>
-<p>If your game was removed and you believe it was a mistake or you have permission, email the same address with a counter-notice. We'll forward it to the person who filed the claim.</p>
+<p>If your game was hidden by mistake, or you may use the work, email the same address with a counter-notice:</p>
+<ol>
+<li>Your name, address, phone number and email.</li>
+<li>The game's Zaisma link and what the notice named.</li>
+<li>A statement, under penalty of perjury, that you believe in good faith it was hidden by mistake or because the work was misidentified.</li>
+<li>Your consent to the jurisdiction of the federal court for your address (or, outside the US, any court where Zaisma may be found), and that you'll accept service from the person who sent the notice.</li>
+<li>Your physical or electronic signature.</li>
+</ol>
+<p>We pass it on to the person who sent the notice, with your name and address. After 10 working days the game is back, unless they tell us they've gone to court.</p>
+`;
+
+// The flow Julius settled on Oct 19, 2026: the game is hidden on a notice, without Zaisma judging it, until a fixed version or a counter-notice.
+const DEFAMATION = `
+<p class="lead">If a game on Zaisma falsely says you, a private person, committed a crime, send us a notice and players won't be able to open it until it's fixed. We don't judge whether it's true: the developer can answer with a counter-notice.</p>
+<p>Satire, jokes and stories about politicians, celebrities and other public figures are allowed, and so are crimes someone was publicly charged with or convicted of. If a game shows where you live, your phone number or where you go to school, or threatens you, use the Report button on its page instead: that breaks the <a href="/legal/content-rules#real_people">content rules</a> whatever it says.</p>
+<h2>What to include</h2>
+<ol>
+<li>Your name and email.</li>
+<li>The game's Zaisma link, and the exact words or scene: where it is in the game, and what it says.</li>
+<li>That it's about you, that you're a private person and not a public figure, and that it says you committed a crime you didn't commit.</li>
+<li>Your consent for us to pass your notice on to the game's developer, with your name.</li>
+<li>A statement that you believe in good faith your notice is accurate.</li>
+<li>Your physical or electronic signature.</li>
+</ol>
+<h2>Where to send it</h2>
+<p>Email <a href="mailto:safety@zaisma.com">safety@zaisma.com</a>, with "Defamation notice" in the subject.</p>
+<h2>What happens next</h2>
+<p>We hide the game from players and tell its developer what your notice names. Once they publish a version without it, we check it and show the game again. Nothing is deleted.</p>
+<h2>Counter-notices</h2>
+<p>If your game was hidden and what it says is true, or isn't about a private person, email the same address with a counter-notice:</p>
+<ol>
+<li>Your name, a contact address and your email.</li>
+<li>The game's Zaisma link and what the notice named.</li>
+<li>Why the notice is wrong: what it says is true, or it isn't about the person who sent it, or that person is a public figure.</li>
+<li>Your consent for us to pass your counter-notice on to the person who sent the notice, with your name and address, so they can take it to court.</li>
+<li>A statement that you believe in good faith your counter-notice is accurate.</li>
+<li>Your physical or electronic signature.</li>
+</ol>
+<p>We pass it on to the person who sent the notice. After 10 working days the game is back, unless they tell us they've gone to court.</p>
 `;
 
 // Approved by Julius on Oct 12, 2026; the play stats and play-check lines on Oct 13, 2026; the lead, the player ID line and the line about games' content rules on Oct 16, 2026; sites you sign in to with Zaisma in the player ID line by merging Sign in with Zaisma; the devices, wrong passwords, cookies, Cloudflare and Supabase lines (Accounts open only through Zaisma) in its preview on Oct 17, 2026.

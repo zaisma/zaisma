@@ -532,7 +532,7 @@ export function siteHeader(env: Env, options: { isAdmin?: boolean; nav?: Nav; se
 }
 
 export function siteFooter(): Raw {
-  return html`<footer><div class="in"><img class="mark" src="/zaisma-mark-metal.svg" alt=""><span>Zaisma™, open source</span><a href="/legal/content-rules">Content rules</a><a href="/legal/privacy">Privacy</a><a href="/legal/dmca">Copyright (DMCA)</a><a href="/dashboard">For game developers</a><a href="https://github.com/zaisma/zaisma">GitHub</a></div></footer>`;
+  return html`<footer><div class="in"><img class="mark" src="/zaisma-mark-metal.svg" alt=""><span>Zaisma™, open source</span><a href="/legal/content-rules">Content rules</a><a href="/legal/privacy">Privacy</a><a href="/legal/dmca">Copyright (DMCA)</a><a href="/legal/defamation">Defamation</a><a href="/dashboard">For game developers</a><a href="https://github.com/zaisma/zaisma">GitHub</a></div></footer>`;
 }
 
 export function message(env: Env, title: string, text: string, httpStatus = 200): Response {

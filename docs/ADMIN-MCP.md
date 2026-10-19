@@ -11,10 +11,11 @@ Names, inputs, answers and errors follow [`docs/NAMING.md`](NAMING.md), like the
 | `list_report_groups` | Open reports grouped by problem, most serious first, with what triage found and recommends, the precedent it fits and what it did by itself; and the month's AI use. |
 | `list_handled_reports` | What triage closed without a person in the last 7 days, to look over. |
 | `get_report_group` | One group in full: what players sent and up to 3 pictures, the game, its reported versions and scans, re-checks, triage's view, the precedent or the drafted one, recent history, and `possible_decisions`. |
-| `decide_report_group` | Dismiss, hide a reported room's name, pass to the developer, take down, or put back a paused game or update, exactly like the queue's buttons; optionally sets a precedent at the same time. A takedown names the `content_rule` it broke (or `is_copyright_notice`), and keeping an update off can; for both the developer reads `why` as the reason (never for child safety), as the game's or version's `review_reason`. |
+| `decide_report_group` | Dismiss, hide a reported room's name, pass to the developer, take down, or put back a paused game or update, exactly like the queue's buttons; optionally sets a precedent at the same time. A takedown names the `content_rule` it broke, and keeping an update off can; for both the developer reads `why` as the reason (never for child safety), as the game's or version's `review_reason`. |
 | `list_precedents`, `set_precedent`, `approve_precedent`, `retire_precedent` | Read, set, change, approve and retire precedents. Only a dismissal can be applied by the AI alone (`can_ai_apply_alone`); asking for it on another decision is refused. |
 | `list_chat_reviews` | Sexual messages from adults to teens the chat filter stopped and kept (`apps/site/src/chat-review.ts`). By default (`chat_review_status` `waiting`) the ones that need the admin: the AI was unsure, they came from a developer's own server, the AI couldn't review them, or they're confirmed and not yet marked reported to NCMEC. Each with the game, the sender's username, its source, the AI's reason, the message and the sender's messages before it. |
 | `decide_chat_review` | `false_alarm` deletes it and lifts the sender's pause; `remove_chat` confirms it, removes the sender's chat for good and keeps it a year; `reported` does the same and records that it was reported to NCMEC. The same as the buttons on `zaisma.com/admin/chat-reviews`. |
+| `decide_notice` | A copyright (DMCA) or defamation notice that reached dmca@ or safety@zaisma.com: `hold` hides the game without judging the notice (`notice_kind` `copyright` or `defamation`), and the developer reads `why`, what the notice names, as its `review_reason`; `show_again` puts a held game back. Publishing a fixed version emails the admin to check it; a counter-notice brings it back after 10 working days unless the sender has gone to court. The same as the Notice form on a game's admin page. |
 | `get_game` | A game as admin sees it, by its slug: versions and scans, open report groups, history. |
 | `list_publishing_accounts` | The accounts that can make, upload and publish games before the beta, each with its username, player ID and how many games it has. |
 | `set_can_publish` | Let an account make, upload and publish games before the beta, by its username, or stop it (`can_publish` false): new games, uploads and publishes stop, and its live games stay up. The same as the buttons on `zaisma.com/admin/publishing`. |
@@ -43,9 +44,10 @@ A refused call answers `{ "error": { code, message, field, fix, retry_after_sec 
 | `report_group_closed` | 409 | Every report in the group is closed already. |
 | `bad_maximum_group_count` | 400 | maximum_group_count isn't a whole number from 1 to 100. |
 | `bad_decision` | 400 | decision isn't one of the choices the call takes. |
-| `cant_decide` | 409 | The report group can't be decided that way now; get_report_group lists what can. |
+| `cant_decide` | 409 | It can't be decided that way now: get_report_group lists what a report group can, and decide_notice shows again only a held game and holds none that's taken down. |
 | `decision_refused` | 409 | The decision didn't go through, like putting back an update that matched known abuse material. |
 | `bad_why` | 400 | why is blank or over 500 characters. |
+| `bad_notice_kind` | 400 | notice_kind isn't copyright or defamation. |
 | `no_precedent` | 404 | There's no precedent with that ID. |
 | `not_proposed` | 409 | Only a proposed precedent can be approved; one in force changes with set_precedent. |
 | `bad_precedent` | 400 | precedent isn't { title, applies_when, why } and its optional fields within their lengths, or the decision sets none (hide_name). |

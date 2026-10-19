@@ -8,6 +8,7 @@ import type { Env } from "./env.ts";
 import { deleteOldProofs } from "./session-proofs.ts";
 import { deleteVersion, pruneVersions } from "./scan.ts";
 import { tellWebhooks } from "./webhooks.ts";
+import { alertIfNoticeFixPublished } from "./notices.ts";
 
 /** Every few minutes: publish drafts whose time has come. */
 export async function publishDue(env: Env, nowMs = Date.now()): Promise<number> {
@@ -27,6 +28,7 @@ export async function publishDue(env: Env, nowMs = Date.now()): Promise<number> 
       await audit(env.DB, version.game_id, "published", `${version.id}, at its scheduled time`);
       await pruneVersions(env, version.game_id);
       await tellWebhooks(env, "live_version_changed", version.game_id, { versionId: version.id });
+      await alertIfNoticeFixPublished(env, version.game_id, version.id);
       publishedCount++;
     } else {
       await env.DB.prepare("UPDATE versions SET scheduled_publish_at_ms = NULL WHERE id = ?").bind(version.id).run();
