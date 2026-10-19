@@ -128,6 +128,11 @@ children.push(wrangler("site", [...dev("site"), "--port", String(PORTS.site), "-
 await waitFor(SITE);
 children.push(wrangler("rooms", [...dev("rooms"), "--port", String(PORTS.rooms), "--inspector-port", String(9342 + OFFSET), "--persist-to", STATE, "--env-file", join(STATE, "rooms.env"), "--test-scheduled"], { quiet: true }));
 await waitFor(ROOMS);
+// The site reloads once the rooms it's bound to connect: wait until it answers steadily before sending it anything.
+for (let steadyCount = 0, i = 0; steadyCount < 3 && i < 120; i++) {
+  await new Promise((r) => setTimeout(r, 1000));
+  steadyCount = (await fetch(SITE, { redirect: "manual" }).then(() => true, () => false)) ? steadyCount + 1 : 0;
+}
 if (fresh) {
   console.log("Adding test games…");
   await seed();
