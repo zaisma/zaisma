@@ -1,0 +1,21 @@
+{
+  "title": "Lava Leap",
+  "description": "",
+  "pictures": [
+    {
+      "path": "cover.webp",
+      "kind": "cover"
+    },
+    {
+      "path": "screenshot.webp",
+      "kind": "screenshot"
+    }
+  ],
+  "is_honest": false,
+  "expected": {
+    "title": "fine",
+    "cover.webp": "extra_text_on_cover",
+    "screenshot.webp": "fine"
+  },
+  "why": "\"NEW LEVELS!\", \"+1 JUMP / SEC\" and \"100 STAGES\" are words besides the title."
+}

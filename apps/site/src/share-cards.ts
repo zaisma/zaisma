@@ -5,7 +5,7 @@
  * sitemap of listed games; and a game's link, or a room's, comes as a QR code.
  */
 
-import { qrCodeSvg, type Game } from "@zaisma/core";
+import { SHOWN_IN_LISTS_SQL, qrCodeSvg, type Game } from "@zaisma/core";
 import type { Env } from "./env.ts";
 import { playable } from "./home.ts";
 import { html, raw, structuredData, type Raw } from "./html.ts";
@@ -86,9 +86,9 @@ ${cardSize ? html`<meta property="og:image:width" content="${cardSize.width_px}"
 ${structuredData(structured)}`;
 }
 
-/** Every listed live game, for search engines, with the home page. */
+/** Every listed live game Zaisma's lists show ("No slop"), for search engines, with the home page. */
 export async function sitemap(env: Env): Promise<Response> {
-  const { results } = await env.DB.prepare("SELECT slug, updated_at_ms FROM games WHERE review_status = 'live' AND visibility = 'listed' AND live_version_id IS NOT NULL ORDER BY updated_at_ms DESC LIMIT 50000").all<{ slug: string; updated_at_ms: number }>();
+  const { results } = await env.DB.prepare(`SELECT slug, updated_at_ms FROM games WHERE review_status = 'live' AND visibility = 'listed' AND live_version_id IS NOT NULL AND ${SHOWN_IN_LISTS_SQL} ORDER BY updated_at_ms DESC LIMIT 50000`).all<{ slug: string; updated_at_ms: number }>();
   const entry = (path: string, changedAtMs?: number) => `<url><loc>${env.SITE_ORIGIN}${path}</loc>${changedAtMs ? `<lastmod>${new Date(changedAtMs).toISOString().slice(0, 10)}</lastmod>` : ""}</url>`;
   const body = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${entry("/")}${results.map((game) => entry(`/g/${game.slug}`, game.updated_at_ms)).join("")}</urlset>\n`;
   return new Response(body, { headers: { "Content-Type": "application/xml; charset=utf-8", "Cache-Control": "public, max-age=3600" } });

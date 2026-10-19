@@ -72,6 +72,13 @@ export interface Game {
   is_off_shelves: number;
   /** A new title or description waiting for review, as JSON, for games players can already see. */
   details_waiting_for_review: string | null;
+  /** Why the title keeps the game off lists ("No slop"), as JSON (a ReviewReason); NULL when none. */
+  title_listing_reason: string | null;
+  /** The title a person cleared: the listing check leaves the title alone while it's this. */
+  cleared_title: string | null;
+  /** When a change last asked for the listing check (listing-check.ts), and when it last ran; NULL when never. */
+  listing_check_requested_at_ms: number | null;
+  listing_checked_at_ms: number | null;
   created_at_ms: number;
   updated_at_ms: number;
 }
@@ -179,6 +186,11 @@ export interface ScanJob {
   recheck?: { reportId: string };
   /** Image matching on a version that already passed (before matching was connected). Takes it off only on a match. */
   isImageRecheck?: true;
+}
+
+/** The listing check on a game's covers, screenshots and words ("No slop"), on the scan queue beside ScanJob. */
+export interface ListingCheckJob {
+  listingCheckGameId: string;
 }
 
 /** Why a player reports another player in a room. */

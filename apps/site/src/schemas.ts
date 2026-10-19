@@ -120,7 +120,8 @@ export const GAME = object({
   game_server_allowed_hosts: list(text(), "The hosts its game server can call with fetch(), like discord.com, or *.example.com for every name under example.com; [] for none."),
   own_server_urls: list(text(), "The game's own servers players' browsers connect to, like wss://play.example.com, named in the game's menu; [] for none."),
   links: list(LINK, "Its registered links, which the game opens with Zaisma.links.open; [] for none."),
-  details_waiting_for_review: nullable(object({ title: nullable(text()), description: nullable(text()) }, "A new title or description waiting for review before players see it.")),
+  details_waiting_for_review: nullable(object({ title: nullable(text()), description: nullable(text()) }, "A new title or description waiting for the listing check (about a minute) or a person before players see it.")),
+  title_listing_reason: nullable(reviewReason("Why the title keeps the game off Zaisma's lists (a famous name, a tag) or held it (a fake reward); null when nothing does. The game still plays by its link.")),
   updated_at: isoTime(),
 });
 
@@ -131,6 +132,7 @@ export const GAME_ALERT = object({
     version_rejected: "the newest version was rejected",
     version_held: "a version is waiting for a person at Zaisma",
     link_flagged: "a registered link opens for nobody: its site is listed for malware or phishing",
+    game_off_lists: "the listing check found something on a cover or the title that keeps the listed game off Zaisma's lists (home, All games, browse, search engines) until it's fixed; it still plays by its link",
     rooms_paused: "the month's free player-hours on Zaisma rooms and the relay are used, so new rooms and relayed connections don't open, and running matches get an hour to finish",
     requests_paused: "the month's free game server requests are used",
     database_paused: "the month's free rows read from the game database are used, so it stops answering",
@@ -211,8 +213,9 @@ export const GAME_CHECK = object(GAME_CHECK_FIELDS);
 export const IMAGE = object({
   id: idOf("image"),
   kind: choice({ cover: "landscape cover", square: "square cover, shown on phones", screenshot: "a screenshot", share: "the picture shared links show instead of the cover" }),
-  review_status: choice({ pending: "only you see it until it's reviewed", approved: "shown to players", rejected: "not shown" }),
+  review_status: choice({ pending: "only you see it until the listing check (about a minute) or a person approves it", approved: "shown to players", rejected: "not shown" }),
   review_reason: nullable(reviewReason("Why it wasn't approved; null otherwise.")),
+  listing_reason: nullable(reviewReason("Why this cover keeps the game off Zaisma's lists, though it shows on the game page (text, an overlay, a famous name, a subject not in the game), or held the game (a fake reward); null when nothing does.")),
   width_px: countOf(),
   height_px: countOf(),
   size_bytes: countOf(),

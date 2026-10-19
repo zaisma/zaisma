@@ -1,0 +1,10 @@
+{
+  "title": "Lava Leap [UPDATE]",
+  "description": "",
+  "pictures": [],
+  "is_honest": false,
+  "expected": {
+    "title": "tag_in_title"
+  },
+  "why": "A bracketed tag announces an update instead of naming the game."
+}

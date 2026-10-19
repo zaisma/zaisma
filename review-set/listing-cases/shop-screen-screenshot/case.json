@@ -1,0 +1,26 @@
+{
+  "title": "Lava Leap",
+  "description": "",
+  "pictures": [
+    {
+      "path": "cover.webp",
+      "kind": "cover"
+    },
+    {
+      "path": "play.webp",
+      "kind": "screenshot"
+    },
+    {
+      "path": "shop.webp",
+      "kind": "screenshot"
+    }
+  ],
+  "is_honest": true,
+  "expected": {
+    "title": "fine",
+    "cover.webp": "fine",
+    "play.webp": "fine",
+    "shop.webp": "fine"
+  },
+  "why": "The game's own skins shop, with prices in the game's coins, is the game's interface, not an overlay or a fake reward. The cover's hero is in the screenshots."
+}

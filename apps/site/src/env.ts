@@ -1,4 +1,4 @@
-import type { ScanJob } from "@zaisma/core";
+import type { ListingCheckJob, ScanJob } from "@zaisma/core";
 import type { GameDatabaseService } from "../../rooms/src/database.ts";
 import type { GameSecretsService } from "../../rooms/src/secrets.ts";
 import type { GameServerWebhookService } from "../../rooms/src/game-server.ts";
@@ -13,7 +13,7 @@ export interface Env {
   ASSETS: Fetcher;
   /** Cloudflare Images, for each game picture's share card JPEG; without it the card is the picture itself. */
   IMAGES?: ImagesBinding;
-  SCAN_QUEUE: Queue<ScanJob>;
+  SCAN_QUEUE: Queue<ScanJob | ListingCheckJob>;
   /** Every game's own database, in the rooms Worker, for the developer API (game-database.ts). */
   GAME_DATABASES?: Service<GameDatabaseService>;
   /** Every game's secrets, in the rooms Worker, for the developer API (secrets-api.ts). */
@@ -66,6 +66,8 @@ export interface Env {
   REVIEW_READER_MODEL: string;
   /** The game review's judge, which decides from the evidence (review-judge.ts). */
   REVIEW_JUDGE_MODEL: string;
+  /** The listing check, which holds covers, screenshots and titles to "No slop" (listing-judge.ts); counts toward the review's budget. */
+  LISTING_CHECK_MODEL: string;
   /** The game review's monthly budget in US cents; Julius hears at 80%, and past it versions wait for a person. */
   AI_REVIEW_MONTHLY_BUDGET_CENTS: string;
   /** Chat's own monthly cap on AI input tokens (chat-check.ts), apart from AI_MONTHLY_INPUT_TOKENS. */

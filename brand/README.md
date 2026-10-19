@@ -45,3 +45,7 @@ Headings use **Jost** (`fonts/jost.woff2`, variable weight), a free geometric ty
 ## License
 
 The code in this repo is MIT. The Zaisma name and logo are the project's identity: use them to refer to Zaisma, not to brand other products.
+
+## Cover guide pictures
+
+`cover-guide/` holds the pictures zaisma.com/developers/covers shows (`apps/site/src/cover-guide.ts`, `docs/COVERS.md`): good covers made from real captures of the demo games Arena and Four in a Row, and stand-ins for made-up games. They are examples for developers, not Zaisma's brand.

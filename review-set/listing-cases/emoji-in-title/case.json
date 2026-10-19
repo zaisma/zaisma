@@ -1,0 +1,10 @@
+{
+  "title": "Lava Leap 🔥",
+  "description": "",
+  "pictures": [],
+  "is_honest": false,
+  "expected": {
+    "title": "tag_in_title"
+  },
+  "why": "An emoji in the title is a tag."
+}

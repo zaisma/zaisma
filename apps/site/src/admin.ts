@@ -69,6 +69,7 @@ import { sendAlert } from "./email.ts";
 import { adminChatReviewAction, adminChatReviewsPage } from "./admin-chat-reviews.ts";
 import { adminPublishingAction, adminPublishingPage } from "./admin-publishing.ts";
 import { adminIdentity } from "./access.ts";
+import { clearFakeRewardItems, clearImageListingReason, clearTitleListingReason } from "./listing-check.ts";
 import { gameUrl, type Env } from "./env.ts";
 import { html, layout, raw, type Raw } from "./html.ts";
 import { handleAdminMcp } from "./admin-mcp.ts";
@@ -273,6 +274,24 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     return redirect(String(form.get("back") ?? "") === "game" ? `/admin/games/${image.game_id}` : "/admin");
   }
 
+  match = path.match(/^\/admin\/images\/([a-z0-9_]+)\/clear-listing$/);
+  if (match) {
+    const image = await imageById(env.DB, match[1]!);
+    if (!image) return new Response("Not found", { status: 404 });
+    await clearImageListingReason(env, image);
+    await audit(env.DB, image.game_id, "listing-cleared", reason || `${image.kind} ${image.id}: ${readReviewReason(image.listing_reason)?.message ?? ""}`, actor);
+    return redirect(String(form.get("back") ?? "") === "game" ? `/admin/games/${image.game_id}` : "/admin");
+  }
+
+  match = path.match(/^\/admin\/games\/([a-z0-9_]+)\/title-listing\/clear$/);
+  if (match) {
+    const game = await gameById(env.DB, match[1]!);
+    if (!game) return new Response("Not found", { status: 404 });
+    await clearTitleListingReason(env, game);
+    await audit(env.DB, game.id, "listing-cleared", reason || `Title “${game.title}”: ${readReviewReason(game.title_listing_reason)?.message ?? ""}`, actor);
+    return redirect(`/admin/games/${game.id}`);
+  }
+
   match = path.match(/^\/admin\/games\/([a-z0-9_]+)\/details\/(approve|reject)$/);
   if (match) {
     const game = await gameById(env.DB, match[1]!);
@@ -389,6 +408,8 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
       if (current && knownImages(current)) return gameDetail(env, game.id, "Players would get the version that matched known abuse material. Once the developer publishes a clean version, the game can be shown again.");
       await setReviewStatus(env.DB, game.id, game.live_version_id ? "live" : "pending");
       await tellWebhooks(env, "review_status_changed", game.id, {});
+      // A person checked a fake-reward hold: the listing check doesn't hold it again for the same pictures or title.
+      if (readReviewReason(game.review_reason)?.code === "fake_reward") await clearFakeRewardItems(env, game);
       // A person checked it: reports can't hide this version again.
       if (game.live_version_id) await clearVersion(env.DB, game.live_version_id);
       await closeReports(env.DB, game.id, "dismissed");
@@ -493,7 +514,7 @@ ${queue.length
 
 <h2>Covers and screenshots (${images.length})</h2>
 ${images.length
-      ? html`<p class="muted">${env.ARACHNID_SHIELD_KEY ? "These passed image matching. Check each shows the game and follows the content rules." : "Image matching isn't connected yet, so check each picture shows the game and follows the content rules."}</p>
+      ? html`<p class="muted">${env.ARACHNID_SHIELD_KEY ? "These passed image matching. The listing check approves the rest within minutes; these are ones it couldn't clear (a safety concern, or no AI). Check each follows the content rules." : "Image matching isn't connected yet, so check each picture follows the content rules."}</p>
 <div class="shots">${images.map((image) => html`<div>${imageReview(image)}<p><a href="/admin/games/${image.game_id}">${image.title}</a></p></div>`)}</div>`
       : html`<p class="note">Nothing waiting.</p>`}
 
@@ -591,6 +612,7 @@ ${toldDeveloper(game.review_reason)}
 ${noticeSection(game.id, game.review_status, readReviewReason(game.review_reason))}
 
 <h2>Details</h2>
+${listingNote(game.title_listing_reason, html`<form method="post" action="/admin/games/${game.id}/title-listing/clear"><button class="btn ghost" type="submit">Clear the title: it's fine</button></form>`)}
 <p>Visibility: ${pill(game.visibility)} · Devices: ${game.devices || "not set"} · Controls: ${game.controls || "not set"} · Screen: ${game.screen_orientation || "not set"}</p>
 ${images.length ? html`<div class="shots">${images.map((image) => html`<div>${imageReview(image, true)}</div>`)}</div>` : html`<p class="note">No cover or screenshots yet.</p>`}
 
@@ -708,7 +730,14 @@ ${image.review_status === "pending"
 <details><summary class="btn ghost">Reject…</summary><form class="stack" method="post" action="/admin/images/${image.id}/reject"><input type="hidden" name="back" value="${fromGame ? "game" : ""}">${decisionFields({})}<button class="btn ghost" type="submit">Reject</button></form></details></div>`
     : image.review_status === "rejected"
       ? toldDeveloper(image.review_reason)
-      : ""}`;
+      : ""}${listingNote(image.listing_reason, html`<form method="post" action="/admin/images/${image.id}/clear-listing"><input type="hidden" name="back" value="${fromGame ? "game" : ""}"><button class="btn ghost" type="submit">Clear: it's fine</button></form>`)}`;
+}
+
+/** What the listing check found on a picture or title ("No slop"), with a person's Clear. */
+function listingNote(stored: string | null, clearForm: Raw): Raw | string {
+  const reason = readReviewReason(stored);
+  if (!reason) return "";
+  return html`<p class="muted">${reason.code === "fake_reward" ? "Held the game" : "Keeps the game off lists"}: <code>${reason.code}</code> · “${reason.message}”</p>${reason.code === "fake_reward" ? "" : clearForm}`;
 }
 
 /** A report in the queue, with its game and, for a report about an account, that account (null for a guest or a game report). */

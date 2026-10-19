@@ -786,6 +786,8 @@ export async function applyDetails(database: D1Database, game: Game, change: Det
   if (change.description !== undefined && change.description !== game.description) words.description = change.description;
   let isWaitingForReview = false;
   if (Object.keys(words).length) {
+    // New words go through the listing check ("No slop"), shown or not.
+    set("listing_check_requested_at_ms", now());
     if (shownToPlayers(game)) {
       const waitingWords = { ...(game.details_waiting_for_review ? (JSON.parse(game.details_waiting_for_review) as object) : {}), ...words };
       set("details_waiting_for_review", JSON.stringify(waitingWords));
@@ -860,9 +862,32 @@ export interface GameImage {
   height_px: number;
   size_bytes: number;
   review_status: ImageReviewStatus;
-  /** Why a person didn't approve it, as JSON (a ReviewReason); NULL otherwise. */
+  /** Why it wasn't approved, as JSON (a ReviewReason); NULL otherwise. */
   review_reason: string | null;
+  /** Why it keeps the game off lists ("No slop"), or held it (fake_reward), as JSON (a ReviewReason); NULL when none. */
+  listing_reason: string | null;
+  /** When a person cleared it: the listing check leaves it alone after. */
+  cleared_at_ms: number | null;
   created_at_ms: number;
+}
+
+/**
+ * A game Zaisma's lists may show ("No slop" in docs/DECISIONS.md): nothing the listing check found keeps it off,
+ * on the title or on a cover, square cover or share picture that isn't rejected. A WHERE fragment on `games`; the
+ * list's own query adds that it's live and listed. Developer profiles and links don't use it.
+ */
+export const SHOWN_IN_LISTS_SQL =
+  "games.title_listing_reason IS NULL AND NOT EXISTS (SELECT 1 FROM game_images WHERE game_images.game_id = games.id AND game_images.kind != 'screenshot' AND game_images.review_status != 'rejected' AND game_images.listing_reason IS NOT NULL)";
+
+/** The same as SHOWN_IN_LISTS_SQL, for a game and its images in hand, with whether it's live and listed. */
+export function isShownInLists(game: Pick<Game, "review_status" | "visibility" | "live_version_id" | "title_listing_reason">, images: Pick<GameImage, "kind" | "review_status" | "listing_reason">[]): boolean {
+  if (game.review_status !== "live" || game.visibility !== "listed" || !game.live_version_id || game.title_listing_reason) return false;
+  return !images.some((image) => image.kind !== "screenshot" && image.review_status !== "rejected" && image.listing_reason);
+}
+
+/** Ask for the listing check on a game (a picture or its words changed); the queue and the cron run it. */
+export async function requestListingCheck(database: D1Database, gameId: string): Promise<void> {
+  await database.prepare("UPDATE games SET listing_check_requested_at_ms = ? WHERE id = ?").bind(now(), gameId).run();
 }
 
 export const IMAGE_LIMITS = { maximumSizeBytes: 5 * 1024 * 1024, minimumSidePx: 320, maximumSidePx: 8192, maximumScreenshotCount: 8, minimumSquareSidePx: 512 };
@@ -922,8 +947,8 @@ export function sniffImage(bytes: Uint8Array): { type: "image/png" | "image/jpeg
   return null;
 }
 
-export async function addImage(database: D1Database, image: Omit<GameImage, "review_status" | "review_reason" | "created_at_ms">): Promise<GameImage> {
-  const row: GameImage = { ...image, review_status: "pending", review_reason: null, created_at_ms: now() };
+export async function addImage(database: D1Database, image: Omit<GameImage, "review_status" | "review_reason" | "listing_reason" | "cleared_at_ms" | "created_at_ms">): Promise<GameImage> {
+  const row: GameImage = { ...image, review_status: "pending", review_reason: null, listing_reason: null, cleared_at_ms: null, created_at_ms: now() };
   await database
     .prepare("INSERT INTO game_images (id, game_id, kind, content_type, width_px, height_px, size_bytes, review_status, created_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
     .bind(row.id, row.game_id, row.kind, row.content_type, row.width_px, row.height_px, row.size_bytes, row.review_status, row.created_at_ms)
@@ -948,12 +973,13 @@ export async function pendingImages(database: D1Database): Promise<(GameImage & 
 }
 
 /**
- * Approve an image (rejectedReason null) or reject it, saying why. An approved cover (landscape or square) replaces the game's
+ * Approve an image (rejectedReason null) or reject it, saying why. An approved cover (landscape, square or share) replaces the game's
  * old one of that kind; the old files to delete from storage are returned. Rejected files are kept, in case they need reporting.
+ * `decidedBy` "person" also clears it, so the listing check leaves it alone; "check" keeps the check's listing_reason.
  */
-export async function settleImage(database: D1Database, image: GameImage, rejectedReason: ReviewReason | null): Promise<GameImage[]> {
+export async function settleImage(database: D1Database, image: GameImage, rejectedReason: ReviewReason | null, decidedBy: "person" | "check" = "person", listingReason: ReviewReason | null = null): Promise<GameImage[]> {
   if (rejectedReason) {
-    await database.prepare("UPDATE game_images SET review_status = 'rejected', review_reason = ? WHERE id = ?").bind(JSON.stringify(rejectedReason), image.id).run();
+    await database.prepare("UPDATE game_images SET review_status = 'rejected', review_reason = ?, listing_reason = NULL WHERE id = ?").bind(JSON.stringify(rejectedReason), image.id).run();
     return [];
   }
   const { results: replaced } =
@@ -961,7 +987,9 @@ export async function settleImage(database: D1Database, image: GameImage, reject
       ? await database.prepare("SELECT * FROM game_images WHERE game_id = ? AND kind = ? AND review_status = 'approved' AND id != ?").bind(image.game_id, image.kind, image.id).all<GameImage>()
       : { results: [] as GameImage[] };
   await database.batch([
-    database.prepare("UPDATE game_images SET review_status = 'approved' WHERE id = ?").bind(image.id),
+    decidedBy === "person"
+      ? database.prepare("UPDATE game_images SET review_status = 'approved', listing_reason = NULL, cleared_at_ms = ? WHERE id = ?").bind(now(), image.id)
+      : database.prepare("UPDATE game_images SET review_status = 'approved', listing_reason = ? WHERE id = ?").bind(listingReason ? JSON.stringify(listingReason) : null, image.id),
     ...replaced.map((old) => database.prepare("DELETE FROM game_images WHERE id = ?").bind(old.id)),
   ]);
   return replaced;

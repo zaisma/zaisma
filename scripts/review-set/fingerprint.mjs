@@ -30,3 +30,19 @@ export function reviewFingerprint(rootDirectory) {
   ];
   return createHash("sha256").update(JSON.stringify(parts)).digest("hex");
 }
+
+/** The listing check's files and model var (apps/site/src/listing-judge.ts, "No slop"): its own cases and last run. */
+export const LISTING_FINGERPRINT_FILES = ["apps/site/src/listing-judge.ts"];
+export const LISTING_MODEL_VARS = ["LISTING_CHECK_MODEL"];
+
+/** The listing check's model var's value in apps/site/wrangler.jsonc, by name. */
+export function listingModelVars(rootDirectory) {
+  const config = readFileSync(join(rootDirectory, "apps/site/wrangler.jsonc"), "utf8");
+  return Object.fromEntries(LISTING_MODEL_VARS.map((name) => [name, new RegExp(`"${name}":\\s*"([^"]*)"`).exec(config)?.[1] ?? ""]));
+}
+
+/** sha256 (hex) of the listing check's files and its model var. */
+export function listingFingerprint(rootDirectory) {
+  const parts = [...LISTING_FINGERPRINT_FILES.map((path) => [path, readFileSync(join(rootDirectory, path), "utf8")]), ...Object.entries(listingModelVars(rootDirectory))];
+  return createHash("sha256").update(JSON.stringify(parts)).digest("hex");
+}

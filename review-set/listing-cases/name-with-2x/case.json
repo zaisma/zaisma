@@ -1,0 +1,10 @@
+{
+  "title": "Wrangler 2x",
+  "description": "",
+  "pictures": [],
+  "is_honest": true,
+  "expected": {
+    "title": "fine"
+  },
+  "why": "\"2x\" names a sequel: part of the name, not a tag."
+}

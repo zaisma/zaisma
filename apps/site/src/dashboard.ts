@@ -43,6 +43,7 @@ interface GameJson {
   own_server_urls: string[];
   links: LinkJson[];
   details_waiting_for_review: { title: string | null; description: string | null } | null;
+  title_listing_reason: ReviewReasonJson | null;
   updated_at: string;
 }
 /** A registered link, as the API answers it (apps/site/src/schemas.ts, LINK). */
@@ -65,6 +66,7 @@ interface ImageJson {
   kind: "cover" | "square" | "screenshot" | "share";
   review_status: "pending" | "approved" | "rejected";
   review_reason: ReviewReasonJson | null;
+  listing_reason: ReviewReasonJson | null;
   image_url: string;
   created_at: string;
 }
@@ -534,6 +536,7 @@ const ALERT_PLACES: Partial<Record<GameAlertKind, { section: Section; hash: stri
   database_nearly_full: { section: "database", hash: "", label: "Database" },
   reports_open: { section: "players", hash: "#reports", label: "See them" },
   link_flagged: { section: "details", hash: "#links", label: "Links" },
+  game_off_lists: { section: "details", hash: "#images", label: "Images" },
 };
 
 /**
@@ -798,7 +801,8 @@ ${scheduled}${acts}
 function detailsForm(slug: string, game: GameJson): Raw {
   const waiting = game.details_waiting_for_review;
   return html`<form class="stack" method="post" action="/dashboard/${slug}/details">
-${waiting ? html`<p class="note small">Waiting for review: ${[waiting.title ? `title "${waiting.title}"` : "", waiting.description ? "a new description" : ""].filter(Boolean).join(" and ")}.</p>` : ""}
+${waiting ? html`<p class="note small">Being checked: ${[waiting.title ? `title "${waiting.title}"` : "", waiting.description ? "a new description" : ""].filter(Boolean).join(" and ")}. It usually shows within a minute.</p>` : ""}
+${game.title_listing_reason ? html`<div class="note">${reasonPanel(slug, game.title_listing_reason, "The title keeps your game off Zaisma's lists.")}</div>` : ""}
 <label>Title<input name="title" maxlength="80" required value="${waiting?.title ?? game.title}"></label>
 <label>Description<textarea name="description" maxlength="500">${waiting?.description ?? game.description}</textarea></label>
 <fieldset><legend>Works on</legend><div class="row">${DEVICES.map((device) => html`<label class="check"><input type="checkbox" name="devices" value="${device}"${game.devices.includes(device) ? raw(" checked") : ""}> ${DEVICE_LABELS[device]}</label>`)}</div></fieldset>
@@ -998,19 +1002,25 @@ function imagesPanel(slug: string, images: ImageJson[]): Raw {
   const shown = images.filter((i) => i.review_status !== "rejected");
   // Only the latest few that weren't approved, each with why; rejected images are never served, so no picture.
   const rejected = images.filter((image) => image.review_status === "rejected" && image.review_reason).slice(0, 3);
-  return html`${rejected.map(
+  // Pictures the listing check found that keep the game off lists (or held it): shown, with why and the fix.
+  const offLists = shown.filter((image) => image.listing_reason);
+  return html`${offLists.map(
+    (image) =>
+      html`<div class="note rejected-image">${reasonPanel(slug, image.listing_reason!, image.listing_reason!.code === "fake_reward" ? `Your ${KIND_LABELS[image.kind].toLowerCase()} held the game.` : `Your ${KIND_LABELS[image.kind].toLowerCase()} keeps the game off Zaisma's lists.`)}</div>`,
+  )}
+${rejected.map(
     (image) => html`<div class="note rejected-image"><p><strong>The ${KIND_LABELS[image.kind].toLowerCase()} you sent ${when(image.created_at)} wasn't approved.</strong></p>${reasonPanel(slug, image.review_reason!)}
 <form method="post" action="/dashboard/${slug}/images/${image.id}/remove"><button class="link" type="submit">Clear this</button></form></div>`,
   )}
 ${shown.length
     ? html`<div class="thumbs">${shown.map(
-        (i) => html`<figure><img class="bevel-s${i.kind === "square" ? " sq" : ""}" src="${i.image_url}" alt="" loading="lazy"><figcaption><span>${KIND_LABELS[i.kind]}${i.review_status === "pending" ? html` <span class="pill pending">In review</span>` : ""}</span>
+        (i) => html`<figure><img class="bevel-s${i.kind === "square" ? " sq" : ""}" src="${i.image_url}" alt="" loading="lazy"><figcaption><span>${KIND_LABELS[i.kind]}${i.review_status === "pending" ? html` <span class="pill pending">Being checked</span>` : i.listing_reason ? html` <span class="pill pending">Off lists</span>` : ""}</span>
 <form method="post" action="/dashboard/${slug}/images/${i.id}/remove"><button class="link" type="submit">Remove</button></form></figcaption></figure>`,
       )}</div>`
     : html`<p class="muted">No cover yet. Players see it on the game page and in lists.</p>`}
 <form class="stack" method="post" action="/dashboard/${slug}/images" enctype="multipart/form-data">
 <div class="row"><select name="kind" aria-label="Kind"><option value="cover">Cover</option><option value="square">Square cover</option><option value="screenshot">Screenshot</option><option value="share">Share picture</option></select><input type="file" name="file" accept="image/png,image/jpeg,image/webp" required aria-label="Image"></div>
-<p class="hint">Players see your cover alone as your game's card, so put your game's name or logo on it. The cover is landscape (16:9 shows best). The square cover is optional: phones show it instead, where a landscape one would be small; at least 512 px. Screenshots are just the game. The share picture is optional: links to your game show it in chats and social sites instead of the cover (1200 by 630 shows best). PNG, JPEG or WebP, up to 5 MB, at least 320 px a side.</p>
+<p class="hint">Players see your cover alone as your game's card, so put your game's name or logo on it, and nothing else: no other words, nothing laid over the picture, no fake rewards, no famous characters you don't own, and built around something from the game. <a href="/developers/covers">See covers that pass</a>. The cover is landscape (16:9 shows best). The square cover is optional: phones show it instead, where a landscape one would be small; at least 512 px. Screenshots are just the game, its own interface included, with nothing added. The share picture is optional: links to your game show it in chats and social sites instead of the cover (1200 by 630 shows best). PNG, JPEG or WebP, up to 5 MB, at least 320 px a side.</p>
 <button class="btn" type="submit">Add image</button>
 </form>`;
 }

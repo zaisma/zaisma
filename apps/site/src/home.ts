@@ -1,4 +1,4 @@
-import { AGE_BAND_FLOOR_YEARS, KEPT_PLAYED_GAME_COUNT, accountById, gameBySlug, mergePlayed, readPlayModes, recentlyPlayed, recordPlayed, type Account, type Game, type MultiplayerMode } from "@zaisma/core";
+import { AGE_BAND_FLOOR_YEARS, KEPT_PLAYED_GAME_COUNT, SHOWN_IN_LISTS_SQL, accountById, gameBySlug, mergePlayed, readPlayModes, recentlyPlayed, recordPlayed, type Account, type Game, type MultiplayerMode } from "@zaisma/core";
 import { isProtectionOfferDue, markProtectionOffered, protectAccountWindow } from "./account-protection.ts";
 import { currentSession, readCookie, realEmail } from "./auth.ts";
 import type { Env } from "./env.ts";
@@ -43,7 +43,7 @@ export async function viewerOf(request: Request, env: Env): Promise<{ ageFloorYe
   return { ageFloorYears: account ? AGE_BAND_FLOOR_YEARS[account.age_band] : 18, account, email: account && session ? realEmail(session.email) : null, cookies: session?.cookies ?? [] };
 }
 
-/** Listed, live games with what their cards need, newest update first, leaving out games for players older than viewerAgeFloorYears. */
+/** Listed, live games with what their cards need, newest update first, leaving out games for players older than viewerAgeFloorYears and games the listing check keeps off lists ("No slop"). */
 export async function showcase(env: Env, viewerAgeFloorYears: number, maximumGameCount = 200): Promise<ShowGame[]> {
   const { results } = await env.DB
     .prepare(
@@ -56,7 +56,7 @@ export async function showcase(env: Env, viewerAgeFloorYears: number, maximumGam
        LEFT JOIN owners ON owners.id = games.owner_id
        LEFT JOIN accounts ON accounts.id = owners.account_id
        LEFT JOIN versions ON versions.id = games.live_version_id
-       WHERE games.review_status = 'live' AND games.visibility = 'listed' AND games.live_version_id IS NOT NULL AND games.minimum_player_age_years <= ?
+       WHERE games.review_status = 'live' AND games.visibility = 'listed' AND games.live_version_id IS NOT NULL AND games.minimum_player_age_years <= ? AND ${SHOWN_IN_LISTS_SQL}
        ORDER BY COALESCE(versions.published_at_ms, games.updated_at_ms) DESC LIMIT ?`,
     )
     .bind(viewerAgeFloorYears, maximumGameCount)
@@ -94,7 +94,7 @@ export async function shelves(env: Env, games: ShowGame[], viewerAgeFloorYears: 
       .prepare(
         `SELECT games.slug, play_networks.date, play_networks.autonomous_system_number, play_networks.player_count
          FROM play_networks JOIN games ON games.id = play_networks.game_id
-         WHERE play_networks.date >= ? AND games.review_status = 'live' AND games.visibility = 'listed' AND games.is_off_shelves = 0 AND games.minimum_player_age_years <= ?`,
+         WHERE play_networks.date >= ? AND games.review_status = 'live' AND games.visibility = 'listed' AND games.is_off_shelves = 0 AND games.minimum_player_age_years <= ? AND ${SHOWN_IN_LISTS_SQL}`,
       )
       .bind(dateDaysAgo(16), viewerAgeFloorYears)
       .all<{ slug: string; date: string; autonomous_system_number: number; player_count: number }>(),

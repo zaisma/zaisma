@@ -1,0 +1,417 @@
+{
+  "fingerprint_sha256": "0fb42280f4ba7b33730544b1da1463aa0ba3ccb9f4dac064da2e7ebaa2f889c0",
+  "ran_at": "2026-10-19T15:05:20Z",
+  "model_vars": {
+    "LISTING_CHECK_MODEL": "claude-sonnet-5-5"
+  },
+  "run_count": 3,
+  "summary": {
+    "case_count": 16,
+    "honest_case_count": 7,
+    "slop_case_count": 9,
+    "matched_case_count": 16,
+    "missed_case_count": 0,
+    "inconsistent_case_count": 0,
+    "declined_attempt_count": 0,
+    "cost_cents": 24.71096,
+    "is_passing": true
+  },
+  "cases": [
+    {
+      "name": "busy-bright-cover",
+      "is_honest": true,
+      "expected": {
+        "title": "fine",
+        "cover.webp": "fine",
+        "screenshot.webp": "fine"
+      },
+      "runs": [
+        {
+          "title": "fine",
+          "cover.webp": "fine",
+          "screenshot.webp": "fine"
+        },
+        {
+          "title": "fine",
+          "cover.webp": "fine",
+          "screenshot.webp": "fine"
+        },
+        {
+          "title": "fine",
+          "cover.webp": "fine",
+          "screenshot.webp": "fine"
+        }
+      ],
+      "outcome": "matched",
+      "declined_attempt_count": 0
+    },
+    {
+      "name": "caption-added-to-screenshot",
+      "is_honest": false,
+      "expected": {
+        "title": "fine",
+        "cover.webp": "fine",
+        "screenshot.webp": "screenshot_not_from_game"
+      },
+      "runs": [
+        {
+          "title": "fine",
+          "cover.webp": "fine",
+          "screenshot.webp": "screenshot_not_from_game"
+        },
+        {
+          "title": "fine",
+          "cover.webp": "fine",
+          "screenshot.webp": "screenshot_not_from_game"
+        },
+        {
+          "title": "fine",
+          "cover.webp": "fine",
+          "screenshot.webp": "screenshot_not_from_game"
+        }
+      ],
+      "outcome": "matched",
+      "declined_attempt_count": 0
+    },
+    {
+      "name": "cover-not-from-game",
+      "is_honest": false,
+      "expected": {
+        "title": "fine",
+        "cover.webp": "cover_not_from_game",
+        "screenshot.webp": "fine"
+      },
+      "runs": [
+        {
+          "title": "fine",
+          "cover.webp": "cover_not_from_game",
+          "screenshot.webp": "fine"
+        },
+        {
+          "title": "fine",
+          "cover.webp": "cover_not_from_game",
+          "screenshot.webp": "fine"
+        },
+        {
+          "title": "fine",
+          "cover.webp": "cover_not_from_game",
+          "screenshot.webp": "fine"
+        }
+      ],
+      "outcome": "matched",
+      "declined_attempt_count": 0
+    },
+    {
+      "name": "emoji-in-title",
+      "is_honest": false,
+      "expected": {
+        "title": "tag_in_title"
+      },
+      "runs": [
+        {
+          "title": "tag_in_title"
+        },
+        {
+          "title": "tag_in_title"
+        },
+        {
+          "title": "tag_in_title"
+        }
+      ],
+      "outcome": "matched",
+      "declined_attempt_count": 0
+    },
+    {
+      "name": "extra-text-on-cover",
+      "is_honest": false,
+      "expected": {
+        "title": "fine",
+        "cover.webp": "extra_text_on_cover",
+        "screenshot.webp": "fine"
+      },
+      "runs": [
+        {
+          "title": "fine",
+          "cover.webp": "extra_text_on_cover",
+          "screenshot.webp": "fine"
+        },
+        {
+          "title": "fine",
+          "cover.webp": "extra_text_on_cover",
+          "screenshot.webp": "fine"
+        },
+        {
+          "title": "fine",
+          "cover.webp": "extra_text_on_cover",
+          "screenshot.webp": "fine"
+        }
+      ],
+      "outcome": "matched",
+      "declined_attempt_count": 0
+    },
+    {
+      "name": "fake-reward-in-title",
+      "is_honest": false,
+      "expected": {
+        "title": "fake_reward"
+      },
+      "runs": [
+        {
+          "title": "fake_reward"
+        },
+        {
+          "title": "fake_reward"
+        },
+        {
+          "title": "fake_reward"
+        }
+      ],
+      "outcome": "matched",
+      "declined_attempt_count": 0
+    },
+    {
+      "name": "fake-reward-on-cover",
+      "is_honest": false,
+      "expected": {
+        "title": "fine",
+        "cover.webp": "fake_reward",
+        "screenshot.webp": "fine"
+      },
+      "runs": [
+        {
+          "title": "fine",
+          "cover.webp": "fake_reward",
+          "screenshot.webp": "fine"
+        },
+        {
+          "title": "fine",
+          "cover.webp": "fake_reward",
+          "screenshot.webp": "fine"
+        },
+        {
+          "title": "fine",
+          "cover.webp": "fake_reward",
+          "screenshot.webp": "fine"
+        }
+      ],
+      "outcome": "matched",
+      "declined_attempt_count": 0
+    },
+    {
+      "name": "famous-name-in-title",
+      "is_honest": false,
+      "expected": {
+        "title": "famous_name"
+      },
+      "runs": [
+        {
+          "title": "famous_name"
+        },
+        {
+          "title": "famous_name"
+        },
+        {
+          "title": "famous_name"
+        }
+      ],
+      "outcome": "matched",
+      "declined_attempt_count": 0
+    },
+    {
+      "name": "interface-in-screenshot",
+      "is_honest": true,
+      "expected": {
+        "title": "fine",
+        "cover.webp": "fine",
+        "screenshot.webp": "fine"
+      },
+      "runs": [
+        {
+          "title": "fine",
+          "cover.webp": "fine",
+          "screenshot.webp": "fine"
+        },
+        {
+          "title": "fine",
+          "cover.webp": "fine",
+          "screenshot.webp": "fine"
+        },
+        {
+          "title": "fine",
+          "cover.webp": "fine",
+          "screenshot.webp": "fine"
+        }
+      ],
+      "outcome": "matched",
+      "declined_attempt_count": 0
+    },
+    {
+      "name": "name-with-2x",
+      "is_honest": true,
+      "expected": {
+        "title": "fine"
+      },
+      "runs": [
+        {
+          "title": "fine"
+        },
+        {
+          "title": "fine"
+        },
+        {
+          "title": "fine"
+        }
+      ],
+      "outcome": "matched",
+      "declined_attempt_count": 0
+    },
+    {
+      "name": "name-with-free",
+      "is_honest": true,
+      "expected": {
+        "title": "fine"
+      },
+      "runs": [
+        {
+          "title": "fine"
+        },
+        {
+          "title": "fine"
+        },
+        {
+          "title": "fine"
+        }
+      ],
+      "outcome": "matched",
+      "declined_attempt_count": 0
+    },
+    {
+      "name": "name-with-plus-one",
+      "is_honest": true,
+      "expected": {
+        "title": "fine"
+      },
+      "runs": [
+        {
+          "title": "fine"
+        },
+        {
+          "title": "fine"
+        },
+        {
+          "title": "fine"
+        }
+      ],
+      "outcome": "matched",
+      "declined_attempt_count": 0
+    },
+    {
+      "name": "overlay-on-cover",
+      "is_honest": false,
+      "expected": {
+        "title": "fine",
+        "cover.webp": "overlay_on_cover",
+        "screenshot.webp": "fine"
+      },
+      "runs": [
+        {
+          "title": "fine",
+          "cover.webp": "overlay_on_cover",
+          "screenshot.webp": "fine"
+        },
+        {
+          "title": "fine",
+          "cover.webp": "overlay_on_cover",
+          "screenshot.webp": "fine"
+        },
+        {
+          "title": "fine",
+          "cover.webp": "overlay_on_cover",
+          "screenshot.webp": "fine"
+        }
+      ],
+      "outcome": "matched",
+      "declined_attempt_count": 0
+    },
+    {
+      "name": "real-capture-covers",
+      "is_honest": true,
+      "expected": {
+        "title": "fine",
+        "cover.webp": "fine",
+        "screenshot.webp": "fine"
+      },
+      "runs": [
+        {
+          "title": "fine",
+          "cover.webp": "fine",
+          "screenshot.webp": "fine"
+        },
+        {
+          "title": "fine",
+          "cover.webp": "fine",
+          "screenshot.webp": "fine"
+        },
+        {
+          "title": "fine",
+          "cover.webp": "fine",
+          "screenshot.webp": "fine"
+        }
+      ],
+      "outcome": "matched",
+      "declined_attempt_count": 0
+    },
+    {
+      "name": "shop-screen-screenshot",
+      "is_honest": true,
+      "expected": {
+        "title": "fine",
+        "cover.webp": "fine",
+        "play.webp": "fine",
+        "shop.webp": "fine"
+      },
+      "runs": [
+        {
+          "title": "fine",
+          "cover.webp": "fine",
+          "play.webp": "fine",
+          "shop.webp": "fine"
+        },
+        {
+          "title": "fine",
+          "cover.webp": "fine",
+          "play.webp": "fine",
+          "shop.webp": "fine"
+        },
+        {
+          "title": "fine",
+          "cover.webp": "fine",
+          "play.webp": "fine",
+          "shop.webp": "fine"
+        }
+      ],
+      "outcome": "matched",
+      "declined_attempt_count": 0
+    },
+    {
+      "name": "tag-in-title",
+      "is_honest": false,
+      "expected": {
+        "title": "tag_in_title"
+      },
+      "runs": [
+        {
+          "title": "tag_in_title"
+        },
+        {
+          "title": "tag_in_title"
+        },
+        {
+          "title": "tag_in_title"
+        }
+      ],
+      "outcome": "matched",
+      "declined_attempt_count": 0
+    }
+  ]
+}

@@ -318,7 +318,7 @@ describe("games", () => {
     await env.DB.prepare("UPDATE games SET review_status = 'live', live_version_id = 'v1', visibility = 'listed' WHERE slug = 'live-one'").run();
     const res = await api("/games/live-one", { method: "PATCH", body: { title: "Free Coins Now", screen_orientation: "landscape" } });
     const { game, review_message: review } = (await res.json()) as { game: Record<string, unknown>; review_message: string | null };
-    expect(review).toContain("reviewed");
+    expect(review).toContain("checked");
     expect(game).toMatchObject({ title: "Live One", screen_orientation: "landscape", details_waiting_for_review: { title: "Free Coins Now", description: null } });
 
     // An admin rejects it; the old title stays.

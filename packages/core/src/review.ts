@@ -112,6 +112,12 @@ export const isContentRule = (candidate: unknown): candidate is ContentRule => t
 const PERSON_LOOKS = "Nothing to change: a person at Zaisma looks, usually within a day.";
 /** What follows a fixed version of a game held on a notice. */
 const NOTICE_CHECKED = "a person at Zaisma checks it's gone and shows the game again, usually within a day.";
+/** Where the cover guide is, and how to ask a person when the listing check got it wrong. */
+const COVER_GUIDE = "zaisma.com/developers/covers shows covers that pass and ones that don't.";
+const IF_THE_CHECK_IS_WRONG = "If the check got it wrong: message_zaisma with the game_slug, and a person at Zaisma looks.";
+/** What follows a listing line: the game is back on the lists once it's fixed. */
+const BACK_ON_LISTS = "The game plays by its link meanwhile, and is back in lists about a minute after the fix.";
+
 /** What follows an AI review's concern, whatever the developer changes. */
 const IF_THE_AI_IS_WRONG = "If the AI got it wrong: a person at Zaisma decides a held version, usually within a day; for a rejected one, message_zaisma with the version_id.";
 
@@ -304,6 +310,49 @@ export const REVIEW_CODES = {
     fix: "Send new words with update_game; players see the old ones meanwhile.",
     hasOwnMessage: true,
     isRulePicked: true,
+  },
+  // The listing check ("No slop" in docs/DECISIONS.md): lines on covers, screenshots and titles anyone can check against the picture
+  extra_text_on_cover: {
+    meaning: "The cover, square cover or share picture has words besides the game's title, a subtitle and the studio's logo; the message quotes them.",
+    contentRule: null,
+    fix: `Send a picture with only the title (and a subtitle or your studio's logo) with add_image; words that are part of the scene, like a sign on a building, are fine. ${BACK_ON_LISTS} ${COVER_GUIDE} ${IF_THE_CHECK_IS_WRONG}`,
+    hasOwnMessage: true,
+  },
+  overlay_on_cover: {
+    meaning: "Something is laid over the cover, square cover or share picture: a button, menu, shop panel, badge, sticker, or an arrow or circle pointing at something; the message says what.",
+    contentRule: null,
+    fix: `Send the picture without it with add_image. ${BACK_ON_LISTS} ${COVER_GUIDE} ${IF_THE_CHECK_IS_WRONG}`,
+    hasOwnMessage: true,
+  },
+  famous_name: {
+    meaning: "The cover, square cover, share picture or title shows a famous character, logo or name, from a film, show, game, brand or club, that the developer doesn't own; the message names it.",
+    contentRule: null,
+    fix: `Use your own characters and name with add_image or update_game. Only obvious ones count, and the game itself may borrow (Zaisma acts on that only when the owner sends a notice). If you own it or have permission, message_zaisma with the game_slug. ${BACK_ON_LISTS} ${COVER_GUIDE}`,
+    hasOwnMessage: true,
+  },
+  cover_not_from_game: {
+    meaning: "The cover, square cover or share picture is built around a character, creature or thing that doesn't appear in any of the game's screenshots; the message says what.",
+    contentRule: null,
+    fix: `Send a cover built around something players meet in the game with add_image, or add a screenshot that shows it. ${BACK_ON_LISTS} ${COVER_GUIDE} ${IF_THE_CHECK_IS_WRONG}`,
+    hasOwnMessage: true,
+  },
+  tag_in_title: {
+    meaning: "The title carries a tag instead of only naming the game: a bracketed tag like [UPDATE], an emoji, or NEW, UPDATE or FREE used as a tag. \"+1\" and \"2x\" are fine.",
+    contentRule: null,
+    fix: `Send the game's name alone with update_game; patch notes say what's new. ${BACK_ON_LISTS} ${IF_THE_CHECK_IS_WRONG}`,
+    hasOwnMessage: true,
+  },
+  fake_reward: {
+    meaning: "A cover, screenshot, title or description promises a fake reward or real-money bait, like free Robux, V-Bucks, gift cards or cash; the message quotes it. Players can't open the game until a person looks.",
+    contentRule: "malware",
+    fix: `Take the promise out (add_image for a picture, update_game for words): a person at Zaisma looks, usually within a day. ${IF_THE_CHECK_IS_WRONG}`,
+    hasOwnMessage: true,
+  },
+  screenshot_not_from_game: {
+    meaning: "The screenshot has something added after it was captured, like a caption, an arrow or circle, a sticker, a pasted logo or a device frame, so it doesn't show. The game's own interface is fine.",
+    contentRule: null,
+    fix: `Send a plain capture of the game with add_image; its score, menus and buttons can show. ${COVER_GUIDE} ${IF_THE_CHECK_IS_WRONG}`,
+    hasOwnMessage: true,
   },
 } as const satisfies Record<string, ReviewCode>;
 export type ReviewCodeName = keyof typeof REVIEW_CODES;

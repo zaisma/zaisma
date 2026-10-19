@@ -3,6 +3,7 @@
 // - scans pass, unless a re-check after a report mentions a password or login (then it's phishing);
 // - forum posts pass, unless they ask to be reached on another app;
 // - profiles pass, unless they name a school or ask to meet up;
+// - the listing check finds every picture fine, and reads the title for tags and "robux";
 // - reports are sorted by what the player wrote: bugs go to the developer, claims about the game's
 //   content get its files checked again, players get a person, and the rest is dismissed. A report
 //   fits the drafted precedent for its kind once that precedent is in force; until then it comes
@@ -110,6 +111,26 @@ function draftRuling(text) {
   };
 }
 
+// The listing check ("No slop"): pictures can't be read here, so they're all fine; the title gets a tag for
+// brackets, an emoji or NEW/UPDATE as a word, a fake reward for "robux", and a famous name for "minecraft".
+function checkListing(text) {
+  const words = text.match(/<words>([\s\S]*?)<\/words>/)?.[1] ?? "";
+  const title = words.match(/^Title(?: \(not judged\))?: (.*)$/m)?.[1] ?? "";
+  const isTitleJudged = !/^Title \(not judged\)/m.test(words);
+  const description = words.match(/^Description(?: \(not judged\))?: (.*)$/m)?.[1] ?? "";
+  const judgedCount = [...text.matchAll(/^Picture (\d+): [a-z ]+, JUDGE$/gm)].map((match) => Number(match[1]));
+  const no = { extra_text: "", overlay: "", fake_reward: "", famous_name: "", main_subject: "", is_main_subject_in_screenshots: true, added_after_capture: "", has_safety_concern: false };
+  const tag = title.match(/\[[^\]]*\]|\([^)]*\)|\p{Extended_Pictographic}|\b(?:NEW|UPDATE)\b/u)?.[0] ?? "";
+  return {
+    pictures: judgedCount.map((number) => ({ ...no, number })),
+    title_fake_reward: isTitleJudged && /robux/i.test(title) ? title : "",
+    title_famous_name: isTitleJudged && /minecraft/i.test(title) ? "Minecraft" : "",
+    title_tag: isTitleJudged ? tag : "",
+    description_fake_reward: /robux/i.test(description) ? description : "",
+    has_words_safety_concern: false,
+  };
+}
+
 function scan(text) {
   const reported = text.match(/a player reported it[^:]*: (.*)/)?.[1] ?? "";
   if (/password|login|steam|card/i.test(reported)) {
@@ -130,7 +151,7 @@ export function startFakeAi(port) {
         const text = (Array.isArray(content) ? content : [{ text: String(content) }]).map((b) => b.text ?? "").join("\n");
         // The system prompt is a string, or a list of blocks (the review's and the drafts', cached).
         const system = Array.isArray(request.system) ? request.system.map((b) => b.text ?? "").join("\n") : String(request.system ?? "");
-        const answer = system.startsWith("You help Zaisma's AI game review learn") ? draftRuling(text) : system.startsWith("You sort reports") ? sortReport(text, system) : system.startsWith("You sort topics") ? sortTopic(text) : system.startsWith("You check forum posts") ? checkPost(text) : system.startsWith("You check player profiles") ? checkProfile(text) : scan(text);
+        const answer = system.startsWith("You help Zaisma's AI game review learn") ? draftRuling(text) : system.startsWith("You sort reports") ? sortReport(text, system) : system.startsWith("You sort topics") ? sortTopic(text) : system.startsWith("You check forum posts") ? checkPost(text) : system.startsWith("You check player profiles") ? checkProfile(text) : system.startsWith("You check the pictures and words") ? checkListing(text) : scan(text);
         res.writeHead(200, { "content-type": "application/json" });
         res.end(
           JSON.stringify({
