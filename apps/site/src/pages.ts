@@ -653,7 +653,7 @@ const PRIVACY = `
 </ul>
 <p>We never sell your data, and there are no ads on Zaisma.</p>
 <h2>Deleting your account</h2>
-<p>Go to your account page and choose Delete account. Your username, password, any email, game saves, recently played games and everything else on your account are deleted straight away. Games you played and sites you signed in to with Zaisma are told, so their developers can erase what they kept about you.</p>
+<p>Go to your account page and choose Delete account. Your username, password, any email, game saves, recently played games and everything else on your account are deleted straight away. If you made games, they're deleted too, with their files, database and players' saves. Games you played and sites you signed in to with Zaisma are told, so their developers can erase what they kept about you.</p>
 <h2>Questions</h2>
 <p>Email <a href="mailto:privacy@zaisma.com">privacy@zaisma.com</a>.</p>
 `;

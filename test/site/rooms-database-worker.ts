@@ -3,6 +3,8 @@
 // the real code, without the rest of rooms.
 import { WorkerEntrypoint } from "cloudflare:workers";
 
+import { gameDatabaseObject } from "../../apps/rooms/src/database.ts";
+import { gameSecretsObject } from "../../apps/rooms/src/secrets.ts";
 export { GameDatabaseObject, GameDatabaseService } from "../../apps/rooms/src/database.ts";
 export { GameSecretsObject, GameSecretsService } from "../../apps/rooms/src/secrets.ts";
 
@@ -21,6 +23,28 @@ export class GameServerWebhookService extends WorkerEntrypoint {
     const taken = sent;
     sent = [];
     failureMessage = nextFailureMessage;
+    return taken;
+  }
+}
+
+// Deleting a game's storage (GAME_STORAGE): the real database and secrets objects are wiped; the game
+// server object can't run here, so its wipe is only recorded. The real one: test/rooms/game-storage.test.ts.
+let wipedGameServerIds: string[] = [];
+let storageFailureMessage: string | null = null;
+
+export class GameStorageService extends WorkerEntrypoint<{ GAME_DATABASES: DurableObjectNamespace; GAME_SECRETS: DurableObjectNamespace }> {
+  async deleteGameStorage(gameId: string) {
+    if (storageFailureMessage) return { failureMessage: storageFailureMessage };
+    await (gameDatabaseObject(this.env as never, gameId) as unknown as { deleteStorage(): Promise<void> }).deleteStorage();
+    await (gameSecretsObject(this.env as never, gameId) as unknown as { deleteStorage(): Promise<void> }).deleteStorage();
+    wipedGameServerIds.push(gameId);
+    return { failureMessage: null };
+  }
+  /** For tests: the games whose game server storage was wiped since the last call, and how the next wipes are answered. */
+  takeWiped(nextFailureMessage: string | null) {
+    const taken = wipedGameServerIds;
+    wipedGameServerIds = [];
+    storageFailureMessage = nextFailureMessage;
     return taken;
   }
 }

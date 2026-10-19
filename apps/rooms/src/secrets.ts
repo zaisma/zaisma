@@ -63,6 +63,12 @@ export class GameSecretsObject extends DurableObject<Env> {
     return true;
   }
 
+  /** Every secret, for a game being deleted (GameStorageService). */
+  async deleteStorage(): Promise<void> {
+    await this.ctx.storage.deleteAlarm();
+    await this.ctx.storage.deleteAll();
+  }
+
   private save(stored: Record<string, StoredSecret>, atMs: number): void {
     if (Object.keys(stored).length) this.ctx.storage.kv.put("secrets", stored);
     else this.ctx.storage.kv.delete("secrets");

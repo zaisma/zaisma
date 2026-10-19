@@ -30,7 +30,7 @@ export const ERROR_CODES = {
   // Games
   no_game: { httpStatus: 404, meaning: "You have no game with that slug." },
   bad_slug: { httpStatus: 400, meaning: "The link name isn't lowercase letters, numbers and single hyphens, or is reserved." },
-  slug_taken: { httpStatus: 409, meaning: "Another game has that link name." },
+  slug_taken: { httpStatus: 409, meaning: "Another game has that link name, or a deleted game had it." },
   too_many_games: { httpStatus: 403, meaning: "The account has as many games as it can have." },
   publishing_not_open: { httpStatus: 403, meaning: "Until the beta, only accounts Zaisma adds can make, upload and publish games." },
   bad_title: { httpStatus: 400, meaning: "A game's, topic's or precedent's title is empty or too long." },

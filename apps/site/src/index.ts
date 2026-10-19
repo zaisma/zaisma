@@ -1,3 +1,4 @@
+import { deleteDueGames } from "./game-deletion.ts";
 import { upgradeToHttps, withTransportSecurity, type ScanJob } from "@zaisma/core";
 import { handleAccount } from "./account.ts";
 import { DAILY_SIGN_IN_SWEEP_MS, RECENT_SIGN_IN_SWEEP_MS, dailyCleanup, deleteAbandonedSignIns, publishDue } from "./cleanup.ts";
@@ -139,7 +140,7 @@ export default {
 
   async scheduled(event, env): Promise<void> {
     // One failing job mustn't stop the others.
-    const jobs = await Promise.allSettled([moveFiles(env), publishDue(env), triageReports(env), sortTopics(env), sortMisplaced(env), checkForumPosts(env), checkProfiles(env), reviewChatMessages(env), deliverDueWebhooks(env), eraseDuePlayers(env), noticeFreeUseAlerts(env).then(() => tellAlertNotices(env)), tellGameServerErrors(env), recheckLinks(env), rescanWaiting(env), deleteAbandonedSignIns(env, event.cron === DAILY ? DAILY_SIGN_IN_SWEEP_MS : RECENT_SIGN_IN_SWEEP_MS), ...(event.cron === DAILY ? [dailyCleanup(env), queueImageChecks(env)] : [])]);
+    const jobs = await Promise.allSettled([moveFiles(env), publishDue(env), triageReports(env), sortTopics(env), sortMisplaced(env), checkForumPosts(env), checkProfiles(env), reviewChatMessages(env), deliverDueWebhooks(env), eraseDuePlayers(env), deleteDueGames(env), noticeFreeUseAlerts(env).then(() => tellAlertNotices(env)), tellGameServerErrors(env), recheckLinks(env), rescanWaiting(env), deleteAbandonedSignIns(env, event.cron === DAILY ? DAILY_SIGN_IN_SWEEP_MS : RECENT_SIGN_IN_SWEEP_MS), ...(event.cron === DAILY ? [dailyCleanup(env), queueImageChecks(env)] : [])]);
     for (const job of jobs) if (job.status === "rejected") console.error("scheduled job failed", job.reason);
   },
 } satisfies ExportedHandler<Env, ScanJob>;

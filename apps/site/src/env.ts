@@ -2,6 +2,7 @@ import type { ScanJob } from "@zaisma/core";
 import type { GameDatabaseService } from "../../rooms/src/database.ts";
 import type { GameSecretsService } from "../../rooms/src/secrets.ts";
 import type { GameServerWebhookService } from "../../rooms/src/game-server.ts";
+import type { GameStorageService } from "../../rooms/src/game-storage.ts";
 import type { PhotoDnaService } from "../../photodna/src/index.ts";
 
 export interface Env {
@@ -17,6 +18,8 @@ export interface Env {
   GAME_SECRETS?: Service<GameSecretsService>;
   /** Every game's own game server, in the rooms Worker, for webhooks that send events to it (webhooks.ts). */
   GAME_SERVER_WEBHOOKS?: Service<GameServerWebhookService>;
+  /** Deleting a game's database, secrets and game server storage, in the rooms Worker (game-deletion.ts). */
+  GAME_STORAGE?: Service<GameStorageService>;
   REPORT_LIMIT?: RateLimit;
   SIGNIN_LIMIT?: RateLimit;
   /** Password tries on one username, from any address. */
