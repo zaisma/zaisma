@@ -287,6 +287,12 @@ Zaisma preview is running. Nothing here touches the live site.
                   ${SITE}/admin/publishing  (who Julius added; add Moss_Runner there and its Your games can make games)
   Leaving Zaisma  ${SITE}/g/tiny-farm?play  (its link buttons: Seed shop and Patreon open for everyone, Discord only
                   for signed-in adults, Free prize for nobody; its links are on ${SITE}/dashboard/tiny-farm/details#links)
+  Share cards     ${SITE}/g/shard-dodge  (its developer links in each site's look: Discord and the website only signed in
+                  as an adult; Share: the QR code; its share card picture: ${SITE}/sitemap.xml lists it, and the page's
+                  og: tags point at its share picture's card JPEG; a room link's card: ${SITE}/g/shard-dodge?room=K7PQ2M)
+                  ${SITE}/dashboard/shard-dodge/details#qr-code  (the QR code with SVG and PNG downloads; Share picture
+                  in the image kinds); ${SITE}/g/arena and ${SITE}/g/cave-crew on a phone: "Needs a keyboard." and
+                  "Best in landscape."
   Logs            ${SITE}/dashboard/arena/players#multiplayer  (under the game server's errors: a line pointing to the AI's get_logs
                   and npx @zaisma/cli logs arena --follow; play ${SITE}/g/arena to give its logs lines)
   Own servers     ${SITE}/dashboard/tiny-farm/details#own-servers  (Your own servers: wss://play.example.com; the ⋯ menu on
