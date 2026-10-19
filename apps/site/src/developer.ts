@@ -26,6 +26,8 @@ import {
   gameBySlug,
   imageById,
   imageKey,
+  cardImageKey,
+  qrCodeSvg,
   heldImageKey,
   iso,
   KNOWN_IMAGE_CODE,
@@ -137,6 +139,7 @@ import {
   isSlugRetired,
   ISO_TIME,
 } from "@zaisma/core";
+import { CARD_IMAGE_HEIGHT_PX, CARD_IMAGE_WIDTH_PX, gameLinkUrl, roomCodeOf } from "./share-cards.ts";
 import { connectionAddressOf, currentSession } from "./auth.ts";
 import { gameUrl, type Env } from "./env.ts";
 import { previewLinkToken } from "./preview-links.ts";
@@ -194,6 +197,7 @@ import { alertIfNoticeFixPublished } from "./notices.ts";
  *   POST   /api/dev/games/:slug/database/restores       restore the database to a time: { "restore_to_at" }
  *   POST   /api/dev/games/:slug/database/restores/:database_restore_id/undo   undo a restore
  *   …/api/dev/games/:slug/saves                the game's cloud saves by player ID: list, read, change, reset, earlier versions (see saves-api.ts)
+ *   GET    /api/dev/games/:slug/qr-code        the game's link, or a room's (?room_code=), as a QR code (SVG)
  *   GET    /api/dev/games/:slug/secrets        the game's secrets' names, never their values (see secrets-api.ts)
  *   PUT    /api/dev/games/:slug/secrets/:name  set one: { "secret_value" }
  *   DELETE /api/dev/games/:slug/secrets/:name  delete one
@@ -535,6 +539,7 @@ export const API_ROUTES: readonly ApiRoute[] = [
   call({ method: "GET", path: "/games/:slug/reports", reaches: "game", access: needs("stats_access", "read"), pathParts: atGame, query: plainInputs("cursor") }),
   call({ method: "GET", path: "/games/:slug/stats", reaches: "game", access: needs("stats_access", "read"), pathParts: atGame, query: plainInputs("period_duration_days") }),
   call({ method: "GET", path: "/games/:slug/history", reaches: "game", access: needs("stats_access", "read"), pathParts: atGame }),
+  call({ method: "GET", path: "/games/:slug/qr-code", reaches: "game", access: needs("game_access", "read"), pathParts: atGame, query: plainInputs("room_code") }),
   call({ method: "GET", path: "/games/:slug/logs", reaches: "game", access: needs("stats_access", "read"), pathParts: atGame, query: plainInputs("room_code", "minimum_level", "source_kind", "search_text", "maximum_line_count", "cursor", "new_lines_cursor") }),
   call({ method: "GET", path: "/games/:slug/testers", reaches: "game", access: needs("game_access", "read"), pathParts: atGame }),
   // picked_version_id is checked in the handler: a version of the path's game that passed.
@@ -834,6 +839,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
   if (apiRoute.path === "/games/:slug/reports") return answer(await reportsFor(env, game!, checked.query.get("cursor")));
   if (apiRoute.path === "/games/:slug/stats") return answer(await statsFor(env, game!, readPeriodDurationDays(checked.query.get("period_duration_days"))));
   if (apiRoute.path === "/games/:slug/history") return answer(await historyFor(env, game!, caller));
+  if (apiRoute.path === "/games/:slug/qr-code") return answer(qrCodeFor(env, game!, checked.query.get("room_code")));
   if (apiRoute.path === "/games/:slug/logs") return answer(await logsFor(env, game!, checked));
 
   if (apiRoute.path.startsWith("/sign-in-apps")) return answer(...(await signInAppRoute(request, env, caller, checked)));
@@ -878,6 +884,17 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     const change = settledMinimumAge(game, checkDetailsOrThrow(checked.body));
     if (game.review_status === "removed" && change.visibility) {
       throw gameRemoved(game, "its visibility can't change", "visibility");
+    }
+    // A listed game shows players what it is: at least one screenshot, sent (one waiting for review counts).
+    if (change.visibility === "listed" && game.visibility !== "listed") {
+      const screenshot = await env.DB.prepare("SELECT id FROM game_images WHERE game_id = ? AND kind = 'screenshot' AND review_status != 'rejected' LIMIT 1").bind(game.id).first();
+      if (!screenshot) {
+        throw new ApiError("screenshot_needed", {
+          message: `${game.slug} has no screenshot, and a listed game needs at least one.`,
+          field: "visibility",
+          fix: "Add a screenshot with add_image (kind screenshot), then set visibility listed again; or set it unlisted, for people with the link.",
+        });
+      }
     }
     if (change.minimum_player_age_years !== undefined && change.minimum_player_age_years < LIFELIKE_GORE_MINIMUM_PLAYER_AGE_YEARS && game.minimum_player_age_years >= LIFELIKE_GORE_MINIMUM_PLAYER_AGE_YEARS) {
       const showsGore = await goreVersionPlayersCanReach(env, game);
@@ -934,8 +951,8 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
 
   if (isImages && method === "POST") {
     const kind = checked.query.get("kind") as ImageKind;
-    if (kind !== "cover" && kind !== "square" && kind !== "screenshot") {
-      throw new ApiError("bad_kind", { message: `kind ${JSON.stringify(kind)} isn't cover, square or screenshot.`, field: "kind", fix: "Give kind cover (landscape, 16:9 shows best), square (as wide as tall, shown on phones) or screenshot (?kind= in the API)." });
+    if (kind !== "cover" && kind !== "square" && kind !== "screenshot" && kind !== "share") {
+      throw new ApiError("bad_kind", { message: `kind ${JSON.stringify(kind)} isn't cover, square, screenshot or share.`, field: "kind", fix: "Give kind cover (landscape, 16:9 shows best), square (as wide as tall, shown on phones), screenshot, or share (the picture shared links show instead of the cover, 1200 by 630 shows best) (?kind= in the API)." });
     }
     const tooBig = () => new ApiError("image_too_big", { message: "The image is over 5 MB.", field: "image_base64", fix: "Save it smaller (a JPEG or WebP, or fewer pixels) and send it again." });
     const declaredSizeBytes = Number(request.headers.get("content-length") ?? 0);
@@ -974,7 +991,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     if (kind !== "screenshot" && waitingImages.length) {
       // Only the newest cover of each kind waits for review.
       for (const old of waitingImages) {
-        await env.GAMES.delete(imageKey(old));
+        await env.GAMES.delete([imageKey(old), cardImageKey(old)]);
         await deleteImageRow(env.DB, old.id);
       }
     }
@@ -992,7 +1009,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     checkIdKind("image", imageId, "image_id", imageFix);
     const image = await imageById(env.DB, imageId);
     if (!image || image.game_id !== game.id) throw new ApiError("no_image", { message: `${game.slug} has no image with the ID ${imageId}.`, field: "image_id", fix: imageFix });
-    await env.GAMES.delete(imageKey(image));
+    await env.GAMES.delete([imageKey(image), cardImageKey(image)]);
     await deleteImageRow(env.DB, image.id);
     await audit(env.DB, game.id, "image-removed", `${image.kind} ${image.id}`, caller.actor);
     await logCallerEvent(env, caller, "image_removed", { gameId: game.id, subjectName: image.kind });
@@ -1250,8 +1267,9 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
     await alertIfNoticeFixPublished(env, game.id, version.id);
     const published = (await gameBySlug(env.DB, game.slug))!;
     const isHidden = published.visibility === "draft" || published.visibility === "private";
+    const hasScreenshot = isHidden && Boolean(await env.DB.prepare("SELECT id FROM game_images WHERE game_id = ? AND kind = 'screenshot' AND review_status != 'rejected' LIMIT 1").bind(game.id).first());
     const nextSteps: NextStep[] = isHidden
-      ? [{ tool: "update_game", arguments: { slug: game.slug, visibility: "listed" }, after_sec: null, reason: `It's live, but the game is ${published.visibility}, so only the developer and tester links see it. When the developer wants players in: listed for everyone, or unlisted for people with the link.` }]
+      ? [{ tool: "update_game", arguments: { slug: game.slug, visibility: "listed" }, after_sec: null, reason: `It's live, but the game is ${published.visibility}, so only the developer and tester links see it. When the developer wants players in: listed for everyone, or unlisted for people with the link.${hasScreenshot ? "" : " Listed needs a screenshot first: add one with add_image (kind screenshot)."}` }]
       : [];
     return [{ game: gameJson(env, published), version: versionJson(env, published, (await versionById(env.DB, version.id))!), next_steps: nextSteps }];
   }
@@ -2221,9 +2239,12 @@ function imageJson(env: Env, image: GameImage) {
  * Covers and screenshots. Only real PNG, JPEG or WebP files are stored (checked by their bytes),
  * and they're sent with headers that stop a browser treating them as anything else.
  */
-async function serveImage(request: Request, env: Env, id: string): Promise<Response> {
+async function serveImage(request: Request, env: Env, imagePath: string): Promise<Response> {
   const notFound = () => new Response("Not found", { status: 404, headers: { "Cache-Control": "no-store" } });
-  if (!isIdOf("image", id) || (request.method !== "GET" && request.method !== "HEAD")) return notFound();
+  // /img/:id, or /img/:id/card.jpg: the picture made into a share card JPEG.
+  const [id = "", card] = imagePath.split("/");
+  const isCard = card === "card.jpg";
+  if (!isIdOf("image", id) || (card !== undefined && !isCard) || (request.method !== "GET" && request.method !== "HEAD")) return notFound();
   const image = await imageById(env.DB, id);
   if (!image || image.review_status === "rejected") return notFound();
   const game = await env.DB.prepare("SELECT review_status, owner_id FROM games WHERE id = ?").bind(image.game_id).first<{ review_status: string; owner_id: string | null }>();
@@ -2235,6 +2256,14 @@ async function serveImage(request: Request, env: Env, id: string): Promise<Respo
     const owner = session ? await env.DB.prepare("SELECT id FROM owners WHERE account_id = ?").bind(session.userId).first<{ id: string }>() : null;
     if (!owner || owner.id !== game.owner_id) return notFound();
     cacheControl = "private, no-store";
+  }
+  if (isCard && image.review_status === "approved") {
+    const card = await cardImage(env, image);
+    if (card) {
+      return new Response(request.method === "HEAD" ? null : card.body, {
+        headers: { "Content-Type": "image/jpeg", "Content-Length": String(card.size), "Cache-Control": cacheControl, "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; sandbox", "Content-Disposition": "inline" },
+      });
+    }
   }
   const stored = await env.GAMES.get(imageKey(image));
   if (!stored) return notFound();
@@ -2248,4 +2277,35 @@ async function serveImage(request: Request, env: Env, id: string): Promise<Respo
       "Content-Disposition": "inline",
     },
   });
+}
+
+/**
+ * An approved picture as a share card: fitted inside 1200 by 630 and saved as a JPEG, which every chat
+ * app takes (WhatsApp drops pictures over about 600 KB). Made once with Cloudflare Images and kept next
+ * to the picture; null when there's no Images binding or it fails, and the picture itself is sent.
+ */
+async function cardImage(env: Env, image: GameImage): Promise<R2ObjectBody | null> {
+  const kept = await env.GAMES.get(cardImageKey(image));
+  if (kept || !env.IMAGES) return kept;
+  const original = await env.GAMES.get(imageKey(image));
+  if (!original) return null;
+  try {
+    const made = await env.IMAGES.input(original.body).transform({ width: CARD_IMAGE_WIDTH_PX, height: CARD_IMAGE_HEIGHT_PX, fit: "scale-down" }).output({ format: "image/jpeg", quality: 85 });
+    await env.GAMES.put(cardImageKey(image), await new Response(made.image()).arrayBuffer(), { httpMetadata: { contentType: "image/jpeg" } });
+  } catch (error) {
+    console.error("share card image failed", image.id, error);
+    return null;
+  }
+  return env.GAMES.get(cardImageKey(image));
+}
+
+/** The game's link, or one of its rooms', and its QR code as an SVG document, for posters, booths and trailers. */
+function qrCodeFor(env: Env, game: Game, roomCode: string | null) {
+  let code: string | null = null;
+  if (roomCode !== null && roomCode !== "") {
+    code = roomCodeOf(roomCode);
+    if (!code) throw new ApiError("bad_room_code", { message: `room_code ${JSON.stringify(roomCode)} isn't a room's code.`, field: "room_code", fix: "Give the six characters players see, like K7Q2MX, or leave room_code out for the game's own link." });
+  }
+  const linkUrl = gameLinkUrl(env, game.slug, code);
+  return { link_url: linkUrl, qr_code_svg: qrCodeSvg(linkUrl) };
 }

@@ -846,8 +846,8 @@ export async function gamesWithDetailsWaitingForReview(database: D1Database): Pr
 
 // --- Covers and screenshots ------------------------------------------------------
 
-/** cover: landscape, the game's card and picture. square: an optional second cover for phones. */
-export type ImageKind = "cover" | "square" | "screenshot";
+/** cover: landscape, the game's card and picture. square: an optional second cover for phones. share: an optional picture for shared links, in place of the cover. */
+export type ImageKind = "cover" | "square" | "screenshot" | "share";
 export type ImageReviewStatus = "pending" | "approved" | "rejected";
 
 /** A row of the game_images table: the same names the developer API shows. */
@@ -872,6 +872,8 @@ export const isSquare = (widthPx: number, heightPx: number) => Math.abs(widthPx 
 
 /** Where an image's file lives in the games bucket. */
 export const imageKey = (image: Pick<GameImage, "game_id" | "id">) => `images/${image.game_id}/${image.id}`;
+/** Where a picture's share card JPEG is kept once it's made (the site's /img/:id/card.jpg), deleted with the picture. */
+export const cardImageKey = (image: Pick<GameImage, "game_id" | "id">) => `images/${image.game_id}/${image.id}.card.jpg`;
 /** Where a cover or screenshot that matched known abuse material is kept for reporting. Never served or listed. */
 export const heldImageKey = (gameId: string, id: string) => `held-images/${gameId}/${id}`;
 

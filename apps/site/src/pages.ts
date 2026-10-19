@@ -1,5 +1,6 @@
 import {
   ALLOWED_CONTENT,
+  canOpenLink,
   CONTENT_RULES,
   CONTENT_RULE_DETAILS,
   createAccessGrant,
@@ -8,6 +9,7 @@ import {
   isOldEnoughFor,
   isOwnServerUrl,
   isTesterLinkOn,
+  linksOf,
   ownServerUrlsOf,
   readPlayModes,
   testerLinkByToken,
@@ -32,7 +34,8 @@ import { JOIN_OFF_STYLES } from "./friends-now.ts";
 import { profilePath } from "./profiles.ts";
 import { codeBox, pageRooms, roomsOnPage, roomsPanel, tabCount } from "./rooms.ts";
 import { checkPreviewLinkToken, readPreviewLinkToken } from "./preview-links.ts";
-import { GAME_LINKS_SCRIPT, leavingCard } from "./game-links.ts";
+import { DEVELOPER_LINK_STYLES, GAME_LINKS_SCRIPT, developerLinks, leavingCard } from "./game-links.ts";
+import { gamePageHead, SHARE_DIALOG_STYLES, shareDialog } from "./share-cards.ts";
 
 const ROOM_CODE = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/;
 const day = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
@@ -96,7 +99,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
       ? env.DB.prepare("SELECT accounts.username AS name, (SELECT COUNT(*) FROM games WHERE owner_id = ? AND review_status = 'live' AND visibility = 'listed') AS game_count FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE owners.id = ?").bind(game.owner_id, game.owner_id).first<{ name: string; game_count: number }>()
       : null,
     // The square cover is only for phones' game cards, not one of the game's pictures.
-    env.DB.prepare("SELECT id, kind FROM game_images WHERE game_id = ? AND review_status = 'approved' AND kind != 'square' ORDER BY kind = 'cover' DESC, created_at_ms").bind(game.id).all<{ id: string; kind: string }>(),
+    env.DB.prepare("SELECT id, kind FROM game_images WHERE game_id = ? AND review_status = 'approved' AND kind IN ('cover', 'screenshot') ORDER BY kind = 'cover' DESC, created_at_ms").bind(game.id).all<{ id: string; kind: string }>(),
     env.DB.prepare("SELECT id, patch_notes, published_at_ms FROM versions WHERE game_id = ? AND published_at_ms IS NOT NULL AND patch_notes != '' ORDER BY published_at_ms DESC LIMIT 10").bind(game.id).all<{ id: string; patch_notes: string; published_at_ms: number }>(),
     showcase(env, viewer.ageFloorYears, 60),
     // Games on Zaisma rooms: who's playing now, and the rooms to list if the developer shows them here.
@@ -113,12 +116,15 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   const specRows = [
     modes.html ? html`<div><dt>Players</dt><dd>${modes}</dd></div>` : "",
     devices.length ? html`<div><dt>Works on</dt><dd class="icons">${devices.map((device) => html`<span>${raw(DEVICE_ICONS[device] ?? "")}${DEVICE_LABELS[device] ?? device}</span>`)}</dd></div>` : "",
-    controls.length ? html`<div><dt>Controls</dt><dd class="icons">${controls.map((control) => html`<span>${raw(CONTROL_ICONS[control] ?? "")}${CONTROL_LABELS[control] ?? control}</span>`)}</dd></div>` : "",
   ];
   const spec = specRows.some(Boolean) ? html`<dl class="spec">${specRows}</dl>` : "";
   const tabs = [{ id: "about", label: "About" }, ...(rooms ? [{ id: "rooms", label: "Rooms" }] : []), ...(updates.results.length ? [{ id: "updates", label: "Updates" }] : [])];
+  const isSignedInAdult = viewer.account?.age_band === "18+";
+  const pageLinks = linksOf(game).filter((link) => link.is_on_game_page && canOpenLink(link, isSignedInAdult));
   const response = layout(env, {
     title: `${game.title} on Zaisma`,
+    // What chat apps, social sites and search engines read; tester links are secret, so they get none.
+    head: tester ? undefined : await gamePageHead(env, game, { roomCode: inRoom ? code : null, developerName: developer?.name ?? null }),
     isBare: true,
     // Cloudflare's invisible check from when the page opens, for play counts and multiplayer (tester links: only for multiplayer).
     hasTurnstileCheck: (!tester || multiplayer) && !isClosed && Boolean(env.TURNSTILE_SITE_KEY),
@@ -185,8 +191,8 @@ ${raw(JOIN_OFF_STYLES)}
 .spec .modes small::before{content:none}
 .side .row{margin-top:4px}
 .side .row .btn{flex:1}
-.share-link[hidden]{display:none}
-.share-link input{width:100%}
+${raw(DEVELOPER_LINK_STYLES)}
+${raw(SHARE_DIALOG_STYLES)}
 /* Tabs ride on an engraved line; the open one gets the chrome rail, like the header. */
 .tabs{display:flex;gap:30px;margin:52px 0 26px;background:linear-gradient(#000,#000) bottom 1px left/100% 1px no-repeat,linear-gradient(rgba(255,255,255,.055),rgba(255,255,255,.055)) bottom/100% 1px no-repeat}
 .tabs:empty{margin:40px 0 24px}
@@ -364,7 +370,7 @@ ${siteHeader(env)}
   <span class="spacer"></span>
   ${multiplayer ? html`<button class="ctl" id="players-open" type="button" title="Players" aria-haspopup="dialog" aria-controls="players">${raw(ICON_PLAYERS)}<span class="label">Players</span><span class="count" hidden></span></button>` : ""}
   ${saves ? html`<a class="ctl" id="keep-bar" href="${joinHere}" data-keep="/join" title="Keep your progress" hidden>${raw(ICON_KEEP)}<span class="label">Keep progress</span></a>` : ""}
-  <button class="ctl" id="share" type="button" title="Share">${raw(ICON_SHARE)}<span class="label">Share</span></button>
+  <button class="ctl" id="share" type="button" title="Share" aria-haspopup="dialog" aria-controls="share-dialog">${raw(ICON_SHARE)}<span class="label">Share</span></button>
   <button class="ctl" id="full" type="button" title="Full screen">${raw(ICON_FULL)}<span class="label">Full screen</span></button>
   <button class="ctl" id="menu" type="button" title="More" aria-haspopup="dialog" aria-expanded="false" aria-controls="menu-dialog">${raw(ICON_MORE)}<span class="label">More</span></button>
 </div>
@@ -388,8 +394,8 @@ ${siteHeader(env)}
       : ""}
     <p class="note" id="device-note" hidden></p>
     ${spec}
-    <div class="row"><button class="btn ghost" id="share-page" type="button">${raw(ICON_SHARE)}<span class="label">Share</span></button><a class="btn ghost" href="/g/${game.slug}/report" data-report>Report</a></div>
-    <label class="share-link" id="share-link" hidden>Copy this link<input readonly aria-label="Link to this game"></label>
+    ${developerLinks(pageLinks)}
+    <div class="row"><button class="btn ghost" id="share-page" type="button" aria-haspopup="dialog" aria-controls="share-dialog">${raw(ICON_SHARE)}<span class="label">Share</span></button><a class="btn ghost" href="/g/${game.slug}/report" data-report>Report</a></div>
   </div>
 </section>
 ${tabs.length > 1
@@ -450,6 +456,7 @@ ${canSignIn
 </aside>`
       : ""}
 ${leavingCard(game.title)}
+${shareDialog(game.title, !tester)}
 ${tester && !multiplayer ? "" : html`<div id="play-check" class="play-check"></div>`}
 ${pageData("game-page-data", {
       slug: game.slug,
@@ -460,6 +467,8 @@ ${pageData("game-page-data", {
       is_accounts_only: isAccountsOnly,
       frame_query: roomQuery,
       devices,
+      controls,
+      screen_orientation: game.screen_orientation || null,
       turnstile_site_key: env.TURNSTILE_SITE_KEY ?? "",
       account_requirement: accountRequirement,
       sign_in_url: `/signin?next=${accountNext}`,
@@ -496,12 +505,6 @@ const DEVICE_ICONS: Record<string, string> = {
   computer: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="2" y="3" width="16" height="11" rx="1"/><path d="M7 17h6M10 14v3"/></svg>',
 };
 const DEVICE_LABELS: Record<string, string> = { phone: "Phone", tablet: "Tablet", computer: "Computer" };
-const CONTROL_LABELS: Record<string, string> = { touch: "Touch", keyboard_mouse: "Keyboard and mouse", gamepad: "Gamepad" };
-const CONTROL_ICONS: Record<string, string> = {
-  touch: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 11V4.2a1.5 1.5 0 0 1 3 0V9l3.4.7a2 2 0 0 1 1.6 2.2l-.5 3.6A2.6 2.6 0 0 1 12.9 18H10a2.6 2.6 0 0 1-2-1l-3.4-4.3a1.4 1.4 0 0 1 2.1-1.8z"/></svg>',
-  keyboard_mouse: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1.5" y="5" width="17" height="10" rx="1"/><path d="M4.5 8h.01M7.5 8h.01M10.5 8h.01M13.5 8h.01M15.5 8h.01M4.5 11h.01M15.5 11h.01M7.5 11.5h5"/></svg>',
-  gamepad: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.4 5.5h7.2a4 4 0 0 1 3.9 3.3l.8 4.4a2 2 0 0 1-3.4 1.7L13 13H7l-1.9 1.9a2 2 0 0 1-3.4-1.7l.8-4.4a4 4 0 0 1 3.9-3.3z"/><path d="M6.2 8.3v3M4.7 9.8h3"/><path d="M13.6 9h.01M15.2 10.6h.01"/></svg>',
-};
 const ICON_REPORT = svg('<path d="M5 21V4"/><path d="M5 4h12l-2.5 4.5L17 13H5"/>');
 const ICON_RULES = svg('<path d="M12 3l8 3v6c0 4.4-3.4 8.2-8 9-4.6-.8-8-4.6-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/>');
 const ICON_GAMES = svg('<rect x="4" y="4" width="7" height="7"/><rect x="13" y="4" width="7" height="7"/><rect x="4" y="13" width="7" height="7"/><rect x="13" y="13" width="7" height="7"/>');
@@ -884,11 +887,21 @@ if (linkedTab) showTab(linkedTab.getAttribute("aria-controls"));
 const DEVICES = gamePage.devices;
 const coarse = matchMedia("(pointer: coarse)").matches;
 const mine = coarse ? (Math.min(screen.width, screen.height) < 600 ? "phone" : "tablet") : "computer";
-if (DEVICES.length && !DEVICES.includes(mine)) {
+const deviceNotes = [];
+if (DEVICES.length && !DEVICES.includes(mine)) deviceNotes.push("Made for " + DEVICES.map((d) => d + "s").join(" and ") + ". It may not work well on this " + mine + ".");
+// Controls and screen only come up when they don't fit this device.
+const CONTROLS = gamePage.controls;
+if (CONTROLS.length) {
+  if (coarse && !CONTROLS.includes("touch")) deviceNotes.push(CONTROLS.includes("keyboard_mouse") ? "Needs a keyboard." : "Needs a gamepad.");
+  else if (!coarse && !CONTROLS.includes("keyboard_mouse") && !CONTROLS.includes("touch")) deviceNotes.push("Needs a gamepad.");
+}
+const SCREEN = gamePage.screen_orientation;
+if (coarse && (SCREEN === "landscape" || SCREEN === "portrait")) deviceNotes.push(SCREEN === "landscape" ? "Best in landscape." : "Best in portrait.");
+if (deviceNotes.length) {
   const note = document.getElementById("device-note");
-  note.textContent = "Made for " + DEVICES.map((d) => d + "s").join(" and ") + ". It may not work well on this " + mine + ".";
+  note.textContent = deviceNotes.join(" ");
   note.hidden = false;
-  document.querySelector("#play span").textContent = "Play anyway";
+  if (DEVICES.length && !DEVICES.includes(mine)) document.querySelector("#play span").textContent = "Play anyway";
 }
 // The menu drops from the ⋯ button (from the side strip on landscape phones) and closes when the
 // player taps anywhere else, goes back to the game, or presses Escape.
@@ -913,36 +926,44 @@ addEventListener("pointerdown", (e) => { if (dialog.open && !dialog.contains(e.t
 addEventListener("keydown", (e) => { if (e.key === "Escape" && dialog.open) dialog.close(); });
 addEventListener("blur", () => { if (dialog.open) dialog.close(); });
 addEventListener("resize", () => dialog.open && placeMenu());
-// Shares the address bar, which includes the room code while the player is in a match.
-// The system's share sheet where there is one; otherwise the link is copied and the button says so.
-async function shareFrom(button) {
+// Share opens the share dialog: the address bar's link (with the room code while the player is in a
+// match), its QR code for someone in the same room, Copy, and the system's share sheet where there is one.
+const shareBox = document.getElementById("share-dialog");
+const shareInput = shareBox.querySelector("input");
+const shareCopy = document.getElementById("share-copy");
+function shareFrom(button) {
   const url = location.origin + location.pathname + location.search.replace(/[?&]play\b[^&]*/, "").replace(/^&/, "?");
-  if (navigator.share) {
-    try { await navigator.share({ title: document.title, url }); return; } catch (e) { if (e.name === "AbortError") return; }
+  const room = new URLSearchParams(location.search).get("room");
+  shareInput.value = url;
+  shareCopy.textContent = "Copy";
+  const qr = document.getElementById("share-qr");
+  if (qr) {
+    qr.src = "/g/" + gamePage.slug + "/qr-code.svg" + (room ? "?room=" + encodeURIComponent(room) : "");
+    document.getElementById("share-scan").textContent = room ? "Scan to join this match" : "Scan to play";
   }
-  const label = button.querySelector(".label");
-  let copied = false;
-  try { await navigator.clipboard.writeText(url); copied = true; } catch {
-    // Some browsers block the clipboard; the older way often still works.
-    const t = Object.assign(document.createElement("textarea"), { value: url });
-    document.body.appendChild(t);
-    t.select();
-    try { copied = document.execCommand("copy"); } catch {}
-    t.remove();
-  }
-  if (copied) {
-    button.title = "Link copied";
-    label.textContent = "Link copied";
-    setTimeout(() => { button.title = "Share"; label.textContent = "Share"; }, 2000);
-    return;
-  }
-  // Couldn't copy: show the link, selected, so the player can copy it themselves.
-  const box = document.getElementById("share-link");
-  if (frame || !box) return prompt("Copy this link", url);
-  box.hidden = false;
-  box.querySelector("input").value = url;
-  box.querySelector("input").select();
+  shareBox.showModal();
+  shareBox.returnFocus = button;
 }
+shareCopy.onclick = async () => {
+  let copied = false;
+  try { await navigator.clipboard.writeText(shareInput.value); copied = true; } catch {
+    shareInput.select();
+    try { copied = document.execCommand("copy"); } catch {}
+  }
+  shareCopy.textContent = copied ? "Copied" : "Select and copy";
+  if (!copied) shareInput.select();
+};
+const shareMore = document.getElementById("share-more");
+if (navigator.share) {
+  shareMore.hidden = false;
+  shareMore.onclick = async () => {
+    try { await navigator.share({ title: document.title, url: shareInput.value }); shareBox.close(); } catch {}
+  };
+}
+shareInput.onfocus = () => shareInput.select();
+document.getElementById("share-close").onclick = () => shareBox.close();
+shareBox.addEventListener("click", (e) => { if (e.target === shareBox) shareBox.close(); });
+shareBox.addEventListener("close", () => { if (frame) frame.focus(); else if (shareBox.returnFocus) shareBox.returnFocus.focus(); });
 share.onclick = () => shareFrom(share);
 // The game says which room it's in, so the address bar (and so Share) points to that match.
 const gameOrigin = new URL(gamePage.frame_url).origin;

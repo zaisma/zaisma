@@ -1,8 +1,9 @@
-import { accountById, audit, canOpenLink, checkLinkSites, gameBySlug, isTesterLinkOn, linksOf, openedLinkUrl, testerLinkByToken, type Game } from "@zaisma/core";
+import { accountById, audit, canOpenLink, checkLinkSites, gameBySlug, isTesterLinkOn, linkBrand, linksOf, openedLinkUrl, testerLinkByToken, type Game, type GameLink } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { playable } from "./home.ts";
-import { html, metalButton, type Raw } from "./html.ts";
+import { html, metalButton, raw, type Raw } from "./html.ts";
+import { LINK_BRAND_ICON_PATHS } from "./link-icons.ts";
 import { pageScript } from "./page-scripts.ts";
 
 /**
@@ -188,3 +189,48 @@ document.getElementById("link-stay").onclick = () => closeLink("stayed");
 document.getElementById("link-back").onclick = () => closeLink("stayed");
 linkAsk.addEventListener("keydown", (e) => { if (e.key === "Escape") closeLink("stayed"); });`);
 
+
+const GLOBE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 3.7 5.7 3.7 9s-1.2 6.3-3.7 9c-2.5-2.7-3.7-5.7-3.7-9S9.5 5.7 12 3z"/></svg>';
+
+/**
+ * The developer's links on the game page (Developer links on game pages), under the details: the
+ * registered links marked for the page that this player may open (the server picked them), each a
+ * button in its site's own look. They go straight to the site in a new tab: the "You're leaving
+ * Zaisma" card is for links a game opens, not for our own page's.
+ */
+export function developerLinks(links: GameLink[]): Raw | string {
+  if (!links.length) return "";
+  return html`<nav class="dev-links" aria-label="The developer's links">${links.map((link) => {
+    const { brand, label } = linkBrand(link.destination_url);
+    const icon = brand === "website" ? GLOBE_ICON : `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="${LINK_BRAND_ICON_PATHS[brand]}"/></svg>`;
+    return html`<a class="dev-link brand-${brand}" href="${link.destination_url}" target="_blank" rel="noopener noreferrer">${raw(icon)}<span>${label}</span></a>`;
+  })}</nav>`;
+}
+
+/** Each site's button, after its own: Steam's raised gradient, Discord's flat blurple, itch.io's red. */
+export const DEVELOPER_LINK_STYLES = `
+.dev-links{display:flex;flex-wrap:wrap;gap:8px;margin:2px 0 0}
+.dev-link{display:inline-flex;align-items:center;gap:8px;min-height:36px;padding:0 14px;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:14px;font-weight:600;line-height:1;text-decoration:none;white-space:nowrap;transition:filter 120ms,background 120ms}
+.dev-link svg{width:16px;height:16px;flex:none}
+.dev-link:hover{filter:brightness(1.12)}
+.dev-link:focus-visible{outline:2px solid #fff;outline-offset:2px}
+.brand-steam{color:#fff;border-radius:2px;background:linear-gradient(to right,#47bfff 5%,#1a44c2 60%);box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 2px 3px rgba(0,0,0,.55);text-shadow:0 1px 1px rgba(0,0,0,.35)}
+.brand-steam:hover{background:linear-gradient(to right,#67cfff 5%,#2a5bd8 60%);filter:none}
+.brand-itch{color:#fff;background:#fa5c5c;border-radius:3px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.18),0 1px 0 #c34c4c;text-shadow:0 1px 0 rgba(0,0,0,.18)}
+.brand-discord{color:#fff;background:#5865f2;border-radius:4px}
+.brand-discord:hover{background:#4752c4;filter:none}
+.brand-youtube{color:#fff;background:#ff0000;border-radius:18px}
+.brand-x{color:#fff;background:#000;border-radius:18px;box-shadow:inset 0 0 0 1px #333}
+.brand-bluesky{color:#fff;background:#0085ff;border-radius:18px}
+.brand-reddit{color:#fff;background:#ff4500;border-radius:18px}
+.brand-tiktok{color:#fff;background:#fe2c55;border-radius:4px}
+.brand-instagram{color:#fff;border-radius:8px;background:linear-gradient(45deg,#f58529,#dd2a7b 50%,#8134af)}
+.brand-patreon{color:#fff;background:#ff424d;border-radius:18px}
+.brand-kofi{color:#fff;background:#29abe0;border-radius:10px;box-shadow:0 2px 0 #1b8bb8}
+.brand-github{color:#fff;background:#24292f;border-radius:6px;box-shadow:inset 0 0 0 1px rgba(240,246,252,.1)}
+.brand-kickstarter{color:#0f2105;background:#05ce78;border-radius:0}
+.brand-app_store,.brand-google_play{color:#fff;background:#000;border-radius:8px;box-shadow:inset 0 0 0 1px #a6a6a6}
+.brand-twitch{color:#fff;background:#9146ff;border-radius:4px}
+.brand-gumroad{color:#000;background:#ff90e8;border-radius:4px;box-shadow:inset 0 0 0 1px #000,3px 3px 0 #000}
+.brand-website{color:var(--text);background:var(--face-hi);box-shadow:inset 1px 1px 0 rgba(255,255,255,.12),inset -1px -1px 0 #000;font-family:var(--display);font-weight:500}
+`;

@@ -2,7 +2,7 @@ import { ApiError, CONTROLS, DEVICES, FORUM_CATEGORIES, FORUM_LIMITS, FORUM_REPO
 import { INTERNAL_ERROR, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { CHECKED_TEXT_EXTENSIONS, extensionOf } from "../../../packages/cli/check.mjs";
-import { ACCESS, ACTIVITY, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, HISTORY, LISTED_GAME, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes } from "./schemas.ts";
+import { ACCESS, ACTIVITY, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, HISTORY, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes } from "./schemas.ts";
 
 /**
  * The developer MCP at /mcp: every tool is a call to the developer API, so the MCP, the upload command
@@ -429,8 +429,8 @@ export const TOOLS: Tool[] = [
   {
     name: "add_image",
     title: "Add a cover or screenshot",
-    description: "Add a cover (landscape, 16:9 shows best), a square cover (optional, shown on phones instead, where a landscape one is small; as wide as tall, at least 512 px) or a screenshot (up to 8). A new cover replaces the old one of its kind once approved. Players see the cover alone as the game's card, with no title drawn over or under it, so covers should carry the game's name or logo; screenshots are just the game. PNG, JPEG or WebP, up to 5 MB, at least 320 px a side. Images show once reviewed. No lifelike gore on covers or screenshots, whatever the game's age setting: signed-out visitors see every listed game's cover.",
-    inputSchema: object({ slug, kind: { enum: ["cover", "square", "screenshot"] }, image_base64: { type: "string", description: "The PNG, JPEG or WebP file, base64-encoded (a data: URL prefix is fine)" } }, ["slug", "kind", "image_base64"]),
+    description: "Add a cover (landscape, 16:9 shows best), a square cover (optional, shown on phones instead, where a landscape one is small; as wide as tall, at least 512 px) or a screenshot (up to 8), or a share picture (optional: what shared game and room links show instead of the cover in chats, social sites and search; landscape, 1200 by 630 shows best). A new cover or share picture replaces the old one of its kind once approved. Players see the cover alone as the game's card, with no title drawn over or under it, so covers should carry the game's name or logo; screenshots are just the game. PNG, JPEG or WebP, up to 5 MB, at least 320 px a side. Images show once reviewed. No lifelike gore on covers, share pictures or screenshots, whatever the game's age setting: signed-out visitors see every listed game's cover.",
+    inputSchema: object({ slug, kind: { enum: ["cover", "square", "screenshot", "share"] }, image_base64: { type: "string", description: "The PNG, JPEG or WebP file, base64-encoded (a data: URL prefix is fine)" } }, ["slug", "kind", "image_base64"]),
     outputSchema: answer({ image: IMAGE, review_message: text(), next_steps: NEXT }),
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/images?kind=${pathPart(toolArguments.kind)}`, decode(String(toolArguments.image_base64 ?? ""), "base64", "image_base64")),
@@ -919,6 +919,24 @@ export const TOOLS: Tool[] = [
     outputSchema: HISTORY,
     annotations: read,
     run: (toolArguments, call) => call("GET", `/games/${pathPart(toolArguments.slug)}/history`),
+  },
+  {
+    name: "get_qr_code",
+    title: "QR code for the game's link",
+    description: "The game's link, or one of its rooms' (room_code), as a QR code for posters, booths, trailers and slides: an SVG document, black on white, that scans to the game page. Players get the same code from Share on the game page.",
+    inputSchema: object(
+      {
+        slug,
+        room_code: { type: "string", pattern: "^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$", description: "A room's code, like K7Q2MX, for a code that drops players into that match; leave it out for the game's own link." },
+      },
+      ["slug"],
+    ),
+    outputSchema: QR_CODE,
+    annotations: read,
+    run: (toolArguments, call) => {
+      const query = new URLSearchParams(pick(toolArguments, ["room_code"]) as Record<string, string>).toString();
+      return call("GET", `/games/${pathPart(toolArguments.slug)}/qr-code${query ? `?${query}` : ""}`);
+    },
   },
   {
     name: "get_logs",

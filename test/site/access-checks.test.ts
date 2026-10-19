@@ -124,6 +124,7 @@ const SAMPLES: Record<string, (world: World) => Sample> = {
   "GET /games/:slug/reports": () => ({}),
   "GET /games/:slug/stats": () => ({ query: { period_duration_days: "7" } }),
   "GET /games/:slug/history": () => ({}),
+  "GET /games/:slug/qr-code": () => ({ query: { room_code: "K7PQ2M" } }),
   "GET /games/:slug/logs": () => ({ query: { minimum_level: "warn" } }),
   "GET /games/:slug/testers": () => ({}),
   "POST /games/:slug/testers": () => ({ body: { name: "Streamers", version_choice: "newest_passed" } }),

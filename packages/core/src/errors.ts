@@ -50,6 +50,7 @@ export const ERROR_CODES = {
   bad_minimum_player_age: { httpStatus: 400, meaning: "minimum_player_age_years isn't 13, 16 or 18." },
   accounts_needed_for_minimum_age: { httpStatus: 400, meaning: "A game for 16 or 18 and up needs account_requirement whole_game, since only accounts have an age." },
   content_needs_minimum_age: { httpStatus: 409, meaning: "A version shows lifelike gore, which plays only in games for 16 and up." },
+  screenshot_needed: { httpStatus: 409, meaning: "A listed game needs at least one screenshot." },
   bad_links: { httpStatus: 400, meaning: "links isn't a list of up to 20 { link_name, destination_url, is_on_game_page } with names of their own and https addresses that aren't link shorteners, IP addresses, addresses with a user name, or on Zaisma's own domains." },
   bad_own_server_urls: { httpStatus: 400, meaning: "own_server_urls isn't a list of up to 5 server addresses like wss://play.example.com, or one is an IP address, this computer or on Zaisma's own domains." },
   bad_game_server_allowed_hosts: { httpStatus: 400, meaning: "game_server_allowed_hosts isn't a list of up to 20 host names (like discord.com or *.example.com), or one is an IP address or on Zaisma's own domains." },

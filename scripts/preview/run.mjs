@@ -431,6 +431,9 @@ async function seed() {
     const { game } = await api("POST", "/games", { title: g.title, description: g.description, devices: g.devices, controls: g.controls, ...(g.play_modes ? { play_modes: g.play_modes } : {}) });
     upload(g.folder, game.slug, "First version.");
     await api("POST", `/games/${game.slug}/versions/${await approveNewest(game.slug)}/publish`);
+    // A listed game needs a screenshot.
+    const { image: shot } = await api("POST", `/games/${game.slug}/images?kind=screenshot`, picture(g.color, 4));
+    await go(`/admin/images/${shot.id}/approve`, form({ reason: "" }));
     await api("PATCH", `/games/${game.slug}`, { visibility: "listed" });
     // Covers carry the game's name in the studio's own lettering, as real ones do (covers/, made once
     // from these pictures). Night Drive has none, to show the card a game without a cover gets.
@@ -456,6 +459,22 @@ async function seed() {
       { link_name: "prize", destination_url: "https://scam-prizes.example/claim", is_on_game_page: false },
     ],
   });
+  // Shard Dodge's links on its game page, each in its site's look (Discord and the website only for
+  // signed-in adults), and a share picture of its own that shared links show instead of the cover.
+  await api("PATCH", "/games/shard-dodge", {
+    links: [
+      { link_name: "steam", destination_url: "https://store.steampowered.com/app/480/Shard_Dodge/", is_on_game_page: true },
+      { link_name: "store", destination_url: "https://preview-studio.itch.io/shard-dodge", is_on_game_page: true },
+      { link_name: "discord", destination_url: "https://discord.gg/sharddodge", is_on_game_page: true },
+      { link_name: "trailer", destination_url: "https://www.youtube.com/@previewstudio", is_on_game_page: true },
+      { link_name: "kofi", destination_url: "https://ko-fi.com/previewstudio", is_on_game_page: true },
+      { link_name: "site", destination_url: "https://previewstudio.dev/shard-dodge", is_on_game_page: true },
+    ],
+  });
+  const { image: sharePicture } = await api("POST", "/games/shard-dodge/images?kind=share", picture([200, 90, 60], 5));
+  await go(`/admin/images/${sharePicture.id}/approve`, form({ reason: "" }));
+  // Cave Crew plays best in landscape, which phones and tablets get a note about.
+  await api("PATCH", "/games/cave-crew", { screen_orientation: "landscape" });
   // Screenshots and a second version with patch notes, so the game page has everything.
   for (const n of [1, 2]) {
     const { image } = await api("POST", "/games/shard-dodge/images?kind=screenshot", picture([70, 140, 220], n));
@@ -608,6 +627,7 @@ async function seedHolds(api, upload, go, form) {
   const first = await scanned(game.slug);
   if (first.scan_status !== "approved") await go(`/admin/versions/${first.id}/approve`, form({ reason: "Preview test data" }));
   await api("POST", `/games/${game.slug}/versions/${first.id}/publish`);
+  await api("POST", `/games/${game.slug}/images?kind=screenshot`, picture([120, 120, 120], 4));
   await api("PATCH", `/games/${game.slug}`, { visibility: "listed" });
   const { results } = JSON.parse(spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--json", "--command", `SELECT id FROM games WHERE slug = '${game.slug}'`], { cwd: join(ROOT, "apps/site"), encoding: "utf8", env: { ...process.env, CI: "1" } }).stdout)[0];
   await go(`/admin/games/${results[0].id}/takedown`, form({ content_rule: "malware", reason: "Its bonus screen asks players for their Steam login." }));
@@ -618,6 +638,7 @@ async function seedHolds(api, upload, go, form) {
   const gossipFirst = await scanned(gossip.slug);
   if (gossipFirst.scan_status !== "approved") await go(`/admin/versions/${gossipFirst.id}/approve`, form({ reason: "Preview test data" }));
   await api("POST", `/games/${gossip.slug}/versions/${gossipFirst.id}/publish`);
+  await api("POST", `/games/${gossip.slug}/images?kind=screenshot`, picture([120, 120, 120], 4));
   await api("PATCH", `/games/${gossip.slug}`, { visibility: "listed" });
   const gossipRow = JSON.parse(spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--json", "--command", `SELECT id FROM games WHERE slug = '${gossip.slug}'`], { cwd: join(ROOT, "apps/site"), encoding: "utf8", env: { ...process.env, CI: "1" } }).stdout)[0].results[0];
   await go(`/admin/games/${gossipRow.id}/notice`, form({ notice_kind: "defamation", reason: "the ending names Emma Clarke, a real person who lives in the town it's set in, as the thief who robbed the bakery." }));

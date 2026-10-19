@@ -46,6 +46,8 @@
     { "binding": "GAMES", "bucket_name": "zaisma-games" },
     { "binding": "SAVES", "bucket_name": "zaisma-saves" }
   ],
+  // Share cards: each game picture made once into a JPEG chat apps take (apps/site/src/developer.ts, serveImage).
+  "images": { "binding": "IMAGES" },
   // Games' own databases, in the rooms Worker (apps/rooms/src/database.ts), for the developer API. Rooms deploys first.
   // And PhotoDNA image matching, in the photodna Worker (apps/photodna), which deploys before the site.
   "services": [

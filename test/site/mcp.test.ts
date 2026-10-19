@@ -192,11 +192,21 @@ describe("publishing a game through the MCP", () => {
     expect((await tool("update_game", { slug: "quiet-rooms", friend_joins_enabled: false })).game.friend_joins_enabled).toBe(false);
   });
 
+  /** A screenshot, which a listed game needs: a PNG header is all the image check reads. */
+  const addScreenshot = async (slug: string) => {
+    const bytes = new Uint8Array(64);
+    bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);
+    new DataView(bytes.buffer).setUint32(16, 1280);
+    new DataView(bytes.buffer).setUint32(20, 720);
+    expect((await tool("add_image", { slug, kind: "screenshot", image_base64: btoa(String.fromCharCode(...bytes)) })).image.kind).toBe("screenshot");
+  };
+
   it("asks before hiding a game players can play", async () => {
     await tool("create_game", { title: "Hop" });
     const up = await tool("upload_files", { slug: "hop", files: [{ path: "index.html", content_text: "<p>hop</p>" }] });
     await passScan(up.version.id);
     await tool("publish_version", { slug: "hop", version_id: up.version.id });
+    await addScreenshot("hop");
     await tool("update_game", { slug: "hop", visibility: "listed" });
 
     const asked = await tool("update_game", { slug: "hop", visibility: "private" });
@@ -212,6 +222,7 @@ describe("publishing a game through the MCP", () => {
     // Publishing while it's still scanning says to wait, and how long.
     expect(await tool("publish_version", { slug: "hop", version_id: up.version.id })).toMatchObject({ code: "still_scanning", retry_after_sec: 30 });
     await passScan(up.version.id);
+    await addScreenshot("hop");
     // Listed with nothing live: publish the version that passed.
     const listed = await tool("update_game", { slug: "hop", visibility: "listed" });
     expect(listed.next_steps).toEqual([{ tool: "publish_version", arguments: { slug: "hop", version_id: up.version.id }, after_sec: null, reason: expect.any(String) }]);
