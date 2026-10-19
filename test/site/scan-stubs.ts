@@ -19,6 +19,7 @@ export const judgeSays =
     summary: "A platformer.",
     findings: verdict !== "pass" && findings.length === 0 ? [{ stage: "ai", severity: verdict, code: "ai_concern", message: "A platformer." }] : findings,
     isChildSafety,
+    followedReviewPrecedentNumbers: [],
     declinedAttemptCount: 0,
     costCents: 1,
     inputTokenCount: 100,

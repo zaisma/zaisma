@@ -116,6 +116,7 @@ Every ID Zaisma makes says its kind in its value: `<kind>_<random>`, the kind in
 | `report` | `report_…` |
 | `media` | `media_…` |
 | `precedent` | `precedent_…` |
+| `review_precedent` (a ruling the AI review follows) | `review_precedent_…` |
 | `player` | `player_…` |
 | `owner` | `owner_…` |
 | `save_copy` | `save_copy_…` |
@@ -276,6 +277,7 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 | How serious a report or topic is (admin MCP) | `severity`: `child_safety` (reports only), `urgent`, `high`, `normal`, `low` | |
 | What a person decides about reports, a precedent or a post, and why (admin MCP) | `decision`, `why` | |
 | A ruling report triage follows, and where it stands (admin MCP) | `precedent_id`; `precedent_status`: `proposed`, `active`, `retired`; `can_ai_apply_alone`, `replaces_precedent_id`, `followed_count` | |
+| A ruling the AI review follows when it was wrong, and where it stands (admin MCP) | `review_precedent_id`; `decision`: `pass`, `hold`; `review_precedent_status`: `proposed`, `testing`, `active`, `failed`, `retired`; `replaces_review_precedent_id`, `followed_count` | |
 | What report triage and forum sorting found (admin MCP) | `triage`, `sorting`, `is_waiting_for_sorting`; what triage did by itself is `ai_actions` | |
 | Public forum posts waiting for a person (admin MCP) | `waiting_posts` | |
 | What happened to a game, and who did it | `events`, each with `happened_at` and `last_happened_at`, `occurrence_count`, `subject_name`; `done_by`: `you`, `api_key`, `ai`, `zaisma`; `actor` in the admin MCP | |

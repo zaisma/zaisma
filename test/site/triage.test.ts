@@ -440,3 +440,27 @@ describe("reports about a player", () => {
     expect(sexual).toMatchObject({ report_status: "open", is_passed_to_developer: 0, severity_index: 2 });
   });
 });
+
+describe("report triage and review precedents", () => {
+  it("drafts a hold ruling for a content-rule report on a version the AI passed, never for child safety or a player report", async () => {
+    const { versionId } = await liveGame();
+    const seen: unknown[] = [];
+    const draftReviewPrecedent = async (_key: string, _model: string, source: unknown) => (seen.push(source), { costCents: 0.5, draft: { title: "Private address in a level", applies_when: "A level shows a street address of a real private person.", why: "Players could find them.", case_title: "Level text", case_description: "A level.", case_index_html: "<p>[address placeholder]</p>" } });
+    await send({ reason: "real_people", details: "a boss shows where my teacher lives" });
+    await triageReports(testEnv, { ...ai({ severity: "high", category: "real_people", summary: "A real address." }).deps, draftReviewPrecedent });
+    const rows = (await env.DB.prepare("SELECT * FROM review_precedents").all<{ decision: string; content_rule: string; from_version_id: string; from_report_group_id: string; review_precedent_status: string }>()).results;
+    const [report] = await reports();
+    expect(rows).toMatchObject([{ decision: "hold", content_rule: "real_people", from_version_id: versionId, from_report_group_id: report!.id, review_precedent_status: "proposed" }]);
+
+    // A bug, copyright and another kind of category don't draft one.
+    await send({ reason: "other", details: "freezes" });
+    await triageReports(testEnv, { ...ai({ category: "broken", recommendation: "bug" }).deps, draftReviewPrecedent });
+    await send({ reason: "copyright", details: "uses a song" });
+    await triageReports(testEnv, { ...ai({ category: "copyright" }).deps, draftReviewPrecedent });
+    expect(seen).toHaveLength(1);
+    // Without a drafter, nothing calls a model.
+    await send({ reason: "malware", details: "asks for my password" });
+    await triageReports(testEnv, ai({ category: "malware" }).deps);
+    expect(seen).toHaveLength(1);
+  });
+});

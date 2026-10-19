@@ -30,6 +30,7 @@ import {
   type Game,
   type IdKind,
   type Precedent,
+  type ReviewPrecedent,
   type PrecedentDecision,
   type ScanReport,
   type Triage,
@@ -61,6 +62,8 @@ import {
   PRECEDENT_CHANGED,
   PRECEDENT_ID_PATTERN,
   PRECEDENT_LIST,
+  REVIEW_PRECEDENT_CHANGED,
+  REVIEW_PRECEDENT_LIST,
   REPORT_GROUP,
   REPORT_GROUP_DECIDED,
   REPORT_GROUP_LIST,
@@ -98,6 +101,8 @@ The developer forum: what developers and their AI tell Zaisma about Zaisma itsel
 - decide_topic replies, sets a topic_status, merges a duplicate into a known issue, makes a topic a known issue, marks a reply as a question's answer, and sets severity and category. A known issue's title and workaround are seen by every developer, so write them without names, games or anything one developer said in private: a private message made a known issue becomes a public topic of Zaisma's own with the message under it. On a public topic (is_public), a reply is public too. Say what you'd do, then wait for the admin to agree before calling it.
 - Every public forum post is checked by AI before others see it, and developers can report one that slipped through. waiting_posts are the ones the check held (with held_reason), couldn't check yet, or developers reported (with their reasons; a child-safety report or three reports hide it); decide_post shows or removes each, after the admin agrees. Child-safety reports come first.
 - To copy a topic to public GitHub issues, draft it from the known issue's title, what's wrong and the workaround, never from a developer's own words, name, game or context.
+
+Review precedents: when the AI game review is wrong (it held a game that was fine, or passed one that broke a rule), the admin teaches it in the same click as releasing, rejecting or taking down the game. list_review_precedents shows the rulings with their stand-in test games and what the test set found; approve_review_precedent sends a drafted or failed one to the test; retire_review_precedent stops one being followed. A stand-in is written to show a pattern and is never a copy of a developer's game; child safety is never learned from. Say what you'd do, then wait for the admin to agree.
 
 Chat reviews: sexual messages from adults to teens that Zaisma's chat filter stopped, kept for review. An AI reviews each one; list_chat_reviews shows what needs the admin. They're child-safety cases: never describe them in detail, and remind the admin that a confirmed one must be reported to NCMEC's CyberTipline (decide_chat_review with reported once it is). A message from a developer's own server could be made up to frame a player, so only the admin confirms those. decide_chat_review changes things for players: say what you'd do, then wait for the admin to agree.
 
@@ -261,6 +266,32 @@ function checkAlone(decision: PrecedentDecision, canAiApplyAlone: unknown, field
   if (canAiApplyAlone === true && decision !== "dismiss") {
     throw new ApiError("bad_can_ai_apply_alone", { message: `Only a dismissal can be applied by the AI alone; this precedent decides ${decision}.`, field, fix: "Leave can_ai_apply_alone out, or false." });
   }
+}
+
+function reviewPrecedentAnswer(precedent: ReviewPrecedent) {
+  return {
+    id: precedent.id,
+    review_precedent_status: precedent.review_precedent_status,
+    title: precedent.title,
+    applies_when: precedent.applies_when,
+    decision: precedent.decision,
+    content_rule: precedent.content_rule,
+    why: precedent.why,
+    test_game: precedent.case_index_html ? { title: precedent.case_title, description: precedent.case_description, index_html: precedent.case_index_html } : null,
+    test_summary: precedent.test_result ? (JSON.parse(precedent.test_result) as { summary: string }).summary : null,
+    from_version_id: precedent.from_version_id,
+    from_report_group_id: precedent.from_report_group_id,
+    replaces_review_precedent_id: precedent.replaces_review_precedent_id,
+    created_by: precedent.created_by,
+    created_at: iso(precedent.created_at_ms)!,
+    updated_at: iso(precedent.updated_at_ms)!,
+  };
+}
+
+async function reviewPrecedentById(env: Env, id: string) {
+  const precedent = await env.DB.prepare("SELECT * FROM review_precedents WHERE id = ?").bind(id).first<ReviewPrecedent>();
+  if (!precedent) throw new ApiError("no_review_precedent", { message: `There's no review precedent with the ID ${id}.`, field: "review_precedent_id", fix: "list_review_precedents lists them with their IDs (review_precedent_status all for every one)." });
+  return precedent;
 }
 
 /** Who can make games, as the admin tools answer it. */
@@ -704,6 +735,64 @@ export const ADMIN_TOOLS: AdminTool[] = [
     },
   },
   {
+    name: "list_review_precedents",
+    title: "Review precedents",
+    description:
+      "The rulings the AI game review follows when it was wrong, with each one's stand-in test game and test result. Save the answer as { \"review_precedents\": [...] } to run the review test set with them in force: npm run review-set -- --precedents <file>. A release of a held version, or a rejection or takedown of a game the review passed, drafts a ruling; the admin saves it in the same click, on the admin page.",
+    inputSchema: object({ review_precedent_status: { enum: ["proposed", "testing", "active", "failed", "retired", "all"], description: "Which ones; every one but retired by default." } }),
+    outputSchema: REVIEW_PRECEDENT_LIST,
+    annotations: read,
+    run: async (toolArguments, { env }) => {
+      const status = toolArguments.review_precedent_status as string | undefined;
+      const where = status === "all" ? "" : status ? "WHERE review_precedent_status = ?" : "WHERE review_precedent_status != 'retired'";
+      const statement = env.DB.prepare(`SELECT * FROM review_precedents ${where} ORDER BY created_at_ms`);
+      const { results } = await (status && status !== "all" ? statement.bind(status) : statement).all<ReviewPrecedent>();
+      return { review_precedents: results.map(reviewPrecedentAnswer) };
+    },
+  },
+  {
+    name: "approve_review_precedent",
+    title: "Test a review precedent",
+    description: "Send a drafted or failed review precedent to the test set as written: it goes live once every bad game is still held and every honest one still passes, with it in force. To change the wording first, use the admin page. Ask the admin first.",
+    inputSchema: object({ review_precedent_id: idInput("review_precedent", "A drafted or failed review precedent's ID from list_review_precedents.") }, ["review_precedent_id"]),
+    outputSchema: REVIEW_PRECEDENT_CHANGED,
+    annotations: change,
+    run: async (toolArguments, { env, actor }) => {
+      const precedent = await reviewPrecedentById(env, String(toolArguments.review_precedent_id));
+      if (precedent.review_precedent_status !== "proposed" && precedent.review_precedent_status !== "failed") {
+        throw new ApiError("not_approvable", { message: `${precedent.id} is ${precedent.review_precedent_status}, not drafted or failed.`, field: "review_precedent_id", fix: "Retire it with retire_review_precedent, and set a new one by deciding the next miss." });
+      }
+      if (!precedent.title || !precedent.applies_when || !precedent.case_index_html || (precedent.decision === "hold" && !precedent.content_rule)) {
+        throw new ApiError("incomplete_review_precedent", { message: `${precedent.id} isn't complete.`, field: "review_precedent_id", fix: "Fill in its name, when it applies, its test game and (for a hold) its content rule on zaisma.com/admin/review-precedents, or retire it." });
+      }
+      const form = new FormData();
+      form.set("rp_title", precedent.title);
+      form.set("rp_when", precedent.applies_when);
+      form.set("rp_why", precedent.why);
+      form.set("rp_rule", precedent.content_rule ?? "");
+      form.set("rp_case_title", precedent.case_title);
+      form.set("rp_case_description", precedent.case_description);
+      form.set("rp_case_html", precedent.case_index_html);
+      form.set("rp_version", precedent.from_version_id ?? "");
+      form.set("rp_group", precedent.from_report_group_id ?? "");
+      await adminForm(env, `/admin/review-precedents/${precedent.id}/${precedent.review_precedent_status === "failed" ? "retry" : "approve"}`, form, actor);
+      return { review_precedent: reviewPrecedentAnswer(await reviewPrecedentById(env, precedent.id)), next_steps: [{ tool: "list_review_precedents", arguments: { review_precedent_status: "testing" }, after_sec: 300, reason: "The scheduled run tests it within a few minutes, unless the day's tests are used." }] };
+    },
+  },
+  {
+    name: "retire_review_precedent",
+    title: "Retire a review precedent",
+    description: "Stop the judge following a review precedent, or drop a drafted one. Games already judged keep their verdicts. Ask the admin first.",
+    inputSchema: object({ review_precedent_id: idInput("review_precedent", "A review precedent's ID from list_review_precedents.") }, ["review_precedent_id"]),
+    outputSchema: REVIEW_PRECEDENT_CHANGED,
+    annotations: change,
+    run: async (toolArguments, { env, actor }) => {
+      const precedent = await reviewPrecedentById(env, String(toolArguments.review_precedent_id));
+      await adminForm(env, `/admin/review-precedents/${precedent.id}/retire`, new FormData(), actor);
+      return { review_precedent: reviewPrecedentAnswer(await reviewPrecedentById(env, precedent.id)), next_steps: [] };
+    },
+  },
+  {
     name: "list_chat_reviews",
     title: "Chat the filter kept for review",
     description:
@@ -890,6 +979,7 @@ const VALUE_ERRORS: Record<string, ErrorCode> = {
   applies_when: "bad_applies_when",
   can_ai_apply_alone: "bad_can_ai_apply_alone",
   precedent_status: "bad_precedent_status",
+  review_precedent_status: "bad_review_precedent_status",
   topic_status: "bad_topic_status",
   maximum_topic_count: "bad_maximum_topic_count",
   reply_text_markdown: "bad_reply_text_markdown",
@@ -904,6 +994,7 @@ const VALUE_ERRORS: Record<string, ErrorCode> = {
 const ID_ERRORS: Record<string, { kind: IdKind; code: ErrorCode; fix: string }> = {
   report_group_id: { kind: "report", code: "no_report_group", fix: "list_report_groups lists the open groups with their IDs." },
   precedent_id: { kind: "precedent", code: "no_precedent", fix: "list_precedents lists them with their IDs." },
+  review_precedent_id: { kind: "review_precedent", code: "no_review_precedent", fix: "list_review_precedents lists them with their IDs." },
   replaces_precedent_id: { kind: "precedent", code: "no_precedent", fix: "list_precedents lists them with their IDs." },
   topic_id: { kind: "topic", code: "no_topic", fix: "list_topics lists the topics with their IDs." },
   merge_into_topic_id: { kind: "topic", code: "no_topic", fix: "list_topics lists the topics with their IDs." },

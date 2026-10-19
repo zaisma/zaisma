@@ -154,6 +154,8 @@ export interface ReviewAi {
   verdict: "pass" | "hold" | "reject" | "skipped" | "reused";
   reused_from_version_id: string | null;
   summary: string;
+  /** The review precedents the judge followed (migrations/0093_review_precedents.sql); absent when none. */
+  followed_review_precedent_ids?: string[];
   cost_cents: number;
   input_token_count: number;
   output_token_count: number;

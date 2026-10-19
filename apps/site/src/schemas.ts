@@ -1073,6 +1073,26 @@ export const HANDLED_REPORTS = object({
     "Closed by triage without a person, newest first.",
   ),
 });
+const REVIEW_PRECEDENT_STATUS = choice({ proposed: "drafted, waiting for a person", testing: "waiting for the test set", active: "the judge reads it", failed: "the test set didn't hold with it", retired: "no longer followed" });
+export const REVIEW_PRECEDENT = object({
+  id: idOf("review_precedent"),
+  review_precedent_status: REVIEW_PRECEDENT_STATUS,
+  title: text(),
+  applies_when: text("What games like it look like."),
+  decision: choice({ pass: "the review was wrong to hold games like this", hold: "the review was wrong to pass games like this" }),
+  content_rule: nullable(text("The content rule it's about.")),
+  why: text(),
+  test_game: nullable(object({ title: text(), description: text(), index_html: text("A short inert stand-in, never a copy of a developer's game.") }, "null when the AI couldn't write one.")),
+  test_summary: nullable(text("What the test run found.")),
+  from_version_id: nullable(idOf("version", "The version the miss came from.")),
+  from_report_group_id: nullable(reportGroupIdOf("The report group that found the miss.")),
+  replaces_review_precedent_id: nullable(idOf("review_precedent", "The review precedent this one changed.")),
+  created_by: text("Who set it: an admin's email, or ai for a draft."),
+  created_at: isoTime(),
+  updated_at: isoTime(),
+});
+export const REVIEW_PRECEDENT_LIST = object({ review_precedents: list(REVIEW_PRECEDENT, "Oldest first.") });
+export const REVIEW_PRECEDENT_CHANGED = object({ review_precedent: REVIEW_PRECEDENT, next_steps: NEXT });
 export const PRECEDENT_LIST = object({ precedents: list(PRECEDENT, "In force first, then proposed, then retired; oldest first in each.") });
 export const PRECEDENT_CHANGED = object({ precedent: PRECEDENT, next_steps: NEXT });
 

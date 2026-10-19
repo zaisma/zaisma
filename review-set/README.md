@@ -51,6 +51,18 @@ A **full run** (every case, the configured models, at least 3 runs) records `rev
 3. A miss a person finds becomes a case the same way ("Review learns from misses").
 4. `npm test` checks the format. The next full run measures it.
 
+## Review precedents
+
+When a person finds the review wrong (a hold they release, or a game it passed that they reject or take down), the miss becomes a review precedent the judge reads and a stand-in case ("The AI review learns from its misses." in `docs/DECISIONS.md`). A new one is tried on the public cases in the Worker before the judge reads it. The private cases and the whole set are measured here, with the rulings in force:
+
+```bash
+# save the admin MCP's list_review_precedents answer as { "review_precedents": [...] }, then:
+npm run review-set -- --precedents review-precedents.json
+npm run review-set -- --precedents review-precedents.json --save-private-cases
+```
+
+`--precedents` runs the review with every active precedent in force and adds each one's stand-in case as a private case; `--save-private-cases` also writes those stand-ins into the private folder (`cases/review-precedent-<id>/`, never public, never a copy of a developer's game). A run with `--precedents` records nothing. After changing a public case, run `node scripts/review-set/bundle-public.mjs`: the Worker's copy (`apps/site/src/generated/review-set-public-cases.generated.ts`) is checked by `npm test`.
+
 ## The protections and their cases
 
 Every protection in `REVIEW_SET_PROTECTIONS` has at least one private case, a game that gets around it, kept inert (a few lines showing the pattern, `example.invalid` addresses, never working abuse). `review_reach` has none: it isn't an AI call but the review handing over to a person when it can't read (`too_much_code`, the picture limits), tested with the limits lowered.
