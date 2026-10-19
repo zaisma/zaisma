@@ -593,7 +593,7 @@ ${html`<ul>${ALLOWED_CONTENT.map((words) => html`<li>${words}</li>`)}</ul>`}
 <p>Accounts are closed only for sexual content involving minors, malware, or putting back something we already took down.</p>
 <h2>Reports and takedowns</h2>
 <p>Every game page has a Report button. We remove games that break these rules. Reports about child safety or illegal content go straight to a person. Until we've checked a report, a brand-new game is hidden and a recent update goes back to the version before it.</p>
-<p>How players talk to each other is up to each game and its moderators, and mute and block are always there. Zaisma steps in for real threats, sharing someone's personal details, following someone after they've blocked them, and anything sexual toward a teen. Reports about cheating go to the game's developer.</p>
+<p>How players talk to each other is up to each game and its moderators, and mute and block are always there. Zaisma steps in for threats that reach into real life, sharing someone's personal details, following someone after they've blocked them, and anything sexual toward a teen. Trash talk, however rough, is the game's call: reports about bullying, cheating and other behavior go to the game's developer.</p>
 <p>A game with faked plays is taken off Popular, Trending and New. Doing it again can get the game taken down.</p>
 `;
 

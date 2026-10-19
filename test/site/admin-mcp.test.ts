@@ -1,5 +1,5 @@
 import { env, SELF } from "cloudflare:test";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createAccount, createApiKey, type ImageMatcher } from "@zaisma/core";
 import { scanVersion } from "../../apps/site/src/scan.ts";
 import { passingScanDeps } from "./scan-stubs.ts";
@@ -313,5 +313,51 @@ describe("admin MCP", () => {
     expect(out.versions[0].is_live).toBe(true);
     expect(await refusal("get_game", { slug: "nothere" })).toMatchObject({ code: "no_game", field: "slug" });
     expect(await refusal("get_game", { game: "test-game" })).toMatchObject({ code: "unknown_field", fix: expect.stringContaining("Did you mean slug?") });
+  });
+});
+
+describe("admin MCP, reports about a player", () => {
+  const personAsks = (severity: "high" | "child_safety"): TriageDeps => ({
+    random: () => 0.5,
+    ai: async () => ({ severity, category: "player", summary: "Posts where someone lives.", recommendation: "person", why: "Personal details.", same_as: "", precedent: "", fit: "none", draft: { title: "", applies_when: "", decision: "", why: "" }, input_token_count: 10, output_token_count: 10 }),
+  });
+  async function reportedAccount(severity: "high" | "child_safety") {
+    await env.DB.exec("DELETE FROM reports; DELETE FROM friendships; DELETE FROM friend_invites; DELETE FROM accounts WHERE id LIKE 'reported-%';");
+    const account = await createAccount(env.DB, { id: `reported-${severity}`, username: `Loud_Lynx_${severity === "high" ? 1 : 2}`, ageBand: "18+" });
+    await env.DB.prepare("UPDATE accounts SET bio = 'lives at 12 Elm St' WHERE id = ?").bind(account.id).run();
+    await send({ reason: "personal_details", details: "keeps posting her address", room: "ABCDEF", player: { id: account.player_id, name: account.username } });
+    await triageReports(testEnv, personAsks(severity));
+    const groups = (await data("list_report_groups")).report_groups;
+    return { account, groupId: groups[0].id as string };
+  }
+
+  it("offers what fits a player, and turns an account's social side off only with what the report found", async () => {
+    const { account, groupId } = await reportedAccount("high");
+    const group = (await data("get_report_group", { report_group_id: groupId })).report_group;
+    expect(group.possible_decisions).toEqual(["dismiss", "pass_to_developer", "stop_social", "clear_profile"]);
+    expect(group.reports[0]).toMatchObject({ reported_player: { id: account.player_id, username: account.username, is_social_stopped: false }, has_block_between: false });
+
+    expect(await refusal("decide_report_group", { report_group_id: groupId, decision: "stop_social", why: "Posted her address." })).toMatchObject({ code: "missing_field", field: "social_stopped_reason" });
+    expect(await refusal("decide_report_group", { report_group_id: groupId, decision: "dismiss", why: "Nothing.", social_stopped_reason: "sexual" })).toMatchObject({ code: "unknown_field", field: "social_stopped_reason" });
+    await data("decide_report_group", { report_group_id: groupId, decision: "stop_social", why: "Posted her address.", social_stopped_reason: "personal_details" });
+    expect(await env.DB.prepare("SELECT who_can_chat, chat_stopped_reason, social_stopped_reason FROM accounts WHERE id = ?").bind(account.id).first()).toEqual({ who_can_chat: "nobody", chat_stopped_reason: "removed", social_stopped_reason: "personal_details" });
+    expect(await env.DB.prepare("SELECT report_status FROM reports").first("report_status")).toBe("actioned");
+  });
+
+  it("clears a profile, and never passes child safety to the developer", async () => {
+    const first = await reportedAccount("high");
+    await data("decide_report_group", { report_group_id: first.groupId, decision: "clear_profile", why: "Address in the bio." });
+    expect(await env.DB.prepare("SELECT bio FROM accounts WHERE id = ?").bind(first.account.id).first("bio")).toBeNull();
+
+    const { groupId } = await reportedAccount("child_safety");
+    const group = (await data("get_report_group", { report_group_id: groupId })).report_group;
+    expect(group.possible_decisions).not.toContain("pass_to_developer");
+    expect(await refusal("decide_report_group", { report_group_id: groupId, decision: "pass_to_developer", why: "No." })).toMatchObject({ code: "cant_decide" });
+    // Confirmed: Julius hears to report it to NCMEC.
+    const alerts: string[] = [];
+    const spy = vi.spyOn(console, "log").mockImplementation((line: unknown) => void alerts.push(String(line)));
+    await data("decide_report_group", { report_group_id: groupId, decision: "stop_social", why: "Confirmed.", social_stopped_reason: "sexual" });
+    spy.mockRestore();
+    expect(alerts).toContain("[alert] URGENT: report to NCMEC: @Loud_Lynx_2");
   });
 });

@@ -440,7 +440,7 @@ describe("reports and takedowns", () => {
     expect(row?.player_text).toBe("won't load");
     expect(JSON.stringify(row)).not.toContain("203.0.113.9");
     const cols = (await env.DB.prepare("PRAGMA table_info(reports)").all<{ name: string }>()).results.map((c) => c.name);
-    expect(cols.sort()).toEqual(["bug_report_at_ms", "closed_at_ms", "game_id", "has_picture", "id", "is_bug_report", "player_id", "player_name", "player_reason", "player_text", "precedent_id", "reason", "report_group_id", "report_status", "reported_at_ms", "room_code", "room_name", "severity_index", "triage", "triage_attempt_count", "triaged_at_ms", "version_id"]);
+    expect(cols.sort()).toEqual(["bug_report_at_ms", "closed_at_ms", "game_id", "has_block_between", "has_picture", "id", "is_bug_report", "is_passed_to_developer", "passed_to_developer_at_ms", "player_id", "player_name", "player_reason", "player_text", "precedent_id", "reason", "report_group_id", "report_status", "reported_at_ms", "room_code", "room_name", "severity_index", "triage", "triage_attempt_count", "triaged_at_ms", "version_id"]);
     expect((await gameBySlug(env.DB, "test-game"))?.review_status).toBe("live");
   });
 

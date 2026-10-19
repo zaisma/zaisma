@@ -467,7 +467,7 @@ export default {
       // A player reporting another player. Like every report, nothing about the reporter is kept.
       if (url.pathname === "/v1/report") {
         if (await limited(env.REPORT_LIMIT, request)) return failure("slow_down", "Too many reports. Try again in a minute.", 429, cors);
-        const reason = plainText(body.reason, 20) as PlayerReportReason;
+        const reason = plainText(body.reason, 40) as PlayerReportReason;
         const reportedRoomCode = plainText(body.roomCode, 6);
         const playerId = plainText(body.playerId, 40);
         if (!(reason in PLAYER_REPORT_REASONS) || !isRoomCode(reportedRoomCode) || !isIdOf("player", playerId)) {

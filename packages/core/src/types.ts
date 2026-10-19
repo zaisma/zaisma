@@ -173,13 +173,24 @@ export interface ScanJob {
 
 /** Why a player reports another player in a room. */
 export const PLAYER_REPORT_REASONS = {
-  harassment: "Harassing or bullying",
-  threats_or_private_details: "Threats or sharing private details",
+  real_life_threat: "Threatening them in real life",
+  personal_details: "Sharing someone's personal details",
+  following_after_block: "Following me after I blocked them",
   sexual: "Sexual behavior",
+  harassment: "Harassing or bullying",
   cheating: "Cheating",
   other: "Something else",
 } as const;
 export type PlayerReportReason = keyof typeof PLAYER_REPORT_REASONS;
+
+/**
+ * The player reports Zaisma itself looks at (docs/DECISIONS.md, "Zaisma steps into players' chat only
+ * where block can't help"). Every sexual one, since nothing about the reporter is kept to say whether it
+ * was toward a teen. The rest go to the game's developer, with mute and block.
+ */
+export const ZAISMA_PLAYER_REPORT_REASONS = ["real_life_threat", "personal_details", "following_after_block", "sexual"] as const satisfies readonly PlayerReportReason[];
+export type ZaismaPlayerReportReason = (typeof ZAISMA_PLAYER_REPORT_REASONS)[number];
+export const isForZaisma = (playerReason: string): playerReason is ZaismaPlayerReportReason => (ZAISMA_PLAYER_REPORT_REASONS as readonly string[]).includes(playerReason);
 
 /** A room with players in it (migrations/0015_live_rooms.sql, 0034). */
 export interface LiveRoom {
@@ -277,7 +288,7 @@ export interface Triage {
   /** For the person reviewing it, in a sentence or two. */
   summary: string;
   /** What a person should do; "recheck" is done automatically. */
-  recommendation: "dismiss" | "bug" | "recheck" | "person" | "take_down" | "restore";
+  recommendation: "dismiss" | "bug" | "recheck" | "person" | "take_down" | "restore" | "pass_to_developer" | "stop_social";
   why: string;
   /** What triage did by itself, in plain words. */
   ai_actions: string[];
@@ -297,6 +308,8 @@ export const PRECEDENT_DECISIONS = {
   bug: "Tell the developer",
   recheck: "Check the game's files again",
   take_down: "Take the game down",
+  pass_to_developer: "Pass to the game's developer",
+  stop_social: "Turn off their social side",
 } as const;
 export type PrecedentDecision = keyof typeof PRECEDENT_DECISIONS;
 

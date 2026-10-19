@@ -52,6 +52,7 @@ import {
   socialModeSettings,
   socialModesFor,
   socialSettingsOf,
+  socialStoppedNotice,
   socialSettingChoicesFor,
   suggestUsernames,
   updateAccount,
@@ -93,6 +94,7 @@ import {
   type Provider,
   type Session,
 } from "./auth.ts";
+import { protectAccountLine } from "./account-protection.ts";
 import { clearWrongPasswordNotice, isDeviceMarked, isPasswordLockedOut, noteWrongPassword } from "./device-marks.ts";
 import { checkEmailCode, sendEmailCode, waitEndsText } from "./email-codes.ts";
 import type { Env } from "./env.ts";
@@ -514,7 +516,7 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     const choosable = isSocialMode(socialMode) && socialModesFor(account.age_band).includes(socialMode);
     if (socialMode !== "custom" && !choosable) return done(await accountPage(env, session, false, "Choose from the social settings shown."));
     const socialSettings = choosable && sameSocialSettings(sent, current) ? socialModeSettings(socialMode, account.age_band) : sent;
-    if (!(await updateAccount(env.DB, account.id, { socialSettings }))) return done(await accountPage(env, session, false, "Choose from the social settings shown."));
+    if (!(await updateAccount(env.DB, account.id, { socialSettings }))) return done(await accountPage(env, session, false, account.social_stopped_at_ms ? socialStoppedNotice(account.social_stopped_reason) : "Choose from the social settings shown."));
     return done(redirect("/account?social-saved#social"));
   }
 
@@ -1425,7 +1427,7 @@ const NEW_PASSWORD_SCRIPT = pageScript("new-password", `(() => {
 function wrongPasswordNotice(noticeAtMs: number, hasNoOtherWayIn: boolean): Raw {
   const when = Date.now() - noticeAtMs < 86400_000 ? "today" : `on ${new Date(noticeAtMs).toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" })}`;
   return html`<div class="note" role="status" id="wrong-passwords"><p>Someone tried wrong passwords on your account ${when}. Nothing got in.</p>
-${hasNoOtherWayIn ? html`<div class="row"><a class="btn ghost" href="#passkeys">Add a passkey</a> <a class="btn ghost" href="#signing-in">Add an email</a></div>` : ""}</div>`;
+${hasNoOtherWayIn ? html`<div class="row"><a class="btn ghost" href="#passkeys">Add a passkey</a> <a class="btn ghost" href="#email">Add an email</a></div>` : ""}</div>`;
 }
 
 type ActivityEvents = Awaited<ReturnType<typeof activityAnswer>>;
@@ -1484,6 +1486,8 @@ async function accountPage(env: Env, session: Session, welcome: boolean, error?:
   if (noticeAtMs !== null) await clearWrongPasswordNotice(env, account.id, noticeAtMs);
   // The invisible check runs on asking for an email code: Confirm it's you without a password, or adding an email.
   const hasCodeForm = Boolean(env.TURNSTILE_SITE_KEY) && (isConfirmed || !hasPassword);
+  // Adding a way in waits for Confirm it's you, which is above: say so where the add would be.
+  const confirmToAdd = html`<p class="muted small"><a href="#confirm">Confirm it's you</a> above to add one.</p>`;
   const confirmWithOldWays = html`${hasPassword
     ? html`<form class="row" method="post" action="/account/confirm"><input type="password" name="password" autocomplete="current-password" required aria-label="Your password" placeholder="Your password"><button class="btn" type="submit">Confirm</button></form>`
     : html`<form method="post" action="/account/confirm" id="confirm-form">${botCheck(env, "email_code")}<button class="btn" type="submit">Email me a code</button></form>`}`;
@@ -1510,11 +1514,14 @@ ${scriptTags(USERNAME_SCRIPT)}
 <h2 id="friends">Friends</h2>
 <p>Friends join by an invite you give them, as a link or a code. <a href="/friends">Your friends and invites</a>.</p>
 <h2 id="social">Social</h2>
-<p>Who can chat with you, join you and see what you play.</p>
+${account.social_stopped_at_ms
+      ? html`<p class="note" role="status">${socialStoppedNotice(account.social_stopped_reason)}</p>`
+      : html`<p>Who can chat with you, join you and see what you play.</p>
 ${query.has("social-saved") ? html`<p class="note" role="status">Saved. Games pick up chat changes the next time you open them.</p>` : ""}
-${socialSettingsForm(account.age_band, socialSettingsOf(account))}
+${socialSettingsForm(account.age_band, socialSettingsOf(account))}`}
 <h2 id="signing-in">Signing in</h2>
 ${signingInNote ? html`<p class="note" role="status">${SIGNING_IN_NOTES[signingInNote]!}</p>` : ""}
+${!email && !passkeys.length && !isAskingForEmail ? protectAccountLine() : ""}
 ${query.has("confirm-failed") ? html`<p class="error" role="alert">Couldn't send a code. Wait a minute and try again.</p>` : ""}
 ${scriptTags(PASSKEY_SCRIPT)}
 ${isConfirmed
@@ -1536,12 +1543,14 @@ ${isConfirmed
       ? html`<form class="row" method="post" action="/account/password"><input type="password" name="password" minlength="${MINIMUM_PASSWORD_CHARACTER_COUNT}" autocomplete="new-password" required aria-label="New password" placeholder="New password"><button class="btn ghost" type="submit">${hasPassword ? "Change" : "Add"}</button></form>
 <p class="hint">${PASSWORD_HINT}</p>`
       : ""}
-<h3 class="sub">Email</h3>
+<h3 class="sub" id="email">Email</h3>
 <p>${email ? html`<strong>${email}</strong>. A way back in if you forget your password. Never shown to anyone.` : "No email. Add one to get back in if you forget your password. Never shown to anyone."}</p>
 ${isConfirmed
       ? html`<form class="row" method="post" action="/account/email" id="email-form"><input type="email" name="email" autocomplete="email" required aria-label="${email ? "New email" : "Email"}" placeholder="${email ? "New email" : "Email"}">${botCheck(env, "email_code")}<button class="btn ghost" type="submit">${email ? "Change" : "Add"}</button></form>
 ${email && hasPassword ? html`<form class="after-row" method="post" action="/account/email/remove"><button class="btn ghost" type="submit">Remove email</button></form>` : ""}`
-      : ""}
+      : email
+        ? ""
+        : confirmToAdd}
 <h3 class="sub" id="passkeys">Passkeys</h3>
 <p>Sign in with Face ID, a fingerprint or your device's PIN instead of your password.</p>
 ${query.has("passkey-added") ? html`<p class="note" role="status"><strong>Passkey added.</strong> Next time, choose Sign in with a passkey.</p>` : ""}
@@ -1557,7 +1566,9 @@ ${isProven
       ? html`<div class="row" id="passkey-add-row"><button class="btn${passkeys.length ? " ghost" : ""}" type="button" id="passkey-add">Add a passkey</button></div>
 <p class="error" role="alert" id="passkey-error" hidden></p>
 ${scriptTags(PASSKEY_ADD_SCRIPT)}`
-      : ""}
+      : passkeys.length
+        ? ""
+        : confirmToAdd}
 ${activitySection(activity, query)}
 ${signIns.length
       ? html`<h2 id="sign-ins">Signed in with Zaisma</h2>

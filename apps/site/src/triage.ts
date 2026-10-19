@@ -11,6 +11,7 @@ import {
   addAiUsage,
   aiUsage,
   gameById,
+  isForZaisma,
   reportLabel,
   reportPictureKey,
   versionById,
@@ -45,6 +46,11 @@ import { holdKnownImages, inspectVersion, summarize, versionFiles, type ScanDeps
  *   same files isn't enough to take it down;
  * - child safety: no AI reads child-safety reports. If the AI finds child safety in any other
  *   report, it's treated as one: top of the queue, an URGENT alert and the same pause rule.
+ * - a report about a player: Zaisma looks at four things players do (a threat that reaches into
+ *   real life, sharing someone's personal details, following someone after they blocked them, and
+ *   anything sexual), and passes the rest to the game's developer (get_reports' player_reports and the
+ *   player_reported event). The AI only sorts: a person decides anything done to a player, and a
+ *   precedent can pass cases like one a person passed, except for 1 in 20 spot-checks.
  * Precedents are the rulings a person already made (migrations/0014_precedents.sql). A case that
  * fits one is decided the same way; a dismissal precedent marked can_ai_apply_alone is applied without a
  * person, except for 1 in 20 kept as a spot-check. New cases and challenges come with a drafted
@@ -64,7 +70,7 @@ export interface TriageAnswer {
   severity: ReportSeverity;
   category: ReportReason;
   summary: string;
-  recommendation: "bug" | "recheck" | "dismiss" | "person";
+  recommendation: "bug" | "recheck" | "dismiss" | "person" | "pass_to_developer";
   why: string;
   same_as: string;
   /** The precedent the case fits or challenges, or "". */
@@ -115,6 +121,8 @@ interface Outcome {
   severityIndex: number;
   reportGroupId: string | null;
   isBugReport: boolean;
+  /** A report about a player, passed to the game's developer. */
+  isPassedToDeveloper?: boolean;
   /** Closed by triage itself: a bug passed to the developer, or a dismissal under a precedent. */
   closeAs?: "actioned" | "dismissed";
   precedentId?: string;
@@ -159,10 +167,15 @@ async function triageOne(env: Env, report: Report, deps: Required<TriageDeps>, p
     outcome.triage.why = `${outcome.triage.why} It paused the ${paused}, so put it back.`;
   }
 
+  // Never passed to the developer: telling them could warn someone abusing a child.
+  if (outcome.severityIndex === SEVERITY.child_safety) outcome.isPassedToDeveloper = false;
+  if (outcome.isPassedToDeveloper) outcome.triage.ai_actions.push("Passed to the game's developer");
+
   const nowMs = Date.now();
-  await env.DB.prepare("UPDATE reports SET severity_index = ?, report_group_id = ?, triage = ?, triaged_at_ms = ?, is_bug_report = ?, bug_report_at_ms = ?, report_status = ?, closed_at_ms = ?, precedent_id = ? WHERE id = ?")
-    .bind(outcome.severityIndex, outcome.reportGroupId, JSON.stringify(outcome.triage), nowMs, outcome.isBugReport ? 1 : 0, outcome.isBugReport ? nowMs : null, outcome.closeAs ?? "open", outcome.closeAs ? nowMs : null, outcome.precedentId ?? null, report.id)
+  await env.DB.prepare("UPDATE reports SET severity_index = ?, report_group_id = ?, triage = ?, triaged_at_ms = ?, is_bug_report = ?, bug_report_at_ms = ?, report_status = ?, closed_at_ms = ?, precedent_id = ?, is_passed_to_developer = ?, passed_to_developer_at_ms = ? WHERE id = ?")
+    .bind(outcome.severityIndex, outcome.reportGroupId, JSON.stringify(outcome.triage), nowMs, outcome.isBugReport ? 1 : 0, outcome.isBugReport ? nowMs : null, outcome.closeAs ?? "open", outcome.closeAs ? nowMs : null, outcome.precedentId ?? null, outcome.isPassedToDeveloper ? 1 : 0, outcome.isPassedToDeveloper ? nowMs : null, report.id)
     .run();
+  if (outcome.isPassedToDeveloper) await tellWebhooks(env, "player_reported", game.id, { playerReport: report });
   // A bug the developer sees in get_reports reaches their webhooks too: never child safety, and only with the player's words.
   if (outcome.isBugReport && outcome.severityIndex > 0 && report.player_text) await tellWebhooks(env, "bug_reported", game.id, { bugReport: { ...report, triage: JSON.stringify(outcome.triage) } });
   if (outcome.recheck) await env.SCAN_QUEUE.send({ versionId: outcome.recheck, recheck: { reportId: report.id } });
@@ -207,6 +220,9 @@ async function act(env: Env, report: Report, game: Game, others: Report[], answe
   } else if (precedent) {
     triage.recommendation = "person";
   }
+  if (report.player_id) return routePlayerReport(report, outcome, precedent && answer.fit === "fits" ? precedent : undefined, random);
+  // Only reports about a player go to the developer that way, or stop anyone's social side.
+  if (triage.recommendation === "pass_to_developer" || triage.recommendation === "stop_social") triage.recommendation = "person";
 
   if (triage.recommendation === "bug") {
     outcome.isBugReport = true;
@@ -233,13 +249,44 @@ async function act(env: Env, report: Report, game: Game, others: Report[], answe
   return outcome;
 }
 
-/** Sorting without the AI: by the reason the player picked, for a person to decide. */
+/**
+ * Where a report about a player goes (docs/DECISIONS.md, "Zaisma steps into players' chat only where block
+ * can't help"). A reason Zaisma doesn't act on goes to the game's developer straight away, and stays open
+ * only when the AI found one of the four things Zaisma does act on in it. A reason Zaisma acts on waits for
+ * a person, unless it fits a precedent that passed cases like it to the developer: then it's passed alone,
+ * except 1 in 20 kept as a spot-check. Anything done to a player is a person's click.
+ */
+function routePlayerReport(report: Report, outcome: Outcome, fitting: Precedent | undefined, random: () => number): Outcome {
+  const triage = outcome.triage;
+  // What only fits a game, for a report about a player: a bug is the developer's to hear, the rest a person's.
+  if (triage.recommendation === "bug") triage.recommendation = "pass_to_developer";
+  if (triage.recommendation === "recheck" || triage.recommendation === "take_down" || triage.recommendation === "restore") triage.recommendation = "person";
+  if (!isForZaisma(report.player_reason)) {
+    outcome.isPassedToDeveloper = true;
+    if (!outcome.closeAs && triage.recommendation !== "person" && triage.recommendation !== "stop_social") outcome.closeAs = "actioned";
+    return outcome;
+  }
+  if (fitting?.decision === "pass_to_developer" && outcome.severityIndex >= SEVERITY.high) {
+    if (random() < SPOT_CHECK_PCT / 100) {
+      triage.is_spot_check = true;
+      triage.why = `Spot-check: under precedent “${fitting.title}”, this was passed to the game's developer without you. ${fitting.why}`;
+    } else {
+      outcome.isPassedToDeveloper = true;
+      outcome.closeAs = "actioned";
+    }
+  }
+  return outcome;
+}
+
+/** Sorting without the AI: by the reason the player picked, for a person to decide. A report about a player that Zaisma doesn't act on still goes to the developer. */
 function byRule(report: Report, others: Report[], note: string): Outcome {
+  const isForDeveloper = Boolean(report.player_id) && !isForZaisma(report.player_reason) && report.severity_index > SEVERITY.child_safety;
   return {
-    triage: { is_by_ai: false, category: report.reason as ReportReason, summary: note, recommendation: "person", why: "Nobody has sorted it yet.", ai_actions: [] },
+    triage: { is_by_ai: false, category: report.reason as ReportReason, summary: note, recommendation: isForDeveloper ? "pass_to_developer" : "person", why: isForDeveloper ? "Zaisma leaves this to the game's developer." : "Nobody has sorted it yet.", ai_actions: [] },
     severityIndex: report.severity_index,
     reportGroupId: sameRule(report, others),
     isBugReport: report.reason === "broken",
+    ...(isForDeveloper ? { isPassedToDeveloper: true, closeAs: "actioned" as const } : {}),
   };
 }
 
@@ -274,6 +321,7 @@ async function alertAfterTriage(env: Env, report: Report, game: Game, outcome: O
       `Recommended: ${outcome.triage.recommendation.replace("_", " ")}. ${outcome.triage.why}`,
       ...(outcome.triage.ai_actions.length ? [`Done already: ${outcome.triage.ai_actions.join("; ")}.`] : []),
       `What the player wrote: ${report.player_text || "(nothing)"}`,
+      ...(report.player_reason === "real_life_threat" && outcome.severityIndex <= SEVERITY.urgent ? ["Decide whether to tell the police."] : []),
       ...(found ? ["Don't delete anything; review it and report to NCMEC if confirmed."] : []),
       `Review: ${env.SITE_ORIGIN}/admin/reports`,
     ].join("\n\n"),
@@ -295,6 +343,7 @@ const untrusted = (text: string) => text.replace(/</g, "‹");
 
 async function triageInput(env: Env, report: Report, game: Game, others: Report[]): Promise<Omit<TriageInput, "precedents">> {
   const version = report.version_id ? await versionById(env.DB, report.version_id) : null;
+  const reported = report.player_id ? await env.DB.prepare("SELECT age_band FROM accounts WHERE player_id = ?").bind(report.player_id).first<{ age_band: string }>() : null;
   const scan: ScanReport | null = version?.scan_report ? JSON.parse(version.scan_report) : null;
   const findings = scan?.findings.filter((finding) => finding.severity !== "info").map((finding) => `${finding.code}: ${finding.message}`) ?? [];
   const text = [
@@ -311,7 +360,14 @@ async function triageInput(env: Env, report: Report, game: Game, others: Report[
     `<report id="${report.id}">`,
     `Sent: ${new Date(report.reported_at_ms).toISOString().slice(0, 16).replace("T", " ")} UTC`,
     `Reason picked: ${reportLabel({ ...report, player_name: "", room_code: "" })}`,
-    ...(report.player_id ? [`About a player: "${untrusted(report.player_name)}" (temporary ID ${report.player_id}${report.room_code ? `, room ${report.room_code}` : ""})`] : report.room_code ? [`In room ${report.room_code}`] : []),
+    ...(report.player_id
+      ? [
+          `About a player: "${untrusted(report.player_name)}" (temporary ID ${report.player_id}, ${reported ? `an account aged ${reported.age_band}` : "a guest"}${report.room_code ? `, room ${report.room_code}` : ""})`,
+          ...(report.has_block_between ? ["The reporter has a block with this player."] : []),
+        ]
+      : report.room_code
+        ? [`In room ${report.room_code}`]
+        : []),
     // Room names and labels can be typed by players: the player may be reporting the name itself.
     ...(report.room_name ? [`The room's name and labels, as players saw them: "${untrusted(report.room_name)}"`] : []),
     `Details: ${report.player_text ? `"${untrusted(report.player_text)}"` : "(none)"}`,
@@ -346,7 +402,7 @@ const SCHEMA = {
     severity: { type: "string", enum: Object.keys(SEVERITY) },
     category: { type: "string", enum: Object.keys(REPORT_REASONS) },
     summary: { type: "string", description: "One or two plain sentences for the person reviewing it." },
-    recommendation: { type: "string", enum: ["bug", "recheck", "dismiss", "person"] },
+    recommendation: { type: "string", enum: ["bug", "recheck", "dismiss", "person", "pass_to_developer"] },
     why: { type: "string", description: "One plain sentence: why this recommendation." },
     same_as: { type: "string", description: "The id of the other open report about the same problem, or empty." },
     precedent: { type: "string", description: "The id of the precedent the case fits or challenges, or empty." },
@@ -389,7 +445,15 @@ ${ALLOWED_CONTENT.map((words) => `  - ${words}`).join("\n")}
   - gore of any kind in a game for 16 or 18 and up, and cartoon, pixel or stylized blood in any game
   - a game using someone else's characters, art, music or code: only the owner's notice takes it down (the DMCA page)
   - a game that says a real person committed a crime, true or not: only that person's notice hides it (the defamation page)
-- "person": everything else, including any report about a player's behavior.
+- "pass_to_developer": only for a report about a player (below).
+- "person": everything else.
+
+Reports about a player: how players treat each other is up to each game and its moderators, with mute and block always there. Zaisma itself acts on only four things a player does:
+- a threat that reaches into real life: it uses the person's real details (where they live, their school, their real name), talks about meeting up or finding them, or describes a specific plan to hurt them outside the game;
+- sharing someone's personal details: where they live or go to school, their real name, phone number, private accounts or photos;
+- following someone after they blocked them (turning up in their games again, often on another account);
+- anything sexual toward a teen, or anything sexual at all when you can't tell who it was toward.
+Everything else is the game's call, however violent, crude or offensive it is: trash talk like "I'm gonna kill you", "I'll f*** your mom", "hope you die" or "kys", threats to someone's character in the game, insults, bullying, rude names, spam and cheating are not threats and not for Zaisma. For a report about a player, recommend "person" only when the report describes one of the four; "pass_to_developer" for any other behavior; "dismiss" when there's nothing in it at all. Never "bug" or "recheck". Severity: a real-life threat "urgent"; personal details, following and sexual "high", or "child_safety" when it suggests a minor is the target; everything else "normal" or "low".
 
 same_as: the id of the other open report about the same problem (the same player, for a report about a player), or "" if there isn't one.
 
@@ -423,7 +487,7 @@ export async function aiTriage(apiKey: string, model: string, input: TriageInput
   }
   const text = response.content.find((block) => block.type === "text")?.text ?? "";
   const parsed = JSON.parse(text) as Omit<TriageAnswer, "input_token_count" | "output_token_count">;
-  if (!(parsed.severity in SEVERITY) || !(parsed.category in REPORT_REASONS) || !["bug", "recheck", "dismiss", "person"].includes(parsed.recommendation)) throw new Error(`Unexpected triage answer: ${text.slice(0, 200)}`);
+  if (!(parsed.severity in SEVERITY) || !(parsed.category in REPORT_REASONS) || !["bug", "recheck", "dismiss", "person", "pass_to_developer"].includes(parsed.recommendation)) throw new Error(`Unexpected triage answer: ${text.slice(0, 200)}`);
   const draft = parsed.draft && typeof parsed.draft === "object" ? parsed.draft : NO_DRAFT;
   return {
     ...parsed,
