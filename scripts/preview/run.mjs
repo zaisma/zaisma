@@ -100,6 +100,20 @@ function wrangler(app, args, opts = {}) {
 // Wrangler looks for its config beside the entry it's given, so it's named too.
 const dev = (app) => ["dev", join(ROOT, "scripts/preview/workers", `${app}.mjs`), "--config", join(ROOT, "apps", app, "wrangler.jsonc")];
 
+// The site reloads when the rooms server connects to it, and a request in that moment has its connection
+// dropped: the test data's requests try again, a few times, instead of stopping the start.
+const nodeFetch = globalThis.fetch;
+globalThis.fetch = async (input, init) => {
+  for (let tryNumber = 1; ; tryNumber++) {
+    try {
+      return await nodeFetch(input, init);
+    } catch (error) {
+      if (tryNumber >= 10 || !["ECONNRESET", "ECONNREFUSED", "UND_ERR_SOCKET"].includes(error?.cause?.code)) throw error;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  }
+};
+
 async function waitFor(url) {
   for (let i = 0; i < 240; i++) {
     try {
