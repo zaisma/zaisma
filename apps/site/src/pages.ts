@@ -575,8 +575,7 @@ export function legal(env: Env, page: string): Response | null {
 // The rules themselves are CONTENT_RULES (@zaisma/core), each anchored by the name holds and takedowns give it.
 const ruleItem = (rule: ContentRule, words: string) => {
   const details = CONTENT_RULE_DETAILS[rule];
-  if (!details) return html`<li id="${rule}">${words}</li>`;
-  return html`<li id="${rule}"><strong>${words}</strong> ${details.explanation}<br><strong>Fine:</strong> ${details.fine}<br><strong>Not fine:</strong> ${details.notFine}</li>`;
+  return html`<li id="${rule}"><strong>${words}</strong>${details.explanation ? html` ${details.explanation}` : ""}<br><strong>Fine:</strong> ${details.fine}<br><strong>Not fine:</strong> ${details.notFine}</li>`;
 };
 const CONTENT_RULES_PAGE = `
 <p class="lead">Zaisma is for players 13 and up. Any kind of game is welcome, within these rules.</p>

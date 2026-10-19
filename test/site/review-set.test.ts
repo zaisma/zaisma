@@ -37,7 +37,7 @@ describe("reviewCase", () => {
         },
         readPictures: async (_key, model, pictures) => {
           seen.push(["readPictures", model, pictures]);
-          return { items: [{ kind: "content", subject: "copyright", detail: "A famous character.", path: "art/hero.png", quote: "" }], outcome: "read", costCents: 0.1, inputTokenCount: 5, outputTokenCount: 1 };
+          return { items: [{ kind: "content", subject: "sexual", detail: "A suggestive picture.", path: "art/hero.png", quote: "" }], outcome: "read", costCents: 0.1, inputTokenCount: 5, outputTokenCount: 1 };
         },
         judge: async (_key, model, brief) => {
           seen.push(["judge", model, brief]);

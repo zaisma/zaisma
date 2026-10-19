@@ -332,7 +332,6 @@ Each developer gets 5 judged reviews a day, across all their games. A change tha
 | `ai_private_details_or_threats` | `real_people` | The AI review found private details about a real person, like a home address, phone number or school, or a real threat against one. |
 | `ai_lifelike_gore` | none | The AI review found lifelike gore (photo-real or lifelike injury shown up close), which plays only in games for 16 and up. |
 | `ai_real_money_gambling` | `illegal` | The AI review found real-money gambling. |
-| `ai_likely_copyright` | `copyright` | The AI review found characters, art or music that look like someone else's. |
 | `ai_free_text_chat` | `chat` | The AI review found free-text chat between players. |
 | `ai_disallowed_crypto` | `crypto` | The AI review found cryptocurrency the rules don't allow: coins other than Bitcoin, tokens, NFTs or airdrops, or Bitcoin used for investment advice, paying players or asking for wallet access. |
 | `ai_other` | none | The AI review found something else for a person at Zaisma to look at. |
@@ -361,7 +360,7 @@ Each developer gets 5 judged reviews a day, across all their games. A change tha
 | `real_people` | Private details about real people, or real threats. |
 | `copyright` | Other people's games, art, music or characters used without permission. |
 | `personal_details` | Asking players for personal details like emails, real names, birthdays or location inside the game. Every player has a Zaisma ID and name; games with their own accounts link them through Sign in with Zaisma, and anything more happens on the developer's own site. |
-| `chat` | Chat that skips Zaisma's chat rules: who can talk to whom follows each player's age and chat setting. Until chat ships, games use preset phrases and emotes. |
+| `chat` | Free-text chat between players. In the beta, players talk through each game's preset phrases and emotes. |
 | `crypto` | Cryptocurrency other than Bitcoin: using or promoting other coins, tokens, NFTs or airdrops. A story that mentions one is fine. Bitcoin games are welcome, but not investment advice, mining on the player's device, paying players sats, or asking for seed phrases or permission to spend from a wallet. |
 | `faked_plays` | Faking plays or players, with bots, scripts or click farms. |
 
