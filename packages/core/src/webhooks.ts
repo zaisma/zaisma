@@ -27,7 +27,7 @@ const now = () => Date.now();
  *   used from a new place, …): security_event, as get_activity lists it. About the account, so it reaches only
  *   webhooks for every game at an endpoint_url, like account_deleted for a sign-in app.
  */
-export const WEBHOOK_EVENT_KINDS = ["bug_reported", "scan_status_changed", "live_version_changed", "review_status_changed", "game_server_error_found", "alert_raised", "account_deleted", "security_alert"] as const;
+export const WEBHOOK_EVENT_KINDS = ["bug_reported", "player_reported", "scan_status_changed", "live_version_changed", "review_status_changed", "game_server_error_found", "alert_raised", "account_deleted", "security_alert"] as const;
 export type WebhookEventKind = (typeof WEBHOOK_EVENT_KINDS)[number];
 
 /** game_server_error_found events per game per UTC day; past it, errors still show in get_stats. */

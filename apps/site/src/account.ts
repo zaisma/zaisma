@@ -52,6 +52,7 @@ import {
   socialModeSettings,
   socialModesFor,
   socialSettingsOf,
+  socialStoppedNotice,
   socialSettingChoicesFor,
   suggestUsernames,
   updateAccount,
@@ -515,7 +516,7 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     const choosable = isSocialMode(socialMode) && socialModesFor(account.age_band).includes(socialMode);
     if (socialMode !== "custom" && !choosable) return done(await accountPage(env, session, false, "Choose from the social settings shown."));
     const socialSettings = choosable && sameSocialSettings(sent, current) ? socialModeSettings(socialMode, account.age_band) : sent;
-    if (!(await updateAccount(env.DB, account.id, { socialSettings }))) return done(await accountPage(env, session, false, "Choose from the social settings shown."));
+    if (!(await updateAccount(env.DB, account.id, { socialSettings }))) return done(await accountPage(env, session, false, account.social_stopped_at_ms ? socialStoppedNotice(account.social_stopped_reason) : "Choose from the social settings shown."));
     return done(redirect("/account?social-saved#social"));
   }
 
@@ -1513,9 +1514,11 @@ ${scriptTags(USERNAME_SCRIPT)}
 <h2 id="friends">Friends</h2>
 <p>Friends join by an invite you give them, as a link or a code. <a href="/friends">Your friends and invites</a>.</p>
 <h2 id="social">Social</h2>
-<p>Who can chat with you, join you and see what you play.</p>
+${account.social_stopped_at_ms
+      ? html`<p class="note" role="status">${socialStoppedNotice(account.social_stopped_reason)}</p>`
+      : html`<p>Who can chat with you, join you and see what you play.</p>
 ${query.has("social-saved") ? html`<p class="note" role="status">Saved. Games pick up chat changes the next time you open them.</p>` : ""}
-${socialSettingsForm(account.age_band, socialSettingsOf(account))}
+${socialSettingsForm(account.age_band, socialSettingsOf(account))}`}
 <h2 id="signing-in">Signing in</h2>
 ${signingInNote ? html`<p class="note" role="status">${SIGNING_IN_NOTES[signingInNote]!}</p>` : ""}
 ${!email && !passkeys.length && !isAskingForEmail ? protectAccountLine() : ""}

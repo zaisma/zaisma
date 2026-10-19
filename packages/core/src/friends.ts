@@ -60,8 +60,14 @@ export async function friendInvitesOf(database: D1Database, accountId: string, n
   return results;
 }
 
+/** Whether a person turned the account's social side off after a report (stopSocial). */
+async function isSocialStopped(database: D1Database, accountId: string): Promise<boolean> {
+  return Boolean(await database.prepare("SELECT 1 FROM accounts WHERE id = ? AND social_stopped_at_ms IS NOT NULL").bind(accountId).first());
+}
+
 /** A new invite, or why there can't be one. */
-export async function createFriendInvite(database: D1Database, accountId: string, nowMs = now()): Promise<{ invite: FriendInvite } | { error: "too_many_invites" | "too_many_friends" }> {
+export async function createFriendInvite(database: D1Database, accountId: string, nowMs = now()): Promise<{ invite: FriendInvite } | { error: "too_many_invites" | "too_many_friends" | "social_stopped" }> {
+  if (await isSocialStopped(database, accountId)) return { error: "social_stopped" };
   if ((await friendCountOf(database, accountId)) >= MAXIMUM_FRIEND_COUNT) return { error: "too_many_friends" };
   if ((await friendInvitesOf(database, accountId, nowMs)).length >= MAXIMUM_OPEN_FRIEND_INVITE_COUNT) return { error: "too_many_invites" };
   const invite: FriendInvite = {
@@ -89,7 +95,7 @@ export async function friendInviteByCode(database: D1Database, inviteCode: strin
 
 export type AcceptedFriendInvite =
   | { friend: Friend }
-  | { error: "invite_not_found" | "own_invite" | "already_friends" | "too_many_friends" | "inviter_has_too_many_friends" | "inviter_is_blocked" };
+  | { error: "invite_not_found" | "own_invite" | "already_friends" | "too_many_friends" | "inviter_has_too_many_friends" | "inviter_is_blocked" | "social_stopped" };
 
 /**
  * Use an invite: the two accounts become friends and the invite is gone. An invite for someone who's
@@ -101,6 +107,9 @@ export async function acceptFriendInvite(database: D1Database, accountId: string
   const invite = await friendInviteByCode(database, inviteCode, nowMs);
   if (!invite) return { error: "invite_not_found" };
   if (invite.account_id === accountId) return { error: "own_invite" };
+  if (await isSocialStopped(database, accountId)) return { error: "social_stopped" };
+  // An invite from an account whose social side is off looks used, as across a block.
+  if (await isSocialStopped(database, invite.account_id)) return { error: "invite_not_found" };
   if (await hasBlocked(database, invite.account_id, accountId)) return { error: "invite_not_found" };
   if (await hasBlocked(database, accountId, invite.account_id)) return { error: "inviter_is_blocked" };
   if (await areFriends(database, accountId, invite.account_id)) return { error: "already_friends" };
