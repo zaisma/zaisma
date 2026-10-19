@@ -198,7 +198,7 @@ describe("--json", () => {
   });
 
   it("help --json lists every command, and the exit codes and error codes the docs list", async () => {
-    expect(help.commands.map((entry) => entry.command)).toEqual(["games", "new", "check", "upload", "versions", "publish", "unschedule", "visibility", "allowed-hosts", "own-servers", "links", "links set", "links remove", "secrets", "secrets set", "secrets delete", "forum", "forum post", "forum message", "forum reply", "database", "database query", "database batch", "database export", "database import", "saves", "saves get", "saves change", "saves replace", "saves reset", "saves copies", "saves copy", "saves restore", "help"]);
+    expect(help.commands.map((entry) => entry.command)).toEqual(["games", "new", "check", "upload", "versions", "publish", "unschedule", "visibility", "allowed-hosts", "own-servers", "links", "links set", "links remove", "secrets", "secrets set", "secrets delete", "forum", "forum post", "forum message", "forum reply", "database", "database query", "database batch", "database export", "database import", "database restore", "database undo-restore", "saves", "saves get", "saves change", "saves replace", "saves reset", "saves copies", "saves copy", "saves restore", "help"]);
     const docs = readFileSync(join(ROOT, "docs/DEVELOPER-API.md"), "utf8");
     const section = docs.slice(docs.indexOf("\n## The upload command\n"));
     const exitRows = [...section.matchAll(/^\| (\d+) \| `([a-z_]+)` \| (.+) \|$/gm)].map((row) => ({ exit_code: Number(row[1]), name: row[2], meaning: row[3] }));
@@ -249,6 +249,25 @@ describe("database", () => {
     const missing = await zaisma(["database", "batch", "sky-hopper", "/nowhere/fix.json", "--json"]);
     expect(json(missing.stdout).error).toMatchObject({ code: "not_a_file", field: "file" });
     expect(calls).toEqual([]);
+  });
+});
+
+describe("database restore", () => {
+  const restore = { id: "database_restore_8f3k2m9q1x7c4v6b0n5z", restore_to_at: "2026-10-18T14:05:00.000Z", restored_at: "2026-10-18T15:00:00.000Z", undoes_database_restore_id: null, undo_expires_at: "2026-11-17T14:59:00.000Z" };
+
+  it("goes back to a time and says how to undo it; undoes one by its id", async () => {
+    answers["POST /games/sky-hopper/database/restores"] = { status: 200, body: { database_restore: restore, erased_again_player_count: 2, next_steps: [] } };
+    const result = await zaisma(["database", "restore", "sky-hopper", "2026-10-18T14:05:00Z"]);
+    expect(result.exitCode).toBe(0);
+    expect(calls[0]).toMatchObject({ method: "POST", path: "/games/sky-hopper/database/restores", body: { restore_to_at: "2026-10-18T14:05:00Z" } });
+    expect(result.stdout).toContain("Restored sky-hopper's database to 2026-10-18T14:05:00.000Z.\nErased 2 players again");
+    expect(result.stdout).toContain(`zaisma database undo-restore sky-hopper ${restore.id}`);
+
+    const undone = { database_restore: { ...restore, id: "database_restore_2b7x0q4n1m8k5c3v9z6d", undoes_database_restore_id: restore.id }, erased_again_player_count: 0, next_steps: [] };
+    answers[`POST /games/sky-hopper/database/restores/${restore.id}/undo`] = { status: 200, body: undone };
+    const undo = await zaisma(["database", "undo-restore", "sky-hopper", restore.id, "--json"]);
+    expect(calls[1]).toMatchObject({ method: "POST", path: `/games/sky-hopper/database/restores/${restore.id}/undo` });
+    expect(json(undo.stdout)).toEqual(undone);
   });
 });
 
