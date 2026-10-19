@@ -31,7 +31,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkState, judgeCheckedCode, sameCodeCommits } from "./ship-github-check.mjs";
-import { CHECK_GAME_SLUG, CHECK_GAME_URL, ROOMS_URL, SITE_URL, checkBuckets, checkCliOnNpm, checkSecurityAddresses, checkUrl } from "./ship-checks.mjs";
+import { CHECK_GAME_SLUG, CHECK_GAME_URL, ROOMS_URL, SITE_URL, checkBuckets, checkCliOnNpm, checkSecurityAddresses, checkUrl, securityTxtProblems } from "./ship-checks.mjs";
 import { linkSkills, opsPlacesOf } from "./ops-setup.mjs";
 
 // Deployed in this order: the site calls rooms and photodna and links to games, so they go first.
@@ -380,7 +380,7 @@ const mcpInitialize = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initializ
 // The wrangler calls are synchronous, so they run before any fetch starts and no timeout fires while they block.
 const bucketResults = checkBuckets(runWrangler);
 const ok = (isGood) => (response, body) => (isGood(response, body) ? [] : ["unexpected answer"]);
-const [gamePage, mcp, gameFiles, rooms, cliResult, securityResults] = await Promise.all([
+const [gamePage, mcp, gameFiles, rooms, securityTxt, cliResult, securityResults] = await Promise.all([
   checkUrl("game page", `${SITE_URL}/g/${CHECK_GAME_SLUG}`, {}, ok((response, body) => response.status === 200 && body.includes("<iframe"))),
   // With a key: a real MCP session starts. Without one: the MCP answers with its structured no_key error.
   zaismaKey
@@ -388,10 +388,11 @@ const [gamePage, mcp, gameFiles, rooms, cliResult, securityResults] = await Prom
     : checkUrl("MCP", `${SITE_URL}/mcp`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream" }, body: mcpInitialize }, ok((response, body) => response.status === 401 && body.includes('"no_key"')), { passNote: " (its no_key answer, as expected without ZAISMA_KEY)" }),
   checkUrl("game files", CHECK_GAME_URL, {}, ok((response) => response.status === 200)),
   checkUrl("rooms", `${ROOMS_URL}/.well-known/jwks.json`, {}, ok((response, body) => response.status === 200 && body.includes('"keys"'))),
+  checkUrl("security.txt", `${SITE_URL}/.well-known/security.txt`, {}, securityTxtProblems),
   checkCliOnNpm(cliVersion),
   checkSecurityAddresses({ zaismaKey }),
 ]);
-const checks = [gamePage, mcp, gameFiles, rooms];
+const checks = [gamePage, mcp, gameFiles, rooms, securityTxt];
 const securityChecks = [...bucketResults, ...securityResults];
 for (const result of [...checks, cliResult, ...securityChecks]) say(`  ${result.isPass ? "✓" : "✗"} ${result.note}`);
 
