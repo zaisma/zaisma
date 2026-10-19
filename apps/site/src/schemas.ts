@@ -1,4 +1,4 @@
-import { ACCESS_LEVELS, ACCOUNT_EVENT_KINDS, AREA_ACCESS_CHOICES, CONTENT_RULES, CONTROLS, DEVICES, FORUM_REPORT_REASONS, MINIMUM_PLAYER_AGES, PLAY_STYLES, PLAYER_REPORT_REASONS, REPORT_REASONS, REVIEW_CODES, ROOM_BROWSING, SCREENS, SECURITY_EVENT_DESCRIPTIONS, SIGN_IN_KINDS, VISIBILITIES, WEBHOOK_EVENT_KINDS, type IdKind } from "@zaisma/core";
+import { ACCESS_LEVELS, ACCOUNT_EVENT_KINDS, AREA_ACCESS_CHOICES, CONTENT_RULES, CONTROLS, DEVICES, FORUM_REPORT_REASONS, MINIMUM_PLAYER_AGES, PLAY_STYLES, PLAYER_REPORT_REASONS, REPORT_REASONS, REVIEW_CODES, ROOM_BROWSING, SCREENS, SECURITY_EVENT_DESCRIPTIONS, SIGN_IN_KINDS, SPIKE_THRESHOLDS, SPIKE_WORDS, VISIBILITIES, WEBHOOK_EVENT_KINDS, type IdKind } from "@zaisma/core";
 import { CHECK_PROBLEM_CODES, MAXIMUM_PROBLEM_COUNT } from "../../../packages/cli/check.mjs";
 
 /**
@@ -588,45 +588,6 @@ export const SECRET = object({
   set_at: isoTime("When it was last set."),
 });
 
-/** What a webhook is sent: the body the signature covers. */
-export const WEBHOOK_EVENT = object({
-  id: idOf("webhook_event", "The same on every try (Standard Webhooks' webhook-id header), so a server can skip one it already has."),
-  kind: choice(
-    {
-      bug_reported: "report triage sorted a player's report as a bug (bug_report)",
-      scan_status_changed: "a version's scan finished, or Zaisma changed its scan_status later (version)",
-      live_version_changed: "players get another version: published, rolled back, published at its set time, or put back while a report is checked (version: the one players get now)",
-      review_status_changed: "Zaisma held or took down the game, or put it back (game.review_status and game.review_reason)",
-      game_server_error_found: "a new distinct error in the game's own game server, once per error per version (game_server_error, version: the version it happened in)",
-      alert_raised: "one of the game's free-use alerts appeared, at most once a month per kind (alert)",
-      account_deleted:
-        "a player who played the game, or signed in to your sign-in app, deleted their Zaisma account: erase what you keep about player_id (Zaisma already erased their rows in the game's database unless the game's deleted_account_erase_enabled is false)",
-      test: "sent by test_webhook; game, version, bug_report, game_server_error, alert, player_id and sign_in_app are null",
-    },
-    "What happened.",
-  ),
-  happened_at: isoTime(),
-  game: nullable({ ...GAME, description: "The game as get_game answers it, now; null for a test event or an account_deleted event about a sign-in app." }),
-  version: nullable({ ...VERSION, description: "The version as get_version answers it, now; null when the event isn't about one." }),
-  bug_report: nullable({ ...BUG_REPORT, description: "The bug report as get_reports lists it; null unless kind is bug_reported." }),
-  game_server_error: nullable({ ...GAME_SERVER_ERROR, description: "The error as get_stats lists it; null unless kind is game_server_error_found." }),
-  alert: nullable({ ...GAME_ALERT, description: "The alert as the game's alerts list it; null unless kind is alert_raised." }),
-  player_id: nullable(idOf("player", "The player who deleted their account; null unless kind is account_deleted.")),
-  sign_in_app: nullable({ ...SIGN_IN_APP, description: "The sign-in app as list_sign_in_apps answers it; null unless an account_deleted event is about a site, not a game." }),
-});
-
-/** One event on its way to one webhook, and how it went. */
-export const WEBHOOK_DELIVERY = object({
-  webhook_id: idOf("webhook"),
-  webhook_event: WEBHOOK_EVENT,
-  delivery_status: choice({ pending: "being tried; next_attempt_at says when next", delivered: "your server answered 2xx, or the game server's onWebhook finished without an error", failed: "every try failed, so it won't be sent again" }),
-  attempt_count: countOf("Tries so far: up to 6 over about a day and a half (a test event: 1)."),
-  last_attempt_at: nullable(isoTime()),
-  next_attempt_at: nullable(isoTime("When it's tried next; null unless pending.")),
-  failure_message: nullable(text("Why the last try failed, with the HTTP status your server answered, like \"Answered 500; only a 2xx answer counts as delivered.\", or what the game server's onWebhook threw; null once delivered.")),
-  created_at: isoTime(),
-});
-
 /** Who did something to the account or a game. */
 const DONE_BY = choice({ you: "you, on zaisma.com", api_key: "an API key, named in api_key_name", ai: "your AI, through the MCP; api_key_name is the key it used", zaisma: "Zaisma" });
 
@@ -640,6 +601,69 @@ const WHO_AND_WHERE_FIELDS = {
   country_code: nullable(text("The country, ISO 3166-1 alpha-2, like GB; null after 90 days and with the setting off.")),
   connection_address: nullable(text("The internet address it came from: kept 90 days for keys made and used and for changes to games; null otherwise.")),
 };
+
+/** One of the account's events, as get_activity lists it and a security_alert webhook event carries it. */
+export const ACTIVITY_EVENT = object({
+  kind: choice(Object.fromEntries(ACCOUNT_EVENT_KINDS.map((kind) => [kind, SECURITY_EVENT_DESCRIPTIONS[kind]]))),
+  description: text(),
+  sign_in_kind: nullable(choice([...SIGN_IN_KINDS], "How a sign-in on a new device was made; null for everything else.")),
+  subject_name: nullable(text("The passkey's device or the API key's name; null otherwise.")),
+  done_by: DONE_BY,
+  ...WHO_AND_WHERE_FIELDS,
+  happened_at: isoTime(),
+  security_alert_status: nullable(
+    choice(
+      {
+        emailed: "a security alert, emailed to the account (and its old address when the email changed or went)",
+        unseen: "a security alert no email told the account about (it has none, or 10 went this hour): the account page and dashboard show it until That was me",
+        seen: "a security alert that waited on the pages, and the owner pressed That was me",
+      },
+      "Whether the owner was alerted to it: a sign-in on a new device from a network the account hadn't used, a password or email change, a passkey removed, a key made, used from a new place or turned off, an AI or app connected, or an app Zaisma disconnected; null for everything else.",
+    ),
+  ),
+});
+
+/** What a webhook is sent: the body the signature covers. */
+export const WEBHOOK_EVENT = object({
+  id: idOf("webhook_event", "The same on every try (Standard Webhooks' webhook-id header), so a server can skip one it already has."),
+  kind: choice(
+    {
+      bug_reported: "report triage sorted a player's report as a bug (bug_report)",
+      scan_status_changed: "a version's scan finished, or Zaisma changed its scan_status later (version)",
+      live_version_changed: "players get another version: published, rolled back, published at its set time, or put back while a report is checked (version: the one players get now)",
+      review_status_changed: "Zaisma held or took down the game, or put it back (game.review_status and game.review_reason)",
+      game_server_error_found: "a new distinct error in the game's own game server, once per error per version (game_server_error, version: the version it happened in)",
+      alert_raised: "one of the game's free-use alerts appeared, at most once a month per kind (alert)",
+      account_deleted:
+        "a player who played the game, or signed in to your sign-in app, deleted their Zaisma account: erase what you keep about player_id (Zaisma already erased their rows in the game's database unless the game's deleted_account_erase_enabled is false)",
+      security_alert:
+        "one of your own security alerts, as get_activity lists them (security_event): a sign-in on a new device from a network you hadn't used, a password or email change, a passkey removed, a key made, used from a new place or turned off, an AI or app connected. It reaches only a webhook for every game (game_slugs null) at an endpoint_url",
+      test: "sent by test_webhook; game, version, bug_report, game_server_error, alert, player_id, sign_in_app and security_event are null",
+    },
+    "What happened.",
+  ),
+  happened_at: isoTime(),
+  game: nullable({ ...GAME, description: "The game as get_game answers it, now; null for a test event, a security_alert or an account_deleted event about a sign-in app." }),
+  version: nullable({ ...VERSION, description: "The version as get_version answers it, now; null when the event isn't about one." }),
+  bug_report: nullable({ ...BUG_REPORT, description: "The bug report as get_reports lists it; null unless kind is bug_reported." }),
+  game_server_error: nullable({ ...GAME_SERVER_ERROR, description: "The error as get_stats lists it; null unless kind is game_server_error_found." }),
+  alert: nullable({ ...GAME_ALERT, description: "The alert as the game's alerts list it; null unless kind is alert_raised." }),
+  player_id: nullable(idOf("player", "The player who deleted their account; null unless kind is account_deleted.")),
+  sign_in_app: nullable({ ...SIGN_IN_APP, description: "The sign-in app as list_sign_in_apps answers it; null unless an account_deleted event is about a site, not a game." }),
+  security_event: nullable({ ...ACTIVITY_EVENT, description: "The account's event as get_activity lists it; null unless kind is security_alert." }),
+});
+
+/** One event on its way to one webhook, and how it went. */
+export const WEBHOOK_DELIVERY = object({
+  webhook_id: idOf("webhook"),
+  webhook_event: WEBHOOK_EVENT,
+  delivery_status: choice({ pending: "being tried; next_attempt_at says when next", delivered: "your server answered 2xx, or the game server's onWebhook finished without an error", failed: "every try failed, so it won't be sent again" }),
+  attempt_count: countOf("Tries so far: up to 6 over about a day and a half (a test event: 1)."),
+  last_attempt_at: nullable(isoTime()),
+  next_attempt_at: nullable(isoTime("When it's tried next; null unless pending.")),
+  failure_message: nullable(text("Why the last try failed, with the HTTP status your server answered, like \"Answered 500; only a 2xx answer counts as delivered.\", or what the game server's onWebhook threw; null once delivered.")),
+  created_at: isoTime(),
+});
 
 export const HISTORY = object({
   events: list(
@@ -683,18 +707,8 @@ export const API_KEYS = object({
 });
 
 export const ACTIVITY = object({
-  events: list(
-    object({
-      kind: choice(Object.fromEntries(ACCOUNT_EVENT_KINDS.map((kind) => [kind, SECURITY_EVENT_DESCRIPTIONS[kind]]))),
-      description: text(),
-      sign_in_kind: nullable(choice([...SIGN_IN_KINDS], "How a sign-in on a new device was made; null for everything else.")),
-      subject_name: nullable(text("The passkey's device or the API key's name; null otherwise.")),
-      done_by: DONE_BY,
-      ...WHO_AND_WHERE_FIELDS,
-      happened_at: isoTime(),
-    }),
-    "Newest first, from the last 90 days.",
-  ),
+  events: list(ACTIVITY_EVENT, "Newest first, from the last 90 days."),
+  unseen_security_alerts: list(ACTIVITY_EVENT, "Security alerts no email told the account about that it hasn't seen yet, newest first, up to 10; [] when there are none. They wait on the account page and dashboard until That was me there."),
   where_used_from_enabled: yes("Keep where my account is used from, on the account page; off, events have no device, network, place or address. It changes only on the account page."),
   next_cursor: nullable(text("Pass as cursor for older events; null on the last page.")),
 });
@@ -1142,6 +1156,36 @@ const PUBLISHING_ACCOUNT = object({
 });
 const PUBLISHING_ACCOUNTS = list(PUBLISHING_ACCOUNT, "By username.");
 export const PUBLISHING_ACCOUNT_LIST = object({ publishing_accounts: PUBLISHING_ACCOUNTS });
+
+/** Spikes across Zaisma that alerted the admin (security-alerts.ts). */
+export const SECURITY_SPIKE_LIST = object({
+  security_spikes: list(
+    object({
+      spike_kind: choice(Object.fromEntries(Object.entries(SPIKE_WORDS).map(([kind, words]) => [kind, `${words}, ${kind.endsWith("_from_network") ? "from one network" : "across Zaisma"}, ${SPIKE_THRESHOLDS[kind as keyof typeof SPIKE_THRESHOLDS]} an hour alerts`]))),
+      autonomous_system: nullable(text('The network\'s autonomous system number, like "AS64500", for a kind from one network; null across Zaisma.')),
+      network_name: nullable(text("The network, as Cloudflare names it; null across Zaisma or when unknown.")),
+      hour_started_at: isoTime("The clock hour it was counted in (UTC)."),
+      occurrence_count: countOf("How many in that hour, so far."),
+      threshold_count: countOf("The count that alerted."),
+    }),
+    "Every hour that reached its threshold in the last 30 days, newest first, up to 100; [] when none did.",
+  ),
+});
+
+/** zaisma.com's script policy violation reports (security-alerts.ts). */
+export const BLOCKED_SCRIPT_LIST = object({
+  blocked_scripts: list(
+    object({
+      violated_directive: text("The policy's directive that blocked it, like script-src-elem."),
+      blocked_source: text("What was blocked: inline, eval, wasm-eval, data or blob, or the origin of a script's address (never its path). Untrusted: a browser said it."),
+      page_path: text("The zaisma.com page it happened on, without its query. Untrusted."),
+      occurrence_count: countOf("Reports in the last 7 days."),
+      first_reported_at: isoTime(),
+      last_reported_at: isoTime(),
+    }),
+    "The last 7 days, most reported first, up to 100. Browser extensions' reports aren't kept.",
+  ),
+});
 export const CAN_PUBLISH_CHANGED = object({
   username: text(),
   can_publish: yes("Whether the account can make, upload and publish games now."),

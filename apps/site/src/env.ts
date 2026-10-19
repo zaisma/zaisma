@@ -42,6 +42,8 @@ export interface Env {
   DATABASE_RESTORE_LIMIT?: RateLimit;
   /** Exports a game (game-export.ts) an account starts in a minute: each reads the whole game. */
   EXPORT_LIMIT?: RateLimit;
+  /** Script policy violation reports per connection address (security-alerts.ts). */
+  CSP_REPORT_LIMIT?: RateLimit;
   ALERTS?: SendEmail;
   /** Cloudflare Email Sending, for players' email codes (email-codes.ts), from EMAIL_FROM on zaisma.com. */
   EMAIL?: SendEmail;
