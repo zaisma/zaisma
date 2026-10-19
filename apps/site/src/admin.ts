@@ -55,6 +55,8 @@ import {
   type ScanReport,
   type Version,
   type Triage,
+  gameDeletionOf,
+  queueGameDeletion,
 } from "@zaisma/core";
 import { adminProfileAction, adminProfilesPage } from "./admin-profiles.ts";
 import { adminChatReviewAction, adminChatReviewsPage } from "./admin-chat-reviews.ts";
@@ -328,6 +330,18 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     return back(`/admin/games/${game.id}`);
   }
 
+  // A game an account left behind (kept for a child-safety hold, or ownerless from before), deleted for good.
+  match = path.match(/^\/admin\/games\/([a-z0-9_]+)\/delete$/);
+  if (match) {
+    const game = await gameById(env.DB, match[1]!);
+    if (!game) return new Response("Not found", { status: 404 });
+    if (game.owner_id) return gameDetail(env, game.id, "Only a game with no owner can be deleted here.");
+    if (!reason) return gameDetail(env, game.id, "Say why: it goes in the audit log.");
+    await queueGameDeletion(env.DB, game.id, "zaisma");
+    await audit(env.DB, game.id, "deleted", reason, actor);
+    return redirect(`/admin/games/${game.id}`);
+  }
+
   match = path.match(/^\/admin\/games\/([a-z0-9_]+)\/(takedown|restore|dismiss)$/);
   if (match) {
     const game = await gameById(env.DB, match[1]!);
@@ -472,12 +486,13 @@ ${error ? html`<p class="note" style="color:var(--danger)">${error}</p>` : ""}
 async function gameDetail(env: Env, id: string, error = ""): Promise<Response> {
   const game = await gameById(env.DB, id);
   if (!game) return new Response("Not found", { status: 404 });
-  const [versions, reports, log, owner, images] = await Promise.all([
+  const [versions, reports, log, owner, images, deletion] = await Promise.all([
     versionsForGame(env.DB, id),
     openReports(env.DB),
     auditLog(env.DB, id),
     gameOwner(env.DB, game.owner_id),
     imagesForGame(env.DB, id),
+    gameDeletionOf(env.DB, id),
   ]);
   const mine = reports.filter((report) => report.game_id === id);
 
@@ -511,6 +526,13 @@ ${images.length ? html`<div class="shots">${images.map((image) => html`<div>${im
   <input name="account_id" placeholder="Account ID (blank for no owner)" size="40" value="${owner?.owner.account_id ?? ""}">
   <button class="btn ghost" type="submit">Set owner</button>
 </form>
+${deletion
+      ? html`<p class="note">Being deleted: its files, database and saves go within minutes.${deletion.failure_message ? ` Last try: ${deletion.failure_message}` : ""}</p>`
+      : owner
+        ? ""
+        : html`<h3>Delete for good</h3>
+<p class="muted">For a game an account left behind, like one kept for a child-safety hold. Its files, database, secrets, game server storage, saves and rows are deleted, and its link never goes to another game.</p>
+<form method="post" action="/admin/games/${game.id}/delete" class="row"><input name="reason" placeholder="Why (required)" required><button class="btn danger" type="submit">Delete for good</button></form>`}
 
 <h2>Shelves</h2>
 <form method="post" action="/admin/games/${game.id}/shelves" class="row">

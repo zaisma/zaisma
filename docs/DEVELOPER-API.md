@@ -65,7 +65,7 @@ The HTTP status goes with the code, as listed. The list lives in `ERROR_CODES` (
 | --- | --- | --- |
 | `no_game` | 404 | You have no game with that slug. |
 | `bad_slug` | 400 | The link name isn't lowercase letters, numbers and single hyphens, or is reserved. |
-| `slug_taken` | 409 | Another game has that link name. |
+| `slug_taken` | 409 | Another game has that link name, or a deleted game had it. |
 | `too_many_games` | 403 | The account has as many games as it can have. |
 | `publishing_not_open` | 403 | Until the beta, only accounts Zaisma adds can make, upload and publish games. |
 | `bad_title` | 400 | A game's, topic's or precedent's title is empty or too long. |
@@ -353,6 +353,7 @@ Each developer gets 5 judged reviews a day, across all their games. A change tha
 | `taken_down` | picked | A person at Zaisma took the game down; the message says why. |
 | `copyright_notice` | `copyright` | The owner of a work sent a copyright (DMCA) notice, so players can't open the game; the message says what it names. |
 | `defamation_notice` | `defamation` | A private person sent a defamation notice saying the game falsely accuses them of a crime, so players can't open the game; the message says what it names. |
+| `developer_account_deleted` | none | The game's developer deleted their Zaisma account, which takes their games down with it. |
 | `image_rejected` | picked | A person at Zaisma didn't approve the image; the message says why. |
 | `link_flagged` | `malware` | Cloudflare lists the link's site for malware or phishing, so the link opens for nobody. |
 | `details_rejected` | picked | A person at Zaisma didn't approve the new title or description; the message says why. |

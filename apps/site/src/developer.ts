@@ -134,6 +134,7 @@ import {
   type WebhookDestinationKind,
   type WebhookEventKind,
   SAVE_LIMIT_BYTES,
+  isSlugRetired,
   ISO_TIME,
 } from "@zaisma/core";
 import { connectionAddressOf, currentSession } from "./auth.ts";
@@ -781,10 +782,11 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     const slug = typeof body.slug === "string" && body.slug ? body.slug.trim().toLowerCase() : slugify(title);
     const slugError = checkSlug(slug);
     if (slugError) throw new ApiError("bad_slug", { message: `The link name ${JSON.stringify(slug)} can't be used: ${slugError}`, field: "slug", fix: 'Give a slug of lowercase letters, numbers and single hyphens, like "sky-hopper", or leave it out to make one from the title.' });
-    if (await gameBySlug(env.DB, slug)) {
+    const isRetired = await isSlugRetired(env.DB, slug);
+    if (isRetired || (await gameBySlug(env.DB, slug))) {
       const isFromTitle = !(typeof body.slug === "string" && body.slug);
       throw new ApiError("slug_taken", {
-        message: `zaisma.com/g/${slug} is taken.`,
+        message: isRetired ? `zaisma.com/g/${slug} was a game that was deleted; its link never goes to another game.` : `zaisma.com/g/${slug} is taken.`,
         field: isFromTitle ? "title" : "slug",
         fix: isFromTitle ? `The link name comes from the title: give another title, or a slug of your own, like "${slug}-game".` : `Pick another slug, like "${slug}-game".`,
       });

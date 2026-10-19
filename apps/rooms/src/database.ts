@@ -91,6 +91,14 @@ export class GameDatabaseObject extends DurableObject<Env> {
     return answerDatabase(() => this.erase(playerId).erasedTables);
   }
 
+  /** Everything: the developer's tables and the usage, for a game being deleted (GameStorageService). */
+  async deleteStorage(): Promise<void> {
+    await this.ctx.storage.deleteAlarm();
+    await this.ctx.storage.deleteAll();
+    this.usage = { month: usageMonth(), readRowCount: 0, writtenRowCount: 0, noticedAlertKinds: [] };
+    this.unsavedStatementCount = 0;
+  }
+
   /** erasePlayer() for the developer API and for deleted accounts, with the rows it wrote. */
   erasePlayerForDeveloper(playerId: unknown): DeveloperDatabaseAnswer<{ erasedTables: ErasedTable[]; writtenRowCount: number }> {
     return answerDatabase(() => this.erase(playerId));
