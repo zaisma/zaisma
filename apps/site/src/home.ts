@@ -1,5 +1,6 @@
 import { AGE_BAND_FLOOR_YEARS, KEPT_PLAYED_GAME_COUNT, accountById, gameBySlug, mergePlayed, readPlayModes, recentlyPlayed, recordPlayed, type Account, type Game, type MultiplayerMode } from "@zaisma/core";
-import { currentSession, readCookie } from "./auth.ts";
+import { isProtectionOfferDue, markProtectionOffered, protectAccountWindow } from "./account-protection.ts";
+import { currentSession, readCookie, realEmail } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { esc, html, layout, metalButton, pageData, playerLine, raw, scriptTags, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
@@ -35,11 +36,11 @@ export interface ShowGame {
  * account). The session is read only when the zaisma_in cookie says they're signed in, so signed-out pages
  * cost nothing extra.
  */
-export async function viewerOf(request: Request, env: Env): Promise<{ ageFloorYears: number; account: Account | null; cookies: string[] }> {
-  if (!readCookie(request, env, "zaisma_in")) return { ageFloorYears: 18, account: null, cookies: [] };
+export async function viewerOf(request: Request, env: Env): Promise<{ ageFloorYears: number; account: Account | null; email: string | null; cookies: string[] }> {
+  if (!readCookie(request, env, "zaisma_in")) return { ageFloorYears: 18, account: null, email: null, cookies: [] };
   const session = await currentSession(request, env).catch(() => null);
   const account = session ? await accountById(env.DB, session.userId) : null;
-  return { ageFloorYears: account ? AGE_BAND_FLOOR_YEARS[account.age_band] : 18, account, cookies: session?.cookies ?? [] };
+  return { ageFloorYears: account ? AGE_BAND_FLOOR_YEARS[account.age_band] : 18, account, email: account && session ? realEmail(session.email) : null, cookies: session?.cookies ?? [] };
 }
 
 /** Listed, live games with what their cards need, newest update first, leaving out games for players older than viewerAgeFloorYears. */
@@ -160,6 +161,9 @@ function card(game: Pick<ShowGame, "slug" | "title" | "cover" | "square">, flag?
 export async function home(env: Env, request: Request): Promise<Response> {
   // A younger account never finds a game for older players; everyone else sees the same page.
   const viewer = await viewerOf(request, env);
+  // Back to progress they saved with neither a passkey nor an email: asked once to protect the account.
+  const isProtectionOffered = viewer.account ? await isProtectionOfferDue(env, viewer.account, viewer.email) : false;
+  if (isProtectionOffered) await markProtectionOffered(env, viewer.account!.id);
   const games = await showcase(env, viewer.ageFloorYears);
   const { popular, trending, fresh } = await shelves(env, games, viewer.ageFloorYears);
   const shelf = (id: string, title: string, list: ShowGame[]) =>
@@ -200,6 +204,7 @@ ${games.length
       ? html`<section aria-labelledby="games-title"><div class="sec-head"><h2 id="games-title">${popular.length || trending.length || fresh.length ? "All games" : "Games"}</h2></div>
 <div class="grid">${games.map((game) => tile(game))}</div></section>`
       : ""}
+${isProtectionOffered ? protectAccountWindow() : ""}
 ${pageData("home-games", browserGames)}${scriptTags(HOME_SCRIPT)}`,
   });
   for (const cookie of viewer.cookies) response.headers.append("Set-Cookie", cookie);

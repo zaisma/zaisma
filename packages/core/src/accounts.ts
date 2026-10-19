@@ -30,6 +30,8 @@ export interface Account extends SocialSettings {
   profile_check_attempt_count: number;
   /** When wrong passwords locked new devices out of the account, or cost a device its mark; null once the account page has said so. */
   wrong_password_notice_at_ms: number | null;
+  /** When the home page asked once to protect the account with a passkey or an email; null until it has. */
+  protection_offered_at_ms: number | null;
   /** Whether the account has ever had a passkey (0 or 1), so a passkey added after all were removed still waits before it can approve. */
   has_had_passkey: number;
   /** Sessions signed in before this are refused (a new password, or Sign out on every device); null when never. */
@@ -274,6 +276,7 @@ export async function createAccount(database: D1Database, newAccount: { id: stri
     profile_held_reason: null,
     profile_check_attempt_count: 0,
     wrong_password_notice_at_ms: null,
+    protection_offered_at_ms: null,
     has_had_passkey: 0,
     sessions_ended_at_ms: null,
     where_used_from_enabled: 1,
