@@ -18,11 +18,11 @@ import type { Server } from "./requests.ts";
 export interface WebhookEvent {
   /** A webhook_event_… ID, the same on every try, so a game server can skip one it already handled. */
   id: string;
-  /** bug_reported, player_reported, scan_status_changed, live_version_changed, review_status_changed, game_server_error_found, alert_raised, account_deleted, or test (test_webhook). */
+  /** bug_reported, player_reported, scan_status_changed, live_version_changed, review_status_changed, game_server_error_found, alert_raised, account_deleted, security_alert (only to your own server, never a game server on Zaisma), or test (test_webhook). */
   kind: string;
   /** When it happened, an ISO time in UTC. */
   happened_at: string;
-  /** The game as get_game answers it; null for a test event, or an account_deleted event about a sign-in app. */
+  /** The game as get_game answers it; null for a test event, a security_alert, or an account_deleted event about a sign-in app. */
   game: Record<string, unknown> | null;
   /** The version as get_version answers it; null when the event isn't about one. */
   version: Record<string, unknown> | null;
@@ -38,6 +38,8 @@ export interface WebhookEvent {
   player_id: string | null;
   /** The sign-in app as list_sign_in_apps answers it; null unless an account_deleted event is about a site, not a game. */
   sign_in_app: Record<string, unknown> | null;
+  /** The developer's own account event as get_activity lists it; null unless kind is security_alert. */
+  security_event: Record<string, unknown> | null;
 }
 
 export const WEBHOOK_LIMITS = {

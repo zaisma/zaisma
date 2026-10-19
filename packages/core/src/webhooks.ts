@@ -22,9 +22,12 @@ const now = () => Date.now();
  * - alert_raised: one of the game's alerts about its free use appeared (80% used, or used and
  *   paused), at most once a month per kind;
  * - account_deleted: a player who played the game, or signed in to the app, deleted their Zaisma
- *   account: player_id, and game or sign_in_app.
+ *   account: player_id, and game or sign_in_app;
+ * - security_alert: one of the developer's own security alerts (a sign-in from a new network, a key made or
+ *   used from a new place, …): security_event, as get_activity lists it. About the account, so it reaches only
+ *   webhooks for every game at an endpoint_url, like account_deleted for a sign-in app.
  */
-export const WEBHOOK_EVENT_KINDS = ["bug_reported", "player_reported", "scan_status_changed", "live_version_changed", "review_status_changed", "game_server_error_found", "alert_raised", "account_deleted"] as const;
+export const WEBHOOK_EVENT_KINDS = ["bug_reported", "player_reported", "scan_status_changed", "live_version_changed", "review_status_changed", "game_server_error_found", "alert_raised", "account_deleted", "security_alert"] as const;
 export type WebhookEventKind = (typeof WEBHOOK_EVENT_KINDS)[number];
 
 /** game_server_error_found events per game per UTC day; past it, errors still show in get_stats. */

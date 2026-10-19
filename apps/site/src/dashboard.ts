@@ -1,8 +1,9 @@
-import { ACCOUNT_REQUIREMENTS, ApiError, CONTENT_RULES, CONTROLS, DEVICES, LINK_LIMITS, MINIMUM_PLAYER_AGES, OWN_SERVER_LIMITS, PLAYER_REPORT_REASONS, PLAY_STYLES, ROOM_BROWSING, SCREENS, type AccountRequirement, type ContentRule, type MinimumPlayerAge, type PlayerReportReason, type PlayMode, type RoomBrowsing } from "@zaisma/core";
-import { currentSession } from "./auth.ts";
+import { ACCOUNT_REQUIREMENTS, ApiError, accountById, CONTENT_RULES, CONTROLS, DEVICES, LINK_LIMITS, MINIMUM_PLAYER_AGES, OWN_SERVER_LIMITS, PLAYER_REPORT_REASONS, PLAY_STYLES, ROOM_BROWSING, SCREENS, type AccountRequirement, type ContentRule, type MinimumPlayerAge, type PlayerReportReason, type PlayMode, type RoomBrowsing } from "@zaisma/core";
+import { currentSession, realEmail } from "./auth.ts";
 import { apiCall, callerFor, GAME_ALERT_KINDS, type Caller, type GameAlertKind } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { html, layout, metalButton, raw, scriptTags, type Raw } from "./html.ts";
+import { emailAskBox, isEmailAskDue, securityAlertsBox, type UnseenSecurityAlert } from "./security-alerts.ts";
 import { doneByText, eventTitle, whereText } from "./security-log.ts";
 import { pageScript } from "./page-scripts.ts";
 
@@ -136,7 +137,12 @@ export async function handleDashboard(request: Request, env: Env, path: string):
   const done = (response: Response) => withCookies(response, session.cookies);
   const url = new URL(request.url);
 
-  if (path === "/dashboard" && !post) return done(await gamesPage(env, call, url.searchParams.get("error") ?? undefined));
+  // The games page also shows security alerts no email told them about, and asks for an email once there's something to lose.
+  const isAskingForEmail = async () => {
+    const account = await accountById(env.DB, caller.accountId);
+    return account ? isEmailAskDue(env, account, realEmail(session.email)) : false;
+  };
+  if (path === "/dashboard" && !post) return done(await gamesPage(env, call, url.searchParams.get("error") ?? undefined, "", await isAskingForEmail()));
   // Feedback moved into the developer forum.
   if (path === "/dashboard/feedback") return done(redirect("/forum?tab=yours"));
   const moved = path.match(/^\/dashboard\/feedback\/(?:topic_)?([a-z0-9]{1,40})$/);
@@ -147,7 +153,7 @@ export async function handleDashboard(request: Request, env: Env, path: string):
       const { game } = (await call("POST", "/games", { title: String(form.get("title") ?? "") })) as { game: GameJson };
       return done(redirect(`/dashboard/${game.slug}?done=made`));
     } catch (error) {
-      if (error instanceof ApiError) return done(await gamesPage(env, call, error.messageWithFix, String(form.get("title") ?? "")));
+      if (error instanceof ApiError) return done(await gamesPage(env, call, error.messageWithFix, String(form.get("title") ?? ""), await isAskingForEmail()));
       throw error;
     }
   }
@@ -313,10 +319,11 @@ function coverOf(images: ImageJson[]): ImageJson | undefined {
 
 // --- Your games ---
 
-async function gamesPage(env: Env, call: Call, error?: string, title = ""): Promise<Response> {
-  const [{ games: listedGames, unread_topic_count: unreadTopicCount }, { can_publish: canPublish }] = (await Promise.all([call("GET", "/games"), call("GET", "/access")])) as [
+async function gamesPage(env: Env, call: Call, error?: string, title = "", isAskingForEmail = false): Promise<Response> {
+  const [{ games: listedGames, unread_topic_count: unreadTopicCount }, { can_publish: canPublish }, { unseen_security_alerts: unseenSecurityAlerts }] = (await Promise.all([call("GET", "/games"), call("GET", "/access"), call("GET", "/activity")])) as [
     { games: (GameJson & { alerts: GameAlertJson[] })[]; unread_topic_count: number },
     { can_publish: boolean },
+    { unseen_security_alerts: UnseenSecurityAlert[] },
   ];
   // Games that need attention first, the most urgent first (a kind this page doesn't know after the known ones); the rest keep the API's order, last changed first.
   const urgency = (game: { alerts: GameAlertJson[] }) => (game.alerts.length ? Math.min(...game.alerts.map((alert) => GAME_ALERT_KINDS.indexOf(alert.kind as GameAlertKind) >>> 0)) : Infinity);
@@ -333,6 +340,8 @@ ${metalButton("Make a game", { type: "submit" })}
     "Your games",
     html`<div class="dash-head"><h1>Your games</h1><div class="dash-actions">${canPublish ? make : ""}${settings}</div></div>
 ${notice({ error })}
+${securityAlertsBox(unseenSecurityAlerts, "/dashboard")}
+${isAskingForEmail ? emailAskBox({ isConfirmed: false, backTo: "/dashboard" }) : ""}
 ${unreadTopicCount ? html`<p class="done" role="status">Zaisma replied to ${unreadTopicCount === 1 ? "one of your forum topics" : `${unreadTopicCount} of your forum topics`}. <a href="/forum?tab=yours">Read ${unreadTopicCount === 1 ? "it" : "them"}</a></p>` : ""}
 ${canPublish
       ? ""
@@ -1079,7 +1088,7 @@ const STYLES = `
 .tile .alerts li.urgent::before{background:var(--danger)}
 .make input{width:260px;max-width:100%}
 .done{color:var(--ok-text);margin:0 0 14px}
-.first{max-width:640px}
+.first,#security-alerts,#email-ask{max-width:640px}
 .tile .badge{flex:none}
 .ways{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-bottom:12px}
 .way{padding:18px}

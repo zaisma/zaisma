@@ -42,7 +42,8 @@ import type { Env } from "./env.ts";
  *     "game": { …as get_game }, "version": { …as get_version } | null, "bug_report": { …as get_reports } | null,
  *     "player_report": { …as get_reports } | null,
  *     "game_server_error": { …as get_stats lists it } | null, "alert": { …as the game's alerts list it } | null,
- *     "player_id": "player_…" | null, "sign_in_app": { …as list_sign_in_apps } | null }
+ *     "player_id": "player_…" | null, "sign_in_app": { …as list_sign_in_apps } | null,
+ *     "security_event": { …as get_activity lists it } | null }
  *
  * Each event is tried straight after it happens (in the background on API calls), then by the cron
  * every 5 minutes until it's delivered or has failed every try. Telling webhooks never fails the change
@@ -107,6 +108,7 @@ export async function tellWebhooks(
       alert: parts.alert ?? null,
       player_id: null,
       sign_in_app: null,
+      security_event: null,
     });
     const deliveries = await Promise.all(webhooks.map((webhook) => queueDelivery(env.DB, webhook, webhookEventId, eventJson)));
     const sending = sendAll(env, webhooks, deliveries);
@@ -120,7 +122,7 @@ export async function tellWebhooks(
 /** A test event to one webhook, tried once and answered: the way to check an endpoint and its signature check. */
 export async function sendTestEvent(env: Env, webhook: Webhook): Promise<WebhookDelivery> {
   const webhookEventId = newId("webhook_event");
-  const eventJson = JSON.stringify({ id: webhookEventId, kind: TEST_EVENT_KIND, happened_at: iso(Date.now()), game: null, version: null, bug_report: null, player_report: null, game_server_error: null, alert: null, player_id: null, sign_in_app: null });
+  const eventJson = JSON.stringify({ id: webhookEventId, kind: TEST_EVENT_KIND, happened_at: iso(Date.now()), game: null, version: null, bug_report: null, player_report: null, game_server_error: null, alert: null, player_id: null, sign_in_app: null, security_event: null });
   const delivery = await queueDelivery(env.DB, webhook, webhookEventId, eventJson);
   return (await attemptDelivery(env.DB, webhook, delivery, { isOnlyAttempt: true, sendToGameServer: gameServerSender(env) })) ?? delivery;
 }
@@ -143,7 +145,7 @@ export async function tellAccountDeleted(env: Env, reach: { playerId: string; ga
   const queueEvent = async (webhooks: Webhook[], parts: { game: unknown; signInApp: unknown }) => {
     if (!webhooks.length) return;
     const webhookEventId = newId("webhook_event");
-    const eventJson = JSON.stringify({ id: webhookEventId, kind: "account_deleted", happened_at: iso(Date.now()), game: parts.game, version: null, bug_report: null, player_report: null, game_server_error: null, alert: null, player_id: reach.playerId, sign_in_app: parts.signInApp });
+    const eventJson = JSON.stringify({ id: webhookEventId, kind: "account_deleted", happened_at: iso(Date.now()), game: parts.game, version: null, bug_report: null, player_report: null, game_server_error: null, alert: null, player_id: reach.playerId, sign_in_app: parts.signInApp, security_event: null });
     for (const webhook of webhooks) {
       sendingWebhooks.push(webhook);
       deliveries.push(await queueDelivery(env.DB, webhook, webhookEventId, eventJson));
@@ -173,6 +175,28 @@ export async function tellAccountDeleted(env: Env, reach: { playerId: string; ga
   });
   if (waitUntil) waitUntil(working);
   else await working;
+}
+
+/**
+ * One of the developer's own security alerts (security-log.ts): a security_alert event with security_event, as
+ * get_activity lists it, to their webhooks for every game at an endpoint_url (it's about the account, never a game
+ * or a game server). Never throws.
+ */
+export async function tellSecurityAlert(env: Env, accountId: string, securityEvent: Record<string, unknown>, waitUntil?: WaitUntil): Promise<void> {
+  try {
+    const owner = await env.DB.prepare("SELECT id FROM owners WHERE account_id = ?").bind(accountId).first<{ id: string }>();
+    if (!owner) return;
+    const webhooks = webhooksTakingSignInAppEvent(await webhooksFor(env.DB, owner.id), "security_alert");
+    if (!webhooks.length) return;
+    const webhookEventId = newId("webhook_event");
+    const eventJson = JSON.stringify({ id: webhookEventId, kind: "security_alert", happened_at: iso(Date.now()), game: null, version: null, bug_report: null, player_report: null, game_server_error: null, alert: null, player_id: null, sign_in_app: null, security_event: securityEvent });
+    const deliveries = await Promise.all(webhooks.map((webhook) => queueDelivery(env.DB, webhook, webhookEventId, eventJson)));
+    const sending = sendAll(env, webhooks, deliveries);
+    if (waitUntil) waitUntil(sending);
+    else await sending;
+  } catch (error) {
+    console.error("Couldn't tell webhooks about a security alert", error);
+  }
 }
 
 /** Every 5 minutes, and straight after an account is deleted: up to 100 due erases of deleted players from game databases, 20 at once. */

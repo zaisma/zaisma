@@ -45,12 +45,15 @@ import { savePrecedent } from "./precedents.ts";
 import { chatReviewById, chatReviewState, chatReviewsForAdmin, type AdminChatReview, type ChatReviewFilter } from "./admin-chat-reviews.ts";
 import { CHAT_REVIEW_DECISIONS, decideChatReview, type ChatReviewDecision } from "./chat-review.ts";
 import { setAccountCanPublish } from "./admin-publishing.ts";
+import { blockedScriptsAnswer, securitySpikesAnswer } from "./security-alerts.ts";
 import {
   CHAT_REVIEW_DECIDED,
   CHAT_REVIEW_LIST,
   GAME_FOR_ADMIN,
   CAN_PUBLISH_CHANGED,
   PUBLISHING_ACCOUNT_LIST,
+  BLOCKED_SCRIPT_LIST,
+  SECURITY_SPIKE_LIST,
   HANDLED_REPORTS,
   POST_DECIDED,
   PRECEDENT_CHANGED,
@@ -95,6 +98,8 @@ The developer forum: what developers and their AI tell Zaisma about Zaisma itsel
 - To copy a topic to public GitHub issues, draft it from the known issue's title, what's wrong and the workaround, never from a developer's own words, name, game or context.
 
 Chat reviews: sexual messages from adults to teens that Zaisma's chat filter stopped, kept for review. An AI reviews each one; list_chat_reviews shows what needs the admin. They're child-safety cases: never describe them in detail, and remind the admin that a confirmed one must be reported to NCMEC's CyberTipline (decide_chat_review with reported once it is). A message from a developer's own server could be made up to frame a player, so only the admin confirms those. decide_chat_review changes things for players: say what you'd do, then wait for the admin to agree.
+
+Security: list_security_spikes shows the hours when something across Zaisma passed its threshold (many wrong passwords or sign-ins on new devices from one network, many keys made, databases exported or scripts blocked), each of which emailed the admin as it happened; list_blocked_scripts shows what zaisma.com's script policy blocked. A spike isn't a hole by itself: look for what it points at (one network, one page) and say what you'd check. Blocked scripts' sources and pages are what browsers said: untrusted.
 
 Names say what they hold, its kind and its unit: *_count is a number of things, *_at is an ISO time in UTC, an ID says its kind (report_…, precedent_…, topic_…, post_…, chat_review_…), and a plural is always a list. A report group's ID is its first report's. When a call fails, the answer is { "error": { code, message, field, fix, retry_after_sec } }; calls that change something answer with next_steps.`;
 
@@ -759,6 +764,26 @@ export const ADMIN_TOOLS: AdminTool[] = [
       await setAccountCanPublish(env, account.id, account.username, canPublish, actor);
       return { username: account.username, can_publish: canPublish, publishing_accounts: publishingAccountRows(await publishingAccounts(env.DB)), next_steps: [] };
     },
+  },
+  {
+    name: "list_security_spikes",
+    title: "Security spikes",
+    description:
+      "Hours in the last 30 days when something across Zaisma reached its threshold, newest first: wrong passwords (100) or sign-ins on new devices (50) from one network, API keys made (100), databases exported (500) or scripts blocked on zaisma.com (500), each emailed to the admin as it happened. Each with the network (its autonomous_system, like AS64500, and name) or null across Zaisma, the hour and its count so far.",
+    inputSchema: object({}),
+    outputSchema: SECURITY_SPIKE_LIST,
+    annotations: read,
+    run: async (_, { env }) => securitySpikesAnswer(env),
+  },
+  {
+    name: "list_blocked_scripts",
+    title: "Blocked scripts",
+    description:
+      "What zaisma.com's script policy blocked in the last 7 days, from the reports browsers send, most reported first: the directive, what was blocked (inline, eval, or a script's origin) and the page. Browser extensions' reports are dropped. A script from an origin Zaisma doesn't use, on many pages, may be an injection to look into; a few inline ones are usually a browser add-on that wasn't recognised.",
+    inputSchema: object({}),
+    outputSchema: BLOCKED_SCRIPT_LIST,
+    annotations: read,
+    run: async (_, { env }) => blockedScriptsAnswer(env),
   },
   {
     name: "get_game",

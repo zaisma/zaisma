@@ -15,6 +15,7 @@ export const SIGN_INS = [
   { username: "Waiting_Key", about: "its newest passkey waits a day before it can make keys" },
   { username: "New_Passkey", about: "its only passkey waits a day: the connect page for AI apps says when it can connect them" },
   { username: "Guessed_At", about: "locked out by wrong passwords: get in with Forgot password, guessed@example.test" },
+  { username: "Quiet_Builder", about: "no email, with an API key: security alerts wait on its account page and dashboard, and it's asked for an email" },
   { username: "Gone_Dev", about: "owns two games: delete the account to see them deleted with it" },
   { username: "Loud_Lynx", about: "reported in Arena for a real-life threat and following after a block" },
   { username: "Stopped_Fox", about: "its social side was turned off after a report: see /account#social and /friends" },
