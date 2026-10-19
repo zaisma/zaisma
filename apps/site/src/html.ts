@@ -449,7 +449,11 @@ export function securityHeaders(env: Env, extra: Record<string, string> = {}, ha
       "frame-ancestors 'none'",
       "base-uri 'none'",
       "object-src 'none'",
+      // What the policy blocks is reported (security-alerts.ts, recordBlockedScripts): report-to for today's browsers, report-uri for the rest.
+      "report-uri /csp-reports",
+      "report-to csp",
     ].join("; "),
+    "Reporting-Endpoints": 'csp="/csp-reports"',
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "strict-origin-when-cross-origin",
     "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",

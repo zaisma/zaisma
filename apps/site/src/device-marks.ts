@@ -1,6 +1,7 @@
 import { b64url, sha256Hex } from "@zaisma/core";
 import { readCookie, setCookie } from "./auth.ts";
 import type { Env } from "./env.ts";
+import { noteSpike } from "./security-alerts.ts";
 
 /**
  * Wrong passwords (docs/DECISIONS.md, "Accounts open only through Zaisma"). Usernames are public, so a pause
@@ -66,6 +67,9 @@ export async function isPasswordLockedOut(env: Env, accountId: string, nowMs = D
  * for the owner's account page.
  */
 export async function noteWrongPassword(request: Request, env: Env, accountId: string, isMarked: boolean, nowMs = Date.now()): Promise<void> {
+  // Many from one network, on any accounts, is a spike Julius hears about.
+  const network = request.cf as { asn?: unknown; asOrganization?: unknown } | undefined;
+  if (typeof network?.asn === "number" && network.asn > 0) await noteSpike(env, "wrong_passwords_from_network", network.asn, typeof network.asOrganization === "string" ? network.asOrganization.slice(0, 60) : null, nowMs);
   let isLimitReached: boolean;
   if (isMarked) {
     const device = await deviceHash(deviceIdOf(request, env)!);
