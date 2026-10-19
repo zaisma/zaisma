@@ -8,7 +8,7 @@
 import { qrCodeSvg, type Game } from "@zaisma/core";
 import type { Env } from "./env.ts";
 import { playable } from "./home.ts";
-import { html, raw, type Raw } from "./html.ts";
+import { html, raw, structuredData, type Raw } from "./html.ts";
 import { profilePath } from "./profiles.ts";
 
 const ROOM_CODE = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/;
@@ -71,8 +71,6 @@ export async function gamePageHead(env: Env, game: Game, options: { roomCode: st
     operatingSystem: "Any",
     ...(options.developerName ? { author: { "@type": "Person", name: options.developerName, url: `${env.SITE_ORIGIN}${profilePath(options.developerName)}` } } : {}),
   };
-  // JSON in a script tag: "<" escaped so no text in it can close the tag.
-  const json = JSON.stringify(structured).replace(/</g, "\\u003c");
   return html`<meta name="description" content="${description}">
 <link rel="canonical" href="${pageUrl}">
 <meta property="og:type" content="website">
@@ -85,7 +83,7 @@ ${cardSize ? html`<meta property="og:image:width" content="${cardSize.width_px}"
 <meta property="og:image:height" content="${cardSize.height_px}">
 <meta property="og:image:alt" content="${game.title}">` : ""}
 <meta name="twitter:card" content="${image ? "summary_large_image" : "summary"}">
-<script type="application/ld+json">${raw(json)}</script>`;
+${structuredData(structured)}`;
 }
 
 /** Every listed live game, for search engines, with the home page. */

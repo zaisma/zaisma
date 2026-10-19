@@ -27,6 +27,11 @@ export function pageData(id: string, values: unknown): Raw {
   return html`<script type="application/json" id="${id}">${raw(JSON.stringify(values).replace(/</g, "\\u003c"))}</script>`;
 }
 
+/** Structured data for search engines (schema.org JSON-LD): a data block browsers never run. */
+export function structuredData(values: unknown): Raw {
+  return raw(`<script type="application/ld+json">${JSON.stringify(values).replace(/</g, "\\u003c")}</script>`);
+}
+
 export function html(strings: TemplateStringsArray, ...values: unknown[]): Raw {
   let out = strings[0]!;
   values.forEach((interpolation, i) => {
