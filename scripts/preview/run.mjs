@@ -196,6 +196,8 @@ spawnSync(
 );
 // Two accounts someone has been guessing the passwords of, again this run (made the first time).
 await seedWrongPasswords();
+// A player back to a save from 2 hours ago with neither a passkey nor an email, asked again this run (made the first time).
+await seedProtectAccount();
 // The security log's Activity and who-and-where in game histories, again this run (rows keep their keys).
 seedSecurityLog();
 // Preview_Studio's three kinds of key row: working with an end date, turned off after a leak, and ended.
@@ -257,6 +259,8 @@ Zaisma preview is running. Nothing here touches the live site.
   Wrong passwords ${SITE}/signin  (Guessed_At had 20 wrong passwords today: its password shows the lockout message; get in
                   with Forgot password, guessed@example.test, and its account page says so once, then its password
                   works on this device. Guessed_Twice has no email or passkey: its account page adds both buttons)
+  Protect account ${SITE}/  (as Saved_Farmer, back to a Tiny Farm save from 2 hours ago with no passkey or email: the home
+                  page asks once to protect the account; ${SITE}/account#protect keeps the line)
   Account page    ${SITE}/account  (Username, then Signing in: password, email and passkeys)
   Deleted accounts ${SITE}/account#delete-account  (as Mia_Plays: the delete box says games and sites are told; deleting her
                   erases her row from ${SITE}/dashboard/cave-crew/database. The switch: ${SITE}/dashboard/cave-crew/details)
@@ -877,10 +881,10 @@ function seedFriendsNow() {
 /** A browser of its own, from this address: answers a function that posts as it. */
 function poster(ip) {
   const jar = new Map();
-  return async (path, body) => {
+  return async (path, body, method = "POST") => {
     // A string is sent as it is (JSON, or a form with a field more than once); anything else as a form.
     const isText = typeof body === "string";
-    const res = await fetch(SITE + path, { method: "POST", body: isText ? body : new URLSearchParams(body), redirect: "manual", headers: { origin: SITE, "cf-connecting-ip": ip, cookie: [...jar].map(([k, v]) => `${k}=${v}`).join("; "), ...(isText ? { "content-type": body.startsWith("{") ? "application/json" : "application/x-www-form-urlencoded" } : {}) } });
+    const res = await fetch(SITE + path, { method, body: isText ? body : new URLSearchParams(body), redirect: "manual", headers: { origin: SITE, "cf-connecting-ip": ip, cookie: [...jar].map(([k, v]) => `${k}=${v}`).join("; "), ...(isText ? { "content-type": body.startsWith("{") ? "application/json" : "application/x-www-form-urlencoded" } : {}) } });
     for (const c of res.headers.getSetCookie()) {
       const [pair] = c.split("; ");
       jar.set(pair.slice(0, pair.indexOf("=")), pair.slice(pair.indexOf("=") + 1));
@@ -956,6 +960,22 @@ async function seedWrongPasswords() {
     `WITH RECURSIVE tries(try_number) AS (SELECT 1 UNION ALL SELECT try_number + 1 FROM tries WHERE try_number < 20) INSERT INTO wrong_passwords (account_id, tried_at_ms) SELECT accounts.id, ${nowMs} FROM accounts, tries WHERE accounts.username = 'Guessed_At'`,
     `UPDATE accounts SET wrong_password_notice_at_ms = ${nowMs} WHERE username IN ('Guessed_At', 'Guessed_Twice')`,
   ];
+  spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", sql.join("; ")], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
+}
+
+/**
+ * Protect your account (docs/DECISIONS.md, "Accounts get protected once there's something to lose"): Saved_Farmer
+ * has neither a passkey nor an email and a Tiny Farm save, written 2 hours ago each run, so its home page asks once
+ * each run and its account page keeps the line.
+ */
+async function seedProtectAccount() {
+  const isMade = !(await (await fetch(`${SITE}/api/username-check?username=Saved_Farmer`)).json()).is_available;
+  if (!isMade) {
+    const asFarmer = await signedIn({ name: "Saved_Farmer", year: "1991" }, "198.51.100.232");
+    await asFarmer("/api/saves/tiny-farm", JSON.stringify({ base_version_number: 0, save_json: JSON.stringify({ carrot_count: "12" }) }), "PUT");
+  }
+  const farmer = "(SELECT id FROM accounts WHERE username = 'Saved_Farmer')";
+  const sql = [`UPDATE saves SET updated_at_ms = ${Date.now() - 2 * 3600_000} WHERE account_id = ${farmer}`, `UPDATE accounts SET protection_offered_at_ms = NULL WHERE id = ${farmer}`];
   spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", sql.join("; ")], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
 }
 
