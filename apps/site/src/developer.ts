@@ -144,6 +144,7 @@ import { forumRoute, readableTopic } from "./forum.ts";
 import { databaseRoute } from "./game-database.ts";
 import { savesRoute } from "./saves-api.ts";
 import { secretsRoute } from "./secrets-api.ts";
+import { exportDownload, exportSummary } from "./game-export.ts";
 import { checkRoute } from "./check-api.ts";
 import { apiKeysAnswer, dayText, foundWords } from "./leaked-keys.ts";
 import { activityAnswer, gameHistoryAnswer, logCallerEvent, logDatabaseCall, logSavesCall, noteKeyUse } from "./security-log.ts";
@@ -192,6 +193,8 @@ import { sendTestEvent, tellWebhooks, type WaitUntil } from "./webhooks.ts";
  *   POST   /api/dev/games/:slug/database/restores/:database_restore_id/undo   undo a restore
  *   …/api/dev/games/:slug/saves                the game's cloud saves by player ID: list, read, change, reset, earlier versions (see saves-api.ts)
  *   GET    /api/dev/games/:slug/secrets        the game's secrets' names, never their values (see secrets-api.ts)
+ *   GET    /api/dev/games/:slug/export         what an export of everything holds, and the link to it (see game-export.ts)
+ *   GET    /api/dev/games/:slug/export/download   the .zip of everything about the game
  *   PUT    /api/dev/games/:slug/secrets/:name  set one: { "secret_value" }
  *   DELETE /api/dev/games/:slug/secrets/:name  delete one
  *   GET    /api/dev/sign-in-apps               your sign-in apps (Sign in with Zaisma, see sign-in.ts)
@@ -368,6 +371,11 @@ export async function callerFor(env: Env, request: Request, accountId: string, c
   };
 }
 
+/** Call the API from inside the site as this caller, and answer its response as it is: for a call that answers bytes, like an export's .zip. */
+export async function apiResponse(env: Env, caller: Caller, path: string): Promise<Response> {
+  return route(new Request(`${env.SITE_ORIGIN}/api/dev${path}`), env, path.split("?")[0]!, caller);
+}
+
 /**
  * Call the API from inside the site (the MCP and the dashboard), as this caller. Answers the JSON;
  * refusals throw ApiError with the same codes and messages API callers get.
@@ -434,6 +442,8 @@ export interface ApiRoute {
   reaches: ApiReach;
   area: AccessArea | null;
   choice: string;
+  /** More areas it reads besides `area`, each with the choice it needs: an export reads them all. */
+  alsoNeeds: { area: AccessArea; choice: string }[];
   pathParts: Record<string, ApiPathPart>;
   query: Record<string, ApiInput>;
   /** null: the call takes no body, and none is read. */
@@ -454,6 +464,7 @@ type ApiRouteDeclaration<Path extends string> = {
   path: Path;
   reaches: ApiReach;
   access: { area: AccessArea | null; choice: string };
+  alsoNeeds?: { area: AccessArea; choice: string }[];
   query?: Record<string, ApiInput>;
   body?: ApiBody;
   isAccountWide?: true;
@@ -461,7 +472,7 @@ type ApiRouteDeclaration<Path extends string> = {
   isPublishing?: true;
 } & ([PathPartName<Path>] extends [never] ? { pathParts?: undefined } : { pathParts: Record<PathPartName<Path>, ApiPathPart> });
 
-const call = <Path extends string>({ access, ...declaration }: ApiRouteDeclaration<Path>): ApiRoute => ({ pathParts: {}, query: {}, body: null, isAccountWide: false, isFullKeyOnly: false, isPublishing: false, ...declaration, ...access });
+const call = <Path extends string>({ access, ...declaration }: ApiRouteDeclaration<Path>): ApiRoute => ({ pathParts: {}, alsoNeeds: [], query: {}, body: null, isAccountWide: false, isFullKeyOnly: false, isPublishing: false, ...declaration, ...access });
 
 const anyKey = { area: null, choice: "" } as const;
 const needs = <Area extends AccessArea>(area: Area, choice: (typeof AREA_ACCESS_CHOICES)[Area][number]) => ({ area, choice });
@@ -485,6 +496,8 @@ const MAXIMUM_SAVE_BODY_SIZE_BYTES = SAVE_LIMIT_BYTES * 2 + 64 * 1024;
 /** The check takes a game's HTML, JavaScript and CSS as text, and only the path and size of every other file. */
 const MAXIMUM_CHECK_BODY_SIZE_BYTES = 8 * 1024 * 1024;
 const atGame = { slug: "game" } as const;
+/** Everything an export reads besides the game itself: read keys have all of it (game-export.ts). */
+const EXPORT_ACCESS = [needs("version_access", "read"), needs("stats_access", "read"), needs("database_access", "read"), needs("save_access", "read")];
 
 /**
  * Every developer API call. The router answers only these (anything else is not_found or bad_method),
@@ -545,6 +558,8 @@ export const API_ROUTES: readonly ApiRoute[] = [
   call({ method: "POST", path: "/games/:slug/database/erase-player", reaches: "game", access: needs("database_access", "write"), pathParts: atGame, body: { inputs: plainInputs("player_id") } }),
   call({ method: "POST", path: "/games/:slug/database/restores", reaches: "game", access: needs("database_access", "write"), pathParts: atGame, body: { inputs: plainInputs("restore_to_at") } }),
   call({ method: "POST", path: "/games/:slug/database/restores/:database_restore_id/undo", reaches: "game", access: needs("database_access", "write"), pathParts: { slug: "game", database_restore_id: "in_game" } }),
+  call({ method: "GET", path: "/games/:slug/export", reaches: "game", access: needs("game_access", "read"), alsoNeeds: EXPORT_ACCESS, pathParts: atGame }),
+  call({ method: "GET", path: "/games/:slug/export/download", reaches: "game", access: needs("game_access", "read"), alsoNeeds: EXPORT_ACCESS, pathParts: atGame }),
   call({ method: "GET", path: "/games/:slug/secrets", reaches: "game", access: needs("game_access", "read"), pathParts: atGame }),
   call({ method: "PUT", path: "/games/:slug/secrets/:secret_name", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", secret_name: "in_game" }, body: { inputs: plainInputs("secret_value") } }),
   call({ method: "DELETE", path: "/games/:slug/secrets/:secret_name", reaches: "game", access: needs("game_access", "write"), pathParts: { slug: "game", secret_name: "in_game" } }),
@@ -847,6 +862,8 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
     return answer(...answered);
   }
 
+  if (apiRoute.path === "/games/:slug/export") return answer(await exportSummary(env, game!));
+  if (apiRoute.path === "/games/:slug/export/download") return exportDownload(env, game!, caller, (readMethod, readPath) => apiCall(env, caller, readMethod, readPath));
   if (apiRoute.path.startsWith("/games/:slug/secrets")) return answer(...(await secretsRoute(request, env, game!, pathValues.secret_name, caller, checked)));
 
   if (apiRoute.path.startsWith("/games/:slug/saves")) {
@@ -1959,6 +1976,13 @@ function checkAccess(apiRoute: ApiRoute, caller: Caller): void {
     throw new ApiError("key_not_allowed", {
       message: `This API key isn't a full key, and ${apiRoute.method} ${apiRoute.path} needs one: ${apiRoute.path === "/api-keys" ? "it shows how your keys are used and from where" : "it shows where your account is used from"}.`,
       fix: `Call with a full key for all your games, or see it on zaisma.com/account${apiRoute.path === "/api-keys" ? "" : " under Activity"}; keys are made on zaisma.com/account.`,
+    });
+  }
+  for (const more of apiRoute.alsoNeeds) {
+    if (allows(caller.access.areaAccess, more.area, more.choice)) continue;
+    throw new ApiError("key_not_allowed", {
+      message: `This API key can't make ${apiRoute.method} ${apiRoute.path}: it reads ${more.area.replace("_access", "")} too, which needs ${more.area} ${more.choice}, and the key has ${more.area} ${caller.access.areaAccess[more.area]}.`,
+      fix: `get_access (GET /access) shows what this key can do. To do this, the developer makes a key with ${apiRoute.alsoNeeds.map((each) => `${each.area} ${each.choice}`).join(", ")} (a read key has them all) on zaisma.com/account; keys can't be made through the API.`,
     });
   }
   if (!area || allows(caller.access.areaAccess, area, choice)) return;

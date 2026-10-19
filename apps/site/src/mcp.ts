@@ -2,7 +2,7 @@ import { ApiError, CONTROLS, DEVICES, FORUM_CATEGORIES, FORUM_LIMITS, FORUM_REPO
 import { INTERNAL_ERROR, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { CHECKED_TEXT_EXTENSIONS, extensionOf } from "../../../packages/cli/check.mjs";
-import { ACCESS, ACTIVITY, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, HISTORY, LISTED_GAME, STATEMENT_RESULT, IMAGE, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes } from "./schemas.ts";
+import { ACCESS, ACTIVITY, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, LISTED_GAME, STATEMENT_RESULT, IMAGE, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes } from "./schemas.ts";
 
 /**
  * The developer MCP at /mcp: every tool is a call to the developer API, so the MCP, the upload command
@@ -1061,6 +1061,17 @@ export const TOOLS: Tool[] = [
     outputSchema: answer({ ...(ERASED_PLAYER.properties as Record<string, Record<string, unknown>>), next_steps: NEXT }),
     annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
     run: (toolArguments, call) => call("POST", `/games/${pathPart(toolArguments.slug)}/database/erase-player`, pick(toolArguments, ["player_id"])),
+  },
+  {
+    name: "export_game",
+    title: "Export everything about a game",
+    description:
+      "Everything about the game as one .zip, for the developer to keep, move or run on their own server: every kept version that passed review with its patch notes (versions/<version_id>/), the approved cover and screenshots, the details, tester links and the names of its secrets (never their values), the game database as SQL (database.sql), every player's cloud save (saves.jsonl), stats, player reports and history. The .zip is made as it downloads, so there's nothing to wait for. Hand the developer download_url: it opens in their browser when they're signed in to Zaisma, and for no one else. In a terminal, the upload command saves the same export as a folder, with the database as a ready .sqlite file: npx @zaisma/cli export <slug>. The key needs read access to the game, versions, stats, database and saves (a read key has it all). Each export is a line in the game's history.\n\n" +
+      "Not: export_database, list_saves and get_save one by one to back up a whole game (export_game takes it all at once)",
+    inputSchema: object({ slug }, ["slug"]),
+    outputSchema: GAME_EXPORT,
+    annotations: read,
+    run: (toolArguments, call) => call("GET", `/games/${pathPart(toolArguments.slug)}/export`),
   },
   {
     name: "export_database",

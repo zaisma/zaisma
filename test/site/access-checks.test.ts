@@ -137,6 +137,8 @@ const SAMPLES: Record<string, (world: World) => Sample> = {
   "POST /games/:slug/database/restores": () => ({ body: { restore_to_at: new Date().toISOString() } }),
   "POST /games/:slug/database/restores/:database_restore_id/undo": () => ({}),
   "GET /games/:slug/secrets": () => ({}),
+  "GET /games/:slug/export": () => ({}),
+  "GET /games/:slug/export/download": () => ({}),
   "PUT /games/:slug/secrets/:secret_name": () => ({ body: { secret_value: "sk_test_hop" } }),
   "DELETE /games/:slug/secrets/:secret_name": () => ({}),
   "GET /games/:slug/saves": () => ({}),
@@ -192,7 +194,7 @@ const UNLOGGED_CHANGES: Record<string, string> = {
   "POST /webhooks/:webhook_id/test": "Changes nothing.",
 };
 /** Reads that are logged: what a player saved, and the whole database. */
-const LOGGED_READS = ["GET /games/:slug/database/export", "GET /games/:slug/saves/:player_id", "GET /games/:slug/saves/:player_id/copies/:save_copy_id"];
+const LOGGED_READS = ["GET /games/:slug/export/download", "GET /games/:slug/database/export", "GET /games/:slug/saves/:player_id", "GET /games/:slug/saves/:player_id/copies/:save_copy_id"];
 /** Events a key's use writes even when the router refuses its call (like last_used_at_ms). */
 const KEY_USE_EVENT_KINDS = ["api_key_new_place", "ai_connected"];
 const isLogged = (apiRoute: ApiRoute) => (apiRoute.method !== "GET" && !(nameOf(apiRoute) in UNLOGGED_CHANGES) && !apiRoute.path.startsWith("/forum")) || LOGGED_READS.includes(nameOf(apiRoute));
@@ -578,6 +580,15 @@ describe("every call", () => {
       for (const choice of choices.slice(0, choices.indexOf(apiRoute.choice))) {
         const areaAccess = { ...AREA_ACCESS_BY_LEVEL.full, [area]: choice } as AreaAccess;
         await refused(`a custom key with ${area} ${choice}`, await call(apiRoute, await keyFor(world.victimAccountId, { accessLevel: "custom", areaAccess, gameSlugs: null }), asDeveloper), "key_not_allowed");
+      }
+    }
+
+    // A call that reads more areas (an export) needs each: a custom key one choice short in any of them is refused.
+    for (const more of apiRoute.alsoNeeds) {
+      const choices: readonly string[] = AREA_ACCESS_CHOICES[more.area];
+      for (const choice of choices.slice(0, choices.indexOf(more.choice))) {
+        const areaAccess = { ...AREA_ACCESS_BY_LEVEL.full, [more.area]: choice } as AreaAccess;
+        await refused(`a custom key with ${more.area} ${choice}`, await call(apiRoute, await keyFor(world.victimAccountId, { accessLevel: "custom", areaAccess, gameSlugs: null }), asDeveloper), "key_not_allowed");
       }
     }
 
