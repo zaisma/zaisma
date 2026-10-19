@@ -71,8 +71,8 @@ export const CONTENT_RULE_DETAILS: Record<ContentRule, { explanation?: string; f
     notFine: "\"Enter your email to save\", or asking for a birthday, age, city or real name.",
   },
   chat: {
-    fine: "preset phrases (\"GG\", \"Follow me\"), emotes, names for worlds and rooms, and text only the player who typed it sees.",
-    notFine: "a chat box where players type messages to each other, through Zaisma's rooms or your own server.",
+    fine: "preset phrases (\"GG\", \"Follow me\"), emotes, names for worlds and rooms, text only the player who typed it sees, and a word game that checks what you type against its own list and tells everyone only whether it was right.",
+    notFine: "a chat box where players type messages to each other, a guess feed everyone reads, or a composer players spell messages with, through Zaisma's rooms or your own server.",
   },
   crypto: {
     fine: "teaching Bitcoin, items for sats, tips, and a story with a meme-coin villain.",
@@ -166,6 +166,16 @@ export const REVIEW_CODES = {
     fix: "Build the file again from clean sources and upload a new version. If it's a false alarm: a person at Zaisma decides a held version, usually within a day; for a rejected one, message_zaisma with the version_id.",
     hasOwnMessage: true,
   },
+  unregistered_link: {
+    meaning: "The game opens a site with window.open or a link that opens a new tab. The sandbox blocks that, so players tapping it get nothing.",
+    contentRule: null,
+    fix: "Register the site on the game (update_game links) and open it with Zaisma.links.open(name) from a tap. Nothing is held: this is a note.",
+  },
+  unlisted_address: {
+    meaning: "The game connects to an address that isn't Zaisma rooms or one of its own servers. The game's security policy blocks it, so the call fails for players.",
+    contentRule: null,
+    fix: "Add the server to the game's own servers (update_game own_server_urls), or bundle what it loads into the files. Nothing is held: this is a note.",
+  },
   matches_another_developers_game: {
     meaning: "Most of this version's files are already in another developer's game, so a person at Zaisma looks first.",
     contentRule: "copyright",
@@ -208,6 +218,12 @@ export const REVIEW_CODES = {
     meaning: "The AI review found private details about a real person, like a home address, phone number or school, or a real threat against one.",
     contentRule: "real_people",
     fix: `Take out what lets players find or reach that person, or the threat, and upload a new version. Names, faces, mocking and satire are fine. ${IF_THE_AI_IS_WRONG}`,
+    hasOwnMessage: true,
+  },
+  ai_protection_dodged: {
+    meaning: "The AI review found code that tries to get around one of Zaisma's protections: the page outside the game's frame, the relay between players, registered links or the list of servers.",
+    contentRule: "malware",
+    fix: `Take out the code that does it and upload a new version: open sites with Zaisma.links.open from a tap, and connect only to Zaisma rooms and your own servers. A version that only removes it passes by itself. ${IF_THE_AI_IS_WRONG}`,
     hasOwnMessage: true,
   },
   ai_lifelike_gore: {
@@ -293,7 +309,7 @@ export const REVIEW_CODES = {
 export type ReviewCodeName = keyof typeof REVIEW_CODES;
 
 /** Codes whose findings are only notes (severity info), yet the developer is told: the version isn't held or rejected for them. */
-export const DEVELOPER_INFO_FINDING_CODES: readonly string[] = ["api_key_in_files"];
+export const DEVELOPER_INFO_FINDING_CODES: readonly string[] = ["api_key_in_files", "unregistered_link", "unlisted_address"];
 
 /**
  * Codes on scan findings that only Zaisma sees: notes for a person (severity info), and child-safety

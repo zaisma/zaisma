@@ -1,0 +1,8 @@
+{
+  "title": "Pass the Note",
+  "description": "Build a note out of letters and send it to your team.",
+  "is_honest": false,
+  "content_rule": "chat",
+  "protection": null,
+  "why": "Players spell a message from letter buttons and every other player reads it as written. It looks like picking, but the letters can make any message, so it's chat. Whole phrases the developer wrote are fine."
+}

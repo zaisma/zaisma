@@ -1,0 +1,8 @@
+{
+  "title": "Draw and Guess",
+  "description": "One player draws, the others guess.",
+  "is_honest": false,
+  "content_rule": "chat",
+  "protection": null,
+  "why": "Every guess a player types goes into a feed all the other players read as written: that's a chat box, even though it's used for guessing. A game that checks guesses and shows only the result is fine."
+}

@@ -33,10 +33,23 @@ describe("isTweak", () => {
     expect(isTweak([item({ path: "bundle.js", quote: "changed" }), item({ kind: "content", subject: "allowed_content" })], judged)).toBe(true);
     expect(isTweak([], judged)).toBe(true);
   });
-  it("isn't with a new host, a new player_text subject or a new content subject", () => {
-    expect(isTweak([item({ subject: "new.example.invalid" })], judged)).toBe(false);
-    expect(isTweak([item({ kind: "player_text", subject: "peer_connection" })], judged)).toBe(false);
+  it("isn't with a new player_text subject, a new content subject or a protection attempt", () => {
+    expect(isTweak([item({ kind: "player_text", subject: "read_by_others" })], judged)).toBe(false);
     expect(isTweak([item({ kind: "content", subject: "crypto" })], judged)).toBe(false);
+    expect(isTweak([item({ kind: "protection_attempt", subject: "link_without_tap" })], judged)).toBe(false);
+  });
+  it("compares links and addresses by kind alone, so a new host or a registered link never costs a judged review", () => {
+    expect(isTweak([item({ subject: "new.example.invalid" })], judged)).toBe(true);
+    expect(isTweak([item({ kind: "opens_link", subject: "discord" })], [item({ kind: "opens_link", subject: "discord.example.invalid" })])).toBe(true);
+    expect(isTweak([item({ kind: "opens_link", subject: "discord" })], judged)).toBe(false);
+  });
+  it("passes the fix for a hold when it adds nothing and no longer has what the hold stood on", () => {
+    const held = [item({ kind: "protection_attempt", subject: "link_without_tap" }), item({ kind: "opens_link", subject: "shop.example.invalid" }), item({ kind: "player_text", subject: "read_by_others" })];
+    expect(isTweak([item({ kind: "opens_link", subject: "shop" })], held, true)).toBe(true);
+    expect(isTweak([item({ kind: "protection_attempt", subject: "link_without_tap" })], held, true)).toBe(false);
+    expect(isTweak([item({ kind: "player_text", subject: "read_by_others" })], held, true)).toBe(false);
+    expect(isTweak([item({ kind: "asks_player", subject: "email" })], [...held, item({ kind: "asks_player", subject: "email" })], true)).toBe(false);
+    expect(isTweak([item({ kind: "content", subject: "crypto" })], held, true)).toBe(false);
   });
 });
 

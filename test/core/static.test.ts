@@ -37,6 +37,27 @@ describe("static scan", () => {
     expect(rules([{ path: "a.js", text: "var o=e.RTCPeerConnection;e.RTCPeerConnection=function(t){return new o(t)};window.webkitRTCPeerConnection;new RTCPeerConnection(cfg)" }])).not.toContain("hold:relay_bypass");
   });
 
+  it("notes, never holds, a game that opens a site with window.open or a new-tab link", () => {
+    const notes = (text: string) => rules([{ path: "game.js", text }]).filter((rule) => rule.endsWith("unregistered_link"));
+    expect(notes('window.open("https://discord.example.invalid/x")')).toEqual(["info:unregistered_link"]);
+    expect(notes('<a target="_blank" href="https://shop.example.invalid">Shop</a>')).toEqual(["info:unregistered_link"]);
+    expect(notes('<a href="https://shop.example.invalid" rel="noopener" target=_blank>Shop</a>')).toEqual(["info:unregistered_link"]);
+    expect(notes('Zaisma.links.open("discord"); window.open("level2.html")')).toEqual([]);
+    const several = staticScan([{ path: "a.js", text: 'window.open("https://a.example.invalid")' }, { path: "b.js", text: 'window.open("https://b.example.invalid")' }]);
+    expect(several.findings.filter((finding) => finding.code === "unregistered_link")).toHaveLength(1);
+    expect(decide(several.findings)).toBe("approved");
+  });
+
+  it("notes, never holds, a connection written out in full to an address that isn't rooms or the game's own servers", () => {
+    const notes = (text: string, ownServerHosts: string[] = []) => staticScan([{ path: "game.js", text }], ownServerHosts).findings.filter((finding) => finding.code === "unlisted_address").map((finding) => finding.severity);
+    expect(notes('fetch("https://scores.example.invalid/top")')).toEqual(["info"]);
+    expect(notes('new WebSocket("wss://play.example.invalid/room")')).toEqual(["info"]);
+    expect(notes('request.open("POST", "https://collect.example.invalid/x")')).toEqual(["info"]);
+    expect(notes('new WebSocket("wss://rooms.zaisma.com/v1/rooms")')).toEqual([]);
+    expect(notes('new WebSocket("wss://play.example.invalid/room")', ["play.example.invalid"])).toEqual([]);
+    expect(notes('const note = "see https://docs.example.invalid"; fetch("levels.json")')).toEqual([]);
+  });
+
   it("lists outside hosts without counting file names", () => {
     const r = staticScan([{ path: "index.html", text: '<script src="https://cdn.jsdelivr.net/npm/three.min.js"></script><script src="three.min.js"></script>' }]);
     expect(r.outsideHosts).toEqual(["cdn.jsdelivr.net"]);
