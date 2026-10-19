@@ -149,6 +149,14 @@ export const ERROR_CODES = {
   secrets_unavailable: { httpStatus: 503, meaning: "The game's secrets didn't answer." },
   dump_too_big: { httpStatus: 413, meaning: "dump_sql is over 5 MB: import a dump in parts, each ending on a whole statement." },
 
+  // A game server's logs
+  bad_room_code: { httpStatus: 400, meaning: "room_code isn't a room's code: six characters like K7Q2MX." },
+  bad_minimum_level: { httpStatus: 400, meaning: "minimum_level isn't debug, info, warn or error." },
+  bad_source_kind: { httpStatus: 400, meaning: "source_kind isn't room, request, schedule or webhook." },
+  bad_search_text: { httpStatus: 400, meaning: "search_text is empty or over 200 characters." },
+  bad_maximum_line_count: { httpStatus: 400, meaning: "maximum_line_count isn't a whole number from 1 to 500." },
+  two_log_cursors: { httpStatus: 400, meaning: "get_logs got both cursor and new_lines_cursor." },
+
   // Cloud saves
   no_save: { httpStatus: 404, meaning: "The player has no save in the game." },
   no_save_copy: { httpStatus: 404, meaning: "The player's save has no earlier version with that ID." },

@@ -3,6 +3,7 @@ import { CHECKED_FILE_KEPT_DURATION_DAYS, ROOM_STALE_MS, applyBirthdays, audit, 
 import { authConfigured, deleteAuthUser, newestAuthUsers } from "./auth.ts";
 import { deleteOldDeviceMarks } from "./device-marks.ts";
 import { deleteOldEmailCodes } from "./email-codes.ts";
+import { deleteOldLogs } from "./logs-api.ts";
 import { deleteOldSecurityEvents } from "./security-log.ts";
 import type { Env } from "./env.ts";
 import { deleteOldProofs } from "./session-proofs.ts";
@@ -109,6 +110,8 @@ export async function dailyCleanup(env: Env, nowMs = Date.now()): Promise<{ dele
   await deleteStalePresences(env.DB, nowMs);
   // Game server errors are for fixing what's happening now: kept 30 days after they last happened.
   await env.DB.prepare("DELETE FROM game_server_errors WHERE last_at_ms < ?").bind(nowMs - 30 * DAY_MS).run();
+  // So are its logs: days past the 30 kept (logs-api.ts).
+  await deleteOldLogs(env, nowMs);
   // Free-use alerts already told, kept a while so a month never tells one twice.
   await env.DB.prepare("DELETE FROM alert_notices WHERE noticed_at_ms < ?").bind(nowMs - 90 * DAY_MS).run();
   // Chat kept for a report: a year from when it was confirmed (chat-review.ts).

@@ -1,7 +1,8 @@
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 import { GAME_SERVER_OPTIONS, REQUEST_LIMITS, SCHEDULE_LIMITS, WEBHOOK_LIMITS, checkSchedules, nextRunAtMs, readRequestAnswer, type Player, type RequestErrorCode, type Schedule } from "@zaisma/game-server";
-import { FREE_REQUEST_COUNT_PER_MONTH, nextMonthStartDate, usageMonth } from "@zaisma/core";
-import { errorLine, sandboxOpener, type Session } from "./sandbox.ts";
+import { FREE_REQUEST_COUNT_PER_MONTH, nextMonthStartDate, usageMonth, type LogSourceKind, type PrintedLogLine } from "@zaisma/core";
+import { errorLine, linesOf, sandboxOpener, type Session } from "./sandbox.ts";
+import { LogWriter } from "./logs.ts";
 import { secretsForGameServer } from "./secrets.ts";
 import type { Env } from "./index.ts";
 
@@ -65,8 +66,9 @@ class TimedOut extends Error {}
  * minute. The rooms Worker checks the player's pass before it asks, and the site that the webhook's
  * owner owns the game; nothing here trusts the request or the event.
  *
- * Its one alarm does three things: the next schedule due, recording stats about a minute after use,
- * and trying again a game server that didn't start. The rooms Worker's cron (index.ts) tells it to read
+ * Its one alarm does four things: the next schedule due, recording stats about a minute after use,
+ * trying again a game server that didn't start, and writing what the game server printed to the game's
+ * logs (logs.ts). The rooms Worker's cron (index.ts) tells it to read
  * the schedules again when the live version changes (syncSchedules).
  */
 export class GameServerObject extends DurableObject<Env> {
@@ -83,6 +85,9 @@ export class GameServerObject extends DurableObject<Env> {
   private stoppedAtMs: number[] = [];
   /** The open session, for one version: or why that version can't run, and when a server that didn't start is tried again. */
   private server: { versionId: string; ready: Promise<Opened> } | null = null;
+  /** What the game server printed outside rooms, waiting to go to the game's logs, and when it's written. */
+  private logs: LogWriter | null = null;
+  private logsWriteAtMs: number | null = null;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -108,6 +113,8 @@ export class GameServerObject extends DurableObject<Env> {
     this.scheduleRetryAtMs = null;
     this.haveSchedulesRun = false;
     this.server = null;
+    this.logs = null;
+    this.logsWriteAtMs = null;
   }
 
   async request(gameId: string, versionId: string, player: Player, request: unknown): Promise<RequestOutcome> {
@@ -118,12 +125,12 @@ export class GameServerObject extends DurableObject<Env> {
     }
     if (this.isPaused()) return { code: "game_server_error", message: "The game's server is paused for a few minutes: it kept running on too long." };
 
-    const ready = await this.serverFor(gameId, versionId);
+    const ready = await this.serverFor(gameId, versionId, "request");
     if ("outcome" in ready) return ready.outcome;
     if (!ready.handlerNames.includes("onRequest")) return { code: "no_request_handler", message: "This game's server doesn't take requests: its live version has no onRequest." };
 
     this.countRequest();
-    const reply = await this.reach(versionId, () => ready.session.request(player, request), REQUEST_LIMITS.answerTimeoutSec, "onRequest", `onRequest didn't answer within ${REQUEST_LIMITS.answerTimeoutSec} seconds, so the request failed. Something it awaits never finished.`);
+    const reply = await this.reach(versionId, "request", () => ready.session.request(player, request), REQUEST_LIMITS.answerTimeoutSec, "onRequest", `onRequest didn't answer within ${REQUEST_LIMITS.answerTimeoutSec} seconds, so the request failed. Something it awaits never finished.`);
     if (!reply) return { code: "game_server_error" };
     if (reply.error !== undefined) {
       this.note(versionId, "crash", errorLine(String(reply.error)));
@@ -132,6 +139,7 @@ export class GameServerObject extends DurableObject<Env> {
     const read = readRequestAnswer(reply.answer);
     if ("mistake" in read) {
       this.note(versionId, "crash", read.mistake);
+      this.printed(versionId, "request", linesOf(null, read.mistake));
       return { code: "game_server_error" };
     }
     return read;
@@ -151,7 +159,7 @@ export class GameServerObject extends DurableObject<Env> {
     if (this.isPaused()) return { failureMessage: "The game's server is paused for a few minutes: it kept running on too long." };
     const versionId = await this.liveVersionId();
     if (!versionId) return { failureMessage: "The game isn't playable (it has no live version, or Zaisma held or took it down), so its game server isn't running." };
-    const ready = await this.serverFor(gameId, versionId);
+    const ready = await this.serverFor(gameId, versionId, "webhook");
     if ("outcome" in ready) {
       const outcome = ready.outcome;
       return { failureMessage: "code" in outcome && outcome.code === "no_request_handler" ? "The game's live version has no game server: add zaisma-server.js with onWebhook(event, server)." : "The game's server didn't start: get_stats shows its errors." };
@@ -159,7 +167,7 @@ export class GameServerObject extends DurableObject<Env> {
     if (!ready.handlerNames.includes("onWebhook")) return { failureMessage: "The game's live version has a game server without onWebhook(event, server), so nothing takes the event." };
 
     this.countRequest();
-    const reply = await this.reach(versionId, () => ready.session.webhook(event), WEBHOOK_LIMITS.answerTimeoutSec, "onWebhook", `onWebhook didn't finish within ${WEBHOOK_LIMITS.answerTimeoutSec} seconds, so the event will be tried again. Something it awaits never finished.`);
+    const reply = await this.reach(versionId, "webhook", () => ready.session.webhook(event), WEBHOOK_LIMITS.answerTimeoutSec, "onWebhook", `onWebhook didn't finish within ${WEBHOOK_LIMITS.answerTimeoutSec} seconds, so the event will be tried again. Something it awaits never finished.`);
     if (!reply) return { failureMessage: "onWebhook didn't finish: get_stats shows the game server's errors." };
     if (reply.error !== undefined) {
       const line = errorLine(String(reply.error));
@@ -186,6 +194,7 @@ export class GameServerObject extends DurableObject<Env> {
 
   private knowGame(gameId: string): void {
     if (this.gameId === gameId) return;
+    this.logs = null;
     this.gameId = gameId;
     this.ctx.storage.kv.put("game_id", gameId);
   }
@@ -197,24 +206,26 @@ export class GameServerObject extends DurableObject<Env> {
   }
 
   /** The version's open session, opening it (again, once a server that didn't start may be retried). */
-  private async serverFor(gameId: string, versionId: string): Promise<Opened> {
-    if (this.server?.versionId !== versionId) this.server = { versionId, ready: this.open(gameId, versionId) };
+  private async serverFor(gameId: string, versionId: string, sourceKind: LogSourceKind): Promise<Opened> {
+    if (this.server?.versionId !== versionId) this.server = { versionId, ready: this.open(gameId, versionId, sourceKind) };
     let ready = await this.server.ready;
     if ("outcome" in ready && ready.retryAtMs !== undefined && Date.now() >= ready.retryAtMs) {
-      this.server = { versionId, ready: this.open(gameId, versionId) };
+      this.server = { versionId, ready: this.open(gameId, versionId, sourceKind) };
       ready = await this.server.ready;
     }
     return ready;
   }
 
   /** Open a session with the version's game server, or say why it can't run. */
-  private async open(gameId: string, versionId: string): Promise<Opened> {
+  private async open(gameId: string, versionId: string, sourceKind: LogSourceKind): Promise<Opened> {
     try {
       const open = await sandboxOpener(this.env, this.ctx.exports, gameId, versionId);
       if (open === null) return { outcome: { code: "no_request_handler", message: "This game's server doesn't take requests: its live version has no game server." } };
       const { secrets } = await secretsForGameServer(this.env, gameId);
+      await this.logWriter()?.checkWatched();
       const session = await open(secrets);
       const settings = await session.settings();
+      this.printed(versionId, sourceKind, linesOf(settings));
       const optionNames = Array.isArray(settings.optionNames) ? settings.optionNames.map(String) : [];
       const unknown = optionNames.find((name) => !(GAME_SERVER_OPTIONS as readonly string[]).includes(name));
       if (unknown) throw new Error(`${unknown} isn't a game server option. A game server takes: ${GAME_SERVER_OPTIONS.join(", ")}.`);
@@ -225,6 +236,7 @@ export class GameServerObject extends DurableObject<Env> {
     } catch (error) {
       console.error("Couldn't start the game server outside rooms:", error);
       this.note(versionId, "crash", `Didn't start: ${errorLine(String(error instanceof Error ? error.message : error))}`);
+      this.printed(versionId, sourceKind, linesOf(null, `Zaisma: the game server didn't start: ${String(error instanceof Error ? error.message : error)}`));
       // Tried again a minute later, in case it was the sandbox and not the code; meanwhile requests fail at once.
       return { outcome: { code: "game_server_error" }, retryAtMs: Date.now() + RETRY_START_MS };
     }
@@ -235,23 +247,28 @@ export class GameServerObject extends DurableObject<Env> {
    * (timeoutMessage), or the sandbox itself failed (over its CPU limit, or restarted), noted for the
    * developer either way.
    */
-  private async reach<T>(versionId: string, work: () => Promise<T>, timeoutSec: number, handler: string, timeoutMessage: string): Promise<T | null> {
+  private async reach<T extends { error?: string; logLines?: unknown }>(versionId: string, sourceKind: LogSourceKind, work: () => Promise<T>, timeoutSec: number, handler: string, timeoutMessage: string): Promise<T | null> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      return await Promise.race([
+      const reply = await Promise.race([
         work(),
         new Promise<never>((_, reject) => {
           timer = setTimeout(() => reject(new TimedOut()), timeoutSec * 1000);
         }),
       ]);
+      this.printed(versionId, sourceKind, linesOf(reply));
+      return reply;
     } catch (error) {
       if (error instanceof TimedOut) {
         this.note(versionId, "crash", timeoutMessage);
+        this.printed(versionId, sourceKind, linesOf(null, `Zaisma: ${timeoutMessage}`));
         return null;
       }
       // The next call gets a fresh session.
       this.stoppedAtMs.push(Date.now());
-      this.note(versionId, "stopped", /CPU time/i.test(String(error)) ? `${handler} ran on too long and was stopped, like a loop that never ends` : `The game server stopped: ${String(error)}`);
+      const stopped = /CPU time/i.test(String(error)) ? `${handler} ran on too long and was stopped, like a loop that never ends` : `The game server stopped: ${String(error)}`;
+      this.note(versionId, "stopped", stopped);
+      this.printed(versionId, sourceKind, linesOf(null, `Zaisma: ${stopped}`));
       if (this.server?.versionId === versionId) this.server = null;
       return null;
     } finally {
@@ -277,7 +294,7 @@ export class GameServerObject extends DurableObject<Env> {
     let schedules: Schedules | null = null;
     this.scheduleRetryAtMs = null;
     if (versionId) {
-      const ready = await this.serverFor(this.gameId, versionId);
+      const ready = await this.serverFor(this.gameId, versionId, "schedule");
       if ("session" in ready && ready.schedules.length) {
         const last = this.schedules?.schedules ?? [];
         schedules = {
@@ -334,14 +351,14 @@ export class GameServerObject extends DurableObject<Env> {
       for (const run of runs) this.note(schedules.versionId, "stopped", `Schedule ${run.name} skipped a run: the game's server is paused for a few minutes, it kept running on too long.`);
       return;
     }
-    const ready = await this.serverFor(this.gameId, schedules.versionId);
+    const ready = await this.serverFor(this.gameId, schedules.versionId, "schedule");
     // Didn't start: noted when it was opened.
     if ("outcome" in ready) return;
     await Promise.all(
       runs.map(async (run) => {
         this.today().scheduledRunCount++;
         const timeoutMessage = `Schedule ${run.name}: onSchedule didn't finish within ${SCHEDULE_LIMITS.runTimeoutSec} seconds, so the run failed. Something it awaits never finished.`;
-        const reply = await this.reach(schedules.versionId, () => ready.session.schedule(run), SCHEDULE_LIMITS.runTimeoutSec, `Schedule ${run.name}: onSchedule`, timeoutMessage);
+        const reply = await this.reach(schedules.versionId, "schedule", () => ready.session.schedule(run), SCHEDULE_LIMITS.runTimeoutSec, `Schedule ${run.name}: onSchedule`, timeoutMessage);
         if (reply?.error !== undefined) this.note(schedules.versionId, "crash", `Schedule ${run.name}: ${errorLine(String(reply.error))}`);
       }),
     );
@@ -375,6 +392,29 @@ export class GameServerObject extends DurableObject<Env> {
     return (this.unrecorded ??= { date, requestCount: 0, scheduledRunCount: 0, crashCount: 0, stoppedCount: 0, errors: [] });
   }
 
+  /** The game's log writer, once the object knows its game. */
+  private logWriter(): LogWriter | null {
+    if (!this.gameId) return null;
+    return (this.logs ??= new LogWriter(this.env, this.gameId, "server"));
+  }
+
+  /** What the game server printed: to the game's logs at the writer's pace, through the one alarm. */
+  private printed(versionId: string, sourceKind: LogSourceKind, lines: PrintedLogLine[]): void {
+    const logs = this.logWriter();
+    if (!logs || !lines.length) return;
+    logs.add(lines, sourceKind, null, versionId);
+    const delayMs = logs.writeDelayMs();
+    if (delayMs === 0) {
+      this.ctx.waitUntil(logs.write());
+      return;
+    }
+    if (delayMs === null) return;
+    const writeAtMs = Date.now() + delayMs;
+    if (this.logsWriteAtMs !== null && this.logsWriteAtMs <= writeAtMs) return;
+    this.logsWriteAtMs = writeAtMs;
+    this.planAlarm();
+  }
+
   private recordSoon(): void {
     if (this.recordAtMs !== null) return;
     this.recordAtMs = Date.now() + RECORD_DELAY_MS;
@@ -383,13 +423,16 @@ export class GameServerObject extends DurableObject<Env> {
 
   /** The one alarm, at whatever's next: a schedule due, recording the stats, or trying a game server again. */
   private planAlarm(): void {
-    const times = [this.recordAtMs, this.scheduleRetryAtMs, ...(this.schedules?.schedules.map((schedule) => schedule.nextRunAtMs) ?? [])].filter((atMs): atMs is number => atMs !== null);
+    const times = [this.recordAtMs, this.scheduleRetryAtMs, this.logsWriteAtMs, ...(this.schedules?.schedules.map((schedule) => schedule.nextRunAtMs) ?? [])].filter((atMs): atMs is number => atMs !== null);
     if (times.length) void this.ctx.storage.setAlarm(Math.min(...times));
     else void this.ctx.storage.deleteAlarm();
   }
 
   async alarm(): Promise<void> {
     const nowMs = Date.now();
+    // Waiting lines go with any alarm, which is never later than the one planned for them.
+    this.logsWriteAtMs = null;
+    if (this.logs?.hasWaitingLines) await this.logs.write();
     const isRetryDue = this.scheduleRetryAtMs !== null && this.scheduleRetryAtMs <= nowMs;
     const isRunDue = this.schedules?.schedules.some((schedule) => schedule.nextRunAtMs <= nowMs) ?? false;
     if (isRetryDue) await this.readSchedules();

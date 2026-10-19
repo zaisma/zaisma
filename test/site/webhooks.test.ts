@@ -234,6 +234,41 @@ describe("sending events", () => {
     expect(bug.bug_report).toEqual((await tool("get_reports", { slug: "sky-hopper" })).bug_reports[0]);
   });
 
+  it("passes a player report Zaisma leaves to the developer, as get_reports lists it, and never one about child safety", async () => {
+    await tool("create_webhook", { endpoint_url: HOOKS, event_kinds: ["player_reported"] });
+    const versionId = await publishedGame("sky-hopper");
+    const game = (await env.DB.prepare("SELECT id FROM games WHERE slug = 'sky-hopper'").first<{ id: string }>())!;
+    const player = { id: "player_0123456789abcdef", name: "Swift Fox 42" };
+    const reportId = await createReport(env.DB, { gameId: game.id, reason: "player", playerText: "Speed hacks every round", versionId, roomCode: "ABCDEF", player: { ...player, reason: "cheating" } });
+    await createReport(env.DB, { gameId: game.id, reason: "player", playerText: "asks kids for pictures", versionId, roomCode: "ABCDEF", player: { ...player, reason: "harassment" } });
+    let call = 0;
+    const sorts: TriageDeps = {
+      random: () => 0.5,
+      ai: async () => ({
+        severity: call++ === 0 ? "normal" : "child_safety",
+        category: "player",
+        summary: "A summary.",
+        recommendation: call === 1 ? "pass_to_developer" : "person",
+        why: "Because.",
+        same_as: "",
+        precedent: "",
+        fit: "none",
+        draft: { title: "", applies_when: "", decision: "", why: "" },
+        input_token_count: 500,
+        output_token_count: 50,
+      }),
+    };
+    await triageReports(testEnv, sorts);
+    expect(received).toHaveLength(1);
+    const event = JSON.parse(received[0]!.body);
+    expect(schemaProblems(WEBHOOK_EVENT, event, "player_reported")).toEqual([]);
+    expect(event).toMatchObject({ kind: "player_reported", bug_report: null, player_report: { id: reportId, reason: "cheating", player_text: "Speed hacks every round", reported_player_id: player.id, reported_player_name: player.name, room_code: "ABCDEF", version_id: versionId } });
+    const reports = await tool("get_reports", { slug: "sky-hopper" });
+    expect(reports.player_reports).toEqual([event.player_report]);
+    // Only newer ones after the cursor.
+    expect((await tool("get_reports", { slug: "sky-hopper", cursor: reports.next_cursor })).player_reports).toEqual([]);
+  });
+
   it("tries again later, and gives up after the last try", async () => {
     const { webhook } = await tool("create_webhook", { endpoint_url: HOOKS, event_kinds: ["scan_status_changed"] });
     const versionId = await publishedGame("sky-hopper");

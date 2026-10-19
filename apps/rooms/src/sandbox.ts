@@ -1,5 +1,5 @@
 import { GAME_SERVER_OPTIONS, OUTSIDE_CALL_REFUSAL_HEADER, checkSchedules, defineGameServer, noSetupError, readJoinAnswer, unknownOptionError, type AwayReason, type GameServer, type JoinAnswer, type JoinInfo, type LeaveInfo, type Player, type Room, type ScheduledRun } from "@zaisma/game-server";
-import { SANDBOX_GAME_SERVER, manifestKey, serverModules, type Manifest } from "@zaisma/core";
+import { LOG_LEVELS, LOG_LIMITS, SANDBOX_GAME_SERVER, logText, manifestKey, readPrintedLines, serverModules, type Manifest, type PrintedLogLine } from "@zaisma/core";
 import type { Env } from "./index.ts";
 
 /**
@@ -72,7 +72,12 @@ interface Answer {
   state?: unknown;
   effects: Effect[];
   error?: string;
+  /** What the game server printed during the call (plus anything it printed between calls), checked by readPrintedLines. */
+  logLines?: unknown;
 }
+
+/** Every answer from the sandbox can carry the lines the game server printed. */
+type Printed = { logLines?: unknown };
 
 /** A game server's options as the sandbox reports them, and which of its handlers it has. */
 interface Settings {
@@ -87,6 +92,8 @@ interface Settings {
   /** As plain JSON; the game's object checks them (checkSchedules). */
   schedules?: unknown;
   handlerNames: unknown;
+  /** What the game server printed as it loaded. */
+  logLines?: unknown;
 }
 
 export interface Session {
@@ -96,19 +103,20 @@ export interface Session {
   setup(setupData: unknown): Promise<Answer>;
   call(hook: string, state: unknown, handlerArguments: unknown[], room: Snapshot): Promise<Answer>;
   /** canJoin: the game's answer on a player coming in, as plain JSON. It can't change the state or the room. */
-  check(state: unknown, player: Player, joinData: unknown, room: Snapshot, joinInfo: JoinInfo): Promise<{ answer?: unknown; error?: string }>;
+  check(state: unknown, player: Player, joinData: unknown, room: Snapshot, joinInfo: JoinInfo): Promise<{ answer?: unknown; error?: string } & Printed>;
   /** onRequest: what the game server answered a request, as plain JSON, or the error it threw. */
-  request(player: Player, request: unknown): Promise<{ answer?: unknown; error?: string }>;
+  request(player: Player, request: unknown): Promise<{ answer?: unknown; error?: string } & Printed>;
   /** onSchedule: one run of a schedule, or the error it threw. */
-  schedule(run: ScheduledRun): Promise<{ error?: string }>;
+  schedule(run: ScheduledRun): Promise<{ error?: string } & Printed>;
   /** onWebhook: one event from a webhook, as plain JSON, or the error it threw. */
-  webhook(event: unknown): Promise<{ error?: string }>;
+  webhook(event: unknown): Promise<{ error?: string } & Printed>;
 }
 
 // Runs inside the sandbox, beside the game's file. Plain JavaScript: nothing here is trusted by the
 // room, which checks everything it's handed back like any message from a player.
 const harness = (entry: string) => `
 import "./outside-calls.js";
+import { withLogs } from "./logs.js";
 import { WorkerEntrypoint, RpcTarget } from "cloudflare:workers";
 import server from "./${entry}";
 
@@ -194,7 +202,7 @@ class Session extends RpcTarget {
     this.#secrets = frozenSecrets(secrets);
   }
   settings() {
-    return {
+    return withLogs(() => ({
       optionNames: Object.keys(server),
       maximumPlayerCount: server.maximumPlayerCount,
       ticksPerSec: server.ticksPerSec,
@@ -205,12 +213,15 @@ class Session extends RpcTarget {
       seatHoldDurationSec: server.seatHoldDurationSec,
       schedules: plain(server.schedules),
       handlerNames: HANDLERS.filter((name) => typeof server[name] === "function"),
-    };
+    }));
   }
   setup(setupData) {
-    return answer(() => server.setup(setupData), [], undefined);
+    return withLogs(() => answer(() => server.setup(setupData), [], undefined));
   }
   call(hook, state, handlerArguments, snapshot) {
+    return withLogs(() => this.#call(hook, state, handlerArguments, snapshot));
+  }
+  #call(hook, state, handlerArguments, snapshot) {
     const effects = [];
     if (!HOOKS.includes(hook) || typeof server[hook] !== "function") return { state, effects };
     const room = recorder(snapshot, effects, this.#database, this.#secrets);
@@ -225,7 +236,10 @@ class Session extends RpcTarget {
       : [state, handlerArguments[0], room];
     return answer(() => server[hook](...full), effects, state);
   }
-  async check(state, player, joinData, snapshot, joinInfo) {
+  check(state, player, joinData, snapshot, joinInfo) {
+    return withLogs(() => this.#check(state, player, joinData, snapshot, joinInfo));
+  }
+  async #check(state, player, joinData, snapshot, joinInfo) {
     if (typeof server.canJoin !== "function") return { answer: true };
     let answer;
     try {
@@ -241,7 +255,10 @@ class Session extends RpcTarget {
     }
   }
   // onRequest(player, request, server): no room and no state, only the game's database and secrets.
-  async request(player, request) {
+  request(player, request) {
+    return withLogs(() => this.#request(player, request));
+  }
+  async #request(player, request) {
     if (typeof server.onRequest !== "function") return { error: "This game server has no onRequest" };
     let answer;
     try {
@@ -261,7 +278,10 @@ class Session extends RpcTarget {
     return { answer: JSON.parse(text) };
   }
   // onSchedule(run, server): like a request, with no player and nothing handed back.
-  async schedule(run) {
+  schedule(run) {
+    return withLogs(() => this.#schedule(run));
+  }
+  async #schedule(run) {
     if (typeof server.onSchedule !== "function") return { error: "This game server has no onSchedule" };
     try {
       await server.onSchedule(run, { database: this.#database, secrets: this.#secrets });
@@ -271,7 +291,10 @@ class Session extends RpcTarget {
     }
   }
   // onWebhook(event, server): like a run, with the webhook's event.
-  async webhook(event) {
+  webhook(event) {
+    return withLogs(() => this.#webhook(event));
+  }
+  async #webhook(event) {
     if (typeof server.onWebhook !== "function") return { error: "This game server has no onWebhook" };
     try {
       await server.onWebhook(event, { database: this.#database, secrets: this.#secrets });
@@ -297,6 +320,56 @@ export default class extends WorkerEntrypoint {
     if (!server || (typeof server.setup !== "function" && typeof server.onRequest !== "function" && typeof server.onSchedule !== "function" && typeof server.onWebhook !== "function")) throw new Error("${entry} must export default a game server with setup() for rooms, onRequest() for requests, onSchedule() for schedules or onWebhook() for webhooks");
     return new Session(gameDatabase(this.env.DATABASE), secrets);
   }
+}
+`;
+
+// Loaded before the game's own code, so the console it prints with is this one: each line goes to the
+// call it was printed in (AsyncLocalStorage, since every room of a version shares this sandbox and their
+// calls take turns at each await) and comes back with that call's answer. Lines printed outside any call,
+// as the game's code loads or from a timer, go with the next answer. Nothing reaches Zaisma's own logs.
+const logs = `
+import { AsyncLocalStorage } from "node:async_hooks";
+const LEVELS = ${JSON.stringify(LOG_LEVELS)};
+const LINE_COUNT = ${LOG_LIMITS.callLineCount};
+const CHARACTER_COUNT = ${LOG_LIMITS.lineCharacterCount};
+const store = new AsyncLocalStorage();
+let loose = { lines: [], droppedCount: 0 };
+function text(given) {
+  if (typeof given === "string") return given;
+  if (given instanceof Error) return given.stack || String(given);
+  try {
+    const json = JSON.stringify(given);
+    return json === undefined ? String(given) : json;
+  } catch {
+    return String(given);
+  }
+}
+for (const level of LEVELS) {
+  console[level] = (...values) => {
+    const printed = store.getStore() || loose;
+    if (printed.lines.length >= LINE_COUNT) {
+      printed.droppedCount++;
+      return;
+    }
+    let line;
+    try {
+      line = values.map(text).join(" ");
+    } catch {
+      line = "(something that can't be printed)";
+    }
+    printed.lines.push({ atMs: Date.now(), level, text: line.length > CHARACTER_COUNT ? line.slice(0, CHARACTER_COUNT - 1) + "…" : line });
+  };
+}
+console.trace = console.debug;
+console.dir = console.log;
+console.table = console.log;
+// Runs work as one call, and hands back its answer with what it printed.
+export async function withLogs(work) {
+  const printed = { lines: loose.lines, droppedCount: loose.droppedCount };
+  loose = { lines: [], droppedCount: 0 };
+  const answer = await store.run(printed, work);
+  if (printed.droppedCount) printed.lines.push({ atMs: Date.now(), level: "warn", text: "Zaisma: this call printed " + printed.droppedCount + " more lines than the " + LINE_COUNT + " a call keeps; they weren't kept." });
+  return printed.lines.length ? { ...answer, logLines: printed.lines } : answer;
 }
 `;
 
@@ -366,7 +439,9 @@ export async function sandboxOpener(env: Env, exports: Cloudflare.Exports, gameI
     compatibilityDate: "2026-10-01",
     mainModule: "harness.js",
     // The game's files keep their paths, so its relative imports work: ./physics.js from zaisma-server/index.js.
-    modules: { ...code.modules, "harness.js": harness(code.entry), "outside-calls.js": outsideCalls },
+    modules: { ...code.modules, "harness.js": harness(code.entry), "outside-calls.js": outsideCalls, "logs.js": logs },
+    // AsyncLocalStorage, so each call's lines stay with it (logs.js).
+    compatibilityFlags: ["nodejs_als"],
     // Its internet is our gateway, which takes only https to the hosts the game lists; and one binding,
     // its own game's database (room.database). Both are fixed to the game by props it can't see.
     globalOutbound: ours.GameServerOutbound({ props: { gameId } }),
@@ -377,9 +452,21 @@ export async function sandboxOpener(env: Env, exports: Cloudflare.Exports, gameI
 }
 
 /** A game version's server in its sandbox, with the game's secrets, as a game server the room can run. Null if the version has none. */
-export async function sandboxServer(env: Env, exports: Cloudflare.Exports, gameId: string, versionId: string, secrets: Record<string, string>, onBroken: () => void, onNewError?: () => void): Promise<SandboxServer | null> {
+export async function sandboxServer(env: Env, exports: Cloudflare.Exports, gameId: string, versionId: string, secrets: Record<string, string>, onBroken: () => void, onNewError?: () => void, onLogLines?: (lines: PrintedLogLine[]) => void): Promise<SandboxServer | null> {
   const open = await sandboxOpener(env, exports, gameId, versionId);
-  return open === null ? null : wrapSession(open, onBroken, secrets, onNewError);
+  return open === null ? null : wrapSession(open, onBroken, secrets, onNewError, onLogLines);
+}
+
+/**
+ * The lines a call into the sandbox printed, plus its error in full when it threw, for the game's logs
+ * (docs/DEVELOPER-API.md, "A game server's logs"). The error goes in as a line of its own because a
+ * game server that throws prints nothing about it.
+ */
+export function linesOf(answer: { logLines?: unknown; error?: unknown } | null | undefined, extraError?: string): PrintedLogLine[] {
+  const lines = readPrintedLines(answer?.logLines);
+  const error = extraError ?? (typeof answer?.error === "string" && answer.error ? answer.error : undefined);
+  if (error) lines.push({ atMs: Date.now(), level: "error", text: logText(error) });
+  return lines;
 }
 
 /** A sandboxed game server as a room runs it: its stats, and a way to hand it the game's secrets again. */
@@ -392,11 +479,15 @@ export type SandboxServer = GameServer & { stats: SandboxStats; setSecrets(secre
  * server with an option it doesn't take, or one out of range, doesn't start (GameServerError).
  * onNewError is called for each distinct error the room hasn't kept yet, so it records it soon.
  */
-export async function wrapSession(open: (secrets: Record<string, string>) => Promise<Session>, onBroken: () => void, secrets: Record<string, string> = {}, onNewError?: () => void): Promise<SandboxServer> {
+export async function wrapSession(open: (secrets: Record<string, string>) => Promise<Session>, onBroken: () => void, secrets: Record<string, string> = {}, onNewError?: () => void, onLogLines?: (lines: PrintedLogLine[]) => void): Promise<SandboxServer> {
   // A fresh session after a failure gets the secrets as they are by then.
   let currentSecrets = secrets;
   let session = await open(currentSecrets);
   const settings = await session.settings();
+  const printed = (lines: PrintedLogLine[]) => {
+    if (lines.length) onLogLines?.(lines);
+  };
+  printed(linesOf(settings));
   const optionNames = Array.isArray(settings.optionNames) ? settings.optionNames.map(String) : [];
   for (const name of optionNames) if (!(GAME_SERVER_OPTIONS as readonly string[]).includes(name)) throw unknownOptionError(name);
   const handlerNames = new Set(Array.isArray(settings.handlerNames) ? settings.handlerNames.map(String) : []);
@@ -421,7 +512,7 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
   };
 
   /** One call into the sandbox, counting it and handling a sandbox that fails. */
-  const reach = async <T extends { error?: string }>(work: () => Promise<T>): Promise<T> => {
+  const reach = async <T extends { error?: string; logLines?: unknown }>(work: () => Promise<T>): Promise<T> => {
     const startedAtMs = Date.now();
     if (stats.failureCount >= FAILURE_COUNT) throw new Error("This game's server stopped working");
     let answer: T;
@@ -429,13 +520,16 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
       answer = await work();
     } catch (error) {
       stats.stoppedCount++;
-      record("stopped", /CPU time/i.test(String(error)) ? "Ran on too long and was stopped, like a loop that never ends" : `The game server stopped: ${String(error)}`);
+      const stopped = /CPU time/i.test(String(error)) ? "Ran on too long and was stopped, like a loop that never ends" : `The game server stopped: ${String(error)}`;
+      record("stopped", stopped);
+      printed(linesOf(null, `Zaisma: ${stopped}`));
       if (++stats.failureCount >= FAILURE_COUNT) onBroken();
       else session = await open(currentSecrets);
       throw error;
     }
     stats.callCount++;
     stats.waitDurationMs += Date.now() - startedAtMs;
+    printed(linesOf(answer));
     if (answer.error) {
       stats.crashCount++;
       record("crash", answer.error);
@@ -480,6 +574,7 @@ export async function wrapSession(open: (secrets: Record<string, string>) => Pro
             if ("mistake" in read) {
               stats.crashCount++;
               record("crash", read.mistake);
+              printed(linesOf(null, read.mistake));
               throw new Error(`Game server error: ${read.mistake}`);
             }
             return checked.answer as JoinAnswer;

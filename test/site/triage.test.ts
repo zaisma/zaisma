@@ -378,3 +378,65 @@ describe("the report queue", () => {
     expect(await reports()).toMatchObject([{ report_status: "actioned", is_bug_report: 1 }]);
   });
 });
+
+describe("reports about a player", () => {
+  const player = { id: "player_0123456789abcdef", name: "Swift Fox 42" };
+  const aboutPlayer = (reason: string, details = "") => send({ reason, details, room: "ABCDEF", player });
+  const passToDeveloper = (id: string, title: string) =>
+    env.DB.prepare("INSERT INTO precedents (id, title, applies_when, decision, why, can_ai_apply_alone, precedent_status, created_by, created_at_ms, updated_at_ms) VALUES (?, ?, 'Trash talk about killing someone in the game.', 'pass_to_developer', 'Trash talk is the game''s call.', 0, 'active', 'test', 1, 1)").bind(id, title).run();
+
+  it("passes what Zaisma leaves to the game's developer, and keeps it open when the AI finds one of the four", async () => {
+    await liveGame();
+    await aboutPlayer("harassment", "calls everyone trash");
+    await triageReports(testEnv, ai({ recommendation: "pass_to_developer" }).deps);
+    await aboutPlayer("harassment", "says he knows my school and will wait outside");
+    await triageReports(testEnv, ai({ severity: "urgent", recommendation: "person" }).deps);
+    const [trash, threat] = await reports();
+    expect(trash).toMatchObject({ report_status: "actioned", is_passed_to_developer: 1 });
+    expect(triageOf(trash!).ai_actions).toEqual(["Passed to the game's developer"]);
+    expect(threat).toMatchObject({ report_status: "open", is_passed_to_developer: 1, severity_index: 1 });
+  });
+
+  it("leaves a reason Zaisma acts on for a person, even when the AI would pass it on", async () => {
+    await liveGame();
+    await aboutPlayer("real_life_threat", "I'm gonna kill you");
+    const { deps, seen } = ai({ recommendation: "pass_to_developer", why: "Trash talk." });
+    await triageReports(testEnv, deps);
+    const [r] = await reports();
+    expect(r).toMatchObject({ report_status: "open", is_passed_to_developer: 0 });
+    expect(triageOf(r!).recommendation).toBe("pass_to_developer");
+    // The AI is told who was reported, and the threat line.
+    expect(seen[0]!.text).toContain("a guest");
+  });
+
+  it("passes cases like one a person passed under a precedent, except 1 in 20", async () => {
+    await liveGame();
+    await passToDeveloper("precedent_game-trash-talk", "Trash talk about the game");
+    await aboutPlayer("real_life_threat", "gonna end you next round");
+    await triageReports(testEnv, ai({ severity: "high", precedent: "precedent_game-trash-talk", fit: "fits" }).deps);
+    await aboutPlayer("real_life_threat", "you're dead next round");
+    await triageReports(testEnv, { ...ai({ severity: "high", precedent: "precedent_game-trash-talk", fit: "fits" }).deps, random: () => 0.01 });
+    const [passed, spot] = await reports();
+    expect(passed).toMatchObject({ report_status: "actioned", is_passed_to_developer: 1, precedent_id: "precedent_game-trash-talk" });
+    expect(spot).toMatchObject({ report_status: "open", is_passed_to_developer: 0 });
+    expect(triageOf(spot!)).toMatchObject({ is_spot_check: true, recommendation: "pass_to_developer" });
+  });
+
+  it("never passes one the AI finds child safety in", async () => {
+    await liveGame();
+    await aboutPlayer("cheating", "asked me how old I am and for pictures");
+    await triageReports(testEnv, ai({ severity: "child_safety", recommendation: "pass_to_developer" }).deps);
+    const [r] = await reports();
+    expect(r).toMatchObject({ report_status: "open", is_passed_to_developer: 0, severity_index: 0 });
+  });
+
+  it("without the AI, passes the developer's reasons and leaves Zaisma's for a person", async () => {
+    await liveGame();
+    await aboutPlayer("cheating");
+    await aboutPlayer("sexual");
+    await triageReports({ ...testEnv, ANTHROPIC_API_KEY: "" }, ai({}).deps);
+    const [cheating, sexual] = await reports();
+    expect(cheating).toMatchObject({ report_status: "actioned", is_passed_to_developer: 1 });
+    expect(sexual).toMatchObject({ report_status: "open", is_passed_to_developer: 0, severity_index: 2 });
+  });
+});

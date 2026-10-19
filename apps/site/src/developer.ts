@@ -144,13 +144,14 @@ import { forumRoute, readableTopic } from "./forum.ts";
 import { databaseRoute } from "./game-database.ts";
 import { savesRoute } from "./saves-api.ts";
 import { secretsRoute } from "./secrets-api.ts";
+import { logsFor } from "./logs-api.ts";
 import { checkRoute } from "./check-api.ts";
 import { apiKeysAnswer, dayText, foundWords } from "./leaked-keys.ts";
 import { activityAnswer, gameHistoryAnswer, logCallerEvent, logDatabaseCall, logSavesCall, noteKeyUse } from "./security-log.ts";
 import { playStats } from "./plays.ts";
 import { sendAlert } from "./email.ts";
 import { KNOWN_IMAGE_ALERT, imageMatcher, passVersionsHeldForGore, pruneVersions } from "./scan.ts";
-import { sendTestEvent, tellWebhooks, type WaitUntil } from "./webhooks.ts";
+import { sendTestEvent, tellWebhooks, type PlayerReportRow, type WaitUntil } from "./webhooks.ts";
 
 /**
  * The developer API: one API for the MCP, the upload command and the dashboard, so they always agree.
@@ -178,6 +179,7 @@ import { sendTestEvent, tellWebhooks, type WaitUntil } from "./webhooks.ts";
  *   GET    /api/dev/games/:slug/reports        what players reported, by reason
  *   GET    /api/dev/games/:slug/stats          plays, play time, players coming back and multiplayer use
  *   GET    /api/dev/games/:slug/history        what happened to the game, who did it and from where
+ *   GET    /api/dev/games/:slug/logs           what its game server printed on Zaisma, last 30 days (see logs-api.ts)
  *   GET    /api/dev/games/:slug/testers        tester links that are on
  *   POST   /api/dev/games/:slug/testers        make a tester link: { "name", "version_choice", "picked_version_id", "ends_at" }
  *   PATCH  /api/dev/games/:slug/testers/:id    change its name, what it opens or its end date
@@ -532,6 +534,7 @@ export const API_ROUTES: readonly ApiRoute[] = [
   call({ method: "GET", path: "/games/:slug/reports", reaches: "game", access: needs("stats_access", "read"), pathParts: atGame, query: plainInputs("cursor") }),
   call({ method: "GET", path: "/games/:slug/stats", reaches: "game", access: needs("stats_access", "read"), pathParts: atGame, query: plainInputs("period_duration_days") }),
   call({ method: "GET", path: "/games/:slug/history", reaches: "game", access: needs("stats_access", "read"), pathParts: atGame }),
+  call({ method: "GET", path: "/games/:slug/logs", reaches: "game", access: needs("stats_access", "read"), pathParts: atGame, query: plainInputs("room_code", "minimum_level", "source_kind", "search_text", "maximum_line_count", "cursor", "new_lines_cursor") }),
   call({ method: "GET", path: "/games/:slug/testers", reaches: "game", access: needs("game_access", "read"), pathParts: atGame }),
   // picked_version_id is checked in the handler: a version of the path's game that passed.
   call({ method: "POST", path: "/games/:slug/testers", reaches: "game", access: needs("game_access", "write"), pathParts: atGame, body: { inputs: plainInputs("name", ...TESTER_LINK_INPUTS) } }),
@@ -830,6 +833,7 @@ export async function route(request: Request, env: Env, path: string, caller: Ca
   if (apiRoute.path === "/games/:slug/reports") return answer(await reportsFor(env, game!, checked.query.get("cursor")));
   if (apiRoute.path === "/games/:slug/stats") return answer(await statsFor(env, game!, readPeriodDurationDays(checked.query.get("period_duration_days"))));
   if (apiRoute.path === "/games/:slug/history") return answer(await historyFor(env, game!, caller));
+  if (apiRoute.path === "/games/:slug/logs") return answer(await logsFor(env, game!, checked));
 
   if (apiRoute.path.startsWith("/sign-in-apps")) return answer(...(await signInAppRoute(request, env, caller, checked)));
 
@@ -1322,8 +1326,10 @@ function readPeriodDurationDays(given: string | null): number {
 
 /**
  * Player reports, counted by reason over the last 90 days. Bug reports (as report triage sorted
- * them) come with what the player wrote and the version they played; `cursor` (from next_cursor)
- * gives only the ones that arrived after it, so a developer's AI can check for new ones.
+ * them) come with what the player wrote and the version they played, and player reports Zaisma passed
+ * to the developer (bullying, cheating and other behavior that's the game's call) with the reported
+ * player and room; `cursor` (from next_cursor) gives only the ones that arrived after it, so a
+ * developer's AI can check for new ones. Never who sent any of them.
  * Child-safety reports, including ones triage found under another reason, are never shown or
  * counted here: telling the developer could warn someone abusing a child.
  */
@@ -1345,13 +1351,18 @@ async function reportsFor(env: Env, game: Game, cursor: string | null) {
     .prepare("SELECT id, player_text, triage, version_id, reported_at_ms, bug_report_at_ms FROM reports WHERE game_id = ? AND is_bug_report = 1 AND severity_index > 0 AND bug_report_at_ms > ? AND player_text != '' ORDER BY bug_report_at_ms DESC LIMIT 50")
     .bind(game.id, Math.max(sinceMs, fromMs))
     .all<{ id: string; player_text: string; triage: string | null; version_id: string | null; reported_at_ms: number; bug_report_at_ms: number }>();
+  const { results: players } = await env.DB
+    .prepare("SELECT id, player_reason, player_text, player_id, player_name, room_code, version_id, reported_at_ms, passed_to_developer_at_ms FROM reports WHERE game_id = ? AND is_passed_to_developer = 1 AND severity_index > 0 AND passed_to_developer_at_ms > ? ORDER BY passed_to_developer_at_ms DESC LIMIT 50")
+    .bind(game.id, Math.max(sinceMs, fromMs))
+    .all<PlayerReportRow & { passed_to_developer_at_ms: number }>();
   return {
     period_duration_days: 90,
     // Open: waiting for us. Closed: we looked and either dismissed it or acted on it.
     reasons: [...byReason.values()],
     bug_reports: bugs.map(bugReportJson),
-    // Pass this as `cursor` next time to get only bug reports that arrived after this call.
-    next_cursor: cursorFor(Math.max(sinceMs, ...bugs.map((bug) => bug.bug_report_at_ms))),
+    player_reports: players.map(playerReportJson),
+    // Pass this as `cursor` next time to get only bug and player reports that arrived after this call.
+    next_cursor: cursorFor(Math.max(sinceMs, ...bugs.map((bug) => bug.bug_report_at_ms), ...players.map((report) => report.passed_to_developer_at_ms))),
   };
 }
 
@@ -1363,6 +1374,20 @@ export function bugReportJson(bug: { id: string; player_text: string; triage: st
     summary: bug.triage ? (JSON.parse(bug.triage) as { summary: string }).summary : null,
     version_id: bug.version_id,
     reported_at: iso(bug.reported_at_ms),
+  };
+}
+
+/** A player report Zaisma passed to the developer, in get_reports and the player_reported event: who was reported and what the player wrote, never who sent it. */
+export function playerReportJson(report: PlayerReportRow) {
+  return {
+    id: report.id,
+    reason: report.player_reason,
+    player_text: report.player_text,
+    reported_player_id: report.player_id,
+    reported_player_name: report.player_name,
+    room_code: report.room_code || null,
+    version_id: report.version_id,
+    reported_at: iso(report.reported_at_ms),
   };
 }
 
@@ -1480,6 +1505,9 @@ const HISTORY: Record<string, string | null> = {
   restored: "Zaisma restored the game",
   "reports-dismissed": null,
   "reports-to-developer": null,
+  // A decision about one of the game's players, never shown on the game's history.
+  "social-stopped": null,
+  "profile-cleared": null,
   "room-name-hidden": "Zaisma hid a room's name from room lists after a report",
   multiplayer: "Multiplayer settings changed",
   "cloud-saves": "Cloud saves switched",

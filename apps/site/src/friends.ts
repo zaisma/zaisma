@@ -18,6 +18,7 @@ import {
   removeFriendInvite,
   setAppearingOffline,
   socialSettingsOf,
+  socialStoppedNotice,
   type Account,
   type FriendInvite,
 } from "@zaisma/core";
@@ -110,7 +111,7 @@ export async function handleFriends(request: Request, env: Env, path: string): P
   if (path === "/friends/invites" && post) {
     const made = await createFriendInvite(env.DB, account.id);
     if ("error" in made) {
-      const why = made.error === "too_many_friends" ? `You have ${MAXIMUM_FRIEND_COUNT} friends, the most there can be. Remove one to invite someone new.` : `You have ${MAXIMUM_OPEN_FRIEND_INVITE_COUNT} invites waiting. Take one back, or wait for a friend to use one.`;
+      const why = made.error === "social_stopped" ? "Friends are off for your account." : made.error === "too_many_friends" ? `You have ${MAXIMUM_FRIEND_COUNT} friends, the most there can be. Remove one to invite someone new.` : `You have ${MAXIMUM_OPEN_FRIEND_INVITE_COUNT} invites waiting. Take one back, or wait for a friend to use one.`;
       return done(await friendsPage(env, session, account, new URLSearchParams(), why));
     }
     return done(redirect(`/friends?invite=${made.invite.invite_code}#invite`));
@@ -131,7 +132,8 @@ export async function handleFriends(request: Request, env: Env, path: string): P
   return done(redirect("/friends"));
 }
 
-const ACCEPT_ERRORS: Record<"invite_not_found" | "own_invite" | "already_friends" | "too_many_friends" | "inviter_has_too_many_friends" | "inviter_is_blocked", (name: string) => string> = {
+const ACCEPT_ERRORS: Record<"invite_not_found" | "own_invite" | "already_friends" | "too_many_friends" | "inviter_has_too_many_friends" | "inviter_is_blocked" | "social_stopped", (name: string) => string> = {
+  social_stopped: () => "Friends are off for your account.",
   invite_not_found: () => "The invite was just used or ran out. Ask for a new one.",
   own_invite: () => "That's your own invite. Send it to a friend instead.",
   already_friends: (name) => `You and ${name} are already friends.`,
@@ -151,6 +153,8 @@ function daysLeft(invite: FriendInvite): string {
 
 /** What the player's chat setting means for friends, in a line under the list. */
 function chatLine(account: Account): Raw {
+  // The notice at the top already says why, and nothing on the account page turns it back on.
+  if (account.social_stopped_at_ms) return html``;
   const whoCanChat = socialSettingsOf(account).who_can_chat;
   if (whoCanChat === "nobody") return html`<p class="hint">Nobody can chat with you, so you don't chat with anyone in games, friends included. <a href="/account#social">Change it</a>.</p>`;
   if (whoCanChat === "friends") return html`<p class="hint">In games that have chat, you chat only with friends. <a href="/account#social">Social settings</a>.</p>`;
@@ -171,7 +175,7 @@ async function friendsPage(env: Env, session: Session, account: Account, query: 
 ${added ? html`<p class="note" role="status">You and ${added.name} are friends now.</p>` : ""}
 ${query.has("removed") ? html`<p class="note" role="status">Removed. You're no longer friends on either side.</p>` : ""}
 ${error ? html`<p class="error" role="alert">${error}</p>` : ""}
-${now}
+${account.social_stopped_at_ms ? html`<p class="note" role="status">${socialStoppedNotice(account.social_stopped_reason)}</p>` : html`${now}
 <h2 class="rule-h" id="invite">Invite a friend</h2>
 <p>Friends join by an invite you give them yourself, as a link or a code. Nobody else can add you.</p>
 ${newInvite
@@ -190,14 +194,16 @@ ${otherInvites.length
 <form class="row" method="post" action="/friends/add">
 <input name="invite_code" maxlength="12" placeholder="K7Q2-MX9P" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Invite code" required>
 <button class="btn ghost" type="submit">Next</button>
-</form>
+</form>`}
 <h2 class="rule-h" id="list">Your friends${friends.length ? ` (${friends.length})` : ""}</h2>
 ${friends.length
       ? html`<ul class="keys friends">${friends.map(
           (friend) => html`<li><span class="friend"><a class="to-profile" href="${profilePath(friend.name)}">${accountPicture(friend.name, "sm")}<span>${friend.name}</span></a> <span class="why muted small">friends since ${day(friend.created_at_ms)}</span></span>
 <form method="post" action="/friends/${friend.player_id}/remove" data-confirm="Remove ${friend.name} as a friend? You'd need a new invite to be friends again."><button class="btn ghost" type="submit">Remove</button></form></li>`,
         )}</ul>`
-      : html`<p class="note">No friends yet. Make an invite above and send it to someone you play with.</p>`}
+      : account.social_stopped_at_ms
+        ? html`<p class="muted">No friends.</p>`
+        : html`<p class="note">No friends yet. Make an invite above and send it to someone you play with.</p>`}
 ${chatLine(account)}
 ${blockedSection(blocks, query)}
 <p><a href="/account">Your account</a></p>

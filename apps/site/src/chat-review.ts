@@ -80,7 +80,7 @@ export async function decideChatReview(env: Env, review: ChatReview, decision: C
   if (decision === "false_alarm") {
     await env.DB.batch([
       env.DB.prepare("DELETE FROM chat_reviews WHERE id = ?").bind(review.id),
-      env.DB.prepare("UPDATE accounts SET chat_stopped_reason = NULL, chat_stopped_until_ms = NULL WHERE id = ? AND chat_stopped_reason IN ('in_review', 'removed') AND NOT EXISTS (SELECT 1 FROM chat_reviews WHERE sender_account_id = ?)").bind(review.sender_account_id, review.sender_account_id),
+      env.DB.prepare("UPDATE accounts SET chat_stopped_reason = NULL, chat_stopped_until_ms = NULL WHERE id = ? AND chat_stopped_reason IN ('in_review', 'removed') AND social_stopped_at_ms IS NULL AND NOT EXISTS (SELECT 1 FROM chat_reviews WHERE sender_account_id = ?)").bind(review.sender_account_id, review.sender_account_id),
     ]);
   } else {
     await env.DB.batch([

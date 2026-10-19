@@ -118,6 +118,8 @@ const arena: GameServer<State> = {
     const color = (joinData as { color?: unknown } | null)?.color;
     state.bodies[player.id] = newBody(state, player.name, false, typeof color === "string" && COLORS.includes(color) ? color : undefined);
     fillBots(state, room);
+    // On Zaisma this goes to the game's logs (get_logs); on your own server, to its terminal.
+    console.log(`${player.name} joined: ${room.players.length} in the room`);
   },
 
   // A player's best score is kept in the game's database, for the best scores board (onRequest).
@@ -125,6 +127,7 @@ const arena: GameServer<State> = {
     const score = state.bodies[player.id]?.score ?? 0;
     delete state.bodies[player.id];
     fillBots(state, room);
+    console.log(`${player.name} left with ${score} points`);
     if (score > 0) {
       await room.database.query(BEST_SCORES_TABLE);
       await room.database.query(

@@ -1,6 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createAccount, currentMonth, deleteAccount, newId, type ChatReview } from "@zaisma/core";
+import { createAccount, currentMonth, deleteAccount, newId, stopSocial, type ChatReview } from "@zaisma/core";
 import { checkUnclearChat, type ChatCheckDeps } from "../../apps/site/src/chat-check.ts";
 import { CHAT_REVIEW_ALERT, reviewChatMessages, type ChatReviewAnswer, type ChatReviewDeps } from "../../apps/site/src/chat-review.ts";
 import { dailyCleanup } from "../../apps/site/src/cleanup.ts";
@@ -55,6 +55,14 @@ describe("chat reviews", () => {
     expect(alerts).toEqual([`[alert] ${CHAT_REVIEW_ALERT}`]);
     // Usage counts toward chat's own budget, not the shared one.
     expect(await env.DB.prepare("SELECT input_token_count, chat_input_token_count, chat_call_count FROM ai_usage WHERE month = ?").bind(currentMonth()).first()).toEqual({ input_token_count: 0, chat_input_token_count: 100, chat_call_count: 2 });
+  });
+
+  it("never brings back chat a person turned off after a player report", async () => {
+    const falseAlarm = await keptMessage("nice cock-up there");
+    await stopSocial(env.DB, falseAlarm.senderId, "real_life_threat");
+    await reviewChatMessages(testEnv, reviewer({ "nice cock-up there": "false_alarm" }));
+    expect(await reviewOf(falseAlarm.id)).toBeNull();
+    expect(await stoppedReasonOf(falseAlarm.senderId)).toBe("removed");
   });
 
   it("leaves own servers' messages and unsure ones to a person", async () => {
