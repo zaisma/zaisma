@@ -368,6 +368,8 @@ Zaisma preview is running. Nothing here touches the live site.
   Report queue    ${SITE}/admin/reports  (Loud_Lynx's group: a real-life threat and following after a block, with Turn off their social side)
   Player reports  ${SITE}/dashboard/arena/players#reports  (what Zaisma passed to Arena's developer: bullying, cheating, trash talk)
   Social side off ${SITE}/account#social and ${SITE}/friends  (as Stopped_Fox)
+  Review learns   ${SITE}/admin/review-precedents  (a drafted ruling, one being tested, one that failed its test, one in force),
+                  ${SITE}/admin/games/<phrase-menu id from /admin>  (its held version: Teach the review, ticked, with the drafted ruling and test game; Approve saves it in the same click)
   Forum           ${SITE}/forum  (topics, known issues, a topic: ${SITE}/forum?tab=known)
   Admin feedback  ${SITE}/admin/feedback
   Re-upload held  ${SITE}/admin/games/game_previewsharddash001  (dashking's Shard Dash is a held re-upload of Shard Dodge:
@@ -690,6 +692,24 @@ async function seedHolds(api, upload, go, form) {
   await api("PATCH", `/games/${gossip.slug}`, { visibility: "listed" });
   const gossipRow = JSON.parse(spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--json", "--command", `SELECT id FROM games WHERE slug = '${gossip.slug}'`], { cwd: join(ROOT, "apps/site"), encoding: "utf8", env: { ...process.env, CI: "1" } }).stdout)[0].results[0];
   await go(`/admin/games/${gossipRow.id}/notice`, form({ notice_kind: "defamation", reason: "the ending names Emma Clarke, a real person who lives in the town it's set in, as the thief who robbed the bakery." }));
+
+  // Review precedents: the AI judge held Phrase Menu for free chat (a menu of fixed phrases), with the ruling drafted so
+  // releasing the hold can teach the review; Arena's live version has a drafted "hold" ruling for taking it down; and
+  // one ruling in each other state. Made through SQL: the preview's stand-in AI doesn't judge like the real one.
+  const { game: phraseMenu } = await api("POST", "/games", { title: "Phrase Menu", description: "Say it with fixed phrases.", devices: ["computer"], controls: ["keyboard_mouse"], play_modes: [{ mode: "single" }] });
+  upload("examples/hello-game", phraseMenu.slug, "First version.");
+  await scanned(phraseMenu.slug);
+  const standIn = "<!doctype html><title>Phrase menu</title><p>[A menu of fixed phrases: Good game, Nice try, Rematch?]</p><button>Good game</button>";
+  const ruling = (id, status, decision, title, when, caseHtml, extra = "NULL, NULL") =>
+    `INSERT INTO review_precedents (id, title, applies_when, decision, content_rule, why, review_precedent_status, from_version_id, case_title, case_description, case_index_html, test_result, tested_at_ms, created_by, created_at_ms, updated_at_ms) VALUES ('${id}', '${title}', '${when}', '${decision}', ${decision === "hold" ? "'real_people'" : "'chat'"}, 'A person decided the review was wrong.', '${status}', (SELECT id FROM versions WHERE game_id = (SELECT id FROM games WHERE slug = '${decision === "hold" ? "arena" : phraseMenu.slug}') ORDER BY created_at_ms DESC LIMIT 1), 'Stand-in game', 'Written to show the pattern.', '${caseHtml}', ${extra}, 'ai', ${Date.now()}, ${Date.now()})`;
+  spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", [
+    `UPDATE versions SET scan_status = 'held', judged_at_ms = ${Date.now()}, scan_report = json_set(scan_report, '$.decision', 'held', '$.is_child_safety', json('false'), '$.ai', json('{"judge_model":"claude-sonnet-5-5","reader_model":"claude-haiku-5-5","verdict":"hold","reused_from_version_id":null,"summary":"A menu of chat phrases.","cost_cents":4,"input_token_count":1000,"output_token_count":100}'), '$.findings', json('[{"stage":"ai","severity":"hold","code":"ai_free_text_chat","message":"A menu of phrases that reads as free chat."}]')) WHERE game_id = (SELECT id FROM games WHERE slug = '${phraseMenu.slug}')`,
+    ruling("review_precedent_previewdraft0001", "proposed", "pass", "Menu of fixed phrases", "A menu of fixed phrases players pick from; nothing typed reaches another player.", standIn),
+    ruling("review_precedent_previewdraft0002", "proposed", "hold", "Address of a real person in a level", "A level shows the street address of a real private person.", "<!doctype html><title>Level</title><p>[a made-up street address on example.invalid]</p>"),
+    ruling("review_precedent_previewtesting01", "testing", "pass", "Cartoon blood in a boss fight", "Pixel or cartoon blood in a boss fight.", standIn, `NULL, NULL`),
+    ruling("review_precedent_previewfailed001", "failed", "pass", "Quiz about a banned coin", "A quiz that names a banned coin in a question.", standIn, `'{"is_passing":false,"cases":[],"summary":"Didn''t hold: nft-airdrop (missed bad)."}', ${Date.now()}`),
+    ruling("review_precedent_previewactive001", "active", "pass", "A story that mentions Dogecoin", "A story that mentions another coin without promoting it.", standIn, `'{"is_passing":true,"cases":[],"summary":"Held: 4 cases came out right with the ruling in force."}', ${Date.now()}`),
+  ].join("; ")], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
 
   // Rocket Lab: this month's free player-hours on Zaisma rooms used up, so new rooms are paused
   // (the developer home's alert). Not a game the preview's multiplayer is tried on. Tried again while

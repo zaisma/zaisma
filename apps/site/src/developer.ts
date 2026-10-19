@@ -1527,6 +1527,7 @@ const HISTORY: Record<string, string | null> = {
   "scan-held": "A version was held for a person to look at; see the version's findings",
   "scan-rejected": "A version was rejected; see the version's findings",
   rejected: "A version was rejected after review",
+  "review-hold-released": "A person looked and released this hold. It didn't count against your daily reviews.",
   "draft-ready": "A version passed review and is ready to preview and publish",
   published: "Published a version",
   "rolled-back": "Rolled back to an earlier version",

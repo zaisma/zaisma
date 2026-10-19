@@ -87,7 +87,20 @@ export interface StaticResult {
   evidence: EvidenceItem[];
 }
 
-export function staticScan(files: TextFile[]): StaticResult {
+/**
+ * Notes, never holds: a game that bumps into a protection the sandbox or the security policy already enforces
+ * gets told how to fix it ("A game that only bumps into a protection gets a note, not a hold.", Julius, Oct 18, 2026).
+ * A link opened with window.open or a new-tab link; the registered way is Zaisma.links.open.
+ */
+const UNREGISTERED_LINK_PATTERN =
+  /\bwindow\.open\(\s*["'`](?:https?:)?\/\/[a-z0-9]|<a\b[^>]*\btarget\s*=\s*["']?_blank[^>]*\bhref\s*=\s*["']?(?:https?:)?\/\/[a-z0-9]|<a\b[^>]*\bhref\s*=\s*["']?(?:https?:)?\/\/[a-z0-9][^>]*\btarget\s*=\s*["']?_blank/i;
+/** A connection written out in full: fetch, WebSocket, EventSource, sendBeacon or XMLHttpRequest to an absolute address. */
+const LITERAL_CONNECTION_PATTERN = /(?:\bfetch|new\s+WebSocket|new\s+EventSource|\bsendBeacon)\(\s*["'`](?:https?|wss?):\/\/([a-z0-9.-]+)|\.open\(\s*["'`][A-Za-z]{3,7}["'`]\s*,\s*["'`]https?:\/\/([a-z0-9.-]+)/gi;
+/** Hosts a game may connect to without listing them. */
+const ROOMS_HOST = "rooms.zaisma.com";
+
+/** `ownServerHosts`: the hosts of the game's own servers, lowercase (an empty list when none or unknown). */
+export function staticScan(files: TextFile[], ownServerHosts: readonly string[] = []): StaticResult {
   const findings: Finding[] = [];
   const hosts = new Set<string>();
   const evidence: EvidenceItem[] = [];
@@ -101,6 +114,14 @@ export function staticScan(files: TextFile[]): StaticResult {
         if (check.code === "packed_code") evidence.push(checkItem("hidden_code", "eval_of_encoded", check.message, file.path, match[0]));
       }
     }
+    // One note of each kind per version, at the first file that has it.
+    if (!findings.some((finding) => finding.code === "unregistered_link") && UNREGISTERED_LINK_PATTERN.test(file.text)) {
+      findings.push({ stage: "static", severity: "info", code: "unregistered_link", message: "Opens a site with window.open or a new-tab link.", path: file.path });
+    }
+    const unlistedHost = findings.some((finding) => finding.code === "unlisted_address")
+      ? undefined
+      : [...file.text.matchAll(LITERAL_CONNECTION_PATTERN)].map((match) => (match[1] ?? match[2])!.toLowerCase()).find((host) => host !== ROOMS_HOST && !IGNORED_HOSTS.has(host) && !ownServerHosts.includes(host));
+    if (unlistedHost) findings.push({ stage: "static", severity: "info", code: "unlisted_address", message: `Connects to ${unlistedHost}, which isn't Zaisma rooms or one of the game's own servers.`, path: file.path });
     const fileHosts = new Set<string>();
     for (const match of file.text.matchAll(URL_PATTERN)) {
       const host = match[1]!.toLowerCase();

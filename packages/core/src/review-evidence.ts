@@ -16,8 +16,21 @@ export const EVIDENCE_KINDS = {
   connects_to: null,
   /** A site the game opens: the registered link's name, or the host of a raw URL. */
   opens_link: null,
-  /** How text typed by one player reaches another. */
-  player_text: ["zaisma_chat", "own_server", "peer_connection", "shown_locally", "unknown"],
+  /**
+   * Text a player types, by who reads it, never by route: shown_locally (only the typer sees it), checked_by_game
+   * (the game compares it to a secret or a list and others see only the result), read_by_others (another player
+   * reads it as written, however it's entered: that's chat) and picked_phrases (whole phrases the developer wrote,
+   * chosen from a closed list).
+   */
+  player_text: ["shown_locally", "checked_by_game", "read_by_others", "picked_phrases"],
+  /**
+   * Code that tries to get around one of the beta's protections instead of just bumping into it, each a yes/no
+   * test: page_outside_frame (reaches the page outside the game's frame by any route), peer_outside_relay (makes
+   * a peer connection from a frame of its own or replaces the relay settings), link_without_tap (opens a site
+   * with no tap by the player), link_built_from_pieces (a link assembled at runtime), address_built_from_pieces
+   * (a host to connect to assembled at runtime).
+   */
+  protection_attempt: ["page_outside_frame", "peer_outside_relay", "link_without_tap", "link_built_from_pieces", "address_built_from_pieces"],
   /** A personal detail the game asks players for. */
   asks_player: ["email", "real_name", "birthday", "location", "phone", "password", "other_personal_detail"],
   /**
@@ -102,10 +115,28 @@ export function keepQuotedItems(items: EvidenceItem[], fileTextByPath: Map<strin
   });
 }
 
-const itemKey = (evidenceItem: Pick<EvidenceItem, "kind" | "subject">) => `${evidenceItem.kind}\n${evidenceItem.subject.toLowerCase()}`;
+/**
+ * Links and addresses compare by kind alone: the sandbox, the security headers and the link check already
+ * cover them, so a new one never costs a judged review (and swapping a plain window.open for a registered
+ * link, the fix for a note, adds a new subject).
+ */
+const COMPARED_BY_KIND = new Set<EvidenceItem["kind"]>(["opens_link", "connects_to"]);
 
-/** A tweak: every kind and subject in the new evidence was already in the last judged version's. */
-export function isTweak(newItems: EvidenceItem[], judgedItems: EvidenceItem[]): boolean {
+const itemKey = (evidenceItem: Pick<EvidenceItem, "kind" | "subject">) => (COMPARED_BY_KIND.has(evidenceItem.kind) ? evidenceItem.kind : `${evidenceItem.kind}\n${evidenceItem.subject.toLowerCase()}`);
+
+/** What a fixable hold stands on: a dodged protection, typed text others read as written, or personal details asked of players. */
+export const isFixableProblem = (evidenceItem: Pick<EvidenceItem, "kind" | "subject">): boolean =>
+  evidenceItem.kind === "protection_attempt" || evidenceItem.kind === "asks_player" || (evidenceItem.kind === "player_text" && evidenceItem.subject === "read_by_others");
+
+/** The holds a new version can fix by removing what they stand on, and so be reviewed by comparing its evidence alone. */
+export const FIXABLE_FINDING_CODES: readonly string[] = ["ai_protection_dodged", "ai_free_text_chat", "ai_data_collection", "top_navigation", "relay_bypass", "password_field", "external_form", "packed_code"];
+
+/**
+ * A tweak: every kind and subject in the new evidence was already in the last judged version's. When that
+ * version was held (for fixable findings only), the new evidence must also be free of what those holds stand on.
+ */
+export function isTweak(newItems: EvidenceItem[], judgedItems: EvidenceItem[], isJudgedHeld = false): boolean {
+  if (isJudgedHeld && newItems.some(isFixableProblem)) return false;
   const judged = new Set(judgedItems.map(itemKey));
   return newItems.every((evidenceItem) => judged.has(itemKey(evidenceItem)));
 }

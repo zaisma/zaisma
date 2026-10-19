@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pass the Note</title>
+<style>body{margin:0;font-family:system-ui,sans-serif;background:#111;color:#eee;display:flex;flex-direction:column;align-items:center}button{font:inherit;padding:8px 14px;margin:4px}</style>
+</head>
+<body>
+<h1>Pass the Note</h1>
+<div id="note"></div>
+<div id="keys"></div><button id="send">Send note</button>
+<div id="inbox"></div>
+<script src="_zaisma/v1.js"></script>
+<script>
+let room = null;
+let note = "";
+const noteBox = document.getElementById("note");
+const inbox = document.getElementById("inbox");
+for (const letter of "abcdefghijklmnopqrstuvwxyz ") {
+  const key = document.createElement("button");
+  key.textContent = letter === " " ? "␣" : letter;
+  key.onclick = () => { note += letter; noteBox.textContent = note; };
+  document.getElementById("keys").append(key);
+}
+Zaisma.joinRoom().then((joined) => {
+  room = joined;
+  room.on("message", (message) => { const line = document.createElement("div"); line.textContent = `Note: ${message.note}`; inbox.append(line); });
+});
+document.getElementById("send").onclick = () => { if (room && note) room.send({ note }); note = ""; noteBox.textContent = ""; };
+</script>
+</body>
+</html>

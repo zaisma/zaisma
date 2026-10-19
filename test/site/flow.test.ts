@@ -320,6 +320,53 @@ describe("the evidence-first review", () => {
     expect(changed.report.evidence).toContainEqual(expect.objectContaining({ kind: "connects_to", subject: "relay.example.invalid", path: "game.js", source: "reader" }));
   });
 
+  it("passes the fix for a held protection attempt on the cheap reads, and judges a version that still has it", async () => {
+    const calls = { readerCallCount: 0, judgeCallCount: 0 };
+    // Readers: a link opened after a timer is link_without_tap, and a tap that opens a registered link is an ordinary link.
+    const readCode: ReadCode = async (_key, _model, chunk) => {
+      calls.readerCallCount++;
+      const items = chunk.files.flatMap((file) => [
+        ...[...file.text.matchAll(/setTimeout\(\(\) => window\.open\([^)]*\)/g)].map((match) => ({ kind: "protection_attempt" as const, subject: "link_without_tap", detail: "Opens a site on a timer.", path: file.path, quote: match[0] })),
+        ...[...file.text.matchAll(/Zaisma\.links\.open\("(\w+)"\)/g)].map((match) => ({ kind: "opens_link" as const, subject: match[1]!, detail: "Opens a registered link.", path: file.path, quote: match[0] })),
+      ]);
+      return { items, outcome: "read", costCents: 0.5, inputTokenCount: 1000, outputTokenCount: 50 };
+    };
+    const judge = async (...input: Parameters<typeof judgeVersion>) => {
+      calls.judgeCallCount++;
+      const [, , brief] = input;
+      const isDodging = brief.items.some((evidenceItem) => evidenceItem.kind === "protection_attempt");
+      return judgeSays(isDodging ? "hold" : "pass", isDodging ? [{ stage: "ai", severity: "hold", code: "ai_protection_dodged", message: "Opens a site with no tap." }] : [])(...input);
+    };
+    const deps = { images: connected, readCode, readPictures: seesNothing, judge };
+    const withScript = (script: string) => ({ ...CLEAN_GAME, "game.js": `${CLEAN_GAME["game.js"]} ${script}` });
+
+    const held = await uploadAndScan(withScript('setTimeout(() => window.open("https://shop.example.invalid"), 30000);'), deps);
+    expect(held.report.decision).toBe("held");
+    expect(held.report.findings.map((finding) => finding.code)).toContain("ai_protection_dodged");
+    expect(calls.judgeCallCount).toBe(1);
+
+    // The fix swaps the timer for a tap on a registered link: a new link subject, nothing the hold stood on, no judged review (only the changed file is read, 0.5 cents).
+    const fixed = await uploadAndScan(withScript('button.onclick = () => Zaisma.links.open("shop");'), deps);
+    expect(fixed.report.decision).toBe("approved");
+    expect(fixed.report.ai).toMatchObject({ verdict: "reused", reused_from_version_id: held.versionId, cost_cents: 0.5 });
+    expect(calls.judgeCallCount).toBe(1);
+    expect(await judgedAtMs(fixed.versionId)).toBeNull();
+
+    // A version that still has it is judged and held again.
+    const again = await uploadAndScan(withScript('setTimeout(() => window.open("https://other.example.invalid"), 1000);'), deps);
+    expect(again.report.decision).toBe("held");
+    expect(calls.judgeCallCount).toBe(2);
+  });
+
+  it("never uses a version held for anything else as the baseline for a cheap pass", async () => {
+    const calls = { judgeCallCount: 0 };
+    const held = await uploadAndScan(CLEAN_GAME, { images: connected, ...countedAiSays(calls, "hold") });
+    expect(held.report.decision).toBe("held");
+    expect(calls.judgeCallCount).toBe(1);
+    await uploadAndScan(CLEAN_GAME, { images: connected, ...countedAiSays(calls, "hold") });
+    expect(calls.judgeCallCount).toBe(2);
+  });
+
   it("drops a reader's item whose quote isn't in the file", async () => {
     const madeUp: ReadCode = async (_key, _model, chunk) => ({
       items: [

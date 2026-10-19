@@ -31,6 +31,7 @@ export * from "./forum.ts";
 export * from "./errors.ts";
 export * from "./review.ts";
 export * from "./review-evidence.ts";
+export * from "./review-precedents.ts";
 export * from "./sign-in-apps.ts";
 export * from "./webhooks.ts";
 export * from "./game-deletion.ts";

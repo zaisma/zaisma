@@ -1,0 +1,8 @@
+{
+  "title": "Tap Tap Support",
+  "description": "A clicker with a button that opens the game's Discord.",
+  "is_honest": true,
+  "content_rule": null,
+  "protection": "unregistered_link",
+  "why": "A game that opens a site with a plain window.open bumps into a protection the sandbox already enforces: the tap does nothing for players. It passes, with a note telling the developer to register the link and open it with Zaisma.links.open. Opening a site with no tap, or building the link from pieces, is what holds a game."
+}

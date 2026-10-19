@@ -7,6 +7,7 @@ import {
   addReviewUsage,
   aiUsage,
   currentMonth,
+  FIXABLE_FINDING_CODES,
   isTweak,
   apiKeyTokensIn,
   audit,
@@ -56,6 +57,7 @@ import {
 import { deletePrefix } from "./upload.ts";
 import { chooseReadPictures, gatherEvidence, readCode, readPictures, type PictureFile, type ReadCode, type ReadPictures, type ReaderPicture } from "./review-readers.ts";
 import { judgeVersion, type JudgeVersion } from "./review-judge.ts";
+import { activeReviewPrecedents, draftMiss, draftWithAi, type ReviewPrecedentDrafter } from "./review-precedents.ts";
 import { findMatchedGame } from "./copies.ts";
 import { tellWebhooks } from "./webhooks.ts";
 import { alertIfNoticeFixPublished } from "./notices.ts";
@@ -77,6 +79,8 @@ export interface ScanDeps {
   readCode: ReadCode;
   readPictures: ReadPictures;
   judge: JudgeVersion;
+  /** Drafts the review precedent for a miss (review-precedents.ts); left out where nothing should call a model. */
+  draft?: ReviewPrecedentDrafter;
 }
 
 /**
@@ -108,7 +112,7 @@ function connectedProviders(env: Env): string[] {
   return [...(env.ARACHNID_SHIELD_KEY ? ["arachnid-shield"] : []), ...(env.PHOTODNA_KEY && env.PHOTODNA ? ["photodna"] : [])];
 }
 
-export const scanDeps = (env: Env, priority: PhotoDnaPriority = "upload"): ScanDeps => ({ images: imageMatcher(env, priority), readCode, readPictures, judge: judgeVersion });
+export const scanDeps = (env: Env, priority: PhotoDnaPriority = "upload"): ScanDeps => ({ images: imageMatcher(env, priority), readCode, readPictures, judge: judgeVersion, draft: draftWithAi });
 
 export async function handleScanBatch(batch: MessageBatch<ScanJob>, env: Env, injectedDeps?: ScanDeps): Promise<void> {
   const deps = injectedDeps ?? scanDeps(env);
@@ -155,6 +159,8 @@ export async function scanVersion(env: Env, versionId: string, deps: ScanDeps = 
   await saveScan(env.DB, version.id, decision, report);
   // Counts toward the owner's judged reviews a day (step 4e); re-checks never get here.
   if (isJudged(report)) await env.DB.prepare("UPDATE versions SET judged_at_ms = ? WHERE id = ?").bind(report.finished_at_ms, version.id).run();
+  // A hold the AI judge made may turn out to be a miss: draft the ruling now, so releasing it can teach the review in the same click.
+  if (decision === "held" && deps.draft && report.ai !== null && "judge_model" in report.ai && report.ai.verdict === "hold") await draftMiss(env, { versionId: version.id, decision: "pass" }, deps.draft);
   if (decision === "approved") {
     await passVersion(env, version, "Passed the scan");
   } else {
@@ -212,7 +218,7 @@ export async function inspectVersion(env: Env, version: Version, game: Game, dep
   }
 
   // 2. Static checks.
-  const staticResult = staticScan(texts);
+  const staticResult = staticScan(texts, hostsOf(game.own_server_urls));
   findings.push(...staticResult.findings);
   if (env.VT_API_KEY) findings.push(...(await virusTotal(env, files)));
 
@@ -319,14 +325,12 @@ async function reviewWithAi(env: Env, version: Version, game: Game, input: Revie
   if (!input.isRecheck) {
     // (d) A tweak: nothing new in the evidence since the game's last judged version that passed.
     if (!input.hasStaticHold && !hasChildSafetyItem && gathered.findings.length === 0) {
-      const judged = await env.DB
-        .prepare("SELECT id, scan_report FROM versions WHERE game_id = ? AND id != ? AND judged_at_ms IS NOT NULL AND scan_status = 'approved' ORDER BY created_at_ms DESC LIMIT 1")
-        .bind(game.id, version.id)
-        .first<{ id: string; scan_report: string | null }>();
-      const judgedEvidence = judged?.scan_report ? (JSON.parse(judged.scan_report) as ScanReport).evidence : undefined;
-      if (judged && judgedEvidence && isTweak(gathered.items, judgedEvidence)) {
+      const baseline = await tweakBaseline(env, game.id, version.id);
+      const judged = baseline?.version;
+      const judgedEvidence = baseline?.report.evidence;
+      if (judged && judgedEvidence && isTweak(gathered.items, judgedEvidence, baseline.isHeld)) {
         await alertReviewBudget(env, budgetCents);
-        return { ai: { ...models, verdict: "reused", reused_from_version_id: judged.id, summary: "A tweak of a version that passed: nothing new in the evidence, so its verdict stands.", ...cost }, findings, isChildSafety: false, ...read };
+        return { ai: { ...models, verdict: "reused", reused_from_version_id: judged.id, summary: baseline.isHeld ? "Takes out what held the version before and adds nothing new in the evidence, so it passes." : "A tweak of a version that passed: nothing new in the evidence, so its verdict stands.", ...cost }, findings, isChildSafety: false, ...read };
       }
     }
     // (e) The owner's judged reviews in the last 24 hours. Games with no owner (Zaisma's own) have no limit.
@@ -337,7 +341,8 @@ async function reviewWithAi(env: Env, version: Version, game: Game, input: Revie
     }
   }
 
-  // (f) The judge.
+  // (f) The judge, which reads the review precedents in force.
+  const reviewPrecedents = await activeReviewPrecedents(env.DB);
   const answer = await deps.judge(env.ANTHROPIC_API_KEY, env.REVIEW_JUDGE_MODEL, {
     title: game.title,
     description: game.description,
@@ -345,18 +350,49 @@ async function reviewWithAi(env: Env, version: Version, game: Game, input: Revie
     items: gathered.items,
     pictures: gathered.flaggedPictures,
     ...(input.reported !== undefined ? { reported: input.reported } : {}),
+    reviewPrecedents,
   });
   await addReviewUsage(env.DB, answer.costCents);
   await alertReviewBudget(env, budgetCents);
   cost = { cost_cents: cost.cost_cents + answer.costCents, input_token_count: cost.input_token_count + answer.inputTokenCount, output_token_count: cost.output_token_count + answer.outputTokenCount };
   findings.push(...answer.findings);
-  return { ai: { ...models, verdict: answer.verdict, reused_from_version_id: null, summary: answer.summary, ...cost }, findings, isChildSafety: answer.isChildSafety || hasChildSafetyItem, ...read };
+  return { ai: { ...models, verdict: answer.verdict, reused_from_version_id: null, summary: answer.summary, ...(answer.followedReviewPrecedentNumbers.length ? { followed_review_precedent_ids: answer.followedReviewPrecedentNumbers.map((number) => reviewPrecedents[number - 1]!.id) } : {}), ...cost }, findings, isChildSafety: answer.isChildSafety || hasChildSafetyItem, ...read };
+}
+
+/**
+ * The version a new one is compared with to be a tweak: the game's last judged version that was approved, or
+ * held only for findings the new version can fix by removing what they stand on (FIXABLE_FINDING_CODES), so the
+ * fix for a hold passes on the cheap reads. Never one that was rejected, held for child safety or held for
+ * anything else.
+ */
+async function tweakBaseline(env: Env, gameId: string, versionId: string): Promise<{ version: { id: string }; report: ScanReport; isHeld: boolean } | null> {
+  const rows = await env.DB
+    .prepare("SELECT id, scan_status, scan_report FROM versions WHERE game_id = ? AND id != ? AND judged_at_ms IS NOT NULL AND scan_status IN ('approved', 'held') ORDER BY created_at_ms DESC LIMIT 5")
+    .bind(gameId, versionId)
+    .all<{ id: string; scan_status: string; scan_report: string | null }>();
+  for (const row of rows.results) {
+    if (!row.scan_report) continue;
+    const report = JSON.parse(row.scan_report) as ScanReport;
+    if (row.scan_status === "approved") return { version: { id: row.id }, report, isHeld: false };
+    const isFixable = !report.is_child_safety && report.findings.every((finding) => finding.severity === "info" || FIXABLE_FINDING_CODES.includes(finding.code));
+    if (isFixable) return { version: { id: row.id }, report, isHeld: true };
+  }
+  return null;
+}
+
+/** The hosts of a game's own servers (own_server_urls, a JSON list of addresses), lowercase. */
+function hostsOf(ownServerUrls: string): string[] {
+  try {
+    return (JSON.parse(ownServerUrls) as string[]).map((address) => new URL(address).hostname.toLowerCase());
+  } catch {
+    return [];
+  }
 }
 
 /** The owner's versions the judge ran on in the last 24 hours, across all their games. */
 async function judgedReviewCount(env: Env, ownerId: string, nowMs = Date.now()): Promise<number> {
   const row = await env.DB
-    .prepare("SELECT COUNT(*) AS judged_count FROM versions JOIN games ON games.id = versions.game_id WHERE games.owner_id = ? AND versions.judged_at_ms > ?")
+    .prepare("SELECT COUNT(*) AS judged_count FROM versions JOIN games ON games.id = versions.game_id WHERE games.owner_id = ? AND versions.judged_at_ms > ? AND versions.is_review_refunded = 0")
     .bind(ownerId, nowMs - 24 * 60 * 60 * 1000)
     .first<{ judged_count: number }>();
   return row?.judged_count ?? 0;

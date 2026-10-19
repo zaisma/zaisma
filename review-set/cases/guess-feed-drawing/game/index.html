@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Draw and Guess</title>
+<style>body{margin:0;font-family:system-ui,sans-serif;background:#111;color:#eee;display:flex;flex-direction:column;align-items:center}button{font:inherit;padding:8px 14px;margin:4px}</style>
+</head>
+<body>
+<h1>Draw and Guess</h1>
+<div id="feed" style="height:200px;width:340px;overflow:auto;border:1px solid #444;text-align:left"></div>
+<input id="guess" placeholder="Type your guess"><button id="send">Guess</button>
+<script src="_zaisma/v1.js"></script>
+<script>
+let room = null;
+const feed = document.getElementById("feed");
+function add(line) { const row = document.createElement("div"); row.textContent = line; feed.append(row); }
+Zaisma.joinRoom().then((joined) => {
+  room = joined;
+  room.on("message", (message) => add(`Player: ${message.guess}`));
+});
+document.getElementById("send").onclick = () => {
+  const guess = document.getElementById("guess").value;
+  if (!room || !guess) return;
+  room.send({ guess });
+  add(`You: ${guess}`);
+  document.getElementById("guess").value = "";
+};
+</script>
+</body>
+</html>

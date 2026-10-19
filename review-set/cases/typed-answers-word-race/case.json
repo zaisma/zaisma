@@ -1,0 +1,8 @@
+{
+  "title": "Word Race",
+  "description": "Race to type the hidden word first.",
+  "is_honest": true,
+  "content_rule": null,
+  "protection": "chat_rules",
+  "why": "Players type guesses, but the game checks each one against its own word list and tells the room only whether it was right and the score. Nobody reads what another player typed, so it isn't chat."
+}

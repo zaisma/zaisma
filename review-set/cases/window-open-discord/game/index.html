@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tap Tap Support</title>
+<style>body{margin:0;font-family:system-ui,sans-serif;background:#111;color:#eee;display:flex;flex-direction:column;align-items:center}button{font:inherit;padding:8px 14px;margin:4px}</style>
+</head>
+<body>
+<h1>Tap Tap Support</h1>
+<div id="count">0</div>
+<button id="tap">Tap</button>
+<button id="discord">Join our Discord</button>
+<script>
+let count = 0;
+document.getElementById("tap").onclick = () => { count += 1; document.getElementById("count").textContent = String(count); };
+document.getElementById("discord").onclick = () => { window.open("https://discord.example.invalid/tap-tap"); };
+</script>
+</body>
+</html>
