@@ -1,8 +1,8 @@
-import { ApiError, CONTROLS, DEVICES, FORUM_CATEGORIES, FORUM_LIMITS, FORUM_REPORT_REASONS, FORUM_SECTIONS, FORUM_TABS, FORUM_TAGS, ACCOUNT_REQUIREMENTS, LINK_LIMITS, MINIMUM_PLAYER_AGES, OWN_SERVER_LIMITS, LINK_NAME_PATTERN, PLAY_STYLES, POST_SELECTIONS, ROOM_BROWSING, SCREENS, TOPIC_KINDS, TOPIC_STATUSES, VISIBILITIES, WEBHOOK_DESTINATION_KINDS, WEBHOOK_EVENT_KINDS, WEBHOOK_TIMEOUT_SEC, type IdKind } from "@zaisma/core";
+import { ApiError, CONTROLS, DEVICES, FORUM_CATEGORIES, FORUM_LIMITS, FORUM_REPORT_REASONS, FORUM_SECTIONS, FORUM_TABS, FORUM_TAGS, ACCOUNT_REQUIREMENTS, LINK_LIMITS, LOG_LIMITS, LOG_SOURCE_KINDS, MINIMUM_LOG_LEVELS, MINIMUM_PLAYER_AGES, OWN_SERVER_LIMITS, LINK_NAME_PATTERN, PLAY_STYLES, POST_SELECTIONS, ROOM_BROWSING, SCREENS, TOPIC_KINDS, TOPIC_STATUSES, VISIBILITIES, WEBHOOK_DESTINATION_KINDS, WEBHOOK_EVENT_KINDS, WEBHOOK_TIMEOUT_SEC, type IdKind } from "@zaisma/core";
 import { INTERNAL_ERROR, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { CHECKED_TEXT_EXTENSIONS, extensionOf } from "../../../packages/cli/check.mjs";
-import { ACCESS, ACTIVITY, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, HISTORY, LISTED_GAME, STATEMENT_RESULT, IMAGE, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes } from "./schemas.ts";
+import { ACCESS, ACTIVITY, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, HISTORY, LISTED_GAME, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes } from "./schemas.ts";
 
 /**
  * The developer MCP at /mcp: every tool is a call to the developer API, so the MCP, the upload command
@@ -919,6 +919,34 @@ export const TOOLS: Tool[] = [
     outputSchema: HISTORY,
     annotations: read,
     run: (toolArguments, call) => call("GET", `/games/${pathPart(toolArguments.slug)}/history`),
+  },
+  {
+    name: "get_logs",
+    title: "Game server logs",
+    description:
+      "What the game's own game server printed on Zaisma in the last 30 days: every console.log, info, warn, error and debug, in rooms and in onRequest, onSchedule and onWebhook, with each crash in full (level error), its room and version. Oldest first; the newest lines unless cursor says otherwise. Lines reach the logs within 30 seconds, and within 2 seconds for the next 10 minutes once someone has read them, so while testing, call it once, then follow with new_lines_cursor every few seconds. A game on the developer's own server prints to its own terminal instead. Players' browser errors aren't here: they're in the browser's console.\n\nNot: { \"since\": \"2026-10-18T14:00:00Z\" } (follow with new_lines_cursor from your last answer)\nNot: { \"level\": \"error\" } (minimum_level \"error\")\nNot: { \"cursor\": \"…\", \"new_lines_cursor\": \"…\" } (one or the other: cursor goes back, new_lines_cursor forward)",
+    inputSchema: {
+      ...object(
+        {
+          slug,
+          room_code: { type: "string", pattern: "^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$", description: "Only lines printed in this room, like K7Q2MX." },
+          minimum_level: { enum: MINIMUM_LOG_LEVELS, description: "debug (everything, the default), info (all but debug), warn (warnings and errors) or error." },
+          source_kind: { enum: LOG_SOURCE_KINDS, description: "Only lines printed in a room, onRequest (request), onSchedule (schedule) or onWebhook (webhook)." },
+          search_text: { type: "string", minLength: 1, maxLength: 200, description: "Only lines containing this, ignoring case, like an error's words." },
+          maximum_line_count: { type: "integer", minimum: 1, maximum: LOG_LIMITS.maximumLineCount, description: `How many lines at most; ${LOG_LIMITS.defaultLineCount} by default.` },
+          cursor: { type: "string", description: "next_cursor from an earlier call: the lines before that answer's." },
+          new_lines_cursor: { type: "string", description: "new_lines_cursor from your last call: only lines written since it." },
+        },
+        ["slug"],
+      ),
+      examples: [{ slug: "boss-fight" }, { slug: "boss-fight", room_code: "K7Q2MX", minimum_level: "warn" }, { slug: "boss-fight", new_lines_cursor: "logs_new_…" }, { slug: "boss-fight", search_text: "hp of undefined" }],
+    },
+    outputSchema: LOGS,
+    annotations: read,
+    run: (toolArguments, call) => {
+      const query = new URLSearchParams(pick(toolArguments, ["room_code", "minimum_level", "source_kind", "search_text", "maximum_line_count", "cursor", "new_lines_cursor"]) as Record<string, string>).toString();
+      return call("GET", `/games/${pathPart(toolArguments.slug)}/logs${query ? `?${query}` : ""}`);
+    },
   },
   {
     name: "list_secrets",

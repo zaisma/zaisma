@@ -604,7 +604,7 @@ ${hostingPanel(game, stats, ownServer)}
 <h2 class="rule-h" id="reports">Player reports</h2>
 ${reportsPanel(reports)}
 <h2 class="rule-h" id="multiplayer">Multiplayer and game server use</h2>
-${statsPanel(stats, ownServer)}`;
+${statsPanel(game.slug, stats, ownServer)}`;
 }
 
 /** The first day of next month (UTC), as people say it: "November 1". */
@@ -1044,15 +1044,15 @@ ${back("Back a week later", playStats.came_back.after_7_days)}
   )}</tbody></table></details>${how}`;
 }
 
-function statsPanel(stats: Stats, own: boolean): Raw {
+function statsPanel(slug: string, stats: Stats, own: boolean): Raw {
   const days = stats.multiplayer_days;
-  if (!days.length) return html`<p class="muted">No multiplayer rooms in the last 30 days.</p>${schedulesTable(stats.schedules)}`;
+  if (!days.length) return html`<p class="muted">No multiplayer rooms in the last 30 days.</p>${schedulesTable(stats.schedules)}${own ? serverErrors(slug, stats.game_server_errors) : ""}`;
   const topDurationMin = Math.max(...days.map((day) => day.room_play_duration_min), 1);
   return html`<table><thead><tr><th>Day</th><th>Rooms</th><th>Player minutes</th>${own ? html`<th>Requests</th><th>Scheduled runs</th><th>Game server errors</th><th>Stopped</th><th>Matches ended</th>` : ""}</tr></thead><tbody>${days.map(
     (day) => html`<tr><td class="nowrap">${day.date}</td><td>${day.room_count}</td><td><span class="bar" style="width:${Math.round((day.room_play_duration_min / topDurationMin) * 100)}%"></span>${day.room_play_duration_min}</td>${
       own ? html`<td>${formatted(day.game_server?.request_count ?? 0)}</td><td>${formatted(day.game_server?.scheduled_run_count ?? 0)}</td><td>${day.game_server?.crash_count ?? 0}</td><td>${day.game_server?.stopped_count ?? 0}</td><td>${day.game_server?.ended_match_count ?? 0}</td>` : ""
     }</tr>`,
-  )}</tbody></table>${schedulesTable(stats.schedules)}${own ? serverErrors(stats.game_server_errors) : ""}`;
+  )}</tbody></table>${schedulesTable(stats.schedules)}${own ? serverErrors(slug, stats.game_server_errors) : ""}`;
 }
 
 /** The live version's schedules, so its developer sees they were read and when they run. */
@@ -1066,13 +1066,16 @@ function schedulesTable(schedules: Stats["schedules"]): Raw | "" {
 }
 
 /** A game server's recent errors, so its developer can fix what wastes their players' time and our work. */
-function serverErrors(errors: Stats["game_server_errors"]): Raw {
-  if (!errors.length) return html`<p class="muted">No errors from your game server in the last 30 days.</p>`;
+/** Where a developer reads everything their game server prints: their AI, or a terminal (Logs in the MCP; no logs page). */
+const logsPointer = (slug: string): Raw => html`<p class="hint">Everything your game server prints is kept for 30 days. Ask your AI for its logs, or follow them in a terminal: <code>npx @zaisma/cli logs ${slug} --follow</code></p>`;
+
+function serverErrors(slug: string, errors: Stats["game_server_errors"]): Raw {
+  if (!errors.length) return html`<p class="muted">No errors from your game server in the last 30 days.</p>${logsPointer(slug)}`;
   return html`<h3>Your game server's errors</h3>
 <p class="hint">An error loses that one message, tick, request or scheduled run, and the match carries on. Stopped means it ran on too long, like a loop that never ends: the match froze for about 2 seconds, and a match stopped twice ends.</p>
 <table><thead><tr><th>What happened</th><th>Times</th><th>Last</th></tr></thead><tbody>${errors.map(
     (serverError) => html`<tr><td>${serverError.kind === "stopped" ? serverError.message : html`<code>${serverError.message}</code>`}</td><td>${serverError.occurrence_count}</td><td class="nowrap">${when(serverError.last_at)}</td></tr>`,
-  )}</tbody></table>`;
+  )}</tbody></table>${logsPointer(slug)}`;
 }
 
 const STYLES = `

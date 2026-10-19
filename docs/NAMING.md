@@ -263,6 +263,7 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 | A content rule, as a hold or takedown names it | `content_rule`: `child_safety`, `sexual`, `malware`, `illegal`, `real_people`, `copyright`, `personal_details`, `chat`, `crypto`, `faked_plays` (the same words as a report's `reason` where they mean the same) | |
 | Who can see a game | `visibility`: `draft`, `listed`, `unlisted`, `private` | |
 | Where to continue a list | `cursor` in, `next_cursor` out | |
+| A game server's logs, and where to read on from | `log_lines`, each `{ logged_at, level, text, source_kind, room_code, version_id }`; `level` a console method (`debug`, `log`, `info`, `warn`, `error`), `source_kind` `room`, `request`, `schedule` or `webhook`; filters `minimum_level`, `search_text`, `maximum_line_count`; `cursor` in and `next_cursor` out go back, `new_lines_cursor` in and out goes forward | `LOG_LIMITS`, `StoredLogLine`, `LogWriter` |
 | How a game is played | `play_modes`: a list of `{ mode, minimum_player_count, maximum_player_count, play_style }` | |
 | A version's notes for players, and when it goes live by itself | `patch_notes`, `scheduled_publish_at` | |
 | Links, by what they open | `page_url` (a game's page), `preview_url` (a version), `image_url`, `link_url` (a tester link) | `inviteUrl` (a room's invite link), `serverUrl` (a game server of the developer's own) |
