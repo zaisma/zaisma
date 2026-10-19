@@ -89,7 +89,9 @@ process.on("exit", () => children.forEach((c) => c.kill()));
 function wrangler(app, args, opts = {}) {
   // Quiet servers write to <app>.log in the preview folder, for when something doesn't start.
   const log = opts.quiet ? openSync(join(STATE, `${app}.log`), "w") : "inherit";
-  return spawn("npx", ["wrangler", ...args], { cwd: join(ROOT, "apps", app), stdio: ["ignore", log, log], env: { ...process.env, FORCE_COLOR: "0" } });
+  // Each checkout's preview finds its own Workers: wrangler's dev registry is machine-wide by default, so a
+  // service binding (like the site's to zaisma-rooms) could reach another checkout's preview instead.
+  return spawn("npx", ["wrangler", ...args], { cwd: join(ROOT, "apps", app), stdio: ["ignore", log, log], env: { ...process.env, FORCE_COLOR: "0", WRANGLER_REGISTRY_PATH: join(STATE, "registry") } });
 }
 
 // The three servers share one database file, and local D1 fails straight away when another server
@@ -187,6 +189,8 @@ seedLeakedKeys();
 await seedSecurityAlerts();
 // Two accounts for Confirm it's you: one that can't make a key until it adds a passkey, and one whose newest passkey waits a day.
 await seedConfirmItsYou();
+// A developer whose account can be deleted with its games, made again once it's gone.
+await seedDeletingDeveloper();
 // Pretend play stats for two games, so the dashboard's Plays section has something to show. Real
 // presses of Play in the preview add to them.
 spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", pretendPlaysSql()], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
@@ -241,6 +245,8 @@ Zaisma preview is running. Nothing here touches the live site.
   Account page    ${SITE}/account  (Username, then Signing in: password, email and passkeys)
   Deleted accounts ${SITE}/account#delete-account  (as Mia_Plays: the delete box says games and sites are told; deleting her
                   erases her row from ${SITE}/dashboard/cave-crew/database. The switch: ${SITE}/dashboard/cave-crew/details)
+  Deleting games  ${SITE}/account#delete-account  (as Gone_Dev: the delete box names Paper Planes and Night Market; deleting the
+                  account deletes both, and their links never go to another game. Made again at the next start)
   Activity        ${SITE}/account#activity  (as Preview_Studio: a new device in Manchester, keys made and used from a new
                   place, an AI connected; as Moss_Runner: Keep where my account is used from is off)
   Leaked keys     ${SITE}/account#developer  (as Preview_Studio: three key rows, one working with a last use and an end date, one
@@ -877,6 +883,26 @@ async function seedDeletedAccountErase(api) {
       { sql: "INSERT INTO scores VALUES (?, 'mia_plays', 4200), ('player_preview000000001', 'Swift Fox 42', 3100) ON CONFLICT (player_id) DO NOTHING", values: [miaPlayerId] },
     ],
   });
+}
+
+/**
+ * A developer to delete (deleting an account deletes its games): Gone_Dev owns Paper Planes and Night
+ * Market, made on Your games. Sign in as Gone_Dev and the delete box names both; deleting the account
+ * deletes them, and their links never go to another game. Once it's deleted, the next start makes it
+ * again, with games under new link names (the old ones are retired).
+ */
+async function seedDeletingDeveloper() {
+  const isMade = !(await (await fetch(`${SITE}/api/username-check?username=Gone_Dev`)).json()).is_available;
+  if (isMade) return;
+  const gone = await signedIn({ name: "Gone_Dev", email: "gone@example.test", year: "1990" }, "198.51.100.250");
+  // Until the beta, only accounts Julius adds can make games: add it, as he does on /admin/publishing.
+  await fetch(`${SITE}/admin/publishing/add`, { method: "POST", body: new URLSearchParams({ username: "Gone_Dev" }), headers: { origin: SITE }, redirect: "manual" });
+  for (const titles of [["Paper Planes", "Paper Planes Again", "Paper Planes Three"], ["Night Market", "Night Market Again", "Night Market Three"]]) {
+    for (const title of titles) {
+      const made = await gone("/dashboard/new", { title });
+      if ((made.headers.get("location") ?? "").includes("done=made")) break;
+    }
+  }
 }
 
 /**

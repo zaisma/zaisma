@@ -12,6 +12,7 @@ import {
   unpackGameFiles,
   updateGameInfo,
   type Game,
+  isSlugRetired,
 } from "@zaisma/core";
 import type { Env } from "./env.ts";
 
@@ -42,6 +43,7 @@ export async function uploadGame(env: Env, form: FormData, actor: string): Promi
   const entries = listGameFiles(zip);
 
   const existing = await gameBySlug(env.DB, slug);
+  if (!existing && (await isSlugRetired(env.DB, slug))) throw new UploadError(`Link name: zaisma.com/g/${slug} was a game that was deleted; its link never goes to another game.`);
   const game = existing ?? (await createGame(env.DB, { slug, title, description }));
   if (existing) await updateGameInfo(env.DB, existing.id, { title, description });
 

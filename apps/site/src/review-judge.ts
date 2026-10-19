@@ -49,7 +49,6 @@ const WHEN: Partial<Record<string, string>> = {
   ai_lifelike_gore:
     "photo-real or lifelike injury shown up close: dismemberment, torture, exposed organs. Cartoon, pixel, low-detail and stylized blood is fine; so is violence that's gameplay. Real footage or photos of a real person's injury or death is not lifelike_gore: use ai_other. Hold for it whatever the game's age setting; the scan decides what the age changes.",
   ai_real_money_gambling: "betting real money, or anything bought with it, on chance.",
-  ai_likely_copyright: "probable use of well-known characters, art or music that belong to someone else.",
   ai_free_text_chat: "typed messages between players that other players see (player_text other than shown_locally), until Zaisma's chat ships. Preset phrases and emotes are fine.",
   ai_disallowed_crypto:
     "cryptocurrency other than Bitcoin (other coins, tokens, NFTs, airdrops), or Bitcoin with investment advice, paying players sats, or asking for seed phrases or permission to spend from a wallet.",
@@ -95,7 +94,7 @@ Verdicts:
 - "hold": a person should look. Use it for each finding below that the evidence shows, and for unclear intent or hidden code you can't follow.
 - "pass": an ordinary game. Cartoon violence, cartoon, pixel or stylized blood, fantasy combat and simple analytics of gameplay are fine, and so is everything Zaisma's rules list as allowed, even where other platforms ban it:
 ${ALLOWED_CONTENT.map((words) => `  - ${words}`).join("\n")}
-  So are places famous on their own (the White House, a company's HQ), accounts and addresses people publish themselves, and a story that mentions another coin. Never hold or reject a game for any of these, and items with the subject allowed_content are never a finding.
+  So are places famous on their own (the White House, a company's HQ), accounts and addresses people publish themselves, a story that mentions another coin, and characters, art, music or code that may belong to someone else (Zaisma acts on copyright only when the owner sends a notice). Never hold or reject a game for any of these, and items with the subject allowed_content are never a finding.
 
 Findings, by code:
 ${JUDGE_FINDING_CODES.map((code) => `- ${code}: ${WHEN[code] ?? (REVIEW_CODES as Record<string, { meaning: string }>)[code]?.meaning ?? ""}`).join("\n")}

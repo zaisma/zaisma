@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ALLOWED_CONTENT, CONTENT_RULES } from "@zaisma/core";
+import { ALLOWED_CONTENT, REVIEWED_CONTENT_RULES } from "@zaisma/core";
 import { REVIEW_SET_PROTECTIONS, caseOutcome, checkCase, summarizeRun, type CaseResult } from "../../apps/site/src/review-set.ts";
 // @ts-expect-error plain JavaScript without type declarations
 import { BASELINE_FINGERPRINT_SHA256, reviewFingerprint } from "../../scripts/review-set/fingerprint.mjs";
@@ -32,8 +32,8 @@ describe("the public cases", () => {
     for (const gameCase of publicCases) expect(checkCase(gameCase.file, gameCase.paths), gameCase.name).toEqual([]);
   });
 
-  it("cover every content rule with a rule-breaker, and every allowed kind with an honest game", () => {
-    for (const rule of Object.keys(CONTENT_RULES)) {
+  it("cover every rule the review looks for with a rule-breaker, and every allowed kind with an honest game", () => {
+    for (const rule of REVIEWED_CONTENT_RULES) {
       expect(publicCases.some((gameCase) => gameCase.file.is_honest === false && gameCase.file.content_rule === rule), `a rule-breaker for ${rule}`).toBe(true);
     }
     expect(publicCases.filter((gameCase) => gameCase.file.is_honest === true).length).toBeGreaterThanOrEqual(ALLOWED_CONTENT.length);

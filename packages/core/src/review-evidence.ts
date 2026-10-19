@@ -1,4 +1,4 @@
-import { CONTENT_RULES } from "./review.ts";
+import { REVIEWED_CONTENT_RULES } from "./review.ts";
 
 /**
  * The AI review's evidence ("The AI review gathers evidence first, then one stronger model judges." in
@@ -24,7 +24,7 @@ export const EVIDENCE_KINDS = {
    * Content near a rule, by the rule's name; lifelike_gore, which plays only in games for 16 and up; and
    * allowed_content, what ALLOWED_CONTENT covers, recorded so a tweak can be compared.
    */
-  content: [...(Object.keys(CONTENT_RULES) as (keyof typeof CONTENT_RULES)[]), "lifelike_gore", "allowed_content"],
+  content: [...REVIEWED_CONTENT_RULES, "lifelike_gore", "allowed_content"],
   /** Code that hides what it does. */
   hidden_code: ["eval_of_encoded", "obfuscated", "downloads_code"],
   /** Text in the game that addresses the reviewer. */

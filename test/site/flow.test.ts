@@ -1,6 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { KNOWN_IMAGE_CODE, REVIEW_LIMITS, arachnidShield, gameBySlug, notConnected, versionById, type EvidenceItem, type ImageMatcher, type ScanJob, type ScanReport } from "@zaisma/core";
+import { CONTENT_RULES, KNOWN_IMAGE_CODE, REVIEW_LIMITS, arachnidShield, gameBySlug, notConnected, versionById, type EvidenceItem, type ImageMatcher, type ScanJob, type ScanReport } from "@zaisma/core";
 import { handleScanBatch, imageMatcher, queueImageChecks, recheckImages, rescanWaiting, scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
 import { dailyCleanup } from "../../apps/site/src/cleanup.ts";
 import { judgeSays, readsNothing, seesNothing } from "./scan-stubs.ts";
@@ -621,5 +621,15 @@ describe("pages", () => {
     expect((await SELF.fetch(`${LOCAL}/legal/dmca`)).status).toBe(200);
     expect((await SELF.fetch(`${LOCAL}/legal/content-rules`)).status).toBe(200);
     expect((await SELF.fetch(`${LOCAL}/nope`)).status).toBe(404);
+  });
+
+  it("shows a Fine and a Not fine example under every content rule", async () => {
+    const page = await (await SELF.fetch(`${LOCAL}/legal/content-rules`)).text();
+    for (const rule of Object.keys(CONTENT_RULES)) {
+      const item = page.match(new RegExp(`<li id="${rule}">([\\s\\S]*?)</li>`))?.[1] ?? "";
+      expect(item, rule).toContain("<strong>Fine:</strong>");
+      expect(item, rule).toContain("<strong>Not fine:</strong>");
+    }
+    expect(page).not.toContain("review doesn");
   });
 });
