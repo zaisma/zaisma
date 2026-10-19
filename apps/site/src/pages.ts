@@ -1105,6 +1105,14 @@ addEventListener("message", (e) => {
       if (!shownRoom || shownRoom.code !== d.code) showRoomCode({ code: d.code, isOpen: true });
     }
   }
+  // The game's own Invite or Players button (Zaisma.invite, Zaisma.openSafetyPanel): the same Share and
+  // Players as the bar's, only right after the player's tap. Full screen holds only the game, so it ends first.
+  if (d && (d.type === "zaisma:share" || d.type === "zaisma:players-open") && (!navigator.userActivation || navigator.userActivation.isActive)) {
+    const playersOpen = document.getElementById("players-open");
+    const open = () => (d.type === "zaisma:share" ? shareFrom(share) : playersOpen && playersOpen.click());
+    if (document.fullscreenElement) document.exitFullscreen().then(open, open);
+    else open();
+  }
   // Who's in the room, and whether it takes others by its code.
   if (d && d.type === "zaisma:players" && inRoom && d.code === inRoom.code && typeof d.isOpen === "boolean") showRoomCode({ code: d.code, isOpen: d.isOpen });
   // The game left a room (the player left, walked away, was moved or the match ended).

@@ -560,6 +560,20 @@ describe("the SDK's types say what the SDK does", () => {
     expect(elsewhere.isMuted("player_bo")).toBe(true);
   });
 
+  it("opens the page's own Share and Players from a game's Invite and Players buttons on Zaisma", async () => {
+    const sdk = loadSdk();
+    const { room } = await joinedRoom(sdk);
+    expect(await sdk.Zaisma.invite(room)).toBe("opened");
+    expect(sdk.page.posted.at(-1)).toEqual({ type: "zaisma:share" });
+    sdk.Zaisma.openSafetyPanel(room);
+    expect(sdk.page.posted.at(-1)).toEqual({ type: "zaisma:players-open" });
+    // A game on its own site has no Zaisma page: it tells none.
+    const elsewhere = loadSdk(null);
+    const before = elsewhere.page.posted.length;
+    await elsewhere.Zaisma.invite(null).catch(() => "failed");
+    expect(elsewhere.page.posted.slice(before).filter((message) => ["zaisma:share", "zaisma:players-open"].includes((message as { type: string }).type))).toEqual([]);
+  });
+
   it("tells the Zaisma page who's in the room for its Players plate, and mutes and blocks when the plate asks", async () => {
     const sdk = loadSdk();
     const { room, socket } = await joinedRoom(sdk);

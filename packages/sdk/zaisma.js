@@ -1049,8 +1049,15 @@
     return post("/v1/filter", { gameSlug: config.game, text: String(text == null ? "" : text) });
   }
 
-  /** The share sheet on phones, else copy the link: "shared", "copied", "cancelled" or "failed". */
+  /**
+   * On Zaisma, the page's Share (its QR code, the link and the room's code): "opened". Elsewhere the
+   * share sheet on phones, else copy the link: "shared", "copied", "cancelled" or "failed".
+   */
   function invite(room) {
+    if (onZaismaPage()) {
+      window.parent.postMessage({ type: "zaisma:share" }, config.site);
+      return Promise.resolve("opened");
+    }
     var link = room && room.inviteUrl ? room.inviteUrl : config.site && config.game ? config.site + gamePage() : location.href;
     function copy() {
       if (!navigator.clipboard) return Promise.resolve("failed");
@@ -1436,6 +1443,11 @@
 
   /** A ready-made mute, block and report panel. Games open it from their own menu. */
   function openSafetyPanel(room) {
+    // On Zaisma, the page's own Players (the bar's), so a game's Players button opens the same one.
+    if (onZaismaPage()) {
+      window.parent.postMessage({ type: "zaisma:players-open" }, config.site);
+      return;
+    }
     var old = document.getElementById("zaisma-safety");
     if (old) old.remove();
     var wrap = document.createElement("div");
