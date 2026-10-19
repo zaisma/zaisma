@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Word Race</title>
+<style>body{margin:0;font-family:system-ui,sans-serif;background:#111;color:#eee;display:flex;flex-direction:column;align-items:center}button{font:inherit;padding:8px 14px;margin:4px}</style>
+</head>
+<body>
+<h1>Word Race</h1>
+<div id="status">Type the hidden word.</div>
+<input id="guess" placeholder="Your guess"><button id="send">Guess</button>
+<script src="_zaisma/v1.js"></script>
+<script>
+const WORDS = ["apple", "river", "cloud", "stone"];
+const secret = WORDS[Math.floor(Math.random() * WORDS.length)];
+let room = null;
+Zaisma.joinRoom().then((joined) => {
+  room = joined;
+  room.on("message", (message) => { document.getElementById("status").textContent = `A player scored ${message.points}`; });
+});
+document.getElementById("send").onclick = () => {
+  const guess = document.getElementById("guess").value.trim().toLowerCase();
+  document.getElementById("guess").value = "";
+  if (guess === secret && room) room.send({ points: 10 });
+  else document.getElementById("status").textContent = "Not it. Try again.";
+};
+</script>
+</body>
+</html>

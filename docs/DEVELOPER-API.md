@@ -297,7 +297,7 @@ Where it shows:
 
 Zaisma acts on `copyright` and `defamation` only when someone sends a notice ([zaisma.com/legal/dmca](https://zaisma.com/legal/dmca), [zaisma.com/legal/defamation](https://zaisma.com/legal/defamation)), and doesn't judge the notice itself: the game is `held` with `copyright_notice` or `defamation_notice`, and the message says what the notice names. The game can still get new versions: publish one without it, and a person at Zaisma checks it and shows the game again, usually within a day (publishing tells Zaisma; there's nothing more to send). If the notice is wrong, the developer sends a counter-notice instead, which goes to the person who sent the notice; the game is back after 10 working days unless they say they've gone to court. The scan and the AI review never look for either rule.
 
-- **A version's `review_reason`**: a person rejected it, or a report paused the update; `null` otherwise. Its `findings` are what the scan found that holds or rejects it, each `{"code", "severity", "message", "content_rule", "path", "fix"}`, where `severity` is `reject` (it can't go live) or `hold` (a person at Zaisma looks first, usually within a day).
+- **A version's `review_reason`**: a person rejected it, or a report paused the update; `null` otherwise. Its `findings` are what the scan found that holds or rejects it, each `{"code", "severity", "message", "content_rule", "path", "fix"}`, where `severity` is `reject` (it can't go live) or `hold` (a person at Zaisma looks first, usually within a day). A finding with severity `info` is a note and holds nothing: `unregistered_link`, `unlisted_address` and `api_key_in_files`. A game that bumps into a protection the sandbox already enforces (a plain `window.open`, a call to an address that isn't Zaisma rooms or its own servers) passes with a note; a game that tries to get around one (a site opened with no tap, a link or address built from pieces, the page outside the frame, a peer connection from a frame of its own) is held as `ai_protection_dodged`. The version that only removes what held a game passes by itself, with no daily review used.
 - **An image's `review_reason`**: why it wasn't approved.
 - **`get_history`**: each hold, rejection and takedown with its `review_reason`, kept after it's over.
 - **A hold released because the review was wrong:** when a person at Zaisma releases a hold the AI review made, `get_history` says "A person looked and released this hold. It didn't count against your daily reviews." with the version's ID, and that review is given back: it doesn't count toward your 5 judged reviews a day.
@@ -316,6 +316,8 @@ The list lives in `REVIEW_CODES` and the rules in `CONTENT_RULES` (`packages/cor
 | `password_field` | `malware` | The game has a password field. Games don't need one, and phishing pages do. |
 | `external_form` | `personal_details` | The game has a form that sends what players type to another site. |
 | `antivirus_flag` | `malware` | Antivirus engines flag a file: three or more reject the version, fewer hold it for a person. |
+| `unregistered_link` | none | The game opens a site with window.open or a link that opens a new tab. The sandbox blocks that, so players tapping it get nothing. |
+| `unlisted_address` | none | The game connects to an address that isn't Zaisma rooms or one of its own servers. The game's security policy blocks it, so the call fails for players. |
 | `matches_another_developers_game` | `copyright` | Most of this version's files are already in another developer's game, so a person at Zaisma looks first. |
 | `api_key_in_files` | none | A Zaisma API key was in the game's files, so Zaisma turned it off: anyone who plays the game could have read it. |
 
@@ -348,6 +350,7 @@ Each developer gets 5 judged reviews a day, across all their games. A change tha
 | `ai_data_collection` | `personal_details` | The AI review found the game asking players for personal details, like emails, real names, birthdays or location. |
 | `ai_sexual_content` | `sexual` | The AI review found sexual content or nudity. |
 | `ai_private_details_or_threats` | `real_people` | The AI review found private details about a real person, like a home address, phone number or school, or a real threat against one. |
+| `ai_protection_dodged` | `malware` | The AI review found code that tries to get around one of Zaisma's protections: the page outside the game's frame, the relay between players, registered links or the list of servers. |
 | `ai_lifelike_gore` | none | The AI review found lifelike gore (photo-real or lifelike injury shown up close), which plays only in games for 16 and up. |
 | `ai_real_money_gambling` | `illegal` | The AI review found real-money gambling. |
 | `ai_free_text_chat` | `chat` | The AI review found free-text chat between players. |

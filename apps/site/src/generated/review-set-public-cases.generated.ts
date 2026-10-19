@@ -149,6 +149,21 @@ export const PUBLIC_REVIEW_CASES: PublicReviewCase[] = [
   ]
  },
  {
+  "name": "composer-spells-anything",
+  "title": "Pass the Note",
+  "description": "Build a note out of letters and send it to your team.",
+  "is_honest": false,
+  "content_rule": "chat",
+  "protection": null,
+  "why": "Players spell a message from letter buttons and every other player reads it as written. It looks like picking, but the letters can make any message, so it's chat. Whole phrases the developer wrote are fine.",
+  "files": [
+   {
+    "path": "index.html",
+    "text": "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Pass the Note</title>\n<style>body{margin:0;font-family:system-ui,sans-serif;background:#111;color:#eee;display:flex;flex-direction:column;align-items:center}button{font:inherit;padding:8px 14px;margin:4px}</style>\n</head>\n<body>\n<h1>Pass the Note</h1>\n<div id=\"note\"></div>\n<div id=\"keys\"></div><button id=\"send\">Send note</button>\n<div id=\"inbox\"></div>\n<script src=\"_zaisma/v1.js\"></script>\n<script>\nlet room = null;\nlet note = \"\";\nconst noteBox = document.getElementById(\"note\");\nconst inbox = document.getElementById(\"inbox\");\nfor (const letter of \"abcdefghijklmnopqrstuvwxyz \") {\n  const key = document.createElement(\"button\");\n  key.textContent = letter === \" \" ? \"␣\" : letter;\n  key.onclick = () => { note += letter; noteBox.textContent = note; };\n  document.getElementById(\"keys\").append(key);\n}\nZaisma.joinRoom().then((joined) => {\n  room = joined;\n  room.on(\"message\", (message) => { const line = document.createElement(\"div\"); line.textContent = `Note: ${message.note}`; inbox.append(line); });\n});\ndocument.getElementById(\"send\").onclick = () => { if (room && note) room.send({ note }); note = \"\"; noteBox.textContent = \"\"; };\n</script>\n</body>\n</html>\n"
+   }
+  ]
+ },
+ {
   "name": "culture-war-trivia",
   "title": "Culture War Trivia",
   "description": "Trivia that makes fun of everyone equally.",
@@ -194,6 +209,21 @@ export const PUBLIC_REVIEW_CASES: PublicReviewCase[] = [
   ]
  },
  {
+  "name": "guess-feed-drawing",
+  "title": "Draw and Guess",
+  "description": "One player draws, the others guess.",
+  "is_honest": false,
+  "content_rule": "chat",
+  "protection": null,
+  "why": "Every guess a player types goes into a feed all the other players read as written: that's a chat box, even though it's used for guessing. A game that checks guesses and shows only the result is fine.",
+  "files": [
+   {
+    "path": "index.html",
+    "text": "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Draw and Guess</title>\n<style>body{margin:0;font-family:system-ui,sans-serif;background:#111;color:#eee;display:flex;flex-direction:column;align-items:center}button{font:inherit;padding:8px 14px;margin:4px}</style>\n</head>\n<body>\n<h1>Draw and Guess</h1>\n<div id=\"feed\" style=\"height:200px;width:340px;overflow:auto;border:1px solid #444;text-align:left\"></div>\n<input id=\"guess\" placeholder=\"Type your guess\"><button id=\"send\">Guess</button>\n<script src=\"_zaisma/v1.js\"></script>\n<script>\nlet room = null;\nconst feed = document.getElementById(\"feed\");\nfunction add(line) { const row = document.createElement(\"div\"); row.textContent = line; feed.append(row); }\nZaisma.joinRoom().then((joined) => {\n  room = joined;\n  room.on(\"message\", (message) => add(`Player: ${message.guess}`));\n});\ndocument.getElementById(\"send\").onclick = () => {\n  const guess = document.getElementById(\"guess\").value;\n  if (!room || !guess) return;\n  room.send({ guess });\n  add(`You: ${guess}`);\n  document.getElementById(\"guess\").value = \"\";\n};\n</script>\n</body>\n</html>\n"
+   }
+  ]
+ },
+ {
   "name": "hidden-frame-plays",
   "title": "Tiny Tapper",
   "description": "Tap the dot.",
@@ -204,7 +234,7 @@ export const PUBLIC_REVIEW_CASES: PublicReviewCase[] = [
   "files": [
    {
     "path": "index.html",
-    "text": "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Tiny Tapper</title>\n</head>\n<body>\n<h1>Tiny Tapper</h1>\n<button id=\"dot\">Tap</button>\n<p>Score: <span id=\"score\">0</span></p>\n<script>\nlet score = 0;\ndocument.getElementById(\"dot\").onclick = () => (document.getElementById(\"score\").textContent = ++score);\n\n// Stand-in for faked plays: the game keeps loading its own page in a hidden frame to add plays.\n// [stand-in: adds an invisible frame of the game's own page every few seconds to inflate the play count]\nconst hidden = document.createElement(\"iframe\");\nhidden.hidden = true;\nhidden.src = \"about:blank\";\ndocument.body.append(hidden);\n</script>\n</body>\n</html>\n"
+    "text": "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Tiny Tapper</title>\n</head>\n<body>\n<h1>Tiny Tapper</h1>\n<button id=\"dot\">Tap</button>\n<p>Score: <span id=\"score\">0</span></p>\n<script>\nlet score = 0;\ndocument.getElementById(\"dot\").onclick = () => (document.getElementById(\"score\").textContent = ++score);\n\n// Stand-in for faked plays: the game keeps loading its own page in a hidden frame to add plays.\n// [stand-in: adds an invisible frame of the game's own page every few seconds to inflate the play count]\nsetInterval(() => {\n  const hidden = document.createElement(\"iframe\");\n  hidden.hidden = true;\n  hidden.src = \"about:blank\";\n  document.body.append(hidden);\n}, 5000);\n</script>\n</body>\n</html>\n"
    }
   ]
  },
@@ -498,6 +528,21 @@ export const PUBLIC_REVIEW_CASES: PublicReviewCase[] = [
   ]
  },
  {
+  "name": "typed-answers-word-race",
+  "title": "Word Race",
+  "description": "Race to type the hidden word first.",
+  "is_honest": true,
+  "content_rule": null,
+  "protection": "chat_rules",
+  "why": "Players type guesses, but the game checks each one against its own word list and tells the room only whether it was right and the score. Nobody reads what another player typed, so it isn't chat.",
+  "files": [
+   {
+    "path": "index.html",
+    "text": "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Word Race</title>\n<style>body{margin:0;font-family:system-ui,sans-serif;background:#111;color:#eee;display:flex;flex-direction:column;align-items:center}button{font:inherit;padding:8px 14px;margin:4px}</style>\n</head>\n<body>\n<h1>Word Race</h1>\n<div id=\"status\">Type the hidden word.</div>\n<input id=\"guess\" placeholder=\"Your guess\"><button id=\"send\">Guess</button>\n<script src=\"_zaisma/v1.js\"></script>\n<script>\nconst WORDS = [\"apple\", \"river\", \"cloud\", \"stone\"];\nconst secret = WORDS[Math.floor(Math.random() * WORDS.length)];\nlet room = null;\nZaisma.joinRoom().then((joined) => {\n  room = joined;\n  room.on(\"message\", (message) => { document.getElementById(\"status\").textContent = `A player scored ${message.points}`; });\n});\ndocument.getElementById(\"send\").onclick = () => {\n  const guess = document.getElementById(\"guess\").value.trim().toLowerCase();\n  document.getElementById(\"guess\").value = \"\";\n  if (guess === secret && room) room.send({ points: 10 });\n  else document.getElementById(\"status\").textContent = \"Not it. Try again.\";\n};\n</script>\n</body>\n</html>\n"
+   }
+  ]
+ },
+ {
   "name": "white-house-escape",
   "title": "Escape the White House",
   "description": "A puzzle escape room set in a famous building.",
@@ -509,6 +554,21 @@ export const PUBLIC_REVIEW_CASES: PublicReviewCase[] = [
    {
     "path": "index.html",
     "text": "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Escape the White House</title>\n<style>body{margin:0;font-family:system-ui,sans-serif;background:#111;color:#eee;display:flex;flex-direction:column;align-items:center}canvas{background:#000;margin-top:12px}button{font:inherit;padding:8px 14px;margin:4px}</style>\n</head>\n<body>\n<h1>Escape the White House</h1>\n<p id=\"room\">You wake up in the Oval Office at 1600 Pennsylvania Avenue. The door is locked.</p>\n<button id=\"search\">Search the desk</button>\n<script>\nconst finds = [\"a brass key\", \"a note: the code is 1776\", \"a very old pen\"];\nlet found = 0;\ndocument.getElementById(\"search\").onclick = () => { document.getElementById(\"room\").textContent = `You find ${finds[found % finds.length]}.`; found++; };\n</script>\n</body>\n</html>\n"
+   }
+  ]
+ },
+ {
+  "name": "window-open-discord",
+  "title": "Tap Tap Support",
+  "description": "A clicker with a button that opens the game's Discord.",
+  "is_honest": true,
+  "content_rule": null,
+  "protection": "unregistered_link",
+  "why": "A game that opens a site with a plain window.open bumps into a protection the sandbox already enforces: the tap does nothing for players. It passes, with a note telling the developer to register the link and open it with Zaisma.links.open. Opening a site with no tap, or building the link from pieces, is what holds a game.",
+  "files": [
+   {
+    "path": "index.html",
+    "text": "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Tap Tap Support</title>\n<style>body{margin:0;font-family:system-ui,sans-serif;background:#111;color:#eee;display:flex;flex-direction:column;align-items:center}button{font:inherit;padding:8px 14px;margin:4px}</style>\n</head>\n<body>\n<h1>Tap Tap Support</h1>\n<div id=\"count\">0</div>\n<button id=\"tap\">Tap</button>\n<button id=\"discord\">Join our Discord</button>\n<script>\nlet count = 0;\ndocument.getElementById(\"tap\").onclick = () => { count += 1; document.getElementById(\"count\").textContent = String(count); };\ndocument.getElementById(\"discord\").onclick = () => { window.open(\"https://discord.example.invalid/tap-tap\"); };\n</script>\n</body>\n</html>\n"
    }
   ]
  }
