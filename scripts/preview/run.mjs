@@ -308,6 +308,8 @@ Zaisma preview is running. Nothing here touches the live site.
   Report queue    ${SITE}/admin/reports
   Forum           ${SITE}/forum  (topics, known issues, a topic: ${SITE}/forum?tab=known)
   Admin feedback  ${SITE}/admin/feedback
+  Re-upload held  ${SITE}/admin/games/game_previewsharddash001  (dashking's Shard Dash is a held re-upload of Shard Dodge:
+                  Reject as a copy emails Preview_Studio (the mailbox) and adds it to Shard Dodge's history; reset on every start)
   Image matching  ${SITE}/admin  (Night Drive's update is held: a picture renamed .dat, a video and a picture
                   written into its code matched known abuse material, in the stand-in. Cave Crew's history
                   shows a screenshot refused the same way. Pixel Garden passed before matching knew its
