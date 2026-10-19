@@ -15,10 +15,12 @@ document.getElementById("dot").onclick = () => (document.getElementById("score")
 
 // Stand-in for faked plays: the game keeps loading its own page in a hidden frame to add plays.
 // [stand-in: adds an invisible frame of the game's own page every few seconds to inflate the play count]
-const hidden = document.createElement("iframe");
-hidden.hidden = true;
-hidden.src = "about:blank";
-document.body.append(hidden);
+setInterval(() => {
+  const hidden = document.createElement("iframe");
+  hidden.hidden = true;
+  hidden.src = "about:blank";
+  document.body.append(hidden);
+}, 5000);
 </script>
 </body>
 </html>

@@ -35,7 +35,7 @@ export const REVIEW_SET_PROTECTIONS = {
   hidden_code: "Packed, encoded or obfuscated code that hides what it does.",
   outside_connection: "Connecting anywhere but Zaisma rooms and the game's own servers.",
   unregistered_link: "Opening sites other than through Zaisma.links.open and the game's registered links.",
-  chat_rules: "Typed messages between players that skip Zaisma's chat rules.",
+  chat_rules: "Typed text other players read as written (chat), dressed as picked phrases or emotes, spelled out of letters or words, or sent by another route.",
   faked_plays: "Faking plays or players from the game.",
   review_reach: "Putting what breaks a rule where the review doesn't read (past the code it reads, in a picture it doesn't look at, in a file it skips).",
   assembled_content: "Content built at runtime from pieces, encodings or downloads, so no one file shows it.",

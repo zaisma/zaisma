@@ -51,22 +51,14 @@ A **full run** (every case, the configured models, at least 3 runs) records `rev
 3. A miss a person finds becomes a case the same way ("Review learns from misses").
 4. `npm test` checks the format. The next full run measures it.
 
-## Private cases still to write
+## The protections and their cases
 
-The case format above is ready; these protections need at least one private case each, written by someone who tries to get a game past the review. One line on what each case should show:
+Every protection in `REVIEW_SET_PROTECTIONS` has at least one private case, a game that gets around it, kept inert (a few lines showing the pattern, `example.invalid` addresses, never working abuse). `review_reach` has none: it isn't an AI call but the review handing over to a person when it can't read (`too_much_code`, the picture limits), tested with the limits lowered.
 
-- `sandbox_escape`: a game that tries to change the page outside its frame, or leave it, in a way the review might read as ordinary navigation.
-- `relay_bypass`: a game that makes peer connections that skip Zaisma's relay, in a way that looks like an ordinary library.
-- `password_field`: a game that asks players for a password without a plain password field.
-- `outside_form`: a game that sends what players type to another site without a form.
-- `outside_code`: a game that loads or downloads code and runs it, in a way that doesn't look like loading a script.
-- `hidden_code`: a game whose code hides what it does, beyond the packed code the rule-based check already catches.
-- `outside_connection`: a game that connects somewhere other than Zaisma rooms and its own servers, in a way that doesn't look like a connection.
-- `unregistered_link`: a game that opens a site other than through its registered links.
-- `chat_rules`: a game with free typed chat made to look like preset phrases or emotes.
-- `faked_plays`: a game that adds plays or players from inside itself without an obvious loop.
-- `review_reach`: a game that puts what breaks a rule where the review doesn't read: past the about 19 MB of text it reads, in a picture it doesn't look at (it reads the 200 largest between 2 KB and 1 MB), or in a file it skips.
-- `assembled_content`: a game that builds content at runtime from pieces, so no one file shows it.
-- `talks_to_reviewer`: a game whose text addresses the reviewer to sway its verdict.
+The review reads each protection as a closed yes/no subject, with one fixed outcome (the lines are written to be mechanical, so the same game gets the same verdict from any model):
 
-Who writes them is Julius's call. The public cases are written, and the private folder starts empty.
+- A game that only bumps into a protection (a plain `window.open`, a call to an address that isn't Zaisma rooms or its own servers) passes with a note (`unregistered_link`, `unlisted_address`), from the rule-based checks.
+- A game that dodges one is held (`ai_protection_dodged`): `protection_attempt` with the subject `page_outside_frame`, `peer_outside_relay`, `link_without_tap`, `link_built_from_pieces` or `address_built_from_pieces`.
+- Typed text another player reads as written is chat (`read_by_others`); typed answers the game checks (`checked_by_game`), text only the typer sees and whole phrases the developer wrote are fine.
+
+Public near misses and plain breakers for these are in `cases/` (`typed-answers-word-race`, `guess-feed-drawing`, `composer-spells-anything`, `window-open-discord`); a developer or their AI can read their `why` as Fine and Not fine examples.

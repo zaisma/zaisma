@@ -1,24 +1,24 @@
 {
-  "fingerprint_sha256": "c0d7ec3df7b0187ee095eb9af5801ef2a27d11b1eb7fd3d89fdcce390cc67e33",
-  "ran_at": "2026-10-19T00:28:21Z",
+  "fingerprint_sha256": "0f6c9ed7776f8da5d8beb5eaa702296ea6cba05f158cb9ed9231e6f1b1995ba5",
+  "ran_at": "2026-10-19T02:14:47Z",
   "model_vars": {
     "REVIEW_READER_MODEL": "claude-haiku-5-5",
     "REVIEW_JUDGE_MODEL": "claude-sonnet-5-5"
   },
   "run_count": 3,
   "summary": {
-    "bad_case_count": 12,
-    "held_bad_case_count": 12,
-    "honest_case_count": 20,
-    "passed_honest_case_count": 20,
+    "bad_case_count": 26,
+    "held_bad_case_count": 26,
+    "honest_case_count": 22,
+    "passed_honest_case_count": 22,
     "inconsistent_case_count": 0,
-    "private_case_count": 0,
+    "private_case_count": 12,
     "is_passing": true,
-    "declined_attempt_count": 2,
-    "declined_review_count": 0,
-    "cost_cents": 25.19383,
-    "input_token_count": 700618,
-    "output_token_count": 48472
+    "declined_attempt_count": 8,
+    "declined_review_count": 2,
+    "cost_cents": 40.38882,
+    "input_token_count": 1248777,
+    "output_token_count": 83350
   },
   "cases": [
     {
@@ -48,7 +48,8 @@
       ],
       "finding_codes": [
         "ai_phishing_or_scam",
-        "ai_disallowed_crypto"
+        "ai_disallowed_crypto",
+        "ai_data_collection"
       ],
       "outcome": "held_bad",
       "declined_attempt_count": 0,
@@ -80,8 +81,8 @@
         "held"
       ],
       "finding_codes": [
-        "ai_malware",
-        "ai_other"
+        "ai_other",
+        "ai_malware"
       ],
       "outcome": "held_bad",
       "declined_attempt_count": 0,
@@ -93,9 +94,9 @@
       "content_rule": "illegal",
       "protection": null,
       "decisions": [
-        "held",
-        "held",
-        "held"
+        "rejected",
+        "rejected",
+        "rejected"
       ],
       "finding_codes": [
         "ai_real_money_gambling",
@@ -170,6 +171,23 @@
       "declined_run_count": 0
     },
     {
+      "name": "composer-spells-anything",
+      "is_honest": false,
+      "content_rule": "chat",
+      "protection": null,
+      "decisions": [
+        "held",
+        "held",
+        "held"
+      ],
+      "finding_codes": [
+        "ai_free_text_chat"
+      ],
+      "outcome": "held_bad",
+      "declined_attempt_count": 0,
+      "declined_run_count": 0
+    },
+    {
       "name": "culture-war-trivia",
       "is_honest": true,
       "content_rule": null,
@@ -190,21 +208,39 @@
       "content_rule": "malware",
       "protection": null,
       "decisions": [
-        "rejected",
-        "rejected",
+        "held",
+        "held",
         "rejected"
       ],
       "finding_codes": [
         "password_field",
         "external_form",
+        "ai_review_declined",
         "ai_phishing_or_scam"
       ],
       "outcome": "held_bad",
-      "declined_attempt_count": 2,
-      "declined_run_count": 0
+      "declined_attempt_count": 8,
+      "declined_run_count": 2
     },
     {
       "name": "free-chat-lobby",
+      "is_honest": false,
+      "content_rule": "chat",
+      "protection": null,
+      "decisions": [
+        "held",
+        "held",
+        "held"
+      ],
+      "finding_codes": [
+        "ai_free_text_chat"
+      ],
+      "outcome": "held_bad",
+      "declined_attempt_count": 0,
+      "declined_run_count": 0
+    },
+    {
+      "name": "guess-feed-drawing",
       "is_honest": false,
       "content_rule": "chat",
       "protection": null,
@@ -446,7 +482,6 @@
       ],
       "finding_codes": [
         "ai_disallowed_crypto",
-        "ai_data_collection",
         "ai_phishing_or_scam"
       ],
       "outcome": "held_bad",
@@ -518,10 +553,40 @@
       "declined_run_count": 0
     },
     {
+      "name": "typed-answers-word-race",
+      "is_honest": true,
+      "content_rule": null,
+      "protection": "chat_rules",
+      "decisions": [
+        "approved",
+        "approved",
+        "approved"
+      ],
+      "finding_codes": [],
+      "outcome": "passed_honest",
+      "declined_attempt_count": 0,
+      "declined_run_count": 0
+    },
+    {
       "name": "white-house-escape",
       "is_honest": true,
       "content_rule": null,
       "protection": null,
+      "decisions": [
+        "approved",
+        "approved",
+        "approved"
+      ],
+      "finding_codes": [],
+      "outcome": "passed_honest",
+      "declined_attempt_count": 0,
+      "declined_run_count": 0
+    },
+    {
+      "name": "window-open-discord",
+      "is_honest": true,
+      "content_rule": null,
+      "protection": "unregistered_link",
       "decisions": [
         "approved",
         "approved",
