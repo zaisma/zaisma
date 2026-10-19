@@ -1,5 +1,5 @@
 import { deleteStaleDraftMedia } from "./forum-posts.ts";
-import { ROOM_STALE_MS, applyBirthdays, audit, deleteEndedAccessPasses, deleteExpiredFriendInvites, deleteStalePresences, deleteExpiredSignInCodes, deleteOldDatabaseRestores, deleteOldDeliveries, LIFELIKE_GORE_MINIMUM_PLAYER_AGE_YEARS, blobKey, gameById, manifestKey, needsLifelikeGoreAge, ownedBlobKey, publishVersion, reportPictureKey, type Manifest, type ScanReport, type Version } from "@zaisma/core";
+import { CHECKED_FILE_KEPT_DURATION_DAYS, ROOM_STALE_MS, applyBirthdays, audit, deleteEndedAccessPasses, deleteExpiredFriendInvites, deleteStalePresences, deleteExpiredSignInCodes, deleteOldDatabaseRestores, deleteOldDeliveries, LIFELIKE_GORE_MINIMUM_PLAYER_AGE_YEARS, blobKey, gameById, manifestKey, needsLifelikeGoreAge, ownedBlobKey, publishVersion, reportPictureKey, type Manifest, type ScanReport, type Version } from "@zaisma/core";
 import { authConfigured, deleteAuthUser, newestAuthUsers } from "./auth.ts";
 import { deleteOldDeviceMarks } from "./device-marks.ts";
 import { deleteOldEmailCodes } from "./email-codes.ts";
@@ -150,6 +150,8 @@ export async function dailyCleanup(env: Env, nowMs = Date.now()): Promise<{ dele
   await deleteOldSecurityEvents(env, nowMs);
   // Openings of tester links and previews that ended, and grants nobody swapped in time.
   await deleteEndedAccessPasses(env.DB, nowMs);
+  // Files the scan cleared more than 30 days ago: they're matched again when they next come up (scan.ts, matchMedia).
+  await env.DB.prepare("DELETE FROM checked_files WHERE checked_at_ms <= ?").bind(nowMs - CHECKED_FILE_KEPT_DURATION_DAYS * DAY_MS).run();
   // Images uploaded for a forum post that was never posted.
   const deletedForumDraftCount = await deleteStaleDraftMedia(env, nowMs);
   return { deletedDraftCount: drafts.length, deletedFileCount: unusedKeys.length, deletedPictureCount: pictures.length, deletedForumDraftCount };

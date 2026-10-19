@@ -1525,6 +1525,8 @@ const HISTORY: Record<string, string | null> = {
   "link-cleared": "A link opens again: its site is off Cloudflare's malware and phishing list",
   "secret-set": "Set a secret",
   "secret-deleted": "Deleted a secret",
+  // subject_name is the uploader's public name (copies.ts, stopCopy).
+  "copy-stopped": "Zaisma stopped a re-upload of this game by another developer; it never reached players",
   "plays-cleared": "Zaisma removed a day's counted plays that looked faked",
   "off-shelves": "Zaisma took the game off Popular, Trending and New",
   "on-shelves": "Zaisma put the game back on Popular, Trending and New",
@@ -1536,6 +1538,7 @@ async function historyFor(env: Env, game: Game, caller: Caller) {
   return gameHistoryAnswer(env, game, caller, (entry) => {
     const description = HISTORY[entry.action];
     if (!description) return null;
+    if (entry.action === "copy-stopped") return { description, version_id: null, subject_name: entry.reason, review_reason: null };
     return { description, version_id: entry.reason.match(/\bversion_[a-z0-9]+/)?.[0] ?? null, review_reason: reasonAnswer(entry.review_reason) };
   });
 }

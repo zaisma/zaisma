@@ -128,7 +128,13 @@ export interface ScanReport {
   findings: Finding[];
   outside_hosts: string[];
   /** Image matching: pictures and videos checked against known abuse material. */
-  images: { provider: string; is_connected: boolean; checked_media_count: number };
+  images: {
+    provider: string;
+    is_connected: boolean;
+    checked_media_count: number;
+    /** Pictures and videos cleared in the last 30 days (checked_files) and not sent again. Absent on reports from before migration 0088. */
+    reused_media_count?: number;
+  };
   ai: ReviewAi | LegacyReviewAi | null;
   /** Child-safety signal: hold, never delete, alert Julius (NCMEC reporting duty). */
   is_child_safety: boolean;
@@ -136,6 +142,8 @@ export interface ScanReport {
   evidence?: EvidenceItem[];
   /** The files (and pictures) the readers read, so the next version re-reads only what changed. */
   read_file_sha256s?: string[];
+  /** Another developer's game most of this version's files come from (matches_another_developers_game). For Zaisma's eyes only: the developer is never told which game. */
+  matched_game?: { game_id: string; matched_file_count: number; compared_file_count: number };
 }
 
 /** The AI review in a scan report: readers, then one judge. */

@@ -19,6 +19,22 @@ export const FILE_LIMITS = {
   maximumPatchNotesCharacterCount: 2000,
 };
 
+/**
+ * When an upload counts as a re-upload of another developer's game (docs/DECISIONS.md, "Copies never pay;
+ * history does"): at least minimumMatchedFilePct of its distinct files were sent first by one other developer,
+ * leaving out files commonFileOwnerCount or more developers have sent (engines, libraries, asset packs).
+ * Counted by files, not bytes: a shared engine or library outweighs a small game's own files.
+ */
+export const COPY_LIMITS = {
+  commonFileOwnerCount: 3,
+  minimumMatchedFilePct: 80,
+  /** The other developer's versions read to find which of their games it is. */
+  maximumComparedManifestCount: 20,
+};
+
+/** How long a file the scan cleared (checked_files) is trusted before it's matched again: hash lists grow. */
+export const CHECKED_FILE_KEPT_DURATION_DAYS = 30;
+
 /** Approved versions kept besides the live one, for rolling back. */
 export const KEPT_VERSION_COUNT = 5;
 
