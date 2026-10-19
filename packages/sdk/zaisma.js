@@ -445,6 +445,7 @@
         room._settle(message.room);
         if (room.friendJoinsEnabled !== wasTakingFriendJoins) room._sayOwnRoom();
         room._emit("room", message.room);
+        room._tellPage();
       } else if (message.type === "move") {
         if ((room._on.move || []).length) room._emit("move", room._move(message));
         else room._follow(message.roomCode);
@@ -684,6 +685,8 @@
     window.parent.postMessage({
       type: "zaisma:players",
       code: this.roomCode,
+      // Whether the room takes new players by its code, so the page shows the code or says it's closed.
+      isOpen: this.isOpen !== false,
       myPlayerId: this.me ? this.me.id : null,
       players: this.players.map(function (each) { return { id: each.id, name: each.name, kind: each.kind }; }),
       mutedPlayerIds: ids.filter(function (playerId) { return muted.has(playerId); }),

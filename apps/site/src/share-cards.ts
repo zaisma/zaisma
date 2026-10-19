@@ -134,7 +134,9 @@ export function shareDialog(gameTitle: string, hasQrCode: boolean): Raw {
   <div class="head"><strong id="share-title">Share ${gameTitle}</strong><button class="btn ghost close" type="button" id="share-close" aria-label="Close">×</button></div>
   <div class="body">
     ${hasQrCode ? html`<figure class="share-qr"><img id="share-qr" alt="QR code for this link" width="220" height="220"><figcaption id="share-scan">Scan to play</figcaption></figure>` : ""}
+    <p class="share-room" id="share-room" hidden>Room code <b></b></p>
     <div class="share-row"><input readonly aria-label="Link"><button class="btn" type="button" id="share-copy">Copy</button></div>
+    <button class="btn ghost" type="button" id="share-reveal" hidden>Show the code and link</button>
     <button class="btn ghost" type="button" id="share-more" hidden>More ways to share</button>
   </div>
 </dialog>`;
@@ -152,4 +154,9 @@ dialog.share-dialog{width:min(360px,calc(100vw - 32px));padding:0}
 .share-row input{flex:1;min-width:0}
 .share-row .btn{flex:none}
 #share-more[hidden]{display:none}
+.share-room{margin:0;text-align:center;font-size:14px;color:var(--text-2)}
+.share-room b{font-family:var(--display);font-size:18px;letter-spacing:.14em;color:var(--text);margin-left:6px}
+.share-room[hidden],#share-reveal[hidden]{display:none}
+/* The room code is hidden (for streamers): the code, link and QR code blur until Show; Copy still works. */
+.share-dialog.masked .share-qr img,.share-dialog.masked .share-row input,.share-dialog.masked .share-room b{filter:blur(7px)}
 `;

@@ -173,6 +173,21 @@ describe("QR codes", () => {
   });
 });
 
+describe("room codes in the game bar", () => {
+  it("come with Join by code in games on Zaisma rooms, and not in games without rooms", async () => {
+    const single = await (await SELF.fetch(`${SITE}/g/sky-hopper`)).text();
+    expect(single).not.toContain('id="join-dialog"');
+    // The room chip is in every bar; the page fills it once the game says it's in a room.
+    expect(single).toContain('id="room-chip" hidden');
+    await env.DB.prepare("UPDATE games SET multiplayer_mode = 'relay' WHERE slug = 'sky-hopper'").run();
+    const rooms = await (await SELF.fetch(`${SITE}/g/sky-hopper`)).text();
+    expect(rooms).toContain('id="join-dialog"');
+    // The code goes to the game's own address as a room link.
+    expect(rooms).toMatch(/<form method="get" action="\/g\/sky-hopper"><label for="bar-join-code">/);
+    expect(rooms).toContain('name="room" required');
+  });
+});
+
 describe("the share picture", () => {
   it("is an image kind of its own, one per game, through the API and MCP", async () => {
     const added = await api("/games/sky-hopper/images?kind=share", { bytes: png(1200, 630) });
