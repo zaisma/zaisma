@@ -560,16 +560,35 @@ describe("the SDK's types say what the SDK does", () => {
     expect(elsewhere.isMuted("player_bo")).toBe(true);
   });
 
+  it("opens the page's own Share and Players from a game's Invite and Players buttons on Zaisma", async () => {
+    const sdk = loadSdk();
+    const { room } = await joinedRoom(sdk);
+    expect(await sdk.Zaisma.invite(room)).toBe("opened");
+    expect(sdk.page.posted.at(-1)).toEqual({ type: "zaisma:share" });
+    sdk.Zaisma.openSafetyPanel(room);
+    expect(sdk.page.posted.at(-1)).toEqual({ type: "zaisma:players-open" });
+    // A game on its own site has no Zaisma page: it tells none.
+    const elsewhere = loadSdk(null);
+    const before = elsewhere.page.posted.length;
+    await elsewhere.Zaisma.invite(null).catch(() => "failed");
+    expect(elsewhere.page.posted.slice(before).filter((message) => ["zaisma:share", "zaisma:players-open"].includes((message as { type: string }).type))).toEqual([]);
+  });
+
   it("tells the Zaisma page who's in the room for its Players plate, and mutes and blocks when the plate asks", async () => {
     const sdk = loadSdk();
     const { room, socket } = await joinedRoom(sdk);
     const told = () => sdk.page.posted.filter((message) => (message as { type: string }).type === "zaisma:players").at(-1);
     const bo = { id: "player_bo", name: "Bo", kind: "account" };
-    expect(told()).toEqual({ type: "zaisma:players", code: "K7Q2MX", myPlayerId: "player_ana", players: [me, bo], mutedPlayerIds: [], blockedPlayerIds: [], lastingBlockedPlayerIds: [] });
+    expect(told()).toEqual({ type: "zaisma:players", code: "K7Q2MX", isOpen: true, myPlayerId: "player_ana", players: [me, bo], mutedPlayerIds: [], blockedPlayerIds: [], lastingBlockedPlayerIds: [] });
     // Someone joins: the page hears the new list.
     const cy = { id: "player_cy", name: "Cy", kind: "guest" };
     say(socket, { type: "players", players: [me, bo, cy], hostPlayerId: null });
     expect((told() as { players: unknown[] }).players).toEqual([me, bo, cy]);
+    // The room stops taking new players: the page hears, so its bar says the room is closed instead of its code.
+    say(socket, { type: "room", room: { isListed: false, isOpen: false, name: null, labels: {} } });
+    expect((told() as { isOpen: boolean }).isOpen).toBe(false);
+    say(socket, { type: "room", room: { isListed: false, isOpen: true, name: null, labels: {} } });
+    expect((told() as { isOpen: boolean }).isOpen).toBe(true);
     // A mute in the game shows on the plate.
     room.mute("player_cy");
     expect((told() as { mutedPlayerIds: string[] }).mutedPlayerIds).toEqual(["player_cy"]);

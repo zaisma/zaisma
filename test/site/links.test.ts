@@ -223,6 +223,63 @@ describe("the game page asks for a link's address", () => {
   });
 });
 
+describe("the developer's links on the game page", () => {
+  const ON_PAGE = [
+    { link_name: "steam", destination_url: "https://store.steampowered.com/app/480/Sky_Hopper/", is_on_game_page: true },
+    { link_name: "store", destination_url: "https://kit.itch.io/sky-hopper", is_on_game_page: true },
+    { link_name: "discord", destination_url: "https://discord.gg/skyhopper", is_on_game_page: true },
+    { link_name: "site", destination_url: "https://www.skyhopper.dev/", is_on_game_page: true },
+    { link_name: "patreon", destination_url: "https://www.patreon.com/kit", is_on_game_page: false },
+  ];
+  const linksOnPage = async (cookie?: string) => {
+    const page = await (await SELF.fetch(`${SITE}/g/sky-hopper`, { headers: cookie ? { cookie: `${cookie}; __Host-zaisma_in=1` } : {} })).text();
+    return [...page.matchAll(/<a class="dev-link brand-([a-z_]+)" href="([^"]+)"[^>]*>.*?<span>([^<]+)<\/span><\/a>/g)].map((match) => [match[1], match[2], match[3]]);
+  };
+
+  it("shows the links marked for the page, each in its site's look, only to players they open for", async () => {
+    await api("/games/sky-hopper", { method: "PATCH", body: { links: ON_PAGE } });
+    const forEveryone = [
+      ["steam", "https://store.steampowered.com/app/480/Sky_Hopper/", "Wishlist on Steam"],
+      ["itch", "https://kit.itch.io/sky-hopper", "itch.io"],
+    ];
+    // Guests and teens: trusted sites only, so Discord and the developer's own site never reach their page.
+    expect(await linksOnPage()).toEqual(forEveryone);
+    expect(await linksOnPage(await sessionCookie("teen-1"))).toEqual(forEveryone);
+    expect(await linksOnPage(await sessionCookie("adult-1"))).toEqual([...forEveryone, ["discord", "https://discord.gg/skyhopper", "Discord"], ["website", "https://www.skyhopper.dev/", "skyhopper.dev"]]);
+    // A flagged site opens for nobody, so it leaves the page too.
+    listed.add("kit.itch.io");
+    await env.DB.prepare("UPDATE games SET links_checked_at_ms = 0 WHERE slug = 'sky-hopper'").run();
+    await recheckLinks(env, Date.now());
+    expect((await linksOnPage()).map((link) => link[0])).toEqual(["steam"]);
+  });
+
+  it("opens them straight in a new tab, and leaves the page without any when none are marked", async () => {
+    await api("/games/sky-hopper", { method: "PATCH", body: { links: ON_PAGE.slice(0, 1) } });
+    expect(await (await SELF.fetch(`${SITE}/g/sky-hopper`)).text()).toContain('target="_blank" rel="noopener noreferrer"');
+    await api("/games/sky-hopper", { method: "PATCH", body: { links: LINKS.slice(1) } });
+    expect(await (await SELF.fetch(`${SITE}/g/sky-hopper`)).text()).not.toContain('class="dev-links"');
+  });
+});
+
+describe("streamer mode", () => {
+  it("is an account setting that game pages read, hiding room codes until the player shows them", async () => {
+    const cookie = await sessionCookie("adult-1");
+    const streamerModeOf = async (withCookie?: string) =>
+      pageDataOf(await (await SELF.fetch(`${SITE}/g/sky-hopper`, { headers: withCookie ? { cookie: `${withCookie}; __Host-zaisma_in=1` } : {} })).text(), "game-page-data").is_streamer_mode_on;
+    expect(await streamerModeOf(cookie)).toBe(false);
+    const saved = await SELF.fetch(`${SITE}/account/streamer-mode`, { method: "POST", body: new URLSearchParams({ is_streamer_mode_on: "1" }), headers: { cookie, origin: SITE }, redirect: "manual" });
+    expect(saved.status).toBe(303);
+    expect(saved.headers.get("location")).toBe("/account?streamer-mode-saved#streamer-mode");
+    expect(await streamerModeOf(cookie)).toBe(true);
+    const account = await (await SELF.fetch(`${SITE}/account`, { headers: { cookie } })).text();
+    expect(account).toMatch(/name="is_streamer_mode_on" value="1" aria-pressed="true"/);
+    // Guests have no account to turn it on in: their codes always show.
+    expect(await streamerModeOf()).toBe(false);
+    await SELF.fetch(`${SITE}/account/streamer-mode`, { method: "POST", body: new URLSearchParams({ is_streamer_mode_on: "0" }), headers: { cookie, origin: SITE }, redirect: "manual" });
+    expect(await streamerModeOf(cookie)).toBe(false);
+  });
+});
+
 describe("a game's links on the dashboard", () => {
   it("shows each link with who it opens for, and saves the rows as the whole list", async () => {
     const cookie = await sessionCookie("dev-1");
@@ -238,6 +295,9 @@ describe("a game's links on the dashboard", () => {
     expect(page).toContain("Links saved.");
     expect(page).toContain('value="https://discord.gg/skyhopper"');
     expect(page).toContain("Opens for signed-in adults.");
+    // The details also carry the game's QR code, with downloads.
+    expect(page).toContain('id="qr-code"');
+    expect(page).toContain('download="sky-hopper-qr-code.svg"');
     // A row that isn't a link says why, on the same page.
     const refused = await SELF.fetch(`${SITE}/dashboard/sky-hopper/links`, { method: "POST", body: new URLSearchParams({ link_name_0: "store", destination_url_0: "https://bit.ly/abc" }), headers: { cookie, origin: SITE }, redirect: "manual" });
     expect(refused.status).toBe(400);

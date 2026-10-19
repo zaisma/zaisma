@@ -270,3 +270,41 @@ export function openedLinkUrl(link: GameLink, path: unknown, queryParameters: un
   if (url.href.length > LINK_LIMITS.maximumOpenedUrlCharacterCount) return { code: "bad_link_query", message: `The address with what the game added is over ${LINK_LIMITS.maximumOpenedUrlCharacterCount} characters.` };
   return { url: url.href };
 }
+
+/** The sites whose links get their own look on the game page; any other site is a `website`. */
+export const LINK_BRANDS = ["steam", "itch", "discord", "youtube", "x", "bluesky", "reddit", "tiktok", "instagram", "patreon", "kofi", "github", "kickstarter", "app_store", "google_play", "twitch", "gumroad", "website"] as const;
+export type LinkBrand = (typeof LINK_BRANDS)[number];
+
+const BRAND_DOMAINS: [LinkBrand, string[], string][] = [
+  ["steam", ["store.steampowered.com", "steamcommunity.com"], "Steam"],
+  ["itch", ["itch.io"], "itch.io"],
+  ["discord", ["discord.gg", "discord.com"], "Discord"],
+  ["youtube", ["youtube.com", "youtu.be"], "YouTube"],
+  ["x", ["x.com", "twitter.com"], "X"],
+  ["bluesky", ["bsky.app"], "Bluesky"],
+  ["reddit", ["reddit.com"], "Reddit"],
+  ["tiktok", ["tiktok.com"], "TikTok"],
+  ["instagram", ["instagram.com"], "Instagram"],
+  ["patreon", ["patreon.com"], "Patreon"],
+  ["kofi", ["ko-fi.com"], "Ko-fi"],
+  ["github", ["github.com"], "GitHub"],
+  ["kickstarter", ["kickstarter.com"], "Kickstarter"],
+  ["app_store", ["apps.apple.com"], "App Store"],
+  ["google_play", ["play.google.com"], "Google Play"],
+  ["twitch", ["twitch.tv"], "Twitch"],
+  ["gumroad", ["gumroad.com"], "Gumroad"],
+];
+
+/**
+ * How a link looks on the game page (Developer links on game pages): its site's brand and the words on
+ * its button. A Steam store page says "Wishlist on Steam"; any other site shows its address.
+ */
+export function linkBrand(destinationUrl: string): { brand: LinkBrand; label: string } {
+  const url = new URL(destinationUrl);
+  const host = url.hostname;
+  const found = BRAND_DOMAINS.find(([, domains]) => domains.some((domain) => isUnder(host, domain)));
+  if (!found) return { brand: "website", label: host.replace(/^www\./, "") };
+  const [brand, , name] = found;
+  if (brand === "steam" && host === "store.steampowered.com" && url.pathname.startsWith("/app/")) return { brand, label: "Wishlist on Steam" };
+  return { brand, label: name };
+}

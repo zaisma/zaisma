@@ -445,6 +445,7 @@
         room._settle(message.room);
         if (room.friendJoinsEnabled !== wasTakingFriendJoins) room._sayOwnRoom();
         room._emit("room", message.room);
+        room._tellPage();
       } else if (message.type === "move") {
         if ((room._on.move || []).length) room._emit("move", room._move(message));
         else room._follow(message.roomCode);
@@ -684,6 +685,8 @@
     window.parent.postMessage({
       type: "zaisma:players",
       code: this.roomCode,
+      // Whether the room takes new players by its code, so the page shows the code or says it's closed.
+      isOpen: this.isOpen !== false,
       myPlayerId: this.me ? this.me.id : null,
       players: this.players.map(function (each) { return { id: each.id, name: each.name, kind: each.kind }; }),
       mutedPlayerIds: ids.filter(function (playerId) { return muted.has(playerId); }),
@@ -1046,8 +1049,15 @@
     return post("/v1/filter", { gameSlug: config.game, text: String(text == null ? "" : text) });
   }
 
-  /** The share sheet on phones, else copy the link: "shared", "copied", "cancelled" or "failed". */
+  /**
+   * On Zaisma, the page's Share (its QR code, the link and the room's code): "opened". Elsewhere the
+   * share sheet on phones, else copy the link: "shared", "copied", "cancelled" or "failed".
+   */
   function invite(room) {
+    if (onZaismaPage()) {
+      window.parent.postMessage({ type: "zaisma:share" }, config.site);
+      return Promise.resolve("opened");
+    }
     var link = room && room.inviteUrl ? room.inviteUrl : config.site && config.game ? config.site + gamePage() : location.href;
     function copy() {
       if (!navigator.clipboard) return Promise.resolve("failed");
@@ -1433,6 +1443,11 @@
 
   /** A ready-made mute, block and report panel. Games open it from their own menu. */
   function openSafetyPanel(room) {
+    // On Zaisma, the page's own Players (the bar's), so a game's Players button opens the same one.
+    if (onZaismaPage()) {
+      window.parent.postMessage({ type: "zaisma:players-open" }, config.site);
+      return;
+    }
     var old = document.getElementById("zaisma-safety");
     if (old) old.remove();
     var wrap = document.createElement("div");

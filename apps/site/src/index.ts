@@ -1,5 +1,6 @@
 import { deleteDueGames } from "./game-deletion.ts";
-import { upgradeToHttps, withTransportSecurity, type ScanJob } from "@zaisma/core";
+import { gameBySlug, upgradeToHttps, withTransportSecurity, type ScanJob } from "@zaisma/core";
+import { qrCodeImage, sitemap } from "./share-cards.ts";
 import { handleAccount } from "./account.ts";
 import { DAILY_SIGN_IN_SWEEP_MS, RECENT_SIGN_IN_SWEEP_MS, dailyCleanup, deleteAbandonedSignIns, publishDue } from "./cleanup.ts";
 import { handleAdmin } from "./admin.ts";
@@ -101,10 +102,11 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
   const profile = await handleProfiles(request, env, path);
   if (profile) return profile;
 
-  const game = path.match(/^\/g\/([a-z0-9-]+)(\/report|\/rooms)?$/);
+  const game = path.match(/^\/g\/([a-z0-9-]+)(\/report|\/rooms|\/qr-code\.svg)?$/);
   if (game) {
     const [, slug, sub] = game as unknown as [string, string, string | undefined];
     if (sub === "/rooms" && method === "GET") return roomsFragment(env, slug, request);
+    if (sub === "/qr-code.svg" && method === "GET") return qrCodeImage(env, await gameBySlug(env.DB, slug), request);
     const report = sub === "/report";
     if (!sub && method !== "POST") return gamePage(env, slug, request);
     if (report && method === "POST") return submitReport(env, request, slug, ctx);
@@ -125,7 +127,8 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
     if (response) return response;
   }
 
-  if (path === "/robots.txt") return new Response("User-agent: *\nDisallow: /admin\nDisallow: /account\nDisallow: /friends\nDisallow: /join\nDisallow: /signin\nDisallow: /oauth/\nDisallow: /.well-known/oauth-\nDisallow: /api/\nDisallow: /t/\nDisallow: /p/\n", { headers: { "Content-Type": "text/plain" } });
+  if (path === "/sitemap.xml" && method === "GET") return sitemap(env);
+  if (path === "/robots.txt") return new Response(`User-agent: *\nDisallow: /admin\nDisallow: /account\nDisallow: /friends\nDisallow: /join\nDisallow: /signin\nDisallow: /oauth/\nDisallow: /.well-known/oauth-\nDisallow: /api/\nDisallow: /t/\nDisallow: /p/\nSitemap: ${env.SITE_ORIGIN}/sitemap.xml\n`, { headers: { "Content-Type": "text/plain" } });
   return message(env, "Page not found", "There's nothing at this address.", 404);
 }
 

@@ -148,8 +148,10 @@ declare namespace Zaisma {
   const server: Server;
 
   /**
-   * Invite friends: opens the share sheet on phones, otherwise copies the room's invite link (the
-   * game's page without a room). Call it from a button in your game, like on a "waiting for players" screen.
+   * Invite friends. On Zaisma it opens the page's Share, the same as the game bar's Share button: the
+   * room's QR code, link and code, Copy and the share sheet ("opened"). On your own site it opens the
+   * share sheet on phones, otherwise copies the room's invite link (the game's page without a room).
+   * Call it from a button in your game, like on a "waiting for players" screen.
    *
    * @example
    * if ((await Zaisma.invite(room)) === "copied") inviteButton.textContent = "Link copied";
@@ -173,13 +175,12 @@ declare namespace Zaisma {
   function filterText(text: string): Promise<FilteredText>;
 
   /**
-   * Zaisma's ready-made Players panel, where a player can mute, block and report the others. On
-   * zaisma.com the game bar's Players button already gives every game whose room Zaisma can see (its
-   * rooms, or joinRoom on your own servers) mute, block and report, so this is optional: worth offering
-   * when your game is played full screen, where the bar is hidden. A game with its own netcode offers
-   * them in its own menu. Or build your own panel with room.mute, room.block and room.report. On Zaisma, Report opens
-   * Zaisma's own report form beside the game, and the player is muted once the report is sent. Restyle
-   * it with CSS on #zaisma-safety.
+   * The Players panel, where a player can mute, block and report the others and see their friends. On
+   * Zaisma it opens the game bar's own Players, the same as its button (leaving full screen if the
+   * game is in it), so a Players button in your game, in your game's style, does exactly what the bar's
+   * does. On your own site, where there's no bar, it draws Zaisma's ready-made panel; restyle it with CSS
+   * on #zaisma-safety. A game with its own netcode offers them in its own menu. Or build your own panel
+   * with room.mute, room.block and room.report.
    */
   function openSafetyPanel(room: Room): void;
 
@@ -1035,8 +1036,8 @@ declare namespace Zaisma {
     code: ErrorCode;
   }
 
-  /** What {@link invite} did: "shared" from the share sheet, "copied" the link, "cancelled" the share sheet, or "failed" to do either. */
-  type InviteStatus = "shared" | "copied" | "cancelled" | "failed";
+  /** What {@link invite} did: "opened" Zaisma's Share on a Zaisma page; elsewhere "shared" from the share sheet, "copied" the link, "cancelled" the share sheet, or "failed" to do either. */
+  type InviteStatus = "opened" | "shared" | "copied" | "cancelled" | "failed";
 
   /** What {@link filterText} found. */
   interface FilteredText {

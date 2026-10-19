@@ -16,7 +16,7 @@ const sources = readdirSync(SITE)
   .map((name) => ({ name, text: readFileSync(join(SITE, name), "utf8") }));
 
 /** The only <script tags the site writes: html.ts's script files and data blocks, and example game files in the MCP's help (a game's own page, on the game domain). */
-const ALLOWED_SCRIPT_TAGS: Record<string, number> = { "html.ts": 3, "mcp.ts": 2, "page-scripts.ts": 1 };
+const ALLOWED_SCRIPT_TAGS: Record<string, number> = { "html.ts": 4, "mcp.ts": 2, "page-scripts.ts": 1 };
 
 describe("the site's code", () => {
   it("writes <script> tags only through html.ts", () => {

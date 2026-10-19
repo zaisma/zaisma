@@ -1,5 +1,6 @@
 import {
   ALLOWED_CONTENT,
+  canOpenLink,
   CONTENT_RULES,
   CONTENT_RULE_DETAILS,
   createAccessGrant,
@@ -8,6 +9,7 @@ import {
   isOldEnoughFor,
   isOwnServerUrl,
   isTesterLinkOn,
+  linksOf,
   ownServerUrlsOf,
   readPlayModes,
   testerLinkByToken,
@@ -32,7 +34,8 @@ import { JOIN_OFF_STYLES } from "./friends-now.ts";
 import { profilePath } from "./profiles.ts";
 import { codeBox, pageRooms, roomsOnPage, roomsPanel, tabCount } from "./rooms.ts";
 import { checkPreviewLinkToken, readPreviewLinkToken } from "./preview-links.ts";
-import { GAME_LINKS_SCRIPT, leavingCard } from "./game-links.ts";
+import { DEVELOPER_LINK_STYLES, GAME_LINKS_SCRIPT, developerLinks, leavingCard } from "./game-links.ts";
+import { gamePageHead, SHARE_DIALOG_STYLES, shareDialog } from "./share-cards.ts";
 
 const ROOM_CODE = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/;
 const day = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
@@ -82,6 +85,8 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   // version's rooms, game server and data, so it waits until test builds get their own.
   const isTestBuild = Boolean(testerVersion && testerVersion.id !== game.live_version_id);
   const multiplayer = (game.multiplayer_mode !== "none" || ownServerUrls.length > 0) && !isTestBuild;
+  // Rooms on Zaisma have codes players can type into the bar to join (a room link does the same).
+  const hasRoomCodes = game.multiplayer_mode !== "none" && !isTestBuild && !isClosed;
   const ownServers = ownServerUrls.map((server) => new URL(server).host);
   const autoplay = !isClosed && (inRoom || url.searchParams.has("play"));
   // A game that needs an account for the whole game or for multiplayer asks guests to sign in, and brings them back to the same match.
@@ -96,7 +101,7 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
       ? env.DB.prepare("SELECT accounts.username AS name, (SELECT COUNT(*) FROM games WHERE owner_id = ? AND review_status = 'live' AND visibility = 'listed') AS game_count FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE owners.id = ?").bind(game.owner_id, game.owner_id).first<{ name: string; game_count: number }>()
       : null,
     // The square cover is only for phones' game cards, not one of the game's pictures.
-    env.DB.prepare("SELECT id, kind FROM game_images WHERE game_id = ? AND review_status = 'approved' AND kind != 'square' ORDER BY kind = 'cover' DESC, created_at_ms").bind(game.id).all<{ id: string; kind: string }>(),
+    env.DB.prepare("SELECT id, kind FROM game_images WHERE game_id = ? AND review_status = 'approved' AND kind IN ('cover', 'screenshot') ORDER BY kind = 'cover' DESC, created_at_ms").bind(game.id).all<{ id: string; kind: string }>(),
     env.DB.prepare("SELECT id, patch_notes, published_at_ms FROM versions WHERE game_id = ? AND published_at_ms IS NOT NULL AND patch_notes != '' ORDER BY published_at_ms DESC LIMIT 10").bind(game.id).all<{ id: string; patch_notes: string; published_at_ms: number }>(),
     showcase(env, viewer.ageFloorYears, 60),
     // Games on Zaisma rooms: who's playing now, and the rooms to list if the developer shows them here.
@@ -113,12 +118,15 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   const specRows = [
     modes.html ? html`<div><dt>Players</dt><dd>${modes}</dd></div>` : "",
     devices.length ? html`<div><dt>Works on</dt><dd class="icons">${devices.map((device) => html`<span>${raw(DEVICE_ICONS[device] ?? "")}${DEVICE_LABELS[device] ?? device}</span>`)}</dd></div>` : "",
-    controls.length ? html`<div><dt>Controls</dt><dd class="icons">${controls.map((control) => html`<span>${raw(CONTROL_ICONS[control] ?? "")}${CONTROL_LABELS[control] ?? control}</span>`)}</dd></div>` : "",
   ];
   const spec = specRows.some(Boolean) ? html`<dl class="spec">${specRows}</dl>` : "";
   const tabs = [{ id: "about", label: "About" }, ...(rooms ? [{ id: "rooms", label: "Rooms" }] : []), ...(updates.results.length ? [{ id: "updates", label: "Updates" }] : [])];
+  const isSignedInAdult = viewer.account?.age_band === "18+";
+  const pageLinks = linksOf(game).filter((link) => link.is_on_game_page && canOpenLink(link, isSignedInAdult));
   const response = layout(env, {
     title: `${game.title} on Zaisma`,
+    // What chat apps, social sites and search engines read; tester links are secret, so they get none.
+    head: tester ? undefined : await gamePageHead(env, game, { roomCode: inRoom ? code : null, developerName: developer?.name ?? null }),
     isBare: true,
     // Cloudflare's invisible check from when the page opens, for play counts and multiplayer (tester links: only for multiplayer).
     hasTurnstileCheck: (!tester || multiplayer) && !isClosed && Boolean(env.TURNSTILE_SITE_KEY),
@@ -185,8 +193,8 @@ ${raw(JOIN_OFF_STYLES)}
 .spec .modes small::before{content:none}
 .side .row{margin-top:4px}
 .side .row .btn{flex:1}
-.share-link[hidden]{display:none}
-.share-link input{width:100%}
+${raw(DEVELOPER_LINK_STYLES)}
+${raw(SHARE_DIALOG_STYLES)}
 /* Tabs ride on an engraved line; the open one gets the chrome rail, like the header. */
 .tabs{display:flex;gap:30px;margin:52px 0 26px;background:linear-gradient(#000,#000) bottom 1px left/100% 1px no-repeat,linear-gradient(rgba(255,255,255,.055),rgba(255,255,255,.055)) bottom/100% 1px no-repeat}
 .tabs:empty{margin:40px 0 24px}
@@ -293,6 +301,27 @@ a.dev-card:hover strong{text-decoration:underline;text-underline-offset:3px}
 .ctl:hover{background:linear-gradient(180deg,#3a3f48,#2a2e35)}
 .ctl svg{width:18px;height:18px;flex:none}
 .ctl[hidden]{display:none}
+/* The room control, in games on Zaisma rooms: the room's code while the player is in one (dots when the
+   eye hid it, for streamers; Closed when it takes nobody), Join otherwise. It opens one plate with the
+   code, Copy and the eye, and a box to join another room by its code. */
+.room-open b{font-family:var(--display);font-weight:600;font-size:14px;letter-spacing:.12em;font-variant-numeric:tabular-nums}
+.room-open.closed b{letter-spacing:0;font-weight:500;font-size:13px;color:var(--muted)}
+.room-dialog .room-here{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;padding:14px 16px 12px;background:linear-gradient(#000,#000) bottom/100% 1px no-repeat}
+.room-dialog .room-here[hidden]{display:none}
+.room-dialog .room-title,.room-dialog label{margin:0;font-family:var(--display);font-size:15px;font-weight:500;color:var(--text)}
+.room-line{display:flex;align-items:center;gap:8px}
+.room-line b{flex:1;min-width:0;overflow:hidden;font-family:var(--display);font-size:24px;font-weight:600;letter-spacing:.16em;color:var(--text)}
+.room-line .btn{min-height:38px}
+.room-line .icon{width:38px;padding:0;justify-content:center}
+.room-line .icon svg{width:18px;height:18px}
+.room-line [hidden],.room-dialog p[hidden]{display:none}
+.room-dialog .eye-off{display:none}
+.room-dialog.masked .eye-off{display:inline}
+.room-dialog p{margin:0;font-size:13px;color:var(--muted)}
+.room-dialog form{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;padding:14px 16px 16px}
+.join-row{display:flex;gap:8px}
+.join-row input{flex:1;width:0;min-width:0;min-height:44px;font-family:var(--display);font-size:18px;font-weight:600;letter-spacing:.16em;text-transform:uppercase}
+.join-row input::placeholder{color:#5d626b}
 /* Players: how many are in the room, beside the label; a corner badge on the icon where labels hide. */
 .ctl .count{min-width:20px;height:18px;padding:0 6px;display:inline-grid;place-items:center;font-size:12px;font-weight:600;background:#0c0e11;box-shadow:inset 0 1px 2px rgba(0,0,0,.8),0 1px 0 rgba(255,255,255,.06);border-radius:9px}
 .ctl .count[hidden]{display:none}
@@ -313,7 +342,24 @@ body:not(.playing) iframe{display:none}
   .ctl .label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
   #players-open{position:relative}
   #players-open .count{position:absolute;bottom:2px;right:2px;min-width:16px;height:16px;padding:0 4px;font-size:10px}
+  /* The strip has no room for a code across it: the room control is its icon, and its plate has the code. */
+  .room-open b{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 }
+/* Narrow phones: the bar scrolls sideways under a Z that stays put; the room control keeps its code. */
+@media (max-width:640px) and (orientation:portrait),(max-width:640px) and (min-height:501px){
+  .bar{overflow-x:auto;scrollbar-width:none;gap:6px;padding-left:0}
+  .bar::-webkit-scrollbar{display:none}
+  .bar .home{position:sticky;left:0;z-index:2;flex:none;align-self:stretch;display:flex;align-items:center;padding:0 8px 0 10px;background:linear-gradient(180deg,#24282e,#16181c);box-shadow:6px 0 8px -4px rgba(0,0,0,.8)}
+  /* Each button holds its own hidden label, so none sticks out past the bar and widens the page. */
+  .bar .ctl{flex:none;position:relative}
+  /* The title has no room here; the ⋯ menu names the game. */
+  .bar h1{display:none}
+  .bar .spacer{flex:1}
+  .bar .room-open{width:auto;padding:0 10px;gap:5px}
+  .room-open svg{width:16px;height:16px}
+  .room-open b{font-size:13px;letter-spacing:.06em}
+}
+@media (max-width:360px){.bar .room-open svg{display:none}.bar .room-open{padding:0 8px}}
 /* The menu: a small plate that drops from the ⋯ button, so the game stays in view and nothing dims it.
    One row per thing to do, each with an icon; the save line says at a glance whether progress is safe. */
 dialog.quick{position:fixed;z-index:40;inset:auto;margin:0;width:min(320px,calc(100vw - 16px));max-height:calc(100dvh - 70px);overflow:auto;padding:0;
@@ -364,7 +410,8 @@ ${siteHeader(env)}
   <span class="spacer"></span>
   ${multiplayer ? html`<button class="ctl" id="players-open" type="button" title="Players" aria-haspopup="dialog" aria-controls="players">${raw(ICON_PLAYERS)}<span class="label">Players</span><span class="count" hidden></span></button>` : ""}
   ${saves ? html`<a class="ctl" id="keep-bar" href="${joinHere}" data-keep="/join" title="Keep your progress" hidden>${raw(ICON_KEEP)}<span class="label">Keep progress</span></a>` : ""}
-  <button class="ctl" id="share" type="button" title="Share">${raw(ICON_SHARE)}<span class="label">Share</span></button>
+  ${hasRoomCodes ? html`<button class="ctl room-open" id="room-open" type="button" title="Room code, or join a room" aria-haspopup="dialog" aria-expanded="false" aria-controls="room-dialog">${raw(ICON_HASH)}<b id="room-open-text">Join</b></button>` : ""}
+  <button class="ctl" id="share" type="button" title="Share" aria-haspopup="dialog" aria-controls="share-dialog">${raw(ICON_SHARE)}<span class="label">Share</span></button>
   <button class="ctl" id="full" type="button" title="Full screen">${raw(ICON_FULL)}<span class="label">Full screen</span></button>
   <button class="ctl" id="menu" type="button" title="More" aria-haspopup="dialog" aria-expanded="false" aria-controls="menu-dialog">${raw(ICON_MORE)}<span class="label">More</span></button>
 </div>
@@ -388,8 +435,8 @@ ${siteHeader(env)}
       : ""}
     <p class="note" id="device-note" hidden></p>
     ${spec}
-    <div class="row"><button class="btn ghost" id="share-page" type="button">${raw(ICON_SHARE)}<span class="label">Share</span></button><a class="btn ghost" href="/g/${game.slug}/report" data-report>Report</a></div>
-    <label class="share-link" id="share-link" hidden>Copy this link<input readonly aria-label="Link to this game"></label>
+    ${developerLinks(pageLinks)}
+    <div class="row"><button class="btn ghost" id="share-page" type="button" aria-haspopup="dialog" aria-controls="share-dialog">${raw(ICON_SHARE)}<span class="label">Share</span></button><a class="btn ghost" href="/g/${game.slug}/report" data-report>Report</a></div>
   </div>
 </section>
 ${tabs.length > 1
@@ -415,6 +462,18 @@ ${siteFooter()}
 <template id="game-frame"><iframe id="game"${tester || isAccountsOnly || isClosed ? "" : html` src="${frameUrl}"`} title="${game.title}"
   sandbox="allow-scripts allow-same-origin allow-pointer-lock"
   allow="fullscreen; gamepad; autoplay; web-share; clipboard-write" allowfullscreen referrerpolicy="no-referrer"></iframe></template>
+${hasRoomCodes
+      ? html`<dialog id="room-dialog" class="quick plate room-dialog" aria-label="Room">
+  <section class="room-here" id="room-here" hidden>
+    <p class="room-title">This room</p>
+    <div class="room-line"><b id="room-code-text"></b><button class="btn ghost" type="button" id="room-copy">Copy</button><button class="btn ghost icon" type="button" id="room-eye" aria-pressed="false" title="Hide the room code" aria-label="Hide the room code">${raw(ICON_EYE)}</button></div>
+    <p id="room-closed" hidden>This room doesn't take new players.</p>
+  </section>
+  <form method="get" action="${here}"><label for="bar-join-code">Join a room by its code</label>
+  <div class="join-row"><input id="bar-join-code" name="room" required maxlength="8" minlength="6" autocomplete="off" autocapitalize="characters" spellcheck="false" pattern="[2-9A-HJ-NP-Za-hj-np-z]{6}" placeholder="ABC234" title="6 letters and numbers, like ABC234"><button class="btn" type="submit">Join</button></div>
+  <p id="join-leaves" hidden>It leaves the room you're in.</p></form>
+</dialog>`
+      : ""}
 <dialog id="menu-dialog" class="quick plate" aria-label="${game.title}">
   <div class="q-head">
     <strong>${game.title}</strong>
@@ -450,6 +509,7 @@ ${canSignIn
 </aside>`
       : ""}
 ${leavingCard(game.title)}
+${shareDialog(game.title, !tester)}
 ${tester && !multiplayer ? "" : html`<div id="play-check" class="play-check"></div>`}
 ${pageData("game-page-data", {
       slug: game.slug,
@@ -460,6 +520,10 @@ ${pageData("game-page-data", {
       is_accounts_only: isAccountsOnly,
       frame_query: roomQuery,
       devices,
+      controls,
+      // Streamer mode (an account setting) hides room codes until the player shows them.
+      is_streamer_mode_on: Boolean(viewer.account?.is_streamer_mode_on),
+      screen_orientation: game.screen_orientation || null,
       turnstile_site_key: env.TURNSTILE_SITE_KEY ?? "",
       account_requirement: accountRequirement,
       sign_in_url: `/signin?next=${accountNext}`,
@@ -489,6 +553,8 @@ const svg = (paths: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="cur
 const ICON_PLAYERS = svg('<circle cx="9" cy="8" r="3.2"/><path d="M3.5 19.5c.6-3.3 2.8-5.2 5.5-5.2s4.9 1.9 5.5 5.2"/><circle cx="16.5" cy="9" r="2.6"/><path d="M15.4 14.4c2.6-.3 4.6 1.4 5.1 4.6"/>');
 const ICON_SHARE = svg('<path d="M12 3v12"/><path d="M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/>');
 const ICON_KEEP = svg('<path d="M5 3h11l3 3v15H5z"/><path d="M8 3v6h8V3"/><path d="M8 21v-7h8v7"/>');
+const ICON_HASH = svg('<path d="M5 9h15M4 15h15M10 3 8 21M16 3l-2 18"/>');
+const ICON_EYE = svg('<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/><path class="eye-off" d="M4 4l16 16"/>');
 const ICON_FULL = svg('<path d="M4 9V4h5"/><path d="M20 9V4h-5"/><path d="M4 15v5h5"/><path d="M20 15v5h-5"/>');
 const DEVICE_ICONS: Record<string, string> = {
   phone: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="6" y="2" width="8" height="16" rx="1.5"/><path d="M9 15h2"/></svg>',
@@ -496,12 +562,6 @@ const DEVICE_ICONS: Record<string, string> = {
   computer: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="2" y="3" width="16" height="11" rx="1"/><path d="M7 17h6M10 14v3"/></svg>',
 };
 const DEVICE_LABELS: Record<string, string> = { phone: "Phone", tablet: "Tablet", computer: "Computer" };
-const CONTROL_LABELS: Record<string, string> = { touch: "Touch", keyboard_mouse: "Keyboard and mouse", gamepad: "Gamepad" };
-const CONTROL_ICONS: Record<string, string> = {
-  touch: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 11V4.2a1.5 1.5 0 0 1 3 0V9l3.4.7a2 2 0 0 1 1.6 2.2l-.5 3.6A2.6 2.6 0 0 1 12.9 18H10a2.6 2.6 0 0 1-2-1l-3.4-4.3a1.4 1.4 0 0 1 2.1-1.8z"/></svg>',
-  keyboard_mouse: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1.5" y="5" width="17" height="10" rx="1"/><path d="M4.5 8h.01M7.5 8h.01M10.5 8h.01M13.5 8h.01M15.5 8h.01M4.5 11h.01M15.5 11h.01M7.5 11.5h5"/></svg>',
-  gamepad: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.4 5.5h7.2a4 4 0 0 1 3.9 3.3l.8 4.4a2 2 0 0 1-3.4 1.7L13 13H7l-1.9 1.9a2 2 0 0 1-3.4-1.7l.8-4.4a4 4 0 0 1 3.9-3.3z"/><path d="M6.2 8.3v3M4.7 9.8h3"/><path d="M13.6 9h.01M15.2 10.6h.01"/></svg>',
-};
 const ICON_REPORT = svg('<path d="M5 21V4"/><path d="M5 4h12l-2.5 4.5L17 13H5"/>');
 const ICON_RULES = svg('<path d="M12 3l8 3v6c0 4.4-3.4 8.2-8 9-4.6-.8-8-4.6-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/>');
 const ICON_GAMES = svg('<rect x="4" y="4" width="7" height="7"/><rect x="13" y="4" width="7" height="7"/><rect x="4" y="13" width="7" height="7"/><rect x="13" y="13" width="7" height="7"/>');
@@ -884,21 +944,34 @@ if (linkedTab) showTab(linkedTab.getAttribute("aria-controls"));
 const DEVICES = gamePage.devices;
 const coarse = matchMedia("(pointer: coarse)").matches;
 const mine = coarse ? (Math.min(screen.width, screen.height) < 600 ? "phone" : "tablet") : "computer";
-if (DEVICES.length && !DEVICES.includes(mine)) {
+const deviceNotes = [];
+if (DEVICES.length && !DEVICES.includes(mine)) deviceNotes.push("Made for " + DEVICES.map((d) => d + "s").join(" and ") + ". It may not work well on this " + mine + ".");
+// Controls and screen only come up when they don't fit this device.
+const CONTROLS = gamePage.controls;
+if (CONTROLS.length) {
+  if (coarse && !CONTROLS.includes("touch")) deviceNotes.push(CONTROLS.includes("keyboard_mouse") ? "Needs a keyboard." : "Needs a gamepad.");
+  else if (!coarse && !CONTROLS.includes("keyboard_mouse") && !CONTROLS.includes("touch")) deviceNotes.push("Needs a gamepad.");
+}
+const SCREEN = gamePage.screen_orientation;
+if (coarse && (SCREEN === "landscape" || SCREEN === "portrait")) deviceNotes.push(SCREEN === "landscape" ? "Best in landscape." : "Best in portrait.");
+if (deviceNotes.length) {
   const note = document.getElementById("device-note");
-  note.textContent = "Made for " + DEVICES.map((d) => d + "s").join(" and ") + ". It may not work well on this " + mine + ".";
+  note.textContent = deviceNotes.join(" ");
   note.hidden = false;
-  document.querySelector("#play span").textContent = "Play anyway";
+  if (DEVICES.length && !DEVICES.includes(mine)) document.querySelector("#play span").textContent = "Play anyway";
 }
 // The menu drops from the ⋯ button (from the side strip on landscape phones) and closes when the
 // player taps anywhere else, goes back to the game, or presses Escape.
 const menuButton = document.getElementById("menu");
-function placeMenu() {
-  const b = menuButton.getBoundingClientRect();
+function placeMenu(box = dialog, button = menuButton) {
+  const b = button.getBoundingClientRect();
+  // Under its button, kept inside the screen: on phones a button near the left would push it off the edge.
+  const boxWidth = Math.min(box.offsetWidth || 320, innerWidth - 16);
+  const right = Math.max(8, Math.min(innerWidth - b.right, innerWidth - boxWidth - 8));
   const strip = matchMedia("(orientation: landscape) and (max-height: 500px)").matches;
-  Object.assign(dialog.style, strip
+  Object.assign(box.style, strip
     ? { left: b.right + 8 + "px", right: "auto", top: "auto", bottom: Math.max(8, innerHeight - b.bottom) + "px" }
-    : { left: "auto", right: Math.max(8, innerWidth - b.right) + "px", top: b.bottom + 8 + "px", bottom: "auto" });
+    : { left: "auto", right: right + "px", top: b.bottom + 8 + "px", bottom: "auto" });
 }
 menuButton.onclick = () => {
   if (dialog.open) return dialog.close();
@@ -913,36 +986,111 @@ addEventListener("pointerdown", (e) => { if (dialog.open && !dialog.contains(e.t
 addEventListener("keydown", (e) => { if (e.key === "Escape" && dialog.open) dialog.close(); });
 addEventListener("blur", () => { if (dialog.open) dialog.close(); });
 addEventListener("resize", () => dialog.open && placeMenu());
-// Shares the address bar, which includes the room code while the player is in a match.
-// The system's share sheet where there is one; otherwise the link is copied and the button says so.
-async function shareFrom(button) {
-  const url = location.origin + location.pathname + location.search.replace(/[?&]play\b[^&]*/, "").replace(/^&/, "?");
-  if (navigator.share) {
-    try { await navigator.share({ title: document.title, url }); return; } catch (e) { if (e.name === "AbortError") return; }
-  }
-  const label = button.querySelector(".label");
-  let copied = false;
-  try { await navigator.clipboard.writeText(url); copied = true; } catch {
-    // Some browsers block the clipboard; the older way often still works.
-    const t = Object.assign(document.createElement("textarea"), { value: url });
-    document.body.appendChild(t);
-    t.select();
-    try { copied = document.execCommand("copy"); } catch {}
-    t.remove();
-  }
-  if (copied) {
-    button.title = "Link copied";
-    label.textContent = "Link copied";
-    setTimeout(() => { button.title = "Share"; label.textContent = "Share"; }, 2000);
-    return;
-  }
-  // Couldn't copy: show the link, selected, so the player can copy it themselves.
-  const box = document.getElementById("share-link");
-  if (frame || !box) return prompt("Copy this link", url);
-  box.hidden = false;
-  box.querySelector("input").value = url;
-  box.querySelector("input").select();
+// The room control: the room's code while the game is in a room (zaisma:room, then zaisma:players says
+// whether it takes others), Join otherwise; its plate has Copy and Join by code. In streamer mode (an
+// account setting) the code starts hidden: the eye shows it on this page, and Share blurs it under Show.
+const roomOpen = document.getElementById("room-open");
+const roomDialog = document.getElementById("room-dialog");
+const isStreamerModeOn = gamePage.is_streamer_mode_on === true;
+let isRoomCodeHidden = isStreamerModeOn;
+let shownRoom = null;
+function showRoomCode(room) {
+  shownRoom = room;
+  if (!roomOpen) return;
+  const shownCode = !room ? "Join" : !room.isOpen ? "Closed" : isRoomCodeHidden ? "••••••" : room.code;
+  document.getElementById("room-open-text").textContent = shownCode;
+  roomOpen.classList.toggle("closed", Boolean(room && !room.isOpen));
+  roomOpen.title = !room ? "Join a room by its code" : !room.isOpen ? "This room doesn't take new players" : "The room's code";
+  roomDialog.classList.toggle("masked", isRoomCodeHidden);
+  document.getElementById("room-here").hidden = !room;
+  document.getElementById("join-leaves").hidden = !room;
+  document.getElementById("room-closed").hidden = !room || room.isOpen;
+  document.getElementById("room-code-text").textContent = room ? (isRoomCodeHidden ? "••••••" : room.code) : "";
+  document.getElementById("room-copy").hidden = !room || !room.isOpen;
+  const roomEye = document.getElementById("room-eye");
+  roomEye.hidden = !isStreamerModeOn || !room || !room.isOpen;
+  roomEye.setAttribute("aria-pressed", String(isRoomCodeHidden));
+  roomEye.title = isRoomCodeHidden ? "Show the room code" : "Hide the room code";
+  roomEye.setAttribute("aria-label", roomEye.title);
 }
+if (roomOpen && roomDialog) {
+  const joinInput = document.getElementById("bar-join-code");
+  roomOpen.onclick = () => {
+    if (roomDialog.open) return roomDialog.close();
+    placeMenu(roomDialog, roomOpen);
+    roomDialog.show();
+    roomOpen.setAttribute("aria-expanded", "true");
+    if (!shownRoom) joinInput.focus();
+  };
+  roomDialog.addEventListener("close", () => { roomOpen.setAttribute("aria-expanded", "false"); if (frame) frame.focus(); });
+  addEventListener("pointerdown", (e) => { if (roomDialog.open && !roomDialog.contains(e.target) && !roomOpen.contains(e.target)) roomDialog.close(); });
+  addEventListener("keydown", (e) => { if (e.key === "Escape" && roomDialog.open) roomDialog.close(); });
+  // A tap on the game goes to its frame, not this page: the page losing focus closes the plate, as for the ⋯ menu.
+  addEventListener("blur", () => { if (roomDialog.open) roomDialog.close(); });
+  addEventListener("resize", () => roomDialog.open && placeMenu(roomDialog, roomOpen));
+  joinInput.addEventListener("input", () => { joinInput.value = joinInput.value.toUpperCase().replace(/[^0-9A-Z]/g, ""); joinInput.setCustomValidity(""); });
+  joinInput.addEventListener("invalid", () => joinInput.setCustomValidity("Room codes are 6 letters and numbers, like ABC234."));
+  // The room the player is in already: nothing to leave.
+  roomDialog.querySelector("form").addEventListener("submit", (e) => { if (shownRoom && joinInput.value === shownRoom.code) { e.preventDefault(); roomDialog.close(); } });
+  document.getElementById("room-eye").onclick = () => {
+    isRoomCodeHidden = !isRoomCodeHidden;
+    showRoomCode(shownRoom);
+  };
+  const roomCopy = document.getElementById("room-copy");
+  roomCopy.onclick = async () => {
+    if (!shownRoom) return;
+    try { await navigator.clipboard.writeText(shownRoom.code); roomCopy.textContent = "Copied"; } catch { roomCopy.textContent = "Can't copy"; }
+    setTimeout(() => (roomCopy.textContent = "Copy"), 1500);
+  };
+  showRoomCode(null);
+}
+// Share opens the share dialog: the address bar's link (with the room code while the player is in a
+// match), its QR code for someone in the same room, Copy, and the system's share sheet where there is one.
+const shareBox = document.getElementById("share-dialog");
+const shareInput = shareBox.querySelector("input");
+const shareCopy = document.getElementById("share-copy");
+function shareFrom(button) {
+  const url = location.origin + location.pathname + location.search.replace(/[?&]play\b[^&]*/, "").replace(/^&/, "?");
+  const room = new URLSearchParams(location.search).get("room");
+  shareInput.value = url;
+  shareCopy.textContent = "Copy";
+  const roomLine = document.getElementById("share-room");
+  roomLine.hidden = !room;
+  roomLine.querySelector("b").textContent = room || "";
+  shareBox.classList.toggle("masked", isRoomCodeHidden && Boolean(room));
+  document.getElementById("share-reveal").hidden = !shareBox.classList.contains("masked");
+  const qr = document.getElementById("share-qr");
+  if (qr) {
+    qr.src = "/g/" + gamePage.slug + "/qr-code.svg" + (room ? "?room=" + encodeURIComponent(room) : "");
+    document.getElementById("share-scan").textContent = room ? "Scan to join this match" : "Scan to play";
+  }
+  shareBox.showModal();
+  shareBox.returnFocus = button;
+}
+shareCopy.onclick = async () => {
+  let copied = false;
+  try { await navigator.clipboard.writeText(shareInput.value); copied = true; } catch {
+    shareInput.select();
+    try { copied = document.execCommand("copy"); } catch {}
+  }
+  shareCopy.textContent = copied ? "Copied" : "Select and copy";
+  if (!copied) shareInput.select();
+};
+const shareMore = document.getElementById("share-more");
+if (navigator.share) {
+  shareMore.hidden = false;
+  shareMore.onclick = async () => {
+    try { await navigator.share({ title: document.title, url: shareInput.value }); shareBox.close(); } catch {}
+  };
+}
+shareInput.onfocus = () => shareInput.select();
+// Show on the blur, or a tap on the blurred link, reveals them for this time.
+const revealShare = () => { shareBox.classList.remove("masked"); document.getElementById("share-reveal").hidden = true; };
+document.getElementById("share-reveal").onclick = revealShare;
+shareInput.addEventListener("click", () => { if (shareBox.classList.contains("masked")) revealShare(); });
+document.getElementById("share-close").onclick = () => shareBox.close();
+shareBox.addEventListener("click", (e) => { if (e.target === shareBox) shareBox.close(); });
+shareBox.addEventListener("close", () => { if (frame) frame.focus(); else if (shareBox.returnFocus) shareBox.returnFocus.focus(); });
 share.onclick = () => shareFrom(share);
 // The game says which room it's in, so the address bar (and so Share) points to that match.
 const gameOrigin = new URL(gamePage.frame_url).origin;
@@ -952,10 +1100,26 @@ addEventListener("message", (e) => {
   if (d && d.type === "zaisma:room" && typeof d.code === "string" && /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/.test(d.code)) {
     history.replaceState(null, "", location.pathname + "?room=" + d.code);
     // The code comes first, for Share; joined once the room let the player in.
-    if (d.joined === true) inRoom = { code: d.code, at: Date.now() };
+    if (d.joined === true) {
+      inRoom = { code: d.code, at: Date.now() };
+      if (!shownRoom || shownRoom.code !== d.code) showRoomCode({ code: d.code, isOpen: true });
+    }
   }
+  // The game's own Invite or Players button (Zaisma.invite, Zaisma.openSafetyPanel): the same Share and
+  // Players as the bar's, only right after the player's tap. Full screen holds only the game, so it ends first.
+  if (d && (d.type === "zaisma:share" || d.type === "zaisma:players-open") && (!navigator.userActivation || navigator.userActivation.isActive)) {
+    const playersOpen = document.getElementById("players-open");
+    const open = () => (d.type === "zaisma:share" ? shareFrom(share) : playersOpen && playersOpen.click());
+    if (document.fullscreenElement) document.exitFullscreen().then(open, open);
+    else open();
+  }
+  // Who's in the room, and whether it takes others by its code.
+  if (d && d.type === "zaisma:players" && inRoom && d.code === inRoom.code && typeof d.isOpen === "boolean") showRoomCode({ code: d.code, isOpen: d.isOpen });
   // The game left a room (the player left, walked away, was moved or the match ended).
-  if (d && d.type === "zaisma:left" && inRoom && d.code === inRoom.code) leftRoom();
+  if (d && d.type === "zaisma:left" && inRoom && d.code === inRoom.code) {
+    leftRoom();
+    showRoomCode(null);
+  }
   // The game asks for its key to player passes: given once the check on Play has answered, only to this game,
   // with whose passes it gives (account or guest), so the game doesn't keep a pass from before the player signed in or out.
   if (d && d.type === "zaisma:room-key") {

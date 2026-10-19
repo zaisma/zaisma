@@ -176,47 +176,8 @@ document.getElementById("best").onclick = async () => {
   }
 };
 
-// Friends playing Arena right now, to jump into their arena: only friends playing this game, with their room when the player can join it.
-const friendsElement = document.getElementById("friends-here");
-const WHY_NOT = { room_full: "Arena full", match_in_progress: "Match in progress", not_taking_joins: "Not taking joins", no_room: "Not in an arena" };
-document.getElementById("friends").onclick = async () => {
-  if (!friendsElement.hidden) { friendsElement.hidden = true; return; }
-  const list = friendsElement.querySelector("ul");
-  list.textContent = "Loading…";
-  friendsElement.hidden = false;
-  try {
-    const { friends } = await Zaisma.friends.list();
-    list.innerHTML = "";
-    for (const friend of friends) {
-      const line = document.createElement("li");
-      line.textContent = friend.name;
-      const inSameRoom = room && friend.roomCode === room.roomCode;
-      if (friend.roomCode && !inSameRoom) {
-        const joinButton = document.createElement("button");
-        joinButton.type = "button";
-        joinButton.textContent = "Join";
-        joinButton.onclick = () => { friendsElement.hidden = true; switchTo(/** @type {string} */ (friend.roomCode)); };
-        line.append(joinButton);
-      } else {
-        const why = document.createElement("span");
-        why.textContent = inSameRoom ? "Here with you" : WHY_NOT[/** @type {keyof typeof WHY_NOT} */ (friend.joinRefusal)];
-        line.append(why);
-      }
-      list.append(line);
-    }
-    if (!friends.length) list.textContent = "None of your friends are playing Arena right now.";
-  } catch (error) {
-    list.textContent = error.code === "account_needed" ? "Sign in to Zaisma to see your friends here." : error.message;
-  }
-};
-
-/** Leave this arena for a friend's. */
-async function switchTo(roomCode) {
-  if (room) room.leave();
-  room = null;
-  statusElement.textContent = "Joining…";
-  await start(roomCode);
-}
+// Friends playing now, with Join: the same Players panel as Zaisma's game bar (Zaisma.openSafetyPanel lists them).
+document.getElementById("friends").onclick = () => room && Zaisma.openSafetyPanel(room);
 
 /** @param {string} [roomCode] a friend's arena; else the linked one, a busy one or a new one */
 async function start(roomCode) {

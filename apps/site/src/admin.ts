@@ -38,6 +38,7 @@ import {
   gamesWithDetailsWaitingForReview,
   imageById,
   imageKey,
+  cardImageKey,
   imagesForGame,
   pendingImages,
   settleDetailsWaitingForReview,
@@ -267,7 +268,7 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     if (!image) return new Response("Not found", { status: 404 });
     const rejectedReason = match[2] === "reject" ? decidedReason("image_rejected", pickedRule(form), reason) : null;
     const replaced = await settleImage(env.DB, image, rejectedReason);
-    await Promise.all(replaced.map((replacedImage) => env.GAMES.delete(imageKey(replacedImage))));
+    await Promise.all(replaced.map((replacedImage) => env.GAMES.delete([imageKey(replacedImage), cardImageKey(replacedImage)])));
     await audit(env.DB, image.game_id, rejectedReason ? "image-rejected" : "image-approved", reason || `${image.kind} ${image.id}`, actor, rejectedReason);
     return redirect(String(form.get("back") ?? "") === "game" ? `/admin/games/${image.game_id}` : "/admin");
   }

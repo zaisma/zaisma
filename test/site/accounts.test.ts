@@ -2369,6 +2369,8 @@ describe("the dashboard", () => {
 
     // A change comes back to the section its form was on.
     expect((await b.go(`/dashboard/sky-hopper/versions/${id}/publish`, {})).headers.get("location")).toBe("/dashboard/sky-hopper/versions?done=published");
+    // A listed game needs a screenshot (one waiting for review counts).
+    await env.DB.prepare("INSERT INTO game_images (id, game_id, kind, content_type, width_px, height_px, size_bytes, created_at_ms) SELECT 'image_dashshot', id, 'screenshot', 'image/png', 1280, 720, 64, 0 FROM games WHERE slug = 'sky-hopper'").run();
     expect((await b.go("/dashboard/sky-hopper/visibility", { visibility: "listed", section: "players" })).headers.get("location")).toBe("/dashboard/sky-hopper/players?done=visibility");
     expect((await gameBySlug(env.DB, "sky-hopper"))!.visibility).toBe("listed");
 

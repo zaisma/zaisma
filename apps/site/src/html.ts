@@ -27,6 +27,11 @@ export function pageData(id: string, values: unknown): Raw {
   return html`<script type="application/json" id="${id}">${raw(JSON.stringify(values).replace(/</g, "\\u003c"))}</script>`;
 }
 
+/** Structured data for search engines (schema.org JSON-LD): a data block browsers never run. */
+export function structuredData(values: unknown): Raw {
+  return raw(`<script type="application/ld+json">${JSON.stringify(values).replace(/</g, "\\u003c")}</script>`);
+}
+
 export function html(strings: TemplateStringsArray, ...values: unknown[]): Raw {
   let out = strings[0]!;
   values.forEach((interpolation, i) => {
@@ -494,7 +499,7 @@ export interface HeaderSearch {
   keep?: Record<string, string>;
 }
 
-export function layout(env: Env, options: { title: string; body: Raw; isBare?: boolean; isAdmin?: boolean; isPrivate?: boolean; nav?: Nav; art?: string | null; hasTurnstileCheck?: boolean; search?: HeaderSearch; action?: Raw; frames?: string[]; formTargets?: string[] }): Response {
+export function layout(env: Env, options: { title: string; body: Raw; head?: Raw; isBare?: boolean; isAdmin?: boolean; isPrivate?: boolean; nav?: Nav; art?: string | null; hasTurnstileCheck?: boolean; search?: HeaderSearch; action?: Raw; frames?: string[]; formTargets?: string[] }): Response {
   const page = html`<!doctype html>
 <html lang="en">
 <head>
@@ -505,6 +510,7 @@ export function layout(env: Env, options: { title: string; body: Raw; isBare?: b
 <link rel="icon" href="/favicon.ico" sizes="32x32">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <meta name="theme-color" content="#111214">
+${options.head ?? ""}
 <style>${raw(STYLES)}</style>
 </head>
 <body>

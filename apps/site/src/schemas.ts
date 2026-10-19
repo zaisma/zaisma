@@ -210,7 +210,7 @@ export const GAME_CHECK = object(GAME_CHECK_FIELDS);
 
 export const IMAGE = object({
   id: idOf("image"),
-  kind: choice({ cover: "landscape cover", square: "square cover, shown on phones", screenshot: "a screenshot" }),
+  kind: choice({ cover: "landscape cover", square: "square cover, shown on phones", screenshot: "a screenshot", share: "the picture shared links show instead of the cover" }),
   review_status: choice({ pending: "only you see it until it's reviewed", approved: "shown to players", rejected: "not shown" }),
   review_reason: nullable(reviewReason("Why it wasn't approved; null otherwise.")),
   width_px: countOf(),
@@ -677,6 +677,11 @@ export const WEBHOOK_DELIVERY = object({
   next_attempt_at: nullable(isoTime("When it's tried next; null unless pending.")),
   failure_message: nullable(text("Why the last try failed, with the HTTP status your server answered, like \"Answered 500; only a 2xx answer counts as delivered.\", or what the game server's onWebhook threw; null once delivered.")),
   created_at: isoTime(),
+});
+
+export const QR_CODE = object({
+  link_url: url("The address the code opens: the game's page, or a room in it."),
+  qr_code_svg: text("The QR code as an SVG document, black on white with its margin: save it as a .svg file, or turn it into a PNG at any size."),
 });
 
 export const HISTORY = object({

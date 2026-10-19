@@ -65,7 +65,8 @@ export function strictScriptProblems(page: string, contentSecurityPolicy: string
     const contentEnd = page.toLowerCase().indexOf("</script", contentStart);
     const content = page.slice(contentStart, contentEnd < 0 ? undefined : contentEnd);
     const src = attributes.get("src");
-    if (attributes.get("type")?.toLowerCase() === "application/json") {
+    // JSON blocks (html.ts's pageData, and search engines' structured data) are data browsers never run.
+    if (attributes.get("type")?.toLowerCase() === "application/json" || attributes.get("type")?.toLowerCase() === "application/ld+json") {
       if (src !== undefined) problems.push(`a JSON block with a src: ${whole}`);
       try {
         JSON.parse(content);

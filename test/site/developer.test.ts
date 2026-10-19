@@ -340,6 +340,9 @@ describe("games", () => {
     expect(page.headers.get("x-robots-tag")).toBe("noindex");
     expect(await (await SELF.fetch(`${SITE}/`)).text()).not.toContain("Quiet Game");
 
+    // A listed game needs a screenshot.
+    expect((await api("/games/quiet-game", { method: "PATCH", body: { visibility: "listed" } })).status).toBe(409);
+    await SELF.fetch(`${SITE}/api/dev/games/quiet-game/images?kind=screenshot`, { method: "POST", headers: { authorization: `Bearer ${token}` }, body: png(1280, 720) });
     await api("/games/quiet-game", { method: "PATCH", body: { visibility: "listed" } });
     expect(await (await SELF.fetch(`${SITE}/`)).text()).toContain("Quiet Game");
     await api("/games/quiet-game", { method: "PATCH", body: { visibility: "private" } });

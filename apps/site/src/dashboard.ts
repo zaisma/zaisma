@@ -62,7 +62,7 @@ interface GameAlertJson {
 }
 interface ImageJson {
   id: string;
-  kind: "cover" | "square" | "screenshot";
+  kind: "cover" | "square" | "screenshot" | "share";
   review_status: "pending" | "approved" | "rejected";
   review_reason: ReviewReasonJson | null;
   image_url: string;
@@ -237,7 +237,7 @@ export async function handleDashboard(request: Request, env: Env, path: string):
     if (action === "/images") {
       const file = form.get("file");
       if (!(file instanceof File) || file.size === 0) throw new ApiError("no_file", { message: "No image was chosen.", field: "file", fix: "Choose an image first." });
-      const kind = field("kind") === "screenshot" ? "screenshot" : field("kind") === "square" ? "square" : "cover";
+      const kind = (["screenshot", "square", "share"] as const).find((choice) => choice === field("kind")) ?? "cover";
       await call("POST", `/games/${slug}/images?kind=${kind}`, new Uint8Array(await file.arrayBuffer()));
       return back("details", "image", "#images");
     }
@@ -468,7 +468,7 @@ async function managerPage(
   } else if (section === "versions") {
     body = versionsSection(slug, loaded);
   } else if (section === "details") {
-    body = detailsSection(slug, loaded);
+    body = detailsSection(slug, loaded, (await call("GET", `/games/${slug}/qr-code`)) as unknown as QrCodeJson);
   } else if (section === "players") {
     const [reports, stats] = await Promise.all([call("GET", `/games/${slug}/reports`), call("GET", `/games/${slug}/stats?period_duration_days=30`)]);
     body = playersSection(game, reports as unknown as Reports, stats as unknown as Stats);
@@ -599,13 +599,14 @@ ${testersPanel(slug, game, testers, versions)}`;
 }
 
 /** What players see about the game, and how it plays on Zaisma; its cover and screenshots beside. */
-function detailsSection(slug: string, { game, images }: Loaded): Raw {
+function detailsSection(slug: string, { game, images }: Loaded, qrCode: QrCodeJson): Raw {
   return html`<div class="details-layout">
 <section><h2 class="rule-h" id="details">Details</h2>${detailsForm(slug, game)}
 <h2 class="rule-h" id="links">Links</h2>${linksForm(slug, game)}
 <h2 class="rule-h" id="own-servers">Your own servers</h2>${ownServersForm(slug, game)}
 <h2 class="rule-h" id="export">Export</h2>${exportPanel(slug)}</section>
-<aside><h2 class="rule-h" id="images">Cover and screenshots</h2>${imagesPanel(slug, images)}</aside>
+<aside><h2 class="rule-h" id="images">Cover and screenshots</h2>${imagesPanel(slug, images)}
+<h2 class="rule-h" id="qr-code">QR code</h2>${qrCodePanel(slug, qrCode)}</aside>
 </div>`;
 }
 
@@ -949,7 +950,7 @@ ${mode("online", "Online multiplayer", "Each on their own device. Leave the most
 </fieldset>`;
 }
 
-const KIND_LABELS: Record<ImageJson["kind"], string> = { cover: "Cover", square: "Square cover", screenshot: "Screenshot" };
+const KIND_LABELS: Record<ImageJson["kind"], string> = { cover: "Cover", square: "Square cover", screenshot: "Screenshot", share: "Share picture" };
 
 /**
  * Why Zaisma held, rejected or took something down: the reason in plain words, the content rule it's
@@ -979,6 +980,20 @@ function fixForPeople(slug: string, fix: string): Raw {
 /** A content rule, linked to where the rules page says it. */
 const ruleLink = (rule: ContentRule) => html`The rule: <a href="/legal/content-rules#${rule}" target="_blank" rel="noopener">${CONTENT_RULES[rule]}</a>`;
 
+interface QrCodeJson {
+  link_url: string;
+  qr_code_svg: string;
+}
+
+/** The game's link as a QR code, for posters, booths and trailers: SVG for print, PNG for anything else. */
+function qrCodePanel(slug: string, qrCode: QrCodeJson): Raw {
+  const svgUrl = `data:image/svg+xml;base64,${btoa(qrCode.qr_code_svg)}`;
+  return html`<div class="qr-panel"><img class="qr-image" src="${svgUrl}" alt="QR code for ${qrCode.link_url}" width="160" height="160">
+<div class="stack"><p class="muted">Scans to ${qrCode.link_url.replace(/^https:\/\//, "")}. Players get the same code from Share on the game page.</p>
+<div class="row"><a class="btn ghost" href="${svgUrl}" download="${slug}-qr-code.svg">Download SVG</a><button class="btn ghost" type="button" id="qr-png" data-svg="${svgUrl}" data-name="${slug}-qr-code.png">Download PNG</button></div></div></div>
+${scriptTags(QR_PNG_SCRIPT)}`;
+}
+
 function imagesPanel(slug: string, images: ImageJson[]): Raw {
   const shown = images.filter((i) => i.review_status !== "rejected");
   // Only the latest few that weren't approved, each with why; rejected images are never served, so no picture.
@@ -994,8 +1009,8 @@ ${shown.length
       )}</div>`
     : html`<p class="muted">No cover yet. Players see it on the game page and in lists.</p>`}
 <form class="stack" method="post" action="/dashboard/${slug}/images" enctype="multipart/form-data">
-<div class="row"><select name="kind" aria-label="Kind"><option value="cover">Cover</option><option value="square">Square cover</option><option value="screenshot">Screenshot</option></select><input type="file" name="file" accept="image/png,image/jpeg,image/webp" required aria-label="Image"></div>
-<p class="hint">Players see your cover alone as your game's card, so put your game's name or logo on it. The cover is landscape (16:9 shows best). The square cover is optional: phones show it instead, where a landscape one would be small; at least 512 px. Screenshots are just the game. PNG, JPEG or WebP, up to 5 MB, at least 320 px a side.</p>
+<div class="row"><select name="kind" aria-label="Kind"><option value="cover">Cover</option><option value="square">Square cover</option><option value="screenshot">Screenshot</option><option value="share">Share picture</option></select><input type="file" name="file" accept="image/png,image/jpeg,image/webp" required aria-label="Image"></div>
+<p class="hint">Players see your cover alone as your game's card, so put your game's name or logo on it. The cover is landscape (16:9 shows best). The square cover is optional: phones show it instead, where a landscape one would be small; at least 512 px. Screenshots are just the game. The share picture is optional: links to your game show it in chats and social sites instead of the cover (1200 by 630 shows best). PNG, JPEG or WebP, up to 5 MB, at least 320 px a side.</p>
 <button class="btn" type="submit">Add image</button>
 </form>`;
 }
@@ -1170,6 +1185,9 @@ const STYLES = `
 .link-row .hint{margin:0}
 .later summary{min-height:44px;display:inline-flex;align-items:center;font-size:15px}
 .later[open]{flex-basis:100%}
+.qr-panel{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
+.qr-image{flex:none;width:160px;height:160px;background:#fff;box-shadow:0 0 0 1px #000}
+.qr-panel .stack{flex:1;min-width:180px}
 .thumbs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:16px}
 .thumbs figure{margin:0}
 .thumbs img{width:100%;aspect-ratio:16/9;object-fit:cover;background:var(--pic);display:block}
@@ -1258,6 +1276,25 @@ const GAME_STYLES = `
 `;
 
 // Times in the reader's own time zone, and "publish later" sent as an exact moment.
+// The QR code's PNG, drawn from its SVG at 1024 px in the browser, so the API only ever answers one format.
+const QR_PNG_SCRIPT = pageScript("qr-png", `const button = document.getElementById("qr-png");
+if (button) button.onclick = () => {
+  const image = new Image();
+  image.onload = () => {
+    const canvas = Object.assign(document.createElement("canvas"), { width: 1024, height: 1024 });
+    const context = canvas.getContext("2d");
+    context.imageSmoothingEnabled = false;
+    context.drawImage(image, 0, 0, 1024, 1024);
+    canvas.toBlob((blob) => {
+      const link = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: button.dataset.name });
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    }, "image/png");
+  };
+  image.src = button.dataset.svg;
+};
+`);
+
 const LOCAL_TIMES_SCRIPT = pageScript("local-times", `document.querySelectorAll("time[data-local]").forEach(t=>{t.textContent=new Date(t.dateTime).toLocaleString(undefined,{dateStyle:"medium",timeStyle:"short"})});
 document.querySelectorAll(".later form, form[data-local-time]").forEach(f=>{const l=f.elements.local;if(!l)return;const iso=l.dataset.iso;if(iso){const d=new Date(iso);l.value=new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16)}f.addEventListener("submit",()=>{f.elements.at.value=l.value?new Date(l.value).toISOString():""})});
 // Cancel puts a change form back as it was and closes it.

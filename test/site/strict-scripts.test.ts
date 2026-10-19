@@ -123,7 +123,7 @@ describe("the site's script files", () => {
 
   it("are each loaded by some page", () => {
     // A script no page loads is left over; pages behind a sign-in load the rest, in accounts.test.ts.
-    const signedInOnly = ["key-wizard", "access-choices", "connect-app", "keys-check", "new-password", "passkey-add", "passkey-confirm", "social-settings", "local-times", "upload", "friends", "joined", "kept", "back-to-app", "username-check", "protect-account"];
+    const signedInOnly = ["key-wizard", "access-choices", "connect-app", "keys-check", "new-password", "passkey-add", "passkey-confirm", "social-settings", "local-times", "upload", "friends", "joined", "kept", "back-to-app", "username-check", "protect-account", "qr-png"];
     const names = new Set([...loaded].map((path) => path.slice("/js/".length).replace(/\.[0-9a-f]{16}\.js$/, "")));
     expect(pageScripts().map((script) => script.name).filter((name) => !names.has(name) && !signedInOnly.includes(name))).toEqual([]);
   });

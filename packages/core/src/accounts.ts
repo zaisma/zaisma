@@ -21,6 +21,8 @@ export interface Account extends SocialSettings {
   password_changed_at_ms: number | null;
   /** Appear offline on /friends: hidden from Online and Playing now for everyone (0 or 1). */
   is_appearing_offline: number;
+  /** Streamer mode: game pages hide room codes until the player shows them (0 or 1). */
+  is_streamer_mode_on: number;
   /** What the owner wrote on their profile (profiles.ts): others see it once profile_check_status is passed. */
   display_name: string | null;
   bio: string | null;
@@ -276,6 +278,7 @@ export async function createAccount(database: D1Database, newAccount: { id: stri
     ...socialModeSettings(socialMode, newAccount.ageBand),
     password_changed_at_ms: newAccount.hasPassword ? createdAtMs : null,
     is_appearing_offline: 0,
+    is_streamer_mode_on: 0,
     display_name: null,
     bio: null,
     link_urls: "",
@@ -572,4 +575,9 @@ export async function recentlyPlayed(database: D1Database, accountId: string, ma
     .bind(accountId, maximumMinimumAgeYears, KEPT_PLAYED_GAME_COUNT)
     .all<{ slug: string; played_at_ms: number }>();
   return results;
+}
+
+/** Turns streamer mode on or off: game pages hide room codes until the player shows them. */
+export async function setStreamerMode(database: D1Database, accountId: string, isOn: boolean): Promise<void> {
+  await database.prepare("UPDATE accounts SET is_streamer_mode_on = ?, updated_at_ms = ? WHERE id = ?").bind(isOn ? 1 : 0, Date.now(), accountId).run();
 }

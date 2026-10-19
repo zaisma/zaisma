@@ -11,6 +11,8 @@ export interface Env {
   /** Players' cloud saves, kept apart from game files. */
   SAVES: R2Bucket;
   ASSETS: Fetcher;
+  /** Cloudflare Images, for each game picture's share card JPEG; without it the card is the picture itself. */
+  IMAGES?: ImagesBinding;
   SCAN_QUEUE: Queue<ScanJob>;
   /** Every game's own database, in the rooms Worker, for the developer API (game-database.ts). */
   GAME_DATABASES?: Service<GameDatabaseService>;
