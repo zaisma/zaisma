@@ -55,6 +55,7 @@ import {
 import { deletePrefix } from "./upload.ts";
 import { chooseReadPictures, gatherEvidence, readCode, readPictures, type PictureFile, type ReadCode, type ReadPictures, type ReaderPicture } from "./review-readers.ts";
 import { judgeVersion, type JudgeVersion } from "./review-judge.ts";
+import { activeReviewPrecedents, draftMiss, draftWithAi, type ReviewPrecedentDrafter } from "./review-precedents.ts";
 import { tellWebhooks } from "./webhooks.ts";
 import { sendAlert } from "./email.ts";
 import type { Env } from "./env.ts";
@@ -74,6 +75,8 @@ export interface ScanDeps {
   readCode: ReadCode;
   readPictures: ReadPictures;
   judge: JudgeVersion;
+  /** Drafts the review precedent for a miss (review-precedents.ts); left out where nothing should call a model. */
+  draft?: ReviewPrecedentDrafter;
 }
 
 /**
@@ -105,7 +108,7 @@ function connectedProviders(env: Env): string[] {
   return [...(env.ARACHNID_SHIELD_KEY ? ["arachnid-shield"] : []), ...(env.PHOTODNA_KEY && env.PHOTODNA ? ["photodna"] : [])];
 }
 
-export const scanDeps = (env: Env, priority: PhotoDnaPriority = "upload"): ScanDeps => ({ images: imageMatcher(env, priority), readCode, readPictures, judge: judgeVersion });
+export const scanDeps = (env: Env, priority: PhotoDnaPriority = "upload"): ScanDeps => ({ images: imageMatcher(env, priority), readCode, readPictures, judge: judgeVersion, draft: draftWithAi });
 
 export async function handleScanBatch(batch: MessageBatch<ScanJob>, env: Env, injectedDeps?: ScanDeps): Promise<void> {
   const deps = injectedDeps ?? scanDeps(env);
@@ -152,6 +155,8 @@ export async function scanVersion(env: Env, versionId: string, deps: ScanDeps = 
   await saveScan(env.DB, version.id, decision, report);
   // Counts toward the owner's judged reviews a day (step 4e); re-checks never get here.
   if (isJudged(report)) await env.DB.prepare("UPDATE versions SET judged_at_ms = ? WHERE id = ?").bind(report.finished_at_ms, version.id).run();
+  // A hold the AI judge made may turn out to be a miss: draft the ruling now, so releasing it can teach the review in the same click.
+  if (decision === "held" && deps.draft && report.ai !== null && "judge_model" in report.ai && report.ai.verdict === "hold") await draftMiss(env, { versionId: version.id, decision: "pass" }, deps.draft);
   if (decision === "approved") {
     await passVersion(env, version, "Passed the scan");
   } else {
@@ -326,7 +331,8 @@ async function reviewWithAi(env: Env, version: Version, game: Game, input: Revie
     }
   }
 
-  // (f) The judge.
+  // (f) The judge, which reads the review precedents in force.
+  const reviewPrecedents = await activeReviewPrecedents(env.DB);
   const answer = await deps.judge(env.ANTHROPIC_API_KEY, env.REVIEW_JUDGE_MODEL, {
     title: game.title,
     description: game.description,
@@ -334,18 +340,19 @@ async function reviewWithAi(env: Env, version: Version, game: Game, input: Revie
     items: gathered.items,
     pictures: gathered.flaggedPictures,
     ...(input.reported !== undefined ? { reported: input.reported } : {}),
+    reviewPrecedents,
   });
   await addReviewUsage(env.DB, answer.costCents);
   await alertReviewBudget(env, budgetCents);
   cost = { cost_cents: cost.cost_cents + answer.costCents, input_token_count: cost.input_token_count + answer.inputTokenCount, output_token_count: cost.output_token_count + answer.outputTokenCount };
   findings.push(...answer.findings);
-  return { ai: { ...models, verdict: answer.verdict, reused_from_version_id: null, summary: answer.summary, ...cost }, findings, isChildSafety: answer.isChildSafety || hasChildSafetyItem, ...read };
+  return { ai: { ...models, verdict: answer.verdict, reused_from_version_id: null, summary: answer.summary, ...(answer.followedReviewPrecedentNumbers.length ? { followed_review_precedent_ids: answer.followedReviewPrecedentNumbers.map((number) => reviewPrecedents[number - 1]!.id) } : {}), ...cost }, findings, isChildSafety: answer.isChildSafety || hasChildSafetyItem, ...read };
 }
 
 /** The owner's versions the judge ran on in the last 24 hours, across all their games. */
 async function judgedReviewCount(env: Env, ownerId: string, nowMs = Date.now()): Promise<number> {
   const row = await env.DB
-    .prepare("SELECT COUNT(*) AS judged_count FROM versions JOIN games ON games.id = versions.game_id WHERE games.owner_id = ? AND versions.judged_at_ms > ?")
+    .prepare("SELECT COUNT(*) AS judged_count FROM versions JOIN games ON games.id = versions.game_id WHERE games.owner_id = ? AND versions.judged_at_ms > ? AND versions.is_review_refunded = 0")
     .bind(ownerId, nowMs - 24 * 60 * 60 * 1000)
     .first<{ judged_count: number }>();
   return row?.judged_count ?? 0;

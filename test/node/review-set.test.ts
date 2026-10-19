@@ -5,6 +5,8 @@ import { ALLOWED_CONTENT, REVIEWED_CONTENT_RULES } from "@zaisma/core";
 import { REVIEW_SET_PROTECTIONS, caseOutcome, checkCase, summarizeRun, type CaseResult } from "../../apps/site/src/review-set.ts";
 // @ts-expect-error plain JavaScript without type declarations
 import { BASELINE_FINGERPRINT_SHA256, reviewFingerprint } from "../../scripts/review-set/fingerprint.mjs";
+// @ts-expect-error plain JavaScript without type declarations
+import { GENERATED_PATH, publicCasesSource } from "../../scripts/review-set/bundle-public.mjs";
 
 const ROOT = join(import.meta.dirname, "../..");
 const CASES_DIRECTORY = join(ROOT, "review-set/cases");
@@ -51,6 +53,12 @@ describe("the public cases", () => {
         for (const host of hosts) expect(host.endsWith(".invalid") || host === "zaisma.com", `${gameCase.name}/${path}: ${host}`).toBe(true);
       }
     }
+  });
+});
+
+describe("the public cases in the Worker", () => {
+  it("are current: run node scripts/review-set/bundle-public.mjs after changing a public case", () => {
+    expect(readFileSync(GENERATED_PATH, "utf8")).toBe(publicCasesSource());
   });
 });
 

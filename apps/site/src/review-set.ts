@@ -11,6 +11,8 @@ import {
   sniffMedia,
   staticScan,
   type ContentRule,
+  type JudgedReviewPrecedent,
+  type ReviewPrecedent,
   type ScanReport,
 } from "@zaisma/core";
 import { gatherEvidence, readCode, readPictures, type PictureFile, type ReadCode, type ReadPictures, type ReaderPicture } from "./review-readers.ts";
@@ -93,6 +95,21 @@ export interface CaseResult {
   output_token_count: number;
 }
 
+/** The ruling's own stand-in as a case: honest for a pass ruling, a rule-breaker for a hold ruling. */
+export function standInCase(precedent: ReviewPrecedent): ReviewCase {
+  return {
+    name: `review-precedent-${precedent.id}`,
+    title: precedent.case_title || precedent.title,
+    description: precedent.case_description,
+    is_honest: precedent.decision === "pass",
+    content_rule: precedent.decision === "hold" ? precedent.content_rule : null,
+    protection: null,
+    why: precedent.why || precedent.applies_when,
+    is_private: true,
+    files: [{ path: "index.html", bytes: new TextEncoder().encode(precedent.case_index_html) }],
+  };
+}
+
 const CASE_KEYS = ["title", "description", "is_honest", "content_rule", "protection", "why"];
 
 /** The problems with a case's case.json, each one plain sentence; empty when it's fine. */
@@ -125,6 +142,7 @@ export async function reviewCase(
   env: Pick<Env, "ANTHROPIC_API_KEY" | "REVIEW_READER_MODEL" | "REVIEW_JUDGE_MODEL">,
   gameCase: ReviewCase,
   deps: { readCode: ReadCode; readPictures: ReadPictures; judge: JudgeVersion } = { readCode, readPictures, judge: judgeVersion },
+  reviewPrecedents: JudgedReviewPrecedent[] = [],
 ): Promise<CaseRun> {
   const apiKey = env.ANTHROPIC_API_KEY ?? "";
   const files = [...gameCase.files].sort((first, second) => (first.path < second.path ? -1 : first.path > second.path ? 1 : 0));
@@ -151,7 +169,7 @@ export async function reviewCase(
     },
     deps,
   );
-  const answer = await deps.judge(apiKey, env.REVIEW_JUDGE_MODEL, { title: gameCase.title, description: gameCase.description, fileCount: files.length, items: gathered.items, pictures: gathered.flaggedPictures });
+  const answer = await deps.judge(apiKey, env.REVIEW_JUDGE_MODEL, { title: gameCase.title, description: gameCase.description, fileCount: files.length, items: gathered.items, pictures: gathered.flaggedPictures, reviewPrecedents });
   const findings = [...staticResult.findings, ...gathered.findings, ...answer.findings];
   const isChildSafety = answer.isChildSafety || gathered.items.some((evidenceItem) => evidenceItem.kind === "content" && evidenceItem.subject === "child_safety");
   return {

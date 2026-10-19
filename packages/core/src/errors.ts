@@ -218,6 +218,12 @@ export const ADMIN_ERROR_CODES = {
   bad_can_ai_apply_alone: { httpStatus: 400, meaning: "can_ai_apply_alone isn't true or false, or is true for a precedent that isn't a dismissal." },
   bad_precedent_status: { httpStatus: 400, meaning: "precedent_status isn't active, proposed, retired or all." },
 
+  // Review precedents
+  no_review_precedent: { httpStatus: 404, meaning: "There's no review precedent with that ID." },
+  not_approvable: { httpStatus: 409, meaning: "Only a drafted or failed review precedent can be approved; one in force is retired and set again with a new decision." },
+  incomplete_review_precedent: { httpStatus: 409, meaning: "The review precedent has no name, no 'applies when', no test game, or (for a hold) no content rule, so it can't be tested yet." },
+  bad_review_precedent_status: { httpStatus: 400, meaning: "review_precedent_status isn't proposed, testing, active, failed, retired or all." },
+
   // The forum queue
   bad_reply_text_markdown: { httpStatus: 400, meaning: "reply_text_markdown is blank or over 8,000 characters." },
   bad_known_issue: { httpStatus: 400, meaning: "known_issue isn't { title, workaround, roadmap_item } with a title, or null." },

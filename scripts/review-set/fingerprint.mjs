@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 /** The files whose every line can change a verdict (the readers, the judge and the evidence), and the wrangler vars that pick their models. */
-export const REVIEW_FINGERPRINT_FILES = ["apps/site/src/review-readers.ts", "apps/site/src/review-judge.ts", "packages/core/src/review-evidence.ts"];
+export const REVIEW_FINGERPRINT_FILES = ["apps/site/src/review-readers.ts", "apps/site/src/review-judge.ts", "packages/core/src/review-evidence.ts", "packages/core/src/review-precedents.ts"];
 export const REVIEW_MODEL_VARS = ["REVIEW_READER_MODEL", "REVIEW_JUDGE_MODEL"];
 
 /**

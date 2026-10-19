@@ -286,6 +286,7 @@ Where it shows:
 - **A version's `review_reason`**: a person rejected it, or a report paused the update; `null` otherwise. Its `findings` are what the scan found that holds or rejects it, each `{"code", "severity", "message", "content_rule", "path", "fix"}`, where `severity` is `reject` (it can't go live) or `hold` (a person at Zaisma looks first, usually within a day).
 - **An image's `review_reason`**: why it wasn't approved.
 - **`get_history`**: each hold, rejection and takedown with its `review_reason`, kept after it's over.
+- **A hold released because the review was wrong:** when a person at Zaisma releases a hold the AI review made, `get_history` says "A person looked and released this hold. It didn't count against your daily reviews." with the version's ID, and that review is given back: it doesn't count toward your 5 judged reviews a day.
 - **Errors:** `game_removed` and `not_approved` put the reason's code and message in theirs, and its fix as theirs.
 
 The list lives in `REVIEW_CODES` and the rules in `CONTENT_RULES` (`packages/core/src/review.ts`), and a test keeps this page in step with them. Rule says which content rule a code is about: one rule always, `none` when it breaks none, or `picked` when the person deciding picks it each time.

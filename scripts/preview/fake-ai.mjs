@@ -91,6 +91,19 @@ function checkProfile(text) {
   return { verdict: "ok", reason: "" };
 }
 
+// A draft ruling for a miss the review made (review-precedents.ts): a fixed one with a stand-in game.
+function draftRuling(text) {
+  const decision = text.match(/<decision>(\w+)<\/decision>/)?.[1] ?? "pass";
+  return {
+    title: decision === "pass" ? "Menu of fixed phrases" : "A real address in a level",
+    applies_when: decision === "pass" ? "A menu of fixed phrases players pick from; nothing typed reaches another player." : "A level shows the street address of a real private person.",
+    why: "A person decided the review was wrong. (Preview stand-in AI.)",
+    case_title: "Stand-in game",
+    case_description: "Written to show the pattern.",
+    case_index_html: "<!doctype html><title>Stand-in</title><p>[a menu of fixed phrases]</p><button>Good game</button>",
+  };
+}
+
 function scan(text) {
   const reported = text.match(/a player reported it[^:]*: (.*)/)?.[1] ?? "";
   if (/password|login|steam|card/i.test(reported)) {
@@ -107,9 +120,11 @@ export function startFakeAi(port) {
       req.on("data", (c) => (body += c));
       req.on("end", () => {
         const request = JSON.parse(body || "{}");
-        const text = (request.messages?.[0]?.content ?? []).map((b) => b.text ?? "").join("\n");
-        const system = String(request.system ?? "");
-        const answer = system.startsWith("You sort reports") ? sortReport(text, system) : system.startsWith("You sort topics") ? sortTopic(text) : system.startsWith("You check forum posts") ? checkPost(text) : system.startsWith("You check player profiles") ? checkProfile(text) : scan(text);
+        const content = request.messages?.[0]?.content ?? [];
+        const text = (Array.isArray(content) ? content : [{ text: String(content) }]).map((b) => b.text ?? "").join("\n");
+        // The system prompt is a string, or a list of blocks (the review's and the drafts', cached).
+        const system = Array.isArray(request.system) ? request.system.map((b) => b.text ?? "").join("\n") : String(request.system ?? "");
+        const answer = system.startsWith("You help Zaisma's AI game review learn") ? draftRuling(text) : system.startsWith("You sort reports") ? sortReport(text, system) : system.startsWith("You sort topics") ? sortTopic(text) : system.startsWith("You check forum posts") ? checkPost(text) : system.startsWith("You check player profiles") ? checkProfile(text) : scan(text);
         res.writeHead(200, { "content-type": "application/json" });
         res.end(
           JSON.stringify({

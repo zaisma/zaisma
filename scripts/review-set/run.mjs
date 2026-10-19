@@ -6,12 +6,14 @@
 //   npm run review-set -- --case <name>         only these cases (repeat --case); records nothing
 //   npm run review-set -- --var REVIEW_JUDGE_MODEL=<id>   try another model; records nothing
 //   npm run review-set -- --json                the summary and results as JSON
+//   npm run review-set -- --precedents <file>   with the review precedents in force, and their stand-in cases run too; records nothing
+//   npm run review-set -- --precedents <file> --save-private-cases   also writes those stand-in cases into the private folder
 // Public cases are in review-set/cases/, private ones in $ZAISMA_REVIEW_SET_PRIVATE_DIR/cases/ (by default
 // ~/zaisma-private/security/review-set, the private zaisma/security repo). The API key comes from ANTHROPIC_API_KEY,
 // else apps/site/.dev.vars in this checkout or the main one. It's never printed.
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -34,6 +36,8 @@ let runCount = 3;
 const caseNames = [];
 const varOverrides = {};
 let isJson = false;
+let precedentsFile = "";
+let isSavingPrivateCases = false;
 for (let index = 2; index < process.argv.length; index++) {
   const argument = process.argv[index];
   if (argument === "--runs") {
@@ -47,8 +51,12 @@ for (let index = 2; index < process.argv.length; index++) {
     const match = /^([A-Z_]+)=(.+)$/.exec(process.argv[++index] ?? "");
     if (!match) stop("--var takes NAME=value, like --var REVIEW_JUDGE_MODEL=claude-opus-5-5.");
     varOverrides[match[1]] = match[2];
-  } else if (argument === "--json") isJson = true;
-  else stop(`Unknown option ${argument}. The options are --runs <count>, --case <name>, --var NAME=value and --json.`);
+  } else if (argument === "--precedents") {
+    precedentsFile = process.argv[++index] ?? "";
+    if (!precedentsFile) stop("--precedents takes the file list_review_precedents saved: { \"review_precedents\": [...] }.");
+  } else if (argument === "--save-private-cases") isSavingPrivateCases = true;
+  else if (argument === "--json") isJson = true;
+  else stop(`Unknown option ${argument}. The options are --runs <count>, --case <name>, --var NAME=value, --precedents <file>, --save-private-cases and --json.`);
 }
 
 // The review's code, bundled for Node (Node can't strip packages/core's TypeScript by itself).
@@ -97,6 +105,31 @@ function loadCases(directory, isPrivate) {
 const hasPrivateCases = existsSync(join(PRIVATE_DIRECTORY, "cases"));
 if (!hasPrivateCases && !isJson) console.error(`No private cases at ${PRIVATE_DIRECTORY}/cases: running the public ones. Clone them with: gh repo clone zaisma/security ~/zaisma-private/security`);
 let cases = [...loadCases(PUBLIC_DIRECTORY, false), ...loadCases(PRIVATE_DIRECTORY, true)];
+
+// The review precedents in force (admin MCP list_review_precedents), and the stand-in case each one brought.
+let reviewPrecedents = [];
+if (precedentsFile) {
+  let exported;
+  try {
+    exported = JSON.parse(readFileSync(resolve(precedentsFile), "utf8"));
+  } catch (error) {
+    stop(`${precedentsFile} can't be read (${error.message}).`);
+  }
+  const active = (exported.review_precedents ?? []).filter((precedent) => precedent.review_precedent_status === "active");
+  reviewPrecedents = active.map(({ id, title, applies_when, decision, content_rule, why }) => ({ id, title, applies_when, decision, content_rule, why }));
+  const standIns = active.filter((precedent) => precedent.case_index_html).map((precedent) => review.standInCase(precedent));
+  if (isSavingPrivateCases) {
+    for (const standIn of standIns) {
+      const folder = join(PRIVATE_DIRECTORY, "cases", standIn.name);
+      if (existsSync(folder)) continue;
+      mkdirSync(join(folder, "game"), { recursive: true });
+      const { title, description, is_honest, content_rule, protection, why } = standIn;
+      writeFileSync(join(folder, "case.json"), `${JSON.stringify({ title, description, is_honest, content_rule, protection, why }, null, 2)}\n`);
+      writeFileSync(join(folder, "game/index.html"), standIn.files[0].bytes);
+    }
+  }
+  cases = [...cases, ...standIns.filter((standIn) => !cases.some((gameCase) => gameCase.name === standIn.name))];
+} else if (isSavingPrivateCases) stop("--save-private-cases needs --precedents <file>.");
 if (caseNames.length) {
   const unknown = caseNames.filter((name) => !cases.some((gameCase) => gameCase.name === name));
   if (unknown.length) stop(`No case named ${unknown.join(", ")}.`);
@@ -126,7 +159,7 @@ async function runCase(gameCase) {
   const runs = [];
   for (let run = 0; run < runCount; run++) {
     try {
-      runs.push(await review.reviewCase({ ANTHROPIC_API_KEY: apiKey, ...modelVars }, gameCase));
+      runs.push(await review.reviewCase({ ANTHROPIC_API_KEY: apiKey, ...modelVars }, gameCase, undefined, reviewPrecedents));
     } catch (error) {
       if (!isJson) console.error(`${gameCase.name}: run ${run + 1} failed (${error.message}), counted as held like the scan would.`);
       runs.push({ decision: "held", finding_codes: ["ai_review_failed"], is_child_safety: false, declined_attempt_count: 0, is_judge_declined: false, cost_cents: 0, input_token_count: 0, output_token_count: 0 });
@@ -148,7 +181,7 @@ results.sort((first, second) => (first.name < second.name ? -1 : 1));
 const summary = review.summarizeRun(results);
 
 // Record a full run.
-const isFullRun = !caseNames.length && !Object.keys(varOverrides).length && runCount >= MINIMUM_RECORDED_RUN_COUNT;
+const isFullRun = !caseNames.length && !Object.keys(varOverrides).length && !precedentsFile && runCount >= MINIMUM_RECORDED_RUN_COUNT;
 if (isFullRun) {
   const record = (resultsToRecord) => ({
     fingerprint_sha256: reviewFingerprint(ROOT),
@@ -180,7 +213,7 @@ if (isJson) {
       `Judge declined: ${summary.declined_attempt_count} tries, ${summary.declined_review_count} of ${cases.length * runCount} reviews every try. ` +
       `${runCount} run${runCount === 1 ? "" : "s"} per case with ${Object.entries(modelVars).map(([name, value]) => `${name}=${value}`).join(", ")}.`,
   );
-  console.log(isFullRun ? `Recorded in review-set/last-run.json${hasPrivateCases ? " and the private last-run.json" : ""}.` : "Not recorded: only a full run (every case, the configured models, at least 3 runs) is.");
+  console.log(isFullRun ? `Recorded in review-set/last-run.json${hasPrivateCases ? " and the private last-run.json" : ""}.` : "Not recorded: only a full run (every case, the configured models, at least 3 runs, no --precedents) is.");
   console.log(summary.is_passing ? "PASS" : "FAIL");
 }
 process.exit(summary.is_passing ? 0 : 1);

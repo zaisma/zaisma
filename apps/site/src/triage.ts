@@ -11,6 +11,7 @@ import {
   addAiUsage,
   aiUsage,
   gameById,
+  isContentRule,
   reportLabel,
   reportPictureKey,
   versionById,
@@ -31,6 +32,7 @@ import type { Env } from "./env.ts";
 import { pauseForReport } from "./report.ts";
 import { tellWebhooks } from "./webhooks.ts";
 import { holdKnownImages, inspectVersion, summarize, versionFiles, type ScanDeps } from "./scan.ts";
+import { draftMiss, draftWithAi, type ReviewPrecedentDrafter } from "./review-precedents.ts";
 
 /**
  * AI report triage (docs/DECISIONS.md). Every few minutes, new reports are sorted by severity,
@@ -80,6 +82,8 @@ export interface TriageDeps {
   ai: (apiKey: string, model: string, input: TriageInput) => Promise<TriageAnswer>;
   /** Picks the spot-checks. */
   random?: () => number;
+  /** Drafts the review precedent for a report about a game the AI passed (review-precedents.ts); left out where nothing should call a model. */
+  draftReviewPrecedent?: ReviewPrecedentDrafter;
 }
 
 /** Reports sorted per run. A run every 5 minutes covers far more than the beta gets. */
@@ -90,7 +94,7 @@ const SPOT_CHECK_PCT = 5;
 /** After this many failed tries a report goes to a person unsorted. */
 const MAXIMUM_ATTEMPT_COUNT = 3;
 
-export async function triageReports(env: Env, deps: TriageDeps = { ai: aiTriage }): Promise<number> {
+export async function triageReports(env: Env, deps: TriageDeps = { ai: aiTriage, draftReviewPrecedent: draftWithAi }): Promise<number> {
   const { results } = await env.DB.prepare("SELECT * FROM reports WHERE report_status = 'open' AND triaged_at_ms IS NULL AND triage_attempt_count < 5 ORDER BY reported_at_ms, rowid LIMIT ?").bind(REPORT_COUNT_PER_RUN).all<Report>();
   if (!results.length) return 0;
   const { results: precedents } = await env.DB.prepare("SELECT * FROM precedents WHERE precedent_status = 'active' ORDER BY created_at_ms").all<Precedent>();
@@ -122,7 +126,7 @@ interface Outcome {
   recheck?: string;
 }
 
-async function triageOne(env: Env, report: Report, deps: Required<TriageDeps>, precedents: Precedent[], lastTry: boolean): Promise<void> {
+async function triageOne(env: Env, report: Report, deps: Required<Pick<TriageDeps, "ai" | "random">> & TriageDeps, precedents: Precedent[], lastTry: boolean): Promise<void> {
   const game = await gameById(env.DB, report.game_id);
   if (!game) {
     await env.DB.prepare("UPDATE reports SET triaged_at_ms = ? WHERE id = ?").bind(Date.now(), report.id).run();
@@ -165,6 +169,11 @@ async function triageOne(env: Env, report: Report, deps: Required<TriageDeps>, p
     .run();
   // A bug the developer sees in get_reports reaches their webhooks too: never child safety, and only with the player's words.
   if (outcome.isBugReport && outcome.severityIndex > 0 && report.player_text) await tellWebhooks(env, "bug_reported", game.id, { bugReport: { ...report, triage: JSON.stringify(outcome.triage) } });
+  // A report about a content rule on a game the AI passed may be a miss: draft the ruling now, so taking the game down can teach the review in the same click.
+  const category = outcome.triage.category;
+  if (deps.draftReviewPrecedent && report.version_id && !report.player_id && isContentRule(category) && category !== "copyright" && category !== "child_safety" && outcome.severityIndex !== SEVERITY.child_safety) {
+    await draftMiss(env, { versionId: report.version_id, decision: "hold", reportGroupId: outcome.reportGroupId ?? report.id, reason: outcome.triage.summary, contentRule: category }, deps.draftReviewPrecedent);
+  }
   if (outcome.recheck) await env.SCAN_QUEUE.send({ versionId: outcome.recheck, recheck: { reportId: report.id } });
   await alertAfterTriage(env, report, game, outcome);
 }

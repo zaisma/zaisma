@@ -109,6 +109,9 @@ describe("admin MCP", () => {
       "get_topic",
       "decide_topic",
       "decide_post",
+      "list_review_precedents",
+      "approve_review_precedent",
+      "retire_review_precedent",
       "list_chat_reviews",
       "decide_chat_review",
       "list_publishing_accounts",
@@ -228,6 +231,36 @@ describe("admin MCP", () => {
     expect((await data("list_precedents", { precedent_status: "retired" })).precedents.map((listed: { id: string }) => listed.id)).toEqual([set.precedent.id]);
     expect((await data("retire_precedent", { precedent_id: changed.precedent.id })).precedent.precedent_status).toBe("retired");
     expect(await refusal("list_precedents", { precedent_status: "in_force" })).toMatchObject({ code: "bad_precedent_status" });
+  });
+
+  it("lists, tests and retires review precedents", async () => {
+    await env.DB.exec("DELETE FROM review_precedents;");
+    const insert = (id: string, status: string, caseHtml: string) =>
+      env.DB
+        .prepare("INSERT INTO review_precedents (id, title, applies_when, decision, content_rule, why, review_precedent_status, case_title, case_description, case_index_html, test_result, created_by, created_at_ms, updated_at_ms) VALUES (?, 'Phrase menu', 'A menu of fixed phrases.', 'pass', 'chat', 'Fixed phrases.', ?, 'Phrase menu', 'A tiny game.', ?, ?, 'ai', 1000, 1000)")
+        .bind(id, status, caseHtml, status === "failed" ? JSON.stringify({ is_passing: false, cases: [], summary: "Didn't hold." }) : null)
+        .run();
+    await insert("review_precedent_drafted0001", "proposed", "<p>stand-in</p>");
+    await insert("review_precedent_nogame00001", "proposed", "");
+    await insert("review_precedent_failed00001", "failed", "<p>stand-in</p>");
+    await insert("review_precedent_active00001", "active", "<p>stand-in</p>");
+    const listed = (await data("list_review_precedents")).review_precedents;
+    expect(listed.map((precedent: { id: string }) => precedent.id)).toHaveLength(4);
+    expect(listed[0]).toMatchObject({ review_precedent_status: "proposed", decision: "pass", content_rule: "chat", test_game: { title: "Phrase menu", index_html: "<p>stand-in</p>" }, test_summary: null });
+    expect(listed.find((precedent: { id: string }) => precedent.id === "review_precedent_nogame00001").test_game).toBeNull();
+    expect(listed.find((precedent: { id: string }) => precedent.id === "review_precedent_failed00001").test_summary).toBe("Didn't hold.");
+    expect((await data("list_review_precedents", { review_precedent_status: "active" })).review_precedents).toHaveLength(1);
+    expect(await refusal("list_review_precedents", { review_precedent_status: "live" })).toMatchObject({ code: "bad_review_precedent_status" });
+
+    const tested = await data("approve_review_precedent", { review_precedent_id: "review_precedent_drafted0001" });
+    expect(tested.review_precedent).toMatchObject({ id: "review_precedent_drafted0001", review_precedent_status: "testing" });
+    expect(tested.next_steps[0]).toMatchObject({ tool: "list_review_precedents", arguments: { review_precedent_status: "testing" } });
+    expect((await data("approve_review_precedent", { review_precedent_id: "review_precedent_failed00001" })).review_precedent.review_precedent_status).toBe("testing");
+    expect(await refusal("approve_review_precedent", { review_precedent_id: "review_precedent_active00001" })).toMatchObject({ code: "not_approvable" });
+    expect(await refusal("approve_review_precedent", { review_precedent_id: "review_precedent_nogame00001" })).toMatchObject({ code: "incomplete_review_precedent" });
+    expect(await refusal("approve_review_precedent", { review_precedent_id: "review_precedent_nothere0001" })).toMatchObject({ code: "no_review_precedent", field: "review_precedent_id" });
+    expect(await refusal("approve_review_precedent", { review_precedent_id: "precedent_hard-or-boring" })).toMatchObject({ code: "wrong_id_kind" });
+    expect((await data("retire_review_precedent", { review_precedent_id: "review_precedent_active00001" })).review_precedent.review_precedent_status).toBe("retired");
   });
 
   it("lists chat the filter kept and decides it", async () => {

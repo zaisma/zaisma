@@ -41,7 +41,7 @@ describe("reviewCase", () => {
         },
         judge: async (_key, model, brief) => {
           seen.push(["judge", model, brief]);
-          return { verdict: "pass", summary: "ok", findings: [], isChildSafety: false, declinedAttemptCount: 0, costCents: 1, inputTokenCount: 5, outputTokenCount: 1 };
+          return { verdict: "pass", summary: "ok", findings: [], isChildSafety: false, followedReviewPrecedentNumbers: [], declinedAttemptCount: 0, costCents: 1, inputTokenCount: 5, outputTokenCount: 1 };
         },
       };
       return { seen, deps };
