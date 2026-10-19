@@ -321,7 +321,7 @@ export async function adminForm(env: Env, path: string, form: FormData, actor: s
     if (!isNoticeKind(noticeKind) || !reason) return gameDetail(env, game.id, "Pick the kind of notice and say what it names. The developer reads it, and it goes in the audit log too.");
     if (game.review_status === "removed") return gameDetail(env, game.id, "The game is already taken down. Restore it first if the notice should hold it instead.");
     // Zaisma doesn't judge the notice: the game is held until a fixed version is checked or a counter-notice brings it back.
-    const noticeReason = decidedReason(NOTICE_CODES[noticeKind].code, null, reason);
+    const noticeReason = decidedReason(NOTICE_CODES[noticeKind].code, null, `A ${noticeKind === "copyright" ? "copyright (DMCA)" : "defamation"} notice names this: ${reason}`);
     await setReviewStatus(env.DB, game.id, "held", noticeReason);
     await audit(env.DB, game.id, "notice-held", reason, actor, noticeReason);
     await tellWebhooks(env, "review_status_changed", game.id, {});

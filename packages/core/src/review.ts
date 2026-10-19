@@ -57,7 +57,7 @@ export const CONTENT_RULE_DETAILS: Record<ContentRule, { explanation?: string; f
     notFine: "\"Jake lives at 12 Oak St\", a celebrity's leaked phone number, the school a kid goes to, or a message that means a real threat.",
   },
   copyright: {
-    explanation: "We take it down when the owner sends a notice (see Copyright and DMCA notices).",
+    explanation: "We act on it only when the owner sends a notice (see Copyright and DMCA notices).",
     fine: "a game inspired by another (the same genre, the same mechanics), parody with your own characters, and assets used within their license.",
     notFine: "Mario in your game, a ripped soundtrack, or someone else's game uploaded as yours.",
   },

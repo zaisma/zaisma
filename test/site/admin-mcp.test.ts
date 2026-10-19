@@ -296,7 +296,7 @@ describe("admin MCP", () => {
     expect(await refusal("decide_notice", { slug: "nothere", decision: "hold", notice_kind: "defamation", why: "x" })).toMatchObject({ code: "no_game", field: "slug" });
 
     const held = await data("decide_notice", { slug: "test-game", decision: "hold", notice_kind: "defamation", why: "The ending calls Emma Clarke the town's thief." });
-    expect(held).toMatchObject({ decision: "hold", game: { review_status: "held", review_reason: { code: "defamation_notice", content_rule: "defamation", message: "The ending calls Emma Clarke the town's thief." } } });
+    expect(held).toMatchObject({ decision: "hold", game: { review_status: "held", review_reason: { code: "defamation_notice", content_rule: "defamation", message: "A defamation notice names this: The ending calls Emma Clarke the town's thief." } } });
     expect(await refusal("decide_notice", { slug: "test-game", decision: "show_again", notice_kind: "defamation", why: "x" })).toMatchObject({ code: "unknown_field", field: "notice_kind" });
     const shown = await data("decide_notice", { slug: "test-game", decision: "show_again", why: "Version 2 no longer names her." });
     expect(shown.game).toMatchObject({ review_status: "live", review_reason: null });

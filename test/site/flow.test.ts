@@ -622,7 +622,7 @@ describe("reports and takedowns", () => {
     expect((await SELF.fetch(`${LOCAL}/g/test-game`)).status).toBe(404);
     const held = await gameBySlug(env.DB, "test-game");
     expect(held!.review_status).toBe("held");
-    expect(JSON.parse(held!.review_reason!)).toEqual({ code: "defamation_notice", message: "The ending calls Emma Clarke the town's thief", content_rule: "defamation" });
+    expect(JSON.parse(held!.review_reason!)).toEqual({ code: "defamation_notice", message: "A defamation notice names this: The ending calls Emma Clarke the town's thief", content_rule: "defamation" });
     expect(await env.DB.prepare("SELECT reason FROM audit_log WHERE action = 'notice-held'").first("reason")).toBe("The ending calls Emma Clarke the town's thief");
     expect(await (await SELF.fetch(`${LOCAL}/admin/games/${gameId}`)).text()).toContain("Held on a notice");
 
@@ -639,7 +639,7 @@ describe("reports and takedowns", () => {
   it("holds a game on a copyright notice the same way, and never one that's taken down", async () => {
     const { gameId } = await liveGame();
     await notice(gameId, "copyright", "The soundtrack is the artist's album");
-    expect(JSON.parse((await gameBySlug(env.DB, "test-game"))!.review_reason!)).toEqual({ code: "copyright_notice", message: "The soundtrack is the artist's album", content_rule: "copyright" });
+    expect(JSON.parse((await gameBySlug(env.DB, "test-game"))!.review_reason!)).toEqual({ code: "copyright_notice", message: "A copyright (DMCA) notice names this: The soundtrack is the artist's album", content_rule: "copyright" });
 
     const form = new FormData();
     form.set("reason", "Malware");
