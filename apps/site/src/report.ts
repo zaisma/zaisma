@@ -1,4 +1,5 @@
-import { AUTO_HOLD_REASONS, PLAYER_REPORT_REASONS, REPORT_REASONS, audit, createReport, gameBySlug, reportLabel, reportPictureKey, reviewReason, setReviewStatus, versionById, type Game, type PlayerReportReason, type ReportReason, type Version } from "@zaisma/core";
+import { AUTO_HOLD_REASONS, PLAYER_REPORT_REASONS, REPORT_REASONS, ZAISMA_PLAYER_REPORT_REASONS, audit, hasBlockBetweenAccounts, createReport, gameBySlug, reportLabel, reportPictureKey, reviewReason, setReviewStatus, versionById, type Game, type PlayerReportReason, type ReportReason, type Version } from "@zaisma/core";
+import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { sendAlert } from "./email.ts";
 import { tellWebhooks, type WaitUntil } from "./webhooks.ts";
@@ -16,7 +17,7 @@ import { pageScript } from "./page-scripts.ts";
 const ROOM_CODE = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/;
 const PLAYER_ID = /^[A-Za-z0-9_-]{1,40}$/;
 
-/** The reasons in the order players reach for them, each with a line saying what it covers. Copyright goes to the DMCA page. */
+/** The reasons in the order players reach for them, each with a line saying what it covers. Copyright and defamation go to their notice pages. */
 const GAME_WHYS: [ReportReason, string, string][] = [
   ["broken", "It's broken", "Won't load, crashes, or isn't really a game"],
   ["player", "A player", "Someone in a match is causing trouble"],
@@ -27,10 +28,13 @@ const GAME_WHYS: [ReportReason, string, string][] = [
   ["illegal", "Illegal content", "Something against the law"],
   ["other", "Something else", ""],
 ];
+/** The first four go to Zaisma; the rest to the game's developer (ZAISMA_PLAYER_REPORT_REASONS). */
 const PLAYER_WHYS: [PlayerReportReason, string, string][] = [
-  ["harassment", PLAYER_REPORT_REASONS.harassment, "Picking on someone, following them or spamming"],
-  ["threats_or_private_details", PLAYER_REPORT_REASONS.threats_or_private_details, "Threatens to hurt someone, or shares where they live or other private details"],
+  ["real_life_threat", PLAYER_REPORT_REASONS.real_life_threat, "Says they'll find or hurt someone outside the game"],
+  ["personal_details", PLAYER_REPORT_REASONS.personal_details, "Where someone lives or goes to school, their real name, phone or photos"],
+  ["following_after_block", PLAYER_REPORT_REASONS.following_after_block, "Keeps turning up after I blocked them"],
   ["sexual", PLAYER_REPORT_REASONS.sexual, "Sexual names, messages or actions"],
+  ["harassment", PLAYER_REPORT_REASONS.harassment, "Picking on someone or spamming"],
   ["cheating", PLAYER_REPORT_REASONS.cheating, "Hacks, exploits or unfair tricks"],
   ["other", PLAYER_REPORT_REASONS.other, ""],
 ];
@@ -45,7 +49,7 @@ const why = (reason: string, label: string, hint: string) =>
 
 /** The report plate for the game page, with its styles and script. */
 export function reportSheet(game: Game, options: { isMultiplayer: boolean; gameOrigin: string }): ReturnType<typeof html> {
-  const config = { slug: game.slug, title: game.title, gameOrigin: options.gameOrigin, hold: AUTO_HOLD_REASONS };
+  const config = { slug: game.slug, title: game.title, gameOrigin: options.gameOrigin, hold: AUTO_HOLD_REASONS, zaisma: ZAISMA_PLAYER_REPORT_REASONS };
   return html`<style>
 /* Report: a plate that slides in beside the game. The game keeps running and stays in view, and the
    shade only deepens toward the plate. */
@@ -122,7 +126,7 @@ dialog.sheet::backdrop{background:linear-gradient(90deg,rgba(4,5,7,0) 35%,rgba(4
     <section data-step="why" aria-label="What's wrong">
       <div class="whys" data-for="game">${GAME_WHYS.filter(([reason]) => reason !== "player" || options.isMultiplayer).map(([reason, label, hint]) => why(reason, label, hint))}</div>
       <div class="whys" data-for="player" hidden>${PLAYER_WHYS.map(([reason, label, hint]) => why(reason, label, hint))}</div>
-      <p class="sheet-foot" data-for="game">Someone copied your work? <a href="/legal/dmca" target="_blank" rel="noopener">Send a copyright notice</a></p>
+      <p class="sheet-foot" data-for="game">Someone copied your work? <a href="/legal/dmca" target="_blank" rel="noopener">Send a copyright notice</a><br>A game falsely says you committed a crime? <a href="/legal/defamation" target="_blank" rel="noopener">Send a defamation notice</a></p>
     </section>
     <form data-step="tell" hidden>
       <button type="button" class="picked" data-back><span><strong id="report-picked"></strong></span><span class="change">Change</span></button>
@@ -169,7 +173,8 @@ const REPORT_SHEET_SCRIPT = pageScript("report-sheet", `(() => {
   }
   function showPicture() {
     const fig = $("report-pic");
-    fig.hidden = !picture || (!about && C.hold.includes(reason));
+    // Never with child safety, illegal content or a sexual report about a player: we don't want to receive images like that.
+    fig.hidden = !picture || (about ? reason === "sexual" : C.hold.includes(reason));
     if (!fig.hidden) $("report-pic-img").src = picture;
     fig.classList.toggle("off", !form.picture.checked);
   }
@@ -244,7 +249,9 @@ const REPORT_SHEET_SCRIPT = pageScript("report-sheet", `(() => {
       $("report-error").hidden = false;
       return;
     }
-    $("report-sent-text").textContent = data.is_game_hidden ? "The game is hidden while we check it." : data.is_update_paused ? "The latest update is paused while we check it." : about && about.fromGame ? about.name + " is muted for you. We'll look at it soon." : "We'll look at it soon.";
+    // A player report Zaisma looks at itself, or one passed to the game's developer.
+    const passed = about && !C.zaisma.includes(reason);
+    $("report-sent-text").textContent = data.is_game_hidden ? "The game is hidden while we check it." : data.is_update_paused ? "The latest update is paused while we check it." : about ? (about.fromGame ? about.name + " is muted for you. " : "") + (passed ? "Block them to keep them away in every game. We've passed this to the game's developer." : "A person at Zaisma will look at it soon.") : "We'll look at it soon.";
     // The game mutes a player once they're reported.
     const f = frame();
     if (about && f && f.contentWindow) f.contentWindow.postMessage({ type: "zaisma:reported", player: about.id }, C.gameOrigin);
@@ -308,7 +315,7 @@ ${error ? html`<p class="note">${error}</p>` : ""}
   <label>Details (optional)
     <textarea name="details" maxlength="2000" placeholder="What did you see, and where in the game?"></textarea>
   </label>
-  <p class="note">Copyright claims need a formal notice: see the <a href="/legal/dmca">DMCA page</a>.</p>
+  <p class="note">Copyright claims need a formal notice: see the <a href="/legal/dmca">DMCA page</a>. So does a game that falsely says you committed a crime: see <a href="/legal/defamation">Defamation notices</a>.</p>
   <div class="row"><button class="btn" type="submit">Send report</button><a class="btn ghost" href="/g/${slug}">Cancel</a></div>
 </form>`,
   });
@@ -322,8 +329,14 @@ ${error ? html`<p class="note">${error}</p>` : ""}
  */
 export async function submitReport(env: Env, request: Request, slug: string, ctx: ExecutionContext): Promise<Response> {
   const fromSheet = (request.headers.get("content-type") ?? "").startsWith("application/json");
+  // A fresh session cookie, when looking up the reporter's blocks refreshed it.
+  let cookies: string[] = [];
   const reply = (httpStatus: number, body: { has_reported?: true; is_game_hidden?: boolean; is_update_paused?: boolean; error?: string }) => {
-    if (fromSheet) return Response.json(body, { status: httpStatus, headers: { "Cache-Control": "no-store" } });
+    if (fromSheet) {
+      const headers = new Headers({ "Cache-Control": "no-store" });
+      for (const cookie of cookies) headers.append("Set-Cookie", cookie);
+      return Response.json(body, { status: httpStatus, headers });
+    }
     if (body.error) return reportForm(env, slug, body.error, httpStatus);
     const response = layout(env, {
       title: "Thanks for the report",
@@ -343,9 +356,9 @@ export async function submitReport(env: Env, request: Request, slug: string, ctx
   const playerText = text(input.details, 2000);
   const room = text(input.room, 6).toUpperCase();
   const playerInput = input.player && typeof input.player === "object" ? (input.player as Record<string, unknown>) : null;
-  const player = playerInput && typeof playerInput.id === "string" && PLAYER_ID.test(playerInput.id) ? { id: playerInput.id, name: text(playerInput.name, 40), reason: text(input.reason, 20) } : null;
+  const player = playerInput && typeof playerInput.id === "string" && PLAYER_ID.test(playerInput.id) ? { id: playerInput.id, name: text(playerInput.name, 40), reason: text(input.reason, 40) } : null;
   // A report about a player says what they did; one about the game says what's wrong with it.
-  const reason = (player ? "player" : text(input.reason, 20)) as ReportReason;
+  const reason = (player ? "player" : text(input.reason, 40)) as ReportReason;
   if (player ? !(player.reason in PLAYER_REPORT_REASONS) : !(reason in REPORT_REASONS)) return reply(400, { error: "Choose what the problem is." });
 
   const game = await gameBySlug(env.DB, slug);
@@ -355,12 +368,22 @@ export async function submitReport(env: Env, request: Request, slug: string, ctx
   // The room's name and labels as they are now, from the room itself: a room can rename itself later.
   const named = roomCode ? await env.DB.prepare("SELECT name, labels FROM live_rooms WHERE game_id = ? AND room_code = ?").bind(game.id, roomCode).first<{ name: string | null; labels: string }>() : null;
   const roomName = named ? describeRoom(named.name, named.labels) : null;
-  const report = { gameId: game.id, reason, playerText, versionId: game.live_version_id, roomCode, roomName, ...(player ? { player } : {}) };
+  // The one thing kept about the reporter, as a yes or no: whether they and the reported account have a block
+  // between them, which is what a report about following after a block turns on. Never who they are.
+  let hasBlockBetween = false;
+  if (player && fromSheet) {
+    const session = await currentSession(request, env);
+    cookies = session?.cookies ?? [];
+    const reported = session ? await env.DB.prepare("SELECT id FROM accounts WHERE player_id = ?").bind(player.id).first<{ id: string }>() : null;
+    hasBlockBetween = Boolean(session && reported && reported.id !== session.userId && (await hasBlockBetweenAccounts(env.DB, session.userId, reported.id)));
+  }
+  const report = { gameId: game.id, reason, playerText, versionId: game.live_version_id, roomCode, roomName, hasBlockBetween, ...(player ? { player } : {}) };
   // A report about what a room is called is about players' words, not the game: it never pauses the game.
   const aboutRoom = input.about === "room" && Boolean(roomCode);
   const id = await createReport(env.DB, report);
-  // Never a picture with a child-safety or illegal-content report: we don't want to receive or pass on images like that.
-  const picture = AUTO_HOLD_REASONS.includes(reason) ? null : pictureBytes(input.picture);
+  // Never a picture with a child-safety or illegal-content report, or a sexual one about a player (it may be
+  // about a teen): we don't want to receive or pass on images like that.
+  const picture = AUTO_HOLD_REASONS.includes(reason) || player?.reason === "sexual" ? null : pictureBytes(input.picture);
   if (picture) {
     await env.GAMES.put(reportPictureKey(id), picture, { httpMetadata: { contentType: "image/jpeg" } });
     await env.DB.prepare("UPDATE reports SET has_picture = 1 WHERE id = ?").bind(id).run();

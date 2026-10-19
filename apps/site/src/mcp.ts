@@ -1,8 +1,8 @@
-import { ApiError, CONTROLS, DEVICES, FORUM_CATEGORIES, FORUM_LIMITS, FORUM_REPORT_REASONS, FORUM_SECTIONS, FORUM_TABS, FORUM_TAGS, ACCOUNT_REQUIREMENTS, LINK_LIMITS, MINIMUM_PLAYER_AGES, OWN_SERVER_LIMITS, LINK_NAME_PATTERN, PLAY_STYLES, POST_SELECTIONS, ROOM_BROWSING, SCREENS, TOPIC_KINDS, TOPIC_STATUSES, VISIBILITIES, WEBHOOK_DESTINATION_KINDS, WEBHOOK_EVENT_KINDS, WEBHOOK_TIMEOUT_SEC, type IdKind } from "@zaisma/core";
+import { ApiError, CONTROLS, DEVICES, FORUM_CATEGORIES, FORUM_LIMITS, FORUM_REPORT_REASONS, FORUM_SECTIONS, FORUM_TABS, FORUM_TAGS, ACCOUNT_REQUIREMENTS, LINK_LIMITS, LOG_LIMITS, LOG_SOURCE_KINDS, MINIMUM_LOG_LEVELS, MINIMUM_PLAYER_AGES, OWN_SERVER_LIMITS, LINK_NAME_PATTERN, PLAY_STYLES, POST_SELECTIONS, ROOM_BROWSING, SCREENS, TOPIC_KINDS, TOPIC_STATUSES, VISIBILITIES, WEBHOOK_DESTINATION_KINDS, WEBHOOK_EVENT_KINDS, WEBHOOK_TIMEOUT_SEC, type IdKind } from "@zaisma/core";
 import { INTERNAL_ERROR, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { CHECKED_TEXT_EXTENSIONS, extensionOf } from "../../../packages/cli/check.mjs";
-import { ACCESS, ACTIVITY, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, HISTORY, LISTED_GAME, STATEMENT_RESULT, IMAGE, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes } from "./schemas.ts";
+import { ACCESS, ACTIVITY, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, HISTORY, LISTED_GAME, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes } from "./schemas.ts";
 
 /**
  * The developer MCP at /mcp: every tool is a call to the developer API, so the MCP, the upload command
@@ -563,7 +563,7 @@ export const TOOLS: Tool[] = [
     name: "create_webhook",
     title: "Make a webhook",
     description:
-      `Have Zaisma POST an event to your server whenever something happens to your games, instead of checking: ${WEBHOOK_EVENT_KINDS.join(", ")}. A bug report can become a GitHub issue, a scan or publish can move your CI on, a takedown can page you. A game server error can page you, and a heads-up at 80% of a month's free use lets you act before rooms, requests or the database pause. Each event is JSON: { id, kind, happened_at, game, version, bug_report, game_server_error, alert, player_id, sign_in_app, security_event }, with game, version, bug_report, game_server_error, alert, sign_in_app and security_event as get_game, get_version, get_reports, get_stats, the game's alerts, list_sign_in_apps and get_activity answer them (null when the event isn't about one); player_id is the player of an account_deleted event. account_deleted reaches a webhook for every game (game_slugs null) for your sign-in apps too, and security_alert (your own account's security alerts) reaches only a webhook for every game at an endpoint_url. Events are signed the Standard Webhooks way (standardwebhooks.com), so its libraries for every language check them in one call: headers webhook-id, webhook-timestamp (Unix seconds) and webhook-signature ("v1," and the base64 HMAC-SHA256 of "<webhook-id>.<webhook-timestamp>.<body>", keyed by the base64 bytes after whsec_ in signing_secret). Your server answers 2xx within ${WEBHOOK_TIMEOUT_SEC} seconds to take one; anything else is tried again after 5 minutes, 30 minutes, 2, 8 and 24 hours. Redirects aren't followed. An event can come twice or out of order: skip an id you've had, and read the state from the event's objects. The signing_secret is answered once, here: keep it on your server, never in a game or page. Then call test_webhook.\n\n` +
+      `Have Zaisma POST an event to your server whenever something happens to your games, instead of checking: ${WEBHOOK_EVENT_KINDS.join(", ")}. A bug report can become a GitHub issue, a scan or publish can move your CI on, a takedown can page you. A game server error can page you, and a heads-up at 80% of a month's free use lets you act before rooms, requests or the database pause. Each event is JSON: { id, kind, happened_at, game, version, bug_report, player_report, game_server_error, alert, player_id, sign_in_app, security_event }, with game, version, bug_report, player_report, game_server_error, alert, sign_in_app and security_event as get_game, get_version, get_reports, get_stats, the game's alerts, list_sign_in_apps and get_activity answer them (null when the event isn't about one); player_id is the player of an account_deleted event. account_deleted reaches a webhook for every game (game_slugs null) for your sign-in apps too, and security_alert (your own account's security alerts) reaches only a webhook for every game at an endpoint_url. Events are signed the Standard Webhooks way (standardwebhooks.com), so its libraries for every language check them in one call: headers webhook-id, webhook-timestamp (Unix seconds) and webhook-signature ("v1," and the base64 HMAC-SHA256 of "<webhook-id>.<webhook-timestamp>.<body>", keyed by the base64 bytes after whsec_ in signing_secret). Your server answers 2xx within ${WEBHOOK_TIMEOUT_SEC} seconds to take one; anything else is tried again after 5 minutes, 30 minutes, 2, 8 and 24 hours. Redirects aren't followed. An event can come twice or out of order: skip an id you've had, and read the state from the event's objects. The signing_secret is answered once, here: keep it on your server, never in a game or page. Then call test_webhook.\n\n` +
       'No server of your own? Send destination_kind "game_server" and game_slugs with one game, and the events go to that game\'s own game server on Zaisma instead: its live version\'s onWebhook(event, server) gets the same JSON, unsigned (nothing to check), and turns it into a Discord post or a GitHub issue with fetch() and the tokens you keep with set_secret, calling only the hosts in game_server_allowed_hosts (update_game). Finishing without an error counts as delivered; throwing is tried again like a failed answer. Each event counts as one of the game\'s requests, and none run while the game is held or taken down. The same onWebhook runs on your own server later: the Node runner takes signed events at /v1/webhooks with ZAISMA_WEBHOOK_SIGNING_SECRET set to signing_secret, so switch with update_webhook (destination_kind "endpoint_url" and its address).\n\n' +
       'Not: { "endpoint_url": "http://hooks.skyhopper.io/zaisma" } (https only)\n' +
       'Not: { "event_kinds": ["all"] } (list the kinds you want)\n' +
@@ -583,7 +583,7 @@ export const TOOLS: Tool[] = [
             minItems: 1,
             items: { enum: WEBHOOK_EVENT_KINDS },
             description:
-              "The events to send. bug_reported: report triage sorted a player's report as a bug. scan_status_changed: a version's scan finished, or Zaisma changed its scan_status later. live_version_changed: players get another version (published, rolled back, published at its set time, or put back while a report is checked). review_status_changed: Zaisma held or took down a game, or put it back. account_deleted: a player who played the game, or signed in to your sign-in app, deleted their Zaisma account: erase what you keep about player_id (Zaisma already erased their rows from the game's database unless its deleted_account_erase_enabled is false). security_alert: one of your own account's security alerts (a sign-in on a new device from a new network, a password or email change, a passkey removed, a key made, used from a new place or turned off, an AI connected), as security_event; only for a webhook for every game at an endpoint_url.",
+              "The events to send. bug_reported: report triage sorted a player's report as a bug. player_reported: Zaisma passed you a report about one of your game's players (bullying, cheating or other behavior that's your game's call), as get_reports lists it. scan_status_changed: a version's scan finished, or Zaisma changed its scan_status later. live_version_changed: players get another version (published, rolled back, published at its set time, or put back while a report is checked). review_status_changed: Zaisma held or took down a game, or put it back. account_deleted: a player who played the game, or signed in to your sign-in app, deleted their Zaisma account: erase what you keep about player_id (Zaisma already erased their rows from the game's database unless its deleted_account_erase_enabled is false). security_alert: one of your own account's security alerts (a sign-in on a new device from a new network, a password or email change, a passkey removed, a key made, used from a new place or turned off, an AI connected), as security_event; only for a webhook for every game at an endpoint_url.",
           },
           game_slugs: {
             type: ["array", "null"],
@@ -609,7 +609,7 @@ export const TOOLS: Tool[] = [
     name: "update_webhook",
     title: "Change a webhook",
     description:
-      "Change a webhook's destination_kind, endpoint_url, event_kinds (the whole list, from: bug_reported, scan_status_changed, live_version_changed, review_status_changed, game_server_error_found, alert_raised, account_deleted, security_alert, as create_webhook says) or game_slugs (the whole list, or null for every game; account_deleted about your sign-in apps only reaches a webhook for every game), or make a new signing secret with replace_signing_secret: true: the old one stops at once, so put the new one on your server straight away. Leave out what stays the same. Events already on their way go to the new address, signed with the new secret. To move a game server's webhook to your own server, send destination_kind \"endpoint_url\" with the address the Node runner takes them at (https://<your server>/v1/webhooks); to move one to a game's game server on Zaisma, send destination_kind \"game_server\" and game_slugs with that one game (endpoint_url goes).\n\n" +
+      "Change a webhook's destination_kind, endpoint_url, event_kinds (the whole list, from: bug_reported, player_reported, scan_status_changed, live_version_changed, review_status_changed, game_server_error_found, alert_raised, account_deleted, security_alert, as create_webhook says) or game_slugs (the whole list, or null for every game; account_deleted about your sign-in apps only reaches a webhook for every game), or make a new signing secret with replace_signing_secret: true: the old one stops at once, so put the new one on your server straight away. Leave out what stays the same. Events already on their way go to the new address, signed with the new secret. To move a game server's webhook to your own server, send destination_kind \"endpoint_url\" with the address the Node runner takes them at (https://<your server>/v1/webhooks); to move one to a game's game server on Zaisma, send destination_kind \"game_server\" and game_slugs with that one game (endpoint_url goes).\n\n" +
       'Not: { "destination_kind": "endpoint_url" } (moving to an address needs endpoint_url too)',
     inputSchema: {
       ...object(
@@ -895,8 +895,8 @@ export const TOOLS: Tool[] = [
     name: "get_reports",
     title: "Player reports",
     description:
-      "What players reported about the game in the last 90 days, counted by reason, with the bug reports: what the player wrote, a one-line summary and the version they played. To check for new bug reports later, pass the next_cursor from your last call as cursor.",
-    inputSchema: object({ slug, cursor: { type: "string", description: "next_cursor from an earlier call: only bug reports that arrived after it" } }, ["slug"]),
+      "What players reported about the game in the last 90 days, counted by reason, with the bug reports (what the player wrote, a one-line summary and the version they played) and the player reports Zaisma passed to you: bullying, cheating and other behavior that's your game's call, each with its reason, what the player wrote, the reported player's ID and name and the room. Zaisma itself looks at real-life threats, sharing personal details, following after a block and sexual behavior. Never who sent a report. To check for new ones later, pass the next_cursor from your last call as cursor; a player_reported webhook can tell your server (or your game server) instead.",
+    inputSchema: object({ slug, cursor: { type: "string", description: "next_cursor from an earlier call: only bug and player reports that arrived after it" } }, ["slug"]),
     outputSchema: REPORTS,
     annotations: read,
     run: (toolArguments, call) => call("GET", `/games/${pathPart(toolArguments.slug)}/reports${toolArguments.cursor ? `?cursor=${pathPart(toolArguments.cursor)}` : ""}`),
@@ -919,6 +919,34 @@ export const TOOLS: Tool[] = [
     outputSchema: HISTORY,
     annotations: read,
     run: (toolArguments, call) => call("GET", `/games/${pathPart(toolArguments.slug)}/history`),
+  },
+  {
+    name: "get_logs",
+    title: "Game server logs",
+    description:
+      "What the game's own game server printed on Zaisma in the last 30 days: every console.log, info, warn, error and debug, in rooms and in onRequest, onSchedule and onWebhook, with each crash in full (level error), its room and version. Oldest first; the newest lines unless cursor says otherwise. Lines reach the logs within 30 seconds, and within 2 seconds for the next 10 minutes once someone has read them, so while testing, call it once, then follow with new_lines_cursor every few seconds. A game on the developer's own server prints to its own terminal instead. Players' browser errors aren't here: they're in the browser's console.\n\nNot: { \"since\": \"2026-10-18T14:00:00Z\" } (follow with new_lines_cursor from your last answer)\nNot: { \"level\": \"error\" } (minimum_level \"error\")\nNot: { \"cursor\": \"…\", \"new_lines_cursor\": \"…\" } (one or the other: cursor goes back, new_lines_cursor forward)",
+    inputSchema: {
+      ...object(
+        {
+          slug,
+          room_code: { type: "string", pattern: "^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$", description: "Only lines printed in this room, like K7Q2MX." },
+          minimum_level: { enum: MINIMUM_LOG_LEVELS, description: "debug (everything, the default), info (all but debug), warn (warnings and errors) or error." },
+          source_kind: { enum: LOG_SOURCE_KINDS, description: "Only lines printed in a room, onRequest (request), onSchedule (schedule) or onWebhook (webhook)." },
+          search_text: { type: "string", minLength: 1, maxLength: 200, description: "Only lines containing this, ignoring case, like an error's words." },
+          maximum_line_count: { type: "integer", minimum: 1, maximum: LOG_LIMITS.maximumLineCount, description: `How many lines at most; ${LOG_LIMITS.defaultLineCount} by default.` },
+          cursor: { type: "string", description: "next_cursor from an earlier call: the lines before that answer's." },
+          new_lines_cursor: { type: "string", description: "new_lines_cursor from your last call: only lines written since it." },
+        },
+        ["slug"],
+      ),
+      examples: [{ slug: "boss-fight" }, { slug: "boss-fight", room_code: "K7Q2MX", minimum_level: "warn" }, { slug: "boss-fight", new_lines_cursor: "logs_new_…" }, { slug: "boss-fight", search_text: "hp of undefined" }],
+    },
+    outputSchema: LOGS,
+    annotations: read,
+    run: (toolArguments, call) => {
+      const query = new URLSearchParams(pick(toolArguments, ["room_code", "minimum_level", "source_kind", "search_text", "maximum_line_count", "cursor", "new_lines_cursor"]) as Record<string, string>).toString();
+      return call("GET", `/games/${pathPart(toolArguments.slug)}/logs${query ? `?${query}` : ""}`);
+    },
   },
   {
     name: "list_secrets",

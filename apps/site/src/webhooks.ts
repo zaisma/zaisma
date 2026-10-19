@@ -30,7 +30,7 @@ import {
   type Game,
   type WebhookEventKind,
 } from "@zaisma/core";
-import { bugReportJson, gameAlerts, gameJson, gameServerErrorJson, signInAppJson, versionJson, type GameAlert, type GameServerErrorRow } from "./developer.ts";
+import { bugReportJson, gameAlerts, playerReportJson, gameJson, gameServerErrorJson, signInAppJson, versionJson, type GameAlert, type GameServerErrorRow } from "./developer.ts";
 import type { Env } from "./env.ts";
 
 /**
@@ -40,6 +40,7 @@ import type { Env } from "./env.ts";
  *
  *   { "id": "webhook_event_…", "kind": "scan_status_changed", "happened_at": "…",
  *     "game": { …as get_game }, "version": { …as get_version } | null, "bug_report": { …as get_reports } | null,
+ *     "player_report": { …as get_reports } | null,
  *     "game_server_error": { …as get_stats lists it } | null, "alert": { …as the game's alerts list it } | null,
  *     "player_id": "player_…" | null, "sign_in_app": { …as list_sign_in_apps } | null,
  *     "security_event": { …as get_activity lists it } | null }
@@ -63,6 +64,18 @@ export interface BugReportRow {
   reported_at_ms: number;
 }
 
+/** The player report a player_reported event carries, as stored. */
+export interface PlayerReportRow {
+  id: string;
+  player_reason: string;
+  player_text: string;
+  player_id: string;
+  player_name: string;
+  room_code: string;
+  version_id: string | null;
+  reported_at_ms: number;
+}
+
 /**
  * Something happened to a game: every webhook of its owner's that takes this kind gets the event. The
  * game and version are read as they are now. waitUntil sends in the background; without it, this
@@ -72,7 +85,7 @@ export async function tellWebhooks(
   env: Env,
   kind: WebhookEventKind,
   gameId: string,
-  parts: { versionId?: string | null; bugReport?: BugReportRow; gameServerError?: GameServerErrorRow; alert?: GameAlert; isSkippingGameServer?: boolean },
+  parts: { versionId?: string | null; bugReport?: BugReportRow; playerReport?: PlayerReportRow; gameServerError?: GameServerErrorRow; alert?: GameAlert; isSkippingGameServer?: boolean },
   waitUntil?: WaitUntil,
 ): Promise<void> {
   try {
@@ -90,6 +103,7 @@ export async function tellWebhooks(
       game: gameJson(env, game),
       version: version ? versionJson(env, game, version) : null,
       bug_report: parts.bugReport ? bugReportJson(parts.bugReport) : null,
+      player_report: parts.playerReport ? playerReportJson(parts.playerReport) : null,
       game_server_error: parts.gameServerError ? gameServerErrorJson(parts.gameServerError) : null,
       alert: parts.alert ?? null,
       player_id: null,
@@ -108,7 +122,7 @@ export async function tellWebhooks(
 /** A test event to one webhook, tried once and answered: the way to check an endpoint and its signature check. */
 export async function sendTestEvent(env: Env, webhook: Webhook): Promise<WebhookDelivery> {
   const webhookEventId = newId("webhook_event");
-  const eventJson = JSON.stringify({ id: webhookEventId, kind: TEST_EVENT_KIND, happened_at: iso(Date.now()), game: null, version: null, bug_report: null, game_server_error: null, alert: null, player_id: null, sign_in_app: null, security_event: null });
+  const eventJson = JSON.stringify({ id: webhookEventId, kind: TEST_EVENT_KIND, happened_at: iso(Date.now()), game: null, version: null, bug_report: null, player_report: null, game_server_error: null, alert: null, player_id: null, sign_in_app: null, security_event: null });
   const delivery = await queueDelivery(env.DB, webhook, webhookEventId, eventJson);
   return (await attemptDelivery(env.DB, webhook, delivery, { isOnlyAttempt: true, sendToGameServer: gameServerSender(env) })) ?? delivery;
 }
@@ -131,7 +145,7 @@ export async function tellAccountDeleted(env: Env, reach: { playerId: string; ga
   const queueEvent = async (webhooks: Webhook[], parts: { game: unknown; signInApp: unknown }) => {
     if (!webhooks.length) return;
     const webhookEventId = newId("webhook_event");
-    const eventJson = JSON.stringify({ id: webhookEventId, kind: "account_deleted", happened_at: iso(Date.now()), game: parts.game, version: null, bug_report: null, game_server_error: null, alert: null, player_id: reach.playerId, sign_in_app: parts.signInApp, security_event: null });
+    const eventJson = JSON.stringify({ id: webhookEventId, kind: "account_deleted", happened_at: iso(Date.now()), game: parts.game, version: null, bug_report: null, player_report: null, game_server_error: null, alert: null, player_id: reach.playerId, sign_in_app: parts.signInApp, security_event: null });
     for (const webhook of webhooks) {
       sendingWebhooks.push(webhook);
       deliveries.push(await queueDelivery(env.DB, webhook, webhookEventId, eventJson));
@@ -175,7 +189,7 @@ export async function tellSecurityAlert(env: Env, accountId: string, securityEve
     const webhooks = webhooksTakingSignInAppEvent(await webhooksFor(env.DB, owner.id), "security_alert");
     if (!webhooks.length) return;
     const webhookEventId = newId("webhook_event");
-    const eventJson = JSON.stringify({ id: webhookEventId, kind: "security_alert", happened_at: iso(Date.now()), game: null, version: null, bug_report: null, game_server_error: null, alert: null, player_id: null, sign_in_app: null, security_event: securityEvent });
+    const eventJson = JSON.stringify({ id: webhookEventId, kind: "security_alert", happened_at: iso(Date.now()), game: null, version: null, bug_report: null, player_report: null, game_server_error: null, alert: null, player_id: null, sign_in_app: null, security_event: securityEvent });
     const deliveries = await Promise.all(webhooks.map((webhook) => queueDelivery(env.DB, webhook, webhookEventId, eventJson)));
     const sending = sendAll(env, webhooks, deliveries);
     if (waitUntil) waitUntil(sending);
