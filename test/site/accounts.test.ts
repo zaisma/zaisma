@@ -1,6 +1,7 @@
 import { createExecutionContext, env, SELF } from "cloudflare:test";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { MAXIMUM_OPEN_FRIEND_INVITE_COUNT, accountById, addTesterLink, friendsNowOf, blocksOf, playerProfile, playingNowOf, ageBand, ageOn, applyBirthdays, canonicalSave, checkUsername, createAccount, createApiKey, deleteExpiredFriendInvites, friendInviteByCode, friendInvitesOf, friendsOf, gameById, gameBySlug, gameOwner, recordPlayed, createGame, saveKey, sha256Hex } from "@zaisma/core";
+import { MAXIMUM_OPEN_FRIEND_INVITE_COUNT, accountById, addTesterLink, friendsNowOf, blocksOf, playerProfile, playingNowOf, ageBand, ageOn, applyBirthdays, canonicalSave, checkUsername, createAccount, createApiKey, deleteExpiredFriendInvites, friendInviteByCode, friendInvitesOf, friendsOf, gameById, gameBySlug, gameOwner, recordPlayed, createGame, saveKey, sha256Hex, createReport, createVersion, isSlugRetired, newId, personOwner, queueGameDeletion, saveCopyKey, saveScan } from "@zaisma/core";
+import { deleteDueGames } from "../../apps/site/src/game-deletion.ts";
 import { decideTopic } from "../../apps/site/src/forum-posts.ts";
 import { checkForumPosts, type CheckDeps } from "../../apps/site/src/forum-check.ts";
 import { checkProfiles } from "../../apps/site/src/profile-check.ts";
@@ -229,7 +230,7 @@ beforeEach(async () => {
     }
     return url.origin === SUPABASE ? fakeSupabase(url, init) : realFetch(input, init);
   });
-  await env.DB.exec("DELETE FROM email_codes; DELETE FROM email_code_requests; DELETE FROM security_events; DELETE FROM security_places; DELETE FROM device_marks; DELETE FROM wrong_passwords; DELETE FROM forum_posts; DELETE FROM forum_topic_tags; DELETE FROM forum_votes; DELETE FROM forum_follows; DELETE FROM forum_media; DELETE FROM forum_mentions; DELETE FROM forum_topics; DELETE FROM played; DELETE FROM games_ever_played; DELETE FROM player_erases; DELETE FROM presences; DELETE FROM room_players; DELETE FROM live_rooms; DELETE FROM friendships; DELETE FROM friend_invites; DELETE FROM blocks; DELETE FROM profile_reports; DELETE FROM game_images; DELETE FROM api_keys; DELETE FROM passkeys; DELETE FROM session_proofs; DELETE FROM save_history; DELETE FROM saves; DELETE FROM audit_log; DELETE FROM tester_links; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
+  await env.DB.exec("DELETE FROM email_codes; DELETE FROM email_code_requests; DELETE FROM security_events; DELETE FROM security_places; DELETE FROM device_marks; DELETE FROM wrong_passwords; DELETE FROM forum_posts; DELETE FROM forum_topic_tags; DELETE FROM forum_votes; DELETE FROM forum_follows; DELETE FROM forum_media; DELETE FROM forum_mentions; DELETE FROM forum_topics; DELETE FROM played; DELETE FROM games_ever_played; DELETE FROM player_erases; DELETE FROM presences; DELETE FROM room_players; DELETE FROM live_rooms; DELETE FROM friendships; DELETE FROM friend_invites; DELETE FROM blocks; DELETE FROM profile_reports; DELETE FROM game_images; DELETE FROM api_keys; DELETE FROM passkeys; DELETE FROM session_proofs; DELETE FROM save_history; DELETE FROM saves; DELETE FROM audit_log; DELETE FROM tester_links; DELETE FROM reports; DELETE FROM versions; DELETE FROM game_deletions; DELETE FROM retired_game_slugs; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;");
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -985,6 +986,164 @@ describe("deleting an account reaches developers", () => {
   });
 });
 
+describe("deleting an account deletes its games", () => {
+  const SCAN_REPORT = { finished_at_ms: Date.now(), decision: "held" as const, findings: [], outside_hosts: [], images: { provider: "photodna", is_connected: true, checked_media_count: 0 }, ai: null, is_child_safety: true };
+
+  async function developer(b: Browser) {
+    await join(b, null, "Pixel_Smith");
+    return idOf("Pixel_Smith");
+  }
+  async function ownGame(accountId: string, slug: string, title: string) {
+    const owner = await personOwner(env.DB, accountId);
+    return createGame(env.DB, { slug, title, description: "", ownerId: owner.id, visibility: "listed" });
+  }
+  async function zipVersion(gameId: string) {
+    const versionId = newId("version");
+    await createVersion(env.DB, { id: versionId, gameId, r2Prefix: `games/${gameId}/${versionId}`, fileCount: 1, sizeBytes: 5 });
+    await env.GAMES.put(`games/${gameId}/${versionId}/index.html`, "hello");
+    return versionId;
+  }
+  const rowCount = async (table: string, gameId: string) => (await env.DB.prepare(`SELECT COUNT(*) AS row_count FROM ${table} WHERE game_id = ?`).bind(gameId).first<{ row_count: number }>())!.row_count;
+  const storage = () => env.GAME_STORAGE as unknown as { takeWiped(nextFailureMessage: string | null): Promise<string[]> };
+
+  it("names the account's games in the delete box", async () => {
+    const b = new Browser();
+    const accountId = await developer(b);
+    expect(await (await b.go("/account")).text()).not.toContain("Your games are deleted with it");
+    await ownGame(accountId, "sky-hopper", "Sky Hopper");
+    await ownGame(accountId, "moon-dash", "Moon Dash");
+    const page = await (await b.go("/account")).text();
+    expect(page).toContain("Your games are deleted with it");
+    expect(page).toContain("Sky Hopper");
+    expect(page).toContain("zaisma.com/g/moon-dash");
+  });
+
+  it("deletes each game's files, images, saves, database, secrets and rows, and keeps its link from other games", async () => {
+    const b = new Browser();
+    const accountId = await developer(b);
+    const game = await ownGame(accountId, "sky-hopper", "Sky Hopper");
+    const zipVersionId = await zipVersion(game.id);
+    await env.DB.prepare("UPDATE versions SET scan_status = 'approved' WHERE game_id = ?").bind(game.id).run();
+    await env.DB.prepare("UPDATE games SET live_version_id = ?, review_status = 'live' WHERE id = ?").bind(zipVersionId, game.id).run();
+    const filesVersionId = newId("version");
+    await createVersion(env.DB, { id: filesVersionId, gameId: game.id, r2Prefix: `manifests/${filesVersionId}`, fileCount: 1, sizeBytes: 5, kind: "files" });
+    await env.GAMES.put(`manifests/${filesVersionId}.json`, "{}");
+    await env.DB.prepare("UPDATE versions SET scan_status = 'approved' WHERE id = ?").bind(filesVersionId).run();
+    await env.GAMES.put(`images/${game.id}/image_cover`, "png");
+    const reportId = await createReport(env.DB, { gameId: game.id, reason: "broken", playerText: "Stuck on level 2", versionId: zipVersionId });
+    await env.GAMES.put(`report-pictures/${reportId}.jpg`, "jpg");
+    // Another player's save, with an earlier copy.
+    const player = await createAccount(env.DB, { id: "player-ana", username: "Ana_Plays", ageBand: "18+" });
+    await env.DB.prepare("INSERT INTO saves (account_id, game_id, version_number, sha256, size_bytes, updated_at_ms, changed_by_kind) VALUES (?, ?, 1, 'x', 2, ?, 'game')").bind(player.id, game.id, Date.now()).run();
+    await env.SAVES.put(saveKey(player.id, game.id), "{}");
+    await env.DB.prepare("INSERT INTO save_history (id, account_id, game_id, saved_at_ms, copy_reason, sha256, size_bytes) VALUES ('save_copy_1', ?, ?, ?, 'hourly', 'x', 2)").bind(player.id, game.id, Date.now()).run();
+    await env.SAVES.put(saveCopyKey(player.id, game.id, "save_copy_1"), "{}");
+    await recordPlayed(env.DB, player.id, game.id);
+    await env.GAME_DATABASES!.batch(game.id, [{ sql: "CREATE TABLE scores (player_id TEXT PRIMARY KEY, best_score INTEGER)" }, { sql: "INSERT INTO scores VALUES ('player_ana', 10)" }]);
+    await env.GAME_SECRETS!.set(game.id, "DISCORD_TOKEN", "abc", Date.now());
+    await env.DB.prepare("INSERT INTO database_restores (id, game_id, restore_to_at_ms, undo_bookmark, restored_at_ms) VALUES ('database_restore_1', ?, ?, 'bookmark', ?)").bind(game.id, Date.now() - 3600_000, Date.now()).run();
+    await storage().takeWiped(null);
+
+    const gone = await b.go("/account/delete", { confirm: "delete" });
+    expect(await gone.text()).toContain("Your games are deleted too");
+    // The account's own run deletes it straight away, in the background.
+    await vi.waitFor(async () => expect(await gameById(env.DB, game.id)).toBeNull());
+    for (const table of ["versions", "reports", "saves", "save_history", "played", "games_ever_played", "game_deletions", "audit_log", "database_restores"]) expect(await rowCount(table, game.id), table).toBe(0);
+    for (const key of [`games/${game.id}/${zipVersionId}/index.html`, `manifests/${filesVersionId}.json`, `images/${game.id}/image_cover`, `report-pictures/${reportId}.jpg`]) expect(await env.GAMES.head(key), key).toBeNull();
+    for (const key of [saveKey(player.id, game.id), saveCopyKey(player.id, game.id, "save_copy_1")]) expect(await env.SAVES.head(key), key).toBeNull();
+    const overview = await env.GAME_DATABASES!.overview(game.id);
+    expect("queryResult" in overview && overview.queryResult.tables).toEqual([]);
+    expect(await env.GAME_SECRETS!.list(game.id)).toEqual({ secrets: [] });
+    expect(await storage().takeWiped(null)).toEqual([game.id]);
+
+    // Its link is never given to another game.
+    const other = await createAccount(env.DB, { id: "dev-2", username: "Other_Dev", ageBand: "18+" });
+    await letPublishAs("Other_Dev");
+    const { token } = await createApiKey(env.DB, other.id, "test");
+    const taken = await SELF.fetch("https://zaisma.test/api/dev/games", { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ title: "Sky Hopper", slug: "sky-hopper" }) });
+    const answer = await taken.json();
+    expect(taken.status).toBe(409);
+    expect(errorProblems(answer, taken.status)).toEqual([]);
+    expect(answer).toMatchObject({ error: { code: "slug_taken", field: "slug" } });
+  });
+
+  it("keeps a game under a child-safety hold whole, taken down with no owner", async () => {
+    const b = new Browser();
+    const accountId = await developer(b);
+    const flagged = await ownGame(accountId, "flagged-game", "Flagged Game");
+    const flaggedVersionId = await zipVersion(flagged.id);
+    await saveScan(env.DB, flaggedVersionId, "held", SCAN_REPORT);
+    const reported = await ownGame(accountId, "reported-game", "Reported Game");
+    await createReport(env.DB, { gameId: reported.id, reason: "child_safety", playerText: "" });
+    const cleared = await ownGame(accountId, "cleared-game", "Cleared Game");
+    await createReport(env.DB, { gameId: cleared.id, reason: "child_safety", playerText: "" });
+    await env.DB.prepare("UPDATE reports SET report_status = 'dismissed' WHERE game_id = ?").bind(cleared.id).run();
+
+    await b.go("/account/delete", { confirm: "delete" });
+    await vi.waitFor(async () => expect(await gameById(env.DB, cleared.id)).toBeNull());
+
+    for (const kept of [flagged, reported]) {
+      const game = (await gameById(env.DB, kept.id))!;
+      expect(game).toMatchObject({ owner_id: null, review_status: "removed" });
+      expect(JSON.parse(game.review_reason!)).toMatchObject({ code: "developer_account_deleted" });
+      expect(await env.DB.prepare("SELECT action FROM audit_log WHERE game_id = ?").bind(kept.id).first("action")).toBe("kept-for-review");
+      expect(await rowCount("game_deletions", kept.id)).toBe(0);
+    }
+    expect(await env.GAMES.head(`games/${flagged.id}/${flaggedVersionId}/index.html`)).not.toBeNull();
+    expect(await isSlugRetired(env.DB, "flagged-game")).toBe(true);
+  });
+
+  it("checks for a hold again before deleting, waits for a scan, and tries again when storage doesn't answer", async () => {
+    const flaggedLate = await createGame(env.DB, { slug: "late-flag", title: "Late Flag", description: "" });
+    const flaggedVersionId = await zipVersion(flaggedLate.id);
+    await queueGameDeletion(env.DB, flaggedLate.id, "account_deleted");
+    // A scan that finishes after the account went still keeps it.
+    await saveScan(env.DB, flaggedVersionId, "held", SCAN_REPORT);
+    const scanning = await createGame(env.DB, { slug: "still-scanning", title: "Still Scanning", description: "" });
+    const scanningVersionId = await zipVersion(scanning.id);
+    await queueGameDeletion(env.DB, scanning.id, "account_deleted");
+    await deleteDueGames(env);
+
+    expect(await gameById(env.DB, flaggedLate.id)).not.toBeNull();
+    expect(await rowCount("game_deletions", flaggedLate.id)).toBe(0);
+    expect(await env.DB.prepare("SELECT action FROM audit_log WHERE game_id = ?").bind(flaggedLate.id).first("action")).toBe("kept-for-review");
+    expect(await env.DB.prepare("SELECT attempt_count, failure_message FROM game_deletions WHERE game_id = ?").bind(scanning.id).first()).toEqual({ attempt_count: 1, failure_message: "A version is still being scanned." });
+
+    await env.DB.prepare("UPDATE versions SET scan_status = 'approved' WHERE id = ?").bind(scanningVersionId).run();
+    await env.DB.prepare("UPDATE game_deletions SET next_attempt_at_ms = 0").run();
+    await storage().takeWiped("The game's database didn't answer.");
+    await deleteDueGames(env);
+    expect(await env.DB.prepare("SELECT attempt_count, failure_message FROM game_deletions WHERE game_id = ?").bind(scanning.id).first()).toEqual({ attempt_count: 2, failure_message: "The game's database didn't answer." });
+    expect(await env.GAMES.head(`games/${scanning.id}/${scanningVersionId}/index.html`)).not.toBeNull();
+
+    await storage().takeWiped(null);
+    await env.DB.prepare("UPDATE game_deletions SET next_attempt_at_ms = 0").run();
+    await deleteDueGames(env);
+    expect(await gameById(env.DB, scanning.id)).toBeNull();
+    expect(await env.GAMES.head(`games/${scanning.id}/${scanningVersionId}/index.html`)).toBeNull();
+  });
+
+  it("lets Zaisma delete a game an account left behind, and only one with no owner", async () => {
+    const b = new Browser();
+    const accountId = await developer(b);
+    const owned = await ownGame(accountId, "still-owned", "Still Owned");
+    const left = await createGame(env.DB, { slug: "left-behind", title: "Left Behind", description: "" });
+    const versionId = await zipVersion(left.id);
+    await saveScan(env.DB, versionId, "held", SCAN_REPORT);
+
+    expect(await (await SELF.fetch(`http://localhost/admin/games/${owned.id}`)).text()).not.toContain("Delete for good");
+    expect(await (await SELF.fetch(`http://localhost/admin/games/${owned.id}/delete`, { method: "POST", body: new URLSearchParams({ reason: "test" }) })).text()).toContain("Only a game with no owner");
+    expect(await (await SELF.fetch(`http://localhost/admin/games/${left.id}`)).text()).toContain("Delete for good");
+    await SELF.fetch(`http://localhost/admin/games/${left.id}/delete`, { method: "POST", body: new URLSearchParams({ reason: "Reported and kept as long as needed." }), redirect: "manual" });
+    expect(await (await SELF.fetch(`http://localhost/admin/games/${left.id}`)).text()).toContain("Being deleted");
+    // Zaisma's own deletion skips the hold check: a person decided.
+    await deleteDueGames(env);
+    expect(await gameById(env.DB, left.id)).toBeNull();
+    expect(await gameById(env.DB, owned.id)).not.toBeNull();
+    expect(await isSlugRetired(env.DB, "left-behind")).toBe(true);
+  });
+});
+
 describe("friends", () => {
   const inviteFrom = async (b: Browser) => {
     const made = await b.go("/friends/invites", {});
@@ -1494,10 +1653,10 @@ describe("game owners", () => {
     expect(owner).toMatchObject({ name: "Night_Owl", owner: { kind: "person", account_id: id } });
     expect(await (await b.go("/account")).text()).toContain("Owl Game");
 
-    // Deleting the account leaves the game up, with no owner.
+    // Deleting the account deletes the game, and its link is never given to another game.
     await b.go("/account/delete", { confirm: "delete" });
-    expect((await gameById(env.DB, "g1"))?.owner_id).toBeNull();
-    expect((await gameById(env.DB, "g1"))?.review_status).toBe("live");
+    await vi.waitFor(async () => expect(await gameById(env.DB, "g1")).toBeNull());
+    expect(await isSlugRetired(env.DB, "owl-game")).toBe(true);
   });
 });
 

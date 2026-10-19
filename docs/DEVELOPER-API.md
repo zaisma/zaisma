@@ -65,7 +65,7 @@ The HTTP status goes with the code, as listed. The list lives in `ERROR_CODES` (
 | --- | --- | --- |
 | `no_game` | 404 | You have no game with that slug. |
 | `bad_slug` | 400 | The link name isn't lowercase letters, numbers and single hyphens, or is reserved. |
-| `slug_taken` | 409 | Another game has that link name. |
+| `slug_taken` | 409 | Another game has that link name, or a deleted game had it. |
 | `too_many_games` | 403 | The account has as many games as it can have. |
 | `publishing_not_open` | 403 | Until the beta, only accounts Zaisma adds can make, upload and publish games. |
 | `bad_title` | 400 | A game's, topic's or precedent's title is empty or too long. |
@@ -334,7 +334,6 @@ Each developer gets 5 judged reviews a day, across all their games. A change tha
 | `ai_private_details_or_threats` | `real_people` | The AI review found private details about a real person, like a home address, phone number or school, or a real threat against one. |
 | `ai_lifelike_gore` | none | The AI review found lifelike gore (photo-real or lifelike injury shown up close), which plays only in games for 16 and up. |
 | `ai_real_money_gambling` | `illegal` | The AI review found real-money gambling. |
-| `ai_likely_copyright` | `copyright` | The AI review found characters, art or music that look like someone else's. |
 | `ai_free_text_chat` | `chat` | The AI review found free-text chat between players. |
 | `ai_disallowed_crypto` | `crypto` | The AI review found cryptocurrency the rules don't allow: coins other than Bitcoin, tokens, NFTs or airdrops, or Bitcoin used for investment advice, paying players or asking for wallet access. |
 | `ai_other` | none | The AI review found something else for a person at Zaisma to look at. |
@@ -350,6 +349,7 @@ Each developer gets 5 judged reviews a day, across all their games. A change tha
 | `rejected_by_zaisma` | picked | A person at Zaisma rejected the version; the message says why. |
 | `taken_down` | picked | A person at Zaisma took the game down; the message says why. |
 | `copyright_notice` | `copyright` | The game was taken down on a copyright (DMCA) notice. |
+| `developer_account_deleted` | none | The game's developer deleted their Zaisma account, which takes their games down with it. |
 | `image_rejected` | picked | A person at Zaisma didn't approve the image; the message says why. |
 | `link_flagged` | `malware` | Cloudflare lists the link's site for malware or phishing, so the link opens for nobody. |
 | `details_rejected` | picked | A person at Zaisma didn't approve the new title or description; the message says why. |
@@ -363,7 +363,7 @@ Each developer gets 5 judged reviews a day, across all their games. A change tha
 | `real_people` | Private details about real people, or real threats. |
 | `copyright` | Other people's games, art, music or characters used without permission. |
 | `personal_details` | Asking players for personal details like emails, real names, birthdays or location inside the game. Every player has a Zaisma ID and name; games with their own accounts link them through Sign in with Zaisma, and anything more happens on the developer's own site. |
-| `chat` | Chat that skips Zaisma's chat rules: who can talk to whom follows each player's age and chat setting. Until chat ships, games use preset phrases and emotes. |
+| `chat` | Free-text chat between players. In the beta, players talk through each game's preset phrases and emotes. |
 | `crypto` | Cryptocurrency other than Bitcoin: using or promoting other coins, tokens, NFTs or airdrops. A story that mentions one is fine. Bitcoin games are welcome, but not investment advice, mining on the player's device, paying players sats, or asking for seed phrases or permission to spend from a wallet. |
 | `faked_plays` | Faking plays or players, with bots, scripts or click farms. |
 

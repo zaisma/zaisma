@@ -312,9 +312,9 @@ describe("holds and takedowns say why", () => {
 
   it("gives the AI review's own words, with the rule they're about", async () => {
     const { version } = await push(GAME);
-    await scan(version.id, ai([{ stage: "ai", severity: "hold", code: "ai_likely_copyright", message: "The hero is Nintendo's Mario.", path: "art/hero.png" }]));
+    await scan(version.id, ai([{ stage: "ai", severity: "hold", code: "ai_sexual_content", message: "The hero is drawn nude.", path: "art/hero.png" }]));
     expect((await getVersion(version.id)).findings).toEqual([
-      { code: "ai_likely_copyright", severity: "hold", message: "The hero is Nintendo's Mario.", content_rule: "copyright", path: "art/hero.png", fix: REVIEW_CODES.ai_likely_copyright.fix },
+      { code: "ai_sexual_content", severity: "hold", message: "The hero is drawn nude.", content_rule: "sexual", path: "art/hero.png", fix: REVIEW_CODES.ai_sexual_content.fix },
     ]);
   });
 

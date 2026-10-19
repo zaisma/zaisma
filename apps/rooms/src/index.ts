@@ -13,6 +13,7 @@ export { GameDatabaseObject, GameDatabaseBinding, GameDatabaseService } from "./
 export { GameServerObject, GameServerWebhookService } from "./game-server.ts";
 export { GameSecretsObject, GameSecretsService } from "./secrets.ts";
 export { GameServerOutbound } from "./outbound.ts";
+export { GameStorageService } from "./game-storage.ts";
 
 export interface Env extends RelayEnv {
   DB: D1Database;

@@ -1,5 +1,6 @@
 import type { ChatStoppedReason } from "./chat-filter.ts";
 import { newId } from "./ids.ts";
+import { ownerGameDeletions } from "./game-deletion.ts";
 import { SOCIAL_SETTINGS, defaultSocialMode, isWithinAgeLimits, pickSocialSettings, socialModeSettings, socialModesFor, socialSettingsInNewBand, socialSettingsOf, type SocialMode, type SocialSettings } from "./social-settings.ts";
 
 export type AgeBand = "13-15" | "16-17" | "18+";
@@ -335,7 +336,7 @@ export async function markPasswordChanged(database: D1Database, id: string): Pro
   await database.prepare("UPDATE accounts SET password_changed_at_ms = ?, updated_at_ms = ? WHERE id = ?").bind(changedAtMs, changedAtMs, id).run();
 }
 
-/** Remove an account, its API keys, its save records, its friends and blocks, its forum topics and the games it played (the caller deletes the save files and forum images). Its games stay up with no owner. */
+/** Remove an account, its API keys, its save records, its friends and blocks, its forum topics and the games it played (the caller deletes the save files and forum images). Its own games are taken down and queued for deletion (deleteDueGames deletes them). */
 export async function deleteAccount(database: D1Database, id: string): Promise<void> {
   const owner = await database.prepare("SELECT id FROM owners WHERE account_id = ?").bind(id).first<{ id: string }>();
   await database.batch([
@@ -348,7 +349,9 @@ export async function deleteAccount(database: D1Database, id: string): Promise<v
           // Their webhooks, with what was on its way to them.
           database.prepare("DELETE FROM webhook_deliveries WHERE owner_id = ?").bind(owner.id),
           database.prepare("DELETE FROM webhooks WHERE owner_id = ?").bind(owner.id),
-          database.prepare("UPDATE games SET owner_id = NULL WHERE owner_id = ?").bind(owner.id),
+          // Their games are taken down and deleted with them, their links never given to another game;
+          // one under a child-safety hold is kept whole for Zaisma (packages/core/src/game-deletion.ts).
+          ...ownerGameDeletions(database, owner.id),
           database.prepare("DELETE FROM owners WHERE id = ?").bind(owner.id),
         ]
       : []),
