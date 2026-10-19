@@ -176,6 +176,11 @@ export const REVIEW_CODES = {
     contentRule: null,
     fix: "Add the server to the game's own servers (update_game own_server_urls), or bundle what it loads into the files. Nothing is held: this is a note.",
   },
+  matches_another_developers_game: {
+    meaning: "Most of this version's files are already in another developer's game, so a person at Zaisma looks first.",
+    contentRule: "copyright",
+    fix: "Nothing to change if the game is yours: a person at Zaisma looks, usually within a day. If it's your own game on another account, or the developer gave you permission, say so with message_zaisma and the version_id.",
+  },
   api_key_in_files: {
     meaning: "A Zaisma API key was in the game's files, so Zaisma turned it off: anyone who plays the game could have read it.",
     contentRule: null,

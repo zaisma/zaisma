@@ -177,7 +177,7 @@ describe("scan and publish", () => {
     expect(sent.map((s) => s.type)).toEqual(["image/png", "image/png"]);
     expect(report.decision).toBe("held");
     expect(report.is_child_safety).toBe(true);
-    expect(report.images).toEqual({ provider: "arachnid-shield", is_connected: true, checked_media_count: 2 });
+    expect(report.images).toEqual({ provider: "arachnid-shield", is_connected: true, checked_media_count: 2, reused_media_count: 0 });
     expect(report.findings.filter((f) => f.code === KNOWN_IMAGE_CODE).map((f) => f.path)).toEqual(["art/other.png"]);
     expect(calls.judgeCallCount).toBe(0);
     expect(report.ai?.verdict).toBe("skipped");
