@@ -36,6 +36,7 @@ import { handlePlayersSheet } from "./players-sheet.ts";
 import { handleProfiles } from "./profiles.ts";
 import { deliverDueWebhooks, noticeFreeUseAlerts, tellAlertNotices, tellGameServerErrors, eraseDuePlayers } from "./webhooks.ts";
 import { handleGameLinks, recheckLinks } from "./game-links.ts";
+import { SECURITY_TEXT_FILE_PATH, securityTextFile } from "./security-policy.ts";
 
 // The chat filter's AI step, for the rooms Worker (its CHAT_CHECK binding).
 export { ChatCheckService } from "./chat-check.ts";
@@ -127,6 +128,7 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
     if (response) return response;
   }
 
+  if (path === SECURITY_TEXT_FILE_PATH) return securityTextFile(env.SITE_ORIGIN);
   if (path === "/sitemap.xml" && method === "GET") return sitemap(env);
   if (path === "/robots.txt") return new Response(`User-agent: *\nDisallow: /admin\nDisallow: /account\nDisallow: /friends\nDisallow: /join\nDisallow: /signin\nDisallow: /oauth/\nDisallow: /.well-known/oauth-\nDisallow: /api/\nDisallow: /t/\nDisallow: /p/\nSitemap: ${env.SITE_ORIGIN}/sitemap.xml\n`, { headers: { "Content-Type": "text/plain" } });
   return message(env, "Page not found", "There's nothing at this address.", 404);
