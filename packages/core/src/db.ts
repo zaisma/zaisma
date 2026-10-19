@@ -89,8 +89,8 @@ export async function createVersion(
   version: { id: string; gameId: string; r2Prefix: string; fileCount: number; sizeBytes: number; kind?: "zip" | "files"; patchNotes?: string; publishWhenApprovedEnabled?: boolean },
 ): Promise<void> {
   await database
-    .prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, kind, patch_notes, publish_when_approved_enabled, created_at_ms) VALUES (?, ?, ?, ?, ?, 'scanning', ?, ?, ?, ?)")
-    .bind(version.id, version.gameId, version.r2Prefix, version.fileCount, version.sizeBytes, version.kind ?? "zip", version.patchNotes ?? "", version.publishWhenApprovedEnabled === false ? 0 : 1, now())
+    .prepare("INSERT INTO versions (id, game_id, r2_prefix, file_count, size_bytes, scan_status, kind, patch_notes, publish_when_approved_enabled, created_at_ms, scan_queued_at_ms) VALUES (?, ?, ?, ?, ?, 'scanning', ?, ?, ?, ?, ?)")
+    .bind(version.id, version.gameId, version.r2Prefix, version.fileCount, version.sizeBytes, version.kind ?? "zip", version.patchNotes ?? "", version.publishWhenApprovedEnabled === false ? 0 : 1, now(), now())
     .run();
 }
 

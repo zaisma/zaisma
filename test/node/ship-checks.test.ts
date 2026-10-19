@@ -14,6 +14,7 @@ import {
   gameHeaderProblems,
   httpsRedirectProblems,
   privateAddressProblems,
+  securityTxtProblems,
   siteHeaderProblems,
   // @ts-expect-error: a plain JavaScript script without types
 } from "../../scripts/ship-checks.mjs";
@@ -122,6 +123,20 @@ describe("buckets", () => {
     const results = checkBuckets(wrangler("zaisma-saves"));
     expect(results.map((result: { isPass: boolean }) => result.isPass)).toEqual([true, false]);
     expect(results[1].note).toContain("bucket zaisma-saves");
+  });
+});
+
+describe("securityTxtProblems", () => {
+  const now = new Date("2026-10-19T00:00:00Z");
+  const file = (expires: string, contact = "Contact: mailto:security@zaisma.com") => `${contact}\nExpires: ${expires}\nPreferred-Languages: en\n`;
+  it("holds for a live file with the security contact that hasn't expired", () => {
+    expect(securityTxtProblems(answer(200), file("2026-11-18T00:00:00.000Z"), now)).toEqual([]);
+  });
+  it("names what's wrong: a missing file, a wrong contact, an unreadable or past Expires", () => {
+    expect(securityTxtProblems(answer(404), "", now)).toEqual(["answered 404"]);
+    expect(securityTxtProblems(answer(200), file("2026-11-18T00:00:00.000Z", "Contact: mailto:someone@else.test"), now)).toEqual(["no Contact: mailto:security@zaisma.com"]);
+    expect(securityTxtProblems(answer(200), "Contact: mailto:security@zaisma.com\n", now)).toEqual(["no readable Expires"]);
+    expect(securityTxtProblems(answer(200), file("2026-10-18T00:00:00.000Z"), now)).toEqual(["Expires is in the past"]);
   });
 });
 

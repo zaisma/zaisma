@@ -38,6 +38,8 @@ import { handlePlayersSheet } from "./players-sheet.ts";
 import { handleProfiles } from "./profiles.ts";
 import { deliverDueWebhooks, noticeFreeUseAlerts, tellAlertNotices, tellGameServerErrors, eraseDuePlayers } from "./webhooks.ts";
 import { handleGameLinks, recheckLinks } from "./game-links.ts";
+import { watchHealth } from "./health-alerts.ts";
+import { SECURITY_TEXT_FILE_PATH, securityTextFile } from "./security-policy.ts";
 
 // The chat filter's AI step, for the rooms Worker (its CHAT_CHECK binding).
 export { ChatCheckService } from "./chat-check.ts";
@@ -131,6 +133,7 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
     if (response) return response;
   }
 
+  if (path === SECURITY_TEXT_FILE_PATH) return securityTextFile(env.SITE_ORIGIN);
   if (path === "/sitemap.xml" && method === "GET") return sitemap(env);
   if (path === "/robots.txt") return new Response(`User-agent: *\nDisallow: /admin\nDisallow: /account\nDisallow: /friends\nDisallow: /join\nDisallow: /signin\nDisallow: /oauth/\nDisallow: /.well-known/oauth-\nDisallow: /api/\nDisallow: /t/\nDisallow: /p/\nSitemap: ${env.SITE_ORIGIN}/sitemap.xml\n`, { headers: { "Content-Type": "text/plain" } });
   return message(env, "Page not found", "There's nothing at this address.", 404);
@@ -167,7 +170,7 @@ export default {
 
   async scheduled(event, env): Promise<void> {
     // One failing job mustn't stop the others.
-    const jobs = await Promise.allSettled([moveFiles(env), publishDue(env), triageReports(env), sortTopics(env), sortMisplaced(env), checkForumPosts(env), checkProfiles(env), reviewChatMessages(env), deliverDueWebhooks(env), eraseDuePlayers(env), deleteDueGames(env), noticeFreeUseAlerts(env).then(() => tellAlertNotices(env)), tellGameServerErrors(env), recheckLinks(env), rescanWaiting(env), testWaitingReviewPrecedents(env), queueListingChecks(env), deleteAbandonedSignIns(env, event.cron === DAILY ? DAILY_SIGN_IN_SWEEP_MS : RECENT_SIGN_IN_SWEEP_MS), ...(event.cron === DAILY ? [dailyCleanup(env), queueImageChecks(env)] : [])]);
+    const jobs = await Promise.allSettled([moveFiles(env), publishDue(env), triageReports(env), sortTopics(env), sortMisplaced(env), checkForumPosts(env), checkProfiles(env), reviewChatMessages(env), deliverDueWebhooks(env), eraseDuePlayers(env), deleteDueGames(env), noticeFreeUseAlerts(env).then(() => tellAlertNotices(env)), tellGameServerErrors(env), recheckLinks(env), rescanWaiting(env), watchHealth(env), testWaitingReviewPrecedents(env), queueListingChecks(env), deleteAbandonedSignIns(env, event.cron === DAILY ? DAILY_SIGN_IN_SWEEP_MS : RECENT_SIGN_IN_SWEEP_MS), ...(event.cron === DAILY ? [dailyCleanup(env), queueImageChecks(env)] : [])]);
     for (const job of jobs) if (job.status === "rejected") console.error("scheduled job failed", job.reason);
   },
 } satisfies ExportedHandler<Env, ScanJob | ListingCheckJob>;

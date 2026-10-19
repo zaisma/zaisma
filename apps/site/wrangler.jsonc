@@ -42,7 +42,7 @@
     "EMAIL_FROM": "codes@zaisma.com",
     // Supabase Auth for accounts. It answers only the site's secret key (SUPABASE_SECRET_KEY).
     "SUPABASE_URL": "https://qhvplmvsvlwzweucvsrk.supabase.co"
-    // Secrets (wrangler secret put): ANTHROPIC_API_KEY, ALERT_EMAIL, SUPABASE_SECRET_KEY, SIGN_IN_SIGNING_KEY (scripts/sign-in-key.mjs), optional VT_API_KEY
+    // Secrets (wrangler secret put): ANTHROPIC_API_KEY, ALERT_EMAIL, PUSHOVER_USER_KEY and PUSHOVER_APP_TOKEN (pushes to Julius's phone), CLOUDFLARE_ACCOUNT_ID and ANALYTICS_API_TOKEN (Account Analytics read, for the error-spike alert), SUPABASE_SECRET_KEY, SIGN_IN_SIGNING_KEY (scripts/sign-in-key.mjs), optional VT_API_KEY
   },
   "d1_databases": [{ "binding": "DB", "database_name": "zaisma", "database_id": "bffea7a7-f905-4eaf-84f2-97b1fb6bf932", "migrations_dir": "../../migrations" }],
   "r2_buckets": [

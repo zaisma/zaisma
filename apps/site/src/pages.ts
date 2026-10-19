@@ -37,6 +37,7 @@ import { codeBox, pageRooms, roomsOnPage, roomsPanel, tabCount } from "./rooms.t
 import { checkPreviewLinkToken, readPreviewLinkToken } from "./preview-links.ts";
 import { DEVELOPER_LINK_STYLES, GAME_LINKS_SCRIPT, developerLinks, leavingCard } from "./game-links.ts";
 import { gamePageHead, SHARE_DIALOG_STYLES, shareDialog } from "./share-cards.ts";
+import { DISCLOSURE_WAIT_DAYS, FIX_WITHIN_DAYS, REPLY_WITHIN_DAYS, SECURITY_ADVISORY_URL, SECURITY_REPORT_EMAIL, SECURITY_TEXT_FILE_PATH } from "./security-policy.ts";
 
 const ROOM_CODE = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/;
 const day = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
@@ -628,6 +629,7 @@ export function legal(env: Env, page: string): Response | null {
     dmca: { title: "Copyright and DMCA notices", body: DMCA },
     defamation: { title: "Defamation notices", body: DEFAMATION },
     privacy: { title: "Privacy", body: PRIVACY },
+    security: { title: "Security", body: SECURITY_PAGE },
   };
   const legalPage = pages[page];
   if (!legalPage) return null;
@@ -732,7 +734,7 @@ const PRIVACY = `
 <li><strong>Your player ID.</strong> When you're signed in, the games you play, and the sites you choose to sign in to with Zaisma, know you by a player ID, the same everywhere, and can look up your username with it. They never get your email, your age or anything from other games. Your account page lists the sites, and you can remove any of them.</li>
 <li><strong>Your age group</strong>: 13 to 15, 16 or 17, or 18 and over. If you're under 18 we also keep your birth date, so your account moves to the next group on your birthday by itself, and we delete it when you turn 18. If you're 18 or over when you make an account, we never keep it. It's never shown to anyone.</li>
 <li><strong>Your game saves.</strong> If you're signed in, your game saves are stored with your account, so your progress follows you to any device.</li>
-<li><strong>The games you played recently</strong> (the last 20), so Continue playing follows you to any device too.</li>
+<li><strong>The games you played.</strong> The last 20, so Continue playing follows you to any device too, and which games you've ever played, so their developers can be told if you delete your account.</li>
 <li><strong>Your passkeys</strong>, if you add any: the public half of each key, the kind of device you added it on (like "iPhone") and when you last used it. The private half never leaves your device or password manager.</li>
 <li><strong>The devices you sign in on.</strong> Each browser you sign in on keeps a random ID in a cookie, and we note that your account signed in with it, so your password always opens your account there, even while someone elsewhere is guessing it. The note goes a year after your last sign-in on that device.</li>
 <li><strong>Your account's activity.</strong> For 90 days, sign-ins on a new device and changes to how you sign in or to your API keys, each with the device (like "Chrome on a Windows PC"), the network (like Vodafone) and the rough place (like near Manchester, UK) it came from, which we work out from your connection address without keeping it. Only you see it, on your account page. Turn off Keep where my account is used from there and we keep only what happened and when.</li>
@@ -756,10 +758,41 @@ const PRIVACY = `
 <li><strong>Anthropic</strong> reviews uploaded games for safety. It sees game files, never players.</li>
 </ul>
 <p>We never sell your data, and there are no ads on Zaisma.</p>
+<h2>Downloading your data</h2>
+<p>Go to your account page and choose Download your data. You get one .zip with everything we keep about your account, your game saves as files, and a note saying what each file holds.</p>
 <h2>Deleting your account</h2>
 <p>Go to your account page and choose Delete account. Your username, password, any email, game saves, recently played games and everything else on your account are deleted straight away. If you made games, they're deleted too, with their files, database and players' saves. Games you played and sites you signed in to with Zaisma are told, so their developers can erase what they kept about you.</p>
 <h2>Questions</h2>
 <p>Email <a href="mailto:privacy@zaisma.com">privacy@zaisma.com</a>.</p>
+`;
+
+// Julius settled it on Oct 19, 2026: safe harbor with scope and rules, no cash reward in the beta, reply in 5 days, fix serious holes in 30, 90 days before publishing.
+const SECURITY_PAGE = `
+<p class="lead">Found a security hole in Zaisma? Tell us privately, and you won't get in trouble for looking.</p>
+<h2>How to report</h2>
+<p>Email <a href="mailto:${SECURITY_REPORT_EMAIL}">${SECURITY_REPORT_EMAIL}</a>, or <a href="${SECURITY_ADVISORY_URL}" rel="noopener">report it privately on GitHub</a>. Say where it is, how to make it happen, and what it lets someone do. Our machine-readable contact is <a href="${SECURITY_TEXT_FILE_PATH}">security.txt</a>.</p>
+<h2>What's covered</h2>
+<ul>
+<li>zaisma.com, its API and its MCP.</li>
+<li>Your own Zaisma account and your own games.</li>
+<li>The game server, the SDK and the upload command in the <a href="https://github.com/zaisma/zaisma" rel="noopener">open source repo</a>.</li>
+</ul>
+<h2>Our promise: safe harbor</h2>
+<p>If you look for holes in good faith and stay inside the rules below, we won't take legal action against you and we won't close your account.</p>
+<h2>The rules</h2>
+<ul>
+<li>Test only on your own account and your own games. If you reach another player's account or data, stop at the smallest proof, don't keep it, and tell us.</li>
+<li>No denial of service, and nothing that slows Zaisma for other players.</li>
+<li>No spam, phishing or tricking other players, ours or anyone else's.</li>
+<li>Never upload illegal content, even to prove a point. Child sexual abuse material has no safe harbor: it's reported and passed to the police.</li>
+<li>Give us ${DISCLOSURE_WAIT_DAYS} days to fix a hole before you publish it. Past that we can't promise to stay quiet.</li>
+</ul>
+<h2>What to expect</h2>
+<p>We reply within ${REPLY_WITHIN_DAYS} days, and aim to fix serious holes within ${FIX_WITHIN_DAYS}. We tell you when it's fixed.</p>
+<h2>Rewards</h2>
+<p>There's no cash reward yet. Zaisma is small, and we'd rather say so than promise what we can't pay.</p>
+<h2>Something else</h2>
+<p>A game that breaks the rules, or anything about children's safety, goes to <a href="mailto:safety@zaisma.com">safety@zaisma.com</a>, not here. Copyright is on the <a href="/legal/dmca">DMCA page</a>.</p>
 `;
 
 /** Fewest players for "playing now" to show, so a new game never looks empty. */

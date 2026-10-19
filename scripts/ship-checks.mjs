@@ -96,6 +96,17 @@ export function httpsRedirectProblems(response, expectedUrl) {
   return isRedirect ? [] : [`answered ${response.status} instead of a redirect to ${expectedUrl}`];
 }
 
+/** The live security.txt (the security policy slice, docs/DECISIONS.md "Anyone can report a hole safely"): there, with Zaisma's security contact, and not expired. */
+export function securityTxtProblems(response, body, now = new Date()) {
+  if (response.status !== 200) return [`answered ${response.status}`];
+  const problems = [];
+  if (!/^Contact: mailto:security@zaisma\.com$/m.test(body)) problems.push("no Contact: mailto:security@zaisma.com");
+  const expires = Date.parse(body.match(/^Expires: (.+)$/m)?.[1] ?? "");
+  if (Number.isNaN(expires)) problems.push("no readable Expires");
+  else if (expires <= now.getTime()) problems.push("Expires is in the past");
+  return problems;
+}
+
 export function privateAddressProblems(response) {
   return response.status === 404 ? [] : [`answered ${response.status}`];
 }

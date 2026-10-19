@@ -134,6 +134,24 @@ export async function authUserEmail(env: Env, userId: string): Promise<string | 
   return user.ok ? (((await user.json()) as { email?: string }).email ?? null) : null;
 }
 
+/** What Supabase keeps about a user, for Download your data: undefined when Supabase couldn't be asked. */
+export async function authUserRecord(env: Env, userId: string): Promise<AuthUserRecord | undefined> {
+  try {
+    const user = await auth(env, `/admin/users/${encodeURIComponent(userId)}`, { method: "GET" });
+    return user.ok ? ((await user.json()) as AuthUserRecord) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** A Supabase user as its admin call answers it, in Supabase's words; identities are Google, Discord and the rest. */
+export interface AuthUserRecord {
+  email?: string;
+  created_at?: string;
+  last_sign_in_at?: string | null;
+  identities?: { provider: string; identity_data?: Record<string, unknown>; created_at?: string; last_sign_in_at?: string | null }[];
+}
+
 /** A Supabase user as its admin list says it, in Supabase's words. */
 interface AuthUser {
   id: string;

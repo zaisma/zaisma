@@ -76,6 +76,17 @@ export interface Env {
   AI_REVIEW_MODEL: string;
   ALERT_FROM: string;
   ALERT_EMAIL?: string;
+  /** Pushover, for pushes to Julius's phone (push.ts). Without them an alert is only logged. */
+  PUSHOVER_USER_KEY?: string;
+  PUSHOVER_APP_TOKEN?: string;
+  /** Only to point pushes at a stand-in (tests). */
+  PUSHOVER_URL?: string;
+  /** Cloudflare's GraphQL Analytics API for the error-spike alert (health-alerts.ts): the account and a token with Account Analytics read. Without them that one alert is off. */
+  CLOUDFLARE_ACCOUNT_ID?: string;
+  ANALYTICS_API_TOKEN?: string;
+  /** Only to point the error-spike query and the outside checker's run list at stand-ins (tests). */
+  CLOUDFLARE_GRAPHQL_URL?: string;
+  WATCH_RUNS_URL?: string;
   ANTHROPIC_API_KEY?: string;
   VT_API_KEY?: string;
   /** Arachnid Shield's API user, as "username:password". Without it or PhotoDNA, image matching isn't connected and every game waits for a person. */

@@ -81,6 +81,7 @@ import {
   providersOn,
   readCookie,
   realEmail,
+  downloadStartedCookie,
   refreshSession,
   removeEmail,
   sessionCookies,
@@ -110,6 +111,7 @@ import { profilePath } from "./profiles.ts";
 import { PASSKEY_ADD_SCRIPT, PASSKEY_CONFIRM_SCRIPT, PASSKEY_SCRIPT, PASSKEY_SIGN_IN_SCRIPT, checkPasskeyTap, keyRefusal, usedChallengeCookie, type PasskeyTap } from "./passkeys.ts";
 import { MINIMUM_PASSWORD_CHARACTER_COUNT, PASSWORD_HINT, newPasswordProblem } from "./passwords.ts";
 import { deleteSaveFiles } from "./saves.ts";
+import { accountDataFileName, accountDataZip } from "./account-data.ts";
 import { tellAccountDeleted, type WaitUntil } from "./webhooks.ts";
 import { carryProof, confirmationOf, recordProof } from "./session-proofs.ts";
 import { BOT_CHECK_SCRIPT, isRealBrowser, type TurnstileAction } from "./turnstile.ts";
@@ -167,6 +169,7 @@ const PATHS = [
   "/account/email/code",
   "/account/email/remove",
   "/account/delete",
+  "/account/data.zip",
   "/account/keys",
   "/account/where-used-from",
   "/account/security-alerts/seen",
@@ -406,6 +409,20 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     return done(await accountPage(env, session, query.has("welcome"), undefined, undefined, query));
   }
   if (path === "/account/kept" && !post) return done(await keptPage(env, account.username, new URL(request.url).searchParams.get("game")));
+
+  // Download your data: everything about the account as one .zip, built while it downloads. A stolen session alone can't take it.
+  if (path === "/account/data.zip" && !post) {
+    if (!confirmation.isConfirmed) return done(redirect("/account?confirm-first#signing-in"));
+    if (env.EXPORT_LIMIT && !(await env.EXPORT_LIMIT.limit({ key: account.id })).success) return done(message(env, "Wait a minute", "You started two downloads in the last minute. Wait a minute, then download your data again.", 429));
+    await logAccountChange(request, env, account, "account_data_downloaded");
+    const nowMs = Date.now();
+    const download = new Response(accountDataZip(env, account, nowMs), {
+      headers: { "content-type": "application/zip", "content-disposition": `attachment; filename="${accountDataFileName(account, nowMs)}"`, "cache-control": "no-store" },
+    });
+    // The button's page stops its spinner when this cookie appears (html.ts, data-download).
+    download.headers.append("Set-Cookie", downloadStartedCookie(env));
+    return done(download);
+  }
 
   if (path === "/account/username" && post) {
     const wanted = field("username", 40);
@@ -1541,7 +1558,7 @@ ${query.has("confirm-failed") ? html`<p class="error" role="alert">Couldn't send
 ${scriptTags(PASSKEY_SCRIPT)}
 ${isConfirmed
       ? ""
-      : html`<div class="note" id="confirm"><p>${query.has("confirm-first") ? html`<strong>Confirm it's you first.</strong> ` : ""}To change your password, email or passkeys, delete your account, or stop keeping where your account is used from, confirm it's you.</p>
+      : html`<div class="note" id="confirm"><p>${query.has("confirm-first") ? html`<strong>Confirm it's you first.</strong> ` : ""}To change your password, email or passkeys, download your data, delete your account, or stop keeping where your account is used from, confirm it's you.</p>
 ${isPasskeyNeeded
           ? html`<div class="row"><button class="btn" type="button" id="passkey-confirm">Confirm with your passkey</button></div>
 <p class="error" role="alert" id="passkey-confirm-error" hidden></p>
@@ -1609,6 +1626,11 @@ ${keys.length
 ${keyWizard(games, passkeyState, waitingPasskeys.length && !approving.length ? Math.min(...waitingPasskeys.map((passkey) => passkey.approves_from_at_ms)) : null, query.has("make-key"))}
 <h2>Sign out</h2>
 <form method="post" action="/signout"><button class="btn ghost" type="submit">Sign out on every device</button></form>
+<h2 id="your-data">Download your data</h2>
+<p>A copy of everything Zaisma keeps about your account, with your game saves as files, in one .zip.</p>
+${isConfirmed
+      ? html`<p><a class="btn ghost" href="/account/data.zip" data-download>Download your data</a></p>`
+      : html`<p><a href="#confirm">Confirm it's you above</a>, then you can download your data here.</p>`}
 <h2 id="delete-account">Delete account</h2>
 ${isConfirmed
       ? html`<details><summary>Delete your account</summary>
