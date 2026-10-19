@@ -4,6 +4,7 @@ import {
   REPORT_SEVERITIES,
   TOPIC_SEVERITIES,
   TOPIC_STATUSES,
+  ZAISMA_PLAYER_REPORT_REASONS,
   ApiError,
   accountByUsername,
   aiUsage,
@@ -33,7 +34,7 @@ import {
   type Triage,
   type Version,
 } from "@zaisma/core";
-import { adminForm, groupReports, type QueueRow, type ReportGroup } from "./admin.ts";
+import { QUEUE_SELECT, adminForm, groupReports, isPlayerGroup, playerGroupChoices, type QueueRow, type ReportGroup } from "./admin.ts";
 import { INTERNAL_ERROR } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { postsToCheck, topicForAdmin, topicQueue } from "./admin-feedback.ts";
@@ -125,13 +126,23 @@ const precedentFields = {
   replaces_precedent_id: precedentId("A precedent in force this one changes, from list_precedents; it's retired, and past cases keep its wording."),
 };
 
-const QUEUE = "SELECT reports.*, games.slug, games.title, games.review_status AS game_review_status FROM reports JOIN games ON games.id = reports.game_id";
 const isChildSafety = (group: ReportGroup) => group.severityIndex === 0 || group.rows.some((report) => report.reason === "child_safety");
 const NCMEC = "Child-safety report. Don't delete anything. If it's confirmed, the law requires a report to NCMEC's CyberTipline (report.cybertip.org). Its pictures stay on the admin page.";
 const triageOf = (stored: string | null): Triage | null => (stored ? JSON.parse(stored) : null);
 const PRECEDENT_SELECT = "SELECT precedents.*, (SELECT COUNT(*) FROM reports WHERE reports.precedent_id = precedents.id) AS followed_count FROM precedents";
 /** What each report decision means as a precedent set with it (as in the queue); hide_name sets none. */
-const PRECEDENT_OF: Record<string, PrecedentDecision | null> = { dismiss: "dismiss", restore: "dismiss", put_update_back: "dismiss", bug: "bug", take_down: "take_down", keep_update_off: "take_down", hide_name: null };
+const PRECEDENT_OF: Record<string, PrecedentDecision | null> = {
+  dismiss: "dismiss",
+  restore: "dismiss",
+  put_update_back: "dismiss",
+  bug: "bug",
+  take_down: "take_down",
+  keep_update_off: "take_down",
+  hide_name: null,
+  pass_to_developer: "pass_to_developer",
+  stop_social: "stop_social",
+  clear_profile: null,
+};
 
 /** What can be decided for a group right now, as in the queue. */
 async function choices(env: Env, group: ReportGroup): Promise<{ options: string[]; pausedVersionId: string | null }> {
@@ -139,6 +150,7 @@ async function choices(env: Env, group: ReportGroup): Promise<{ options: string[
   if (group.lead.game_review_status === "held") return { options: ["restore", "take_down"], pausedVersionId: null };
   const paused = await env.DB.prepare("SELECT id FROM versions WHERE game_id = ? AND report_held_at_ms IS NOT NULL AND scan_status = 'held' LIMIT 1").bind(group.lead.game_id).first<{ id: string }>();
   if (paused) return { options: ["put_update_back", "keep_update_off", "take_down"], pausedVersionId: paused.id };
+  if (isPlayerGroup(group)) return { options: playerGroupChoices(group), pausedVersionId: null };
   // Never passed to the developer: telling them could warn someone abusing a child.
   const named = group.rows.some((report) => report.room_name) ? ["hide_name"] : [];
   return { options: isChildSafety(group) ? ["dismiss", ...named, "take_down"] : ["dismiss", ...named, "bug", "take_down"], pausedVersionId: null };
@@ -146,7 +158,7 @@ async function choices(env: Env, group: ReportGroup): Promise<{ options: string[
 
 /** A group of reports by its ID (its first report's); with isOpenOnly, only its open reports. */
 async function reportGroup(env: Env, groupId: string, isOpenOnly: boolean): Promise<ReportGroup> {
-  const { results } = await env.DB.prepare(`${QUEUE} WHERE (reports.id = ? OR reports.report_group_id = ?) ORDER BY reports.reported_at_ms`).bind(groupId, groupId).all<QueueRow>();
+  const { results } = await env.DB.prepare(`${QUEUE_SELECT} WHERE (reports.id = ? OR reports.report_group_id = ?) ORDER BY reports.reported_at_ms`).bind(groupId, groupId).all<QueueRow>();
   const fix = "list_report_groups lists the open groups with their IDs.";
   if (!results.length) throw new ApiError("no_report_group", { message: `There's no report group with the ID ${groupId}.`, field: "report_group_id", fix });
   const rows = isOpenOnly ? results.filter((report) => report.report_status === "open") : results;
@@ -259,7 +271,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
     annotations: read,
     run: async (toolArguments, { env }) => {
       const maximumGroupCount = Number(toolArguments.maximum_group_count ?? 20);
-      const { results } = await env.DB.prepare(`${QUEUE} WHERE reports.report_status = 'open' ORDER BY reports.reported_at_ms LIMIT 500`).all<QueueRow>();
+      const { results } = await env.DB.prepare(`${QUEUE_SELECT} WHERE reports.report_status = 'open' ORDER BY reports.reported_at_ms LIMIT 500`).all<QueueRow>();
       const groups = groupReports(results);
       const usage = await aiUsage(env.DB);
       return {
@@ -278,7 +290,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
     annotations: read,
     run: async (_, { env }) => {
       const { results } = await env.DB.prepare(
-        `${QUEUE} WHERE reports.report_status != 'open' AND reports.closed_at_ms = reports.triaged_at_ms AND reports.closed_at_ms > ? AND reports.severity_index > 0 ORDER BY reports.closed_at_ms DESC LIMIT 100`,
+        `${QUEUE_SELECT} WHERE reports.report_status != 'open' AND reports.closed_at_ms = reports.triaged_at_ms AND reports.closed_at_ms > ? AND reports.severity_index > 0 ORDER BY reports.closed_at_ms DESC LIMIT 100`,
       )
         .bind(Date.now() - 7 * DAY_MS)
         .all<QueueRow>();
@@ -333,7 +345,10 @@ export const ADMIN_TOOLS: AdminTool[] = [
               reason: report.reason,
               reason_label: reportLabel(report),
               player_text: report.player_text,
-              reported_player: report.player_id ? { id: report.player_id, name: report.player_name, reason: report.player_reason } : null,
+              reported_player: report.player_id
+                ? { id: report.player_id, name: report.player_name, reason: report.player_reason, username: report.reported_username ?? null, is_social_stopped: Boolean(report.reported_social_stopped_at_ms) }
+                : null,
+              has_block_between: Boolean(report.has_block_between),
               room_code: report.room_code || null,
               // Room names can be typed by players: untrusted, like everything players send.
               room_name: report.room_name || null,
@@ -370,19 +385,22 @@ export const ADMIN_TOOLS: AdminTool[] = [
     name: "decide_report_group",
     title: "Decide a report group",
     description:
-      "Decide a group's open reports, exactly like its button in the queue. get_report_group's possible_decisions says what's possible now. With precedent, also set a precedent so future cases like it are decided the same way: dismiss, restore and put_update_back set a dismissal, bug a bug, take_down and keep_update_off a takedown, and hide_name none. take_down needs the content_rule it broke (keep_update_off can name one), and for both the developer reads why (never for child safety). Ask the admin first.\n\n" +
+      "Decide a group's open reports, exactly like its button in the queue. get_report_group's possible_decisions says what's possible now. With precedent, also set a precedent so future cases like it are decided the same way: dismiss, restore and put_update_back set a dismissal, bug a bug, take_down and keep_update_off a takedown, pass_to_developer and stop_social their own, and hide_name and clear_profile none. A group about a player is decided with pass_to_developer (bullying, trash talk, cheating: the game's call), stop_social (a real-life threat, personal details, following after a block or something sexual, upheld: it needs social_stopped_reason, and at child safety it sends the NCMEC alert) or clear_profile; never take_down. take_down needs the content_rule it broke (keep_update_off can name one), and for both the developer reads why (never for child safety). Ask the admin first.\n\n" +
       'Not: { "group": "report_…" } (the ID goes in report_group_id)\n' +
       'Not: { "reason": "…" } (why it was decided goes in why)\n' +
       'Not: { "decision": "hide_name", "precedent": { … } } (hiding a room\'s name sets no precedent)\n' +
-      'Not: { "decision": "take_down", "why": "…" } (a takedown needs content_rule too)',
+      'Not: { "decision": "take_down", "why": "…" } (a takedown needs content_rule too)\n' +
+      'Not: { "decision": "stop_social", "why": "…" } (say which of the four with social_stopped_reason)',
     inputSchema: {
       ...object(
         {
           report_group_id: reportGroupId,
           decision: {
-            enum: ["dismiss", "hide_name", "bug", "take_down", "restore", "put_update_back", "keep_update_off"],
-            description: "dismiss; hide_name (hide a reported room's name and labels from room lists); bug (pass to the developer); take_down; restore (put a paused game back); put_update_back or keep_update_off (for a paused update).",
+            enum: ["dismiss", "hide_name", "bug", "take_down", "restore", "put_update_back", "keep_update_off", "pass_to_developer", "stop_social", "clear_profile"],
+            description:
+              "dismiss; hide_name (hide a reported room's name and labels from room lists); bug (pass to the developer as a bug); take_down; restore (put a paused game back); put_update_back or keep_update_off (for a paused update); for a report about a player, pass_to_developer, stop_social (turn off the account's chat, friends, invites and joins for good) or clear_profile (empty its display name, bio and links).",
           },
+          social_stopped_reason: { enum: [...ZAISMA_PLAYER_REPORT_REASONS], description: "For stop_social (needed): what the report found, which the player reads on their account page. Other decisions leave it out." },
           why: { type: "string", minLength: 1, maxLength: 500, description: "Why, in a sentence. Goes in the audit log; for take_down and keep_update_off the developer reads it too, so write it for them (never shown for child safety)." },
           content_rule: { enum: Object.keys(CONTENT_RULES), description: "For take_down (needed) and keep_update_off: the content rule it broke. Other decisions leave it out." },
           is_copyright_notice: { type: "boolean", description: "For take_down: true when it's on a copyright (DMCA) notice, in place of content_rule." },
@@ -429,6 +447,12 @@ export const ADMIN_TOOLS: AdminTool[] = [
           throw new ApiError("unknown_field", { message: `${decision} takes no ${field}.`, field, fix: "Leave it out: take_down names the rule it broke, and keep_update_off can name one." });
         }
       }
+      if (toolArguments.social_stopped_reason !== undefined && decision !== "stop_social") {
+        throw new ApiError("unknown_field", { message: `${decision} takes no social_stopped_reason.`, field: "social_stopped_reason", fix: "Leave it out: only stop_social says what the report found." });
+      }
+      if (decision === "stop_social" && toolArguments.social_stopped_reason === undefined) {
+        throw new ApiError("missing_field", { message: "Turning off a player's social side needs what the report found.", field: "social_stopped_reason", fix: `Give social_stopped_reason, one of: ${ZAISMA_PLAYER_REPORT_REASONS.join(", ")}.` });
+      }
       const isCopyrightNotice = toolArguments.is_copyright_notice === true;
       if (decision === "take_down" && !toolArguments.content_rule && !isCopyrightNotice) {
         throw new ApiError("missing_field", { message: "A takedown needs the content rule it broke.", field: "content_rule", fix: `Give content_rule, one of: ${Object.keys(CONTENT_RULES).join(", ")}; or is_copyright_notice: true for a DMCA notice.` });
@@ -444,6 +468,9 @@ export const ADMIN_TOOLS: AdminTool[] = [
         dismiss: `/admin/report-groups/${group.id}/dismiss`,
         bug: `/admin/report-groups/${group.id}/bug`,
         hide_name: `/admin/report-groups/${group.id}/hide-name`,
+        pass_to_developer: `/admin/report-groups/${group.id}/pass-to-developer`,
+        stop_social: `/admin/report-groups/${group.id}/stop-social`,
+        clear_profile: `/admin/report-groups/${group.id}/clear-profile`,
         take_down: `/admin/games/${group.lead.game_id}/takedown`,
         restore: `/admin/games/${group.lead.game_id}/restore`,
         put_update_back: `/admin/versions/${pausedVersionId}/approve`,
@@ -452,6 +479,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
       const form = new FormData();
       form.set("reason", String(toolArguments.why).trim());
       form.set("group", group.id);
+      if (toolArguments.social_stopped_reason) form.set("social_stopped_reason", String(toolArguments.social_stopped_reason));
       if (isCopyrightNotice) form.set("content_rule", "copyright_notice");
       else if (toolArguments.content_rule) form.set("content_rule", String(toolArguments.content_rule));
       if (precedent) {
@@ -500,7 +528,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
       'Not: { "decision": "take_down", "can_ai_apply_alone": true } (only dismissals can be applied by the AI alone)\n' +
       'Not: { "replaces": "precedent_…" } (replaces_precedent_id)',
     inputSchema: {
-      ...object({ ...precedentFields, decision: { enum: Object.keys(PRECEDENT_DECISIONS), description: "dismiss, bug (pass to the developer), recheck (check the game's files again) or take_down." } }, ["title", "applies_when", "decision", "why"]),
+      ...object({ ...precedentFields, decision: { enum: Object.keys(PRECEDENT_DECISIONS), description: "dismiss, bug (pass to the developer), recheck (check the game's files again), take_down, or for reports about a player pass_to_developer (passed alone from then on, 1 in 20 spot-checked) or stop_social (always a person's click)." } }, ["title", "applies_when", "decision", "why"]),
       examples: [{ title: "Mild language", applies_when: "Occasional swearing that isn't aimed at a real person or group.", decision: "dismiss", why: "Mild language is fine for 13 and up.", can_ai_apply_alone: true }],
     },
     outputSchema: PRECEDENT_CHANGED,
@@ -743,7 +771,7 @@ export const ADMIN_TOOLS: AdminTool[] = [
       const slug = String(toolArguments.slug);
       const game = await gameBySlug(env.DB, slug);
       if (!game) throw new ApiError("no_game", { message: `There's no game at zaisma.com/g/${slug}.`, field: "slug", fix: "list_report_groups names each group's game by its slug." });
-      const { results } = await env.DB.prepare(`${QUEUE} WHERE reports.report_status = 'open' AND reports.game_id = ? ORDER BY reports.reported_at_ms`).bind(game.id).all<QueueRow>();
+      const { results } = await env.DB.prepare(`${QUEUE_SELECT} WHERE reports.report_status = 'open' AND reports.game_id = ? ORDER BY reports.reported_at_ms`).bind(game.id).all<QueueRow>();
       return {
         game: gameAnswer(game),
         versions: (await versionsForGame(env.DB, game.id)).map((version) => versionAnswer(game, version)),

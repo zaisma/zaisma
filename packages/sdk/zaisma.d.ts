@@ -1057,8 +1057,8 @@ declare namespace Zaisma {
     text: string;
   }
 
-  /** What happened, in a player report: harassment, threats_or_private_details (threats, or sharing someone's private details), sexual (behavior), cheating or other. */
-  type ReportReason = "harassment" | "threats_or_private_details" | "sexual" | "cheating" | "other";
+  /** What happened, in a player report. Zaisma looks at real_life_threat (a threat that reaches past the game: their real details, finding them, a plan), personal_details (sharing someone's), following_after_block and sexual (behavior); harassment, cheating and other go to the game's developer. */
+  type ReportReason = "real_life_threat" | "personal_details" | "following_after_block" | "sexual" | "harassment" | "cheating" | "other";
 
   /** Zaisma's answer to a report. */
   interface ReportAnswer {

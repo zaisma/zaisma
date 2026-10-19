@@ -6,7 +6,9 @@ import { html, raw, type Raw } from "./html.ts";
  * Precedents: the rulings report triage follows (docs/DECISIONS.md). A person sets one while
  * deciding a report in the queue, or here. Changing one makes a new precedent that replaces it, so
  * past decisions keep pointing at the wording they followed. Only dismissals can be applied by the
- * AI alone; bugs and re-checks are automatic anyway, and takedowns always need a person.
+ * AI alone; bugs and re-checks are automatic anyway, passing a report about a player to the game's
+ * developer is automatic with 1 in 20 spot-checked, and takedowns and turning off a player's social
+ * side always need a person.
  */
 
 const text = (given: unknown, maximumCharacterCount: number) => String(given ?? "").replace(/\s+/g, " ").trim().slice(0, maximumCharacterCount);
@@ -98,7 +100,7 @@ const alone = (precedent: Partial<Precedent>) =>
   html`<label class="check"><input type="checkbox" name="p_alone" value="1"${precedent.can_ai_apply_alone ? raw(" checked") : ""}> For a dismissal: the AI may dismiss cases like this without you</label>`;
 
 const decisionPill = (precedent: Precedent) =>
-  html`<span class="pill ${precedent.decision === "take_down" ? "reject" : precedent.decision === "dismiss" ? "info" : "hold"}">${precedent.decision === "dismiss" && precedent.can_ai_apply_alone ? "Dismiss, by the AI alone" : PRECEDENT_DECISIONS[precedent.decision]}</span>`;
+  html`<span class="pill ${precedent.decision === "take_down" || precedent.decision === "stop_social" ? "reject" : precedent.decision === "dismiss" ? "info" : "hold"}">${precedent.decision === "dismiss" && precedent.can_ai_apply_alone ? "Dismiss, by the AI alone" : PRECEDENT_DECISIONS[precedent.decision]}</span>`;
 
 export async function precedentsPage(env: Env): Promise<Raw> {
   const [{ results: all }, { results: uses }] = await Promise.all([
@@ -115,7 +117,7 @@ export async function precedentsPage(env: Env): Promise<Raw> {
   const retired = all.filter((precedent) => precedent.precedent_status === "retired");
   const by = (precedent: Precedent) => (precedent.decision === "dismiss" && precedent.can_ai_apply_alone ? "Dismiss, by the AI alone" : PRECEDENT_DECISIONS[precedent.decision]);
   return html`<h1>Precedents</h1>
-<p class="lead">The rulings report triage follows. A report that fits one is decided the same way. Dismissals marked “by the AI alone” happen without you, except 1 in 20, which come to you as spot-checks. Bugs and re-checks are always automatic; takedowns always need you.</p>
+<p class="lead">The rulings report triage follows. A report that fits one is decided the same way. Dismissals marked “by the AI alone” happen without you, except 1 in 20, which come to you as spot-checks. Bugs and re-checks are always automatic, and so is passing a report about a player to the game's developer (1 in 20 come to you as spot-checks); takedowns and turning off a player's social side always need you.</p>
 
 ${proposed.length
     ? html`<h2>Waiting for you (${proposed.length})</h2>

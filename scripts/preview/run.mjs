@@ -179,6 +179,16 @@ spawnSync(
 );
 // The preview account's friends, online and in rooms, again this run (once seedFriends made them).
 seedFriendsNow();
+// Player reports: the reporter of the following report had blocked Loud_Lynx, Loud_Lynx's bio has an address to
+// clear, and Stopped_Fox's social side is off (as a person's Turn off their social side leaves it), again this run.
+spawnSync(
+  "npx",
+  ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command",
+    `UPDATE reports SET has_block_between = 1 WHERE player_reason = 'following_after_block';
+     UPDATE accounts SET bio = 'Come find me, 12 Elm St', profile_check_status = 'passed' WHERE username = 'Loud_Lynx' AND bio IS NULL;
+     UPDATE accounts SET who_can_chat = 'nobody', who_can_join = 'nobody', who_sees_playing_now = 'nobody', who_sees_played_games = 'nobody', who_sees_online = 'nobody', who_can_send_friend_requests = 'nobody', chat_stopped_reason = 'removed', social_stopped_at_ms = ${Date.now()}, social_stopped_reason = 'personal_details' WHERE username = 'Stopped_Fox' AND social_stopped_at_ms IS NULL`],
+  { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } },
+);
 // Two accounts someone has been guessing the passwords of, again this run (made the first time).
 await seedWrongPasswords();
 // The security log's Activity and who-and-where in game histories, again this run (rows keep their keys).
@@ -288,7 +298,9 @@ Zaisma preview is running. Nothing here touches the live site.
                   summary, and ${SITE}/account#developer lists a Claude connection beside the keys (its passkey is the
                   seed's, so Continue there can't be tapped). As New_Passkey: it says when its passkey can connect apps)
   Admin           ${SITE}/admin
-  Report queue    ${SITE}/admin/reports
+  Report queue    ${SITE}/admin/reports  (Loud_Lynx's group: a real-life threat and following after a block, with Turn off their social side)
+  Player reports  ${SITE}/dashboard/arena/players#reports  (what Zaisma passed to Arena's developer: bullying, cheating, trash talk)
+  Social side off ${SITE}/account#social and ${SITE}/friends  (as Stopped_Fox)
   Forum           ${SITE}/forum  (topics, known issues, a topic: ${SITE}/forum?tab=known)
   Admin feedback  ${SITE}/admin/feedback
   Image matching  ${SITE}/admin  (Night Drive's update is held: a picture renamed .dat, a video and a picture
@@ -480,6 +492,24 @@ async function seed() {
   for (const [i, [slug, body]] of reports.entries()) {
     await fetch(`${SITE}/g/${slug}/report`, { method: "POST", headers: { "content-type": "application/json", origin: SITE, "cf-connecting-ip": `192.0.2.${i + 1}` }, body: JSON.stringify(body) });
   }
+
+  // Reports about players in Arena (Player reports Zaisma acts on): what's the game's call goes to its developer
+  // (the dashboard's Player reports), and the four Zaisma acts on wait in the queue. Loud_Lynx is an account.
+  await signedIn({ name: "Loud_Lynx", email: "lynx@example.test", year: "1993" }, "198.51.100.230");
+  const lynxId = JSON.parse(spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--json", "--command", "SELECT player_id FROM accounts WHERE username = 'Loud_Lynx'"], { cwd: join(ROOT, "apps/site"), encoding: "utf8", env: { ...process.env, CI: "1" } }).stdout)[0].results[0].player_id;
+  const lynx = { id: lynxId, name: "Loud_Lynx" };
+  const swiftFox = { id: "player_preview000000001", name: "Swift Fox 42" };
+  const playerReports = [
+    { reason: "cheating", player: swiftFox, details: "aimbot, hits me through walls every round" },
+    { reason: "real_life_threat", player: swiftFox, details: "said I'm gonna kill you after I won" },
+    { reason: "real_life_threat", player: lynx, details: "said he knows which school I go to and will wait outside" },
+    { reason: "following_after_block", player: lynx, details: "I blocked him and he keeps joining my rooms" },
+  ];
+  for (const [i, body] of playerReports.entries()) {
+    await fetch(`${SITE}/g/arena/report`, { method: "POST", headers: { "content-type": "application/json", origin: SITE, "cf-connecting-ip": `192.0.2.${i + 40}` }, body: JSON.stringify({ room: "ABCDEF", ...body }) });
+  }
+  // Stopped_Fox: a person turned off its social side after a report, so its account page and /friends say why.
+  await signedIn({ name: "Stopped_Fox", email: "stopped@example.test", year: "1994" }, "198.51.100.231");
 
   // A private game that only opens through tester links, and a tester link for Arena to try multiplayer through one.
   const { game: secret } = await api("POST", "/games", { title: "Rocket Lab", description: "Build a rocket from scrap and see how high it goes. Still in testing.", devices: ["computer"], controls: ["keyboard_mouse"], play_modes: [{ mode: "single" }] });

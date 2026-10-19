@@ -18,7 +18,7 @@ import type { Server } from "./requests.ts";
 export interface WebhookEvent {
   /** A webhook_event_… ID, the same on every try, so a game server can skip one it already handled. */
   id: string;
-  /** bug_reported, scan_status_changed, live_version_changed, review_status_changed, game_server_error_found, alert_raised, account_deleted, or test (test_webhook). */
+  /** bug_reported, player_reported, scan_status_changed, live_version_changed, review_status_changed, game_server_error_found, alert_raised, account_deleted, or test (test_webhook). */
   kind: string;
   /** When it happened, an ISO time in UTC. */
   happened_at: string;
@@ -28,6 +28,8 @@ export interface WebhookEvent {
   version: Record<string, unknown> | null;
   /** The bug report as get_reports lists it; null unless kind is bug_reported. */
   bug_report: Record<string, unknown> | null;
+  /** The player report as get_reports lists it; null unless kind is player_reported. */
+  player_report: Record<string, unknown> | null;
   /** The error as get_stats lists it; null unless kind is game_server_error_found. */
   game_server_error: Record<string, unknown> | null;
   /** The alert as the game's alerts list it; null unless kind is alert_raised. */

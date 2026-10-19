@@ -1,4 +1,4 @@
-import { ACCOUNT_REQUIREMENTS, ApiError, CONTENT_RULES, CONTROLS, DEVICES, LINK_LIMITS, MINIMUM_PLAYER_AGES, OWN_SERVER_LIMITS, PLAY_STYLES, ROOM_BROWSING, SCREENS, type AccountRequirement, type ContentRule, type MinimumPlayerAge, type PlayMode, type RoomBrowsing } from "@zaisma/core";
+import { ACCOUNT_REQUIREMENTS, ApiError, CONTENT_RULES, CONTROLS, DEVICES, LINK_LIMITS, MINIMUM_PLAYER_AGES, OWN_SERVER_LIMITS, PLAYER_REPORT_REASONS, PLAY_STYLES, ROOM_BROWSING, SCREENS, type AccountRequirement, type ContentRule, type MinimumPlayerAge, type PlayerReportReason, type PlayMode, type RoomBrowsing } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import { apiCall, callerFor, GAME_ALERT_KINDS, type Caller, type GameAlertKind } from "./developer.ts";
 import type { Env } from "./env.ts";
@@ -972,12 +972,18 @@ ${shown.length
 interface Reports {
   reasons: { reason: string; label: string; open_count: number; closed_count: number }[];
   bug_reports: { player_text: string; reported_at: string }[];
+  player_reports: { reason: PlayerReportReason; player_text: string; reported_player_name: string; room_code: string | null; reported_at: string }[];
 }
 
 function reportsPanel(reports: Reports): Raw {
   if (!reports.reasons.length) return html`<p class="muted">No reports in the last 90 days.</p>`;
   return html`<table><thead><tr><th>Reason</th><th>Waiting for us</th><th>Looked at</th></tr></thead><tbody>${reports.reasons.map((reason) => html`<tr><td>${reason.label}</td><td>${reason.open_count}</td><td>${reason.closed_count}</td></tr>`)}</tbody></table>
-${reports.bug_reports.length ? html`<h3>What players said about bugs</h3><ul class="said">${reports.bug_reports.map((bug) => html`<li>${bug.player_text} <span class="muted">${when(bug.reported_at)}</span></li>`)}</ul>` : ""}`;
+${reports.bug_reports.length ? html`<h3>What players said about bugs</h3><ul class="said">${reports.bug_reports.map((bug) => html`<li>${bug.player_text} <span class="muted">${when(bug.reported_at)}</span></li>`)}</ul>` : ""}
+${reports.player_reports.length
+    ? html`<h3>What players reported about other players</h3>
+<p class="hint">Bullying, cheating and other behavior is your game's call: Zaisma passes those reports to you, and get_reports and the player_reported webhook give them to your AI and your server. Zaisma itself looks at real-life threats, personal details, following after a block and sexual behavior.</p>
+<ul class="said">${reports.player_reports.map((report) => html`<li><strong>${PLAYER_REPORT_REASONS[report.reason] ?? report.reason}</strong>: ${report.reported_player_name || "a player"}${report.room_code ? html` in room ${report.room_code}` : ""}${report.player_text ? html`. “${report.player_text}”` : ""} <span class="muted">${when(report.reported_at)}</span></li>`)}</ul>`
+    : ""}`;
 }
 
 interface Stats {

@@ -24,7 +24,7 @@ const now = () => Date.now();
  * - account_deleted: a player who played the game, or signed in to the app, deleted their Zaisma
  *   account: player_id, and game or sign_in_app.
  */
-export const WEBHOOK_EVENT_KINDS = ["bug_reported", "scan_status_changed", "live_version_changed", "review_status_changed", "game_server_error_found", "alert_raised", "account_deleted"] as const;
+export const WEBHOOK_EVENT_KINDS = ["bug_reported", "player_reported", "scan_status_changed", "live_version_changed", "review_status_changed", "game_server_error_found", "alert_raised", "account_deleted"] as const;
 export type WebhookEventKind = (typeof WEBHOOK_EVENT_KINDS)[number];
 
 /** game_server_error_found events per game per UTC day; past it, errors still show in get_stats. */

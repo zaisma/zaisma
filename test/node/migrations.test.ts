@@ -301,3 +301,18 @@ describe("migration 0080", () => {
     expect(database.prepare("SELECT last_at_ms, told_webhooks_at_ms FROM game_server_errors").all()).toEqual([{ last_at_ms: 5000, told_webhooks_at_ms: 5000 }]);
   });
 });
+
+describe("migration 0084", () => {
+  const database = migratedFrom(
+    "0084_",
+    `INSERT INTO games (id, slug, title, review_status, created_at_ms, updated_at_ms) VALUES ('game_one', 'one', 'One', 'live', 1, 1);
+     INSERT INTO reports (id, game_id, reason, player_text, reported_at_ms, player_id, player_name, player_reason) VALUES ('report_one', 'game_one', 'player', 'says he will find me', 1000, 'player_one', 'Kit', 'threats_or_private_details'), ('report_two', 'game_one', 'player', 'speed hacks', 2000, 'player_one', 'Kit', 'cheating');`,
+  );
+
+  it("files reports under the old threats reason as real-life threats, and nothing as passed to the developer", () => {
+    expect(database.prepare("SELECT id, player_reason, is_passed_to_developer, has_block_between FROM reports ORDER BY id").all()).toEqual([
+      { id: "report_one", player_reason: "real_life_threat", is_passed_to_developer: 0, has_block_between: 0 },
+      { id: "report_two", player_reason: "cheating", is_passed_to_developer: 0, has_block_between: 0 },
+    ]);
+  });
+});
