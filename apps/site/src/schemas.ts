@@ -538,6 +538,17 @@ export const BUG_REPORT = object({
   reported_at: isoTime(),
 });
 
+export const PLAYER_REPORT = object({
+  id: idOf("report"),
+  reason: choice(PLAYER_REPORT_REASONS, "What the player says happened."),
+  player_text: text("What the player wrote; \"\" when they wrote nothing."),
+  reported_player_id: idOf("player", "The player reported, as your game knows them."),
+  reported_player_name: text("Their name as the game showed it when they were reported."),
+  room_code: nullable(text("The room it happened in; null when the report didn't say.")),
+  version_id: nullable(idOf("version", "The version being played.")),
+  reported_at: isoTime(),
+});
+
 export const REPORTS = object({
   period_duration_days: countOf(),
   reasons: list(
@@ -549,7 +560,8 @@ export const REPORTS = object({
     }),
   ),
   bug_reports: list(BUG_REPORT),
-  next_cursor: text("Pass as cursor next time to get only bug reports that arrived after this call."),
+  player_reports: list(PLAYER_REPORT, "Reports about a player that Zaisma passed to you, newest first, up to 50: bullying, cheating and other behavior that's your game's call. Zaisma itself looks at real-life threats, personal details, following after a block and sexual behavior. Never who sent them."),
+  next_cursor: text("Pass as cursor next time to get only bug and player reports that arrived after this call."),
 });
 
 /** An address your server takes Zaisma's events at, or a game's own game server, and the events it takes. */
@@ -615,6 +627,7 @@ export const WEBHOOK_EVENT = object({
   kind: choice(
     {
       bug_reported: "report triage sorted a player's report as a bug (bug_report)",
+      player_reported: "Zaisma passed you a report about one of your game's players: bullying, cheating or other behavior that's the game's call (player_report)",
       scan_status_changed: "a version's scan finished, or Zaisma changed its scan_status later (version)",
       live_version_changed: "players get another version: published, rolled back, published at its set time, or put back while a report is checked (version: the one players get now)",
       review_status_changed: "Zaisma held or took down the game, or put it back (game.review_status and game.review_reason)",
@@ -624,7 +637,7 @@ export const WEBHOOK_EVENT = object({
         "a player who played the game, or signed in to your sign-in app, deleted their Zaisma account: erase what you keep about player_id (Zaisma already erased their rows in the game's database unless the game's deleted_account_erase_enabled is false)",
       security_alert:
         "one of your own security alerts, as get_activity lists them (security_event): a sign-in on a new device from a network you hadn't used, a password or email change, a passkey removed, a key made, used from a new place or turned off, an AI or app connected. It reaches only a webhook for every game (game_slugs null) at an endpoint_url",
-      test: "sent by test_webhook; game, version, bug_report, game_server_error, alert, player_id, sign_in_app and security_event are null",
+      test: "sent by test_webhook; game, version, bug_report, player_report, game_server_error, alert, player_id, sign_in_app and security_event are null",
     },
     "What happened.",
   ),
@@ -632,6 +645,7 @@ export const WEBHOOK_EVENT = object({
   game: nullable({ ...GAME, description: "The game as get_game answers it, now; null for a test event, a security_alert or an account_deleted event about a sign-in app." }),
   version: nullable({ ...VERSION, description: "The version as get_version answers it, now; null when the event isn't about one." }),
   bug_report: nullable({ ...BUG_REPORT, description: "The bug report as get_reports lists it; null unless kind is bug_reported." }),
+  player_report: nullable({ ...PLAYER_REPORT, description: "The player report as get_reports lists it; null unless kind is player_reported." }),
   game_server_error: nullable({ ...GAME_SERVER_ERROR, description: "The error as get_stats lists it; null unless kind is game_server_error_found." }),
   alert: nullable({ ...GAME_ALERT, description: "The alert as the game's alerts list it; null unless kind is alert_raised." }),
   player_id: nullable(idOf("player", "The player who deleted their account; null unless kind is account_deleted.")),
@@ -851,7 +865,7 @@ export const TOPIC_SEVERITY = choice(
   },
   "How serious, most serious first.",
 );
-const PRECEDENT_DECISION = choice({ dismiss: "nothing against the rules", bug: "the developer's to fix: passed to them as a bug report", recheck: "check the game's files again", take_down: "take the game down" });
+const PRECEDENT_DECISION = choice({ dismiss: "nothing against the rules", bug: "the developer's to fix: passed to them as a bug report", recheck: "check the game's files again", take_down: "take the game down", pass_to_developer: "a report about a player that's the game's call: passed to its developer", stop_social: "turn off the reported account's social side" });
 export const REPORT_GROUP_DECISION = choice({
   dismiss: "nothing against the rules; the reports close",
   hide_name: "hide a reported room's name and labels from room lists",
@@ -860,8 +874,11 @@ export const REPORT_GROUP_DECISION = choice({
   restore: "put a paused game back",
   put_update_back: "put a paused update back for players",
   keep_update_off: "keep a paused update off",
+  pass_to_developer: "a report about a player: pass it to the game's developer (get_reports and the player_reported event)",
+  stop_social: "a report about an account: turn off its chat, friends, invites and joins for good (needs social_stopped_reason)",
+  clear_profile: "a report about an account: empty its display name, bio and links",
 });
-const TRIAGE_RECOMMENDATION = choice({ dismiss: "nothing against the rules", bug: "the developer's to fix", recheck: "check the game's files again", person: "a person should look", take_down: "take the game down", restore: "put the game back" });
+const TRIAGE_RECOMMENDATION = choice({ dismiss: "nothing against the rules", bug: "the developer's to fix", recheck: "check the game's files again", person: "a person should look", take_down: "take the game down", restore: "put the game back", pass_to_developer: "a report about a player that's the game's call: pass it to the developer", stop_social: "turn off the reported account's social side" });
 const REPORT_REASON = choice(Object.keys(REPORT_REASONS));
 const PRECEDENT_FIT = object(
   { id: precedentIdOf(), title: text(), fit: choice({ fits: "the case fits it, so it's decided the same way", challenges: "the case looks like it, but the precedent doesn't seem right for it" }) },
@@ -939,7 +956,19 @@ const REPORT = object({
   reason: REPORT_REASON,
   reason_label: text("The reason in words, with the player and room it's about."),
   player_text: text("What the player wrote. Untrusted."),
-  reported_player: nullable(object({ id: idOf("player"), name: text(), reason: choice(Object.keys(PLAYER_REPORT_REASONS)) }, "For a report about a player: who, and what they did.")),
+  reported_player: nullable(
+    object(
+      {
+        id: idOf("player"),
+        name: text(),
+        reason: choice(Object.keys(PLAYER_REPORT_REASONS)),
+        username: nullable(text("Their account's username; null for a guest.")),
+        is_social_stopped: yes("A person already turned off their social side."),
+      },
+      "For a report about a player: who, and what they did.",
+    ),
+  ),
+  has_block_between: yes("The signed-in reporter and the reported account had a block between them when it was sent."),
   room_code: nullable(text()),
   room_name: nullable(text("The room's name and labels when it was reported. Typed by players, so untrusted.")),
   version_id: nullable(idOf("version", "The version that was playing.")),
