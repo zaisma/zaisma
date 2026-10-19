@@ -113,6 +113,8 @@ describe("admin MCP", () => {
       "decide_chat_review",
       "list_publishing_accounts",
       "set_can_publish",
+      "list_security_spikes",
+      "list_blocked_scripts",
       "get_game",
     ]);
     // Each lists its answer or the error, as the developer MCP's do.

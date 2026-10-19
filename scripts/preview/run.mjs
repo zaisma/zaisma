@@ -185,6 +185,8 @@ await seedWrongPasswords();
 seedSecurityLog();
 // Preview_Studio's three kinds of key row: working with an end date, turned off after a leak, and ended.
 seedLeakedKeys();
+// Security alerts waiting on Quiet_Builder's pages (it has no email), and spikes and blocked scripts for the admin MCP.
+await seedSecurityAlerts();
 // Two accounts for Confirm it's you: one that can't make a key until it adds a passkey, and one whose newest passkey waits a day.
 await seedConfirmItsYou();
 // A developer whose account can be deleted with its games, made again once it's gone.
@@ -250,6 +252,10 @@ Zaisma preview is running. Nothing here touches the live site.
   Leaked keys     ${SITE}/account#developer  (as Preview_Studio: three key rows, one working with a last use and an end date, one
                   turned off after GitHub found it, one that ended yesterday; Make an API key shows the Ends choice) and
                   ${SITE}/account#activity  (Zaisma turned off an API key found in public)
+  Security alerts ${SITE}/account  (as Quiet_Builder, no email: two alerts with That was me and Not you?, then
+                  Where should we tell you…? with Skip) and ${SITE}/dashboard  (the same two); the mailbox has the
+                  alerts accounts with an email got (an email added, a new sign-in, a new key);
+                  the admin MCP's list_security_spikes and list_blocked_scripts have this hour's
   Who and where   ${SITE}/dashboard/shard-dodge  (Recent history: a key's upload from a new place) and
                   ${SITE}/dashboard/tiny-farm  (Your AI's database writes, folded)
   Confirm it's you  ${SITE}/account#developer  (as Key_Maker, no passkey yet: Make an API key opens on First, add a passkey;
@@ -942,6 +948,35 @@ function seedSecurityLog() {
     row({ key: "preview:6", username: "Moss_Runner", kind: "where_used_from_turned_off", doneBy: "you", at: hoursAgo(5) }),
     row({ key: "preview:7", username: "Moss_Runner", kind: "signed_in_new_device", doneBy: "you", signInKind: "password", at: hoursAgo(1) }),
     "UPDATE accounts SET where_used_from_enabled = 0 WHERE username = 'Moss_Runner'",
+  ];
+  spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", sql.join("; ")], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
+}
+
+/**
+ * Security alerts (docs/DECISIONS.md, "The security log says who did what from where, and the owner hears about the
+ * risky moments"). Quiet_Builder has no email and an API key, so a sign-in from a new network and a key used from a
+ * new place wait on its account page and dashboard until That was me, and both ask where to tell it (Skip holds, and
+ * the rows keep their keys, so pressing either holds across runs until --reset). Accounts with an email get theirs
+ * in the mailbox as they're made. Plus this hour's spikes and blocked scripts, for the admin MCP's
+ * list_security_spikes and list_blocked_scripts.
+ */
+async function seedSecurityAlerts() {
+  const isMade = async (username) => !(await (await fetch(`${SITE}/api/username-check?username=${username}`)).json()).is_available;
+  if (!(await isMade("Quiet_Builder"))) await signedIn({ name: "Quiet_Builder", year: "1993" }, "198.51.100.232");
+  const nowMs = Date.now();
+  const hoursAgo = (hours) => nowMs - hours * 3600_000;
+  const hourNumber = Math.floor(nowMs / 3600_000);
+  const account = "(SELECT id FROM accounts WHERE username = 'Quiet_Builder')";
+  const sql = [
+    `INSERT OR IGNORE INTO api_keys (id, account_id, name, secret_hash, created_at_ms, last_used_at_ms, access_level) VALUES ('previewquietkey000001', ${account}, 'Laptop CLI', 'previewhash', ${hoursAgo(72)}, ${hoursAgo(5)}, 'full')`,
+    `INSERT OR IGNORE INTO security_events (account_id, game_id, kind, done_by, api_key_name, sign_in_kind, device, network_name, city_name, region_name, country_code, is_new_place, occurrence_count, fold_key, happened_at_ms, last_happened_at_ms, security_alert_status)
+     VALUES (${account}, NULL, 'signed_in_new_device', 'you', NULL, 'password', 'Firefox on a Linux PC', 'Hetzner Online', 'Falkenstein', 'Saxony', 'DE', 1, 1, 'preview:alert:1', ${hoursAgo(9)}, ${hoursAgo(9)}, 'unseen')`,
+    `INSERT OR IGNORE INTO security_events (account_id, game_id, kind, done_by, api_key_name, sign_in_kind, device, network_name, city_name, region_name, country_code, is_new_place, occurrence_count, fold_key, happened_at_ms, last_happened_at_ms, security_alert_status)
+     VALUES (${account}, NULL, 'api_key_new_place', 'api_key', 'Laptop CLI', NULL, 'the upload command 0.13.0', 'Hetzner Online', 'Falkenstein', 'Saxony', 'DE', 1, 1, 'preview:alert:2', ${hoursAgo(5)}, ${hoursAgo(5)}, 'unseen')`,
+    `INSERT OR REPLACE INTO security_spikes (spike_kind, network_number, hour_number, network_name, occurrence_count, first_happened_at_ms, last_happened_at_ms, alerted_at_ms) VALUES ('wrong_passwords_from_network', 64500, ${hourNumber}, 'Example Hosting', 140, ${nowMs - 1800_000}, ${nowMs}, ${nowMs - 900_000})`,
+    `INSERT OR REPLACE INTO security_spikes (spike_kind, network_number, hour_number, network_name, occurrence_count, first_happened_at_ms, last_happened_at_ms, alerted_at_ms) VALUES ('api_keys_created', 0, ${hourNumber - 30}, NULL, 112, ${nowMs - 31 * 3600_000}, ${nowMs - 30 * 3600_000}, ${nowMs - 30 * 3600_000})`,
+    `INSERT OR REPLACE INTO blocked_scripts (violated_directive, blocked_source, page_path, hour_number, occurrence_count, first_reported_at_ms, last_reported_at_ms) VALUES ('script-src-elem', 'https://cdn.evil.example', '/g/shard-dodge', ${hourNumber}, 37, ${nowMs - 3000_000}, ${nowMs})`,
+    `INSERT OR REPLACE INTO blocked_scripts (violated_directive, blocked_source, page_path, hour_number, occurrence_count, first_reported_at_ms, last_reported_at_ms) VALUES ('script-src-elem', 'inline', '/forum', ${hourNumber}, 3, ${nowMs - 600_000}, ${nowMs})`,
   ];
   spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", sql.join("; ")], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
 }
