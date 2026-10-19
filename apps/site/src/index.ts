@@ -36,6 +36,7 @@ import { handlePlayersSheet } from "./players-sheet.ts";
 import { handleProfiles } from "./profiles.ts";
 import { deliverDueWebhooks, noticeFreeUseAlerts, tellAlertNotices, tellGameServerErrors, eraseDuePlayers } from "./webhooks.ts";
 import { handleGameLinks, recheckLinks } from "./game-links.ts";
+import { watchHealth } from "./health-alerts.ts";
 import { SECURITY_TEXT_FILE_PATH, securityTextFile } from "./security-policy.ts";
 
 // The chat filter's AI step, for the rooms Worker (its CHAT_CHECK binding).
@@ -148,7 +149,7 @@ export default {
 
   async scheduled(event, env): Promise<void> {
     // One failing job mustn't stop the others.
-    const jobs = await Promise.allSettled([moveFiles(env), publishDue(env), triageReports(env), sortTopics(env), sortMisplaced(env), checkForumPosts(env), checkProfiles(env), reviewChatMessages(env), deliverDueWebhooks(env), eraseDuePlayers(env), deleteDueGames(env), noticeFreeUseAlerts(env).then(() => tellAlertNotices(env)), tellGameServerErrors(env), recheckLinks(env), rescanWaiting(env), testWaitingReviewPrecedents(env), deleteAbandonedSignIns(env, event.cron === DAILY ? DAILY_SIGN_IN_SWEEP_MS : RECENT_SIGN_IN_SWEEP_MS), ...(event.cron === DAILY ? [dailyCleanup(env), queueImageChecks(env)] : [])]);
+    const jobs = await Promise.allSettled([moveFiles(env), publishDue(env), triageReports(env), sortTopics(env), sortMisplaced(env), checkForumPosts(env), checkProfiles(env), reviewChatMessages(env), deliverDueWebhooks(env), eraseDuePlayers(env), deleteDueGames(env), noticeFreeUseAlerts(env).then(() => tellAlertNotices(env)), tellGameServerErrors(env), recheckLinks(env), rescanWaiting(env), watchHealth(env), testWaitingReviewPrecedents(env), deleteAbandonedSignIns(env, event.cron === DAILY ? DAILY_SIGN_IN_SWEEP_MS : RECENT_SIGN_IN_SWEEP_MS), ...(event.cron === DAILY ? [dailyCleanup(env), queueImageChecks(env)] : [])]);
     for (const job of jobs) if (job.status === "rejected") console.error("scheduled job failed", job.reason);
   },
 } satisfies ExportedHandler<Env, ScanJob>;

@@ -456,7 +456,7 @@ export async function rescanWaiting(env: Env, nowMs = Date.now()): Promise<numbe
     freeByOwner.set(owner, freeByOwner.get(owner)! - 1);
     queued.push(waiting.id);
   }
-  for (const versionId of queued) await env.DB.prepare("UPDATE versions SET scan_status = 'scanning' WHERE id = ? AND scan_status = 'held'").bind(versionId).run();
+  for (const versionId of queued) await env.DB.prepare("UPDATE versions SET scan_status = 'scanning', scan_queued_at_ms = ? WHERE id = ? AND scan_status = 'held'").bind(nowMs, versionId).run();
   for (let index = 0; index < queued.length; index += 100) await env.SCAN_QUEUE.sendBatch(queued.slice(index, index + 100).map((versionId) => ({ body: { versionId } })));
   return queued.length;
 }

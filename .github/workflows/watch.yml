@@ -1,0 +1,48 @@
+# The checker outside Cloudflare: every 5 minutes it tries a game page, a game's files, rooms, the MCP and sign-in, and
+# pushes Julius's phone (Pushover) when a check fails twice in a row. "Julius hears within minutes when something is
+# down" in docs/DECISIONS.md (the ops repo). Zaisma's own half-broken alerts are the site Worker's
+# (apps/site/src/health-alerts.ts), which also pushes when this stops running.
+#
+# GitHub starts a schedule when it can, often a few minutes late, so "twice in a row" can take 10 to 20 minutes.
+# The state between runs (how many runs failed, when Julius was last told) lives in an Actions cache entry per run,
+# not in failed runs: a failed run emails the committer, and a site that's down would send one every 5 minutes.
+# The job fails only when the push itself fails. Repository secrets: PUSHOVER_USER_KEY, PUSHOVER_APP_TOKEN.
+name: Watch
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  # To try it by hand from the Actions tab.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Never two at once, and a run waits rather than cancelling one that's mid-push.
+concurrency:
+  group: watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    name: Check zaisma.com
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # Restores the newest entry by prefix and saves a new one under this run's own key.
+      - uses: actions/cache@v4
+        with:
+          path: .watch-state
+          key: watch-state-${{ github.run_id }}
+          restore-keys: watch-state-
+      - name: Check
+        env:
+          PUSHOVER_USER_KEY: ${{ secrets.PUSHOVER_USER_KEY }}
+          PUSHOVER_APP_TOKEN: ${{ secrets.PUSHOVER_APP_TOKEN }}
+        run: node scripts/watch.mjs
