@@ -14,6 +14,8 @@ import { deleteOldProofs } from "../../apps/site/src/session-proofs.ts";
 import { ACTIVITY, SIGN_IN_APP } from "../../apps/site/src/schemas.ts";
 import { errorProblems, schemaProblems } from "../schema-check.ts";
 import { pageDataOf, pageScriptNames, pageScriptText, strictScriptProblems } from "../strict-scripts.ts";
+import { unzipSync } from "fflate";
+import { ACCOUNT_COLUMNS_LEFT_OUT, ACCOUNT_DATA_TABLES } from "../../apps/site/src/account-data.ts";
 
 const SITE = "https://zaisma.test";
 const SUPABASE = "https://supabase.test";
@@ -3682,5 +3684,91 @@ describe("security alerts on the account page and dashboard", () => {
     await ageProofs();
     const page = await (await owner.go("/account")).text();
     expect(page).toMatch(/id="email-ask"[\s\S]*href="\/account\?confirm-first#confirm"/);
+  });
+});
+
+describe("download your data", () => {
+  const readZip = async (res: Response) => {
+    const files = unzipSync(new Uint8Array(await res.arrayBuffer()));
+    const text = (path: string) => new TextDecoder().decode(files[path]);
+    return { files, text, json: (path: string) => JSON.parse(text(path)) };
+  };
+
+  it("hands over everything the account keeps as one .zip, saves as files", async () => {
+    const now = Date.now();
+    await env.DB.prepare("INSERT INTO games (id, slug, title, review_status, cloud_saves_enabled, created_at_ms, updated_at_ms) VALUES ('g-owl', 'owl-game', 'Owl Game', 'live', 1, ?, ?)").bind(now, now).run();
+    const b = new Browser();
+    await join(b);
+    const id = users.get("fox@example.com")!;
+    await b.go("/api/saves/owl-game", undefined, { method: "PUT", body: JSON.stringify({ base_version_number: 0, save_json: JSON.stringify({ level: "3" }) }) });
+    await env.DB.prepare("INSERT INTO save_history (id, account_id, game_id, saved_at_ms, copy_reason, sha256, size_bytes) VALUES ('copy-1', ?, 'g-owl', ?, 'hourly', 'abc', 20)").bind(id, now - 3600_000).run();
+    await env.SAVES.put(saveCopyKey(id, "g-owl", "copy-1"), canonicalSave({ level: "1" }));
+    await recordPlayed(env.DB, id, "g-owl");
+    await createAccount(env.DB, { id: "u-friend", username: "Kind_Badger", ageBand: "18+" });
+    await createAccount(env.DB, { id: "u-blocked", username: "Loud_Crow", ageBand: "18+" });
+    await env.DB.prepare("INSERT INTO friendships (account_id, friend_account_id, created_at_ms) VALUES (?, 'u-friend', ?), ('u-friend', ?, ?)").bind(id, now, id, now).run();
+    await env.DB.prepare("INSERT INTO blocks (account_id, blocked_account_id, created_at_ms) VALUES (?, 'u-blocked', ?), ('u-blocked', ?, ?)").bind(id, now, id, now).run();
+    await createApiKey(env.DB, id, "my laptop");
+
+    const page = await (await b.go("/account")).text();
+    expect(page).toContain('href="/account/data.zip" data-download');
+    const res = await b.go("/account/data.zip");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("application/zip");
+    expect(res.headers.get("content-disposition")).toMatch(/^attachment; filename="zaisma-Night_Owl-\d{4}-\d{2}-\d{2}\.zip"$/);
+    expect(b.jar.get("download_started") ?? b.jar.get("__Host-download_started")).toBe("1");
+    const zip = await readZip(res);
+
+    expect(Object.keys(zip.files).sort()).toEqual(
+      ["README.txt", "account.json", "activity.json", "developer.json", "forum.json", "friends.json", "games-played.json", "reports.json", "saves/owl-game/save.json", `saves/owl-game/earlier/${new Date(now - 3600_000).toISOString().replace(/:/g, "-")}.json`, "signing-in.json"].sort(),
+    );
+    expect(zip.text("README.txt")).toContain("@Night_Owl");
+    const account = zip.json("account.json");
+    expect(account).toMatchObject({ email: "fox@example.com", account: { username: "Night_Owl", age_band: "18+", link_urls: [] } });
+    // Every column is in it, as the API says it, except the safety records it leaves out on purpose.
+    const columns = (await env.DB.prepare("SELECT name FROM pragma_table_info('accounts')").all<{ name: string }>()).results.map((column) => column.name);
+    for (const column of Object.keys(ACCOUNT_COLUMNS_LEFT_OUT)) expect(columns).toContain(column);
+    for (const column of columns.filter((name) => !(name in ACCOUNT_COLUMNS_LEFT_OUT))) expect(account.account, column).toHaveProperty(column.replace(/_ms$/, ""));
+    for (const column of Object.keys(ACCOUNT_COLUMNS_LEFT_OUT)) expect(account.account).not.toHaveProperty(column.replace(/_ms$/, ""));
+
+    expect(zip.json("saves/owl-game/save.json")).toMatchObject({ game_slug: "owl-game", changed_by_kind: "player", local_storage_items: { level: "3" } });
+    expect(Object.entries(zip.files).find(([path]) => path.includes("/earlier/"))![1]).toBeTruthy();
+    expect(JSON.parse(new TextDecoder().decode(Object.entries(zip.files).find(([path]) => path.includes("/earlier/"))![1]))).toMatchObject({ copy_reason: "hourly", local_storage_items: { level: "1" } });
+    expect(zip.json("friends.json")).toMatchObject({ friends: [{ username: "Kind_Badger" }], blocks: [{ username: "Loud_Crow" }] });
+    expect(zip.json("games-played.json")).toMatchObject({ continue_playing: [{ game_slug: "owl-game" }], games_ever_played: [{ game_slug: "owl-game" }] });
+    expect(zip.json("developer.json").api_keys).toMatchObject([{ name: "my laptop" }]);
+    // No secrets, and nothing that says who blocked the account.
+    const everything = Object.values(zip.files).map((bytes) => new TextDecoder().decode(bytes)).join("\n");
+    expect(everything).not.toMatch(/secret_hash|signing_secret|client_secret/);
+    expect(everything).not.toContain("u-blocked");
+
+    // The download is in the Activity list, and an alert by email, since it takes everything.
+    expect(await env.DB.prepare("SELECT kind FROM security_events WHERE account_id = ? AND kind = 'account_data_downloaded'").bind(id).first()).toBeTruthy();
+    expect(emails.at(-1)).toMatchObject({ to: "fox@example.com", subject: "Your Zaisma data was downloaded" });
+    expect((await readZip(await b.go("/account/data.zip"))).json("activity.json").events.map((event: { kind: string }) => event.kind)).toContain("account_data_downloaded");
+    // Two a minute, shared with Export everything.
+    expect((await b.go("/account/data.zip")).status).toBe(429);
+  });
+
+  it("needs Confirm it's you, like deleting the account", async () => {
+    const b = new Browser();
+    await join(b, null);
+    await ageProofs();
+    expect((await b.go("/account/data.zip")).headers.get("location")).toBe("/account?confirm-first#signing-in");
+    const page = await (await b.go("/account")).text();
+    expect(page).not.toContain('href="/account/data.zip"');
+    expect(page).toContain("then you can download your data here");
+    expect((await new Browser().go("/account/data.zip")).headers.get("location")).toMatch(/^\/signin/);
+  });
+
+  it("lists every table that holds an account's rows, so a new one can't be missed", async () => {
+    const tables = (await env.DB.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' AND name NOT LIKE 'd1_%'").all<{ name: string }>()).results.map((table) => table.name);
+    const holding: string[] = [];
+    for (const table of tables) {
+      const columns = (await env.DB.prepare("SELECT name FROM pragma_table_info(?)").bind(table).all<{ name: string }>()).results.map((column) => column.name);
+      if (columns.some((column) => /^(account_id|player_id|owner_id)$|_account_id$/.test(column))) holding.push(table);
+    }
+    expect(holding.filter((table) => !(table in ACCOUNT_DATA_TABLES)), "tables to add to ACCOUNT_DATA_TABLES in apps/site/src/account-data.ts").toEqual([]);
+    expect(Object.keys(ACCOUNT_DATA_TABLES).filter((table) => !holding.includes(table)), "tables that are gone or hold no account").toEqual([]);
   });
 });

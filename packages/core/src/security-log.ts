@@ -34,6 +34,7 @@ export const SECURITY_EVENT_DESCRIPTIONS = {
   connected_app_removed: "Removed a connected app",
   where_used_from_turned_off: "Turned off Keep where my account is used from",
   where_used_from_turned_on: "Turned on Keep where my account is used from",
+  account_data_downloaded: "Downloaded your data",
   // A game's, in the words its history has always used.
   game_created: "Made the game",
   details_changed: "Changed the details",
@@ -95,6 +96,7 @@ export const ACCOUNT_EVENT_KINDS: readonly SecurityEventKind[] = [
   "connected_app_removed",
   "where_used_from_turned_off",
   "where_used_from_turned_on",
+  "account_data_downloaded",
 ];
 
 /** Belong to the whole account, so they show in every game's history for a key that isn't limited to some games. */
@@ -139,6 +141,8 @@ export const ADDRESS_KEEPING_EVENT_KINDS: readonly SecurityEventKind[] = [
   "save_changed",
   // It takes every player's save and the whole database out, so who did it, and from where, is kept.
   "game_exported",
+  // It takes everything about the account out, the same way.
+  "account_data_downloaded",
   "webhook_created",
   "webhook_changed",
   "webhook_deleted",
@@ -186,6 +190,7 @@ export const SECURITY_ALERT_WORDS = {
   api_key_turned_off: { subject: "Zaisma turned off one of your API keys", ifNotYou: "make a new key under Game developers, and keep it out of public places" },
   ai_connected: { subject: "An AI was connected to your Zaisma account", ifNotYou: "remove the key under Game developers and change your password" },
   connected_app_added: { subject: "An app was connected to your Zaisma account", ifNotYou: "remove the app under Game developers and change your password" },
+  account_data_downloaded: { subject: "Your Zaisma data was downloaded", ifNotYou: "sign out on every device and change your password" },
   connected_app_removed: { subject: "Zaisma disconnected an app from your account", ifNotYou: "connect the app again, and change your password" },
 } as const satisfies Partial<Record<SecurityEventKind, { subject: string; ifNotYou: string }>>;
 export type SecurityAlertKind = keyof typeof SECURITY_ALERT_WORDS;
@@ -203,6 +208,7 @@ export const SECURITY_ALERT_EVENT_KINDS: readonly SecurityEventKind[] = [
   "api_key_turned_off",
   "ai_connected",
   "connected_app_added",
+  "account_data_downloaded",
 ];
 
 /** Whether an event is a security alert. isNewPlace: for a sign-in, from a network the account hasn't used. */
