@@ -97,6 +97,7 @@ import { clearWrongPasswordNotice, isDeviceMarked, isPasswordLockedOut, noteWron
 import { checkEmailCode, sendEmailCode, waitEndsText } from "./email-codes.ts";
 import type { Env } from "./env.ts";
 import { deleteForumFiles } from "./forum-posts.ts";
+import { deleteDueGames } from "./game-deletion.ts";
 import { html, layout, message, metalButton, raw, scriptTags, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
 import { foundWords } from "./leaked-keys.ts";
@@ -556,13 +557,21 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     if (field("confirm").toLowerCase() !== "delete") return done(await accountPage(env, session, false, 'Type "delete" to confirm.'));
     // Who to tell is read first: deleting the account deletes the rows that say.
     const reach = await accountDeletionReach(env.DB, account.id);
+    const ownedGameCount = (await gamesOwnedBy(env.DB, account.id)).length;
     if (!(await deleteAuthUser(env, session.userId))) return done(message(env, "Couldn't delete your account", "Something went wrong on our side. Try again later.", 502));
     await deleteSaveFiles(env, account.id);
     await deleteForumFiles(env, account.id);
     await deleteAccount(env.DB, account.id);
     await tellAccountDeleted(env, reach, waitUntil);
+    // Its games are already down; their files, database and saves go now, or at the next run if there's a lot.
+    if (waitUntil) waitUntil(deleteDueGames(env));
+    else await deleteDueGames(env);
     return withCookies(
-      message(env, "Your account is deleted", "Your username, any email, game saves and everything else on your account are gone. Games you played and sites you signed in to with Zaisma were told, so their developers can erase what they kept about you. You can still play as a guest."),
+      message(
+        env,
+        "Your account is deleted",
+        `Your username, any email, game saves and everything else on your account are gone.${ownedGameCount ? " Your games are deleted too, and their links never go to another game." : ""} Games you played and sites you signed in to with Zaisma were told, so their developers can erase what they kept about you. You can still play as a guest.`,
+      ),
       clearSessionCookies(env),
     );
   }
@@ -1559,6 +1568,10 @@ ${keyWizard(games, passkeyState, waitingPasskeys.length && !approving.length ? M
 ${isConfirmed
       ? html`<details><summary>Delete your account</summary>
 <p>This deletes your username, any email, game saves and everything else on your account straight away. Games you played and sites you signed in to with Zaisma are told, so their developers can erase what they kept about you. It can't be undone.</p>
+${games.length
+          ? html`<p>Your games are deleted with it, with their files, database and every player's saves, and their links never go to another game:</p>
+<ul>${games.map((game) => html`<li>${game.title} <span class="muted">(zaisma.com/g/${game.slug})</span></li>`)}</ul>`
+          : ""}
 <form class="row" method="post" action="/account/delete">
 <input name="confirm" placeholder='Type "delete"' aria-label='Type "delete" to confirm' autocomplete="off" required>
 <button class="btn danger" type="submit">Delete my account</button>

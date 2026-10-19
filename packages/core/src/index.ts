@@ -33,6 +33,7 @@ export * from "./review.ts";
 export * from "./review-evidence.ts";
 export * from "./sign-in-apps.ts";
 export * from "./webhooks.ts";
+export * from "./game-deletion.ts";
 export * from "./reach.ts";
 export * from "./own-servers.ts";
 export * from "./links.ts";

@@ -15,5 +15,6 @@ export const SIGN_INS = [
   { username: "Waiting_Key", about: "its newest passkey waits a day before it can make keys" },
   { username: "New_Passkey", about: "its only passkey waits a day: the connect page for AI apps says when it can connect them" },
   { username: "Guessed_At", about: "locked out by wrong passwords: get in with Forgot password, guessed@example.test" },
+  { username: "Gone_Dev", about: "owns two games: delete the account to see them deleted with it" },
   { username: "Mia_Plays", about: "played Cave Crew and has a row in its database: delete her account to see it erased" },
 ];
