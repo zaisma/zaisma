@@ -257,6 +257,13 @@ function readValues(given: unknown, field: string): DatabaseValue[] | undefined 
   });
 }
 
+/** One part of the database's SQL dump, as export_database answers it, for Export everything (game-export.ts), which logs itself once instead. Empty when no database is connected. */
+export async function databaseDumpPart(env: Env, game: Game, cursor: string | null): Promise<{ dumpSql: string; nextCursor: string | null }> {
+  if (!env.GAME_DATABASES) return { dumpSql: "", nextCursor: null };
+  const part = readAnswer(await env.GAME_DATABASES.exportDump(game.id, cursor), null);
+  return { dumpSql: part.dumpSql, nextCursor: part.nextCursor };
+}
+
 /** The answer's result, or its error as the API answers it. */
 function readAnswer<T>(answer: DeveloperDatabaseAnswer<T>, sqlField: string | null): T {
   if ("queryResult" in answer) return answer.queryResult;

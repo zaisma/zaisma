@@ -2311,6 +2311,37 @@ describe("the dashboard", () => {
     expect(res.headers.get("location")).toBe("/signin?next=%2Fdashboard");
   });
 
+  it("exports everything from the Details tab, for the signed-in owner alone", async () => {
+    const b = new Browser();
+    await join(b);
+    await letPublishAs("Night_Owl");
+    await b.go("/dashboard/new", { title: "Sky Hopper" });
+    const id = await uploadAndPass(b, "sky-hopper", "<p>hop</p>");
+    const details = await (await b.go("/dashboard/sky-hopper/details")).text();
+    expect(details).toContain('href="/dashboard/sky-hopper/export.zip" data-download');
+    expect(details).toContain("Export everything");
+
+    const exported = await b.go("/dashboard/sky-hopper/export.zip");
+    expect(exported.status).toBe(200);
+    expect(exported.headers.get("content-type")).toBe("application/zip");
+    expect(exported.headers.get("content-disposition")).toMatch(/^attachment; filename="sky-hopper-\d{4}-\d{2}-\d{2}\.zip"$/);
+    // A readable cookie tells the page the download started, so the button's spinner stops (html.ts, BUSY_SCRIPT).
+    const startedCookie = exported.headers.getSetCookie().find((cookie) => /^(__Host-)?download_started=1;/.test(cookie));
+    expect(startedCookie).toBeDefined();
+    expect(startedCookie).not.toContain("HttpOnly");
+    const zip = new Uint8Array(await exported.arrayBuffer());
+    expect(new TextDecoder().decode(zip)).toContain(`versions/${id}/index.html`);
+
+    // Signed out, it's sign in first; someone else's account finds no such game.
+    const out = await new Browser().go("/dashboard/sky-hopper/export.zip");
+    expect(out.headers.get("location")).toBe("/signin?next=%2Fdashboard%2Fsky-hopper%2Fexport.zip");
+    const stranger = new Browser();
+    await join(stranger, "owl@example.com", "Other_Owl");
+    const refused = await stranger.go("/dashboard/sky-hopper/export.zip");
+    expect(refused.status).toBe(404);
+    expect(refused.headers.get("content-type")).not.toBe("application/zip");
+  });
+
   it("makes a game, publishes it and asks before hiding it", async () => {
     const b = new Browser();
     await join(b);

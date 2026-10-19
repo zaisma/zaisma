@@ -1,6 +1,6 @@
 import { ACCOUNT_REQUIREMENTS, ApiError, accountById, CONTENT_RULES, CONTROLS, DEVICES, LINK_LIMITS, MINIMUM_PLAYER_AGES, OWN_SERVER_LIMITS, PLAYER_REPORT_REASONS, PLAY_STYLES, ROOM_BROWSING, SCREENS, type AccountRequirement, type ContentRule, type MinimumPlayerAge, type PlayerReportReason, type PlayMode, type RoomBrowsing } from "@zaisma/core";
-import { currentSession, realEmail } from "./auth.ts";
-import { apiCall, callerFor, GAME_ALERT_KINDS, type Caller, type GameAlertKind } from "./developer.ts";
+import { currentSession, downloadStartedCookie, realEmail } from "./auth.ts";
+import { apiCall, apiResponse, callerFor, GAME_ALERT_KINDS, type Caller, type GameAlertKind } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { html, layout, metalButton, raw, scriptTags, type Raw } from "./html.ts";
 import { emailAskBox, isEmailAskDue, securityAlertsBox, type UnseenSecurityAlert } from "./security-alerts.ts";
@@ -163,6 +163,19 @@ export async function handleDashboard(request: Request, env: Env, path: string):
   const slug = pathMatch[1]!;
   const action = pathMatch[2] ?? "";
   const back = (section: Section, key: string, hash = "") => done(redirect(`${sectionPath(slug, section)}?done=${key}${hash}`));
+
+  // Export everything: the .zip, made as it downloads (game-export.ts), through the same API call as zaisma export.
+  if (!post && action === "/export.zip") {
+    try {
+      const exported = await apiResponse(env, caller, `/games/${slug}/export/download`);
+      // The button's spinner stops when this arrives: the browser's own download takes over (html.ts, BUSY_SCRIPT).
+      exported.headers.append("Set-Cookie", downloadStartedCookie(env));
+      return done(exported);
+    } catch (error) {
+      if (error instanceof ApiError) return done(await managerPage(env, call, slug, "details", { error: error.messageWithFix }, error.httpStatus));
+      throw error;
+    }
+  }
 
   if (!post) {
     const section = SECTIONS.find((each) => (each.path ? `/${each.path}` : "") === action);
@@ -590,7 +603,8 @@ function detailsSection(slug: string, { game, images }: Loaded): Raw {
   return html`<div class="details-layout">
 <section><h2 class="rule-h" id="details">Details</h2>${detailsForm(slug, game)}
 <h2 class="rule-h" id="links">Links</h2>${linksForm(slug, game)}
-<h2 class="rule-h" id="own-servers">Your own servers</h2>${ownServersForm(slug, game)}</section>
+<h2 class="rule-h" id="own-servers">Your own servers</h2>${ownServersForm(slug, game)}
+<h2 class="rule-h" id="export">Export</h2>${exportPanel(slug)}</section>
 <aside><h2 class="rule-h" id="images">Cover and screenshots</h2>${imagesPanel(slug, images)}</aside>
 </div>`;
 }
@@ -848,6 +862,14 @@ ${Array.from(
   )}
 <button class="btn" type="submit">Save servers</button>
 </form>`;
+}
+
+/** Export everything (game-export.ts): one .zip, the same one export_game's link and zaisma export give. */
+function exportPanel(slug: string): Raw {
+  return html`<div class="stack">
+<p class="hint">Everything about the game in one .zip: every version that passed review, the cover and screenshots, the database, every player's save, stats, reports and history. Secrets come by name, never their values. It's made as it downloads, so it starts at once. Your AI gets the same link with <code>export_game</code>, and a terminal saves it as a folder with <code>npx @zaisma/cli export ${slug}</code>.</p>
+<a class="btn" href="/dashboard/${slug}/export.zip" data-download>Export everything</a>
+</div>`;
 }
 
 const MULTIPLAYER_LABELS = {

@@ -12,6 +12,7 @@ import { ERROR_CODES } from "../../packages/core/src/errors.ts";
 import { FORUM_CATEGORIES, TOPIC_KINDS } from "../../packages/core/src/forum.ts";
 import { dumpPart, importStatements, scanStatements } from "../../packages/game-server/src/index.ts";
 import { dumpParts, nodeRead, trickyDatabase } from "./dump-fixtures.ts";
+import { zipStream, type ZipSource } from "../../apps/site/src/zip-writer.ts";
 
 /**
  * The upload command's outward side ("Nothing for an AI to guess" in docs/DECISIONS.md): closed
@@ -44,6 +45,10 @@ const server = createServer(async (request: IncomingMessage, response: ServerRes
   // "PUT /files/*" answers every path in /files that has no answer of its own.
   const route = answers[`${call.method} ${call.path.split("?")[0]}`] ?? answers[`${call.method} ${call.path.split("?")[0]!.replace(/[^/]+$/, "*")}`];
   const answer = typeof route === "function" ? route(call) : (route ?? { status: 404, body: { error: { code: "not_found", message: "There's no API call at that path.", field: null, fix: "Check the path.", retry_after_sec: null } } });
+  if (answer.body instanceof Uint8Array) {
+    response.writeHead(answer.status, { "content-type": "application/zip" }).end(answer.body);
+    return;
+  }
   if (typeof answer.body === "string") {
     response.writeHead(answer.status, { "content-type": "text/html" }).end(answer.body);
     return;
@@ -198,7 +203,7 @@ describe("--json", () => {
   });
 
   it("help --json lists every command, and the exit codes and error codes the docs list", async () => {
-    expect(help.commands.map((entry) => entry.command)).toEqual(["games", "new", "check", "upload", "versions", "publish", "unschedule", "visibility", "allowed-hosts", "own-servers", "links", "links set", "links remove", "secrets", "secrets set", "secrets delete", "logs", "forum", "forum post", "forum message", "forum reply", "database", "database query", "database batch", "database export", "database import", "database restore", "database undo-restore", "saves", "saves get", "saves change", "saves replace", "saves reset", "saves copies", "saves copy", "saves restore", "help"]);
+    expect(help.commands.map((entry) => entry.command)).toEqual(["games", "new", "check", "upload", "versions", "publish", "unschedule", "visibility", "allowed-hosts", "own-servers", "links", "links set", "links remove", "secrets", "secrets set", "secrets delete", "logs", "forum", "forum post", "forum message", "forum reply", "database", "database query", "database batch", "database export", "database import", "database restore", "database undo-restore", "saves", "saves get", "saves change", "saves replace", "saves reset", "saves copies", "saves copy", "saves restore", "export", "help"]);
     const docs = readFileSync(join(ROOT, "docs/DEVELOPER-API.md"), "utf8");
     const section = docs.slice(docs.indexOf("\n## The upload command\n"));
     const exitRows = [...section.matchAll(/^\| (\d+) \| `([a-z_]+)` \| (.+) \|$/gm)].map((row) => ({ exit_code: Number(row[1]), name: row[2], meaning: row[3] }));
@@ -268,6 +273,65 @@ describe("database restore", () => {
     const undo = await zaisma(["database", "undo-restore", "sky-hopper", restore.id, "--json"]);
     expect(calls[1]).toMatchObject({ method: "POST", path: `/games/sky-hopper/database/restores/${restore.id}/undo` });
     expect(json(undo.stdout)).toEqual(undone);
+  });
+});
+
+describe("export", () => {
+  /** A .zip as Zaisma's export writes it (apps/site/src/zip-writer.ts). */
+  async function zipOf(files: Record<string, string>): Promise<Uint8Array> {
+    async function* sources(): AsyncGenerator<ZipSource> {
+      for (const [path, text] of Object.entries(files)) yield { path, bytes: new TextEncoder().encode(text), modifiedAtMs: Date.UTC(2026, 9, 18) };
+    }
+    return new Uint8Array(await new Response(zipStream(sources())).arrayBuffer());
+  }
+
+  it("saves the export as a folder, with the database as a ready .sqlite file", async () => {
+    const zip = await zipOf({
+      "README.txt": "Sky Hopper: everything about it on Zaisma.\n",
+      "versions/version_abc/index.html": "<!doctype html><p>hop</p>",
+      "versions/version_abc/assets/hero.png": "png bytes",
+      "database.sql": "BEGIN TRANSACTION;\nCREATE TABLE scores (player_id TEXT PRIMARY KEY, best_score INTEGER);\nINSERT INTO scores VALUES('player_a',1200);\nCOMMIT;\n",
+      "saves.jsonl": '{"player_id":"player_a"}\n',
+      "empty.json": "",
+    });
+    answers["GET /games/sky-hopper/export/download"] = { status: 200, body: zip };
+    const folder = join(mkdtempSync(join(tmpdir(), "zaisma-export-")), "sky-hopper");
+    const result = await zaisma(["export", "sky-hopper", "--folder", folder, "--json"]);
+    expect(result.exitCode, result.stdout + result.stderr).toBe(0);
+    expect(json(result.stdout)).toEqual({ folder, file_count: 6, size_bytes: zip.length, database_file: join(folder, "database.sqlite") });
+    expect(readFileSync(join(folder, "versions/version_abc/index.html"), "utf8")).toBe("<!doctype html><p>hop</p>");
+    expect(readFileSync(join(folder, "versions/version_abc/assets/hero.png"), "utf8")).toBe("png bytes");
+    expect(readFileSync(join(folder, "empty.json"), "utf8")).toBe("");
+    expect(readdirSync(folder).sort()).toEqual(["README.txt", "database.sql", "database.sqlite", "empty.json", "saves.jsonl", "versions"]);
+    const sqlite = new DatabaseSync(join(folder, "database.sqlite"));
+    expect(sqlite.prepare("SELECT * FROM scores").all()).toEqual([{ player_id: "player_a", best_score: 1200 }]);
+    sqlite.close();
+
+    // Never into a folder with something in it.
+    const again = await zaisma(["export", "sky-hopper", "--folder", folder, "--json"]);
+    expect(again.exitCode).toBe(2);
+    expect(json(again.stdout).error).toMatchObject({ code: "folder_not_empty", field: "folder" });
+  });
+
+  it("reads a zip64 export: more files than a plain zip can count", async () => {
+    const files: Record<string, string> = {};
+    for (let i = 0; i < 65_540; i++) files[`saves/${String(i).padStart(5, "0")}.json`] = i % 1000 ? "" : `{"i":${i}}`;
+    answers["GET /games/sky-hopper/export/download"] = { status: 200, body: await zipOf(files) };
+    const folder = join(mkdtempSync(join(tmpdir(), "zaisma-export-")), "out");
+    const result = await zaisma(["export", "sky-hopper", "--folder", folder, "--json"]);
+    expect(result.exitCode, result.stdout + result.stderr).toBe(0);
+    expect(json(result.stdout)).toMatchObject({ file_count: 65_540, database_file: null });
+    expect(readdirSync(join(folder, "saves"))).toHaveLength(65_540);
+    expect(readFileSync(join(folder, "saves/65000.json"), "utf8")).toBe('{"i":65000}');
+  }, 120_000);
+
+  it("passes on the API's refusal, and leaves no folder behind", async () => {
+    answers["GET /games/sky-hopper/export/download"] = { status: 403, body: { error: { code: "key_not_allowed", message: "This API key can't make GET /games/:slug/export/download.", field: null, fix: "Make a read key.", retry_after_sec: null } } };
+    const folder = join(mkdtempSync(join(tmpdir(), "zaisma-export-")), "out");
+    const result = await zaisma(["export", "sky-hopper", "--folder", folder, "--json"]);
+    expect(result.exitCode).toBe(1);
+    expect(json(result.stdout).error.code).toBe("key_not_allowed");
+    expect(existsSync(folder)).toBe(false);
   });
 });
 

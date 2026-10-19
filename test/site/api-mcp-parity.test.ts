@@ -19,6 +19,7 @@ const WITHOUT_TOOL: Record<string, string> = {
   "GET /forum/similar": "The page's look-alikes while a title is typed; post_topic answers similar_topics and search_forum finds the rest.",
   "POST /forum/media": "The page's image upload; tools send images inline as images_base64 in the post itself.",
   "GET /forum/:topic_id/media/:media_id": "An image's bytes; get_topic gives each image's image_url, which serves them.",
+  "GET /games/:slug/export/download": "The .zip's bytes, for the upload command; export_game gives its download_url, which the developer opens signed in.",
 };
 
 const nameOf = (apiRoute: { method: string; path: string }) => `${apiRoute.method} ${apiRoute.path}`;

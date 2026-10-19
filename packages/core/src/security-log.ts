@@ -62,6 +62,7 @@ export const SECURITY_EVENT_DESCRIPTIONS = {
   database_restore_undone: "Undid a database restore",
   saves_read: "Read a player's save",
   save_changed: "Changed a player's save",
+  game_exported: "Exported everything about the game",
   // The developer's account-wide things, shown in every game's history to a key that reaches them.
   webhook_created: "Made a webhook",
   webhook_changed: "Changed a webhook",
@@ -136,6 +137,8 @@ export const ADDRESS_KEEPING_EVENT_KINDS: readonly SecurityEventKind[] = [
   "database_restored",
   "database_restore_undone",
   "save_changed",
+  // It takes every player's save and the whole database out, so who did it, and from where, is kept.
+  "game_exported",
   "webhook_created",
   "webhook_changed",
   "webhook_deleted",
