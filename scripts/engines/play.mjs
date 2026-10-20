@@ -46,7 +46,7 @@ try {
     await play(chrome, sample);
   }
 } finally {
-  chrome.close();
+  await chrome.close();
 }
 if (failures.length) stop(`${failures.length} engine check(s) failed.`);
 console.log(`ENGINES PASS: ${engines.join(", ")} uploaded, passed the scan and played.`);
@@ -156,10 +156,13 @@ async function openChrome() {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    close: () => {
+    // Chrome writes to its profile until it has exited, so it goes after.
+    close: async () => {
       socket.close();
+      const exited = new Promise((resolve) => child.once("exit", resolve));
       child.kill();
-      rmSync(profile, { recursive: true, force: true });
+      await exited;
+      rmSync(profile, { recursive: true, force: true, maxRetries: 5 });
     },
   };
 }

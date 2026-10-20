@@ -1,11 +1,17 @@
-// A Three.js sample for Zaisma's engine tests: a lit 3D scene with shadows, fog, a few hundred
-// instanced crystals and a camera that orbits with the mouse, a touch or the arrow keys.
+// A Three.js sample for Zaisma's engine tests: a 3D scene with shadows, fog, a few hundred instanced
+// crystals that glow and pulse (bloom from three's add-ons, through the import map) and a camera that
+// orbits with the mouse, a touch or the arrow keys.
 import * as THREE from "three";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
@@ -27,7 +33,8 @@ ground.receiveShadow = true;
 scene.add(ground);
 
 const crystalCount = 400;
-const crystals = new THREE.InstancedMesh(new THREE.OctahedronGeometry(0.6), new THREE.MeshStandardMaterial({ color: 0x60b0e0, metalness: 0.3, roughness: 0.2 }), crystalCount);
+const crystalMaterial = new THREE.MeshStandardMaterial({ color: 0x1a3a5a, emissive: 0x1e90ff, emissiveIntensity: 0.8, metalness: 0.4, roughness: 0.25 });
+const crystals = new THREE.InstancedMesh(new THREE.OctahedronGeometry(0.6), crystalMaterial, crystalCount);
 crystals.castShadow = true;
 const place = new THREE.Object3D();
 for (let i = 0; i < crystalCount; i++) {
@@ -40,7 +47,7 @@ for (let i = 0; i < crystalCount; i++) {
 }
 scene.add(crystals);
 
-const tower = new THREE.Mesh(new THREE.CylinderGeometry(1, 2, 8, 6), new THREE.MeshStandardMaterial({ color: 0xc08050 }));
+const tower = new THREE.Mesh(new THREE.CylinderGeometry(1, 2, 8, 6), new THREE.MeshStandardMaterial({ color: 0xc08050, emissive: 0xff6010, emissiveIntensity: 0.25 }));
 tower.position.y = 4;
 tower.castShadow = true;
 scene.add(tower);
@@ -62,7 +69,13 @@ addEventListener("resize", () => {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
+  composer.setSize(innerWidth, innerHeight);
 });
+
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+composer.addPass(new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.9, 0.6, 0.35));
+composer.addPass(new OutputPass());
 
 const timer = new THREE.Timer();
 renderer.setAnimationLoop((time) => {
@@ -71,8 +84,9 @@ renderer.setAnimationLoop((time) => {
   if (keys.has("ArrowLeft")) yaw += delta * 1.5;
   if (keys.has("ArrowRight")) yaw -= delta * 1.5;
   tower.rotation.y += delta * 0.4;
+  crystalMaterial.emissiveIntensity = 0.7 + Math.sin(timer.getElapsed() * 2) * 0.35;
   camera.position.set(Math.sin(yaw) * Math.cos(pitch) * 28, Math.sin(pitch) * 28, Math.cos(yaw) * Math.cos(pitch) * 28);
   camera.lookAt(0, 2, 0);
-  renderer.render(scene, camera);
+  composer.render(delta);
 });
 window.zaismaEngineSample = { engine: "three", version: THREE.REVISION, started: true };
