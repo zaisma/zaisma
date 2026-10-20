@@ -133,7 +133,7 @@ export const TOKEN_STYLES = `
   --spring: cubic-bezier(.3, 1.2, .4, 1);
   /* Spacing (docs/DESIGN.md, Spacing): every gap, padding and margin is one of these, picked by what sits on each side.
      --gap-control-control is also the edge rule's neighbour distance: two controls that far apart slant, further apart they don't. */
-  --gap-control-control: 8px;
+  --gap-control-control: 4px;
   --gap-words-control: 8px;
   --gap-words-words: 8px;
   --gap-block-block: 24px;
@@ -422,7 +422,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
    * The shape goes to CSS as --cut-shape, and el.cutCorners holds its corners for what sits inside it.
    */
   // Half a pixel over the token, for gaps a layout rounds.
-  var BESIDE_GAP_PX = (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--gap-control-control")) || 8) + 0.5, LONE_CORNERS = [18, 9, 18, 9];
+  var BESIDE_GAP_PX = (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--gap-control-control")) || 4) + 0.5, LONE_CORNERS = [18, 9, 18, 9];
   function glassCorners(pane) {
     var cuts = (pane.getAttribute("data-glass-corners") || "16 6 16 6").trim().split(/ +/).map(Number), short = Math.min(pane.offsetWidth, pane.offsetHeight);
     return cuts.map(function (cut) { return Math.min(cut, Math.round(short * 0.3)); });

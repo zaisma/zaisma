@@ -308,7 +308,7 @@ component({
 `,
   examples: [
     {
-      label: "Two controls in a row or a stack, and the edge rule's neighbour distance: 8px",
+      label: "Two controls in a row or a stack, and the edge rule's neighbour distance: 4px",
       markup: spacingExample("--gap-control-control", html`<div class="control-row" data-spacing-show="gap">${runButton("Play", { type: "button", icon: "play" })}${cutButton("Details", { type: "button" })}</div>`),
     },
     {

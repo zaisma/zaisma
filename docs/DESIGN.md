@@ -62,7 +62,7 @@ Applies to the components (`apps/site/src/components/`) and the gallery (`apps/s
 
 | Token | What's on each side | Value |
 | --- | --- | --- |
-| `--gap-control-control` | Two controls, in a row or a stack (Play and Details, Light and Dark, the passkey, Google and Discord buttons) | 8px |
+| `--gap-control-control` | Two controls, in a row or a stack (Play and Details, Light and Dark, the passkey, Google and Discord buttons) | 4px |
 | `--gap-words-control` | A control and the words that belong to it (a field's label above it, its error under it) | 8px |
 | `--gap-words-words` | Words beside or under other words in one block (a title and the line under it, links in a row, an icon and its word) | 8px |
 | `--gap-block-block` | Two blocks: inside a pane, two panes side by side or stacked, the gallery's examples, a row of covers | 24px |
