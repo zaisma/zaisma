@@ -274,28 +274,28 @@ const FIELD_STYLES = `
 /* Fields: the header's search field, bigger. A cut field of clearer glass with a drawn outline and a line icon saying what goes in it;
    pointing clears it a little, and typing in it whitens it and draws the outline in orange. Words are 16px, so phones don't zoom in. */
 .cut-field { display: flex; flex-direction: column; gap: 8px; }
-.cut-field > label { font: 600 14px var(--display); color: var(--ink-2); }
+.cut-field > label { font: 600 15px var(--display); color: var(--ink-2); }
 .field { position: relative; display: flex; align-items: center; height: 52px; color: var(--muted); }
-.field input { position: relative; z-index: 2; flex: 1; min-width: 0; width: 100%; height: 100%; padding: 0 16px 0 48px;
-  font: 500 16px var(--display); color: var(--ink); caret-color: var(--run-lo);
+.field input { position: relative; z-index: 2; flex: 1; min-width: 0; width: 100%; height: 100%; padding: 0 16px 0 52px;
+  font: 500 18px var(--display); color: var(--ink); caret-color: var(--run-lo);
   --face-colour: var(--field-face); background: var(--face-colour); border: 0; border-radius: 0; box-shadow: var(--field-shade);
   clip-path: var(--cut-shape); transition: --face-colour 0.25s; }
 .field:hover input { --face-colour: var(--field-hover); }
 .field input:focus, .field.is-focused input { outline: none; --face-colour: var(--field-focus); border: 0; }
 .field input::placeholder { color: var(--muted); }
 .field input:-webkit-autofill { -webkit-text-fill-color: var(--ink); transition: background-color 600000s 0s; }
-.field .ico { position: absolute; z-index: 3; left: 18px; width: 18px; height: 18px; pointer-events: none; transition: color 0.25s; }
+.field .ico { position: absolute; z-index: 3; left: 18px; width: 20px; height: 20px; pointer-events: none; transition: color 0.25s; }
 .field:focus-within, .field.is-focused { color: var(--ink); }
 .field > .cut-line { z-index: 4; }
 .field > .cut-line polygon { stroke: var(--field-outline); }
 .field:focus-within > .cut-line polygon, .field.is-focused > .cut-line polygon { stroke: var(--run); stroke-width: 2; }
 .field.is-marked > .cut-line polygon { stroke: var(--marked); stroke-width: 2; }
-.field-error { margin: 0; font: 500 14px var(--display); color: var(--marked); }
-.field.with-toggle input { padding-right: 84px; }
+.field-error { margin: 0; font: 500 15px var(--display); color: var(--marked); }
+.field.with-toggle input { padding-right: 90px; }
 /* Show/Hide: a small cut slab inside the field; it turns white with the orange line while the password shows. */
 /* Show/Hide: a small raised slab inside the field, like a cut button. While the password shows, it's sunk into the field, its light turned round. */
 .field .show { position: absolute; z-index: 5; right: 8px; top: 8px; bottom: 8px; padding: 0 14px; border: 0; cursor: pointer;
-  font: 600 14px var(--display); color: var(--ink-2); --face-colour: var(--btn); background: var(--face-colour);
+  font: 600 15px var(--display); color: var(--ink-2); --face-colour: var(--btn); background: var(--face-colour);
   clip-path: var(--cut-shape); transition: --face-colour 0.2s, color 0.2s; }
 .field .show:hover { --face-colour: var(--btn-hover); color: var(--ink); }
 .field .show[aria-pressed="true"] { --face-colour: var(--btn-press); color: var(--ink); }
@@ -332,8 +332,8 @@ component({
 /* Search: a cut field of clearer glass. "/" jumps to it. */
 .find { position: relative; flex: 1; max-width: 460px; height: 44px; margin: 0; }
 .find input[type="search"] {
-  width: 100%; height: 100%; padding: 0 16px 0 42px;
-  font: 15px var(--body); color: var(--ink);
+  width: 100%; height: 100%; padding: 0 16px 0 44px;
+  font: 500 16px var(--display); color: var(--ink);
   --face-colour: var(--field-face); background: var(--face-colour); border: 0; border-radius: 0;
   box-shadow: var(--well-shade);
   clip-path: var(--cut-shape);
@@ -361,13 +361,13 @@ component({
 /* The birthday field: the same cut field, with a calendar icon; open, it's whitened with the orange outline, like a field you're typing in. */
 .bday { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .bday legend { padding: 0; margin-bottom: 10px; font: 600 18px var(--display); color: var(--ink); }
-.bday-field { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; height: 52px; padding: 0 18px 0 48px; border: 0; cursor: pointer; text-align: left;
-  font: 500 16px var(--display); color: var(--muted); --face-colour: var(--field-face); background: var(--face-colour); box-shadow: var(--field-shade);
+.bday-field { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; height: 52px; padding: 0 18px 0 52px; border: 0; cursor: pointer; text-align: left;
+  font: 500 18px var(--display); color: var(--muted); --face-colour: var(--field-face); background: var(--face-colour); box-shadow: var(--field-shade);
   clip-path: var(--cut-shape); transition: --face-colour 0.25s; }
 .bday-field:hover { --face-colour: var(--field-hover); }
 .bday-field[aria-expanded="true"], .bday-field:focus-visible { outline: none; --face-colour: var(--field-focus); }
 .bday-field.set { color: var(--ink); font-weight: 500; }
-.bday-field .ico { position: absolute; left: 18px; top: 50%; width: 18px; height: 18px; transform: translateY(-50%); color: var(--muted); }
+.bday-field .ico { position: absolute; left: 18px; top: 50%; width: 20px; height: 20px; transform: translateY(-50%); color: var(--muted); }
 .bday-field[aria-expanded="true"] .ico, .bday-field.set .ico { color: var(--ink); }
 .bday-field .chev { flex: none; margin-right: 4px; color: var(--ink); transition: transform 0.4s cubic-bezier(.2,.7,.2,1); }
 /* Only the chevron turns when the picker opens; the outline and the icon stay still. */
