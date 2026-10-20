@@ -332,9 +332,8 @@ component({
 .glass-btn:focus-visible .edge .hair, .glass-btn.is-focused .edge .hair { stroke: var(--run); stroke-width: 2; }
 .glass-btn:focus-visible .edge .rim, .glass-btn.is-focused .edge .rim { stroke: var(--run); stroke-width: 2; }
 .glass-btn:focus-visible .edge .facet, .glass-btn:focus-visible .edge .fringe, .glass-btn.is-focused .edge .facet, .glass-btn.is-focused .edge .fringe { opacity: 0; }
-/* A dark tint is a solid slab: the glass rim's dark hairline, white rim and facets would read as a glitchy frame round it, so it keeps only a faint lit inner edge. */
-.glass-btn[data-tint="blue"] .edge :is(.hair, .rim, .fringe, .facet), .glass-btn[data-tint="indigo"] .edge :is(.hair, .rim, .fringe, .facet), .glass-btn[data-tint="black"] .edge :is(.hair, .rim, .fringe, .facet) { opacity: 0; }
-.glass-btn[data-tint="blue"] .edge .inner, .glass-btn[data-tint="indigo"] .edge .inner, .glass-btn[data-tint="black"] .edge .inner { stroke: rgba(255,255,255,0.28); opacity: 1; }
+/* A dark tint is a solid slab: the glass rim's dark hairline, white rim and facets would read as a glitchy frame round it, so it has no rim at all. */
+.glass-btn[data-tint="blue"] .edge :is(.hair, .rim, .fringe, .facet, .inner), .glass-btn[data-tint="indigo"] .edge :is(.hair, .rim, .fringe, .facet, .inner), .glass-btn[data-tint="black"] .edge :is(.hair, .rim, .fringe, .facet, .inner) { opacity: 0; }
 .glass-btn[data-tint="blue"]:focus-visible .edge :is(.hair, .rim), .glass-btn[data-tint="indigo"]:focus-visible .edge :is(.hair, .rim), .glass-btn[data-tint="black"]:focus-visible .edge :is(.hair, .rim),
 .glass-btn[data-tint="blue"].is-focused .edge :is(.hair, .rim), .glass-btn[data-tint="indigo"].is-focused .edge :is(.hair, .rim), .glass-btn[data-tint="black"].is-focused .edge :is(.hair, .rim) { opacity: 1; }
 /* Tinted: the way's own colour, nearly solid, in either theme (a brand's colour is how you recognise it, so it doesn't
