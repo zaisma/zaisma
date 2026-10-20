@@ -9,6 +9,7 @@ import * as inputs from "../../apps/site/src/components/inputs.ts";
 import * as navigation from "../../apps/site/src/components/navigation.ts";
 import * as panes from "../../apps/site/src/components/panes.ts";
 import * as data from "../../apps/site/src/components/data.ts";
+import { pageSettingsAttributes } from "../../apps/site/src/components/foundations.ts";
 import { html } from "../../apps/site/src/html.ts";
 
 /**
@@ -106,6 +107,12 @@ describe("the gallery", () => {
 });
 
 describe("components", () => {
+  it("put a page's settings on it, taking only a #rrggbb colour as the glass's hue", () => {
+    expect(pageSettingsAttributes({ theme: "dark", glass: { hueColour: "#2E9E6B" } }).html).toBe(' data-theme-choice="dark" style="--glass-hue:#2E9E6B"');
+    expect(pageSettingsAttributes({}).html).toBe("");
+    for (const hueColour of ["red", "#2E9E6B;background:url(x)", "#2E9E6", '"><script>']) expect(pageSettingsAttributes({ glass: { hueColour } }).html).toBe("");
+  });
+
   it("make the runner a link with an address and a button without one", () => {
     expect(actions.runButton("Play", { href: "/g/x" }).html).toMatch(/<a class="shell run-wrap" href="\/g\/x">/);
     expect(actions.runButton("Play").html).toMatch(/<button class="shell run-wrap" type="submit">/);

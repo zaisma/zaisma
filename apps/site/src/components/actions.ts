@@ -291,7 +291,7 @@ component({
 .glass-btn > .face {
   position: relative; display: flex; flex: auto; align-items: center; justify-content: center; gap: 10px; height: 48px; padding: 0 18px;
   font: 500 15px var(--display); color: var(--ink); white-space: nowrap;
-  background-color: var(--glass-btn-face); background-image: var(--glass-sheen);
+  background-color: var(--glass-btn-face); background-image: var(--glass-wash), var(--glass-sheen);
   clip-path: polygon(0 12px, 12px 0, calc(100% - 4px) 0, 100% 4px, 100% calc(100% - 12px), calc(100% - 12px) 100%, 4px 100%, 0 calc(100% - 4px));
   transition: background-color 0.25s, box-shadow 0.2s, transform 0.4s ${SPRING}; }
 .glass-btn .face > :not(.edge) { position: relative; z-index: 3; }
@@ -331,7 +331,9 @@ component({
 /* Tinted: the way's own colour, nearly solid, in either theme (a brand's colour is how you recognise it, so it doesn't
    follow light or dark): white glass with dark words, the coloured and black ones with white words. It's a touch stronger
    as you point at it and a touch clearer under a press. Changing the tint fades from one to the next. */
-.glass-btn > .face { --tint-pct: 0%; background-image: linear-gradient(color-mix(in srgb, var(--tint-colour) var(--tint-pct), transparent), color-mix(in srgb, var(--tint-colour) var(--tint-pct), transparent)), var(--glass-sheen); }
+.glass-btn > .face { --tint-pct: 0%; background-image: linear-gradient(color-mix(in srgb, var(--tint-colour) var(--tint-pct), transparent), color-mix(in srgb, var(--tint-colour) var(--tint-pct), transparent)), var(--glass-wash), var(--glass-sheen); }
+/* A brand's glass keeps its own colour: the page's hue never reaches it. */
+.glass-btn[data-tint]:not([data-tint="clear"]) > .face { --glass-wash: linear-gradient(transparent, transparent); }
 .glass-btn[data-tint] > .face { --tint-pct: var(--glass-btn-tint-rest); transition: background-color 0.25s, box-shadow 0.2s, transform 0.4s ${SPRING}, color 0.3s, --tint-colour 0.3s, --tint-pct 0.3s; }
 .glass-btn[data-tint]:hover > .face, .glass-btn[data-tint].is-pointed > .face, .glass-btn[data-tint]:focus-visible > .face, .glass-btn[data-tint].is-focused > .face { --tint-pct: var(--glass-btn-tint-hover); }
 .glass-btn[data-tint]:active > .face, .glass-btn[data-tint].is-pressed > .face { --tint-pct: var(--glass-btn-tint-press); }

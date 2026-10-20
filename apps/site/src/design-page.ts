@@ -3,7 +3,7 @@ import { headScriptTags, html, pageData, raw, securityHeaders, type Raw } from "
 import { pageScript } from "./page-scripts.ts";
 import { COMPONENT_GROUPS, type Component, type ComponentGroup } from "./components/component.ts";
 import { COMPONENTS, COMPONENT_SCRIPT, COMPONENT_STYLES, HEADER_SCRIPT } from "./components/index.ts";
-import { CUT_LINE, EDGE, WORDMARK, backdrop, railMarkup } from "./components/foundations.ts";
+import { CUT_LINE, EDGE, WORDMARK, backdrop, pageSettingsAttributes, railMarkup } from "./components/foundations.ts";
 import { cutButton, runButton } from "./components/actions.ts";
 import { cutField, tabSwitch } from "./components/inputs.ts";
 import { glassPane } from "./components/panes.ts";
@@ -73,7 +73,7 @@ export function designPage(env: Env, url: URL): Response | null {
 ${head(`${groupName} · Design · Zaisma`)}
 </head>
 <body class="gallery">
-<div id="stage" class="stage" data-theme-choice="${theme}">${backdrop()}
+<div id="stage" class="stage"${pageSettingsAttributes({ theme })}>${backdrop()}
 <header class="gallery-bar glass" data-glass data-glass-corners="16 6 16 6">${EDGE}<a class="logo" href="/" aria-label="Zaisma home">${WORDMARK}</a><span class="gallery-title">Design</span>
 ${themeButton(group, theme)}
 <div class="gallery-groups">${tabSwitch({ label: "Groups", switchSize: "small", tabs: groupTabs })}</div></header>
@@ -112,7 +112,7 @@ body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
 .gallery-index { position: sticky; top: 100px; display: flex; max-height: calc(100vh - 114px); }
 .gallery-groups { display: none; }
 .gallery-main { min-width: 0; }
-.group-name { margin: 0 0 14px; font: 600 30px/1.1 var(--display); color: var(--ink); display: inline-block; padding: 8px 22px; background: var(--glass-tint); clip-path: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%); }
+.group-name { margin: 0 0 14px; font: 600 30px/1.1 var(--display); color: var(--ink); display: inline-block; padding: 8px 22px; background: var(--glass-wash), var(--glass-tint); clip-path: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%); }
 .component-section { margin: 0 0 34px; scroll-margin-top: 96px; }
 .component-head { padding: 16px 22px; margin-bottom: 12px; }
 .component-head h2 { margin: 0; font: 600 24px var(--display); }
@@ -209,7 +209,8 @@ export const GALLERY_SCRIPT = pageScript(
   // Light or dark switches in place, and every link to another group's page keeps it.
   var button = document.querySelector(".theme-button");
   function apply(theme) {
-    stage.dataset.themeChoice = theme;
+    window.zaismaSettings.set({ theme: theme }, stage);
+    document.querySelectorAll("[data-setting-theme]").forEach(function (each) { each.setAttribute("aria-pressed", each.getAttribute("data-setting-theme") === theme ? "true" : "false"); });
     if (button) { button.href = location.pathname + query(theme === "dark" ? "light" : "dark"); button.setAttribute("aria-label", theme === "dark" ? "Dark. Switch to light" : "Light. Switch to dark"); }
     document.querySelectorAll("[data-gallery-page], .gallery-groups a").forEach(function (link) {
       var url = new URL(link.href); link.href = url.pathname + query(theme) + url.hash;
@@ -278,6 +279,16 @@ export const GALLERY_SCRIPT = pageScript(
     });
   });
   // Glass at any size: drag the window about, pull its corner to resize it, or use the arrow keys (Shift resizes).
+  // Page settings: the stage carries the gallery's, so a pick here changes every component in it at once.
+  document.addEventListener("click", function (event) {
+    var themePick = event.target.closest && event.target.closest("[data-setting-theme]");
+    if (themePick) { apply(themePick.getAttribute("data-setting-theme")); return; }
+    var huePick = event.target.closest && event.target.closest("[data-setting-hue]");
+    if (!huePick) return;
+    window.zaismaSettings.set({ glass: { hueColour: huePick.getAttribute("data-setting-hue") || null } }, stage);
+    document.querySelectorAll("[data-setting-hue]").forEach(function (each) { each.setAttribute("aria-pressed", each === huePick ? "true" : "false"); });
+  });
+  document.querySelectorAll("[data-setting-theme]").forEach(function (each) { each.setAttribute("aria-pressed", each.getAttribute("data-setting-theme") === stage.dataset.themeChoice ? "true" : "false"); });
   document.querySelectorAll("[data-glass-play]").forEach(function (play) {
     var win = play.querySelector(".glass-window"), grip = win.querySelector(".glass-grip"), readout = win.querySelector(".glass-size");
     var MIN_W = 64, MIN_H = 40;

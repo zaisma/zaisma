@@ -419,7 +419,7 @@ component({
 .rail-mark:hover::before { background: var(--run); left: 9px; }
 .rail-mark[hidden] { display: none; }
 .rail-mark span { position: absolute; right: 28px; top: 50%; transform: translate(0, -50%); padding: 4px 10px; white-space: nowrap; pointer-events: none;
-  font: 600 12px var(--display); color: var(--ink); background: var(--glass-menu); -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  font: 600 12px var(--display); color: var(--ink); background: var(--glass-wash), var(--glass-menu); -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   clip-path: polygon(100% 0, 100% 0, calc(100% - 5px) 100%, calc(100% - 5px) 100%); transition: clip-path 0.18s ease-out; }
 /* A label opens by wiping out from the rail, never by fading: a fading blur draws without its glass and turns solid at the end. */
 .rail:hover .rail-mark span, .rail.dragging .rail-mark span { clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); }

@@ -33,7 +33,7 @@ const LIGHT_GLASS = `color-scheme: light;
   --edge-spec: rgba(255, 255, 255, 1); --edge-dense: rgba(120, 130, 146, 0.03);
   --logo-halo: drop-shadow(0 0 10px rgba(255, 255, 255, 0.6)) drop-shadow(0 1px 1px rgba(255, 255, 255, 0.5));
   --link-hover: var(--run-lo); --marked: var(--run-lo);
-  --glass-base: 255, 255, 255; --glass-kind: "Light glass, dark words.";
+  --glass-base: 255, 255, 255; --glass-kind: "Light glass, dark words."; --glass-hue-strength: 14%;
   --raise-top: rgba(255, 255, 255, 0.95); --raise-left: rgba(255, 255, 255, 0.6); --raise-right: rgba(96, 108, 128, 0.22); --raise-bottom: rgba(70, 82, 104, 0.34);
   --carve-top: rgba(60, 72, 94, 0.3); --carve-left: rgba(60, 72, 94, 0.2); --carve-right: rgba(255, 255, 255, 0.55); --carve-bottom: rgba(255, 255, 255, 0.9);
   --backdrop-base: #E6ECF4; --backdrop-a: #B9CBE6; --backdrop-b: #C0DCDB; --backdrop-c: #D2CBEA;`;
@@ -63,7 +63,7 @@ const SMOKED_GLASS = `color-scheme: dark;
   --edge-spec: rgba(255, 255, 255, 0.95); --edge-dense: rgba(255, 255, 255, 0.04);
   --logo-halo: drop-shadow(0 0 12px rgba(4, 7, 14, 0.75)) drop-shadow(0 1px 2px rgba(4, 7, 14, 0.6));
   --link-hover: var(--run-hi); --marked: var(--run-hi);
-  --glass-base: 14, 17, 24; --glass-kind: "Smoked glass, light words.";
+  --glass-base: 14, 17, 24; --glass-kind: "Smoked glass, light words."; --glass-hue-strength: 22%;
   --raise-top: rgba(255, 255, 255, 0.42); --raise-left: rgba(255, 255, 255, 0.22); --raise-right: rgba(0, 0, 0, 0.3); --raise-bottom: rgba(0, 0, 0, 0.5);
   --carve-top: rgba(0, 0, 0, 0.5); --carve-left: rgba(0, 0, 0, 0.32); --carve-right: rgba(255, 255, 255, 0.1); --carve-bottom: rgba(255, 255, 255, 0.2);
   --backdrop-base: #0A0D13; --backdrop-a: #1C2C49; --backdrop-b: #0E2E34; --backdrop-c: #241E3F;`;
@@ -88,6 +88,8 @@ export const TOKEN_STYLES = `
   --danger: #D93A2B; --danger-lo: #A82718;
   --page: #EEF2F7;
   --glass-blur: 24px;
+  /* The glass's hue (PageSettings' glass.hueColour): tints every piece of glass under where it's set. Glass tinted for a brand keeps its own colour. */
+  --glass-hue: transparent;
   --display: "Jost", Futura, "Century Gothic", "Avenir Next", sans-serif;
   --body: -apple-system, "Segoe UI", system-ui, sans-serif;
   --spring: cubic-bezier(.3, 1.2, .4, 1);
@@ -111,7 +113,9 @@ export const TOKEN_STYLES = `
    like the header's --glass-top), the light on it (--glass-sheen: brightest at its top left, a little shade along its foot),
    the blur and colour of what's behind (--glass-blur, --glass-saturate), and cut corners with a drawn rim (the svg.edge
    GLASS_SCRIPT draws, which sizes its corners and bevel to the slab). Nothing else restates these. */
-.glass { position: relative; color: var(--ink); background-color: var(--glass-tint); background-image: var(--glass-sheen);
+/* Every element works the hue out from the --glass-hue it inherits, so setting it anywhere tints all the glass inside. */
+* { --glass-wash: linear-gradient(color-mix(in srgb, var(--glass-hue) var(--glass-hue-strength), transparent), color-mix(in srgb, var(--glass-hue) var(--glass-hue-strength), transparent)); }
+.glass { position: relative; color: var(--ink); background-color: var(--glass-tint); background-image: var(--glass-wash), var(--glass-sheen);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   transition: background-color 0.5s ease, color 0.3s ease; }
 .glass > :not(.edge) { position: relative; z-index: 3; }
@@ -377,6 +381,20 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     // Where it sits can change without its size changing: once the fonts are in, the layout has settled.
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(draw);
   }
+  // The page's settings (PageSettings), changed in place for the whole page or under one element. Only what's given changes:
+  // { theme: "light" | "dark" | null } and { glass: { hueColour: "#rrggbb" | null } }, null going back to the default.
+  window.zaismaSettings = {
+    set: function (settings, element) {
+      var target = element || document.documentElement;
+      if (settings.theme !== undefined) { if (settings.theme === "light" || settings.theme === "dark") target.setAttribute("data-theme-choice", settings.theme); else target.removeAttribute("data-theme-choice"); }
+      var glass = settings.glass;
+      if (glass && glass.hueColour !== undefined) { if (typeof glass.hueColour === "string" && /^#[0-9a-fA-F]{6}$/.test(glass.hueColour)) target.style.setProperty("--glass-hue", glass.hueColour); else target.style.removeProperty("--glass-hue"); }
+    },
+    read: function (element) {
+      var target = element || document.documentElement, hue = target.style.getPropertyValue("--glass-hue").trim();
+      return { theme: target.getAttribute("data-theme-choice") || null, glass: { hueColour: hue || null } };
+    }
+  };
   window.zaismaGlass = glass;
   window.zaismaCutLine = cutLine;
   var done = typeof WeakSet === "function" ? new WeakSet() : { has: function () { return false; }, add: function () {} };
@@ -560,7 +578,7 @@ component({
   summary: "Every colour comes from these tokens, so light, dark and smoked glass follow by themselves. Orange is only for what you act on, and it is always shown in full: never faded or at half opacity.",
   styles: `
 /* Colour: the gallery's swatches. */
-.swatches { width: 100%; list-style: none; margin: 0; padding: 14px; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px 18px; color: var(--ink); background: var(--glass-tint); -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); }
+.swatches { width: 100%; list-style: none; margin: 0; padding: 14px; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px 18px; color: var(--ink); background: var(--glass-wash), var(--glass-tint); -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); }
 .swatches li { display: grid; grid-template-columns: 36px 1fr; grid-template-rows: auto auto; column-gap: 10px; align-items: center; font: 500 13px var(--display); }
 .swatches .chip-swatch { grid-row: span 2; width: 36px; height: 36px; box-shadow: inset 0 0 0 1px var(--line); clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px); }
 .swatches code { font: 600 13px ui-monospace, Menlo, monospace; }
@@ -606,7 +624,61 @@ component({
   ],
 });
 
+/**
+ * The settings every page has, in one place: what all its components follow, so one change covers every instance at once.
+ * Each component's own settings sit under its name, and a page leaves out what it doesn't use. pageSettingsAttributes puts them
+ * on <html> (or any element, for what's inside it, like the gallery's stage); window.zaismaSettings.set changes them in place.
+ */
+export interface PageSettings {
+  /** Light or dark. Left out, the system's. */
+  theme?: "light" | "dark";
+  glass?: {
+    /** Tints every piece of glass, as a #rrggbb colour (like a game's colour on the home). Glass tinted for a brand keeps its own colour. */
+    hueColour?: string;
+  };
+}
+
+const HEX_COLOUR = /^#[0-9a-fA-F]{6}$/;
+
+/** The settings as attributes for <html>. Only a #rrggbb colour is taken as a hue, so a game's colour can't carry anything else into the page. */
+export function pageSettingsAttributes(settings: PageSettings): Raw {
+  const hueColour = settings.glass?.hueColour;
+  return html`${settings.theme ? html` data-theme-choice="${settings.theme}"` : ""}${hueColour && HEX_COLOUR.test(hueColour) ? html` style="--glass-hue:${hueColour}"` : ""}`;
+}
+
+/** Game-like colours for the gallery's hue example. */
+const HUE_EXAMPLES: { label: string; hexColour: string }[] = [
+  { label: "Crimson", hexColour: "#C8384A" },
+  { label: "Emerald", hexColour: "#2E9E6B" },
+  { label: "Violet", hexColour: "#7A4FD8" },
+  { label: "Gold", hexColour: "#D9A520" },
+];
+
 const glassStrip = (body: Raw) => html`<div class="glass-strip"><i></i><i></i><i></i>${body}</div>`;
+
+component({
+  name: "Page settings",
+  slug: "page-settings",
+  group: "foundations",
+  summary: "Every page has one set of settings that all its components follow: light or dark, and each component's own, like the glass's hue. One change covers every instance at once, and a page only carries the ones its components use.",
+  styles: `
+.setting-picks { display: flex; flex-wrap: wrap; gap: 10px; }
+.setting-picks .hue-dot { position: relative; z-index: 2; width: 12px; height: 12px; border-radius: 50%; }
+.setting-picks [aria-pressed="true"] > .face { background: var(--btn-hover); box-shadow: inset 0 -3px 0 var(--run); }
+`,
+  examples: [
+    {
+      label: "Light or dark: the whole gallery follows",
+      isWide: true,
+      markup: html`<div class="setting-picks" role="group" aria-label="Light or dark">${(["light", "dark"] as const).map((theme) => html`<button type="button" class="cut-btn shell" data-setting-theme="${theme}" aria-pressed="false"><span class="face cut-raised" data-cut-line="10">${CUT_LINE}<span>${theme === "light" ? "Light" : "Dark"}</span></span></button>`)}</div>`,
+    },
+    {
+      label: "Glass: its hue, on every piece of glass in the gallery at once",
+      isWide: true,
+      markup: html`<div class="setting-picks" role="group" aria-label="The glass's hue"><button type="button" class="cut-btn shell" data-setting-hue="" aria-pressed="true"><span class="face cut-raised" data-cut-line="10">${CUT_LINE}<span>None</span></span></button>${HUE_EXAMPLES.map((hue) => html`<button type="button" class="cut-btn shell" data-setting-hue="${hue.hexColour}" aria-pressed="false"><span class="face cut-raised" data-cut-line="10">${CUT_LINE}<i class="hue-dot" style="background:${hue.hexColour}"></i><span>${hue.label}</span></span></button>`)}</div>`,
+    },
+  ],
+});
 
 component({
   name: "Glass",
