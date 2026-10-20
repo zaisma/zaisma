@@ -3,7 +3,7 @@ import { html, message, raw, scriptTags, securityHeaders, type Raw } from "./htm
 import { pageScript } from "./page-scripts.ts";
 import { COMPONENT_GROUPS, type Component } from "./components/component.ts";
 import { COMPONENTS, COMPONENT_SCRIPT, COMPONENT_STYLES, HEADER_SCRIPT, componentBySlug } from "./components/index.ts";
-import { EDGE, WORDMARK } from "./components/foundations.ts";
+import { EDGE, WORDMARK, railMarkup } from "./components/foundations.ts";
 import { cutButton, runButton } from "./components/actions.ts";
 import { cutField, tabSwitch } from "./components/inputs.ts";
 import { glassPane } from "./components/panes.ts";
@@ -113,10 +113,10 @@ ${head("Design · Zaisma")}
 <div class="stage-glass"${stageGlassAttributes(view)}>
 <header class="gallery-bar glass" data-glass data-glass-corners="16 6 16 6">${EDGE}<a class="logo" href="/" aria-label="Zaisma home">${WORDMARK}</a><span class="gallery-title">Design</span>${switches(view)}</header>
 <div class="gallery-layout">
-<nav class="gallery-index glass" aria-label="Components" data-glass data-glass-corners="14 6 14 6">${COMPONENT_GROUPS.map(({ group, name }) => {
+<div class="gallery-index glass" data-glass data-glass-corners="14 6 14 6"><nav class="gallery-index-in" aria-label="Components">${COMPONENT_GROUPS.map(({ group, name }) => {
     const inGroup = components.filter((each) => each.group === group);
     return inGroup.length ? html`<h2>${name}</h2><ul>${inGroup.map((each) => html`<li><a href="#${each.slug}">${each.name}</a></li>`)}</ul>` : "";
-  })}</nav>
+  })}</nav>${railMarkup("box")}</div>
 <div class="gallery-groups">${tabSwitch({ label: "Groups", switchSize: "small", tabs: COMPONENT_GROUPS.filter(({ group }) => components.some((each) => each.group === group)).map(({ group, name }) => ({ label: name, href: `#${components.find((each) => each.group === group)!.slug}`, isCurrent: false })) })}</div>
 <main class="gallery-main">
 <h1 class="sr">Zaisma's design</h1>
@@ -128,6 +128,7 @@ ${COMPONENT_GROUPS.map(({ group, name }) => {
 </div>
 </div>
 </div>
+${railMarkup("page")}
 ${scriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT, GALLERY_SCRIPT, DESIGN_SCENE_SCRIPT)}
 </body>
 </html>`;
@@ -150,6 +151,7 @@ ${head(`${each.name} · Design · Zaisma`)}
 <main class="gallery-main"><h1 class="sr">${each.name}</h1>${examples(each)}</main>
 </div>
 </div>
+${railMarkup("page")}
 ${scriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT)}
 </body>
 </html>`;
@@ -165,14 +167,18 @@ body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
 .stage[data-backdrop="bright-game"] { background: #cfe5c4 url(/design/bright-game.webp) center / cover fixed; }
 .stage[data-backdrop="scene"] { background: linear-gradient(180deg, #2E78DE 0%, #6FA6EC 45%, #A6CBF4 100%) fixed; }
 .stage[data-backdrop="scene"][data-theme-choice="dark"] { background: linear-gradient(180deg, #050812 0%, #0B1226 55%, #142040 100%) fixed; }
-.stage-glass { min-height: 100vh; color: var(--ink); }
-.gallery-bar { position: sticky; top: 12px; z-index: 20; margin: 12px auto 0; width: calc(100% - 24px); max-width: 1480px; min-height: 64px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; padding: 10px 14px 10px 24px;
+/* Padding, not the bar's margin, keeps it off the top: a margin would collapse through the stage and show a strip of nothing above it. */
+.stage-glass { min-height: 100vh; padding-top: 12px; color: var(--ink); }
+/* The bar floats like the header: inset from the top and both sides, with the header's own padding around what's in it. */
+.gallery-bar { position: sticky; top: 12px; z-index: 20; margin: 0 auto; width: calc(100% - 24px); max-width: 1480px; min-height: 68px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 22px; padding: 14px 16px 14px 26px;
   background-color: var(--glass-top); -webkit-backdrop-filter: blur(22px) saturate(1.7); backdrop-filter: blur(22px) saturate(1.7); }
 .gallery-bar .logo svg { height: 24px; }
 .gallery-title { font: 600 18px var(--display); color: var(--ink-2); padding-left: 14px; border-left: 1px solid var(--line); }
 .gallery-switches { margin-left: auto; display: flex; flex-wrap: wrap; gap: 10px; }
 .gallery-layout { max-width: 1480px; margin: 0 auto; padding: 18px 12px 80px; display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 18px; align-items: start; }
-.gallery-index { position: sticky; top: 96px; max-height: calc(100vh - 110px); overflow-y: auto; padding: 18px 18px 18px 22px; scrollbar-width: thin; }
+.gallery-index { position: sticky; top: 100px; display: flex; max-height: calc(100vh - 114px); }
+.gallery-index-in { flex: 1; min-height: 0; overflow-y: auto; padding: 18px 26px 18px 22px; }
+.gallery-index > .rail { top: 16px; bottom: 16px; right: 4px; }
 .gallery-index h2 { margin: 14px 0 4px; font: 600 13px var(--display); color: var(--muted); }
 .gallery-index h2:first-child { margin-top: 0; }
 .gallery-index ul { list-style: none; margin: 0; padding: 0; }
@@ -234,7 +240,7 @@ body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
   .gallery-index { display: none; }
   .gallery-groups { display: block; position: sticky; top: 8px; z-index: 15; overflow-x: auto; scrollbar-width: none; }
   .gallery-groups .tab-switch { width: max-content; }
-  .gallery-bar { position: relative; top: 0; padding: 10px 12px; }
+  .gallery-bar { position: relative; top: 0; width: calc(100% - 20px); padding: 12px 12px 12px 18px; }
   .gallery-switches { margin-left: 0; }
   .examples { grid-template-columns: minmax(0, 1fr); }
   .stand-in-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }

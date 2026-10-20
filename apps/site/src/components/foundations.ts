@@ -78,6 +78,7 @@ export const TOKEN_STYLES = `
 @media (prefers-color-scheme: dark) { :root:not([data-theme-choice="light"]) { ${SMOKED_GLASS} --page: #0D1015; } }
 [data-theme-choice="dark"] { ${SMOKED_GLASS} --page: #0D1015; }
 .smoke { ${SMOKED_GLASS} }
+*, *::before, *::after { box-sizing: border-box; }
 [hidden] { display: none !important; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
