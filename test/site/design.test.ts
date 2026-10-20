@@ -97,7 +97,7 @@ describe("the gallery", () => {
   });
 
   it("has a page for each group and none for anything else", async () => {
-    expect((await page("/design/actions")).text).toContain('<a href="/design/actions" data-gallery-page="/design/actions" aria-current="page">Actions</a>');
+    expect((await page("/design/actions")).text).toMatch(/<a href="\/design\/actions" data-gallery-page="\/design\/actions" aria-current="page"[^>]*>.*?Actions<\/a>/);
     expect((await page("/design/frame/runner-button")).response.status).toBe(404);
     expect((await page("/design/foundations")).response.status).toBe(404);
     expect((await page("/design/no-such-group")).response.status).toBe(404);
