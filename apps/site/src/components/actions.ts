@@ -156,11 +156,17 @@ const RUN_STYLES = `
 @media (prefers-reduced-motion: reduce) { .run, .run .arrow, .run .play { transition: none; } .run.glint::after, .run[aria-busy="true"] .arrow { animation: none; } }
 `;
 
-const stateExamples = (render: (state?: "is-pointed" | "is-pressed" | "is-focused") => Raw) => [
-  { label: "Rest", markup: render() },
-  { label: "Pointed", markup: render("is-pointed") },
-  { label: "Pressed", markup: render("is-pressed") },
-  { label: "Keyboard focus", markup: render("is-focused") },
+/**
+ * A button's states, still, side by side; then one to try, and one that points, presses and lets go on a loop
+ * (the gallery's design-loops script plays it: data-state-loop names what it plays).
+ */
+const stateExamples = (render: (state?: "is-pointed" | "is-pressed" | "is-focused") => Raw, loopKind: "runner" | "cut") => [
+  { label: "Rest", markup: render(), isStill: true },
+  { label: "Pointed", markup: render("is-pointed"), isStill: true },
+  { label: "Pressed", markup: render("is-pressed"), isStill: true },
+  { label: "Keyboard focus", markup: render("is-focused"), isStill: true },
+  { label: "Try it: point, press, tab to it", markup: render() },
+  { label: "On a loop: pointed, pressed, let go", markup: html`<span data-state-loop="${loopKind}">${render()}</span>`, isStill: true },
 ];
 
 component({
@@ -172,8 +178,8 @@ component({
   render: runButton,
   hasSceneMode: true,
   examples: [
-    ...stateExamples((state) => runButton("Sign in", { href: "#runner-button", state })),
-    { label: "Busy", markup: runButton("Sign in", { type: "button", isBusy: true, busyLabel: "Signing in" }) },
+    ...stateExamples((state) => runButton("Sign in", { href: "#runner-button", state }), "runner"),
+    { label: "Busy", markup: runButton("Sign in", { type: "button", isBusy: true, busyLabel: "Signing in" }), isStill: true },
     { label: "Small", markup: runButton("Next", { type: "button" }) },
     { label: "Big, with Play", markup: runButton("Play", { href: "#runner-button", isBig: true, icon: "play" }) },
     { label: "Full width", markup: html`<div style="width:min(380px,100%)">${runButton("Sign in", { type: "button", isFullWidth: true, isBig: true })}</div>` },
@@ -204,8 +210,8 @@ component({
   render: cutButton,
   hasSceneMode: true,
   examples: [
-    ...stateExamples((state) => cutButton("Details", { href: "#cut-button", state })),
-    { label: "Busy", markup: cutButton("Saving", { type: "button", isBusy: true }) },
+    ...stateExamples((state) => cutButton("Details", { href: "#cut-button", state }), "cut"),
+    { label: "Busy", markup: cutButton("Saving", { type: "button", isBusy: true }), isStill: true },
     { label: "With an icon", markup: cutButton("Settings", { href: "#cut-button", icon: "gear" }) },
     { label: "Big, beside Play", markup: html`<div style="display:flex;gap:12px">${runButton("Play", { href: "#cut-button", isBig: true, icon: "play" })}${cutButton("Details", { href: "#cut-button", isBig: true })}</div>` },
     { label: "Full width", markup: html`<div style="width:min(380px,100%)">${cutButton("Make an account", { href: "#cut-button", isFullWidth: true })}</div>` },
@@ -234,16 +240,17 @@ component({
 }
 .glass-btn > * { position: relative; }
 .glass-btn svg { width: 20px; height: 20px; flex: none; }
-.glass-btn:hover { transform: translateY(-1px); box-shadow: var(--glass-btn-lift); color: var(--ink); }
+.glass-btn:hover, .glass-btn.is-pointed { transform: translateY(-1px); box-shadow: var(--glass-btn-lift); color: var(--ink); }
 .glass-btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { .glass-btn { transition: none; } }
 `,
   render: glassButton,
   examples: [
     {
-      label: "The ways in",
+      label: "Try it: the ways in",
       markup: html`<div style="display:grid;gap:10px;width:min(380px,100%)">${glassButton("Sign in with a passkey", { icon: "passkey" })}${glassButton("Continue with Google", { href: "#glass-button", icon: "google" })}${glassButton("Continue with Discord", { href: "#glass-button", icon: "discord" })}</div>`,
     },
+    { label: "On a loop: pointed, let go", markup: html`<div style="width:min(380px,100%)" data-state-loop="glass">${glassButton("Continue with Google", { href: "#glass-button", icon: "google" })}</div>`, isStill: true },
   ],
 });
 
@@ -261,11 +268,14 @@ component({
 .guest-btn svg:not(.cut-line) { transition: transform 0.3s cubic-bezier(.2,.7,.2,1); }
 .guest-btn .cut-line { z-index: 4; }
 .guest-btn .cut-line polygon { stroke: var(--outline); }
-.guest-btn:hover { color: var(--ink); background: var(--clear-hover); }
-.guest-btn:hover svg:not(.cut-line) { transform: translateX(3px); }
+.guest-btn:hover, .guest-btn.is-pointed { color: var(--ink); background: var(--clear-hover); }
+.guest-btn:hover svg:not(.cut-line), .guest-btn.is-pointed svg:not(.cut-line) { transform: translateX(3px); }
 .guest-btn:focus-visible { outline: none; background: var(--clear-hover); }
 .guest-btn:focus-visible .cut-line polygon { stroke: var(--ink); stroke-width: 2; }
 `,
   render: guestButton,
-  examples: [{ label: "Rest", markup: html`<div style="width:min(380px,100%)">${guestButton("Continue as guest", { href: "#guest-button" })}</div>` }],
+  examples: [
+    { label: "Try it", markup: html`<div style="width:min(380px,100%)">${guestButton("Continue as guest", { href: "#guest-button" })}</div>` },
+    { label: "On a loop: pointed, let go", markup: html`<div style="width:min(380px,100%)" data-state-loop="guest">${guestButton("Continue as guest", { href: "#guest-button" })}</div>`, isStill: true },
+  ],
 });

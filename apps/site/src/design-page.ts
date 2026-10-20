@@ -63,7 +63,7 @@ const stageAttributes = (view: GalleryView, width: GalleryWidth) =>
 const stageGlassAttributes = (view: GalleryView) => (view.backdrop === "bright-game" ? raw(' data-theme-choice="light"') : "");
 
 function examples(each: Component): Raw {
-  return html`<div class="examples">${each.examples.map((example) => html`<figure class="example${example.isWide ? " wide" : ""}"><div class="example-stage">${example.markup}</div><figcaption class="example-label">${example.label}</figcaption></figure>`)}</div>`;
+  return html`<div class="examples">${each.examples.map((example) => html`<figure class="example${example.isWide ? " wide" : ""}"><div class="example-stage"${example.isStill ? raw(" inert") : ""}>${example.markup}</div><figcaption class="example-label">${example.label}</figcaption></figure>`)}</div>`;
 }
 
 const phoneFrame = (each: Component, view: GalleryView) =>
@@ -133,7 +133,7 @@ ${components.filter((each) => each.group === group).map((each) => section(each, 
 </div>
 ${railMarkup("page")}
 ${pageData("design-pages", Object.fromEntries(components.map((each) => [each.slug, groupPath(each.group)])))}
-${scriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT, GALLERY_SCRIPT, DESIGN_SCENE_SCRIPT)}
+${scriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT, GALLERY_SCRIPT, DESIGN_LOOPS_SCRIPT, DESIGN_SCENE_SCRIPT)}
 </body>
 </html>`;
   return new Response(page.html, { headers: securityHeaders(env, {}, false, [env.SITE_ORIGIN]) });
@@ -156,7 +156,7 @@ ${head(`${each.name} · Design · Zaisma`)}
 </div>
 </div>
 ${railMarkup("page")}
-${scriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT)}
+${scriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT, DESIGN_LOOPS_SCRIPT)}
 </body>
 </html>`;
   return new Response(page.html, { headers: securityHeaders(env, {}, false, [], [], "'self'") });
@@ -235,6 +235,8 @@ body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
 .scene-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .scene-layer { position: relative; z-index: 1; min-height: 100%; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 24px; padding: 48px; }
 /* The frame pages: one component, at the frame's own width. */
+/* With a mouse, the page's rail gets a gutter of its own, clear of the cards. */
+@media (hover: hover) and (pointer: fine) and (min-width: 761px) { .gallery-layout { padding-right: 34px; } }
 .frame-page .gallery-main { padding: 16px 12px; }
 .frame-page .examples { grid-template-columns: minmax(0, 1fr); }
 .frame-page .stand-in-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -317,6 +319,52 @@ export const GALLERY_SCRIPT = pageScript(
     if (url.hash) { var target = document.getElementById(url.hash.slice(1)); if (target) target.scrollIntoView({ block: "start" }); history.replaceState(null, "", location.pathname + query(view, true) + url.hash); }
   });
   apply();
+})();
+`,
+);
+
+/**
+ * The gallery's loops: a still copy of a button, a switch or a cover that plays being pointed at, pressed and let go,
+ * over and over, through the same state classes the still examples use. A switch is played through its own script,
+ * by the events a pointer would send. Reduced motion holds them still.
+ */
+export const DESIGN_LOOPS_SCRIPT = pageScript(
+  "design-loops",
+  `(function () {
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  // Each kind: where its state classes go, and its steps (state, how long in ms).
+  var KINDS = {
+    runner: { target: ".run-wrap", steps: [["", 1300], ["is-pointed", 1300], ["is-pressed", 260], ["is-pointed", 900]] },
+    cut: { target: ".cut-btn", steps: [["", 1300], ["is-pointed", 1300], ["is-pressed", 260], ["is-pointed", 900]] },
+    glass: { target: ".glass-btn", steps: [["", 1300], ["is-pointed", 1600]] },
+    guest: { target: ".guest-btn", steps: [["", 1300], ["is-pointed", 1600]] },
+    cover: { target: ".cover", steps: [["", 1300], ["is-pointed", 1800]] }
+  };
+  document.querySelectorAll("[data-state-loop]").forEach(function (box) {
+    var kind = box.getAttribute("data-state-loop");
+    if (kind === "switch") return playSwitch(box);
+    var plan = KINDS[kind], el = plan && box.querySelector(plan.target); if (!el) return;
+    var run = el.querySelector(".run"), at = 0;
+    (function step() {
+      var state = plan.steps[at % plan.steps.length], last = plan.steps[(at + plan.steps.length - 1) % plan.steps.length][0];
+      ["is-pointed", "is-pressed"].forEach(function (name) { el.classList.toggle(name, name === state[0]); });
+      // The runner's glint sweeps as the pointer arrives, as it does for real.
+      if (run && state[0] === "is-pointed" && last === "") { run.classList.remove("glint"); void run.offsetWidth; run.classList.add("glint"); }
+      at++; setTimeout(step, state[1]);
+    })();
+  });
+  // A switch: the ghost follows a pointer to the other tab, it's chosen, the pointer leaves; then back again.
+  function playSwitch(box) {
+    var sw = box.querySelector(".tab-switch"); if (!sw) return;
+    var tabs = sw.querySelectorAll("button"), at = 0;
+    function send(el, type) { el.dispatchEvent(new MouseEvent(type, { bubbles: type !== "pointerenter" && type !== "pointerleave" })); }
+    (function step() {
+      var other = tabs[(at + 1) % tabs.length];
+      setTimeout(function () { send(other, "pointerenter"); }, 900);
+      setTimeout(function () { send(other, "click"); }, 1900);
+      setTimeout(function () { send(sw, "pointerleave"); at++; step(); }, 2600);
+    })();
+  }
 })();
 `,
 );

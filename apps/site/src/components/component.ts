@@ -24,6 +24,8 @@ export interface ComponentExample {
   markup: Raw;
   /** Spans the whole stage width. */
   isWide?: boolean;
+  /** A fixed state (pointed, pressed, focused, busy): shown still, not something to point at or press. */
+  isStill?: boolean;
 }
 
 export interface Component {

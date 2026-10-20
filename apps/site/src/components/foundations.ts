@@ -381,10 +381,11 @@ component({
 /* Motion: a slab sliding between two tabs on point, with the spring. */
 .motion-demo { position: relative; display: grid; grid-template-columns: 1fr 1fr; width: 320px; height: 44px; padding: 4px; background: var(--well); box-shadow: var(--well-shade);
   clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%); }
-.motion-demo .slab { position: absolute; top: 4px; bottom: 4px; left: 4px; width: calc(50% - 4px); background: var(--slab); box-shadow: var(--slab-shade), inset 0 -3px 0 var(--run);
+/* The slab never takes the pointer, so moving under it doesn't end the point that moved it. */
+.motion-demo .slab { position: absolute; z-index: 0; pointer-events: none; top: 4px; bottom: 4px; left: 4px; width: calc(50% - 4px); background: var(--slab); box-shadow: var(--slab-shade), inset 0 -3px 0 var(--run);
   clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%); transition: transform 0.55s var(--spring); }
-.motion-demo span:not(.slab) { position: relative; display: grid; place-items: center; font: 500 15px var(--display); color: var(--ink-2); cursor: default; }
-.motion-demo span.second:hover ~ .slab, .motion-demo:has(.second:hover) .slab { transform: translateX(100%); }
+.motion-demo span:not(.slab) { position: relative; z-index: 1; display: grid; place-items: center; font: 500 15px var(--display); color: var(--ink-2); cursor: default; }
+.motion-demo:has(.second:hover) .slab { transform: translateX(100%); }
 .motion-note { margin: 10px 0 0; font: 500 13px var(--display); color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { .motion-demo .slab { transition: none; } }
 `,
