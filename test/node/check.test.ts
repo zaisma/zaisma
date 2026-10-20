@@ -120,6 +120,10 @@ describe("the game check", () => {
     const commented = '/**\n * @example\n * alert( event.message );\n */\nconst url = "https://x.example/a//b"; // window.open(url)\nconst pattern = /\\/\\*/; draw(url, pattern);';
     expect(codesOf({ "index.html": page("<!-- <form> --><script>// alert(1)\n/* prompt() */</script>"), "lib/three.core.js": commented })).toEqual([]);
     expect(codesOf({ "index.html": page(""), "game.js": 'const note = "/* not a comment"; alert(note); /* end */' })).toEqual(["browser_dialog"]);
+    // Unity's page template shows a dialog only when the game fails to load.
+    const unityPage = page('<script>createUnityInstance(canvas, config).then((unityInstance) => {}).catch((message) => {\n  alert(message);\n});</script>');
+    expect(codesOf({ "index.html": unityPage })).toEqual([]);
+    expect(codesOf({ "index.html": page('<script>load().catch(() => {}); alert("Welcome");</script>') })).toEqual(["browser_dialog"]);
   });
 
   it("names the game in the fixes when it's given, and stops the list at 200", () => {

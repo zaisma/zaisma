@@ -62,6 +62,8 @@ async function play(chrome, sample) {
     if (method === "Runtime.executionContextCreated") contexts.set(params.context.id, params.context.origin);
     if (method === "Runtime.executionContextDestroyed") contexts.delete(params.executionContextId);
     if (method === "Runtime.exceptionThrown") problems.push(`threw: ${params.exceptionDetails.exception?.description ?? params.exceptionDetails.text}`.split("\n")[0]);
+    // Engines report their own errors with console.error (Unity, Godot), and the game page's own count too.
+    if (method === "Runtime.consoleAPICalled" && params.type === "error") problems.push(`console.error: ${params.args.map((arg) => arg.value ?? arg.description ?? "").join(" ")}`.split("\n")[0]);
     // Refusals: a file or address the security policy blocked, a file that wasn't there.
     if (method === "Log.entryAdded" && params.entry.level === "error") problems.push(`${params.entry.source}: ${params.entry.text}${params.entry.url ? ` (${params.entry.url})` : ""}`);
   });

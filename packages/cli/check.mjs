@@ -283,6 +283,16 @@ const FEATURES = [
   { pattern: /\bnavigator\.hid\b/, name: "HID devices (navigator.hid)" },
 ];
 const DIALOG_PATTERN = /(?<![\w$.])(?<!function\s+)(?:window\.)?(alert|confirm|prompt)\s*\(/;
+/** Only when a load fails, like Unity's page template's .catch((message) => { alert(message); }): the game itself works. */
+const FAILURE_HANDLER_BEFORE_PATTERN = /\.catch\(\s*(?:function\s*)?\(?\s*[\w$]*\s*\)?\s*(?:=>\s*)?\{\s*$/;
+/** The first dialog the code opens, besides one only a failed load opens. */
+function dialogOf(code) {
+  const pattern = new RegExp(DIALOG_PATTERN.source, "g");
+  for (const match of code.matchAll(pattern)) {
+    if (!FAILURE_HANDLER_BEFORE_PATTERN.test(code.slice(Math.max(0, match.index - 80), match.index))) return match;
+  }
+  return null;
+}
 const THREADS_PATTERNS = [/\bGODOT_THREADS_ENABLED\s*=\s*true\b/, /\bENVIRONMENT_IS_PTHREAD\b/, /coi-serviceworker/i];
 
 /**
@@ -395,7 +405,7 @@ export function checkGameFiles(files, { slug = null, ownServerUrls = null } = {}
     const code = blankComments(text, fileKind);
     const found = (pattern) => pattern.exec(code);
     let match;
-    if ((match = found(DIALOG_PATTERN))) add("browser_dialog", { message: `${path} uses ${match[1]}(), which never shows in the game's frame on Zaisma.`, path, quote: lineAround(text, match.index), fix: "Show the message in the game itself, like on the canvas or in an element over it." });
+    if ((match = dialogOf(code))) add("browser_dialog", { message: `${path} uses ${match[1]}(), which never shows in the game's frame on Zaisma.`, path, quote: lineAround(text, match.index), fix: "Show the message in the game itself, like on the canvas or in an element over it." });
     if (fileKind === "html" && (match = found(/<form\b[^>]*>/i))) add("form_submission", { message: `${path} has a form, which never submits in the game's frame on Zaisma.`, path, quote: lineAround(text, match.index), fix: "Handle the button's click (or the Enter key) in script instead of submitting the form." });
     if ((match = (fileKind === "html" && found(/<a\b[^>]*\sdownload\b[^>]*>/i)) || found(/\.download\s*=(?!=)/))) add("file_download", { message: `${path} downloads a file, which the game's frame on Zaisma doesn't allow.`, path, quote: lineAround(text, match.index), fix: "Keep it in the game (its browser saves, which Zaisma's cloud saves mirror), or copy it to the clipboard." });
     if ((match = (fileKind === "html" && (found(/<a\b[^>]*\shref\s*=\s*["']?(?:https?:)?\/\/[^>]*>/i) || found(/<a\b[^>]*\starget\s*=\s*["']?_blank[^>]*>/i))) || found(/\bwindow\.open\s*\(/))) {
