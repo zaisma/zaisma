@@ -8,8 +8,9 @@ public static class Build
     // The default page template, as an export with nothing changed: test/engines/unity/build.
     public static void Web() => Export("APPLICATION:Default", "../build");
 
-    // Unity's Minimal page template, only the game: test/engines/unity-minimal/build.
-    public static void WebMinimal() => Export("APPLICATION:Minimal", "../../unity-minimal/build");
+    // A page template of the project's own (Assets/WebGLTemplates/Fill), Unity's Minimal with the game
+    // filling the page, so it fills Zaisma's frame: test/engines/unity-fill/build.
+    public static void WebFill() => Export("PROJECT:Fill", "../../unity-fill/build");
 
     static void Export(string template, string folder)
     {
