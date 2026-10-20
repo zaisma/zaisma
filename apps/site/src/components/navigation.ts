@@ -532,10 +532,10 @@ component({
 .sidebar-group ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
 .sidebar-heading { margin: 0 0 6px; padding: 0 14px; font: 500 13px var(--display); color: var(--muted); }
 .sidebar a { position: relative; display: flex; align-items: center; gap: 10px; height: 42px; padding: 0 14px; font: 500 16px var(--display); color: var(--ink-2); text-decoration: none;
-  clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%); transition: background 0.2s, color 0.2s, box-shadow 0.2s; }
+  clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%); background: var(--wash-rest); transition: background 0.15s, color 0.15s, box-shadow 0.2s; }
 .sidebar a svg { width: 18px; height: 18px; flex: none; }
-.sidebar a:hover { background: color-mix(in srgb, var(--ink) 14%, transparent); color: var(--ink); }
-.sidebar a:active { background: color-mix(in srgb, var(--ink) 22%, transparent); }
+.sidebar a:hover { background: var(--wash); color: var(--ink); }
+.sidebar a:active { background: var(--wash-press); }
 .sidebar a[aria-current="page"], .sidebar a[aria-current="page"]:hover { background: var(--slab); color: var(--ink); font-weight: 600; box-shadow: inset 0 -3px 0 var(--run); }
 .sidebar a:focus-visible { outline: 2px solid var(--ink); outline-offset: -3px; }
 .sidebar-count { margin-left: auto; min-width: 22px; padding: 1px 7px; text-align: center; font: 600 12px var(--display); color: var(--ink-2); background: var(--well); box-shadow: var(--well-shade);
