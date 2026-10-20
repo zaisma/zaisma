@@ -108,6 +108,11 @@ export const TOKEN_STYLES = `
 /* How far in it fades: 28px, or a row's own --fade-sideways-px (a row of covers fades further). */
 [data-fades-sideways].more-left { --fade-left: var(--fade-sideways-px, 28px); }
 [data-fades-sideways].more-right { --fade-right: var(--fade-sideways-px, 28px); }
+/* A row of controls, --gap-control-control apart, so they slant where they meet. In a pane it fills the pane's width, its
+   controls sharing it, so its ends fit the pane's edges (the edge rule) instead of stopping short with square corners. */
+.control-row { display: flex; align-items: flex-start; gap: var(--gap-control-control); }
+[data-glass] .control-row > .shell { display: flex; flex: 1 1 0; min-width: 0; }
+[data-glass] .control-row > .shell > .face { width: 100%; justify-content: center; }
 .eases-settings { transition: --glass-hue 0.5s ease; }
 @media (prefers-reduced-motion: reduce) { .eases-settings { transition: none; } }
 /* Moving between Zaisma's pages crossfades, so a page change never flashes. */
@@ -821,38 +826,6 @@ const HUE_EXAMPLES: { label: string; hexColour: string }[] = [
 ];
 
 const glassStrip = (body: Raw) => html`<div class="glass-strip"><i></i><i></i><i></i>${body}</div>`;
-
-const SPACINGS: { token: string; size: string; sides: string }[] = [
-  { token: "--gap-control-control", size: "8px", sides: "Two controls, in a row or a stack. Also the edge rule's neighbour distance: that far apart they slant." },
-  { token: "--gap-words-control", size: "8px", sides: "A control and the words that belong to it: a field's label, its error." },
-  { token: "--gap-words-words", size: "8px", sides: "Words beside or under other words in one block: a title and its line, an icon and its word." },
-  { token: "--gap-block-block", size: "24px", sides: "Two blocks: in a pane, between panes, a row of covers. If either side is a block, it's this." },
-  { token: "--pad-pane", size: "24px, 18px on a phone", sides: "A pane's edge and what's in it, and the page's edge." },
-  { token: "--pad-inner-pane", size: "12px", sides: "An inner pane's edge (the birthday picker, a menu), and a bar's (the header)." },
-];
-
-component({
-  name: "Spacing",
-  slug: "spacing",
-  group: "foundations",
-  summary: "Every gap, padding and margin is one of these, picked by what sits on each side of it, never by how close two things feel. More room is a multiple of one, never a new number.",
-  styles: `
-/* Spacing: each token, its size drawn as a ruler, and what sits on each side of it. */
-.spacing-set { list-style: none; margin: 0; padding: var(--pad-pane); display: grid; gap: var(--gap-block-block); }
-.spacing-set li { display: grid; grid-template-columns: 48px minmax(0, 1fr); column-gap: var(--gap-words-words); align-items: start; }
-.spacing-ruler { grid-row: span 3; justify-self: start; height: 36px; background: var(--ink); opacity: 0.85; }
-.spacing-set code { font: 600 13px ui-monospace, Menlo, monospace; color: var(--ink); }
-.spacing-size { font: 600 13px var(--display); color: var(--ink-2); }
-.spacing-sides { font: 15px/1.5 var(--body); color: var(--ink-2); max-width: 60ch; }
-`,
-  examples: [
-    {
-      label: "The six tokens",
-      isWide: true,
-      markup: html`<div class="glass" data-glass data-glass-corners="18 9 18 9">${EDGE}<ul class="spacing-set">${SPACINGS.map(({ token, size, sides }) => html`<li><span class="spacing-ruler" style="width:var(${token})" aria-hidden="true"></span><code>${token}</code><span class="spacing-size">${size}</span><span class="spacing-sides">${sides}</span></li>`)}</ul></div>`,
-    },
-  ],
-});
 
 component({
   name: "Page settings",

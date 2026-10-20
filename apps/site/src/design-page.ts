@@ -262,6 +262,37 @@ export const GALLERY_SCRIPT = pageScript(
       gl.drawArrays(gl.TRIANGLES, 0, data.length / 6);
     });
   });
+  // Spacing's examples: hatch the space each is about, over the stage, redrawn whenever its size changes.
+  function markSpacing(holder) {
+    var stage = holder.closest(".example-stage"); if (!stage) return;
+    stage.querySelectorAll(".spacing-mark").forEach(function (mark) { mark.remove(); });
+    var target = holder.getAttribute("data-spacing-of") ? holder.querySelector(holder.getAttribute("data-spacing-of")) : holder;
+    if (!target) return;
+    var s = stage.getBoundingClientRect(), boxes = [];
+    if (holder.getAttribute("data-spacing-show") === "pad") {
+      var t = target.getBoundingClientRect(), css = getComputedStyle(target);
+      var top = parseFloat(css.paddingTop), right = parseFloat(css.paddingRight), bottom = parseFloat(css.paddingBottom), left = parseFloat(css.paddingLeft);
+      boxes.push([t.left, t.top, t.width, top], [t.left, t.bottom - bottom, t.width, bottom], [t.left, t.top + top, left, t.height - top - bottom], [t.right - right, t.top + top, right, t.height - top - bottom]);
+    } else {
+      var kids = Array.prototype.filter.call(target.children, function (kid) { var css = getComputedStyle(kid); return kid.offsetWidth && css.position !== "absolute" && css.position !== "fixed" && kid.tagName !== "svg" && !kid.hidden; });
+      for (var i = 1; i < kids.length; i++) {
+        var a = kids[i - 1].getBoundingClientRect(), b = kids[i].getBoundingClientRect();
+        if (b.left >= a.right - 1) boxes.push([a.right, Math.max(a.top, b.top), b.left - a.right, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top)]);
+        else boxes.push([Math.max(a.left, b.left), a.bottom, Math.min(a.right, b.right) - Math.max(a.left, b.left), b.top - a.bottom]);
+      }
+    }
+    boxes.forEach(function (box) {
+      if (box[2] < 0.5 || box[3] < 0.5) return;
+      var mark = document.createElement("span"); mark.className = "spacing-mark"; mark.setAttribute("aria-hidden", "true");
+      mark.style.left = box[0] - s.left + "px"; mark.style.top = box[1] - s.top + "px"; mark.style.width = box[2] + "px"; mark.style.height = box[3] + "px";
+      stage.appendChild(mark);
+    });
+  }
+  document.querySelectorAll("[data-spacing-show]").forEach(function (holder) {
+    markSpacing(holder);
+    if (window.ResizeObserver) new ResizeObserver(function () { markSpacing(holder); }).observe(holder.closest(".example-stage") || holder);
+  });
+  if (document.fonts) document.fonts.ready.then(function () { document.querySelectorAll("[data-spacing-show]").forEach(markSpacing); });
   // Glass at any size: drag the window about, pull its corner to resize it, or use the arrow keys (Shift resizes).
   // Page settings: the stage carries the gallery's, so a pick here changes every component in it at once.
   document.addEventListener("click", function (event) {

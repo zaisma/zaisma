@@ -1,9 +1,9 @@
 import { html, raw, type Raw } from "../html.ts";
 import { component } from "./component.ts";
 import { EDGE, ago, icon, placeMarkup, type IconName, type PlaceItem } from "./foundations.ts";
-import { pictureFrame, type GlanceFacts } from "./data.ts";
-import { runButton } from "./actions.ts";
-import { cutField } from "./inputs.ts";
+import { glanceFacts, pictureFrame, type GlanceFacts } from "./data.ts";
+import { cutButton, runButton } from "./actions.ts";
+import { birthdayField, cutField } from "./inputs.ts";
 
 /*
  * Panes: Zaisma's glass as a sheet that holds things (the sign-in's pane), a menu that hangs
@@ -179,7 +179,7 @@ const COVER_STYLES = `
 /* Under a cover: what concerns you on the left (when you played, an update, friends), players now on the right. */
 .cover-meta { display: flex; align-items: center; gap: var(--gap-words-words); min-height: 22px; margin-top: 0; font: 500 13px/1.3 var(--display); color: var(--muted); white-space: nowrap; }
 .cover-meta .ico { width: 15px; height: 15px; stroke-width: 1.5; }
-.cover-meta .when, .cover-meta .count, .cover-meta .friends { display: inline-flex; align-items: center; gap: calc(var(--gap-words-words) / 2); min-width: 0; }
+.cover-meta .when, .cover-meta .count, .cover-meta .friends { display: inline-flex; align-items: center; gap: var(--gap-words-words); min-width: 0; }
 .cover-meta .friends { color: var(--ink); font-weight: 600; overflow: hidden; }
 .cover-meta .friends > span:last-child { overflow: hidden; text-overflow: ellipsis; }
 .cover-meta .frame.xs { --frame: 18px; --frame-cut: 4px; }
@@ -287,3 +287,50 @@ component({
     { label: "On a loop", markup: html`<div class="cover-sample" data-state-loop="cover">${standInCovers(["iron-vigil"])}</div>`, isStill: true },
   ],
 });
+
+// Spacing sits here, where every component it shows can be imported (foundations.ts can't import them).
+// data-spacing-show marks the space it's about (GALLERY_SCRIPT draws it): "gap" between the children of what data-spacing-of
+// picks (or of itself), "pad" inside it.
+const spacingExample = (token: string, body: Raw) => html`<div class="spacing-example"><code>${token}</code>${body}</div>`;
+const spacingPane = (body: Raw) => html`<div class="glass example-pane" data-glass data-glass-corners="18 9 18 9">${body}</div>`;
+component({
+  name: "Spacing",
+  slug: "spacing",
+  group: "foundations",
+  summary: "Every gap, padding and margin is one of six tokens, picked by what sits on each side of it, never by how close two things feel. A control is anything from Actions & Inputs; words are a heading, label or line; a block is a group of controls with their words, a paragraph, a picture or a pane. If either side is a block, it's --gap-block-block. More room is a multiple of one, never a new number.",
+  styles: `
+/* Spacing: the space each example is about, hatched over it. */
+.spacing-example { display: grid; gap: var(--gap-words-control); justify-items: start; width: 100%; }
+.spacing-example > code { font: 600 13px ui-monospace, Menlo, monospace; color: var(--ink); }
+.spacing-mark { position: absolute; z-index: 6; pointer-events: none;
+  background: repeating-linear-gradient(45deg, color-mix(in srgb, var(--ink) 34%, transparent) 0 1.5px, transparent 1.5px 5px);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 40%, transparent); }
+`,
+  examples: [
+    {
+      label: "Two controls in a row or a stack, and the edge rule's neighbour distance: 8px",
+      markup: spacingExample("--gap-control-control", html`<div class="control-row" data-spacing-show="gap">${runButton("Play", { type: "button", icon: "play" })}${cutButton("Details", { type: "button" })}</div>`),
+    },
+    {
+      label: "A control and the words that belong to it: 8px",
+      markup: spacingExample("--gap-words-control", spacingPane(html`<div data-spacing-show="gap" data-spacing-of=".cut-field">${cutField({ id: "spacing-username", name: "username", label: "Username", type: "text", icon: "person", text: "emma_r", autocomplete: "off" })}</div>`)),
+    },
+    {
+      label: "Words beside or under words in one block, an icon and its word: 8px",
+      markup: spacingExample("--gap-words-words", spacingPane(html`<div data-spacing-show="gap" data-spacing-of=".glance">${glanceFacts({ playerCount: 1204, friends: [{ username: "Liam" }, { username: "Sofia" }] })}</div>`)),
+    },
+    {
+      label: "Two blocks, here two labelled fields in a pane: 24px",
+      markup: spacingExample("--gap-block-block", html`<div class="glass example-pane" data-glass data-glass-corners="18 9 18 9" data-spacing-show="gap">${cutField({ id: "spacing-name", name: "username", label: "Username", type: "text", icon: "person", autocomplete: "off" })}${cutField({ id: "spacing-email", name: "email", label: "Email", type: "email", icon: "mail", autocomplete: "off" })}</div>`),
+    },
+    {
+      label: "A pane's edge and what's in it, and the page's edge: 24px (18px on a phone)",
+      markup: spacingExample("--pad-pane", html`<div class="glass example-pane" data-glass data-glass-corners="18 9 18 9" data-spacing-show="pad">${runButton("Sign in", { type: "button", isFullWidth: true })}</div>`),
+    },
+    {
+      label: "An inner pane's edge (the birthday picker, a menu) and a bar's (the header): 12px",
+      markup: spacingExample("--pad-inner-pane", spacingPane(html`<div data-spacing-show="pad" data-spacing-of=".bday-pick">${birthdayField({ id: "spacing-bday", name: "birthday", label: "When's your birthday?", state: "open" })}</div>`)),
+    },
+  ],
+});
+

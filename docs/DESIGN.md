@@ -70,6 +70,7 @@ Applies to the components (`apps/site/src/components/`) and the gallery (`apps/s
 | `--pad-inner-pane` | An inner pane's edge and what's inside it (the birthday picker, a menu), and a bar's: a pane one row of controls tall (the header, the gallery's bar) | 12px |
 
 - **If either side is a block, it's `--gap-block-block`,** even when the other side is a single control.
+- **In a pane, controls fill its width.** A row of them is a `.control-row` (`foundations.ts`), which shares the pane's width between them, so its ends fit the pane's edges by the edge rule instead of stopping short with square corners.
 - **`--gap-control-control` is the edge rule's neighbour distance.** Two controls that far apart slant toward each other; further apart they never do. So controls are never placed further apart than this unless they're in different blocks.
 - **More room is a multiple of a token**, in `calc` (the gallery's sections are two `--gap-block-block` apart). Never a new number.
 - **What isn't spacing keeps its own number:** a control's inside (its words and icon to its own edge, set by each control size), a control's own parts (a switch's tabs and the inset round its slab, the birthday's wheels, a list of places), room to scroll or for a scrollbar, and where a small mark sits on what it marks. Each one is named, with its reason, in `NOT_SPACING` in `test/site/design.test.ts`.
