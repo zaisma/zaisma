@@ -713,7 +713,7 @@ function ratings(ctx: Ctx, topic: TopicDetail, post: PostJson): Raw {
     const body = html`${icon}<span class="sr">${label}</span><span class="n">${ratingCount}</span>`;
     if (canRate) {
       const isMine = post.your_rating === rating;
-      return html`<form method="post" action="/forum/${topic.id}/rate"><input type="hidden" name="post_id" value="${post.id}"><input type="hidden" name="rating" value="${rating}">${isMine ? html`<input type="hidden" name="undo" value="1">` : ""}<button type="submit" class="react${isMine ? " on" : ""}" aria-pressed="${isMine ? "true" : "false"}" title="${isMine ? `You ${rating}d this. Press to take it back.` : label}">${body}</button></form>`;
+      return html`<form method="post" action="/forum/${topic.id}/rate" data-react><input type="hidden" name="post_id" value="${post.id}"><input type="hidden" name="rating" value="${rating}">${isMine ? html`<input type="hidden" name="undo" value="1">` : ""}<button type="submit" class="react${isMine ? " on" : ""}" aria-pressed="${isMine ? "true" : "false"}" title="${isMine ? `You ${rating}d this. Press to take it back.` : label}">${body}</button></form>`;
     }
     if (!ctx.viewer) return html`<a class="react" href="/signin?next=/forum/${topic.id}%23p-${post.id}" title="Sign in to ${label.toLowerCase()}">${body}</a>`;
     return html`<span class="react" title="${ratingCount} ${ratingCount === 1 ? "person" : "people"} ${rating}d this">${body}</span>`;
@@ -724,7 +724,7 @@ function ratings(ctx: Ctx, topic: TopicDetail, post: PostJson): Raw {
 /** A private bookmark on any post you can see: it sends nothing, and shows under Bookmarks. */
 function bookmarkButton(ctx: Ctx, topic: TopicDetail, post: PostJson): Raw {
   if (!ctx.viewer || isEvent(post)) return html``;
-  return html`<form method="post" action="/forum/${topic.id}/bookmark"><input type="hidden" name="post_id" value="${post.id}">${post.is_bookmarked ? html`<input type="hidden" name="undo" value="1">` : ""}<button type="submit" class="react${post.is_bookmarked ? " on" : ""}" aria-pressed="${post.is_bookmarked ? "true" : "false"}" aria-label="${post.is_bookmarked ? "Bookmarked" : "Bookmark"}" title="${post.is_bookmarked ? "Bookmarked, only you see it. Press to remove." : "Bookmark: only you and your AI see it"}">${ICONS.bookmark}</button></form>`;
+  return html`<form method="post" action="/forum/${topic.id}/bookmark" data-react><input type="hidden" name="post_id" value="${post.id}">${post.is_bookmarked ? html`<input type="hidden" name="undo" value="1">` : ""}<button type="submit" class="react${post.is_bookmarked ? " on" : ""}" aria-pressed="${post.is_bookmarked ? "true" : "false"}" aria-label="${post.is_bookmarked ? "Bookmarked" : "Bookmark"}" title="${post.is_bookmarked ? "Bookmarked, only you see it. Press to remove." : "Bookmark: only you and your AI see it"}">${ICONS.bookmark}</button></form>`;
 }
 
 /** Report a post, for anyone signed in who didn't write it. */
@@ -1409,6 +1409,10 @@ const c=document.getElementById("reply");
 if(c&&c.tagName==="FORM"){const box=c.querySelector(".replying"),to=c.elements.reply_to_post_id;
 document.addEventListener("click",e=>{const a=e.target.closest("[data-reply]");if(a){e.preventDefault();to.value=a.dataset.reply;box.querySelector("[data-to-name]").textContent=a.dataset.name;box.querySelector("[data-to-excerpt]").textContent=a.dataset.excerpt;box.hidden=false;c.scrollIntoView({behavior:"smooth",block:"center"});c.elements.text_markdown.focus({preventScroll:true})}
 if(e.target.closest("[data-unreply]")||e.target.closest("[data-reply-top]")){to.value="";box.hidden=true;if(e.target.closest("[data-reply-top]")){e.preventDefault();c.scrollIntoView({behavior:"smooth",block:"center"});c.elements.text_markdown.focus({preventScroll:true})}}})}
+// Like, Dislike and Bookmark change in place: the same form posts without leaving the page, and the post's row is swapped for the answer's. Without scripts the form still posts and reloads.
+document.addEventListener("submit",e=>{const form=e.target;if(!form.matches||!form.matches("form[data-react]"))return;e.preventDefault();
+const post=form.closest("[id^=p-]"),buttons=()=>[...post.querySelectorAll("form[data-react] button")],place=buttons().indexOf(form.querySelector("button")),row=post.querySelector(".reactions")?".reactions":".p-foot";
+fetch(form.action,{method:"POST",body:new URLSearchParams(new FormData(form)),credentials:"same-origin"}).then(r=>r.text()).then(h=>{const fresh=new DOMParser().parseFromString(h,"text/html").getElementById(post.id),next=fresh&&fresh.querySelector(row);if(!next)return form.submit();post.querySelector(row).replaceWith(next);const again=buttons()[place];if(again)again.focus({preventScroll:true})}).catch(()=>form.submit())});
 const f=document.querySelector("form.np");if(!f||!f.elements.title)return;
 const t=f.elements.title,sim=document.getElementById("similar");let timer=0,last="";
 const look=()=>{const q=t.value.trim();if(q===last)return;last=q;if(q.length<6){sim.innerHTML="";return}fetch("/forum/similar?search_text="+encodeURIComponent(q)).then(r=>r.text()).then(h=>{if(t.value.trim()===q)sim.innerHTML=h}).catch(()=>{})};
