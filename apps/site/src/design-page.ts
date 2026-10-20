@@ -3,7 +3,7 @@ import { html, pageData, raw, scriptTags, securityHeaders, type Raw } from "./ht
 import { pageScript } from "./page-scripts.ts";
 import { COMPONENT_GROUPS, type Component, type ComponentGroup } from "./components/component.ts";
 import { COMPONENTS, COMPONENT_SCRIPT, COMPONENT_STYLES, HEADER_SCRIPT } from "./components/index.ts";
-import { EDGE, WORDMARK, railMarkup } from "./components/foundations.ts";
+import { CUT_LINE, EDGE, WORDMARK, railMarkup } from "./components/foundations.ts";
 import { cutButton, runButton } from "./components/actions.ts";
 import { cutField, tabSwitch } from "./components/inputs.ts";
 import { glassPane } from "./components/panes.ts";
@@ -44,6 +44,14 @@ ${each.slug === "glass-pane" ? SCENE_EXAMPLE : ""}${examples(each)}
 </section>`;
 }
 
+/** The sun and the moon, from the sign-in draft's theme control. */
+const SUN = raw('<svg class="theme-sun" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><circle cx="10" cy="10" r="3.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M10 1.8v2.4M10 15.8v2.4M1.8 10h2.4M15.8 10h2.4M4.2 4.2l1.7 1.7M14.1 14.1l1.7 1.7M4.2 15.8l1.7-1.7M14.1 5.9l1.7-1.7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>');
+const MOON = raw('<svg class="theme-moon" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><path d="M15.5 12.6A6.6 6.6 0 0 1 7.4 4.5a6.6 6.6 0 1 0 8.1 8.1z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>');
+
+/** Light or dark: one cut button showing the theme you're in, a sun or a moon; pressing it switches to the other. */
+const themeButton = (group: ComponentGroup, theme: GalleryTheme) =>
+  html`<a class="cut-btn theme-button" href="${groupPath(group)}${themeQuery(theme === "dark" ? "light" : "dark")}" data-cut-line="10" aria-label="${theme === "dark" ? "Dark. Switch to light" : "Light. Switch to dark"}">${CUT_LINE}${SUN}${MOON}</a>`;
+
 function head(title: string): Raw {
   return html`<meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -72,7 +80,7 @@ ${head(`${groupName} · Design · Zaisma`)}
 <body class="gallery">
 <div id="stage" class="stage" data-theme-choice="${theme}">
 <header class="gallery-bar glass" data-glass data-glass-corners="16 6 16 6">${EDGE}<a class="logo" href="/" aria-label="Zaisma home">${WORDMARK}</a><span class="gallery-title">Design</span>
-<div class="gallery-switches">${tabSwitch({ label: "Theme", switchSize: "small", tabs: [{ label: "Light", href: `${groupPath(group)}`, isCurrent: theme === "light" }, { label: "Dark", href: `${groupPath(group)}?theme=dark`, isCurrent: theme === "dark" }] })}</div></header>
+${themeButton(group, theme)}</header>
 <div class="gallery-layout">
 <div class="gallery-index glass" data-glass data-glass-corners="14 6 14 6"><nav class="gallery-index-in" aria-label="Groups"><ul>${groupTabs.map((tab) => html`<li><a href="${tab.href}" data-gallery-page="${tab.href.split("?")[0]}"${tab.isCurrent ? raw(' aria-current="page"') : ""}>${tab.label}</a></li>`)}</ul></nav></div>
 <div class="gallery-groups">${tabSwitch({ label: "Groups", switchSize: "small", tabs: groupTabs })}</div>
@@ -91,7 +99,7 @@ ${scriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT, GALLERY_SCRIPT, DESIGN_LOOPS_SCRIP
 }
 
 export const GALLERY_STYLES = `
-/* The gallery: Zaisma's own page, a glass bar with the theme switch, the groups, and each component's examples in labelled cells. */
+/* The gallery: Zaisma's own page, a glass bar with the light or dark button, the groups, and each component's examples in labelled cells. */
 html { scroll-padding-top: 96px; }
 body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
 .stage { min-height: 100vh; color: var(--ink); background: var(--page); }
@@ -102,7 +110,9 @@ body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
   background-color: var(--glass-top); -webkit-backdrop-filter: blur(22px) saturate(1.7); backdrop-filter: blur(22px) saturate(1.7); }
 .gallery-bar .logo svg { height: 24px; }
 .gallery-title { font: 600 18px var(--display); color: var(--ink-2); padding-left: 14px; border-left: 1px solid var(--line); }
-.gallery-switches { margin-left: auto; display: flex; flex-wrap: wrap; gap: 10px; }
+.theme-button { margin-left: auto; width: 52px; padding: 0; }
+.theme-button .theme-sun, .theme-button .theme-moon { position: relative; z-index: 2; flex: none; }
+.stage[data-theme-choice="dark"] .theme-sun, .stage:not([data-theme-choice="dark"]) .theme-moon { display: none; }
 .gallery-layout { max-width: 1480px; margin: 0 auto; padding: 18px 12px 80px; display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 18px; align-items: start; }
 .gallery-index { position: sticky; top: 100px; display: flex; max-height: calc(100vh - 114px); }
 .gallery-index-in { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; }
@@ -168,7 +178,7 @@ body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
   .gallery-bar { position: relative; top: 0; width: calc(100% - 20px); min-height: 56px; flex-wrap: nowrap; gap: 12px; padding: 8px 10px 8px 16px; }
   .gallery-bar .logo svg { height: 20px; }
   .gallery-title { font-size: 16px; padding-left: 10px; }
-  .gallery-switches { margin-left: auto; flex: none; }
+  .theme-button { flex: none; height: 40px; width: 48px; }
   .group-name { font-size: 24px; padding: 6px 16px; }
   .component-section { scroll-margin-top: 70px; margin-bottom: 26px; }
   .component-head { padding: 14px 16px; }
@@ -191,7 +201,7 @@ body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
 `;
 
 /**
- * The gallery's theme switch swaps light and dark in place, without a reload, and keeps the address current, so a view can be sent.
+ * The gallery's light or dark button swaps the theme in place, without a reload, and keeps the address current, so a view can be sent.
  * A link inside an example never jumps the page: the examples' links are there to be pointed at.
  */
 export const GALLERY_SCRIPT = pageScript(
@@ -204,22 +214,20 @@ export const GALLERY_SCRIPT = pageScript(
   if (asked && !document.getElementById(asked) && pages[asked]) { location.replace(pages[asked] + location.search + location.hash); return; }
   function query(theme) { return theme === "dark" ? "?theme=dark" : ""; }
   // Light or dark switches in place, and every link to another group's page keeps it.
+  var button = document.querySelector(".theme-button");
   function apply(theme) {
     stage.dataset.themeChoice = theme;
-    document.querySelectorAll(".gallery-switches a").forEach(function (link) {
-      var isDark = new URL(link.href).searchParams.get("theme") === "dark";
-      if ((theme === "dark") === isDark) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current");
-    });
+    if (button) { button.href = location.pathname + query(theme === "dark" ? "light" : "dark"); button.setAttribute("aria-label", theme === "dark" ? "Dark. Switch to light" : "Light. Switch to dark"); }
     document.querySelectorAll("[data-gallery-page], .gallery-groups a").forEach(function (link) {
       var url = new URL(link.href); link.href = url.pathname + query(theme) + url.hash;
     });
     history.replaceState(null, "", location.pathname + query(theme) + location.hash);
   }
   document.addEventListener("click", function (event) {
-    var link = event.target.closest && event.target.closest(".gallery-switches a");
+    var link = event.target.closest && event.target.closest(".theme-button");
     if (!link || event.metaKey || event.ctrlKey || event.shiftKey || event.button) return;
     event.preventDefault();
-    apply(new URL(link.href).searchParams.get("theme") === "dark" ? "dark" : "light");
+    apply(stage.dataset.themeChoice === "dark" ? "light" : "dark");
   });
   document.addEventListener("click", function (event) {
     var link = event.target.closest && event.target.closest('.example-stage a[href^="#"], .example-stage a[href^="/"]');
