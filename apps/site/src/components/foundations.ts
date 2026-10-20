@@ -294,7 +294,7 @@ component({
   name: "Colour",
   slug: "colour",
   group: "foundations",
-  summary: "Every colour comes from these tokens, so light, dark and smoked glass follow by themselves. Orange is only for what you act on.",
+  summary: "Every colour comes from these tokens, so light, dark and smoked glass follow by themselves. Orange is only for what you act on, and it is always shown in full: never faded or at half opacity.",
   styles: `
 /* Colour: the gallery's swatches. */
 .swatches { width: 100%; list-style: none; margin: 0; padding: 14px; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px 18px; color: var(--ink); background: var(--glass-tint); -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); }
