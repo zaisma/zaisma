@@ -118,8 +118,8 @@ const MENU_STYLES = `
 /* The account pane: the header's glass, hanging just under it at its right end. */
 .menu { position: fixed; z-index: 11; width: 260px; padding: 18px 14px 14px; --glass-tint: var(--glass-menu);
   clip-path: polygon(0 14px, 14px 0, calc(100% - 4px) 0, 100% 4px, 100% calc(100% - 14px), calc(100% - 14px) 100%, 4px 100%, 0 calc(100% - 4px));
-  transform-origin: top right; transition: opacity 0.25s, transform 0.35s cubic-bezier(.2,.8,.2,1), background-color 0.5s ease; }
-.menu.shut { opacity: 0; transform: translateY(-6px) scale(0.98); pointer-events: none; visibility: hidden; transition: opacity 0.25s, transform 0.35s cubic-bezier(.2,.8,.2,1), visibility 0s 0.35s; }
+  transform-origin: top right; transition: var(--glass-transition), opacity 0.25s, transform 0.35s cubic-bezier(.2,.8,.2,1); }
+.menu.shut { opacity: 0; transform: translateY(-6px) scale(0.98); pointer-events: none; visibility: hidden; transition: var(--glass-transition), opacity 0.25s, transform 0.35s cubic-bezier(.2,.8,.2,1), visibility 0s 0.35s; }
 .menu .who { display: flex; flex-direction: column; padding: 0 10px 12px; margin-bottom: 6px; border-bottom: 1px solid var(--line); }
 .menu .who strong { font: 600 17px var(--display); }
 .menu .who span { color: var(--muted); font-size: 13px; }
@@ -132,7 +132,7 @@ const MENU_STYLES = `
 .menu [role="menuitem"]:hover, .menu [role="menuitem"]:focus-visible { background: var(--show-on); outline: none; }
 .menu [role="menuitem"]:hover::before, .menu [role="menuitem"]:focus-visible::before { opacity: 1; }
 .menu hr { border: 0; border-top: 1px solid var(--line); margin: 6px 0; }
-@media (prefers-reduced-motion: reduce) { .menu { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .menu { transition: var(--glass-transition); } }
 `;
 
 const PANE_STYLES = `

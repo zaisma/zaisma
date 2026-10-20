@@ -77,7 +77,7 @@ const HEADER_STYLES = `
   display: flex; align-items: center; gap: 22px; padding: 0 14px 0 26px;
   --glass-tint: var(--glass-top);
   clip-path: polygon(0 16px, 16px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 16px), calc(100% - 16px) 100%, 6px 100%, 0 calc(100% - 6px));
-  transition: height 0.45s cubic-bezier(.2,.8,.2,1), top 0.45s cubic-bezier(.2,.8,.2,1), transform 0.45s cubic-bezier(.4,0,.2,1), background-color 0.5s ease;
+  transition: var(--glass-transition), height 0.45s cubic-bezier(.2,.8,.2,1), top 0.45s cubic-bezier(.2,.8,.2,1), transform 0.45s cubic-bezier(.4,0,.2,1);
 }
 .top.is-compact { height: 58px; top: 8px; }
 .top > :not(.edge) { position: relative; z-index: 3; }
@@ -158,7 +158,9 @@ const HEADER_STYLES = `
   .top.is-logo-only .logo svg { height: 26px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .top, .nav .slab, .nav .ghost, .nav a.dev, .logo svg { transition: none; }
+  .nav .slab, .nav .ghost, .nav a.dev, .logo svg { transition: none; }
+  /* The header's glass still changes as all glass does: only its movement stops. */
+  .top { transition: var(--glass-transition); }
 }
 `;
 
@@ -258,7 +260,7 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     if (!/^(auto|scroll)$/.test(style.overflowY) || style.scrollbarWidth === "none" || box.classList.contains("rail-thumb")) return;
     var parent = box.parentElement; if (!parent || parent === document.body) return;
     if (getComputedStyle(parent).position === "static") parent.style.position = "relative";
-    box.insertAdjacentHTML("afterend", '<div class="rail"' + (isControl ? " data-rail-follows" : "") + ' data-rail="box" aria-hidden="true"><div class="rail-line"></div><div class="rail-thumb"></div></div>');
+    box.insertAdjacentHTML("afterend", '<div class="rail"' + (isControl ? " data-rail-follows" : "") + ' data-rail="box" aria-hidden="true"><div class="rail-line"></div><div class="rail-thumb glass"></div></div>');
   });
   document.querySelectorAll("[data-rail]").forEach(function (bar) {
     var isPage = bar.getAttribute("data-rail") === "page", scroller = isPage ? null : bar.previousElementSibling;
@@ -270,7 +272,7 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     var offset = function () { return parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop) || 90; };
     var marks = !isPage ? [] : Array.prototype.map.call(document.querySelectorAll("[data-rail-mark]"), function (part) {
       var mark = document.createElement("button"), name = document.createElement("span");
-      mark.type = "button"; mark.className = "rail-mark"; mark.tabIndex = -1; name.textContent = part.getAttribute("data-rail-mark");
+      mark.type = "button"; mark.className = "rail-mark"; mark.tabIndex = -1; name.className = "glass"; name.textContent = part.getAttribute("data-rail-mark");
       mark.appendChild(name); bar.appendChild(mark);
       mark.addEventListener("click", function () { window.scrollTo({ top: part.getBoundingClientRect().top + window.scrollY - offset(), behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }); });
       return { part: part, mark: mark };
@@ -457,9 +459,9 @@ component({
 .rail[hidden] { display: none; }
 .rail.awake, .rail:hover, .rail.dragging { opacity: 1; }
 .rail-line { position: absolute; inset: 0; cursor: pointer; background: linear-gradient(90deg, transparent 6px, var(--rail-line) 6px, var(--rail-line) 7px, transparent 7px); }
-.rail-thumb { position: absolute; top: 0; left: 4px; width: 5px; cursor: grab; background: var(--rail-thumb); box-shadow: inset 1px 0 0 var(--rail-edge), 0 2px 6px rgba(10,20,40,0.18);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); clip-path: polygon(0 4px, 4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%);
-  transition: left 0.2s, width 0.2s, background 0.2s; }
+.rail-thumb { position: absolute; top: 0; left: 4px; width: 5px; cursor: grab; --glass-tint: var(--rail-thumb); box-shadow: inset 1px 0 0 var(--rail-edge), 0 2px 6px rgba(10,20,40,0.18);
+  clip-path: polygon(0 4px, 4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%);
+  transition: var(--glass-transition), left 0.2s, width 0.2s; }
 .rail:hover .rail-thumb, .rail.dragging .rail-thumb { left: 2px; width: 9px; clip-path: polygon(0 5px, 5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%); }
 .rail.dragging .rail-thumb { cursor: grabbing; box-shadow: inset 2px 0 0 var(--run), 0 2px 8px rgba(10,20,40,0.22); }
 /* A mark per part of the page: a short tick on the line that turns orange when pointed at. Pointing anywhere on the rail opens every mark's name on a small glass label to its left. */
@@ -469,8 +471,8 @@ component({
 .rail-mark:hover::before { background: var(--run); left: 9px; }
 .rail-mark[hidden] { display: none; }
 .rail-mark span { position: absolute; right: 28px; top: 50%; transform: translate(0, -50%); padding: 4px 10px; white-space: nowrap; pointer-events: none;
-  font: 600 12px var(--display); color: var(--ink); background: var(--glass-wash), var(--glass-menu); -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-  clip-path: polygon(100% 0, 100% 0, calc(100% - 5px) 100%, calc(100% - 5px) 100%); transition: clip-path 0.18s ease-out; }
+  font: 600 12px var(--display); --glass-tint: var(--glass-menu);
+  clip-path: polygon(100% 0, 100% 0, calc(100% - 5px) 100%, calc(100% - 5px) 100%); transition: var(--glass-transition), clip-path 0.18s ease-out; }
 /* A label opens by wiping out from the rail, never by fading: a fading blur draws without its glass and turns solid at the end. */
 .rail:hover .rail-mark span, .rail.dragging .rail-mark span { clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); }
 /* In the narrow layout (a phone, or a small window), the page's bar fits in the 10px gutter beside the glass and starts below the header. */

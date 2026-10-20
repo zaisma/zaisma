@@ -78,9 +78,42 @@ describe("the gallery", () => {
     expect(problems).toEqual([]);
   });
 
-  it("makes every glass from one look: no component restates the glass's blur", () => {
-    const blurs = [...(COMPONENT_STYLES() + GALLERY_STYLES).matchAll(/(?:^|[;{\s])backdrop-filter:\s*([^;}]+)/g)].map((match) => (match[1] ?? "").trim());
-    expect(blurs.filter((blur) => blur !== "none" && blur !== "blur(var(--glass-blur)) saturate(var(--glass-saturate))")).toEqual([]);
+  it("makes every glass from one look: only the .glass rule paints glass, and components only set its variables", () => {
+    // Glass is defined once (foundations.ts, ".glass"): anything made of glass takes that class and may set --glass-tint or
+    // --glass-layer, never its own blur, tint or light, so every piece of glass looks and changes alike.
+    const problems: string[] = [];
+    for (const [, selectors = "", declarations = ""] of (COMPONENT_STYLES() + GALLERY_STYLES).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const isTheGlass = selectors.trim().replace(/^\/\*[\s\S]*?\*\/\s*/g, "") === ".glass";
+      const blur = /(?:^|[;\s])backdrop-filter:\s*([^;}]+)/.exec(declarations)?.[1]?.trim();
+      if (blur && blur !== "none" && !isTheGlass) problems.push(`${selectors.trim()}: its own blur`);
+      if (/(?:^|[;\s])background(?:-color|-image)?:[^;]*var\(--glass-/.test(declarations) && !isTheGlass) problems.push(`${selectors.trim()}: paints with the glass's tokens`);
+    }
+    expect(problems).toEqual([]);
+  });
+
+  it("lets no glass change differently: a rule on anything made of glass that sets a transition starts it with the glass's", async () => {
+    // The classes that sit beside "glass" on the gallery's pages (the header, a pane, a menu, a button's face, the rail's thumb).
+    const glassClasses = new Set<string>();
+    for (const { group } of COMPONENT_GROUPS) {
+      for (const [, classes = ""] of (await page(groupPath(group))).text.matchAll(/class="([^"]*)"/g)) {
+        const list = classes.split(/\s+/);
+        if (list.includes("glass")) list.filter((each) => each && each !== "glass").forEach((each) => glassClasses.add(each));
+      }
+    }
+    // Classes that only say a state or a size, shared with things that aren't glass.
+    for (const state of ["shut", "is-compact", "is-page", "is-collapsed", "medium", "small", "large", "full", "face"]) glassClasses.delete(state);
+    const problems: string[] = [];
+    for (const [, selectors = "", declarations = ""] of (COMPONENT_STYLES() + GALLERY_STYLES).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const transition = /(?:^|[;\s])transition:\s*([^;}]+)/.exec(declarations)?.[1]?.trim();
+      if (!transition || transition.startsWith("var(--glass-transition)")) continue;
+      for (const selector of selectors.replace(/\/\*[\s\S]*?\*\//g, "").split(",").map((each) => each.trim())) {
+        const subject = selector.split(/[\s>+~]+/).pop() ?? "";
+        if (/::/.test(subject)) continue;
+        const classes = [...subject.matchAll(/\.([a-z][a-z0-9-]*)/g)].map((match) => match[1] ?? "");
+        if (classes.includes("glass") || classes.some((each) => glassClasses.has(each))) problems.push(`${selector}: transition: ${transition}`);
+      }
+    }
+    expect(problems).toEqual([]);
   });
 
   it("opens light or dark from its address, and the other groups' pages keep it", async () => {

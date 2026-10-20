@@ -176,7 +176,7 @@ body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
   .gallery-groups .tab-switch { width: max-content; }
   /* One even inset all round, and the same between the rows, so the tabs' frame and the light or dark button sit the same distance
      from every edge of the pane; compact keeps it even, only smaller. */
-  .gallery-bar { position: sticky; top: 10px; width: calc(100% - 20px); min-height: 56px; flex-wrap: wrap; align-items: center; gap: 14px 12px; padding: 14px; transition: padding 0.25s, gap 0.25s; }
+  .gallery-bar { position: sticky; top: 10px; width: calc(100% - 20px); min-height: 56px; flex-wrap: wrap; align-items: center; gap: 14px 12px; padding: 14px; transition: var(--glass-transition), padding 0.25s, gap 0.25s; }
   .gallery-bar.is-scrolled { gap: 10px 12px; padding: 10px; }
   .gallery-bar .logo svg { height: 22px; transition: height 0.25s; }
   .gallery-bar.is-scrolled .logo svg { height: 18px; }

@@ -291,9 +291,9 @@ component({
 .glass-btn > .face {
   position: relative; display: flex; flex: auto; align-items: center; justify-content: center; gap: 10px; height: 48px; padding: 0 18px;
   font: 500 15px var(--display); color: var(--ink); white-space: nowrap;
-  background-color: var(--glass-btn-face); background-image: var(--glass-wash), var(--glass-sheen);
+  --glass-tint: var(--glass-btn-face);
   clip-path: polygon(0 12px, 12px 0, calc(100% - 4px) 0, 100% 4px, 100% calc(100% - 12px), calc(100% - 12px) 100%, 4px 100%, 0 calc(100% - 4px));
-  transition: background-color 0.25s, box-shadow 0.2s, transform 0.4s ${SPRING}; }
+  transition: var(--glass-transition), box-shadow 0.2s, transform 0.4s ${SPRING}; }
 .glass-btn .face > :not(.edge) { position: relative; z-index: 3; }
 .glass-btn .face > svg:not(.edge) { width: 20px; height: 20px; flex: none; transition: transform 0.4s ${SPRING}; }
 .glass-btn .edge { opacity: 0.7; transition: opacity 0.3s; }
@@ -302,19 +302,19 @@ component({
 .glass-btn .edge .inner { opacity: 0.5; }
 /* The light the pointer brings. */
 .glass-btn > .face::before { content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none; opacity: 0; transition: opacity 0.3s;
-  background: radial-gradient(150px 110px at var(--mx) var(--my), var(--glass-btn-glow), rgba(255,255,255,0) 70%); }
-.glass-btn:hover > .face, .glass-btn.is-pointed > .face { background-color: var(--glass-btn-hover); box-shadow: var(--glass-btn-lift); transform: translateY(-1px); }
+  background: radial-gradient(150px 110px at var(--mx) var(--my), var(--pointer-glow), rgba(255,255,255,0) 70%); }
+.glass-btn:hover > .face, .glass-btn.is-pointed > .face { --glass-tint: var(--glass-btn-hover); box-shadow: var(--glass-btn-lift); transform: translateY(-1px); }
 .glass-btn:hover .edge .hair, .glass-btn.is-pointed .edge .hair { stroke: var(--glass-btn-hair); }
 /* Pointed: the edge gets brighter, not darker: the dark hairline softens into the glass and the light line inside the rim comes up. */
 .glass-btn:hover .edge .inner, .glass-btn.is-pointed .edge .inner { opacity: 1; }
 .glass-btn:hover > .face::before, .glass-btn.is-pointed > .face::before { opacity: 0.85; }
 .glass-btn:hover .edge, .glass-btn.is-pointed .edge { opacity: 1; }
 .glass-btn:hover .face > svg:not(.edge), .glass-btn.is-pointed .face > svg:not(.edge) { transform: scale(1.1); }
-.glass-btn:active > .face, .glass-btn.is-pressed > .face { background-color: var(--glass-btn-press); box-shadow: var(--press-shade); transform: translateY(1px) scale(0.985); transition-duration: 0.08s; }
+.glass-btn:active > .face, .glass-btn.is-pressed > .face { --glass-tint: var(--glass-btn-press); box-shadow: var(--press-shade); transform: translateY(1px) scale(0.985); transition-duration: 0.08s; }
 .glass-btn:active > .face::before, .glass-btn.is-pressed > .face::before { opacity: 0.45; }
 .glass-btn:active .face > svg:not(.edge), .glass-btn.is-pressed .face > svg:not(.edge) { transform: scale(0.94); transition-duration: 0.08s; }
 /* Keyboard focus: the rim turns orange, following the cut, and its bright facets step aside. */
-.glass-btn:focus-visible > .face, .glass-btn.is-focused > .face { background-color: var(--glass-btn-hover); }
+.glass-btn:focus-visible > .face, .glass-btn.is-focused > .face { --glass-tint: var(--glass-btn-hover); }
 .glass-btn:focus-visible .edge, .glass-btn.is-focused .edge { opacity: 1; }
 .glass-btn:focus-visible .edge .hair, .glass-btn.is-focused .edge .hair { stroke: var(--run); stroke-width: 2; }
 .glass-btn:focus-visible .edge .rim, .glass-btn.is-focused .edge .rim { stroke: var(--run); stroke-width: 2; opacity: 1; }
@@ -331,16 +331,16 @@ component({
 /* Tinted: the way's own colour, nearly solid, in either theme (a brand's colour is how you recognise it, so it doesn't
    follow light or dark): white glass with dark words, the coloured and black ones with white words. It's a touch stronger
    as you point at it and a touch clearer under a press. Changing the tint fades from one to the next. */
-.glass-btn > .face { --tint-pct: 0%; background-image: linear-gradient(color-mix(in srgb, var(--tint-colour) var(--tint-pct), transparent), color-mix(in srgb, var(--tint-colour) var(--tint-pct), transparent)), var(--glass-wash), var(--glass-sheen); }
+.glass-btn > .face { --tint-pct: 0%; --glass-layer: linear-gradient(color-mix(in srgb, var(--tint-colour) var(--tint-pct), transparent), color-mix(in srgb, var(--tint-colour) var(--tint-pct), transparent)); }
 /* A brand's glass keeps its own colour: the page's hue never reaches it. */
 .glass-btn[data-tint]:not([data-tint="clear"]) > .face { --glass-wash: linear-gradient(transparent, transparent); }
-.glass-btn[data-tint] > .face { --tint-pct: var(--glass-btn-tint-rest); transition: background-color 0.25s, box-shadow 0.2s, transform 0.4s ${SPRING}, color 0.3s, --tint-colour 0.3s, --tint-pct 0.3s; }
+.glass-btn[data-tint] > .face { --tint-pct: var(--glass-btn-tint-rest); transition: var(--glass-transition), box-shadow 0.2s, transform 0.4s ${SPRING}, --tint-colour 0.3s, --tint-pct 0.3s; }
 .glass-btn[data-tint]:hover > .face, .glass-btn[data-tint].is-pointed > .face, .glass-btn[data-tint]:focus-visible > .face, .glass-btn[data-tint].is-focused > .face { --tint-pct: var(--glass-btn-tint-hover); }
 .glass-btn[data-tint]:active > .face, .glass-btn[data-tint].is-pressed > .face { --tint-pct: var(--glass-btn-tint-press); }
 .glass-btn[data-tint="clear"] { --glass-btn-tint-rest: 0%; --glass-btn-tint-hover: 0%; --glass-btn-tint-press: 0%; }
 .glass-btn[data-tint="white"] > .face { --tint-colour: #fff; color: #14171C; }
 .glass-btn[data-tint="white"] { --glass-btn-tint-rest: 86%; --glass-btn-tint-hover: 97%; --glass-btn-tint-press: 74%; }
-.glass-btn[data-tint="blue"], .glass-btn[data-tint="indigo"], .glass-btn[data-tint="black"] { --glass-btn-tint-rest: 95%; --glass-btn-tint-hover: 100%; --glass-btn-tint-press: 86%; --glass-btn-glow: rgba(255,255,255,0.35); }
+.glass-btn[data-tint="blue"], .glass-btn[data-tint="indigo"], .glass-btn[data-tint="black"] { --glass-btn-tint-rest: 95%; --glass-btn-tint-hover: 100%; --glass-btn-tint-press: 86%; --pointer-glow: rgba(255,255,255,0.35); }
 .glass-btn[data-tint="blue"] > .face, .glass-btn[data-tint="indigo"] > .face, .glass-btn[data-tint="black"] > .face { color: #fff; }
 .glass-btn[data-tint="blue"] > .face { --tint-colour: #2A75E8; }
 .glass-btn[data-tint="indigo"] > .face { --tint-colour: #5865F2; }
@@ -365,7 +365,7 @@ component({
 .tint-swatch[data-tint-choice="blue"] { --swatch: #2A75E8; }
 .tint-swatch[data-tint-choice="indigo"] { --swatch: #5865F2; }
 .tint-swatch[data-tint-choice="black"] { --swatch: #14171C; }
-@media (prefers-reduced-motion: reduce) { .glass-btn > .face, .glass-btn .face > svg:not(.edge) { transition: background-color 0.25s; } }
+@media (prefers-reduced-motion: reduce) { .glass-btn > .face, .glass-btn .face > svg:not(.edge) { transition: var(--glass-transition); } }
 `,
   render: glassButton,
   examples: [

@@ -23,7 +23,7 @@ const LIGHT_GLASS = `color-scheme: light;
   --show: rgba(255, 255, 255, 0.55); --show-on: #fff;
   --pick: rgba(255, 255, 255, 0.42); --pick-shade: inset 0 1px 3px rgba(20, 23, 28, 0.1), inset 0 0 0 1px rgba(255, 255, 255, 0.5);
   --done: rgba(255, 255, 255, 0.7); --done-line: inset 0 0 0 1px rgba(20, 23, 28, 0.1);
-  --glass-btn-face: rgba(255, 255, 255, 0.36); --glass-btn-hover: rgba(255, 255, 255, 0.72); --glass-btn-press: rgba(255, 255, 255, 0.26); --glass-btn-glow: rgba(255, 255, 255, 1);
+  --glass-btn-face: rgba(255, 255, 255, 0.36); --glass-btn-hover: rgba(255, 255, 255, 0.72); --glass-btn-press: rgba(255, 255, 255, 0.26); --pointer-glow: rgba(255, 255, 255, 1);
   --glass-btn-lift: inset 0 -12px 18px -12px rgba(30, 60, 110, 0.2), inset 0 1px 0 #fff; --glass-btn-hair: rgba(26, 44, 80, 0.1); --glass-btn-hair-rest: rgba(26, 44, 80, 0.12);
   --clear-hover: rgba(255, 255, 255, 0.45); --clear-press: rgba(255, 255, 255, 0.25);
   --chip-face: #DDF2E5; --chip-ink: #136238; --face-ring: rgba(255, 255, 255, 0.85); --presence-ring: #fff;
@@ -53,7 +53,7 @@ const SMOKED_GLASS = `color-scheme: dark;
   --show: rgba(255, 255, 255, 0.1); --show-on: rgba(255, 255, 255, 0.22);
   --pick: rgba(255, 255, 255, 0.06); --pick-shade: inset 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
   --done: rgba(255, 255, 255, 0.12); --done-line: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
-  --glass-btn-face: rgba(255, 255, 255, 0.07); --glass-btn-hover: rgba(255, 255, 255, 0.15); --glass-btn-press: rgba(255, 255, 255, 0.04); --glass-btn-glow: rgba(255, 255, 255, 0.3);
+  --glass-btn-face: rgba(255, 255, 255, 0.07); --glass-btn-hover: rgba(255, 255, 255, 0.15); --glass-btn-press: rgba(255, 255, 255, 0.04); --pointer-glow: rgba(255, 255, 255, 0.3);
   --glass-btn-lift: inset 0 -12px 18px -12px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.22); --glass-btn-hair: rgba(26, 44, 80, 0.16); --glass-btn-hair-rest: rgba(26, 44, 80, 0.28);
   --clear-hover: rgba(255, 255, 255, 0.08); --clear-press: rgba(255, 255, 255, 0.04);
   --chip-face: rgba(52, 211, 120, 0.22); --chip-ink: #A6F0C6; --face-ring: rgba(6, 8, 12, 0.55); --presence-ring: #1A1D24;
@@ -97,6 +97,8 @@ export const TOKEN_STYLES = `
   --danger: #D93A2B; --danger-lo: #A82718;
   --page: #EEF2F7;
   --glass-blur: 24px;
+  /* How every piece of glass changes (light to dark, a hover's tint): a component that adds its own transitions starts its list with this. */
+  --glass-transition: background-color 0.5s ease, color 0.3s ease;
   /* The glass's hue (PageSettings' glass.hueColour): tints every piece of glass under where it's set. Glass tinted for a brand keeps its own colour. */
   --glass-hue: transparent;
   --display: "Jost", Futura, "Century Gothic", "Avenir Next", sans-serif;
@@ -118,15 +120,18 @@ export const TOKEN_STYLES = `
 [hidden] { display: none !important; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
-/* The glass: one look for every slab of it, at any size. A slab is a tint (--glass-tint, which a component may set to its own,
-   like the header's --glass-top), the light on it (--glass-sheen: brightest at its top left, a little shade along its foot),
-   the blur and colour of what's behind (--glass-blur, --glass-saturate), and cut corners with a drawn rim (the svg.edge
-   GLASS_SCRIPT draws, which sizes its corners and bevel to the slab). Nothing else restates these. */
+/* The glass: one look for every piece of it, at any size, defined here once. Anything made of glass has the class glass and
+   nothing else paints it: it's a tint (--glass-tint, which a component may set to its own, like the header's --glass-top),
+   a layer over the tint a component may set (--glass-layer, a glass button's brand colour), the page's hue (--glass-wash),
+   the light on it (--glass-sheen: brightest at its top left, a little shade along its foot), the blur and colour of what's
+   behind (--glass-blur, --glass-saturate), the way it changes (--glass-transition), and on a slab, cut corners with a drawn
+   rim (data-glass: the svg.edge GLASS_SCRIPT draws, sizing its corners and bevel to the slab). design.test.ts checks that
+   no other rule paints glass. */
 /* Each piece of glass works the hue out from the --glass-hue it inherits, so setting it anywhere tints all the glass inside. */
-.glass, .glass-btn > .face, .swatches, .rail-mark span { --glass-wash: linear-gradient(color-mix(in srgb, var(--glass-hue) var(--glass-hue-strength), transparent), color-mix(in srgb, var(--glass-hue) var(--glass-hue-strength), transparent)); }
-.glass { position: relative; color: var(--ink); background-color: var(--glass-tint); background-image: var(--glass-wash), var(--glass-sheen);
+.glass { --glass-wash: linear-gradient(color-mix(in srgb, var(--glass-hue) var(--glass-hue-strength), transparent), color-mix(in srgb, var(--glass-hue) var(--glass-hue-strength), transparent)); }
+.glass { position: relative; color: var(--ink); background-color: var(--glass-tint); background-image: var(--glass-layer, linear-gradient(transparent, transparent)), var(--glass-wash), var(--glass-sheen);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-  transition: background-color 0.5s ease, color 0.3s ease; }
+  transition: var(--glass-transition); }
 .glass > :not(.edge) { position: relative; z-index: 3; }
 .edge { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; overflow: visible; }
 /* Light and smoked glass share one frame: a straight-cut glass edge whose every side is one flat tone between --edge-lit and --edge-shade
@@ -209,7 +214,7 @@ export const WORDMARK = raw(
 export const MARK = raw(`<svg viewBox="-120 600 4527 3300" aria-hidden="true"><g fill="currentColor">${MARK_PATHS}</g></svg>`);
 
 /** Zaisma's own scrollbar (navigation.ts's rail, RAIL_SCRIPT): "box" for a box that scrolls (it goes just after it), "page" for the page. */
-export const railMarkup = (scrollKind: "box" | "page"): Raw => raw(`<div class="rail" data-rail="${scrollKind}" aria-hidden="true"><div class="rail-line"></div><div class="rail-thumb"></div></div>`);
+export const railMarkup = (scrollKind: "box" | "page"): Raw => raw(`<div class="rail" data-rail="${scrollKind}" aria-hidden="true"><div class="rail-line"></div><div class="rail-thumb glass"></div></div>`);
 
 /** An outline for a cut field or button (GLASS_SCRIPT draws it), and a slab's drawn rim. */
 export const CUT_LINE = raw('<svg class="cut-line" aria-hidden="true"><polygon/></svg>');
@@ -584,7 +589,7 @@ const SWATCHES: { token: string; note: string }[] = [
 ];
 
 const swatches = () =>
-  html`<ul class="swatches">${SWATCHES.map(({ token, note }) => html`<li><span class="chip-swatch" style="background:var(${token})"></span><code>${token}</code><span>${note}</span></li>`)}</ul>`;
+  html`<div class="glass swatch-pane" data-glass data-glass-corners="18 9 18 9">${EDGE}<ul class="swatches">${SWATCHES.map(({ token, note }) => html`<li><span class="chip-swatch" style="background:var(${token})"></span><code>${token}</code><span>${note}</span></li>`)}</ul></div>`;
 
 component({
   name: "Colour",
@@ -593,7 +598,8 @@ component({
   summary: "Every colour comes from these tokens, so light, dark and smoked glass follow by themselves. Orange is only for what you act on, and it is always shown in full: never faded or at half opacity.",
   styles: `
 /* Colour: the gallery's swatches. */
-.swatches { width: 100%; list-style: none; margin: 0; padding: 14px; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px 18px; color: var(--ink); background: var(--glass-wash), var(--glass-tint); -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); }
+.swatch-pane { width: 100%; }
+.swatches { list-style: none; margin: 0; padding: 18px; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px 18px; }
 .swatches li { display: grid; grid-template-columns: 36px 1fr; grid-template-rows: auto auto; column-gap: 10px; align-items: center; font: 500 13px var(--display); }
 .swatches .chip-swatch { grid-row: span 2; width: 36px; height: 36px; box-shadow: inset 0 0 0 1px var(--line); clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px); }
 .swatches code { font: 600 13px ui-monospace, Menlo, monospace; }
