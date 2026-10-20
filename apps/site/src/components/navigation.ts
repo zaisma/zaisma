@@ -94,10 +94,10 @@ const HEADER_STYLES = `
 /* Where you are: the sign-in's switch, laid flat. A white slab with an orange underline sits under the page you're on; a faint one follows the pointer. */
 .nav { position: relative; display: flex; height: 44px; padding: 4px; flex: none;
   background: var(--well); box-shadow: var(--well-shade);
-  clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%); }
+  clip-path: var(--cut-shape, polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%)); }
 .nav .slab, .nav .ghost { position: absolute; top: 4px; bottom: 4px; left: 0; width: 0; clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%); pointer-events: none;
   transition: transform 0.55s var(--spring), width 0.55s var(--spring), opacity 0.3s; }
-.nav .slab { background: var(--slab); box-shadow: var(--slab-shade), inset 0 -3px 0 var(--run); }
+.nav .slab { clip-path: var(--cut-shape, polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%)); background: var(--slab); box-shadow: var(--slab-shade), inset 0 -3px 0 var(--run); }
 .nav .ghost { background: var(--ghost); opacity: 0; }
 .nav.pointing .ghost { opacity: 1; }
 .nav a { position: relative; display: flex; align-items: center; padding: 0 18px; font: 500 15px var(--display); color: var(--ink-2); text-decoration: none; white-space: nowrap; }
@@ -510,7 +510,7 @@ export interface SidebarOptions {
 export function sidebar(options: SidebarOptions): Raw {
   const link = (each: SidebarItem) => {
     const inside = each.icon ? html`${icon(each.icon)}<span class="sidebar-label">${each.label}</span>` : html`${each.label}`;
-    return html`<li><a href="${each.href}"${each.extra ?? ""}${each.isCurrent ? raw(' aria-current="page" class="cut-raised" data-cut-line="8" data-cut-inset="2"') : ""}${options.isCollapsed ? html` title="${each.label}" aria-label="${each.label}"` : ""}>${each.isCurrent ? CUT_LINE : ""}${inside}${each.badgeCount ? html`<span class="sidebar-count">${each.badgeCount}</span>` : ""}</a></li>`;
+    return html`<li><a href="${each.href}"${each.extra ?? ""}${each.isCurrent ? raw(' aria-current="page" class="cut-raised" data-cut-inset="2"') : ""} data-cut-line="8"${options.isCollapsed ? html` title="${each.label}" aria-label="${each.label}"` : ""}>${CUT_LINE}${inside}${each.badgeCount ? html`<span class="sidebar-count">${each.badgeCount}</span>` : ""}</a></li>`;
   };
   const groups = options.groups.map((group) => html`<div class="sidebar-group">${group.heading ? html`<h2 class="sidebar-heading">${group.heading}</h2>` : ""}<ul>${group.items.map(link)}</ul></div>`);
   return html`<aside class="sidebar glass${options.isCollapsed ? " is-collapsed" : ""}" data-glass data-glass-corners="14 6 14 6"><nav class="sidebar-in" aria-label="${options.label}">${groups}</nav></aside>`;
@@ -533,16 +533,16 @@ component({
 .sidebar-group ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
 .sidebar-heading { margin: 0 0 6px; padding: 0 14px; font: 500 13px var(--display); color: var(--muted); }
 .sidebar a { position: relative; display: flex; align-items: center; gap: 10px; height: 42px; padding: 0 14px; font: 500 16px var(--display); color: var(--ink-2); text-decoration: none;
-  clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%); background: var(--wash-rest); transition: background 0.15s, color 0.15s, box-shadow 0.2s; }
-.sidebar a svg { width: 18px; height: 18px; flex: none; }
+  clip-path: var(--cut-shape, polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%)); background: var(--wash-rest); transition: background 0.15s, color 0.15s, box-shadow 0.2s; }
+.sidebar a svg:not(.cut-line) { width: 18px; height: 18px; flex: none; }
 .sidebar a:hover { background: var(--wash); color: var(--ink); }
 .sidebar a:active { background: var(--wash-press); }
 .sidebar a[aria-current="page"], .sidebar a[aria-current="page"]:hover { background: var(--slab); color: var(--ink); font-weight: 600; }
-/* Every place has a ring that follows its slanted cut: orange on the current place, ink while the keyboard is on another. It stays out of sight until then, and on the current place it thickens under keyboard focus. */
-.sidebar a::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: transparent; clip-path: polygon(evenodd, 8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%, 8px 0, 10.4px 2px, calc(100% - 2px) 2px, calc(100% - 10.4px) calc(100% - 2px), 2px calc(100% - 2px), 10.4px 2px); }
-.sidebar a[aria-current="page"]::after { background: var(--run); }
-.sidebar a:focus-visible::after { background: var(--ink); }
-.sidebar a[aria-current="page"]:focus-visible::after { background: var(--run); clip-path: polygon(evenodd, 8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%, 8px 0, 12.2px 3.5px, calc(100% - 3.5px) 3.5px, calc(100% - 12.2px) calc(100% - 3.5px), 3.5px calc(100% - 3.5px), 12.2px 3.5px); }
+/* Every place's outline follows its cut, nested cuts included: orange on the current place, ink while the keyboard is on another. It stays out of sight until then, and on the current place it thickens under keyboard focus. */
+.sidebar a .cut-line polygon { stroke-width: 2; }
+.sidebar a[aria-current="page"] .cut-line polygon { stroke: var(--run); }
+.sidebar a:focus-visible .cut-line polygon { stroke: var(--ink); }
+.sidebar a[aria-current="page"]:focus-visible .cut-line polygon { stroke: var(--run); stroke-width: 5; }
 .sidebar a:focus-visible { outline: none; }
 .sidebar-count { margin-left: auto; min-width: 22px; padding: 1px 7px; text-align: center; font: 600 12px var(--display); color: var(--ink-2); background: var(--well); box-shadow: var(--well-shade);
   clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%); }

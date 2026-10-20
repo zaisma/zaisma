@@ -240,10 +240,10 @@ component({
 .cut-btn.is-full { display: flex; width: 100%; }
 .cut-btn > .face { display: flex; flex: auto; align-items: center; justify-content: center; gap: 8px; height: 44px; padding: 0 24px;
   font: 600 15px var(--display); color: var(--ink); white-space: nowrap;
-  background: var(--btn); clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
+  background: var(--btn); clip-path: var(--cut-shape, polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%));
   transition: background-color 0.2s, box-shadow 0.2s, transform 0.4s ${SPRING}; }
 /* Big keeps the same slant angle as the rest, so it is the same button, larger. */
-.cut-btn.big > .face { height: 56px; padding: 0 28px; font-size: 17px; clip-path: polygon(13px 0, 100% 0, calc(100% - 13px) 100%, 0 100%); }
+.cut-btn.big > .face { height: 56px; padding: 0 28px; font-size: 17px; clip-path: var(--cut-shape, polygon(13px 0, 100% 0, calc(100% - 13px) 100%, 0 100%)); }
 .cut-btn:hover > .face, .cut-btn.is-pointed > .face { background: var(--btn-hover); }
 .cut-btn:active > .face, .cut-btn.is-pressed > .face { background: var(--btn-press); box-shadow: var(--press-shade); transform: translateY(1px) scale(0.965); transition-duration: 0.08s; }
 /* A press sinks it into the glass: its light turns round, as on a carved field. */
@@ -389,7 +389,7 @@ component({
 .guest-btn:focus-visible { outline: none; }
 .guest-btn > .face { display: flex; flex: auto; align-items: center; justify-content: center; gap: 8px; height: 44px; padding: 0 16px;
   font: 500 15px var(--display); color: var(--ink-2); white-space: nowrap; background-color: transparent;
-  clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
+  clip-path: var(--cut-shape, polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%));
   transition: background-color 0.2s, color 0.2s, box-shadow 0.2s, transform 0.4s ${SPRING}; }
 .guest-btn .face > :not(.cut-line) { position: relative; z-index: 2; }
 .guest-btn .cut-line polygon { stroke: transparent; }

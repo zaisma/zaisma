@@ -139,6 +139,11 @@ export const TOKEN_STYLES = `
 .slab.cut-raised > .cut-line { --band-bottom: transparent; }
 .cut-line .cut-band.on-top { fill: var(--band-top, transparent); } .cut-line .cut-band.on-left { fill: var(--band-left, transparent); }
 .cut-line .cut-band.on-right { fill: var(--band-right, transparent); } .cut-line .cut-band.on-bottom { fill: var(--band-bottom, transparent); }
+/* A nested corner's cut faces two ways, so it takes half of each side's light. */
+.cut-line .cut-band.on-top-right { fill: color-mix(in srgb, var(--band-top, transparent), var(--band-right, transparent)); }
+.cut-line .cut-band.on-bottom-right { fill: color-mix(in srgb, var(--band-bottom, transparent), var(--band-right, transparent)); }
+.cut-line .cut-band.on-bottom-left { fill: color-mix(in srgb, var(--band-bottom, transparent), var(--band-left, transparent)); }
+.cut-line .cut-band.on-top-left { fill: color-mix(in srgb, var(--band-top, transparent), var(--band-left, transparent)); }
 /* Line icons: drawn with the words' colour. */
 .ico { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 `;
@@ -280,32 +285,89 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     if (window.ResizeObserver) new ResizeObserver(draw).observe(el); else window.addEventListener("resize", draw);
     return draw;
   }
-  // A slanted outline drawn just inside a cut field, so its slanted ends are outlined like its top and bottom.
+  /*
+   * A control's cut (cutLine): a slant at each end, its outline and its raised or carved light, all drawn from one shape.
+   * Nested cuts: a control that sits in a corner of the glass it's on (within NEST_GAP_PX of both of that corner's sides) takes
+   * the corner's cut on that end, less the gap, so the gap round it stays even and it reads as part of the glass, like the header's
+   * light or dark button in the header's end. Away from the glass's edges it keeps its slant. The shape goes to CSS as --cut-shape.
+   */
+  var NEST_GAP_PX = 20;
+  function glassCorners(pane) {
+    var cuts = (pane.getAttribute("data-glass-corners") || "16 6 16 6").trim().split(/ +/).map(Number), short = Math.min(pane.offsetWidth, pane.offsetHeight);
+    return cuts.map(function (cut) { return Math.min(cut, Math.round(short * 0.3)); });
+  }
+  // The cut each corner takes from the glass round it, or null where the control isn't in that corner.
+  function nestedCuts(el) {
+    var holder = el.parentElement && el.parentElement.closest("[data-glass], [data-cut-line]");
+    if (!holder || !holder.hasAttribute("data-glass")) return [null, null, null, null];
+    var r = el.getBoundingClientRect(), p = holder.getBoundingClientRect(), c = glassCorners(holder);
+    var left = r.left - p.left, right = p.right - r.right, top = r.top - p.top, bottom = p.bottom - r.bottom;
+    return [[left, top], [right, top], [right, bottom], [left, bottom]].map(function (gaps, i) {
+      if (!c[i] || gaps[0] > NEST_GAP_PX || gaps[1] > NEST_GAP_PX || gaps[0] < -1 || gaps[1] < -1) return null;
+      var sum = Math.max(0, gaps[0]) + Math.max(0, gaps[1]);
+      return Math.max(0, c[i] - sum + Math.SQRT2 * sum / 2);
+    });
+  }
+  // The outline, clockwise from the top left: a slant at each end, or a nested end with its own corner cuts.
+  function controlShape(w, h, slant, nested) {
+    var points = [], isLeftNested = nested[0] !== null || nested[3] !== null, isRightNested = nested[1] !== null || nested[2] !== null;
+    if (isLeftNested) { var tl = Math.min(nested[0] || 0, h / 2); if (tl > 0.5) points.push([0, tl], [tl, 0]); else points.push([0, 0]); } else points.push([slant, 0]);
+    if (isRightNested) {
+      var tr = Math.min(nested[1] || 0, h / 2), br = Math.min(nested[2] || 0, h / 2);
+      if (tr > 0.5) points.push([w - tr, 0], [w, tr]); else points.push([w, 0]);
+      if (br > 0.5) points.push([w, h - br], [w - br, h]); else points.push([w, h]);
+    } else points.push([w, 0], [w - slant, h]);
+    if (isLeftNested) { var bl = Math.min(nested[3] || 0, h / 2); if (bl > 0.5) points.push([bl, h], [0, h - bl]); else points.push([0, h]); } else points.push([0, h]);
+    return points;
+  }
+  // The same outline moved inward by d on every side: each side's line shifted along its inner normal, meeting its neighbours.
+  function insetShape(points, d) {
+    if (!d) return points;
+    var n = points.length, lines = points.map(function (p, i) {
+      var q = points[(i + 1) % n], dx = q[0] - p[0], dy = q[1] - p[1], length = Math.hypot(dx, dy) || 1, nx = -dy / length, ny = dx / length;
+      return { x: p[0] + nx * d, y: p[1] + ny * d, dx: dx, dy: dy, nx: nx, ny: ny };
+    });
+    return lines.map(function (line, i) {
+      var before = lines[(i + n - 1) % n], cross = before.dx * line.dy - before.dy * line.dx;
+      if (Math.abs(cross) < 1e-6) return [line.x, line.y];
+      var t = ((line.x - before.x) * line.dy - (line.y - before.y) * line.dx) / cross;
+      return [before.x + before.dx * t, before.y + before.dy * t];
+    });
+  }
+  // Which way a side faces, of eight, so its band takes that side's light.
+  var FACING = ["right", "top-right", "top", "top-left", "left", "bottom-left", "bottom", "bottom-right"];
+  function facing(p, q) { var dx = q[0] - p[0], dy = q[1] - p[1], degrees = Math.atan2(dx, dy) * 180 / Math.PI; return FACING[((Math.round(degrees / 45) % 8) + 8) % 8]; }
   function cutLine(el, slant) {
     var svg = el.querySelector(":scope > .cut-line");
     if (!svg) { svg = document.createElementNS(SVG, "svg"); svg.setAttribute("class", "cut-line"); svg.setAttribute("aria-hidden", "true"); svg.appendChild(document.createElementNS(SVG, "polygon")); el.insertBefore(svg, el.firstChild); }
-    var poly = svg.querySelector("polygon");
-    // The raised or carved light: a 1.5px band along each of the four sides.
-    var bands = ["top", "right", "bottom", "left"].map(function (side) {
-      var band = svg.querySelector(".cut-band.on-" + side);
-      if (!band) { band = document.createElementNS(SVG, "path"); band.setAttribute("class", "cut-band on-" + side); svg.insertBefore(band, poly); }
-      return band;
-    });
-    function inset(w, h, i) {
-      var side = i * Math.hypot(slant, h) / h, at = function (y) { return slant * (1 - y / h); };
-      return [[at(i) + side, i], [w - slant * (i / h) - side, i], [w - slant * ((h - i) / h) - side, h - i], [at(h - i) + side, h - i]];
-    }
+    var poly = svg.querySelector("polygon"), bands = [], last = "";
     function list(points) { return points.map(function (p) { return p[0].toFixed(2) + "," + p[1].toFixed(2); }).join(" "); }
     function draw() {
       var w = el.offsetWidth, h = el.offsetHeight; if (!w || !h) return;
+      var shape = controlShape(w, h, slant, nestedCuts(el)), key = w + "x" + h + ":" + list(shape);
+      if (key === last) return;
+      last = key;
+      el.style.setProperty("--cut-shape", "polygon(" + shape.map(function (p) { return p[0].toFixed(2) + "px " + p[1].toFixed(2) + "px"; }).join(", ") + ")");
       svg.setAttribute("viewBox", "0 0 " + w + " " + h);
-      poly.setAttribute("points", list(inset(w, h, 1)));
-      // data-cut-inset moves the light inward, inside an outline drawn round the edge (the sidebar's current place).
-      var from = Number(el.getAttribute("data-cut-inset")) || 0, outer = inset(w, h, from), inner = inset(w, h, from + 1.5);
-      bands.forEach(function (band, i) { var j = (i + 1) % 4; band.setAttribute("d", "M" + list([outer[i], outer[j], inner[j], inner[i]]) + "Z"); });
+      poly.setAttribute("points", list(insetShape(shape, 1)));
+      // The raised or carved light: a 1.5px band along each side. data-cut-inset moves it inward, inside an outline drawn round the edge (the sidebar's current place).
+      var from = Number(el.getAttribute("data-cut-inset")) || 0, outer = insetShape(shape, from), inner = insetShape(shape, from + 1.5);
+      while (bands.length < shape.length) { var band = document.createElementNS(SVG, "path"); svg.insertBefore(band, poly); bands.push(band); }
+      while (bands.length > shape.length) svg.removeChild(bands.pop());
+      bands.forEach(function (band, i) {
+        var j = (i + 1) % shape.length;
+        band.setAttribute("class", "cut-band on-" + facing(shape[i], shape[j]));
+        band.setAttribute("d", "M" + list([outer[i], outer[j], inner[j], inner[i]]) + "Z");
+      });
     }
     draw();
-    if (window.ResizeObserver) new ResizeObserver(draw).observe(el); else window.addEventListener("resize", draw);
+    if (window.ResizeObserver) {
+      var watch = new ResizeObserver(draw); watch.observe(el);
+      var holder = el.parentElement && el.parentElement.closest("[data-glass]"); if (holder) watch.observe(holder);
+    }
+    window.addEventListener("resize", draw);
+    // Where it sits can change without its size changing: once the fonts are in, the layout has settled.
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(draw);
   }
   window.zaismaGlass = glass;
   window.zaismaCutLine = cutLine;

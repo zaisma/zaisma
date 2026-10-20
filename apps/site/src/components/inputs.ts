@@ -266,7 +266,7 @@ const FIELD_STYLES = `
 .field input { position: relative; z-index: 2; flex: 1; min-width: 0; width: 100%; height: 100%; padding: 0 16px 0 48px;
   font: 500 16px var(--display); color: var(--ink); caret-color: var(--run-lo);
   background: var(--field-face); border: 0; border-radius: 0; box-shadow: var(--field-shade);
-  clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%); transition: background 0.25s; }
+  clip-path: var(--cut-shape, polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%)); transition: background 0.25s; }
 .field:hover input { background: var(--field-hover); }
 .field input:focus, .field.is-focused input { outline: none; background: var(--field-focus); border: 0; }
 .field input::placeholder { color: var(--muted); }
@@ -320,7 +320,7 @@ component({
   font: 15px var(--body); color: var(--ink);
   background: var(--field-face); border: 0; border-radius: 0;
   box-shadow: var(--well-shade);
-  clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
+  clip-path: var(--cut-shape, polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%));
   transition: background 0.3s, border-color 0.3s;
 }
 .find input::placeholder { color: var(--muted); }
@@ -347,7 +347,7 @@ component({
 .bday legend { padding: 0; margin-bottom: 10px; font: 600 18px var(--display); color: var(--ink); }
 .bday-field { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; height: 52px; padding: 0 18px 0 48px; border: 0; cursor: pointer; text-align: left;
   font: 500 16px var(--display); color: var(--muted); background: var(--field-face); box-shadow: var(--field-shade);
-  clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%); transition: background 0.25s; }
+  clip-path: var(--cut-shape, polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%)); transition: background 0.25s; }
 .bday-field:hover { background: var(--field-hover); }
 .bday-field[aria-expanded="true"], .bday-field:focus-visible { outline: none; background: var(--field-focus); }
 .bday-field.set { color: var(--ink); font-weight: 500; }
@@ -406,10 +406,10 @@ component({
   styles: `
 /* The switch: the header's and the home's. A clear well, a white slab with the orange line under the one you're on, and a faint one under the one you point at. */
 .tab-switch { position: relative; display: flex; height: 44px; padding: 4px; background: var(--well); box-shadow: var(--well-shade);
-  clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%); }
+  clip-path: var(--cut-shape, polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%)); }
 .tab-switch .slab, .tab-switch .ghost { position: absolute; top: 4px; bottom: 4px; left: 0; width: 0; pointer-events: none; clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
   transition: transform 0.55s var(--spring), width 0.55s var(--spring), opacity 0.3s; }
-.tab-switch .slab { background: var(--slab); box-shadow: var(--slab-shade), inset 0 -3px 0 var(--run); }
+.tab-switch .slab { clip-path: var(--cut-shape, polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%)); background: var(--slab); box-shadow: var(--slab-shade), inset 0 -3px 0 var(--run); }
 .tab-switch .ghost { background: var(--ghost); opacity: 0; }
 .tab-switch.pointing .ghost { opacity: 1; }
 .tab-switch > a, .tab-switch > button { position: relative; z-index: 2; display: flex; align-items: center; justify-content: center; padding: 0 18px; border: 0; background: none; cursor: pointer;
@@ -420,8 +420,9 @@ component({
 .tab-switch:not(.is-ready) [aria-current="page"], .tab-switch:not(.is-ready) [aria-pressed="true"] { background: var(--slab); box-shadow: inset 0 -3px 0 var(--run); clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%); }
 .tab-switch > :focus-visible { outline: 2px solid var(--ink); outline-offset: -4px; }
 /* The sort switch: the header's switch, smaller. */
-.tab-switch.small { height: 36px; padding: 3px; clip-path: polygon(9px 0, 100% 0, calc(100% - 9px) 100%, 0 100%); }
+.tab-switch.small { height: 36px; padding: 3px; clip-path: var(--cut-shape, polygon(9px 0, 100% 0, calc(100% - 9px) 100%, 0 100%)); }
 .tab-switch.small .slab, .tab-switch.small .ghost { top: 3px; bottom: 3px; clip-path: polygon(7px 0, 100% 0, calc(100% - 7px) 100%, 0 100%); transition-duration: 0.4s, 0.4s, 0.3s; }
+.tab-switch.small .slab { clip-path: var(--cut-shape, polygon(7px 0, 100% 0, calc(100% - 7px) 100%, 0 100%)); }
 .tab-switch.small > a, .tab-switch.small > button { padding: 0 14px; font-size: 14px; }
 @media (prefers-reduced-motion: reduce) { .tab-switch .slab, .tab-switch .ghost { transition: none; } }
 `,
