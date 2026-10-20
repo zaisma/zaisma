@@ -328,6 +328,8 @@ a.dev-card:hover strong{text-decoration:underline;text-underline-offset:3px}
 .ctl .count{min-width:20px;height:18px;padding:0 6px;display:inline-grid;place-items:center;font-size:12px;font-weight:600;background:#0c0e11;box-shadow:inset 0 1px 2px rgba(0,0,0,.8),0 1px 0 rgba(255,255,255,.06);border-radius:9px}
 .ctl .count[hidden]{display:none}
 iframe{flex:1;border:0;width:100%;min-height:0;min-width:0;background:#000}
+/* The game takes the keys while it's played: no focus ring around it. */
+iframe:focus-visible{outline:none}
 body:not(.playing) iframe{display:none}
 /* Phones: icons only, big enough to tap. */
 @media (max-width:640px){.ctl{width:40px;height:40px;padding:0;justify-content:center}.ctl .label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}#players-open{position:relative}#players-open .count{position:absolute;bottom:2px;right:2px;min-width:16px;height:16px;padding:0 4px;font-size:10px}}
