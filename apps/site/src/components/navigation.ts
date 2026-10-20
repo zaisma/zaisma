@@ -1,10 +1,10 @@
 import { html, raw, type Raw } from "../html.ts";
 import { pageScript } from "../page-scripts.ts";
 import { component } from "./component.ts";
-import { CUT_LINE, EDGE, MARK, WORDMARK, icon, railMarkup, type IconName } from "./foundations.ts";
+import { CUT_LINE, EDGE, MARK, WORDMARK, icon, placeMarkup, railMarkup, type IconName, type PlaceItem } from "./foundations.ts";
 import { runButton } from "./actions.ts";
 import { searchField, type SearchFieldOptions } from "./inputs.ts";
-import { STAND_IN_COVERS, accountMenu, type MenuItem } from "./panes.ts";
+import { STAND_IN_COVERS, menu, type MenuItem } from "./panes.ts";
 import { pictureFrame } from "./data.ts";
 
 /*
@@ -36,7 +36,7 @@ export interface HeaderOptions {
 }
 
 const tab = (label: string, href: string, isCurrent: boolean, isDeveloperTab = false, isOpen = true) =>
-  html`<a href="${href}"${isDeveloperTab ? raw(isOpen ? ' class="dev"' : ' class="dev off" tabindex="-1" aria-hidden="true"') : ""}${isCurrent ? raw(' aria-current="page"') : ""}>${label}</a>`;
+  html`<a href="${href}"${isDeveloperTab ? raw(isOpen ? ' class="dev"' : ' class="dev off" tabindex="-1" aria-hidden="true"') : ""}${isCurrent ? raw(' aria-current="page"') : ""} data-words="${label}">${label}</a>`;
 
 /** The header: a floating slab of glass, cut corners and a drawn rim. Orange only on what you act on. */
 export function header(options: HeaderOptions): Raw {
@@ -48,24 +48,24 @@ export function header(options: HeaderOptions): Raw {
   const menuId = `${id}-menu`;
   const menuItems: MenuItem[] = account
     ? [
-        { kind: "link", label: "Your profile", icon: "person", href: `/@${account.username}` },
-        { kind: "link", label: "Friends", icon: "friends", href: "/friends" },
-        { kind: "link", label: "Developer", icon: "code", href: "/dashboard" },
-        { kind: "link", label: "Settings", icon: "gear", href: "/account" },
+        { label: "Your profile", icon: "person", href: `/@${account.username}` },
+        { label: "Friends", icon: "friends", href: "/friends" },
+        { label: "Developer", icon: "code", href: "/dashboard" },
+        { label: "Settings", icon: "gear", href: "/account" },
         { kind: "rule" },
-        { kind: "form", label: "Sign out", icon: "sign-out", action: "/signout" },
+        { label: "Sign out", icon: "sign-out", action: "/signout" },
       ]
     : [];
   return html`<header class="top glass${options.isCompact ? " is-compact" : ""}" id="${id}" data-glass data-glass-corners="16 6 16 6"${options.isCompact ? raw(" data-stays-compact") : ""}>${EDGE}
   ${logo}
-  <nav class="nav cut-carved" aria-label="Main" data-cut-line="10">${CUT_LINE}<span class="ghost" aria-hidden="true" data-cut-line="8"></span><span class="slab cut-raised" aria-hidden="true" data-cut-line="8">${CUT_LINE}</span>${tab("Home", "/", options.current === "home")}${account && options.yourGamesHref ? tab("Your games", options.yourGamesHref, options.current === "your-games") : ""}${tab("Developer", account ? "/dashboard" : "/developers", options.current === "developer", true, isOpen)}${tab("Forum", "/forum", options.current === "forum", true, isOpen)}</nav>
+  <nav class="nav cut-carved" aria-label="Main" data-cut-line="10">${CUT_LINE}<div class="nav-row" data-fades-sideways><span class="ghost" aria-hidden="true" data-cut-line="8"></span><span class="slab cut-raised" aria-hidden="true" data-cut-line="8">${CUT_LINE}</span>${tab("Home", "/", options.current === "home")}${account && options.yourGamesHref ? tab("Your games", options.yourGamesHref, options.current === "your-games") : ""}${tab("Developer", account ? "/dashboard" : "/developers", options.current === "developer", true, isOpen)}${tab("Forum", "/forum", options.current === "forum", true, isOpen)}</div></nav>
   ${options.search ? html`${searchField(options.search)}<button type="button" class="find-open" aria-label="${options.search.label}" aria-expanded="false">${icon("search")}</button>` : ""}
   <div class="end">${
     account
       ? html`<button type="button" class="me" aria-expanded="${options.isMenuOpen ? "true" : "false"}" aria-controls="${menuId}" aria-label="Your account, ${account.username}">${account.pictureMarkup}<span class="name">${account.username}</span><svg class="chev" viewBox="0 0 20 12" width="12" height="8" aria-hidden="true"><path d="M2 2l8 8 8-8" fill="none" stroke="currentColor" stroke-width="2.4"/></svg></button>`
       : runButton("Sign in", { href: "/signin" })
   }</div>
-</header>${account ? accountMenu({ id: menuId, label: "Your account", who: { name: account.username, note: "Online" }, items: menuItems, isOpen: options.isMenuOpen }) : ""}`;
+</header>${account ? menu({ id: menuId, label: "Your account", head: { title: account.username, note: "Online" }, items: menuItems, isOpen: options.isMenuOpen }) : ""}`;
 }
 
 const HEADER_STYLES = `
@@ -92,15 +92,17 @@ const HEADER_STYLES = `
 .logo:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 
 /* Where you are: the sign-in's switch, laid flat. A white slab with an orange underline sits under the page you're on; a faint one follows the pointer. */
-.nav { position: relative; display: flex; height: 44px; padding: 4px; flex: none;
+/* The tabs sit in a row inside the carved well; when there are more than fit (a phone's dashboard), only the row scrolls, fading at its ends. */
+.nav { position: relative; display: flex; height: 44px; padding: 4px; flex: none; min-width: 0;
   background: var(--well); box-shadow: var(--well-shade);
   clip-path: var(--cut-shape); }
-.nav .slab, .nav .ghost { position: absolute; top: 4px; bottom: 4px; left: 0; width: 0; clip-path: var(--cut-shape); pointer-events: none;
+.nav-row { position: relative; display: flex; flex: 1; min-width: 0; height: 100%; }
+.nav .slab, .nav .ghost { position: absolute; top: 0; bottom: 0; left: 0; width: 0; clip-path: var(--cut-shape); pointer-events: none;
   transition: transform 0.55s var(--spring), width 0.55s var(--spring), opacity 0.3s; }
 .nav .slab { clip-path: var(--cut-shape); background: var(--slab); box-shadow: var(--slab-shade), inset 0 -3px 0 var(--run); }
 .nav .ghost { background: var(--ghost); opacity: 0; }
 .nav.pointing .ghost { opacity: 1; }
-.nav a { position: relative; display: flex; align-items: center; padding: 0 18px; font: 500 15px var(--display); color: var(--ink-2); text-decoration: none; white-space: nowrap; }
+.nav a { position: relative; display: grid; place-content: center; padding: 0 18px; font: 500 15px var(--display); color: var(--ink-2); text-decoration: none; white-space: nowrap; }
 .nav a[aria-current="page"] { color: var(--ink); font-weight: 600; }
 .nav a:focus-visible { outline: 2px solid var(--ink); outline-offset: -4px; }
 /* Before the script has measured, the tab you're on carries its own slab. */
@@ -143,7 +145,9 @@ const HEADER_STYLES = `
   .top .nav + .end { margin-left: auto; }
   .top .nav { order: 4; flex-basis: 100%; height: 42px; }
   .top.is-compact .find-open { height: 38px; }
-  .nav a { flex: 1; justify-content: center; padding: 0 8px; }
+  .nav a { flex: 1 0 auto; padding: 0 12px; }
+  /* Signed out, the header's Sign in is the compact runner, so it shares the first row with Zaisma and search on the narrowest phones. */
+  .top .end .run { height: 36px; padding: 0 16px 0 14px; font-size: 14px; gap: 6px; }
   .me .name { display: none; }
 }
 
@@ -366,6 +370,15 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
   }
   find();
   window.addEventListener("resize", function () { boxes.forEach(sync); });
+  // Rows that scroll sideways: they start on the one you're on, and fade over a side with more past it.
+  document.querySelectorAll("[data-fades-sideways]").forEach(function (row) {
+    var here = row.querySelector('[aria-current="page"], [aria-pressed="true"]');
+    if (here && row.scrollWidth > row.clientWidth) row.scrollLeft = Math.max(0, here.offsetLeft - (row.clientWidth - here.offsetWidth) / 2);
+    function ends() { row.classList.toggle("more-left", row.scrollLeft > 2); row.classList.toggle("more-right", row.scrollLeft + row.clientWidth < row.scrollWidth - 2); }
+    row.addEventListener("scroll", ends, { passive: true });
+    if (window.ResizeObserver) new ResizeObserver(ends).observe(row); else window.addEventListener("resize", ends);
+    ends();
+  });
 })();
 `;
 
@@ -378,7 +391,7 @@ export const SIDEBAR_SCRIPT = `/* sidebar */(function () {
   var from = window.navigation && navigation.activation && navigation.activation.from;
   if (!from || !from.url || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   var lastPath = new URL(from.url).pathname;
-  document.querySelectorAll(".sidebar.is-page .sidebar-slab").forEach(function (slab) {
+  document.querySelectorAll(".sidebar.is-page .place-slab").forEach(function (slab) {
     var place = Array.prototype.find.call(slab.closest(".sidebar").querySelectorAll("a[href]"), function (each) { return new URL(each.href).pathname === lastPath; });
     if (!place || place.contains(slab)) return;
     slab.style.setProperty("--glide-from-px", (place.getBoundingClientRect().top - slab.getBoundingClientRect().top).toFixed(1) + "px");
@@ -476,8 +489,8 @@ component({
 /* A mark per part of the page: a short tick on the line that turns orange when pointed at. Pointing anywhere on the rail opens every mark's name on a small glass label to its left. */
 /* Its click area is far bigger than the tick: 24px tall and reaching in over the page, so a mark is easy to hit. */
 .rail-mark { position: absolute; left: -12px; width: 26px; height: 24px; margin-top: -12px; padding: 0; border: 0; cursor: pointer; background: none; }
-.rail-mark::before { content: ""; position: absolute; left: 15px; right: 2px; top: 11px; height: 2px; background: var(--rail-mark); transition: background 0.2s, left 0.2s; }
-.rail-mark:hover::before { background: var(--run); left: 9px; }
+.rail-mark::before { content: ""; position: absolute; left: 15px; right: 2px; top: 11px; height: 2px; --face-colour: var(--rail-mark); background: var(--face-colour); transition: --face-colour 0.2s, left 0.2s; }
+.rail-mark:hover::before { --face-colour: var(--run); left: 9px; }
 .rail-mark[hidden] { display: none; }
 .rail-mark span { position: absolute; right: 28px; top: 50%; transform: translate(0, -50%); padding: 4px 10px; white-space: nowrap; pointer-events: none;
   font: 600 12px var(--display); --glass-tint: var(--glass-menu);
@@ -522,7 +535,7 @@ component({
   clip-path: var(--cut-shape); }
 @media (hover: hover) and (pointer: fine) { .steps { display: flex; } .steps[hidden] { display: none; } }
 .step { width: 46px; height: 30px; display: grid; place-items: center; border: 0; cursor: pointer; color: var(--ink-2); background: transparent;
-  position: relative; clip-path: var(--cut-shape); transition: background 0.15s, color 0.15s, opacity 0.15s, box-shadow 0.15s; }
+  position: relative; clip-path: var(--cut-shape); transition: color 0.15s, opacity 0.15s, box-shadow 0.15s; }
 .step svg:not(.cut-line) { width: 10px; height: 13px; fill: currentColor; transition: transform 0.2s cubic-bezier(.2,.8,.2,1); }
 .step:hover:not(:disabled) { background: var(--slab); color: var(--ink); box-shadow: inset 0 -3px 0 var(--run); }
 .step.back:hover:not(:disabled) svg:not(.cut-line) { transform: translateX(-2px); }
@@ -553,18 +566,8 @@ component({
   ],
 });
 
-export interface SidebarItem {
-  label: string;
-  href: string;
-  /** The page you're on: the white slab with the orange line. */
-  isCurrent?: boolean;
-  /** Before the label; the only thing a collapsed sidebar shows, so give every item one when it can collapse. */
-  icon?: IconName;
-  /** A small number on the item's end, like unread topics. */
-  badgeCount?: number;
-  /** Attributes of the link's own, like a data attribute a script reads. */
-  extra?: Raw;
-}
+/** A sidebar's place: a link (PlaceItem, the same as a menu's). */
+export type SidebarItem = PlaceItem & { href: string };
 
 export interface SidebarOptions {
   /** What the list is, for a screen reader: "Groups". */
@@ -579,11 +582,7 @@ export interface SidebarOptions {
 
 /** The sidebar: a pane of glass down the side of a page, its places' words straight on the glass in groups. The page you're on is a raised slab outlined in orange. */
 export function sidebar(options: SidebarOptions): Raw {
-  const link = (each: SidebarItem) => {
-    const inside = each.icon ? html`${icon(each.icon)}<span class="sidebar-label">${each.label}</span>` : html`${each.label}`;
-    const cut = raw('data-cut-line="8"');
-    return html`<li><a href="${each.href}"${each.extra ?? ""}${each.isCurrent ? raw(' aria-current="page"') : html` ${cut}`}${options.isCollapsed ? html` title="${each.label}" aria-label="${each.label}"` : ""}>${each.isCurrent ? html`<span class="sidebar-slab cut-raised" ${cut} data-cut-inset="2">${CUT_LINE}</span>` : CUT_LINE}${inside}${each.badgeCount ? html`<span class="sidebar-count">${each.badgeCount}</span>` : ""}</a></li>`;
-  };
+  const link = (each: SidebarItem) => html`<li>${placeMarkup(each, { isCollapsed: options.isCollapsed })}</li>`;
   const groups = options.groups.map((group) => html`<div class="sidebar-group">${group.heading ? html`<h2 class="sidebar-heading">${group.heading}</h2>` : ""}<ul class="sidebar-list">${group.items.map(link)}</ul></div>`);
   return html`<aside class="sidebar glass${options.isCollapsed ? " is-collapsed" : ""}${options.isPageSidebar ? " is-page" : ""}" data-glass data-glass-corners="14 6 14 6"><nav class="sidebar-in" aria-label="${options.label}">${groups}</nav></aside>`;
 }
@@ -605,30 +604,14 @@ component({
 .sidebar-in { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 24px 14px 14px; display: grid; gap: 16px; align-content: start; }
 .sidebar-heading { margin: 0 0 6px; padding: 0 14px; font: 500 13px var(--display); color: var(--muted); }
 .sidebar-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
-.sidebar a { position: relative; isolation: isolate; display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 14px; font: 500 16px var(--display); color: var(--muted); text-decoration: none; transition: color 0.15s; }
-.sidebar a > :not(.cut-line, .sidebar-slab) { position: relative; z-index: 2; }
-.sidebar a svg:not(.cut-line) { width: 18px; height: 18px; flex: none; }
-.sidebar a:hover, .sidebar a[aria-current="page"] { color: var(--ink); }
-.sidebar a[aria-current="page"] { font-weight: 600; }
-/* The place you're on: a raised slab of its own under its words. Opening another place from the page's own sidebar slides it there from
-   the last page's place (SIDEBAR_SCRIPT), under words that stay put, while the rest of the page crossfades. */
-.sidebar-slab { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
-.sidebar-slab::before { content: ""; position: absolute; inset: 0; background: var(--slab);
-  clip-path: var(--cut-shape); }
-.sidebar-slab.is-gliding { animation: sidebar-glide 0.45s var(--spring); }
-@keyframes sidebar-glide { from { transform: translateY(var(--glide-from-px, 0px)); } }
-/* Every place's outline follows its cut: orange on the current place, ink while the keyboard is on another. It stays out of sight until then, and on the current place it thickens under keyboard focus. */
-.sidebar a .cut-line polygon { stroke-width: 2; }
-.sidebar a[aria-current="page"] .cut-line polygon { stroke: var(--run); }
-.sidebar a:focus-visible .cut-line polygon { stroke: var(--ink); }
-.sidebar a[aria-current="page"]:focus-visible .cut-line polygon { stroke: var(--run); stroke-width: 5; }
-.sidebar a:focus-visible { outline: none; }
-.sidebar-count { margin-left: auto; min-width: 22px; padding: 1px 7px; text-align: center; font: 600 12px var(--display); color: var(--ink-2); background: var(--btn);
-  clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%); }
+/* Its places are the shared .place (foundations.ts). The place you're on: opening another place from the page's own sidebar slides its slab
+   there from the last page's place (SIDEBAR_SCRIPT), under words that stay put, while the rest of the page crossfades. */
+.place-slab.is-gliding { animation: place-glide 0.45s var(--spring); }
+@keyframes place-glide { from { transform: translateY(var(--glide-from-px, 0px)); } }
 .sidebar.is-collapsed { flex: none; width: 72px; }
 .sidebar.is-collapsed .sidebar-in { padding: 12px 8px; }
-.sidebar.is-collapsed a { justify-content: center; padding: 0; }
-.sidebar.is-collapsed .sidebar-label, .sidebar.is-collapsed .sidebar-count { display: none; }
+.sidebar.is-collapsed .place { justify-content: center; padding: 0; }
+.sidebar.is-collapsed .place-label, .sidebar.is-collapsed .place-count { display: none; }
 .sidebar.is-collapsed .sidebar-heading { height: 1px; margin: 0 14px 6px; padding: 0; overflow: hidden; font-size: 0; background: var(--line); }
 `,
   render: sidebar,

@@ -76,7 +76,7 @@ ${head(`${groupName} · Design · Zaisma`)}
 <div id="stage" class="stage"${pageSettingsAttributes({ theme })}>${backdrop()}
 <header class="gallery-bar glass" data-rail-starts-below data-glass data-glass-corners="16 6 16 6">${EDGE}<a class="logo" href="/" aria-label="Zaisma home">${WORDMARK}</a><span class="gallery-title">Design</span>
 ${themeButton(group, theme)}
-<div class="gallery-groups cut-carved" data-cut-line="9">${CUT_LINE}<div class="gallery-groups-row">${tabSwitch({ label: "Groups", switchSize: "small", tabs: groupTabs, isFramed: true })}</div></div></header>
+<div class="gallery-groups cut-carved" data-cut-line="9">${CUT_LINE}<div class="gallery-groups-row" data-fades-sideways>${tabSwitch({ label: "Groups", switchSize: "small", tabs: groupTabs, isFramed: true })}</div></div></header>
 <div class="gallery-layout">
 <div class="gallery-index">${sidebar({ label: "Groups", isPageSidebar: true, groups: [{ items: groupTabs.map((tab) => ({ label: tab.label, href: tab.href, isCurrent: tab.isCurrent, extra: raw(` data-gallery-page="${tab.href.split("?")[0]}"`) })) }] })}</div>
 <main class="gallery-main">
@@ -136,7 +136,7 @@ body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
 .loop-cursor { position: absolute; left: 0; top: 0; z-index: 8; pointer-events: none; transition: transform 0.65s cubic-bezier(.45,0,.25,1); filter: drop-shadow(0 2px 3px rgba(10,20,40,0.35)); }
 .loop-cursor svg { display: block; transform-origin: 4px 3px; transition: transform 0.12s ease-out; }
 .loop-cursor.is-down svg { transform: scale(0.84); }
-.menu-frame { position: relative; width: 100%; height: 340px; transform: translateZ(0); }
+.menu-frame { position: relative; width: 100%; height: 410px; transform: translateZ(0); }
 .menu-frame > .cut-btn { position: absolute; right: 20px; top: 0; }
 .rail-box { position: relative; width: min(420px, 100%); height: 220px; }
 .rail-box-in { height: 100%; overflow-y: auto; padding: 18px 28px 18px 22px; }
@@ -153,9 +153,6 @@ body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
 .stand-in-row { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 14px; }
 /* With a mouse, the page's rail gets a gutter of its own, clear of the cards. */
 @media (hover: hover) and (pointer: fine) and (min-width: 761px) { .gallery-layout { padding-right: 34px; } }
-/* The phone's row of tabs fades in over a side as more tabs come past it, rather than blinking on. */
-@property --fade-l { syntax: "<length>"; inherits: false; initial-value: 0px; }
-@property --fade-r { syntax: "<length>"; inherits: false; initial-value: 0px; }
 /* Phones: the bar is one row (Zaisma, Design, light or dark), the groups a row of tabs under it that scrolls sideways, and every example a column of its own. */
 @media (max-width: 760px) {
   html { scroll-padding-top: 130px; }
@@ -167,12 +164,7 @@ body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
      before they reach its ends, and only on a side with more tabs past it, so the last tab is never under the fade at the end. */
   .gallery-groups { display: block; position: relative; flex: 1 0 100%; min-width: 0; height: 36px; background: var(--well); box-shadow: var(--well-shade);
     clip-path: var(--cut-shape); }
-  .gallery-groups-row { height: 100%; overflow-x: auto; scrollbar-width: none; transition: --fade-l 0.25s, --fade-r 0.25s;
-    -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 var(--fade-l), #000 calc(100% - var(--fade-r)), transparent 100%);
-    mask-image: linear-gradient(90deg, transparent 0, #000 var(--fade-l), #000 calc(100% - var(--fade-r)), transparent 100%); }
-  .gallery-groups-row::-webkit-scrollbar { display: none; }
-  .gallery-groups-row.more-left { --fade-l: 28px; }
-  .gallery-groups-row.more-right { --fade-r: 28px; }
+  .gallery-groups-row { height: 100%; }
   .gallery-groups .tab-switch { width: max-content; }
   /* One even inset all round, and the same between the rows, so the tabs' frame and the light or dark button sit the same distance
      from every edge of the pane; compact keeps it even, only smaller. */
@@ -191,7 +183,7 @@ body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
   .example-stage { padding: 12px 6px 4px; }
   .example-name { margin: 0 6px; }
   .cover-sample { width: 100%; }
-  .menu-frame { height: 360px; }
+  .menu-frame { height: 420px; }
   .menu-frame > .cut-btn { right: 8px; }
   /* The stand-in rows scroll sideways, as the home's do on a phone. */
   .stand-in-row { display: flex; overflow-x: auto; scrollbar-width: none; }
@@ -237,20 +229,11 @@ export const GALLERY_SCRIPT = pageScript(
     var link = event.target.closest && event.target.closest('.example-stage a[href^="#"], .example-stage a[href^="/"]');
     if (link) event.preventDefault();
   });
-  // On a phone, the row of groups starts scrolled to the one you're on.
-  var groups = document.querySelector(".gallery-groups-row"), here = groups && groups.querySelector('[aria-current="page"]');
-  if (here) groups.scrollLeft = Math.max(0, here.offsetLeft - (groups.clientWidth - here.offsetWidth) / 2);
-  // The floating bar tightens once the page moves, and the row fades only on a side that has more tabs past it.
+  // The floating bar tightens once the page moves.
   var bar = document.querySelector(".gallery-bar");
   function syncBar() { bar.classList.toggle("is-scrolled", window.scrollY > 24); }
-  function syncFade() {
-    if (!groups) return;
-    groups.classList.toggle("more-left", groups.scrollLeft > 2);
-    groups.classList.toggle("more-right", groups.scrollLeft + groups.clientWidth < groups.scrollWidth - 2);
-  }
-  window.addEventListener("scroll", syncBar, { passive: true }); window.addEventListener("resize", syncFade);
-  if (groups) groups.addEventListener("scroll", syncFade, { passive: true });
-  syncBar(); syncFade();
+  window.addEventListener("scroll", syncBar, { passive: true });
+  syncBar();
   document.addEventListener("submit", function (event) { if (event.target.closest(".example-stage")) event.preventDefault(); });
   // The backdrop's 3D scene example: a cut-cornered slab turning slowly, drawn on each backdrop-frame in the theme's colours.
   document.querySelectorAll('.example-stage canvas[data-backdrop="scene"]').forEach(function (canvas) {

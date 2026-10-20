@@ -246,22 +246,22 @@ component({
 .cut-btn.is-full { display: flex; width: 100%; }
 .cut-btn > .face { display: flex; flex: auto; align-items: center; justify-content: center; gap: 8px; height: 44px; padding: 0 24px;
   font: 600 15px var(--display); color: var(--ink); white-space: nowrap;
-  background: var(--btn); clip-path: var(--cut-shape);
-  transition: background-color 0.2s, box-shadow 0.2s, transform 0.4s ${SPRING}; }
+  --face-colour: var(--btn); background: var(--face-colour); clip-path: var(--cut-shape);
+  transition: --face-colour 0.2s, box-shadow 0.2s, transform 0.4s ${SPRING}; }
 /* Big keeps the same slant angle as the rest, so it is the same button, larger. */
 .cut-btn.big > .face { height: 56px; padding: 0 28px; font-size: 17px; }
-.cut-btn:hover > .face, .cut-btn.is-pointed > .face { background: var(--btn-hover); }
-.cut-btn:active > .face, .cut-btn.is-pressed > .face { background: var(--btn-press); box-shadow: var(--press-shade); transform: translateY(1px) scale(0.965); transition-duration: 0.08s; }
+.cut-btn:hover > .face, .cut-btn.is-pointed > .face { --face-colour: var(--btn-hover); }
+.cut-btn:active > .face, .cut-btn.is-pressed > .face { --face-colour: var(--btn-press); box-shadow: var(--press-shade); transform: translateY(1px) scale(0.965); transition-duration: 0.08s; }
 /* A press sinks it into the glass: its light turns round, as on a carved field. */
 .cut-btn:active > .face > .cut-line, .cut-btn.is-pressed > .face > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
 .cut-btn:focus-visible { outline: none; }
-.cut-btn:focus-visible > .face, .cut-btn.is-focused > .face { background: var(--btn-hover); }
+.cut-btn:focus-visible > .face, .cut-btn.is-focused > .face { --face-colour: var(--btn-hover); }
 .cut-btn:focus-visible .cut-line polygon, .cut-btn.is-focused .cut-line polygon { stroke: var(--ink); stroke-width: 2; }
 .cut-btn .face > span, .cut-btn .face > .ico { position: relative; z-index: 2; }
 .cut-btn[aria-busy="true"] { cursor: progress; }
 .cut-btn[aria-busy="true"] > .face { opacity: 0.7; }
 @media (max-width: 760px) { .cut-btn.big > .face { height: 48px; padding: 0 20px; } }
-@media (prefers-reduced-motion: reduce) { .cut-btn > .face { transition: background-color 0.2s; } }
+@media (prefers-reduced-motion: reduce) { .cut-btn > .face { transition: --face-colour 0.2s; } }
 `,
   render: cutButton,
   examples: [
@@ -395,21 +395,21 @@ component({
 .guest-btn { display: flex; width: 100%; }
 .guest-btn:focus-visible { outline: none; }
 .guest-btn > .face { display: flex; flex: auto; align-items: center; justify-content: center; gap: 8px; height: 44px; padding: 0 16px;
-  font: 500 15px var(--display); color: var(--ink-2); white-space: nowrap; background-color: transparent;
+  font: 500 15px var(--display); color: var(--ink-2); white-space: nowrap; --face-colour: transparent; background-color: var(--face-colour);
   clip-path: var(--cut-shape);
-  transition: background-color 0.2s, color 0.2s, box-shadow 0.2s, transform 0.4s ${SPRING}; }
+  transition: --face-colour 0.2s, color 0.2s, box-shadow 0.2s, transform 0.4s ${SPRING}; }
 .guest-btn .face > :not(.cut-line) { position: relative; z-index: 2; }
 .guest-btn .cut-line polygon { stroke: transparent; }
 .guest-btn .arrow { display: inline-flex; transition: transform 0.45s cubic-bezier(.2,.7,.2,1); }
-.guest-btn:hover > .face, .guest-btn.is-pointed > .face { color: var(--ink); background-color: var(--clear-hover); }
+.guest-btn:hover > .face, .guest-btn.is-pointed > .face { color: var(--ink); --face-colour: var(--clear-hover); }
 .guest-btn:hover .cut-line polygon, .guest-btn.is-pointed .cut-line polygon { stroke: var(--line); }
 .guest-btn:hover .arrow, .guest-btn.is-pointed .arrow { transform: translateX(4px); }
-.guest-btn:active > .face, .guest-btn.is-pressed > .face { color: var(--ink); background-color: var(--clear-press); box-shadow: var(--press-shade); transform: translateY(1px) scale(0.98); transition-duration: 0.08s; }
+.guest-btn:active > .face, .guest-btn.is-pressed > .face { color: var(--ink); --face-colour: var(--clear-press); box-shadow: var(--press-shade); transform: translateY(1px) scale(0.98); transition-duration: 0.08s; }
 .guest-btn:active .cut-line polygon, .guest-btn.is-pressed .cut-line polygon { stroke: var(--line); }
 .guest-btn:active .arrow, .guest-btn.is-pressed .arrow { transform: translateX(7px); transition-duration: 0.12s; }
 .guest-btn:focus-visible > .face, .guest-btn.is-focused > .face { color: var(--ink); }
 .guest-btn:focus-visible .cut-line polygon, .guest-btn.is-focused .cut-line polygon { stroke: var(--ink); stroke-width: 2; }
-@media (prefers-reduced-motion: reduce) { .guest-btn > .face, .guest-btn .arrow { transition: background-color 0.2s, color 0.2s; } }
+@media (prefers-reduced-motion: reduce) { .guest-btn > .face, .guest-btn .arrow { transition: --face-colour 0.2s, color 0.2s; } }
 `,
   render: guestButton,
   examples: [

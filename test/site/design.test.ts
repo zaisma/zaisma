@@ -111,6 +111,18 @@ describe("the gallery", () => {
     expect(problems).toEqual([]);
   });
 
+  it("fades no background by itself: colours fade through registered colours, so nothing flashes as a fade ends", () => {
+    // A background colour that fades on its own is drawn on a layer the browser drops when the fade ends, a flash on glass.
+    // Glass fades --glass-shown-tint and every control fades --face-colour (foundations.ts) instead.
+    const problems: string[] = [];
+    for (const [, selectors = "", declarations = ""] of (COMPONENT_STYLES() + GALLERY_STYLES).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const transition = /(?:^|[;\s])transition:\s*([^;}]+)/.exec(declarations)?.[1] ?? "";
+      if (/autofill/.test(selectors)) continue; // the browser's own autofill colour, held off on purpose
+      if (/(^|,\s*)background(-color)?\s/.test(transition)) problems.push(`${selectors.replace(/\/\*[\s\S]*?\*\//g, "").trim()}: transition: ${transition.trim()}`);
+    }
+    expect(problems).toEqual([]);
+  });
+
   it("lets no glass change differently: a rule on anything made of glass that sets a transition starts it with the glass's", async () => {
     // The classes that sit beside "glass" on the gallery's pages (the header, a pane, a menu, a button's face, the rail's thumb).
     const glassClasses = new Set<string>();
@@ -151,7 +163,7 @@ describe("the gallery", () => {
   });
 
   it("has a page for each group and none for anything else", async () => {
-    expect((await page("/design/actions")).text).toMatch(/<a href="\/design\/actions" data-gallery-page="\/design\/actions" aria-current="page"[^>]*>.*?Actions<\/a>/);
+    expect((await page("/design/actions")).text).toMatch(/<a href="\/design\/actions" data-gallery-page="\/design\/actions" aria-current="page"[^>]*>.*?Actions<\/span><\/a>/);
     expect((await page("/design/frame/runner-button")).response.status).toBe(404);
     expect((await page("/design/foundations")).response.status).toBe(404);
     expect((await page("/design/no-such-group")).response.status).toBe(404);
@@ -181,10 +193,10 @@ describe("components", () => {
   it("open the Developer and Forum tabs only on a developer page", () => {
     const account = { username: "emma_r", pictureMarkup: html`` };
     const onDashboard = navigation.header({ current: "developer", isOnDeveloperPage: true, account }).html;
-    expect(onDashboard).toContain('<a href="/dashboard" class="dev" aria-current="page">Developer</a>');
-    expect(onDashboard).toContain('<a href="/forum" class="dev">Forum</a>');
+    expect(onDashboard).toContain('<a href="/dashboard" class="dev" aria-current="page" data-words="Developer">Developer</a>');
+    expect(onDashboard).toContain('<a href="/forum" class="dev" data-words="Forum">Forum</a>');
     const atHome = navigation.header({ current: "home", isOnDeveloperPage: false, account }).html;
-    expect(atHome).toContain('<a href="/dashboard" class="dev off" tabindex="-1" aria-hidden="true">Developer</a>');
-    expect(atHome).toContain('<a href="/forum" class="dev off" tabindex="-1" aria-hidden="true">Forum</a>');
+    expect(atHome).toContain('<a href="/dashboard" class="dev off" tabindex="-1" aria-hidden="true" data-words="Developer">Developer</a>');
+    expect(atHome).toContain('<a href="/forum" class="dev off" tabindex="-1" aria-hidden="true" data-words="Forum">Forum</a>');
   });
 });

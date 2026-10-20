@@ -84,11 +84,25 @@ export const TOKEN_STYLES = `
 /* The tint a piece of glass shows right now, faded towards its --glass-tint. A registered colour fades in the page itself, so the browser
    never lifts the glass onto a layer of its own for the fade and drops it at the end, which flashed blurred glass as a fade finished. */
 @property --glass-shown-tint { syntax: "<color>"; inherits: false; initial-value: transparent; }
+/* A control's face colour, the same way: every control that changes colour (a hover, a press, light to dark) sets --face-colour and
+   fades it, never its background, so no control flashes as a fade ends. design.test.ts checks that nothing fades a background. */
+@property --face-colour { syntax: "<color>"; inherits: false; initial-value: transparent; }
 /* Scroll fades (navigation.ts's SCROLL_FADE_SCRIPT): a box that scrolls fades its words over an edge while there's more that way, easing in and out. */
 @property --fade-top { syntax: "<length>"; inherits: false; initial-value: 0px; }
 @property --fade-bottom { syntax: "<length>"; inherits: false; initial-value: 0px; }
 .scroll-fades.is-fading { -webkit-mask-image: linear-gradient(to bottom, transparent, #000 var(--fade-top), #000 calc(100% - var(--fade-bottom)), transparent);
   mask-image: linear-gradient(to bottom, transparent, #000 var(--fade-top), #000 calc(100% - var(--fade-bottom)), transparent); transition: --fade-top 0.2s, --fade-bottom 0.2s; }
+/* A row that scrolls sideways (data-fades-sideways: a header's tabs, the gallery's groups on a phone) fades out over a side with more past it,
+   easing in and out, with no scrollbar; it starts scrolled to the one you're on. */
+@property --fade-left { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@property --fade-right { syntax: "<length>"; inherits: false; initial-value: 0px; }
+[data-fades-sideways] { overflow-x: auto; scrollbar-width: none; transition: --fade-left 0.25s, --fade-right 0.25s; }
+[data-fades-sideways]::-webkit-scrollbar { display: none; }
+[data-fades-sideways].more-left, [data-fades-sideways].more-right {
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 var(--fade-left), #000 calc(100% - var(--fade-right)), transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 var(--fade-left), #000 calc(100% - var(--fade-right)), transparent 100%); }
+[data-fades-sideways].more-left { --fade-left: 28px; }
+[data-fades-sideways].more-right { --fade-right: 28px; }
 .eases-settings { transition: --glass-hue 0.5s ease; }
 @media (prefers-reduced-motion: reduce) { .eases-settings { transition: none; } }
 /* Moving between Zaisma's pages crossfades, so a page change never flashes. */
@@ -121,6 +135,28 @@ export const TOKEN_STYLES = `
 .shell { position: relative; display: inline-flex; margin: 0; padding: 0; border: 0; background: none; font: inherit; color: inherit; text-decoration: none; cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .shell > .face { pointer-events: none; }
 [hidden] { display: none !important; }
+/* A tab that turns bold when it's chosen keeps its bold width from the start (data-words: its words again, unseen), so choosing it never
+   resizes the row of tabs, and a switch's slab always slides. */
+[data-words]::after { content: attr(data-words); height: 0; overflow: hidden; visibility: hidden; font-weight: 600; pointer-events: none; user-select: none; }
+/* Places: the sidebar's and a menu's, one look (placeMarkup). Words straight on the glass, quiet until you point at them, when they brighten.
+   The place you're on is a raised slab under its words, outlined in orange; keyboard focus draws its outline in ink. Each is a control,
+   so its shape is the edge rule's. A badge count sits at its end. */
+.place { position: relative; isolation: isolate; display: flex; align-items: center; gap: 10px; width: 100%; height: 40px; padding: 0 14px; margin: 0; border: 0; background: none; cursor: pointer;
+  font: 500 16px var(--display); color: var(--muted); text-align: left; text-decoration: none; transition: color 0.15s; }
+.place > :not(.cut-line, .place-slab) { position: relative; z-index: 2; }
+.place > svg:not(.cut-line) { width: 18px; height: 18px; flex: none; }
+.place:hover, .place[aria-current="page"] { color: var(--ink); }
+.place[aria-current="page"] { font-weight: 600; }
+.place-slab { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
+.place-slab::before { content: ""; position: absolute; inset: 0; background: var(--slab); clip-path: var(--cut-shape); }
+.place .cut-line polygon { stroke-width: 2; }
+.place[aria-current="page"] .cut-line polygon { stroke: var(--run); }
+.place:focus-visible { outline: none; }
+.place:focus-visible .cut-line polygon { stroke: var(--ink); }
+.place[aria-current="page"]:focus-visible .cut-line polygon { stroke: var(--run); stroke-width: 5; }
+.place-form { margin: 0; }
+.place-count { margin-left: auto; min-width: 22px; padding: 1px 7px; text-align: center; font: 600 12px var(--display); color: var(--ink-2); background: var(--btn);
+  clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%); }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* The glass: one look for every piece of it, at any size, defined here once. Anything made of glass has the class glass and
@@ -218,6 +254,34 @@ export const MARK = raw(`<svg viewBox="-120 600 4527 3300" aria-hidden="true"><g
 
 /** Zaisma's own scrollbar (navigation.ts's rail, RAIL_SCRIPT): "box" for a box that scrolls (it goes just after it), "page" for the page. */
 export const railMarkup = (scrollKind: "box" | "page"): Raw => raw(`<div class="rail" data-rail="${scrollKind}" aria-hidden="true"><div class="rail-line"></div><div class="rail-thumb glass"></div></div>`);
+
+/** A place in a sidebar or a menu: a link, or a button that posts a form (like Sign out). */
+export interface PlaceItem {
+  label: string;
+  href?: string;
+  /** Where a button posts, in place of a link. */
+  action?: string;
+  /** The page you're on: the raised slab with the orange outline. */
+  isCurrent?: boolean;
+  /** Before the label; the only thing a collapsed sidebar shows. */
+  icon?: IconName;
+  /** A small number at its end, like unread topics. */
+  badgeCount?: number;
+  /** Attributes of its own, like a data attribute a script reads. */
+  extra?: Raw;
+}
+
+/** One place, the same in a sidebar and a menu (the .place styles). isMenuItem gives it the menu's role; isCollapsed moves its label to its title. */
+export function placeMarkup(place: PlaceItem, options: { isMenuItem?: boolean; isCollapsed?: boolean } = {}): Raw {
+  const words = place.icon ? html`${icon(place.icon)}<span class="place-label">${place.label}</span>` : html`<span class="place-label">${place.label}</span>`;
+  const shape = place.isCurrent ? raw(' aria-current="page"') : raw(' data-cut-line="8"');
+  const role = options.isMenuItem ? raw(' role="menuitem" tabindex="-1"') : "";
+  const titled = options.isCollapsed ? html` title="${place.label}" aria-label="${place.label}"` : "";
+  const inside = html`${place.isCurrent ? html`<span class="place-slab cut-raised" data-cut-line="8" data-cut-inset="2">${CUT_LINE}</span>` : CUT_LINE}${words}${place.badgeCount ? html`<span class="place-count">${place.badgeCount}</span>` : ""}`;
+  return place.action !== undefined
+    ? html`<form class="place-form" method="post" action="${place.action}"><button type="submit"${shape}${role}${titled} class="place">${inside}</button></form>`
+    : html`<a href="${place.href ?? "#"}"${place.extra ?? ""}${shape}${role}${titled} class="place">${inside}</a>`;
+}
 
 /** An outline for a cut field or button (GLASS_SCRIPT draws it), and a slab's drawn rim. */
 export const CUT_LINE = raw('<svg class="cut-line" aria-hidden="true"><polygon/></svg>');
@@ -618,7 +682,13 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     var layer = { canvas: canvas, isInView: true, isDrawn: false, target: readColours(canvas), from: null, scale: Math.min(window.devicePixelRatio || 1, isScene ? 2 : 1) };
     if (!isScene) { layer.drawShader = shaderDrawer(canvas); if (!layer.drawShader) return; canvas.classList.add("is-drawn"); }
     canvas.backdropLayer = layer;
-    function size() { canvas.width = Math.max(1, Math.round(canvas.clientWidth * layer.scale)); canvas.height = Math.max(1, Math.round(canvas.clientHeight * layer.scale)); layer.isDrawn = false; }
+    // Resizing a canvas clears it, so it's drawn again at once: it never shows a frame of the plain colour under it.
+    function size() {
+      var width = Math.max(1, Math.round(canvas.clientWidth * layer.scale)), height = Math.max(1, Math.round(canvas.clientHeight * layer.scale));
+      if (width === canvas.width && height === canvas.height) return;
+      canvas.width = width; canvas.height = height; layer.isDrawn = false;
+      if (canvas.backdropLayer) draw(layer, performance.now());
+    }
     size();
     if (window.ResizeObserver) new ResizeObserver(size).observe(canvas); else window.addEventListener("resize", size);
     if (window.IntersectionObserver) new IntersectionObserver(function (entries) { layer.isInView = entries[entries.length - 1].isIntersecting; }).observe(canvas);

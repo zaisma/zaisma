@@ -101,8 +101,8 @@ export function tabSwitch(options: { label: string; tabs: SwitchTab[]; switchSiz
   const own = options.isFramed ? html`<div class="tab-switch framed ${options.switchSize}" role="group" aria-label="${options.label}">` : html`<div class="tab-switch cut-carved ${options.switchSize}" role="group" aria-label="${options.label}" data-cut-line="${isSmall ? 9 : 10}">${CUT_LINE}`;
   return html`${own}<span class="ghost" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}"></span><span class="slab cut-raised" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}">${CUT_LINE}</span>${options.tabs.map((tab) =>
     tab.href
-      ? html`<a href="${tab.href}"${tab.isCurrent ? raw(' aria-current="page"') : ""}>${tab.label}</a>`
-      : html`<button type="button"${tab.tabValue !== undefined ? html` value="${tab.tabValue}"` : ""} aria-pressed="${tab.isCurrent ? "true" : "false"}">${tab.label}</button>`,
+      ? html`<a href="${tab.href}"${tab.isCurrent ? raw(' aria-current="page"') : ""} data-words="${tab.label}">${tab.label}</a>`
+      : html`<button type="button"${tab.tabValue !== undefined ? html` value="${tab.tabValue}"` : ""} aria-pressed="${tab.isCurrent ? "true" : "false"}" data-words="${tab.label}">${tab.label}</button>`,
   )}</div>`;
 }
 
@@ -277,10 +277,10 @@ const FIELD_STYLES = `
 .field { position: relative; display: flex; align-items: center; height: 52px; color: var(--muted); }
 .field input { position: relative; z-index: 2; flex: 1; min-width: 0; width: 100%; height: 100%; padding: 0 16px 0 48px;
   font: 500 16px var(--display); color: var(--ink); caret-color: var(--run-lo);
-  background: var(--field-face); border: 0; border-radius: 0; box-shadow: var(--field-shade);
-  clip-path: var(--cut-shape); transition: background 0.25s; }
-.field:hover input { background: var(--field-hover); }
-.field input:focus, .field.is-focused input { outline: none; background: var(--field-focus); border: 0; }
+  --face-colour: var(--field-face); background: var(--face-colour); border: 0; border-radius: 0; box-shadow: var(--field-shade);
+  clip-path: var(--cut-shape); transition: --face-colour 0.25s; }
+.field:hover input { --face-colour: var(--field-hover); }
+.field input:focus, .field.is-focused input { outline: none; --face-colour: var(--field-focus); border: 0; }
 .field input::placeholder { color: var(--muted); }
 .field input:-webkit-autofill { -webkit-text-fill-color: var(--ink); transition: background-color 600000s 0s; }
 .field .ico { position: absolute; z-index: 3; left: 18px; width: 18px; height: 18px; pointer-events: none; transition: color 0.25s; }
@@ -293,10 +293,10 @@ const FIELD_STYLES = `
 .field.with-toggle input { padding-right: 84px; }
 /* Show/Hide: a small cut slab inside the field; it turns white with the orange line while the password shows. */
 .field .show { position: absolute; z-index: 5; right: 14px; top: 6px; bottom: 6px; padding: 0 14px; border: 0; cursor: pointer;
-  font: 600 14px var(--display); color: var(--ink-2); background: var(--show);
-  clip-path: var(--cut-shape); transition: background 0.2s, color 0.2s, box-shadow 0.2s; }
-.field .show:hover { background: var(--show-on); color: var(--ink); }
-.field .show[aria-pressed="true"] { background: var(--show-on); color: var(--ink); box-shadow: inset 0 -3px 0 var(--run); }
+  font: 600 14px var(--display); color: var(--ink-2); --face-colour: var(--show); background: var(--face-colour);
+  clip-path: var(--cut-shape); transition: --face-colour 0.2s, color 0.2s, box-shadow 0.2s; }
+.field .show:hover { --face-colour: var(--show-on); color: var(--ink); }
+.field .show[aria-pressed="true"] { --face-colour: var(--show-on); color: var(--ink); box-shadow: inset 0 -3px 0 var(--run); }
 .field .show:focus-visible { outline: 2px solid var(--ink); outline-offset: -3px; }
 `;
 
@@ -330,13 +330,13 @@ component({
 .find input[type="search"] {
   width: 100%; height: 100%; padding: 0 16px 0 42px;
   font: 15px var(--body); color: var(--ink);
-  background: var(--field-face); border: 0; border-radius: 0;
+  --face-colour: var(--field-face); background: var(--face-colour); border: 0; border-radius: 0;
   box-shadow: var(--well-shade);
   clip-path: var(--cut-shape);
-  transition: background 0.3s, border-color 0.3s;
+  transition: --face-colour 0.3s;
 }
 .find input::placeholder { color: var(--muted); }
-.find input:focus, .find.is-focused input { outline: none; background: var(--field-focus); }
+.find input:focus, .find.is-focused input { outline: none; --face-colour: var(--field-focus); }
 .find:focus-within .cut-line polygon, .find.is-focused .cut-line polygon { stroke: var(--run); stroke-width: 2; }
 .find input::-webkit-search-cancel-button { display: none; }
 .find .glass-icon { position: absolute; z-index: 2; left: 16px; top: 50%; transform: translateY(-50%); width: 17px; height: 17px; color: var(--ink-2); pointer-events: none; }
@@ -358,10 +358,10 @@ component({
 .bday { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .bday legend { padding: 0; margin-bottom: 10px; font: 600 18px var(--display); color: var(--ink); }
 .bday-field { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; height: 52px; padding: 0 18px 0 48px; border: 0; cursor: pointer; text-align: left;
-  font: 500 16px var(--display); color: var(--muted); background: var(--field-face); box-shadow: var(--field-shade);
-  clip-path: var(--cut-shape); transition: background 0.25s; }
-.bday-field:hover { background: var(--field-hover); }
-.bday-field[aria-expanded="true"], .bday-field:focus-visible { outline: none; background: var(--field-focus); }
+  font: 500 16px var(--display); color: var(--muted); --face-colour: var(--field-face); background: var(--face-colour); box-shadow: var(--field-shade);
+  clip-path: var(--cut-shape); transition: --face-colour 0.25s; }
+.bday-field:hover { --face-colour: var(--field-hover); }
+.bday-field[aria-expanded="true"], .bday-field:focus-visible { outline: none; --face-colour: var(--field-focus); }
 .bday-field.set { color: var(--ink); font-weight: 500; }
 .bday-field .ico { position: absolute; left: 18px; top: 50%; width: 18px; height: 18px; transform: translateY(-50%); color: var(--muted); }
 .bday-field[aria-expanded="true"] .ico, .bday-field.set .ico { color: var(--ink); }
@@ -395,9 +395,9 @@ component({
 .bday-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; padding: 0 4px; }
 .bday-read { color: var(--muted); font-size: 14px; }
 /* Done: a cut slab of clearer glass; it whitens with the orange line when you point at it, once there's a whole date. */
-.bday-done { height: 40px; padding: 0 22px; cursor: pointer; border: 0; background: var(--done); box-shadow: var(--done-line);
-  font: 600 15px var(--display); color: var(--ink); clip-path: var(--cut-shape); transition: background 0.2s, box-shadow 0.2s, opacity 0.2s; }
-.bday-done:not(:disabled):hover { background: var(--show-on); box-shadow: inset 0 -3px 0 var(--run); }
+.bday-done { height: 40px; padding: 0 22px; cursor: pointer; border: 0; --face-colour: var(--done); background: var(--face-colour); box-shadow: var(--done-line);
+  font: 600 15px var(--display); color: var(--ink); clip-path: var(--cut-shape); transition: --face-colour 0.2s, box-shadow 0.2s, opacity 0.2s; }
+.bday-done:not(:disabled):hover { --face-colour: var(--show-on); box-shadow: inset 0 -3px 0 var(--run); }
 .bday-done:disabled { opacity: 0.5; cursor: default; }
 .bday-done:focus-visible { outline: 2px solid var(--ink); outline-offset: -4px; }
 `,
@@ -424,7 +424,7 @@ component({
 .tab-switch .slab { clip-path: var(--cut-shape); background: var(--slab); box-shadow: var(--slab-shade), inset 0 -3px 0 var(--run); }
 .tab-switch .ghost { background: var(--ghost); opacity: 0; }
 .tab-switch.pointing .ghost { opacity: 1; }
-.tab-switch > a, .tab-switch > button { position: relative; z-index: 2; display: flex; align-items: center; justify-content: center; padding: 0 18px; border: 0; background: none; cursor: pointer;
+.tab-switch > a, .tab-switch > button { position: relative; z-index: 2; display: grid; place-content: center; padding: 0 18px; border: 0; background: none; cursor: pointer;
   font: 500 15px var(--display); color: var(--ink-2); text-decoration: none; white-space: nowrap; }
 .tab-switch.big > a, .tab-switch.big > button { flex: 1 1 0; }
 .tab-switch [aria-current="page"], .tab-switch [aria-pressed="true"] { color: var(--ink); font-weight: 600; }

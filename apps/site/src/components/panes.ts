@@ -1,12 +1,12 @@
 import { html, raw, type Raw } from "../html.ts";
 import { component } from "./component.ts";
-import { EDGE, ago, icon, type IconName } from "./foundations.ts";
+import { EDGE, ago, icon, placeMarkup, type IconName, type PlaceItem } from "./foundations.ts";
 import { pictureFrame, type GlanceFacts } from "./data.ts";
 import { runButton } from "./actions.ts";
 import { cutField } from "./inputs.ts";
 
 /*
- * Panes: Zaisma's glass as a sheet that holds things (the sign-in's pane), the account menu that hangs
+ * Panes: Zaisma's glass as a sheet that holds things (the sign-in's pane), a menu that hangs
  * from a button, and a game's cover. From the sign-in, header and home drafts.
  */
 
@@ -27,16 +27,24 @@ export function glassPane(options: GlassPaneOptions): Raw {
   return pane;
 }
 
-export type MenuItem = { kind: "link"; label: string; icon: IconName; href: string } | { kind: "form"; label: string; icon: IconName; action: string } | { kind: "rule" };
+/** A menu's item: a place (a link, or a button that posts a form, like Sign out), or a rule between groups of them. */
+export type MenuItem = PlaceItem | { kind: "rule" };
 
-/** The account pane as a menu any button can open (aria-controls its id): the same glass, with the orange line on an item's slanted edge. */
-export function accountMenu(options: { id: string; label: string; who?: { name: string; note: string }; items: MenuItem[]; isOpen?: boolean }): Raw {
-  return html`<div class="menu glass${options.isOpen ? "" : " shut"}" id="${options.id}" role="menu" aria-label="${options.label}" aria-hidden="${options.isOpen ? "false" : "true"}" data-glass data-glass-corners="14 4 14 4">${EDGE}${options.who ? html`<div class="who"><strong>${options.who.name}</strong><span>${options.who.note}</span></div>` : ""}${options.items.map((menuItem) =>
-    menuItem.kind === "rule"
-      ? raw('<hr role="separator">')
-      : menuItem.kind === "link"
-        ? html`<a href="${menuItem.href}" role="menuitem" tabindex="-1">${icon(menuItem.icon)}${menuItem.label}</a>`
-        : html`<form method="post" action="${menuItem.action}"><button type="submit" role="menuitem" tabindex="-1">${icon(menuItem.icon)}${menuItem.label}</button></form>`,
+export interface MenuOptions {
+  /** Its button's aria-controls. */
+  id: string;
+  /** What it is, for a screen reader: "Your account". */
+  label: string;
+  /** A head over its places, like the account's name and whether you're online. */
+  head?: { title: string; note?: string };
+  items: MenuItem[];
+  isOpen?: boolean;
+}
+
+/** A menu: a pane of the glass that hangs from any button (aria-controls its id), holding places like a sidebar's, the same ones. */
+export function menu(options: MenuOptions): Raw {
+  return html`<div class="menu glass${options.isOpen ? "" : " shut"}" id="${options.id}" role="menu" aria-label="${options.label}" aria-hidden="${options.isOpen ? "false" : "true"}" data-glass data-glass-corners="14 4 14 4">${EDGE}${options.head ? html`<div class="menu-head"><strong>${options.head.title}</strong>${options.head.note ? html`<span>${options.head.note}</span>` : ""}</div>` : ""}${options.items.map((menuItem) =>
+    "kind" in menuItem ? raw('<hr role="separator">') : placeMarkup(menuItem, { isMenuItem: true }),
   )}</div>`;
 }
 
@@ -115,23 +123,15 @@ export const MENU_SCRIPT = `/* menus */(function () {
 `;
 
 const MENU_STYLES = `
-/* The account pane: the header's glass, hanging just under it at its right end. */
-.menu { position: fixed; z-index: 11; width: 260px; padding: 18px 14px 14px; --glass-tint: var(--glass-menu);
-  clip-path: polygon(0 14px, 14px 0, calc(100% - 4px) 0, 100% 4px, 100% calc(100% - 14px), calc(100% - 14px) 100%, 4px 100%, 0 calc(100% - 4px));
+/* A menu: a pane of the glass hanging just under its button, holding the same places as a sidebar (.place, foundations.ts). */
+.menu { position: fixed; z-index: 11; width: 260px; padding: 14px 10px 10px; --glass-tint: var(--glass-menu);
+  display: flex; flex-direction: column; gap: 2px;
   transform-origin: top right; transition: var(--glass-transition), opacity 0.25s, transform 0.35s cubic-bezier(.2,.8,.2,1); }
 .menu.shut { opacity: 0; transform: translateY(-6px) scale(0.98); pointer-events: none; visibility: hidden; transition: var(--glass-transition), opacity 0.25s, transform 0.35s cubic-bezier(.2,.8,.2,1), visibility 0s 0.35s; }
-.menu .who { display: flex; flex-direction: column; padding: 0 10px 12px; margin-bottom: 6px; border-bottom: 1px solid var(--line); }
-.menu .who strong { font: 600 17px var(--display); }
-.menu .who span { color: var(--muted); font-size: 13px; }
-.menu form { margin: 0; }
-.menu [role="menuitem"] { position: relative; display: flex; align-items: center; gap: 12px; width: 100%; height: 42px; padding: 0 10px 0 14px; border: 0; background: none; cursor: pointer;
-  color: var(--ink); text-decoration: none; text-align: left; font: 500 15px var(--display);
-  clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%); transition: background 0.2s; }
-.menu [role="menuitem"] .ico { color: var(--ink-2); }
-.menu [role="menuitem"]::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 11px; background: var(--run); clip-path: polygon(8px 0, 11px 0, 3px 100%, 0 100%); opacity: 0; transition: opacity 0.2s; }
-.menu [role="menuitem"]:hover, .menu [role="menuitem"]:focus-visible { background: var(--show-on); outline: none; }
-.menu [role="menuitem"]:hover::before, .menu [role="menuitem"]:focus-visible::before { opacity: 1; }
-.menu hr { border: 0; border-top: 1px solid var(--line); margin: 6px 0; }
+.menu-head { display: flex; flex-direction: column; padding: 2px 14px 12px; margin-bottom: 6px; border-bottom: 1px solid var(--line); }
+.menu-head strong { font: 600 17px var(--display); color: var(--ink); }
+.menu-head span { color: var(--muted); font-size: 13px; }
+.menu hr { border: 0; border-top: 1px solid var(--line); margin: 6px 4px; }
 @media (prefers-reduced-motion: reduce) { .menu { transition: var(--glass-transition); } }
 `;
 
@@ -240,26 +240,34 @@ component({
   ],
 });
 
-const MENU_ITEMS: MenuItem[] = [
-  { kind: "link", label: "Your profile", icon: "person", href: "#account-menu" },
-  { kind: "link", label: "Friends", icon: "friends", href: "#account-menu" },
-  { kind: "link", label: "Developer", icon: "code", href: "#account-menu" },
-  { kind: "link", label: "Settings", icon: "gear", href: "#account-menu" },
+const ACCOUNT_ITEMS: MenuItem[] = [
+  { label: "Your profile", icon: "person", href: "#menu" },
+  { label: "Friends", icon: "friends", href: "#menu" },
+  { label: "Developer", icon: "code", href: "#menu" },
+  { label: "Settings", icon: "gear", href: "#menu" },
   { kind: "rule" },
-  { kind: "form", label: "Sign out", icon: "sign-out", action: "#account-menu" },
+  { label: "Sign out", icon: "sign-out", action: "#menu" },
 ];
+/** An example menu hanging from its button, open. */
+const menuFrame = (buttonLabel: string, options: MenuOptions) =>
+  html`<div class="menu-frame">${raw(`<button type="button" class="shell cut-btn" aria-controls="${options.id}" aria-expanded="true"><span class="face cut-raised" data-cut-line="10">`)}<svg class="cut-line" aria-hidden="true"><polygon/></svg><span>${buttonLabel}</span></span></button>${menu({ ...options, isOpen: true })}</div>`;
 
 component({
-  name: "Account menu",
-  slug: "account-menu",
+  name: "Menu",
+  slug: "menu",
   group: "panes",
-  summary: "A short list of places that hangs from a button, like the account button in the header.",
+  summary: "A short list of places that hangs from a button, like the account button in the header: the sidebar's places, with a head, rules, icons, counts and the one you're on, as each menu needs.",
   styles: MENU_STYLES,
-  render: accountMenu,
+  render: menu,
   examples: [
+    { label: "Your account, from its button", markup: menuFrame("Your account", { id: "example-menu-account", label: "Your account", head: { title: "emma_r", note: "Online" }, items: ACCOUNT_ITEMS }) },
     {
-      label: "Open, from a button",
-      markup: html`<div class="menu-frame">${raw('<button type="button" class="shell cut-btn" aria-controls="example-menu" aria-expanded="true"><span class="face cut-raised" data-cut-line="10">')}<svg class="cut-line" aria-hidden="true"><polygon/></svg><span>Your account</span></span></button>${accountMenu({ id: "example-menu", label: "Your account", who: { name: "emma_r", note: "Online" }, items: MENU_ITEMS, isOpen: true })}</div>`,
+      label: "Choosing one, the current marked",
+      markup: menuFrame("Sort", { id: "example-menu-sort", label: "Sort games", items: [{ label: "Most played", href: "#menu", isCurrent: true }, { label: "Newest", href: "#menu" }, { label: "Recently updated", href: "#menu" }] }),
+    },
+    {
+      label: "With counts",
+      markup: menuFrame("Inbox", { id: "example-menu-inbox", label: "Inbox", head: { title: "Inbox" }, items: [{ label: "Replies", icon: "mail", href: "#menu", badgeCount: 3 }, { label: "Mentions", icon: "person", href: "#menu", badgeCount: 12 }, { kind: "rule" }, { label: "Settings", icon: "gear", href: "#menu" }] }),
     },
   ],
 });
