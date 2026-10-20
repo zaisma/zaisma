@@ -318,6 +318,8 @@ component({
   background: radial-gradient(150px 110px at var(--mx) var(--my), var(--glass-btn-glow), rgba(255,255,255,0) 70%); }
 .glass-btn:hover > .face, .glass-btn.is-pointed > .face { background-color: var(--glass-btn-hover); box-shadow: var(--glass-btn-lift); transform: translateY(-1px); }
 .glass-btn:hover .edge .hair, .glass-btn.is-pointed .edge .hair { stroke: var(--glass-btn-hair); }
+/* Pointed: the edge gets brighter, not darker: the dark hairline softens into the glass and the light line inside the rim comes up. */
+.glass-btn:hover .edge .inner, .glass-btn.is-pointed .edge .inner { opacity: 1; }
 .glass-btn:hover > .face::before, .glass-btn.is-pointed > .face::before { opacity: 0.85; }
 .glass-btn:hover .edge, .glass-btn.is-pointed .edge { opacity: 1; }
 .glass-btn:hover .face > svg:not(.edge), .glass-btn.is-pointed .face > svg:not(.edge) { transform: scale(1.1); }
