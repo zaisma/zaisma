@@ -412,7 +412,7 @@ component({
   transition: left 0.2s, width 0.2s, background 0.2s; }
 .rail:hover .rail-thumb, .rail.dragging .rail-thumb { left: 2px; width: 9px; clip-path: polygon(0 5px, 5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%); }
 .rail.dragging .rail-thumb { cursor: grabbing; box-shadow: inset 2px 0 0 var(--run), 0 2px 8px rgba(10,20,40,0.22); }
-/* A mark per part of the page: a short tick on the line that turns orange when pointed at, with the part's name on a small glass label to its left. */
+/* A mark per part of the page: a short tick on the line that turns orange when pointed at. Pointing anywhere on the rail opens every mark's name on a small glass label to its left. */
 /* Its click area is far bigger than the tick: 24px tall and reaching in over the page, so a mark is easy to hit. */
 .rail-mark { position: absolute; left: -12px; width: 26px; height: 24px; margin-top: -12px; padding: 0; border: 0; cursor: pointer; background: none; }
 .rail-mark::before { content: ""; position: absolute; left: 15px; right: 2px; top: 11px; height: 2px; background: var(--rail-mark); transition: background 0.2s, left 0.2s; }
@@ -421,7 +421,7 @@ component({
 .rail-mark span { position: absolute; right: 28px; top: 50%; transform: translate(4px, -50%); padding: 4px 10px; white-space: nowrap; pointer-events: none;
   font: 600 12px var(--display); color: var(--ink); background: var(--glass-menu); -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); opacity: 0; transition: opacity 0.15s, transform 0.15s; }
-.rail-mark:hover span { opacity: 1; transform: translate(0, -50%); }
+.rail:hover .rail-mark span, .rail.dragging .rail-mark span { opacity: 1; transform: translate(0, -50%); }
 /* In the narrow layout (a small window with a mouse), the page's bar fits in the 10px gutter beside the glass and starts below the header. */
 @media (max-width: 760px) {
   .rail[data-rail="page"] { width: 10px; top: calc(132px + env(safe-area-inset-top, 0px)); bottom: 10px; }
@@ -534,8 +534,8 @@ component({
 .sidebar a { position: relative; display: flex; align-items: center; gap: 10px; height: 42px; padding: 0 14px; font: 500 16px var(--display); color: var(--ink-2); text-decoration: none;
   clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%); transition: background 0.2s, color 0.2s, box-shadow 0.2s; }
 .sidebar a svg { width: 18px; height: 18px; flex: none; }
-.sidebar a:hover { background: var(--btn-hover); color: var(--ink); box-shadow: inset 0 -3px 0 color-mix(in srgb, var(--ink) 22%, transparent); }
-.sidebar a:active { background: var(--btn); }
+.sidebar a:hover { background: color-mix(in srgb, var(--ink) 14%, transparent); color: var(--ink); }
+.sidebar a:active { background: color-mix(in srgb, var(--ink) 22%, transparent); }
 .sidebar a[aria-current="page"], .sidebar a[aria-current="page"]:hover { background: var(--slab); color: var(--ink); font-weight: 600; box-shadow: inset 0 -3px 0 var(--run); }
 .sidebar a:focus-visible { outline: 2px solid var(--ink); outline-offset: -3px; }
 .sidebar-count { margin-left: auto; min-width: 22px; padding: 1px 7px; text-align: center; font: 600 12px var(--display); color: var(--ink-2); background: var(--well); box-shadow: var(--well-shade);
