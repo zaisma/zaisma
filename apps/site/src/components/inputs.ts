@@ -35,7 +35,7 @@ export function cutField(options: CutFieldOptions): Raw {
   const className = ["field", "cut-carved", isPassword ? "with-toggle" : "", options.error ? "is-marked" : "", options.state ?? ""].filter(Boolean).join(" ");
   const inputType = isPassword && options.isPasswordShown ? "text" : options.type;
   return html`<div class="cut-field"><label for="${id}">${options.label}</label>
-<span class="${className}" data-cut-line="10">${CUT_LINE}${icon(options.icon)}<input id="${id}" name="${options.name}" type="${inputType}"${options.text !== undefined ? html` value="${options.text}"` : ""}${options.placeholder ? html` placeholder="${options.placeholder}"` : ""}${options.autocomplete ? html` autocomplete="${options.autocomplete}"` : ""}${options.type === "email" || options.name === "username" ? raw(' autocapitalize="off" spellcheck="false"') : ""}${options.isRequired ? raw(" required") : ""}${options.error ? html` aria-invalid="true" aria-describedby="${errorId}"` : ""}>${isPassword ? html`<button type="button" class="show cut-raised" data-cut-line="7" aria-controls="${id}" aria-pressed="${options.isPasswordShown ? "true" : "false"}">${options.isPasswordShown ? "Hide" : "Show"}</button>` : ""}</span>
+<span class="${className}" data-cut-line="10">${CUT_LINE}${icon(options.icon)}<input id="${id}" name="${options.name}" type="${inputType}"${options.text !== undefined ? html` value="${options.text}"` : ""}${options.placeholder ? html` placeholder="${options.placeholder}"` : ""}${options.autocomplete ? html` autocomplete="${options.autocomplete}"` : ""}${options.type === "email" || options.name === "username" ? raw(' autocapitalize="off" spellcheck="false"') : ""}${options.isRequired ? raw(" required") : ""}${options.error ? html` aria-invalid="true" aria-describedby="${errorId}"` : ""}>${isPassword ? html`<button type="button" class="show cut-raised" data-cut-line="7" aria-controls="${id}" aria-pressed="${options.isPasswordShown ? "true" : "false"}">${CUT_LINE}<span class="show-words">${options.isPasswordShown ? "Hide" : "Show"}</span></button>` : ""}</span>
 ${options.error ? html`<p class="field-error" id="${errorId}">${options.error}</p>` : ""}</div>`;
 }
 
@@ -115,7 +115,8 @@ export const FIELD_SCRIPT = `/* fields */(function () {
     var input = document.getElementById(show.getAttribute("aria-controls")); if (!input) return;
     var on = input.type === "password";
     input.type = on ? "text" : "password";
-    show.textContent = on ? "Hide" : "Show";
+    // Only its words change: the slab and its drawn edge stay.
+    show.querySelector(".show-words").textContent = on ? "Hide" : "Show";
     show.setAttribute("aria-pressed", String(on));
   });
 })();
@@ -213,13 +214,15 @@ export const BIRTHDAY_SCRIPT = `/* birthday */(function () {
       show();
     }
     function text() { return MONTHS[birthday.month - 1] + " " + birthday.day + ", " + years[birthday.year - 1]; }
+    // The field shows it short (2/3/2022); the picker's foot says it in full.
+    function shortText() { return birthday.month + "/" + birthday.day + "/" + years[birthday.year - 1]; }
     function complete() { return birthday.month && birthday.day && birthday.year; }
     function show() {
       var done = complete();
       doneButton.disabled = !done;
       read.textContent = done ? text() : HINT;
       if (done) {
-        value.textContent = text(); field.classList.add("set"); field.classList.remove("is-marked"); error.hidden = true;
+        value.textContent = shortText(); field.classList.add("set"); field.classList.remove("is-marked"); error.hidden = true;
         hidden.value = years[birthday.year - 1] + "-" + String(birthday.month).padStart(2, "0") + "-" + String(birthday.day).padStart(2, "0");
       } else if (!field.classList.contains("is-marked")) { value.textContent = "Pick your birthday"; field.classList.remove("set"); hidden.value = ""; }
       else { field.classList.remove("set"); hidden.value = ""; }
@@ -294,6 +297,7 @@ const FIELD_STYLES = `
 .field.with-toggle input { padding-right: 90px; }
 /* Show/Hide: a small cut slab inside the field; it turns white with the orange line while the password shows. */
 /* Show/Hide: a small raised slab inside the field, like a cut button. While the password shows, it's sunk into the field, its light turned round. */
+.field .show > .show-words { position: relative; z-index: 2; }
 .field .show { position: absolute; z-index: 5; right: 8px; top: 8px; bottom: 8px; padding: 0 14px; border: 0; cursor: pointer;
   font: 600 15px var(--display); color: var(--ink-2); --face-colour: var(--btn); background: var(--face-colour);
   clip-path: var(--cut-shape); transition: --face-colour 0.2s, color 0.2s; }
@@ -394,7 +398,7 @@ component({
   -webkit-mask-image: linear-gradient(180deg, #000 0, #000 30%, rgba(0,0,0,0.45) 70%, transparent);
   mask-image: linear-gradient(180deg, #000 0, #000 30%, rgba(0,0,0,0.45) 70%, transparent); }
 .wheel::-webkit-scrollbar { display: none; }
-.wheel [role="option"] { height: 40px; display: flex; align-items: center; justify-content: center; scroll-snap-align: center;
+.wheel [role="option"] { height: 40px; display: flex; align-items: center; justify-content: center; scroll-snap-align: start;
   font: 500 16px var(--display); color: var(--ink-2); cursor: pointer; user-select: none; -webkit-user-select: none; transition: color 0.2s, font-size 0.2s; }
 .wheel [role="option"].blank { color: var(--muted); font-weight: 400; }
 .wheel [role="option"][aria-selected="true"] { font-size: 19px; color: var(--ink); font-weight: 600; }
