@@ -418,10 +418,11 @@ component({
 .rail-mark::before { content: ""; position: absolute; left: 15px; right: 2px; top: 11px; height: 2px; background: var(--rail-mark); transition: background 0.2s, left 0.2s; }
 .rail-mark:hover::before { background: var(--run); left: 9px; }
 .rail-mark[hidden] { display: none; }
-.rail-mark span { position: absolute; right: 28px; top: 50%; transform: translate(4px, -50%); padding: 4px 10px; white-space: nowrap; pointer-events: none;
+.rail-mark span { position: absolute; right: 28px; top: 50%; transform: translate(0, -50%); padding: 4px 10px; white-space: nowrap; pointer-events: none;
   font: 600 12px var(--display); color: var(--ink); background: var(--glass-menu); -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-  clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); opacity: 0; transition: opacity 0.15s, transform 0.15s; }
-.rail:hover .rail-mark span, .rail.dragging .rail-mark span { opacity: 1; transform: translate(0, -50%); }
+  clip-path: polygon(100% 0, 100% 0, calc(100% - 5px) 100%, calc(100% - 5px) 100%); transition: clip-path 0.18s ease-out; }
+/* A label opens by wiping out from the rail, never by fading: a fading blur draws without its glass and turns solid at the end. */
+.rail:hover .rail-mark span, .rail.dragging .rail-mark span { clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); }
 /* In the narrow layout (a small window with a mouse), the page's bar fits in the 10px gutter beside the glass and starts below the header. */
 @media (max-width: 760px) {
   .rail[data-rail="page"] { width: 10px; top: calc(132px + env(safe-area-inset-top, 0px)); bottom: 10px; }
