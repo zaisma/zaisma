@@ -179,8 +179,8 @@ describe("components", () => {
   });
 
   it("make the runner a link with an address and a button without one", () => {
-    expect(actions.runButton("Play", { href: "/g/x" }).html).toMatch(/<a class="shell run-wrap" href="\/g\/x" data-cut-line="12">/);
-    expect(actions.runButton("Play").html).toMatch(/<button class="shell run-wrap" type="submit" data-cut-line="12">/);
+    expect(actions.runButton("Play", { href: "/g/x" }).html).toMatch(/<a class="shell run-wrap" href="\/g\/x">/);
+    expect(actions.runButton("Play").html).toMatch(/<button class="shell run-wrap" type="submit">/);
   });
 
   it("give a password field its Show toggle, and an error its message", () => {

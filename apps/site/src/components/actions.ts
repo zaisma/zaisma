@@ -41,11 +41,11 @@ export interface RunButtonOptions extends ButtonTarget {
   state?: ButtonState;
 }
 
-/** The runner button: an orange slab with a side you can see and run lines at its leading end. It lifts, leans toward the pointer and catches the light, and its lines run on; pressing pushes its face down onto its side. */
+/** The runner button: a raised orange slab, the same height as the other buttons, lit along its edges. It lifts, leans toward the pointer and catches the light; pressing sinks it into the glass. */
 export function runButton(label: string, options: RunButtonOptions = {}): Raw {
   const words = options.busyLabel ? html`<span class="label-idle">${label}</span><span class="label-busy">${options.busyLabel}</span>` : html`<span>${label}</span>`;
   const shell = classes("run-wrap", options.isBig && "is-big", options.isFullWidth && "is-full", options.state);
-  return html`${opening(shell, options, options.isBusy, html` data-cut-line="${options.isBig ? 14 : 12}"`)}<span class="run-side" aria-hidden="true"></span><span class="${options.isBig ? "face run big" : "face run"}">${options.icon ? icon(options.icon) : ""}${words}${options.icon ? "" : ARROW}<span class="run-lines" aria-hidden="true"></span></span>${closing(options)}`;
+  return html`${opening(shell, options, options.isBusy)}<span class="${options.isBig ? "face run big" : "face run"} cut-raised" data-cut-line="${options.isBig ? 14 : 12}">${CUT_LINE}${options.icon ? icon(options.icon) : ""}${words}${options.icon ? "" : ARROW}</span>${closing(options)}`;
 }
 
 export interface CutButtonOptions extends ButtonTarget {
@@ -127,51 +127,35 @@ export const RUNNER_SCRIPT = `/* runner */(function () {
 const SPRING = "cubic-bezier(.25,.9,.3,1.25)";
 
 const RUN_STYLES = `
-/* The runner button: the one colored thing you can press. A slab: its face, and below it its side, the slab's thickness.
-   It lifts, leans toward you and catches the light; a press pushes the face down onto its side, and it springs back.
-   The shell (.run-wrap, the link or button) stays still; its face (.run) and side move inside it.
+/* The runner button: the one coloured thing you can press. A raised orange slab, the same height as every other button,
+   lit along its edges like the other raised controls (the edge rule's bands, in orange). It lifts, leans toward you and
+   a glint crosses it as you arrive; a press sinks it into the glass, its light turning round, and it springs back.
+   The shell (.run-wrap, the link or button) stays still; its face (.run) moves inside it.
    .over is the pointer on it (RUNNER_SCRIPT); is-pointed, is-pressed and is-focused fix those states for the gallery. */
-/* Its shape is the edge rule's, like every control's (GLASS_SCRIPT sets --cut-shape on the shell, for its face and its side). */
-.run-wrap {
-  --depth: 4px;
-  isolation: isolate; vertical-align: middle; perspective: 600px; margin-bottom: var(--depth);
-}
+.run-wrap { isolation: isolate; vertical-align: middle; perspective: 600px; }
 .run-wrap:focus-visible { outline: none; }
 .run-wrap.is-full { display: flex; width: 100%; perspective: 700px; }
-.run-wrap.is-big { --depth: 5px; }
 /* Its warm glow on what's under it: it spreads as the slab lifts and gathers in as it's pressed. */
-.run-wrap::before { content: ""; position: absolute; z-index: -1; left: 8%; right: 8%; top: 35%; bottom: -10px; border-radius: 50%; pointer-events: none;
-  background: rgba(247,147,26,0.34); filter: blur(11px); opacity: 0.75; transition: opacity 0.5s, transform 0.5s cubic-bezier(.2,.7,.2,1); }
+.run-wrap::before { content: ""; position: absolute; z-index: -1; left: 8%; right: 8%; top: 40%; bottom: -8px; border-radius: 50%; pointer-events: none;
+  background: rgba(247,147,26,0.32); filter: blur(11px); opacity: 0.7; transition: opacity 0.5s, transform 0.5s cubic-bezier(.2,.7,.2,1); }
 .run-wrap.over::before, .run-wrap.is-pointed::before { opacity: 1; transform: translateY(3px) scaleX(1.05); }
-.run-wrap:active::before, .run-wrap.is-pressed::before { opacity: 0.5; transform: translateY(-2px) scaleX(0.94); transition-duration: 0.1s; }
-/* Its side: the slab's thickness, a darker band of the same shape just below the face, lit from above. */
-.run-side { position: absolute; inset: 0; pointer-events: none; clip-path: var(--cut-shape);
-  background: linear-gradient(180deg, #D27412, var(--run-lo) 85%);
-  transform: translateY(var(--depth)) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)); transition: transform 0.6s cubic-bezier(.2,.7,.2,1); }
+.run-wrap:active::before, .run-wrap.is-pressed::before { opacity: 0.45; transform: translateY(-2px) scaleX(0.94); transition-duration: 0.1s; }
 .run {
   --refl: 50%;
-  position: relative; z-index: 1; overflow: hidden; height: 44px; padding: 0 26px 0 22px;
+  position: relative; z-index: 1; overflow: hidden; height: 44px; padding: 0 24px 0 22px;
   display: flex; align-items: center; gap: 10px; white-space: nowrap;
   color: #fff; text-shadow: 0 1px 1px rgba(120,58,0,0.4);
   font: 600 16px var(--display); letter-spacing: 0.01em;
-  /* The face: lit from above, rounding off toward its lower edge, with a bright top edge where the light lands. */
-  background: radial-gradient(130% 110% at 50% -35%, rgba(255,255,255,0.36), rgba(255,255,255,0) 62%), linear-gradient(180deg, var(--run-hi), var(--run) 55%, #EA830E);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.6), inset 0 -1px 0 rgba(150,72,0,0.3);
+  /* The face: lit from above, deepening toward its foot. */
+  background: radial-gradient(130% 110% at 50% -35%, rgba(255,255,255,0.3), rgba(255,255,255,0) 62%), linear-gradient(180deg, var(--run-hi), var(--run) 52%, #E57F0C);
   clip-path: var(--cut-shape);
   transform: translateY(var(--lift, 0px)) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
   transition: transform 0.45s ${SPRING}, --refl 0.6s cubic-bezier(.2,.7,.2,1), filter 0.2s;
 }
+/* Its edge light: bright where the light lands on its top and leading edges, its own orange's shade along its foot. */
+.run.cut-raised > .cut-line { --band-top: rgba(255,240,214,0.85); --band-left: rgba(255,226,180,0.55); --band-right: rgba(150,72,0,0.32); --band-bottom: rgba(130,60,0,0.55); }
 .is-full > .run { width: 100%; justify-content: center; }
-.run.big { height: 56px; justify-content: center; padding: 0 30px 0 24px; font-size: 19px; gap: 12px; }
-/* Its run lines: fine slanted lines of light at its leading end, behind the arrow, the runner's own mark now its ends follow the edge rule.
-   They run on while you point at it, and keep running while it's busy. */
-.run > .run-lines { position: absolute; top: 0; right: 0; bottom: 0; width: 64px; pointer-events: none;
-  background: repeating-linear-gradient(112deg, rgba(255,255,255,0) 0 7px, rgba(255,255,255,0.3) 7px 9px) 0 0 / 22px 100%;
-  -webkit-mask-image: linear-gradient(90deg, transparent, #000 75%); mask-image: linear-gradient(90deg, transparent, #000 75%);
-  transition: background-position 0.6s cubic-bezier(.2,.7,.2,1); }
-.run-wrap.over .run-lines, .run-wrap.is-pointed .run-lines { background-position: 22px 0; }
-.run-wrap[aria-busy="true"] .run-lines { animation: run-lines 0.9s linear infinite; }
-@keyframes run-lines { from { background-position: 0 0; } to { background-position: 22px 0; } }
+.run.big { height: 56px; justify-content: center; padding: 0 30px 0 26px; font-size: 19px; gap: 12px; }
 /* The reflection of a fixed light: a soft band that slides the opposite way to the pointer. */
 .run::before { content: ""; position: absolute; inset: 0; background: linear-gradient(105deg, rgba(255,255,255,0) calc(var(--refl) - 22%), rgba(255,255,255,0.2) var(--refl), rgba(255,255,255,0) calc(var(--refl) + 22%)); opacity: 0; transition: opacity 0.6s; }
 .run-wrap.over .run::before, .run-wrap.is-pointed .run::before { opacity: 1; }
@@ -179,14 +163,15 @@ const RUN_STYLES = `
 .run::after { content: ""; position: absolute; top: -20%; bottom: -20%; width: 36%; left: -50%; background: linear-gradient(100deg, rgba(255,255,255,0), rgba(255,255,255,0.7), rgba(255,255,255,0)); transform: skewX(-20deg); pointer-events: none; }
 .run.glint::after { animation: run-glint 0.45s cubic-bezier(.3,.1,.3,1) both; }
 @keyframes run-glint { from { left: -50%; } to { left: 120%; } }
-.run > * { position: relative; }
+.run > :not(.cut-line) { position: relative; z-index: 2; }
 .run .arrow, .run .play { display: inline-flex; transition: transform 0.6s cubic-bezier(.2,.7,.2,1); }
 .run-wrap.over .run .arrow, .run-wrap.is-pointed .run .arrow { transform: translateX(4px); }
 .run-wrap.over .run .play, .run-wrap.is-pointed .run .play { transform: translateX(3px) scale(1.08); }
 .run-wrap.is-pointed { --lift: -1.5px; }
-/* Pressed: the face goes down onto its side, a touch darker, quickly; it springs back when let go. */
-.run-wrap:active > .run, .run-wrap.is-pressed > .run { --lift: calc(var(--depth) - 1px); filter: brightness(0.95) saturate(1.05); transition-duration: 0.08s; }
-/* Keyboard focus: a clean 2px ink outline hugging the whole slab, face and side, drawn from the slab's own shape so it keeps the slant, the point and the side. Its glow goes at once, so the outline never draws round a fading blur. */
+/* Pressed: it sinks into the glass, a touch darker, its light turned round as on a carved control; it springs back when let go. */
+.run-wrap:active > .run, .run-wrap.is-pressed > .run { --lift: 1px; filter: brightness(0.94) saturate(1.05); transition-duration: 0.08s; }
+.run-wrap:active > .run > .cut-line, .run-wrap.is-pressed > .run > .cut-line { --band-top: rgba(130,60,0,0.5); --band-left: rgba(150,72,0,0.35); --band-right: rgba(255,226,180,0.45); --band-bottom: rgba(255,240,214,0.7); }
+/* Keyboard focus: a clean 2px ink outline hugging the slab, drawn from its own shape. Its glow goes at once, so the outline never draws round a fading blur. */
 .run-wrap:focus-visible, .run-wrap.is-focused { filter: drop-shadow(2px 0 0 var(--ink)) drop-shadow(-2px 0 0 var(--ink)) drop-shadow(0 2px 0 var(--ink)) drop-shadow(0 -2px 0 var(--ink)); }
 .run-wrap:focus-visible::before, .run-wrap.is-focused::before { opacity: 0; transition: none; }
 /* Busy: pressed and waiting. The arrow drifts on; the label says what's happening when the page gave one. */
@@ -194,8 +179,9 @@ const RUN_STYLES = `
 .run-wrap[aria-busy="true"] .label-idle, .run-wrap:not([aria-busy="true"]) .label-busy { display: none; }
 .run-wrap[aria-busy="true"] .arrow { animation: run-drift 1.6s ease-in-out infinite; }
 @keyframes run-drift { 0%, 100% { transform: translateX(0); opacity: 0.55; } 50% { transform: translateX(7px); opacity: 1; } }
-@media (max-width: 760px) { .run { height: 40px; padding: 0 24px 0 16px; font-size: 15px; } .run.big { height: 48px; font-size: 17px; } }
-@media (prefers-reduced-motion: reduce) { .run, .run-side, .run .arrow, .run .play, .run-wrap::before, .run > .run-lines { transition: none; } .run.glint::after, .run-wrap[aria-busy="true"] .arrow, .run-wrap[aria-busy="true"] .run-lines { animation: none; } }
+/* On a phone it keeps the other buttons' heights: 44px, and 48px big. */
+@media (max-width: 760px) { .run { padding: 0 20px 0 16px; font-size: 15px; } .run.big { height: 48px; font-size: 17px; } }
+@media (prefers-reduced-motion: reduce) { .run, .run .arrow, .run .play, .run-wrap::before { transition: none; } .run.glint::after, .run-wrap[aria-busy="true"] .arrow { animation: none; } }
 `;
 
 /** A full-width button's examples sit in a column this wide. */
