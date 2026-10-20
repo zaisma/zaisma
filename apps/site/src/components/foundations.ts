@@ -28,8 +28,9 @@ const LIGHT_GLASS = `color-scheme: light;
   --clear-hover: rgba(255, 255, 255, 0.45); --clear-press: rgba(255, 255, 255, 0.25);
   --chip-face: #DDF2E5; --chip-ink: #136238; --face-ring: rgba(255, 255, 255, 0.85); --presence-ring: #fff;
   --rail-line: rgba(20, 23, 28, 0.2); --rail-thumb: rgba(24, 28, 36, 0.55); --rail-edge: rgba(255, 255, 255, 0.55); --rail-mark: rgba(20, 23, 28, 0.45);
-  --edge-inner: rgba(255, 255, 255, 0.4); --edge-bevel: 0.6; --edge-rim: 1; --edge-fringe: 0.25;
+  --edge-inner: rgba(255, 255, 255, 0.9); --edge-bevel: 0.6; --edge-rim: 1; --edge-fringe: 0.25;
   --edge-lit: rgba(236, 240, 246, 1); --edge-mid: rgba(212, 218, 228, 0.7); --edge-shade: rgba(146, 154, 168, 0.6); --edge-corner: rgba(188, 196, 208, 0.75);
+  --edge-spec: rgba(255, 255, 255, 1); --edge-dense: rgba(120, 130, 146, 0.07);
   --logo-halo: drop-shadow(0 0 10px rgba(255, 255, 255, 0.6)) drop-shadow(0 1px 1px rgba(255, 255, 255, 0.5));
   --link-hover: var(--run-lo); --marked: var(--run-lo);
   --glass-base: 255, 255, 255; --glass-kind: "Light glass, dark words.";`;
@@ -54,8 +55,9 @@ const SMOKED_GLASS = `color-scheme: dark;
   --clear-hover: rgba(255, 255, 255, 0.08); --clear-press: rgba(255, 255, 255, 0.04);
   --chip-face: rgba(52, 211, 120, 0.22); --chip-ink: #A6F0C6; --face-ring: rgba(6, 8, 12, 0.55); --presence-ring: #1A1D24;
   --rail-line: rgba(255, 255, 255, 0.2); --rail-thumb: rgba(255, 255, 255, 0.55); --rail-edge: rgba(255, 255, 255, 0.35); --rail-mark: rgba(255, 255, 255, 0.5);
-  --edge-inner: rgba(255, 255, 255, 0.12); --edge-bevel: 0.4; --edge-rim: 0.85; --edge-fringe: 0.4;
+  --edge-inner: rgba(255, 255, 255, 0.4); --edge-bevel: 0.4; --edge-rim: 0.85; --edge-fringe: 0.4;
   --edge-lit: rgba(240, 244, 250, 0.95); --edge-mid: rgba(214, 222, 234, 0.55); --edge-shade: rgba(160, 172, 192, 0.4); --edge-corner: rgba(214, 222, 236, 0.6);
+  --edge-spec: rgba(255, 255, 255, 0.95); --edge-dense: rgba(255, 255, 255, 0.04);
   --logo-halo: drop-shadow(0 0 12px rgba(4, 7, 14, 0.75)) drop-shadow(0 1px 2px rgba(4, 7, 14, 0.6));
   --link-hover: var(--run-hi); --marked: var(--run-hi);
   --glass-base: 14, 17, 24; --glass-kind: "Smoked glass, light words.";`;
@@ -107,8 +109,10 @@ export const TOKEN_STYLES = `
 .glass > :not(.edge) { position: relative; z-index: 3; }
 .edge { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; overflow: visible; }
 /* Light and smoked glass share one frame: a straight-cut glass edge, a flat bevel lit at its top left and shaded at its bottom right
-   (--edge-lit, --edge-mid, --edge-shade, --edge-corner), brightest at the outer rim, with no separate outline. */
-.edge .inner { stroke: var(--edge-inner); }
+   (--edge-lit, --edge-mid, --edge-shade, --edge-corner), brightest at the outer rim, with no separate outline. Like real glass it's denser at
+   the edge (--edge-dense), glints where the rim meets the lit corner (--edge-spec), and its inner facet line catches light from the far side (--edge-inner). */
+.edge .gleam { stop-color: var(--edge-inner); } .edge .spec { stop-color: var(--edge-spec); }
+.edge .dense { fill: var(--edge-dense); }
 .edge .lit { stop-color: var(--edge-lit); } .edge .mid { stop-color: var(--edge-mid); } .edge .shade { stop-color: var(--edge-shade); }
 .edge .facet { stroke: var(--edge-corner); } .edge .facet.lit { stroke: var(--edge-lit); }
 .edge .hair { stroke: var(--edge-hair); }
@@ -200,13 +204,19 @@ export const GLASS_SCRIPT = `/* glass */(function () {
         '<linearGradient id="' + id + 'rim" x1="0" y1="0" x2="1" y2="1"><stop class="lit" offset="0"/><stop class="mid" offset="0.45"/><stop class="shade" offset="1"/></linearGradient>' +
         '<linearGradient id="' + id + 'bev" x1="0" y1="0" x2="1" y2="1"><stop class="lit" offset="0"/><stop class="mid" offset="0.5"/><stop class="shade" offset="1"/></linearGradient>' +
         '<linearGradient id="' + id + 'fr" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#7fd8ff" stop-opacity="0.5"/><stop offset="0.5" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#ffc58a" stop-opacity="0.5"/></linearGradient>' +
+        // Refraction: the facet's inner line catches the light from the other side, so it runs the opposite way to the rim.
+        '<linearGradient id="' + id + 'in" x1="1" y1="1" x2="0" y2="0"><stop class="gleam" offset="0"/><stop class="gleam" offset="0.4" stop-opacity="0"/><stop class="gleam" offset="0.75" stop-opacity="0"/><stop class="gleam" offset="1" stop-opacity="0.35"/></linearGradient>' +
+        // Reflection: a bright glint where the rim meets the lit corner, fading along both edges.
+        '<linearGradient id="' + id + 'sp" x1="0" y1="0" x2="1" y2="1"><stop class="spec" offset="0"/><stop class="spec" offset="0.08"/><stop class="spec" offset="0.3" stop-opacity="0"/></linearGradient>' +
         '</defs>';
       parts = {
+        dense: node("path", { "class": "dense", "fill-rule": "evenodd" }),
         bevel: node("path", { "class": "bevel", fill: "url(#" + id + "bev)", "fill-rule": "evenodd" }),
         hair: node("polygon", { "class": "hair", fill: "none", "stroke-width": "1.2" }),
         rim: node("polygon", { "class": "rim", fill: "none", stroke: "url(#" + id + "rim)", "stroke-width": "1.6" }),
-        fringe: node("polygon", { "class": "fringe", fill: "none", stroke: "url(#" + id + "fr)", "stroke-width": "1" }),
-        inner: node("polygon", { "class": "inner", fill: "none", "stroke-width": "1" }),
+        spec: node("polygon", { "class": "spec-line", fill: "none", stroke: "url(#" + id + "sp)", "stroke-width": "1.4" }),
+        fringe: node("polygon", { "class": "fringe", fill: "none", stroke: "url(#" + id + "fr)", "stroke-width": "0.8" }),
+        inner: node("polygon", { "class": "inner", fill: "none", stroke: "url(#" + id + "in)", "stroke-width": "1" }),
         facets: [0, 1, 2, 3].map(function (i) { return node("line", { "class": i === 0 ? "facet lit" : "facet", "stroke-width": i === 0 ? "4.5" : "3" }); })
       };
     }
@@ -224,10 +234,14 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       }
       // No viewBox: the rim is drawn in CSS pixels, so a frame where the slab has grown before its points move never stretches it.
       edge.removeAttribute("viewBox");
+      // Density: glass is thicker at its edge, so a second, wider band tints the panel just inside the bevel.
+      parts.dense.setAttribute("d", "M" + cutShape(w, h, c, 0) + "Z M" + cutShape(w, h, c, band * 1.8) + "Z");
       parts.bevel.setAttribute("d", "M" + cutShape(w, h, c, 0) + "Z M" + cutShape(w, h, c, band) + "Z");
       parts.hair.setAttribute("points", cutShape(w, h, c, 0.6));
       parts.rim.setAttribute("points", cutShape(w, h, c, 1.6));
-      parts.fringe.setAttribute("points", cutShape(w, h, c, 3.2));
+      parts.spec.setAttribute("points", cutShape(w, h, c, 1.6));
+      // Dispersion: a faint split of colour along the facet's inner edge, where the light bends.
+      parts.fringe.setAttribute("points", cutShape(w, h, c, Math.max(2.4, band - 0.8)));
       parts.inner.setAttribute("points", cutShape(w, h, c, band));
       [[[0, c[0]], [c[0], 0]], [[w - c[1], 0], [w, c[1]]], [[w, h - c[2]], [w - c[2], h]], [[c[3], h], [0, h - c[3]]]].forEach(function (f, i) {
         var line = parts.facets[i];
