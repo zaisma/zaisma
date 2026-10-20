@@ -683,7 +683,7 @@ async function seed() {
  * holds stays held, and engines.json says so for scripts/engines/play.mjs, which then plays each one.
  */
 async function seedEngineSamples(api, upload) {
-  const ENGINE_NAMES = { godot: "Godot", phaser: "Phaser", three: "Three.js", unity: "Unity" };
+  const ENGINE_NAMES = { godot: "Godot", phaser: "Phaser", three: "Three.js", unity: "Unity", "unity-minimal": "Unity Minimal" };
   const engines = readdirSync(join(ROOT, "test/engines"), { withFileTypes: true }).filter((entry) => entry.isDirectory() && existsSync(join(ROOT, "test/engines", entry.name, "build/index.html"))).map((entry) => entry.name);
   const samples = [];
   for (const engine of engines) {

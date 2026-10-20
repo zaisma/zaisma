@@ -5,7 +5,13 @@ using UnityEngine;
 
 public static class Build
 {
-    public static void Web()
+    // The default page template, as an export with nothing changed: test/engines/unity/build.
+    public static void Web() => Export("APPLICATION:Default", "../build");
+
+    // Unity's Minimal page template, only the game: test/engines/unity-minimal/build.
+    public static void WebMinimal() => Export("APPLICATION:Minimal", "../../unity-minimal/build");
+
+    static void Export(string template, string folder)
     {
         var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene);
         RenderSettings.ambientLight = new Color(0.35f, 0.38f, 0.45f);
@@ -43,11 +49,12 @@ public static class Build
         PlayerSettings.WebGL.decompressionFallback = false;
         PlayerSettings.WebGL.threadsSupport = false;
         PlayerSettings.WebGL.nameFilesAsHashes = false;
+        PlayerSettings.WebGL.template = template;
 
         var report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
         {
             scenes = new[] { "Assets/Sample.unity" },
-            locationPathName = "../build",
+            locationPathName = folder,
             target = BuildTarget.WebGL,
             options = BuildOptions.None,
         });
@@ -56,8 +63,11 @@ public static class Build
 
     static Material SavedMaterial(string name, Color color)
     {
-        var material = new Material(Shader.Find("Standard")) { color = color };
-        AssetDatabase.CreateAsset(material, $"Assets/{name}.mat");
+        var path = $"Assets/{name}.mat";
+        var material = AssetDatabase.LoadAssetAtPath<Material>(path);
+        if (material != null) return material;
+        material = new Material(Shader.Find("Standard")) { color = color };
+        AssetDatabase.CreateAsset(material, path);
         return material;
     }
 }

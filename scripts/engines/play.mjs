@@ -83,7 +83,8 @@ async function play(chrome, sample) {
       }
     }
     if (!started) fail(`${sample.engine}: didn't start within ${START_TIMEOUT_MS / 1000} s.`);
-    else if (started.engine !== sample.engine) fail(`${sample.engine}: the page says it's ${started.engine}.`);
+    // A sample of one engine's other set-up (unity-minimal) says its engine (unity).
+    else if (started.engine !== sample.engine.split("-")[0]) fail(`${sample.engine}: the page says it's ${started.engine}.`);
     else {
       console.log(`  started: ${started.engine} ${started.version}`);
       // Two pictures of the game a second apart: every sample moves, so a frozen or blank game shows as the same picture.
