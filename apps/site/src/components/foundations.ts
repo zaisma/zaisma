@@ -96,7 +96,9 @@ export const TOKEN_STYLES = `
    easing in and out, with no scrollbar; it starts scrolled to the one you're on. */
 @property --fade-left { syntax: "<length>"; inherits: false; initial-value: 0px; }
 @property --fade-right { syntax: "<length>"; inherits: false; initial-value: 0px; }
-[data-fades-sideways] { overflow-x: auto; scrollbar-width: none; transition: --fade-left 0.25s, --fade-right 0.25s; }
+/* A box that scrolls keeps a swipe to itself: reaching its end never carries on into the page, so the page never nudges under it. */
+.scroll-fades, [data-scroll-box] { overscroll-behavior: contain; }
+[data-fades-sideways] { overscroll-behavior-x: contain; overflow-x: auto; scrollbar-width: none; transition: --fade-left 0.25s, --fade-right 0.25s; }
 [data-fades-sideways]::-webkit-scrollbar { display: none; }
 [data-fades-sideways].more-left, [data-fades-sideways].more-right {
   -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 var(--fade-left), #000 calc(100% - var(--fade-right)), transparent 100%);
