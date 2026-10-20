@@ -25,7 +25,7 @@ import { queueListingChecks, runListingCheck } from "./listing-check.ts";
 import { coverGuidePage } from "./cover-guide.ts";
 // Every component of the look (components/), defined before the first request, and the gallery that shows them.
 import "./components/index.ts";
-import { designFramePage, designPage } from "./design-page.ts";
+import { designPage } from "./design-page.ts";
 import { testWaitingReviewPrecedents } from "./review-precedent-tests.ts";
 import { triageReports } from "./triage.ts";
 import { sortMisplaced, sortTopics } from "./forum-sort.ts";
@@ -129,12 +129,10 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
   if (preview && method !== "POST") return previewPage(env, preview[1]!);
 
   if (path === "/developers/covers" && method === "GET") return coverGuidePage(env);
-  if ((path === "/design" || path.startsWith("/design/")) && !path.startsWith("/design/frame/") && method === "GET") {
+  if ((path === "/design" || path.startsWith("/design/")) && method === "GET") {
     const gallery = designPage(env, url);
     if (gallery) return gallery;
   }
-  const designFrame = path.match(/^\/design\/frame\/([a-z]+(?:-[a-z]+)*)$/);
-  if (designFrame && method === "GET") return designFramePage(env, designFrame[1]!, url);
 
   const legalPage = path.match(/^\/legal\/([a-z-]+)$/);
   if (legalPage && method !== "POST") {

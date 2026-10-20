@@ -444,11 +444,8 @@ export function accountPicture(name: string, pictureSize: "xs" | "sm" | "md" = "
 /** Cloudflare's invisible check (Turnstile), on pages that ask for it: its script and its frame. */
 const CHECK_ORIGIN = "https://challenges.cloudflare.com";
 
-/**
- * formTargets: other sites a form on the page may end up at, like the app a Sign in with Zaisma consent page goes back to.
- * frameAncestors: who may frame the page; nobody, except the design gallery's own phone frames ('self').
- */
-export function securityHeaders(env: Env, extra: Record<string, string> = {}, hasTurnstileCheck = false, frames: string[] = [], formTargets: string[] = [], frameAncestors = "'none'"): Headers {
+/** formTargets: other sites a form on the page may end up at, like the app a Sign in with Zaisma consent page goes back to. */
+export function securityHeaders(env: Env, extra: Record<string, string> = {}, hasTurnstileCheck = false, frames: string[] = [], formTargets: string[] = []): Headers {
   const headers = new Headers({
     "Content-Type": "text/html; charset=utf-8",
     "Content-Security-Policy": [
@@ -459,7 +456,7 @@ export function securityHeaders(env: Env, extra: Record<string, string> = {}, ha
       `script-src 'self'${hasTurnstileCheck ? ` ${CHECK_ORIGIN}` : ""}`,
       `frame-src ${gameFrameSource(env)}${hasTurnstileCheck ? ` ${CHECK_ORIGIN}` : ""}${frames.map((frame) => ` ${frame}`).join("")}`,
       `form-action 'self'${formTargets.map((target) => ` ${target}`).join("")}`,
-      `frame-ancestors ${frameAncestors}`,
+      "frame-ancestors 'none'",
       "base-uri 'none'",
       "object-src 'none'",
       // What the policy blocks is reported (security-alerts.ts, recordBlockedScripts): report-to for today's browsers, report-uri for the rest.

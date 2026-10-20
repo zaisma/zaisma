@@ -61,47 +61,27 @@ describe("the gallery", () => {
     expect(() => component({ name: "Bad", slug: "Not_A_Slug", group: "actions", summary: "", styles: "", examples: [] })).toThrow(/lowercase/);
   });
 
-  it("opens a view from its address: a dark game, dark, at phone width", async () => {
-    const frames: string[] = [];
+  it("opens light or dark from its address, and the other groups' pages keep it", async () => {
     for (const { group } of COMPONENT_GROUPS) {
-      const { text } = await page(`${groupPath(group)}?backdrop=dark-game&theme=dark&width=phone`);
-      expect(text).toMatch(/<div id="stage" class="stage smoke" data-backdrop="dark-game" data-theme-choice="dark" data-width="phone">/);
-      // The other groups' pages keep the view.
-      expect(text).toContain(`href="${groupPath("panes")}?backdrop=dark-game&amp;theme=dark&amp;width=phone" data-gallery-page="${groupPath("panes")}"`);
-      frames.push(...[...text.matchAll(/<iframe class="phone-frame" src="([^"]+)"/g)].map((found) => found[1]!));
+      const { text } = await page(`${groupPath(group)}?theme=dark`);
+      expect(text).toContain('<div id="stage" class="stage" data-theme-choice="dark">');
+      expect(text).toContain(`<a href="${groupPath("panes")}?theme=dark" data-gallery-page="${groupPath("panes")}"`);
     }
-    expect(frames).toEqual(COMPONENTS().map((each) => `/design/frame/${each.slug}?backdrop=dark-game&amp;theme=dark`));
+    // Anything but dark is light: the parameter is closed.
+    expect((await page("/design?theme=purple")).text).toContain('<div id="stage" class="stage" data-theme-choice="light">');
+  });
+
+  it("is never framed", async () => {
+    for (const path of ["/design", "/design/panes"]) expect((await SELF.fetch(`${SITE}${path}`)).headers.get("content-security-policy"), path).toContain("frame-ancestors 'none'");
   });
 
   it("has a page for each group and none for anything else", async () => {
     expect((await page("/design/actions")).text).toContain('<a href="/design/actions" data-gallery-page="/design/actions" aria-current="page">Actions</a>');
+    expect((await page("/design/frame/runner-button")).response.status).toBe(404);
     expect((await page("/design/foundations")).response.status).toBe(404);
     expect((await page("/design/no-such-group")).response.status).toBe(404);
   });
 
-  it("falls back to Zaisma's own background and light for values it doesn't know", async () => {
-    const { text } = await page("/design?backdrop=lava&theme=purple&width=huge");
-    expect(text).toContain('<div id="stage" class="stage" data-backdrop="zaisma" data-theme-choice="light" data-width="wide">');
-    expect(text).not.toContain('<iframe class="phone-frame"');
-  });
-
-  it("keeps light glass over a bright game, whatever the theme", async () => {
-    const { text } = await page("/design?backdrop=bright-game&theme=dark");
-    expect(text).toContain('data-backdrop="bright-game" data-theme-choice="dark"');
-    expect(text).toContain('<div class="stage-glass" data-theme-choice="light">');
-  });
-
-  it("lets only the gallery frame its phone frames", async () => {
-    const frame = await page("/design/frame/runner-button");
-    expect(frame.response.status).toBe(200);
-    expect(frame.response.headers.get("content-security-policy")).toContain("frame-ancestors 'self'");
-    for (const path of ["/design", "/"]) expect((await SELF.fetch(`${SITE}${path}`)).headers.get("content-security-policy"), path).toContain("frame-ancestors 'none'");
-  });
-
-  it("answers 404 for a component it doesn't have", async () => {
-    const { response } = await page("/design/frame/no-such-thing");
-    expect(response.status).toBe(404);
-  });
 });
 
 describe("components", () => {

@@ -277,7 +277,7 @@ component({
   summary: "Every colour comes from these tokens, so light, dark and smoked glass follow by themselves. Orange is only for what you act on.",
   styles: `
 /* Colour: the gallery's swatches. */
-.swatches { width: 100%; list-style: none; margin: 0; padding: 14px; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px 18px; color: var(--ink); background: var(--glass-tint); -webkit-backdrop-filter: blur(26px) saturate(1.7); backdrop-filter: blur(26px) saturate(1.7); }
+.swatches { width: 100%; list-style: none; margin: 0; padding: 14px; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px 18px; color: var(--ink); background: var(--glass-tint); -webkit-backdrop-filter: blur(26px) saturate(1.7); backdrop-filter: blur(26px) saturate(1.7); }
 .swatches li { display: grid; grid-template-columns: 36px 1fr; grid-template-rows: auto auto; column-gap: 10px; align-items: center; font: 500 13px var(--display); }
 .swatches .chip-swatch { grid-row: span 2; width: 36px; height: 36px; box-shadow: inset 0 0 0 1px var(--line); clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px); }
 .swatches code { font: 600 13px ui-monospace, Menlo, monospace; }
@@ -304,6 +304,7 @@ component({
 .type-sample .b15 { font: 15px/1.5 var(--body); color: var(--ink-2); max-width: 60ch; }
 .type-sample .b13 { font: 500 13px/1.3 var(--display); color: var(--muted); }
 .type-sample small { font: 500 12px ui-monospace, Menlo, monospace; color: var(--muted); margin-left: 10px; }
+@media (max-width: 760px) { .type-sample small { display: block; margin: 2px 0 0; } .type-sample .d40 { font-size: 32px; } }
 `,
   examples: [
     {
@@ -379,7 +380,7 @@ component({
   summary: "Things move only when pointed at or pressed: a spring of 0.55s for slabs, 0.45s for a change of size. Reduced motion stops all of it.",
   styles: `
 /* Motion: a slab sliding between two tabs on point, with the spring. */
-.motion-demo { position: relative; display: grid; grid-template-columns: 1fr 1fr; width: 320px; height: 44px; padding: 4px; background: var(--well); box-shadow: var(--well-shade);
+.motion-demo { position: relative; display: grid; grid-template-columns: 1fr 1fr; width: min(320px, 100%); height: 44px; padding: 4px; background: var(--well); box-shadow: var(--well-shade);
   clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%); }
 /* The slab never takes the pointer, so moving under it doesn't end the point that moved it. */
 .motion-demo .slab { position: absolute; z-index: 0; pointer-events: none; top: 4px; bottom: 4px; left: 4px; width: calc(50% - 4px); background: var(--slab); box-shadow: var(--slab-shade), inset 0 -3px 0 var(--run);

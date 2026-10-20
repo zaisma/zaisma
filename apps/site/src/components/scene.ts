@@ -23,7 +23,8 @@ export const SCENE_STYLES = `
 /* Glass resting in the scene: only while the scene is on. Otherwise its layer is an ordinary box, the components glass in front. */
 [data-scene="on"] [data-scene-layer] { position: absolute; inset: 0; perspective-origin: 50% 50%; pointer-events: none; }
 [data-scene="on"] [data-scene-anchor] { position: absolute; left: 0; top: 0; margin: 0; transform-origin: 0 0; pointer-events: auto; will-change: transform; }
-.scene-anchor { position: relative; display: block; width: max-content; }
+.scene-anchor { position: relative; display: block; width: max-content; max-width: 100%; }
+[data-scene="on"] .scene-anchor { max-width: none; }
 /* Its shadow falls away from the sun. (The scene draws the real one on the surface; this is the soft one close under it.) */
 [data-scene="on"] .scene-anchor::before { content: ""; position: absolute; inset: 8% 6%; z-index: -1; pointer-events: none; background: rgba(8, 18, 36, 0.3); filter: blur(14px);
   transform: translate(calc(var(--light-x, 0) * -18px), calc(var(--light-y, 1) * 18px)); }

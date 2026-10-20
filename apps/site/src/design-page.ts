@@ -1,73 +1,34 @@
 import type { Env } from "./env.ts";
-import { html, message, pageData, raw, scriptTags, securityHeaders, type Raw } from "./html.ts";
+import { html, pageData, raw, scriptTags, securityHeaders, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
 import { COMPONENT_GROUPS, type Component, type ComponentGroup } from "./components/component.ts";
-import { COMPONENTS, COMPONENT_SCRIPT, COMPONENT_STYLES, HEADER_SCRIPT, componentBySlug } from "./components/index.ts";
+import { COMPONENTS, COMPONENT_SCRIPT, COMPONENT_STYLES, HEADER_SCRIPT } from "./components/index.ts";
 import { EDGE, WORDMARK, railMarkup } from "./components/foundations.ts";
 import { cutButton, runButton } from "./components/actions.ts";
 import { cutField, tabSwitch } from "./components/inputs.ts";
 import { glassPane } from "./components/panes.ts";
 
 /*
- * zaisma.com/design: every component of Zaisma's look in every state, light, dark and smoked, at phone width, and
- * over Zaisma's own background, a dark game, a bright game and a scene. It's rendered from the same code the pages
- * use (components/), so changing a component changes it here and everywhere it's used at once. Public, linked from
- * docs/DESIGN.md and the README, never from the footer or the menus, and not in the sitemap.
+ * zaisma.com/design: every component of Zaisma's look in every state, in light and dark, a page per group. It's
+ * rendered from the same code the pages use (components/), so changing a component changes it here and everywhere
+ * it's used at once. Phone layouts show in a phone-sized window (or the browser's device mode); the Panes page holds
+ * a scene the components can rest in. Public, linked from docs/DESIGN.md and the README, never from the footer or
+ * the menus, and not in the sitemap.
  */
 
-export type GalleryBackdrop = "zaisma" | "dark-game" | "bright-game" | "scene";
-const BACKDROPS: { backdrop: GalleryBackdrop; label: string }[] = [
-  { backdrop: "zaisma", label: "Zaisma's own" },
-  { backdrop: "dark-game", label: "Dark game" },
-  { backdrop: "bright-game", label: "Bright game" },
-  { backdrop: "scene", label: "Scene" },
-];
 type GalleryTheme = "light" | "dark";
-type GalleryWidth = "wide" | "phone";
 
-interface GalleryView {
-  backdrop: GalleryBackdrop;
-  theme: GalleryTheme;
-  width: GalleryWidth;
-}
-
-/** The view a link asks for. The values are closed: anything else falls back to Zaisma's own, light and wide (it's a page, not the API). */
-function viewOf(url: URL): GalleryView {
-  const backdrop = url.searchParams.get("backdrop");
-  return {
-    backdrop: BACKDROPS.some((each) => each.backdrop === backdrop) ? (backdrop as GalleryBackdrop) : "zaisma",
-    theme: url.searchParams.get("theme") === "dark" ? "dark" : "light",
-    width: url.searchParams.get("width") === "phone" ? "phone" : "wide",
-  };
-}
-
-/** The address of a view, with only what differs from the first view. */
-function viewQuery(view: GalleryView): string {
-  const query = new URLSearchParams();
-  if (view.backdrop !== "zaisma") query.set("backdrop", view.backdrop);
-  if (view.theme !== "light") query.set("theme", view.theme);
-  if (view.width !== "wide") query.set("width", view.width);
-  const text = query.toString();
-  return text ? `?${text}` : "";
-}
+/** The theme a link asks for. Closed: anything but "dark" is light (it's a page, not the API). */
+const themeOf = (url: URL): GalleryTheme => (url.searchParams.get("theme") === "dark" ? "dark" : "light");
+const themeQuery = (theme: GalleryTheme) => (theme === "dark" ? "?theme=dark" : "");
 
 /** Each group is a page of its own: the foundations at /design, the rest at /design/<group>. */
 export const groupPath = (group: ComponentGroup) => (group === "foundations" ? "/design" : `/design/${group}`);
 const groupOfPath = (pathname: string): ComponentGroup | undefined => COMPONENT_GROUPS.find(({ group }) => groupPath(group) === pathname)?.group;
 
-const frameSource = (slug: string, view: GalleryView) => `/design/frame/${slug}${viewQuery({ ...view, width: "wide" })}`;
-
-/** The stage's own attributes: theme, backdrop, smoked glass over the dark game. A bright game keeps light glass whatever the theme. */
-const stageAttributes = (view: GalleryView, width: GalleryWidth) =>
-  html`class="stage${view.backdrop === "dark-game" ? " smoke" : ""}" data-backdrop="${view.backdrop}" data-theme-choice="${view.theme}" data-width="${width}"`;
-const stageGlassAttributes = (view: GalleryView) => (view.backdrop === "bright-game" ? raw(' data-theme-choice="light"') : "");
-
 function examples(each: Component): Raw {
   return html`<div class="examples">${each.examples.map((example) => html`<figure class="example${example.isWide ? " wide" : ""}"><div class="example-stage"${example.isStill ? raw(" inert") : ""}>${example.markup}</div><figcaption class="example-label">${example.label}</figcaption></figure>`)}</div>`;
 }
-
-const phoneFrame = (each: Component, view: GalleryView) =>
-  html`<iframe class="phone-frame" src="${frameSource(each.slug, view)}" width="375" height="720" title="${each.name} at phone width" loading="lazy"></iframe>`;
 
 /** The stand-in scene: a pane with a field, the runner and a cut button, resting on a rooftop when the scene is on. */
 const SCENE_EXAMPLE = html`<figure class="example wide scene-example"><div class="scene-box" data-design-scene><canvas class="scene-canvas" aria-hidden="true"></canvas><div class="scene-layer" data-scene-layer>
@@ -76,20 +37,11 @@ ${runButton("Sign in", { type: "button", isBig: true, sceneAnchor: "terrace-runn
 ${cutButton("Make an account", { type: "button", sceneAnchor: "lower-roof" })}
 </div></div><figcaption class="example-label">Resting in the scene · <span class="scene-mode" aria-live="polite">In front: starting</span></figcaption></figure>`;
 
-function section(each: Component, view: GalleryView): Raw {
+function section(each: Component, theme: GalleryTheme): Raw {
   return html`<section class="component-section" id="${each.slug}" aria-labelledby="${each.slug}-name" data-rail-mark="${each.name}">
-<div class="component-head glass" data-glass data-glass-corners="14 6 14 6"><h2 id="${each.slug}-name"><a href="#${each.slug}">${each.name}</a></h2><p>${each.summary}</p>${each.hasSceneMode ? html`<p class="scene-note">It can rest in a scene. <a href="${groupPath("panes")}${viewQuery({ ...view, backdrop: "scene" })}#glass-pane" data-gallery-page="${groupPath("panes")}" data-gallery-view="backdrop=scene">See it on the rooftop</a>.</p>` : ""}</div>
-${each.slug === "glass-pane" ? SCENE_EXAMPLE : ""}${examples(each)}<div class="phone-frames">${view.width === "phone" ? phoneFrame(each, view) : ""}</div>
+<div class="component-head glass" data-glass data-glass-corners="14 6 14 6"><h2 id="${each.slug}-name"><a href="#${each.slug}">${each.name}</a></h2><p>${each.summary}</p>${each.hasSceneMode && each.slug !== "glass-pane" ? html`<p class="scene-note">It can rest in a scene. <a href="${groupPath("panes")}${themeQuery(theme)}#glass-pane" data-gallery-page="${groupPath("panes")}">See it on the rooftop</a>.</p>` : ""}</div>
+${each.slug === "glass-pane" ? SCENE_EXAMPLE : ""}${examples(each)}
 </section>`;
-}
-
-function switches(view: GalleryView, group: ComponentGroup): Raw {
-  const link = (change: Partial<GalleryView>) => `${groupPath(group)}${viewQuery({ ...view, ...change })}`;
-  return html`<div class="gallery-switches">
-${tabSwitch({ label: "Background", switchSize: "small", tabs: BACKDROPS.map((each) => ({ label: each.label, href: link({ backdrop: each.backdrop }), isCurrent: view.backdrop === each.backdrop })) })}
-${tabSwitch({ label: "Theme", switchSize: "small", tabs: [{ label: "Light", href: link({ theme: "light" }), isCurrent: view.theme === "light" }, { label: "Dark", href: link({ theme: "dark" }), isCurrent: view.theme === "dark" }] })}
-${tabSwitch({ label: "Width", switchSize: "small", tabs: [{ label: "Wide", href: link({ width: "wide" }), isCurrent: view.width === "wide" }, { label: "Phone", href: link({ width: "phone" }), isCurrent: view.width === "phone" }] })}
-</div>`;
 }
 
 function head(title: string): Raw {
@@ -107,28 +59,27 @@ function head(title: string): Raw {
 export function designPage(env: Env, url: URL): Response | null {
   const group = groupOfPath(url.pathname.replace(/\/+$/, "") || "/");
   if (!group) return null;
-  const view = viewOf(url);
+  const theme = themeOf(url);
   const components = COMPONENTS();
   const groups = COMPONENT_GROUPS.filter(({ group: each }) => components.some((component) => component.group === each));
   const groupName = groups.find((each) => each.group === group)!.name;
-  const groupLink = (each: ComponentGroup) => html`href="${groupPath(each)}${viewQuery(view)}" data-gallery-page="${groupPath(each)}"`;
+  const groupTabs = groups.map(({ group: each, name }) => ({ label: name, href: `${groupPath(each)}${themeQuery(theme)}`, isCurrent: each === group }));
   const page = html`<!doctype html>
 <html lang="en">
 <head>
 ${head(`${groupName} · Design · Zaisma`)}
 </head>
 <body class="gallery">
-<div id="stage" ${stageAttributes(view, view.width)}>
-<div class="stage-glass"${stageGlassAttributes(view)}>
-<header class="gallery-bar glass" data-glass data-glass-corners="16 6 16 6">${EDGE}<a class="logo" href="/" aria-label="Zaisma home">${WORDMARK}</a><span class="gallery-title">Design</span>${switches(view, group)}</header>
+<div id="stage" class="stage" data-theme-choice="${theme}">
+<header class="gallery-bar glass" data-glass data-glass-corners="16 6 16 6">${EDGE}<a class="logo" href="/" aria-label="Zaisma home">${WORDMARK}</a><span class="gallery-title">Design</span>
+<div class="gallery-switches">${tabSwitch({ label: "Theme", switchSize: "small", tabs: [{ label: "Light", href: `${groupPath(group)}`, isCurrent: theme === "light" }, { label: "Dark", href: `${groupPath(group)}?theme=dark`, isCurrent: theme === "dark" }] })}</div></header>
 <div class="gallery-layout">
-<div class="gallery-index glass" data-glass data-glass-corners="14 6 14 6"><nav class="gallery-index-in" aria-label="Groups"><ul>${groups.map(({ group: each, name }) => html`<li><a ${groupLink(each)}${each === group ? raw(' aria-current="page"') : ""}>${name}</a></li>`)}</ul></nav></div>
-<div class="gallery-groups">${tabSwitch({ label: "Groups", switchSize: "small", tabs: groups.map(({ group: each, name }) => ({ label: name, href: `${groupPath(each)}${viewQuery(view)}`, isCurrent: each === group })) })}</div>
+<div class="gallery-index glass" data-glass data-glass-corners="14 6 14 6"><nav class="gallery-index-in" aria-label="Groups"><ul>${groupTabs.map((tab) => html`<li><a href="${tab.href}" data-gallery-page="${tab.href.split("?")[0]}"${tab.isCurrent ? raw(' aria-current="page"') : ""}>${tab.label}</a></li>`)}</ul></nav></div>
+<div class="gallery-groups">${tabSwitch({ label: "Groups", switchSize: "small", tabs: groupTabs })}</div>
 <main class="gallery-main">
 <h1 class="group-name">${groupName}</h1>
-${components.filter((each) => each.group === group).map((each) => section(each, view))}
+${components.filter((each) => each.group === group).map((each) => section(each, theme))}
 </main>
-</div>
 </div>
 </div>
 ${railMarkup("page")}
@@ -136,43 +87,16 @@ ${pageData("design-pages", Object.fromEntries(components.map((each) => [each.slu
 ${scriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT, GALLERY_SCRIPT, DESIGN_LOOPS_SCRIPT, DESIGN_SCENE_SCRIPT)}
 </body>
 </html>`;
-  return new Response(page.html, { headers: securityHeaders(env, {}, false, [env.SITE_ORIGIN]) });
-}
-
-/** GET /design/frame/<slug>: one component's examples alone, for the gallery's 375px phone frames. */
-export function designFramePage(env: Env, slug: string, url: URL): Response {
-  const each = componentBySlug(slug);
-  if (!each) return message(env, "No such component", "The gallery lists every component.", 404);
-  const view = viewOf(url);
-  const page = html`<!doctype html>
-<html lang="en">
-<head>
-${head(`${each.name} · Design · Zaisma`)}
-</head>
-<body class="gallery frame-page">
-<div id="stage" ${stageAttributes(view, "wide")}>
-<div class="stage-glass"${stageGlassAttributes(view)}>
-<main class="gallery-main"><h1 class="sr">${each.name}</h1>${examples(each)}</main>
-</div>
-</div>
-${railMarkup("page")}
-${scriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT, DESIGN_LOOPS_SCRIPT)}
-</body>
-</html>`;
-  return new Response(page.html, { headers: securityHeaders(env, {}, false, [], [], "'self'") });
+  return new Response(page.html, { headers: securityHeaders(env) });
 }
 
 export const GALLERY_STYLES = `
-/* The gallery: a stage with the backdrop behind everything, a glass bar with the switches, an index, and each component's examples in labelled cells. */
+/* The gallery: Zaisma's own page, a glass bar with the theme switch, the groups, and each component's examples in labelled cells. */
 html { scroll-padding-top: 96px; }
 body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
 .stage { min-height: 100vh; color: var(--ink); background: var(--page); }
-.stage[data-backdrop="dark-game"] { background: #120a14 url(/design/dark-game.webp) center / cover fixed; }
-.stage[data-backdrop="bright-game"] { background: #cfe5c4 url(/design/bright-game.webp) center / cover fixed; }
-.stage[data-backdrop="scene"] { background: linear-gradient(180deg, #2E78DE 0%, #6FA6EC 45%, #A6CBF4 100%) fixed; }
-.stage[data-backdrop="scene"][data-theme-choice="dark"] { background: linear-gradient(180deg, #050812 0%, #0B1226 55%, #142040 100%) fixed; }
 /* Padding, not the bar's margin, keeps it off the top: a margin would collapse through the stage and show a strip of nothing above it. */
-.stage-glass { min-height: 100vh; padding-top: 12px; color: var(--ink); }
+.stage { padding-top: 12px; }
 /* The bar floats like the header: inset from the top and both sides, with the header's own padding around what's in it. */
 .gallery-bar { position: sticky; top: 12px; z-index: 20; margin: 0 auto; width: calc(100% - 24px); max-width: 1480px; min-height: 68px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 22px; padding: 14px 16px 14px 26px;
   background-color: var(--glass-top); -webkit-backdrop-filter: blur(22px) saturate(1.7); backdrop-filter: blur(22px) saturate(1.7); }
@@ -202,6 +126,7 @@ body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
 .examples { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
 .example { margin: 0; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 .example.wide { grid-column: 1 / -1; }
+.example-stage > * { max-width: 100%; }
 .example-stage { position: relative; min-height: 90px; display: flex; align-items: center; justify-content: flex-start; flex-wrap: wrap; gap: 12px; padding: 18px; }
 .example-label { align-self: flex-start; font: 500 13px var(--display); color: var(--ink-2); padding: 2px 12px; background: var(--glass-tint);
   -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); }
@@ -222,33 +147,43 @@ body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
 .stand-in-page { padding: 100px 18px 160px; }
 .stand-in-page h3 { margin: 18px 0 8px; font: 600 20px var(--display); color: var(--ink); }
 .stand-in-row { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 14px; }
-.phone-frames:empty { display: none; }
-.phone-frame { display: block; width: 375px; height: 720px; max-width: 100%; border: 0; background: transparent; box-shadow: 0 0 0 1px var(--line), 0 18px 40px rgba(10,20,40,0.22); clip-path: polygon(0 18px, 18px 0, calc(100% - 9px) 0, 100% 9px, 100% calc(100% - 18px), calc(100% - 18px) 100%, 9px 100%, 0 calc(100% - 9px)); }
-.stage[data-width="phone"] .examples, .stage[data-width="phone"] .scene-example { display: none; }
-.stage[data-width="wide"] .phone-frames { display: none; }
-/* The stand-in scene: only over the Scene backdrop. */
-.scene-example { display: none; }
-.stage[data-backdrop="scene"] .scene-example { display: flex; }
 .scene-box { --horizon: 40%; position: relative; height: min(82vh, 760px); min-height: 560px; overflow: hidden;
   background: linear-gradient(180deg, #2E78DE 0%, #6FA6EC calc(var(--horizon) * 0.6), #A6CBF4 var(--horizon), #A6CBF4 100%); clip-path: polygon(0 18px, 18px 0, calc(100% - 9px) 0, 100% 9px, 100% calc(100% - 18px), calc(100% - 18px) 100%, 9px 100%, 0 calc(100% - 9px)); }
 .stage[data-theme-choice="dark"] .scene-box { background: linear-gradient(180deg, #050812 0%, #0B1226 calc(var(--horizon) * 0.6), #142040 var(--horizon), #142040 100%); }
 .scene-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .scene-layer { position: relative; z-index: 1; min-height: 100%; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 24px; padding: 48px; }
-/* The frame pages: one component, at the frame's own width. */
 /* With a mouse, the page's rail gets a gutter of its own, clear of the cards. */
 @media (hover: hover) and (pointer: fine) and (min-width: 761px) { .gallery-layout { padding-right: 34px; } }
-.frame-page .gallery-main { padding: 16px 12px; }
-.frame-page .examples { grid-template-columns: minmax(0, 1fr); }
-.frame-page .stand-in-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+/* Phones: the bar is one row (Zaisma, Design, light or dark), the groups a row of tabs under it that scrolls sideways, and every example a column of its own. */
 @media (max-width: 760px) {
-  .gallery-layout { grid-template-columns: minmax(0, 1fr); padding: 12px 10px 60px; }
+  html { scroll-padding-top: 70px; }
+  .stage { padding-top: 10px; }
+  .gallery-layout { grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 12px 10px 60px; }
   .gallery-index { display: none; }
-  .gallery-groups { display: block; position: sticky; top: 8px; z-index: 15; overflow-x: auto; scrollbar-width: none; }
+  .gallery-groups { display: block; position: sticky; top: 10px; z-index: 15; overflow-x: auto; scrollbar-width: none; margin: 0 -10px; padding: 0 10px; }
+  .gallery-groups::-webkit-scrollbar { display: none; }
   .gallery-groups .tab-switch { width: max-content; }
-  .gallery-bar { position: relative; top: 0; width: calc(100% - 20px); padding: 12px 12px 12px 18px; }
-  .gallery-switches { margin-left: 0; }
-  .examples { grid-template-columns: minmax(0, 1fr); }
-  .stand-in-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* More groups carry on past the edge: that side fades out. */
+  .gallery-groups { -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent); mask-image: linear-gradient(90deg, #000 85%, transparent); }
+  .gallery-bar { position: relative; top: 0; width: calc(100% - 20px); min-height: 56px; flex-wrap: nowrap; gap: 12px; padding: 8px 10px 8px 16px; }
+  .gallery-bar .logo svg { height: 20px; }
+  .gallery-title { font-size: 16px; padding-left: 10px; }
+  .gallery-switches { margin-left: auto; flex: none; }
+  .group-name { font-size: 24px; padding: 6px 16px; }
+  .component-section { scroll-margin-top: 70px; margin-bottom: 26px; }
+  .component-head { padding: 14px 16px; }
+  .component-head h2 { font-size: 20px; }
+  .examples { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .example-stage { padding: 12px 6px; }
+  .cover-sample { width: 100%; }
+  .menu-frame { height: 360px; }
+  .menu-frame > .cut-btn { right: 8px; }
+  .scene-layer { padding: 20px 12px; gap: 16px; }
+  .scene-box { height: auto; min-height: 0; }
+  /* The stand-in rows scroll sideways, as the home's do on a phone. */
+  .stand-in-row { display: flex; overflow-x: auto; scrollbar-width: none; }
+  .stand-in-row::-webkit-scrollbar { display: none; }
+  .stand-in-row > .cover { flex: 0 0 64vw; }
   .stand-in-page { padding-top: 140px; }
   .header-frame { height: 320px; }
   .header-frame.tall { height: 560px; }
@@ -256,69 +191,44 @@ body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
 `;
 
 /**
- * The gallery's switches swap the view in place, without a reload, and keep its address current, so any view can be sent.
- * Phone width swaps each component's examples for a 375px frame of it.
+ * The gallery's theme switch swaps light and dark in place, without a reload, and keeps the address current, so a view can be sent.
+ * A link inside an example never jumps the page: the examples' links are there to be pointed at.
  */
 export const GALLERY_SCRIPT = pageScript(
   "gallery",
   `(function () {
-  var stage = document.getElementById("stage"), glassBox = stage.querySelector(".stage-glass");
+  var stage = document.getElementById("stage");
   var pages = JSON.parse(document.getElementById("design-pages").textContent);
   // A link to a component on another group's page (like /design#runner-button) goes on to that page.
   var asked = location.hash.slice(1);
   if (asked && !document.getElementById(asked) && pages[asked]) { location.replace(pages[asked] + location.search + location.hash); return; }
-  var view = { backdrop: stage.dataset.backdrop, theme: stage.dataset.themeChoice, width: stage.dataset.width };
-  function query(v, keepWidth) {
-    var q = new URLSearchParams();
-    if (v.backdrop !== "zaisma") q.set("backdrop", v.backdrop);
-    if (v.theme !== "light") q.set("theme", v.theme);
-    if (keepWidth && v.width !== "wide") q.set("width", v.width);
-    var text = q.toString(); return text ? "?" + text : "";
-  }
-  function frames() {
-    document.querySelectorAll(".component-section").forEach(function (section) {
-      var box = section.querySelector(".phone-frames"), src = "/design/frame/" + section.id + query(view, false), frame = box.querySelector("iframe");
-      if (view.width !== "phone") return;
-      if (!frame) {
-        frame = document.createElement("iframe"); frame.className = "phone-frame"; frame.width = "375"; frame.height = "720"; frame.loading = "lazy";
-        frame.title = section.querySelector("h2").textContent + " at phone width"; box.appendChild(frame);
-      }
-      if (frame.getAttribute("src") !== src) frame.setAttribute("src", src);
-    });
-  }
-  function switchOf(link) { var group = link.closest(".tab-switch").getAttribute("aria-label"); return group === "Background" ? "backdrop" : group === "Theme" ? "theme" : "width"; }
-  var FIRST = { backdrop: "zaisma", theme: "light", width: "wide" };
-  function apply() {
-    stage.dataset.backdrop = view.backdrop; stage.dataset.themeChoice = view.theme; stage.dataset.width = view.width;
-    stage.classList.toggle("smoke", view.backdrop === "dark-game");
-    if (view.backdrop === "bright-game") glassBox.setAttribute("data-theme-choice", "light"); else glassBox.removeAttribute("data-theme-choice");
-    frames();
-    // Every switch's links carry the rest of the view, so a link opened on its own lands on the same view.
+  function query(theme) { return theme === "dark" ? "?theme=dark" : ""; }
+  // Light or dark switches in place, and every link to another group's page keeps it.
+  function apply(theme) {
+    stage.dataset.themeChoice = theme;
     document.querySelectorAll(".gallery-switches a").forEach(function (link) {
-      var key = switchOf(link), value = new URL(link.href).searchParams.get(key) || FIRST[key], next = Object.assign({}, view); next[key] = value;
-      link.href = location.pathname + query(next, true);
-      if (view[key] === value) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current");
+      var isDark = new URL(link.href).searchParams.get("theme") === "dark";
+      if ((theme === "dark") === isDark) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current");
     });
-    // And so do the links to the other groups' pages.
-    document.querySelectorAll("[data-gallery-page]").forEach(function (link) {
-      var change = {}, hash = new URL(link.href).hash;
-      if (link.hasAttribute("data-gallery-view")) new URLSearchParams(link.getAttribute("data-gallery-view")).forEach(function (value, key) { change[key] = value; });
-      link.href = link.getAttribute("data-gallery-page") + query(Object.assign({}, view, change), true) + hash;
+    document.querySelectorAll("[data-gallery-page], .gallery-groups a").forEach(function (link) {
+      var url = new URL(link.href); link.href = url.pathname + query(theme) + url.hash;
     });
-    history.replaceState(null, "", location.pathname + query(view, true) + location.hash);
+    history.replaceState(null, "", location.pathname + query(theme) + location.hash);
   }
   document.addEventListener("click", function (event) {
-    var link = event.target.closest && event.target.closest(".gallery-switches a, [data-gallery-view]");
+    var link = event.target.closest && event.target.closest(".gallery-switches a");
     if (!link || event.metaKey || event.ctrlKey || event.shiftKey || event.button) return;
-    var url = new URL(link.href);
-    if (url.pathname !== location.pathname) return; // another group's page: the link already carries the view
     event.preventDefault();
-    if (link.hasAttribute("data-gallery-view")) new URLSearchParams(link.getAttribute("data-gallery-view")).forEach(function (value, key) { view[key] = value; });
-    else { var key = switchOf(link); view[key] = url.searchParams.get(key) || FIRST[key]; }
-    apply();
-    if (url.hash) { var target = document.getElementById(url.hash.slice(1)); if (target) target.scrollIntoView({ block: "start" }); history.replaceState(null, "", location.pathname + query(view, true) + url.hash); }
+    apply(new URL(link.href).searchParams.get("theme") === "dark" ? "dark" : "light");
   });
-  apply();
+  document.addEventListener("click", function (event) {
+    var link = event.target.closest && event.target.closest('.example-stage a[href^="#"], .example-stage a[href^="/"]');
+    if (link) event.preventDefault();
+  });
+  // On a phone, the row of groups starts scrolled to the one you're on.
+  var groups = document.querySelector(".gallery-groups"), here = groups && groups.querySelector('[aria-current="page"]');
+  if (here) groups.scrollLeft = Math.max(0, here.offsetLeft - (groups.clientWidth - here.offsetWidth) / 2);
+  document.addEventListener("submit", function (event) { if (event.target.closest(".example-stage")) event.preventDefault(); });
 })();
 `,
 );
@@ -607,8 +517,10 @@ export const DESIGN_SCENE_SCRIPT = pageScript(
   }
   function start() { if (running) return; running = true; startedAt = performance.now(); last = 0; decide(); if (!reason) loop(performance.now()); }
   function stop() { running = false; cancelAnimationFrame(frameId); decide(); }
-  function follow() { if (stage.dataset.backdrop === "scene" && stage.dataset.width !== "phone") start(); else stop(); }
-  new MutationObserver(follow).observe(stage, { attributes: true, attributeFilter: ["data-backdrop", "data-width", "data-theme-choice"] });
+  // It runs only while it's on screen.
+  var onScreen = false;
+  function follow() { if (onScreen) start(); else stop(); }
+  if (window.IntersectionObserver) new IntersectionObserver(function (entries) { onScreen = entries[entries.length - 1].isIntersecting; follow(); }).observe(box); else onScreen = true;
   new MutationObserver(function () { if (running) loop(performance.now()); }).observe(stage, { attributes: true, attributeFilter: ["data-theme-choice"] });
   document.addEventListener("visibilitychange", function () { if (!document.hidden && running) { last = 0; loop(performance.now()); } });
   if (window.ResizeObserver) new ResizeObserver(function () { if (running) loop(performance.now()); }).observe(box);

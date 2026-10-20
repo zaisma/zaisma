@@ -86,8 +86,8 @@ export function glassButton(label: string, options: { href?: string; type?: "sub
 }
 
 /** The guest way: a clear cut button with a drawn outline, the quietest way on. */
-export function guestButton(label: string, options: { href: string }): Raw {
-  return html`<a class="guest-btn" href="${options.href}" data-cut-line="10">${CUT_LINE}<span>${label}</span><svg viewBox="0 0 12 20" width="9" height="14" aria-hidden="true"><path d="M2 2l8 8-8 8" fill="none" stroke="currentColor" stroke-width="2.4"/></svg></a>`;
+export function guestButton(label: string, options: { href?: string; type?: "submit" | "button" } = {}): Raw {
+  return html`${opening("guest-btn", { href: options.href, type: options.type ?? "button" }, false, 10)}${CUT_LINE}<span>${label}</span><svg viewBox="0 0 12 20" width="9" height="14" aria-hidden="true"><path d="M2 2l8 8-8 8" fill="none" stroke="currentColor" stroke-width="2.4"/></svg>${closing({ href: options.href })}`;
 }
 
 /** The runner button: it lifts and leans toward the pointer, a reflection slides the other way, and one glint sweeps as the pointer arrives and always finishes. */
@@ -178,10 +178,10 @@ component({
   render: runButton,
   hasSceneMode: true,
   examples: [
-    ...stateExamples((state) => runButton("Sign in", { href: "#runner-button", state }), "runner"),
+    ...stateExamples((state) => runButton("Sign in", { type: "button", state }), "runner"),
     { label: "Busy", markup: runButton("Sign in", { type: "button", isBusy: true, busyLabel: "Signing in" }), isStill: true },
     { label: "Small", markup: runButton("Next", { type: "button" }) },
-    { label: "Big, with Play", markup: runButton("Play", { href: "#runner-button", isBig: true, icon: "play" }) },
+    { label: "Big, with Play", markup: runButton("Play", { type: "button", isBig: true, icon: "play" }) },
     { label: "Full width", markup: html`<div style="width:min(380px,100%)">${runButton("Sign in", { type: "button", isFullWidth: true, isBig: true })}</div>` },
   ],
 });
@@ -210,11 +210,11 @@ component({
   render: cutButton,
   hasSceneMode: true,
   examples: [
-    ...stateExamples((state) => cutButton("Details", { href: "#cut-button", state }), "cut"),
+    ...stateExamples((state) => cutButton("Details", { type: "button", state }), "cut"),
     { label: "Busy", markup: cutButton("Saving", { type: "button", isBusy: true }), isStill: true },
-    { label: "With an icon", markup: cutButton("Settings", { href: "#cut-button", icon: "gear" }) },
-    { label: "Big, beside Play", markup: html`<div style="display:flex;gap:12px">${runButton("Play", { href: "#cut-button", isBig: true, icon: "play" })}${cutButton("Details", { href: "#cut-button", isBig: true })}</div>` },
-    { label: "Full width", markup: html`<div style="width:min(380px,100%)">${cutButton("Make an account", { href: "#cut-button", isFullWidth: true })}</div>` },
+    { label: "With an icon", markup: cutButton("Settings", { type: "button", icon: "gear" }) },
+    { label: "Big, beside Play", markup: html`<div style="display:flex;gap:12px">${runButton("Play", { type: "button", isBig: true, icon: "play" })}${cutButton("Details", { type: "button", isBig: true })}</div>` },
+    { label: "Full width", markup: html`<div style="width:min(380px,100%)">${cutButton("Make an account", { type: "button", isFullWidth: true })}</div>` },
     { label: "A delete", markup: cutButton("Delete this game", { type: "button" }) },
   ],
 });
@@ -248,9 +248,9 @@ component({
   examples: [
     {
       label: "Try it: the ways in",
-      markup: html`<div style="display:grid;gap:10px;width:min(380px,100%)">${glassButton("Sign in with a passkey", { icon: "passkey" })}${glassButton("Continue with Google", { href: "#glass-button", icon: "google" })}${glassButton("Continue with Discord", { href: "#glass-button", icon: "discord" })}</div>`,
+      markup: html`<div style="display:grid;gap:10px;width:min(380px,100%)">${glassButton("Sign in with a passkey", { icon: "passkey" })}${glassButton("Continue with Google", { icon: "google" })}${glassButton("Continue with Discord", { icon: "discord" })}</div>`,
     },
-    { label: "On a loop: pointed, let go", markup: html`<div style="width:min(380px,100%)" data-state-loop="glass">${glassButton("Continue with Google", { href: "#glass-button", icon: "google" })}</div>`, isStill: true },
+    { label: "On a loop: pointed, let go", markup: html`<div style="width:min(380px,100%)" data-state-loop="glass">${glassButton("Continue with Google", { icon: "google" })}</div>`, isStill: true },
   ],
 });
 
@@ -261,7 +261,7 @@ component({
   summary: "The quietest way on, like Continue as guest: an outline and nothing else.",
   styles: `
 /* The guest way: a clear cut button with a drawn outline, quieter than the ways to sign in. */
-.guest-btn { position: relative; display: flex; align-items: center; justify-content: center; gap: 10px; height: 48px; width: 100%;
+.guest-btn { position: relative; display: flex; align-items: center; justify-content: center; gap: 10px; height: 48px; width: 100%; border: 0; cursor: pointer;
   font: 600 15px var(--display); color: var(--ink); text-decoration: none; background: transparent;
   clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%); transition: background 0.2s; }
 .guest-btn > :not(.cut-line) { position: relative; z-index: 2; }
@@ -275,7 +275,7 @@ component({
 `,
   render: guestButton,
   examples: [
-    { label: "Try it", markup: html`<div style="width:min(380px,100%)">${guestButton("Continue as guest", { href: "#guest-button" })}</div>` },
-    { label: "On a loop: pointed, let go", markup: html`<div style="width:min(380px,100%)" data-state-loop="guest">${guestButton("Continue as guest", { href: "#guest-button" })}</div>`, isStill: true },
+    { label: "Try it", markup: html`<div style="width:min(380px,100%)">${guestButton("Continue as guest")}</div>` },
+    { label: "On a loop: pointed, let go", markup: html`<div style="width:min(380px,100%)" data-state-loop="guest">${guestButton("Continue as guest")}</div>`, isStill: true },
   ],
 });
