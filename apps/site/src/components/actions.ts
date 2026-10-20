@@ -83,9 +83,15 @@ const PASSKEY = raw(
 /** The other ways in, with the marks their owners ask for. */
 const WAY_ICONS = { google: GOOGLE, discord: DISCORD, passkey: PASSKEY } as const;
 
+/** A glass button's tint: clear glass, or glass tinted the colour of the way in. Each way has its own unless the page picks one. */
+export type GlassTint = "clear" | "white" | "blue" | "indigo";
+const WAY_TINTS: Record<keyof typeof WAY_ICONS, GlassTint> = { google: "white", discord: "indigo", passkey: "clear" };
+
 /** A glass button for another way in (a passkey, Google, Discord): a small slab of the panes' glass, with their rim. Quieter than the runner, louder than the guest way. */
-export function glassButton(label: string, options: { href?: string; type?: "submit" | "button"; icon: keyof typeof WAY_ICONS; state?: ButtonState }): Raw {
-  return html`${opening(classes("glass-btn", options.state), { href: options.href, type: options.type ?? "button" }, false, undefined, raw(' data-glass data-glass-corners="12 4 12 4"'))}${WAY_ICONS[options.icon]}<span>${label}</span>${closing({ href: options.href })}`;
+export function glassButton(label: string, options: { href?: string; type?: "submit" | "button"; icon: keyof typeof WAY_ICONS; tint?: GlassTint; state?: ButtonState }): Raw {
+  const tint = options.tint ?? WAY_TINTS[options.icon];
+  const extra = raw(` data-glass data-glass-corners="12 4 12 4"${tint === "clear" ? "" : ` data-tint="${tint}"`}`);
+  return html`${opening(classes("glass-btn", options.state), { href: options.href, type: options.type ?? "button" }, false, undefined, extra)}${WAY_ICONS[options.icon]}<span>${label}</span>${closing({ href: options.href })}`;
 }
 
 const GUEST_ARROW = raw('<span class="arrow" aria-hidden="true"><svg viewBox="0 0 12 20" width="8" height="12"><path d="M2 2l8 8-8 8" fill="none" stroke="currentColor" stroke-width="2.4"/></svg></span>');
@@ -272,7 +278,8 @@ component({
 });
 
 const PICTURE = "display:grid;gap:10px;width:min(380px,100%);padding:20px;background-position:center;background-size:cover;";
-const wayIn = (state?: ButtonState) => glassButton("Continue with Google", { icon: "google", state });
+const wayIn = (state?: ButtonState) => glassButton("Sign in with a passkey", { icon: "passkey", state });
+const TINT_NAMES: Record<GlassTint, string> = { clear: "Clear", white: "White, like Google's", blue: "Blue", indigo: "Indigo, like Discord's" };
 const waysIn = () => html`${glassButton("Sign in with a passkey", { icon: "passkey" })}${glassButton("Continue with Google", { icon: "google" })}${glassButton("Continue with Discord", { icon: "discord" })}`;
 
 component({
@@ -310,12 +317,21 @@ component({
 .glass-btn:focus-visible .edge .hair, .glass-btn.is-focused .edge .hair { stroke: var(--ink); stroke-width: 2; }
 .glass-btn:focus-visible .edge .rim, .glass-btn.is-focused .edge .rim { stroke: var(--ink); stroke-width: 2; }
 .glass-btn:focus-visible .edge .facet, .glass-btn:focus-visible .edge .fringe, .glass-btn.is-focused .edge .facet, .glass-btn.is-focused .edge .fringe { opacity: 0; }
+/* Tinted: the way's colour laid into the glass, stronger as you point at it. White glass keeps dark words in either theme. */
+.glass-btn[data-tint] { --tint-alpha: var(--glass-btn-tint-rest); background-image: linear-gradient(rgba(var(--tint), var(--tint-alpha)), rgba(var(--tint), var(--tint-alpha))), var(--glass-sheen);
+  transition: background-color 0.25s, box-shadow 0.2s, transform 0.4s ${SPRING}, --tint-alpha 0.25s; }
+.glass-btn[data-tint]:hover, .glass-btn[data-tint].is-pointed, .glass-btn[data-tint]:focus-visible, .glass-btn[data-tint].is-focused { --tint-alpha: var(--glass-btn-tint-hover); }
+.glass-btn[data-tint]:active, .glass-btn[data-tint].is-pressed { --tint-alpha: var(--glass-btn-tint-press); }
+.glass-btn[data-tint="blue"] { --tint: 42, 117, 232; }
+.glass-btn[data-tint="indigo"] { --tint: 88, 101, 242; }
+.glass-btn[data-tint="white"] { --tint: 255, 255, 255; --glass-btn-tint-rest: 0.86; --glass-btn-tint-hover: 0.97; --glass-btn-tint-press: 0.74; color: #14171C; }
 @media (prefers-reduced-motion: reduce) { .glass-btn, .glass-btn > svg:not(.edge) { transition: background-color 0.25s; } }
 `,
   render: glassButton,
   examples: [
     ...stateExamples(wayIn, "glass", true),
-    { label: "The ways in", markup: html`<div style="display:grid;gap:10px;${COLUMN}">${waysIn()}</div>` },
+    ...(Object.keys(TINT_NAMES) as GlassTint[]).map((tint) => ({ label: TINT_NAMES[tint], markup: html`<div style="${COLUMN}">${glassButton("Sign in with a passkey", { icon: "passkey", tint })}</div>` })),
+    { label: "The ways in, each in its own tint", markup: html`<div style="display:grid;gap:10px;${COLUMN}">${waysIn()}</div>` },
     // Over a game's picture the glass follows the picture, not the theme: light glass on a bright one, smoked on a dark one.
     { label: "Over a bright picture", markup: html`<div data-theme-choice="light" style="${PICTURE}background-image:url(/design/covers/frostline.webp)">${waysIn()}</div>` },
     { label: "Over a dark picture", markup: html`<div class="smoke" style="${PICTURE}background-image:url(/design/covers/neon-drift.webp)">${waysIn()}</div>` },
