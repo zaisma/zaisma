@@ -180,9 +180,9 @@ const RUN_STYLES = `
 .run-wrap.is-pointed { --lift: -1.5px; }
 /* Pressed: the face goes down onto its side, a touch darker, quickly; it springs back when let go. */
 .run-wrap:active > .run, .run-wrap.is-pressed > .run { --lift: calc(var(--depth) - 1px); filter: brightness(0.95) saturate(1.05); transition-duration: 0.08s; }
-/* Keyboard focus: a clean 2px ink outline hugging the whole slab, face and side, drawn from the slab's own shape so it keeps the slant, the point and the side. Its glow steps aside so only the outline shows. */
+/* Keyboard focus: a clean 2px ink outline hugging the whole slab, face and side, drawn from the slab's own shape so it keeps the slant, the point and the side. Its glow goes at once, so the outline never draws round a fading blur. */
 .run-wrap:focus-visible, .run-wrap.is-focused { filter: drop-shadow(2px 0 0 var(--ink)) drop-shadow(-2px 0 0 var(--ink)) drop-shadow(0 2px 0 var(--ink)) drop-shadow(0 -2px 0 var(--ink)); }
-.run-wrap:focus-visible::before, .run-wrap.is-focused::before { opacity: 0; }
+.run-wrap:focus-visible::before, .run-wrap.is-focused::before { opacity: 0; transition: none; }
 /* Busy: pressed and waiting. The arrow drifts on; the label says what's happening when the page gave one. */
 .run-wrap[aria-busy="true"] { cursor: progress; }
 .run-wrap[aria-busy="true"] .label-idle, .run-wrap:not([aria-busy="true"]) .label-busy { display: none; }
