@@ -124,7 +124,16 @@ export const TOKEN_STYLES = `
   --display: "Jost", Futura, "Century Gothic", "Avenir Next", sans-serif;
   --body: -apple-system, "Segoe UI", system-ui, sans-serif;
   --spring: cubic-bezier(.3, 1.2, .4, 1);
+  /* Spacing (docs/DESIGN.md, Spacing): every gap, padding and margin is one of these, picked by what sits on each side.
+     --gap-control-control is also the edge rule's neighbour distance: two controls that far apart slant, further apart they don't. */
+  --gap-control-control: 8px;
+  --gap-words-control: 8px;
+  --gap-words-words: 8px;
+  --gap-block-block: 24px;
+  --pad-pane: 24px;
+  --pad-inner-pane: 12px;
 }
+@media (max-width: 760px) { :root { --pad-pane: 18px; } }
 :root, [data-theme-choice="light"] { ${LIGHT_GLASS} --page: #EEF2F7; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme-choice="light"]) { ${SMOKED_GLASS} --page: #0D1015; } }
 [data-theme-choice="dark"] { ${SMOKED_GLASS} --page: #0D1015; }
@@ -397,7 +406,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   /*
    * The edge rule, one for every action and input (cutLine draws it, and glass for a control made of glass):
    * - An end slants only where another control sits right beside it in a row (tabs in a switch, Play and its details):
-   *   within BESIDE_GAP_PX, side by side. Both share the slant, so the gap between them runs parallel.
+   *   no further apart than --gap-control-control, side by side. Both share the slant, so the gap between them runs parallel.
    * - Every other corner fits what holds it (the glass pane, or a control it sits in): it takes the holder's outline moved
    *   in by the gap round it, so the gap stays even. Near a corner of the pane that's the pane's cut, less the gap; along a
    *   straight edge, or in the middle, it's square. A control alone in a pane fits it at its top and its bottom.
@@ -405,7 +414,8 @@ export const GLASS_SCRIPT = `/* glass */(function () {
    *   control on no pane is stacked right above or below it (the pane would hold them both), where it's square.
    * The shape goes to CSS as --cut-shape, and el.cutCorners holds its corners for what sits inside it.
    */
-  var BESIDE_GAP_PX = 16, LONE_CORNERS = [18, 9, 18, 9];
+  // Half a pixel over the token, for gaps a layout rounds.
+  var BESIDE_GAP_PX = (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--gap-control-control")) || 8) + 0.5, LONE_CORNERS = [18, 9, 18, 9];
   function glassCorners(pane) {
     var cuts = (pane.getAttribute("data-glass-corners") || "16 6 16 6").trim().split(/ +/).map(Number), short = Math.min(pane.offsetWidth, pane.offsetHeight);
     return cuts.map(function (cut) { return Math.min(cut, Math.round(short * 0.3)); });
@@ -732,8 +742,8 @@ component({
   styles: `
 /* Colour: the gallery's swatches. */
 .swatch-pane { width: 100%; }
-.swatches { list-style: none; margin: 0; padding: 18px; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px 18px; }
-.swatches li { display: grid; grid-template-columns: 36px 1fr; grid-template-rows: auto auto; column-gap: 10px; align-items: center; font: 500 13px var(--display); }
+.swatches { list-style: none; margin: 0; padding: var(--pad-pane); display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--gap-block-block); }
+.swatches li { display: grid; grid-template-columns: 36px 1fr; grid-template-rows: auto auto; column-gap: var(--gap-words-words); align-items: center; font: 500 13px var(--display); }
 .swatches .chip-swatch { grid-row: span 2; width: 36px; height: 36px; box-shadow: inset 0 0 0 1px var(--line); clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px); }
 .swatches code { font: 600 13px ui-monospace, Menlo, monospace; }
 .swatches span:last-child { color: var(--muted); }
@@ -750,7 +760,7 @@ component({
   summary: "Jost for headings, names and controls; the system's own face for reading. Words are 16px in fields, so phones don't zoom in.",
   styles: `
 /* Type: Jost for display, the system face for body text. */
-.type-sample { width: 100%; display: grid; gap: 10px; color: var(--ink); }
+.type-sample { width: 100%; display: grid; gap: var(--gap-block-block); color: var(--ink); }
 .type-sample .d40 { font: 600 40px/1.04 var(--display); letter-spacing: -0.01em; }
 .type-sample .d30 { font: 600 30px/1.1 var(--display); }
 .type-sample .d22 { font: 600 22px var(--display); }
@@ -758,8 +768,8 @@ component({
 .type-sample .d15 { font: 500 15px var(--display); }
 .type-sample .b15 { font: 15px/1.5 var(--body); color: var(--ink-2); max-width: 60ch; }
 .type-sample .b13 { font: 500 13px/1.3 var(--display); color: var(--muted); }
-.type-sample small { font: 500 12px ui-monospace, Menlo, monospace; color: var(--muted); margin-left: 10px; }
-@media (max-width: 760px) { .type-sample small { display: block; margin: 2px 0 0; } .type-sample .d40 { font-size: 32px; } }
+.type-sample small { font: 500 12px ui-monospace, Menlo, monospace; color: var(--muted); margin-left: var(--gap-words-words); }
+@media (max-width: 760px) { .type-sample small { display: block; margin: 0; } .type-sample .d40 { font-size: 32px; } }
 `,
   examples: [
     {
@@ -816,7 +826,7 @@ component({
   group: "foundations",
   summary: "Every page has one set of settings that all its components follow: light or dark, and each component's own, like the glass's hue. One change covers every instance at once, and a page only carries the ones its components use.",
   styles: `
-.setting-picks { display: flex; flex-wrap: wrap; gap: 10px; }
+.setting-picks { display: flex; flex-wrap: wrap; gap: var(--gap-control-control); }
 .setting-picks .hue-dot { position: relative; z-index: 2; width: 12px; height: 12px; border-radius: 50%; }
 .setting-picks [aria-pressed="true"] > .face { background: var(--btn-hover); box-shadow: inset 0 -3px 0 var(--run); }
 `,
@@ -841,12 +851,12 @@ component({
   summary: "Zaisma's interface is glass over the game or the page's backdrop, never over a plain colour. It's as thin as the words allow: light with dark words, or smoked with light words.",
   styles: `
 /* Glass: shown over a few shapes, so the blur has something to show. */
-.glass-strip { width: 100%; position: relative; display: flex; flex-wrap: wrap; gap: 18px; padding: 26px; overflow: hidden; }
+.glass-strip { width: 100%; position: relative; display: flex; flex-wrap: wrap; gap: var(--gap-block-block); padding: var(--pad-pane); overflow: hidden; }
 .glass-strip > i { position: absolute; width: 140px; height: 140px; border-radius: 50%; }
 .glass-strip > i:nth-child(1) { left: 6%; top: -30px; background: #F7931A; }
 .glass-strip > i:nth-child(2) { left: 38%; top: 40px; width: 220px; height: 90px; border-radius: 0; transform: rotate(-12deg); background: #3B6FD0; }
 .glass-strip > i:nth-child(3) { right: 8%; top: 10px; background: #1E9C8E; }
-.glass-strip .glass { flex: 1 1 180px; min-height: 110px; padding: 18px 20px; font: 500 15px/1.4 var(--display); }
+.glass-strip .glass { flex: 1 1 180px; min-height: 110px; padding: var(--pad-pane); font: 500 15px/1.4 var(--display); }
 .glass-strip .glass strong { display: block; font: 600 17px var(--display); }
 .glass-strip .glass-kind::after { content: var(--glass-kind); }
 /* Any size: one glass window over drifting shapes, to drag about and pull to any size (the gallery's script moves it).
@@ -862,8 +872,8 @@ component({
 @keyframes glass-drift-a { to { transform: translate(90px, 50px); } }
 @keyframes glass-drift-b { to { transform: translate(-70px, -40px) rotate(8deg); } }
 @keyframes glass-drift-c { to { transform: translate(-60px, 70px); } }
-.glass-window { position: absolute; left: 6%; top: 36px; width: min(320px, 80%); height: 200px; container-type: size; padding: 18px 20px;
-  display: flex; flex-direction: column; gap: 6px; overflow: hidden; cursor: grab; user-select: none; -webkit-user-select: none; touch-action: none; }
+.glass-window { position: absolute; left: 6%; top: 36px; width: min(320px, 80%); height: 200px; container-type: size; padding: var(--pad-pane);
+  display: flex; flex-direction: column; gap: var(--gap-words-words); overflow: hidden; cursor: grab; user-select: none; -webkit-user-select: none; touch-action: none; }
 .glass-window.is-moving { cursor: grabbing; }
 .glass-window:focus-visible { outline: none; }
 .glass-window:focus-visible .edge .hair, .glass-window:focus-visible .edge .rim { stroke: var(--ink); stroke-width: 2; }
@@ -932,7 +942,7 @@ component({
 :has(> .backdrop) { isolation: isolate; }
 .backdrop-frame { position: relative; width: 100%; height: 220px; display: flex; align-items: center; justify-content: center; overflow: hidden;
   clip-path: polygon(0 18px, 18px 0, calc(100% - 9px) 0, 100% 9px, 100% calc(100% - 18px), calc(100% - 18px) 100%, 9px 100%, 0 calc(100% - 9px)); }
-.backdrop-frame .glass { width: min(260px, 80%); padding: 16px 20px; display: flex; flex-direction: column; gap: 2px; font: 500 14px/1.4 var(--display); color: var(--ink-2); }
+.backdrop-frame .glass { width: min(260px, 80%); padding: var(--pad-pane); display: flex; flex-direction: column; gap: var(--gap-words-words); font: 500 14px/1.4 var(--display); color: var(--ink-2); }
 .backdrop-frame .glass strong { font: 600 17px var(--display); color: var(--ink); }
 `,
   examples: [
@@ -949,8 +959,8 @@ component({
   summary: "Corners are cut, never rounded: 16 and 6 on the header, 18 and 9 on panes, and a 10px slant on buttons and fields.",
   styles: `
 /* Cut shapes: the three cuts. */
-.cuts { display: flex; flex-wrap: wrap; gap: 22px; align-items: flex-end; }
-.cuts figure { margin: 0; display: grid; gap: 8px; font: 500 13px var(--display); color: var(--muted); }
+.cuts { display: flex; flex-wrap: wrap; gap: var(--gap-block-block); align-items: flex-end; }
+.cuts figure { margin: 0; display: grid; gap: var(--gap-words-control); font: 500 13px var(--display); color: var(--muted); }
 .cuts .shape { background: var(--ink); opacity: 0.85; }
 .cuts .header-cut { width: 260px; height: 68px; clip-path: polygon(0 16px, 16px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 16px), calc(100% - 16px) 100%, 6px 100%, 0 calc(100% - 6px)); }
 .cuts .pane-cut { width: 200px; height: 140px; clip-path: polygon(0 18px, 18px 0, calc(100% - 9px) 0, 100% 9px, 100% calc(100% - 18px), calc(100% - 18px) 100%, 9px 100%, 0 calc(100% - 9px)); }
@@ -966,39 +976,14 @@ component({
 });
 
 component({
-  name: "Motion",
-  slug: "motion",
-  group: "foundations",
-  summary: "Things move only when pointed at or pressed: a spring of 0.55s for slabs, 0.45s for a change of size. Reduced motion stops all of it.",
-  styles: `
-/* Motion: a slab sliding between two tabs on point, with the spring. */
-.motion-demo { position: relative; display: grid; grid-template-columns: 1fr 1fr; width: min(320px, 100%); height: 44px; padding: 4px; background: var(--well); box-shadow: var(--well-shade);
-  clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%); }
-/* The slab never takes the pointer, so moving under it doesn't end the point that moved it. */
-.motion-demo .slab { position: absolute; z-index: 0; pointer-events: none; top: 4px; bottom: 4px; left: 4px; width: calc(50% - 4px); background: var(--slab); box-shadow: var(--slab-shade), inset 0 -3px 0 var(--run);
-  clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%); transition: transform 0.55s var(--spring); }
-.motion-demo span:not(.slab) { position: relative; z-index: 1; display: grid; place-items: center; font: 500 15px var(--display); color: var(--ink-2); cursor: default; }
-.motion-demo:has(.second:hover) .slab { transform: translateX(100%); }
-.motion-note { margin: 10px 0 0; font: 500 13px var(--display); color: var(--muted); }
-@media (prefers-reduced-motion: reduce) { .motion-demo .slab { transition: none; } }
-`,
-  examples: [
-    {
-      label: "Point at the second tab",
-      markup: html`<div class="motion-demo"><span>Spring 0.55s</span><span class="second">Point here</span><span class="slab" aria-hidden="true"></span></div><p class="motion-note">cubic-bezier(.3, 1.2, .4, 1)</p>`,
-    },
-  ],
-});
-
-component({
   name: "Icons",
   slug: "icons",
   group: "foundations",
   summary: "Thin line icons in the words' colour, so a kind of fact can be found without reading. Never decoration.",
   styles: `
 /* Icons: the set, with names. */
-.icon-set { width: 100%; list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 14px; color: var(--ink); }
-.icon-set li { display: flex; align-items: center; gap: 10px; font: 500 13px var(--display); color: var(--ink-2); }
+.icon-set { width: 100%; list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: var(--gap-block-block); color: var(--ink); }
+.icon-set li { display: flex; align-items: center; gap: var(--gap-words-words); font: 500 13px var(--display); color: var(--ink-2); }
 .icon-set .ico { width: 20px; height: 20px; color: var(--ink); }
 .icon-set .play { color: var(--ink); }
 `,

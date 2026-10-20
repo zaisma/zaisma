@@ -98,38 +98,38 @@ html { scroll-padding-top: 96px; }
 body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
 .stage { min-height: 100vh; color: var(--ink); background: var(--page); }
 /* Padding, not the bar's margin, keeps it off the top: a margin would collapse through the stage and show a strip of nothing above it. */
-.stage { padding-top: 12px; }
+.stage { padding-top: var(--pad-pane); }
 /* The bar floats like the header: inset from the top and both sides, with the header's own padding around what's in it. */
-.gallery-bar { position: sticky; top: 12px; z-index: 20; margin: 0 auto; width: calc(100% - 24px); max-width: 1480px; min-height: 68px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 22px; padding: 14px 16px 14px 26px;
+.gallery-bar { position: sticky; top: var(--pad-pane); z-index: 20; margin: 0 auto; width: calc(100% - 2 * var(--pad-pane)); max-width: calc(1480px - 2 * var(--pad-pane)); min-height: 68px; display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-control-control) var(--gap-words-words); padding: var(--pad-inner-pane);
   --glass-tint: var(--glass-top); }
 .gallery-bar .logo svg { height: 24px; }
-.gallery-title { font: 600 18px var(--display); color: var(--ink-2); padding-left: 14px; border-left: 1px solid var(--line); }
+.gallery-title { font: 600 18px var(--display); color: var(--ink-2); padding-left: var(--gap-words-words); border-left: 1px solid var(--line); }
 .theme-button { margin-left: auto; }
 .theme-button > .face { width: 52px; padding: 0; }
 .theme-button .theme-sun, .theme-button .theme-moon { position: relative; z-index: 2; flex: none; }
 .stage[data-theme-choice="dark"] .theme-sun, .stage:not([data-theme-choice="dark"]) .theme-moon { display: none; }
-.gallery-layout { max-width: 1480px; margin: 0 auto; padding: 18px 12px 80px; display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 18px; align-items: start; }
+.gallery-layout { max-width: 1480px; margin: 0 auto; padding: var(--gap-block-block) var(--pad-pane) calc(2 * var(--gap-block-block)); display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: var(--gap-block-block); align-items: start; }
 .gallery-index { position: sticky; top: 100px; display: flex; max-height: calc(100vh - 114px); }
 .gallery-groups { display: none; }
 .gallery-main { min-width: 0; }
 /* The group's name is already the current place in the sidebar (or the tabs on a phone), so on the page it's only for screen readers. */
 .group-name { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-.component-section { margin: 0 0 34px; scroll-margin-top: 96px; }
-.component-head { padding: 16px 22px; margin-bottom: 12px; }
+.component-section { margin: 0 0 calc(2 * var(--gap-block-block)); scroll-margin-top: 96px; }
+.component-head { padding: var(--pad-pane); margin-bottom: var(--gap-block-block); }
 .component-head h2 { margin: 0; font: 600 24px var(--display); }
 .component-head h2 a { color: inherit; text-decoration: none; }
-.component-head p { margin: 4px 0 0; color: var(--ink-2); max-width: 75ch; }
+.component-head p { margin: var(--gap-words-words) 0 0; color: var(--ink-2); max-width: 75ch; }
 .component-head a:not(h2 a) { color: var(--ink); text-decoration-color: var(--run); text-underline-offset: 3px; }
-.examples { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
-.example { margin: 0; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.examples { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--gap-block-block); }
+.example { margin: 0; min-width: 0; display: flex; flex-direction: column; }
 .example.wide { grid-column: 1 / -1; }
 .example-stage > * { max-width: 100%; }
 /* What the example is: a few quiet words just under it. */
-.example { gap: 2px; }
-.example-name { margin: 0 18px; font: 500 12px/1.3 var(--display); color: var(--muted); }
-.example-stage { position: relative; display: flex; align-items: center; justify-content: flex-start; flex-wrap: wrap; gap: 12px; padding: 16px 18px 6px; }
-.example-pane { width: min(380px, 100%); padding: 22px 24px; display: flex; flex-direction: column; gap: 14px; }
-.example-wide { width: 100%; padding: 20px 24px; }
+.example { gap: var(--gap-words-control); }
+.example-name { margin: 0; font: 500 12px/1.3 var(--display); color: var(--muted); }
+.example-stage { position: relative; display: flex; align-items: center; justify-content: flex-start; flex-wrap: wrap; gap: var(--gap-control-control); padding: 0; }
+.example-pane { width: min(380px, 100%); padding: var(--pad-pane); display: flex; flex-direction: column; gap: var(--gap-block-block); }
+.example-wide { width: 100%; padding: var(--pad-pane); }
 .cover-sample { width: 260px; }
 /* The loops' own pointer, moving onto the copy it plays. It sinks a little while it presses. */
 [data-state-loop] { position: relative; display: inline-block; }
@@ -139,7 +139,7 @@ body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
 .menu-frame { position: relative; width: 100%; height: 410px; transform: translateZ(0); }
 .menu-frame > .cut-btn { position: absolute; right: 20px; top: 0; }
 .rail-box { position: relative; width: min(420px, 100%); height: 220px; }
-.rail-box-in { height: 100%; overflow-y: auto; padding: 18px 28px 18px 22px; }
+.rail-box-in { height: 100%; overflow-y: auto; padding: var(--pad-pane); }
 .rail-box-in p { margin: 0; color: var(--ink-2); }
 /* A header example: a frame that holds the fixed header (its transform makes it the header's containing block) over a stand-in page scrolling under it. */
 .header-frame { position: relative; isolation: isolate; width: 100%; height: 260px; overflow: hidden; transform: translateZ(0); box-shadow: var(--well-shade);
@@ -149,15 +149,14 @@ body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
 .header-scroll { position: absolute; inset: 0; overflow-y: auto; scrollbar-width: none; }
 .header-scroll::-webkit-scrollbar { display: none; }
 .stand-in-page { padding: 100px 18px 160px; }
-.stand-in-page h3 { margin: 18px 0 8px; font: 600 20px var(--display); color: var(--ink); }
-.stand-in-row { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 14px; }
+.stand-in-page h3 { margin: var(--gap-block-block) 0 var(--gap-words-control); font: 600 20px var(--display); color: var(--ink); }
+.stand-in-row { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: var(--gap-block-block); }
 /* With a mouse, the page's rail gets a gutter of its own, clear of the cards. */
 @media (hover: hover) and (pointer: fine) and (min-width: 761px) { .gallery-layout { padding-right: 34px; } }
 /* Phones: the bar is one row (Zaisma, Design, light or dark), the groups a row of tabs under it that scrolls sideways, and every example a column of its own. */
 @media (max-width: 760px) {
   html { scroll-padding-top: 130px; }
-  .stage { padding-top: 10px; }
-  .gallery-layout { grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 12px 10px 60px; }
+  .gallery-layout { grid-template-columns: minmax(0, 1fr); }
   .gallery-index { display: none; }
   /* The groups are a row of tabs inside the floating bar, which sticks as the page scrolls. At the very top the bar is roomy; once the page moves it tightens to the row and the tabs. */
   /* The switch's carved track stays put across the bar, its cut ends and light sharp; only the tabs scroll inside it, fading out
@@ -168,20 +167,17 @@ body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
   .gallery-groups .tab-switch { width: max-content; }
   /* One even inset all round, and the same between the rows, so the tabs' frame and the light or dark button sit the same distance
      from every edge of the pane; compact keeps it even, only smaller. */
-  .gallery-bar { position: sticky; top: 10px; width: calc(100% - 20px); min-height: 56px; flex-wrap: wrap; align-items: center; gap: 14px 12px; padding: 14px; transition: var(--glass-transition), padding 0.25s, gap 0.25s; }
-  .gallery-bar.is-compact { gap: 10px 12px; padding: 10px; }
+  .gallery-bar { min-height: 56px; transition: var(--glass-transition), padding 0.25s, gap 0.25s; }
+  .gallery-bar.is-compact { padding: calc(var(--pad-inner-pane) * 2 / 3); }
   .gallery-bar .logo svg { height: 22px; transition: height 0.25s; }
   .gallery-bar.is-compact .logo svg { height: 18px; }
-  .gallery-title { font-size: 16px; padding-left: 10px; }
+  .gallery-title { font-size: 16px; }
   .theme-button { flex: none; }
   .theme-button > .face { height: 40px; width: 48px; transition: height 0.25s; }
   .gallery-bar.is-compact .theme-button > .face { height: 36px; }
-  .component-section { scroll-margin-top: 130px; margin-bottom: 26px; }
-  .component-head { padding: 14px 16px; }
+  .component-section { scroll-margin-top: 130px; }
   .component-head h2 { font-size: 20px; }
-  .examples { grid-template-columns: minmax(0, 1fr); gap: 10px; }
-  .example-stage { padding: 12px 6px 4px; }
-  .example-name { margin: 0 6px; }
+  .examples { grid-template-columns: minmax(0, 1fr); }
   .cover-sample { width: 100%; }
   .menu-frame { height: 420px; }
   .menu-frame > .cut-btn { right: 8px; }

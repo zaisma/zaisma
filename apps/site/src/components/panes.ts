@@ -124,11 +124,11 @@ export const MENU_SCRIPT = `/* menus */(function () {
 
 const MENU_STYLES = `
 /* A menu: a pane of the glass hanging just under its button, holding the same places as a sidebar (.place, foundations.ts). */
-.menu { position: fixed; z-index: 11; width: 260px; padding: 14px 10px 10px; --glass-tint: var(--glass-menu);
+.menu { position: fixed; z-index: 11; width: 260px; padding: var(--pad-inner-pane); --glass-tint: var(--glass-menu);
   display: flex; flex-direction: column; gap: 2px;
   transform-origin: top right; transition: var(--glass-transition), opacity 0.25s, transform 0.35s cubic-bezier(.2,.8,.2,1); }
 .menu.shut { opacity: 0; transform: translateY(-6px) scale(0.98); pointer-events: none; visibility: hidden; transition: var(--glass-transition), opacity 0.25s, transform 0.35s cubic-bezier(.2,.8,.2,1), visibility 0s 0.35s; }
-.menu-head { display: flex; flex-direction: column; padding: 2px 14px 12px; margin-bottom: 6px; border-bottom: 1px solid var(--line); }
+.menu-head { display: flex; flex-direction: column; padding: 0 14px var(--gap-words-control); margin-bottom: var(--gap-words-control); border-bottom: 1px solid var(--line); }
 .menu-head strong { font: 600 17px var(--display); color: var(--ink); }
 .menu-head span { color: var(--muted); font-size: 13px; }
 .menu hr { border: 0; border-top: 1px solid var(--line); margin: 6px 4px; }
@@ -142,7 +142,7 @@ const PANE_STYLES = `
 .glass-pane.medium { width: ${PANE_SIZES.medium}px; }
 .glass-pane.large { width: ${PANE_SIZES.large}px; }
 .glass-pane.full { width: 100%; }
-.glass-pane > .pane-in { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 18px; padding: 28px 30px 26px 32px; margin-right: 10px; }
+.glass-pane > .pane-in { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--gap-block-block); padding: var(--pad-pane); margin-right: 10px; }
 /* Nothing in the pane shrinks when its content is long: it scrolls instead. */
 .glass-pane > .pane-in > * { flex-shrink: 0; }
 .glass-pane h2 { margin: 0; font: 600 26px/1.1 var(--display); text-wrap: balance; }
@@ -155,7 +155,7 @@ const PANE_STYLES = `
   background-image: linear-gradient(90deg, rgba(255,255,255,1), rgba(222,233,248,0.7)); box-shadow: inset 0 0 0 1px rgba(26,44,80,0.16); }
 .glass-pane > .pane-in::-webkit-scrollbar-thumb:hover { background-color: rgba(255,255,255,0.95); }
 .glass-pane > .pane-in::-webkit-scrollbar-button { display: none; }
-@media (max-width: 760px) { .glass-pane > .pane-in { padding: 22px 20px 20px; margin-right: 0; } }
+@media (max-width: 760px) { .glass-pane > .pane-in { margin-right: 0; } }
 `;
 
 const COVER_STYLES = `
@@ -177,9 +177,9 @@ const COVER_STYLES = `
 .cover:hover .cover-bar::after, .cover.is-pointed .cover-bar::after, .cover[aria-current="true"] .cover-bar::after, .cover-art:focus-visible + .cover-bar::after { animation: cover-glint 0.7s cubic-bezier(.3,.6,.3,1) both; }
 @keyframes cover-glint { 0% { transform: translateX(-100%); opacity: 1; } 75% { opacity: 1; } 100% { transform: translateX(270%); opacity: 0; } }
 /* Under a cover: what concerns you on the left (when you played, an update, friends), players now on the right. */
-.cover-meta { display: flex; align-items: center; gap: 8px; min-height: 22px; margin-top: 2px; font: 500 13px/1.3 var(--display); color: var(--muted); white-space: nowrap; }
+.cover-meta { display: flex; align-items: center; gap: var(--gap-words-words); min-height: 22px; margin-top: 0; font: 500 13px/1.3 var(--display); color: var(--muted); white-space: nowrap; }
 .cover-meta .ico { width: 15px; height: 15px; stroke-width: 1.5; }
-.cover-meta .when, .cover-meta .count, .cover-meta .friends { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
+.cover-meta .when, .cover-meta .count, .cover-meta .friends { display: inline-flex; align-items: center; gap: calc(var(--gap-words-words) / 2); min-width: 0; }
 .cover-meta .friends { color: var(--ink); font-weight: 600; overflow: hidden; }
 .cover-meta .friends > span:last-child { overflow: hidden; text-overflow: ellipsis; }
 .cover-meta .frame.xs { --frame: 18px; --frame-cut: 4px; }

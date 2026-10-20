@@ -274,7 +274,7 @@ export const BIRTHDAY_SCRIPT = `/* birthday */(function () {
 const FIELD_STYLES = `
 /* Fields: the header's search field, bigger. A cut field of clearer glass with a drawn outline and a line icon saying what goes in it;
    pointing clears it a little, and typing in it whitens it and draws the outline in orange. Words are 16px, so phones don't zoom in. */
-.cut-field { display: flex; flex-direction: column; gap: 8px; }
+.cut-field { display: flex; flex-direction: column; gap: var(--gap-words-control); }
 .cut-field > label { font: 600 15px var(--display); color: var(--ink-2); }
 .field { position: relative; display: flex; align-items: center; height: 52px; color: var(--muted); }
 .field input { position: relative; z-index: 2; flex: 1; min-width: 0; width: 100%; height: 100%; padding: 0 16px 0 52px;
@@ -361,8 +361,9 @@ component({
   summary: "Asking for a birthday: three wheels that start blank, so nothing suggests an age.",
   styles: `
 /* The birthday field: the same cut field, with a calendar icon; open, it's whitened with the orange outline, like a field you're typing in. */
-.bday { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.bday legend { padding: 0; margin-bottom: 10px; font: 600 18px var(--display); color: var(--ink); }
+.bday { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--gap-words-control); min-width: 0; }
+/* A legend sits outside its fieldset's flex, so it takes the gap as a margin. */
+.bday legend { padding: 0; margin-bottom: var(--gap-words-control); font: 600 18px var(--display); color: var(--ink); }
 .bday-field { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; height: 52px; padding: 0 18px 0 52px; border: 0; cursor: pointer; text-align: left;
   font: 500 18px var(--display); color: var(--muted); --face-colour: var(--field-face); background: var(--face-colour); box-shadow: var(--field-shade);
   clip-path: var(--cut-shape); transition: --face-colour 0.25s; }
@@ -380,11 +381,10 @@ component({
 .bday-field.is-marked .cut-line polygon { stroke: var(--marked); stroke-width: 2; }
 /* Its words stay on one line, never crowding its edges; what's wrong is said under it, as under a cut field. */
 .bday-value { min-width: 0; flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.bday .field-error { margin-top: 8px; }
 .bday-field > span { position: relative; z-index: 2; }
 /* The picker: a well of clearer glass holding three wheels under a white band with the orange line. The picked value is larger; the others fade
    toward the edges. The wheel you're on by keyboard has its value underlined in ink. */
-.bday-pick { position: relative; margin-top: 0; padding: 10px 12px 14px; border: 0; background: var(--pick); box-shadow: var(--pick-shade);
+.bday-pick { position: relative; margin-top: 0; padding: var(--pad-inner-pane); border: 0; background: var(--pick); box-shadow: var(--pick-shade);
   clip-path: var(--cut-shape); }
 /* The month gets the room its longest name needs (September), the day the least. */
 .wheels { position: relative; display: grid; grid-template-columns: 1.9fr 0.7fr 1fr; gap: 4px; padding: 0 6px; }
@@ -465,3 +465,17 @@ component({
   ],
 });
 
+// Motion sits with the switch, whose slab shows it, so it can use the real one (foundations.ts can't import this file).
+component({
+  name: "Motion",
+  slug: "motion",
+  group: "foundations",
+  summary: "Things move only when pointed at, pressed or chosen: a slab springs across (var(--spring), 0.55s, 0.4s for a small one), and a change of size takes 0.45s. Reduced motion stops all of it.",
+  styles: "",
+  examples: [
+    {
+      label: "Choose a tab: the slab springs across",
+      markup: html`<div style="width:min(380px,100%)">${tabSwitch({ label: "Motion", switchSize: "big", tabs: [{ label: "Spring 0.55s", isCurrent: true }, { label: "Choose me", isCurrent: false }] })}</div>`,
+    },
+  ],
+});

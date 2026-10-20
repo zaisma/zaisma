@@ -52,6 +52,30 @@ The primary action on a page is a metal plate: `metalButton(label, { href | id, 
 - The hover area is a wrapper that never tilts (`.hit`), so tilting can't push the cursor out and back in.
 - Phones (no hover) get the still plate. Reduced motion keeps the glint and drops the tilt.
 
+## Spacing
+
+Applies to the components (`apps/site/src/components/`) and the gallery (`apps/site/src/design-page.ts`). Every gap, padding and margin is one of six tokens, defined once in `foundations.ts`. Pick one by looking at what sits on each side of the space, never by judging how close two things feel.
+
+- A **control** is anything from Actions & Inputs (a button, a field, a switch, the birthday picker).
+- **Words** are a heading, a label, a legend, a hint, an error or a line of text.
+- A **block** is a group of controls with their words (a labelled field, the sign-in buttons), a paragraph, a picture, or a pane.
+
+| Token | What's on each side | Value |
+| --- | --- | --- |
+| `--gap-control-control` | Two controls, in a row or a stack (Play and Details, Light and Dark, the passkey, Google and Discord buttons) | 8px |
+| `--gap-words-control` | A control and the words that belong to it (a field's label above it, its error under it) | 8px |
+| `--gap-words-words` | Words beside or under other words in one block (a title and the line under it, links in a row, an icon and its word) | 8px |
+| `--gap-block-block` | Two blocks: inside a pane, two panes side by side or stacked, the gallery's examples, a row of covers | 24px |
+| `--pad-pane` | A pane's edge and what's inside it; also the page's edge | 24px, 18px on a phone |
+| `--pad-inner-pane` | An inner pane's edge and what's inside it (the birthday picker, a menu), and a bar's: a pane one row of controls tall (the header, the gallery's bar) | 12px |
+
+- **If either side is a block, it's `--gap-block-block`,** even when the other side is a single control.
+- **`--gap-control-control` is the edge rule's neighbour distance.** Two controls that far apart slant toward each other; further apart they never do. So controls are never placed further apart than this unless they're in different blocks.
+- **More room is a multiple of a token**, in `calc` (the gallery's sections are two `--gap-block-block` apart). Never a new number.
+- **What isn't spacing keeps its own number:** a control's inside (its words and icon to its own edge, set by each control size), a control's own parts (a switch's tabs and the inset round its slab, the birthday's wheels, a list of places), room to scroll or for a scrollbar, and where a small mark sits on what it marks. Each one is named, with its reason, in `NOT_SPACING` in `test/site/design.test.ts`.
+
+`test/site/design.test.ts` checks both: no other number in any gap, padding or margin, and every group of controls side by side or stacked exactly `--gap-control-control` apart.
+
 ## Components
 
 - **Buttons:** `.btn` (gunmetal plate with the cut corner), `.btn.light` (chrome), `.btn.ghost` (outline), `.btn.danger`, `.btn.big`; the tilting metal plate for the main action. Any button that sends a form or opens a page shows the loader, the Z building itself (`.spin`, `brand/loader/zaisma-loader.svg`), and can't be pressed twice.

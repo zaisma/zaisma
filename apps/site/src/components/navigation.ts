@@ -72,9 +72,9 @@ const HEADER_STYLES = `
 /* The header: a floating slab of the sign-in's glass, cut corners and a drawn rim, over the page. Orange only on what you act on.
    It's adaptive glass: --glass-top sets its tint and thickness, and smoked glass (dark, or .smoke) gives it light words. */
 .top {
-  position: fixed; z-index: 10; top: 12px; left: 50%; transform: translateX(-50%);
-  width: min(1240px, calc(100% - 24px)); height: 68px;
-  display: flex; align-items: center; gap: 22px; padding: 0 14px 0 26px;
+  position: fixed; z-index: 10; top: var(--pad-pane); left: 50%; transform: translateX(-50%);
+  width: min(1240px, calc(100% - 2 * var(--pad-pane))); height: 68px;
+  display: flex; align-items: center; gap: var(--gap-control-control); padding: 0 var(--pad-inner-pane);
   --glass-tint: var(--glass-top);
   clip-path: polygon(0 16px, 16px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 16px), calc(100% - 16px) 100%, 6px 100%, 0 calc(100% - 6px));
   transition: var(--glass-transition), height 0.45s cubic-bezier(.2,.8,.2,1), top 0.45s cubic-bezier(.2,.8,.2,1), transform 0.45s cubic-bezier(.4,0,.2,1);
@@ -113,7 +113,7 @@ const HEADER_STYLES = `
 
 /* Search sits after the tabs, pushed to the end. */
 .top .find { margin-left: auto; }
-.end { display: flex; align-items: center; gap: 10px; flex: none; }
+.end { display: flex; align-items: center; gap: var(--gap-control-control); flex: none; }
 .top .find ~ .end, .top .find-open ~ .end { margin-left: 0; }
 .top .nav + .end { margin-left: auto; }
 
@@ -131,9 +131,9 @@ const HEADER_STYLES = `
 .find-open { display: none; }
 @media (max-width: 760px) {
   /* The header floats on phones too: a slab of glass inset from every edge (below the notch), never touching the screen's sides. */
-  .top { top: calc(10px + env(safe-area-inset-top, 0px)); width: calc(100% - 20px); height: auto; flex-wrap: wrap; gap: 10px 8px; padding: 10px 12px 12px; }
+  .top { top: calc(var(--pad-pane) + env(safe-area-inset-top, 0px)); width: calc(100% - 2 * var(--pad-pane)); height: auto; flex-wrap: wrap; gap: var(--gap-control-control); padding: var(--pad-inner-pane); }
   /* Compact keeps the same inset around the tabs as at rest; only the rows themselves get shorter. */
-  .top.is-compact { top: calc(6px + env(safe-area-inset-top, 0px)); height: auto; padding-top: 6px; padding-bottom: 12px; row-gap: 6px; }
+  .top.is-compact { top: calc(6px + env(safe-area-inset-top, 0px)); height: auto; padding: calc(var(--pad-inner-pane) * 2 / 3); }
   .logo { margin-left: 6px; }
   .logo svg, .top.is-compact .logo svg { height: 22px; }
   .top .find { display: none; order: 5; flex-basis: 100%; max-width: none; margin: 0; }
@@ -152,12 +152,12 @@ const HEADER_STYLES = `
 }
 
 /* Sign-in's header: only the logo, straight on the scene. A soft halo keeps it legible over anything: light by day, dark at night. */
-.top.is-logo-only { position: absolute; left: max(12px, calc((100% - 1240px) / 2)); transform: none; width: auto; height: 68px; padding: 0 26px;
+.top.is-logo-only { position: absolute; left: max(var(--pad-pane), calc((100% - 1240px) / 2)); transform: none; width: auto; height: 68px; padding: 0 var(--pad-inner-pane);
   background: none; -webkit-backdrop-filter: none; backdrop-filter: none; clip-path: none; }
 .top.is-logo-only .logo svg { height: 30px; filter: var(--logo-halo); }
 @media (max-width: 760px) {
   /* On a phone it sits level with the controls, and scrolls away with the page as the pane comes up. */
-  .top.is-logo-only { top: calc(10px + env(safe-area-inset-top, 0px)); left: max(16px, env(safe-area-inset-left, 0px)); height: 44px; padding: 0; }
+  .top.is-logo-only { top: calc(var(--pad-pane) + env(safe-area-inset-top, 0px)); left: max(var(--pad-pane), env(safe-area-inset-left, 0px)); height: 44px; padding: 0; }
   .top.is-logo-only .logo { margin-left: 0; }
   .top.is-logo-only .logo svg { height: 26px; }
 }
@@ -484,10 +484,10 @@ component({
   summary: "The end of every page: for game developers, the forum, the source and the rules.",
   styles: `
 /* The foot, at the end of the page. */
-.foot { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 26px; margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; }
+.foot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-block-block); margin-top: var(--gap-block-block); padding-top: var(--gap-block-block); border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; }
 .foot .mark { color: var(--ink); }
 .foot .mark svg { height: 17px; width: auto; display: block; opacity: 0.8; }
-.foot nav { display: flex; flex-wrap: wrap; gap: 6px 20px; }
+.foot nav { display: flex; flex-wrap: wrap; gap: var(--gap-words-words); }
 .foot a { color: var(--ink-2); text-decoration: none; font: 500 14px var(--display); }
 .foot nav a:hover { color: var(--ink); text-decoration: underline; text-decoration-color: var(--run); text-underline-offset: 4px; text-decoration-thickness: 2px; }
 .foot a:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
@@ -583,11 +583,11 @@ component({
 .step:disabled > .cut-line { --band-top: transparent; --band-left: transparent; --band-right: transparent; --band-bottom: transparent; }
 /* A row scrolls sideways, a little in from its glass's rim, so covers never touch the frame. Where more covers carry on, that edge fades out
    softly: the shared sideways fade (data-fades-sideways), further in for covers. */
-.track { --fade-sideways-px: 56px; display: flex; gap: 16px; scroll-snap-type: x proximity; scroll-padding-inline: 8px; padding: 10px 8px 6px; margin: -10px -8px -6px; }
+.track { --fade-sideways-px: 56px; display: flex; gap: var(--gap-block-block); scroll-snap-type: x proximity; scroll-padding-inline: 8px; padding: 10px 8px 6px; margin: -10px -8px -6px; }
 .track > .cover { flex: 0 0 236px; scroll-snap-align: start; }
-.row-head { display: flex; align-items: center; gap: 16px; margin-bottom: 4px; min-height: 36px; }
+.row-head { display: flex; align-items: center; gap: var(--gap-words-control); margin-bottom: var(--gap-words-control); min-height: 36px; }
 .row-head h2 { margin: 0; font: 600 22px var(--display); white-space: nowrap; color: var(--ink); }
-@media (max-width: 760px) { .track { gap: 12px; --fade-sideways-px: 32px; } .track > .cover { flex-basis: 64vw; } .row-head h2 { font-size: 20px; } }
+@media (max-width: 760px) { .track { --fade-sideways-px: 32px; } .track > .cover { flex-basis: 64vw; } .row-head h2 { font-size: 20px; } }
 `,
   render: rowArrows,
   examples: [
@@ -634,18 +634,18 @@ component({
 /* The sidebar: a glass pane with its places' words straight on the glass, in groups. Pointing at a place brightens its words; the place
    you're on is a raised slab under its words, outlined in orange, cut to fit where it sits. */
 .sidebar { position: relative; display: flex; flex: 1; min-height: 0; width: 100%; }
-.sidebar-in { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 24px 14px 14px; display: grid; gap: 16px; align-content: start; }
-.sidebar-heading { margin: 0 0 6px; padding: 0 14px; font: 500 13px var(--display); color: var(--muted); }
+.sidebar-in { flex: 1; min-height: 0; overflow-y: auto; padding: var(--pad-pane); display: grid; gap: var(--gap-block-block); align-content: start; }
+.sidebar-heading { margin: 0 0 var(--gap-words-control); padding: 0 14px; font: 500 13px var(--display); color: var(--muted); }
 .sidebar-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
 /* Its places are the shared .place (foundations.ts). The place you're on: opening another place from the page's own sidebar slides its slab
    there from the last page's place (SIDEBAR_SCRIPT), under words that stay put, while the rest of the page crossfades. */
 .place-slab.is-gliding { animation: place-glide 0.45s var(--spring); }
 @keyframes place-glide { from { transform: translateY(var(--glide-from-px, 0px)); } }
 .sidebar.is-collapsed { flex: none; width: 72px; }
-.sidebar.is-collapsed .sidebar-in { padding: 12px 8px; }
+.sidebar.is-collapsed .sidebar-in { padding: var(--pad-inner-pane); }
 .sidebar.is-collapsed .place { justify-content: center; padding: 0; }
 .sidebar.is-collapsed .place-label, .sidebar.is-collapsed .place-count { display: none; }
-.sidebar.is-collapsed .sidebar-heading { height: 1px; margin: 0 14px 6px; padding: 0; overflow: hidden; font-size: 0; background: var(--line); }
+.sidebar.is-collapsed .sidebar-heading { height: 1px; margin: 0 0 var(--gap-words-control); padding: 0; overflow: hidden; font-size: 0; background: var(--line); }
 `,
   render: sidebar,
   examples: [

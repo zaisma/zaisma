@@ -40,8 +40,8 @@ export function glanceFacts(facts: GlanceFacts): Raw {
 
 export const GLANCE_STYLES = `
 /* The glance list: one line per fact, each with its own look. People and a clock are line icons; friends are their pictures; an update is a green tag. */
-.glance { list-style: none; margin: 0; padding: 12px 0 2px; border-top: 1px solid var(--line); display: grid; gap: 9px; font: 500 15px/1.35 var(--display); color: var(--ink-2); }
-.glance li { display: flex; align-items: center; gap: 10px; min-height: 24px; }
+.glance { list-style: none; margin: 0; padding: var(--gap-words-words) 0 0; border-top: 1px solid var(--line); display: grid; gap: var(--gap-words-words); font: 500 15px/1.35 var(--display); color: var(--ink-2); }
+.glance li { display: flex; align-items: center; gap: var(--gap-words-words); min-height: 24px; }
 .glance b { font-weight: 600; color: var(--ink); }
 .glance a { color: var(--ink); font-weight: 600; text-decoration: underline; text-decoration-color: var(--run); text-underline-offset: 3px; text-decoration-thickness: 2px; }
 .glance a:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }

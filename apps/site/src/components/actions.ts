@@ -254,13 +254,13 @@ component({
     ...stateExamples((state) => cutButton("Details", { type: "button", state }), "cut"),
     { label: "Busy", markup: cutButton("Saving", { type: "button", isBusy: true }), isStill: true },
     { label: "With an icon", markup: cutButton("Settings", { type: "button", icon: "gear" }) },
-    { label: "Big, beside Play", markup: html`<div style="display:flex;align-items:flex-start;gap:12px">${runButton("Play", { type: "button", isBig: true, icon: "play" })}${cutButton("Details", { type: "button", isBig: true })}</div>` },
+    { label: "Big, beside Play", markup: html`<div style="display:flex;align-items:flex-start;gap:var(--gap-control-control)">${runButton("Play", { type: "button", isBig: true, icon: "play" })}${cutButton("Details", { type: "button", isBig: true })}</div>` },
     { label: "Full width", markup: html`<div style="width:min(380px,100%)">${cutButton("Make an account", { type: "button", isFullWidth: true })}</div>` },
     { label: "A delete", markup: cutButton("Delete this game", { type: "button" }) },
   ],
 });
 
-const PICTURE = "display:grid;gap:10px;width:min(380px,100%);padding:20px;background-position:center;background-size:cover;";
+const PICTURE = "display:grid;gap:var(--gap-control-control);width:min(380px,100%);padding:var(--pad-pane);background-position:center;background-size:cover;";
 const wayIn = (state?: ButtonState) => glassButton("Sign in with a passkey", { icon: "passkey", state });
 const TINT_NAMES: Record<GlassTint, string> = { clear: "Clear", white: "White", blue: "Blue", indigo: "Indigo", black: "Black" };
 const tintPalette = () =>
@@ -340,9 +340,9 @@ component({
    Google's G stays in its colours, which only ever sit on white or clear glass. */
 .glass-btn[data-tint="blue"] .one-colour path, .glass-btn[data-tint="indigo"] .one-colour path, .glass-btn[data-tint="black"] .one-colour path { fill: currentColor; transition: fill 0.3s; }
 /* The gallery's tint palette: pick one and the button above takes it (GALLERY_SCRIPT). */
-.tint-try { display: grid; gap: 12px; width: min(340px, 100%); }
-.tint-palette { display: flex; align-items: center; gap: 6px; font: 500 13px var(--display); color: var(--muted); }
-.tint-palette .tint-name { margin-left: 8px; color: var(--ink-2); }
+.tint-try { display: grid; gap: var(--gap-block-block); width: min(340px, 100%); }
+.tint-palette { display: flex; align-items: center; gap: var(--gap-control-control); font: 500 13px var(--display); color: var(--muted); }
+.tint-palette .tint-name { margin-left: var(--gap-words-control); color: var(--ink-2); }
 /* A swatch is a control like any other: its shape is the edge rule's, so a row of them slants between each other. Its outline is the cut's own line. */
 .tint-swatch { position: relative; width: 32px; height: 32px; padding: 0; border: 0; cursor: pointer; background: var(--swatch); clip-path: var(--cut-shape); }
 .tint-swatch .cut-line polygon { stroke: var(--line); stroke-width: 1; transition: stroke 0.2s; }
@@ -362,7 +362,7 @@ component({
   examples: [
     ...stateExamples(wayIn, "glass", true),
     { label: "Every tint: pick one", markup: tintPalette() },
-    { label: "The ways in, each in its own tint", markup: html`<div style="display:grid;gap:10px;${COLUMN}">${waysIn()}</div>` },
+    { label: "The ways in, each in its own tint", markup: html`<div style="display:grid;gap:var(--gap-control-control);${COLUMN}">${waysIn()}</div>` },
     // Over a game's picture the glass follows the picture, not the theme: light glass on a bright one, smoked on a dark one.
     { label: "Over a bright picture", markup: html`<div data-theme-choice="light" style="${PICTURE}background-image:url(/design/covers/frostline.webp)">${waysIn()}</div>` },
     { label: "Over a dark picture", markup: html`<div class="smoke" style="${PICTURE}background-image:url(/design/covers/neon-drift.webp)">${waysIn()}</div>` },
@@ -400,6 +400,6 @@ component({
   render: guestButton,
   examples: [
     ...stateExamples((state) => guestButton("Continue as guest", { state }), "guest", true),
-    { label: "Under the ways in", markup: html`<div style="display:grid;gap:10px;${COLUMN}">${waysIn()}${guestButton("Continue as guest")}</div>` },
+    { label: "Under the ways in", markup: html`<div style="display:grid;gap:var(--gap-control-control);${COLUMN}">${waysIn()}${guestButton("Continue as guest")}</div>` },
   ],
 });

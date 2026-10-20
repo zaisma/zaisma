@@ -148,6 +148,44 @@ describe("the gallery", () => {
     expect(problems).toEqual([]);
   });
 
+  it("spaces everything with the spacing tokens: no gap, padding or margin is a number of its own", async () => {
+    // docs/DESIGN.md, Spacing. A length is 0, auto or the tokens (in calc, times plain numbers). What isn't spacing between things
+    // (a control's inside, room a box keeps for its scrollbar or for what lifts in it) is NOT_SPACING below, named one by one.
+    const isSpacing = (value: string) => !/(\d|\.)(px|em|rem|vw|vh|%)/.test(value.replace(/var\(--(gap|pad)-[a-z-]+\)/g, ""));
+    const problems: string[] = [];
+    const checkDeclarations = (where: string, declarations: string) => {
+      for (const [, property = "", value = ""] of declarations.matchAll(/(?:^|[;\s{])((?:row-|column-)?gap|padding(?:-[a-z]+)?|margin(?:-[a-z]+)?|scroll-padding(?:-[a-z]+)?):\s*([^;}]+)/g)) {
+        if (!isSpacing(value) && !NOT_SPACING.has(`${where} | ${property}`)) problems.push(`${where} | ${property}: ${value.trim()}`);
+      }
+    };
+    for (const [, selectors = "", declarations = ""] of (COMPONENT_STYLES() + GALLERY_STYLES).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      checkDeclarations(selectors.replace(/\/\*[\s\S]*?\*\//g, "").trim(), declarations);
+    }
+    for (const { group } of COMPONENT_GROUPS) {
+      for (const [, style = ""] of (await page(groupPath(group))).text.matchAll(/style="([^"]*)"/g)) checkDeclarations(`${group}, style="${style}"`, style);
+    }
+    expect(problems).toEqual([]);
+  });
+
+  it("puts controls side by side or stacked exactly --gap-control-control apart, the edge rule's neighbour distance", async () => {
+    const problems: string[] = [];
+    const rules = [...(COMPONENT_STYLES() + GALLERY_STYLES).matchAll(/([^{}]+)\{([^{}]*)\}/g)].flatMap(([, selectors = "", declarations = ""]) => {
+      const gap = /(?:^|[;\s])gap:\s*([^;}]+)/.exec(declarations)?.[1]?.trim();
+      return gap ? selectors.replace(/\/\*[\s\S]*?\*\//g, "").split(",").map((selector) => ({ subject: selector.trim().split(/[\s>+~]+/).pop() ?? "", gap })) : [];
+    });
+    for (const { group } of COMPONENT_GROUPS) {
+      for (const holder of elementTree((await page(groupPath(group))).text)) {
+        const children = holder.children.filter((child) => child.tag !== "svg" && child.tag !== "template");
+        // A control's own parts (a switch's tabs, the row arrows' two slabs) are its inside, not controls beside each other.
+        if (holder.classes.includes("shell") || holder.attributes.includes(" data-cut-line")) continue;
+        if (children.length < 2 || !children.every((child) => child.classes.includes("shell") || child.attributes.includes(" data-cut-line"))) continue;
+        const gaps = [...rules.filter(({ subject }) => matchesSubject(holder, subject)).map(({ gap }) => gap), ...(/(?:^|;)\s*gap:\s*([^;]+)/.exec(holder.style)?.slice(1) ?? [])];
+        if (gaps.length === 0 || gaps.some((gap) => gap !== "var(--gap-control-control)")) problems.push(`${group}: <${holder.tag} class="${holder.classes.join(" ")}">: gap ${gaps.join(", ") || "not set"}`);
+      }
+    }
+    expect([...new Set(problems)]).toEqual([]);
+  });
+
   it("opens light or dark from its address, and the other groups' pages keep it", async () => {
     for (const { group } of COMPONENT_GROUPS) {
       const { text } = await page(`${groupPath(group)}?theme=dark`);
@@ -200,3 +238,64 @@ describe("components", () => {
     expect(atHome).toContain('<a href="/forum" class="dev off" tabindex="-1" aria-hidden="true">Forum</a>');
   });
 });
+
+// What isn't spacing between things, so it keeps a number of its own (docs/DESIGN.md, Spacing). Named one by one, with why,
+// so a new one is a deliberate choice.
+const NOT_SPACING = new Set<string>([
+  // A control's inside: its words and icon to its own edge, set by each control size.
+  ".place | gap", ".place | padding", ".place-count | padding", ".run | padding", ".run | gap", ".run.big | padding", ".run.big | gap",
+  ".cut-btn > .face | gap", ".cut-btn > .face | padding", ".cut-btn.big > .face | padding", ".glass-btn > .face | gap",
+  ".glass-btn > .face | padding", ".guest-btn > .face | gap", ".guest-btn > .face | padding", ".field input | padding",
+  ".field.with-toggle input | padding-right", ".field .show | padding", '.find input[type="search"] | padding', ".bday-field | gap",
+  ".bday-field | padding", ".bday-field .chev | margin-right", ".tab-switch > a, .tab-switch > button | padding",
+  ".tab-switch.small > a, .tab-switch.small > button | padding", ".logo | padding", ".logo | margin-left", ".nav a | padding", ".me | gap",
+  ".me | padding", ".top .end .run | padding", ".top .end .run | gap", ".rail-mark span | padding", ".chip | padding",
+  // A control's own parts: a well's inset round its slab, the birthday's wheels, and a list of places, one control its slab glides along.
+  ".tab-switch | padding", ".tab-switch.small | padding", ".nav | padding", ".steps | gap", ".steps | padding", ".wheels | gap", ".wheels | padding",
+  ".sidebar-list | gap", ".menu | gap", ".menu hr | margin",
+  // Lines words up with the places' words under them.
+  ".sidebar-heading | padding", ".menu-head | padding",
+  // Room to scroll, or for a scrollbar or a page's rail.
+  ".wheel | padding", ".glass-pane > .pane-in | margin-right", ".glass-pane > .pane-in::-webkit-scrollbar-track | margin-block",
+  "html | scroll-padding-top", ".gallery-layout | padding-right", ".track | scroll-padding-inline",
+  // Room for the covers to lift into, given back round the row.
+  ".track | padding", ".track | margin",
+  // Where a small thing sits on what it marks: a rail's tick, a cover's line, faces overlapping.
+  ".rail-mark | margin-top", ".cover-bar | margin-top", ".faces .frame + .frame | margin-left",
+  // A header example's stand-in page: room for the header over it, and to scroll the header compact.
+  ".stand-in-page | padding", ".stand-in-page | padding-top",
+]);
+
+interface Element { tag: string; classes: string[]; attributes: string; style: string; children: Element[] }
+
+/** Every element in a page's markup, as a tree: enough to see what holds what. */
+function elementTree(markup: string): Element[] {
+  const all: Element[] = [];
+  const open: Element[] = [];
+  const voids = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr", "path", "polygon", "circle", "rect", "line", "polyline", "stop", "use"]);
+  const body = markup.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<!--[\s\S]*?-->/g, "");
+  for (const [tag, closing = "", name = "", attributes = ""] of body.matchAll(/<(\/?)([a-zA-Z][a-zA-Z0-9-]*)([^>]*)>/g)) {
+    const tagName = name.toLowerCase();
+    if (closing) {
+      const at = open.map((each) => each.tag).lastIndexOf(tagName);
+      if (at !== -1) open.length = at;
+      continue;
+    }
+    const element: Element = { tag: tagName, classes: (/\sclass="([^"]*)"/.exec(attributes)?.[1] ?? "").split(/\s+/).filter(Boolean), attributes, style: /\sstyle="([^"]*)"/.exec(attributes)?.[1] ?? "", children: [] };
+    open.at(-1)?.children.push(element);
+    all.push(element);
+    if (!voids.has(tagName) && !tag.endsWith("/>")) open.push(element);
+  }
+  return all;
+}
+
+/** Whether a selector's last compound (".a.b", "div.a", "button") could be this element. Attributes and states are ignored. */
+function matchesSubject(element: Element, subject: string): boolean {
+  const plain = subject.replace(/\[[^\]]*\]|::?[a-z-]+(\([^)]*\))?/g, "");
+  if (!plain) return false;
+  const tag = /^[a-z][a-z0-9-]*/.exec(plain)?.[0];
+  const classes = [...plain.matchAll(/\.([a-zA-Z][a-zA-Z0-9_-]*)/g)].map((match) => match[1] ?? "");
+  if (tag && tag !== element.tag) return false;
+  if (!tag && classes.length === 0) return false;
+  return classes.every((each) => element.classes.includes(each));
+}
