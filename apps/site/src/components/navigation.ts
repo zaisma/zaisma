@@ -249,7 +249,6 @@ export function rail(scrollKind: "box" | "page"): Raw {
  * point at one for its name, click it to go there.
  */
 export const RAIL_SCRIPT = `/* rail */(function () {
-  if (!window.matchMedia("(hover: hover) and (pointer: fine)").matches) return;
   // Any box that scrolls up and down gets its rail by itself, so a new component never has to remember one. A box that
   // hides its scrollbar on purpose (scrollbar-width: none) keeps it hidden. A text box or list box gets one too, laid over its own edge.
   document.querySelectorAll("body *").forEach(function (box) {
@@ -442,9 +441,9 @@ component({
   name: "Rail",
   slug: "rail",
   group: "navigation",
-  summary: "Zaisma's own scrollbar, for a mouse or trackpad. It rests faintly and wakes while things move. Touch screens keep their own.",
+  summary: "Zaisma's own scrollbar, on every device. With a mouse it rests faintly and wakes while things move; on a touch screen it shows only while they move, and its thumb can be dragged.",
   styles: `
-/* Zaisma's own scrollbar (mouse and trackpad): a hairline with a slim glass thumb that wakes while it moves.
+/* Zaisma's own scrollbar, on every device: a hairline with a slim glass thumb that wakes while it moves.
    In a box it runs down the inside of the box's right edge; for the page, down the page's right gutter. */
 .own-scroll { scrollbar-width: none; }
 .own-scroll::-webkit-scrollbar { display: none; }
@@ -471,7 +470,12 @@ component({
   clip-path: polygon(100% 0, 100% 0, calc(100% - 5px) 100%, calc(100% - 5px) 100%); transition: clip-path 0.18s ease-out; }
 /* A label opens by wiping out from the rail, never by fading: a fading blur draws without its glass and turns solid at the end. */
 .rail:hover .rail-mark span, .rail.dragging .rail-mark span { clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); }
-/* In the narrow layout (a small window with a mouse), the page's bar fits in the 10px gutter beside the glass and starts below the header. */
+/* On a touch screen it's out of sight until things move, as a phone's own scrollbar is, and a finger on it drags the thumb instead of the page. */
+@media (hover: none), (pointer: coarse) {
+  .rail { opacity: 0; touch-action: none; }
+  .rail.awake, .rail.dragging { opacity: 1; }
+}
+/* In the narrow layout (a phone, or a small window), the page's bar fits in the 10px gutter beside the glass and starts below the header. */
 @media (max-width: 760px) {
   .rail[data-rail="page"] { width: 10px; top: calc(132px + env(safe-area-inset-top, 0px)); bottom: 10px; }
   .rail[data-rail="page"] .rail-line { background: linear-gradient(90deg, transparent 4.5px, var(--rail-line) 4.5px, var(--rail-line) 5.5px, transparent 5.5px); }

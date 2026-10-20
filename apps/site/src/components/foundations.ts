@@ -123,7 +123,7 @@ export const TOKEN_STYLES = `
    the blur and colour of what's behind (--glass-blur, --glass-saturate), and cut corners with a drawn rim (the svg.edge
    GLASS_SCRIPT draws, which sizes its corners and bevel to the slab). Nothing else restates these. */
 /* Each piece of glass works the hue out from the --glass-hue it inherits, so setting it anywhere tints all the glass inside. */
-.glass, .glass-btn > .face, .swatches, .rail-mark span, .group-name { --glass-wash: linear-gradient(color-mix(in srgb, var(--glass-hue) var(--glass-hue-strength), transparent), color-mix(in srgb, var(--glass-hue) var(--glass-hue-strength), transparent)); }
+.glass, .glass-btn > .face, .swatches, .rail-mark span { --glass-wash: linear-gradient(color-mix(in srgb, var(--glass-hue) var(--glass-hue-strength), transparent), color-mix(in srgb, var(--glass-hue) var(--glass-hue-strength), transparent)); }
 .glass { position: relative; color: var(--ink); background-color: var(--glass-tint); background-image: var(--glass-wash), var(--glass-sheen);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   transition: background-color 0.5s ease, color 0.3s ease; }

@@ -112,7 +112,8 @@ body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
 .gallery-index { position: sticky; top: 100px; display: flex; max-height: calc(100vh - 114px); }
 .gallery-groups { display: none; }
 .gallery-main { min-width: 0; }
-.group-name { margin: 0 0 14px; font: 600 30px/1.1 var(--display); color: var(--ink); display: inline-block; padding: 8px 22px; background: var(--glass-wash), var(--glass-tint); clip-path: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%); }
+/* The group's name is already the current place in the sidebar (or the tabs on a phone), so on the page it's only for screen readers. */
+.group-name { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .component-section { margin: 0 0 34px; scroll-margin-top: 96px; }
 .component-head { padding: 16px 22px; margin-bottom: 12px; }
 .component-head h2 { margin: 0; font: 600 24px var(--display); }
@@ -183,7 +184,6 @@ body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
   .theme-button { flex: none; }
   .theme-button > .face { height: 40px; width: 48px; transition: height 0.25s; }
   .gallery-bar.is-scrolled .theme-button > .face { height: 36px; }
-  .group-name { font-size: 24px; padding: 6px 16px; }
   .component-section { scroll-margin-top: 130px; margin-bottom: 26px; }
   .component-head { padding: 14px 16px; }
   .component-head h2 { font-size: 20px; }
