@@ -29,7 +29,8 @@ const LIGHT_GLASS = `color-scheme: light;
   --rail-line: rgba(20, 23, 28, 0.2); --rail-thumb: rgba(24, 28, 36, 0.55); --rail-edge: rgba(255, 255, 255, 0.55); --rail-mark: rgba(20, 23, 28, 0.45);
   --edge-inner: rgba(255, 255, 255, 0.7); --edge-bevel: 1; --edge-rim: 1; --edge-fringe: 1;
   --logo-halo: drop-shadow(0 0 10px rgba(255, 255, 255, 0.6)) drop-shadow(0 1px 1px rgba(255, 255, 255, 0.5));
-  --link-hover: var(--run-lo); --marked: var(--run-lo);`;
+  --link-hover: var(--run-lo); --marked: var(--run-lo);
+  --glass-base: 255, 255, 255; --glass-kind: "Light glass, dark words.";`;
 
 const SMOKED_GLASS = `color-scheme: dark;
   --ink: #F7F9FC; --ink-2: rgba(247, 249, 252, 0.86); --muted: rgba(247, 249, 252, 0.7); --line: rgba(255, 255, 255, 0.2);
@@ -53,7 +54,8 @@ const SMOKED_GLASS = `color-scheme: dark;
   /* On smoked glass the rim's inner lines and bevel are softened, so the frame reads as an edge, not as lines across it. */
   --edge-inner: rgba(255, 255, 255, 0.12); --edge-bevel: 0.35; --edge-rim: 0.7; --edge-fringe: 0.5;
   --logo-halo: drop-shadow(0 0 12px rgba(4, 7, 14, 0.75)) drop-shadow(0 1px 2px rgba(4, 7, 14, 0.6));
-  --link-hover: var(--run-hi); --marked: var(--run-hi);`;
+  --link-hover: var(--run-hi); --marked: var(--run-hi);
+  --glass-base: 14, 17, 24; --glass-kind: "Smoked glass, light words.";`;
 
 /**
  * The tokens. Light or dark follows the system unless a choice is fixed with data-theme-choice, on <html>
@@ -265,8 +267,8 @@ const SWATCHES: { token: string; note: string }[] = [
   { token: "--danger", note: "A delete's confirm step only" },
 ];
 
-const swatches = (theme: "light" | "dark") =>
-  html`<ul class="swatches" data-theme-choice="${theme}">${SWATCHES.map(({ token, note }) => html`<li><span class="chip-swatch" style="background:var(${token})"></span><code>${token}</code><span>${note}</span></li>`)}</ul>`;
+const swatches = () =>
+  html`<ul class="swatches">${SWATCHES.map(({ token, note }) => html`<li><span class="chip-swatch" style="background:var(${token})"></span><code>${token}</code><span>${note}</span></li>`)}</ul>`;
 
 component({
   name: "Colour",
@@ -275,15 +277,14 @@ component({
   summary: "Every colour comes from these tokens, so light, dark and smoked glass follow by themselves. Orange is only for what you act on.",
   styles: `
 /* Colour: the gallery's swatches. */
-.swatches { width: 100%; list-style: none; margin: 0; padding: 14px; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px 18px; color: var(--ink); background: var(--page); }
+.swatches { width: 100%; list-style: none; margin: 0; padding: 14px; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px 18px; color: var(--ink); background: var(--glass-tint); -webkit-backdrop-filter: blur(26px) saturate(1.7); backdrop-filter: blur(26px) saturate(1.7); }
 .swatches li { display: grid; grid-template-columns: 36px 1fr; grid-template-rows: auto auto; column-gap: 10px; align-items: center; font: 500 13px var(--display); }
 .swatches .chip-swatch { grid-row: span 2; width: 36px; height: 36px; box-shadow: inset 0 0 0 1px var(--line); clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px); }
 .swatches code { font: 600 13px ui-monospace, Menlo, monospace; }
 .swatches span:last-child { color: var(--muted); }
 `,
   examples: [
-    { label: "Light", markup: swatches("light"), isWide: true },
-    { label: "Dark", markup: swatches("dark"), isWide: true },
+    { label: "Every token, in the theme you chose", markup: swatches(), isWide: true },
   ],
 });
 
@@ -337,21 +338,13 @@ component({
 .glass-strip > i:nth-child(3) { right: 8%; top: 10px; background: #1E9C8E; }
 .glass-strip .glass { flex: 1 1 180px; min-height: 110px; padding: 18px 20px; font: 500 15px/1.4 var(--display); }
 .glass-strip .glass strong { display: block; font: 600 17px var(--display); }
+.glass-strip .glass-kind::after { content: var(--glass-kind); }
 `,
   examples: [
     {
-      label: "Light, thin to thick",
+      label: "Thin to thick, in the theme you chose",
       isWide: true,
-      markup: glassStrip(
-        html`${[30, 50, 72].map((glassOpacityPct) => html`<div class="glass" data-glass data-glass-corners="18 9 18 9" style="--glass-tint:rgba(255,255,255,${glassOpacityPct / 100})"><strong>${glassOpacityPct}%</strong>Light glass, dark words.</div>`)}`,
-      ),
-    },
-    {
-      label: "Smoked, thin to thick",
-      isWide: true,
-      markup: html`<div class="smoke">${glassStrip(
-        html`${[40, 55, 72].map((glassOpacityPct) => html`<div class="glass" data-glass data-glass-corners="18 9 18 9" style="--glass-tint:rgba(14,17,24,${glassOpacityPct / 100})"><strong>${glassOpacityPct}%</strong>Smoked glass, light words.</div>`)}`,
-      )}</div>`,
+      markup: glassStrip(html`${[35, 55, 72].map((glassOpacityPct) => html`<div class="glass" data-glass data-glass-corners="18 9 18 9" style="--glass-tint:rgba(var(--glass-base),${glassOpacityPct / 100})"><strong>${glassOpacityPct}%</strong><span class="glass-kind"></span></div>`)}`),
     },
   ],
 });

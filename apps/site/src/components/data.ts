@@ -75,7 +75,6 @@ component({
     { label: "Big", markup: pictureFrame("emma_r", "md") },
     { label: "Small", markup: pictureFrame("Liam", "sm") },
     { label: "Smallest, in a row", markup: html`<span class="faces">${["Liam", "Sofia", "Noah", "Mia"].map((name) => pictureFrame(name, "xs"))}</span>` },
-    { label: "On smoked glass", markup: html`<span class="smoke" style="display:inline-flex;gap:10px;padding:10px;background:rgba(14,17,24,.7)">${pictureFrame("emma_r", "md")}${pictureFrame("Sofia", "sm")}</span>` },
   ],
 });
 

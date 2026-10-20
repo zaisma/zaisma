@@ -247,7 +247,6 @@ component({
     { label: "Medium", markup: glassPane({ paneSize: "medium", body: signInBody("example-pane-medium") }), isWide: true },
     { label: "Large", markup: glassPane({ paneSize: "large", body: html`<h2>Large</h2><p>720 wide: a form with room to explain itself, or a game's details.</p>` }), isWide: true },
     { label: "Full", markup: glassPane({ paneSize: "full", body: html`<h2>Full</h2><p>The whole width: a shelf of rows.</p>` }), isWide: true },
-    { label: "Smoked", markup: html`<div class="smoke">${glassPane({ paneSize: "medium", body: html`<h2>Smoked glass</h2><p>Over a dark game, or anywhere at night: light words on darker glass.</p>` })}</div>`, isWide: true },
     { label: "Long, scrolling inside", markup: html`<div style="height:300px;display:flex">${glassPane({ paneSize: "small", body: html`<h2>Verdant</h2><p>${LONG_TEXT.repeat(4)}</p>` })}</div>` },
   ],
 });
