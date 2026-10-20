@@ -133,9 +133,6 @@ const RUN_STYLES = `
    .over is the pointer on it (RUNNER_SCRIPT); is-pointed, is-pressed and is-focused fix those states for the gallery. */
 .run-wrap {
   --run-shape: polygon(12px 0, calc(100% - 16px) 0, 100% 50%, calc(100% - 16px) 100%, 0 100%);
-  /* The keyboard's ring: 2px of ink, 2px off the slab, following its slant and its point (evenodd cuts the middle out). */
-  --run-ring: polygon(evenodd, 14.9px 2px, calc(100% - 20px) 2px, calc(100% - 1px) 50%, calc(100% - 20px) calc(100% - 2px), 0.8px calc(100% - 2px), 14.9px 2px,
-    16.5px 4px, 3.4px calc(100% - 4px), calc(100% - 21px) calc(100% - 4px), calc(100% - 3.5px) 50%, calc(100% - 21px) 4px, 16.5px 4px);
   --depth: 4px;
   isolation: isolate; vertical-align: middle; perspective: 600px; margin-bottom: var(--depth);
 }
@@ -143,8 +140,6 @@ const RUN_STYLES = `
 .run-wrap.is-full { display: flex; width: 100%; perspective: 700px; }
 .run-wrap.is-big {
   --run-shape: polygon(14px 0, calc(100% - 20px) 0, 100% 50%, calc(100% - 20px) 100%, 0 100%);
-  --run-ring: polygon(evenodd, 16.9px 2px, calc(100% - 23.9px) 2px, calc(100% - 1.1px) 50%, calc(100% - 23.9px) calc(100% - 2px), 0.9px calc(100% - 2px), 16.9px 2px,
-    18.4px 4px, 3.4px calc(100% - 4px), calc(100% - 25px) calc(100% - 4px), calc(100% - 3.5px) 50%, calc(100% - 25px) 4px, 18.4px 4px);
   --depth: 5px;
 }
 /* Its warm glow on what's under it: it spreads as the slab lifts and gathers in as it's pressed. */
@@ -185,9 +180,9 @@ const RUN_STYLES = `
 .run-wrap.is-pointed { --lift: -1.5px; }
 /* Pressed: the face goes down onto its side, a touch darker, quickly; it springs back when let go. */
 .run-wrap:active > .run, .run-wrap.is-pressed > .run { --lift: calc(var(--depth) - 1px); filter: brightness(0.95) saturate(1.05); transition-duration: 0.08s; }
-/* Keyboard focus: the ring, around the face and its side. */
-.run-wrap::after { content: ""; position: absolute; z-index: 2; inset: -6px -6px calc(-6px - var(--depth)); pointer-events: none; background: var(--ink); clip-path: var(--run-ring); opacity: 0; transition: opacity 0.15s; }
-.run-wrap:focus-visible::after, .run-wrap.is-focused::after { opacity: 1; }
+/* Keyboard focus: a clean 2px ink outline hugging the whole slab, face and side, drawn from the slab's own shape so it keeps the slant, the point and the side. Its glow steps aside so only the outline shows. */
+.run-wrap:focus-visible, .run-wrap.is-focused { filter: drop-shadow(2px 0 0 var(--ink)) drop-shadow(-2px 0 0 var(--ink)) drop-shadow(0 2px 0 var(--ink)) drop-shadow(0 -2px 0 var(--ink)); }
+.run-wrap:focus-visible::before, .run-wrap.is-focused::before { opacity: 0; }
 /* Busy: pressed and waiting. The arrow drifts on; the label says what's happening when the page gave one. */
 .run-wrap[aria-busy="true"] { cursor: progress; }
 .run-wrap[aria-busy="true"] .label-idle, .run-wrap:not([aria-busy="true"]) .label-busy { display: none; }
