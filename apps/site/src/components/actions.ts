@@ -339,6 +339,8 @@ component({
 /* On a coloured or black tint a coloured mark would sink into it, so a mark that may be one colour turns white with the words.
    Google's G stays in its colours, which only ever sit on white or clear glass. */
 .glass-btn[data-tint="blue"] .one-colour path, .glass-btn[data-tint="indigo"] .one-colour path, .glass-btn[data-tint="black"] .one-colour path { fill: currentColor; transition: fill 0.3s; }
+/* On clear glass it's white over smoked glass, and its own blue over light (the fallback, since light glass leaves --clear-glass-mark unset). */
+.glass-btn[data-tint="clear"] .one-colour path { fill: var(--clear-glass-mark, #5865F2); transition: fill 0.3s; }
 /* The gallery's tint palette: pick one and the button above takes it (GALLERY_SCRIPT). */
 .tint-try { display: grid; gap: var(--gap-block-block); width: min(340px, 100%); }
 .tint-palette { display: flex; align-items: center; gap: var(--gap-control-control); font: 500 13px var(--display); color: var(--muted); }
