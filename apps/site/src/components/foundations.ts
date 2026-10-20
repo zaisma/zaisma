@@ -24,7 +24,6 @@ const LIGHT_GLASS = `color-scheme: light;
   --done: rgba(255, 255, 255, 0.7); --done-line: inset 0 0 0 1px rgba(20, 23, 28, 0.1);
   --glass-btn-face: rgba(255, 255, 255, 0.36); --glass-btn-hover: rgba(255, 255, 255, 0.72); --glass-btn-press: rgba(255, 255, 255, 0.26); --glass-btn-glow: rgba(255, 255, 255, 1);
   --glass-btn-lift: inset 0 -12px 18px -12px rgba(30, 60, 110, 0.2), inset 0 1px 0 #fff; --glass-btn-hair: rgba(26, 44, 80, 0.5);
-  --glass-btn-tint-rest: 0.2; --glass-btn-tint-hover: 0.32; --glass-btn-tint-press: 0.26;
   --clear-hover: rgba(255, 255, 255, 0.45); --clear-press: rgba(255, 255, 255, 0.25);
   --chip-face: #DDF2E5; --chip-ink: #136238; --face-ring: rgba(255, 255, 255, 0.85); --presence-ring: #fff;
   --rail-line: rgba(20, 23, 28, 0.2); --rail-thumb: rgba(24, 28, 36, 0.55); --rail-edge: rgba(255, 255, 255, 0.55); --rail-mark: rgba(20, 23, 28, 0.45);
@@ -49,7 +48,6 @@ const SMOKED_GLASS = `color-scheme: dark;
   --done: rgba(255, 255, 255, 0.12); --done-line: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
   --glass-btn-face: rgba(255, 255, 255, 0.07); --glass-btn-hover: rgba(255, 255, 255, 0.15); --glass-btn-press: rgba(255, 255, 255, 0.04); --glass-btn-glow: rgba(255, 255, 255, 0.3);
   --glass-btn-lift: inset 0 -12px 18px -12px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.22); --glass-btn-hair: rgba(255, 255, 255, 0.4);
-  --glass-btn-tint-rest: 0.3; --glass-btn-tint-hover: 0.44; --glass-btn-tint-press: 0.22;
   --clear-hover: rgba(255, 255, 255, 0.08); --clear-press: rgba(255, 255, 255, 0.04);
   --chip-face: rgba(52, 211, 120, 0.22); --chip-ink: #A6F0C6; --face-ring: rgba(6, 8, 12, 0.55); --presence-ring: #1A1D24;
   --rail-line: rgba(255, 255, 255, 0.2); --rail-thumb: rgba(255, 255, 255, 0.55); --rail-edge: rgba(255, 255, 255, 0.35); --rail-mark: rgba(255, 255, 255, 0.5);
@@ -68,7 +66,8 @@ const SMOKED_GLASS = `color-scheme: dark;
 export const TOKEN_STYLES = `
 @font-face { font-family: Jost; src: url(/fonts/jost.woff2) format("woff2"); font-weight: 100 900; font-display: swap; }
 @property --refl { syntax: "<percentage>"; inherits: false; initial-value: 50%; }
-@property --tint-alpha { syntax: "<number>"; inherits: false; initial-value: 0; }
+@property --tint-colour { syntax: "<color>"; inherits: false; initial-value: transparent; }
+@property --tint-pct { syntax: "<percentage>"; inherits: false; initial-value: 0%; }
 :root {
   color-scheme: light dark;
   --run: #F7931A; --run-hi: #FFB24A; --run-lo: #A85A06;

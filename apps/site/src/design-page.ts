@@ -244,6 +244,14 @@ export const GALLERY_SCRIPT = pageScript(
   var groups = document.querySelector(".gallery-groups"), here = groups && groups.querySelector('[aria-current="page"]');
   if (here) groups.scrollLeft = Math.max(0, here.offsetLeft - (groups.clientWidth - here.offsetWidth) / 2);
   document.addEventListener("submit", function (event) { if (event.target.closest(".example-stage")) event.preventDefault(); });
+  // The glass button's tint palette: the button above takes the tint you pick.
+  document.addEventListener("click", function (event) {
+    var swatch = event.target.closest && event.target.closest("[data-tint-choice]"); if (!swatch) return;
+    var box = swatch.closest("[data-tint-try]");
+    box.querySelector(".glass-btn").setAttribute("data-tint", swatch.getAttribute("data-tint-choice"));
+    box.querySelectorAll("[data-tint-choice]").forEach(function (each) { each.setAttribute("aria-pressed", String(each === swatch)); });
+    box.querySelector(".tint-name").textContent = swatch.getAttribute("aria-label");
+  });
 })();
 `,
 );

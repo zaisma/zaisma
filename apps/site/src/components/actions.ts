@@ -84,13 +84,13 @@ const PASSKEY = raw(
 const WAY_ICONS = { google: GOOGLE, discord: DISCORD, passkey: PASSKEY } as const;
 
 /** A glass button's tint: clear glass, or glass tinted the colour of the way in. Each way has its own unless the page picks one. */
-export type GlassTint = "clear" | "white" | "blue" | "indigo";
+export type GlassTint = "clear" | "white" | "blue" | "indigo" | "black";
 const WAY_TINTS: Record<keyof typeof WAY_ICONS, GlassTint> = { google: "white", discord: "indigo", passkey: "clear" };
 
 /** A glass button for another way in (a passkey, Google, Discord): a small slab of the panes' glass, with their rim. Quieter than the runner, louder than the guest way. */
 export function glassButton(label: string, options: { href?: string; type?: "submit" | "button"; icon: keyof typeof WAY_ICONS; tint?: GlassTint; state?: ButtonState }): Raw {
   const tint = options.tint ?? WAY_TINTS[options.icon];
-  const extra = raw(` data-glass data-glass-corners="12 4 12 4"${tint === "clear" ? "" : ` data-tint="${tint}"`}`);
+  const extra = raw(` data-glass data-glass-corners="12 4 12 4" data-tint="${tint}"`);
   return html`${opening(classes("glass-btn", options.state), { href: options.href, type: options.type ?? "button" }, false, undefined, extra)}${WAY_ICONS[options.icon]}<span>${label}</span>${closing({ href: options.href })}`;
 }
 
@@ -279,7 +279,11 @@ component({
 
 const PICTURE = "display:grid;gap:10px;width:min(380px,100%);padding:20px;background-position:center;background-size:cover;";
 const wayIn = (state?: ButtonState) => glassButton("Sign in with a passkey", { icon: "passkey", state });
-const TINT_NAMES: Record<GlassTint, string> = { clear: "Clear", white: "White, like Google's", blue: "Blue", indigo: "Indigo, like Discord's" };
+const TINT_NAMES: Record<GlassTint, string> = { clear: "Clear", white: "White", blue: "Blue", indigo: "Indigo", black: "Black" };
+const tintPalette = () =>
+  html`<div class="tint-try" data-tint-try>${glassButton("Continue with Discord", { icon: "discord" })}<div class="tint-palette" role="group" aria-label="Tint">${(Object.keys(TINT_NAMES) as GlassTint[]).map(
+    (tint) => html`<button type="button" class="tint-swatch" data-tint-choice="${tint}" aria-label="${TINT_NAMES[tint]}" aria-pressed="${tint === "indigo" ? "true" : "false"}"></button>`,
+  )}<span class="tint-name" aria-live="polite">Indigo</span></div></div>`;
 const waysIn = () => html`${glassButton("Sign in with a passkey", { icon: "passkey" })}${glassButton("Continue with Google", { icon: "google" })}${glassButton("Continue with Discord", { icon: "discord" })}`;
 
 component({
@@ -317,23 +321,45 @@ component({
 .glass-btn:focus-visible .edge .hair, .glass-btn.is-focused .edge .hair { stroke: var(--ink); stroke-width: 2; }
 .glass-btn:focus-visible .edge .rim, .glass-btn.is-focused .edge .rim { stroke: var(--ink); stroke-width: 2; }
 .glass-btn:focus-visible .edge .facet, .glass-btn:focus-visible .edge .fringe, .glass-btn.is-focused .edge .facet, .glass-btn.is-focused .edge .fringe { opacity: 0; }
-/* Tinted: the way's colour laid into the glass, stronger as you point at it. White glass keeps dark words in either theme. */
-.glass-btn[data-tint] { --tint-alpha: var(--glass-btn-tint-rest); background-image: linear-gradient(rgba(var(--tint), var(--tint-alpha)), rgba(var(--tint), var(--tint-alpha))), var(--glass-sheen);
-  transition: background-color 0.25s, box-shadow 0.2s, transform 0.4s ${SPRING}, --tint-alpha 0.25s; }
-.glass-btn[data-tint]:hover, .glass-btn[data-tint].is-pointed, .glass-btn[data-tint]:focus-visible, .glass-btn[data-tint].is-focused { --tint-alpha: var(--glass-btn-tint-hover); }
-.glass-btn[data-tint]:active, .glass-btn[data-tint].is-pressed { --tint-alpha: var(--glass-btn-tint-press); }
-.glass-btn[data-tint="blue"] { --tint: 42, 117, 232; }
-.glass-btn[data-tint="indigo"] { --tint: 88, 101, 242; }
-.glass-btn[data-tint="white"] { --tint: 255, 255, 255; --glass-btn-tint-rest: 0.86; --glass-btn-tint-hover: 0.97; --glass-btn-tint-press: 0.74; color: #14171C; }
-/* On a blue or indigo tint a coloured mark would sink into it, so a mark that may be one colour takes the words' colour:
-   dark on light glass, white on smoked. Google's G stays in its colours, which only ever sit on white or clear glass. */
-.glass-btn[data-tint="blue"] .one-colour path, .glass-btn[data-tint="indigo"] .one-colour path { fill: currentColor; }
+/* Tinted: the way's own colour, nearly solid, in either theme (a brand's colour is how you recognise it, so it doesn't
+   follow light or dark): white glass with dark words, the coloured and black ones with white words. It's a touch stronger
+   as you point at it and a touch clearer under a press. Changing the tint fades from one to the next. */
+.glass-btn { --tint-pct: 0%; background-image: linear-gradient(color-mix(in srgb, var(--tint-colour) var(--tint-pct), transparent), color-mix(in srgb, var(--tint-colour) var(--tint-pct), transparent)), var(--glass-sheen); }
+.glass-btn[data-tint] { --tint-pct: var(--glass-btn-tint-rest); transition: background-color 0.25s, box-shadow 0.2s, transform 0.4s ${SPRING}, color 0.3s, --tint-colour 0.3s, --tint-pct 0.3s; }
+.glass-btn[data-tint]:hover, .glass-btn[data-tint].is-pointed, .glass-btn[data-tint]:focus-visible, .glass-btn[data-tint].is-focused { --tint-pct: var(--glass-btn-tint-hover); }
+.glass-btn[data-tint]:active, .glass-btn[data-tint].is-pressed { --tint-pct: var(--glass-btn-tint-press); }
+.glass-btn[data-tint="clear"] { --glass-btn-tint-rest: 0%; --glass-btn-tint-hover: 0%; --glass-btn-tint-press: 0%; }
+.glass-btn[data-tint="white"] { --tint-colour: #fff; --glass-btn-tint-rest: 86%; --glass-btn-tint-hover: 97%; --glass-btn-tint-press: 74%; color: #14171C; }
+.glass-btn[data-tint="blue"], .glass-btn[data-tint="indigo"], .glass-btn[data-tint="black"] { --glass-btn-tint-rest: 95%; --glass-btn-tint-hover: 100%; --glass-btn-tint-press: 86%; --glass-btn-glow: rgba(255,255,255,0.35); color: #fff; }
+.glass-btn[data-tint="blue"] { --tint-colour: #2A75E8; }
+.glass-btn[data-tint="indigo"] { --tint-colour: #5865F2; }
+.glass-btn[data-tint="black"] { --tint-colour: #14171C; }
+/* On a coloured or black tint a coloured mark would sink into it, so a mark that may be one colour turns white with the words.
+   Google's G stays in its colours, which only ever sit on white or clear glass. */
+.glass-btn[data-tint="blue"] .one-colour path, .glass-btn[data-tint="indigo"] .one-colour path, .glass-btn[data-tint="black"] .one-colour path { fill: currentColor; transition: fill 0.3s; }
+/* The gallery's tint palette: pick one and the button above takes it (GALLERY_SCRIPT). */
+.tint-try { display: grid; gap: 12px; width: min(340px, 100%); }
+.tint-palette { display: flex; align-items: center; gap: 6px; font: 500 13px var(--display); color: var(--muted); }
+.tint-palette .tint-name { margin-left: 8px; color: var(--ink-2); }
+.tint-swatch { --chamfer: polygon(0 8px, 8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%);
+  position: relative; width: 32px; height: 32px; padding: 0; border: 0; cursor: pointer; background: transparent; clip-path: var(--chamfer); transition: background-color 0.2s; }
+.tint-swatch::before { content: ""; position: absolute; inset: 2px; background: var(--page); clip-path: var(--chamfer); }
+.tint-swatch::after { content: ""; position: absolute; inset: 4px; clip-path: var(--chamfer); background: var(--swatch); box-shadow: inset 0 0 0 1px var(--line); }
+.tint-swatch:hover { background-color: var(--line); }
+.tint-swatch:focus-visible { outline: none; background-color: var(--muted); }
+.tint-swatch[aria-pressed="true"] { background-color: var(--ink); }
+/* Clear: a checker, the usual sign for see-through. */
+.tint-swatch[data-tint-choice="clear"] { --swatch: repeating-conic-gradient(var(--line) 0 25%, transparent 0 50%) 0 0 / 8px 8px; }
+.tint-swatch[data-tint-choice="white"] { --swatch: #fff; }
+.tint-swatch[data-tint-choice="blue"] { --swatch: #2A75E8; }
+.tint-swatch[data-tint-choice="indigo"] { --swatch: #5865F2; }
+.tint-swatch[data-tint-choice="black"] { --swatch: #14171C; }
 @media (prefers-reduced-motion: reduce) { .glass-btn, .glass-btn > svg:not(.edge) { transition: background-color 0.25s; } }
 `,
   render: glassButton,
   examples: [
     ...stateExamples(wayIn, "glass", true),
-    ...(Object.keys(TINT_NAMES) as GlassTint[]).map((tint) => ({ label: TINT_NAMES[tint], markup: html`<div style="${COLUMN}">${glassButton("Sign in with a passkey", { icon: "passkey", tint })}</div>` })),
+    { label: "Every tint: pick one", markup: tintPalette() },
     { label: "The ways in, each in its own tint", markup: html`<div style="display:grid;gap:10px;${COLUMN}">${waysIn()}</div>` },
     // Over a game's picture the glass follows the picture, not the theme: light glass on a bright one, smoked on a dark one.
     { label: "Over a bright picture", markup: html`<div data-theme-choice="light" style="${PICTURE}background-image:url(/design/covers/frostline.webp)">${waysIn()}</div>` },
