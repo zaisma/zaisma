@@ -79,7 +79,7 @@ export function birthdayField(options: BirthdayFieldOptions): Raw {
 <p class="field-error" id="${id}-error"${isMarked ? "" : raw(" hidden")}>Pick your birthday to go on.</p>
 <div class="bday-pick" data-cut-line="10" id="${id}-pick" role="group" aria-label="${options.label}"${isOpen ? "" : raw(" hidden")}>
 <div class="wheels"><span class="wheel-band cut-raised" data-cut-line="8" aria-hidden="true"></span><div class="wheel" data-own-fade data-part="month" role="listbox" aria-label="Month" tabindex="0"></div><div class="wheel" data-own-fade data-part="day" role="listbox" aria-label="Day" tabindex="0"></div><div class="wheel" data-own-fade data-part="year" role="listbox" aria-label="Year" tabindex="0"></div></div>
-<div class="bday-foot"><span class="bday-read" aria-live="polite"></span><button type="button" class="bday-done cut-raised" data-cut-line="8" disabled>Done</button></div>
+<span class="bday-read sr" aria-live="polite"></span>
 </div>
 <input type="hidden" name="${options.name}" value="${options.birthday ?? ""}" data-id="${id}">
 </fieldset>`;
@@ -168,7 +168,7 @@ export const BIRTHDAY_SCRIPT = `/* birthday */(function () {
   function daysIn(month, year) { return month ? new Date(year || 2000, month, 0).getDate() : 31; }
   document.querySelectorAll("[data-birthday]").forEach(function (root) {
     var field = root.querySelector(".bday-field"), pick = root.querySelector(".bday-pick"), value = root.querySelector(".bday-value"), error = root.querySelector(".field-error");
-    var read = root.querySelector(".bday-read"), doneButton = root.querySelector(".bday-done"), hidden = root.querySelector('input[type="hidden"]'), id = hidden.getAttribute("data-id");
+    var read = root.querySelector(".bday-read"), hidden = root.querySelector('input[type="hidden"]'), id = hidden.getAttribute("data-id");
     var birthday = { month: 0, day: 0, year: 0 }; // 0 is the blank row
     var given = /^(\\d{4})-(\\d{2})-(\\d{2})$/.exec(hidden.value);
     if (given) { birthday.month = Number(given[2]); birthday.day = Number(given[3]); birthday.year = Math.max(0, years.indexOf(given[1]) + 1); }
@@ -219,7 +219,6 @@ export const BIRTHDAY_SCRIPT = `/* birthday */(function () {
     function complete() { return birthday.month && birthday.day && birthday.year; }
     function show() {
       var done = complete();
-      doneButton.disabled = !done;
       read.textContent = done ? text() : HINT;
       if (done) {
         value.textContent = shortText(); field.classList.add("set"); field.classList.remove("is-marked"); error.hidden = true;
@@ -259,7 +258,6 @@ export const BIRTHDAY_SCRIPT = `/* birthday */(function () {
     }
     function close(returnFocus) { pick.hidden = true; field.setAttribute("aria-expanded", "false"); if (returnFocus) field.focus(); }
     field.addEventListener("click", function () { if (pick.hidden) open(); else close(false); });
-    doneButton.addEventListener("click", function () { close(true); });
     pick.addEventListener("keydown", function (event) { if (event.key === "Escape") { close(true); event.preventDefault(); } });
     if (!pick.hidden) requestAnimationFrame(place);
     show();
@@ -404,19 +402,7 @@ component({
 .wheel [role="option"][aria-selected="true"] { font-size: 19px; color: var(--ink); font-weight: 600; }
 .wheel [role="option"][aria-selected="true"].blank { color: var(--muted); font-weight: 500; }
 .wheel:focus-visible [role="option"][aria-selected="true"] { text-decoration: underline 2px var(--ink); text-underline-offset: 7px; }
-.bday-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; padding: 0 4px; }
-.bday-read { color: var(--muted); font-size: 14px; }
 /* Done: a cut slab of clearer glass; it whitens with the orange line when you point at it, once there's a whole date. */
-/* Done: a raised slab like a cut button, lying flat in the well, faded, until there's a whole date. */
-.bday-done { position: relative; height: 40px; padding: 0 22px; cursor: pointer; border: 0; --face-colour: var(--btn); background: var(--face-colour);
-  font: 600 15px var(--display); color: var(--ink); clip-path: var(--cut-shape); transition: --face-colour 0.2s, opacity 0.2s; }
-.bday-done:not(:disabled):hover { --face-colour: var(--btn-hover); }
-.bday-done:not(:disabled):active { --face-colour: var(--btn-press); }
-.bday-done:not(:disabled):active > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
-.bday-done:disabled { --face-colour: transparent; opacity: 0.45; cursor: default; }
-.bday-done:disabled > .cut-line { --band-top: transparent; --band-left: transparent; --band-right: transparent; --band-bottom: transparent; }
-.bday-done:focus-visible { outline: none; }
-.bday-done:focus-visible > .cut-line polygon { stroke: var(--ink); stroke-width: 2; }
 `,
   render: birthdayField,
   examples: [
