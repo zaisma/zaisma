@@ -75,7 +75,7 @@ export function birthdayField(options: BirthdayFieldOptions): Raw {
   const isMarked = options.state === "marked";
   return html`<fieldset class="bday" data-birthday${options.isRequired ? raw(" data-required") : ""}>
 <legend id="${id}-legend">${options.label}</legend>
-<button type="button" class="bday-field cut-carved${isMarked ? " is-marked" : ""}" data-cut-line="10" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-pick" aria-describedby="${id}-legend ${id}-error">${CUT_LINE}${icon("calendar")}<span class="bday-value">Pick your birthday</span><svg class="chev" viewBox="0 0 20 12" width="16" height="10" aria-hidden="true"><path d="M2 2l8 8 8-8" fill="none" stroke="currentColor" stroke-width="2.2"/></svg></button>
+<button type="button" class="bday-field cut-carved${isMarked ? " is-marked" : ""}" data-cut-line="10" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-pick" aria-describedby="${id}-legend ${id}-error">${CUT_LINE}${icon("calendar")}<span class="bday-value">Choose a date</span><svg class="chev" viewBox="0 0 20 12" width="16" height="10" aria-hidden="true"><path d="M2 2l8 8 8-8" fill="none" stroke="currentColor" stroke-width="2.2"/></svg></button>
 <p class="field-error" id="${id}-error"${isMarked ? "" : raw(" hidden")}>Pick your birthday to go on.</p>
 <div class="bday-pick" data-cut-line="10" id="${id}-pick" role="group" aria-label="${options.label}"${isOpen ? "" : raw(" hidden")}>
 <div class="wheels"><span class="wheel-band cut-raised" data-cut-line="8" aria-hidden="true"></span><div class="wheel" data-own-fade data-part="month" role="listbox" aria-label="Month" tabindex="0"></div><div class="wheel" data-own-fade data-part="day" role="listbox" aria-label="Day" tabindex="0"></div><div class="wheel" data-own-fade data-part="year" role="listbox" aria-label="Year" tabindex="0"></div></div>
@@ -223,7 +223,7 @@ export const BIRTHDAY_SCRIPT = `/* birthday */(function () {
       if (done) {
         value.textContent = shortText(); field.classList.add("set"); field.classList.remove("is-marked"); error.hidden = true;
         hidden.value = years[birthday.year - 1] + "-" + String(birthday.month).padStart(2, "0") + "-" + String(birthday.day).padStart(2, "0");
-      } else if (!field.classList.contains("is-marked")) { value.textContent = "Pick your birthday"; field.classList.remove("set"); hidden.value = ""; }
+      } else if (!field.classList.contains("is-marked")) { value.textContent = "Choose a date"; field.classList.remove("set"); hidden.value = ""; }
       else { field.classList.remove("set"); hidden.value = ""; }
     }
     Object.keys(wheels).forEach(function (part) {
