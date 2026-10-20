@@ -534,7 +534,7 @@ component({
 .sidebar a { position: relative; display: flex; align-items: center; gap: 10px; height: 42px; padding: 0 14px; font: 500 16px var(--display); color: var(--ink-2); text-decoration: none;
   clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%); transition: background 0.2s, color 0.2s, box-shadow 0.2s; }
 .sidebar a svg { width: 18px; height: 18px; flex: none; }
-.sidebar a:hover { background: var(--btn-hover); color: var(--ink); box-shadow: inset 0 -3px 0 color-mix(in srgb, var(--run) 45%, transparent); }
+.sidebar a:hover { background: var(--btn-hover); color: var(--ink); box-shadow: inset 0 -3px 0 color-mix(in srgb, var(--ink) 22%, transparent); }
 .sidebar a:active { background: var(--btn); }
 .sidebar a[aria-current="page"], .sidebar a[aria-current="page"]:hover { background: var(--slab); color: var(--ink); font-weight: 600; box-shadow: inset 0 -3px 0 var(--run); }
 .sidebar a:focus-visible { outline: 2px solid var(--ink); outline-offset: -3px; }
