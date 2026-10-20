@@ -398,11 +398,12 @@ component({
 .rail:hover .rail-thumb, .rail.dragging .rail-thumb { left: 2px; width: 9px; clip-path: polygon(0 5px, 5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%); }
 .rail.dragging .rail-thumb { cursor: grabbing; box-shadow: inset 2px 0 0 var(--run), 0 2px 8px rgba(10,20,40,0.22); }
 /* A mark per part of the page: a short tick on the line that turns orange when pointed at, with the part's name on a small glass label to its left. */
-.rail-mark { position: absolute; left: 1px; width: 12px; height: 9px; margin-top: -4px; padding: 0; border: 0; cursor: pointer; background: none; }
-.rail-mark::before { content: ""; position: absolute; left: 2px; right: 2px; top: 4px; height: 1.5px; background: var(--rail-mark); transition: background 0.2s, left 0.2s; }
-.rail-mark:hover::before { background: var(--run); left: -2px; }
+/* Its click area is far bigger than the tick: 24px tall and reaching in over the page, so a mark is easy to hit. */
+.rail-mark { position: absolute; left: -12px; width: 26px; height: 24px; margin-top: -12px; padding: 0; border: 0; cursor: pointer; background: none; }
+.rail-mark::before { content: ""; position: absolute; left: 15px; right: 2px; top: 11px; height: 2px; background: var(--rail-mark); transition: background 0.2s, left 0.2s; }
+.rail-mark:hover::before { background: var(--run); left: 9px; }
 .rail-mark[hidden] { display: none; }
-.rail-mark span { position: absolute; right: 18px; top: 50%; transform: translate(4px, -50%); padding: 4px 10px; white-space: nowrap; pointer-events: none;
+.rail-mark span { position: absolute; right: 28px; top: 50%; transform: translate(4px, -50%); padding: 4px 10px; white-space: nowrap; pointer-events: none;
   font: 600 12px var(--display); color: var(--ink); background: var(--glass-menu); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
   clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); opacity: 0; transition: opacity 0.15s, transform 0.15s; }
 .rail-mark:hover span { opacity: 1; transform: translate(0, -50%); }

@@ -129,7 +129,10 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
   if (preview && method !== "POST") return previewPage(env, preview[1]!);
 
   if (path === "/developers/covers" && method === "GET") return coverGuidePage(env);
-  if (path === "/design" && method === "GET") return designPage(env, url);
+  if ((path === "/design" || path.startsWith("/design/")) && !path.startsWith("/design/frame/") && method === "GET") {
+    const gallery = designPage(env, url);
+    if (gallery) return gallery;
+  }
   const designFrame = path.match(/^\/design\/frame\/([a-z]+(?:-[a-z]+)*)$/);
   if (designFrame && method === "GET") return designFramePage(env, designFrame[1]!, url);
 

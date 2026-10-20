@@ -1,7 +1,7 @@
 import type { Env } from "./env.ts";
-import { html, message, raw, scriptTags, securityHeaders, type Raw } from "./html.ts";
+import { html, message, pageData, raw, scriptTags, securityHeaders, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
-import { COMPONENT_GROUPS, type Component } from "./components/component.ts";
+import { COMPONENT_GROUPS, type Component, type ComponentGroup } from "./components/component.ts";
 import { COMPONENTS, COMPONENT_SCRIPT, COMPONENT_STYLES, HEADER_SCRIPT, componentBySlug } from "./components/index.ts";
 import { EDGE, WORDMARK, railMarkup } from "./components/foundations.ts";
 import { cutButton, runButton } from "./components/actions.ts";
@@ -51,6 +51,10 @@ function viewQuery(view: GalleryView): string {
   return text ? `?${text}` : "";
 }
 
+/** Each group is a page of its own: the foundations at /design, the rest at /design/<group>. */
+export const groupPath = (group: ComponentGroup) => (group === "foundations" ? "/design" : `/design/${group}`);
+const groupOfPath = (pathname: string): ComponentGroup | undefined => COMPONENT_GROUPS.find(({ group }) => groupPath(group) === pathname)?.group;
+
 const frameSource = (slug: string, view: GalleryView) => `/design/frame/${slug}${viewQuery({ ...view, width: "wide" })}`;
 
 /** The stage's own attributes: theme, backdrop, smoked glass over the dark game. A bright game keeps light glass whatever the theme. */
@@ -74,13 +78,13 @@ ${cutButton("Make an account", { type: "button", sceneAnchor: "lower-roof" })}
 
 function section(each: Component, view: GalleryView): Raw {
   return html`<section class="component-section" id="${each.slug}" aria-labelledby="${each.slug}-name" data-rail-mark="${each.name}">
-<div class="component-head glass" data-glass data-glass-corners="14 6 14 6"><h2 id="${each.slug}-name"><a href="#${each.slug}">${each.name}</a></h2><p>${each.summary}</p>${each.hasSceneMode ? html`<p class="scene-note">It can rest in a scene. <a href="?backdrop=scene#glass-pane" data-gallery-view="backdrop=scene">See it on the rooftop</a>.</p>` : ""}</div>
+<div class="component-head glass" data-glass data-glass-corners="14 6 14 6"><h2 id="${each.slug}-name"><a href="#${each.slug}">${each.name}</a></h2><p>${each.summary}</p>${each.hasSceneMode ? html`<p class="scene-note">It can rest in a scene. <a href="${groupPath("panes")}${viewQuery({ ...view, backdrop: "scene" })}#glass-pane" data-gallery-page="${groupPath("panes")}" data-gallery-view="backdrop=scene">See it on the rooftop</a>.</p>` : ""}</div>
 ${each.slug === "glass-pane" ? SCENE_EXAMPLE : ""}${examples(each)}<div class="phone-frames">${view.width === "phone" ? phoneFrame(each, view) : ""}</div>
 </section>`;
 }
 
-function switches(view: GalleryView): Raw {
-  const link = (change: Partial<GalleryView>) => `/design${viewQuery({ ...view, ...change })}`;
+function switches(view: GalleryView, group: ComponentGroup): Raw {
+  const link = (change: Partial<GalleryView>) => `${groupPath(group)}${viewQuery({ ...view, ...change })}`;
   return html`<div class="gallery-switches">
 ${tabSwitch({ label: "Background", switchSize: "small", tabs: BACKDROPS.map((each) => ({ label: each.label, href: link({ backdrop: each.backdrop }), isCurrent: view.backdrop === each.backdrop })) })}
 ${tabSwitch({ label: "Theme", switchSize: "small", tabs: [{ label: "Light", href: link({ theme: "light" }), isCurrent: view.theme === "light" }, { label: "Dark", href: link({ theme: "dark" }), isCurrent: view.theme === "dark" }] })}
@@ -99,36 +103,36 @@ function head(title: string): Raw {
 <style>${raw(COMPONENT_STYLES() + GALLERY_STYLES)}</style>`;
 }
 
-/** GET /design: the gallery. */
-export function designPage(env: Env, url: URL): Response {
+/** GET /design and /design/<group>: one group of the gallery, its components in every state. */
+export function designPage(env: Env, url: URL): Response | null {
+  const group = groupOfPath(url.pathname.replace(/\/+$/, "") || "/");
+  if (!group) return null;
   const view = viewOf(url);
   const components = COMPONENTS();
+  const groups = COMPONENT_GROUPS.filter(({ group: each }) => components.some((component) => component.group === each));
+  const groupName = groups.find((each) => each.group === group)!.name;
+  const groupLink = (each: ComponentGroup) => html`href="${groupPath(each)}${viewQuery(view)}" data-gallery-page="${groupPath(each)}"`;
   const page = html`<!doctype html>
 <html lang="en">
 <head>
-${head("Design · Zaisma")}
+${head(`${groupName} · Design · Zaisma`)}
 </head>
 <body class="gallery">
 <div id="stage" ${stageAttributes(view, view.width)}>
 <div class="stage-glass"${stageGlassAttributes(view)}>
-<header class="gallery-bar glass" data-glass data-glass-corners="16 6 16 6">${EDGE}<a class="logo" href="/" aria-label="Zaisma home">${WORDMARK}</a><span class="gallery-title">Design</span>${switches(view)}</header>
+<header class="gallery-bar glass" data-glass data-glass-corners="16 6 16 6">${EDGE}<a class="logo" href="/" aria-label="Zaisma home">${WORDMARK}</a><span class="gallery-title">Design</span>${switches(view, group)}</header>
 <div class="gallery-layout">
-<div class="gallery-index glass" data-glass data-glass-corners="14 6 14 6"><nav class="gallery-index-in" aria-label="Components">${COMPONENT_GROUPS.map(({ group, name }) => {
-    const inGroup = components.filter((each) => each.group === group);
-    return inGroup.length ? html`<h2>${name}</h2><ul>${inGroup.map((each) => html`<li><a href="#${each.slug}">${each.name}</a></li>`)}</ul>` : "";
-  })}</nav>${railMarkup("box")}</div>
-<div class="gallery-groups">${tabSwitch({ label: "Groups", switchSize: "small", tabs: COMPONENT_GROUPS.filter(({ group }) => components.some((each) => each.group === group)).map(({ group, name }) => ({ label: name, href: `#${components.find((each) => each.group === group)!.slug}`, isCurrent: false })) })}</div>
+<div class="gallery-index glass" data-glass data-glass-corners="14 6 14 6"><nav class="gallery-index-in" aria-label="Groups"><ul>${groups.map(({ group: each, name }) => html`<li><a ${groupLink(each)}${each === group ? raw(' aria-current="page"') : ""}>${name}</a></li>`)}</ul></nav></div>
+<div class="gallery-groups">${tabSwitch({ label: "Groups", switchSize: "small", tabs: groups.map(({ group: each, name }) => ({ label: name, href: `${groupPath(each)}${viewQuery(view)}`, isCurrent: each === group })) })}</div>
 <main class="gallery-main">
-<h1 class="sr">Zaisma's design</h1>
-${COMPONENT_GROUPS.map(({ group, name }) => {
-    const inGroup = components.filter((each) => each.group === group);
-    return inGroup.length ? html`<div class="gallery-group"><h2 class="group-name">${name}</h2>${inGroup.map((each) => section(each, view))}</div>` : "";
-  })}
+<h1 class="group-name">${groupName}</h1>
+${components.filter((each) => each.group === group).map((each) => section(each, view))}
 </main>
 </div>
 </div>
 </div>
 ${railMarkup("page")}
+${pageData("design-pages", Object.fromEntries(components.map((each) => [each.slug, groupPath(each.group)])))}
 ${scriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT, GALLERY_SCRIPT, DESIGN_SCENE_SCRIPT)}
 </body>
 </html>`;
@@ -177,18 +181,17 @@ body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
 .gallery-switches { margin-left: auto; display: flex; flex-wrap: wrap; gap: 10px; }
 .gallery-layout { max-width: 1480px; margin: 0 auto; padding: 18px 12px 80px; display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 18px; align-items: start; }
 .gallery-index { position: sticky; top: 100px; display: flex; max-height: calc(100vh - 114px); }
-.gallery-index-in { flex: 1; min-height: 0; overflow-y: auto; padding: 18px 26px 18px 22px; }
-.gallery-index > .rail { top: 16px; bottom: 16px; right: 4px; }
-.gallery-index h2 { margin: 14px 0 4px; font: 600 13px var(--display); color: var(--muted); }
-.gallery-index h2:first-child { margin-top: 0; }
-.gallery-index ul { list-style: none; margin: 0; padding: 0; }
-.gallery-index a { display: block; padding: 3px 0; font: 500 15px var(--display); color: var(--ink); text-decoration: none; }
-.gallery-index a:hover { text-decoration: underline; text-decoration-color: var(--run); text-decoration-thickness: 2px; text-underline-offset: 4px; }
-.gallery-index a:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.gallery-index-in { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; }
+/* The groups, one page each. The one you're on carries the white slab with the orange line, like a tab. */
+.gallery-index ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.gallery-index a { position: relative; display: flex; align-items: center; height: 42px; padding: 0 14px; font: 500 16px var(--display); color: var(--ink-2); text-decoration: none;
+  clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%); transition: background 0.2s; }
+.gallery-index a:hover { background: var(--ghost); color: var(--ink); }
+.gallery-index a[aria-current="page"] { background: var(--slab); color: var(--ink); font-weight: 600; box-shadow: inset 0 -3px 0 var(--run); }
+.gallery-index a:focus-visible { outline: 2px solid var(--ink); outline-offset: -3px; }
 .gallery-groups { display: none; }
 .gallery-main { min-width: 0; }
-.group-name { margin: 26px 0 10px; font: 600 15px var(--display); color: var(--ink); display: inline-block; padding: 4px 14px; background: var(--glass-tint); clip-path: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%); }
-.gallery-group:first-of-type .group-name { margin-top: 0; }
+.group-name { margin: 0 0 14px; font: 600 30px/1.1 var(--display); color: var(--ink); display: inline-block; padding: 8px 22px; background: var(--glass-tint); clip-path: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%); }
 .component-section { margin: 0 0 34px; scroll-margin-top: 96px; }
 .component-head { padding: 16px 22px; margin-bottom: 12px; }
 .component-head h2 { margin: 0; font: 600 24px var(--display); }
@@ -258,6 +261,10 @@ export const GALLERY_SCRIPT = pageScript(
   "gallery",
   `(function () {
   var stage = document.getElementById("stage"), glassBox = stage.querySelector(".stage-glass");
+  var pages = JSON.parse(document.getElementById("design-pages").textContent);
+  // A link to a component on another group's page (like /design#runner-button) goes on to that page.
+  var asked = location.hash.slice(1);
+  if (asked && !document.getElementById(asked) && pages[asked]) { location.replace(pages[asked] + location.search + location.hash); return; }
   var view = { backdrop: stage.dataset.backdrop, theme: stage.dataset.themeChoice, width: stage.dataset.width };
   function query(v, keepWidth) {
     var q = new URLSearchParams();
@@ -277,6 +284,8 @@ export const GALLERY_SCRIPT = pageScript(
       if (frame.getAttribute("src") !== src) frame.setAttribute("src", src);
     });
   }
+  function switchOf(link) { var group = link.closest(".tab-switch").getAttribute("aria-label"); return group === "Background" ? "backdrop" : group === "Theme" ? "theme" : "width"; }
+  var FIRST = { backdrop: "zaisma", theme: "light", width: "wide" };
   function apply() {
     stage.dataset.backdrop = view.backdrop; stage.dataset.themeChoice = view.theme; stage.dataset.width = view.width;
     stage.classList.toggle("smoke", view.backdrop === "dark-game");
@@ -284,26 +293,28 @@ export const GALLERY_SCRIPT = pageScript(
     frames();
     // Every switch's links carry the rest of the view, so a link opened on its own lands on the same view.
     document.querySelectorAll(".gallery-switches a").forEach(function (link) {
-      var url = new URL(link.href), change = {};
-      url.searchParams.forEach(function (value, key) { change[key] = value; });
-      var group = link.closest(".tab-switch").getAttribute("aria-label");
-      var mine = group === "Background" ? { backdrop: change.backdrop || "zaisma" } : group === "Theme" ? { theme: change.theme || "light" } : { width: change.width || "wide" };
-      var next = Object.assign({}, view, mine);
-      link.href = "/design" + query(next, true);
-      if ((mine.backdrop && mine.backdrop === view.backdrop) || (mine.theme && mine.theme === view.theme) || (mine.width && mine.width === view.width)) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current");
+      var key = switchOf(link), value = new URL(link.href).searchParams.get(key) || FIRST[key], next = Object.assign({}, view); next[key] = value;
+      link.href = location.pathname + query(next, true);
+      if (view[key] === value) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current");
     });
-    history.replaceState(null, "", "/design" + query(view, true) + location.hash);
+    // And so do the links to the other groups' pages.
+    document.querySelectorAll("[data-gallery-page]").forEach(function (link) {
+      var change = {}, hash = new URL(link.href).hash;
+      if (link.hasAttribute("data-gallery-view")) new URLSearchParams(link.getAttribute("data-gallery-view")).forEach(function (value, key) { change[key] = value; });
+      link.href = link.getAttribute("data-gallery-page") + query(Object.assign({}, view, change), true) + hash;
+    });
+    history.replaceState(null, "", location.pathname + query(view, true) + location.hash);
   }
-  function choose(change) { Object.keys(change).forEach(function (key) { view[key] = change[key]; }); apply(); }
   document.addEventListener("click", function (event) {
     var link = event.target.closest && event.target.closest(".gallery-switches a, [data-gallery-view]");
     if (!link || event.metaKey || event.ctrlKey || event.shiftKey || event.button) return;
+    var url = new URL(link.href);
+    if (url.pathname !== location.pathname) return; // another group's page: the link already carries the view
     event.preventDefault();
-    var url = new URL(link.href), change = {};
-    if (link.hasAttribute("data-gallery-view")) { new URLSearchParams(link.getAttribute("data-gallery-view")).forEach(function (value, key) { change[key] = value; }); }
-    else { var group = link.closest(".tab-switch").getAttribute("aria-label"); change = group === "Background" ? { backdrop: url.searchParams.get("backdrop") || "zaisma" } : group === "Theme" ? { theme: url.searchParams.get("theme") || "light" } : { width: url.searchParams.get("width") || "wide" }; }
-    choose(change);
-    if (url.hash) { var target = document.getElementById(url.hash.slice(1)); if (target) target.scrollIntoView({ block: "start" }); history.replaceState(null, "", "/design" + query(view, true) + url.hash); }
+    if (link.hasAttribute("data-gallery-view")) new URLSearchParams(link.getAttribute("data-gallery-view")).forEach(function (value, key) { view[key] = value; });
+    else { var key = switchOf(link); view[key] = url.searchParams.get(key) || FIRST[key]; }
+    apply();
+    if (url.hash) { var target = document.getElementById(url.hash.slice(1)); if (target) target.scrollIntoView({ block: "start" }); history.replaceState(null, "", location.pathname + query(view, true) + url.hash); }
   });
   apply();
 })();

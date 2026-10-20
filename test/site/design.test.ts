@@ -2,7 +2,8 @@ import { SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import "../../apps/site/src/index.ts";
 import { COMPONENTS, COMPONENT_STYLES } from "../../apps/site/src/components/index.ts";
-import { component } from "../../apps/site/src/components/component.ts";
+import { COMPONENT_GROUPS, component } from "../../apps/site/src/components/component.ts";
+import { groupPath } from "../../apps/site/src/design-page.ts";
 import * as actions from "../../apps/site/src/components/actions.ts";
 import * as inputs from "../../apps/site/src/components/inputs.ts";
 import * as navigation from "../../apps/site/src/components/navigation.ts";
@@ -23,10 +24,10 @@ const page = async (path: string) => {
 };
 
 describe("the gallery", () => {
-  it("shows every component, by name, with its examples", async () => {
-    const { response, text } = await page("/design");
-    expect(response.status).toBe(200);
+  it("shows every component, by name, with its examples, on its group's page", async () => {
     for (const each of COMPONENTS()) {
+      const { response, text } = await page(groupPath(each.group));
+      expect(response.status, each.group).toBe(200);
       const at = text.indexOf(`<section class="component-section" id="${each.slug}"`);
       expect(at, each.slug).toBeGreaterThan(-1);
       const next = text.indexOf('<section class="component-section"', at + 1);
@@ -61,10 +62,21 @@ describe("the gallery", () => {
   });
 
   it("opens a view from its address: a dark game, dark, at phone width", async () => {
-    const { text } = await page("/design?backdrop=dark-game&theme=dark&width=phone");
-    expect(text).toMatch(/<div id="stage" class="stage smoke" data-backdrop="dark-game" data-theme-choice="dark" data-width="phone">/);
-    const frames = [...text.matchAll(/<iframe class="phone-frame" src="([^"]+)"/g)].map((found) => found[1]);
+    const frames: string[] = [];
+    for (const { group } of COMPONENT_GROUPS) {
+      const { text } = await page(`${groupPath(group)}?backdrop=dark-game&theme=dark&width=phone`);
+      expect(text).toMatch(/<div id="stage" class="stage smoke" data-backdrop="dark-game" data-theme-choice="dark" data-width="phone">/);
+      // The other groups' pages keep the view.
+      expect(text).toContain(`href="${groupPath("panes")}?backdrop=dark-game&amp;theme=dark&amp;width=phone" data-gallery-page="${groupPath("panes")}"`);
+      frames.push(...[...text.matchAll(/<iframe class="phone-frame" src="([^"]+)"/g)].map((found) => found[1]!));
+    }
     expect(frames).toEqual(COMPONENTS().map((each) => `/design/frame/${each.slug}?backdrop=dark-game&amp;theme=dark`));
+  });
+
+  it("has a page for each group and none for anything else", async () => {
+    expect((await page("/design/actions")).text).toContain('<a href="/design/actions" data-gallery-page="/design/actions" aria-current="page">Actions</a>');
+    expect((await page("/design/foundations")).response.status).toBe(404);
+    expect((await page("/design/no-such-group")).response.status).toBe(404);
   });
 
   it("falls back to Zaisma's own background and light for values it doesn't know", async () => {
