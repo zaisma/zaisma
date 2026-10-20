@@ -152,6 +152,9 @@ body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
 .stand-in-row { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 14px; }
 /* With a mouse, the page's rail gets a gutter of its own, clear of the cards. */
 @media (hover: hover) and (pointer: fine) and (min-width: 761px) { .gallery-layout { padding-right: 34px; } }
+/* The phone's row of tabs fades in over a side as more tabs come past it, rather than blinking on. */
+@property --fade-l { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@property --fade-r { syntax: "<length>"; inherits: false; initial-value: 0px; }
 /* Phones: the bar is one row (Zaisma, Design, light or dark), the groups a row of tabs under it that scrolls sideways, and every example a column of its own. */
 @media (max-width: 760px) {
   html { scroll-padding-top: 130px; }
@@ -163,7 +166,7 @@ body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
      before they reach its ends, and only on a side with more tabs past it, so the last tab is never under the fade at the end. */
   .gallery-groups { display: block; position: relative; flex: 1 0 100%; min-width: 0; height: 36px; background: var(--well); box-shadow: var(--well-shade);
     clip-path: var(--cut-shape, polygon(9px 0, 100% 0, calc(100% - 9px) 100%, 0 100%)); }
-  .gallery-groups-row { height: 100%; overflow-x: auto; scrollbar-width: none; --fade-l: 0px; --fade-r: 0px;
+  .gallery-groups-row { height: 100%; overflow-x: auto; scrollbar-width: none; transition: --fade-l 0.25s, --fade-r 0.25s;
     -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 var(--fade-l), #000 calc(100% - var(--fade-r)), transparent 100%);
     mask-image: linear-gradient(90deg, transparent 0, #000 var(--fade-l), #000 calc(100% - var(--fade-r)), transparent 100%); }
   .gallery-groups-row::-webkit-scrollbar { display: none; }
