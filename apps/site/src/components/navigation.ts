@@ -358,7 +358,7 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
 
 /**
  * The page's own sidebar: when a page opens from another place in it, the raised slab slides from that place to this one. The last page's
- * address comes from the navigation that opened this one; the slide stays inside one track (another track's place is cut off by its own),
+ * address comes from the navigation that opened this one; it slides from one group to another too,
  * and reduced motion, or a browser that doesn't say where the page was opened from, just shows the slab in its place.
  */
 export const SIDEBAR_SCRIPT = `/* sidebar */(function () {
@@ -366,8 +366,7 @@ export const SIDEBAR_SCRIPT = `/* sidebar */(function () {
   if (!from || !from.url || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   var lastPath = new URL(from.url).pathname;
   document.querySelectorAll(".sidebar.is-page .sidebar-slab").forEach(function (slab) {
-    var track = slab.closest(".sidebar-track");
-    var place = Array.prototype.find.call(track.querySelectorAll("a[href]"), function (each) { return new URL(each.href).pathname === lastPath; });
+    var place = Array.prototype.find.call(slab.closest(".sidebar").querySelectorAll("a[href]"), function (each) { return new URL(each.href).pathname === lastPath; });
     if (!place || place.contains(slab)) return;
     slab.style.setProperty("--glide-from-px", (place.getBoundingClientRect().top - slab.getBoundingClientRect().top).toFixed(1) + "px");
     slab.classList.add("is-gliding");
@@ -557,14 +556,14 @@ export interface SidebarOptions {
   isPageSidebar?: boolean;
 }
 
-/** The sidebar: a pane of glass down the side of a page, each group of its places carved into it as a track. The page you're on is a raised slab outlined in orange. */
+/** The sidebar: a pane of glass down the side of a page, its places' words straight on the glass in groups. The page you're on is a raised slab outlined in orange. */
 export function sidebar(options: SidebarOptions): Raw {
   const link = (each: SidebarItem) => {
     const inside = each.icon ? html`${icon(each.icon)}<span class="sidebar-label">${each.label}</span>` : html`${each.label}`;
     const cut = raw('data-cut-line="8" data-cut-corners="4 2 4 2"');
     return html`<li><a href="${each.href}"${each.extra ?? ""}${each.isCurrent ? raw(' aria-current="page"') : html` ${cut}`}${options.isCollapsed ? html` title="${each.label}" aria-label="${each.label}"` : ""}>${each.isCurrent ? html`<span class="sidebar-slab cut-raised" ${cut} data-cut-inset="2">${CUT_LINE}</span>` : CUT_LINE}${inside}${each.badgeCount ? html`<span class="sidebar-count">${each.badgeCount}</span>` : ""}</a></li>`;
   };
-  const groups = options.groups.map((group) => html`<div class="sidebar-group">${group.heading ? html`<h2 class="sidebar-heading">${group.heading}</h2>` : ""}<div class="sidebar-track cut-carved" data-cut-line="10" data-cut-corners="10 4 10 4">${CUT_LINE}<ul>${group.items.map(link)}</ul></div></div>`);
+  const groups = options.groups.map((group) => html`<div class="sidebar-group">${group.heading ? html`<h2 class="sidebar-heading">${group.heading}</h2>` : ""}<ul class="sidebar-list">${group.items.map(link)}</ul></div>`);
   return html`<aside class="sidebar glass${options.isCollapsed ? " is-collapsed" : ""}${options.isPageSidebar ? " is-page" : ""}" data-glass data-glass-corners="14 6 14 6"><nav class="sidebar-in" aria-label="${options.label}">${groups}</nav></aside>`;
 }
 
@@ -579,29 +578,20 @@ component({
   group: "navigation",
   summary: "A glass column down the side of a page: the places in it, in groups, with the one you're on marked. It narrows to icons in tight spaces; on a phone, pages swap it for tabs.",
   styles: `
-/* The sidebar: a glass pane with each group of places carved into it as a track, like a switch's. Each place is cut to fit the track:
-   straight sides, small cuts, and the track's own corners where it meets them. The place you're on is a raised slab, outlined in orange;
-   pointing at another fades in a faint slab there. On the page's own sidebar the slab glides from the last page's place to this one's as the page changes. */
+/* The sidebar: a glass pane with its places' words straight on the glass, in groups. Pointing at a place brightens its words; the place
+   you're on is a raised slab under its words, outlined in orange, cut to fit where it sits. */
 .sidebar { position: relative; display: flex; flex: 1; min-height: 0; width: 100%; }
 .sidebar-in { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 24px 14px 14px; display: grid; gap: 16px; align-content: start; }
-.sidebar-heading { margin: 0 0 8px; padding: 0 12px; font: 500 13px var(--display); color: var(--muted); }
-.sidebar-track { position: relative; padding: 4px; background: var(--track); clip-path: var(--cut-shape, polygon(0 10px, 10px 0, calc(100% - 4px) 0, 100% 4px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 4px 100%, 0 calc(100% - 4px))); }
-.sidebar-track ul { position: relative; z-index: 2; list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
-.sidebar a { position: relative; isolation: isolate; display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 14px; font: 500 16px var(--display); color: var(--ink-2); text-decoration: none; }
-/* Each place's slab is a layer of its own from the start, cut to the place's shape, and pointing only fades it in or out. Nothing is
-   repainted or moved onto a new layer as it fades, so it can't flicker as the pointer comes onto a place or leaves it. */
-.sidebar a::before { content: ""; position: absolute; inset: 0; z-index: 0; background: var(--ghost); opacity: 0; will-change: opacity; transition: opacity 0.15s;
-  clip-path: var(--cut-shape, polygon(0 4px, 4px 0, calc(100% - 2px) 0, 100% 2px, 100% calc(100% - 4px), calc(100% - 4px) 100%, 2px 100%, 0 calc(100% - 2px))); }
+.sidebar-heading { margin: 0 0 6px; padding: 0 14px; font: 500 13px var(--display); color: var(--muted); }
+.sidebar-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.sidebar a { position: relative; isolation: isolate; display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 14px; font: 500 16px var(--display); color: var(--muted); text-decoration: none; transition: color 0.15s; }
 .sidebar a > :not(.cut-line, .sidebar-slab) { position: relative; z-index: 2; }
 .sidebar a svg:not(.cut-line) { width: 18px; height: 18px; flex: none; }
-.sidebar a:hover { color: var(--ink); }
-.sidebar a:hover::before { opacity: 1; }
-.sidebar a:not([aria-current="page"]):active::before { background: var(--wash); opacity: 1; }
-.sidebar a[aria-current="page"] { color: var(--ink); font-weight: 600; }
-.sidebar a[aria-current="page"]::before { display: none; }
+.sidebar a:hover, .sidebar a[aria-current="page"] { color: var(--ink); }
+.sidebar a[aria-current="page"] { font-weight: 600; }
 /* The place you're on: a raised slab of its own under its words. Opening another place from the page's own sidebar slides it there from
    the last page's place (SIDEBAR_SCRIPT), under words that stay put, while the rest of the page crossfades. */
-.sidebar-slab { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+.sidebar-slab { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
 .sidebar-slab::before { content: ""; position: absolute; inset: 0; background: var(--slab);
   clip-path: var(--cut-shape, polygon(0 4px, 4px 0, calc(100% - 2px) 0, 100% 2px, 100% calc(100% - 4px), calc(100% - 4px) 100%, 2px 100%, 0 calc(100% - 2px))); }
 .sidebar-slab.is-gliding { animation: sidebar-glide 0.45s var(--spring); }
