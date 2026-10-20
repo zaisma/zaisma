@@ -332,10 +332,15 @@ component({
 .glass-btn:focus-visible .edge .hair, .glass-btn.is-focused .edge .hair { stroke: var(--run); stroke-width: 2; }
 .glass-btn:focus-visible .edge .rim, .glass-btn.is-focused .edge .rim { stroke: var(--run); stroke-width: 2; }
 .glass-btn:focus-visible .edge .facet, .glass-btn:focus-visible .edge .fringe, .glass-btn.is-focused .edge .facet, .glass-btn.is-focused .edge .fringe { opacity: 0; }
-/* A dark tint is a solid slab: the glass rim's dark hairline, white rim and facets would read as a glitchy frame round it, so it has no rim at all. */
-.glass-btn[data-tint="blue"] .edge :is(.hair, .rim, .fringe, .facet, .inner), .glass-btn[data-tint="indigo"] .edge :is(.hair, .rim, .fringe, .facet, .inner), .glass-btn[data-tint="black"] .edge :is(.hair, .rim, .fringe, .facet, .inner) { opacity: 0; }
-.glass-btn[data-tint="blue"]:focus-visible .edge :is(.hair, .rim), .glass-btn[data-tint="indigo"]:focus-visible .edge :is(.hair, .rim), .glass-btn[data-tint="black"]:focus-visible .edge :is(.hair, .rim),
-.glass-btn[data-tint="blue"].is-focused .edge :is(.hair, .rim), .glass-btn[data-tint="indigo"].is-focused .edge :is(.hair, .rim), .glass-btn[data-tint="black"].is-focused .edge :is(.hair, .rim) { opacity: 1; }
+/* A dark tint is a solid slab: no dark hairline, white facets or white top highlight (those read as a glitchy frame), only a
+   rim in a lighter shade of its own colour, and a lift shadow that stays in its colour. */
+.glass-btn[data-tint="blue"] .edge :is(.hair, .fringe, .facet, .inner), .glass-btn[data-tint="indigo"] .edge :is(.hair, .fringe, .facet, .inner), .glass-btn[data-tint="black"] .edge :is(.hair, .fringe, .facet, .inner) { opacity: 0; }
+.glass-btn[data-tint="blue"] .edge .rim, .glass-btn[data-tint="indigo"] .edge .rim, .glass-btn[data-tint="black"] .edge .rim { stroke: color-mix(in srgb, var(--tint-colour) 58%, white); stroke-width: 1.6; opacity: 1; }
+.glass-btn[data-tint="black"] .edge .rim { stroke: color-mix(in srgb, var(--tint-colour) 70%, white); }
+.glass-btn[data-tint="blue"]:hover > .face, .glass-btn[data-tint="indigo"]:hover > .face, .glass-btn[data-tint="black"]:hover > .face,
+.glass-btn[data-tint="blue"].is-pointed > .face, .glass-btn[data-tint="indigo"].is-pointed > .face, .glass-btn[data-tint="black"].is-pointed > .face { box-shadow: inset 0 -12px 18px -12px rgba(0,0,0,0.3); }
+.glass-btn[data-tint="blue"]:focus-visible .edge .rim, .glass-btn[data-tint="indigo"]:focus-visible .edge .rim, .glass-btn[data-tint="black"]:focus-visible .edge .rim,
+.glass-btn[data-tint="blue"].is-focused .edge .rim, .glass-btn[data-tint="indigo"].is-focused .edge .rim, .glass-btn[data-tint="black"].is-focused .edge .rim { stroke: var(--run); stroke-width: 2; }
 /* Tinted: the way's own colour, nearly solid, in either theme (a brand's colour is how you recognise it, so it doesn't
    follow light or dark): white glass with dark words, the coloured and black ones with white words. It's a touch stronger
    as you point at it and a touch clearer under a press. Changing the tint fades from one to the next. */
