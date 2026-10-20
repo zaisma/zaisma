@@ -13,7 +13,7 @@ const LIGHT_GLASS = `color-scheme: light;
   --glass: rgba(255, 255, 255, 0.4); --glass-edge: rgba(255, 255, 255, 0.92); --field: rgba(255, 255, 255, 0.62);
   --glass-tint: rgba(250, 252, 255, 0.5); --glass-top: rgba(250, 252, 255, 0.56); --glass-menu: rgba(250, 252, 255, 0.62);
   --glass-sheen: radial-gradient(140% 90% at 0% 0%, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0) 55%), linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0) 38%, rgba(30, 60, 110, 0) 70%, rgba(30, 60, 110, 0.05));
-  --glass-saturate: 1.8; --edge-hair: rgba(26, 44, 80, 0.26);
+  --glass-saturate: 1.8; --edge-hair: rgba(40, 60, 100, 0.1);
   --well: rgba(255, 255, 255, 0.32); --well-shade: inset 0 1px 3px rgba(20, 23, 28, 0.08);
   --slab: linear-gradient(180deg, #fff, #EEF1F4); --slab-shade: 0 4px 10px rgba(20, 23, 28, 0.12); --ghost: rgba(255, 255, 255, 0.45); --wash-rest: rgba(20, 23, 28, 0); --wash: rgba(20, 23, 28, 0.08); --wash-press: rgba(20, 23, 28, 0.14);
   --btn: rgba(255, 255, 255, 0.6); --btn-hover: rgba(255, 255, 255, 0.95); --btn-press: rgba(226, 232, 240, 0.9);
@@ -28,7 +28,8 @@ const LIGHT_GLASS = `color-scheme: light;
   --clear-hover: rgba(255, 255, 255, 0.45); --clear-press: rgba(255, 255, 255, 0.25);
   --chip-face: #DDF2E5; --chip-ink: #136238; --face-ring: rgba(255, 255, 255, 0.85); --presence-ring: #fff;
   --rail-line: rgba(20, 23, 28, 0.2); --rail-thumb: rgba(24, 28, 36, 0.55); --rail-edge: rgba(255, 255, 255, 0.55); --rail-mark: rgba(20, 23, 28, 0.45);
-  --edge-inner: rgba(255, 255, 255, 0.45); --edge-bevel: 0.8; --edge-rim: 1; --edge-fringe: 0.8;
+  --edge-inner: rgba(255, 255, 255, 0.3); --edge-bevel: 0.7; --edge-rim: 1; --edge-fringe: 0.25;
+  --edge-lit: rgba(214, 228, 246, 1); --edge-mid: rgba(176, 198, 228, 0.75); --edge-shade: rgba(104, 128, 166, 0.7); --edge-corner: rgba(150, 174, 210, 0.75);
   --logo-halo: drop-shadow(0 0 10px rgba(255, 255, 255, 0.6)) drop-shadow(0 1px 1px rgba(255, 255, 255, 0.5));
   --link-hover: var(--run-lo); --marked: var(--run-lo);
   --glass-base: 255, 255, 255; --glass-kind: "Light glass, dark words.";`;
@@ -53,7 +54,8 @@ const SMOKED_GLASS = `color-scheme: dark;
   --clear-hover: rgba(255, 255, 255, 0.08); --clear-press: rgba(255, 255, 255, 0.04);
   --chip-face: rgba(52, 211, 120, 0.22); --chip-ink: #A6F0C6; --face-ring: rgba(6, 8, 12, 0.55); --presence-ring: #1A1D24;
   --rail-line: rgba(255, 255, 255, 0.2); --rail-thumb: rgba(255, 255, 255, 0.55); --rail-edge: rgba(255, 255, 255, 0.35); --rail-mark: rgba(255, 255, 255, 0.5);
-  --edge-inner: rgba(255, 255, 255, 0.16); --edge-bevel: 0.45; --edge-rim: 0.75; --edge-fringe: 0.5;
+  --edge-inner: rgba(255, 255, 255, 0.14); --edge-bevel: 0.55; --edge-rim: 1; --edge-fringe: 0.4;
+  --edge-lit: rgba(226, 236, 250, 0.95); --edge-mid: rgba(176, 198, 230, 0.5); --edge-shade: rgba(128, 152, 192, 0.4); --edge-corner: rgba(200, 216, 240, 0.6);
   --logo-halo: drop-shadow(0 0 12px rgba(4, 7, 14, 0.75)) drop-shadow(0 1px 2px rgba(4, 7, 14, 0.6));
   --link-hover: var(--run-hi); --marked: var(--run-hi);
   --glass-base: 14, 17, 24; --glass-kind: "Smoked glass, light words.";`;
@@ -104,8 +106,11 @@ export const TOKEN_STYLES = `
   transition: background-color 0.5s ease, color 0.3s ease; }
 .glass > :not(.edge) { position: relative; z-index: 3; }
 .edge { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; overflow: visible; }
-/* Light and smoked glass share one frame: the brightest line is the rim at the outer edge, and the bevel inside it fades softly into the glass (blurred, so it has no hard inner line). */
+/* Light and smoked glass share one frame: a thick glass edge, lit at its top left and shaded at its bottom right in a cool glass tint
+   (--edge-lit, --edge-mid, --edge-shade, --edge-corner), strongest at the outer rim and fading into the panel through a blurred bevel, so there's no separate outline or inner line. */
 .edge .inner { stroke: var(--edge-inner); }
+.edge .lit { stop-color: var(--edge-lit); } .edge .mid { stop-color: var(--edge-mid); } .edge .shade { stop-color: var(--edge-shade); }
+.edge .facet { stroke: var(--edge-corner); } .edge .facet.lit { stroke: var(--edge-lit); }
 .edge .hair { stroke: var(--edge-hair); }
 .edge .bevel { opacity: var(--edge-bevel); }
 .edge .rim { opacity: var(--edge-rim); }
@@ -192,10 +197,10 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     function build() {
       edge.innerHTML =
         '<defs>' +
-        '<linearGradient id="' + id + 'rim" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff"/><stop offset="0.45" stop-color="#fff" stop-opacity="0.7"/><stop offset="1" stop-color="#dfe9f7" stop-opacity="0.9"/></linearGradient>' +
-        '<linearGradient id="' + id + 'bev" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="0.5"/><stop offset="0.5" stop-color="#fff" stop-opacity="0.12"/><stop offset="1" stop-color="#b9cde8" stop-opacity="0.28"/></linearGradient>' +
+        '<linearGradient id="' + id + 'rim" x1="0" y1="0" x2="1" y2="1"><stop class="lit" offset="0"/><stop class="mid" offset="0.45"/><stop class="shade" offset="1"/></linearGradient>' +
+        '<linearGradient id="' + id + 'bev" x1="0" y1="0" x2="1" y2="1"><stop class="lit" offset="0"/><stop class="mid" offset="0.5"/><stop class="shade" offset="1"/></linearGradient>' +
         '<linearGradient id="' + id + 'fr" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#7fd8ff" stop-opacity="0.5"/><stop offset="0.5" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#ffc58a" stop-opacity="0.5"/></linearGradient>' +
-        '<filter id="' + id + 'soft" x="-5%" y="-5%" width="110%" height="110%"><feGaussianBlur stdDeviation="1.4"/></filter>' +
+        '<filter id="' + id + 'soft" x="-5%" y="-5%" width="110%" height="110%"><feGaussianBlur stdDeviation="1.8"/></filter>' +
         '</defs>';
       parts = {
         bevel: node("path", { "class": "bevel", fill: "url(#" + id + "bev)", "fill-rule": "evenodd", filter: "url(#" + id + "soft)" }),
@@ -203,7 +208,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
         rim: node("polygon", { "class": "rim", fill: "none", stroke: "url(#" + id + "rim)", "stroke-width": "1.6" }),
         fringe: node("polygon", { "class": "fringe", fill: "none", stroke: "url(#" + id + "fr)", "stroke-width": "1" }),
         inner: node("polygon", { "class": "inner", fill: "none", "stroke-width": "1", filter: "url(#" + id + "soft)" }),
-        facets: [0, 1, 2, 3].map(function (i) { return node("line", { "class": "facet", stroke: i === 0 ? "#fff" : "rgba(255,255,255,0.8)", "stroke-width": i === 0 ? "4.5" : "3" }); })
+        facets: [0, 1, 2, 3].map(function (i) { return node("line", { "class": i === 0 ? "facet lit" : "facet", "stroke-width": i === 0 ? "4.5" : "3" }); })
       };
     }
     function draw() {
