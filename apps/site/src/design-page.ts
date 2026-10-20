@@ -141,7 +141,8 @@ body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
 .rail-box-in { height: 100%; overflow-y: auto; padding: 18px 28px 18px 22px; }
 .rail-box-in p { margin: 0; color: var(--ink-2); }
 /* A header example: a frame that holds the fixed header (its transform makes it the header's containing block) over a stand-in page scrolling under it. */
-.header-frame { position: relative; width: 100%; height: 260px; overflow: hidden; transform: translateZ(0); }
+.header-frame { position: relative; isolation: isolate; width: 100%; height: 260px; overflow: hidden; transform: translateZ(0); box-shadow: var(--well-shade);
+  clip-path: polygon(0 18px, 18px 0, calc(100% - 9px) 0, 100% 9px, 100% calc(100% - 18px), calc(100% - 18px) 100%, 9px 100%, 0 calc(100% - 9px)); }
 .header-frame.tall { height: 470px; }
 .header-frame.logo-frame { height: 110px; }
 .header-scroll { position: absolute; inset: 0; overflow-y: auto; scrollbar-width: none; }

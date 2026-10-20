@@ -328,6 +328,32 @@ export function rowArrows(options: { rowName: string; trackId: string }): Raw {
 }
 
 /** A row's arrows scroll it by most of its width, grey out at its ends, and hide when there's nothing to scroll; the row fades out softly on a side with more. */
+/**
+ * Scroll fades: every box that scrolls up and down, wherever it is and whatever is in it, fades its words out over its
+ * top and bottom edges while there's more to scroll that way, so nothing runs hard into the edge of its pane. Found by
+ * itself, like the rail, on every device; a stand-in page under a header example (data-scroll-box) and form fields are left alone.
+ */
+export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
+  var FADE_PX = 28, boxes = [];
+  function sync(box) {
+    var top = Math.min(FADE_PX, box.scrollTop), bottom = Math.min(FADE_PX, box.scrollHeight - box.clientHeight - box.scrollTop);
+    box.style.setProperty("--fade-top", Math.max(0, top) + "px"); box.style.setProperty("--fade-bottom", Math.max(0, bottom) + "px");
+  }
+  function find() {
+    document.querySelectorAll("body *").forEach(function (box) {
+      if (box.classList.contains("scroll-fades") || /^(TEXTAREA|SELECT|INPUT)$/.test(box.tagName) || box.hasAttribute("data-scroll-box")) return;
+      if (!/^(auto|scroll)$/.test(getComputedStyle(box).overflowY)) return;
+      box.classList.add("scroll-fades"); boxes.push(box); sync(box);
+      var queued = false;
+      box.addEventListener("scroll", function () { if (queued) return; queued = true; requestAnimationFrame(function () { queued = false; sync(box); }); }, { passive: true });
+      if (window.ResizeObserver) new ResizeObserver(function () { sync(box); }).observe(box);
+    });
+  }
+  find();
+  window.addEventListener("resize", function () { boxes.forEach(sync); });
+})();
+`;
+
 export const ROW_SCRIPT = `/* rows */(function () {
   var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   document.querySelectorAll("[data-row-arrows]").forEach(function (steps) {
@@ -348,8 +374,8 @@ export const ROW_SCRIPT = `/* rows */(function () {
 `;
 
 const standInPage = html`<div class="stand-in-page">${["Continue playing", "Popular", "New"].map((rowName, rowIndex) => html`<section><h3>${rowName}</h3><div class="stand-in-row">${Object.values(STAND_IN_COVERS).slice(rowIndex * 2, rowIndex * 2 + 4)}</div></section>`)}</div>`;
-/** A header example, in a frame of its own that holds it (fixed things stay in the frame) over a stand-in page that scrolls under it. */
-const headerFrame = (markup: Raw, isTall = false) => html`<div class="header-frame${isTall ? " tall" : ""}">${markup}<div class="header-scroll" data-scroll-box>${standInPage}</div></div>`;
+/** A header example: a small page of its own, cut like a pane, with the backdrop behind it and a stand-in page scrolling under the header (fixed things stay in the frame). */
+const headerFrame = (markup: Raw, isTall = false) => html`<div class="header-frame${isTall ? " tall" : ""}"><div class="backdrop is-framed" aria-hidden="true"></div>${markup}<div class="header-scroll" data-scroll-box>${standInPage}</div></div>`;
 const STAND_IN_ACCOUNT = { username: "emma_r", pictureMarkup: pictureFrame("emma_r", "md") };
 const GAMES_SEARCH = { action: "#header", name: "search_text", searchText: "", placeholder: "Search games", label: "Search games" };
 
@@ -361,11 +387,12 @@ component({
   styles: HEADER_STYLES,
   render: header,
   examples: [
-    { label: "Signed out, on Home", isWide: true, markup: headerFrame(header({ id: "example-top-out", current: "home", search: GAMES_SEARCH, account: null, isOnDeveloperPage: false })) },
-    { label: "Signed in, menu open", isWide: true, markup: headerFrame(header({ id: "example-top-in", current: "home", search: GAMES_SEARCH, account: STAND_IN_ACCOUNT, isOnDeveloperPage: false, isMenuOpen: true, yourGamesHref: "#header" }), true) },
-    { label: "On the dashboard", isWide: true, markup: headerFrame(header({ id: "example-top-dev", current: "developer", account: STAND_IN_ACCOUNT, isOnDeveloperPage: true, yourGamesHref: "#header" })) },
-    { label: "Compact, after scrolling", isWide: true, markup: headerFrame(header({ id: "example-top-compact", current: "home", search: GAMES_SEARCH, account: STAND_IN_ACCOUNT, isOnDeveloperPage: false, isCompact: true, yourGamesHref: "#header" })) },
-    { label: "Logo only, on sign-in", isWide: true, markup: html`<div class="header-frame logo-frame">${header({ id: "example-top-logo", current: null, isOnDeveloperPage: false, isLogoOnly: true })}</div>` },
+    { label: "Try it: scroll the page under it, point at its tabs, open the menu", isWide: true, markup: headerFrame(header({ id: "example-top-try", current: "home", search: GAMES_SEARCH, account: STAND_IN_ACCOUNT, isOnDeveloperPage: false, yourGamesHref: "#header" }), true) },
+    { label: "Signed out, on Home", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-out", current: "home", search: GAMES_SEARCH, account: null, isOnDeveloperPage: false })) },
+    { label: "Signed in, menu open", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-in", current: "home", search: GAMES_SEARCH, account: STAND_IN_ACCOUNT, isOnDeveloperPage: false, isMenuOpen: true, yourGamesHref: "#header" }), true) },
+    { label: "On the dashboard", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-dev", current: "developer", account: STAND_IN_ACCOUNT, isOnDeveloperPage: true, yourGamesHref: "#header" })) },
+    { label: "Compact, after scrolling", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-compact", current: "home", search: GAMES_SEARCH, account: STAND_IN_ACCOUNT, isOnDeveloperPage: false, isCompact: true, yourGamesHref: "#header" })) },
+    { label: "Logo only, on sign-in", isWide: true, isStill: true, markup: html`<div class="header-frame logo-frame"><div class="backdrop is-framed" aria-hidden="true"></div>${header({ id: "example-top-logo", current: null, isOnDeveloperPage: false, isLogoOnly: true })}</div>` },
   ],
 });
 

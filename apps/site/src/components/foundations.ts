@@ -81,6 +81,11 @@ export const TOKEN_STYLES = `
 @property --tint-pct { syntax: "<percentage>"; inherits: false; initial-value: 0%; }
 /* Registered, so a change of hue eases over half a second, like a change of theme, instead of cutting. */
 @property --glass-hue { syntax: "<color>"; inherits: true; initial-value: transparent; }
+/* Scroll fades (navigation.ts's SCROLL_FADE_SCRIPT): a box that scrolls fades its words over an edge while there's more that way, easing in and out. */
+@property --fade-top { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@property --fade-bottom { syntax: "<length>"; inherits: false; initial-value: 0px; }
+.scroll-fades { -webkit-mask-image: linear-gradient(to bottom, transparent, #000 var(--fade-top), #000 calc(100% - var(--fade-bottom)), transparent);
+  mask-image: linear-gradient(to bottom, transparent, #000 var(--fade-top), #000 calc(100% - var(--fade-bottom)), transparent); transition: --fade-top 0.2s, --fade-bottom 0.2s; }
 .eases-settings { transition: --glass-hue 0.5s ease; }
 @media (prefers-reduced-motion: reduce) { .eases-settings { transition: none; } }
 /* Moving between Zaisma's pages crossfades, so a page change never flashes. */
