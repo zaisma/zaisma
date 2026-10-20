@@ -3,7 +3,10 @@
 # down" in docs/DECISIONS.md (the ops repo). Zaisma's own half-broken alerts are the site Worker's
 # (apps/site/src/health-alerts.ts), which also pushes when this stops running.
 #
-# GitHub starts a schedule when it can, often a few minutes late, so "twice in a row" can take 10 to 20 minutes.
+# GitHub starts a schedule when it can, often a few minutes late, so "twice in a row" can take 10 to 20 minutes, and
+# it has skipped hours at a time. So a cron-job.org job ("Zaisma watch (start GitHub checker)") also starts this
+# workflow every 5 minutes with workflow_dispatch, through a fine-grained GitHub token (cron-job-watch, Actions
+# read and write on this repository only, set up by hand; when it expires that job stops, so renew it).
 # The state between runs (how many runs failed, when Julius was last told) lives in an Actions cache entry per run,
 # not in failed runs: a failed run emails the committer, and a site that's down would send one every 5 minutes.
 # The job fails only when the push itself fails. Repository secrets: PUSHOVER_USER_KEY, PUSHOVER_APP_TOKEN.
