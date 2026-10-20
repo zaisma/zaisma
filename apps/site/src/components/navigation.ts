@@ -250,6 +250,17 @@ export function rail(scrollKind: "box" | "page"): Raw {
  */
 export const RAIL_SCRIPT = `/* rail */(function () {
   if (!window.matchMedia("(hover: hover) and (pointer: fine)").matches) return;
+  // Any box that scrolls up and down gets its rail by itself, so a new component never has to remember one. A box that
+  // hides its scrollbar on purpose (scrollbar-width: none) keeps it hidden. A text box or list box gets one too, laid over its own edge.
+  document.querySelectorAll("body *").forEach(function (box) {
+    var isControl = box.tagName === "TEXTAREA" || (box.tagName === "SELECT" && (box.multiple || box.size > 1));
+    if ((/^(SELECT|INPUT)$/.test(box.tagName) && !isControl) || (box.nextElementSibling && box.nextElementSibling.hasAttribute("data-rail"))) return;
+    var style = getComputedStyle(box);
+    if (!/^(auto|scroll)$/.test(style.overflowY) || style.scrollbarWidth === "none" || box.classList.contains("rail-thumb")) return;
+    var parent = box.parentElement; if (!parent || parent === document.body) return;
+    if (getComputedStyle(parent).position === "static") parent.style.position = "relative";
+    box.insertAdjacentHTML("afterend", '<div class="rail"' + (isControl ? " data-rail-follows" : "") + ' data-rail="box" aria-hidden="true"><div class="rail-line"></div><div class="rail-thumb"></div></div>');
+  });
   document.querySelectorAll("[data-rail]").forEach(function (bar) {
     var isPage = bar.getAttribute("data-rail") === "page", scroller = isPage ? null : bar.previousElementSibling;
     if (!isPage && !scroller) return;
@@ -269,6 +280,11 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     function to(y) { if (isPage) window.scrollTo(0, y); else scroller.scrollTop = y; }
     var size = { track: 0, thumb: 0, max: 1 };
     function layout() {
+      // A text box isn't a glass pane with room around it: the rail is laid along the box's own right edge.
+      if (bar.hasAttribute("data-rail-follows")) {
+        bar.style.top = scroller.offsetTop + 8 + "px"; bar.style.bottom = "auto"; bar.style.height = Math.max(0, scroller.offsetHeight - 16) + "px";
+        bar.style.right = "auto"; bar.style.left = scroller.offsetLeft + scroller.offsetWidth - 22 + "px";
+      }
       var whole = isPage ? document.documentElement.scrollHeight : scroller.scrollHeight, view = isPage ? window.innerHeight : scroller.clientHeight, max = whole - view;
       bar.hidden = max <= 4; if (bar.hidden) return;
       var track = bar.clientHeight, height = Math.max(36, Math.round(track * view / whole));
@@ -496,7 +512,7 @@ export function sidebar(options: SidebarOptions): Raw {
     return html`<li><a href="${each.href}"${each.extra ?? ""}${each.isCurrent ? raw(' aria-current="page"') : ""}${options.isCollapsed ? html` title="${each.label}" aria-label="${each.label}"` : ""}>${inside}${each.badgeCount ? html`<span class="sidebar-count">${each.badgeCount}</span>` : ""}</a></li>`;
   };
   const groups = options.groups.map((group) => html`<div class="sidebar-group">${group.heading ? html`<h2 class="sidebar-heading">${group.heading}</h2>` : ""}<ul>${group.items.map(link)}</ul></div>`);
-  return html`<aside class="sidebar glass${options.isCollapsed ? " is-collapsed" : ""}" data-glass data-glass-corners="14 6 14 6"><nav class="sidebar-in" aria-label="${options.label}">${groups}</nav>${railMarkup("box")}</aside>`;
+  return html`<aside class="sidebar glass${options.isCollapsed ? " is-collapsed" : ""}" data-glass data-glass-corners="14 6 14 6"><nav class="sidebar-in" aria-label="${options.label}">${groups}</nav></aside>`;
 }
 
 const SIDEBAR_EXAMPLE_GROUPS: SidebarOptions["groups"] = [

@@ -1,6 +1,6 @@
 import { html, raw, type Raw } from "../html.ts";
 import { component } from "./component.ts";
-import { EDGE, ago, icon, railMarkup, type IconName } from "./foundations.ts";
+import { EDGE, ago, icon, type IconName } from "./foundations.ts";
 import { pictureFrame, type GlanceFacts } from "./data.ts";
 import { runButton } from "./actions.ts";
 import { cutField } from "./inputs.ts";
@@ -23,7 +23,7 @@ export interface GlassPaneOptions {
 /** A pane of Zaisma's glass: cut corners, a drawn rim, clear glass. Long content scrolls inside it, so nothing in it shrinks. */
 export function glassPane(options: GlassPaneOptions): Raw {
   const corners = (options.corners ?? [18, 9, 18, 9]).join(" ");
-  const pane = html`<section class="glass glass-pane ${options.paneSize}" data-glass data-glass-corners="${corners}"${options.label ? html` aria-label="${options.label}"` : ""}>${EDGE}<div class="pane-in">${options.body}</div>${railMarkup("box")}</section>`;
+  const pane = html`<section class="glass glass-pane ${options.paneSize}" data-glass data-glass-corners="${corners}"${options.label ? html` aria-label="${options.label}"` : ""}>${EDGE}<div class="pane-in">${options.body}</div></section>`;
   return pane;
 }
 
