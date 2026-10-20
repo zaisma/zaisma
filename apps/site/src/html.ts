@@ -20,6 +20,12 @@ export const raw = (html: string) => new Raw(html);
 export const scriptTags = (...scripts: PageScript[]): Raw => raw(scripts.map((script) => `<script src="${pageScriptPath(script)}" defer></script>`).join(""));
 
 /**
+ * The same, for the page's <head>, holding its first paint until they've run: a page whose look the scripts finish (the
+ * components' cuts, their light and the backdrop) then never shows half-drawn for a frame as it loads.
+ */
+export const headScriptTags = (...scripts: PageScript[]): Raw => raw(scripts.map((script) => `<script src="${pageScriptPath(script)}" defer blocking="render"></script>`).join(""));
+
+/**
  * Values a page's scripts read, as a JSON block that never runs: a script takes it with
  * JSON.parse(document.getElementById(id).textContent). Every < is escaped, so nothing in it ends the block.
  */

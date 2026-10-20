@@ -1,5 +1,5 @@
 import type { Env } from "./env.ts";
-import { html, pageData, raw, scriptTags, securityHeaders, type Raw } from "./html.ts";
+import { headScriptTags, html, pageData, raw, securityHeaders, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
 import { COMPONENT_GROUPS, type Component, type ComponentGroup } from "./components/component.ts";
 import { COMPONENTS, COMPONENT_SCRIPT, COMPONENT_STYLES, HEADER_SCRIPT } from "./components/index.ts";
@@ -54,7 +54,8 @@ function head(title: string): Raw {
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon.ico" sizes="32x32">
 <link rel="preload" href="/fonts/jost.woff2" as="font" type="font/woff2" crossorigin>
-<style>${raw(COMPONENT_STYLES() + GALLERY_STYLES)}</style>`;
+<style>${raw(COMPONENT_STYLES() + GALLERY_STYLES)}</style>
+${headScriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT, GALLERY_SCRIPT, DESIGN_LOOPS_SCRIPT)}`;
 }
 
 /** GET /design and /design/<group>: one group of the gallery, its components in every state. */
@@ -86,7 +87,6 @@ ${components.filter((each) => each.group === group).map((each) => section(each, 
 ${railMarkup("page")}
 </div>
 ${pageData("design-pages", Object.fromEntries(components.map((each) => [each.slug, groupPath(each.group)])))}
-${scriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT, GALLERY_SCRIPT, DESIGN_LOOPS_SCRIPT)}
 </body>
 </html>`;
   return new Response(page.html, { headers: securityHeaders(env) });

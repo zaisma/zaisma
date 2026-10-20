@@ -79,6 +79,8 @@ export const TOKEN_STYLES = `
 @property --refl { syntax: "<percentage>"; inherits: false; initial-value: 50%; }
 @property --tint-colour { syntax: "<color>"; inherits: false; initial-value: transparent; }
 @property --tint-pct { syntax: "<percentage>"; inherits: false; initial-value: 0%; }
+/* Moving between Zaisma's pages crossfades, so a page change never flashes. */
+@media (prefers-reduced-motion: no-preference) { @view-transition { navigation: auto; } }
 :root {
   color-scheme: light dark;
   --run: #F7931A; --run-hi: #FFB24A; --run-lo: #A85A06;
@@ -403,7 +405,11 @@ export const GLASS_SCRIPT = `/* glass */(function () {
  * diagonal facets a step brighter or darker, the cut shape at the scale of the page. Any page's own fragment shader gets
  * the same uniforms: u_resolution (pixels), u_time (seconds), u_base, u_a, u_b, u_c (the theme's --backdrop-* colours) and u_dark (1 on dark).
  */
-export const BACKDROP_SHADER = `precision mediump float;
+export const BACKDROP_SHADER = `#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
 uniform vec2 u_resolution; uniform float u_time; uniform vec3 u_base; uniform vec3 u_a; uniform vec3 u_b; uniform vec3 u_c; uniform float u_dark;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float light(vec2 p, vec2 at, float size) { vec2 d = p - at; return exp(-dot(d, d) / (size * size)); }
@@ -481,7 +487,8 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     return { base: mix(from.base, to.base, eased), a: mix(from.a, to.a, eased), b: mix(from.b, to.b, eased), c: mix(from.c, to.c, eased), isDark: eased < 0.5 ? from.isDark : to.isDark };
   }
   function draw(layer, nowMs) {
-    var timeS = still.matches ? 20 : nowMs / 1000;
+    // The wall clock, not the page's own: moving to another page, the backdrop carries on where it was instead of starting over.
+    var timeS = still.matches ? 20 : (Date.now() / 1000) % 100000;
     layer.colours = shownColours(layer, nowMs);
     if (layer.drawShader) layer.drawShader(timeS, layer.colours);
     else layer.canvas.dispatchEvent(new CustomEvent("backdrop-frame", { detail: { timeS: timeS, colours: layer.colours, widthPx: layer.canvas.width, heightPx: layer.canvas.height } }));
