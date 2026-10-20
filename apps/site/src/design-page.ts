@@ -27,15 +27,15 @@ export const groupPath = (group: ComponentGroup) => (group === "foundations" ? "
 const groupOfPath = (pathname: string): ComponentGroup | undefined => COMPONENT_GROUPS.find(({ group }) => groupPath(group) === pathname)?.group;
 
 function examples(each: Component): Raw {
-  return html`<div class="examples">${each.examples.map((example) => html`<figure class="example${example.isWide ? " wide" : ""}"><div class="example-stage"${example.isStill ? raw(" inert") : ""}>${example.markup}</div><figcaption class="example-label">${example.label}</figcaption></figure>`)}</div>`;
+  return html`<div class="examples">${each.examples.map((example) => html`<figure class="example${example.isWide ? " wide" : ""}" aria-label="${example.label}"><div class="example-stage"${example.isStill ? raw(" inert") : ""}>${example.markup}</div></figure>`)}</div>`;
 }
 
 /** The stand-in scene: a pane with a field, the runner and a cut button, resting on a rooftop when the scene is on. */
-const SCENE_EXAMPLE = html`<figure class="example wide scene-example"><div class="scene-box" data-design-scene><canvas class="scene-canvas" aria-hidden="true"></canvas><div class="scene-layer" data-scene-layer>
+const SCENE_EXAMPLE = html`<figure class="example wide scene-example" aria-label="Resting in the scene"><div class="scene-box" data-design-scene><canvas class="scene-canvas" aria-hidden="true"></canvas><div class="scene-layer" data-scene-layer>
 ${glassPane({ paneSize: "medium", sceneAnchor: "terrace-pane", label: "Sign in", body: html`<h2>Welcome back</h2>${cutField({ id: "scene-username", name: "username", label: "Username", type: "text", icon: "person", text: "emma_r", autocomplete: "off" })}` })}
 ${runButton("Sign in", { type: "button", isBig: true, sceneAnchor: "terrace-runner" })}
 ${cutButton("Make an account", { type: "button", sceneAnchor: "lower-roof" })}
-</div></div><figcaption class="example-label">Resting in the scene · <span class="scene-mode" aria-live="polite">In front: starting</span></figcaption></figure>`;
+</div></div><span class="sr scene-mode" aria-live="polite">In front: starting</span></figure>`;
 
 function section(each: Component, theme: GalleryTheme): Raw {
   return html`<section class="component-section" id="${each.slug}" aria-labelledby="${each.slug}-name" data-rail-mark="${each.name}">
@@ -138,8 +138,6 @@ body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
 .example.wide { grid-column: 1 / -1; }
 .example-stage > * { max-width: 100%; }
 .example-stage { position: relative; min-height: 90px; display: flex; align-items: center; justify-content: flex-start; flex-wrap: wrap; gap: 12px; padding: 18px; }
-.example-label { align-self: flex-start; font: 500 13px var(--display); color: var(--ink-2); padding: 2px 12px; background: var(--glass-tint);
-  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); }
 .example-pane { width: min(380px, 100%); padding: 22px 24px; display: flex; flex-direction: column; gap: 14px; }
 .example-wide { width: 100%; padding: 20px 24px; }
 .cover-sample { width: 260px; }

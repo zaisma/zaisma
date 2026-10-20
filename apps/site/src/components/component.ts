@@ -19,7 +19,7 @@ export const COMPONENT_GROUPS: { group: ComponentGroup; name: string }[] = [
 ];
 
 export interface ComponentExample {
-  /** The state or variant shown: "Rest", "Pointed", "Pressed", "Keyboard focus", "Busy", "Error", "Small", "Full width". */
+  /** The state or variant shown: "Rest", "Pointed", "Pressed", "Keyboard focus", "Busy", "Error", "Small", "Full width". The gallery shows no caption; it's the example's name for screen readers. */
   label: string;
   markup: Raw;
   /** Spans the whole stage width. */
