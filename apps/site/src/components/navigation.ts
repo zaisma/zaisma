@@ -496,7 +496,7 @@ export function sidebar(options: SidebarOptions): Raw {
     return html`<li><a href="${each.href}"${each.extra ?? ""}${each.isCurrent ? raw(' aria-current="page"') : ""}${options.isCollapsed ? html` title="${each.label}" aria-label="${each.label}"` : ""}>${inside}${each.badgeCount ? html`<span class="sidebar-count">${each.badgeCount}</span>` : ""}</a></li>`;
   };
   const groups = options.groups.map((group) => html`<div class="sidebar-group">${group.heading ? html`<h2 class="sidebar-heading">${group.heading}</h2>` : ""}<ul>${group.items.map(link)}</ul></div>`);
-  return html`<aside class="sidebar glass${options.isCollapsed ? " is-collapsed" : ""}" data-glass data-glass-corners="14 6 14 6"><nav class="sidebar-in" aria-label="${options.label}">${groups}</nav></aside>`;
+  return html`<aside class="sidebar glass${options.isCollapsed ? " is-collapsed" : ""}" data-glass data-glass-corners="14 6 14 6"><nav class="sidebar-in" aria-label="${options.label}">${groups}</nav>${railMarkup("box")}</aside>`;
 }
 
 const SIDEBAR_EXAMPLE_GROUPS: SidebarOptions["groups"] = [
@@ -511,8 +511,8 @@ component({
   summary: "A glass column down the side of a page: the places in it, in groups, with the one you're on marked. It narrows to icons in tight spaces; on a phone, pages swap it for tabs.",
   styles: `
 /* The sidebar: a glass pane holding a list. Each place is a slanted tab; the current one is a white slab with an orange line. */
-.sidebar { display: flex; flex: 1; min-height: 0; width: 100%; }
-.sidebar-in { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; display: grid; gap: 14px; align-content: start; }
+.sidebar { position: relative; display: flex; flex: 1; min-height: 0; width: 100%; }
+.sidebar-in { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 24px 14px 14px; display: grid; gap: 14px; align-content: start; }
 .sidebar-group ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
 .sidebar-heading { margin: 0 0 6px; padding: 0 14px; font: 500 13px var(--display); color: var(--muted); }
 .sidebar a { position: relative; display: flex; align-items: center; gap: 10px; height: 42px; padding: 0 14px; font: 500 16px var(--display); color: var(--ink-2); text-decoration: none;

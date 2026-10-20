@@ -39,18 +39,13 @@ export interface RunButtonOptions extends ButtonTarget {
   /** An icon before the label in place of the arrow after it, like Play's. */
   icon?: IconName;
   state?: ButtonState;
-  /** Its name in a scene that may hold it (scene.ts), for a lead moment on Zaisma's own scenes. */
-  sceneAnchor?: string;
 }
-
-/** A component a scene may hold: wrapped, so the scene can tilt it and cast its shadow without touching the component itself. */
-const anchored = (sceneAnchor: string | undefined, markup: Raw): Raw => (sceneAnchor ? html`<span class="scene-anchor" data-scene-anchor="${sceneAnchor}">${markup}</span>` : markup);
 
 /** The runner button: an orange slab with a side you can see. It lifts, leans toward the pointer and catches the light; pressing pushes its face down onto its side. */
 export function runButton(label: string, options: RunButtonOptions = {}): Raw {
   const words = options.busyLabel ? html`<span class="label-idle">${label}</span><span class="label-busy">${options.busyLabel}</span>` : html`<span>${label}</span>`;
   const shell = classes("run-wrap", options.isBig && "is-big", options.isFullWidth && "is-full", options.state);
-  return anchored(options.sceneAnchor, html`${opening(shell, options, options.isBusy)}<span class="run-side" aria-hidden="true"></span><span class="${options.isBig ? "face run big" : "face run"}">${options.icon ? icon(options.icon) : ""}${words}${options.icon ? "" : ARROW}</span>${closing(options)}`);
+  return html`${opening(shell, options, options.isBusy)}<span class="run-side" aria-hidden="true"></span><span class="${options.isBig ? "face run big" : "face run"}">${options.icon ? icon(options.icon) : ""}${words}${options.icon ? "" : ARROW}</span>${closing(options)}`;
 }
 
 export interface CutButtonOptions extends ButtonTarget {
@@ -59,14 +54,12 @@ export interface CutButtonOptions extends ButtonTarget {
   isBusy?: boolean;
   state?: ButtonState;
   isBig?: boolean;
-  /** Its name in a scene that may hold it (scene.ts). */
-  sceneAnchor?: string;
 }
 
 /** A secondary button: a cut slab of clearer glass with a drawn outline. It brightens under the pointer and gives under a press. A delete is one too, never orange. */
 export function cutButton(label: string, options: CutButtonOptions = {}): Raw {
   const className = classes("cut-btn", options.isBig && "big", options.isFullWidth && "is-full", options.state);
-  return anchored(options.sceneAnchor, html`${opening(className, options, options.isBusy)}<span class="face" data-cut-line="10">${CUT_LINE}${options.icon ? icon(options.icon) : ""}<span>${label}</span></span>${closing(options)}`);
+  return html`${opening(className, options, options.isBusy)}<span class="face" data-cut-line="10">${CUT_LINE}${options.icon ? icon(options.icon) : ""}<span>${label}</span></span>${closing(options)}`;
 }
 
 const GOOGLE = raw(
@@ -230,7 +223,6 @@ component({
   summary: "The one thing to do on a screen: Play, Sign in, Next. Never more than one in view, and visible without scrolling.",
   styles: RUN_STYLES,
   render: runButton,
-  hasSceneMode: true,
   examples: [
     ...stateExamples((state) => runButton("Sign in", { type: "button", state }), "runner"),
     { label: "Busy", markup: runButton("Sign in", { type: "button", isBusy: true, busyLabel: "Signing in" }), isStill: true },
@@ -270,7 +262,6 @@ component({
 @media (prefers-reduced-motion: reduce) { .cut-btn > .face { transition: background-color 0.2s; } }
 `,
   render: cutButton,
-  hasSceneMode: true,
   examples: [
     ...stateExamples((state) => cutButton("Details", { type: "button", state }), "cut"),
     { label: "Busy", markup: cutButton("Saving", { type: "button", isBusy: true }), isStill: true },

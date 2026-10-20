@@ -17,8 +17,6 @@ export interface GlassPaneOptions {
   body: Raw;
   /** Cut corners: top left, top right, bottom right, bottom left. Panes are 18 and 9. */
   corners?: [number, number, number, number];
-  /** Its name in a scene that may hold it (scene.ts), for a lead moment on Zaisma's own scenes. */
-  sceneAnchor?: string;
   label?: string;
 }
 
@@ -26,8 +24,7 @@ export interface GlassPaneOptions {
 export function glassPane(options: GlassPaneOptions): Raw {
   const corners = (options.corners ?? [18, 9, 18, 9]).join(" ");
   const pane = html`<section class="glass glass-pane ${options.paneSize}" data-glass data-glass-corners="${corners}"${options.label ? html` aria-label="${options.label}"` : ""}>${EDGE}<div class="pane-in">${options.body}</div>${railMarkup("box")}</section>`;
-  // A scene holds it by a wrapper, so tilting it never touches the glass's own blur.
-  return options.sceneAnchor ? html`<div class="scene-anchor" data-scene-anchor="${options.sceneAnchor}">${pane}</div>` : pane;
+  return pane;
 }
 
 export type MenuItem = { kind: "link"; label: string; icon: IconName; href: string } | { kind: "form"; label: string; icon: IconName; action: string } | { kind: "rule" };
@@ -231,8 +228,6 @@ const standInCovers = (slugs: string[]) => html`${slugs.map((slug) => STAND_IN_C
 const signInBody = (idPrefix: string) =>
   html`<h2>Welcome back</h2>${cutField({ id: `${idPrefix}-username`, name: "username", label: "Username", type: "text", icon: "person", text: "emma_r", autocomplete: "username" })}${cutField({ id: `${idPrefix}-password`, name: "password", label: "Password", type: "password", icon: "lock", text: "correct-horse", autocomplete: "current-password" })}${runButton("Sign in", { type: "button", isFullWidth: true, isBig: true })}`;
 
-const LONG_TEXT = "Wander a forest that grows around you. No combat and no timers: climbing, finding and listening. The forest remembers where you've been and grows new paths where you linger. ";
-
 component({
   name: "Glass pane",
   slug: "glass-pane",
@@ -240,13 +235,8 @@ component({
   summary: "A sheet of glass that holds a task: signing in, a game at a glance, a form. Its content scrolls inside it rather than shrinking.",
   styles: PANE_STYLES,
   render: glassPane,
-  hasSceneMode: true,
   examples: [
-    { label: "Small", markup: glassPane({ paneSize: "small", body: html`<h2>Small</h2><p>320 wide: a note, a confirm step.</p>` }) },
-    { label: "Medium", markup: glassPane({ paneSize: "medium", body: signInBody("example-pane-medium") }), isWide: true },
-    { label: "Large", markup: glassPane({ paneSize: "large", body: html`<h2>Large</h2><p>720 wide: a form with room to explain itself, or a game's details.</p>` }), isWide: true },
-    { label: "Full", markup: glassPane({ paneSize: "full", body: html`<h2>Full</h2><p>The whole width: a shelf of rows.</p>` }), isWide: true },
-    { label: "Long, scrolling inside", markup: html`<div style="height:300px;display:flex">${glassPane({ paneSize: "small", body: html`<h2>Verdant</h2><p>${LONG_TEXT.repeat(4)}</p>` })}</div>` },
+    { label: "Sign-in, medium", markup: glassPane({ paneSize: "medium", body: signInBody("example-pane-medium") }), isWide: true },
   ],
 });
 

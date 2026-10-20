@@ -41,8 +41,6 @@ export interface Component {
   /** The markup function pages call. Foundations have none. */
   render?: (...renderArguments: never[]) => Raw;
   examples: ComponentExample[];
-  /** It may rest in a scene (scene.ts). Only the pane and the two buttons, until Julius adds more. */
-  hasSceneMode?: boolean;
 }
 
 const componentsBySlug = new Map<string, Component>();
