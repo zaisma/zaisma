@@ -141,6 +141,11 @@ body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
 .example-pane { width: min(380px, 100%); padding: 22px 24px; display: flex; flex-direction: column; gap: 14px; }
 .example-wide { width: 100%; padding: 20px 24px; }
 .cover-sample { width: 260px; }
+/* The loops' own pointer, moving onto the copy it plays. It sinks a little while it presses. */
+[data-state-loop] { position: relative; display: inline-block; }
+.loop-cursor { position: absolute; left: 0; top: 0; z-index: 8; pointer-events: none; transition: transform 0.65s cubic-bezier(.45,0,.25,1); filter: drop-shadow(0 2px 3px rgba(10,20,40,0.35)); }
+.loop-cursor svg { display: block; transform-origin: 4px 3px; transition: transform 0.12s ease-out; }
+.loop-cursor.is-down svg { transform: scale(0.84); }
 .menu-frame { position: relative; width: 100%; height: 340px; transform: translateZ(0); }
 .menu-frame > .cut-btn { position: absolute; right: 20px; top: 0; }
 .rail-box { position: relative; width: min(420px, 100%); height: 220px; }
@@ -240,47 +245,59 @@ export const GALLERY_SCRIPT = pageScript(
 );
 
 /**
- * The gallery's loops: a still copy of a button, a switch or a cover that plays being pointed at, pressed and let go,
- * over and over, through the same state classes the still examples use. A switch is played through its own script,
- * by the events a pointer would send. Reduced motion holds them still.
+ * The gallery's loops: a still copy of a button, a switch or a cover with a pointer of its own that moves onto it, presses,
+ * lets go and moves off, over and over. The copy shows each moment through the same state classes the still examples
+ * use; a switch is played through its own script, by the events a pointer would send. Reduced motion holds them still.
  */
 export const DESIGN_LOOPS_SCRIPT = pageScript(
   "design-loops",
   `(function () {
   if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-  // Each kind: where its state classes go, and its steps (state, how long in ms).
-  var KINDS = {
-    runner: { target: ".run-wrap", steps: [["", 1300], ["is-pointed", 1300], ["is-pressed", 260], ["is-pointed", 900]] },
-    cut: { target: ".cut-btn", steps: [["", 1300], ["is-pointed", 1300], ["is-pressed", 260], ["is-pointed", 900]] },
-    glass: { target: ".glass-btn", steps: [["", 1300], ["is-pointed", 1600]] },
-    guest: { target: ".guest-btn", steps: [["", 1300], ["is-pointed", 1600]] },
-    cover: { target: ".cover", steps: [["", 1300], ["is-pointed", 1800]] }
-  };
+  var TARGETS = { runner: ".run-wrap", cut: ".cut-btn", glass: ".glass-btn", guest: ".guest-btn", cover: ".cover", switch: ".tab-switch" };
+  var MOVE_MS = 650, PRESS_MS = 180;
+  function wait(ms) { return new Promise(function (done) { setTimeout(done, ms); }); }
+  function send(el, type) { el.dispatchEvent(new MouseEvent(type, { bubbles: type !== "pointerenter" && type !== "pointerleave" })); }
   document.querySelectorAll("[data-state-loop]").forEach(function (box) {
-    var kind = box.getAttribute("data-state-loop");
-    if (kind === "switch") return playSwitch(box);
-    var plan = KINDS[kind], el = plan && box.querySelector(plan.target); if (!el) return;
-    var run = el.querySelector(".run"), at = 0;
-    (function step() {
-      var state = plan.steps[at % plan.steps.length], last = plan.steps[(at + plan.steps.length - 1) % plan.steps.length][0];
-      ["is-pointed", "is-pressed"].forEach(function (name) { el.classList.toggle(name, name === state[0]); });
-      // The runner's glint sweeps as the pointer arrives, as it does for real.
-      if (run && state[0] === "is-pointed" && last === "") { run.classList.remove("glint"); void run.offsetWidth; run.classList.add("glint"); }
-      at++; setTimeout(step, state[1]);
-    })();
+    var kind = box.getAttribute("data-state-loop"), el = box.querySelector(TARGETS[kind]); if (!el) return;
+    var cursor = document.createElement("span"); cursor.className = "loop-cursor"; cursor.setAttribute("aria-hidden", "true");
+    cursor.innerHTML = '<svg viewBox="0 0 20 24" width="20" height="24"><path d="M3 2v17l4.6-4.4 3.1 6.9 2.6-1.1-3.1-6.8H16z" fill="#fff" stroke="#14171C" stroke-width="1.4" stroke-linejoin="round"/></svg>';
+    box.appendChild(cursor);
+    function point(target, dx, dy) {
+      var b = box.getBoundingClientRect(), r = target.getBoundingClientRect();
+      return [r.left - b.left + r.width * dx, r.top - b.top + r.height * dy];
+    }
+    function moveTo(at, isQuick) { cursor.style.transitionDuration = isQuick ? "0s" : MOVE_MS + "ms"; cursor.style.transform = "translate(" + at[0].toFixed(1) + "px," + at[1].toFixed(1) + "px)"; return wait(isQuick ? 30 : MOVE_MS); }
+    function state(name) { ["is-pointed", "is-pressed"].forEach(function (each) { el.classList.toggle(each, each === name); }); }
+    function press(isDown) { cursor.classList.toggle("is-down", isDown); }
+    var away = function () { return point(el, 1.15, 1.6); };
+    async function buttonLoop() {
+      var run = el.querySelector(".run");
+      await moveTo(away(), true);
+      for (;;) {
+        await wait(900);
+        await moveTo(point(el, 0.62, 0.58));
+        state("is-pointed");
+        if (run) { run.classList.remove("glint"); void run.offsetWidth; run.classList.add("glint"); }
+        await wait(800);
+        press(true); state(kind === "runner" || kind === "cut" ? "is-pressed" : "is-pointed"); await wait(PRESS_MS + 60);
+        press(false); state("is-pointed"); await wait(700);
+        state(""); await moveTo(away());
+      }
+    }
+    async function switchLoop() {
+      var tabs = el.querySelectorAll("button"), at = 0;
+      await moveTo(point(el, 1.08, 1.5), true);
+      for (;;) {
+        var other = tabs[(at + 1) % tabs.length];
+        await wait(700);
+        await moveTo(point(other, 0.55, 0.6)); send(other, "pointerenter"); await wait(700);
+        press(true); await wait(PRESS_MS); send(other, "click"); press(false); await wait(800);
+        send(el, "pointerleave"); await moveTo(point(el, at % 2 ? 1.08 : -0.12, 1.5));
+        at++;
+      }
+    }
+    (kind === "switch" ? switchLoop : buttonLoop)();
   });
-  // A switch: the ghost follows a pointer to the other tab, it's chosen, the pointer leaves; then back again.
-  function playSwitch(box) {
-    var sw = box.querySelector(".tab-switch"); if (!sw) return;
-    var tabs = sw.querySelectorAll("button"), at = 0;
-    function send(el, type) { el.dispatchEvent(new MouseEvent(type, { bubbles: type !== "pointerenter" && type !== "pointerleave" })); }
-    (function step() {
-      var other = tabs[(at + 1) % tabs.length];
-      setTimeout(function () { send(other, "pointerenter"); }, 900);
-      setTimeout(function () { send(other, "click"); }, 1900);
-      setTimeout(function () { send(sw, "pointerleave"); at++; step(); }, 2600);
-    })();
-  }
 })();
 `,
 );
