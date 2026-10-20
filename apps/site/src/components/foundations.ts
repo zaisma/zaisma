@@ -33,7 +33,7 @@ const LIGHT_GLASS = `color-scheme: light;
   --edge-spec: rgba(255, 255, 255, 1); --edge-dense: rgba(120, 130, 146, 0.03);
   --logo-halo: drop-shadow(0 0 10px rgba(255, 255, 255, 0.6)) drop-shadow(0 1px 1px rgba(255, 255, 255, 0.5));
   --link-hover: var(--run-lo); --marked: var(--run-lo);
-  --glass-base: 255, 255, 255; --glass-kind: "Light glass, dark words."; --glass-hue-strength: 14%;
+  --glass-base: 255, 255, 255; --glass-kind: "Light glass, dark words."; --glass-hue-strength: 14%; --track: rgba(186, 198, 216, 0.28);
   --raise-top: rgba(255, 255, 255, 0.95); --raise-left: rgba(255, 255, 255, 0.6); --raise-right: rgba(96, 108, 128, 0.22); --raise-bottom: rgba(70, 82, 104, 0.34);
   --carve-top: rgba(60, 72, 94, 0.3); --carve-left: rgba(60, 72, 94, 0.2); --carve-right: rgba(255, 255, 255, 0.55); --carve-bottom: rgba(255, 255, 255, 0.9);
   --backdrop-base: #E6ECF4; --backdrop-a: #B9CBE6; --backdrop-b: #C0DCDB; --backdrop-c: #D2CBEA;`;
@@ -63,7 +63,7 @@ const SMOKED_GLASS = `color-scheme: dark;
   --edge-spec: rgba(255, 255, 255, 0.95); --edge-dense: rgba(255, 255, 255, 0.04);
   --logo-halo: drop-shadow(0 0 12px rgba(4, 7, 14, 0.75)) drop-shadow(0 1px 2px rgba(4, 7, 14, 0.6));
   --link-hover: var(--run-hi); --marked: var(--run-hi);
-  --glass-base: 14, 17, 24; --glass-kind: "Smoked glass, light words."; --glass-hue-strength: 22%;
+  --glass-base: 14, 17, 24; --glass-kind: "Smoked glass, light words."; --glass-hue-strength: 22%; --track: rgba(255, 255, 255, 0.08);
   --raise-top: rgba(255, 255, 255, 0.42); --raise-left: rgba(255, 255, 255, 0.22); --raise-right: rgba(0, 0, 0, 0.3); --raise-bottom: rgba(0, 0, 0, 0.5);
   --carve-top: rgba(0, 0, 0, 0.5); --carve-left: rgba(0, 0, 0, 0.32); --carve-right: rgba(255, 255, 255, 0.1); --carve-bottom: rgba(255, 255, 255, 0.2);
   --backdrop-base: #0A0D13; --backdrop-a: #1C2C49; --backdrop-b: #0E2E34; --backdrop-c: #241E3F;`;
@@ -359,7 +359,10 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     function list(points) { return points.map(function (p) { return p[0].toFixed(2) + "," + p[1].toFixed(2); }).join(" "); }
     function draw() {
       var w = el.offsetWidth, h = el.offsetHeight; if (!w || !h) return;
-      var shape = controlShape(w, h, slant, nestedCuts(el)), key = w + "x" + h + ":" + list(shape);
+      // data-cut-corners="a b c d": cut corners of its own instead of slanted ends (a sidebar's track), each one still nesting where it meets the glass's corner.
+      var nested = nestedCuts(el), own = el.getAttribute("data-cut-corners");
+      if (own) { var cuts = own.trim().split(/ +/).map(Number); nested = nested.map(function (cut, i) { return cut !== null ? cut : (cuts[i] || 0); }); }
+      var shape = controlShape(w, h, slant, nested), key = w + "x" + h + ":" + list(shape);
       if (key === last) return;
       last = key;
       el.style.setProperty("--cut-shape", "polygon(" + shape.map(function (p) { return p[0].toFixed(2) + "px " + p[1].toFixed(2) + "px"; }).join(", ") + ")");

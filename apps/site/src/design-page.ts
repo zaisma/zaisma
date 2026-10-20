@@ -78,7 +78,7 @@ ${head(`${groupName} · Design · Zaisma`)}
 ${themeButton(group, theme)}
 <div class="gallery-groups">${tabSwitch({ label: "Groups", switchSize: "small", tabs: groupTabs })}</div></header>
 <div class="gallery-layout">
-<div class="gallery-index">${sidebar({ label: "Groups", groups: [{ items: groupTabs.map((tab) => ({ label: tab.label, href: tab.href, isCurrent: tab.isCurrent, extra: raw(` data-gallery-page="${tab.href.split("?")[0]}"`) })) }] })}</div>
+<div class="gallery-index">${sidebar({ label: "Groups", isPageSidebar: true, groups: [{ items: groupTabs.map((tab) => ({ label: tab.label, href: tab.href, isCurrent: tab.isCurrent, extra: raw(` data-gallery-page="${tab.href.split("?")[0]}"`) })) }] })}</div>
 <main class="gallery-main">
 <h1 class="group-name">${groupName}</h1>
 ${components.filter((each) => each.group === group).map((each) => section(each, theme))}

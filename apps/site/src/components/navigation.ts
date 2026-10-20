@@ -531,16 +531,18 @@ export interface SidebarOptions {
   groups: { heading?: string; items: SidebarItem[] }[];
   /** Only the icons, in a narrow column; the labels move to each item's title. */
   isCollapsed?: boolean;
+  /** The page's own sidebar (one per page): its current place glides to the next page's as the page changes. */
+  isPageSidebar?: boolean;
 }
 
-/** The sidebar: a pane of glass down the side of a page, a list of the places in it. The page you're on is a white slab with an orange line, like a tab. */
+/** The sidebar: a pane of glass down the side of a page, each group of its places carved into it as a track. The page you're on is a raised slab outlined in orange. */
 export function sidebar(options: SidebarOptions): Raw {
   const link = (each: SidebarItem) => {
     const inside = each.icon ? html`${icon(each.icon)}<span class="sidebar-label">${each.label}</span>` : html`${each.label}`;
     return html`<li><a href="${each.href}"${each.extra ?? ""}${each.isCurrent ? raw(' aria-current="page" class="cut-raised" data-cut-inset="2"') : ""} data-cut-line="8"${options.isCollapsed ? html` title="${each.label}" aria-label="${each.label}"` : ""}>${CUT_LINE}${inside}${each.badgeCount ? html`<span class="sidebar-count">${each.badgeCount}</span>` : ""}</a></li>`;
   };
-  const groups = options.groups.map((group) => html`<div class="sidebar-group">${group.heading ? html`<h2 class="sidebar-heading">${group.heading}</h2>` : ""}<ul>${group.items.map(link)}</ul></div>`);
-  return html`<aside class="sidebar glass${options.isCollapsed ? " is-collapsed" : ""}" data-glass data-glass-corners="14 6 14 6"><nav class="sidebar-in" aria-label="${options.label}">${groups}</nav></aside>`;
+  const groups = options.groups.map((group) => html`<div class="sidebar-group">${group.heading ? html`<h2 class="sidebar-heading">${group.heading}</h2>` : ""}<div class="sidebar-track cut-carved" data-cut-line="10" data-cut-corners="10 4 10 4">${CUT_LINE}<ul>${group.items.map(link)}</ul></div></div>`);
+  return html`<aside class="sidebar glass${options.isCollapsed ? " is-collapsed" : ""}${options.isPageSidebar ? " is-page" : ""}" data-glass data-glass-corners="14 6 14 6"><nav class="sidebar-in" aria-label="${options.label}">${groups}</nav></aside>`;
 }
 
 const SIDEBAR_EXAMPLE_GROUPS: SidebarOptions["groups"] = [
@@ -554,27 +556,36 @@ component({
   group: "navigation",
   summary: "A glass column down the side of a page: the places in it, in groups, with the one you're on marked. It narrows to icons in tight spaces; on a phone, pages swap it for tabs.",
   styles: `
-/* The sidebar: a glass pane holding a list. Each place is a slanted tab; the current one is a white slab with an orange line. */
+/* The sidebar: a glass pane with each group of places carved into it as a track, like a switch's. The place you're on is a raised slab
+   in the track, outlined in orange; pointing at another lifts a faint slab there, and pressing sinks it. On the page's own sidebar
+   the slab glides from the last page's place to this one's as the page changes. */
 .sidebar { position: relative; display: flex; flex: 1; min-height: 0; width: 100%; }
-.sidebar-in { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 24px 14px 14px; display: grid; gap: 14px; align-content: start; }
-.sidebar-group ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
-.sidebar-heading { margin: 0 0 6px; padding: 0 14px; font: 500 13px var(--display); color: var(--muted); }
-.sidebar a { position: relative; display: flex; align-items: center; gap: 10px; height: 42px; padding: 0 14px; font: 500 16px var(--display); color: var(--ink-2); text-decoration: none;
-  clip-path: var(--cut-shape, polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%)); background: var(--wash-rest); transition: background 0.15s, color 0.15s, box-shadow 0.2s; }
+.sidebar-in { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 24px 14px 14px; display: grid; gap: 16px; align-content: start; }
+.sidebar-heading { margin: 0 0 8px; padding: 0 12px; font: 500 13px var(--display); color: var(--muted); }
+.sidebar-track { position: relative; padding: 4px; background: var(--track); clip-path: var(--cut-shape, polygon(0 10px, 10px 0, calc(100% - 4px) 0, 100% 4px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 4px 100%, 0 calc(100% - 4px))); }
+.sidebar-track ul { position: relative; z-index: 2; list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.sidebar a { position: relative; display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 14px; font: 500 16px var(--display); color: var(--ink-2); text-decoration: none;
+  clip-path: var(--cut-shape, polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%)); background: var(--wash-rest); transition: background 0.15s, color 0.15s; }
+.sidebar a > :not(.cut-line) { position: relative; z-index: 2; }
 .sidebar a svg:not(.cut-line) { width: 18px; height: 18px; flex: none; }
-.sidebar a:hover { background: var(--wash); color: var(--ink); }
-.sidebar a:active { background: var(--wash-press); }
+.sidebar a:hover { background: var(--ghost); color: var(--ink); }
+.sidebar a:not([aria-current="page"]):hover > .cut-line { --band-top: color-mix(in srgb, var(--raise-top) 55%, transparent); --band-left: color-mix(in srgb, var(--raise-left) 55%, transparent);
+  --band-right: color-mix(in srgb, var(--raise-right) 55%, transparent); --band-bottom: color-mix(in srgb, var(--raise-bottom) 55%, transparent); }
+.sidebar a:not([aria-current="page"]):active > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
+.sidebar a:not([aria-current="page"]):active { background: var(--wash); }
 .sidebar a[aria-current="page"], .sidebar a[aria-current="page"]:hover { background: var(--slab); color: var(--ink); font-weight: 600; }
-/* Every place's outline follows its cut, nested cuts included: orange on the current place, ink while the keyboard is on another. It stays out of sight until then, and on the current place it thickens under keyboard focus. */
+.sidebar.is-page a[aria-current="page"] { view-transition-name: sidebar-current; }
+::view-transition-group(sidebar-current) { animation-duration: 0.45s; animation-timing-function: var(--spring); }
+/* Every place's outline follows its cut: orange on the current place, ink while the keyboard is on another. It stays out of sight until then, and on the current place it thickens under keyboard focus. */
 .sidebar a .cut-line polygon { stroke-width: 2; }
 .sidebar a[aria-current="page"] .cut-line polygon { stroke: var(--run); }
 .sidebar a:focus-visible .cut-line polygon { stroke: var(--ink); }
 .sidebar a[aria-current="page"]:focus-visible .cut-line polygon { stroke: var(--run); stroke-width: 5; }
 .sidebar a:focus-visible { outline: none; }
-.sidebar-count { margin-left: auto; min-width: 22px; padding: 1px 7px; text-align: center; font: 600 12px var(--display); color: var(--ink-2); background: var(--well); box-shadow: var(--well-shade);
+.sidebar-count { margin-left: auto; min-width: 22px; padding: 1px 7px; text-align: center; font: 600 12px var(--display); color: var(--ink-2); background: var(--btn);
   clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%); }
 .sidebar.is-collapsed { flex: none; width: 72px; }
-.sidebar.is-collapsed .sidebar-in { padding: 14px 10px; }
+.sidebar.is-collapsed .sidebar-in { padding: 12px 8px; }
 .sidebar.is-collapsed a { justify-content: center; padding: 0; }
 .sidebar.is-collapsed .sidebar-label, .sidebar.is-collapsed .sidebar-count { display: none; }
 .sidebar.is-collapsed .sidebar-heading { height: 1px; margin: 0 14px 6px; padding: 0; overflow: hidden; font-size: 0; background: var(--line); }
