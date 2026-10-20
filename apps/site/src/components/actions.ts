@@ -403,3 +403,37 @@ component({
     { label: "Under the ways in", markup: html`<div style="display:grid;gap:var(--gap-control-control);${COLUMN}">${waysIn()}${guestButton("Continue as guest")}</div>` },
   ],
 });
+
+// Cut shapes sits with the buttons, so it can show the edge rule on real ones (foundations.ts can't import this file).
+const edgePane = (body: Raw) => html`<div class="glass example-pane" data-glass data-glass-corners="18 9 18 9">${body}</div>`;
+component({
+  name: "Cut shapes",
+  slug: "cut-shapes",
+  group: "foundations",
+  summary: "Corners are cut, never rounded: 16 and 6 on the header, 18 and 9 on panes. Controls follow the edge rule: a slant only beside another control in a row, and every other corner fits what holds it.",
+  styles: `
+/* Cut shapes: the glass's two cuts, then the edge rule on real buttons. */
+.cuts { display: flex; flex-wrap: wrap; gap: var(--gap-block-block); align-items: flex-end; }
+.cuts figure { margin: 0; display: grid; gap: var(--gap-words-control); font: 500 13px var(--display); color: var(--muted); }
+.cuts .shape { background: var(--ink); opacity: 0.85; }
+.cuts .header-cut { width: 260px; height: 68px; clip-path: polygon(0 16px, 16px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 16px), calc(100% - 16px) 100%, 6px 100%, 0 calc(100% - 6px)); }
+.cuts .pane-cut { width: 200px; height: 140px; clip-path: polygon(0 18px, 18px 0, calc(100% - 9px) 0, 100% 9px, 100% calc(100% - 18px), calc(100% - 18px) 100%, 9px 100%, 0 calc(100% - 9px)); }
+.edge-row { display: flex; align-items: flex-start; gap: var(--gap-control-control); }
+.edge-stack { display: grid; gap: var(--gap-control-control); }
+`,
+  examples: [
+    {
+      label: "The glass: header and pane",
+      isWide: true,
+      markup: html`<div class="cuts"><figure><span class="shape header-cut"></span><figcaption>Header: 16 and 6</figcaption></figure><figure><span class="shape pane-cut"></span><figcaption>Pane: 18 and 9</figcaption></figure></div>`,
+    },
+    { label: "Alone in a pane: fits its top and its bottom", markup: edgePane(cutButton("Make an account", { type: "button", isFullWidth: true })) },
+    { label: "Side by side: slants between, fits the outside", markup: edgePane(html`<div class="edge-row">${runButton("Play", { type: "button", icon: "play" })}${cutButton("Details", { type: "button" })}</div>`) },
+    {
+      label: "Stacked: fits the top and the bottom, square between",
+      markup: edgePane(html`<div class="edge-stack">${cutButton("Settings", { type: "button", isFullWidth: true })}${cutButton("Account", { type: "button", isFullWidth: true })}${cutButton("Sign out", { type: "button", isFullWidth: true })}</div>`),
+    },
+    { label: "On no pane: cut as if it were in one", markup: html`<div class="edge-row">${runButton("Play", { type: "button", icon: "play" })}${cutButton("Details", { type: "button" })}</div>` },
+  ],
+});
+

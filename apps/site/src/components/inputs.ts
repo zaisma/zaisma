@@ -470,7 +470,7 @@ component({
   name: "Motion",
   slug: "motion",
   group: "foundations",
-  summary: "Things move only when pointed at, pressed or chosen: a slab springs across (var(--spring), 0.55s, 0.4s for a small one), and a change of size takes 0.45s. Reduced motion stops all of it.",
+  summary: "Things move only when pointed at, pressed or chosen: a slab springs across on the spring curve (--spring) in 0.55s, 0.4s for a small one, and a change of size takes 0.45s. Reduced motion stops all of it.",
   styles: "",
   examples: [
     {
