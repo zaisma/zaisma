@@ -86,6 +86,58 @@ export function isEngineOutput(path, lowercasePaths) {
   return /\.m?js$/.test(lowercasePath) && lowercasePaths.has(lowercasePath.replace(/\.m?js$/, ".wasm"));
 }
 
+/** The text with JavaScript comments blanked to spaces (line breaks kept), so indexes into it are the original's. */
+function blankScriptComments(text) {
+  const out = text.split("");
+  const blank = (startIndex, endIndex) => {
+    for (let index = startIndex; index < endIndex; index++) if (out[index] !== "\n") out[index] = " ";
+  };
+  let lastSignificant = "";
+  for (let index = 0; index < text.length; index++) {
+    const character = text[index];
+    const next = text[index + 1];
+    if (character === "/" && next === "/") {
+      const lineEndIndex = text.indexOf("\n", index);
+      blank(index, lineEndIndex === -1 ? text.length : lineEndIndex);
+      index = lineEndIndex === -1 ? text.length : lineEndIndex;
+    } else if (character === "/" && next === "*") {
+      const closeIndex = text.indexOf("*/", index + 2);
+      blank(index, closeIndex === -1 ? text.length : closeIndex + 2);
+      index = closeIndex === -1 ? text.length : closeIndex + 1;
+    } else if (character === '"' || character === "'" || character === "`") {
+      // A string: skip to its end, so a // or /* in it isn't a comment.
+      let closeIndex = index + 1;
+      while (closeIndex < text.length && text[closeIndex] !== character && (character === "`" || text[closeIndex] !== "\n")) closeIndex += text[closeIndex] === "\\" ? 2 : 1;
+      index = closeIndex;
+      lastSignificant = character;
+    } else if (character === "/" && (lastSignificant === "" || "(,=:[!&|?{};+-*%<>~^".includes(lastSignificant))) {
+      // A regular expression: skip to its closing slash, outside a [class].
+      let closeIndex = index + 1;
+      let isInClass = false;
+      while (closeIndex < text.length && text[closeIndex] !== "\n" && (isInClass || text[closeIndex] !== "/")) {
+        if (text[closeIndex] === "\\") closeIndex++;
+        else if (text[closeIndex] === "[") isInClass = true;
+        else if (text[closeIndex] === "]") isInClass = false;
+        closeIndex++;
+      }
+      index = closeIndex;
+      lastSignificant = "/";
+    } else if (!/\s/.test(character)) {
+      lastSignificant = character;
+    }
+  }
+  return out.join("");
+}
+
+/** A page's or module's text with its comments blanked, HTML's and its scripts' JavaScript ones, at the same indexes. */
+function blankComments(text, fileKind) {
+  if (fileKind === "module") return blankScriptComments(text);
+  const spaces = (part) => part.replace(/[^\n]/g, " ");
+  return text
+    .replace(/<!--[\s\S]*?(?:-->|$)/g, spaces)
+    .replace(/(<script\b[^>]*>)([\s\S]*?)(<\/script\s*>|$)/gi, (...[, openTag, body, closeTag]) => openTag + blankScriptComments(body) + closeTag);
+}
+
 /** An attribute's value in a tag, with where the value starts and ends in the whole text. */
 function attributeOf(tag, tagStart, name) {
   const match = new RegExp(`\\s${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>"']+))`, "i").exec(tag);
@@ -231,6 +283,16 @@ const FEATURES = [
   { pattern: /\bnavigator\.hid\b/, name: "HID devices (navigator.hid)" },
 ];
 const DIALOG_PATTERN = /(?<![\w$.])(?<!function\s+)(?:window\.)?(alert|confirm|prompt)\s*\(/;
+/** Only when a load fails, like Unity's page template's .catch((message) => { alert(message); }): the game itself works. */
+const FAILURE_HANDLER_BEFORE_PATTERN = /\.catch\(\s*(?:function\s*)?\(?\s*[\w$]*\s*\)?\s*(?:=>\s*)?\{\s*$/;
+/** The first dialog the code opens, besides one only a failed load opens. */
+function dialogOf(code) {
+  const pattern = new RegExp(DIALOG_PATTERN.source, "g");
+  for (const match of code.matchAll(pattern)) {
+    if (!FAILURE_HANDLER_BEFORE_PATTERN.test(code.slice(Math.max(0, match.index - 80), match.index))) return match;
+  }
+  return null;
+}
 const THREADS_PATTERNS = [/\bGODOT_THREADS_ENABLED\s*=\s*true\b/, /\bENVIRONMENT_IS_PTHREAD\b/, /coi-serviceworker/i];
 
 /**
@@ -339,9 +401,11 @@ export function checkGameFiles(files, { slug = null, ownServerUrls = null } = {}
     if (threadsMatch) addThreads(`${path} is from a build that needs threads (SharedArrayBuffer), which games on Zaisma don't have, so it won't start.`, lineAround(text, threadsMatch.index), path);
 
     if (isEngineOutput(path, lowercasePaths)) continue;
-    const found = (pattern) => pattern.exec(text);
+    // What the code does, not what its comments say: a library's docs mention alert() and window.open.
+    const code = blankComments(text, fileKind);
+    const found = (pattern) => pattern.exec(code);
     let match;
-    if ((match = found(DIALOG_PATTERN))) add("browser_dialog", { message: `${path} uses ${match[1]}(), which never shows in the game's frame on Zaisma.`, path, quote: lineAround(text, match.index), fix: "Show the message in the game itself, like on the canvas or in an element over it." });
+    if ((match = dialogOf(code))) add("browser_dialog", { message: `${path} uses ${match[1]}(), which never shows in the game's frame on Zaisma.`, path, quote: lineAround(text, match.index), fix: "Show the message in the game itself, like on the canvas or in an element over it." });
     if (fileKind === "html" && (match = found(/<form\b[^>]*>/i))) add("form_submission", { message: `${path} has a form, which never submits in the game's frame on Zaisma.`, path, quote: lineAround(text, match.index), fix: "Handle the button's click (or the Enter key) in script instead of submitting the form." });
     if ((match = (fileKind === "html" && found(/<a\b[^>]*\sdownload\b[^>]*>/i)) || found(/\.download\s*=(?!=)/))) add("file_download", { message: `${path} downloads a file, which the game's frame on Zaisma doesn't allow.`, path, quote: lineAround(text, match.index), fix: "Keep it in the game (its browser saves, which Zaisma's cloud saves mirror), or copy it to the clipboard." });
     if ((match = (fileKind === "html" && (found(/<a\b[^>]*\shref\s*=\s*["']?(?:https?:)?\/\/[^>]*>/i) || found(/<a\b[^>]*\starget\s*=\s*["']?_blank[^>]*>/i))) || found(/\bwindow\.open\s*\(/))) {

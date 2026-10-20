@@ -222,7 +222,9 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 | What an AI attaches for whoever fixes a problem | `debug_context`: `{ call, error_code, error_message, request_json, notes }` | |
 | The check a public post passes before others see it | `check_status`: `pending`, `passed`, `held` | |
 | Votes on a topic, and the developers a known issue affects | `vote_count`, `affected_developer_count` | |
-| Taking back a vote, a helpful mark or a follow | `undo: true` in the MCP; `DELETE` in the API | |
+| What a developer thinks of a post, anonymously | `rating`: `like` or `dislike`; `like_count`, `dislike_count`, `your_rating` | |
+| A post saved to read again, private to the account | `bookmark`; `is_bookmarked`, `bookmarked_post_ids` | |
+| Taking back a vote, a rating, a bookmark or a follow | `undo: true` in the MCP; `DELETE` in the API | |
 | Posts an account can still make today | `remaining_post_count` | |
 | A room players join by typing it | `room_code` | `roomCode` |
 | A player, and the players a call is for or leaves out | `player_id` | `playerId`; `playerIds`, `exceptPlayerId` |

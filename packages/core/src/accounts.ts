@@ -439,8 +439,11 @@ export async function deleteAccount(database: D1Database, id: string): Promise<v
     database.prepare("DELETE FROM forum_votes WHERE account_id = ?").bind(id),
     database.prepare("DELETE FROM forum_follows WHERE account_id = ?").bind(id),
     database.prepare("DELETE FROM forum_misplaced_flags WHERE account_id = ?").bind(id),
-    database.prepare("UPDATE forum_posts SET helpful_count = MAX(0, helpful_count - 1) WHERE id IN (SELECT post_id FROM forum_helpful_marks WHERE account_id = ?)").bind(id),
-    database.prepare("DELETE FROM forum_helpful_marks WHERE account_id = ?").bind(id),
+    database.prepare("UPDATE forum_posts SET like_count = MAX(0, like_count - 1) WHERE id IN (SELECT post_id FROM forum_post_ratings WHERE account_id = ? AND rating = 'like')").bind(id),
+    database.prepare("UPDATE forum_posts SET dislike_count = MAX(0, dislike_count - 1) WHERE id IN (SELECT post_id FROM forum_post_ratings WHERE account_id = ? AND rating = 'dislike')").bind(id),
+    // Their ratings and bookmarks, and everyone's on the posts that go with them.
+    database.prepare("DELETE FROM forum_post_ratings WHERE account_id = ? OR post_id IN (SELECT id FROM forum_posts WHERE account_id = ? OR topic_id IN (SELECT id FROM forum_topics WHERE account_id = ? AND known_issue_title IS NULL))").bind(id, id, id),
+    database.prepare("DELETE FROM forum_bookmarks WHERE account_id = ? OR post_id IN (SELECT id FROM forum_posts WHERE account_id = ? OR topic_id IN (SELECT id FROM forum_topics WHERE account_id = ? AND known_issue_title IS NULL))").bind(id, id, id),
     database.prepare("DELETE FROM forum_reports WHERE account_id = ?").bind(id),
     // Their posts' images and mentions (the files go with deleteForumFiles), and mentions of them.
     database.prepare("DELETE FROM forum_media WHERE account_id = ? OR post_id IN (SELECT id FROM forum_posts WHERE account_id = ? OR topic_id IN (SELECT id FROM forum_topics WHERE account_id = ? AND known_issue_title IS NULL))").bind(id, id, id),

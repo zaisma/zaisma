@@ -131,13 +131,13 @@ function checkListing(text) {
   };
 }
 
+// The game review's readers take this as finding nothing (no items), and its judge as its verdict.
 function scan(text) {
   const reported = text.match(/a player reported it[^:]*: (.*)/)?.[1] ?? "";
   if (/password|login|steam|card/i.test(reported)) {
-    // Points at a line that's really in the demo game, so the re-check can confirm it.
-    return { verdict: "reject", summary: "A login form copied from a real store collects passwords and sends them away.", has_sexual_content_involving_minors: false, concerns: [{ category: "phishing_or_scam", message: "Asks players for a store password.", path: "index.html", quote: '<canvas id="c"></canvas>' }] };
+    return { verdict: "reject", summary: "A login form copied from a real store collects passwords and sends them away.", has_sexual_content_involving_minors: false, followed_ruling_numbers: [], findings: [{ code: "ai_phishing_or_scam", evidence_item_numbers: [1], message: "Asks players for a store password." }], items: [] };
   }
-  return { verdict: "pass", summary: "An ordinary game. (Preview stand-in AI.)", has_sexual_content_involving_minors: false, concerns: [] };
+  return { verdict: "pass", summary: "An ordinary game. (Preview stand-in AI.)", has_sexual_content_involving_minors: false, followed_ruling_numbers: [], findings: [], items: [] };
 }
 
 export function startFakeAi(port) {

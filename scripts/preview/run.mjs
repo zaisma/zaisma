@@ -5,7 +5,7 @@
 // Uses its own data folder and ports, so it never touches your dev data or the live site.
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deflateSync } from "node:zlib";
@@ -280,6 +280,10 @@ try {
   const saved = JSON.parse(readFileSync(join(STATE, "testers.json"), "utf8"));
   for (const [game, link] of Object.entries(saved)) testers[game] = SITE + new URL(link, SITE).pathname;
 } catch {}
+let engineSamples = [];
+try {
+  engineSamples = JSON.parse(readFileSync(join(STATE, "engines.json"), "utf8"));
+} catch {}
 console.log(`
 Zaisma preview is running. Nothing here touches the live site.
 
@@ -290,6 +294,8 @@ Zaisma preview is running. Nothing here touches the live site.
                   ${SITE}/dashboard/lava-leap; home leaves it out, ${SITE}/g/lava-leap still plays; ${SITE}/admin/games/ shows Clear.
                   Rename a game with [UPDATE] in its title and, a minute later, it's off the lists too)
   Multiplayer     ${SITE}/g/arena  (open it in two windows to play together)
+  Engine samples  ${engineSamples.map((sample) => `${SITE}/g/${sample.slug}?play${sample.scan_status === "approved" ? "" : ` (${sample.scan_status ?? "not uploaded"})`}`).join("\n                  ") || "(npm run preview -- --reset to add them)"}
+                  (web exports uploaded unchanged; npm run engines:play checks that each starts and draws)
   Rooms           ${SITE}/g/arena#rooms  and  ${SITE}/g/cave-crew#rooms  (Cave Crew's are mostly pretend, from around the world)
   Tester links    ${testers.secret ?? "(npm run preview -- --reset to make them)"}  (Rocket Lab, a private game: its live version)
                   ${testers.team ?? ""}  (Rocket Lab's newest build, not out yet, for two weeks)
@@ -490,6 +496,9 @@ async function seed() {
     return versions[0].id;
   };
 
+  // First, while the account's daily reviews are all free, so each sample gets the whole scan.
+  await seedEngineSamples(api, upload);
+
   const games = [
     { title: "Shard Dodge", folder: "examples/hello-game", color: [70, 140, 220], description: "Dodge the falling shards for as long as you can. Arrow keys, mouse or finger.", devices: ["phone", "tablet", "computer"], controls: ["touch", "keyboard_mouse"], play_modes: [{ mode: "single" }] },
     { title: "Arena", folder: withServer("examples/arena", "arena"), color: [150, 70, 160], description: "Bump your friends off the platform. Last one standing wins the round.", devices: ["computer"], controls: ["keyboard_mouse", "gamepad"], play_modes: [{ mode: "local", minimum_player_count: 2, maximum_player_count: 4, play_style: "versus" }, { mode: "online", minimum_player_count: 2, maximum_player_count: 8, play_style: "versus" }] },
@@ -669,6 +678,33 @@ async function seed() {
 }
 
 /**
+ * The engine samples (test/engines/<engine>/build), each a web export as its engine wrote it, uploaded
+ * unchanged with the upload command and left to the scan, never approved by hand: a sample the scan
+ * holds stays held, and engines.json says so for scripts/engines/play.mjs, which then plays each one.
+ */
+async function seedEngineSamples(api, upload) {
+  const ENGINE_NAMES = { godot: "Godot", phaser: "Phaser", three: "Three.js", unity: "Unity", "unity-fill": "Unity full-frame" };
+  const engines = readdirSync(join(ROOT, "test/engines"), { withFileTypes: true }).filter((entry) => entry.isDirectory() && existsSync(join(ROOT, "test/engines", entry.name, "build/index.html"))).map((entry) => entry.name);
+  const samples = [];
+  for (const engine of engines) {
+    const { game } = await api("POST", "/games", { title: `${ENGINE_NAMES[engine] ?? engine} sample`, description: `A ${ENGINE_NAMES[engine] ?? engine} web export, uploaded as the engine wrote it.`, devices: ["computer"], controls: ["keyboard_mouse"], play_modes: [{ mode: "single" }] });
+    const uploaded = upload(join("test/engines", engine, "build"), game.slug, "First version.");
+    let version = null;
+    for (let i = 0; i < 120 && uploaded.status === 0; i++) {
+      [version] = (await api("GET", `/games/${game.slug}`)).versions;
+      if (version && version.scan_status !== "scanning") break;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    const isPassed = version?.scan_status === "approved";
+    if (isPassed) {
+      await api("POST", `/games/${game.slug}/versions/${version.id}/publish`);
+      await api("PATCH", `/games/${game.slug}`, { visibility: "unlisted" });
+    }
+    samples.push({ engine, slug: game.slug, upload_exit_code: uploaded.status, scan_status: version?.scan_status ?? null, findings: version?.findings ?? [] });
+  }
+  writeFileSync(join(STATE, "engines.json"), JSON.stringify(samples, null, 2));
+}
+/**
  * Holds and takedowns, each saying why: an update the scan holds for packed code, one a person
  * rejected, a cover that wasn't approved, and a game taken down. Made like Zaisma makes them: the
  * scan, and the admin pages' forms.
@@ -822,12 +858,14 @@ async function seedForum(you, go, form) {
   const privateTest = await topic(tr, { kind: "question", author_kind: me, category: "publishing", title: "How do I keep a game private while friends test it?", text_markdown: "I want five friends to play before it's public. Do they need accounts?" });
   const ans = await reply(qo, privateTest.id, "Set it to Only me, then make a tester link on the game's page in the dashboard and send that. Testers don't need accounts, and you can turn the link off any time.", { author_kind: me });
   await tr("POST", `/forum/${privateTest.id}/answer`, { answer_post_id: ans.id });
-  for (const who of [pf, bs]) await who("POST", `/forum/${privateTest.id}/posts/${ans.id}/helpful`);
+  for (const who of [pf, bs]) await who("PUT", `/forum/${privateTest.id}/posts/${ans.id}/rating`, { rating: "like" });
 
   const godot = await topic(pf, { kind: "question", category: "publishing", tags: ["godot"], title: "Godot 4 web export says SharedArrayBuffer isn't defined", text_markdown: "Exported with threads on. Works locally with the Godot server, fails on Zaisma with:\n```\nReferenceError: SharedArrayBuffer is not defined\n```" });
   const godotAns = await reply(hl, godot.id, "Export with Thread Support turned off (Project > Export > Web > Variant). Threads need cross-origin isolation headers, and most hosts that embed games can't send them. Single-threaded builds run fine for 2D.", { author_kind: "ai" });
   await pf("POST", `/forum/${godot.id}/answer`, { answer_post_id: godotAns.id });
-  for (const who of [ca, qo, tr]) await who("POST", `/forum/${godot.id}/posts/${godotAns.id}/helpful`);
+  for (const who of [ca, qo, tr]) await who("PUT", `/forum/${godot.id}/posts/${godotAns.id}/rating`, { rating: "like" });
+  // The preview account bookmarks the Godot answer and, below, the cropped-covers bug.
+  await you("POST", `/forum/${godot.id}/posts/${godotAns.id}/bookmark`);
   await meToo(godot.id, ca, qo);
 
   const serverState = await topic(lw, { kind: "question", category: "servers", title: "Can my game server keep state between matches?", text_markdown: "We want a lobby leaderboard that survives after a room closes. Where should that live?" });
@@ -869,6 +907,12 @@ async function seedForum(you, go, form) {
   const crop = await topic(hl, { kind: "bug", author_kind: me, is_public: true, category: "pages", tags: ["mobile"], title: "Square covers are cropped at the top on some phones", text_markdown: "On a Pixel 7 our square cover loses about 20 px at the top on the home page. Other phones look fine. **Before** and **after** below.", images_base64: [Buffer.from(picture([70, 140, 220], 1)).toString("base64"), Buffer.from(picture([150, 70, 160], 2)).toString("base64")] });
   await meToo(crop.id, ca, pf);
   await zaisma(crop.id, { reply: "Thanks, we can see it on that screen size. Fix coming with the next home page update.", topic_status: "known" });
+  // Likes and dislikes, anonymous: 5 and 2 on the opening post, and a bookmark from the preview account.
+  const cropPostId = (await hl("GET", `/forum/${crop.id}`)).posts[0].id;
+  await reply(pf, crop.id, "Same on a Pixel 6a. It's the aspect-ratio box on the home page, not the cover.", { author_kind: me });
+  for (const who of [pf, bs, lw, tr, ca]) await who("PUT", `/forum/${crop.id}/posts/${cropPostId}/rating`, { rating: "like" });
+  for (const who of [qo, os]) await who("PUT", `/forum/${crop.id}/posts/${cropPostId}/rating`, { rating: "dislike" });
+  await you("POST", `/forum/${crop.id}/posts/${cropPostId}/bookmark`);
 
   // The preview account's messages to Zaisma: its AI hits a bug Zaisma makes a known issue, and hits the
   // rooms one too (the stand-in AI merges it); the developer sends a gap.
@@ -894,6 +938,9 @@ async function seedForum(you, go, form) {
   const roomsTopic = (await you("GET", `/forum/${roomsKnown}`)).topic;
   await zaisma(roomsKnown, { is_known_issue: "1", known_issue_title: roomsTopic.title, workaround: roomsTopic.workaround, roadmap_item: roomsTopic.roadmap_item ?? "", topic_status: "released", severity: "high", category: "rooms", reply: "The fix for the 50-player drop is live. We're watching that it holds." });
   await meToo((await you("GET", "/forum?tab=known")).topics.find((k) => k.title.startsWith("Scans can take")).id, pf, tr);
+  // Zaisma's workaround on the rooms known issue: 3 likes and 14 dislikes, which only count (the post stays shown, in place).
+  const workaroundPostId = (await you("GET", `/forum/${roomsKnown}`)).posts.filter((post) => post.author.kind === "zaisma").at(-1)?.id;
+  if (workaroundPostId) await spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", `UPDATE forum_posts SET like_count = 3, dislike_count = 14 WHERE id = '${workaroundPostId}'`], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
 
   // Spread the times over the last three weeks, in the order things happened.
   const end = Date.now();

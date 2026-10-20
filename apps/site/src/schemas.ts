@@ -798,6 +798,7 @@ const TOPIC_FIELDS = {
   created_at: isoTime(),
   last_activity_at: isoTime(),
   search_match: nullable(text("With search_text: the words that matched, marked «like this».")),
+  bookmarked_post_ids: list(idOf("post"), "On the bookmarks tab: the posts in it you bookmarked, newest first. Empty elsewhere."),
 };
 export const TOPIC_ROW = object(TOPIC_FIELDS);
 export const BRIEF_TOPIC = object(
@@ -813,6 +814,7 @@ export const BRIEF_TOPIC = object(
     reply_count: countOf(),
     category: nullable(text()),
     search_match: nullable(text("The words that matched, marked «like this»; null without search_text.")),
+    bookmarked_post_ids: list(idOf("post"), "On the bookmarks tab: the posts in it you bookmarked, newest first. Empty elsewhere."),
     is_unread: yes(),
     last_activity_at: isoTime(),
   },
@@ -848,8 +850,12 @@ export const POST = object({
   is_answer: yes("The question's marked answer."),
   check_status: nullable(choice({ pending: "being checked: only you see it yet", passed: "others see it", held: "waiting for a person at Zaisma: only you see it yet" }, "null in a message to Zaisma.")),
   posted_via: POSTED_VIA,
-  helpful_count: countOf(),
-  has_marked_helpful: yes(),
+  like_count: countOf("How many liked it; nobody sees who."),
+  dislike_count: countOf("How many disliked it; nobody sees who."),
+  your_rating: nullable(choice({ like: "you liked it", dislike: "you disliked it" }, "What you said about it; null if nothing.")),
+  is_bookmarked: yes("You bookmarked it."),
+  helpful_count: countOf("Deprecated: like_count replaces it; removed 90 days after this shipped."),
+  has_marked_helpful: yes("Deprecated: your_rating replaces it; removed 90 days after this shipped."),
   has_reported: yes("You reported it, and Zaisma hasn't looked yet."),
   debug_context: nullable(DEBUG_CONTEXT),
   media: list(object({ id: idOf("media"), image_url: url() }), "Its images."),
@@ -861,7 +867,7 @@ const REMOVED_SECRET_COUNT = countOf("Keys and passwords blanked before it was s
 export const TOPIC_PAGE = object({
   topics: list(BRIEF_TOPIC),
   pinned_topics: list(BRIEF_TOPIC, "Open known issues, above the latest topics on the first page."),
-  tab: choice(["latest", "top", "unanswered", "known", "yours", "messages"]),
+  tab: choice(["latest", "top", "unanswered", "known", "yours", "messages", "bookmarks"]),
   next_cursor: nullable(text("Pass as cursor for the next topics; null on the last page.")),
   remaining_post_count: countOf("Posts the developer can still make today."),
 });
@@ -881,6 +887,13 @@ export const NEW_TOPIC = object({
   removed_secret_count: REMOVED_SECRET_COUNT,
   next_steps: NEXT,
 });
+export const POST_RATING = object({
+  like_count: countOf(),
+  dislike_count: countOf(),
+  your_rating: nullable(choice({ like: "you liked it", dislike: "you disliked it" }, "null after you took it back.")),
+  next_steps: NEXT,
+});
+export const POST_BOOKMARK = object({ is_bookmarked: yes(), next_steps: NEXT });
 export const NEW_REPLY = object({ post: POST, check_note: CHECK_NOTE, removed_secret_count: REMOVED_SECRET_COUNT, next_steps: NEXT });
 
 // --- The admin MCP (docs/ADMIN-MCP.md) ---

@@ -29,7 +29,8 @@ describe("the workflow and ship agree", () => {
   });
   it("tests a pull request's branch exactly as it is", () => {
     const checkoutRefs = workflow.match(/ref: .*/g) ?? [];
-    expect(checkoutRefs.length).toBe(4);
+    // Every job's checkout.
+    expect(checkoutRefs.length).toBe(workflow.match(/actions\/checkout@/g)!.length);
     for (const ref of checkoutRefs) expect(ref).toBe("ref: ${{ github.event.pull_request.head.sha || github.sha }}");
   });
 });

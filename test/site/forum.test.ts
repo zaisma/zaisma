@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { KNOWN_IMAGE_CODE, createAccount, createApiKey, createGame, deleteAccount, forumMediaKey, personOwner, type ImageMatcher } from "@zaisma/core";
 import { decideTopic, deleteStaleDraftMedia } from "../../apps/site/src/forum-posts.ts";
 import { sortMisplaced, sortTopics, type SortAnswer, type SortDeps } from "../../apps/site/src/forum-sort.ts";
-import { checkForumPosts, type CheckImage } from "../../apps/site/src/forum-check.ts";
+import { checkForumPosts, removePost, type CheckImage } from "../../apps/site/src/forum-check.ts";
 import { forumHeldKey } from "../../apps/site/src/forum-images.ts";
 import { renderMarkdown } from "../../apps/site/src/forum-markdown.ts";
 import { TOOLS } from "../../apps/site/src/mcp.ts";
@@ -79,7 +79,7 @@ async function adminPost(path: string, form: Record<string, string>): Promise<Re
 
 beforeEach(async () => {
   await env.DB.exec(
-    "DELETE FROM forum_posts; DELETE FROM forum_topic_tags; DELETE FROM forum_votes; DELETE FROM forum_follows; DELETE FROM forum_misplaced_flags; DELETE FROM forum_search; DELETE FROM forum_helpful_marks; DELETE FROM forum_reports; DELETE FROM forum_media; DELETE FROM forum_mentions; DELETE FROM forum_topics; DELETE FROM api_keys; DELETE FROM audit_log; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;",
+    "DELETE FROM forum_posts; DELETE FROM forum_topic_tags; DELETE FROM forum_votes; DELETE FROM forum_follows; DELETE FROM forum_misplaced_flags; DELETE FROM forum_search; DELETE FROM forum_post_ratings; DELETE FROM forum_bookmarks; DELETE FROM forum_reports; DELETE FROM forum_media; DELETE FROM forum_mentions; DELETE FROM forum_topics; DELETE FROM api_keys; DELETE FROM audit_log; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;",
   );
   await createAccount(env.DB, { id: "dev-1", username: "Pixel_Smith", ageBand: "18+" });
   await createAccount(env.DB, { id: "dev-2", username: "Other_Dev", ageBand: "18+" });
@@ -391,6 +391,7 @@ describe("search, phases and reading a topic in part", () => {
     const found = await mcp("search_forum", { search_text: "too_big" }, other);
     expect(Object.keys(found.topics[0]).sort()).toEqual([
       "affected_developer_count",
+      "bookmarked_post_ids",
       "category",
       "id",
       "is_answered",
@@ -447,17 +448,106 @@ describe("search, phases and reading a topic in part", () => {
     expect((await mcp("still_happening", { topic_id: knownIssueId }, other)).error).toContain("not_released");
   });
 
-  it("marks helpful replies and takes reports, hiding a post three developers report", async () => {
+  it("takes anonymous likes and dislikes, one per account and post, never on your own or a private message", async () => {
     const { topic } = await mcp("post_topic", { kind: "question", category: "saves", title: "Do saves sync?", text_markdown: "Between devices?" });
     await passAll();
     const reply = (await mcp("reply_to_topic", { topic_id: topic.id, text_markdown: "Yes, for signed-in players." }, other)).post;
     await passAll();
-    expect(await mcp("mark_helpful", { topic_id: topic.id, post_id: reply.id })).toEqual({ helpful_count: 1, has_marked_helpful: true, next_steps: [] });
-    expect(await mcp("mark_helpful", { topic_id: topic.id, post_id: reply.id })).toEqual({ helpful_count: 1, has_marked_helpful: true, next_steps: [] });
-    expect((await mcp("mark_helpful", { topic_id: topic.id, post_id: reply.id }, other)).code).toBe("cant_mark_helpful");
-    expect((await mcp("get_topic", { topic_id: topic.id })).posts[1]).toMatchObject({ helpful_count: 1, has_marked_helpful: true, check_status: "passed" });
-    expect(await mcp("mark_helpful", { topic_id: topic.id, post_id: reply.id, undo: true })).toEqual({ helpful_count: 0, has_marked_helpful: false, next_steps: [] });
+    const call = { topic_id: topic.id, post_id: reply.id };
+    expect(await mcp("rate_post", { ...call, rating: "like" })).toEqual({ like_count: 1, dislike_count: 0, your_rating: "like", next_steps: [] });
+    expect(await mcp("rate_post", { ...call, rating: "like" })).toEqual({ like_count: 1, dislike_count: 0, your_rating: "like", next_steps: [] });
+    // A new rating replaces the old one.
+    expect(await mcp("rate_post", { ...call, rating: "dislike" })).toEqual({ like_count: 0, dislike_count: 1, your_rating: "dislike", next_steps: [] });
+    // Another viewer sees the counts and never who.
+    const asOther = (await mcp("get_topic", { topic_id: topic.id }, other)).posts[1];
+    expect(asOther).toMatchObject({ like_count: 0, dislike_count: 1, your_rating: null, helpful_count: 0, has_marked_helpful: false });
+    expect(JSON.stringify(asOther)).not.toContain("Pixel_Smith\",\"kind\":\"ai\",\"is_you\":false,\"rating");
+    expect((await mcp("get_topic", { topic_id: topic.id })).posts[1]).toMatchObject({ like_count: 0, dislike_count: 1, your_rating: "dislike" });
+    expect(await mcp("rate_post", { ...call, undo: true })).toEqual({ like_count: 0, dislike_count: 0, your_rating: null, next_steps: [] });
+    expect((await mcp("rate_post", { ...call, rating: "helpful" })).code).toBe("bad_rating");
+    expect((await mcp("rate_post", { ...call, rating: "like" }, other)).code).toBe("cant_rate_own_post");
 
+    // Three dislikes only count: the post stays shown and in place.
+    for (const number of [3, 4]) {
+      await createAccount(env.DB, { id: `dev-${number}`, username: `Dev_${number}`, ageBand: "18+" });
+      const key = (await createApiKey(env.DB, `dev-${number}`, "ai")).token;
+      await mcp("rate_post", { ...call, rating: "dislike" }, key);
+    }
+    await mcp("rate_post", { ...call, rating: "dislike" });
+    expect((await mcp("get_topic", { topic_id: topic.id })).posts[1]).toMatchObject({ id: reply.id, dislike_count: 3, check_status: "passed" });
+
+    // A message to Zaisma takes none.
+    const message = await mcp("message_zaisma", { kind: "bug", title: "Private", text_markdown: "Mine" });
+    expect((await mcp("rate_post", { topic_id: message.topic.id, post_id: message.posts[0].id, rating: "like" })).code).toBe("cant_rate_post");
+
+    // The old Helpful route still counts as a like, and says what replaces it.
+    const helpful = await api(`/forum/${topic.id}/posts/${reply.id}/helpful`, { method: "POST" });
+    expect(helpful.data).toMatchObject({ like_count: 1, dislike_count: 2, your_rating: "like", helpful_count: 1, has_marked_helpful: true });
+    expect(helpful.data.next_steps[0]).toMatchObject({ tool: "rate_post" });
+    expect((await api(`/forum/${topic.id}/posts/${reply.id}/rating`, { method: "PUT", body: { rating: "dislike" } })).data).toMatchObject({ like_count: 0, dislike_count: 3 });
+    // The old DELETE leaves a dislike alone.
+    expect((await api(`/forum/${topic.id}/posts/${reply.id}/helpful`, { method: "DELETE" })).data).toMatchObject({ dislike_count: 3, your_rating: "dislike" });
+    expect(await mcp("mark_helpful", call)).toMatchObject({ code: "retired_tool" });
+  });
+
+  it("bookmarks any post you can see, privately, and lists the topics newest bookmark first", async () => {
+    const first = (await mcp("post_topic", { kind: "question", category: "saves", title: "Do saves sync?", text_markdown: "Between devices?" })).topic;
+    const second = (await mcp("post_topic", { kind: "bug", category: "saves", title: "Saves reset", text_markdown: "They vanished." }, other)).topic;
+    await passAll();
+    const reply = (await mcp("reply_to_topic", { topic_id: first.id, text_markdown: "Yes, for signed-in players." }, other)).post;
+    await passAll();
+    const opening = (await mcp("get_topic", { topic_id: first.id })).posts[0];
+    const secondOpening = (await mcp("get_topic", { topic_id: second.id })).posts[0];
+    const message = await mcp("message_zaisma", { kind: "bug", title: "Private", text_markdown: "Mine" });
+    expect(await mcp("bookmark_post", { topic_id: first.id, post_id: reply.id })).toEqual({ is_bookmarked: true, next_steps: [] });
+    expect(await mcp("bookmark_post", { topic_id: first.id, post_id: opening.id })).toEqual({ is_bookmarked: true, next_steps: [] });
+    await mcp("bookmark_post", { topic_id: second.id, post_id: secondOpening.id });
+    await mcp("bookmark_post", { topic_id: message.topic.id, post_id: message.posts[0].id });
+    expect((await mcp("get_topic", { topic_id: first.id })).posts.map((post: { is_bookmarked: boolean }) => post.is_bookmarked)).toEqual([true, true]);
+    const listed = await mcp("search_forum", { tab: "bookmarks" });
+    expect(listed.tab).toBe("bookmarks");
+    expect(listed.topics.map((topic: { id: string }) => topic.id)).toEqual([message.topic.id, second.id, first.id]);
+    expect(listed.topics[2].bookmarked_post_ids).toEqual([opening.id, reply.id]);
+    // Private to the account: another account sees none of it.
+    expect((await mcp("search_forum", { tab: "bookmarks" }, other)).topics).toEqual([]);
+    expect((await mcp("get_topic", { topic_id: first.id }, other)).posts.map((post: { is_bookmarked: boolean }) => post.is_bookmarked)).toEqual([false, false]);
+    expect((await mcp("bookmark_post", { topic_id: message.topic.id, post_id: message.posts[0].id }, other)).code).toBe("no_topic");
+    expect(await mcp("bookmark_post", { topic_id: first.id, post_id: reply.id, undo: true })).toEqual({ is_bookmarked: false, next_steps: [] });
+    expect((await mcp("search_forum", { tab: "bookmarks", search_text: "saves" })).topics.map((topic: { id: string }) => topic.id)).toEqual([second.id, first.id]);
+    // Signed out, the bookmarks tab asks for a sign-in.
+    expect((await api("/forum?tab=bookmarks", { key: "" })).status).toBeGreaterThanOrEqual(400);
+  });
+
+  it("clears ratings and bookmarks when a post is removed or an account is deleted", async () => {
+    const { topic } = await mcp("post_topic", { kind: "question", category: "saves", title: "Do saves sync?", text_markdown: "Between devices?" });
+    await passAll();
+    const reply = (await mcp("reply_to_topic", { topic_id: topic.id, text_markdown: "Yes, for signed-in players." }, other)).post;
+    await passAll();
+    await mcp("rate_post", { topic_id: topic.id, post_id: reply.id, rating: "like" });
+    await mcp("bookmark_post", { topic_id: topic.id, post_id: reply.id });
+    await removePost(env, reply.id);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM forum_post_ratings").first<{ n: number }>())!.n).toBe(0);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM forum_bookmarks").first<{ n: number }>())!.n).toBe(0);
+
+    const theirs = (await mcp("post_topic", { kind: "bug", category: "saves", title: "Saves reset", text_markdown: "They vanished." }, other)).topic;
+    await passAll();
+    const second = (await mcp("get_topic", { topic_id: theirs.id })).posts[0];
+    const opening = (await mcp("get_topic", { topic_id: topic.id })).posts[0];
+    await mcp("rate_post", { topic_id: theirs.id, post_id: second.id, rating: "dislike" });
+    await mcp("bookmark_post", { topic_id: theirs.id, post_id: second.id });
+    await mcp("rate_post", { topic_id: topic.id, post_id: opening.id, rating: "like" }, other);
+    await mcp("bookmark_post", { topic_id: topic.id, post_id: opening.id }, other);
+    await deleteAccount(env.DB, "dev-1");
+    expect(await env.DB.prepare("SELECT dislike_count FROM forum_posts WHERE id = ?").bind(second.id).first()).toEqual({ dislike_count: 0 });
+    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM forum_post_ratings").first<{ n: number }>())!.n).toBe(0);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM forum_bookmarks").first<{ n: number }>())!.n).toBe(0);
+  });
+
+  it("takes reports, hiding a post three developers report", async () => {
+    const { topic } = await mcp("post_topic", { kind: "question", category: "saves", title: "Do saves sync?", text_markdown: "Between devices?" });
+    await passAll();
+    const reply = (await mcp("reply_to_topic", { topic_id: topic.id, text_markdown: "Yes, for signed-in players." }, other)).post;
+    await passAll();
     // Reports: who reported stays with Zaisma; three hide it until a person looks.
     expect((await mcp("report_post", { topic_id: topic.id, post_id: reply.id, reason: "nope" })).error).toContain("bad_reason");
     expect(await mcp("report_post", { topic_id: topic.id, post_id: reply.id, reason: "scam" })).toEqual({ has_reported: true, is_hidden: false, next_steps: [] });

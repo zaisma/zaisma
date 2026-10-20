@@ -19,6 +19,7 @@
     "ship": "node scripts/ship.mjs",
     "review-set": "node scripts/review-set/run.mjs",
     "listing-set": "node scripts/review-set/listing.mjs",
+    "engines:play": "node scripts/engines/play.mjs",
     "naming:baseline": "NAMING_WRITE_BASELINE=1 vitest run --project node test/node/naming.test.ts"
   },
   "devDependencies": {
