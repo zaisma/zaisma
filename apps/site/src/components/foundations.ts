@@ -81,6 +81,9 @@ export const TOKEN_STYLES = `
 @property --tint-pct { syntax: "<percentage>"; inherits: false; initial-value: 0%; }
 /* Registered, so a change of hue eases over half a second, like a change of theme, instead of cutting. */
 @property --glass-hue { syntax: "<color>"; inherits: true; initial-value: transparent; }
+/* The tint a piece of glass shows right now, faded towards its --glass-tint. A registered colour fades in the page itself, so the browser
+   never lifts the glass onto a layer of its own for the fade and drops it at the end, which flashed blurred glass as a fade finished. */
+@property --glass-shown-tint { syntax: "<color>"; inherits: false; initial-value: transparent; }
 /* Scroll fades (navigation.ts's SCROLL_FADE_SCRIPT): a box that scrolls fades its words over an edge while there's more that way, easing in and out. */
 @property --fade-top { syntax: "<length>"; inherits: false; initial-value: 0px; }
 @property --fade-bottom { syntax: "<length>"; inherits: false; initial-value: 0px; }
@@ -98,7 +101,7 @@ export const TOKEN_STYLES = `
   --page: #EEF2F7;
   --glass-blur: 24px;
   /* How every piece of glass changes (light to dark, a hover's tint): a component that adds its own transitions starts its list with this. */
-  --glass-transition: background-color 0.5s ease, color 0.3s ease;
+  --glass-transition: --glass-shown-tint 0.5s ease, color 0.3s ease;
   /* The glass's hue (PageSettings' glass.hueColour): tints every piece of glass under where it's set. Glass tinted for a brand keeps its own colour. */
   --glass-hue: transparent;
   --display: "Jost", Futura, "Century Gothic", "Avenir Next", sans-serif;
@@ -129,7 +132,7 @@ export const TOKEN_STYLES = `
    no other rule paints glass. */
 /* Each piece of glass works the hue out from the --glass-hue it inherits, so setting it anywhere tints all the glass inside. */
 .glass { --glass-wash: linear-gradient(color-mix(in srgb, var(--glass-hue) var(--glass-hue-strength), transparent), color-mix(in srgb, var(--glass-hue) var(--glass-hue-strength), transparent)); }
-.glass { position: relative; color: var(--ink); background-color: var(--glass-tint); background-image: var(--glass-layer, linear-gradient(transparent, transparent)), var(--glass-wash), var(--glass-sheen);
+.glass { position: relative; color: var(--ink); --glass-shown-tint: var(--glass-tint); background-color: var(--glass-shown-tint); background-image: var(--glass-layer, linear-gradient(transparent, transparent)), var(--glass-wash), var(--glass-sheen);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   transition: var(--glass-transition); }
 .glass > :not(.edge) { position: relative; z-index: 3; }
