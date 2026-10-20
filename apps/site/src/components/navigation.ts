@@ -560,20 +560,24 @@ component({
   styles: `
 /* The sidebar: a glass pane with each group of places carved into it as a track, like a switch's. Each place is cut to fit the track:
    straight sides, small cuts, and the track's own corners where it meets them. The place you're on is a raised slab, outlined in orange;
-   pointing at another brings up a faint slab there (only its colour changes, from the same colour at rest, so it can't flicker). On the page's own sidebar
-   the slab glides from the last page's place to this one's as the page changes. */
+   pointing at another fades in a faint slab there. On the page's own sidebar the slab glides from the last page's place to this one's as the page changes. */
 .sidebar { position: relative; display: flex; flex: 1; min-height: 0; width: 100%; }
 .sidebar-in { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 24px 14px 14px; display: grid; gap: 16px; align-content: start; }
 .sidebar-heading { margin: 0 0 8px; padding: 0 12px; font: 500 13px var(--display); color: var(--muted); }
 .sidebar-track { position: relative; padding: 4px; background: var(--track); clip-path: var(--cut-shape, polygon(0 10px, 10px 0, calc(100% - 4px) 0, 100% 4px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 4px 100%, 0 calc(100% - 4px))); }
 .sidebar-track ul { position: relative; z-index: 2; list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
-.sidebar a { position: relative; display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 14px; font: 500 16px var(--display); color: var(--ink-2); text-decoration: none;
-  clip-path: var(--cut-shape, polygon(0 4px, 4px 0, calc(100% - 2px) 0, 100% 2px, 100% calc(100% - 4px), calc(100% - 4px) 100%, 2px 100%, 0 calc(100% - 2px))); background: var(--ghost-rest); transition: background-color 0.15s, color 0.15s; }
+.sidebar a { position: relative; isolation: isolate; display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 14px; font: 500 16px var(--display); color: var(--ink-2); text-decoration: none; }
+/* Each place's slab is a layer of its own from the start, cut to the place's shape, and pointing only fades it in or out. Nothing is
+   repainted or moved onto a new layer as it fades, so it can't flicker as the pointer comes onto a place or leaves it. */
+.sidebar a::before { content: ""; position: absolute; inset: 0; z-index: 0; background: var(--ghost); opacity: 0; will-change: opacity; transition: opacity 0.15s;
+  clip-path: var(--cut-shape, polygon(0 4px, 4px 0, calc(100% - 2px) 0, 100% 2px, 100% calc(100% - 4px), calc(100% - 4px) 100%, 2px 100%, 0 calc(100% - 2px))); }
 .sidebar a > :not(.cut-line) { position: relative; z-index: 2; }
 .sidebar a svg:not(.cut-line) { width: 18px; height: 18px; flex: none; }
-.sidebar a:hover { background: var(--ghost); color: var(--ink); }
-.sidebar a:not([aria-current="page"]):active { background: var(--wash); }
-.sidebar a[aria-current="page"], .sidebar a[aria-current="page"]:hover { background: var(--slab); color: var(--ink); font-weight: 600; }
+.sidebar a:hover { color: var(--ink); }
+.sidebar a:hover::before { opacity: 1; }
+.sidebar a:not([aria-current="page"]):active::before { background: var(--wash); opacity: 1; }
+.sidebar a[aria-current="page"] { color: var(--ink); font-weight: 600; }
+.sidebar a[aria-current="page"]::before { background: var(--slab); opacity: 1; }
 .sidebar.is-page a[aria-current="page"] { view-transition-name: sidebar-current; }
 ::view-transition-group(sidebar-current) { animation-duration: 0.45s; animation-timing-function: var(--spring); }
 /* Every place's outline follows its cut: orange on the current place, ink while the keyboard is on another. It stays out of sight until then, and on the current place it thickens under keyboard focus. */
