@@ -354,14 +354,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     function list(points) { return points.map(function (p) { return p[0].toFixed(2) + "," + p[1].toFixed(2); }).join(" "); }
     function draw() {
       var w = el.offsetWidth, h = el.offsetHeight; if (!w || !h) return;
-      var nested = nestedCuts(el);
-      // data-cut-ends="even": a control nested at one end gets an even bevel on both corners of its other end, the size of the nested end's
-      // bigger cut, instead of slanting there (the light or dark button).
-      if (el.getAttribute("data-cut-ends") === "even") {
-        if ((nested[1] !== null || nested[2] !== null) && nested[0] === null && nested[3] === null) { var right = Math.max(nested[1] || 0, nested[2] || 0); nested = [right, nested[1], nested[2], right]; }
-        else if ((nested[0] !== null || nested[3] !== null) && nested[1] === null && nested[2] === null) { var left = Math.max(nested[0] || 0, nested[3] || 0); nested = [nested[0], left, left, nested[3]]; }
-      }
-      var shape = controlShape(w, h, slant, nested), key = w + "x" + h + ":" + list(shape);
+      var shape = controlShape(w, h, slant, nestedCuts(el)), key = w + "x" + h + ":" + list(shape);
       if (key === last) return;
       last = key;
       el.style.setProperty("--cut-shape", "polygon(" + shape.map(function (p) { return p[0].toFixed(2) + "px " + p[1].toFixed(2) + "px"; }).join(", ") + ")");
