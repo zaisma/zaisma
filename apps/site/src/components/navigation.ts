@@ -278,7 +278,10 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     function at() { return isPage ? window.scrollY : scroller.scrollTop; }
     function to(y) { if (isPage) window.scrollTo(0, y); else scroller.scrollTop = y; }
     var size = { track: 0, thumb: 0, max: 1 };
+    // The page's rail starts the gutter's width below the page's floating bar (data-rail-starts-below), following it as it tightens.
+    var above = isPage ? document.querySelector("[data-rail-starts-below]") : null, GUTTER_PX = 10;
     function layout() {
+      if (above) bar.style.top = Math.round(above.getBoundingClientRect().bottom + GUTTER_PX) + "px";
       // A text box isn't a glass pane with room around it: the rail is laid along the box's own right edge.
       if (bar.hasAttribute("data-rail-follows")) {
         bar.style.top = scroller.offsetTop + 8 + "px"; bar.style.bottom = "auto"; bar.style.height = Math.max(0, scroller.offsetHeight - 16) + "px";
@@ -300,7 +303,7 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     function wake() { bar.classList.add("awake"); clearTimeout(sleep); sleep = setTimeout(function () { bar.classList.remove("awake"); }, 1100); }
     (isPage ? window : scroller).addEventListener("scroll", function () { wake(); if (queued) return; queued = true; requestAnimationFrame(function () { queued = false; layout(); }); }, { passive: true });
     window.addEventListener("resize", layout);
-    if (window.ResizeObserver) new ResizeObserver(layout).observe(isPage ? document.body : scroller.firstElementChild || scroller);
+    if (window.ResizeObserver) { var watch = new ResizeObserver(layout); watch.observe(isPage ? document.body : scroller.firstElementChild || scroller); if (above) watch.observe(above); }
     var drag = null;
     function start(event, jump) {
       event.preventDefault();
@@ -441,7 +444,7 @@ component({
   name: "Rail",
   slug: "rail",
   group: "navigation",
-  summary: "Zaisma's own scrollbar, on every device. With a mouse it rests faintly and wakes while things move; on a touch screen it shows only while they move, and its thumb can be dragged.",
+  summary: "Zaisma's own scrollbar, on every device: it rests faintly and wakes while things move. On a touch screen its thumb is a little wider and drags with a finger.",
   styles: `
 /* Zaisma's own scrollbar, on every device: a hairline with a slim glass thumb that wakes while it moves.
    In a box it runs down the inside of the box's right edge; for the page, down the page's right gutter. */
@@ -470,19 +473,22 @@ component({
   clip-path: polygon(100% 0, 100% 0, calc(100% - 5px) 100%, calc(100% - 5px) 100%); transition: clip-path 0.18s ease-out; }
 /* A label opens by wiping out from the rail, never by fading: a fading blur draws without its glass and turns solid at the end. */
 .rail:hover .rail-mark span, .rail.dragging .rail-mark span { clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); }
-/* On a touch screen it's out of sight until things move, as a phone's own scrollbar is, and a finger on it drags the thumb instead of the page. */
-@media (hover: none), (pointer: coarse) {
-  .rail { opacity: 0; touch-action: none; }
-  .rail.awake, .rail.dragging { opacity: 1; }
-}
 /* In the narrow layout (a phone, or a small window), the page's bar fits in the 10px gutter beside the glass and starts below the header. */
 @media (max-width: 760px) {
-  .rail[data-rail="page"] { width: 10px; top: calc(132px + env(safe-area-inset-top, 0px)); bottom: 10px; }
+  .rail[data-rail="page"] { width: 10px; top: 132px; bottom: 10px; }
   .rail[data-rail="page"] .rail-line { background: linear-gradient(90deg, transparent 4.5px, var(--rail-line) 4.5px, var(--rail-line) 5.5px, transparent 5.5px); }
   .rail[data-rail="page"] .rail-thumb { left: 3px; width: 4px; clip-path: polygon(0 3px, 3px 0, 100% 0, 100% calc(100% - 3px), calc(100% - 3px) 100%, 0 100%); }
   .rail[data-rail="page"]:hover .rail-thumb, .rail[data-rail="page"].dragging .rail-thumb { left: 2px; width: 6px; clip-path: polygon(0 4px, 4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%); }
   /* …and no marks. */
   .rail-mark, .rail-mark[hidden] { display: none; }
+}
+/* On a touch screen nothing widens it on hover, so its thumb is a little wider from the start (still centred on its line), and a finger on it drags the thumb instead of the page. */
+@media (hover: none), (pointer: coarse) {
+  .rail { touch-action: none; }
+  .rail .rail-thumb { left: 3px; width: 7px; clip-path: polygon(0 4px, 4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%); }
+}
+@media (hover: none) and (max-width: 760px), (pointer: coarse) and (max-width: 760px) {
+  .rail[data-rail="page"] .rail-thumb { left: 2px; width: 6px; }
 }
 `,
   render: rail,

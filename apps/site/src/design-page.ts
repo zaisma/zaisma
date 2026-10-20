@@ -74,7 +74,7 @@ ${head(`${groupName} · Design · Zaisma`)}
 </head>
 <body class="gallery">
 <div id="stage" class="stage"${pageSettingsAttributes({ theme })}>${backdrop()}
-<header class="gallery-bar glass" data-glass data-glass-corners="16 6 16 6">${EDGE}<a class="logo" href="/" aria-label="Zaisma home">${WORDMARK}</a><span class="gallery-title">Design</span>
+<header class="gallery-bar glass" data-rail-starts-below data-glass data-glass-corners="16 6 16 6">${EDGE}<a class="logo" href="/" aria-label="Zaisma home">${WORDMARK}</a><span class="gallery-title">Design</span>
 ${themeButton(group, theme)}
 <div class="gallery-groups cut-carved" data-cut-line="9" data-cut-corners="0 0 0 0">${CUT_LINE}<div class="gallery-groups-row">${tabSwitch({ label: "Groups", switchSize: "small", tabs: groupTabs, isFramed: true })}</div></div></header>
 <div class="gallery-layout">
