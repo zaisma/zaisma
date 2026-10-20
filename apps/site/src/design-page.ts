@@ -76,7 +76,7 @@ ${head(`${groupName} · Design · Zaisma`)}
 <div id="stage" class="stage"${pageSettingsAttributes({ theme })}>${backdrop()}
 <header class="gallery-bar glass" data-glass data-glass-corners="16 6 16 6">${EDGE}<a class="logo" href="/" aria-label="Zaisma home">${WORDMARK}</a><span class="gallery-title">Design</span>
 ${themeButton(group, theme)}
-<div class="gallery-groups">${tabSwitch({ label: "Groups", switchSize: "small", tabs: groupTabs })}</div></header>
+<div class="gallery-groups cut-carved" data-cut-line="9">${CUT_LINE}<div class="gallery-groups-row">${tabSwitch({ label: "Groups", switchSize: "small", tabs: groupTabs })}</div></div></header>
 <div class="gallery-layout">
 <div class="gallery-index">${sidebar({ label: "Groups", isPageSidebar: true, groups: [{ items: groupTabs.map((tab) => ({ label: tab.label, href: tab.href, isCurrent: tab.isCurrent, extra: raw(` data-gallery-page="${tab.href.split("?")[0]}"`) })) }] })}</div>
 <main class="gallery-main">
@@ -159,14 +159,18 @@ body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
   .gallery-layout { grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 12px 10px 60px; }
   .gallery-index { display: none; }
   /* The groups are a row of tabs inside the floating bar, which sticks as the page scrolls. At the very top the bar is roomy; once the page moves it tightens to the row and the tabs. */
-  .gallery-groups { display: block; flex: 1 0 100%; min-width: 0; overflow-x: auto; scrollbar-width: none; --fade-l: 0px; --fade-r: 0px;
+  /* The switch's carved track stays put across the bar, its cut ends and light sharp; only the tabs scroll inside it, fading out
+     before they reach its ends, and only on a side with more tabs past it, so the last tab is never under the fade at the end. */
+  .gallery-groups { display: block; position: relative; flex: 1 0 100%; min-width: 0; height: 36px; background: var(--well); box-shadow: var(--well-shade);
+    clip-path: var(--cut-shape, polygon(9px 0, 100% 0, calc(100% - 9px) 100%, 0 100%)); }
+  .gallery-groups-row { height: 100%; overflow-x: auto; scrollbar-width: none; --fade-l: 0px; --fade-r: 0px;
     -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 var(--fade-l), #000 calc(100% - var(--fade-r)), transparent 100%);
     mask-image: linear-gradient(90deg, transparent 0, #000 var(--fade-l), #000 calc(100% - var(--fade-r)), transparent 100%); }
-  .gallery-groups::-webkit-scrollbar { display: none; }
-  .gallery-groups .tab-switch { width: max-content; }
-  /* Only a side with more tabs past it fades, so the last tab is never under the fade at the end. */
-  .gallery-groups.more-left { --fade-l: 28px; }
-  .gallery-groups.more-right { --fade-r: 28px; }
+  .gallery-groups-row::-webkit-scrollbar { display: none; }
+  .gallery-groups-row.more-left { --fade-l: 28px; }
+  .gallery-groups-row.more-right { --fade-r: 28px; }
+  .gallery-groups .tab-switch { width: max-content; background: none; box-shadow: none; clip-path: none; }
+  .gallery-groups .tab-switch > .cut-line { display: none; }
   .gallery-bar { position: sticky; top: 10px; width: calc(100% - 20px); min-height: 56px; flex-wrap: wrap; align-items: center; gap: 14px 12px; padding: 16px 12px 16px 16px; transition: padding 0.25s, gap 0.25s; }
   .gallery-bar.is-scrolled { gap: 8px 12px; padding: 8px 10px 10px 16px; }
   .gallery-bar .logo svg { height: 22px; transition: height 0.25s; }
@@ -229,7 +233,7 @@ export const GALLERY_SCRIPT = pageScript(
     if (link) event.preventDefault();
   });
   // On a phone, the row of groups starts scrolled to the one you're on.
-  var groups = document.querySelector(".gallery-groups"), here = groups && groups.querySelector('[aria-current="page"]');
+  var groups = document.querySelector(".gallery-groups-row"), here = groups && groups.querySelector('[aria-current="page"]');
   if (here) groups.scrollLeft = Math.max(0, here.offsetLeft - (groups.clientWidth - here.offsetWidth) / 2);
   // The floating bar tightens once the page moves, and the row fades only on a side that has more tabs past it.
   var bar = document.querySelector(".gallery-bar");
