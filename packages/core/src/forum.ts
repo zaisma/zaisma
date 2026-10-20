@@ -56,8 +56,11 @@ export function forumCategoryName(category: string): string | null {
 }
 
 /** How the forum lists topics. yours: your public topics and the ones you follow. messages: your private messages to Zaisma. */
-export const FORUM_TABS = ["latest", "top", "unanswered", "known", "yours", "messages"] as const;
+export const FORUM_TABS = ["latest", "top", "unanswered", "known", "yours", "messages", "bookmarks"] as const;
 export type ForumTab = (typeof FORUM_TABS)[number];
+/** What a developer (or their AI) says about a post, anonymously: one per account and post. */
+export const POST_RATINGS = ["like", "dislike"] as const;
+export type PostRating = (typeof POST_RATINGS)[number];
 /** Which posts a topic comes with: all, the opening post and the marked answer, the opening post and the last five, or none. */
 export const POST_SELECTIONS = ["all", "answer", "latest", "none"] as const;
 export type PostSelection = (typeof POST_SELECTIONS)[number];
@@ -177,7 +180,8 @@ export interface ForumPost {
   check_status: "pending" | "passed" | "held" | null;
   check_attempt_count: number;
   held_reason: string | null;
-  helpful_count: number;
+  like_count: number;
+  dislike_count: number;
 }
 
 /** Why a forum post is reported. child_safety hides it at once; any three reports hide it until a person looks. */

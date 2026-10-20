@@ -858,12 +858,14 @@ async function seedForum(you, go, form) {
   const privateTest = await topic(tr, { kind: "question", author_kind: me, category: "publishing", title: "How do I keep a game private while friends test it?", text_markdown: "I want five friends to play before it's public. Do they need accounts?" });
   const ans = await reply(qo, privateTest.id, "Set it to Only me, then make a tester link on the game's page in the dashboard and send that. Testers don't need accounts, and you can turn the link off any time.", { author_kind: me });
   await tr("POST", `/forum/${privateTest.id}/answer`, { answer_post_id: ans.id });
-  for (const who of [pf, bs]) await who("POST", `/forum/${privateTest.id}/posts/${ans.id}/helpful`);
+  for (const who of [pf, bs]) await who("PUT", `/forum/${privateTest.id}/posts/${ans.id}/rating`, { rating: "like" });
 
   const godot = await topic(pf, { kind: "question", category: "publishing", tags: ["godot"], title: "Godot 4 web export says SharedArrayBuffer isn't defined", text_markdown: "Exported with threads on. Works locally with the Godot server, fails on Zaisma with:\n```\nReferenceError: SharedArrayBuffer is not defined\n```" });
   const godotAns = await reply(hl, godot.id, "Export with Thread Support turned off (Project > Export > Web > Variant). Threads need cross-origin isolation headers, and most hosts that embed games can't send them. Single-threaded builds run fine for 2D.", { author_kind: "ai" });
   await pf("POST", `/forum/${godot.id}/answer`, { answer_post_id: godotAns.id });
-  for (const who of [ca, qo, tr]) await who("POST", `/forum/${godot.id}/posts/${godotAns.id}/helpful`);
+  for (const who of [ca, qo, tr]) await who("PUT", `/forum/${godot.id}/posts/${godotAns.id}/rating`, { rating: "like" });
+  // The preview account bookmarks the Godot answer and, below, the cropped-covers bug.
+  await you("POST", `/forum/${godot.id}/posts/${godotAns.id}/bookmark`);
   await meToo(godot.id, ca, qo);
 
   const serverState = await topic(lw, { kind: "question", category: "servers", title: "Can my game server keep state between matches?", text_markdown: "We want a lobby leaderboard that survives after a room closes. Where should that live?" });
@@ -905,6 +907,12 @@ async function seedForum(you, go, form) {
   const crop = await topic(hl, { kind: "bug", author_kind: me, is_public: true, category: "pages", tags: ["mobile"], title: "Square covers are cropped at the top on some phones", text_markdown: "On a Pixel 7 our square cover loses about 20 px at the top on the home page. Other phones look fine. **Before** and **after** below.", images_base64: [Buffer.from(picture([70, 140, 220], 1)).toString("base64"), Buffer.from(picture([150, 70, 160], 2)).toString("base64")] });
   await meToo(crop.id, ca, pf);
   await zaisma(crop.id, { reply: "Thanks, we can see it on that screen size. Fix coming with the next home page update.", topic_status: "known" });
+  // Likes and dislikes, anonymous: 5 and 2 on the opening post, and a bookmark from the preview account.
+  const cropPostId = (await hl("GET", `/forum/${crop.id}`)).posts[0].id;
+  await reply(pf, crop.id, "Same on a Pixel 6a. It's the aspect-ratio box on the home page, not the cover.", { author_kind: me });
+  for (const who of [pf, bs, lw, tr, ca]) await who("PUT", `/forum/${crop.id}/posts/${cropPostId}/rating`, { rating: "like" });
+  for (const who of [qo, os]) await who("PUT", `/forum/${crop.id}/posts/${cropPostId}/rating`, { rating: "dislike" });
+  await you("POST", `/forum/${crop.id}/posts/${cropPostId}/bookmark`);
 
   // The preview account's messages to Zaisma: its AI hits a bug Zaisma makes a known issue, and hits the
   // rooms one too (the stand-in AI merges it); the developer sends a gap.
@@ -930,6 +938,9 @@ async function seedForum(you, go, form) {
   const roomsTopic = (await you("GET", `/forum/${roomsKnown}`)).topic;
   await zaisma(roomsKnown, { is_known_issue: "1", known_issue_title: roomsTopic.title, workaround: roomsTopic.workaround, roadmap_item: roomsTopic.roadmap_item ?? "", topic_status: "released", severity: "high", category: "rooms", reply: "The fix for the 50-player drop is live. We're watching that it holds." });
   await meToo((await you("GET", "/forum?tab=known")).topics.find((k) => k.title.startsWith("Scans can take")).id, pf, tr);
+  // Zaisma's workaround on the rooms known issue: 3 likes and 14 dislikes, which only count (the post stays shown, in place).
+  const workaroundPostId = (await you("GET", `/forum/${roomsKnown}`)).posts.filter((post) => post.author.kind === "zaisma").at(-1)?.id;
+  if (workaroundPostId) await spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", `UPDATE forum_posts SET like_count = 3, dislike_count = 14 WHERE id = '${workaroundPostId}'`], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
 
   // Spread the times over the last three weeks, in the order things happened.
   const end = Date.now();

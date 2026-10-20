@@ -143,7 +143,7 @@ export async function hidePost(env: Env, postId: string, heldReason: string): Pr
 export async function removePost(env: Env, postId: string): Promise<void> {
   const post = await env.DB.prepare("SELECT * FROM forum_posts WHERE id = ?").bind(postId).first<ForumPost>();
   if (!post) return;
-  await env.DB.batch([env.DB.prepare("DELETE FROM forum_reports WHERE post_id = ?").bind(postId), env.DB.prepare("DELETE FROM forum_helpful_marks WHERE post_id = ?").bind(postId)]);
+  await env.DB.batch([env.DB.prepare("DELETE FROM forum_reports WHERE post_id = ?").bind(postId), env.DB.prepare("DELETE FROM forum_post_ratings WHERE post_id = ?").bind(postId), env.DB.prepare("DELETE FROM forum_bookmarks WHERE post_id = ?").bind(postId), env.DB.prepare("UPDATE forum_posts SET like_count = 0, dislike_count = 0 WHERE id = ?").bind(postId)]);
   const isOpening = await isFirst(env, post);
   const topic = await env.DB.prepare("SELECT account_id FROM forum_topics WHERE id = ?").bind(post.topic_id).first<{ account_id: string | null }>();
   if (isOpening && topic?.account_id) {

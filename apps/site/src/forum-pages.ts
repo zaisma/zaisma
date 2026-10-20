@@ -9,6 +9,7 @@ import {
   forumCategoryName,
   forumSectionOf,
   type DebugContext,
+  type PostRating,
   type TopicKind,
   type TopicStatus,
 } from "@zaisma/core";
@@ -25,7 +26,8 @@ import {
   createTopic,
   flagMisplaced,
   follow,
-  markHelpful,
+  bookmarkPost,
+  ratePost,
   reportPost,
   serveMedia,
   stillHappening,
@@ -102,6 +104,8 @@ const ICONS = {
   reply: stroke('<path d="M8 5L3.5 9.5 8 14"/><path d="M3.5 9.5H12a4.5 4.5 0 0 1 4.5 4.5v1"/>'),
   again: stroke('<path d="M4.2 10.2a5.9 5.9 0 1 0 1.9-4.6"/><path d="M4.4 3.2v3.4h3.4"/>'),
   helpful: stroke('<path d="M6.4 9.4v7.8H3.4V9.4z"/><path d="M6.4 9.4l3-6.1c1.4 0 2.3 1.1 2 2.4l-.5 2.6h4.4a1.6 1.6 0 0 1 1.6 1.9l-1.2 5.7a1.6 1.6 0 0 1-1.6 1.3H6.4"/>'),
+  dislike: stroke('<path d="M6.4 10.6V2.8H3.4v7.8z"/><path d="M6.4 10.6l3 6.1c1.4 0 2.3-1.1 2-2.4l-.5-2.6h4.4a1.6 1.6 0 0 0 1.6-1.9L15.7 4a1.6 1.6 0 0 0-1.6-1.2H6.4"/>'),
+  bookmark: stroke('<path d="M5.6 3h8.8v14L10 13.4 5.6 17z"/>'),
   flag: stroke('<path d="M4.6 17.6V3.4"/><path d="M4.6 4h9.6l-2 3.3 2 3.3H4.6"/>'),
   image: stroke('<rect x="2.6" y="3.6" width="14.8" height="12.8"/><circle cx="7" cy="8" r="1.5"/><path d="M17.4 13.2l-4.2-4.2-7.6 7.4"/>'),
   quote: stroke('<path d="M3.5 9.5h4v5h-4zM3.5 9.5c0-2.6 1.2-4.2 3.6-5M12.5 9.5h4v5h-4zM12.5 9.5c0-2.6 1.2-4.2 3.6-5"/>'),
@@ -119,6 +123,8 @@ function voteOf(topic: { kind: TopicKind; is_known_issue: boolean }): { ask: str
 }
 const kindIcon = (topic: { kind: TopicKind; is_known_issue: boolean }) => (topic.is_known_issue ? ICONS.known : ICONS[topic.kind]);
 /** Your own post others can't see yet: still being checked, or held for a person. */
+/** A bare status change reads as a line in the thread, not a post. */
+const isEvent = (post: PostJson) => post.kind === "status" && post.text_markdown.length <= 60;
 const isWaiting = (post: PostJson) => post.check_status === "pending" || post.check_status === "held";
 
 export async function handleForum(request: Request, env: Env, path: string): Promise<Response | null> {
@@ -165,7 +171,7 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
     if (path === "/forum" || path === "/forum/messages") {
       const query = pageQueryFrom(url.searchParams);
       if (path === "/forum/messages") query.tab = "messages";
-      if ((query.tab === "yours" || query.tab === "messages") && !caller) return signIn();
+      if ((query.tab === "yours" || query.tab === "messages" || query.tab === "bookmarks") && !caller) return signIn();
       return done(await listPage(ctx, query));
     }
     // A private message about a known issue is a message to Zaisma.
@@ -200,7 +206,7 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
       }
     }
 
-    const topicPath = path.match(/^\/forum\/(topic_[a-z0-9]{1,40})(?:\/(reply|vote|follow|answer|misplaced|still-happening|helpful|report))?$/);
+    const topicPath = path.match(/^\/forum\/(topic_[a-z0-9]{1,40})(?:\/(reply|vote|follow|answer|misplaced|still-happening|rate|bookmark|report))?$/);
     if (!topicPath) return null;
     const [, id, action] = topicPath as unknown as [string, string, string | undefined];
     if (!action && !isPost) return done(await topicPage(ctx, id, { done: url.searchParams.get("done") ?? undefined, replyToPostId: url.searchParams.get("reply_to_post_id") ?? undefined }));
@@ -231,8 +237,12 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
       if (action === "vote") await vote(env, caller, id, !isUndo);
       if (action === "follow") await follow(env, caller, id, !isUndo);
       if (action === "answer") await markAnswer(env, caller, id, field("answer_post_id") || null);
-      if (action === "helpful") {
-        await markHelpful(env, caller, id, field("post_id"), !isUndo);
+      if (action === "rate") {
+        await ratePost(env, caller, id, field("post_id"), isUndo ? null : (field("rating") as PostRating));
+        return done(redirect(`/forum/${id}#p-${field("post_id")}`));
+      }
+      if (action === "bookmark") {
+        await bookmarkPost(env, caller, id, field("post_id"), !isUndo);
         return done(redirect(`/forum/${id}#p-${field("post_id")}`));
       }
       if (action === "report") {
@@ -477,7 +487,8 @@ async function listPage(ctx: Ctx, query: PageQuery): Promise<Response> {
   const isMessages = listing.tab === "messages";
   const section = query.section && !query.category ? FORUM_SECTIONS.find((candidate) => candidate.id === query.section) : undefined;
   const place = query.category ? placeOf(query.category) : null;
-  const heading = isMessages ? "Messages to Zaisma" : listing.tab === "yours" ? "Your topics" : listing.tab === "known" && !section && !place ? "Known issues" : place ? place.categoryName : section ? section.name : "All topics";
+  const isBookmarks = listing.tab === "bookmarks";
+  const heading = isMessages ? "Messages to Zaisma" : isBookmarks ? "Bookmarks" : listing.tab === "yours" ? "Your topics" : listing.tab === "known" && !section && !place ? "Known issues" : place ? place.categoryName : section ? section.name : "All topics";
   const tabs = [
     ["latest", "Latest"],
     ["top", "Top"],
@@ -498,7 +509,7 @@ ${rail(ctx, query, listing.tab, unread)}
   <div class="board-head">
     <h1 id="board-h">${place ? html`<a class="up" href="${link(query, { section: place.section, category: "", page_number: 1 })}">${place.sectionName}</a><span class="sep">/</span>` : ""}${heading}</h1>
     ${isMessages ? html`<a class="btn ghost" href="/forum/messages/new">New message</a>` : ""}
-    ${listing.tab === "yours" || isMessages ? "" : html`<nav class="seg tabs" aria-label="Sort">${tabs.map(([tab, label]) => html`<a href="${link(query, { tab: tab === "latest" ? "" : tab, page_number: 1 })}"${listing.tab === tab ? raw(' aria-current="page"') : ""}>${label}</a>`)}</nav>`}
+    ${listing.tab === "yours" || isMessages || isBookmarks ? "" : html`<nav class="seg tabs" aria-label="Sort">${tabs.map(([tab, label]) => html`<a href="${link(query, { tab: tab === "latest" ? "" : tab, page_number: 1 })}"${listing.tab === tab ? raw(' aria-current="page"') : ""}>${label}</a>`)}</nav>`}
   </div>
   ${isMessages ? html`<p class="board-note muted">Private conversations with the people who build Zaisma: logs, unreleased games, anything you'd rather not post. Only you and Zaisma see them. When others hit the same problem, Zaisma posts a public known issue, without your words.</p>` : ""}
   <div class="filters">
@@ -515,7 +526,7 @@ ${rail(ctx, query, listing.tab, unread)}
   ${listing.topics.length
     ? html`<div class="topics-head" aria-hidden="true"><span>Topic</span><span>People</span><span>Replies</span><span>Votes</span><span>Active</span></div>
   <ol class="topics">${listing.topics.map((topic) => topicRow(topic, query))}</ol>`
-    : html`<div class="empty-board"><p>${query.search_text ? "Nothing matches that." : isMessages ? "No messages yet. Message Zaisma about anything you'd rather not post in public." : listing.tab === "yours" ? "You haven't posted yet. Topics you post, reply to or vote on show here." : listing.tab === "unanswered" ? "Every question here has an answer." : "No topics here yet."}</p>${ctx.viewer ? (isMessages ? html`<a class="btn ghost" href="/forum/messages/new">Message Zaisma</a>` : html`<a class="btn ghost" href="/forum/new${query.category ? `?category=${query.category}` : ""}">Start a topic</a>`) : ""}</div>`}
+    : html`<div class="empty-board"><p>${query.search_text ? "Nothing matches that." : isMessages ? "No messages yet. Message Zaisma about anything you'd rather not post in public." : isBookmarks ? "Posts you bookmark show up here." : listing.tab === "yours" ? "You haven't posted yet. Topics you post, reply to or vote on show here." : listing.tab === "unanswered" ? "Every question here has an answer." : "No topics here yet."}</p>${ctx.viewer ? (isMessages ? html`<a class="btn ghost" href="/forum/messages/new">Message Zaisma</a>` : html`<a class="btn ghost" href="/forum/new${query.category ? `?category=${query.category}` : ""}">Start a topic</a>`) : ""}</div>`}
   ${pageNumber > 1 || hasMore
     ? html`<nav class="pager" aria-label="Pages">${pageNumber > 1 ? html`<a class="btn ghost" href="${link(query, { page_number: pageNumber - 1 })}">Newer</a>` : ""}<span class="muted">Page ${pageNumber}</span>${hasMore ? html`<a class="btn ghost" href="${link(query, { page_number: pageNumber + 1 })}">Older</a>` : ""}</nav>`
     : ""}
@@ -529,7 +540,7 @@ function rail(ctx: Ctx, query: PageQuery, tab: string, unread: { topicCount: num
   const category = query.category ?? "";
   const openSection = category ? forumSectionOf(category)?.id : query.section;
   const here = (isHere: boolean) => (isHere ? raw(' aria-current="page"') : "");
-  const isAll = !category && !query.section && tab !== "yours" && tab !== "known" && tab !== "messages";
+  const isAll = !category && !query.section && tab !== "yours" && tab !== "known" && tab !== "messages" && tab !== "bookmarks";
   const summary = category
     ? (placeOf(category)?.categoryName ?? category)
     : query.section
@@ -538,13 +549,16 @@ function rail(ctx: Ctx, query: PageQuery, tab: string, unread: { topicCount: num
         ? "Your topics"
         : tab === "messages"
           ? "Messages to Zaisma"
-          : "All topics";
+          : tab === "bookmarks"
+            ? "Bookmarks"
+            : "All topics";
   return html`<details class="rail" open>
 <summary>${summary}</summary>
 <nav aria-label="Forum">
   <a class="r-top" href="/forum"${here(isAll)}>All topics</a>
   ${ctx.viewer
     ? html`<a class="r-top" href="/forum?tab=yours"${here(tab === "yours")}>Your topics${unread.topicCount ? html`<span class="count" title="Topics with something new">${unread.topicCount}</span>` : ""}</a>
+  <a class="r-top" href="/forum?tab=bookmarks"${here(tab === "bookmarks")}>Bookmarks</a>
   <a class="r-top" href="/forum/messages"${here(tab === "messages")}>Messages to Zaisma${unread.messageCount ? html`<span class="count" title="Messages with a reply">${unread.messageCount}</span>` : ""}</a>`
     : ""}
   <a class="r-top" href="/forum?tab=known"${here(tab === "known" && !category && !query.section)}>Known issues</a>
@@ -572,7 +586,7 @@ function topicRow(topic: TopicRow, query: PageQuery): Raw {
   return html`<li class="trow${topic.is_unread ? " unread" : ""}${topic.is_known_issue ? " known" : ""}">
   <span class="ticon k-${topic.is_known_issue ? "known" : topic.kind}" title="${kindLabel}">${kindIcon(topic)}<span class="sr">${kindLabel}</span></span>
   <div class="tmain">
-    <p class="tline"><a class="ttitle" href="/forum/${topic.id}">${topic.title}</a>${topic.is_answered && !topic.is_known_issue ? html`<span class="flag ok" title="Answered">${ICONS.check}Answered</span>` : ""}${topic.is_public || query.tab === "messages" ? "" : html`<span class="flag" title="Only you and Zaisma can see it">${ICONS.lock}Message to Zaisma</span>`}${topic.is_public && !topic.is_shown ? html`<span class="flag warn">Being checked</span>` : ""}${pill}${topic.merged_into_topic_id ? html`<a class="flag" href="/forum/${topic.merged_into_topic_id}">Part of a known issue</a>` : ""}</p>
+    <p class="tline"><a class="ttitle" href="/forum/${topic.id}${topic.bookmarked_post_ids[0] ? `#p-${topic.bookmarked_post_ids[0]}` : ""}">${topic.title}</a>${topic.is_answered && !topic.is_known_issue ? html`<span class="flag ok" title="Answered">${ICONS.check}Answered</span>` : ""}${topic.is_public || query.tab === "messages" ? "" : html`<span class="flag" title="Only you and Zaisma can see it">${ICONS.lock}Message to Zaisma</span>`}${topic.is_public && !topic.is_shown ? html`<span class="flag warn">Being checked</span>` : ""}${pill}${topic.merged_into_topic_id ? html`<a class="flag" href="/forum/${topic.merged_into_topic_id}">Part of a known issue</a>` : ""}</p>
     ${topic.search_match ? html`<p class="tmatch">${raw(esc(topic.search_match).replace(/«/g, "<mark>").replace(/»/g, "</mark>"))}</p>` : ""}
     <p class="tmeta">${place ? html`<a class="cat" href="${link({}, { category: topic.category ?? "" })}">${place.sectionName} · ${place.categoryName}</a>` : ""}${topic.tags.map(tagChip)}<span class="by">${avatar(topic.author, "xs")}${topic.author.name}${topic.author.kind === "ai" ? html`<span class="mark ai">${ICONS.ai}AI</span>` : ""}${topic.author.kind === "zaisma" ? html`<span class="mark team">Team</span>` : ""}</span><span class="when">${ago(topic.created_at)}</span></p>
   </div>
@@ -599,9 +613,9 @@ async function topicPage(ctx: Ctx, id: string, options: { done?: string; error?:
   const opening = topic.author.kind !== "zaisma" && first && !topic.is_known_issue ? first : null;
   const rest = opening ? thread.posts.slice(1) : thread.posts;
   const answer = thread.posts.find((post) => post.is_answer);
-  // The reply most people found helpful, when at least two did and there's a choice (and it isn't the answer already).
-  const best = rest.length > 1 ? rest.reduce<PostJson | null>((leader, post) => (post.helpful_count >= 2 && !post.is_answer && (!leader || post.helpful_count > leader.helpful_count) ? post : leader), null) : null;
-  const mostHelpfulId = best?.id ?? "";
+  // The reply most people liked, when at least two did and there's a choice (and it isn't the answer already).
+  const best = rest.length > 1 ? rest.reduce<PostJson | null>((leader, post) => (post.like_count >= 2 && !post.is_answer && (!leader || post.like_count > leader.like_count) ? post : leader), null) : null;
+  const mostLikedId = best?.id ?? "";
   const repliedTo = options.replyToPostId ? thread.posts.find((post) => post.id === options.replyToPostId) : undefined;
   const notice = options.error ? html`<p class="error" role="alert">${options.error}</p>` : options.done && DONE[options.done] ? html`<p class="done" role="status">${DONE[options.done]}</p>` : "";
   const replyCount = rest.filter((post) => post.kind !== "status" || post.text_markdown.length > 60).length;
@@ -616,7 +630,7 @@ async function topicPage(ctx: Ctx, id: string, options: { done?: string; error?:
   ${opPost(ctx, topic, opening, answer)}
   ${rest.length
     ? html`<h2 class="replies-h">${replyCount === 1 ? "1 reply" : `${replyCount} replies`}</h2>
-  <ol class="posts">${rest.map((post) => postItem(ctx, topic, post, thread.posts, false, post.id === mostHelpfulId))}</ol>`
+  <ol class="posts">${rest.map((post) => postItem(ctx, topic, post, thread.posts, false, post.id === mostLikedId))}</ol>`
     : html`<p class="no-replies muted">No replies yet.</p>`}
   ${composer(ctx, topic, options.textMarkdown ?? "", repliedTo)}
 </article>
@@ -671,10 +685,14 @@ function opPost(ctx: Ctx, topic: TopicDetail, post: PostJson | null, answer: Pos
   ${topic.merged_into_topic ? html`<div class="known-box"><p class="kb-head">${ICONS.known}<span>Part of the known issue <a href="/forum/${topic.merged_into_topic.id}"><strong>${topic.merged_into_topic.title}</strong></a>.</span></p>${topic.merged_into_topic.workaround ? html`<p class="kb-work"><strong>Until it's fixed:</strong> ${topic.merged_into_topic.workaround}</p>` : ""}</div>` : ""}
   ${answer ? html`<p class="jump">${ICONS.check}<a href="#p-${answer.id}">Answered by ${answer.author.name}${answer.author.kind === "ai" ? "'s AI" : ""}</a></p>` : ""}
   <div class="op-actions">
+    <div class="reactions">
+    ${post ? ratings(ctx, topic, post) : ""}
     ${voteMeaning && topic.can_vote
       ? html`<form method="post" action="/forum/${topic.id}/vote">${topic.has_voted ? html`<input type="hidden" name="undo" value="1">` : ""}<button class="btn${topic.has_voted ? " ghost" : " light"} vote" type="submit" aria-pressed="${topic.has_voted ? "true" : "false"}" title="${topic.has_voted ? "Press to take it back" : ""}">${voteMeaning.icon}<span>${topic.has_voted ? voteMeaning.done : voteMeaning.ask}</span></button></form>`
       : ""}
     ${voteMeaning && topic.is_public && topic.is_shown && voteCount > 0 ? html`<span class="op-count"><strong>${voteCount}</strong> ${voteMeaning.countLabel(voteCount)}</span>` : ""}
+    ${post ? bookmarkButton(ctx, topic, post) : ""}
+    </div>
     ${topic.is_known_issue && topic.topic_status === "released" && ctx.viewer
       ? html`<form method="post" action="/forum/${topic.id}/still-happening"><button class="btn ghost" type="submit" title="Puts it back to fixing and tells Zaisma">${ICONS.again}It still happens</button></form>`
       : ""}
@@ -687,15 +705,37 @@ function opPost(ctx: Ctx, topic: TopicDetail, post: PostJson | null, answer: Pos
 </article>`;
 }
 
+/** Like and Dislike on a public post, anonymous: both counts show, never who. Signed out they link to sign-in; on your own post they only count. */
+function ratings(ctx: Ctx, topic: TopicDetail, post: PostJson): Raw {
+  if (!topic.is_public || isWaiting(post) || isEvent(post)) return html``;
+  const canRate = Boolean(ctx.viewer) && !post.author.is_you;
+  const button = (rating: PostRating, icon: Raw, label: string, ratingCount: number) => {
+    const body = html`${icon}<span class="sr">${label}</span><span class="n">${ratingCount}</span>`;
+    if (canRate) {
+      const isMine = post.your_rating === rating;
+      return html`<form method="post" action="/forum/${topic.id}/rate" data-react><input type="hidden" name="post_id" value="${post.id}"><input type="hidden" name="rating" value="${rating}">${isMine ? html`<input type="hidden" name="undo" value="1">` : ""}<button type="submit" class="react${isMine ? " on" : ""}" aria-pressed="${isMine ? "true" : "false"}" title="${isMine ? `You ${rating}d this. Press to take it back.` : label}">${body}</button></form>`;
+    }
+    if (!ctx.viewer) return html`<a class="react" href="/signin?next=/forum/${topic.id}%23p-${post.id}" title="Sign in to ${label.toLowerCase()}">${body}</a>`;
+    return html`<span class="react" title="${ratingCount} ${ratingCount === 1 ? "person" : "people"} ${rating}d this">${body}</span>`;
+  };
+  return html`${button("like", ICONS.helpful, "Like", post.like_count)}${button("dislike", ICONS.dislike, "Dislike", post.dislike_count)}`;
+}
+
+/** A private bookmark on any post you can see: it sends nothing, and shows under Bookmarks. */
+function bookmarkButton(ctx: Ctx, topic: TopicDetail, post: PostJson): Raw {
+  if (!ctx.viewer || isEvent(post)) return html``;
+  return html`<form method="post" action="/forum/${topic.id}/bookmark" data-react><input type="hidden" name="post_id" value="${post.id}">${post.is_bookmarked ? html`<input type="hidden" name="undo" value="1">` : ""}<button type="submit" class="react${post.is_bookmarked ? " on" : ""}" aria-pressed="${post.is_bookmarked ? "true" : "false"}" aria-label="${post.is_bookmarked ? "Bookmarked" : "Bookmark"}" title="${post.is_bookmarked ? "Bookmarked, only you see it. Press to remove." : "Bookmark: only you and your AI see it"}">${ICONS.bookmark}</button></form>`;
+}
+
 /** Report a post, for anyone signed in who didn't write it. */
 function reportLink(ctx: Ctx, topic: TopicDetail, post: PostJson): Raw {
   if (!ctx.viewer || !topic.is_public || post.author.is_you || post.author.kind === "zaisma" || isWaiting(post)) return html``;
   return post.has_reported ? html`<span class="muted reported">${ICONS.flag}Reported</span>` : html`<a class="report" href="/forum/${topic.id}/report?post_id=${post.id}" rel="nofollow">${ICONS.flag}Report</a>`;
 }
 
-function postItem(ctx: Ctx, topic: TopicDetail, post: PostJson, all: PostJson[], isOpening: boolean, isMostHelpful = false): Raw {
+function postItem(ctx: Ctx, topic: TopicDetail, post: PostJson, all: PostJson[], isOpening: boolean, isMostLiked = false): Raw {
   // A bare status change reads as a line in the thread; one with Zaisma's words is a post.
-  if (post.kind === "status" && post.text_markdown.length <= 60) {
+  if (isEvent(post)) {
     return html`<li class="event" id="p-${post.id}">${avatar(post.author, "xs")}<p>${post.text_markdown}</p>${ago(post.created_at)}</li>`;
   }
   const canMarkAnswer = topic.can_mark_answer && !isOpening && !isWaiting(post) && !post.author.is_you;
@@ -703,7 +743,7 @@ function postItem(ctx: Ctx, topic: TopicDetail, post: PostJson, all: PostJson[],
   return html`<li data-by="${post.author.name}" class="post${post.author.kind === "zaisma" ? " z" : ""}${post.is_answer ? " answer" : ""}${isOpening ? " opening" : ""}${isWaiting(post) ? " pending" : ""}" id="p-${post.id}">
   <div class="p-side">${avatar(post.author, "md")}</div>
   <div class="p-body">
-    <header class="p-head">${nameOf(post.author)}${isByAuthor ? html`<span class="mark op-mark" title="Started this topic">Author</span>` : ""}${post.kind === "reopen" ? html`<span class="pill pending">Reopened</span>` : ""}${post.is_answer ? html`<span class="flag ok">${ICONS.check}Answer</span>` : ""}${isMostHelpful ? html`<span class="flag">${ICONS.helpful}Most helpful</span>` : ""}${waitingFlag(post)}<a class="p-when" href="#p-${post.id}">${ago(post.created_at)}</a></header>
+    <header class="p-head">${nameOf(post.author)}${isByAuthor ? html`<span class="mark op-mark" title="Started this topic">Author</span>` : ""}${post.kind === "reopen" ? html`<span class="pill pending">Reopened</span>` : ""}${post.is_answer ? html`<span class="flag ok">${ICONS.check}Answer</span>` : ""}${isMostLiked ? html`<span class="flag">${ICONS.helpful}Most liked</span>` : ""}${waitingFlag(post)}<a class="p-when" href="#p-${post.id}">${ago(post.created_at)}</a></header>
     ${post.reply_to_post ? html`<a class="quote" href="#p-${post.reply_to_post.id}">${ICONS.reply}<span><strong>${post.reply_to_post.author_name}</strong> ${plain(post.reply_to_post.excerpt)}${post.reply_to_post.excerpt.length >= 140 ? "…" : ""}</span></a>` : ""}
     <div class="p-text">${richText(ctx, post)}</div>
     ${mediaGrid(post)}
@@ -712,13 +752,7 @@ function postItem(ctx: Ctx, topic: TopicDetail, post: PostJson, all: PostJson[],
       ${topic.can_reply && !isWaiting(post) ? html`<a href="?reply_to_post_id=${post.id}#reply" data-reply="${post.id}" data-name="${post.author.name}" data-excerpt="${plain(post.text_markdown)}">${ICONS.reply}Reply</a><button type="button" data-quote-post="${post.id}">${ICONS.quote}Quote</button>` : ""}
       ${canMarkAnswer ? html`<form method="post" action="/forum/${topic.id}/answer"><input type="hidden" name="answer_post_id" value="${post.is_answer ? "" : post.id}"><button type="submit">${post.is_answer ? ICONS.cross : ICONS.check}${post.is_answer ? "Not the answer" : "Mark as the answer"}</button></form>` : ""}
       ${isOpening && all.length > 1 ? html`<span class="muted">${all.length === 2 ? "1 reply" : `${all.length - 1} replies`}</span>` : ""}
-      ${topic.is_public && !isWaiting(post) && post.kind !== "status"
-        ? topic.can_reply && !post.author.is_you
-          ? html`<form method="post" action="/forum/${topic.id}/helpful"><input type="hidden" name="post_id" value="${post.id}">${post.has_marked_helpful ? html`<input type="hidden" name="undo" value="1">` : ""}<button type="submit" class="${post.has_marked_helpful ? "on" : ""}" aria-pressed="${post.has_marked_helpful ? "true" : "false"}">${ICONS.helpful}Helpful${post.helpful_count ? html` <span class="n">${post.helpful_count}</span>` : ""}</button></form>`
-          : post.helpful_count
-            ? html`<span class="muted">${ICONS.helpful}${post.helpful_count} found it helpful</span>`
-            : ""
-        : ""}
+      ${ratings(ctx, topic, post)}${bookmarkButton(ctx, topic, post)}
       <span class="p-gap"></span>
       ${reportLink(ctx, topic, post)}
     </div>
@@ -1026,6 +1060,15 @@ a.tag:hover,.tag.on{color:#0b0b0c;background:var(--chrome);box-shadow:none}
 .op-actions .btn{min-height:40px}
 .op-actions .btn svg{width:19px;height:19px}
 .op-actions .btn.vote{padding:0 18px 0 14px}
+.reactions{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px}
+.reactions form{display:contents}
+.react{display:inline-flex;align-items:center;gap:5px;min-height:32px;padding:0;border:0;background:none;color:var(--muted);font:inherit;font-family:var(--display);font-weight:500;text-decoration:none;cursor:pointer}
+span.react{cursor:default}
+.react:hover{color:var(--text)}
+.react svg{width:17px;height:17px}
+.react.on{color:var(--text)}
+.react.on svg{fill:currentColor;fill-opacity:.25}
+.react .n{font-weight:600;color:var(--text-2)}
 .op-count{color:var(--muted);font-size:14px}
 .op-count strong{color:var(--text);font-family:var(--display);font-size:17px}
 .op-gap{flex:1}
@@ -1366,6 +1409,10 @@ const c=document.getElementById("reply");
 if(c&&c.tagName==="FORM"){const box=c.querySelector(".replying"),to=c.elements.reply_to_post_id;
 document.addEventListener("click",e=>{const a=e.target.closest("[data-reply]");if(a){e.preventDefault();to.value=a.dataset.reply;box.querySelector("[data-to-name]").textContent=a.dataset.name;box.querySelector("[data-to-excerpt]").textContent=a.dataset.excerpt;box.hidden=false;c.scrollIntoView({behavior:"smooth",block:"center"});c.elements.text_markdown.focus({preventScroll:true})}
 if(e.target.closest("[data-unreply]")||e.target.closest("[data-reply-top]")){to.value="";box.hidden=true;if(e.target.closest("[data-reply-top]")){e.preventDefault();c.scrollIntoView({behavior:"smooth",block:"center"});c.elements.text_markdown.focus({preventScroll:true})}}})}
+// Like, Dislike and Bookmark change in place: the same form posts without leaving the page, and the post's row is swapped for the answer's. Without scripts the form still posts and reloads.
+document.addEventListener("submit",e=>{const form=e.target;if(!form.matches||!form.matches("form[data-react]"))return;e.preventDefault();
+const post=form.closest("[id^=p-]"),buttons=()=>[...post.querySelectorAll("form[data-react] button")],place=buttons().indexOf(form.querySelector("button")),row=post.querySelector(".reactions")?".reactions":".p-foot";
+fetch(form.action,{method:"POST",body:new URLSearchParams(new FormData(form)),credentials:"same-origin"}).then(r=>r.text()).then(h=>{const fresh=new DOMParser().parseFromString(h,"text/html").getElementById(post.id),next=fresh&&fresh.querySelector(row);if(!next)return form.submit();post.querySelector(row).replaceWith(next);const again=buttons()[place];if(again)again.focus({preventScroll:true})}).catch(()=>form.submit())});
 const f=document.querySelector("form.np");if(!f||!f.elements.title)return;
 const t=f.elements.title,sim=document.getElementById("similar");let timer=0,last="";
 const look=()=>{const q=t.value.trim();if(q===last)return;last=q;if(q.length<6){sim.innerHTML="";return}fetch("/forum/similar?search_text="+encodeURIComponent(q)).then(r=>r.text()).then(h=>{if(t.value.trim()===q)sim.innerHTML=h}).catch(()=>{})};

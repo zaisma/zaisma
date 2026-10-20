@@ -116,7 +116,8 @@ export async function apiRoutesOfTool(site, tool) {
 export async function mcpDoors(site, apiDoorList) {
   const apiDoorIds = new Set(apiDoorList.map((apiDoor) => apiDoor.door_id));
   const doors = [];
-  for (const tool of site.TOOLS) {
+  // A retired tool makes no call, so it has no door.
+  for (const tool of site.TOOLS.filter((candidate) => !candidate.replacedBy)) {
     const apiRoutes = await apiRoutesOfTool(site, tool);
     if (apiRoutes.length === 0) continue;
     const covering = apiRoutes.find((apiRoute) => apiRoute.method !== "GET") ?? apiRoutes[0];

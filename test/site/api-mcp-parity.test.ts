@@ -19,6 +19,8 @@ const WITHOUT_TOOL: Record<string, string> = {
   "GET /forum/similar": "The page's look-alikes while a title is typed; post_topic answers similar_topics and search_forum finds the rest.",
   "POST /forum/media": "The page's image upload; tools send images inline as images_base64 in the post itself.",
   "GET /forum/:topic_id/media/:media_id": "An image's bytes; get_topic gives each image's image_url, which serves them.",
+  "POST /forum/:topic_id/posts/:post_id/helpful": "Deprecated for 90 days from Oct 20, 2026: a like; rate_post replaces it.",
+  "DELETE /forum/:topic_id/posts/:post_id/helpful": "Deprecated for 90 days from Oct 20, 2026: takes back a like; rate_post with undo replaces it.",
   "GET /games/:slug/export/download": "The .zip's bytes, for the upload command; export_game gives its download_url, which the developer opens signed in.",
 };
 
@@ -64,7 +66,8 @@ async function callsOf(tool: (typeof TOOLS)[number]): Promise<{ method: string; 
 
 describe("the developer API and the MCP", async () => {
   const routesByTool = new Map<string, string[]>();
-  for (const tool of TOOLS) {
+  // A retired tool makes no call: it answers retired_tool, naming its replacement.
+  for (const tool of TOOLS.filter((candidate) => !candidate.replacedBy)) {
     routesByTool.set(
       tool.name,
       (await callsOf(tool)).map((call) => {

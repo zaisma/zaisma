@@ -89,7 +89,7 @@ describe("doors from the real code", () => {
   it("has one MCP door per tool, each covered by a real API door", async () => {
     const api = apiDoors(site);
     const mcp = await mcpDoors(site, api);
-    expect(mcp.length).toBe(site.TOOLS.length);
+    expect(mcp.length).toBe(site.TOOLS.filter((tool: { name: string; replacedBy?: string }) => !tool.replacedBy).length);
     const apiIds = new Set(api.map((door: Door) => door.door_id));
     for (const door of mcp) expect(apiIds.has(door.covered_by_door_id), `${door.door_id} is covered by ${door.covered_by_door_id}`).toBe(true);
   });

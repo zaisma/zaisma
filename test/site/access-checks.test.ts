@@ -165,6 +165,10 @@ const SAMPLES: Record<string, (world: World) => Sample> = {
   "POST /forum/:topic_id/answer": () => ({ body: { answer_post_id: null } }),
   "POST /forum/:topic_id/misplaced": (world) => ({ pathValues: { topic_id: world.publicTopicId }, body: {} }),
   "POST /forum/:topic_id/still-happening": (world) => ({ pathValues: { topic_id: world.publicTopicId }, body: {} }),
+  "PUT /forum/:topic_id/posts/:post_id/rating": (world) => ({ pathValues: { topic_id: world.publicTopicId, post_id: world.publicPostId }, body: { rating: "like" } }),
+  "DELETE /forum/:topic_id/posts/:post_id/rating": (world) => ({ pathValues: { topic_id: world.publicTopicId, post_id: world.publicPostId } }),
+  "POST /forum/:topic_id/posts/:post_id/bookmark": (world) => ({ pathValues: { topic_id: world.publicTopicId, post_id: world.publicPostId } }),
+  "DELETE /forum/:topic_id/posts/:post_id/bookmark": (world) => ({ pathValues: { topic_id: world.publicTopicId, post_id: world.publicPostId } }),
   "POST /forum/:topic_id/posts/:post_id/helpful": (world) => ({ pathValues: { topic_id: world.publicTopicId, post_id: world.publicPostId } }),
   "DELETE /forum/:topic_id/posts/:post_id/helpful": (world) => ({ pathValues: { topic_id: world.publicTopicId, post_id: world.publicPostId } }),
   "POST /forum/:topic_id/posts/:post_id/report": (world) => ({ pathValues: { topic_id: world.publicTopicId, post_id: world.publicPostId }, body: { reason: "scam" } }),
@@ -443,7 +447,7 @@ beforeAll(async () => {
 afterAll(async () => {
   globalThis.fetch = realFetch;
   await env.DB.exec(
-    "DELETE FROM forum_media; DELETE FROM forum_follows; DELETE FROM forum_votes; DELETE FROM forum_helpful_marks; DELETE FROM forum_reports; DELETE FROM forum_misplaced_flags; DELETE FROM forum_posts; DELETE FROM forum_topic_tags; DELETE FROM forum_topics; DELETE FROM webhook_deliveries; DELETE FROM webhooks; DELETE FROM sign_in_apps; DELETE FROM save_history; DELETE FROM saves; DELETE FROM tester_links; DELETE FROM game_images; DELETE FROM owned_blobs; DELETE FROM blobs; DELETE FROM api_keys; DELETE FROM security_events; DELETE FROM security_places; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;",
+    "DELETE FROM forum_media; DELETE FROM forum_follows; DELETE FROM forum_votes; DELETE FROM forum_post_ratings; DELETE FROM forum_bookmarks; DELETE FROM forum_reports; DELETE FROM forum_misplaced_flags; DELETE FROM forum_posts; DELETE FROM forum_topic_tags; DELETE FROM forum_topics; DELETE FROM webhook_deliveries; DELETE FROM webhooks; DELETE FROM sign_in_apps; DELETE FROM save_history; DELETE FROM saves; DELETE FROM tester_links; DELETE FROM game_images; DELETE FROM owned_blobs; DELETE FROM blobs; DELETE FROM api_keys; DELETE FROM security_events; DELETE FROM security_places; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;",
   );
 });
 

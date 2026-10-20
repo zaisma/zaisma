@@ -34,7 +34,8 @@ export const ACCOUNT_DATA_TABLES: Record<string, { file_path: string | null; rea
   forum_posts: { file_path: "forum.json", reason: "Forum posts." },
   forum_votes: { file_path: "forum.json", reason: "Forum votes." },
   forum_follows: { file_path: "forum.json", reason: "Forum topics followed." },
-  forum_helpful_marks: { file_path: "forum.json", reason: "Posts marked helpful." },
+  forum_post_ratings: { file_path: "forum.json", reason: "Posts you liked or disliked." },
+  forum_bookmarks: { file_path: "forum.json", reason: "Posts you bookmarked." },
   forum_misplaced_flags: { file_path: "forum.json", reason: "Topics flagged as in the wrong place." },
   forum_reports: { file_path: "forum.json", reason: "Forum posts reported." },
   forum_media: { file_path: "forum-images/", reason: "Images posted in the forum, as files." },
@@ -188,11 +189,12 @@ async function* accountDataSources(env: Env, account: Account, nowMs: number): A
   const imagePath = (image: { id: string; content_type: string }) => `forum-images/${image.id}.${IMAGE_EXTENSIONS[image.content_type] ?? "bin"}`;
   yield jsonFile("forum.json", {
     topics: await rows(env, "SELECT id, kind, title, category, topic_status, is_public, vote_count, reply_count, created_at_ms, updated_at_ms FROM forum_topics WHERE account_id = ? ORDER BY created_at_ms", id),
-    posts: await rows(env, "SELECT id, topic_id, reply_to_post_id, kind, author_kind, posted_via, text_markdown, debug_context, check_status, helpful_count, created_at_ms FROM forum_posts WHERE account_id = ? ORDER BY created_at_ms", id),
+    posts: await rows(env, "SELECT id, topic_id, reply_to_post_id, kind, author_kind, posted_via, text_markdown, debug_context, check_status, like_count, dislike_count, created_at_ms FROM forum_posts WHERE account_id = ? ORDER BY created_at_ms", id),
     images: media.results.map((image) => ({ id: image.id, post_id: image.post_id, content_type: image.content_type, file_path: imagePath(image), created_at: iso(image.created_at_ms) })),
     votes: await rows(env, "SELECT topic_id, created_at_ms FROM forum_votes WHERE account_id = ? ORDER BY created_at_ms", id),
     follows: await rows(env, "SELECT topic_id, seen_at_ms FROM forum_follows WHERE account_id = ?", id),
-    helpful_marks: await rows(env, "SELECT post_id, created_at_ms FROM forum_helpful_marks WHERE account_id = ? ORDER BY created_at_ms", id),
+    post_ratings: await rows(env, "SELECT post_id, rating, rated_via, created_at_ms FROM forum_post_ratings WHERE account_id = ? ORDER BY created_at_ms", id),
+    bookmarks: await rows(env, "SELECT post_id, created_at_ms FROM forum_bookmarks WHERE account_id = ? ORDER BY created_at_ms", id),
     misplaced_flags: await rows(env, "SELECT topic_id, created_at_ms FROM forum_misplaced_flags WHERE account_id = ? ORDER BY created_at_ms", id),
     reports_made: await rows(env, "SELECT post_id, reason, details, created_at_ms FROM forum_reports WHERE account_id = ? ORDER BY created_at_ms", id),
   });
