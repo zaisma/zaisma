@@ -44,7 +44,7 @@ const MOON = raw('<svg class="theme-moon" viewBox="0 0 20 20" width="20" height=
 
 /** Light or dark: one cut button showing the theme you're in, a sun or a moon; pressing it switches to the other. */
 const themeButton = (group: ComponentGroup, theme: GalleryTheme) =>
-  html`<a class="shell cut-btn theme-button" href="${groupPath(group)}${themeQuery(theme === "dark" ? "light" : "dark")}" aria-label="${theme === "dark" ? "Dark. Switch to light" : "Light. Switch to dark"}"><span class="face cut-raised" data-cut-line="10" data-cut-ends="mirror">${CUT_LINE}${SUN}${MOON}</span></a>`;
+  html`<a class="shell cut-btn theme-button" href="${groupPath(group)}${themeQuery(theme === "dark" ? "light" : "dark")}" aria-label="${theme === "dark" ? "Dark. Switch to light" : "Light. Switch to dark"}"><span class="face cut-raised" data-cut-line="10" data-cut-ends="even">${CUT_LINE}${SUN}${MOON}</span></a>`;
 
 function head(title: string): Raw {
   return html`<meta charset="utf-8">
