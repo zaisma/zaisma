@@ -3,7 +3,7 @@ import { html, pageData, raw, scriptTags, securityHeaders, type Raw } from "./ht
 import { pageScript } from "./page-scripts.ts";
 import { COMPONENT_GROUPS, type Component, type ComponentGroup } from "./components/component.ts";
 import { COMPONENTS, COMPONENT_SCRIPT, COMPONENT_STYLES, HEADER_SCRIPT } from "./components/index.ts";
-import { CUT_LINE, EDGE, WORDMARK, railMarkup } from "./components/foundations.ts";
+import { CUT_LINE, EDGE, WORDMARK, backdrop, railMarkup } from "./components/foundations.ts";
 import { cutButton, runButton } from "./components/actions.ts";
 import { cutField, tabSwitch } from "./components/inputs.ts";
 import { glassPane } from "./components/panes.ts";
@@ -72,7 +72,7 @@ export function designPage(env: Env, url: URL): Response | null {
 ${head(`${groupName} · Design · Zaisma`)}
 </head>
 <body class="gallery">
-<div id="stage" class="stage" data-theme-choice="${theme}">
+<div id="stage" class="stage" data-theme-choice="${theme}">${backdrop()}
 <header class="gallery-bar glass" data-glass data-glass-corners="16 6 16 6">${EDGE}<a class="logo" href="/" aria-label="Zaisma home">${WORDMARK}</a><span class="gallery-title">Design</span>
 ${themeButton(group, theme)}
 <div class="gallery-groups">${tabSwitch({ label: "Groups", switchSize: "small", tabs: groupTabs })}</div></header>
@@ -241,6 +241,42 @@ export const GALLERY_SCRIPT = pageScript(
   if (groups) groups.addEventListener("scroll", syncFade, { passive: true });
   syncBar(); syncFade();
   document.addEventListener("submit", function (event) { if (event.target.closest(".example-stage")) event.preventDefault(); });
+  // The backdrop's 3D scene example: a cut-cornered slab turning slowly, drawn on each backdrop-frame in the theme's colours.
+  document.querySelectorAll('.example-stage canvas[data-backdrop="scene"]').forEach(function (canvas) {
+    var gl = canvas.getContext("webgl", { antialias: true });
+    if (!gl) return;
+    var W = 0.9, H = 0.55, K = 0.22, D = 0.12;
+    var outline = [[-W + K, -H], [W - K, -H], [W, -H + K], [W, H - K], [W - K, H], [-W + K, H], [-W, H - K], [-W, -H + K]], data = [];
+    function put(p, n) { data.push(p[0], p[1], p[2], n[0], n[1], n[2]); }
+    outline.forEach(function (from, i) {
+      var to = outline[(i + 1) % 8], dx = to[0] - from[0], dy = to[1] - from[1], length = Math.hypot(dx, dy), side = [dy / length, -dx / length, 0];
+      put([0, 0, D], [0, 0, 1]); put([from[0], from[1], D], [0, 0, 1]); put([to[0], to[1], D], [0, 0, 1]);
+      put([0, 0, -D], [0, 0, -1]); put([to[0], to[1], -D], [0, 0, -1]); put([from[0], from[1], -D], [0, 0, -1]);
+      put([from[0], from[1], D], side); put([from[0], from[1], -D], side); put([to[0], to[1], D], side);
+      put([to[0], to[1], D], side); put([from[0], from[1], -D], side); put([to[0], to[1], -D], side);
+    });
+    function compile(kind, source) { var shader = gl.createShader(kind); gl.shaderSource(shader, source); gl.compileShader(shader); return shader; }
+    var program = gl.createProgram();
+    gl.attachShader(program, compile(gl.VERTEX_SHADER, "attribute vec3 position; attribute vec3 normal; uniform mat3 turn; uniform float aspect; varying vec3 facing;" +
+      "void main() { vec3 p = turn * position; facing = turn * normal; gl_Position = vec4(p.x * 2.2 / aspect, p.y * 2.2, -p.z, 2.6 - p.z); }"));
+    gl.attachShader(program, compile(gl.FRAGMENT_SHADER, "precision mediump float; varying vec3 facing; uniform vec3 lit; uniform vec3 shade;" +
+      "void main() { float l = clamp(dot(normalize(facing), normalize(vec3(-0.4, 0.7, 0.6))), 0.0, 1.0); gl_FragColor = vec4(mix(shade, lit, l), 1.0); }"));
+    gl.linkProgram(program); gl.useProgram(program);
+    gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer()); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(data), gl.STATIC_DRAW);
+    ["position", "normal"].forEach(function (name, i) { var at = gl.getAttribLocation(program, name); gl.enableVertexAttribArray(at); gl.vertexAttribPointer(at, 3, gl.FLOAT, false, 24, i * 12); });
+    var turn = gl.getUniformLocation(program, "turn"), aspect = gl.getUniformLocation(program, "aspect"), lit = gl.getUniformLocation(program, "lit"), shade = gl.getUniformLocation(program, "shade");
+    gl.enable(gl.DEPTH_TEST);
+    canvas.addEventListener("backdrop-frame", function (event) {
+      var frame = event.detail, colours = frame.colours, y = frame.timeS * 0.3, x = 0.35 + 0.15 * Math.sin(frame.timeS * 0.2);
+      var cy = Math.cos(y), sy = Math.sin(y), cx = Math.cos(x), sx = Math.sin(x);
+      gl.viewport(0, 0, frame.widthPx, frame.heightPx);
+      gl.clearColor(colours.base[0], colours.base[1], colours.base[2], 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      gl.uniformMatrix3fv(turn, false, [cy, 0, -sy, sy * sx, cx, cy * sx, sy * cx, -sx, cy * cx]);
+      gl.uniform1f(aspect, frame.widthPx / frame.heightPx);
+      gl.uniform3fv(lit, colours.a.map(function (v) { return Math.min(1, v * 1.2 + 0.08); })); gl.uniform3fv(shade, colours.c.map(function (v) { return v * 0.6; }));
+      gl.drawArrays(gl.TRIANGLES, 0, data.length / 6);
+    });
+  });
   // Glass at any size: drag the window about, pull its corner to resize it, or use the arrow keys (Shift resizes).
   document.querySelectorAll("[data-glass-play]").forEach(function (play) {
     var win = play.querySelector(".glass-window"), grip = win.querySelector(".glass-grip"), readout = win.querySelector(".glass-size");
