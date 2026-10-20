@@ -536,7 +536,10 @@ component({
 .sidebar a svg { width: 18px; height: 18px; flex: none; }
 .sidebar a:hover { background: var(--wash); color: var(--ink); }
 .sidebar a:active { background: var(--wash-press); }
-.sidebar a[aria-current="page"], .sidebar a[aria-current="page"]:hover { background: var(--slab); color: var(--ink); font-weight: 600; box-shadow: inset 0 -3px 0 var(--run); }
+.sidebar a[aria-current="page"], .sidebar a[aria-current="page"]:hover { background: var(--slab); color: var(--ink); font-weight: 600; }
+/* The current place is outlined in full orange, following the slanted cut. */
+.sidebar a[aria-current="page"]::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: var(--run);
+  clip-path: polygon(evenodd, 8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%, 8px 0, 10.4px 2px, calc(100% - 2px) 2px, calc(100% - 10.4px) calc(100% - 2px), 2px calc(100% - 2px), 10.4px 2px); }
 .sidebar a:focus-visible { outline: 2px solid var(--ink); outline-offset: -3px; }
 .sidebar-count { margin-left: auto; min-width: 22px; padding: 1px 7px; text-align: center; font: 600 12px var(--display); color: var(--ink-2); background: var(--well); box-shadow: var(--well-shade);
   clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%); }
