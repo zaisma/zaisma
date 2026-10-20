@@ -304,16 +304,19 @@ export const RAIL_SCRIPT = `/* rail */(function () {
       var track = bar.clientHeight, height = Math.max(36, Math.round(track * view / whole));
       size = { track: track, thumb: height, max: max };
       thumb.style.height = height + "px";
-      thumb.style.transform = "translateY(" + ((track - height) * Math.min(1, at() / max)).toFixed(1) + "px)";
+      move();
       marks.forEach(function (m) {
         var shown = Boolean(m.part.offsetParent); m.mark.hidden = !shown; if (!shown) return;
         var top = Math.max(0, Math.min(max, m.part.getBoundingClientRect().top + window.scrollY - offset()));
         m.mark.style.top = ((track - height) * top / max + height / 2).toFixed(1) + "px";
       });
     }
+    // Scrolling only moves the thumb: the rail's size and its marks change only with the page's size (layout, above), so a scroll
+    // never reads the page's layout.
+    function move() { if (!bar.hidden) thumb.style.transform = "translateY(" + ((size.track - size.thumb) * Math.min(1, at() / size.max)).toFixed(1) + "px)"; }
     var sleep = 0, queued = false;
     function wake() { bar.classList.add("awake"); clearTimeout(sleep); sleep = setTimeout(function () { bar.classList.remove("awake"); }, 1100); }
-    (isPage ? window : scroller).addEventListener("scroll", function () { wake(); if (queued) return; queued = true; requestAnimationFrame(function () { queued = false; layout(); }); }, { passive: true });
+    (isPage ? window : scroller).addEventListener("scroll", function () { wake(); if (queued) return; queued = true; requestAnimationFrame(function () { queued = false; move(); }); }, { passive: true });
     window.addEventListener("resize", layout);
     if (window.ResizeObserver) { var watch = new ResizeObserver(layout); watch.observe(isPage ? document.body : scroller.firstElementChild || scroller); if (above) watch.observe(above); }
     var drag = null;
@@ -528,9 +531,11 @@ component({
 .rail-mark[hidden] { display: none; }
 .rail-mark span { position: absolute; right: 28px; top: 50%; transform: translate(0, -50%); padding: 4px 10px; white-space: nowrap; pointer-events: none;
   font: 600 12px var(--display); --glass-tint: var(--glass-menu);
-  clip-path: polygon(100% 0, 100% 0, calc(100% - 5px) 100%, calc(100% - 5px) 100%); transition: var(--glass-transition), clip-path 0.18s ease-out; }
+  clip-path: polygon(100% 0, 100% 0, calc(100% - 5px) 100%, calc(100% - 5px) 100%); visibility: hidden;
+  transition: var(--glass-transition), clip-path 0.18s ease-out, visibility 0s 0.18s; }
 /* A label opens by wiping out from the rail, never by fading: a fading blur draws without its glass and turns solid at the end. */
-.rail:hover .rail-mark span, .rail.dragging .rail-mark span { clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); }
+/* Closed, a label is hidden as well as wiped shut, so its glass isn't drawn under the page's scrolling while nobody can see it. */
+.rail:hover .rail-mark span, .rail.dragging .rail-mark span { clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); visibility: visible; transition: var(--glass-transition), clip-path 0.18s ease-out, visibility 0s; }
 /* In the narrow layout (a phone, or a small window), the page's bar fits in the 10px gutter beside the glass and starts below the header. */
 @media (max-width: 760px) {
   .rail[data-rail="page"] { width: 10px; top: 132px; bottom: 10px; }

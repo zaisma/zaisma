@@ -262,6 +262,20 @@ export const GALLERY_SCRIPT = pageScript(
       gl.drawArrays(gl.TRIANGLES, 0, data.length / 6);
     });
   });
+  // A component's section off screen isn't laid out or drawn (content-visibility), so a long group page costs no more to scroll
+  // than its screenful: no glass, shapes or shaders of its own while out of view. Each keeps its own measured height while it's
+  // skipped, so the page's length, its rail and its links never move. A change of width measures them all again.
+  var sections = Array.prototype.slice.call(document.querySelectorAll(".component-section")), sectionsWidth = 0, measureTimer = 0;
+  function holdSections() {
+    if (!("contentVisibility" in document.documentElement.style)) return;
+    var width = document.documentElement.clientWidth; if (width === sectionsWidth) return; sectionsWidth = width;
+    sections.forEach(function (section) { section.style.contentVisibility = "visible"; });
+    var heights = sections.map(function (section) { return section.getBoundingClientRect().height; });
+    sections.forEach(function (section, i) { section.style.containIntrinsicHeight = "auto " + heights[i] + "px"; section.style.contentVisibility = "auto"; });
+  }
+  holdSections();
+  if (document.fonts) document.fonts.ready.then(function () { sectionsWidth = 0; holdSections(); });
+  window.addEventListener("resize", function () { clearTimeout(measureTimer); measureTimer = setTimeout(holdSections, 150); });
   // Spacing's examples: hatch the space each is about, over the stage, redrawn whenever its size changes.
   function markSpacing(holder) {
     var stage = holder.closest(".example-stage"); if (!stage) return;
