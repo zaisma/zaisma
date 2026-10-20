@@ -28,9 +28,9 @@ const LIGHT_GLASS = `color-scheme: light;
   --clear-hover: rgba(255, 255, 255, 0.45); --clear-press: rgba(255, 255, 255, 0.25);
   --chip-face: #DDF2E5; --chip-ink: #136238; --face-ring: rgba(255, 255, 255, 0.85); --presence-ring: #fff;
   --rail-line: rgba(20, 23, 28, 0.2); --rail-thumb: rgba(24, 28, 36, 0.55); --rail-edge: rgba(255, 255, 255, 0.55); --rail-mark: rgba(20, 23, 28, 0.45);
-  --edge-inner: rgba(255, 255, 255, 0.9); --edge-bevel: 0.6; --edge-rim: 1; --edge-fringe: 0.25;
+  --edge-inner: rgba(255, 255, 255, 0.9); --edge-bevel: 0.4; --edge-rim: 1; --edge-fringe: 0.25;
   --edge-lit: rgba(236, 240, 246, 1); --edge-shade: rgba(146, 154, 168, 0.6); --edge-corner: rgba(188, 196, 208, 0.75);
-  --edge-spec: rgba(255, 255, 255, 1); --edge-dense: rgba(120, 130, 146, 0.07);
+  --edge-spec: rgba(255, 255, 255, 1); --edge-dense: rgba(120, 130, 146, 0.03);
   --logo-halo: drop-shadow(0 0 10px rgba(255, 255, 255, 0.6)) drop-shadow(0 1px 1px rgba(255, 255, 255, 0.5));
   --link-hover: var(--run-lo); --marked: var(--run-lo);
   --glass-base: 255, 255, 255; --glass-kind: "Light glass, dark words.";`;
@@ -235,7 +235,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       if (!w || !h) return;
       // Any size: a small slab gets smaller cuts and a narrower bevel, so the rim never crowds what's in it.
       var short = Math.min(w, h), c = corners().map(function (cut) { return Math.min(cut, Math.round(short * 0.3)); });
-      var band = Number(el.getAttribute("data-glass-band")) || Math.max(2.5, Math.min(6, short * 0.06));
+      var band = Number(el.getAttribute("data-glass-band")) || Math.max(2, Math.min(4, short * 0.04));
       if (!parts) build();
       var key = c.join(",");
       if (key !== lastCorners) {
@@ -245,9 +245,9 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       // No viewBox: the rim is drawn in CSS pixels, so a frame where the slab has grown before its points move never stretches it.
       edge.removeAttribute("viewBox");
       // Density: glass is thicker at its edge, so a second, wider band tints the panel just inside the bevel.
-      parts.dense.setAttribute("d", "M" + cutShape(w, h, c, 0) + "Z M" + cutShape(w, h, c, band * 1.8) + "Z");
+      parts.dense.setAttribute("d", "M" + cutShape(w, h, c, 0) + "Z M" + cutShape(w, h, c, band * 1.6) + "Z");
       placeBands(parts.bevel, w, h, c, 0, band);
-      placeBands(parts.rimBands, w, h, c, 0.4, 2.2);
+      placeBands(parts.rimBands, w, h, c, 0, 1.6);
       parts.hair.setAttribute("points", cutShape(w, h, c, 0.6));
       parts.rim.setAttribute("points", cutShape(w, h, c, 1.6));
       parts.spec.setAttribute("points", cutShape(w, h, c, 1.6));
