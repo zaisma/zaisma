@@ -184,7 +184,7 @@ describe("components", () => {
   });
 
   it("give a password field its Show toggle, and an error its message", () => {
-    expect(inputs.cutField({ name: "password", label: "Password", type: "password", icon: "lock" }).html).toMatch(/<button type="button" class="show" data-cut-line="7" aria-controls="field-password" aria-pressed="false">Show<\/button>/);
+    expect(inputs.cutField({ name: "password", label: "Password", type: "password", icon: "lock" }).html).toMatch(/<button type="button" class="show cut-raised" data-cut-line="7" aria-controls="field-password" aria-pressed="false">Show<\/button>/);
     const marked = inputs.cutField({ name: "username", label: "Username", type: "text", icon: "person", error: "Use letters only." }).html;
     expect(marked).toContain('aria-invalid="true" aria-describedby="field-username-error"');
     expect(marked).toContain('<p class="field-error" id="field-username-error">Use letters only.</p>');

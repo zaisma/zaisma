@@ -35,7 +35,7 @@ export function cutField(options: CutFieldOptions): Raw {
   const className = ["field", "cut-carved", isPassword ? "with-toggle" : "", options.error ? "is-marked" : "", options.state ?? ""].filter(Boolean).join(" ");
   const inputType = isPassword && options.isPasswordShown ? "text" : options.type;
   return html`<div class="cut-field"><label for="${id}">${options.label}</label>
-<span class="${className}" data-cut-line="10">${CUT_LINE}${icon(options.icon)}<input id="${id}" name="${options.name}" type="${inputType}"${options.text !== undefined ? html` value="${options.text}"` : ""}${options.placeholder ? html` placeholder="${options.placeholder}"` : ""}${options.autocomplete ? html` autocomplete="${options.autocomplete}"` : ""}${options.type === "email" || options.name === "username" ? raw(' autocapitalize="off" spellcheck="false"') : ""}${options.isRequired ? raw(" required") : ""}${options.error ? html` aria-invalid="true" aria-describedby="${errorId}"` : ""}>${isPassword ? html`<button type="button" class="show" data-cut-line="7" aria-controls="${id}" aria-pressed="${options.isPasswordShown ? "true" : "false"}">${options.isPasswordShown ? "Hide" : "Show"}</button>` : ""}</span>
+<span class="${className}" data-cut-line="10">${CUT_LINE}${icon(options.icon)}<input id="${id}" name="${options.name}" type="${inputType}"${options.text !== undefined ? html` value="${options.text}"` : ""}${options.placeholder ? html` placeholder="${options.placeholder}"` : ""}${options.autocomplete ? html` autocomplete="${options.autocomplete}"` : ""}${options.type === "email" || options.name === "username" ? raw(' autocapitalize="off" spellcheck="false"') : ""}${options.isRequired ? raw(" required") : ""}${options.error ? html` aria-invalid="true" aria-describedby="${errorId}"` : ""}>${isPassword ? html`<button type="button" class="show cut-raised" data-cut-line="7" aria-controls="${id}" aria-pressed="${options.isPasswordShown ? "true" : "false"}">${options.isPasswordShown ? "Hide" : "Show"}</button>` : ""}</span>
 ${options.error ? html`<p class="field-error" id="${errorId}">${options.error}</p>` : ""}</div>`;
 }
 
@@ -75,10 +75,11 @@ export function birthdayField(options: BirthdayFieldOptions): Raw {
   const isMarked = options.state === "marked";
   return html`<fieldset class="bday" data-birthday${options.isRequired ? raw(" data-required") : ""}>
 <legend id="${id}-legend">${options.label}</legend>
-<button type="button" class="bday-field cut-carved${isMarked ? " is-marked" : ""}" data-cut-line="10" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-pick" aria-describedby="${id}-legend">${CUT_LINE}${icon("calendar")}<span class="bday-value">${isMarked ? "Pick your birthday to go on" : "Pick your birthday"}</span><svg class="chev" viewBox="0 0 20 12" width="16" height="10" aria-hidden="true"><path d="M2 2l8 8 8-8" fill="none" stroke="currentColor" stroke-width="2.2"/></svg></button>
+<button type="button" class="bday-field cut-carved${isMarked ? " is-marked" : ""}" data-cut-line="10" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-pick" aria-describedby="${id}-legend ${id}-error">${CUT_LINE}${icon("calendar")}<span class="bday-value">Pick your birthday</span><svg class="chev" viewBox="0 0 20 12" width="16" height="10" aria-hidden="true"><path d="M2 2l8 8 8-8" fill="none" stroke="currentColor" stroke-width="2.2"/></svg></button>
+<p class="field-error" id="${id}-error"${isMarked ? "" : raw(" hidden")}>Pick your birthday to go on.</p>
 <div class="bday-pick" data-cut-line="10" id="${id}-pick" role="group" aria-label="${options.label}"${isOpen ? "" : raw(" hidden")}>
-<div class="wheels"><span class="wheel-band" data-cut-line="8" aria-hidden="true"></span><div class="wheel" data-part="month" role="listbox" aria-label="Month" tabindex="0"></div><div class="wheel" data-part="day" role="listbox" aria-label="Day" tabindex="0"></div><div class="wheel" data-part="year" role="listbox" aria-label="Year" tabindex="0"></div></div>
-<div class="bday-foot"><span class="bday-read" aria-live="polite"></span><button type="button" class="bday-done" data-cut-line="8" disabled>Done</button></div>
+<div class="wheels"><span class="wheel-band cut-raised" data-cut-line="8" aria-hidden="true"></span><div class="wheel" data-own-fade data-part="month" role="listbox" aria-label="Month" tabindex="0"></div><div class="wheel" data-own-fade data-part="day" role="listbox" aria-label="Day" tabindex="0"></div><div class="wheel" data-own-fade data-part="year" role="listbox" aria-label="Year" tabindex="0"></div></div>
+<div class="bday-foot"><span class="bday-read" aria-live="polite"></span><button type="button" class="bday-done cut-raised" data-cut-line="8" disabled>Done</button></div>
 </div>
 <input type="hidden" name="${options.name}" value="${options.birthday ?? ""}" data-id="${id}">
 </fieldset>`;
@@ -165,7 +166,7 @@ export const BIRTHDAY_SCRIPT = `/* birthday */(function () {
   var years = []; for (var yr = THIS_YEAR; yr > THIS_YEAR - 100; yr--) years.push(String(yr));
   function daysIn(month, year) { return month ? new Date(year || 2000, month, 0).getDate() : 31; }
   document.querySelectorAll("[data-birthday]").forEach(function (root) {
-    var field = root.querySelector(".bday-field"), pick = root.querySelector(".bday-pick"), value = root.querySelector(".bday-value");
+    var field = root.querySelector(".bday-field"), pick = root.querySelector(".bday-pick"), value = root.querySelector(".bday-value"), error = root.querySelector(".field-error");
     var read = root.querySelector(".bday-read"), doneButton = root.querySelector(".bday-done"), hidden = root.querySelector('input[type="hidden"]'), id = hidden.getAttribute("data-id");
     var birthday = { month: 0, day: 0, year: 0 }; // 0 is the blank row
     var given = /^(\\d{4})-(\\d{2})-(\\d{2})$/.exec(hidden.value);
@@ -218,7 +219,7 @@ export const BIRTHDAY_SCRIPT = `/* birthday */(function () {
       doneButton.disabled = !done;
       read.textContent = done ? text() : HINT;
       if (done) {
-        value.textContent = text(); field.classList.add("set"); field.classList.remove("is-marked");
+        value.textContent = text(); field.classList.add("set"); field.classList.remove("is-marked"); error.hidden = true;
         hidden.value = years[birthday.year - 1] + "-" + String(birthday.month).padStart(2, "0") + "-" + String(birthday.day).padStart(2, "0");
       } else if (!field.classList.contains("is-marked")) { value.textContent = "Pick your birthday"; field.classList.remove("set"); hidden.value = ""; }
       else { field.classList.remove("set"); hidden.value = ""; }
@@ -263,7 +264,7 @@ export const BIRTHDAY_SCRIPT = `/* birthday */(function () {
     var form = root.closest("form");
     if (form && root.hasAttribute("data-required")) form.addEventListener("submit", function (event) {
       if (complete()) return;
-      event.preventDefault(); field.classList.add("is-marked"); value.textContent = "Pick your birthday to go on"; open();
+      event.preventDefault(); field.classList.add("is-marked"); error.hidden = false; open();
     });
   });
 })();
@@ -292,12 +293,15 @@ const FIELD_STYLES = `
 .field-error { margin: 0; font: 500 14px var(--display); color: var(--marked); }
 .field.with-toggle input { padding-right: 84px; }
 /* Show/Hide: a small cut slab inside the field; it turns white with the orange line while the password shows. */
-.field .show { position: absolute; z-index: 5; right: 14px; top: 6px; bottom: 6px; padding: 0 14px; border: 0; cursor: pointer;
-  font: 600 14px var(--display); color: var(--ink-2); --face-colour: var(--show); background: var(--face-colour);
-  clip-path: var(--cut-shape); transition: --face-colour 0.2s, color 0.2s, box-shadow 0.2s; }
-.field .show:hover { --face-colour: var(--show-on); color: var(--ink); }
-.field .show[aria-pressed="true"] { --face-colour: var(--show-on); color: var(--ink); box-shadow: inset 0 -3px 0 var(--run); }
-.field .show:focus-visible { outline: 2px solid var(--ink); outline-offset: -3px; }
+/* Show/Hide: a small raised slab inside the field, like a cut button. While the password shows, it's sunk into the field, its light turned round. */
+.field .show { position: absolute; z-index: 5; right: 8px; top: 8px; bottom: 8px; padding: 0 14px; border: 0; cursor: pointer;
+  font: 600 14px var(--display); color: var(--ink-2); --face-colour: var(--btn); background: var(--face-colour);
+  clip-path: var(--cut-shape); transition: --face-colour 0.2s, color 0.2s; }
+.field .show:hover { --face-colour: var(--btn-hover); color: var(--ink); }
+.field .show[aria-pressed="true"] { --face-colour: var(--btn-press); color: var(--ink); }
+.field .show[aria-pressed="true"] > .cut-line, .field .show:active > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
+.field .show:focus-visible { outline: none; color: var(--ink); }
+.field .show:focus-visible > .cut-line polygon { stroke: var(--ink); stroke-width: 2; }
 `;
 
 const examplePane = (body: Raw) => html`<div class="glass example-pane" data-glass data-glass-corners="18 9 18 9">${body}</div>`;
@@ -372,19 +376,23 @@ component({
 .bday-field .cut-line polygon { stroke: var(--field-outline); }
 .bday-field[aria-expanded="true"] .cut-line polygon, .bday-field:focus-visible .cut-line polygon { stroke: var(--run); stroke-width: 2; }
 .bday-field.is-marked .cut-line polygon { stroke: var(--marked); stroke-width: 2; }
+/* Its words stay on one line, never crowding its edges; what's wrong is said under it, as under a cut field. */
+.bday-value { min-width: 0; flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.bday .field-error { margin-top: 8px; }
 .bday-field > span { position: relative; z-index: 2; }
 /* The picker: a well of clearer glass holding three wheels under a white band with the orange line. The picked value is larger; the others fade
    toward the edges. The wheel you're on by keyboard has its value underlined in ink. */
 .bday-pick { position: relative; margin-top: 0; padding: 10px 12px 14px; border: 0; background: var(--pick); box-shadow: var(--pick-shade);
   clip-path: var(--cut-shape); }
 .wheels { position: relative; display: grid; grid-template-columns: 1.5fr 0.8fr 1fr; gap: 6px; }
-.wheel-band { position: absolute; left: 0; right: 0; top: 80px; height: 40px; pointer-events: none;
+/* The band sits on the wheels' top row, so nothing blank sits above it: the value you've picked is at the top, the rest follow below it, fading. */
+.wheel-band { position: absolute; left: 0; right: 0; top: 0; height: 40px; pointer-events: none;
   background: var(--slab); box-shadow: var(--slab-shade), inset 0 -3px 0 var(--run);
   clip-path: var(--cut-shape); }
-.wheel { position: relative; height: 200px; overflow-y: auto; overscroll-behavior: contain;
-  scroll-snap-type: y mandatory; scrollbar-width: none; padding: 80px 0; box-sizing: border-box; outline: none;
-  -webkit-mask-image: linear-gradient(180deg, transparent, rgba(0,0,0,0.5) 22%, #000 40%, #000 60%, rgba(0,0,0,0.5) 78%, transparent);
-  mask-image: linear-gradient(180deg, transparent, rgba(0,0,0,0.5) 22%, #000 40%, #000 60%, rgba(0,0,0,0.5) 78%, transparent); }
+.wheel { position: relative; height: 160px; overflow-y: auto; overscroll-behavior: contain;
+  scroll-snap-type: y mandatory; scrollbar-width: none; padding: 0 0 120px; box-sizing: border-box; outline: none;
+  -webkit-mask-image: linear-gradient(180deg, #000 0, #000 30%, rgba(0,0,0,0.45) 70%, transparent);
+  mask-image: linear-gradient(180deg, #000 0, #000 30%, rgba(0,0,0,0.45) 70%, transparent); }
 .wheel::-webkit-scrollbar { display: none; }
 .wheel [role="option"] { height: 40px; display: flex; align-items: center; justify-content: center; scroll-snap-align: center;
   font: 500 16px var(--display); color: var(--ink-2); cursor: pointer; user-select: none; -webkit-user-select: none; transition: color 0.2s, font-size 0.2s; }
@@ -395,11 +403,16 @@ component({
 .bday-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; padding: 0 4px; }
 .bday-read { color: var(--muted); font-size: 14px; }
 /* Done: a cut slab of clearer glass; it whitens with the orange line when you point at it, once there's a whole date. */
-.bday-done { height: 40px; padding: 0 22px; cursor: pointer; border: 0; --face-colour: var(--done); background: var(--face-colour); box-shadow: var(--done-line);
-  font: 600 15px var(--display); color: var(--ink); clip-path: var(--cut-shape); transition: --face-colour 0.2s, box-shadow 0.2s, opacity 0.2s; }
-.bday-done:not(:disabled):hover { --face-colour: var(--show-on); box-shadow: inset 0 -3px 0 var(--run); }
-.bday-done:disabled { opacity: 0.5; cursor: default; }
-.bday-done:focus-visible { outline: 2px solid var(--ink); outline-offset: -4px; }
+/* Done: a raised slab like a cut button, lying flat in the well, faded, until there's a whole date. */
+.bday-done { position: relative; height: 40px; padding: 0 22px; cursor: pointer; border: 0; --face-colour: var(--btn); background: var(--face-colour);
+  font: 600 15px var(--display); color: var(--ink); clip-path: var(--cut-shape); transition: --face-colour 0.2s, opacity 0.2s; }
+.bday-done:not(:disabled):hover { --face-colour: var(--btn-hover); }
+.bday-done:not(:disabled):active { --face-colour: var(--btn-press); }
+.bday-done:not(:disabled):active > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
+.bday-done:disabled { --face-colour: transparent; opacity: 0.45; cursor: default; }
+.bday-done:disabled > .cut-line { --band-top: transparent; --band-left: transparent; --band-right: transparent; --band-bottom: transparent; }
+.bday-done:focus-visible { outline: none; }
+.bday-done:focus-visible > .cut-line polygon { stroke: var(--ink); stroke-width: 2; }
 `,
   render: birthdayField,
   examples: [

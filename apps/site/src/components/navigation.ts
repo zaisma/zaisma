@@ -345,7 +345,8 @@ export function rowArrows(options: { rowName: string; trackId: string }): Raw {
 /**
  * Scroll fades: every box that scrolls up and down, wherever it is and whatever is in it, fades its words out over its
  * top and bottom edges while there's more to scroll that way, so nothing runs hard into the edge of its pane. Found by
- * itself, like the rail, on every device; a stand-in page under a header example (data-scroll-box) and form fields are left alone.
+ * itself, like the rail, on every device; a stand-in page under a header example (data-scroll-box), a box with a fade of its own
+ * (data-own-fade, a birthday wheel) and form fields are left alone.
  */
 export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
   var FADE_PX = 28, boxes = [];
@@ -357,7 +358,7 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
   }
   function find() {
     document.querySelectorAll("body *").forEach(function (box) {
-      if (box.classList.contains("scroll-fades") || /^(TEXTAREA|SELECT|INPUT)$/.test(box.tagName) || box.hasAttribute("data-scroll-box")) return;
+      if (box.classList.contains("scroll-fades") || /^(TEXTAREA|SELECT|INPUT)$/.test(box.tagName) || box.hasAttribute("data-scroll-box") || box.hasAttribute("data-own-fade")) return;
       if (!/^(auto|scroll)$/.test(getComputedStyle(box).overflowY)) return;
       box.classList.add("scroll-fades"); boxes.push(box); sync(box);
       var queued = false;
