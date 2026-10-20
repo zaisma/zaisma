@@ -271,21 +271,36 @@ export const DESIGN_LOOPS_SCRIPT = pageScript(
       return [r.left - b.left + r.width * dx, r.top - b.top + r.height * dy];
     }
     function moveTo(at, isQuick) { cursor.style.transitionDuration = isQuick ? "0s" : MOVE_MS + "ms"; cursor.style.transform = "translate(" + at[0].toFixed(1) + "px," + at[1].toFixed(1) + "px)"; return wait(isQuick ? 30 : MOVE_MS); }
-    function state(name) { ["is-pointed", "is-pressed"].forEach(function (each) { el.classList.toggle(each, each === name); }); }
-    function press(isDown) { cursor.classList.toggle("is-down", isDown); }
+    function press(isDown) { cursor.classList.toggle("is-down", isDown); isPressed = isDown; show(); }
+    // What the pointer's tip is over, each frame, as it moves: pointing starts the moment it crosses onto the copy and ends the moment it leaves.
+    var isPressed = false, over = null, run = el.querySelector(".run");
+    function tip() { var r = cursor.getBoundingClientRect(); return [r.left + 3, r.top + 2]; }
+    function inside(target, at) { var r = target.getBoundingClientRect(); return at[0] >= r.left && at[0] <= r.right && at[1] >= r.top && at[1] <= r.bottom; }
+    function show() {
+      if (kind === "switch") return;
+      var state = over ? (isPressed && (kind === "runner" || kind === "cut") ? "is-pressed" : "is-pointed") : "";
+      ["is-pointed", "is-pressed"].forEach(function (each) { el.classList.toggle(each, each === state); });
+    }
+    (function watch() {
+      requestAnimationFrame(watch);
+      var at = tip(), now = null;
+      if (kind === "switch") { el.querySelectorAll("button").forEach(function (tab) { if (inside(tab, at)) now = tab; }); }
+      else if (inside(el, at)) now = el;
+      if (now === over) return;
+      if (kind === "switch") { if (now) send(now, "pointerenter"); else send(el, "pointerleave"); }
+      else if (now && run) { run.classList.remove("glint"); void run.offsetWidth; run.classList.add("glint"); }
+      over = now; show();
+    })();
     var away = function () { return point(el, 1.15, 1.6); };
     async function buttonLoop() {
-      var run = el.querySelector(".run");
       await moveTo(away(), true);
       for (;;) {
         await wait(900);
         await moveTo(point(el, 0.62, 0.58));
-        state("is-pointed");
-        if (run) { run.classList.remove("glint"); void run.offsetWidth; run.classList.add("glint"); }
         await wait(800);
-        press(true); state(kind === "runner" || kind === "cut" ? "is-pressed" : "is-pointed"); await wait(PRESS_MS + 60);
-        press(false); state("is-pointed"); await wait(700);
-        state(""); await moveTo(away());
+        press(true); await wait(PRESS_MS + 60);
+        press(false); await wait(700);
+        await moveTo(away());
       }
     }
     async function switchLoop() {
@@ -294,9 +309,9 @@ export const DESIGN_LOOPS_SCRIPT = pageScript(
       for (;;) {
         var other = tabs[(at + 1) % tabs.length];
         await wait(700);
-        await moveTo(point(other, 0.55, 0.6)); send(other, "pointerenter"); await wait(700);
+        await moveTo(point(other, 0.55, 0.6)); await wait(700);
         press(true); await wait(PRESS_MS); send(other, "click"); press(false); await wait(800);
-        send(el, "pointerleave"); await moveTo(point(el, at % 2 ? 1.08 : -0.12, 1.5));
+        await moveTo(point(el, at % 2 ? 1.08 : -0.12, 1.5));
         at++;
       }
     }
