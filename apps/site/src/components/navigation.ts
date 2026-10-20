@@ -1,7 +1,7 @@
 import { html, raw, type Raw } from "../html.ts";
 import { pageScript } from "../page-scripts.ts";
 import { component } from "./component.ts";
-import { CUT_LINE, EDGE, MARK, WORDMARK, icon, railMarkup } from "./foundations.ts";
+import { CUT_LINE, EDGE, MARK, WORDMARK, icon, railMarkup, type IconName } from "./foundations.ts";
 import { runButton } from "./actions.ts";
 import { searchField, type SearchFieldOptions } from "./inputs.ts";
 import { STAND_IN_COVERS, accountMenu, type MenuItem } from "./panes.ts";
@@ -464,5 +464,76 @@ component({
       isWide: true,
       markup: html`<div class="glass example-wide" data-glass data-glass-corners="18 9 18 9"><section class="row"><div class="row-head"><h2>Popular</h2>${rowArrows({ rowName: "Popular", trackId: "example-track" })}</div><div class="track" id="example-track">${Object.values(STAND_IN_COVERS)}</div></section></div>`,
     },
+  ],
+});
+
+export interface SidebarItem {
+  label: string;
+  href: string;
+  /** The page you're on: the white slab with the orange line. */
+  isCurrent?: boolean;
+  /** Before the label; the only thing a collapsed sidebar shows, so give every item one when it can collapse. */
+  icon?: IconName;
+  /** A small number on the item's end, like unread topics. */
+  badgeCount?: number;
+  /** Attributes of the link's own, like a data attribute a script reads. */
+  extra?: Raw;
+}
+
+export interface SidebarOptions {
+  /** What the list is, for a screen reader: "Groups". */
+  label: string;
+  /** Each group has a quiet heading of its own, or none. */
+  groups: { heading?: string; items: SidebarItem[] }[];
+  /** Only the icons, in a narrow column; the labels move to each item's title. */
+  isCollapsed?: boolean;
+}
+
+/** The sidebar: a pane of glass down the side of a page, a list of the places in it. The page you're on is a white slab with an orange line, like a tab. */
+export function sidebar(options: SidebarOptions): Raw {
+  const link = (each: SidebarItem) => {
+    const inside = each.icon ? html`${icon(each.icon)}<span class="sidebar-label">${each.label}</span>` : html`${each.label}`;
+    return html`<li><a href="${each.href}"${each.extra ?? ""}${each.isCurrent ? raw(' aria-current="page"') : ""}${options.isCollapsed ? html` title="${each.label}" aria-label="${each.label}"` : ""}>${inside}${each.badgeCount ? html`<span class="sidebar-count">${each.badgeCount}</span>` : ""}</a></li>`;
+  };
+  const groups = options.groups.map((group) => html`<div class="sidebar-group">${group.heading ? html`<h2 class="sidebar-heading">${group.heading}</h2>` : ""}<ul>${group.items.map(link)}</ul></div>`);
+  return html`<aside class="sidebar glass${options.isCollapsed ? " is-collapsed" : ""}" data-glass data-glass-corners="14 6 14 6"><nav class="sidebar-in" aria-label="${options.label}">${groups}</nav></aside>`;
+}
+
+const SIDEBAR_EXAMPLE_GROUPS: SidebarOptions["groups"] = [
+  { items: [{ label: "Home", href: "#sidebar", icon: "play", isCurrent: true }, { label: "Your games", href: "#sidebar", icon: "person", badgeCount: 3 }, { label: "Friends", href: "#sidebar", icon: "friends" }] },
+  { heading: "Developers", items: [{ label: "Dashboard", href: "#sidebar", icon: "code" }, { label: "Forum", href: "#sidebar", icon: "mail", badgeCount: 12 }, { label: "Settings", href: "#sidebar", icon: "gear" }] },
+];
+
+component({
+  name: "Sidebar",
+  slug: "sidebar",
+  group: "navigation",
+  summary: "A glass column down the side of a page: the places in it, in groups, with the one you're on marked. It narrows to icons in tight spaces; on a phone, pages swap it for tabs.",
+  styles: `
+/* The sidebar: a glass pane holding a list. Each place is a slanted tab; the current one is a white slab with an orange line. */
+.sidebar { display: flex; flex: 1; min-height: 0; width: 100%; }
+.sidebar-in { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; display: grid; gap: 14px; align-content: start; }
+.sidebar-group ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.sidebar-heading { margin: 0 0 6px; padding: 0 14px; font: 500 13px var(--display); color: var(--muted); }
+.sidebar a { position: relative; display: flex; align-items: center; gap: 10px; height: 42px; padding: 0 14px; font: 500 16px var(--display); color: var(--ink-2); text-decoration: none;
+  clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%); transition: background 0.2s, color 0.2s, box-shadow 0.2s; }
+.sidebar a svg { width: 18px; height: 18px; flex: none; }
+.sidebar a:hover { background: var(--ghost); color: var(--ink); }
+.sidebar a:active { background: var(--btn); }
+.sidebar a[aria-current="page"] { background: var(--slab); color: var(--ink); font-weight: 600; box-shadow: inset 0 -3px 0 var(--run); }
+.sidebar a:focus-visible { outline: 2px solid var(--ink); outline-offset: -3px; }
+.sidebar-count { margin-left: auto; min-width: 22px; padding: 1px 7px; text-align: center; font: 600 12px var(--display); color: var(--ink-2); background: var(--well); box-shadow: var(--well-shade);
+  clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%); }
+.sidebar.is-collapsed { flex: none; width: 72px; }
+.sidebar.is-collapsed .sidebar-in { padding: 14px 10px; }
+.sidebar.is-collapsed a { justify-content: center; padding: 0; }
+.sidebar.is-collapsed .sidebar-label, .sidebar.is-collapsed .sidebar-count { display: none; }
+.sidebar.is-collapsed .sidebar-heading { height: 1px; margin: 0 14px 6px; padding: 0; overflow: hidden; font-size: 0; background: var(--line); }
+`,
+  render: sidebar,
+  examples: [
+    { label: "Groups, with counts", markup: html`<div style="width:min(260px,100%)">${sidebar({ label: "Example places", groups: SIDEBAR_EXAMPLE_GROUPS })}</div>` },
+    { label: "Collapsed to icons", markup: sidebar({ label: "Example places, collapsed", groups: SIDEBAR_EXAMPLE_GROUPS, isCollapsed: true }) },
+    { label: "Plain list", markup: html`<div style="width:min(260px,100%)">${sidebar({ label: "Example groups", groups: [{ items: ["Foundations", "Actions", "Inputs", "Navigation"].map((label, tabIndex) => ({ label, href: "#sidebar", isCurrent: tabIndex === 1 })) }] })}</div>` },
   ],
 });

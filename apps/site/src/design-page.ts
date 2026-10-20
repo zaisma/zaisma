@@ -7,6 +7,7 @@ import { CUT_LINE, EDGE, WORDMARK, railMarkup } from "./components/foundations.t
 import { cutButton, runButton } from "./components/actions.ts";
 import { cutField, tabSwitch } from "./components/inputs.ts";
 import { glassPane } from "./components/panes.ts";
+import { sidebar } from "./components/navigation.ts";
 
 /*
  * zaisma.com/design: every component of Zaisma's look in every state, in light and dark, a page per group. It's
@@ -82,7 +83,7 @@ ${head(`${groupName} · Design · Zaisma`)}
 <header class="gallery-bar glass" data-glass data-glass-corners="16 6 16 6">${EDGE}<a class="logo" href="/" aria-label="Zaisma home">${WORDMARK}</a><span class="gallery-title">Design</span>
 ${themeButton(group, theme)}</header>
 <div class="gallery-layout">
-<div class="gallery-index glass" data-glass data-glass-corners="14 6 14 6"><nav class="gallery-index-in" aria-label="Groups"><ul>${groupTabs.map((tab) => html`<li><a href="${tab.href}" data-gallery-page="${tab.href.split("?")[0]}"${tab.isCurrent ? raw(' aria-current="page"') : ""}>${tab.label}</a></li>`)}</ul></nav></div>
+<div class="gallery-index">${sidebar({ label: "Groups", groups: [{ items: groupTabs.map((tab) => ({ label: tab.label, href: tab.href, isCurrent: tab.isCurrent, extra: raw(` data-gallery-page="${tab.href.split("?")[0]}"`) })) }] })}</div>
 <div class="gallery-groups">${tabSwitch({ label: "Groups", switchSize: "small", tabs: groupTabs })}</div>
 <main class="gallery-main">
 <h1 class="group-name">${groupName}</h1>
@@ -116,14 +117,6 @@ body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
 .stage[data-theme-choice="dark"] .theme-sun, .stage:not([data-theme-choice="dark"]) .theme-moon { display: none; }
 .gallery-layout { max-width: 1480px; margin: 0 auto; padding: 18px 12px 80px; display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 18px; align-items: start; }
 .gallery-index { position: sticky; top: 100px; display: flex; max-height: calc(100vh - 114px); }
-.gallery-index-in { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; }
-/* The groups, one page each. The one you're on carries the white slab with the orange line, like a tab. */
-.gallery-index ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
-.gallery-index a { position: relative; display: flex; align-items: center; height: 42px; padding: 0 14px; font: 500 16px var(--display); color: var(--ink-2); text-decoration: none;
-  clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%); transition: background 0.2s; }
-.gallery-index a:hover { background: var(--ghost); color: var(--ink); }
-.gallery-index a[aria-current="page"] { background: var(--slab); color: var(--ink); font-weight: 600; box-shadow: inset 0 -3px 0 var(--run); }
-.gallery-index a:focus-visible { outline: 2px solid var(--ink); outline-offset: -3px; }
 .gallery-groups { display: none; }
 .gallery-main { min-width: 0; }
 .group-name { margin: 0 0 14px; font: 600 30px/1.1 var(--display); color: var(--ink); display: inline-block; padding: 8px 22px; background: var(--glass-tint); clip-path: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%); }
