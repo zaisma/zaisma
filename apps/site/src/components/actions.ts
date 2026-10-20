@@ -59,7 +59,7 @@ export interface CutButtonOptions extends ButtonTarget {
 /** A secondary button: a cut slab of clearer glass with a drawn outline. It brightens under the pointer and gives under a press. A delete is one too, never orange. */
 export function cutButton(label: string, options: CutButtonOptions = {}): Raw {
   const className = classes("cut-btn", options.isBig && "big", options.isFullWidth && "is-full", options.state);
-  return html`${opening(className, options, options.isBusy)}<span class="face" data-cut-line="10">${CUT_LINE}${options.icon ? icon(options.icon) : ""}<span>${label}</span></span>${closing(options)}`;
+  return html`${opening(className, options, options.isBusy)}<span class="face" data-cut-line="${options.isBig ? 13 : 10}">${CUT_LINE}${options.icon ? icon(options.icon) : ""}<span>${label}</span></span>${closing(options)}`;
 }
 
 const GOOGLE = raw(
@@ -247,7 +247,8 @@ component({
   font: 600 15px var(--display); color: var(--ink); white-space: nowrap;
   background: var(--btn); clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
   transition: background-color 0.2s, box-shadow 0.2s, transform 0.4s ${SPRING}; }
-.cut-btn.big > .face { height: 56px; padding: 0 28px; font-size: 17px; }
+/* Big keeps the same slant angle as the rest, so it is the same button, larger. */
+.cut-btn.big > .face { height: 56px; padding: 0 28px; font-size: 17px; clip-path: polygon(13px 0, 100% 0, calc(100% - 13px) 100%, 0 100%); }
 .cut-btn:hover > .face, .cut-btn.is-pointed > .face { background: var(--btn-hover); }
 .cut-btn:hover .cut-line polygon, .cut-btn.is-pointed .cut-line polygon { stroke: var(--muted); }
 .cut-btn:active > .face, .cut-btn.is-pressed > .face { background: var(--btn-press); box-shadow: var(--press-shade); transform: translateY(1px) scale(0.965); transition-duration: 0.08s; }
@@ -266,7 +267,7 @@ component({
     ...stateExamples((state) => cutButton("Details", { type: "button", state }), "cut"),
     { label: "Busy", markup: cutButton("Saving", { type: "button", isBusy: true }), isStill: true },
     { label: "With an icon", markup: cutButton("Settings", { type: "button", icon: "gear" }) },
-    { label: "Big, beside Play", markup: html`<div style="display:flex;gap:12px">${runButton("Play", { type: "button", isBig: true, icon: "play" })}${cutButton("Details", { type: "button", isBig: true })}</div>` },
+    { label: "Big, beside Play", markup: html`<div style="display:flex;align-items:flex-start;gap:12px">${runButton("Play", { type: "button", isBig: true, icon: "play" })}${cutButton("Details", { type: "button", isBig: true })}</div>` },
     { label: "Full width", markup: html`<div style="width:min(380px,100%)">${cutButton("Make an account", { type: "button", isFullWidth: true })}</div>` },
     { label: "A delete", markup: cutButton("Delete this game", { type: "button" }) },
   ],
