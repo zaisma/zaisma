@@ -81,10 +81,10 @@ ${head(`${groupName} · Design · Zaisma`)}
 <body class="gallery">
 <div id="stage" class="stage" data-theme-choice="${theme}">
 <header class="gallery-bar glass" data-glass data-glass-corners="16 6 16 6">${EDGE}<a class="logo" href="/" aria-label="Zaisma home">${WORDMARK}</a><span class="gallery-title">Design</span>
-${themeButton(group, theme)}</header>
+${themeButton(group, theme)}
+<div class="gallery-groups">${tabSwitch({ label: "Groups", switchSize: "small", tabs: groupTabs })}</div></header>
 <div class="gallery-layout">
 <div class="gallery-index">${sidebar({ label: "Groups", groups: [{ items: groupTabs.map((tab) => ({ label: tab.label, href: tab.href, isCurrent: tab.isCurrent, extra: raw(` data-gallery-page="${tab.href.split("?")[0]}"`) })) }] })}</div>
-<div class="gallery-groups">${tabSwitch({ label: "Groups", switchSize: "small", tabs: groupTabs })}</div>
 <main class="gallery-main">
 <h1 class="group-name">${groupName}</h1>
 ${components.filter((each) => each.group === group).map((each) => section(each, theme))}
@@ -166,22 +166,28 @@ body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
 @media (hover: hover) and (pointer: fine) and (min-width: 761px) { .gallery-layout { padding-right: 34px; } }
 /* Phones: the bar is one row (Zaisma, Design, light or dark), the groups a row of tabs under it that scrolls sideways, and every example a column of its own. */
 @media (max-width: 760px) {
-  html { scroll-padding-top: 70px; }
+  html { scroll-padding-top: 130px; }
   .stage { padding-top: 10px; }
   .gallery-layout { grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 12px 10px 60px; }
   .gallery-index { display: none; }
-  .gallery-groups { display: block; position: sticky; top: 10px; z-index: 15; overflow-x: auto; scrollbar-width: none; margin: 0 -10px; padding: 0 10px; }
+  /* The groups are a row of tabs inside the floating bar, which sticks as the page scrolls. At the very top the bar is roomy; once the page moves it tightens to the row and the tabs. */
+  .gallery-groups { display: block; flex: 1 0 100%; min-width: 0; overflow-x: auto; scrollbar-width: none; --fade-l: 0px; --fade-r: 0px;
+    -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 var(--fade-l), #000 calc(100% - var(--fade-r)), transparent 100%);
+    mask-image: linear-gradient(90deg, transparent 0, #000 var(--fade-l), #000 calc(100% - var(--fade-r)), transparent 100%); }
   .gallery-groups::-webkit-scrollbar { display: none; }
   .gallery-groups .tab-switch { width: max-content; }
-  /* More groups carry on past the edge: that side fades out. */
-  .gallery-groups { -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent); mask-image: linear-gradient(90deg, #000 85%, transparent); }
-  .gallery-bar { position: relative; top: 0; width: calc(100% - 20px); min-height: 56px; flex-wrap: nowrap; gap: 12px; padding: 8px 10px 8px 16px; }
-  .gallery-bar .logo svg { height: 20px; }
+  /* Only a side with more tabs past it fades, so the last tab is never under the fade at the end. */
+  .gallery-groups.more-left { --fade-l: 28px; }
+  .gallery-groups.more-right { --fade-r: 28px; }
+  .gallery-bar { position: sticky; top: 10px; width: calc(100% - 20px); min-height: 56px; flex-wrap: wrap; align-items: center; gap: 14px 12px; padding: 16px 12px 16px 16px; transition: padding 0.25s, gap 0.25s; }
+  .gallery-bar.is-scrolled { gap: 8px 12px; padding: 8px 10px 10px 16px; }
+  .gallery-bar .logo svg { height: 22px; transition: height 0.25s; }
+  .gallery-bar.is-scrolled .logo svg { height: 18px; }
   .gallery-title { font-size: 16px; padding-left: 10px; }
   .theme-button { flex: none; }
   .theme-button > .face { height: 40px; width: 48px; }
   .group-name { font-size: 24px; padding: 6px 16px; }
-  .component-section { scroll-margin-top: 70px; margin-bottom: 26px; }
+  .component-section { scroll-margin-top: 130px; margin-bottom: 26px; }
   .component-head { padding: 14px 16px; }
   .component-head h2 { font-size: 20px; }
   .examples { grid-template-columns: minmax(0, 1fr); gap: 10px; }
@@ -238,6 +244,17 @@ export const GALLERY_SCRIPT = pageScript(
   // On a phone, the row of groups starts scrolled to the one you're on.
   var groups = document.querySelector(".gallery-groups"), here = groups && groups.querySelector('[aria-current="page"]');
   if (here) groups.scrollLeft = Math.max(0, here.offsetLeft - (groups.clientWidth - here.offsetWidth) / 2);
+  // The floating bar tightens once the page moves, and the row fades only on a side that has more tabs past it.
+  var bar = document.querySelector(".gallery-bar");
+  function syncBar() { bar.classList.toggle("is-scrolled", window.scrollY > 24); }
+  function syncFade() {
+    if (!groups) return;
+    groups.classList.toggle("more-left", groups.scrollLeft > 2);
+    groups.classList.toggle("more-right", groups.scrollLeft + groups.clientWidth < groups.scrollWidth - 2);
+  }
+  window.addEventListener("scroll", syncBar, { passive: true }); window.addEventListener("resize", syncFade);
+  if (groups) groups.addEventListener("scroll", syncFade, { passive: true });
+  syncBar(); syncFade();
   document.addEventListener("submit", function (event) { if (event.target.closest(".example-stage")) event.preventDefault(); });
   // Glass at any size: drag the window about, pull its corner to resize it, or use the arrow keys (Shift resizes).
   document.querySelectorAll("[data-glass-play]").forEach(function (play) {
