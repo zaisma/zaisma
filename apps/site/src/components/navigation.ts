@@ -56,7 +56,7 @@ export function header(options: HeaderOptions): Raw {
         { label: "Sign out", icon: "sign-out", action: "/signout" },
       ]
     : [];
-  return html`<header class="top glass${options.isCompact ? " is-compact" : ""}" id="${id}" data-glass data-glass-corners="16 6 16 6"${options.isCompact ? raw(" data-stays-compact") : ""}>${EDGE}
+  return html`<header class="top glass${options.isCompact ? " is-compact" : ""}" id="${id}" data-compacts data-glass data-glass-corners="16 6 16 6"${options.isCompact ? raw(" data-stays-compact") : ""}>${EDGE}
   ${logo}
   <nav class="nav cut-carved" aria-label="Main" data-cut-line="10">${CUT_LINE}<div class="nav-row" data-fades-sideways><span class="ghost" aria-hidden="true" data-cut-line="8"></span><span class="slab cut-raised" aria-hidden="true" data-cut-line="8">${CUT_LINE}</span>${tab("Home", "/", options.current === "home")}${account && options.yourGamesHref ? tab("Your games", options.yourGamesHref, options.current === "your-games") : ""}${tab("Developer", account ? "/dashboard" : "/developers", options.current === "developer", true, isOpen)}${tab("Forum", "/forum", options.current === "forum", true, isOpen)}</div></nav>
   ${options.search ? html`${searchField(options.search)}<button type="button" class="find-open" aria-label="${options.search.label}" aria-expanded="false">${icon("search")}</button>` : ""}
@@ -179,10 +179,7 @@ export const HEADER_SCRIPT = pageScript(
   var phone = function () { return window.innerWidth <= 760; };
   var headers = Array.prototype.slice.call(document.querySelectorAll("header.top:not(.is-logo-only)"));
   headers.forEach(function (top) {
-    var frame = top.parentElement && top.parentElement.querySelector("[data-scroll-box]"), scroller = frame || window;
-    /* Once the page scrolls, the slab gets slimmer and everything in it shrinks to fit. */
-    function scrolled() { if (top.hasAttribute("data-stays-compact")) return; top.classList.toggle("is-compact", (frame ? frame.scrollTop : window.scrollY) > 24); }
-    scroller.addEventListener("scroll", scrolled, { passive: true }); scrolled();
+    /* Once the page scrolls, the slab gets slimmer and everything in it shrinks to fit (COMPACT_SCRIPT, data-compacts). */
 
     /* Where you are: the white slab sits under the current page; a faint one follows the pointer across the others. */
     var nav = top.querySelector(".nav"), slab = nav.querySelector(".slab"), ghost = nav.querySelector(".ghost"), links = nav.querySelectorAll("a"), devTabs = nav.querySelectorAll(".dev");
@@ -397,6 +394,35 @@ export const SIDEBAR_SCRIPT = `/* sidebar */(function () {
     slab.style.setProperty("--glide-from-px", (place.getBoundingClientRect().top - slab.getBoundingClientRect().top).toFixed(1) + "px");
     slab.classList.add("is-gliding");
     slab.addEventListener("animationend", function () { slab.classList.remove("is-gliding"); }, { once: true });
+  });
+})();
+`;
+
+/**
+ * A bar that slims once the page scrolls ([data-compacts]: the header, the gallery's bar): it turns compact past COMPACT_AT_PX and
+ * roomy again only back at the very top, so the page shifting as it slims can't flip it back and forth. Stopping between the top and
+ * SETTLE_PX, the page glides on: to the top when you were scrolling up, past the change when you were scrolling down. A bar over a
+ * stand-in page (the gallery's header examples) follows that page's box, [data-scroll-box]; data-stays-compact keeps it compact.
+ */
+export const COMPACT_SCRIPT = `/* compact bars */(function () {
+  var COMPACT_AT_PX = 24, SETTLE_PX = 56, still = window.matchMedia("(prefers-reduced-motion: reduce)");
+  document.querySelectorAll("[data-compacts]").forEach(function (bar) {
+    if (bar.hasAttribute("data-stays-compact")) { bar.classList.add("is-compact"); return; }
+    var box = bar.parentElement && bar.parentElement.querySelector("[data-scroll-box]"), scroller = box || window;
+    function at() { return box ? box.scrollTop : window.scrollY; }
+    var fromY = null, timer = 0;
+    function sync() { var y = at(); if (y > COMPACT_AT_PX) bar.classList.add("is-compact"); else if (y <= 0) bar.classList.remove("is-compact"); }
+    function settle() {
+      var y = at(), wasGoingDown = fromY === null || y >= fromY; fromY = null;
+      if (y <= 0 || y >= SETTLE_PX) return;
+      scroller.scrollTo({ top: wasGoingDown ? SETTLE_PX : 0, behavior: still.matches ? "auto" : "smooth" });
+    }
+    scroller.addEventListener("scroll", function () {
+      if (fromY === null) fromY = at();
+      sync(); clearTimeout(timer); timer = setTimeout(settle, 160);
+    }, { passive: true });
+    if ("onscrollend" in window) scroller.addEventListener("scrollend", function () { clearTimeout(timer); settle(); });
+    sync();
   });
 })();
 `;

@@ -74,7 +74,7 @@ ${head(`${groupName} · Design · Zaisma`)}
 </head>
 <body class="gallery">
 <div id="stage" class="stage"${pageSettingsAttributes({ theme })}>${backdrop()}
-<header class="gallery-bar glass" data-rail-starts-below data-glass data-glass-corners="16 6 16 6">${EDGE}<a class="logo" href="/" aria-label="Zaisma home">${WORDMARK}</a><span class="gallery-title">Design</span>
+<header class="gallery-bar glass" data-compacts data-rail-starts-below data-glass data-glass-corners="16 6 16 6">${EDGE}<a class="logo" href="/" aria-label="Zaisma home">${WORDMARK}</a><span class="gallery-title">Design</span>
 ${themeButton(group, theme)}
 <div class="gallery-groups cut-carved" data-cut-line="9">${CUT_LINE}<div class="gallery-groups-row" data-fades-sideways>${tabSwitch({ label: "Groups", switchSize: "small", tabs: groupTabs, isFramed: true })}</div></div></header>
 <div class="gallery-layout">
@@ -169,13 +169,13 @@ body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
   /* One even inset all round, and the same between the rows, so the tabs' frame and the light or dark button sit the same distance
      from every edge of the pane; compact keeps it even, only smaller. */
   .gallery-bar { position: sticky; top: 10px; width: calc(100% - 20px); min-height: 56px; flex-wrap: wrap; align-items: center; gap: 14px 12px; padding: 14px; transition: var(--glass-transition), padding 0.25s, gap 0.25s; }
-  .gallery-bar.is-scrolled { gap: 10px 12px; padding: 10px; }
+  .gallery-bar.is-compact { gap: 10px 12px; padding: 10px; }
   .gallery-bar .logo svg { height: 22px; transition: height 0.25s; }
-  .gallery-bar.is-scrolled .logo svg { height: 18px; }
+  .gallery-bar.is-compact .logo svg { height: 18px; }
   .gallery-title { font-size: 16px; padding-left: 10px; }
   .theme-button { flex: none; }
   .theme-button > .face { height: 40px; width: 48px; transition: height 0.25s; }
-  .gallery-bar.is-scrolled .theme-button > .face { height: 36px; }
+  .gallery-bar.is-compact .theme-button > .face { height: 36px; }
   .component-section { scroll-margin-top: 130px; margin-bottom: 26px; }
   .component-head { padding: 14px 16px; }
   .component-head h2 { font-size: 20px; }
@@ -229,11 +229,6 @@ export const GALLERY_SCRIPT = pageScript(
     var link = event.target.closest && event.target.closest('.example-stage a[href^="#"], .example-stage a[href^="/"]');
     if (link) event.preventDefault();
   });
-  // The floating bar tightens once the page moves.
-  var bar = document.querySelector(".gallery-bar");
-  function syncBar() { bar.classList.toggle("is-scrolled", window.scrollY > 24); }
-  window.addEventListener("scroll", syncBar, { passive: true });
-  syncBar();
   document.addEventListener("submit", function (event) { if (event.target.closest(".example-stage")) event.preventDefault(); });
   // The backdrop's 3D scene example: a cut-cornered slab turning slowly, drawn on each backdrop-frame in the theme's colours.
   document.querySelectorAll('.example-stage canvas[data-backdrop="scene"]').forEach(function (canvas) {
