@@ -170,13 +170,16 @@ body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
   .gallery-groups-row.more-left { --fade-l: 28px; }
   .gallery-groups-row.more-right { --fade-r: 28px; }
   .gallery-groups .tab-switch { width: max-content; }
-  .gallery-bar { position: sticky; top: 10px; width: calc(100% - 20px); min-height: 56px; flex-wrap: wrap; align-items: center; gap: 14px 12px; padding: 16px 12px 16px 16px; transition: padding 0.25s, gap 0.25s; }
-  .gallery-bar.is-scrolled { gap: 8px 12px; padding: 8px 10px 10px 16px; }
+  /* One even inset all round, and the same between the rows, so the tabs' frame and the light or dark button sit the same distance
+     from every edge of the pane; compact keeps it even, only smaller. */
+  .gallery-bar { position: sticky; top: 10px; width: calc(100% - 20px); min-height: 56px; flex-wrap: wrap; align-items: center; gap: 14px 12px; padding: 14px; transition: padding 0.25s, gap 0.25s; }
+  .gallery-bar.is-scrolled { gap: 10px 12px; padding: 10px; }
   .gallery-bar .logo svg { height: 22px; transition: height 0.25s; }
   .gallery-bar.is-scrolled .logo svg { height: 18px; }
   .gallery-title { font-size: 16px; padding-left: 10px; }
   .theme-button { flex: none; }
-  .theme-button > .face { height: 40px; width: 48px; }
+  .theme-button > .face { height: 40px; width: 48px; transition: height 0.25s; }
+  .gallery-bar.is-scrolled .theme-button > .face { height: 36px; }
   .group-name { font-size: 24px; padding: 6px 16px; }
   .component-section { scroll-margin-top: 130px; margin-bottom: 26px; }
   .component-head { padding: 14px 16px; }
