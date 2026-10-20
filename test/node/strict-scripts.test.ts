@@ -11,7 +11,8 @@ import { pageScripts } from "../../apps/site/src/page-scripts.ts";
  */
 
 const SITE = join(import.meta.dirname, "../../apps/site/src");
-const sources = readdirSync(SITE)
+// The site's own modules and its components (components/), not the generated data files.
+const sources = [...readdirSync(SITE), ...readdirSync(join(SITE, "components")).map((name) => `components/${name}`)]
   .filter((name) => name.endsWith(".ts"))
   .map((name) => ({ name, text: readFileSync(join(SITE, name), "utf8") }));
 

@@ -1,5 +1,7 @@
 # Design: Steel
 
+Every component, in every state, is on [zaisma.com/design](https://zaisma.com/design), rendered from the site's own code (`apps/site/src/components/`).
+
 How Zaisma looks and behaves until the redesign at the end of Phase 1, when Julius and Claude settle a new look, voice, logo and wordmark from what Zaisma stands for (`docs/PLAN.md`) and every page is rebuilt in it (Look and voice in `docs/ROADMAP.md`). The styles live in `apps/site/src/html.ts` (`STYLES`, `METAL_SCRIPT`, `AMBIENT_SCRIPT`, `metalButton`, `ambient`).
 
 Steel is a theme, not a flat UI: like a console's big-screen mode, every page is made of materials and lit by the game on it. Three materials, and nothing else:

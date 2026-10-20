@@ -76,8 +76,8 @@ describe("every page runs only the site's own script files", () => {
     expect((await checkPage(`${SITE}/g/strict-draft`)).status).toBe(404);
   });
 
-  it("signing in, making an account, profiles, the forum and the rules", async () => {
-    for (const path of ["/signin", "/signin?next=%2Fg%2Fstrict-solo", "/signin/email", "/join", "/@Strict_Dev", "/forum", `/forum/${topicId}`, "/forum/out?to=https%3A%2F%2Fexample.com%2Fpage", "/forum/out?to=javascript%3Aalert(1)", "/legal/content-rules", "/legal/privacy", "/legal/dmca", "/legal/security", "/no-such-page", "/dashboard", "/friends"]) {
+  it("signing in, making an account, profiles, the forum, the rules and the design gallery", async () => {
+    for (const path of ["/signin", "/signin?next=%2Fg%2Fstrict-solo", "/signin/email", "/join", "/@Strict_Dev", "/forum", `/forum/${topicId}`, "/forum/out?to=https%3A%2F%2Fexample.com%2Fpage", "/forum/out?to=javascript%3Aalert(1)", "/legal/content-rules", "/legal/privacy", "/legal/dmca", "/legal/security", "/no-such-page", "/dashboard", "/friends", "/design", "/design?backdrop=scene&width=phone", "/design/frame/runner-button"]) {
       await checkPage(`${SITE}${path}`);
     }
   });
