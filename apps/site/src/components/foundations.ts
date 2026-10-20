@@ -79,6 +79,10 @@ export const TOKEN_STYLES = `
 @property --refl { syntax: "<percentage>"; inherits: false; initial-value: 50%; }
 @property --tint-colour { syntax: "<color>"; inherits: false; initial-value: transparent; }
 @property --tint-pct { syntax: "<percentage>"; inherits: false; initial-value: 0%; }
+/* Registered, so a change of hue eases over half a second, like a change of theme, instead of cutting. */
+@property --glass-hue { syntax: "<color>"; inherits: true; initial-value: transparent; }
+.eases-settings { transition: --glass-hue 0.5s ease; }
+@media (prefers-reduced-motion: reduce) { .eases-settings { transition: none; } }
 /* Moving between Zaisma's pages crossfades, so a page change never flashes. */
 @media (prefers-reduced-motion: no-preference) { @view-transition { navigation: auto; } }
 :root {
@@ -386,6 +390,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   window.zaismaSettings = {
     set: function (settings, element) {
       var target = element || document.documentElement;
+      target.classList.add("eases-settings");
       if (settings.theme !== undefined) { if (settings.theme === "light" || settings.theme === "dark") target.setAttribute("data-theme-choice", settings.theme); else target.removeAttribute("data-theme-choice"); }
       var glass = settings.glass;
       if (glass && glass.hueColour !== undefined) { if (typeof glass.hueColour === "string" && /^#[0-9a-fA-F]{6}$/.test(glass.hueColour)) target.style.setProperty("--glass-hue", glass.hueColour); else target.style.removeProperty("--glass-hue"); }
