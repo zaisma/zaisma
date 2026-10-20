@@ -50,7 +50,7 @@ const MOON = raw('<svg class="theme-moon" viewBox="0 0 20 20" width="20" height=
 
 /** Light or dark: one cut button showing the theme you're in, a sun or a moon; pressing it switches to the other. */
 const themeButton = (group: ComponentGroup, theme: GalleryTheme) =>
-  html`<a class="cut-btn theme-button" href="${groupPath(group)}${themeQuery(theme === "dark" ? "light" : "dark")}" data-cut-line="10" aria-label="${theme === "dark" ? "Dark. Switch to light" : "Light. Switch to dark"}">${CUT_LINE}${SUN}${MOON}</a>`;
+  html`<a class="shell cut-btn theme-button" href="${groupPath(group)}${themeQuery(theme === "dark" ? "light" : "dark")}" aria-label="${theme === "dark" ? "Dark. Switch to light" : "Light. Switch to dark"}"><span class="face" data-cut-line="10">${CUT_LINE}${SUN}${MOON}</span></a>`;
 
 function head(title: string): Raw {
   return html`<meta charset="utf-8">
@@ -110,7 +110,8 @@ body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
   background-color: var(--glass-top); -webkit-backdrop-filter: blur(22px) saturate(1.7); backdrop-filter: blur(22px) saturate(1.7); }
 .gallery-bar .logo svg { height: 24px; }
 .gallery-title { font: 600 18px var(--display); color: var(--ink-2); padding-left: 14px; border-left: 1px solid var(--line); }
-.theme-button { margin-left: auto; width: 52px; padding: 0; }
+.theme-button { margin-left: auto; }
+.theme-button > .face { width: 52px; padding: 0; }
 .theme-button .theme-sun, .theme-button .theme-moon { position: relative; z-index: 2; flex: none; }
 .stage[data-theme-choice="dark"] .theme-sun, .stage:not([data-theme-choice="dark"]) .theme-moon { display: none; }
 .gallery-layout { max-width: 1480px; margin: 0 auto; padding: 18px 12px 80px; display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 18px; align-items: start; }
@@ -184,7 +185,8 @@ body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
   .gallery-bar { position: relative; top: 0; width: calc(100% - 20px); min-height: 56px; flex-wrap: nowrap; gap: 12px; padding: 8px 10px 8px 16px; }
   .gallery-bar .logo svg { height: 20px; }
   .gallery-title { font-size: 16px; padding-left: 10px; }
-  .theme-button { flex: none; height: 40px; width: 48px; }
+  .theme-button { flex: none; }
+  .theme-button > .face { height: 40px; width: 48px; }
   .group-name { font-size: 24px; padding: 6px 16px; }
   .component-section { scroll-margin-top: 70px; margin-bottom: 26px; }
   .component-head { padding: 14px 16px; }

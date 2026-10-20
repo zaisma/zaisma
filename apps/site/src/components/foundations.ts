@@ -23,7 +23,7 @@ const LIGHT_GLASS = `color-scheme: light;
   --pick: rgba(255, 255, 255, 0.42); --pick-shade: inset 0 1px 3px rgba(20, 23, 28, 0.1), inset 0 0 0 1px rgba(255, 255, 255, 0.5);
   --done: rgba(255, 255, 255, 0.7); --done-line: inset 0 0 0 1px rgba(20, 23, 28, 0.1);
   --glass-btn-face: rgba(255, 255, 255, 0.36); --glass-btn-hover: rgba(255, 255, 255, 0.72); --glass-btn-press: rgba(255, 255, 255, 0.26); --glass-btn-glow: rgba(255, 255, 255, 1);
-  --glass-btn-lift: inset 0 -12px 18px -12px rgba(30, 60, 110, 0.2), inset 0 1px 0 #fff; --glass-btn-hair: rgba(26, 44, 80, 0.5);
+  --glass-btn-lift: inset 0 -12px 18px -12px rgba(30, 60, 110, 0.2), inset 0 1px 0 #fff; --glass-btn-hair: rgba(26, 44, 80, 0.26); --glass-btn-hair-rest: rgba(26, 44, 80, 0.12);
   --clear-hover: rgba(255, 255, 255, 0.45); --clear-press: rgba(255, 255, 255, 0.25);
   --chip-face: #DDF2E5; --chip-ink: #136238; --face-ring: rgba(255, 255, 255, 0.85); --presence-ring: #fff;
   --rail-line: rgba(20, 23, 28, 0.2); --rail-thumb: rgba(24, 28, 36, 0.55); --rail-edge: rgba(255, 255, 255, 0.55); --rail-mark: rgba(20, 23, 28, 0.45);
@@ -47,7 +47,7 @@ const SMOKED_GLASS = `color-scheme: dark;
   --pick: rgba(255, 255, 255, 0.06); --pick-shade: inset 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
   --done: rgba(255, 255, 255, 0.12); --done-line: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
   --glass-btn-face: rgba(255, 255, 255, 0.07); --glass-btn-hover: rgba(255, 255, 255, 0.15); --glass-btn-press: rgba(255, 255, 255, 0.04); --glass-btn-glow: rgba(255, 255, 255, 0.3);
-  --glass-btn-lift: inset 0 -12px 18px -12px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.22); --glass-btn-hair: rgba(255, 255, 255, 0.4);
+  --glass-btn-lift: inset 0 -12px 18px -12px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.22); --glass-btn-hair: rgba(255, 255, 255, 0.28); --glass-btn-hair-rest: rgba(26, 44, 80, 0.28);
   --clear-hover: rgba(255, 255, 255, 0.08); --clear-press: rgba(255, 255, 255, 0.04);
   --chip-face: rgba(52, 211, 120, 0.22); --chip-ink: #A6F0C6; --face-ring: rgba(6, 8, 12, 0.55); --presence-ring: #1A1D24;
   --rail-line: rgba(255, 255, 255, 0.2); --rail-thumb: rgba(255, 255, 255, 0.55); --rail-edge: rgba(255, 255, 255, 0.35); --rail-mark: rgba(255, 255, 255, 0.5);
@@ -83,6 +83,13 @@ export const TOKEN_STYLES = `
 [data-theme-choice="dark"] { ${SMOKED_GLASS} --page: #0D1015; }
 .smoke { ${SMOKED_GLASS} }
 *, *::before, *::after { box-sizing: border-box; }
+/* Still under the pointer: what you point at or press never moves; only what's inside it does. A button is a still
+   shell (the link or button itself, which takes the pointer) around its face (.face), which lifts, sinks, leans or
+   shrinks. If the shell moved, a pointer near its edge would slip off as it moved, the button would move back under
+   it, and it would flicker. The face takes no pointer of its own, so the shell's box alone decides what you're over.
+   design.test.ts checks every component's CSS for this. */
+.shell { position: relative; display: inline-flex; margin: 0; padding: 0; border: 0; background: none; font: inherit; color: inherit; text-decoration: none; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.shell > .face { pointer-events: none; }
 [hidden] { display: none !important; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
@@ -191,7 +198,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       };
     }
     function draw() {
-      var w = el.offsetWidth, h = el.offsetHeight, c = corners(), band = 6;
+      var w = el.offsetWidth, h = el.offsetHeight, c = corners(), band = Number(el.getAttribute("data-glass-band")) || 6;
       if (!w || !h) return;
       if (!parts) build();
       var key = c.join(",");

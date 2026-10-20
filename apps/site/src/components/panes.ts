@@ -270,7 +270,7 @@ component({
   examples: [
     {
       label: "Open, from a button",
-      markup: html`<div class="menu-frame">${raw('<button type="button" class="cut-btn" data-cut-line="10" aria-controls="example-menu" aria-expanded="true">')}<svg class="cut-line" aria-hidden="true"><polygon/></svg><span>Your account</span></button>${accountMenu({ id: "example-menu", label: "Your account", who: { name: "emma_r", note: "Online" }, items: MENU_ITEMS, isOpen: true })}</div>`,
+      markup: html`<div class="menu-frame">${raw('<button type="button" class="shell cut-btn" aria-controls="example-menu" aria-expanded="true"><span class="face" data-cut-line="10">')}<svg class="cut-line" aria-hidden="true"><polygon/></svg><span>Your account</span></span></button>${accountMenu({ id: "example-menu", label: "Your account", who: { name: "emma_r", note: "Online" }, items: MENU_ITEMS, isOpen: true })}</div>`,
     },
   ],
 });

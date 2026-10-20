@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import "../../apps/site/src/index.ts";
 import { COMPONENTS, COMPONENT_STYLES } from "../../apps/site/src/components/index.ts";
 import { COMPONENT_GROUPS, component } from "../../apps/site/src/components/component.ts";
-import { groupPath } from "../../apps/site/src/design-page.ts";
+import { GALLERY_STYLES, groupPath } from "../../apps/site/src/design-page.ts";
 import * as actions from "../../apps/site/src/components/actions.ts";
 import * as inputs from "../../apps/site/src/components/inputs.ts";
 import * as navigation from "../../apps/site/src/components/navigation.ts";
@@ -61,6 +61,22 @@ describe("the gallery", () => {
     expect(() => component({ name: "Bad", slug: "Not_A_Slug", group: "actions", summary: "", styles: "", examples: [] })).toThrow(/lowercase/);
   });
 
+  it("never moves what you point at or press, only what's inside it, so the pointer can't slip off as it moves", () => {
+    // A rule whose subject (the last part of its selector) is in a pointer state must not move that element.
+    // Moving what's inside it (a shell's .face) is how a component lifts or sinks; see "Still under the pointer" in TOKEN_STYLES.
+    const POINTER_STATE = /:hover|:active|\.is-pointed|\.is-pressed|\.over\b/;
+    const MOVES = /(^|[;{\s])(transform|translate|scale|rotate|top|left|right|bottom|inset|margin(-[a-z]+)?)\s*:/;
+    const problems: string[] = [];
+    for (const [, selectors = "", declarations = ""] of (COMPONENT_STYLES() + GALLERY_STYLES).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      if (!MOVES.test(declarations)) continue;
+      for (const selector of selectors.split(",").map((each) => each.trim())) {
+        const subject = selector.split(/[\s>+~]+/).pop() ?? "";
+        if (POINTER_STATE.test(subject) && !/::(before|after)/.test(subject)) problems.push(selector);
+      }
+    }
+    expect(problems).toEqual([]);
+  });
+
   it("opens light or dark from its address, and the other groups' pages keep it", async () => {
     for (const { group } of COMPONENT_GROUPS) {
       const { text } = await page(`${groupPath(group)}?theme=dark`);
@@ -86,8 +102,8 @@ describe("the gallery", () => {
 
 describe("components", () => {
   it("make the runner a link with an address and a button without one", () => {
-    expect(actions.runButton("Play", { href: "/g/x" }).html).toMatch(/<a class="run" href="\/g\/x">/);
-    expect(actions.runButton("Play").html).toMatch(/<button class="run" type="submit">/);
+    expect(actions.runButton("Play", { href: "/g/x" }).html).toMatch(/<a class="shell run-wrap" href="\/g\/x">/);
+    expect(actions.runButton("Play").html).toMatch(/<button class="shell run-wrap" type="submit">/);
   });
 
   it("give a password field its Show toggle, and an error its message", () => {

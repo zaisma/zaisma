@@ -21,13 +21,11 @@ interface ButtonTarget {
 /** The gallery's fixed states, so they sit still side by side. */
 type ButtonState = "is-pointed" | "is-pressed" | "is-focused";
 
-/** cutSlantPx gives it the drawn outline GLASS_SCRIPT draws along its slanted ends; extra adds attributes of its own. */
-const opening = (className: string, target: ButtonTarget, isBusy: boolean | undefined, cutSlantPx?: number, extra: Raw | "" = "") => {
-  const outline = cutSlantPx ? raw(` data-cut-line="${cutSlantPx}"`) : "";
-  return target.href
-    ? html`<a class="${className}" href="${target.href}"${outline}${extra}${isBusy ? raw(' aria-busy="true"') : ""}>`
-    : html`<button class="${className}" type="${target.type ?? "submit"}"${outline}${extra}${target.name ? html` name="${target.name}"` : ""}${target.buttonValue !== undefined ? html` value="${target.buttonValue}"` : ""}${isBusy ? raw(' aria-busy="true" disabled') : ""}>`;
-};
+/** The button itself: a still shell that takes the pointer (TOKEN_STYLES, "Still under the pointer"). What moves goes inside it, in its face. */
+const opening = (className: string, target: ButtonTarget, isBusy: boolean | undefined, extra: Raw | "" = "") =>
+  target.href
+    ? html`<a class="shell ${className}" href="${target.href}"${extra}${isBusy ? raw(' aria-busy="true"') : ""}>`
+    : html`<button class="shell ${className}" type="${target.type ?? "submit"}"${extra}${target.name ? html` name="${target.name}"` : ""}${target.buttonValue !== undefined ? html` value="${target.buttonValue}"` : ""}${isBusy ? raw(' aria-busy="true" disabled') : ""}>`;
 const closing = (target: ButtonTarget) => raw(target.href ? "</a>" : "</button>");
 const classes = (...names: (string | false | undefined)[]) => names.filter(Boolean).join(" ");
 
@@ -51,8 +49,8 @@ const anchored = (sceneAnchor: string | undefined, markup: Raw): Raw => (sceneAn
 /** The runner button: an orange slab with a side you can see. It lifts, leans toward the pointer and catches the light; pressing pushes its face down onto its side. */
 export function runButton(label: string, options: RunButtonOptions = {}): Raw {
   const words = options.busyLabel ? html`<span class="label-idle">${label}</span><span class="label-busy">${options.busyLabel}</span>` : html`<span>${label}</span>`;
-  const wrap = classes("run-wrap", options.isBig && "is-big", options.isFullWidth && "is-full", options.state);
-  return anchored(options.sceneAnchor, html`<span class="${wrap}"><span class="run-side" aria-hidden="true"></span>${opening(options.isBig ? "run big" : "run", options, options.isBusy)}${options.icon ? icon(options.icon) : ""}${words}${options.icon ? "" : ARROW}${closing(options)}</span>`);
+  const shell = classes("run-wrap", options.isBig && "is-big", options.isFullWidth && "is-full", options.state);
+  return anchored(options.sceneAnchor, html`${opening(shell, options, options.isBusy)}<span class="run-side" aria-hidden="true"></span><span class="${options.isBig ? "face run big" : "face run"}">${options.icon ? icon(options.icon) : ""}${words}${options.icon ? "" : ARROW}</span>${closing(options)}`);
 }
 
 export interface CutButtonOptions extends ButtonTarget {
@@ -68,7 +66,7 @@ export interface CutButtonOptions extends ButtonTarget {
 /** A secondary button: a cut slab of clearer glass with a drawn outline. It brightens under the pointer and gives under a press. A delete is one too, never orange. */
 export function cutButton(label: string, options: CutButtonOptions = {}): Raw {
   const className = classes("cut-btn", options.isBig && "big", options.isFullWidth && "is-full", options.state);
-  return anchored(options.sceneAnchor, html`${opening(className, options, options.isBusy, 10)}${CUT_LINE}${options.icon ? icon(options.icon) : ""}<span>${label}</span>${closing(options)}`);
+  return anchored(options.sceneAnchor, html`${opening(className, options, options.isBusy)}<span class="face" data-cut-line="10">${CUT_LINE}${options.icon ? icon(options.icon) : ""}<span>${label}</span></span>${closing(options)}`);
 }
 
 const GOOGLE = raw(
@@ -90,44 +88,45 @@ const WAY_TINTS: Record<keyof typeof WAY_ICONS, GlassTint> = { google: "white", 
 /** A glass button for another way in (a passkey, Google, Discord): a small slab of the panes' glass, with their rim. Quieter than the runner, louder than the guest way. */
 export function glassButton(label: string, options: { href?: string; type?: "submit" | "button"; icon: keyof typeof WAY_ICONS; tint?: GlassTint; state?: ButtonState }): Raw {
   const tint = options.tint ?? WAY_TINTS[options.icon];
-  const extra = raw(` data-glass data-glass-corners="12 4 12 4" data-tint="${tint}"`);
-  return html`${opening(classes("glass-btn", options.state), { href: options.href, type: options.type ?? "button" }, false, undefined, extra)}${WAY_ICONS[options.icon]}<span>${label}</span>${closing({ href: options.href })}`;
+  const target = { href: options.href, type: options.type ?? "button" } as const;
+  return html`${opening(classes("glass-btn", options.state), target, false, html` data-tint="${tint}"`)}<span class="face" data-glass data-glass-corners="12 4 12 4" data-glass-band="3">${WAY_ICONS[options.icon]}<span>${label}</span></span>${closing(target)}`;
 }
 
 const GUEST_ARROW = raw('<span class="arrow" aria-hidden="true"><svg viewBox="0 0 12 20" width="8" height="12"><path d="M2 2l8 8-8 8" fill="none" stroke="currentColor" stroke-width="2.4"/></svg></span>');
 
 /** The guest way: words and an arrow under the glass buttons, the quietest way on. Its cut slab shows only when you point at it, press it or tab to it. */
 export function guestButton(label: string, options: { href?: string; type?: "submit" | "button"; state?: ButtonState } = {}): Raw {
-  return html`${opening(classes("guest-btn", options.state), { href: options.href, type: options.type ?? "button" }, false, 10)}${CUT_LINE}<span>${label}</span>${GUEST_ARROW}${closing({ href: options.href })}`;
+  return html`${opening(classes("guest-btn", options.state), { href: options.href, type: options.type ?? "button" }, false)}<span class="face" data-cut-line="10">${CUT_LINE}<span>${label}</span>${GUEST_ARROW}</span>${closing({ href: options.href })}`;
 }
 
 /**
  * The runner button: it lifts and leans toward the pointer, a reflection slides the other way, and one glint sweeps as
- * the pointer arrives and always finishes. The lift and lean are set on its wrap, so its face and its side move together.
+ * the pointer arrives and always finishes. The pointer is followed on the still shell; the lift and lean are set there
+ * for its face and its side, which move inside it.
  * The glass buttons: their light follows the pointer across the glass.
  */
 export const RUNNER_SCRIPT = `/* runner */(function () {
   if (window.matchMedia("(prefers-reduced-motion: reduce)").matches || !window.matchMedia("(hover: hover)").matches) return;
-  function lean(button) {
-    if (button.dataset.lean) return; button.dataset.lean = "1";
-    var wrap = button.parentElement;
-    button.addEventListener("pointerenter", function () {
-      wrap.classList.add("over"); wrap.style.setProperty("--lift", "-1.5px");
-      if (!button.classList.contains("glint")) button.classList.add("glint");
+  function lean(shell) {
+    if (shell.dataset.lean) return; shell.dataset.lean = "1";
+    var face = shell.querySelector(".run"); if (!face) return;
+    shell.addEventListener("pointerenter", function () {
+      shell.classList.add("over"); shell.style.setProperty("--lift", "-1.5px");
+      if (!face.classList.contains("glint")) face.classList.add("glint");
     });
-    button.addEventListener("animationend", function (event) { if (event.animationName === "run-glint") button.classList.remove("glint"); });
-    button.addEventListener("pointerleave", function () { wrap.classList.remove("over"); ["--lift", "--rx", "--ry"].forEach(function (p) { wrap.style.removeProperty(p); }); button.style.removeProperty("--refl"); });
-    button.addEventListener("pointermove", function (event) {
-      var r = button.getBoundingClientRect(), px = (event.clientX - r.left) / r.width - 0.5, py = (event.clientY - r.top) / r.height - 0.5;
-      wrap.style.setProperty("--ry", (px * 6).toFixed(2) + "deg"); wrap.style.setProperty("--rx", (-py * 9).toFixed(2) + "deg"); button.style.setProperty("--refl", (50 - px * 70).toFixed(1) + "%");
+    face.addEventListener("animationend", function (event) { if (event.animationName === "run-glint") face.classList.remove("glint"); });
+    shell.addEventListener("pointerleave", function () { shell.classList.remove("over"); ["--lift", "--rx", "--ry"].forEach(function (p) { shell.style.removeProperty(p); }); face.style.removeProperty("--refl"); });
+    shell.addEventListener("pointermove", function (event) {
+      var r = shell.getBoundingClientRect(), px = (event.clientX - r.left) / r.width - 0.5, py = (event.clientY - r.top) / r.height - 0.5;
+      shell.style.setProperty("--ry", (px * 6).toFixed(2) + "deg"); shell.style.setProperty("--rx", (-py * 9).toFixed(2) + "deg"); face.style.setProperty("--refl", (50 - px * 70).toFixed(1) + "%");
     });
   }
-  document.querySelectorAll(".run").forEach(lean);
-  new MutationObserver(function (changes) { changes.forEach(function (change) { change.addedNodes.forEach(function (node) { if (node.querySelectorAll) node.querySelectorAll(".run").forEach(lean); }); }); }).observe(document.body, { subtree: true, childList: true });
+  document.querySelectorAll(".run-wrap").forEach(lean);
+  new MutationObserver(function (changes) { changes.forEach(function (change) { change.addedNodes.forEach(function (node) { if (node.querySelectorAll) node.querySelectorAll(".run-wrap").forEach(lean); }); }); }).observe(document.body, { subtree: true, childList: true });
   document.addEventListener("pointermove", function (event) {
-    var button = event.target.closest && event.target.closest(".glass-btn"); if (!button) return;
-    var r = button.getBoundingClientRect();
-    button.style.setProperty("--mx", (event.clientX - r.left).toFixed(0) + "px"); button.style.setProperty("--my", (event.clientY - r.top).toFixed(0) + "px");
+    var shell = event.target.closest && event.target.closest(".glass-btn"); if (!shell) return;
+    var r = shell.getBoundingClientRect();
+    shell.style.setProperty("--mx", (event.clientX - r.left).toFixed(0) + "px"); shell.style.setProperty("--my", (event.clientY - r.top).toFixed(0) + "px");
   }, { passive: true });
 })();
 `;
@@ -137,6 +136,7 @@ const SPRING = "cubic-bezier(.25,.9,.3,1.25)";
 const RUN_STYLES = `
 /* The runner button: the one colored thing you can press. A slab: its face, and below it its side, the slab's thickness.
    It lifts, leans toward you and catches the light; a press pushes the face down onto its side, and it springs back.
+   The shell (.run-wrap, the link or button) stays still; its face (.run) and side move inside it.
    .over is the pointer on it (RUNNER_SCRIPT); is-pointed, is-pressed and is-focused fix those states for the gallery. */
 .run-wrap {
   --run-shape: polygon(12px 0, calc(100% - 16px) 0, 100% 50%, calc(100% - 16px) 100%, 0 100%);
@@ -144,9 +144,10 @@ const RUN_STYLES = `
   --run-ring: polygon(evenodd, 14.9px 2px, calc(100% - 20px) 2px, calc(100% - 1px) 50%, calc(100% - 20px) calc(100% - 2px), 0.8px calc(100% - 2px), 14.9px 2px,
     16.5px 4px, 3.4px calc(100% - 4px), calc(100% - 21px) calc(100% - 4px), calc(100% - 3.5px) 50%, calc(100% - 21px) 4px, 16.5px 4px);
   --depth: 4px;
-  position: relative; isolation: isolate; display: inline-block; vertical-align: middle; perspective: 600px; margin-bottom: var(--depth);
+  isolation: isolate; vertical-align: middle; perspective: 600px; margin-bottom: var(--depth);
 }
-.run-wrap.is-full { display: block; perspective: 700px; }
+.run-wrap:focus-visible { outline: none; }
+.run-wrap.is-full { display: flex; width: 100%; perspective: 700px; }
 .run-wrap.is-big {
   --run-shape: polygon(14px 0, calc(100% - 20px) 0, 100% 50%, calc(100% - 20px) 100%, 0 100%);
   --run-ring: polygon(evenodd, 16.9px 2px, calc(100% - 23.9px) 2px, calc(100% - 1.1px) 50%, calc(100% - 23.9px) calc(100% - 2px), 0.9px calc(100% - 2px), 16.9px 2px,
@@ -157,7 +158,7 @@ const RUN_STYLES = `
 .run-wrap::before { content: ""; position: absolute; z-index: -1; left: 8%; right: 8%; top: 35%; bottom: -10px; border-radius: 50%; pointer-events: none;
   background: rgba(247,147,26,0.34); filter: blur(11px); opacity: 0.75; transition: opacity 0.5s, transform 0.5s cubic-bezier(.2,.7,.2,1); }
 .run-wrap.over::before, .run-wrap.is-pointed::before { opacity: 1; transform: translateY(3px) scaleX(1.05); }
-.run-wrap:has(.run:active)::before, .run-wrap.is-pressed::before { opacity: 0.5; transform: translateY(-2px) scaleX(0.94); transition-duration: 0.1s; }
+.run-wrap:active::before, .run-wrap.is-pressed::before { opacity: 0.5; transform: translateY(-2px) scaleX(0.94); transition-duration: 0.1s; }
 /* Its side: the slab's thickness, a darker band of the same shape just below the face, lit from above. */
 .run-side { position: absolute; inset: 0; pointer-events: none; clip-path: var(--run-shape);
   background: linear-gradient(180deg, #D27412, var(--run-lo) 85%);
@@ -165,8 +166,8 @@ const RUN_STYLES = `
 .run {
   --refl: 50%;
   position: relative; z-index: 1; overflow: hidden; height: 44px; padding: 0 30px 0 22px;
-  display: flex; align-items: center; gap: 10px; text-decoration: none; white-space: nowrap;
-  border: 0; cursor: pointer; color: #fff; text-shadow: 0 1px 1px rgba(120,58,0,0.4);
+  display: flex; align-items: center; gap: 10px; white-space: nowrap;
+  color: #fff; text-shadow: 0 1px 1px rgba(120,58,0,0.4);
   font: 600 16px var(--display); letter-spacing: 0.01em;
   /* The face: lit from above, rounding off toward its lower edge, with a bright top edge where the light lands. */
   background: radial-gradient(130% 110% at 50% -35%, rgba(255,255,255,0.36), rgba(255,255,255,0) 62%), linear-gradient(180deg, var(--run-hi), var(--run) 55%, #EA830E);
@@ -190,18 +191,17 @@ const RUN_STYLES = `
 .run-wrap.over .run .play, .run-wrap.is-pointed .run .play { transform: translateX(3px) scale(1.08); }
 .run-wrap.is-pointed { --lift: -1.5px; }
 /* Pressed: the face goes down onto its side, a touch darker, quickly; it springs back when let go. */
-.run:active, .run-wrap.is-pressed > .run { --lift: calc(var(--depth) - 1px); filter: brightness(0.95) saturate(1.05); transition-duration: 0.08s; }
+.run-wrap:active > .run, .run-wrap.is-pressed > .run { --lift: calc(var(--depth) - 1px); filter: brightness(0.95) saturate(1.05); transition-duration: 0.08s; }
 /* Keyboard focus: the ring, around the face and its side. */
-.run:focus-visible { outline: none; }
 .run-wrap::after { content: ""; position: absolute; z-index: 2; inset: -6px -6px calc(-6px - var(--depth)); pointer-events: none; background: var(--ink); clip-path: var(--run-ring); opacity: 0; transition: opacity 0.15s; }
-.run-wrap:has(.run:focus-visible)::after, .run-wrap.is-focused::after { opacity: 1; }
+.run-wrap:focus-visible::after, .run-wrap.is-focused::after { opacity: 1; }
 /* Busy: pressed and waiting. The arrow drifts on; the label says what's happening when the page gave one. */
-.run[aria-busy="true"] { cursor: progress; }
-.run[aria-busy="true"] .label-idle, .run:not([aria-busy="true"]) .label-busy { display: none; }
-.run[aria-busy="true"] .arrow { animation: run-drift 1.6s ease-in-out infinite; }
+.run-wrap[aria-busy="true"] { cursor: progress; }
+.run-wrap[aria-busy="true"] .label-idle, .run-wrap:not([aria-busy="true"]) .label-busy { display: none; }
+.run-wrap[aria-busy="true"] .arrow { animation: run-drift 1.6s ease-in-out infinite; }
 @keyframes run-drift { 0%, 100% { transform: translateX(0); opacity: 0.55; } 50% { transform: translateX(7px); opacity: 1; } }
 @media (max-width: 760px) { .run { height: 40px; padding: 0 24px 0 16px; font-size: 15px; } .run.big { height: 48px; font-size: 17px; } }
-@media (prefers-reduced-motion: reduce) { .run, .run-side, .run .arrow, .run .play, .run-wrap::before { transition: none; } .run.glint::after, .run[aria-busy="true"] .arrow { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .run, .run-side, .run .arrow, .run .play, .run-wrap::before { transition: none; } .run.glint::after, .run-wrap[aria-busy="true"] .arrow { animation: none; } }
 `;
 
 /** A full-width button's examples sit in a column this wide. */
@@ -247,23 +247,27 @@ component({
   summary: "Everything else you can press: Details, Make an account, Cancel. A delete is a cut button too, never orange; only its confirm step turns red.",
   styles: `
 /* A secondary button: a cut slab of clearer glass with a drawn outline. It brightens under the pointer;
-   a press sinks it, shrinks it a little and shades it from above, quickly, and it springs back when let go. */
-.cut-btn { position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 8px; flex: none; height: 44px; padding: 0 24px;
-  font: 600 15px var(--display); color: var(--ink); text-decoration: none; white-space: nowrap; border: 0; cursor: pointer;
+   a press sinks it, shrinks it a little and shades it from above, quickly, and it springs back when let go.
+   The shell (the button) stays still; the slab is its face. */
+.cut-btn { flex: none; vertical-align: middle; }
+.cut-btn.is-full { display: flex; width: 100%; }
+.cut-btn > .face { display: flex; flex: auto; align-items: center; justify-content: center; gap: 8px; height: 44px; padding: 0 24px;
+  font: 600 15px var(--display); color: var(--ink); white-space: nowrap;
   background: var(--btn); clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
   transition: background-color 0.2s, box-shadow 0.2s, transform 0.4s ${SPRING}; }
-.cut-btn.is-full { display: flex; width: 100%; }
-.cut-btn.big { height: 56px; padding: 0 28px; font-size: 17px; }
-.cut-btn:hover, .cut-btn.is-pointed { background: var(--btn-hover); }
+.cut-btn.big > .face { height: 56px; padding: 0 28px; font-size: 17px; }
+.cut-btn:hover > .face, .cut-btn.is-pointed > .face { background: var(--btn-hover); }
 .cut-btn:hover .cut-line polygon, .cut-btn.is-pointed .cut-line polygon { stroke: var(--muted); }
-.cut-btn:active, .cut-btn.is-pressed { background: var(--btn-press); box-shadow: var(--press-shade); transform: translateY(1px) scale(0.965); transition-duration: 0.08s; }
+.cut-btn:active > .face, .cut-btn.is-pressed > .face { background: var(--btn-press); box-shadow: var(--press-shade); transform: translateY(1px) scale(0.965); transition-duration: 0.08s; }
 .cut-btn:active .cut-line polygon, .cut-btn.is-pressed .cut-line polygon { stroke: var(--ink-2); transition-duration: 0.08s; }
-.cut-btn:focus-visible, .cut-btn.is-focused { outline: none; background: var(--btn-hover); }
+.cut-btn:focus-visible { outline: none; }
+.cut-btn:focus-visible > .face, .cut-btn.is-focused > .face { background: var(--btn-hover); }
 .cut-btn:focus-visible .cut-line polygon, .cut-btn.is-focused .cut-line polygon { stroke: var(--ink); stroke-width: 2; }
-.cut-btn > span, .cut-btn > .ico { position: relative; z-index: 2; }
-.cut-btn[aria-busy="true"] { cursor: progress; opacity: 0.7; }
-@media (max-width: 760px) { .cut-btn.big { height: 48px; padding: 0 20px; } }
-@media (prefers-reduced-motion: reduce) { .cut-btn { transition: background-color 0.2s; } }
+.cut-btn .face > span, .cut-btn .face > .ico { position: relative; z-index: 2; }
+.cut-btn[aria-busy="true"] { cursor: progress; }
+.cut-btn[aria-busy="true"] > .face { opacity: 0.7; }
+@media (max-width: 760px) { .cut-btn.big > .face { height: 48px; padding: 0 20px; } }
+@media (prefers-reduced-motion: reduce) { .cut-btn > .face { transition: background-color 0.2s; } }
 `,
   render: cutButton,
   hasSceneMode: true,
@@ -293,30 +297,36 @@ component({
   summary: "Another way in, like a passkey, Google or Discord: below the runner, never instead of it.",
   styles: `
 /* Glass buttons for the other ways in: a small slab of the panes' glass, cut and rimmed like them (GLASS_SCRIPT draws the rim).
-   The pointer brings a light that follows it across the glass and brightens the rim; a press sinks the slab into its shade. */
-.glass-btn { --mx: 38%; --my: 18%;
-  position: relative; display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; height: 48px; padding: 0 18px;
-  border: 0; cursor: pointer; font: 500 15px var(--display); color: var(--ink); text-decoration: none; white-space: nowrap;
+   The pointer brings a light that follows it across the glass and brightens the rim; a press sinks the slab into its shade.
+   The shell (the button) stays still and holds the tint; the slab is its face. */
+.glass-btn { --mx: 38%; --my: 18%; display: flex; width: 100%; }
+.glass-btn:focus-visible { outline: none; }
+.glass-btn > .face {
+  position: relative; display: flex; flex: auto; align-items: center; justify-content: center; gap: 10px; height: 48px; padding: 0 18px;
+  font: 500 15px var(--display); color: var(--ink); white-space: nowrap;
   background-color: var(--glass-btn-face); background-image: var(--glass-sheen);
   -webkit-backdrop-filter: blur(18px) saturate(1.8); backdrop-filter: blur(18px) saturate(1.8);
   clip-path: polygon(0 12px, 12px 0, calc(100% - 4px) 0, 100% 4px, 100% calc(100% - 12px), calc(100% - 12px) 100%, 4px 100%, 0 calc(100% - 4px));
   transition: background-color 0.25s, box-shadow 0.2s, transform 0.4s ${SPRING}; }
-.glass-btn > :not(.edge) { position: relative; z-index: 3; }
-.glass-btn > svg:not(.edge) { width: 20px; height: 20px; flex: none; transition: transform 0.4s ${SPRING}; }
+.glass-btn .face > :not(.edge) { position: relative; z-index: 3; }
+.glass-btn .face > svg:not(.edge) { width: 20px; height: 20px; flex: none; transition: transform 0.4s ${SPRING}; }
 .glass-btn .edge { opacity: 0.7; transition: opacity 0.3s; }
+/* A small slab's rim, kept as quiet in light glass as it is in smoked: a faint hairline and a soft inner line. */
+.glass-btn .edge .hair { stroke: var(--glass-btn-hair-rest); transition: stroke 0.3s; }
+.glass-btn .edge .inner { opacity: 0.5; }
 /* The light the pointer brings. */
-.glass-btn::before { content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none; opacity: 0; transition: opacity 0.3s;
+.glass-btn > .face::before { content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none; opacity: 0; transition: opacity 0.3s;
   background: radial-gradient(150px 110px at var(--mx) var(--my), var(--glass-btn-glow), rgba(255,255,255,0) 70%); }
-.glass-btn:hover, .glass-btn.is-pointed { background-color: var(--glass-btn-hover); box-shadow: var(--glass-btn-lift); transform: translateY(-1px); }
+.glass-btn:hover > .face, .glass-btn.is-pointed > .face { background-color: var(--glass-btn-hover); box-shadow: var(--glass-btn-lift); transform: translateY(-1px); }
 .glass-btn:hover .edge .hair, .glass-btn.is-pointed .edge .hair { stroke: var(--glass-btn-hair); }
-.glass-btn:hover::before, .glass-btn.is-pointed::before { opacity: 0.85; }
+.glass-btn:hover > .face::before, .glass-btn.is-pointed > .face::before { opacity: 0.85; }
 .glass-btn:hover .edge, .glass-btn.is-pointed .edge { opacity: 1; }
-.glass-btn:hover > svg:not(.edge), .glass-btn.is-pointed > svg:not(.edge) { transform: scale(1.1); }
-.glass-btn:active, .glass-btn.is-pressed { background-color: var(--glass-btn-press); box-shadow: var(--press-shade); transform: translateY(1px) scale(0.985); transition-duration: 0.08s; }
-.glass-btn:active::before, .glass-btn.is-pressed::before { opacity: 0.45; }
-.glass-btn:active > svg:not(.edge), .glass-btn.is-pressed > svg:not(.edge) { transform: scale(0.94); transition-duration: 0.08s; }
+.glass-btn:hover .face > svg:not(.edge), .glass-btn.is-pointed .face > svg:not(.edge) { transform: scale(1.1); }
+.glass-btn:active > .face, .glass-btn.is-pressed > .face { background-color: var(--glass-btn-press); box-shadow: var(--press-shade); transform: translateY(1px) scale(0.985); transition-duration: 0.08s; }
+.glass-btn:active > .face::before, .glass-btn.is-pressed > .face::before { opacity: 0.45; }
+.glass-btn:active .face > svg:not(.edge), .glass-btn.is-pressed .face > svg:not(.edge) { transform: scale(0.94); transition-duration: 0.08s; }
 /* Keyboard focus: the rim turns to ink, following the cut, and its bright facets step aside. */
-.glass-btn:focus-visible, .glass-btn.is-focused { outline: none; background-color: var(--glass-btn-hover); }
+.glass-btn:focus-visible > .face, .glass-btn.is-focused > .face { background-color: var(--glass-btn-hover); }
 .glass-btn:focus-visible .edge, .glass-btn.is-focused .edge { opacity: 1; }
 .glass-btn:focus-visible .edge .hair, .glass-btn.is-focused .edge .hair { stroke: var(--ink); stroke-width: 2; }
 .glass-btn:focus-visible .edge .rim, .glass-btn.is-focused .edge .rim { stroke: var(--ink); stroke-width: 2; }
@@ -324,16 +334,18 @@ component({
 /* Tinted: the way's own colour, nearly solid, in either theme (a brand's colour is how you recognise it, so it doesn't
    follow light or dark): white glass with dark words, the coloured and black ones with white words. It's a touch stronger
    as you point at it and a touch clearer under a press. Changing the tint fades from one to the next. */
-.glass-btn { --tint-pct: 0%; background-image: linear-gradient(color-mix(in srgb, var(--tint-colour) var(--tint-pct), transparent), color-mix(in srgb, var(--tint-colour) var(--tint-pct), transparent)), var(--glass-sheen); }
-.glass-btn[data-tint] { --tint-pct: var(--glass-btn-tint-rest); transition: background-color 0.25s, box-shadow 0.2s, transform 0.4s ${SPRING}, color 0.3s, --tint-colour 0.3s, --tint-pct 0.3s; }
-.glass-btn[data-tint]:hover, .glass-btn[data-tint].is-pointed, .glass-btn[data-tint]:focus-visible, .glass-btn[data-tint].is-focused { --tint-pct: var(--glass-btn-tint-hover); }
-.glass-btn[data-tint]:active, .glass-btn[data-tint].is-pressed { --tint-pct: var(--glass-btn-tint-press); }
+.glass-btn > .face { --tint-pct: 0%; background-image: linear-gradient(color-mix(in srgb, var(--tint-colour) var(--tint-pct), transparent), color-mix(in srgb, var(--tint-colour) var(--tint-pct), transparent)), var(--glass-sheen); }
+.glass-btn[data-tint] > .face { --tint-pct: var(--glass-btn-tint-rest); transition: background-color 0.25s, box-shadow 0.2s, transform 0.4s ${SPRING}, color 0.3s, --tint-colour 0.3s, --tint-pct 0.3s; }
+.glass-btn[data-tint]:hover > .face, .glass-btn[data-tint].is-pointed > .face, .glass-btn[data-tint]:focus-visible > .face, .glass-btn[data-tint].is-focused > .face { --tint-pct: var(--glass-btn-tint-hover); }
+.glass-btn[data-tint]:active > .face, .glass-btn[data-tint].is-pressed > .face { --tint-pct: var(--glass-btn-tint-press); }
 .glass-btn[data-tint="clear"] { --glass-btn-tint-rest: 0%; --glass-btn-tint-hover: 0%; --glass-btn-tint-press: 0%; }
-.glass-btn[data-tint="white"] { --tint-colour: #fff; --glass-btn-tint-rest: 86%; --glass-btn-tint-hover: 97%; --glass-btn-tint-press: 74%; color: #14171C; }
-.glass-btn[data-tint="blue"], .glass-btn[data-tint="indigo"], .glass-btn[data-tint="black"] { --glass-btn-tint-rest: 95%; --glass-btn-tint-hover: 100%; --glass-btn-tint-press: 86%; --glass-btn-glow: rgba(255,255,255,0.35); color: #fff; }
-.glass-btn[data-tint="blue"] { --tint-colour: #2A75E8; }
-.glass-btn[data-tint="indigo"] { --tint-colour: #5865F2; }
-.glass-btn[data-tint="black"] { --tint-colour: #14171C; }
+.glass-btn[data-tint="white"] > .face { --tint-colour: #fff; color: #14171C; }
+.glass-btn[data-tint="white"] { --glass-btn-tint-rest: 86%; --glass-btn-tint-hover: 97%; --glass-btn-tint-press: 74%; }
+.glass-btn[data-tint="blue"], .glass-btn[data-tint="indigo"], .glass-btn[data-tint="black"] { --glass-btn-tint-rest: 95%; --glass-btn-tint-hover: 100%; --glass-btn-tint-press: 86%; --glass-btn-glow: rgba(255,255,255,0.35); }
+.glass-btn[data-tint="blue"] > .face, .glass-btn[data-tint="indigo"] > .face, .glass-btn[data-tint="black"] > .face { color: #fff; }
+.glass-btn[data-tint="blue"] > .face { --tint-colour: #2A75E8; }
+.glass-btn[data-tint="indigo"] > .face { --tint-colour: #5865F2; }
+.glass-btn[data-tint="black"] > .face { --tint-colour: #14171C; }
 /* On a coloured or black tint a coloured mark would sink into it, so a mark that may be one colour turns white with the words.
    Google's G stays in its colours, which only ever sit on white or clear glass. */
 .glass-btn[data-tint="blue"] .one-colour path, .glass-btn[data-tint="indigo"] .one-colour path, .glass-btn[data-tint="black"] .one-colour path { fill: currentColor; transition: fill 0.3s; }
@@ -354,7 +366,7 @@ component({
 .tint-swatch[data-tint-choice="blue"] { --swatch: #2A75E8; }
 .tint-swatch[data-tint-choice="indigo"] { --swatch: #5865F2; }
 .tint-swatch[data-tint-choice="black"] { --swatch: #14171C; }
-@media (prefers-reduced-motion: reduce) { .glass-btn, .glass-btn > svg:not(.edge) { transition: background-color 0.25s; } }
+@media (prefers-reduced-motion: reduce) { .glass-btn > .face, .glass-btn .face > svg:not(.edge) { transition: background-color 0.25s; } }
 `,
   render: glassButton,
   examples: [
@@ -374,23 +386,26 @@ component({
   summary: "The quietest way on, like Continue as guest: words and an arrow below the glass buttons, a slab only once you point at it.",
   styles: `
 /* The guest way: below the glass buttons, so only words and an arrow at rest. Pointing at it brings up its cut slab and
-   outline and sends the arrow on; a press sinks it; the keyboard's focus draws the outline in ink. */
-.guest-btn { position: relative; display: flex; align-items: center; justify-content: center; gap: 8px; height: 44px; width: 100%; padding: 0 16px; border: 0; cursor: pointer;
-  font: 500 15px var(--display); color: var(--ink-2); text-decoration: none; white-space: nowrap; background-color: transparent;
+   outline and sends the arrow on; a press sinks it; the keyboard's focus draws the outline in ink.
+   The shell (the button) stays still; the slab is its face. */
+.guest-btn { display: flex; width: 100%; }
+.guest-btn:focus-visible { outline: none; }
+.guest-btn > .face { display: flex; flex: auto; align-items: center; justify-content: center; gap: 8px; height: 44px; padding: 0 16px;
+  font: 500 15px var(--display); color: var(--ink-2); white-space: nowrap; background-color: transparent;
   clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
   transition: background-color 0.2s, color 0.2s, box-shadow 0.2s, transform 0.4s ${SPRING}; }
-.guest-btn > :not(.cut-line) { position: relative; z-index: 2; }
+.guest-btn .face > :not(.cut-line) { position: relative; z-index: 2; }
 .guest-btn .cut-line polygon { stroke: transparent; }
 .guest-btn .arrow { display: inline-flex; transition: transform 0.45s cubic-bezier(.2,.7,.2,1); }
-.guest-btn:hover, .guest-btn.is-pointed { color: var(--ink); background-color: var(--clear-hover); }
+.guest-btn:hover > .face, .guest-btn.is-pointed > .face { color: var(--ink); background-color: var(--clear-hover); }
 .guest-btn:hover .cut-line polygon, .guest-btn.is-pointed .cut-line polygon { stroke: var(--line); }
 .guest-btn:hover .arrow, .guest-btn.is-pointed .arrow { transform: translateX(4px); }
-.guest-btn:active, .guest-btn.is-pressed { color: var(--ink); background-color: var(--clear-press); box-shadow: var(--press-shade); transform: translateY(1px) scale(0.98); transition-duration: 0.08s; }
+.guest-btn:active > .face, .guest-btn.is-pressed > .face { color: var(--ink); background-color: var(--clear-press); box-shadow: var(--press-shade); transform: translateY(1px) scale(0.98); transition-duration: 0.08s; }
 .guest-btn:active .cut-line polygon, .guest-btn.is-pressed .cut-line polygon { stroke: var(--line); }
 .guest-btn:active .arrow, .guest-btn.is-pressed .arrow { transform: translateX(7px); transition-duration: 0.12s; }
-.guest-btn:focus-visible, .guest-btn.is-focused { outline: none; color: var(--ink); }
+.guest-btn:focus-visible > .face, .guest-btn.is-focused > .face { color: var(--ink); }
 .guest-btn:focus-visible .cut-line polygon, .guest-btn.is-focused .cut-line polygon { stroke: var(--ink); stroke-width: 2; }
-@media (prefers-reduced-motion: reduce) { .guest-btn, .guest-btn .arrow { transition: background-color 0.2s, color 0.2s; } }
+@media (prefers-reduced-motion: reduce) { .guest-btn > .face, .guest-btn .arrow { transition: background-color 0.2s, color 0.2s; } }
 `,
   render: guestButton,
   examples: [

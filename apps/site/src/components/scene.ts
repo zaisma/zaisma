@@ -92,12 +92,30 @@ export const SCENE_ANCHOR_SCRIPT = `/* scene anchors */(function () {
     var anchor = { el: el, rest: null, faceFrom: 0, faceTo: 0, faceAt: 0 };
     function turn(toward) { var now = performance.now(), current = facedBy(anchor, now); anchor.faceFrom = current; anchor.faceTo = toward ? 1 : 0; anchor.faceAt = now; el.classList.toggle("is-facing", toward); }
     el.addEventListener("pointerenter", function () { turn(true); });
-    el.addEventListener("pointerleave", function () { if (!el.contains(document.activeElement)) turn(false); });
+    // Turning moves it under the pointer, so it turns back only once the pointer is off both where it is and where it rests
+    // (TOKEN_STYLES, "Still under the pointer"); otherwise a pointer near its edge would make it turn and turn back, over and over.
+    el.addEventListener("pointerleave", function (event) { if (!el.contains(document.activeElement) && !isOver(anchor, event.clientX, event.clientY)) turn(false); });
+    anchor.turn = turn;
     el.addEventListener("focusin", function () { turn(true); });
     el.addEventListener("focusout", function (event) { if (!el.contains(event.relatedTarget) && !el.matches(":hover")) turn(false); });
     anchors[name] = anchor;
     return anchor;
   }
+  function inside(box, x, y) { return x >= box.left && x <= box.right && y >= box.top && y <= box.bottom; }
+  // Is the pointer over the anchor where it is now, or where it rests in the scene?
+  function isOver(anchor, x, y) {
+    var el = anchor.el; if (inside(el.getBoundingClientRect(), x, y)) return true;
+    if (!anchor.rest) return false;
+    var w = el.offsetWidth, h = el.offsetHeight, view = viewOf(el), layer = el.parentElement.getBoundingClientRect(), xs = [], ys = [];
+    [[0, 0], [w, 0], [w, h], [0, h]].forEach(function (corner) { var p = project(at(anchor.rest, corner[0], corner[1]), view); xs.push(p[0] + layer.left); ys.push(p[1] + layer.top); });
+    return inside({ left: Math.min.apply(null, xs), right: Math.max.apply(null, xs), top: Math.min.apply(null, ys), bottom: Math.max.apply(null, ys) }, x, y);
+  }
+  document.addEventListener("pointermove", function (event) {
+    Object.keys(anchors).forEach(function (name) {
+      var anchor = anchors[name];
+      if (anchor.faceTo === 1 && !anchor.el.contains(document.activeElement) && !isOver(anchor, event.clientX, event.clientY)) anchor.turn(false);
+    });
+  }, { passive: true });
   function facedBy(anchor, now) { var t = Math.min(1, (now - anchor.faceAt) / FACE_MS); return anchor.faceFrom + (anchor.faceTo - anchor.faceFrom) * (t >= 1 ? 1 : spring(t)); }
   function viewOf(el) {
     var layer = el.parentElement, perspective = parseFloat(layer.style.perspective) || parseFloat(getComputedStyle(layer).perspective) || 1000;
