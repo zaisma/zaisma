@@ -73,7 +73,7 @@ ${cutButton("Make an account", { type: "button", sceneAnchor: "lower-roof" })}
 </div></div><figcaption class="example-label">Resting in the scene · <span class="scene-mode" aria-live="polite">In front: starting</span></figcaption></figure>`;
 
 function section(each: Component, view: GalleryView): Raw {
-  return html`<section class="component-section" id="${each.slug}" aria-labelledby="${each.slug}-name">
+  return html`<section class="component-section" id="${each.slug}" aria-labelledby="${each.slug}-name" data-rail-mark="${each.name}">
 <div class="component-head glass" data-glass data-glass-corners="14 6 14 6"><h2 id="${each.slug}-name"><a href="#${each.slug}">${each.name}</a></h2><p>${each.summary}</p>${each.hasSceneMode ? html`<p class="scene-note">It can rest in a scene. <a href="?backdrop=scene#glass-pane" data-gallery-view="backdrop=scene">See it on the rooftop</a>.</p>` : ""}</div>
 ${each.slug === "glass-pane" ? SCENE_EXAMPLE : ""}${examples(each)}<div class="phone-frames">${view.width === "phone" ? phoneFrame(each, view) : ""}</div>
 </section>`;

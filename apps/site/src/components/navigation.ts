@@ -246,6 +246,8 @@ export function rail(scrollKind: "box" | "page"): Raw {
  * A scrollbar of Zaisma's own, for a mouse or trackpad: a slim glass thumb on a hairline at the right edge. It wakes
  * while it moves and rests faintly otherwise. Drag the thumb, or press the line to jump; wheel, keys and touch
  * scroll as always, and phones keep their own. It hides itself when there's nothing to scroll.
+ * The page's rail has a mark for each part of the page marked data-rail-mark="<its name>" (the home's rows):
+ * point at one for its name, click it to go there.
  */
 export const RAIL_SCRIPT = `/* rail */(function () {
   if (!window.matchMedia("(hover: hover) and (pointer: fine)").matches) return;
@@ -255,6 +257,15 @@ export const RAIL_SCRIPT = `/* rail */(function () {
     var line = bar.querySelector(".rail-line"), thumb = bar.querySelector(".rail-thumb");
     if (isPage) document.documentElement.classList.add("own-scroll"); else scroller.classList.add("own-scroll");
     bar.classList.add("is-on");
+    // The page's marks: one per marked part, sitting where the thumb's middle will be once that part is at the top.
+    var offset = function () { return parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop) || 90; };
+    var marks = !isPage ? [] : Array.prototype.map.call(document.querySelectorAll("[data-rail-mark]"), function (part) {
+      var mark = document.createElement("button"), name = document.createElement("span");
+      mark.type = "button"; mark.className = "rail-mark"; mark.tabIndex = -1; name.textContent = part.getAttribute("data-rail-mark");
+      mark.appendChild(name); bar.appendChild(mark);
+      mark.addEventListener("click", function () { window.scrollTo({ top: part.getBoundingClientRect().top + window.scrollY - offset(), behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }); });
+      return { part: part, mark: mark };
+    });
     function at() { return isPage ? window.scrollY : scroller.scrollTop; }
     function to(y) { if (isPage) window.scrollTo(0, y); else scroller.scrollTop = y; }
     var size = { track: 0, thumb: 0, max: 1 };
@@ -265,6 +276,11 @@ export const RAIL_SCRIPT = `/* rail */(function () {
       size = { track: track, thumb: height, max: max };
       thumb.style.height = height + "px";
       thumb.style.transform = "translateY(" + ((track - height) * Math.min(1, at() / max)).toFixed(1) + "px)";
+      marks.forEach(function (m) {
+        var shown = Boolean(m.part.offsetParent); m.mark.hidden = !shown; if (!shown) return;
+        var top = Math.max(0, Math.min(max, m.part.getBoundingClientRect().top + window.scrollY - offset()));
+        m.mark.style.top = ((track - height) * top / max + height / 2).toFixed(1) + "px";
+      });
     }
     var sleep = 0, queued = false;
     function wake() { bar.classList.add("awake"); clearTimeout(sleep); sleep = setTimeout(function () { bar.classList.remove("awake"); }, 1100); }
@@ -381,12 +397,23 @@ component({
   transition: left 0.2s, width 0.2s, background 0.2s; }
 .rail:hover .rail-thumb, .rail.dragging .rail-thumb { left: 2px; width: 9px; clip-path: polygon(0 5px, 5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%); }
 .rail.dragging .rail-thumb { cursor: grabbing; box-shadow: inset 2px 0 0 var(--run), 0 2px 8px rgba(10,20,40,0.22); }
+/* A mark per part of the page: a short tick on the line that turns orange when pointed at, with the part's name on a small glass label to its left. */
+.rail-mark { position: absolute; left: 1px; width: 12px; height: 9px; margin-top: -4px; padding: 0; border: 0; cursor: pointer; background: none; }
+.rail-mark::before { content: ""; position: absolute; left: 2px; right: 2px; top: 4px; height: 1.5px; background: var(--rail-mark); transition: background 0.2s, left 0.2s; }
+.rail-mark:hover::before { background: var(--run); left: -2px; }
+.rail-mark[hidden] { display: none; }
+.rail-mark span { position: absolute; right: 18px; top: 50%; transform: translate(4px, -50%); padding: 4px 10px; white-space: nowrap; pointer-events: none;
+  font: 600 12px var(--display); color: var(--ink); background: var(--glass-menu); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); opacity: 0; transition: opacity 0.15s, transform 0.15s; }
+.rail-mark:hover span { opacity: 1; transform: translate(0, -50%); }
 /* In the narrow layout (a small window with a mouse), the page's bar fits in the 10px gutter beside the glass and starts below the header. */
 @media (max-width: 760px) {
   .rail[data-rail="page"] { width: 10px; top: calc(132px + env(safe-area-inset-top, 0px)); bottom: 10px; }
   .rail[data-rail="page"] .rail-line { background: linear-gradient(90deg, transparent 4.5px, var(--rail-line) 4.5px, var(--rail-line) 5.5px, transparent 5.5px); }
   .rail[data-rail="page"] .rail-thumb { left: 3px; width: 4px; clip-path: polygon(0 3px, 3px 0, 100% 0, 100% calc(100% - 3px), calc(100% - 3px) 100%, 0 100%); }
   .rail[data-rail="page"]:hover .rail-thumb, .rail[data-rail="page"].dragging .rail-thumb { left: 2px; width: 6px; clip-path: polygon(0 4px, 4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%); }
+  /* …and no marks. */
+  .rail-mark, .rail-mark[hidden] { display: none; }
 }
 `,
   render: rail,

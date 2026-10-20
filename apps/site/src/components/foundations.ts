@@ -26,7 +26,7 @@ const LIGHT_GLASS = `color-scheme: light;
   --glass-btn-lift: 0 10px 22px rgba(30, 60, 110, 0.16), inset 0 -1px 0 rgba(20, 23, 28, 0.06);
   --outline: rgba(20, 23, 28, 0.28); --clear-hover: rgba(255, 255, 255, 0.4);
   --chip-face: #DDF2E5; --chip-ink: #136238; --face-ring: rgba(255, 255, 255, 0.85); --presence-ring: #fff;
-  --rail-line: rgba(20, 23, 28, 0.2); --rail-thumb: rgba(24, 28, 36, 0.55); --rail-edge: rgba(255, 255, 255, 0.55);
+  --rail-line: rgba(20, 23, 28, 0.2); --rail-thumb: rgba(24, 28, 36, 0.55); --rail-edge: rgba(255, 255, 255, 0.55); --rail-mark: rgba(20, 23, 28, 0.45);
   --edge-inner: rgba(255, 255, 255, 0.7); --edge-bevel: 1; --edge-rim: 1; --edge-fringe: 1;
   --logo-halo: drop-shadow(0 0 10px rgba(255, 255, 255, 0.6)) drop-shadow(0 1px 1px rgba(255, 255, 255, 0.5));
   --link-hover: var(--run-lo); --marked: var(--run-lo);`;
@@ -49,7 +49,7 @@ const SMOKED_GLASS = `color-scheme: dark;
   --glass-btn-lift: 0 10px 22px rgba(0, 0, 0, 0.32), inset 0 -1px 0 rgba(255, 255, 255, 0.06);
   --outline: rgba(255, 255, 255, 0.3); --clear-hover: rgba(255, 255, 255, 0.08);
   --chip-face: rgba(52, 211, 120, 0.22); --chip-ink: #A6F0C6; --face-ring: rgba(6, 8, 12, 0.55); --presence-ring: #1A1D24;
-  --rail-line: rgba(255, 255, 255, 0.2); --rail-thumb: rgba(255, 255, 255, 0.55); --rail-edge: rgba(255, 255, 255, 0.35);
+  --rail-line: rgba(255, 255, 255, 0.2); --rail-thumb: rgba(255, 255, 255, 0.55); --rail-edge: rgba(255, 255, 255, 0.35); --rail-mark: rgba(255, 255, 255, 0.5);
   /* On smoked glass the rim's inner lines and bevel are softened, so the frame reads as an edge, not as lines across it. */
   --edge-inner: rgba(255, 255, 255, 0.12); --edge-bevel: 0.35; --edge-rim: 0.7; --edge-fringe: 0.5;
   --logo-halo: drop-shadow(0 0 12px rgba(4, 7, 14, 0.75)) drop-shadow(0 1px 2px rgba(4, 7, 14, 0.6));
