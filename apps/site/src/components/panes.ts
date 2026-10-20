@@ -119,8 +119,7 @@ export const MENU_SCRIPT = `/* menus */(function () {
 
 const MENU_STYLES = `
 /* The account pane: the header's glass, hanging just under it at its right end. */
-.menu { position: fixed; z-index: 11; width: 260px; padding: 18px 14px 14px; background-color: var(--glass-menu);
-  -webkit-backdrop-filter: blur(22px) saturate(1.7); backdrop-filter: blur(22px) saturate(1.7);
+.menu { position: fixed; z-index: 11; width: 260px; padding: 18px 14px 14px; --glass-tint: var(--glass-menu);
   clip-path: polygon(0 14px, 14px 0, calc(100% - 4px) 0, 100% 4px, 100% calc(100% - 14px), calc(100% - 14px) 100%, 4px 100%, 0 calc(100% - 4px));
   transform-origin: top right; transition: opacity 0.25s, transform 0.35s cubic-bezier(.2,.8,.2,1), background-color 0.5s ease; }
 .menu.shut { opacity: 0; transform: translateY(-6px) scale(0.98); pointer-events: none; visibility: hidden; transition: opacity 0.25s, transform 0.35s cubic-bezier(.2,.8,.2,1), visibility 0s 0.35s; }

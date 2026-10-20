@@ -75,8 +75,7 @@ const HEADER_STYLES = `
   position: fixed; z-index: 10; top: 12px; left: 50%; transform: translateX(-50%);
   width: min(1240px, calc(100% - 24px)); height: 68px;
   display: flex; align-items: center; gap: 22px; padding: 0 14px 0 26px;
-  background-color: var(--glass-top);
-  -webkit-backdrop-filter: blur(22px) saturate(1.7); backdrop-filter: blur(22px) saturate(1.7);
+  --glass-tint: var(--glass-top);
   clip-path: polygon(0 16px, 16px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 16px), calc(100% - 16px) 100%, 6px 100%, 0 calc(100% - 6px));
   transition: height 0.45s cubic-bezier(.2,.8,.2,1), top 0.45s cubic-bezier(.2,.8,.2,1), transform 0.45s cubic-bezier(.4,0,.2,1), background-color 0.5s ease;
 }
@@ -393,7 +392,7 @@ component({
 .rail.awake, .rail:hover, .rail.dragging { opacity: 1; }
 .rail-line { position: absolute; inset: 0; cursor: pointer; background: linear-gradient(90deg, transparent 6px, var(--rail-line) 6px, var(--rail-line) 7px, transparent 7px); }
 .rail-thumb { position: absolute; top: 0; left: 4px; width: 5px; cursor: grab; background: var(--rail-thumb); box-shadow: inset 1px 0 0 var(--rail-edge), 0 2px 6px rgba(10,20,40,0.18);
-  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); clip-path: polygon(0 4px, 4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); clip-path: polygon(0 4px, 4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%);
   transition: left 0.2s, width 0.2s, background 0.2s; }
 .rail:hover .rail-thumb, .rail.dragging .rail-thumb { left: 2px; width: 9px; clip-path: polygon(0 5px, 5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%); }
 .rail.dragging .rail-thumb { cursor: grabbing; box-shadow: inset 2px 0 0 var(--run), 0 2px 8px rgba(10,20,40,0.22); }
@@ -404,7 +403,7 @@ component({
 .rail-mark:hover::before { background: var(--run); left: 9px; }
 .rail-mark[hidden] { display: none; }
 .rail-mark span { position: absolute; right: 28px; top: 50%; transform: translate(4px, -50%); padding: 4px 10px; white-space: nowrap; pointer-events: none;
-  font: 600 12px var(--display); color: var(--ink); background: var(--glass-menu); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  font: 600 12px var(--display); color: var(--ink); background: var(--glass-menu); -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); opacity: 0; transition: opacity 0.15s, transform 0.15s; }
 .rail-mark:hover span { opacity: 1; transform: translate(0, -50%); }
 /* In the narrow layout (a small window with a mouse), the page's bar fits in the 10px gutter beside the glass and starts below the header. */

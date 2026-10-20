@@ -77,6 +77,11 @@ describe("the gallery", () => {
     expect(problems).toEqual([]);
   });
 
+  it("makes every glass from one look: no component restates the glass's blur", () => {
+    const blurs = [...(COMPONENT_STYLES() + GALLERY_STYLES).matchAll(/(?:^|[;{\s])backdrop-filter:\s*([^;}]+)/g)].map((match) => (match[1] ?? "").trim());
+    expect(blurs.filter((blur) => blur !== "none" && blur !== "blur(var(--glass-blur)) saturate(var(--glass-saturate))")).toEqual([]);
+  });
+
   it("opens light or dark from its address, and the other groups' pages keep it", async () => {
     for (const { group } of COMPONENT_GROUPS) {
       const { text } = await page(`${groupPath(group)}?theme=dark`);

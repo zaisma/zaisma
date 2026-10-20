@@ -11,8 +11,9 @@ import { component } from "./component.ts";
 const LIGHT_GLASS = `color-scheme: light;
   --ink: #14171C; --ink-2: #3D444E; --muted: #59606A; --line: rgba(20, 23, 28, 0.14);
   --glass: rgba(255, 255, 255, 0.4); --glass-edge: rgba(255, 255, 255, 0.92); --field: rgba(255, 255, 255, 0.62);
-  --glass-tint: rgba(255, 255, 255, 0.5); --glass-top: rgba(255, 255, 255, 0.55); --glass-menu: rgba(255, 255, 255, 0.6);
-  --glass-sheen: linear-gradient(170deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0) 55%);
+  --glass-tint: rgba(250, 252, 255, 0.5); --glass-top: rgba(250, 252, 255, 0.56); --glass-menu: rgba(250, 252, 255, 0.62);
+  --glass-sheen: radial-gradient(140% 90% at 0% 0%, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0) 55%), linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0) 38%, rgba(30, 60, 110, 0) 70%, rgba(30, 60, 110, 0.05));
+  --glass-saturate: 1.8; --edge-hair: rgba(26, 44, 80, 0.18);
   --well: rgba(255, 255, 255, 0.32); --well-shade: inset 0 1px 3px rgba(20, 23, 28, 0.08);
   --slab: linear-gradient(180deg, #fff, #EEF1F4); --slab-shade: 0 4px 10px rgba(20, 23, 28, 0.12); --ghost: rgba(255, 255, 255, 0.45);
   --btn: rgba(255, 255, 255, 0.6); --btn-hover: rgba(255, 255, 255, 0.95); --btn-press: rgba(226, 232, 240, 0.9);
@@ -36,7 +37,8 @@ const SMOKED_GLASS = `color-scheme: dark;
   --ink: #F7F9FC; --ink-2: rgba(247, 249, 252, 0.86); --muted: rgba(247, 249, 252, 0.7); --line: rgba(255, 255, 255, 0.2);
   --glass-edge: rgba(255, 255, 255, 0.16); --field: rgba(255, 255, 255, 0.08);
   --glass-tint: rgba(14, 17, 24, 0.55); --glass-top: rgba(18, 21, 27, 0.5); --glass-menu: rgba(18, 21, 27, 0.62);
-  --glass-sheen: linear-gradient(170deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0) 55%);
+  --glass-sheen: radial-gradient(140% 90% at 0% 0%, rgba(190, 215, 255, 0.12), rgba(190, 215, 255, 0) 55%), linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0) 38%, rgba(0, 0, 0, 0) 70%, rgba(0, 0, 0, 0.12));
+  --glass-saturate: 1.9; --edge-hair: rgba(0, 0, 0, 0.35);
   --well: rgba(255, 255, 255, 0.08); --well-shade: inset 0 1px 3px rgba(0, 0, 0, 0.3);
   --slab: rgba(255, 255, 255, 0.2); --slab-shade: 0 0 0 transparent; --ghost: rgba(255, 255, 255, 0.1);
   --btn: rgba(255, 255, 255, 0.14); --btn-hover: rgba(255, 255, 255, 0.26); --btn-press: rgba(255, 255, 255, 0.07);
@@ -74,6 +76,7 @@ export const TOKEN_STYLES = `
   /* The only red: a delete's confirm step, never anything else. */
   --danger: #D93A2B; --danger-lo: #A82718;
   --page: #EEF2F7;
+  --glass-blur: 24px;
   --display: "Jost", Futura, "Century Gothic", "Avenir Next", sans-serif;
   --body: -apple-system, "Segoe UI", system-ui, sans-serif;
   --spring: cubic-bezier(.3, 1.2, .4, 1);
@@ -93,12 +96,17 @@ export const TOKEN_STYLES = `
 [hidden] { display: none !important; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
-/* The glass: clear, no sheen. A slab of it has cut corners and a drawn rim (the svg.edge GLASS_SCRIPT draws). */
+/* The glass: one look for every slab of it, at any size. A slab is a tint (--glass-tint, which a component may set to its own,
+   like the header's --glass-top), the light on it (--glass-sheen: brightest at its top left, a little shade along its foot),
+   the blur and colour of what's behind (--glass-blur, --glass-saturate), and cut corners with a drawn rim (the svg.edge
+   GLASS_SCRIPT draws, which sizes its corners and bevel to the slab). Nothing else restates these. */
 .glass { position: relative; color: var(--ink); background-color: var(--glass-tint); background-image: var(--glass-sheen);
-  -webkit-backdrop-filter: blur(26px) saturate(1.7); backdrop-filter: blur(26px) saturate(1.7); transition: background-color 0.5s ease, color 0.3s ease; }
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  transition: background-color 0.5s ease, color 0.3s ease; }
 .glass > :not(.edge) { position: relative; z-index: 3; }
 .edge { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; overflow: visible; }
 .edge .inner { stroke: var(--edge-inner); }
+.edge .hair { stroke: var(--edge-hair); }
 .edge .bevel { opacity: var(--edge-bevel); }
 .edge .rim { opacity: var(--edge-rim); }
 .edge .fringe { opacity: var(--edge-fringe); }
@@ -190,7 +198,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
         '</defs>';
       parts = {
         bevel: node("path", { "class": "bevel", fill: "url(#" + id + "bev)", "fill-rule": "evenodd" }),
-        hair: node("polygon", { "class": "hair", fill: "none", stroke: "rgba(26,44,80,0.28)", "stroke-width": "1.2" }),
+        hair: node("polygon", { "class": "hair", fill: "none", "stroke-width": "1.2" }),
         rim: node("polygon", { "class": "rim", fill: "none", stroke: "url(#" + id + "rim)", "stroke-width": "1.6" }),
         fringe: node("polygon", { "class": "fringe", fill: "none", stroke: "url(#" + id + "fr)", "stroke-width": "1" }),
         inner: node("polygon", { "class": "inner", fill: "none", "stroke-width": "1" }),
@@ -198,8 +206,11 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       };
     }
     function draw() {
-      var w = el.offsetWidth, h = el.offsetHeight, c = corners(), band = Number(el.getAttribute("data-glass-band")) || 6;
+      var w = el.offsetWidth, h = el.offsetHeight;
       if (!w || !h) return;
+      // Any size: a small slab gets smaller cuts and a narrower bevel, so the rim never crowds what's in it.
+      var short = Math.min(w, h), c = corners().map(function (cut) { return Math.min(cut, Math.round(short * 0.3)); });
+      var band = Number(el.getAttribute("data-glass-band")) || Math.max(2.5, Math.min(6, short * 0.06));
       if (!parts) build();
       var key = c.join(",");
       if (key !== lastCorners) {
@@ -286,7 +297,7 @@ component({
   summary: "Every colour comes from these tokens, so light, dark and smoked glass follow by themselves. Orange is only for what you act on.",
   styles: `
 /* Colour: the gallery's swatches. */
-.swatches { width: 100%; list-style: none; margin: 0; padding: 14px; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px 18px; color: var(--ink); background: var(--glass-tint); -webkit-backdrop-filter: blur(26px) saturate(1.7); backdrop-filter: blur(26px) saturate(1.7); }
+.swatches { width: 100%; list-style: none; margin: 0; padding: 14px; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px 18px; color: var(--ink); background: var(--glass-tint); -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); }
 .swatches li { display: grid; grid-template-columns: 36px 1fr; grid-template-rows: auto auto; column-gap: 10px; align-items: center; font: 500 13px var(--display); }
 .swatches .chip-swatch { grid-row: span 2; width: 36px; height: 36px; box-shadow: inset 0 0 0 1px var(--line); clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px); }
 .swatches code { font: 600 13px ui-monospace, Menlo, monospace; }
@@ -349,8 +360,40 @@ component({
 .glass-strip .glass { flex: 1 1 180px; min-height: 110px; padding: 18px 20px; font: 500 15px/1.4 var(--display); }
 .glass-strip .glass strong { display: block; font: 600 17px var(--display); }
 .glass-strip .glass-kind::after { content: var(--glass-kind); }
+/* Any size: one glass window over drifting shapes, to drag about and pull to any size (the gallery's script moves it).
+   What's in it gives way as it shrinks, through a container query, so the glass itself never changes. */
+.glass-play { position: relative; width: 100%; height: 360px; overflow: hidden; touch-action: none; background: var(--well); box-shadow: var(--well-shade);
+  clip-path: polygon(0 18px, 18px 0, calc(100% - 9px) 0, 100% 9px, 100% calc(100% - 18px), calc(100% - 18px) 100%, 9px 100%, 0 calc(100% - 9px)); }
+.glass-play > i { position: absolute; display: block; }
+.glass-play .sun { left: 8%; top: 40px; width: 150px; height: 150px; border-radius: 50%; background: #F7931A; animation: glass-drift-a 14s ease-in-out infinite alternate; }
+.glass-play .bar { left: 34%; top: 150px; width: 260px; height: 70px; background: #3B6FD0; transform: rotate(-14deg); animation: glass-drift-b 18s ease-in-out infinite alternate; }
+.glass-play .sea { right: 10%; top: 30px; width: 190px; height: 190px; border-radius: 50%; background: #1E9C8E; animation: glass-drift-c 16s ease-in-out infinite alternate; }
+.glass-play .cut { right: 30%; bottom: -30px; width: 160px; height: 120px; background: #E0457B; clip-path: polygon(0 30px, 30px 0, 100% 0, 100% calc(100% - 30px), calc(100% - 30px) 100%, 0 100%); animation: glass-drift-b 20s ease-in-out infinite alternate-reverse; }
+.glass-play .dot { left: 22%; bottom: 20px; width: 70px; height: 70px; border-radius: 50%; background: #F4C430; animation: glass-drift-c 12s ease-in-out infinite alternate-reverse; }
+@keyframes glass-drift-a { to { transform: translate(90px, 50px); } }
+@keyframes glass-drift-b { to { transform: translate(-70px, -40px) rotate(8deg); } }
+@keyframes glass-drift-c { to { transform: translate(-60px, 70px); } }
+.glass-window { position: absolute; left: 6%; top: 36px; width: min(320px, 80%); height: 200px; container-type: size; padding: 18px 20px;
+  display: flex; flex-direction: column; gap: 6px; overflow: hidden; cursor: grab; user-select: none; -webkit-user-select: none; touch-action: none; }
+.glass-window.is-moving { cursor: grabbing; }
+.glass-window:focus-visible { outline: none; }
+.glass-window:focus-visible .edge .hair, .glass-window:focus-visible .edge .rim { stroke: var(--ink); stroke-width: 2; }
+.glass-window strong { font: 600 17px var(--display); }
+.glass-window .glass-note { font: 500 14px/1.4 var(--display); color: var(--ink-2); }
+.glass-window .glass-size { margin-top: auto; font: 600 12px ui-monospace, Menlo, monospace; color: var(--muted); }
+.glass-window .glass-grip { position: absolute; z-index: 4; right: 0; bottom: 0; width: 30px; height: 30px; cursor: nwse-resize; color: var(--muted); }
+.glass-window .glass-grip svg { position: absolute; right: 0; bottom: 0; width: 30px; height: 30px; }
+@container (max-height: 120px) { .glass-window .glass-note { display: none; } }
+@container (max-height: 76px) { .glass-window .glass-size { display: none; } }
+@container (max-width: 150px) { .glass-window .glass-note { display: none; } .glass-window strong { font-size: 14px; } }
+@media (prefers-reduced-motion: reduce) { .glass-play > i { animation: none; } }
 `,
   examples: [
+    {
+      label: "Any size: drag it, pull its corner, or use the arrow keys (Shift to resize)",
+      isWide: true,
+      markup: html`<div class="glass-play" data-glass-play><i class="sun"></i><i class="bar"></i><i class="sea"></i><i class="cut"></i><i class="dot"></i><div class="glass glass-window" data-glass data-glass-corners="18 9 18 9" tabindex="0" role="group" aria-label="A glass window. Arrow keys move it; Shift and the arrow keys resize it."><strong>Glass, any size</strong><span class="glass-note">The same glass from a button to a whole window: its cuts and rim fit themselves to it.</span><span class="glass-size" aria-hidden="true"></span><span class="glass-grip" aria-hidden="true"><svg viewBox="0 0 30 30"><path d="M24 14L14 24M24 8L8 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span></div></div>`,
+    },
     {
       label: "Thin to thick",
       isWide: true,

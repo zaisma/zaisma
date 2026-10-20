@@ -107,7 +107,7 @@ body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
 .stage { padding-top: 12px; }
 /* The bar floats like the header: inset from the top and both sides, with the header's own padding around what's in it. */
 .gallery-bar { position: sticky; top: 12px; z-index: 20; margin: 0 auto; width: calc(100% - 24px); max-width: 1480px; min-height: 68px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 22px; padding: 14px 16px 14px 26px;
-  background-color: var(--glass-top); -webkit-backdrop-filter: blur(22px) saturate(1.7); backdrop-filter: blur(22px) saturate(1.7); }
+  --glass-tint: var(--glass-top); }
 .gallery-bar .logo svg { height: 24px; }
 .gallery-title { font: 600 18px var(--display); color: var(--ink-2); padding-left: 14px; border-left: 1px solid var(--line); }
 .theme-button { margin-left: auto; }
@@ -246,6 +246,39 @@ export const GALLERY_SCRIPT = pageScript(
   var groups = document.querySelector(".gallery-groups"), here = groups && groups.querySelector('[aria-current="page"]');
   if (here) groups.scrollLeft = Math.max(0, here.offsetLeft - (groups.clientWidth - here.offsetWidth) / 2);
   document.addEventListener("submit", function (event) { if (event.target.closest(".example-stage")) event.preventDefault(); });
+  // Glass at any size: drag the window about, pull its corner to resize it, or use the arrow keys (Shift resizes).
+  document.querySelectorAll("[data-glass-play]").forEach(function (play) {
+    var win = play.querySelector(".glass-window"), grip = win.querySelector(".glass-grip"), readout = win.querySelector(".glass-size");
+    var MIN_W = 64, MIN_H = 40;
+    function clamp(n, lo, hi) { return Math.max(lo, Math.min(hi, n)); }
+    function place(box) {
+      var w = clamp(box.w, MIN_W, play.clientWidth), h = clamp(box.h, MIN_H, play.clientHeight);
+      win.style.width = w + "px"; win.style.height = h + "px";
+      win.style.left = clamp(box.x, 0, play.clientWidth - w) + "px"; win.style.top = clamp(box.y, 0, play.clientHeight - h) + "px";
+      readout.textContent = Math.round(w) + " \u00d7 " + Math.round(h);
+    }
+    function now() { return { x: win.offsetLeft, y: win.offsetTop, w: win.offsetWidth, h: win.offsetHeight }; }
+    win.addEventListener("pointerdown", function (event) {
+      if (event.button) return;
+      var start = now(), fromX = event.clientX, fromY = event.clientY, isResizing = grip.contains(event.target);
+      win.setPointerCapture(event.pointerId); win.classList.add("is-moving");
+      function follow(move) {
+        var dx = move.clientX - fromX, dy = move.clientY - fromY;
+        place(isResizing ? { x: start.x, y: start.y, w: start.w + dx, h: start.h + dy } : { x: start.x + dx, y: start.y + dy, w: start.w, h: start.h });
+      }
+      function stop() { win.removeEventListener("pointermove", follow); win.removeEventListener("pointerup", stop); win.removeEventListener("pointercancel", stop); win.classList.remove("is-moving"); }
+      win.addEventListener("pointermove", follow); win.addEventListener("pointerup", stop); win.addEventListener("pointercancel", stop);
+    });
+    var KEYS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+    win.addEventListener("keydown", function (event) {
+      var step = KEYS[event.key]; if (!step) return;
+      event.preventDefault();
+      var box = now(), by = event.altKey ? 1 : 12;
+      if (event.shiftKey) { box.w += step[0] * by; box.h += step[1] * by; } else { box.x += step[0] * by; box.y += step[1] * by; }
+      place(box);
+    });
+    place(now());
+  });
   // The glass button's tint palette: the button above takes the tint you pick.
   document.addEventListener("click", function (event) {
     var swatch = event.target.closest && event.target.closest("[data-tint-choice]"); if (!swatch) return;

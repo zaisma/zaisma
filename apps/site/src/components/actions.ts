@@ -89,7 +89,7 @@ const WAY_TINTS: Record<keyof typeof WAY_ICONS, GlassTint> = { google: "white", 
 export function glassButton(label: string, options: { href?: string; type?: "submit" | "button"; icon: keyof typeof WAY_ICONS; tint?: GlassTint; state?: ButtonState }): Raw {
   const tint = options.tint ?? WAY_TINTS[options.icon];
   const target = { href: options.href, type: options.type ?? "button" } as const;
-  return html`${opening(classes("glass-btn", options.state), target, false, html` data-tint="${tint}"`)}<span class="face" data-glass data-glass-corners="12 4 12 4" data-glass-band="3">${WAY_ICONS[options.icon]}<span>${label}</span></span>${closing(target)}`;
+  return html`${opening(classes("glass-btn", options.state), target, false, html` data-tint="${tint}"`)}<span class="face glass" data-glass data-glass-corners="12 4 12 4" data-glass-band="3">${WAY_ICONS[options.icon]}<span>${label}</span></span>${closing(target)}`;
 }
 
 const GUEST_ARROW = raw('<span class="arrow" aria-hidden="true"><svg viewBox="0 0 12 20" width="8" height="12"><path d="M2 2l8 8-8 8" fill="none" stroke="currentColor" stroke-width="2.4"/></svg></span>');
@@ -305,7 +305,6 @@ component({
   position: relative; display: flex; flex: auto; align-items: center; justify-content: center; gap: 10px; height: 48px; padding: 0 18px;
   font: 500 15px var(--display); color: var(--ink); white-space: nowrap;
   background-color: var(--glass-btn-face); background-image: var(--glass-sheen);
-  -webkit-backdrop-filter: blur(18px) saturate(1.8); backdrop-filter: blur(18px) saturate(1.8);
   clip-path: polygon(0 12px, 12px 0, calc(100% - 4px) 0, 100% 4px, 100% calc(100% - 12px), calc(100% - 12px) 100%, 4px 100%, 0 calc(100% - 4px));
   transition: background-color 0.25s, box-shadow 0.2s, transform 0.4s ${SPRING}; }
 .glass-btn .face > :not(.edge) { position: relative; z-index: 3; }
