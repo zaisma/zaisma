@@ -386,7 +386,8 @@ component({
    toward the edges. The wheel you're on by keyboard has its value underlined in ink. */
 .bday-pick { position: relative; margin-top: 0; padding: 10px 12px 14px; border: 0; background: var(--pick); box-shadow: var(--pick-shade);
   clip-path: var(--cut-shape); }
-.wheels { position: relative; display: grid; grid-template-columns: 1.5fr 0.8fr 1fr; gap: 6px; }
+/* The month gets the room its longest name needs (September), the day the least. */
+.wheels { position: relative; display: grid; grid-template-columns: 1.9fr 0.7fr 1fr; gap: 4px; padding: 0 6px; }
 /* The band sits on the wheels' top row, so nothing blank sits above it: the value you've picked is at the top, the rest follow below it, fading. */
 .wheel-band { position: absolute; left: 0; right: 0; top: 0; height: 40px; pointer-events: none;
   background: var(--slab); box-shadow: var(--slab-shade), inset 0 -3px 0 var(--run);
@@ -399,7 +400,7 @@ component({
 .wheel [role="option"] { height: 40px; display: flex; align-items: center; justify-content: center; scroll-snap-align: start;
   font: 500 16px var(--display); color: var(--ink-2); cursor: pointer; user-select: none; -webkit-user-select: none; transition: color 0.2s, font-size 0.2s; }
 .wheel [role="option"].blank { color: var(--muted); font-weight: 400; }
-.wheel [role="option"][aria-selected="true"] { font-size: 19px; color: var(--ink); font-weight: 600; }
+.wheel [role="option"][aria-selected="true"] { font-size: 18px; color: var(--ink); font-weight: 600; }
 .wheel [role="option"][aria-selected="true"].blank { color: var(--muted); font-weight: 500; }
 .wheel:focus-visible [role="option"][aria-selected="true"] { text-decoration: underline 2px var(--ink); text-underline-offset: 7px; }
 /* Done: a cut slab of clearer glass; it whitens with the orange line when you point at it, once there's a whole date. */
