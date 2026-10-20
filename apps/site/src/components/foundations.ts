@@ -344,7 +344,13 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     function list(points) { return points.map(function (p) { return p[0].toFixed(2) + "," + p[1].toFixed(2); }).join(" "); }
     function draw() {
       var w = el.offsetWidth, h = el.offsetHeight; if (!w || !h) return;
-      var shape = controlShape(w, h, slant, nestedCuts(el)), key = w + "x" + h + ":" + list(shape);
+      var nested = nestedCuts(el);
+      // data-cut-ends="mirror": a control nested at one end mirrors that end's cuts at the other, instead of slanting there (the light or dark button).
+      if (el.getAttribute("data-cut-ends") === "mirror") {
+        if ((nested[1] !== null || nested[2] !== null) && nested[0] === null && nested[3] === null) nested = [nested[1] || 0, nested[1], nested[2], nested[2] || 0];
+        else if ((nested[0] !== null || nested[3] !== null) && nested[1] === null && nested[2] === null) nested = [nested[0], nested[0] || 0, nested[3] || 0, nested[3]];
+      }
+      var shape = controlShape(w, h, slant, nested), key = w + "x" + h + ":" + list(shape);
       if (key === last) return;
       last = key;
       el.style.setProperty("--cut-shape", "polygon(" + shape.map(function (p) { return p[0].toFixed(2) + "px " + p[1].toFixed(2) + "px"; }).join(", ") + ")");
@@ -465,11 +471,21 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     };
   }
+  // A change of theme fades the backdrop's colours over the same half second as the glass's, so the two never part for a frame.
+  var FADE_MS = 500;
+  function mix(from, to, t) { return from.map(function (value, i) { return value + (to[i] - value) * t; }); }
+  function shownColours(layer, nowMs) {
+    var t = still.matches || !layer.from ? 1 : Math.min(1, (nowMs - layer.fadeStartMs) / FADE_MS);
+    if (t >= 1) { layer.from = null; return layer.target; }
+    var eased = t * t * (3 - 2 * t), from = layer.from, to = layer.target;
+    return { base: mix(from.base, to.base, eased), a: mix(from.a, to.a, eased), b: mix(from.b, to.b, eased), c: mix(from.c, to.c, eased), isDark: eased < 0.5 ? from.isDark : to.isDark };
+  }
   function draw(layer, nowMs) {
     var timeS = still.matches ? 20 : nowMs / 1000;
+    layer.colours = shownColours(layer, nowMs);
     if (layer.drawShader) layer.drawShader(timeS, layer.colours);
     else layer.canvas.dispatchEvent(new CustomEvent("backdrop-frame", { detail: { timeS: timeS, colours: layer.colours, widthPx: layer.canvas.width, heightPx: layer.canvas.height } }));
-    layer.isDrawn = true;
+    layer.isDrawn = !layer.from;
   }
   function frame(nowMs) {
     requestAnimationFrame(frame);
@@ -477,12 +493,21 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     lastMs = nowMs;
     layers.forEach(function (layer) { if (layer.isInView && !(still.matches && layer.isDrawn)) draw(layer, nowMs); });
   }
-  function refresh() { layers.forEach(function (layer) { layer.colours = readColours(layer.canvas); layer.isDrawn = false; }); }
+  // The colours are read again whenever the theme might have changed; the fade starts at once, from what's showing, and only when they did change.
+  function refresh() {
+    var nowMs = performance.now();
+    layers.forEach(function (layer) {
+      var next = readColours(layer.canvas);
+      if (JSON.stringify(next) === JSON.stringify(layer.target)) return;
+      layer.from = layer.colours; layer.target = next; layer.fadeStartMs = nowMs; layer.isDrawn = false;
+      if (layer.isInView) draw(layer, nowMs);
+    });
+  }
   function setUp(canvas) {
     if (canvas.backdropLayer) return;
     var isScene = canvas.getAttribute("data-backdrop") === "scene";
     // A shader is soft, so it's drawn at one pixel per CSS pixel; a scene gets the screen's sharpness, up to 2x.
-    var layer = { canvas: canvas, isInView: true, isDrawn: false, colours: readColours(canvas), scale: Math.min(window.devicePixelRatio || 1, isScene ? 2 : 1) };
+    var layer = { canvas: canvas, isInView: true, isDrawn: false, target: readColours(canvas), from: null, scale: Math.min(window.devicePixelRatio || 1, isScene ? 2 : 1) };
     if (!isScene) { layer.drawShader = shaderDrawer(canvas); if (!layer.drawShader) return; canvas.classList.add("is-drawn"); }
     canvas.backdropLayer = layer;
     function size() { canvas.width = Math.max(1, Math.round(canvas.clientWidth * layer.scale)); canvas.height = Math.max(1, Math.round(canvas.clientHeight * layer.scale)); layer.isDrawn = false; }
