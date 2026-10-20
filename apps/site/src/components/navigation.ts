@@ -58,7 +58,7 @@ export function header(options: HeaderOptions): Raw {
     : [];
   return html`<header class="top glass${options.isCompact ? " is-compact" : ""}" id="${id}" data-glass data-glass-corners="16 6 16 6"${options.isCompact ? raw(" data-stays-compact") : ""}>${EDGE}
   ${logo}
-  <nav class="nav cut-carved" aria-label="Main" data-cut-line="10">${CUT_LINE}<span class="ghost" aria-hidden="true"></span><span class="slab cut-raised" aria-hidden="true" data-cut-line="8">${CUT_LINE}</span>${tab("Home", "/", options.current === "home")}${account && options.yourGamesHref ? tab("Your games", options.yourGamesHref, options.current === "your-games") : ""}${tab("Developer", account ? "/dashboard" : "/developers", options.current === "developer", true, isOpen)}${tab("Forum", "/forum", options.current === "forum", true, isOpen)}</nav>
+  <nav class="nav cut-carved" aria-label="Main" data-cut-line="10">${CUT_LINE}<span class="ghost" aria-hidden="true" data-cut-line="8"></span><span class="slab cut-raised" aria-hidden="true" data-cut-line="8">${CUT_LINE}</span>${tab("Home", "/", options.current === "home")}${account && options.yourGamesHref ? tab("Your games", options.yourGamesHref, options.current === "your-games") : ""}${tab("Developer", account ? "/dashboard" : "/developers", options.current === "developer", true, isOpen)}${tab("Forum", "/forum", options.current === "forum", true, isOpen)}</nav>
   ${options.search ? html`${searchField(options.search)}<button type="button" class="find-open" aria-label="${options.search.label}" aria-expanded="false">${icon("search")}</button>` : ""}
   <div class="end">${
     account
@@ -94,17 +94,17 @@ const HEADER_STYLES = `
 /* Where you are: the sign-in's switch, laid flat. A white slab with an orange underline sits under the page you're on; a faint one follows the pointer. */
 .nav { position: relative; display: flex; height: 44px; padding: 4px; flex: none;
   background: var(--well); box-shadow: var(--well-shade);
-  clip-path: var(--cut-shape, polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%)); }
-.nav .slab, .nav .ghost { position: absolute; top: 4px; bottom: 4px; left: 0; width: 0; clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%); pointer-events: none;
+  clip-path: var(--cut-shape); }
+.nav .slab, .nav .ghost { position: absolute; top: 4px; bottom: 4px; left: 0; width: 0; clip-path: var(--cut-shape); pointer-events: none;
   transition: transform 0.55s var(--spring), width 0.55s var(--spring), opacity 0.3s; }
-.nav .slab { clip-path: var(--cut-shape, polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%)); background: var(--slab); box-shadow: var(--slab-shade), inset 0 -3px 0 var(--run); }
+.nav .slab { clip-path: var(--cut-shape); background: var(--slab); box-shadow: var(--slab-shade), inset 0 -3px 0 var(--run); }
 .nav .ghost { background: var(--ghost); opacity: 0; }
 .nav.pointing .ghost { opacity: 1; }
 .nav a { position: relative; display: flex; align-items: center; padding: 0 18px; font: 500 15px var(--display); color: var(--ink-2); text-decoration: none; white-space: nowrap; }
 .nav a[aria-current="page"] { color: var(--ink); font-weight: 600; }
 .nav a:focus-visible { outline: 2px solid var(--ink); outline-offset: -4px; }
 /* Before the script has measured, the tab you're on carries its own slab. */
-.nav:not(.is-ready) a[aria-current="page"] { background: var(--slab); box-shadow: inset 0 -3px 0 var(--run); clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%); }
+.nav:not(.is-ready) a[aria-current="page"] { background: var(--slab); box-shadow: inset 0 -3px 0 var(--run); }
 /* The Developer and Forum tabs open out of the end of the tabs on a developer page and fold back into it when you leave, while the slab slides. */
 .nav a.dev { max-width: 160px; overflow: hidden; transition: max-width 0.45s cubic-bezier(.2,.8,.2,1), padding 0.45s cubic-bezier(.2,.8,.2,1), opacity 0.3s 0.08s; }
 .nav a.dev.off { max-width: 0; padding-left: 0; padding-right: 0; opacity: 0; pointer-events: none; transition: max-width 0.4s cubic-bezier(.4,0,.2,1), padding 0.4s cubic-bezier(.4,0,.2,1), opacity 0.16s; }
@@ -183,7 +183,15 @@ export const HEADER_SCRIPT = pageScript(
     /* Where you are: the white slab sits under the current page; a faint one follows the pointer across the others. */
     var nav = top.querySelector(".nav"), slab = nav.querySelector(".slab"), ghost = nav.querySelector(".ghost"), links = nav.querySelectorAll("a"), devTabs = nav.querySelectorAll(".dev");
     // A page that isn't one of these (like sign-in) has no current link, so no slab.
-    function put(el, link) { if (!link) { el.style.width = "0px"; return; } el.style.width = link.offsetWidth + "px"; el.style.transform = "translateX(" + link.offsetLeft + "px)"; }
+    // The edge rule, as on a switch: the slab slants only where another tab is beside it, and its end on the first or last tab follows the tabs' end.
+    function fit(el, link) {
+      var shown = Array.prototype.filter.call(links, function (each) { return !each.classList.contains("off"); }), isFirst = link === shown[0], isLast = link === shown[shown.length - 1];
+      el.setAttribute("data-cut-beside", ((isFirst ? "" : "start ") + (isLast ? "" : "end")).trim());
+      var ends = ((isFirst ? "start " : "") + (isLast ? "end" : "")).trim();
+      if (ends) el.setAttribute("data-cut-ends", ends); else el.removeAttribute("data-cut-ends");
+      if (el.redrawCut) el.redrawCut();
+    }
+    function put(el, link) { if (!link) { el.style.width = "0px"; return; } el.style.width = link.offsetWidth + "px"; el.style.transform = "translateX(" + link.offsetLeft + "px)"; fit(el, link); }
     function current() { return nav.querySelector('[aria-current="page"]'); }
     function settle() { var on = current(); slab.style.transition = "none"; put(slab, on); put(ghost, on); slab.offsetWidth; slab.style.transition = ""; nav.classList.add("is-ready"); }
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(settle);
@@ -209,6 +217,7 @@ export const HEADER_SCRIPT = pageScript(
       fold(!on); devTabs.forEach(function (each) { each.tabIndex = on ? 0 : -1; each.setAttribute("aria-hidden", String(!on)); });
       slab.style.width = width + "px"; slab.style.transform = "translateX(" + left + "px)";
       ghost.style.width = width + "px"; ghost.style.transform = "translateX(" + left + "px)";
+      if (link) { fit(slab, link); fit(ghost, link); }
     }
 
     /* Search: on a phone the search button swaps the row below for the field. */
@@ -328,7 +337,7 @@ const ARROW_ON = raw('<svg viewBox="0 0 12 16" aria-hidden="true"><path d="M0 0h
 
 /** Arrows to scroll a row, for a mouse or trackpad: a cut well of two halves at the right of the row's heading. Touch screens swipe instead. */
 export function rowArrows(options: { rowName: string; trackId: string }): Raw {
-  return html`<div class="steps" data-row-arrows><button type="button" class="step back" aria-controls="${options.trackId}" aria-label="Scroll ${options.rowName} back">${ARROW_BACK}</button><button type="button" class="step on" aria-controls="${options.trackId}" aria-label="Scroll ${options.rowName} on">${ARROW_ON}</button></div>`;
+  return html`<div class="steps" data-row-arrows data-cut-line="9"><button type="button" class="step back" data-cut-line="7" aria-controls="${options.trackId}" aria-label="Scroll ${options.rowName} back">${ARROW_BACK}</button><button type="button" class="step on" data-cut-line="7" aria-controls="${options.trackId}" aria-label="Scroll ${options.rowName} on">${ARROW_ON}</button></div>`;
 }
 
 /** A row's arrows scroll it by most of its width, grey out at its ends, and hide when there's nothing to scroll; the row fades out softly on a side with more. */
@@ -509,15 +518,15 @@ component({
   summary: "Scrolling a row of games with a mouse or trackpad. They grey out at the row's ends; touch screens swipe instead.",
   styles: `
 /* Arrows to scroll a row, for a mouse or trackpad: small cut glass buttons at the right of the row's heading. Touch screens swipe instead. */
-.steps { margin-left: auto; display: none; gap: 2px; height: 36px; padding: 3px; background: var(--well); box-shadow: var(--well-shade);
-  clip-path: polygon(9px 0, 100% 0, calc(100% - 9px) 100%, 0 100%); }
+.steps { position: relative; margin-left: auto; display: none; gap: 2px; height: 36px; padding: 3px; background: var(--well); box-shadow: var(--well-shade);
+  clip-path: var(--cut-shape); }
 @media (hover: hover) and (pointer: fine) { .steps { display: flex; } .steps[hidden] { display: none; } }
 .step { width: 46px; height: 30px; display: grid; place-items: center; border: 0; cursor: pointer; color: var(--ink-2); background: transparent;
-  clip-path: polygon(7px 0, 100% 0, calc(100% - 7px) 100%, 0 100%); transition: background 0.15s, color 0.15s, opacity 0.15s, box-shadow 0.15s; }
-.step svg { width: 10px; height: 13px; fill: currentColor; transition: transform 0.2s cubic-bezier(.2,.8,.2,1); }
+  position: relative; clip-path: var(--cut-shape); transition: background 0.15s, color 0.15s, opacity 0.15s, box-shadow 0.15s; }
+.step svg:not(.cut-line) { width: 10px; height: 13px; fill: currentColor; transition: transform 0.2s cubic-bezier(.2,.8,.2,1); }
 .step:hover:not(:disabled) { background: var(--slab); color: var(--ink); box-shadow: inset 0 -3px 0 var(--run); }
-.step.back:hover:not(:disabled) svg { transform: translateX(-2px); }
-.step.on:hover:not(:disabled) svg { transform: translateX(2px); }
+.step.back:hover:not(:disabled) svg:not(.cut-line) { transform: translateX(-2px); }
+.step.on:hover:not(:disabled) svg:not(.cut-line) { transform: translateX(2px); }
 .step:active:not(:disabled) { background: var(--btn); }
 .step:focus-visible { outline: none; background: var(--slab); color: var(--ink); box-shadow: inset 0 -3px 0 var(--ink); }
 .step:disabled { opacity: 0.3; cursor: default; }
@@ -572,7 +581,7 @@ export interface SidebarOptions {
 export function sidebar(options: SidebarOptions): Raw {
   const link = (each: SidebarItem) => {
     const inside = each.icon ? html`${icon(each.icon)}<span class="sidebar-label">${each.label}</span>` : html`${each.label}`;
-    const cut = raw('data-cut-line="8" data-cut-corners="4 2 4 2"');
+    const cut = raw('data-cut-line="8"');
     return html`<li><a href="${each.href}"${each.extra ?? ""}${each.isCurrent ? raw(' aria-current="page"') : html` ${cut}`}${options.isCollapsed ? html` title="${each.label}" aria-label="${each.label}"` : ""}>${each.isCurrent ? html`<span class="sidebar-slab cut-raised" ${cut} data-cut-inset="2">${CUT_LINE}</span>` : CUT_LINE}${inside}${each.badgeCount ? html`<span class="sidebar-count">${each.badgeCount}</span>` : ""}</a></li>`;
   };
   const groups = options.groups.map((group) => html`<div class="sidebar-group">${group.heading ? html`<h2 class="sidebar-heading">${group.heading}</h2>` : ""}<ul class="sidebar-list">${group.items.map(link)}</ul></div>`);
@@ -605,7 +614,7 @@ component({
    the last page's place (SIDEBAR_SCRIPT), under words that stay put, while the rest of the page crossfades. */
 .sidebar-slab { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
 .sidebar-slab::before { content: ""; position: absolute; inset: 0; background: var(--slab);
-  clip-path: var(--cut-shape, polygon(0 4px, 4px 0, calc(100% - 2px) 0, 100% 2px, 100% calc(100% - 4px), calc(100% - 4px) 100%, 2px 100%, 0 calc(100% - 2px))); }
+  clip-path: var(--cut-shape); }
 .sidebar-slab.is-gliding { animation: sidebar-glide 0.45s var(--spring); }
 @keyframes sidebar-glide { from { transform: translateY(var(--glide-from-px, 0px)); } }
 /* Every place's outline follows its cut: orange on the current place, ink while the keyboard is on another. It stays out of sight until then, and on the current place it thickens under keyboard focus. */

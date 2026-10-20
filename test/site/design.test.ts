@@ -91,6 +91,26 @@ describe("the gallery", () => {
     expect(problems).toEqual([]);
   });
 
+  it("cuts every action and input by the one edge rule: no control carries a shape of its own", () => {
+    // The edge rule (GLASS_SCRIPT) gives every control its shape as --cut-shape: a slant only beside another control in a row,
+    // and corners that fit what holds it. A control's CSS only ever clips to that, and its markup never names corners of its own.
+    const controls = COMPONENTS().filter((each) => each.group === "actions" || each.group === "inputs");
+    const navigationControls = COMPONENTS().filter((each) => each.slug === "header" || each.slug === "row-arrows");
+    const problems: string[] = [];
+    const check = (styles: string, isControlRule: (selector: string) => boolean) => {
+      for (const [, selectors = "", declarations = ""] of styles.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+        const clip = /(?:^|[;\s])clip-path:\s*([^;}]+)/.exec(declarations)?.[1]?.trim();
+        if (!clip || clip === "var(--cut-shape)" || clip === "none") continue;
+        const selector = selectors.replace(/\/\*[\s\S]*?\*\//g, "").trim();
+        if (isControlRule(selector)) problems.push(`${selector}: clip-path: ${clip}`);
+      }
+    };
+    for (const each of controls) check(each.styles, () => true);
+    for (const each of navigationControls) check(each.styles, (selector) => /\.(nav|steps?)\b/.test(selector));
+    for (const each of controls) for (const example of each.examples) if (/data-cut-corners/.test(example.markup.html)) problems.push(`${each.slug}, ${example.label}: corners of its own`);
+    expect(problems).toEqual([]);
+  });
+
   it("lets no glass change differently: a rule on anything made of glass that sets a transition starts it with the glass's", async () => {
     // The classes that sit beside "glass" on the gallery's pages (the header, a pane, a menu, a button's face, the rail's thumb).
     const glassClasses = new Set<string>();
@@ -147,12 +167,12 @@ describe("components", () => {
   });
 
   it("make the runner a link with an address and a button without one", () => {
-    expect(actions.runButton("Play", { href: "/g/x" }).html).toMatch(/<a class="shell run-wrap" href="\/g\/x">/);
-    expect(actions.runButton("Play").html).toMatch(/<button class="shell run-wrap" type="submit">/);
+    expect(actions.runButton("Play", { href: "/g/x" }).html).toMatch(/<a class="shell run-wrap" href="\/g\/x" data-cut-line="12">/);
+    expect(actions.runButton("Play").html).toMatch(/<button class="shell run-wrap" type="submit" data-cut-line="12">/);
   });
 
   it("give a password field its Show toggle, and an error its message", () => {
-    expect(inputs.cutField({ name: "password", label: "Password", type: "password", icon: "lock" }).html).toMatch(/<button type="button" class="show" aria-controls="field-password" aria-pressed="false">Show<\/button>/);
+    expect(inputs.cutField({ name: "password", label: "Password", type: "password", icon: "lock" }).html).toMatch(/<button type="button" class="show" data-cut-line="7" aria-controls="field-password" aria-pressed="false">Show<\/button>/);
     const marked = inputs.cutField({ name: "username", label: "Username", type: "text", icon: "person", error: "Use letters only." }).html;
     expect(marked).toContain('aria-invalid="true" aria-describedby="field-username-error"');
     expect(marked).toContain('<p class="field-error" id="field-username-error">Use letters only.</p>');

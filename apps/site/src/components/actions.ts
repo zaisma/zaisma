@@ -41,11 +41,11 @@ export interface RunButtonOptions extends ButtonTarget {
   state?: ButtonState;
 }
 
-/** The runner button: an orange slab with a side you can see. It lifts, leans toward the pointer and catches the light; pressing pushes its face down onto its side. */
+/** The runner button: an orange slab with a side you can see and run lines at its leading end. It lifts, leans toward the pointer and catches the light, and its lines run on; pressing pushes its face down onto its side. */
 export function runButton(label: string, options: RunButtonOptions = {}): Raw {
   const words = options.busyLabel ? html`<span class="label-idle">${label}</span><span class="label-busy">${options.busyLabel}</span>` : html`<span>${label}</span>`;
   const shell = classes("run-wrap", options.isBig && "is-big", options.isFullWidth && "is-full", options.state);
-  return html`${opening(shell, options, options.isBusy)}<span class="run-side" aria-hidden="true"></span><span class="${options.isBig ? "face run big" : "face run"}">${options.icon ? icon(options.icon) : ""}${words}${options.icon ? "" : ARROW}</span>${closing(options)}`;
+  return html`${opening(shell, options, options.isBusy, html` data-cut-line="${options.isBig ? 14 : 12}"`)}<span class="run-side" aria-hidden="true"></span><span class="${options.isBig ? "face run big" : "face run"}">${options.icon ? icon(options.icon) : ""}${words}${options.icon ? "" : ARROW}<span class="run-lines" aria-hidden="true"></span></span>${closing(options)}`;
 }
 
 export interface CutButtonOptions extends ButtonTarget {
@@ -82,7 +82,7 @@ const WAY_TINTS: Record<keyof typeof WAY_ICONS, GlassTint> = { google: "white", 
 export function glassButton(label: string, options: { href?: string; type?: "submit" | "button"; icon: keyof typeof WAY_ICONS; tint?: GlassTint; state?: ButtonState }): Raw {
   const tint = options.tint ?? WAY_TINTS[options.icon];
   const target = { href: options.href, type: options.type ?? "button" } as const;
-  return html`${opening(classes("glass-btn", options.state), target, false, html` data-tint="${tint}"`)}<span class="face glass" data-glass data-glass-corners="12 4 12 4" data-glass-band="3">${WAY_ICONS[options.icon]}<span>${label}</span></span>${closing(target)}`;
+  return html`${opening(classes("glass-btn", options.state), target, false, html` data-tint="${tint}"`)}<span class="face glass" data-glass data-cut-line="10" data-glass-band="3">${WAY_ICONS[options.icon]}<span>${label}</span></span>${closing(target)}`;
 }
 
 const GUEST_ARROW = raw('<span class="arrow" aria-hidden="true"><svg viewBox="0 0 12 20" width="8" height="12"><path d="M2 2l8 8-8 8" fill="none" stroke="currentColor" stroke-width="2.4"/></svg></span>');
@@ -131,41 +131,47 @@ const RUN_STYLES = `
    It lifts, leans toward you and catches the light; a press pushes the face down onto its side, and it springs back.
    The shell (.run-wrap, the link or button) stays still; its face (.run) and side move inside it.
    .over is the pointer on it (RUNNER_SCRIPT); is-pointed, is-pressed and is-focused fix those states for the gallery. */
+/* Its shape is the edge rule's, like every control's (GLASS_SCRIPT sets --cut-shape on the shell, for its face and its side). */
 .run-wrap {
-  --run-shape: polygon(12px 0, calc(100% - 16px) 0, 100% 50%, calc(100% - 16px) 100%, 0 100%);
   --depth: 4px;
   isolation: isolate; vertical-align: middle; perspective: 600px; margin-bottom: var(--depth);
 }
 .run-wrap:focus-visible { outline: none; }
 .run-wrap.is-full { display: flex; width: 100%; perspective: 700px; }
-.run-wrap.is-big {
-  --run-shape: polygon(14px 0, calc(100% - 20px) 0, 100% 50%, calc(100% - 20px) 100%, 0 100%);
-  --depth: 5px;
-}
+.run-wrap.is-big { --depth: 5px; }
 /* Its warm glow on what's under it: it spreads as the slab lifts and gathers in as it's pressed. */
 .run-wrap::before { content: ""; position: absolute; z-index: -1; left: 8%; right: 8%; top: 35%; bottom: -10px; border-radius: 50%; pointer-events: none;
   background: rgba(247,147,26,0.34); filter: blur(11px); opacity: 0.75; transition: opacity 0.5s, transform 0.5s cubic-bezier(.2,.7,.2,1); }
 .run-wrap.over::before, .run-wrap.is-pointed::before { opacity: 1; transform: translateY(3px) scaleX(1.05); }
 .run-wrap:active::before, .run-wrap.is-pressed::before { opacity: 0.5; transform: translateY(-2px) scaleX(0.94); transition-duration: 0.1s; }
 /* Its side: the slab's thickness, a darker band of the same shape just below the face, lit from above. */
-.run-side { position: absolute; inset: 0; pointer-events: none; clip-path: var(--run-shape);
+.run-side { position: absolute; inset: 0; pointer-events: none; clip-path: var(--cut-shape);
   background: linear-gradient(180deg, #D27412, var(--run-lo) 85%);
   transform: translateY(var(--depth)) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)); transition: transform 0.6s cubic-bezier(.2,.7,.2,1); }
 .run {
   --refl: 50%;
-  position: relative; z-index: 1; overflow: hidden; height: 44px; padding: 0 30px 0 22px;
+  position: relative; z-index: 1; overflow: hidden; height: 44px; padding: 0 26px 0 22px;
   display: flex; align-items: center; gap: 10px; white-space: nowrap;
   color: #fff; text-shadow: 0 1px 1px rgba(120,58,0,0.4);
   font: 600 16px var(--display); letter-spacing: 0.01em;
   /* The face: lit from above, rounding off toward its lower edge, with a bright top edge where the light lands. */
   background: radial-gradient(130% 110% at 50% -35%, rgba(255,255,255,0.36), rgba(255,255,255,0) 62%), linear-gradient(180deg, var(--run-hi), var(--run) 55%, #EA830E);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.6), inset 0 -1px 0 rgba(150,72,0,0.3);
-  clip-path: var(--run-shape);
+  clip-path: var(--cut-shape);
   transform: translateY(var(--lift, 0px)) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
   transition: transform 0.45s ${SPRING}, --refl 0.6s cubic-bezier(.2,.7,.2,1), filter 0.2s;
 }
 .is-full > .run { width: 100%; justify-content: center; }
-.run.big { height: 56px; justify-content: center; padding: 0 34px 0 24px; font-size: 19px; gap: 12px; }
+.run.big { height: 56px; justify-content: center; padding: 0 30px 0 24px; font-size: 19px; gap: 12px; }
+/* Its run lines: fine slanted lines of light at its leading end, behind the arrow, the runner's own mark now its ends follow the edge rule.
+   They run on while you point at it, and keep running while it's busy. */
+.run > .run-lines { position: absolute; top: 0; right: 0; bottom: 0; width: 64px; pointer-events: none;
+  background: repeating-linear-gradient(112deg, rgba(255,255,255,0) 0 7px, rgba(255,255,255,0.3) 7px 9px) 0 0 / 22px 100%;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 75%); mask-image: linear-gradient(90deg, transparent, #000 75%);
+  transition: background-position 0.6s cubic-bezier(.2,.7,.2,1); }
+.run-wrap.over .run-lines, .run-wrap.is-pointed .run-lines { background-position: 22px 0; }
+.run-wrap[aria-busy="true"] .run-lines { animation: run-lines 0.9s linear infinite; }
+@keyframes run-lines { from { background-position: 0 0; } to { background-position: 22px 0; } }
 /* The reflection of a fixed light: a soft band that slides the opposite way to the pointer. */
 .run::before { content: ""; position: absolute; inset: 0; background: linear-gradient(105deg, rgba(255,255,255,0) calc(var(--refl) - 22%), rgba(255,255,255,0.2) var(--refl), rgba(255,255,255,0) calc(var(--refl) + 22%)); opacity: 0; transition: opacity 0.6s; }
 .run-wrap.over .run::before, .run-wrap.is-pointed .run::before { opacity: 1; }
@@ -189,7 +195,7 @@ const RUN_STYLES = `
 .run-wrap[aria-busy="true"] .arrow { animation: run-drift 1.6s ease-in-out infinite; }
 @keyframes run-drift { 0%, 100% { transform: translateX(0); opacity: 0.55; } 50% { transform: translateX(7px); opacity: 1; } }
 @media (max-width: 760px) { .run { height: 40px; padding: 0 24px 0 16px; font-size: 15px; } .run.big { height: 48px; font-size: 17px; } }
-@media (prefers-reduced-motion: reduce) { .run, .run-side, .run .arrow, .run .play, .run-wrap::before { transition: none; } .run.glint::after, .run-wrap[aria-busy="true"] .arrow { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .run, .run-side, .run .arrow, .run .play, .run-wrap::before, .run > .run-lines { transition: none; } .run.glint::after, .run-wrap[aria-busy="true"] .arrow, .run-wrap[aria-busy="true"] .run-lines { animation: none; } }
 `;
 
 /** A full-width button's examples sit in a column this wide. */
@@ -240,10 +246,10 @@ component({
 .cut-btn.is-full { display: flex; width: 100%; }
 .cut-btn > .face { display: flex; flex: auto; align-items: center; justify-content: center; gap: 8px; height: 44px; padding: 0 24px;
   font: 600 15px var(--display); color: var(--ink); white-space: nowrap;
-  background: var(--btn); clip-path: var(--cut-shape, polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%));
+  background: var(--btn); clip-path: var(--cut-shape);
   transition: background-color 0.2s, box-shadow 0.2s, transform 0.4s ${SPRING}; }
 /* Big keeps the same slant angle as the rest, so it is the same button, larger. */
-.cut-btn.big > .face { height: 56px; padding: 0 28px; font-size: 17px; clip-path: var(--cut-shape, polygon(13px 0, 100% 0, calc(100% - 13px) 100%, 0 100%)); }
+.cut-btn.big > .face { height: 56px; padding: 0 28px; font-size: 17px; }
 .cut-btn:hover > .face, .cut-btn.is-pointed > .face { background: var(--btn-hover); }
 .cut-btn:active > .face, .cut-btn.is-pressed > .face { background: var(--btn-press); box-shadow: var(--press-shade); transform: translateY(1px) scale(0.965); transition-duration: 0.08s; }
 /* A press sinks it into the glass: its light turns round, as on a carved field. */
@@ -273,7 +279,7 @@ const wayIn = (state?: ButtonState) => glassButton("Sign in with a passkey", { i
 const TINT_NAMES: Record<GlassTint, string> = { clear: "Clear", white: "White", blue: "Blue", indigo: "Indigo", black: "Black" };
 const tintPalette = () =>
   html`<div class="tint-try" data-tint-try>${glassButton("Continue with Discord", { icon: "discord" })}<div class="tint-palette" role="group" aria-label="Tint">${(Object.keys(TINT_NAMES) as GlassTint[]).map(
-    (tint) => html`<button type="button" class="tint-swatch" data-tint-choice="${tint}" aria-label="${TINT_NAMES[tint]}" aria-pressed="${tint === "indigo" ? "true" : "false"}"></button>`,
+    (tint) => html`<button type="button" class="tint-swatch" data-cut-line="6" data-tint-choice="${tint}" aria-label="${TINT_NAMES[tint]}" aria-pressed="${tint === "indigo" ? "true" : "false"}">${CUT_LINE}</button>`,
   )}<span class="tint-name" aria-live="polite">Indigo</span></div></div>`;
 const waysIn = () => html`${glassButton("Sign in with a passkey", { icon: "passkey" })}${glassButton("Continue with Google", { icon: "google" })}${glassButton("Continue with Discord", { icon: "discord" })}`;
 
@@ -292,7 +298,6 @@ component({
   position: relative; display: flex; flex: auto; align-items: center; justify-content: center; gap: 10px; height: 48px; padding: 0 18px;
   font: 500 15px var(--display); color: var(--ink); white-space: nowrap;
   --glass-tint: var(--glass-btn-face);
-  clip-path: polygon(0 12px, 12px 0, calc(100% - 4px) 0, 100% 4px, 100% calc(100% - 12px), calc(100% - 12px) 100%, 4px 100%, 0 calc(100% - 4px));
   transition: var(--glass-transition), box-shadow 0.2s, transform 0.4s ${SPRING}; }
 .glass-btn .face > :not(.edge) { position: relative; z-index: 3; }
 .glass-btn .face > svg:not(.edge) { width: 20px; height: 20px; flex: none; transition: transform 0.4s ${SPRING}; }
@@ -352,13 +357,13 @@ component({
 .tint-try { display: grid; gap: 12px; width: min(340px, 100%); }
 .tint-palette { display: flex; align-items: center; gap: 6px; font: 500 13px var(--display); color: var(--muted); }
 .tint-palette .tint-name { margin-left: 8px; color: var(--ink-2); }
-.tint-swatch { --chamfer: polygon(0 8px, 8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%);
-  position: relative; width: 32px; height: 32px; padding: 0; border: 0; cursor: pointer; background: transparent; clip-path: var(--chamfer); transition: background-color 0.2s; }
-.tint-swatch::before { content: ""; position: absolute; inset: 2px; background: var(--page); clip-path: var(--chamfer); }
-.tint-swatch::after { content: ""; position: absolute; inset: 4px; clip-path: var(--chamfer); background: var(--swatch); box-shadow: inset 0 0 0 1px var(--line); }
-.tint-swatch:hover { background-color: var(--line); }
-.tint-swatch:focus-visible { outline: none; background-color: var(--muted); }
-.tint-swatch[aria-pressed="true"] { background-color: var(--ink); }
+/* A swatch is a control like any other: its shape is the edge rule's, so a row of them slants between each other. Its outline is the cut's own line. */
+.tint-swatch { position: relative; width: 32px; height: 32px; padding: 0; border: 0; cursor: pointer; background: var(--swatch); clip-path: var(--cut-shape); }
+.tint-swatch .cut-line polygon { stroke: var(--line); stroke-width: 1; transition: stroke 0.2s; }
+.tint-swatch:hover .cut-line polygon { stroke: var(--muted); stroke-width: 2; }
+.tint-swatch:focus-visible { outline: none; }
+.tint-swatch:focus-visible .cut-line polygon { stroke: var(--muted); stroke-width: 3; }
+.tint-swatch[aria-pressed="true"] .cut-line polygon { stroke: var(--ink); stroke-width: 3; }
 /* Clear: a checker, the usual sign for see-through. */
 .tint-swatch[data-tint-choice="clear"] { --swatch: repeating-conic-gradient(var(--line) 0 25%, transparent 0 50%) 0 0 / 8px 8px; }
 .tint-swatch[data-tint-choice="white"] { --swatch: #fff; }
@@ -391,7 +396,7 @@ component({
 .guest-btn:focus-visible { outline: none; }
 .guest-btn > .face { display: flex; flex: auto; align-items: center; justify-content: center; gap: 8px; height: 44px; padding: 0 16px;
   font: 500 15px var(--display); color: var(--ink-2); white-space: nowrap; background-color: transparent;
-  clip-path: var(--cut-shape, polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%));
+  clip-path: var(--cut-shape);
   transition: background-color 0.2s, color 0.2s, box-shadow 0.2s, transform 0.4s ${SPRING}; }
 .guest-btn .face > :not(.cut-line) { position: relative; z-index: 2; }
 .guest-btn .cut-line polygon { stroke: transparent; }

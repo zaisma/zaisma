@@ -35,7 +35,7 @@ export function cutField(options: CutFieldOptions): Raw {
   const className = ["field", "cut-carved", isPassword ? "with-toggle" : "", options.error ? "is-marked" : "", options.state ?? ""].filter(Boolean).join(" ");
   const inputType = isPassword && options.isPasswordShown ? "text" : options.type;
   return html`<div class="cut-field"><label for="${id}">${options.label}</label>
-<span class="${className}" data-cut-line="10">${CUT_LINE}${icon(options.icon)}<input id="${id}" name="${options.name}" type="${inputType}"${options.text !== undefined ? html` value="${options.text}"` : ""}${options.placeholder ? html` placeholder="${options.placeholder}"` : ""}${options.autocomplete ? html` autocomplete="${options.autocomplete}"` : ""}${options.type === "email" || options.name === "username" ? raw(' autocapitalize="off" spellcheck="false"') : ""}${options.isRequired ? raw(" required") : ""}${options.error ? html` aria-invalid="true" aria-describedby="${errorId}"` : ""}>${isPassword ? html`<button type="button" class="show" aria-controls="${id}" aria-pressed="${options.isPasswordShown ? "true" : "false"}">${options.isPasswordShown ? "Hide" : "Show"}</button>` : ""}</span>
+<span class="${className}" data-cut-line="10">${CUT_LINE}${icon(options.icon)}<input id="${id}" name="${options.name}" type="${inputType}"${options.text !== undefined ? html` value="${options.text}"` : ""}${options.placeholder ? html` placeholder="${options.placeholder}"` : ""}${options.autocomplete ? html` autocomplete="${options.autocomplete}"` : ""}${options.type === "email" || options.name === "username" ? raw(' autocapitalize="off" spellcheck="false"') : ""}${options.isRequired ? raw(" required") : ""}${options.error ? html` aria-invalid="true" aria-describedby="${errorId}"` : ""}>${isPassword ? html`<button type="button" class="show" data-cut-line="7" aria-controls="${id}" aria-pressed="${options.isPasswordShown ? "true" : "false"}">${options.isPasswordShown ? "Hide" : "Show"}</button>` : ""}</span>
 ${options.error ? html`<p class="field-error" id="${errorId}">${options.error}</p>` : ""}</div>`;
 }
 
@@ -76,9 +76,9 @@ export function birthdayField(options: BirthdayFieldOptions): Raw {
   return html`<fieldset class="bday" data-birthday${options.isRequired ? raw(" data-required") : ""}>
 <legend id="${id}-legend">${options.label}</legend>
 <button type="button" class="bday-field cut-carved${isMarked ? " is-marked" : ""}" data-cut-line="10" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-pick" aria-describedby="${id}-legend">${CUT_LINE}${icon("calendar")}<span class="bday-value">${isMarked ? "Pick your birthday to go on" : "Pick your birthday"}</span><svg class="chev" viewBox="0 0 20 12" width="16" height="10" aria-hidden="true"><path d="M2 2l8 8 8-8" fill="none" stroke="currentColor" stroke-width="2.2"/></svg></button>
-<div class="bday-pick" id="${id}-pick" role="group" aria-label="${options.label}"${isOpen ? "" : raw(" hidden")}>
-<div class="wheels"><span class="wheel-band" aria-hidden="true"></span><div class="wheel" data-part="month" role="listbox" aria-label="Month" tabindex="0"></div><div class="wheel" data-part="day" role="listbox" aria-label="Day" tabindex="0"></div><div class="wheel" data-part="year" role="listbox" aria-label="Year" tabindex="0"></div></div>
-<div class="bday-foot"><span class="bday-read" aria-live="polite"></span><button type="button" class="bday-done" disabled>Done</button></div>
+<div class="bday-pick" data-cut-line="10" id="${id}-pick" role="group" aria-label="${options.label}"${isOpen ? "" : raw(" hidden")}>
+<div class="wheels"><span class="wheel-band" data-cut-line="8" aria-hidden="true"></span><div class="wheel" data-part="month" role="listbox" aria-label="Month" tabindex="0"></div><div class="wheel" data-part="day" role="listbox" aria-label="Day" tabindex="0"></div><div class="wheel" data-part="year" role="listbox" aria-label="Year" tabindex="0"></div></div>
+<div class="bday-foot"><span class="bday-read" aria-live="polite"></span><button type="button" class="bday-done" data-cut-line="8" disabled>Done</button></div>
 </div>
 <input type="hidden" name="${options.name}" value="${options.birthday ?? ""}" data-id="${id}">
 </fieldset>`;
@@ -96,10 +96,10 @@ export interface SwitchTab {
 /** The switch: a clear well, a white slab with the orange line under the one you're on, and a faint one under the one you point at. */
 export function tabSwitch(options: { label: string; tabs: SwitchTab[]; switchSize: "big" | "small"; isFramed?: boolean }): Raw {
   const isSmall = options.switchSize === "small";
-  // Framed: inside a carved frame of its own (data-cut-line with data-cut-corners) that it scrolls in, so it has no well or cut of its own,
+  // Framed: inside a carved frame of its own (a [data-cut-line] box) that it scrolls in, so it has no well or cut of its own,
   // and its slab's ends on the first and last tabs follow the frame's ends.
   const own = options.isFramed ? html`<div class="tab-switch framed ${options.switchSize}" role="group" aria-label="${options.label}">` : html`<div class="tab-switch cut-carved ${options.switchSize}" role="group" aria-label="${options.label}" data-cut-line="${isSmall ? 9 : 10}">${CUT_LINE}`;
-  return html`${own}<span class="ghost" aria-hidden="true"></span><span class="slab cut-raised" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}">${CUT_LINE}</span>${options.tabs.map((tab) =>
+  return html`${own}<span class="ghost" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}"></span><span class="slab cut-raised" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}">${CUT_LINE}</span>${options.tabs.map((tab) =>
     tab.href
       ? html`<a href="${tab.href}"${tab.isCurrent ? raw(' aria-current="page"') : ""}>${tab.label}</a>`
       : html`<button type="button"${tab.tabValue !== undefined ? html` value="${tab.tabValue}"` : ""} aria-pressed="${tab.isCurrent ? "true" : "false"}">${tab.label}</button>`,
@@ -128,10 +128,11 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
     function put(el, tab) {
       if (!tab) { el.style.width = "0px"; return; }
       el.style.width = tab.offsetWidth + "px"; el.style.transform = "translateX(" + tab.offsetLeft + "px)";
-      // On the first or last tab, the slab's end follows the frame's end (a framed switch's square or nested end).
-      if (el !== slab) return;
-      var ends = (tab === tabs[0] ? "start " : "") + (tab === tabs[tabs.length - 1] ? "end" : "");
-      if (ends.trim()) el.setAttribute("data-cut-ends", ends.trim()); else el.removeAttribute("data-cut-ends");
+      // The edge rule: the slab slants only where another tab is beside it, and its end on the first or last tab follows the switch's end.
+      var isFirst = tab === tabs[0], isLast = tab === tabs[tabs.length - 1];
+      el.setAttribute("data-cut-beside", ((isFirst ? "" : "start ") + (isLast ? "" : "end")).trim());
+      var ends = ((isFirst ? "start " : "") + (isLast ? "end" : "")).trim();
+      if (ends) el.setAttribute("data-cut-ends", ends); else el.removeAttribute("data-cut-ends");
       if (el.redrawCut) el.redrawCut();
     }
     function settle() { var on = current(); slab.style.transition = "none"; put(slab, on); put(ghost, on); slab.offsetWidth; slab.style.transition = ""; sw.classList.add("is-ready"); }
@@ -277,23 +278,23 @@ const FIELD_STYLES = `
 .field input { position: relative; z-index: 2; flex: 1; min-width: 0; width: 100%; height: 100%; padding: 0 16px 0 48px;
   font: 500 16px var(--display); color: var(--ink); caret-color: var(--run-lo);
   background: var(--field-face); border: 0; border-radius: 0; box-shadow: var(--field-shade);
-  clip-path: var(--cut-shape, polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%)); transition: background 0.25s; }
+  clip-path: var(--cut-shape); transition: background 0.25s; }
 .field:hover input { background: var(--field-hover); }
 .field input:focus, .field.is-focused input { outline: none; background: var(--field-focus); border: 0; }
 .field input::placeholder { color: var(--muted); }
 .field input:-webkit-autofill { -webkit-text-fill-color: var(--ink); transition: background-color 600000s 0s; }
 .field .ico { position: absolute; z-index: 3; left: 18px; width: 18px; height: 18px; pointer-events: none; transition: color 0.25s; }
 .field:focus-within, .field.is-focused { color: var(--ink); }
-.field .cut-line { z-index: 4; }
-.field .cut-line polygon { stroke: var(--field-outline); }
-.field:focus-within .cut-line polygon, .field.is-focused .cut-line polygon { stroke: var(--run); stroke-width: 2; }
-.field.is-marked .cut-line polygon { stroke: var(--marked); stroke-width: 2; }
+.field > .cut-line { z-index: 4; }
+.field > .cut-line polygon { stroke: var(--field-outline); }
+.field:focus-within > .cut-line polygon, .field.is-focused > .cut-line polygon { stroke: var(--run); stroke-width: 2; }
+.field.is-marked > .cut-line polygon { stroke: var(--marked); stroke-width: 2; }
 .field-error { margin: 0; font: 500 14px var(--display); color: var(--marked); }
 .field.with-toggle input { padding-right: 84px; }
 /* Show/Hide: a small cut slab inside the field; it turns white with the orange line while the password shows. */
 .field .show { position: absolute; z-index: 5; right: 14px; top: 6px; bottom: 6px; padding: 0 14px; border: 0; cursor: pointer;
   font: 600 14px var(--display); color: var(--ink-2); background: var(--show);
-  clip-path: polygon(7px 0, 100% 0, calc(100% - 7px) 100%, 0 100%); transition: background 0.2s, color 0.2s, box-shadow 0.2s; }
+  clip-path: var(--cut-shape); transition: background 0.2s, color 0.2s, box-shadow 0.2s; }
 .field .show:hover { background: var(--show-on); color: var(--ink); }
 .field .show[aria-pressed="true"] { background: var(--show-on); color: var(--ink); box-shadow: inset 0 -3px 0 var(--run); }
 .field .show:focus-visible { outline: 2px solid var(--ink); outline-offset: -3px; }
@@ -331,7 +332,7 @@ component({
   font: 15px var(--body); color: var(--ink);
   background: var(--field-face); border: 0; border-radius: 0;
   box-shadow: var(--well-shade);
-  clip-path: var(--cut-shape, polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%));
+  clip-path: var(--cut-shape);
   transition: background 0.3s, border-color 0.3s;
 }
 .find input::placeholder { color: var(--muted); }
@@ -358,7 +359,7 @@ component({
 .bday legend { padding: 0; margin-bottom: 10px; font: 600 18px var(--display); color: var(--ink); }
 .bday-field { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; height: 52px; padding: 0 18px 0 48px; border: 0; cursor: pointer; text-align: left;
   font: 500 16px var(--display); color: var(--muted); background: var(--field-face); box-shadow: var(--field-shade);
-  clip-path: var(--cut-shape, polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%)); transition: background 0.25s; }
+  clip-path: var(--cut-shape); transition: background 0.25s; }
 .bday-field:hover { background: var(--field-hover); }
 .bday-field[aria-expanded="true"], .bday-field:focus-visible { outline: none; background: var(--field-focus); }
 .bday-field.set { color: var(--ink); font-weight: 500; }
@@ -375,11 +376,11 @@ component({
 /* The picker: a well of clearer glass holding three wheels under a white band with the orange line. The picked value is larger; the others fade
    toward the edges. The wheel you're on by keyboard has its value underlined in ink. */
 .bday-pick { position: relative; margin-top: 0; padding: 10px 12px 14px; border: 0; background: var(--pick); box-shadow: var(--pick-shade);
-  clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px); }
+  clip-path: var(--cut-shape); }
 .wheels { position: relative; display: grid; grid-template-columns: 1.5fr 0.8fr 1fr; gap: 6px; }
 .wheel-band { position: absolute; left: 0; right: 0; top: 80px; height: 40px; pointer-events: none;
   background: var(--slab); box-shadow: var(--slab-shade), inset 0 -3px 0 var(--run);
-  clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%); }
+  clip-path: var(--cut-shape); }
 .wheel { position: relative; height: 200px; overflow-y: auto; overscroll-behavior: contain;
   scroll-snap-type: y mandatory; scrollbar-width: none; padding: 80px 0; box-sizing: border-box; outline: none;
   -webkit-mask-image: linear-gradient(180deg, transparent, rgba(0,0,0,0.5) 22%, #000 40%, #000 60%, rgba(0,0,0,0.5) 78%, transparent);
@@ -395,7 +396,7 @@ component({
 .bday-read { color: var(--muted); font-size: 14px; }
 /* Done: a cut slab of clearer glass; it whitens with the orange line when you point at it, once there's a whole date. */
 .bday-done { height: 40px; padding: 0 22px; cursor: pointer; border: 0; background: var(--done); box-shadow: var(--done-line);
-  font: 600 15px var(--display); color: var(--ink); clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%); transition: background 0.2s, box-shadow 0.2s, opacity 0.2s; }
+  font: 600 15px var(--display); color: var(--ink); clip-path: var(--cut-shape); transition: background 0.2s, box-shadow 0.2s, opacity 0.2s; }
 .bday-done:not(:disabled):hover { background: var(--show-on); box-shadow: inset 0 -3px 0 var(--run); }
 .bday-done:disabled { opacity: 0.5; cursor: default; }
 .bday-done:focus-visible { outline: 2px solid var(--ink); outline-offset: -4px; }
@@ -417,10 +418,10 @@ component({
   styles: `
 /* The switch: the header's and the home's. A clear well, a white slab with the orange line under the one you're on, and a faint one under the one you point at. */
 .tab-switch { position: relative; display: flex; height: 44px; padding: 4px; background: var(--well); box-shadow: var(--well-shade);
-  clip-path: var(--cut-shape, polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%)); }
-.tab-switch .slab, .tab-switch .ghost { position: absolute; top: 4px; bottom: 4px; left: 0; width: 0; pointer-events: none; clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
+  clip-path: var(--cut-shape); }
+.tab-switch .slab, .tab-switch .ghost { position: absolute; top: 4px; bottom: 4px; left: 0; width: 0; pointer-events: none; clip-path: var(--cut-shape);
   transition: transform 0.55s var(--spring), width 0.55s var(--spring), opacity 0.3s; }
-.tab-switch .slab { clip-path: var(--cut-shape, polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%)); background: var(--slab); box-shadow: var(--slab-shade), inset 0 -3px 0 var(--run); }
+.tab-switch .slab { clip-path: var(--cut-shape); background: var(--slab); box-shadow: var(--slab-shade), inset 0 -3px 0 var(--run); }
 .tab-switch .ghost { background: var(--ghost); opacity: 0; }
 .tab-switch.pointing .ghost { opacity: 1; }
 .tab-switch > a, .tab-switch > button { position: relative; z-index: 2; display: flex; align-items: center; justify-content: center; padding: 0 18px; border: 0; background: none; cursor: pointer;
@@ -428,13 +429,12 @@ component({
 .tab-switch.big > a, .tab-switch.big > button { flex: 1 1 0; }
 .tab-switch [aria-current="page"], .tab-switch [aria-pressed="true"] { color: var(--ink); font-weight: 600; }
 /* Before the script has measured, the one you're on carries its own slab. */
-.tab-switch:not(.is-ready) [aria-current="page"], .tab-switch:not(.is-ready) [aria-pressed="true"] { background: var(--slab); box-shadow: inset 0 -3px 0 var(--run); clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%); }
+.tab-switch:not(.is-ready) [aria-current="page"], .tab-switch:not(.is-ready) [aria-pressed="true"] { background: var(--slab); box-shadow: inset 0 -3px 0 var(--run); }
 .tab-switch.framed, .tab-switch.framed.small { background: none; box-shadow: none; clip-path: none; }
 .tab-switch > :focus-visible { outline: 2px solid var(--ink); outline-offset: -4px; }
 /* The sort switch: the header's switch, smaller. */
-.tab-switch.small { height: 36px; padding: 3px; clip-path: var(--cut-shape, polygon(9px 0, 100% 0, calc(100% - 9px) 100%, 0 100%)); }
-.tab-switch.small .slab, .tab-switch.small .ghost { top: 3px; bottom: 3px; clip-path: polygon(7px 0, 100% 0, calc(100% - 7px) 100%, 0 100%); transition-duration: 0.4s, 0.4s, 0.3s; }
-.tab-switch.small .slab { clip-path: var(--cut-shape, polygon(7px 0, 100% 0, calc(100% - 7px) 100%, 0 100%)); }
+.tab-switch.small { height: 36px; padding: 3px; clip-path: var(--cut-shape); }
+.tab-switch.small .slab, .tab-switch.small .ghost { top: 3px; bottom: 3px; transition-duration: 0.4s, 0.4s, 0.3s; }
 .tab-switch.small > a, .tab-switch.small > button { padding: 0 14px; font-size: 14px; }
 @media (prefers-reduced-motion: reduce) { .tab-switch .slab, .tab-switch .ghost { transition: none; } }
 `,

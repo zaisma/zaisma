@@ -76,7 +76,7 @@ ${head(`${groupName} · Design · Zaisma`)}
 <div id="stage" class="stage"${pageSettingsAttributes({ theme })}>${backdrop()}
 <header class="gallery-bar glass" data-rail-starts-below data-glass data-glass-corners="16 6 16 6">${EDGE}<a class="logo" href="/" aria-label="Zaisma home">${WORDMARK}</a><span class="gallery-title">Design</span>
 ${themeButton(group, theme)}
-<div class="gallery-groups cut-carved" data-cut-line="9" data-cut-corners="0 0 0 0">${CUT_LINE}<div class="gallery-groups-row">${tabSwitch({ label: "Groups", switchSize: "small", tabs: groupTabs, isFramed: true })}</div></div></header>
+<div class="gallery-groups cut-carved" data-cut-line="9">${CUT_LINE}<div class="gallery-groups-row">${tabSwitch({ label: "Groups", switchSize: "small", tabs: groupTabs, isFramed: true })}</div></div></header>
 <div class="gallery-layout">
 <div class="gallery-index">${sidebar({ label: "Groups", isPageSidebar: true, groups: [{ items: groupTabs.map((tab) => ({ label: tab.label, href: tab.href, isCurrent: tab.isCurrent, extra: raw(` data-gallery-page="${tab.href.split("?")[0]}"`) })) }] })}</div>
 <main class="gallery-main">
@@ -166,7 +166,7 @@ body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
   /* The switch's carved track stays put across the bar, its cut ends and light sharp; only the tabs scroll inside it, fading out
      before they reach its ends, and only on a side with more tabs past it, so the last tab is never under the fade at the end. */
   .gallery-groups { display: block; position: relative; flex: 1 0 100%; min-width: 0; height: 36px; background: var(--well); box-shadow: var(--well-shade);
-    clip-path: var(--cut-shape, polygon(9px 0, 100% 0, calc(100% - 9px) 100%, 0 100%)); }
+    clip-path: var(--cut-shape); }
   .gallery-groups-row { height: 100%; overflow-x: auto; scrollbar-width: none; transition: --fade-l 0.25s, --fade-r 0.25s;
     -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 var(--fade-l), #000 calc(100% - var(--fade-r)), transparent 100%);
     mask-image: linear-gradient(90deg, transparent 0, #000 var(--fade-l), #000 calc(100% - var(--fade-r)), transparent 100%); }
