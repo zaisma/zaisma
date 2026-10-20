@@ -338,10 +338,10 @@ const ARROW_ON = raw('<svg viewBox="0 0 12 16" aria-hidden="true"><path d="M0 0h
 
 /** Arrows to scroll a row, for a mouse or trackpad: a cut well of two halves at the right of the row's heading. Touch screens swipe instead. */
 export function rowArrows(options: { rowName: string; trackId: string }): Raw {
-  return html`<div class="steps" data-row-arrows data-cut-line="9"><button type="button" class="step back" data-cut-line="7" aria-controls="${options.trackId}" aria-label="Scroll ${options.rowName} back">${ARROW_BACK}</button><button type="button" class="step on" data-cut-line="7" aria-controls="${options.trackId}" aria-label="Scroll ${options.rowName} on">${ARROW_ON}</button></div>`;
+  return html`<div class="steps cut-carved" data-row-arrows data-cut-line="9">${CUT_LINE}<button type="button" class="step back cut-raised" data-cut-line="7" aria-controls="${options.trackId}" aria-label="Scroll ${options.rowName} back">${CUT_LINE}${ARROW_BACK}</button><button type="button" class="step on cut-raised" data-cut-line="7" aria-controls="${options.trackId}" aria-label="Scroll ${options.rowName} on">${CUT_LINE}${ARROW_ON}</button></div>`;
 }
 
-/** A row's arrows scroll it by most of its width, grey out at its ends, and hide when there's nothing to scroll; the row fades out softly on a side with more. */
+/** A row's arrows scroll it by most of its width, lie flat at its ends, and hide when there's nothing to scroll; the row fades on a side with more (data-fades-sideways). */
 /**
  * Scroll fades: every box that scrolls up and down, wherever it is and whatever is in it, fades its words out over its
  * top and bottom edges while there's more to scroll that way, so nothing runs hard into the edge of its pane. Found by
@@ -443,7 +443,6 @@ export const ROW_SCRIPT = `/* rows */(function () {
     function ends() {
       var more = track.scrollWidth - track.clientWidth, left = track.scrollLeft > 2, right = track.scrollLeft < more - 2;
       back.disabled = !left; on.disabled = !right; steps.hidden = more <= 2;
-      track.classList.toggle("more-left", left); track.classList.toggle("more-right", right);
     }
     function by(direction) { track.scrollBy({ left: direction * track.clientWidth * 0.8, behavior: reduce ? "auto" : "smooth" }); }
     back.addEventListener("click", function () { by(-1); }); on.addEventListener("click", function () { by(1); });
@@ -562,40 +561,39 @@ component({
   name: "Row arrows",
   slug: "row-arrows",
   group: "navigation",
-  summary: "Scrolling a row of games with a mouse or trackpad. They grey out at the row's ends; touch screens swipe instead.",
+  summary: "Scrolling a row of games with a mouse or trackpad: two raised slabs in a carved well. At a row's end that arrow lies flat; touch screens swipe instead.",
   styles: `
-/* Arrows to scroll a row, for a mouse or trackpad: small cut glass buttons at the right of the row's heading. Touch screens swipe instead. */
-.steps { position: relative; margin-left: auto; display: none; gap: 2px; height: 36px; padding: 3px; background: var(--well); box-shadow: var(--well-shade);
-  clip-path: var(--cut-shape); }
+/* Arrows to scroll a row, for a mouse or trackpad, at the right of the row's heading: a carved well like a switch's, holding two raised
+   slabs that slant where they meet. Pointing lifts one and sends its arrow on; a press sinks it, its light turning round. At a row's end
+   that arrow lies flat in the well, faded. Touch screens swipe instead. */
+.steps { position: relative; margin-left: auto; display: none; gap: 2px; height: 36px; padding: 3px; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
 @media (hover: hover) and (pointer: fine) { .steps { display: flex; } .steps[hidden] { display: none; } }
-.step { width: 46px; height: 30px; display: grid; place-items: center; border: 0; cursor: pointer; color: var(--ink-2); background: transparent;
-  position: relative; clip-path: var(--cut-shape); transition: color 0.15s, opacity 0.15s, box-shadow 0.15s; }
-.step svg:not(.cut-line) { width: 10px; height: 13px; fill: currentColor; transition: transform 0.2s cubic-bezier(.2,.8,.2,1); }
-.step:hover:not(:disabled) { background: var(--slab); color: var(--ink); box-shadow: inset 0 -3px 0 var(--run); }
-.step.back:hover:not(:disabled) svg:not(.cut-line) { transform: translateX(-2px); }
-.step.on:hover:not(:disabled) svg:not(.cut-line) { transform: translateX(2px); }
-.step:active:not(:disabled) { background: var(--btn); }
-.step:focus-visible { outline: none; background: var(--slab); color: var(--ink); box-shadow: inset 0 -3px 0 var(--ink); }
-.step:disabled { opacity: 0.3; cursor: default; }
-/* A row scrolls sideways, a little in from its glass's rim, so covers never touch the frame. Where more covers carry on, that edge fades out softly. */
-.track { --fade-l: 0px; --fade-r: 0px; display: flex; gap: 16px; overflow-x: auto; scroll-snap-type: x proximity; scrollbar-width: none; scroll-padding-inline: 8px;
-  padding: 10px 8px 6px; margin: -10px -8px -6px;
-  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 var(--fade-l), #000 calc(100% - var(--fade-r)), transparent 100%);
-  mask-image: linear-gradient(90deg, transparent 0, #000 var(--fade-l), #000 calc(100% - var(--fade-r)), transparent 100%); }
-.track.more-left { --fade-l: 56px; }
-.track.more-right { --fade-r: 56px; }
-.track::-webkit-scrollbar { display: none; }
+.step { position: relative; width: 46px; height: 30px; display: grid; place-items: center; border: 0; cursor: pointer; color: var(--ink-2);
+  --face-colour: var(--btn); background: var(--face-colour); clip-path: var(--cut-shape); transition: --face-colour 0.15s, color 0.15s, opacity 0.15s; }
+.step > svg:not(.cut-line) { position: relative; z-index: 2; width: 10px; height: 13px; fill: currentColor; transition: transform 0.2s cubic-bezier(.2,.8,.2,1); }
+.step:hover:not(:disabled) { --face-colour: var(--btn-hover); color: var(--ink); }
+.step.back:hover:not(:disabled) > svg:not(.cut-line) { transform: translateX(-2px); }
+.step.on:hover:not(:disabled) > svg:not(.cut-line) { transform: translateX(2px); }
+.step:active:not(:disabled) { --face-colour: var(--btn-press); }
+.step:active:not(:disabled) > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
+.step:focus-visible { outline: none; color: var(--ink); }
+.step:focus-visible > .cut-line polygon { stroke: var(--ink); stroke-width: 2; }
+.step:disabled { --face-colour: transparent; opacity: 0.35; cursor: default; }
+.step:disabled > .cut-line { --band-top: transparent; --band-left: transparent; --band-right: transparent; --band-bottom: transparent; }
+/* A row scrolls sideways, a little in from its glass's rim, so covers never touch the frame. Where more covers carry on, that edge fades out
+   softly: the shared sideways fade (data-fades-sideways), further in for covers. */
+.track { --fade-sideways-px: 56px; display: flex; gap: 16px; scroll-snap-type: x proximity; scroll-padding-inline: 8px; padding: 10px 8px 6px; margin: -10px -8px -6px; }
 .track > .cover { flex: 0 0 236px; scroll-snap-align: start; }
 .row-head { display: flex; align-items: center; gap: 16px; margin-bottom: 4px; min-height: 36px; }
 .row-head h2 { margin: 0; font: 600 22px var(--display); white-space: nowrap; color: var(--ink); }
-@media (max-width: 760px) { .track { gap: 12px; } .track.more-left { --fade-l: 32px; } .track.more-right { --fade-r: 32px; } .track > .cover { flex-basis: 64vw; } .row-head h2 { font-size: 20px; } }
+@media (max-width: 760px) { .track { gap: 12px; --fade-sideways-px: 32px; } .track > .cover { flex-basis: 64vw; } .row-head h2 { font-size: 20px; } }
 `,
   render: rowArrows,
   examples: [
     {
       label: "A row, at its start",
       isWide: true,
-      markup: html`<div class="glass example-wide" data-glass data-glass-corners="18 9 18 9"><section class="row"><div class="row-head"><h2>Popular</h2>${rowArrows({ rowName: "Popular", trackId: "example-track" })}</div><div class="track" id="example-track">${Object.values(STAND_IN_COVERS)}</div></section></div>`,
+      markup: html`<div class="glass example-wide" data-glass data-glass-corners="18 9 18 9"><section class="row"><div class="row-head"><h2>Popular</h2>${rowArrows({ rowName: "Popular", trackId: "example-track" })}</div><div class="track" id="example-track" data-fades-sideways>${Object.values(STAND_IN_COVERS)}</div></section></div>`,
     },
   ],
 });

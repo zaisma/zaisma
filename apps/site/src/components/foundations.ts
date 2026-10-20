@@ -101,8 +101,9 @@ export const TOKEN_STYLES = `
 [data-fades-sideways].more-left, [data-fades-sideways].more-right {
   -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 var(--fade-left), #000 calc(100% - var(--fade-right)), transparent 100%);
   mask-image: linear-gradient(90deg, transparent 0, #000 var(--fade-left), #000 calc(100% - var(--fade-right)), transparent 100%); }
-[data-fades-sideways].more-left { --fade-left: 28px; }
-[data-fades-sideways].more-right { --fade-right: 28px; }
+/* How far in it fades: 28px, or a row's own --fade-sideways-px (a row of covers fades further). */
+[data-fades-sideways].more-left { --fade-left: var(--fade-sideways-px, 28px); }
+[data-fades-sideways].more-right { --fade-right: var(--fade-sideways-px, 28px); }
 .eases-settings { transition: --glass-hue 0.5s ease; }
 @media (prefers-reduced-motion: reduce) { .eases-settings { transition: none; } }
 /* Moving between Zaisma's pages crossfades, so a page change never flashes. */
