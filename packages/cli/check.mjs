@@ -89,38 +89,38 @@ export function isEngineOutput(path, lowercasePaths) {
 /** The text with JavaScript comments blanked to spaces (line breaks kept), so indexes into it are the original's. */
 function blankScriptComments(text) {
   const out = text.split("");
-  const blank = (start, end) => {
-    for (let index = start; index < end; index++) if (out[index] !== "\n") out[index] = " ";
+  const blank = (startIndex, endIndex) => {
+    for (let index = startIndex; index < endIndex; index++) if (out[index] !== "\n") out[index] = " ";
   };
   let lastSignificant = "";
   for (let index = 0; index < text.length; index++) {
     const character = text[index];
     const next = text[index + 1];
     if (character === "/" && next === "/") {
-      const end = text.indexOf("\n", index);
-      blank(index, end === -1 ? text.length : end);
-      index = end === -1 ? text.length : end;
+      const lineEndIndex = text.indexOf("\n", index);
+      blank(index, lineEndIndex === -1 ? text.length : lineEndIndex);
+      index = lineEndIndex === -1 ? text.length : lineEndIndex;
     } else if (character === "/" && next === "*") {
-      const end = text.indexOf("*/", index + 2);
-      blank(index, end === -1 ? text.length : end + 2);
-      index = end === -1 ? text.length : end + 1;
+      const closeIndex = text.indexOf("*/", index + 2);
+      blank(index, closeIndex === -1 ? text.length : closeIndex + 2);
+      index = closeIndex === -1 ? text.length : closeIndex + 1;
     } else if (character === '"' || character === "'" || character === "`") {
       // A string: skip to its end, so a // or /* in it isn't a comment.
-      let end = index + 1;
-      while (end < text.length && text[end] !== character && (character === "`" || text[end] !== "\n")) end += text[end] === "\\" ? 2 : 1;
-      index = end;
+      let closeIndex = index + 1;
+      while (closeIndex < text.length && text[closeIndex] !== character && (character === "`" || text[closeIndex] !== "\n")) closeIndex += text[closeIndex] === "\\" ? 2 : 1;
+      index = closeIndex;
       lastSignificant = character;
     } else if (character === "/" && (lastSignificant === "" || "(,=:[!&|?{};+-*%<>~^".includes(lastSignificant))) {
       // A regular expression: skip to its closing slash, outside a [class].
-      let end = index + 1;
+      let closeIndex = index + 1;
       let isInClass = false;
-      while (end < text.length && text[end] !== "\n" && (isInClass || text[end] !== "/")) {
-        if (text[end] === "\\") end++;
-        else if (text[end] === "[") isInClass = true;
-        else if (text[end] === "]") isInClass = false;
-        end++;
+      while (closeIndex < text.length && text[closeIndex] !== "\n" && (isInClass || text[closeIndex] !== "/")) {
+        if (text[closeIndex] === "\\") closeIndex++;
+        else if (text[closeIndex] === "[") isInClass = true;
+        else if (text[closeIndex] === "]") isInClass = false;
+        closeIndex++;
       }
-      index = end;
+      index = closeIndex;
       lastSignificant = "/";
     } else if (!/\s/.test(character)) {
       lastSignificant = character;
@@ -135,7 +135,7 @@ function blankComments(text, fileKind) {
   const spaces = (part) => part.replace(/[^\n]/g, " ");
   return text
     .replace(/<!--[\s\S]*?(?:-->|$)/g, spaces)
-    .replace(/(<script\b[^>]*>)([\s\S]*?)(<\/script\s*>|$)/gi, (_whole, open, body, close) => open + blankScriptComments(body) + close);
+    .replace(/(<script\b[^>]*>)([\s\S]*?)(<\/script\s*>|$)/gi, (...[, openTag, body, closeTag]) => openTag + blankScriptComments(body) + closeTag);
 }
 
 /** An attribute's value in a tag, with where the value starts and ends in the whole text. */
