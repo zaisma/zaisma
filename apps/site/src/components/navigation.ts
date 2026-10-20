@@ -537,10 +537,12 @@ component({
 .sidebar a:hover { background: var(--wash); color: var(--ink); }
 .sidebar a:active { background: var(--wash-press); }
 .sidebar a[aria-current="page"], .sidebar a[aria-current="page"]:hover { background: var(--slab); color: var(--ink); font-weight: 600; }
-/* The current place is outlined in full orange, following the slanted cut. */
-.sidebar a[aria-current="page"]::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: var(--run);
-  clip-path: polygon(evenodd, 8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%, 8px 0, 10.4px 2px, calc(100% - 2px) 2px, calc(100% - 10.4px) calc(100% - 2px), 2px calc(100% - 2px), 10.4px 2px); }
-.sidebar a:focus-visible { outline: 2px solid var(--ink); outline-offset: -3px; }
+/* Every place has a ring that follows its slanted cut: orange on the current place, ink while the keyboard is on another. It stays out of sight until then, and on the current place it thickens under keyboard focus. */
+.sidebar a::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: transparent; clip-path: polygon(evenodd, 8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%, 8px 0, 10.4px 2px, calc(100% - 2px) 2px, calc(100% - 10.4px) calc(100% - 2px), 2px calc(100% - 2px), 10.4px 2px); }
+.sidebar a[aria-current="page"]::after { background: var(--run); }
+.sidebar a:focus-visible::after { background: var(--ink); }
+.sidebar a[aria-current="page"]:focus-visible::after { background: var(--run); clip-path: polygon(evenodd, 8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%, 8px 0, 12.2px 3.5px, calc(100% - 3.5px) 3.5px, calc(100% - 12.2px) calc(100% - 3.5px), 3.5px calc(100% - 3.5px), 12.2px 3.5px); }
+.sidebar a:focus-visible { outline: none; }
 .sidebar-count { margin-left: auto; min-width: 22px; padding: 1px 7px; text-align: center; font: 600 12px var(--display); color: var(--ink-2); background: var(--well); box-shadow: var(--well-shade);
   clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%); }
 .sidebar.is-collapsed { flex: none; width: 72px; }
