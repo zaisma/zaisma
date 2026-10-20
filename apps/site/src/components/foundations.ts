@@ -84,7 +84,7 @@ export const TOKEN_STYLES = `
 /* Scroll fades (navigation.ts's SCROLL_FADE_SCRIPT): a box that scrolls fades its words over an edge while there's more that way, easing in and out. */
 @property --fade-top { syntax: "<length>"; inherits: false; initial-value: 0px; }
 @property --fade-bottom { syntax: "<length>"; inherits: false; initial-value: 0px; }
-.scroll-fades { -webkit-mask-image: linear-gradient(to bottom, transparent, #000 var(--fade-top), #000 calc(100% - var(--fade-bottom)), transparent);
+.scroll-fades.is-fading { -webkit-mask-image: linear-gradient(to bottom, transparent, #000 var(--fade-top), #000 calc(100% - var(--fade-bottom)), transparent);
   mask-image: linear-gradient(to bottom, transparent, #000 var(--fade-top), #000 calc(100% - var(--fade-bottom)), transparent); transition: --fade-top 0.2s, --fade-bottom 0.2s; }
 .eases-settings { transition: --glass-hue 0.5s ease; }
 @media (prefers-reduced-motion: reduce) { .eases-settings { transition: none; } }
@@ -122,8 +122,8 @@ export const TOKEN_STYLES = `
    like the header's --glass-top), the light on it (--glass-sheen: brightest at its top left, a little shade along its foot),
    the blur and colour of what's behind (--glass-blur, --glass-saturate), and cut corners with a drawn rim (the svg.edge
    GLASS_SCRIPT draws, which sizes its corners and bevel to the slab). Nothing else restates these. */
-/* Every element works the hue out from the --glass-hue it inherits, so setting it anywhere tints all the glass inside. */
-* { --glass-wash: linear-gradient(color-mix(in srgb, var(--glass-hue) var(--glass-hue-strength), transparent), color-mix(in srgb, var(--glass-hue) var(--glass-hue-strength), transparent)); }
+/* Each piece of glass works the hue out from the --glass-hue it inherits, so setting it anywhere tints all the glass inside. */
+.glass, .glass-btn > .face, .swatches, .rail-mark span, .group-name { --glass-wash: linear-gradient(color-mix(in srgb, var(--glass-hue) var(--glass-hue-strength), transparent), color-mix(in srgb, var(--glass-hue) var(--glass-hue-strength), transparent)); }
 .glass { position: relative; color: var(--ink); background-color: var(--glass-tint); background-image: var(--glass-wash), var(--glass-sheen);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   transition: background-color 0.5s ease, color 0.3s ease; }
@@ -553,7 +553,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
   }
   document.querySelectorAll("canvas[data-backdrop]").forEach(setUp);
   // The theme can change in place (a data-theme-choice switch, or the system's), and the colours follow it.
-  new MutationObserver(refresh).observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ["data-theme-choice", "class"] });
+  new MutationObserver(refresh).observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ["data-theme-choice"] });
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", refresh);
   still.addEventListener("change", refresh);
 })();
