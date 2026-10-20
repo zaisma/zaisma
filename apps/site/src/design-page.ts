@@ -278,12 +278,14 @@ export const DESIGN_LOOPS_SCRIPT = pageScript(
     function inside(target, at) { var r = target.getBoundingClientRect(); return at[0] >= r.left && at[0] <= r.right && at[1] >= r.top && at[1] <= r.bottom; }
     function show() {
       if (kind === "switch") return;
-      var state = over ? (isPressed && (kind === "runner" || kind === "cut") ? "is-pressed" : "is-pointed") : "";
+      var state = over ? (isPressed && kind !== "cover" ? "is-pressed" : "is-pointed") : "";
       ["is-pointed", "is-pressed"].forEach(function (each) { el.classList.toggle(each, each === state); });
     }
     (function watch() {
       requestAnimationFrame(watch);
       var at = tip(), now = null;
+      // The glass's light follows the pointer, as it does a real one.
+      if (kind === "glass") { var r = el.getBoundingClientRect(); el.style.setProperty("--mx", (at[0] - r.left).toFixed(0) + "px"); el.style.setProperty("--my", (at[1] - r.top).toFixed(0) + "px"); }
       if (kind === "switch") { el.querySelectorAll("button").forEach(function (tab) { if (inside(tab, at)) now = tab; }); }
       else if (inside(el, at)) now = el;
       if (now === over) return;
@@ -291,7 +293,8 @@ export const DESIGN_LOOPS_SCRIPT = pageScript(
       else if (now && run) { run.classList.remove("glint"); void run.offsetWidth; run.classList.add("glint"); }
       over = now; show();
     })();
-    var away = function () { return point(el, 1.15, 1.6); };
+    // Off to the lower right, but never past the window's edge (a full-width button on a phone has no room beside it).
+    var away = function () { var at = point(el, 1.15, 1.6), left = box.getBoundingClientRect().left; at[0] = Math.min(at[0], document.documentElement.clientWidth - left - 28); return at; };
     async function buttonLoop() {
       await moveTo(away(), true);
       for (;;) {
