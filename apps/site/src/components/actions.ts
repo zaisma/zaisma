@@ -59,7 +59,7 @@ export interface CutButtonOptions extends ButtonTarget {
 /** A secondary button: a cut slab of clearer glass with a drawn outline. It brightens under the pointer and gives under a press. A delete is one too, never orange. */
 export function cutButton(label: string, options: CutButtonOptions = {}): Raw {
   const className = classes("cut-btn", options.isBig && "big", options.isFullWidth && "is-full", options.state);
-  return html`${opening(className, options, options.isBusy)}<span class="face" data-cut-line="${options.isBig ? 13 : 10}">${CUT_LINE}${options.icon ? icon(options.icon) : ""}<span>${label}</span></span>${closing(options)}`;
+  return html`${opening(className, options, options.isBusy)}<span class="face cut-raised" data-cut-line="${options.isBig ? 13 : 10}">${CUT_LINE}${options.icon ? icon(options.icon) : ""}<span>${label}</span></span>${closing(options)}`;
 }
 
 const GOOGLE = raw(
@@ -245,9 +245,9 @@ component({
 /* Big keeps the same slant angle as the rest, so it is the same button, larger. */
 .cut-btn.big > .face { height: 56px; padding: 0 28px; font-size: 17px; clip-path: polygon(13px 0, 100% 0, calc(100% - 13px) 100%, 0 100%); }
 .cut-btn:hover > .face, .cut-btn.is-pointed > .face { background: var(--btn-hover); }
-.cut-btn:hover .cut-line polygon, .cut-btn.is-pointed .cut-line polygon { stroke: var(--muted); }
 .cut-btn:active > .face, .cut-btn.is-pressed > .face { background: var(--btn-press); box-shadow: var(--press-shade); transform: translateY(1px) scale(0.965); transition-duration: 0.08s; }
-.cut-btn:active .cut-line polygon, .cut-btn.is-pressed .cut-line polygon { stroke: var(--ink-2); transition-duration: 0.08s; }
+/* A press sinks it into the glass: its light turns round, as on a carved field. */
+.cut-btn:active > .face > .cut-line, .cut-btn.is-pressed > .face > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
 .cut-btn:focus-visible { outline: none; }
 .cut-btn:focus-visible > .face, .cut-btn.is-focused > .face { background: var(--btn-hover); }
 .cut-btn:focus-visible .cut-line polygon, .cut-btn.is-focused .cut-line polygon { stroke: var(--ink); stroke-width: 2; }

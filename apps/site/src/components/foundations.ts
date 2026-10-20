@@ -15,11 +15,11 @@ const LIGHT_GLASS = `color-scheme: light;
   --glass-sheen: radial-gradient(140% 90% at 0% 0%, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0) 55%), linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0) 38%, rgba(30, 60, 110, 0) 70%, rgba(30, 60, 110, 0.05));
   --glass-saturate: 1.8; --edge-hair: rgba(40, 60, 100, 0.1);
   --well: rgba(255, 255, 255, 0.32); --well-shade: inset 0 1px 3px rgba(20, 23, 28, 0.08);
-  --slab: linear-gradient(180deg, #fff, #EEF1F4); --slab-shade: 0 4px 10px rgba(20, 23, 28, 0.12); --ghost: rgba(255, 255, 255, 0.45); --wash-rest: rgba(20, 23, 28, 0); --wash: rgba(20, 23, 28, 0.08); --wash-press: rgba(20, 23, 28, 0.14);
-  --btn: rgba(255, 255, 255, 0.6); --btn-hover: rgba(255, 255, 255, 0.95); --btn-press: rgba(226, 232, 240, 0.9);
+  --slab: linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.6)); --slab-shade: 0 4px 10px rgba(20, 23, 28, 0.12); --ghost: rgba(255, 255, 255, 0.45); --wash-rest: rgba(20, 23, 28, 0); --wash: rgba(20, 23, 28, 0.08); --wash-press: rgba(20, 23, 28, 0.14);
+  --btn: rgba(255, 255, 255, 0.6); --btn-hover: rgba(255, 255, 255, 0.82); --btn-press: rgba(226, 232, 240, 0.9);
   --press-shade: inset 0 2px 5px rgba(20, 30, 50, 0.16);
   --field-face: rgba(255, 255, 255, 0.5); --field-hover: rgba(255, 255, 255, 0.66); --field-focus: rgba(255, 255, 255, 0.94);
-  --field-shade: inset 0 1px 3px rgba(20, 23, 28, 0.1); --field-outline: rgba(20, 23, 28, 0.16);
+  --field-shade: inset 0 1px 3px rgba(20, 23, 28, 0.1); --field-outline: transparent;
   --show: rgba(255, 255, 255, 0.55); --show-on: #fff;
   --pick: rgba(255, 255, 255, 0.42); --pick-shade: inset 0 1px 3px rgba(20, 23, 28, 0.1), inset 0 0 0 1px rgba(255, 255, 255, 0.5);
   --done: rgba(255, 255, 255, 0.7); --done-line: inset 0 0 0 1px rgba(20, 23, 28, 0.1);
@@ -34,6 +34,8 @@ const LIGHT_GLASS = `color-scheme: light;
   --logo-halo: drop-shadow(0 0 10px rgba(255, 255, 255, 0.6)) drop-shadow(0 1px 1px rgba(255, 255, 255, 0.5));
   --link-hover: var(--run-lo); --marked: var(--run-lo);
   --glass-base: 255, 255, 255; --glass-kind: "Light glass, dark words.";
+  --raise-top: rgba(255, 255, 255, 0.95); --raise-left: rgba(255, 255, 255, 0.6); --raise-right: rgba(96, 108, 128, 0.22); --raise-bottom: rgba(70, 82, 104, 0.34);
+  --carve-top: rgba(60, 72, 94, 0.3); --carve-left: rgba(60, 72, 94, 0.2); --carve-right: rgba(255, 255, 255, 0.55); --carve-bottom: rgba(255, 255, 255, 0.9);
   --backdrop-base: #E6ECF4; --backdrop-a: #B9CBE6; --backdrop-b: #C0DCDB; --backdrop-c: #D2CBEA;`;
 
 const SMOKED_GLASS = `color-scheme: dark;
@@ -47,7 +49,7 @@ const SMOKED_GLASS = `color-scheme: dark;
   --btn: rgba(255, 255, 255, 0.14); --btn-hover: rgba(255, 255, 255, 0.26); --btn-press: rgba(255, 255, 255, 0.07);
   --press-shade: inset 0 2px 5px rgba(0, 0, 0, 0.4);
   --field-face: rgba(255, 255, 255, 0.08); --field-hover: rgba(255, 255, 255, 0.12); --field-focus: rgba(255, 255, 255, 0.16);
-  --field-shade: inset 0 1px 3px rgba(0, 0, 0, 0.25); --field-outline: rgba(255, 255, 255, 0.18);
+  --field-shade: inset 0 1px 3px rgba(0, 0, 0, 0.25); --field-outline: transparent;
   --show: rgba(255, 255, 255, 0.1); --show-on: rgba(255, 255, 255, 0.22);
   --pick: rgba(255, 255, 255, 0.06); --pick-shade: inset 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
   --done: rgba(255, 255, 255, 0.12); --done-line: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
@@ -62,6 +64,8 @@ const SMOKED_GLASS = `color-scheme: dark;
   --logo-halo: drop-shadow(0 0 12px rgba(4, 7, 14, 0.75)) drop-shadow(0 1px 2px rgba(4, 7, 14, 0.6));
   --link-hover: var(--run-hi); --marked: var(--run-hi);
   --glass-base: 14, 17, 24; --glass-kind: "Smoked glass, light words.";
+  --raise-top: rgba(255, 255, 255, 0.42); --raise-left: rgba(255, 255, 255, 0.22); --raise-right: rgba(0, 0, 0, 0.3); --raise-bottom: rgba(0, 0, 0, 0.5);
+  --carve-top: rgba(0, 0, 0, 0.5); --carve-left: rgba(0, 0, 0, 0.32); --carve-right: rgba(255, 255, 255, 0.1); --carve-bottom: rgba(255, 255, 255, 0.2);
   --backdrop-base: #0A0D13; --backdrop-a: #1C2C49; --backdrop-b: #0E2E34; --backdrop-c: #241E3F;`;
 
 /**
@@ -124,7 +128,17 @@ export const TOKEN_STYLES = `
 .edge .fringe { opacity: var(--edge-fringe); }
 /* A slanted outline drawn just inside a cut field or button, so its slanted ends are outlined like its top and bottom. */
 .cut-line { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; overflow: visible; }
-.cut-line polygon { fill: none; stroke: var(--line); stroke-width: 1; transition: stroke 0.3s; }
+.cut-line polygon { fill: none; stroke: transparent; stroke-width: 1; transition: stroke 0.3s; }
+/* Raised and carved: the light that falls on the panes falls on what's on them. A raised control (a button, the slab under the tab you're on)
+   is lit along its top and shaded along its bottom; a carved one (a field, a switch's track) the other way round. Each side is one flat tone,
+   so every turn of the cut steps in brightness, like the panes' edges. The outline polygon is left for focus and marks. */
+.cut-line .cut-band { fill: transparent; transition: fill 0.15s; }
+.cut-raised > .cut-line { --band-top: var(--raise-top); --band-left: var(--raise-left); --band-right: var(--raise-right); --band-bottom: var(--raise-bottom); }
+.cut-carved > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
+/* Orange is always shown in full, so a slab's shade never falls on its orange underline. */
+.slab.cut-raised > .cut-line { --band-bottom: transparent; }
+.cut-line .cut-band.on-top { fill: var(--band-top, transparent); } .cut-line .cut-band.on-left { fill: var(--band-left, transparent); }
+.cut-line .cut-band.on-right { fill: var(--band-right, transparent); } .cut-line .cut-band.on-bottom { fill: var(--band-bottom, transparent); }
 /* Line icons: drawn with the words' colour. */
 .ico { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 `;
@@ -271,11 +285,24 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     var svg = el.querySelector(":scope > .cut-line");
     if (!svg) { svg = document.createElementNS(SVG, "svg"); svg.setAttribute("class", "cut-line"); svg.setAttribute("aria-hidden", "true"); svg.appendChild(document.createElementNS(SVG, "polygon")); el.insertBefore(svg, el.firstChild); }
     var poly = svg.querySelector("polygon");
+    // The raised or carved light: a 1.5px band along each of the four sides.
+    var bands = ["top", "right", "bottom", "left"].map(function (side) {
+      var band = svg.querySelector(".cut-band.on-" + side);
+      if (!band) { band = document.createElementNS(SVG, "path"); band.setAttribute("class", "cut-band on-" + side); svg.insertBefore(band, poly); }
+      return band;
+    });
+    function inset(w, h, i) {
+      var side = i * Math.hypot(slant, h) / h, at = function (y) { return slant * (1 - y / h); };
+      return [[at(i) + side, i], [w - slant * (i / h) - side, i], [w - slant * ((h - i) / h) - side, h - i], [at(h - i) + side, h - i]];
+    }
+    function list(points) { return points.map(function (p) { return p[0].toFixed(2) + "," + p[1].toFixed(2); }).join(" "); }
     function draw() {
-      var w = el.offsetWidth, h = el.offsetHeight, i = 1; if (!w || !h) return; var side = i * Math.hypot(slant, h) / h;
+      var w = el.offsetWidth, h = el.offsetHeight; if (!w || !h) return;
       svg.setAttribute("viewBox", "0 0 " + w + " " + h);
-      var at = function (y) { return slant * (1 - y / h); };
-      poly.setAttribute("points", [[at(i) + side, i], [w - slant * (i / h) - side, i], [w - slant * ((h - i) / h) - side, h - i], [at(h - i) + side, h - i]].map(function (p) { return p[0].toFixed(2) + "," + p[1].toFixed(2); }).join(" "));
+      poly.setAttribute("points", list(inset(w, h, 1)));
+      // data-cut-inset moves the light inward, inside an outline drawn round the edge (the sidebar's current place).
+      var from = Number(el.getAttribute("data-cut-inset")) || 0, outer = inset(w, h, from), inner = inset(w, h, from + 1.5);
+      bands.forEach(function (band, i) { var j = (i + 1) % 4; band.setAttribute("d", "M" + list([outer[i], outer[j], inner[j], inner[i]]) + "Z"); });
     }
     draw();
     if (window.ResizeObserver) new ResizeObserver(draw).observe(el); else window.addEventListener("resize", draw);
@@ -352,7 +379,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
       c: rgb(css.getPropertyValue("--backdrop-c")), isDark: /dark/.test(css.colorScheme || "") };
   }
   function shaderDrawer(canvas) {
-    var gl = canvas.getContext("webgl", { antialias: false, alpha: false, powerPreference: "low-power" });
+    var gl = canvas.getContext("webgl", { antialias: false, alpha: true, powerPreference: "low-power" });
     if (!gl) return null;
     function compile(kind, source) {
       var shader = gl.createShader(kind); gl.shaderSource(shader, source); gl.compileShader(shader);
@@ -401,6 +428,8 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     if (window.ResizeObserver) new ResizeObserver(size).observe(canvas); else window.addEventListener("resize", size);
     if (window.IntersectionObserver) new IntersectionObserver(function (entries) { layer.isInView = entries[entries.length - 1].isIntersecting; }).observe(canvas);
     layers.push(layer);
+    // The first frame is drawn at once, so the canvas never shows empty while it waits for the next animation frame.
+    draw(layer, performance.now());
     if (!running) { running = true; requestAnimationFrame(frame); }
   }
   document.querySelectorAll("canvas[data-backdrop]").forEach(setUp);

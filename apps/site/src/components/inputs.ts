@@ -32,7 +32,7 @@ export function cutField(options: CutFieldOptions): Raw {
   const id = options.id ?? `field-${options.name}`;
   const isPassword = options.type === "password";
   const errorId = `${id}-error`;
-  const className = ["field", isPassword ? "with-toggle" : "", options.error ? "is-marked" : "", options.state ?? ""].filter(Boolean).join(" ");
+  const className = ["field", "cut-carved", isPassword ? "with-toggle" : "", options.error ? "is-marked" : "", options.state ?? ""].filter(Boolean).join(" ");
   const inputType = isPassword && options.isPasswordShown ? "text" : options.type;
   return html`<div class="cut-field"><label for="${id}">${options.label}</label>
 <span class="${className}" data-cut-line="10">${CUT_LINE}${icon(options.icon)}<input id="${id}" name="${options.name}" type="${inputType}"${options.text !== undefined ? html` value="${options.text}"` : ""}${options.placeholder ? html` placeholder="${options.placeholder}"` : ""}${options.autocomplete ? html` autocomplete="${options.autocomplete}"` : ""}${options.type === "email" || options.name === "username" ? raw(' autocapitalize="off" spellcheck="false"') : ""}${options.isRequired ? raw(" required") : ""}${options.error ? html` aria-invalid="true" aria-describedby="${errorId}"` : ""}>${isPassword ? html`<button type="button" class="show" aria-controls="${id}" aria-pressed="${options.isPasswordShown ? "true" : "false"}">${options.isPasswordShown ? "Hide" : "Show"}</button>` : ""}</span>
@@ -53,7 +53,7 @@ export interface SearchFieldOptions {
 
 /** Search: a cut field of clearer glass. "/" jumps to it in the header. */
 export function searchField(options: SearchFieldOptions): Raw {
-  return html`<form class="find${options.state ? ` ${options.state}` : ""}" method="get" action="${options.action}" role="search" data-cut-line="10">${Object.entries(options.keep ?? {}).map(([name, keptValue]) => html`<input type="hidden" name="${name}" value="${keptValue}">`)}<input type="search" name="${options.name}" value="${options.searchText}" maxlength="200" placeholder="${options.placeholder}" aria-label="${options.label}" autocomplete="off">${raw(ICONS.search.replace('class="ico"', 'class="ico glass-icon"'))}${CUT_LINE}</form>`;
+  return html`<form class="find cut-carved${options.state ? ` ${options.state}` : ""}" method="get" action="${options.action}" role="search" data-cut-line="10">${Object.entries(options.keep ?? {}).map(([name, keptValue]) => html`<input type="hidden" name="${name}" value="${keptValue}">`)}<input type="search" name="${options.name}" value="${options.searchText}" maxlength="200" placeholder="${options.placeholder}" aria-label="${options.label}" autocomplete="off">${raw(ICONS.search.replace('class="ico"', 'class="ico glass-icon"'))}${CUT_LINE}</form>`;
 }
 
 export interface BirthdayFieldOptions {
@@ -75,7 +75,7 @@ export function birthdayField(options: BirthdayFieldOptions): Raw {
   const isMarked = options.state === "marked";
   return html`<fieldset class="bday" data-birthday${options.isRequired ? raw(" data-required") : ""}>
 <legend id="${id}-legend">${options.label}</legend>
-<button type="button" class="bday-field${isMarked ? " is-marked" : ""}" data-cut-line="10" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-pick" aria-describedby="${id}-legend">${CUT_LINE}${icon("calendar")}<span class="bday-value">${isMarked ? "Pick your birthday to go on" : "Pick your birthday"}</span><svg class="chev" viewBox="0 0 20 12" width="16" height="10" aria-hidden="true"><path d="M2 2l8 8 8-8" fill="none" stroke="currentColor" stroke-width="2.2"/></svg></button>
+<button type="button" class="bday-field cut-carved${isMarked ? " is-marked" : ""}" data-cut-line="10" aria-expanded="${isOpen ? "true" : "false"}" aria-controls="${id}-pick" aria-describedby="${id}-legend">${CUT_LINE}${icon("calendar")}<span class="bday-value">${isMarked ? "Pick your birthday to go on" : "Pick your birthday"}</span><svg class="chev" viewBox="0 0 20 12" width="16" height="10" aria-hidden="true"><path d="M2 2l8 8 8-8" fill="none" stroke="currentColor" stroke-width="2.2"/></svg></button>
 <div class="bday-pick" id="${id}-pick" role="group" aria-label="${options.label}"${isOpen ? "" : raw(" hidden")}>
 <div class="wheels"><span class="wheel-band" aria-hidden="true"></span><div class="wheel" data-part="month" role="listbox" aria-label="Month" tabindex="0"></div><div class="wheel" data-part="day" role="listbox" aria-label="Day" tabindex="0"></div><div class="wheel" data-part="year" role="listbox" aria-label="Year" tabindex="0"></div></div>
 <div class="bday-foot"><span class="bday-read" aria-live="polite"></span><button type="button" class="bday-done" disabled>Done</button></div>
@@ -95,7 +95,8 @@ export interface SwitchTab {
 
 /** The switch: a clear well, a white slab with the orange line under the one you're on, and a faint one under the one you point at. */
 export function tabSwitch(options: { label: string; tabs: SwitchTab[]; switchSize: "big" | "small" }): Raw {
-  return html`<div class="tab-switch ${options.switchSize}" role="group" aria-label="${options.label}"${options.switchSize === "small" ? raw(' data-cut-line="9"') : ""}>${options.switchSize === "small" ? CUT_LINE : ""}<span class="ghost" aria-hidden="true"></span><span class="slab" aria-hidden="true"></span>${options.tabs.map((tab) =>
+  const isSmall = options.switchSize === "small";
+  return html`<div class="tab-switch cut-carved ${options.switchSize}" role="group" aria-label="${options.label}" data-cut-line="${isSmall ? 9 : 10}">${CUT_LINE}<span class="ghost" aria-hidden="true"></span><span class="slab cut-raised" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}">${CUT_LINE}</span>${options.tabs.map((tab) =>
     tab.href
       ? html`<a href="${tab.href}"${tab.isCurrent ? raw(' aria-current="page"') : ""}>${tab.label}</a>`
       : html`<button type="button"${tab.tabValue !== undefined ? html` value="${tab.tabValue}"` : ""} aria-pressed="${tab.isCurrent ? "true" : "false"}">${tab.label}</button>`,

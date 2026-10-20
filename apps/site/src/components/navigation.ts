@@ -58,7 +58,7 @@ export function header(options: HeaderOptions): Raw {
     : [];
   return html`<header class="top glass${options.isCompact ? " is-compact" : ""}" id="${id}" data-glass data-glass-corners="16 6 16 6"${options.isCompact ? raw(" data-stays-compact") : ""}>${EDGE}
   ${logo}
-  <nav class="nav" aria-label="Main" data-cut-line="10">${CUT_LINE}<span class="ghost" aria-hidden="true"></span><span class="slab" aria-hidden="true"></span>${tab("Home", "/", options.current === "home")}${account && options.yourGamesHref ? tab("Your games", options.yourGamesHref, options.current === "your-games") : ""}${tab("Developer", account ? "/dashboard" : "/developers", options.current === "developer", true, isOpen)}${tab("Forum", "/forum", options.current === "forum", true, isOpen)}</nav>
+  <nav class="nav cut-carved" aria-label="Main" data-cut-line="10">${CUT_LINE}<span class="ghost" aria-hidden="true"></span><span class="slab cut-raised" aria-hidden="true" data-cut-line="8">${CUT_LINE}</span>${tab("Home", "/", options.current === "home")}${account && options.yourGamesHref ? tab("Your games", options.yourGamesHref, options.current === "your-games") : ""}${tab("Developer", account ? "/dashboard" : "/developers", options.current === "developer", true, isOpen)}${tab("Forum", "/forum", options.current === "forum", true, isOpen)}</nav>
   ${options.search ? html`${searchField(options.search)}<button type="button" class="find-open" aria-label="${options.search.label}" aria-expanded="false">${icon("search")}</button>` : ""}
   <div class="end">${
     account
@@ -510,7 +510,7 @@ export interface SidebarOptions {
 export function sidebar(options: SidebarOptions): Raw {
   const link = (each: SidebarItem) => {
     const inside = each.icon ? html`${icon(each.icon)}<span class="sidebar-label">${each.label}</span>` : html`${each.label}`;
-    return html`<li><a href="${each.href}"${each.extra ?? ""}${each.isCurrent ? raw(' aria-current="page"') : ""}${options.isCollapsed ? html` title="${each.label}" aria-label="${each.label}"` : ""}>${inside}${each.badgeCount ? html`<span class="sidebar-count">${each.badgeCount}</span>` : ""}</a></li>`;
+    return html`<li><a href="${each.href}"${each.extra ?? ""}${each.isCurrent ? raw(' aria-current="page" class="cut-raised" data-cut-line="8" data-cut-inset="2"') : ""}${options.isCollapsed ? html` title="${each.label}" aria-label="${each.label}"` : ""}>${each.isCurrent ? CUT_LINE : ""}${inside}${each.badgeCount ? html`<span class="sidebar-count">${each.badgeCount}</span>` : ""}</a></li>`;
   };
   const groups = options.groups.map((group) => html`<div class="sidebar-group">${group.heading ? html`<h2 class="sidebar-heading">${group.heading}</h2>` : ""}<ul>${group.items.map(link)}</ul></div>`);
   return html`<aside class="sidebar glass${options.isCollapsed ? " is-collapsed" : ""}" data-glass data-glass-corners="14 6 14 6"><nav class="sidebar-in" aria-label="${options.label}">${groups}</nav></aside>`;
