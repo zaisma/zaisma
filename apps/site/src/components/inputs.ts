@@ -94,9 +94,12 @@ export interface SwitchTab {
 }
 
 /** The switch: a clear well, a white slab with the orange line under the one you're on, and a faint one under the one you point at. */
-export function tabSwitch(options: { label: string; tabs: SwitchTab[]; switchSize: "big" | "small" }): Raw {
+export function tabSwitch(options: { label: string; tabs: SwitchTab[]; switchSize: "big" | "small"; isFramed?: boolean }): Raw {
   const isSmall = options.switchSize === "small";
-  return html`<div class="tab-switch cut-carved ${options.switchSize}" role="group" aria-label="${options.label}" data-cut-line="${isSmall ? 9 : 10}">${CUT_LINE}<span class="ghost" aria-hidden="true"></span><span class="slab cut-raised" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}">${CUT_LINE}</span>${options.tabs.map((tab) =>
+  // Framed: inside a carved frame of its own (data-cut-line with data-cut-corners) that it scrolls in, so it has no well or cut of its own,
+  // and its slab's ends on the first and last tabs follow the frame's ends.
+  const own = options.isFramed ? html`<div class="tab-switch framed ${options.switchSize}" role="group" aria-label="${options.label}">` : html`<div class="tab-switch cut-carved ${options.switchSize}" role="group" aria-label="${options.label}" data-cut-line="${isSmall ? 9 : 10}">${CUT_LINE}`;
+  return html`${own}<span class="ghost" aria-hidden="true"></span><span class="slab cut-raised" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}">${CUT_LINE}</span>${options.tabs.map((tab) =>
     tab.href
       ? html`<a href="${tab.href}"${tab.isCurrent ? raw(' aria-current="page"') : ""}>${tab.label}</a>`
       : html`<button type="button"${tab.tabValue !== undefined ? html` value="${tab.tabValue}"` : ""} aria-pressed="${tab.isCurrent ? "true" : "false"}">${tab.label}</button>`,
@@ -122,7 +125,15 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
   document.querySelectorAll(".tab-switch").forEach(function (sw) {
     var slab = sw.querySelector(".slab"), ghost = sw.querySelector(".ghost"), tabs = sw.querySelectorAll("a, button");
     function current() { return sw.querySelector('[aria-current="page"], [aria-pressed="true"]'); }
-    function put(el, tab) { if (!tab) { el.style.width = "0px"; return; } el.style.width = tab.offsetWidth + "px"; el.style.transform = "translateX(" + tab.offsetLeft + "px)"; }
+    function put(el, tab) {
+      if (!tab) { el.style.width = "0px"; return; }
+      el.style.width = tab.offsetWidth + "px"; el.style.transform = "translateX(" + tab.offsetLeft + "px)";
+      // On the first or last tab, the slab's end follows the frame's end (a framed switch's square or nested end).
+      if (el !== slab) return;
+      var ends = (tab === tabs[0] ? "start " : "") + (tab === tabs[tabs.length - 1] ? "end" : "");
+      if (ends.trim()) el.setAttribute("data-cut-ends", ends.trim()); else el.removeAttribute("data-cut-ends");
+      if (el.redrawCut) el.redrawCut();
+    }
     function settle() { var on = current(); slab.style.transition = "none"; put(slab, on); put(ghost, on); slab.offsetWidth; slab.style.transition = ""; sw.classList.add("is-ready"); }
     settle();
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(settle);
@@ -418,6 +429,7 @@ component({
 .tab-switch [aria-current="page"], .tab-switch [aria-pressed="true"] { color: var(--ink); font-weight: 600; }
 /* Before the script has measured, the one you're on carries its own slab. */
 .tab-switch:not(.is-ready) [aria-current="page"], .tab-switch:not(.is-ready) [aria-pressed="true"] { background: var(--slab); box-shadow: inset 0 -3px 0 var(--run); clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%); }
+.tab-switch.framed, .tab-switch.framed.small { background: none; box-shadow: none; clip-path: none; }
 .tab-switch > :focus-visible { outline: 2px solid var(--ink); outline-offset: -4px; }
 /* The sort switch: the header's switch, smaller. */
 .tab-switch.small { height: 36px; padding: 3px; clip-path: var(--cut-shape, polygon(9px 0, 100% 0, calc(100% - 9px) 100%, 0 100%)); }

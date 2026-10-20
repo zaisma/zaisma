@@ -312,14 +312,19 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     return cuts.map(function (cut) { return Math.min(cut, Math.round(short * 0.3)); });
   }
   // The cut each corner takes from the glass round it, or null where the control isn't in that corner.
+  // data-cut-ends="start", "end" or "start end": that end follows the holder's end wherever it sits along it, its gap from
+  // the holder's end taken as its gap from the top and bottom (a switch's slab on its first or last tab, as the tabs scroll).
   function nestedCuts(el) {
     var holder = el.parentElement && el.parentElement.closest("[data-glass], [data-cut-line]");
     // It nests in glass, or in a control with corners of its own (a sidebar's track), but not in a slanted one.
     var c = !holder ? null : holder.hasAttribute("data-glass") ? glassCorners(holder) : holder.cutCorners || null;
     if (!c) return [null, null, null, null];
-    var r = el.getBoundingClientRect(), p = holder.getBoundingClientRect();
-    var left = r.left - p.left, right = p.right - r.right, top = r.top - p.top, bottom = p.bottom - r.bottom;
+    var r = el.getBoundingClientRect(), p = holder.getBoundingClientRect(), ends = el.getAttribute("data-cut-ends") || "";
+    var top = r.top - p.top, bottom = p.bottom - r.bottom;
+    var left = /start/.test(ends) ? (top + bottom) / 2 : r.left - p.left, right = /end/.test(ends) ? (top + bottom) / 2 : p.right - r.right;
     return [[left, top], [right, top], [right, bottom], [left, bottom]].map(function (gaps, i) {
+      var isEnd = (i === 0 || i === 3) ? /start/.test(ends) : /end/.test(ends);
+      if (isEnd && c[i] === 0) return 0;
       if (!c[i] || gaps[0] > NEST_GAP_PX || gaps[1] > NEST_GAP_PX || gaps[0] < -1 || gaps[1] < -1) return null;
       var sum = Math.max(0, gaps[0]) + Math.max(0, gaps[1]);
       return Math.max(0, c[i] - sum + Math.SQRT2 * sum / 2);
@@ -381,6 +386,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       });
     }
     draw();
+    el.redrawCut = draw;
     if (window.ResizeObserver) {
       var watch = new ResizeObserver(draw); watch.observe(el);
       var holder = el.parentElement && el.parentElement.closest("[data-glass]"); if (holder) watch.observe(holder);

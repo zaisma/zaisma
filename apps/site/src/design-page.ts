@@ -76,7 +76,7 @@ ${head(`${groupName} · Design · Zaisma`)}
 <div id="stage" class="stage"${pageSettingsAttributes({ theme })}>${backdrop()}
 <header class="gallery-bar glass" data-glass data-glass-corners="16 6 16 6">${EDGE}<a class="logo" href="/" aria-label="Zaisma home">${WORDMARK}</a><span class="gallery-title">Design</span>
 ${themeButton(group, theme)}
-<div class="gallery-groups cut-carved" data-cut-line="9">${CUT_LINE}<div class="gallery-groups-row">${tabSwitch({ label: "Groups", switchSize: "small", tabs: groupTabs })}</div></div></header>
+<div class="gallery-groups cut-carved" data-cut-line="9" data-cut-corners="0 0 0 0">${CUT_LINE}<div class="gallery-groups-row">${tabSwitch({ label: "Groups", switchSize: "small", tabs: groupTabs, isFramed: true })}</div></div></header>
 <div class="gallery-layout">
 <div class="gallery-index">${sidebar({ label: "Groups", isPageSidebar: true, groups: [{ items: groupTabs.map((tab) => ({ label: tab.label, href: tab.href, isCurrent: tab.isCurrent, extra: raw(` data-gallery-page="${tab.href.split("?")[0]}"`) })) }] })}</div>
 <main class="gallery-main">
@@ -169,8 +169,7 @@ body.gallery { margin: 0; min-height: 100vh; font: 15px/1.5 var(--body); }
   .gallery-groups-row::-webkit-scrollbar { display: none; }
   .gallery-groups-row.more-left { --fade-l: 28px; }
   .gallery-groups-row.more-right { --fade-r: 28px; }
-  .gallery-groups .tab-switch { width: max-content; background: none; box-shadow: none; clip-path: none; }
-  .gallery-groups .tab-switch > .cut-line { display: none; }
+  .gallery-groups .tab-switch { width: max-content; }
   .gallery-bar { position: sticky; top: 10px; width: calc(100% - 20px); min-height: 56px; flex-wrap: wrap; align-items: center; gap: 14px 12px; padding: 16px 12px 16px 16px; transition: padding 0.25s, gap 0.25s; }
   .gallery-bar.is-scrolled { gap: 8px 12px; padding: 8px 10px 10px 16px; }
   .gallery-bar .logo svg { height: 22px; transition: height 0.25s; }
