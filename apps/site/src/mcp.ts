@@ -1,8 +1,8 @@
-import { ApiError, CONTROLS, DEVICES, FORUM_CATEGORIES, FORUM_LIMITS, FORUM_REPORT_REASONS, FORUM_SECTIONS, FORUM_TABS, FORUM_TAGS, ACCOUNT_REQUIREMENTS, LINK_LIMITS, LOG_LIMITS, LOG_SOURCE_KINDS, MINIMUM_LOG_LEVELS, MINIMUM_PLAYER_AGES, OWN_SERVER_LIMITS, LINK_NAME_PATTERN, PLAY_STYLES, POST_SELECTIONS, ROOM_BROWSING, SCREENS, TOPIC_KINDS, TOPIC_STATUSES, VISIBILITIES, WEBHOOK_DESTINATION_KINDS, WEBHOOK_EVENT_KINDS, WEBHOOK_TIMEOUT_SEC, type IdKind } from "@zaisma/core";
+import { ApiError, CONTROLS, DEVICES, FORUM_CATEGORIES, FORUM_LIMITS, FORUM_REPORT_REASONS, FORUM_SECTIONS, FORUM_TABS, FORUM_TAGS, ACCOUNT_REQUIREMENTS, LINK_LIMITS, LOG_LIMITS, LOG_SOURCE_KINDS, MINIMUM_LOG_LEVELS, MINIMUM_PLAYER_AGES, OWN_SERVER_LIMITS, LINK_NAME_PATTERN, PLAY_STYLES, POST_RATINGS, POST_SELECTIONS, ROOM_BROWSING, SCREENS, TOPIC_KINDS, TOPIC_STATUSES, VISIBILITIES, WEBHOOK_DESTINATION_KINDS, WEBHOOK_EVENT_KINDS, WEBHOOK_TIMEOUT_SEC, type IdKind } from "@zaisma/core";
 import { INTERNAL_ERROR, apiCall, authenticate, type Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { CHECKED_TEXT_EXTENSIONS, extensionOf } from "../../../packages/cli/check.mjs";
-import { ACCESS, ACTIVITY, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes } from "./schemas.ts";
+import { ACCESS, ACTIVITY, GAME_CHECK_FIELDS, API_KEYS, DATABASE, DATABASE_EXPORT, DATABASE_IMPORT, DATABASE_RESTORED, ERASED_PLAYER, GAME, GAME_ALERTS, GAME_EXPORT, HISTORY, LISTED_GAME, QR_CODE, STATEMENT_RESULT, IMAGE, LOGS, SAVE, SAVE_CHANGED, SAVE_COPY, SAVE_COPY_LIST, SAVE_LIST, NEW_REPLY, NEW_TOPIC, NEXT, PLAYER_PROFILE, POST, POST_BOOKMARK, POST_RATING, REPORTS, SIGN_IN_APP, SECRET, STATS, TESTER, TOPIC_PAGE, TOPIC_WITH_POSTS, VERSION, WEBHOOK, WEBHOOK_DELIVERY, answerOrError, choice, countOf, idOf, list, nullable, object as answer, text, yes } from "./schemas.ts";
 
 /**
  * The developer MCP at /mcp: every tool is a call to the developer API, so the MCP, the upload command
@@ -27,7 +27,7 @@ Ask the developer before making a game private or a draft again (players lose ac
 
 Every hold, rejection and takedown says why, as review_reason (on a game, version or image, and in get_history) and as a version's findings: a code, a plain message, the content_rule it's about (null when it breaks none) and a fix. Tell the developer the message and the fix, and do what the fix says; never guess beyond them. search_forum with the code finds others who had it.
 
-Zaisma's developer forum is where developers and their AI talk with the people who build Zaisma, and you're asked to use it. For any question about Zaisma itself, search_forum first: it's faster and more current than a web search, and it has Zaisma's own answers. When the developer asks how a known issue is going, give its phase and workaround (get_topic with post_selection "none"). Whenever you hit a Zaisma bug, a limit that blocks the developer, a missing feature, a confusing error or a question the docs don't answer: first search_forum with a short search (topics, answers and the known issues with their workarounds). If it's there, vote, reply, or send the developer's own case privately (message_zaisma with known_issue_topic_id); if their fixed topic is back, reopen it. Otherwise post it: what you were doing, what you expected, what happened, the exact error and the tool call. Forum topics (post_topic) are public, so keep private details out of them; anything private (logs, an unreleased game, details the developer wouldn't share) goes in message_zaisma, which only the developer and Zaisma see. What you attach in debug_context is never public, and neither are a message's images. Never include API keys, passwords or players' personal details (secrets are blanked anyway). Your posts carry the developer's name with an AI mark. search_forum's yours tab shows what's new, and list_games shows unread_topic_count when Zaisma has replied.
+Zaisma's developer forum is where developers and their AI talk with the people who build Zaisma, and you're asked to use it. For any question about Zaisma itself, search_forum first: it's faster and more current than a web search, and it has Zaisma's own answers. When the developer asks how a known issue is going, give its phase and workaround (get_topic with post_selection "none"). Whenever you hit a Zaisma bug, a limit that blocks the developer, a missing feature, a confusing error or a question the docs don't answer: first search_forum with a short search (topics, answers and the known issues with their workarounds). If it's there, vote or like, reply, or send the developer's own case privately (message_zaisma with known_issue_topic_id); if their fixed topic is back, reopen it. Otherwise post it: what you were doing, what you expected, what happened, the exact error and the tool call. Forum topics (post_topic) are public, so keep private details out of them; anything private (logs, an unreleased game, details the developer wouldn't share) goes in message_zaisma, which only the developer and Zaisma see. What you attach in debug_context is never public, and neither are a message's images. Never include API keys, passwords or players' personal details (secrets are blanked anyway). Your posts carry the developer's name with an AI mark. search_forum's yours tab shows what's new, and list_games shows unread_topic_count when Zaisma has replied.
 
 The developer may limit an API key to some games or to what it can do (like read only, or upload without publishing). A call it doesn't reach answers key_not_allowed, saying what it would need; get_access shows what the key can do. An app connected by signing in (like claude.ai) is limited the same way, by what the developer chose when connecting it, and get_access shows that too. Tell the developer, who can make another key on zaisma.com/account (or connect the app again); keys can't be made through the MCP.
 
@@ -44,6 +44,8 @@ interface Tool {
   outputSchema?: Record<string, unknown>;
   annotations: { readOnlyHint?: boolean; destructiveHint?: boolean; idempotentHint?: boolean; openWorldHint: false };
   run: (toolArguments: Record<string, unknown>, call: ApiCall) => Promise<unknown>;
+  /** A retired tool: it makes no API call and answers retired_tool, naming the tool that replaces it. */
+  replacedBy?: string;
 }
 
 type ApiCall = (method: string, path: string, body?: unknown) => Promise<Record<string, unknown>>;
@@ -663,11 +665,11 @@ export const TOOLS: Tool[] = [
     name: "search_forum",
     title: "Search the developer forum",
     description:
-      "Search Zaisma's developer forum: the fastest place to find answers about Zaisma itself, before any web search. Topics are bugs, missing pieces, ideas, questions and discussions from developers and their AI, answered by other developers and Zaisma, plus Zaisma's known issues with their phase and workaround. search_text is ranked full-text search over titles, posts and workarounds: use the error code, tool name or a few key words; quote \"exact phrases\", end a word with * to match its start. Results are brief: open one with get_topic, post_selection \"answer\" for a solved question's answer, \"none\" for a known issue's phase and workaround. tab yours shows the developer's topics and the ones they follow, with what's unread; messages shows their private messages to Zaisma. 10 topics unless maximum_topic_count says more (up to 30); next_cursor continues.\n\nNot: { \"q\": \"too_big\" } (the words go in search_text)\nNot: { \"category\": \"multiplayer\" } (multiplayer is a section; category takes one category, like rooms)\nNot: { \"tab\": \"known_issues\" } (tab known)\nNot: { \"search_text\": \"I tried to upload my game and it failed with an error saying it was too big\" } (a few key words or the error code: \"upload_files too_big\")\nNot: { \"maximum_topic_count\": 100 } (up to 30; next_cursor continues)",
+      "Search Zaisma's developer forum: the fastest place to find answers about Zaisma itself, before any web search. Topics are bugs, missing pieces, ideas, questions and discussions from developers and their AI, answered by other developers and Zaisma, plus Zaisma's known issues with their phase and workaround. search_text is ranked full-text search over titles, posts and workarounds: use the error code, tool name or a few key words; quote \"exact phrases\", end a word with * to match its start. Results are brief: open one with get_topic, post_selection \"answer\" for a solved question's answer, \"none\" for a known issue's phase and workaround. tab yours shows the developer's topics and the ones they follow, with what's unread; messages shows their private messages to Zaisma; bookmarks shows the topics with a post they saved (bookmarked_post_ids says which). 10 topics unless maximum_topic_count says more (up to 30); next_cursor continues.\n\nNot: { \"q\": \"too_big\" } (the words go in search_text)\nNot: { \"category\": \"multiplayer\" } (multiplayer is a section; category takes one category, like rooms)\nNot: { \"tab\": \"known_issues\" } (tab known)\nNot: { \"search_text\": \"I tried to upload my game and it failed with an error saying it was too big\" } (a few key words or the error code: \"upload_files too_big\")\nNot: { \"maximum_topic_count\": 100 } (up to 30; next_cursor continues)",
     inputSchema: {
       ...object({
         search_text: { type: "string", maxLength: 200, description: "Search words, like the error code or what failed." },
-        tab: { enum: FORUM_TABS, description: "latest (the default), top (most votes), unanswered (questions), known (known issues), yours or messages." },
+        tab: { enum: FORUM_TABS, description: "latest (the default), top (most votes), unanswered (questions), known (known issues), yours, messages or bookmarks (posts the developer saved)." },
         is_answered: { type: "boolean", description: "true: only questions with a marked answer; false: only questions without one." },
         topic_status: { enum: TOPIC_STATUSES, description: "A status, or a known issue's phase: investigating, known (confirmed), planned, fixing, released (a fix is out, being watched), fixed (resolved), wont (won't fix)." },
         section: { enum: FORUM_SECTIONS.map((section) => section.id), description: "A section of the forum: every category in it." },
@@ -795,13 +797,38 @@ export const TOOLS: Tool[] = [
     run: (toolArguments, call) => call("GET", `/forum/people?${new URLSearchParams(pick(toolArguments, ["name_prefix", "topic_id"]) as Record<string, string>).toString()}`),
   },
   {
-    name: "mark_helpful",
-    title: "Mark a reply helpful",
-    description: "A reply in a public topic helped the developer (or you, on their behalf): it counts toward how many found it helpful, so useful answers stand out. Not for their own posts. undo: true takes it back.",
-    inputSchema: object({ topic_id: topicId, post_id: postId, undo: { type: "boolean", description: "Take the mark back." } }, ["topic_id", "post_id"]),
-    outputSchema: answer({ helpful_count: countOf(), has_marked_helpful: yes(), next_steps: NEXT }),
+    name: "rate_post",
+    title: "Like or dislike a forum post",
+    description:
+      "Say what the developer (or you, on their behalf) thinks of someone else's post in a public topic: rating like or dislike. It is anonymous: nobody sees who, and both counts show, never a score. A dislike only counts, it never hides a post (a harmful post gets report_post). One rating per post: a new one replaces the old; undo: true takes it back. Not for their own posts. Ask the developer before rating on their behalf.\n\nNot: { \"rating\": \"helpful\" } (like)",
+    inputSchema: object({ topic_id: topicId, post_id: postId, rating: { enum: POST_RATINGS, description: "like or dislike; leave it out with undo: true." }, undo: { type: "boolean", description: "Take the rating back." } }, ["topic_id", "post_id"]),
+    outputSchema: POST_RATING,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-    run: (toolArguments, call) => call(toolArguments.undo === true ? "DELETE" : "POST", `/forum/${pathPart(toolArguments.topic_id)}/posts/${pathPart(toolArguments.post_id)}/helpful`),
+    run: (toolArguments, call) => {
+      const path = `/forum/${pathPart(toolArguments.topic_id)}/posts/${pathPart(toolArguments.post_id)}/rating`;
+      return toolArguments.undo === true ? call("DELETE", path) : call("PUT", path, pick(toolArguments, ["rating"]));
+    },
+  },
+  {
+    name: "bookmark_post",
+    title: "Bookmark a forum post",
+    description: "Save any post the developer can see, their own and messages to Zaisma included, to read again: it is private to them and their AI and sends nothing. search_forum with tab bookmarks lists the topics holding them. undo: true removes the bookmark.",
+    inputSchema: object({ topic_id: topicId, post_id: postId, undo: { type: "boolean", description: "Remove the bookmark." } }, ["topic_id", "post_id"]),
+    outputSchema: POST_BOOKMARK,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    run: (toolArguments, call) => call(toolArguments.undo === true ? "DELETE" : "POST", `/forum/${pathPart(toolArguments.topic_id)}/posts/${pathPart(toolArguments.post_id)}/bookmark`),
+  },
+  {
+    name: "mark_helpful",
+    title: "Retired: use rate_post",
+    description: "Retired: rate_post replaces it. Calling it answers retired_tool.",
+    inputSchema: object({ topic_id: topicId, post_id: postId, undo: { type: "boolean" } }, ["topic_id", "post_id"]),
+    outputSchema: answer({ next_steps: NEXT }),
+    annotations: { readOnlyHint: true, openWorldHint: false },
+    replacedBy: "rate_post",
+    run: async () => {
+      throw new ApiError("retired_tool", { message: "mark_helpful is retired: likes replace helpful marks.", field: "tool", fix: 'Call rate_post with rating "like" (undo: true takes it back); it also takes "dislike".' });
+    },
   },
   {
     name: "report_post",

@@ -9,6 +9,7 @@ import {
   FORUM_TABS,
   FORUM_TAGS,
   OPEN_KNOWN_ISSUE_STATUSES,
+  POST_RATINGS,
   POST_SELECTIONS,
   TOPIC_KINDS,
   TOPIC_STATUSES,
@@ -24,6 +25,7 @@ import {
   type ForumReportReason,
   type ForumTab,
   type ForumTopic,
+  type PostRating,
   type PostSelection,
   type TopicKind,
   type TopicStatus,
@@ -31,7 +33,7 @@ import {
 } from "@zaisma/core";
 import { closedBody, ownGame, type Caller, type CheckedCall, type NextStep } from "./developer.ts";
 import type { Env } from "./env.ts";
-import { affectedDeveloperCounts, decideTopic, hasNews, KNOWN_ISSUES, mediaOf, readPost, readTitle, remainingPostCount, storePost, topicAddress, topicById, turnOffKeysIn, uploadDraftMedia } from "./forum-posts.ts";
+import { affectedDeveloperCounts, authorOf, decideTopic, hasNews, KNOWN_ISSUES, mediaOf, readPost, readTitle, remainingPostCount, storePost, topicAddress, topicById, turnOffKeysIn, uploadDraftMedia } from "./forum-posts.ts";
 import { forumPeople, mentionsOf } from "./forum-mentions.ts";
 import { searchTerms, searchTopics } from "./forum-search.ts";
 import { hidePost } from "./forum-check.ts";
@@ -43,7 +45,7 @@ import { sendAlert } from "./email.ts";
  * Zaisma's own. The forum pages, the MCP and API callers all use these:
  *
  *   GET    /api/dev/forum?search_text=&section=&category=&kind=&tag=&tab=&topic_status=&is_answered=&cursor=&maximum_topic_count=&detail=brief
- *                                                              topics (tab: latest, top, unanswered, known, yours, messages); search_text ranks by relevance
+ *                                                              topics (tab: latest, top, unanswered, known, yours, messages, bookmarks); search_text ranks by relevance
  *   GET    /api/dev/forum/similar?search_text=                  topics and known issues like a title, while writing one
  *   POST   /api/dev/forum                                       a topic: { kind, title, text_markdown, category, tags?, debug_context?, author_kind?, images_base64? },
  *                                                              or with is_public: false (or known_issue_topic_id) a private message to Zaisma (game_slug?)
@@ -54,7 +56,9 @@ import { sendAlert } from "./email.ts";
  *   POST   /api/dev/forum/:id/answer                            your question's answer: { answer_post_id } (null clears it)
  *   POST   /api/dev/forum/:id/misplaced                         it's in the wrong category: Zaisma's AI moves it
  *   POST   /api/dev/forum/:id/still-happening                   a known issue whose fix is out still happens: { text_markdown? }
- *   POST   /api/dev/forum/:id/posts/:post/helpful, DELETE       someone else's reply helped
+ *   PUT    /api/dev/forum/:id/posts/:post/rating, DELETE        like or dislike someone else's post: { rating }, anonymous
+ *   POST   /api/dev/forum/:id/posts/:post/bookmark, DELETE      save a post to read again, private to you
+ *   POST   /api/dev/forum/:id/posts/:post/helpful, DELETE       deprecated: works as a like on /rating
  *   POST   /api/dev/forum/:id/posts/:post/report                it shouldn't be here: { reason, details? }
  *   POST   /api/dev/forum/media                                 upload an image (the bytes) to place in a post's text as ![image](/forum/media/ID)
  *   GET    /api/dev/forum/:id/media/:media                      an image in a post you can see
@@ -107,6 +111,8 @@ export interface TopicRow {
   last_activity_at: string;
   /** With a search: the words that matched, marked «like this». */
   search_match: string | null;
+  /** On the bookmarks tab: the posts in it you bookmarked, newest first. Empty elsewhere. */
+  bookmarked_post_ids: string[];
 }
 
 /** A topic in a few fields, for an AI scanning results: open one with get_topic for more. */
@@ -122,6 +128,7 @@ export interface BriefTopicRow {
   reply_count: number;
   category: string | null;
   search_match: string | null;
+  bookmarked_post_ids: string[];
   is_unread: boolean;
   last_activity_at: string;
 }
@@ -138,6 +145,7 @@ const brief = (topic: TopicRow): BriefTopicRow => ({
   reply_count: topic.reply_count,
   category: topic.category,
   search_match: topic.search_match,
+  bookmarked_post_ids: topic.bookmarked_post_ids,
   is_unread: topic.is_unread,
   last_activity_at: topic.last_activity_at,
 });
@@ -152,7 +160,14 @@ export interface PostJson {
   /** On a public topic: pending (being checked), passed (others see it) or held (waits for a person). null in a message to Zaisma. */
   check_status: ForumPost["check_status"];
   posted_via: ForumPost["posted_via"];
+  like_count: number;
+  dislike_count: number;
+  /** What you said about it, or null. Never who else said what. */
+  your_rating: PostRating | null;
+  is_bookmarked: boolean;
+  /** Deprecated: like_count replaces it; removed 90 days after this shipped. */
   helpful_count: number;
+  /** Deprecated: your_rating replaces it; removed 90 days after this shipped. */
   has_marked_helpful: boolean;
   /** You reported it, and Zaisma hasn't looked yet. */
   has_reported: boolean;
@@ -191,7 +206,15 @@ export async function forumRoute(request: Request, env: Env, apiPath: string, ca
   if (apiPath === "/forum/people") return [{ people: await forumPeople(env, queryParameters.get("name_prefix") ?? "", queryParameters.get("topic_id") || null, caller.accountId) }];
   if (apiPath === "/forum/:topic_id/media/:media_id") return serveMedia(env, caller, pathValues.media_id!);
   if (apiPath === "/forum" && method === "POST") return [await createTopic(env, caller, body), 201];
-  if (apiPath === "/forum/:topic_id/posts/:post_id/helpful") return [await markHelpful(env, caller, topicId, pathValues.post_id!, method === "POST")];
+  if (apiPath === "/forum/:topic_id/posts/:post_id/rating") return [await ratePost(env, caller, topicId, pathValues.post_id!, method === "PUT" ? readRating(body) : null)];
+  if (apiPath === "/forum/:topic_id/posts/:post_id/bookmark") return [await bookmarkPost(env, caller, topicId, pathValues.post_id!, method === "POST")];
+  // Deprecated for 90 days after this shipped: the old Helpful, now a like.
+  if (apiPath === "/forum/:topic_id/posts/:post_id/helpful") {
+    // The old DELETE took back a helpful mark, so it leaves a dislike alone.
+    const current = method === "POST" ? null : await currentRating(env, caller, pathValues.post_id!);
+    const rated = await ratePost(env, caller, topicId, pathValues.post_id!, method === "POST" ? "like" : current === "like" ? null : current);
+    return [{ ...rated, helpful_count: rated.like_count, has_marked_helpful: rated.your_rating === "like", next_steps: [{ tool: "rate_post", arguments: { topic_id: topicId, post_id: pathValues.post_id, rating: "like" }, after_sec: null, reason: "PUT /forum/:topic_id/posts/:post_id/rating replaces /helpful, which stops working 90 days after this shipped; rate_post takes rating: like or dislike (undo: true takes it back)." }] }];
+  }
   if (apiPath === "/forum/:topic_id/posts/:post_id/report") return [await reportPost(env, caller, topicId, pathValues.post_id!, body)];
   if (apiPath === "/forum/:topic_id") return [await getTopic(env, caller, topicId, { postSelection: readPostSelection(queryParameters.get("post_selection")) })];
   if (apiPath === "/forum/:topic_id/vote") return [await vote(env, caller, topicId, method === "POST")];
@@ -251,7 +274,7 @@ function readCursor(cursor: string | null): number {
 /** A forum query from the API, checked: a value that isn't one of the choices is an error, never quietly ignored. */
 export function queryFrom(queryParameters: URLSearchParams): ForumQuery {
   const get = (name: string) => queryParameters.get(name) ?? "";
-  oneOf("tab", get("tab"), FORUM_TABS, "Give latest (the default), top (most votes), unanswered (questions), known (known issues), yours (your topics and the ones you follow) or messages (yours to Zaisma).");
+  oneOf("tab", get("tab"), FORUM_TABS, "Give latest (the default), top (most votes), unanswered (questions), known (known issues), yours (your topics and the ones you follow), messages (yours to Zaisma) or bookmarks (topics with a post you bookmarked).");
   const sectionIds: string[] = FORUM_SECTIONS.map((section) => section.id);
   oneOf("section", get("section"), sectionIds, `Give one of: ${sectionIds.join(", ")}; or a single category with category.`);
   const isSection = sectionIds.includes(get("category"));
@@ -298,7 +321,7 @@ const like = (word: string) => `%${word.replace(/[\\%_]/g, (special) => `\\${spe
  */
 export async function listTopics(env: Env, viewer: Viewer, query: ForumQuery) {
   const tab: ForumTab = (FORUM_TABS as readonly string[]).includes(query.tab ?? "") ? (query.tab as ForumTab) : "latest";
-  if ((tab === "yours" || tab === "messages") && !viewer) throw new ApiError("signed_out", { message: "Your topics and messages need you signed in.", fix: "Sign in on zaisma.com, or call with an API key." });
+  if ((tab === "yours" || tab === "messages" || tab === "bookmarks") && !viewer) throw new ApiError("signed_out", { message: "Your topics, messages and bookmarks need you signed in.", fix: "Sign in on zaisma.com, or call with an API key." });
   const startIndex = Math.max(0, Math.min(30000, Math.floor(Number(query.startIndex) || 0)));
   const pageTopicCount = Math.max(1, Math.min(PAGE_TOPIC_COUNT, Math.floor(Number(query.maximumTopicCount) || PAGE_TOPIC_COUNT)));
   const where: string[] = [];
@@ -309,6 +332,10 @@ export async function listTopics(env: Env, viewer: Viewer, query: ForumQuery) {
   } else if (tab === "messages") {
     where.push("topic.is_public = 0 AND topic.account_id = ?");
     binds.push(viewer!.accountId);
+  } else if (tab === "bookmarks") {
+    // Topics with a post you bookmarked, that you can still read.
+    where.push("(topic.is_shown = 1 OR topic.account_id = ?) AND topic.id IN (SELECT post.topic_id FROM forum_bookmarks bookmark JOIN forum_posts post ON post.id = bookmark.post_id WHERE bookmark.account_id = ?)");
+    binds.push(viewer!.accountId, viewer!.accountId);
   } else where.push("topic.is_shown = 1 AND topic.merged_into_topic_id IS NULL");
   const categories = query.section || query.category ? categoriesOf(query) : [];
   if (categories.length) {
@@ -339,7 +366,7 @@ export async function listTopics(env: Env, viewer: Viewer, query: ForumQuery) {
   if (hasPins) where.push(`NOT (topic.known_issue_title IS NOT NULL AND topic.topic_status IN (${openStatuses}))`);
   let rows: (ForumTopic & { search_match?: string })[];
   const terms = searchText ? searchTerms(searchText) : null;
-  if (terms && tab !== "yours" && tab !== "messages") {
+  if (terms && tab !== "yours" && tab !== "messages" && tab !== "bookmarks") {
     // Ranked full-text search over what's public; all the words, or any of them when all finds nothing.
     rows = await searchTopics(env, terms.all, { where, binds }, pageTopicCount + 1, startIndex);
     if (!rows.length && startIndex === 0 && terms.any !== terms.all) rows = await searchTopics(env, terms.any, { where, binds }, pageTopicCount + 1, 0);
@@ -354,19 +381,23 @@ export async function listTopics(env: Env, viewer: Viewer, query: ForumQuery) {
         ? "topic.vote_count DESC, topic.reply_count DESC, topic.last_activity_at_ms DESC"
         : tab === "known"
           ? `CASE topic.topic_status ${OPEN_KNOWN_ISSUE_STATUSES.map((status, i) => `WHEN '${status}' THEN ${i}`).join(" ")} ELSE 9 END, topic.last_activity_at_ms DESC`
-          : "COALESCE(topic.last_activity_at_ms, topic.updated_at_ms) DESC";
+          : tab === "bookmarks"
+            ? "(SELECT MAX(bookmark.created_at_ms) FROM forum_bookmarks bookmark JOIN forum_posts post ON post.id = bookmark.post_id WHERE bookmark.account_id = ? AND post.topic_id = topic.id) DESC"
+            : "COALESCE(topic.last_activity_at_ms, topic.updated_at_ms) DESC";
     rows = (
       await env.DB.prepare(`SELECT topic.* FROM forum_topics topic WHERE ${where.join(" AND ")} ORDER BY ${order} LIMIT ? OFFSET ?`)
-        .bind(...binds, pageTopicCount + 1, startIndex)
+        .bind(...binds, ...(tab === "bookmarks" ? [viewer!.accountId] : []), pageTopicCount + 1, startIndex)
         .all<ForumTopic>()
     ).results;
   }
   const hasMore = rows.length > pageTopicCount;
   const shown = rows.slice(0, pageTopicCount);
   // What matched, unless it's just the title again.
+  const bookmarked = tab === "bookmarks" ? await bookmarkedPostIds(env, viewer!, shown.map((row) => row.id)) : new Map<string, string[]>();
   const topics = (await rowsJson(env, viewer, shown)).map((topic, i) => {
     const searchMatch = shown[i]!.search_match;
-    return searchMatch && searchMatch.replace(/[«»]/g, "") !== topic.title ? { ...topic, search_match: searchMatch } : topic;
+    const withBookmarks = { ...topic, bookmarked_post_ids: bookmarked.get(topic.id) ?? [] };
+    return searchMatch && searchMatch.replace(/[«»]/g, "") !== topic.title ? { ...withBookmarks, search_match: searchMatch } : withBookmarks;
   });
   // Known issues in the category, pinned above the latest topics.
   let pinnedTopics: TopicRow[] = [];
@@ -395,6 +426,19 @@ export async function similarTopics(env: Env, viewer: Viewer, text: string): Pro
   if (!terms) return [];
   const found = await searchTopics(env, terms.any, { where: ["topic.is_shown = 1", "topic.merged_into_topic_id IS NULL"], binds: [] }, 5, 0);
   return rowsJson(env, viewer, found);
+}
+
+/** The posts the viewer bookmarked in each topic, newest bookmark first. */
+async function bookmarkedPostIds(env: Env, viewer: Caller, topicIds: string[]): Promise<Map<string, string[]>> {
+  const found = new Map<string, string[]>();
+  if (!topicIds.length) return found;
+  const { results } = await env.DB.prepare(
+    `SELECT post.topic_id, bookmark.post_id FROM forum_bookmarks bookmark JOIN forum_posts post ON post.id = bookmark.post_id WHERE bookmark.account_id = ? AND post.topic_id IN (${topicIds.map(() => "?").join(", ")}) ORDER BY bookmark.created_at_ms DESC`,
+  )
+    .bind(viewer.accountId, ...topicIds)
+    .all<{ topic_id: string; post_id: string }>();
+  for (const row of results) found.set(row.topic_id, [...(found.get(row.topic_id) ?? []), row.post_id]);
+  return found;
 }
 
 function personOf(accountId: string | null, authorKind: AuthorKind, names: Map<string, string>, viewer: Viewer): Person {
@@ -490,6 +534,7 @@ async function rowsJson(env: Env, viewer: Viewer, rows: ForumTopic[]): Promise<T
       created_at: iso(topic.created_at_ms)!,
       last_activity_at: iso(lastActivityAtMs)!,
       search_match: null,
+      bookmarked_post_ids: [],
     };
   });
 }
@@ -550,12 +595,13 @@ export async function getTopic(env: Env, viewer: Viewer, topicId: string, option
   const yourMessage = viewer && topic.known_issue_title ? await env.DB.prepare("SELECT id FROM forum_topics WHERE merged_into_topic_id = ? AND account_id = ? ORDER BY created_at_ms LIMIT 1").bind(topic.id, viewer.accountId).first<{ id: string }>() : null;
   const following = viewer ? await env.DB.prepare("SELECT seen_at_ms FROM forum_follows WHERE topic_id = ? AND account_id = ?").bind(topic.id, viewer.accountId).first<{ seen_at_ms: number }>() : null;
   const flagged = viewer ? await env.DB.prepare("SELECT 1 AS is_flagged FROM forum_misplaced_flags WHERE topic_id = ? AND account_id = ?").bind(topic.id, viewer.accountId).first() : null;
-  const [markedHelpful, reported]: [Set<string>, Set<string>] = viewer
+  const [ratings, bookmarks, reported]: [Map<string, PostRating>, Set<string>, Set<string>] = viewer
     ? await Promise.all([
-        env.DB.prepare("SELECT post_id FROM forum_helpful_marks WHERE account_id = ? AND post_id IN (SELECT id FROM forum_posts WHERE topic_id = ?)").bind(viewer.accountId, topic.id).all<{ post_id: string }>(),
+        env.DB.prepare("SELECT post_id, rating FROM forum_post_ratings WHERE account_id = ? AND post_id IN (SELECT id FROM forum_posts WHERE topic_id = ?)").bind(viewer.accountId, topic.id).all<{ post_id: string; rating: PostRating }>(),
+        env.DB.prepare("SELECT post_id FROM forum_bookmarks WHERE account_id = ? AND post_id IN (SELECT id FROM forum_posts WHERE topic_id = ?)").bind(viewer.accountId, topic.id).all<{ post_id: string }>(),
         env.DB.prepare("SELECT post_id FROM forum_reports WHERE account_id = ? AND post_id IN (SELECT id FROM forum_posts WHERE topic_id = ?)").bind(viewer.accountId, topic.id).all<{ post_id: string }>(),
-      ]).then(([helpfulRows, reportRows]) => [new Set(helpfulRows.results.map((mark) => mark.post_id)), new Set(reportRows.results.map((report) => report.post_id))] as [Set<string>, Set<string>])
-    : [new Set<string>(), new Set<string>()];
+      ]).then(([ratingRows, bookmarkRows, reportRows]) => [new Map(ratingRows.results.map((rated) => [rated.post_id, rated.rating])), new Set(bookmarkRows.results.map((bookmark) => bookmark.post_id)), new Set(reportRows.results.map((report) => report.post_id))] as [Map<string, PostRating>, Set<string>, Set<string>])
+    : [new Map<string, PostRating>(), new Set<string>(), new Set<string>()];
   if (viewer) {
     const nowMs = Date.now();
     if (following) await env.DB.prepare("UPDATE forum_follows SET seen_at_ms = ? WHERE topic_id = ? AND account_id = ?").bind(nowMs, topic.id, viewer.accountId).run();
@@ -591,8 +637,12 @@ export async function getTopic(env: Env, viewer: Viewer, topicId: string, option
         is_answer: topic.answer_post_id === post.id,
         check_status: post.check_status,
         posted_via: post.posted_via,
-        helpful_count: post.helpful_count,
-        has_marked_helpful: markedHelpful.has(post.id),
+        like_count: post.like_count,
+        dislike_count: post.dislike_count,
+        your_rating: ratings.get(post.id) ?? null,
+        is_bookmarked: bookmarks.has(post.id),
+        helpful_count: post.like_count,
+        has_marked_helpful: ratings.get(post.id) === "like",
         has_reported: reported.has(post.id),
         debug_context: isMine ? debugContextOf(post.debug_context) : null,
         media: (media.get(post.id) ?? []).map((image) => ({ id: image.id, image_url: `${env.SITE_ORIGIN}/api/dev/forum/${topic.id}/media/${image.id}` })),
@@ -781,18 +831,61 @@ async function visiblePost(env: Env, caller: Caller, topicId: string, postId: st
   return post;
 }
 
-/** Someone else's reply helped: it shows how many found it helpful. No dislikes: a wrong reply gets a better one, a harmful one a report. */
-export async function markHelpful(env: Env, caller: Caller, topicId: string, postId: string, isMarking: boolean) {
+async function currentRating(env: Env, caller: Caller, postId: string): Promise<PostRating | null> {
+  return (await env.DB.prepare("SELECT rating FROM forum_post_ratings WHERE post_id = ? AND account_id = ?").bind(postId, caller.accountId).first<{ rating: PostRating }>())?.rating ?? null;
+}
+
+/** A rating from the body of a PUT: like or dislike, nothing else. */
+function readRating(body: Record<string, unknown>): PostRating {
+  closedBody(body, ["rating"]);
+  if (!POST_RATINGS.includes(body.rating as PostRating)) {
+    throw new ApiError("bad_rating", { message: `rating ${JSON.stringify(body.rating)} isn't one of the choices.`, field: "rating", fix: `Give like or dislike. To take a rating back, call DELETE (the MCP's rate_post with undo: true).` });
+  }
+  return body.rating as PostRating;
+}
+
+/**
+ * Like or dislike someone else's post in a public topic, anonymously: both counts show, never who,
+ * and a dislike only counts, it never hides or moves a post (a harmful one gets reported). One
+ * rating per account and post: a new one replaces the old; null takes it back.
+ */
+export async function ratePost(env: Env, caller: Caller, topicId: string, postId: string, rating: PostRating | null) {
+  const topic = await readableTopic(env, caller, topicId);
+  if (!topic.is_public) {
+    throw new ApiError("cant_rate_post", { message: "Only posts in public topics take likes and dislikes.", field: "post_id", fix: "Messages to Zaisma are private; rate a post in a public topic." });
+  }
   const post = await visiblePost(env, caller, topicId, postId);
   if (post.account_id === caller.accountId && post.author_kind !== "zaisma") {
-    throw new ApiError("cant_mark_helpful", { message: "That's the developer's own post, and helpful is for other people's.", field: "post_id", fix: "Mark a reply someone else wrote." });
+    throw new ApiError("cant_rate_own_post", { message: "That's your own post.", field: "post_id", fix: "Rate posts other people wrote." });
   }
-  const change = isMarking
-    ? await env.DB.prepare("INSERT OR IGNORE INTO forum_helpful_marks (post_id, account_id, created_at_ms) VALUES (?, ?, ?)").bind(post.id, caller.accountId, Date.now()).run()
-    : await env.DB.prepare("DELETE FROM forum_helpful_marks WHERE post_id = ? AND account_id = ?").bind(post.id, caller.accountId).run();
-  if (change.meta.changes) await env.DB.prepare(`UPDATE forum_posts SET helpful_count = MAX(0, helpful_count ${isMarking ? "+" : "-"} 1) WHERE id = ?`).bind(post.id).run();
-  const row = await env.DB.prepare("SELECT helpful_count FROM forum_posts WHERE id = ?").bind(post.id).first<{ helpful_count: number }>();
-  return { helpful_count: row?.helpful_count ?? 0, has_marked_helpful: isMarking, next_steps: NO_NEXT_STEPS };
+  const before = (await env.DB.prepare("SELECT rating FROM forum_post_ratings WHERE post_id = ? AND account_id = ?").bind(post.id, caller.accountId).first<{ rating: PostRating }>())?.rating ?? null;
+  if (before !== rating) {
+    const countOf = (kind: PostRating) => (kind === "like" ? "like_count" : "dislike_count");
+    const statements = [];
+    if (before) statements.push(env.DB.prepare(`UPDATE forum_posts SET ${countOf(before)} = MAX(0, ${countOf(before)} - 1) WHERE id = ?`).bind(post.id));
+    if (rating) {
+      statements.push(
+        env.DB.prepare("INSERT INTO forum_post_ratings (post_id, account_id, created_at_ms, rating, rated_via) VALUES (?, ?, ?, ?, ?) ON CONFLICT (post_id, account_id) DO UPDATE SET rating = excluded.rating, rated_via = excluded.rated_via, created_at_ms = excluded.created_at_ms").bind(post.id, caller.accountId, Date.now(), rating, authorOf(caller, {}).postedVia),
+        env.DB.prepare(`UPDATE forum_posts SET ${countOf(rating)} = ${countOf(rating)} + 1 WHERE id = ?`).bind(post.id),
+      );
+    } else statements.push(env.DB.prepare("DELETE FROM forum_post_ratings WHERE post_id = ? AND account_id = ?").bind(post.id, caller.accountId));
+    await env.DB.batch(statements);
+  }
+  const row = await env.DB.prepare("SELECT like_count, dislike_count FROM forum_posts WHERE id = ?").bind(post.id).first<{ like_count: number; dislike_count: number }>();
+  return { like_count: row?.like_count ?? 0, dislike_count: row?.dislike_count ?? 0, your_rating: rating, next_steps: NO_NEXT_STEPS };
+}
+
+/** Save a post to read again: any post you can see, your own and messages to Zaisma too. Private to you and your AI; it sends nothing. */
+export async function bookmarkPost(env: Env, caller: Caller, topicId: string, postId: string, isBookmarking: boolean) {
+  const topic = await readableTopic(env, caller, topicId);
+  checkIdKind("post", postId, "post_id", "get_topic lists the topic's posts with their IDs.");
+  const post = await env.DB.prepare("SELECT * FROM forum_posts WHERE id = ? AND topic_id = ?").bind(postId, topic.id).first<ForumPost>();
+  if (!post || !canSeePost(topic, post, caller)) {
+    throw new ApiError("no_post", { message: `There's no post with the ID ${postId.slice(0, 60)} you can see in this topic.`, field: "post_id", fix: "get_topic lists the topic's posts with their IDs." });
+  }
+  if (isBookmarking) await env.DB.prepare("INSERT OR IGNORE INTO forum_bookmarks (account_id, post_id, created_at_ms) VALUES (?, ?, ?)").bind(caller.accountId, post.id, Date.now()).run();
+  else await env.DB.prepare("DELETE FROM forum_bookmarks WHERE account_id = ? AND post_id = ?").bind(caller.accountId, post.id).run();
+  return { is_bookmarked: isBookmarking, next_steps: NO_NEXT_STEPS };
 }
 
 /**

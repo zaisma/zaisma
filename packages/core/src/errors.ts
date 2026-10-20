@@ -201,7 +201,10 @@ export const ERROR_CODES = {
   not_released: { httpStatus: 400, meaning: "The topic isn't a known issue whose fix is out." },
   cant_vote: { httpStatus: 400, meaning: "The topic doesn't take your vote: it's yours, private, or a discussion." },
   cant_flag: { httpStatus: 400, meaning: "Only public topics others can see can be flagged as misplaced." },
-  cant_mark_helpful: { httpStatus: 400, meaning: "Your own posts can't be marked helpful." },
+  retired_tool: { httpStatus: 410, meaning: "The tool is retired; the error names the one that replaces it." },
+  bad_rating: { httpStatus: 400, meaning: "rating isn't like or dislike." },
+  cant_rate_post: { httpStatus: 400, meaning: "Only posts in public topics take likes and dislikes." },
+  cant_rate_own_post: { httpStatus: 400, meaning: "Your own posts take no likes or dislikes from you." },
   cant_report: { httpStatus: 400, meaning: "The post can't be reported: it's yours, or Zaisma's." },
 } as const satisfies Record<string, { httpStatus: number; meaning: string }>;
 
