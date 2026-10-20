@@ -278,7 +278,7 @@ const FIELD_STYLES = `
 .cut-field > label { font: 600 15px var(--display); color: var(--ink-2); }
 .field { position: relative; display: flex; align-items: center; height: 52px; color: var(--muted); }
 .field input { position: relative; z-index: 2; flex: 1; min-width: 0; width: 100%; height: 100%; padding: 0 16px 0 52px;
-  font: 500 18px var(--display); color: var(--ink); caret-color: var(--run-lo);
+  font: 500 18px var(--display); color: var(--ink); caret-color: var(--run-lo); text-overflow: ellipsis;
   --face-colour: var(--field-face); background: var(--face-colour); border: 0; border-radius: 0; box-shadow: var(--field-shade);
   clip-path: var(--cut-shape); transition: --face-colour 0.25s; }
 .field:hover input { --face-colour: var(--field-hover); }
@@ -335,7 +335,7 @@ component({
 .find { position: relative; flex: 1; max-width: 460px; height: 44px; margin: 0; }
 .find input[type="search"] {
   width: 100%; height: 100%; padding: 0 16px 0 44px;
-  font: 500 16px var(--display); color: var(--ink);
+  font: 500 16px var(--display); color: var(--ink); text-overflow: ellipsis;
   --face-colour: var(--field-face); background: var(--face-colour); border: 0; border-radius: 0;
   box-shadow: var(--well-shade);
   clip-path: var(--cut-shape);
