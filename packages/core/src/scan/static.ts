@@ -143,7 +143,8 @@ export function staticScan(files: TextFile[], ownServerHosts: readonly string[] 
       stage: "static",
       severity: "info",
       code: "outside_hosts",
-      message: `References ${outsideHosts.length} outside site(s). Games can't load from them on Zaisma, so bundle any libraries into the zip.`,
+      // A note, not a problem: engines and libraries name sites in their comments and messages.
+      message: `Names ${outsideHosts.length} outside site(s), in its code or comments. A game on Zaisma loads only its own files and connects only to Zaisma rooms and its own servers; zaisma check lists anything that won't work.`,
     });
   }
   return { findings, outsideHosts, evidence };

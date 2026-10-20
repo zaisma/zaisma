@@ -116,6 +116,10 @@ describe("the game check", () => {
     expect(codesOf({ "index.html": page(""), "game.js": code })).toEqual(["browser_dialog", "outside_link", "blocked_feature", "blocked_feature"]);
     expect(codesOf({ "index.html": page(""), "Build/game.framework.js": code, "Build/game.loader.js": code, "index.js": code, "index.wasm": 10, "lib/phaser.min.js": code })).toEqual([]);
     expect(codesOf({ "index.html": page(""), "game.js": "ui.prompt('name'); function alert(text) { draw(text); } showConfirm();" })).toEqual([]);
+    // Comments say what code could do, not what it does: Three.js's docs mention alert().
+    const commented = '/**\n * @example\n * alert( event.message );\n */\nconst url = "https://x.example/a//b"; // window.open(url)\nconst pattern = /\\/\\*/; draw(url, pattern);';
+    expect(codesOf({ "index.html": page("<!-- <form> --><script>// alert(1)\n/* prompt() */</script>"), "lib/three.core.js": commented })).toEqual([]);
+    expect(codesOf({ "index.html": page(""), "game.js": 'const note = "/* not a comment"; alert(note); /* end */' })).toEqual(["browser_dialog"]);
   });
 
   it("names the game in the fixes when it's given, and stops the list at 200", () => {

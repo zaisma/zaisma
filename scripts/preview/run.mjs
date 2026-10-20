@@ -5,7 +5,7 @@
 // Uses its own data folder and ports, so it never touches your dev data or the live site.
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deflateSync } from "node:zlib";
@@ -280,6 +280,10 @@ try {
   const saved = JSON.parse(readFileSync(join(STATE, "testers.json"), "utf8"));
   for (const [game, link] of Object.entries(saved)) testers[game] = SITE + new URL(link, SITE).pathname;
 } catch {}
+let engineSamples = [];
+try {
+  engineSamples = JSON.parse(readFileSync(join(STATE, "engines.json"), "utf8"));
+} catch {}
 console.log(`
 Zaisma preview is running. Nothing here touches the live site.
 
@@ -290,6 +294,8 @@ Zaisma preview is running. Nothing here touches the live site.
                   ${SITE}/dashboard/lava-leap; home leaves it out, ${SITE}/g/lava-leap still plays; ${SITE}/admin/games/ shows Clear.
                   Rename a game with [UPDATE] in its title and, a minute later, it's off the lists too)
   Multiplayer     ${SITE}/g/arena  (open it in two windows to play together)
+  Engine samples  ${engineSamples.map((sample) => `${SITE}/g/${sample.slug}?play${sample.scan_status === "approved" ? "" : ` (${sample.scan_status ?? "not uploaded"})`}`).join("\n                  ") || "(npm run preview -- --reset to add them)"}
+                  (web exports uploaded unchanged; npm run engines:play checks that each starts and draws)
   Rooms           ${SITE}/g/arena#rooms  and  ${SITE}/g/cave-crew#rooms  (Cave Crew's are mostly pretend, from around the world)
   Tester links    ${testers.secret ?? "(npm run preview -- --reset to make them)"}  (Rocket Lab, a private game: its live version)
                   ${testers.team ?? ""}  (Rocket Lab's newest build, not out yet, for two weeks)
@@ -490,6 +496,9 @@ async function seed() {
     return versions[0].id;
   };
 
+  // First, while the account's daily reviews are all free, so each sample gets the whole scan.
+  await seedEngineSamples(api, upload);
+
   const games = [
     { title: "Shard Dodge", folder: "examples/hello-game", color: [70, 140, 220], description: "Dodge the falling shards for as long as you can. Arrow keys, mouse or finger.", devices: ["phone", "tablet", "computer"], controls: ["touch", "keyboard_mouse"], play_modes: [{ mode: "single" }] },
     { title: "Arena", folder: withServer("examples/arena", "arena"), color: [150, 70, 160], description: "Bump your friends off the platform. Last one standing wins the round.", devices: ["computer"], controls: ["keyboard_mouse", "gamepad"], play_modes: [{ mode: "local", minimum_player_count: 2, maximum_player_count: 4, play_style: "versus" }, { mode: "online", minimum_player_count: 2, maximum_player_count: 8, play_style: "versus" }] },
@@ -668,6 +677,33 @@ async function seed() {
   await makeKeyWithPasskey(post, studioPasskey, { name: "Stats bot", access_level: "custom", game_scope: "all", game_access: "read", version_access: "read", stats_access: "read", database_access: "none", save_access: "none", forum_access: "none", sign_in_app_access: "none", webhook_access: "none" });
 }
 
+/**
+ * The engine samples (test/engines/<engine>/build), each a web export as its engine wrote it, uploaded
+ * unchanged with the upload command and left to the scan, never approved by hand: a sample the scan
+ * holds stays held, and engines.json says so for scripts/engines/play.mjs, which then plays each one.
+ */
+async function seedEngineSamples(api, upload) {
+  const ENGINE_NAMES = { godot: "Godot", phaser: "Phaser", three: "Three.js", unity: "Unity" };
+  const engines = readdirSync(join(ROOT, "test/engines"), { withFileTypes: true }).filter((entry) => entry.isDirectory() && existsSync(join(ROOT, "test/engines", entry.name, "build/index.html"))).map((entry) => entry.name);
+  const samples = [];
+  for (const engine of engines) {
+    const { game } = await api("POST", "/games", { title: `${ENGINE_NAMES[engine] ?? engine} sample`, description: `A ${ENGINE_NAMES[engine] ?? engine} web export, uploaded as the engine wrote it.`, devices: ["computer"], controls: ["keyboard_mouse"], play_modes: [{ mode: "single" }] });
+    const uploaded = upload(join("test/engines", engine, "build"), game.slug, "First version.");
+    let version = null;
+    for (let i = 0; i < 120 && uploaded.status === 0; i++) {
+      [version] = (await api("GET", `/games/${game.slug}`)).versions;
+      if (version && version.scan_status !== "scanning") break;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    const isPassed = version?.scan_status === "approved";
+    if (isPassed) {
+      await api("POST", `/games/${game.slug}/versions/${version.id}/publish`);
+      await api("PATCH", `/games/${game.slug}`, { visibility: "unlisted" });
+    }
+    samples.push({ engine, slug: game.slug, upload_exit_code: uploaded.status, scan_status: version?.scan_status ?? null, findings: version?.findings ?? [] });
+  }
+  writeFileSync(join(STATE, "engines.json"), JSON.stringify(samples, null, 2));
+}
 /**
  * Holds and takedowns, each saying why: an update the scan holds for packed code, one a person
  * rejected, a cover that wasn't approved, and a game taken down. Made like Zaisma makes them: the

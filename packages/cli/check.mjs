@@ -86,6 +86,58 @@ export function isEngineOutput(path, lowercasePaths) {
   return /\.m?js$/.test(lowercasePath) && lowercasePaths.has(lowercasePath.replace(/\.m?js$/, ".wasm"));
 }
 
+/** The text with JavaScript comments blanked to spaces (line breaks kept), so indexes into it are the original's. */
+function blankScriptComments(text) {
+  const out = text.split("");
+  const blank = (start, end) => {
+    for (let index = start; index < end; index++) if (out[index] !== "\n") out[index] = " ";
+  };
+  let lastSignificant = "";
+  for (let index = 0; index < text.length; index++) {
+    const character = text[index];
+    const next = text[index + 1];
+    if (character === "/" && next === "/") {
+      const end = text.indexOf("\n", index);
+      blank(index, end === -1 ? text.length : end);
+      index = end === -1 ? text.length : end;
+    } else if (character === "/" && next === "*") {
+      const end = text.indexOf("*/", index + 2);
+      blank(index, end === -1 ? text.length : end + 2);
+      index = end === -1 ? text.length : end + 1;
+    } else if (character === '"' || character === "'" || character === "`") {
+      // A string: skip to its end, so a // or /* in it isn't a comment.
+      let end = index + 1;
+      while (end < text.length && text[end] !== character && (character === "`" || text[end] !== "\n")) end += text[end] === "\\" ? 2 : 1;
+      index = end;
+      lastSignificant = character;
+    } else if (character === "/" && (lastSignificant === "" || "(,=:[!&|?{};+-*%<>~^".includes(lastSignificant))) {
+      // A regular expression: skip to its closing slash, outside a [class].
+      let end = index + 1;
+      let isInClass = false;
+      while (end < text.length && text[end] !== "\n" && (isInClass || text[end] !== "/")) {
+        if (text[end] === "\\") end++;
+        else if (text[end] === "[") isInClass = true;
+        else if (text[end] === "]") isInClass = false;
+        end++;
+      }
+      index = end;
+      lastSignificant = "/";
+    } else if (!/\s/.test(character)) {
+      lastSignificant = character;
+    }
+  }
+  return out.join("");
+}
+
+/** A page's or module's text with its comments blanked, HTML's and its scripts' JavaScript ones, at the same indexes. */
+function blankComments(text, fileKind) {
+  if (fileKind === "module") return blankScriptComments(text);
+  const spaces = (part) => part.replace(/[^\n]/g, " ");
+  return text
+    .replace(/<!--[\s\S]*?(?:-->|$)/g, spaces)
+    .replace(/(<script\b[^>]*>)([\s\S]*?)(<\/script\s*>|$)/gi, (_whole, open, body, close) => open + blankScriptComments(body) + close);
+}
+
 /** An attribute's value in a tag, with where the value starts and ends in the whole text. */
 function attributeOf(tag, tagStart, name) {
   const match = new RegExp(`\\s${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>"']+))`, "i").exec(tag);
@@ -339,7 +391,9 @@ export function checkGameFiles(files, { slug = null, ownServerUrls = null } = {}
     if (threadsMatch) addThreads(`${path} is from a build that needs threads (SharedArrayBuffer), which games on Zaisma don't have, so it won't start.`, lineAround(text, threadsMatch.index), path);
 
     if (isEngineOutput(path, lowercasePaths)) continue;
-    const found = (pattern) => pattern.exec(text);
+    // What the code does, not what its comments say: a library's docs mention alert() and window.open.
+    const code = blankComments(text, fileKind);
+    const found = (pattern) => pattern.exec(code);
     let match;
     if ((match = found(DIALOG_PATTERN))) add("browser_dialog", { message: `${path} uses ${match[1]}(), which never shows in the game's frame on Zaisma.`, path, quote: lineAround(text, match.index), fix: "Show the message in the game itself, like on the canvas or in an element over it." });
     if (fileKind === "html" && (match = found(/<form\b[^>]*>/i))) add("form_submission", { message: `${path} has a form, which never submits in the game's frame on Zaisma.`, path, quote: lineAround(text, match.index), fix: "Handle the button's click (or the Enter key) in script instead of submitting the form." });
