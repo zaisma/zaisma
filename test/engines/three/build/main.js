@@ -1,5 +1,5 @@
 // A Three.js sample for Zaisma's engine tests: a 3D scene with shadows, fog, a few hundred instanced
-// crystals that glow and pulse (bloom from three's add-ons, through the import map) and a camera that
+// glass crystals, a few of them glowing and pulsing (bloom from three's add-ons, through the import map), and a camera that
 // orbits with the mouse, a touch or the arrow keys.
 import * as THREE from "three";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
