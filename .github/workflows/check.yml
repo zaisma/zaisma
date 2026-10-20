@@ -1,7 +1,7 @@
 # Tests and typecheck on every pull request and every push to main.
 # Needs no secrets: vitest.config.ts gives the tests every binding they use.
 #
-# The tests run split across six runners at once, with typecheck beside them. "Tests and typecheck",
+# The tests run split across six runners at once, with typecheck and the engine exports beside them. "Tests and typecheck",
 # the check the ruleset requires and npm run ship reads, passes only when all of them did.
 # A change to docs/, .claude/, CLAUDE.md or README.md alone changes no code, so it runs only the tests that read
 # those files (the node project) as "Docs tests". The same paths are DOCS_ONLY_PATH in
@@ -96,6 +96,28 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run typecheck
 
+  # The engine samples (test/engines) through the real upload command, scan and game page, on the
+  # preview with its stand-ins, played in headless Chrome (scripts/engines/play.mjs).
+  engines:
+    name: Engine exports
+    needs: changes
+    if: needs.changes.outputs.is_code_changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run preview:start -- --reset
+      - run: npm run engines:play
+      - if: failure()
+        run: tail -n 80 .wrangler/preview-run/preview.log .wrangler/preview/site.log .wrangler/preview/games.log || true
+
   docs-tests:
     name: Docs tests
     needs: changes
@@ -115,7 +137,7 @@ jobs:
 
   check:
     name: Tests and typecheck
-    needs: [changes, tests, typecheck, docs-tests]
+    needs: [changes, tests, typecheck, engines, docs-tests]
     # Also when a job failed, so the required check fails instead of being skipped.
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
@@ -126,10 +148,11 @@ jobs:
           IS_CODE_CHANGED: ${{ needs.changes.outputs.is_code_changed }}
           TESTS_RESULT: ${{ needs.tests.result }}
           TYPECHECK_RESULT: ${{ needs.typecheck.result }}
+          ENGINES_RESULT: ${{ needs.engines.result }}
           DOCS_TESTS_RESULT: ${{ needs.docs-tests.result }}
         run: |
-          echo "What changed: $CHANGES_RESULT (code changed: $IS_CODE_CHANGED). Tests: $TESTS_RESULT. Typecheck: $TYPECHECK_RESULT. Docs tests: $DOCS_TESTS_RESULT."
+          echo "What changed: $CHANGES_RESULT (code changed: $IS_CODE_CHANGED). Tests: $TESTS_RESULT. Typecheck: $TYPECHECK_RESULT. Engine exports: $ENGINES_RESULT. Docs tests: $DOCS_TESTS_RESULT."
           if [ "$CHANGES_RESULT" != success ]; then exit 1; fi
-          if [ "$IS_CODE_CHANGED" = true ] && [ "$TESTS_RESULT" = success ] && [ "$TYPECHECK_RESULT" = success ]; then exit 0; fi
+          if [ "$IS_CODE_CHANGED" = true ] && [ "$TESTS_RESULT" = success ] && [ "$TYPECHECK_RESULT" = success ] && [ "$ENGINES_RESULT" = success ]; then exit 0; fi
           if [ "$IS_CODE_CHANGED" = false ] && [ "$DOCS_TESTS_RESULT" = success ]; then exit 0; fi
           exit 1
