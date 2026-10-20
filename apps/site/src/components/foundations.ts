@@ -29,7 +29,7 @@ const LIGHT_GLASS = `color-scheme: light;
   --chip-face: #DDF2E5; --chip-ink: #136238; --face-ring: rgba(255, 255, 255, 0.85); --presence-ring: #fff;
   --rail-line: rgba(20, 23, 28, 0.2); --rail-thumb: rgba(24, 28, 36, 0.55); --rail-edge: rgba(255, 255, 255, 0.55); --rail-mark: rgba(20, 23, 28, 0.45);
   --edge-inner: rgba(255, 255, 255, 0.9); --edge-bevel: 0.6; --edge-rim: 1; --edge-fringe: 0.25;
-  --edge-lit: rgba(236, 240, 246, 1); --edge-mid: rgba(212, 218, 228, 0.7); --edge-shade: rgba(146, 154, 168, 0.6); --edge-corner: rgba(188, 196, 208, 0.75);
+  --edge-lit: rgba(236, 240, 246, 1); --edge-shade: rgba(146, 154, 168, 0.6); --edge-corner: rgba(188, 196, 208, 0.75);
   --edge-spec: rgba(255, 255, 255, 1); --edge-dense: rgba(120, 130, 146, 0.07);
   --logo-halo: drop-shadow(0 0 10px rgba(255, 255, 255, 0.6)) drop-shadow(0 1px 1px rgba(255, 255, 255, 0.5));
   --link-hover: var(--run-lo); --marked: var(--run-lo);
@@ -56,7 +56,7 @@ const SMOKED_GLASS = `color-scheme: dark;
   --chip-face: rgba(52, 211, 120, 0.22); --chip-ink: #A6F0C6; --face-ring: rgba(6, 8, 12, 0.55); --presence-ring: #1A1D24;
   --rail-line: rgba(255, 255, 255, 0.2); --rail-thumb: rgba(255, 255, 255, 0.55); --rail-edge: rgba(255, 255, 255, 0.35); --rail-mark: rgba(255, 255, 255, 0.5);
   --edge-inner: rgba(255, 255, 255, 0.4); --edge-bevel: 0.4; --edge-rim: 0.85; --edge-fringe: 0.4;
-  --edge-lit: rgba(240, 244, 250, 0.95); --edge-mid: rgba(214, 222, 234, 0.55); --edge-shade: rgba(160, 172, 192, 0.4); --edge-corner: rgba(214, 222, 236, 0.6);
+  --edge-lit: rgba(240, 244, 250, 0.95); --edge-shade: rgba(160, 172, 192, 0.4); --edge-corner: rgba(214, 222, 236, 0.6);
   --edge-spec: rgba(255, 255, 255, 0.95); --edge-dense: rgba(255, 255, 255, 0.04);
   --logo-halo: drop-shadow(0 0 12px rgba(4, 7, 14, 0.75)) drop-shadow(0 1px 2px rgba(4, 7, 14, 0.6));
   --link-hover: var(--run-hi); --marked: var(--run-hi);
@@ -108,16 +108,17 @@ export const TOKEN_STYLES = `
   transition: background-color 0.5s ease, color 0.3s ease; }
 .glass > :not(.edge) { position: relative; z-index: 3; }
 .edge { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; overflow: visible; }
-/* Light and smoked glass share one frame: a straight-cut glass edge, a flat bevel lit at its top left and shaded at its bottom right
-   (--edge-lit, --edge-mid, --edge-shade, --edge-corner), brightest at the outer rim, with no separate outline. Like real glass it's denser at
+/* Light and smoked glass share one frame: a straight-cut glass edge whose every side is one flat tone between --edge-lit and --edge-shade
+   (lit along the top, shaded along the bottom), so each turn of the cut steps in brightness; brightest at the outer rim, with no separate outline. Like real glass it's denser at
    the edge (--edge-dense), glints where the rim meets the lit corner (--edge-spec), and its inner facet line catches light from the far side (--edge-inner). */
 .edge .gleam { stop-color: var(--edge-inner); } .edge .spec { stop-color: var(--edge-spec); }
 .edge .dense { fill: var(--edge-dense); }
-.edge .lit { stop-color: var(--edge-lit); } .edge .mid { stop-color: var(--edge-mid); } .edge .shade { stop-color: var(--edge-shade); }
 .edge .facet { stroke: var(--edge-corner); } .edge .facet.lit { stroke: var(--edge-lit); }
 .edge .hair { stroke: var(--edge-hair); }
 .edge .bevel { opacity: var(--edge-bevel); }
-.edge .rim { opacity: var(--edge-rim); }
+.edge .rim-band { opacity: var(--edge-rim); }
+.edge .bevel polygon, .edge .rim-band polygon { fill: color-mix(in srgb, var(--edge-lit) var(--side-light), var(--edge-shade)); }
+.edge .rim { stroke: none; }
 .edge .fringe { opacity: var(--edge-fringe); }
 /* A slanted outline drawn just inside a cut field or button, so its slanted ends are outlined like its top and bottom. */
 .cut-line { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; overflow: visible; }
@@ -186,10 +187,19 @@ export const EDGE = raw('<svg class="edge" aria-hidden="true"></svg>');
 export const GLASS_SCRIPT = `/* glass */(function () {
   var SVG = "http://www.w3.org/2000/svg";
   /* The sign-in pane's glass, for any slab: cut corners and the drawn rim (dark hairline, polished edge, bevel band, faint rainbow fringe, bright cut facets). */
-  function cutShape(w, h, c, inset) {
+  function cutPoints(w, h, c, inset) {
     var i = inset, k = inset * 0.414;
-    return [[i, c[0] + k], [c[0] + k, i], [w - c[1] - k, i], [w - i, c[1] + k], [w - i, h - c[2] - k], [w - c[2] - k, h - i], [c[3] + k, h - i], [i, h - c[3] - k]]
-      .map(function (p) { return p[0].toFixed(1) + "," + p[1].toFixed(1); }).join(" ");
+    return [[i, c[0] + k], [c[0] + k, i], [w - c[1] - k, i], [w - i, c[1] + k], [w - i, h - c[2] - k], [w - c[2] - k, h - i], [c[3] + k, h - i], [i, h - c[3] - k]];
+  }
+  function pointList(points) { return points.map(function (p) { return p[0].toFixed(1) + "," + p[1].toFixed(1); }).join(" "); }
+  function cutShape(w, h, c, inset) { return pointList(cutPoints(w, h, c, inset)); }
+  // How lit each side of the cut is, from the top left corner's cut round to the left side. Neighbours always differ, so every turn of the edge shows as a step in brightness, like a cut facet.
+  var SIDE_LIGHT = [80, 100, 70, 28, 12, 0, 40, 62];
+  // One flat quad per side, between two insets of the cut shape.
+  function sideBands(group) { return SIDE_LIGHT.map(function (light) { var quad = document.createElementNS(SVG, "polygon"); quad.style.setProperty("--side-light", light + "%"); group.appendChild(quad); return quad; }); }
+  function placeBands(quads, w, h, c, from, to) {
+    var outer = cutPoints(w, h, c, from), inner = cutPoints(w, h, c, to);
+    quads.forEach(function (quad, i) { var j = (i + 1) % 8; quad.setAttribute("points", pointList([outer[i], outer[j], inner[j], inner[i]])); });
   }
   var made = 0;
   // The rim is built once; while the slab changes size only its points move, so nothing is rebuilt mid-animation (rebuilding it each frame made the edges flicker).
@@ -201,8 +211,6 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     function build() {
       edge.innerHTML =
         '<defs>' +
-        '<linearGradient id="' + id + 'rim" x1="0" y1="0" x2="1" y2="1"><stop class="lit" offset="0"/><stop class="mid" offset="0.45"/><stop class="shade" offset="1"/></linearGradient>' +
-        '<linearGradient id="' + id + 'bev" x1="0" y1="0" x2="1" y2="1"><stop class="lit" offset="0"/><stop class="mid" offset="0.5"/><stop class="shade" offset="1"/></linearGradient>' +
         '<linearGradient id="' + id + 'fr" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#7fd8ff" stop-opacity="0.5"/><stop offset="0.5" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#ffc58a" stop-opacity="0.5"/></linearGradient>' +
         // Refraction: the facet's inner line catches the light from the other side, so it runs the opposite way to the rim.
         '<linearGradient id="' + id + 'in" x1="1" y1="1" x2="0" y2="0"><stop class="gleam" offset="0"/><stop class="gleam" offset="0.4" stop-opacity="0"/><stop class="gleam" offset="0.75" stop-opacity="0"/><stop class="gleam" offset="1" stop-opacity="0.35"/></linearGradient>' +
@@ -211,9 +219,11 @@ export const GLASS_SCRIPT = `/* glass */(function () {
         '</defs>';
       parts = {
         dense: node("path", { "class": "dense", "fill-rule": "evenodd" }),
-        bevel: node("path", { "class": "bevel", fill: "url(#" + id + "bev)", "fill-rule": "evenodd" }),
+        bevel: sideBands(node("g", { "class": "bevel" })),
         hair: node("polygon", { "class": "hair", fill: "none", "stroke-width": "1.2" }),
-        rim: node("polygon", { "class": "rim", fill: "none", stroke: "url(#" + id + "rim)", "stroke-width": "1.6" }),
+        rimBands: sideBands(node("g", { "class": "rim-band" })),
+        // A plain line on the rim, unseen until a tinted or focused slab colours it.
+        rim: node("polygon", { "class": "rim", fill: "none", "stroke-width": "1.6" }),
         spec: node("polygon", { "class": "spec-line", fill: "none", stroke: "url(#" + id + "sp)", "stroke-width": "1.4" }),
         fringe: node("polygon", { "class": "fringe", fill: "none", stroke: "url(#" + id + "fr)", "stroke-width": "0.8" }),
         inner: node("polygon", { "class": "inner", fill: "none", stroke: "url(#" + id + "in)", "stroke-width": "1" }),
@@ -236,7 +246,8 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       edge.removeAttribute("viewBox");
       // Density: glass is thicker at its edge, so a second, wider band tints the panel just inside the bevel.
       parts.dense.setAttribute("d", "M" + cutShape(w, h, c, 0) + "Z M" + cutShape(w, h, c, band * 1.8) + "Z");
-      parts.bevel.setAttribute("d", "M" + cutShape(w, h, c, 0) + "Z M" + cutShape(w, h, c, band) + "Z");
+      placeBands(parts.bevel, w, h, c, 0, band);
+      placeBands(parts.rimBands, w, h, c, 0.4, 2.2);
       parts.hair.setAttribute("points", cutShape(w, h, c, 0.6));
       parts.rim.setAttribute("points", cutShape(w, h, c, 1.6));
       parts.spec.setAttribute("points", cutShape(w, h, c, 1.6));
