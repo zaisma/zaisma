@@ -541,7 +541,7 @@ export interface SidebarOptions {
 export function sidebar(options: SidebarOptions): Raw {
   const link = (each: SidebarItem) => {
     const inside = each.icon ? html`${icon(each.icon)}<span class="sidebar-label">${each.label}</span>` : html`${each.label}`;
-    return html`<li><a href="${each.href}"${each.extra ?? ""}${each.isCurrent ? raw(' aria-current="page" class="cut-raised" data-cut-inset="2"') : ""} data-cut-line="8"${options.isCollapsed ? html` title="${each.label}" aria-label="${each.label}"` : ""}>${CUT_LINE}${inside}${each.badgeCount ? html`<span class="sidebar-count">${each.badgeCount}</span>` : ""}</a></li>`;
+    return html`<li><a href="${each.href}"${each.extra ?? ""}${each.isCurrent ? raw(' aria-current="page" class="cut-raised" data-cut-inset="2"') : ""} data-cut-line="8" data-cut-corners="4 2 4 2"${options.isCollapsed ? html` title="${each.label}" aria-label="${each.label}"` : ""}>${CUT_LINE}${inside}${each.badgeCount ? html`<span class="sidebar-count">${each.badgeCount}</span>` : ""}</a></li>`;
   };
   const groups = options.groups.map((group) => html`<div class="sidebar-group">${group.heading ? html`<h2 class="sidebar-heading">${group.heading}</h2>` : ""}<div class="sidebar-track cut-carved" data-cut-line="10" data-cut-corners="10 4 10 4">${CUT_LINE}<ul>${group.items.map(link)}</ul></div></div>`);
   return html`<aside class="sidebar glass${options.isCollapsed ? " is-collapsed" : ""}${options.isPageSidebar ? " is-page" : ""}" data-glass data-glass-corners="14 6 14 6"><nav class="sidebar-in" aria-label="${options.label}">${groups}</nav></aside>`;
@@ -558,8 +558,9 @@ component({
   group: "navigation",
   summary: "A glass column down the side of a page: the places in it, in groups, with the one you're on marked. It narrows to icons in tight spaces; on a phone, pages swap it for tabs.",
   styles: `
-/* The sidebar: a glass pane with each group of places carved into it as a track, like a switch's. The place you're on is a raised slab
-   in the track, outlined in orange; pointing at another lifts a faint slab there, and pressing sinks it. On the page's own sidebar
+/* The sidebar: a glass pane with each group of places carved into it as a track, like a switch's. Each place is cut to fit the track:
+   straight sides, small cuts, and the track's own corners where it meets them. The place you're on is a raised slab, outlined in orange;
+   pointing at another brings up a faint slab there (only its colour changes, from the same colour at rest, so it can't flicker). On the page's own sidebar
    the slab glides from the last page's place to this one's as the page changes. */
 .sidebar { position: relative; display: flex; flex: 1; min-height: 0; width: 100%; }
 .sidebar-in { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 24px 14px 14px; display: grid; gap: 16px; align-content: start; }
@@ -567,13 +568,10 @@ component({
 .sidebar-track { position: relative; padding: 4px; background: var(--track); clip-path: var(--cut-shape, polygon(0 10px, 10px 0, calc(100% - 4px) 0, 100% 4px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 4px 100%, 0 calc(100% - 4px))); }
 .sidebar-track ul { position: relative; z-index: 2; list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
 .sidebar a { position: relative; display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 14px; font: 500 16px var(--display); color: var(--ink-2); text-decoration: none;
-  clip-path: var(--cut-shape, polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%)); background: var(--wash-rest); transition: background 0.15s, color 0.15s; }
+  clip-path: var(--cut-shape, polygon(0 4px, 4px 0, calc(100% - 2px) 0, 100% 2px, 100% calc(100% - 4px), calc(100% - 4px) 100%, 2px 100%, 0 calc(100% - 2px))); background: var(--ghost-rest); transition: background-color 0.15s, color 0.15s; }
 .sidebar a > :not(.cut-line) { position: relative; z-index: 2; }
 .sidebar a svg:not(.cut-line) { width: 18px; height: 18px; flex: none; }
 .sidebar a:hover { background: var(--ghost); color: var(--ink); }
-.sidebar a:not([aria-current="page"]):hover > .cut-line { --band-top: color-mix(in srgb, var(--raise-top) 55%, transparent); --band-left: color-mix(in srgb, var(--raise-left) 55%, transparent);
-  --band-right: color-mix(in srgb, var(--raise-right) 55%, transparent); --band-bottom: color-mix(in srgb, var(--raise-bottom) 55%, transparent); }
-.sidebar a:not([aria-current="page"]):active > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
 .sidebar a:not([aria-current="page"]):active { background: var(--wash); }
 .sidebar a[aria-current="page"], .sidebar a[aria-current="page"]:hover { background: var(--slab); color: var(--ink); font-weight: 600; }
 .sidebar.is-page a[aria-current="page"] { view-transition-name: sidebar-current; }

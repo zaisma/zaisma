@@ -15,7 +15,7 @@ const LIGHT_GLASS = `color-scheme: light;
   --glass-sheen: radial-gradient(140% 90% at 0% 0%, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0) 55%), linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0) 38%, rgba(30, 60, 110, 0) 70%, rgba(30, 60, 110, 0.05));
   --glass-saturate: 1.8; --edge-hair: rgba(40, 60, 100, 0.1);
   --well: rgba(255, 255, 255, 0.32); --well-shade: inset 0 1px 3px rgba(20, 23, 28, 0.08);
-  --slab: linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.6)); --slab-shade: 0 4px 10px rgba(20, 23, 28, 0.12); --ghost: rgba(255, 255, 255, 0.45); --wash-rest: rgba(20, 23, 28, 0); --wash: rgba(20, 23, 28, 0.08); --wash-press: rgba(20, 23, 28, 0.14);
+  --slab: linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.6)); --slab-shade: 0 4px 10px rgba(20, 23, 28, 0.12); --ghost: rgba(255, 255, 255, 0.45); --ghost-rest: rgba(255, 255, 255, 0); --wash-rest: rgba(20, 23, 28, 0); --wash: rgba(20, 23, 28, 0.08); --wash-press: rgba(20, 23, 28, 0.14);
   --btn: rgba(255, 255, 255, 0.6); --btn-hover: rgba(255, 255, 255, 0.82); --btn-press: rgba(226, 232, 240, 0.9);
   --press-shade: inset 0 2px 5px rgba(20, 30, 50, 0.16);
   --field-face: rgba(255, 255, 255, 0.5); --field-hover: rgba(255, 255, 255, 0.66); --field-focus: rgba(255, 255, 255, 0.94);
@@ -45,7 +45,7 @@ const SMOKED_GLASS = `color-scheme: dark;
   --glass-sheen: radial-gradient(140% 90% at 0% 0%, rgba(190, 215, 255, 0.12), rgba(190, 215, 255, 0) 55%), linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0) 38%, rgba(0, 0, 0, 0) 70%, rgba(0, 0, 0, 0.12));
   --glass-saturate: 1.9; --edge-hair: rgba(0, 0, 0, 0.35);
   --well: rgba(255, 255, 255, 0.08); --well-shade: inset 0 1px 3px rgba(0, 0, 0, 0.3);
-  --slab: rgba(255, 255, 255, 0.2); --slab-shade: 0 0 0 transparent; --ghost: rgba(255, 255, 255, 0.1); --wash-rest: rgba(255, 255, 255, 0); --wash: rgba(255, 255, 255, 0.14); --wash-press: rgba(255, 255, 255, 0.22);
+  --slab: rgba(255, 255, 255, 0.2); --slab-shade: 0 0 0 transparent; --ghost: rgba(255, 255, 255, 0.1); --ghost-rest: rgba(255, 255, 255, 0); --wash-rest: rgba(255, 255, 255, 0); --wash: rgba(255, 255, 255, 0.14); --wash-press: rgba(255, 255, 255, 0.22);
   --btn: rgba(255, 255, 255, 0.14); --btn-hover: rgba(255, 255, 255, 0.26); --btn-press: rgba(255, 255, 255, 0.07);
   --press-shade: inset 0 2px 5px rgba(0, 0, 0, 0.4);
   --field-face: rgba(255, 255, 255, 0.08); --field-hover: rgba(255, 255, 255, 0.12); --field-focus: rgba(255, 255, 255, 0.16);
@@ -314,8 +314,10 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   // The cut each corner takes from the glass round it, or null where the control isn't in that corner.
   function nestedCuts(el) {
     var holder = el.parentElement && el.parentElement.closest("[data-glass], [data-cut-line]");
-    if (!holder || !holder.hasAttribute("data-glass")) return [null, null, null, null];
-    var r = el.getBoundingClientRect(), p = holder.getBoundingClientRect(), c = glassCorners(holder);
+    // It nests in glass, or in a control with corners of its own (a sidebar's track), but not in a slanted one.
+    var c = !holder ? null : holder.hasAttribute("data-glass") ? glassCorners(holder) : holder.cutCorners || null;
+    if (!c) return [null, null, null, null];
+    var r = el.getBoundingClientRect(), p = holder.getBoundingClientRect();
     var left = r.left - p.left, right = p.right - r.right, top = r.top - p.top, bottom = p.bottom - r.bottom;
     return [[left, top], [right, top], [right, bottom], [left, bottom]].map(function (gaps, i) {
       if (!c[i] || gaps[0] > NEST_GAP_PX || gaps[1] > NEST_GAP_PX || gaps[0] < -1 || gaps[1] < -1) return null;
@@ -361,7 +363,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       var w = el.offsetWidth, h = el.offsetHeight; if (!w || !h) return;
       // data-cut-corners="a b c d": cut corners of its own instead of slanted ends (a sidebar's track), each one still nesting where it meets the glass's corner.
       var nested = nestedCuts(el), own = el.getAttribute("data-cut-corners");
-      if (own) { var cuts = own.trim().split(/ +/).map(Number); nested = nested.map(function (cut, i) { return cut !== null ? cut : (cuts[i] || 0); }); }
+      if (own) { var cuts = own.trim().split(/ +/).map(Number); nested = nested.map(function (cut, i) { return cut !== null ? cut : (cuts[i] || 0); }); el.cutCorners = nested; }
       var shape = controlShape(w, h, slant, nested), key = w + "x" + h + ":" + list(shape);
       if (key === last) return;
       last = key;
