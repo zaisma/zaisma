@@ -356,6 +356,26 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
 })();
 `;
 
+/**
+ * The page's own sidebar: when a page opens from another place in it, the raised slab slides from that place to this one. The last page's
+ * address comes from the navigation that opened this one; the slide stays inside one track (another track's place is cut off by its own),
+ * and reduced motion, or a browser that doesn't say where the page was opened from, just shows the slab in its place.
+ */
+export const SIDEBAR_SCRIPT = `/* sidebar */(function () {
+  var from = window.navigation && navigation.activation && navigation.activation.from;
+  if (!from || !from.url || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  var lastPath = new URL(from.url).pathname;
+  document.querySelectorAll(".sidebar.is-page .sidebar-slab").forEach(function (slab) {
+    var track = slab.closest(".sidebar-track");
+    var place = Array.prototype.find.call(track.querySelectorAll("a[href]"), function (each) { return new URL(each.href).pathname === lastPath; });
+    if (!place || place.contains(slab)) return;
+    slab.style.setProperty("--glide-from-px", (place.getBoundingClientRect().top - slab.getBoundingClientRect().top).toFixed(1) + "px");
+    slab.classList.add("is-gliding");
+    slab.addEventListener("animationend", function () { slab.classList.remove("is-gliding"); }, { once: true });
+  });
+})();
+`;
+
 export const ROW_SCRIPT = `/* rows */(function () {
   var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   document.querySelectorAll("[data-row-arrows]").forEach(function (steps) {
@@ -541,7 +561,8 @@ export interface SidebarOptions {
 export function sidebar(options: SidebarOptions): Raw {
   const link = (each: SidebarItem) => {
     const inside = each.icon ? html`${icon(each.icon)}<span class="sidebar-label">${each.label}</span>` : html`${each.label}`;
-    return html`<li><a href="${each.href}"${each.extra ?? ""}${each.isCurrent ? raw(' aria-current="page" class="cut-raised" data-cut-inset="2"') : ""} data-cut-line="8" data-cut-corners="4 2 4 2"${options.isCollapsed ? html` title="${each.label}" aria-label="${each.label}"` : ""}>${CUT_LINE}${inside}${each.badgeCount ? html`<span class="sidebar-count">${each.badgeCount}</span>` : ""}</a></li>`;
+    const cut = raw('data-cut-line="8" data-cut-corners="4 2 4 2"');
+    return html`<li><a href="${each.href}"${each.extra ?? ""}${each.isCurrent ? raw(' aria-current="page"') : html` ${cut}`}${options.isCollapsed ? html` title="${each.label}" aria-label="${each.label}"` : ""}>${each.isCurrent ? html`<span class="sidebar-slab cut-raised" ${cut} data-cut-inset="2">${CUT_LINE}</span>` : CUT_LINE}${inside}${each.badgeCount ? html`<span class="sidebar-count">${each.badgeCount}</span>` : ""}</a></li>`;
   };
   const groups = options.groups.map((group) => html`<div class="sidebar-group">${group.heading ? html`<h2 class="sidebar-heading">${group.heading}</h2>` : ""}<div class="sidebar-track cut-carved" data-cut-line="10" data-cut-corners="10 4 10 4">${CUT_LINE}<ul>${group.items.map(link)}</ul></div></div>`);
   return html`<aside class="sidebar glass${options.isCollapsed ? " is-collapsed" : ""}${options.isPageSidebar ? " is-page" : ""}" data-glass data-glass-corners="14 6 14 6"><nav class="sidebar-in" aria-label="${options.label}">${groups}</nav></aside>`;
@@ -571,15 +592,20 @@ component({
    repainted or moved onto a new layer as it fades, so it can't flicker as the pointer comes onto a place or leaves it. */
 .sidebar a::before { content: ""; position: absolute; inset: 0; z-index: 0; background: var(--ghost); opacity: 0; will-change: opacity; transition: opacity 0.15s;
   clip-path: var(--cut-shape, polygon(0 4px, 4px 0, calc(100% - 2px) 0, 100% 2px, 100% calc(100% - 4px), calc(100% - 4px) 100%, 2px 100%, 0 calc(100% - 2px))); }
-.sidebar a > :not(.cut-line) { position: relative; z-index: 2; }
+.sidebar a > :not(.cut-line, .sidebar-slab) { position: relative; z-index: 2; }
 .sidebar a svg:not(.cut-line) { width: 18px; height: 18px; flex: none; }
 .sidebar a:hover { color: var(--ink); }
 .sidebar a:hover::before { opacity: 1; }
 .sidebar a:not([aria-current="page"]):active::before { background: var(--wash); opacity: 1; }
 .sidebar a[aria-current="page"] { color: var(--ink); font-weight: 600; }
-.sidebar a[aria-current="page"]::before { background: var(--slab); opacity: 1; }
-.sidebar.is-page a[aria-current="page"] { view-transition-name: sidebar-current; }
-::view-transition-group(sidebar-current) { animation-duration: 0.45s; animation-timing-function: var(--spring); }
+.sidebar a[aria-current="page"]::before { display: none; }
+/* The place you're on: a raised slab of its own under its words. Opening another place from the page's own sidebar slides it there from
+   the last page's place (SIDEBAR_SCRIPT), under words that stay put, while the rest of the page crossfades. */
+.sidebar-slab { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+.sidebar-slab::before { content: ""; position: absolute; inset: 0; background: var(--slab);
+  clip-path: var(--cut-shape, polygon(0 4px, 4px 0, calc(100% - 2px) 0, 100% 2px, 100% calc(100% - 4px), calc(100% - 4px) 100%, 2px 100%, 0 calc(100% - 2px))); }
+.sidebar-slab.is-gliding { animation: sidebar-glide 0.45s var(--spring); }
+@keyframes sidebar-glide { from { transform: translateY(var(--glide-from-px, 0px)); } }
 /* Every place's outline follows its cut: orange on the current place, ink while the keyboard is on another. It stays out of sight until then, and on the current place it thickens under keyboard focus. */
 .sidebar a .cut-line polygon { stroke-width: 2; }
 .sidebar a[aria-current="page"] .cut-line polygon { stroke: var(--run); }
