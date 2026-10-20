@@ -193,10 +193,10 @@ describe("components", () => {
   it("open the Developer and Forum tabs only on a developer page", () => {
     const account = { username: "emma_r", pictureMarkup: html`` };
     const onDashboard = navigation.header({ current: "developer", isOnDeveloperPage: true, account }).html;
-    expect(onDashboard).toContain('<a href="/dashboard" class="dev" aria-current="page" data-words="Developer">Developer</a>');
-    expect(onDashboard).toContain('<a href="/forum" class="dev" data-words="Forum">Forum</a>');
+    expect(onDashboard).toContain('<a href="/dashboard" class="dev" aria-current="page">Developer</a>');
+    expect(onDashboard).toContain('<a href="/forum" class="dev">Forum</a>');
     const atHome = navigation.header({ current: "home", isOnDeveloperPage: false, account }).html;
-    expect(atHome).toContain('<a href="/dashboard" class="dev off" tabindex="-1" aria-hidden="true" data-words="Developer">Developer</a>');
-    expect(atHome).toContain('<a href="/forum" class="dev off" tabindex="-1" aria-hidden="true" data-words="Forum">Forum</a>');
+    expect(atHome).toContain('<a href="/dashboard" class="dev off" tabindex="-1" aria-hidden="true">Developer</a>');
+    expect(atHome).toContain('<a href="/forum" class="dev off" tabindex="-1" aria-hidden="true">Forum</a>');
   });
 });

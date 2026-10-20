@@ -136,9 +136,6 @@ export const TOKEN_STYLES = `
 .shell { position: relative; display: inline-flex; margin: 0; padding: 0; border: 0; background: none; font: inherit; color: inherit; text-decoration: none; cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .shell > .face { pointer-events: none; }
 [hidden] { display: none !important; }
-/* A tab that turns bold when it's chosen keeps its bold width from the start (data-words: its words again, unseen), so choosing it never
-   resizes the row of tabs, and a switch's slab always slides. */
-[data-words]::after { content: attr(data-words); height: 0; overflow: hidden; visibility: hidden; font-weight: 600; pointer-events: none; user-select: none; }
 /* Places: the sidebar's and a menu's, one look (placeMarkup). Words straight on the glass, quiet until you point at them, when they brighten.
    The place you're on is a raised slab under its words, outlined in orange; keyboard focus draws its outline in ink. Each is a control,
    so its shape is the edge rule's. A badge count sits at its end. */

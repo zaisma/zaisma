@@ -36,7 +36,7 @@ export interface HeaderOptions {
 }
 
 const tab = (label: string, href: string, isCurrent: boolean, isDeveloperTab = false, isOpen = true) =>
-  html`<a href="${href}"${isDeveloperTab ? raw(isOpen ? ' class="dev"' : ' class="dev off" tabindex="-1" aria-hidden="true"') : ""}${isCurrent ? raw(' aria-current="page"') : ""} data-words="${label}">${label}</a>`;
+  html`<a href="${href}"${isDeveloperTab ? raw(isOpen ? ' class="dev"' : ' class="dev off" tabindex="-1" aria-hidden="true"') : ""}${isCurrent ? raw(' aria-current="page"') : ""}>${label}</a>`;
 
 /** The header: a floating slab of glass, cut corners and a drawn rim. Orange only on what you act on. */
 export function header(options: HeaderOptions): Raw {
@@ -103,7 +103,7 @@ const HEADER_STYLES = `
 .nav .ghost { background: var(--ghost); opacity: 0; }
 .nav.pointing .ghost { opacity: 1; }
 .nav a { position: relative; display: grid; place-content: center; padding: 0 18px; font: 500 15px var(--display); color: var(--ink-2); text-decoration: none; white-space: nowrap; }
-.nav a[aria-current="page"] { color: var(--ink); font-weight: 600; }
+.nav a[aria-current="page"] { color: var(--ink); }
 .nav a:focus-visible { outline: 2px solid var(--ink); outline-offset: -4px; }
 /* Before the script has measured, the tab you're on carries its own slab. */
 .nav:not(.is-ready) a[aria-current="page"] { background: var(--slab); box-shadow: inset 0 -3px 0 var(--run); }

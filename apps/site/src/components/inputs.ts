@@ -101,8 +101,8 @@ export function tabSwitch(options: { label: string; tabs: SwitchTab[]; switchSiz
   const own = options.isFramed ? html`<div class="tab-switch framed ${options.switchSize}" role="group" aria-label="${options.label}">` : html`<div class="tab-switch cut-carved ${options.switchSize}" role="group" aria-label="${options.label}" data-cut-line="${isSmall ? 9 : 10}">${CUT_LINE}`;
   return html`${own}<span class="ghost" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}"></span><span class="slab cut-raised" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}">${CUT_LINE}</span>${options.tabs.map((tab) =>
     tab.href
-      ? html`<a href="${tab.href}"${tab.isCurrent ? raw(' aria-current="page"') : ""} data-words="${tab.label}">${tab.label}</a>`
-      : html`<button type="button"${tab.tabValue !== undefined ? html` value="${tab.tabValue}"` : ""} aria-pressed="${tab.isCurrent ? "true" : "false"}" data-words="${tab.label}">${tab.label}</button>`,
+      ? html`<a href="${tab.href}"${tab.isCurrent ? raw(' aria-current="page"') : ""}>${tab.label}</a>`
+      : html`<button type="button"${tab.tabValue !== undefined ? html` value="${tab.tabValue}"` : ""} aria-pressed="${tab.isCurrent ? "true" : "false"}">${tab.label}</button>`,
   )}</div>`;
 }
 
@@ -427,7 +427,8 @@ component({
 .tab-switch > a, .tab-switch > button { position: relative; z-index: 2; display: grid; place-content: center; padding: 0 18px; border: 0; background: none; cursor: pointer;
   font: 500 15px var(--display); color: var(--ink-2); text-decoration: none; white-space: nowrap; }
 .tab-switch.big > a, .tab-switch.big > button { flex: 1 1 0; }
-.tab-switch [aria-current="page"], .tab-switch [aria-pressed="true"] { color: var(--ink); font-weight: 600; }
+/* The one you're on is marked by its slab and full ink, at the same weight as the others, so its words never move as it's chosen. */
+.tab-switch [aria-current="page"], .tab-switch [aria-pressed="true"] { color: var(--ink); }
 /* Before the script has measured, the one you're on carries its own slab. */
 .tab-switch:not(.is-ready) [aria-current="page"], .tab-switch:not(.is-ready) [aria-pressed="true"] { background: var(--slab); box-shadow: inset 0 -3px 0 var(--run); }
 .tab-switch.framed, .tab-switch.framed.small { background: none; box-shadow: none; clip-path: none; }
