@@ -348,7 +348,7 @@ component({
   examples: [
     { label: "Signed out, on Home", isWide: true, markup: headerFrame(header({ id: "example-top-out", current: "home", search: GAMES_SEARCH, account: null, isOnDeveloperPage: false })) },
     { label: "Signed in, menu open", isWide: true, markup: headerFrame(header({ id: "example-top-in", current: "home", search: GAMES_SEARCH, account: STAND_IN_ACCOUNT, isOnDeveloperPage: false, isMenuOpen: true, yourGamesHref: "#header" }), true) },
-    { label: "On the dashboard: the developer tabs open", isWide: true, markup: headerFrame(header({ id: "example-top-dev", current: "developer", account: STAND_IN_ACCOUNT, isOnDeveloperPage: true, yourGamesHref: "#header" })) },
+    { label: "On the dashboard", isWide: true, markup: headerFrame(header({ id: "example-top-dev", current: "developer", account: STAND_IN_ACCOUNT, isOnDeveloperPage: true, yourGamesHref: "#header" })) },
     { label: "Compact, after scrolling", isWide: true, markup: headerFrame(header({ id: "example-top-compact", current: "home", search: GAMES_SEARCH, account: STAND_IN_ACCOUNT, isOnDeveloperPage: false, isCompact: true, yourGamesHref: "#header" })) },
     { label: "Logo only, on sign-in", isWide: true, markup: html`<div class="header-frame logo-frame">${header({ id: "example-top-logo", current: null, isOnDeveloperPage: false, isLogoOnly: true })}</div>` },
   ],
@@ -420,7 +420,7 @@ component({
   render: rail,
   examples: [
     {
-      label: "In a box that scrolls (point at it with a mouse)",
+      label: "In a box",
       markup: html`<div class="glass rail-box" data-glass data-glass-corners="18 9 18 9"><div class="rail-box-in"><p>${"Wander a forest that grows around you. No combat and no timers: climbing, finding and listening. ".repeat(14)}</p></div>${rail("box")}</div>`,
     },
   ],

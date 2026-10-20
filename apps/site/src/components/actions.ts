@@ -165,8 +165,8 @@ const stateExamples = (render: (state?: "is-pointed" | "is-pressed" | "is-focuse
   { label: "Pointed", markup: render("is-pointed"), isStill: true },
   { label: "Pressed", markup: render("is-pressed"), isStill: true },
   { label: "Keyboard focus", markup: render("is-focused"), isStill: true },
-  { label: "Try it: point, press, tab to it", markup: render() },
-  { label: "On a loop: pointed, pressed, let go", markup: html`<span data-state-loop="${loopKind}">${render()}</span>`, isStill: true },
+  { label: "Try it", markup: render() },
+  { label: "On a loop", markup: html`<span data-state-loop="${loopKind}">${render()}</span>`, isStill: true },
 ];
 
 component({
@@ -247,10 +247,10 @@ component({
   render: glassButton,
   examples: [
     {
-      label: "Try it: the ways in",
+      label: "Try it",
       markup: html`<div style="display:grid;gap:10px;width:min(380px,100%)">${glassButton("Sign in with a passkey", { icon: "passkey" })}${glassButton("Continue with Google", { icon: "google" })}${glassButton("Continue with Discord", { icon: "discord" })}</div>`,
     },
-    { label: "On a loop: pointed, let go", markup: html`<div style="width:min(380px,100%)" data-state-loop="glass">${glassButton("Continue with Google", { icon: "google" })}</div>`, isStill: true },
+    { label: "On a loop", markup: html`<div style="width:min(380px,100%)" data-state-loop="glass">${glassButton("Continue with Google", { icon: "google" })}</div>`, isStill: true },
   ],
 });
 
@@ -276,6 +276,6 @@ component({
   render: guestButton,
   examples: [
     { label: "Try it", markup: html`<div style="width:min(380px,100%)">${guestButton("Continue as guest")}</div>` },
-    { label: "On a loop: pointed, let go", markup: html`<div style="width:min(380px,100%)" data-state-loop="guest">${guestButton("Continue as guest")}</div>`, isStill: true },
+    { label: "On a loop", markup: html`<div style="width:min(380px,100%)" data-state-loop="guest">${guestButton("Continue as guest")}</div>`, isStill: true },
   ],
 });

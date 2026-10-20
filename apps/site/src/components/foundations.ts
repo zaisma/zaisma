@@ -284,7 +284,7 @@ component({
 .swatches span:last-child { color: var(--muted); }
 `,
   examples: [
-    { label: "Every token, in the theme you chose", markup: swatches(), isWide: true },
+    { label: "Every token", markup: swatches(), isWide: true },
   ],
 });
 
@@ -343,7 +343,7 @@ component({
 `,
   examples: [
     {
-      label: "Thin to thick, in the theme you chose",
+      label: "Thin to thick",
       isWide: true,
       markup: glassStrip(html`${[35, 55, 72].map((glassOpacityPct) => html`<div class="glass" data-glass data-glass-corners="18 9 18 9" style="--glass-tint:rgba(var(--glass-base),${glassOpacityPct / 100})"><strong>${glassOpacityPct}%</strong><span class="glass-kind"></span></div>`)}`),
     },
@@ -366,7 +366,7 @@ component({
 `,
   examples: [
     {
-      label: "Header 16/6, pane 18/9, slant 10",
+      label: "The three cuts",
       isWide: true,
       markup: html`<div class="cuts"><figure><span class="shape header-cut"></span><figcaption>Header: 16 and 6</figcaption></figure><figure><span class="shape pane-cut"></span><figcaption>Pane: 18 and 9</figcaption></figure><figure><span class="shape slant"></span><figcaption>Buttons and fields: 10px slants</figcaption></figure></div>`,
     },
