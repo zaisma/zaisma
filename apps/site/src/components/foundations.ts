@@ -123,7 +123,8 @@ export const TOKEN_STYLES = `
 /* A gap can't be negative, so each control but the last reaches back over the next by a margin; a row that wraps starts each line flush. */
 .control-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--gap-control-stack) 0; }
 .control-row > :not(:last-child) { margin-inline-end: var(--gap-control-row-boxes); }
-[data-glass] .control-row > .shell { display: flex; flex: 1 1 0; min-width: 0; }
+/* They share the row, but never shrink below their words: when two don't fit side by side (a narrow phone), the second wraps under the first. */
+[data-glass] .control-row > .shell { display: flex; flex: 1 1 0; }
 [data-glass] .control-row > .shell > .face { width: 100%; justify-content: center; }
 .eases-settings { transition: --glass-hue 0.5s ease; }
 @media (prefers-reduced-motion: reduce) { .eases-settings { transition: none; } }

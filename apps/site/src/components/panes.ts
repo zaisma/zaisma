@@ -394,12 +394,15 @@ const SHEET_STYLES = `
 /* In place (the gallery's still copy): a pane where it sits. */
 .sheet.in-place { position: relative; z-index: auto; margin: 0; }
 .sheet-in { display: flex; flex-direction: column; gap: var(--gap-block-block); max-height: inherit; overflow-y: auto; padding: var(--pad-pane); }
+/* With a mouse it scrolls on Zaisma's rail, inside its right edge: what's in it keeps clear of the rail. */
+.sheet-in.own-scroll { padding-right: calc(var(--pad-pane) + 14px); }
 .sheet-head { display: flex; align-items: flex-start; gap: var(--gap-words-control); }
 .sheet-title { flex: 1; margin: 0; font: var(--type-section); color: var(--ink); text-wrap: balance; }
 .sheet-close, .sheet-form { margin: 0; }
 .sheet-text { margin: 0; font: var(--type-words); color: var(--ink-2); }
 @media (max-width: 760px) {
-  .sheet:not(.in-place) { width: calc(100% - 2 * var(--gap-control-stack)); max-height: calc(100dvh - 2 * var(--gap-control-stack)); margin: auto var(--gap-control-stack) var(--gap-control-stack); }
+  /* On a phone it rises from the foot of the screen and stops well short of the top, so the page stays in view above it. */
+  .sheet:not(.in-place) { width: calc(100% - 2 * var(--gap-control-stack)); max-height: 78dvh; margin: auto var(--gap-control-stack) var(--gap-control-stack); }
   .sheet:not(.in-place):not([open]) { transform: translateY(40px); }
   @starting-style { .sheet:not(.in-place)[open] { transform: translateY(40px); } }
 }
@@ -525,8 +528,8 @@ component({
 /* A banner: a strip of the panes' glass, the width of the page's content, holding one line of words and at most one cut button at its
    end, which fits the strip's corners. On a phone the button goes under the words. */
 .banner { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-control-stack) var(--gap-words-control); width: 100%; min-height: 60px; padding: var(--pad-inner-pane) var(--pad-inner-pane) var(--pad-inner-pane) var(--pad-tray); font: var(--type-words); color: var(--ink); }
-.banner > .ico { color: var(--ink-2); }
-.banner-text { flex: 1 1 240px; min-width: 0; }
+.banner > .ico { flex: none; color: var(--ink-2); }
+.banner-text { flex: 1 1 0; min-width: 0; }
 .banner > .cut-btn { flex: none; }
 @media (max-width: 760px) { .banner > .cut-btn { flex: 1 1 100%; } }
 `,
@@ -593,7 +596,7 @@ export const STEP_FLOW_SCRIPT = `/* step flows */(function () {
     var settling = 0;
     function mark(index) {
       marks.forEach(function (each, i) {
-        each.classList.remove("is-leaving"); each.classList.toggle("is-done", i < index); each.classList.toggle("is-current", i === index);
+        each.classList.remove("is-leaving", "is-waiting"); each.classList.toggle("is-done", i < index); each.classList.toggle("is-current", i === index);
         if (i === index) each.setAttribute("aria-current", "step"); else each.removeAttribute("aria-current");
       });
     }
@@ -609,7 +612,7 @@ export const STEP_FLOW_SCRIPT = `/* step flows */(function () {
           if (i > at && (each.classList.contains("is-current") || each.classList.contains("is-done"))) { each.classList.remove("is-current", "is-done"); each.classList.add("is-leaving"); }
           each.removeAttribute("aria-current");
         });
-        marks[at].setAttribute("aria-current", "step");
+        marks[at].classList.remove("is-done"); marks[at].classList.add("is-current", "is-waiting"); marks[at].setAttribute("aria-current", "step");
         settling = setTimeout(function () { mark(at); }, LEAVE_MS);
       } else mark(at);
       back.hidden = at === 0; words.textContent = at === last ? finishWords : nextWords;
@@ -657,7 +660,10 @@ component({
 .step-line > li.is-leaving .step-fill { transform: scaleX(0); transition-duration: 0.45s; transition-timing-function: cubic-bezier(.4,0,.2,1); background: linear-gradient(90deg, #E9820C, var(--run) 55%, #FFC277 82%, #FFF4E2); }
 .step-form { margin: 0; display: flex; flex-direction: column; gap: var(--gap-block-block); }
 .step-body { display: flex; flex-direction: column; gap: var(--gap-block-block); }
-@media (max-width: 760px) { .step-line > li:not(.is-current) > .step-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; } }
+/* On a phone only the current step's name shows; the others keep their line's room, so nothing moves as the step changes. */
+@media (max-width: 760px) { .step-line > li > .step-label { white-space: nowrap; } .step-line > li:not(.is-current) > .step-label { visibility: hidden; } }
+/* Going back, the step you return to shows as current at once, its line solid until the line past it has shrunk away. */
+.step-line > li.is-waiting .step-fill { transform: scaleX(1); background: linear-gradient(90deg, #E9820C, var(--run)); transition: none; }
 @media (prefers-reduced-motion: reduce) { .step-fill { transition: none; } }
 `,
   render: stepFlow,

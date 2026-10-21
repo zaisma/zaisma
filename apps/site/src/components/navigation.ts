@@ -128,7 +128,12 @@ const HEADER_STYLES = `
 .top > .find + .cut-btn { display: none; }
 @media (max-width: 760px) {
   /* The header floats on phones too: a slab of glass inset from every edge (below the notch), never touching the screen's sides. */
-  .top { top: calc(var(--pad-pane) + env(safe-area-inset-top, 0px)); width: calc(100% - 2 * var(--pad-pane)); height: auto; flex-wrap: wrap; gap: var(--gap-control-stack) 0; padding: var(--pad-inner-pane); }
+  /* Two rows at most, at rest or compact: Zaisma, search and you (or Sign in) always share the first, the tabs or the field the second. */
+  .top { top: calc(var(--pad-pane) + env(safe-area-inset-top, 0px)); width: calc(100% - 2 * var(--pad-pane)); height: auto; display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: var(--gap-control-stack) 0; padding: var(--pad-inner-pane); }
+  .top > .logo { grid-area: 1 / 1; }
+  .top > .find + .cut-btn { grid-area: 1 / 3; }
+  .top > .end { grid-area: 1 / 4; }
+  .top .nav, .top .find { grid-area: 2 / 1 / 3 / -1; }
   /* Compact keeps the same inset around the tabs as at rest; only the rows themselves get shorter. */
   .top.is-compact { top: calc(6px + env(safe-area-inset-top, 0px)); height: auto; padding: calc(var(--pad-inner-pane) * 2 / 3); }
   .top > .logo { margin-left: 6px; }

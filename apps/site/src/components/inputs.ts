@@ -1015,22 +1015,28 @@ component({
 .choice-label { font: var(--type-label); color: var(--ink-2); }
 .choice-text { font: var(--type-note); color: var(--muted); }
 .choice-card:hover, .choice-card.is-pointed { --face-color: var(--field-hover); color: var(--ink-2); }
-.choice-card:active, .choice-card.is-pressed { --face-color: var(--field-face); box-shadow: var(--press-shade); transition-duration: 0.08s; }
+.choice-card:active, .choice-card.is-pressed { --face-color: var(--check-press); box-shadow: var(--press-shade), var(--press-shade); color: var(--ink-2); transition-duration: 0.08s; }
 /* Picked: raised out of the carving, the switch's white slab with its light turned the other way and the orange line along its foot. */
 .choice-card:has(.choice-input:checked) { background: var(--slab); box-shadow: var(--slab-shade), inset 0 -3px 0 var(--run); color: var(--ink); }
 .choice-card:has(.choice-input:checked) .choice-label, .choice-card:has(.choice-input:checked) > .ico { color: var(--ink); }
 .choice-card:has(.choice-input:checked) .choice-text { color: var(--ink-2); }
 .choice-card:has(.choice-input:checked) > .cut-line { --band-top: var(--raise-top); --band-left: var(--raise-left); --band-right: var(--raise-right); --band-bottom: transparent; }
+/* Pressing the picked one sinks it too: shaded from above and a touch darker, its orange line staying. */
+.choice-card:has(.choice-input:checked):active, .choice-card.is-pressed:has(.choice-input:checked) { filter: brightness(0.92); box-shadow: var(--press-shade), inset 0 -3px 0 var(--run); }
 .choice-card:has(.choice-input:focus-visible) > .cut-line polygon, .choice-card.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 /* Compact: a carved well, like a vertical switch's, scrolling once it's taller than about six choices. The cards inside are flat and close
    together, their line under their name, and only the picked one is a slab. */
 .choice-list { position: relative; display: flex; max-height: 336px; padding: 4px; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
 .choice-list-in { flex: 1; min-width: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--gap-control-row); }
+/* With a mouse it scrolls on Zaisma's rail, inside its right edge: the cards keep clear of it. */
+.choice-list-in.own-scroll { padding-right: 18px; }
 .choice-list .choice-card { min-height: 44px; padding: 10px 14px; --face-color: transparent; box-shadow: none; flex: none; }
 .choice-list .choice-words { gap: 2px; }
 .choice-list .choice-card.cut-carved > .cut-line { --band-top: transparent; --band-left: transparent; --band-right: transparent; --band-bottom: transparent; }
 .choice-list .choice-card:hover, .choice-list .choice-card.is-pointed { --face-color: var(--ghost); }
 .choice-list .choice-card:has(.choice-input:checked) { box-shadow: var(--slab-shade), inset 0 -3px 0 var(--run); }
+/* On a phone it doesn't scroll by itself: the sheet or page it's in does, so there's never a scroll inside a scroll. */
+@media (max-width: 760px) { .choice-list { max-height: none; } }
 `,
   render: choiceCards,
   examples: [
@@ -1075,13 +1081,16 @@ component({
 .toggle-thumb { position: absolute; z-index: 2; left: 4px; top: 4px; width: 24px; height: 24px; filter: drop-shadow(0 1px 1px rgba(10,16,28,0.24)) drop-shadow(0 2px 3px rgba(10,16,28,0.12));
   transition: transform 0.4s var(--spring), scale 0.2s var(--spring), filter 0.2s; }
 /* The slab is solid and lit from above, so the orange behind it never tints it. */
-.toggle-slab { display: block; width: 100%; height: 100%; background: radial-gradient(120% 90% at 50% 0%, #fff, #F1F4F8 55%, #D9DFE7); clip-path: var(--cut-shape); }
+.toggle-slab { position: relative; display: block; width: 100%; height: 100%; background: radial-gradient(120% 90% at 50% 0%, #fff, #F1F4F8 55%, #D9DFE7); clip-path: var(--cut-shape); transition: box-shadow 0.12s; }
+/* Its pressed face: a shade from above that fades in and out with the press, as the slab shrinks. */
+.toggle-slab::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(10,16,28,0.16), rgba(10,16,28,0.04) 55%, rgba(255,255,255,0.1)); opacity: 0; transition: opacity 0.12s; }
 .toggle-slot:has(.toggle-input:checked) { --face-color: var(--run); }
 .toggle-slot:has(.toggle-input:checked) > .toggle-thumb { transform: translateX(24px); }
 .toggle:hover .toggle-thumb, .toggle.is-pointed .toggle-thumb { filter: drop-shadow(0 1.5px 1.5px rgba(10,16,28,0.28)) drop-shadow(0 3px 4px rgba(10,16,28,0.14)); }
 /* Pressed: the slab is pushed down into the slot, a touch smaller, its shadow drawn in close and its face shaded from above. */
 .toggle:active .toggle-thumb, .toggle.is-pressed .toggle-thumb { scale: 0.92; filter: drop-shadow(0 0.5px 0.5px rgba(10,16,28,0.3)); transition-duration: 0.4s, 0.08s, 0.08s; }
-.toggle:active .toggle-slab, .toggle.is-pressed .toggle-slab { background: radial-gradient(120% 90% at 50% 100%, #F4F6F9, #E3E8EF 55%, #CDD4DE); box-shadow: inset 0 2px 3px rgba(10,16,28,0.18); }
+.toggle:active .toggle-slab, .toggle.is-pressed .toggle-slab { box-shadow: inset 0 2px 3px rgba(10,16,28,0.18); }
+.toggle:active .toggle-slab::after, .toggle.is-pressed .toggle-slab::after { opacity: 1; transition-duration: 0.08s; }
 .toggle-slot:has(.toggle-input:focus-visible) > .cut-line polygon, .toggle.is-focused .toggle-slot > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .toggle-slot:has(.toggle-input:checked:focus-visible) > .cut-line polygon, .toggle.is-focused .toggle-slot:has(.toggle-input:checked) > .cut-line polygon { stroke: var(--focus-on-run); }
 @media (prefers-reduced-motion: reduce) { .toggle-thumb { transition: none; } .toggle-slot { transition: none; } }
