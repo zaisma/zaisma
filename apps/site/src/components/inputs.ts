@@ -517,6 +517,11 @@ component({
 .tab-switch.small { height: 36px; padding: 3px; clip-path: var(--cut-shape); }
 .tab-switch.small .slab, .tab-switch.small .ghost { top: 3px; bottom: 3px; transition-duration: 0.4s, 0.4s, 0.3s; }
 .tab-switch.small > a, .tab-switch.small > button { padding: 0 14px; font-size: 14px; }
+/* The first and last tabs sit against the switch's cut corners, which eat into them at its ends: they take a slant's more room there. */
+.tab-switch:not(.vertical) > a:first-of-type, .tab-switch:not(.vertical) > button:first-of-type { padding-inline-start: calc(18px + var(--control-slant) / 2); }
+.tab-switch:not(.vertical) > a:last-of-type, .tab-switch:not(.vertical) > button:last-of-type { padding-inline-end: calc(18px + var(--control-slant) / 2); }
+.tab-switch.small:not(.vertical) > a:first-of-type, .tab-switch.small:not(.vertical) > button:first-of-type { padding-inline-start: calc(14px + var(--control-slant) / 2); }
+.tab-switch.small:not(.vertical) > a:last-of-type, .tab-switch.small:not(.vertical) > button:last-of-type { padding-inline-end: calc(14px + var(--control-slant) / 2); }
 /* Vertical: the same switch stacked, its places down a carved well (a page's own places, the gallery's groups). Each place is a row of
    its icon, its words and a count at its end; the slab spans the well and moves down it, and the ghost follows the pointer between them. */
 .tab-switch.vertical { flex-direction: column; height: auto; }
