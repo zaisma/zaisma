@@ -71,4 +71,5 @@ export const CHECK_PROBLEM_CODES: Record<CheckProblemCode, { problemKind: Proble
 export function extensionOf(path: string): string;
 export function isEngineOutput(path: string, lowercasePaths: Set<string>): boolean;
 export function findOutsideReferences(text: string, fileKind: "html" | "css" | "module", options?: { baseUrl?: string | null }): OutsideReference[];
+export function buildHasThreads(files: Pick<CheckedFile, "path" | "contentText">[]): boolean;
 export function checkGameFiles(files: CheckedFile[], options?: { slug?: string | null; ownServerUrls?: readonly string[] | null }): GameCheck;

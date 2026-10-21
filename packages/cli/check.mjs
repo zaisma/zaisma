@@ -41,7 +41,7 @@ export const CHECK_PROBLEM_CODES = {
   outside_file: { problemKind: "broken", isFixedByUploadCommand: true, meaning: "The page, a stylesheet or a module loads a file from another site; the upload command downloads it into the game." },
   outside_address: { problemKind: "broken", isFixedByUploadCommand: false, meaning: "The code connects to or loads from another site while it runs." },
   address_not_allowed: { problemKind: "broken", isFixedByUploadCommand: false, meaning: "The code connects to an address no game can use: plain ws:// or http://, localhost, or an IP address." },
-  needs_threads: { problemKind: "broken", isFixedByUploadCommand: false, meaning: "The build needs threads (SharedArrayBuffer), which games on Zaisma don't have." },
+  needs_threads: { problemKind: "broken", isFixedByUploadCommand: false, meaning: "The build needs threads (SharedArrayBuffer), which games on Zaisma have only in Chrome and Edge." },
   browser_dialog: { problemKind: "broken", isFixedByUploadCommand: false, meaning: "alert, confirm or prompt, which never show in the game's frame." },
   form_submission: { problemKind: "broken", isFixedByUploadCommand: false, meaning: "A form, which never submits in the game's frame." },
   file_download: { problemKind: "broken", isFixedByUploadCommand: false, meaning: "A file download, which the game's frame doesn't allow." },
@@ -301,6 +301,12 @@ function dialogOf(code) {
   return null;
 }
 const THREADS_PATTERNS = [/\bGODOT_THREADS_ENABLED\s*=\s*true\b/, /\bENVIRONMENT_IS_PTHREAD\b/, /coi-serviceworker/i, /\b__wbindgen_thread_destroy\b/, /\binitThreadPool\b/];
+const COI_SERVICE_WORKER_PATTERN = /coi-serviceworker/i;
+
+/** Whether a game's files ({ path, contentText }, as checkGameFiles takes them) are a build that needs threads (SharedArrayBuffer). */
+export function buildHasThreads(files) {
+  return files.some(({ path, contentText }) => (typeof contentText === "string" ? THREADS_PATTERNS.some((pattern) => pattern.test(contentText)) : COI_SERVICE_WORKER_PATTERN.test(path)));
+}
 
 /**
  * Checks a game's files: [{ path, sizeBytes, contentText, headBytes }], contentText a string for the checked text
@@ -366,7 +372,8 @@ export function checkGameFiles(files, { slug = null, ownServerUrls = null } = {}
   if (files.length > UPLOAD_LIMITS.maximumFileCount) add("too_many_files", { message: `The game has ${files.length} files; the limit is 20,000.`, fix: "Leave out files the game doesn't load, or pack small ones together (like sprites into an atlas)." });
   if (sizeBytes > UPLOAD_LIMITS.maximumGameSizeBytes) add("game_too_big", { message: `The game is ${(sizeBytes / 1024 ** 3).toFixed(1)} GB; the limit is 2 GB.`, fix: "Leave out files the game doesn't load, or ask Zaisma (message_zaisma, kind gap) for more." });
 
-  const threadsFix = "Export without threads: in Godot 4.3 or newer, turn Thread Support off in the Web export preset (Godot 4.0 to 4.2 always use threads, so update); in Unity, leave Native C/C++ Multithreading off in Player Settings, the default; in Rust, build without the `atomics` target feature (the default) and without wasm-bindgen-rayon. Games on Zaisma can't have SharedArrayBuffer.";
+  const threadsFix = "Threads run in Chrome and Edge on computers and Android. Firefox, Safari and every browser on iPhone and iPad can't start this build, and the game page tells their players it needs Chrome or Edge. To reach every browser, export without threads: in Godot 4.3 or newer, turn Thread Support off in the Web export preset; in Unity, leave Native C/C++ Multithreading off (the default); in Rust, build without the `atomics` target feature and without wasm-bindgen-rayon.";
+  const coiServiceWorkerMessage = (path) => `${path} is there to turn on threads (SharedArrayBuffer). Zaisma doesn't need it: the game is already isolated in Chrome and Edge, and it can't turn threads on in other browsers.`;
   let hasThreadsProblem = false;
   const addThreads = (message, quote, path) => {
     if (!hasThreadsProblem) add("needs_threads", { message, quote, path, fix: threadsFix });
@@ -375,7 +382,7 @@ export function checkGameFiles(files, { slug = null, ownServerUrls = null } = {}
   for (const file of files) {
     const { path, contentText: text } = file;
     if (typeof text !== "string") {
-      if (/coi-serviceworker/i.test(path)) addThreads(`${path} is there to turn on threads (SharedArrayBuffer), which games on Zaisma don't have.`, null, path);
+      if (buildHasThreads([file])) addThreads(coiServiceWorkerMessage(path), null, path);
       continue;
     }
     const extension = extensionOf(path);
@@ -406,7 +413,7 @@ export function checkGameFiles(files, { slug = null, ownServerUrls = null } = {}
     }
 
     const threadsMatch = THREADS_PATTERNS.map((pattern) => pattern.exec(text)).find(Boolean);
-    if (threadsMatch) addThreads(`${path} is from a build that needs threads (SharedArrayBuffer), which games on Zaisma don't have, so it won't start.`, lineAround(text, threadsMatch.index), path);
+    if (threadsMatch) addThreads(COI_SERVICE_WORKER_PATTERN.test(path) ? coiServiceWorkerMessage(path) : `${path} is from a build that needs threads (SharedArrayBuffer), which only Chrome and Edge give games on Zaisma.`, lineAround(text, threadsMatch.index), path);
 
     if (isEngineOutput(path, lowercasePaths)) continue;
     // What the code does, not what its comments say: a library's docs mention alert() and window.open.

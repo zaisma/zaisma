@@ -155,6 +155,10 @@ describe("game server", () => {
     expect(await res.text()).toContain("<p>draft</p>");
     expect(res.headers.get("x-robots-tag")).toBe("noindex");
     expect(res.headers.get("cross-origin-resource-policy")).toBe("same-origin");
+    // Every game is cross-origin isolated in its own frame (Chrome and Edge), with no COEP that would need zaisma.com's page isolated too.
+    expect(res.headers.get("document-isolation-policy")).toBe("isolate-and-credentialless");
+    expect(res.headers.get("cross-origin-opener-policy")).toBe("same-origin");
+    expect(res.headers.get("cross-origin-embedder-policy")).toBeNull();
     expect(res.headers.get("cache-control")).toBe("private, no-cache");
     // The cookie is for this game's preview address only.
     expect((await SELF.fetch(`${G}/drafty--tester/`, { headers: { cookie } })).status).toBe(404);

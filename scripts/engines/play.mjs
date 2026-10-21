@@ -18,6 +18,8 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const START_TIMEOUT_MS = 90_000;
+// The first Chrome with Document-Isolation-Policy, which games need for threads.
+const MINIMUM_ISOLATING_CHROME_VERSION = 137;
 
 const failures = [];
 const fail = (line) => {
@@ -40,7 +42,10 @@ for (const engine of engines) {
   else if (sample.scan_status !== "approved") fail(`${engine}: the scan left it ${sample.scan_status}: ${JSON.stringify(sample.findings)}`);
   // Zaisma's own run in Chrome (apps/site/src/performance-check.ts) started it too, and found it working.
   else if (sample.performance_check?.check_status !== "checked") fail(`${engine}: its run in Chrome is ${sample.performance_check?.check_status ?? "missing"}, not checked.`);
-  else {
+  // Local Browser Run is miniflare's pinned Chrome, older than the 137 a threaded build needs (Document-Isolation-Policy): its run can't start one.
+  else if (engine.endsWith("-threads") && Number(/Chrome (\d+)/.exec(sample.performance_check.browser_description)?.[1] ?? 0) < MINIMUM_ISOLATING_CHROME_VERSION) {
+    console.log(`  skip ${engine}: its run in Chrome is on ${sample.performance_check.browser_description}, which can't isolate a game frame (${MINIMUM_ISOLATING_CHROME_VERSION}+)`);
+  } else {
     const { loading_duration_sec: loadingDurationSec, notes } = sample.performance_check;
     if (loadingDurationSec === null) fail(`${engine}: its run in Chrome saw no first frame.`);
     for (const note of notes.filter((note) => ["error_at_start", "missing_file_at_start", "no_frame_drawn"].includes(note.code))) fail(`${engine}: its run in Chrome says ${note.code}: ${note.message}`);
@@ -88,11 +93,15 @@ async function play(chrome, sample) {
     await send("Page.navigate", { url: `${site}/g/${sample.slug}?play` });
 
     let started = null;
+    let gameContextId = null;
     for (const startedAt = Date.now(); !started && Date.now() - startedAt < START_TIMEOUT_MS; await wait(500)) {
       for (const contextId of contexts.keys()) {
         const { result } = await send("Runtime.evaluate", { contextId, expression: "JSON.stringify(window.zaismaEngineSample ?? null)", returnByValue: true }).catch(() => ({ result: {} }));
         const said = result.value ? JSON.parse(result.value) : null;
-        if (said?.started) started = said;
+        if (said?.started) {
+          started = said;
+          gameContextId = contextId;
+        }
       }
     }
     if (!started) fail(`${sample.engine}: didn't start within ${START_TIMEOUT_MS / 1000} s.`);
@@ -100,6 +109,11 @@ async function play(chrome, sample) {
     else if (started.engine !== sample.engine.split("-")[0]) fail(`${sample.engine}: the page says it's ${started.engine}.`);
     else {
       console.log(`  started: ${started.engine} ${started.version}`);
+      // A threaded build (a folder ending in -threads) runs only in a game frame isolated by Document-Isolation-Policy.
+      if (sample.engine.endsWith("-threads")) {
+        const { result } = await send("Runtime.evaluate", { contextId: gameContextId, expression: `crossOriginIsolated === true && typeof SharedArrayBuffer === "function"`, returnByValue: true });
+        if (result.value !== true) fail(`${sample.engine}: the game frame isn't cross-origin isolated`);
+      }
       // Two pictures of the game a second apart: every sample moves, so a frozen or blank game shows as the same picture.
       await wait(2000);
       const first = await screenshot(send);

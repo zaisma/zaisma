@@ -100,7 +100,8 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   const accountNext = encodeURIComponent(`${here}${inRoom ? roomQuery : "?play"}`);
   // A game can ask a guest to sign in while it runs (Zaisma.player.signIn).
   const canSignIn = authConfigured(env);
-  const [developer, pictures, updates, others, live, playingNow] = await Promise.all([
+  const playedVersionId = testerVersion?.id ?? game.live_version_id;
+  const [developer, pictures, updates, others, live, playingNow, playedVersion] = await Promise.all([
     game.owner_id
       ? env.DB.prepare("SELECT accounts.username AS name, (SELECT COUNT(*) FROM games WHERE owner_id = ? AND review_status = 'live' AND visibility = 'listed') AS game_count FROM owners JOIN accounts ON accounts.id = owners.account_id WHERE owners.id = ?").bind(game.owner_id, game.owner_id).first<{ name: string; game_count: number }>()
       : null,
@@ -112,6 +113,8 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
     // Not on tester links: their rooms are reached by code and invite link.
     game.multiplayer_mode !== "none" && !tester && !isClosed ? pageRooms(env, game, request) : null,
     playingNowCounts(env),
+    // Whether the version this page plays needs threads (ScanReport.has_threads), without reading the whole report.
+    playedVersionId ? env.DB.prepare("SELECT json_extract(scan_report, '$.has_threads') = 1 AS has_threads FROM versions WHERE id = ?").bind(playedVersionId).first<{ has_threads: number | null }>() : null,
   ]);
   const rooms = live && roomsOnPage(game) ? live : null;
   // Checked browsers with the game on screen, and everyone in its rooms (who may have come in another way): the larger.
@@ -475,7 +478,7 @@ ${more.length ? html`<section class="more" aria-labelledby="more-title"><h2 clas
 </main>
 <template id="game-frame"><iframe id="game"${tester || isAccountsOnly || isClosed ? "" : html` src="${frameUrl}"`} title="${game.title}"
   sandbox="allow-scripts allow-same-origin allow-pointer-lock"
-  allow="fullscreen; gamepad; autoplay; web-share; clipboard-write" allowfullscreen referrerpolicy="no-referrer"></iframe></template>
+  allow="fullscreen; gamepad; autoplay; web-share; clipboard-write; cross-origin-isolated" allowfullscreen referrerpolicy="no-referrer"></iframe></template>
 ${hasRoomCodes
       ? html`<dialog id="room-dialog" class="quick plate room-dialog" aria-label="Room">
   <section class="room-here" id="room-here" hidden>
@@ -540,6 +543,8 @@ ${pageData("game-page-data", {
       frame_query: roomQuery,
       devices,
       controls,
+      // A build that needs threads runs only where the game's frame can be isolated (Chrome and Edge): other browsers get a note.
+      has_threads: playedVersion?.has_threads === 1,
       // Streamer mode (an account setting) hides room codes until the player shows them.
       is_streamer_mode_on: Boolean(viewer.account?.is_streamer_mode_on),
       screen_orientation: game.screen_orientation || null,
@@ -1020,6 +1025,12 @@ const DEVICES = gamePage.devices;
 const coarse = matchMedia("(pointer: coarse)").matches;
 const mine = coarse ? (Math.min(screen.width, screen.height) < 600 ? "phone" : "tablet") : "computer";
 const deviceNotes = [];
+// Threads need the game's frame isolated (Document-Isolation-Policy): Chromium 137+, never on iPhone or iPad, whose Chrome is WebKit.
+// userAgentData is only in Chromium browsers, so Firefox and Safari get the note with no list to keep.
+const chromium = navigator.userAgentData?.brands?.find((b) => b.brand === "Chromium");
+const canIsolateFrame = Boolean(chromium && Number(chromium.version) >= 137 && !/iPhone|iPad/.test(navigator.userAgent));
+const needsOtherBrowser = gamePage.has_threads && !canIsolateFrame;
+if (needsOtherBrowser) deviceNotes.push("This game needs Chrome or Edge on a computer or Android.");
 if (DEVICES.length && !DEVICES.includes(mine)) deviceNotes.push("Made for " + DEVICES.map((d) => d + "s").join(" and ") + ". It may not work well on this " + mine + ".");
 // Controls and screen only come up when they don't fit this device.
 const CONTROLS = gamePage.controls;
@@ -1033,7 +1044,7 @@ if (deviceNotes.length) {
   const note = document.getElementById("device-note");
   note.textContent = deviceNotes.join(" ");
   note.hidden = false;
-  if (DEVICES.length && !DEVICES.includes(mine)) document.querySelector("#play span").textContent = "Play anyway";
+  if (needsOtherBrowser || (DEVICES.length && !DEVICES.includes(mine))) document.querySelector("#play span").textContent = "Play anyway";
 }
 // The menu drops from the ⋯ button (from the side strip on landscape phones) and closes when the
 // player taps anywhere else, goes back to the game, or presses Escape.

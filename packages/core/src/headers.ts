@@ -19,6 +19,8 @@ export function connectSources(roomsOrigin: string | null, ownServerUrls: readon
  * Headers for every file served from the game domain. Games are untrusted:
  * they run on their own site, can't load anything from outside it, can only
  * connect to Zaisma rooms and their own servers, and can only be framed by Zaisma.
+ * Document-Isolation-Policy makes each game's document cross-origin isolated in its own frame and process in
+ * Chrome and Edge 137+, so builds that need threads (SharedArrayBuffer) run there; other browsers ignore it.
  */
 export function gameHeaders(contentType: string, siteOrigin: string, connectOrigins: string[] = []): Headers {
   const headers = new Headers();
@@ -47,6 +49,8 @@ export function gameHeaders(contentType: string, siteOrigin: string, connectOrig
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("Referrer-Policy", "no-referrer");
   headers.set("Cross-Origin-Opener-Policy", "same-origin");
+  // Browsers read it only on documents; credentialless, so nothing a game loads needs a CORP header.
+  headers.set("Document-Isolation-Policy", "isolate-and-credentialless");
   return headers;
 }
 
