@@ -20,7 +20,7 @@ describe("the security page", () => {
     expect(text).toContain(`within ${REPLY_WITHIN_DAYS} days`);
     expect(text).toContain(`within ${FIX_WITHIN_DAYS}`);
     expect(text).toContain("no cash reward");
-    expect(await (await SELF.fetch(`${SITE}/legal/privacy`)).text()).toContain('<a href="/legal/security">Security</a>');
+    expect(await (await SELF.fetch(`${SITE}/legal/privacy`)).text()).toContain('<a class="link quiet" href="/legal/security">Security</a>');
   });
 });
 

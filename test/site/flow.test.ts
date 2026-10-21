@@ -937,6 +937,31 @@ describe("pages", () => {
     expect((await SELF.fetch(`${LOCAL}/nope`)).status).toBe(404);
   });
 
+  it("wraps every page in the glass header and footer, with bodies not yet rebuilt in Steel", async () => {
+    const home = await (await SELF.fetch(`${LOCAL}/`)).text();
+    expect(home).toContain('<main class="steel">');
+    expect(home).toContain('<header class="top glass');
+    const foot = home.slice(home.indexOf('<footer class="foot">'));
+    for (const [words, href] of [["For game developers", "/dashboard"], ["Forum", "/forum"], ["Source code", "https://github.com/zaisma/zaisma"], ["Content rules", "/legal/content-rules"], ["Privacy", "/legal/privacy"], ["Security", "/legal/security"], ["Copyright (DMCA)", "/legal/dmca"], ["Defamation", "/legal/defamation"]] as const)
+      expect(foot).toMatch(new RegExp(`href="${href.replace(/[.()]/g, "\\$&")}"[^>]*>[\\s\\S]*?${words.replace(/[()]/g, "\\$&")}`));
+    expect(foot).toContain("Zaisma is open source, under the MIT license.");
+    // Off a developer page the developer tabs are folded away, out of reach.
+    expect(home).toContain('<a href="/developers" class="foldable folded" tabindex="-1" aria-hidden="true">Developer</a>');
+    // A legal page doesn't know who's looking: its header says Sign in.
+    expect(await (await SELF.fetch(`${LOCAL}/legal/privacy`)).text()).toMatch(/<a class="[^"]*run-wrap[^"]*" href="\/signin"/);
+  });
+
+  it("opens the developer tabs on the forum and the cover guide, and sends /developers to the dashboard", async () => {
+    const forum = await (await SELF.fetch(`${LOCAL}/forum`)).text();
+    expect(forum).toContain('<a href="/developers" class="foldable">Developer</a>');
+    expect(forum).toContain('<a href="/forum" class="foldable" aria-current="page">Forum</a>');
+    const guide = await (await SELF.fetch(`${LOCAL}/developers/covers`)).text();
+    expect(guide).toContain('<a href="/developers" class="foldable" aria-current="page">Developer</a>');
+    const front = await SELF.fetch(`${LOCAL}/developers`, { redirect: "manual" });
+    expect(front.status).toBe(302);
+    expect(new URL(front.headers.get("location")!).pathname).toBe("/dashboard");
+  });
+
   it("shows a Fine and a Not fine example under every content rule", async () => {
     const page = await (await SELF.fetch(`${LOCAL}/legal/content-rules`)).text();
     for (const rule of Object.keys(CONTENT_RULES)) {

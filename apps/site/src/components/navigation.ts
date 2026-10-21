@@ -1,4 +1,4 @@
-import { html, raw, type Raw } from "../html.ts";
+import { html, raw, type Raw } from "../markup.ts";
 import { pageScript } from "../page-scripts.ts";
 import { component } from "./component.ts";
 import { CUT_LINE, EDGE, glassPane, icon, logo, railMarkup, type IconName } from "./foundations.ts";
@@ -25,6 +25,8 @@ export interface HeaderOptions {
   isOnDeveloperPage: boolean;
   /** Sign-in's header: only the logo, straight on the scene, with a halo that keeps it legible. */
   isLogoOnly?: boolean;
+  /** Tabs of the page's own in place of Zaisma's (the admin pages'). */
+  ownTabs?: SwitchTab[];
   /** Where Your games is, once its page exists: the tab shows for a signed-in account then. */
   yourGamesHref?: string;
   /** Fixed slim, as after scrolling: the gallery's state. */
@@ -57,7 +59,7 @@ export function header(options: HeaderOptions): Raw {
     : [];
   return html`<header class="top glass${options.isCompact ? " is-compact" : ""}" id="${id}" data-compacts data-glass data-glass-corners="20 14 20 14"${options.isCompact ? raw(" data-stays-compact") : ""}>${EDGE}
   ${wordmark}
-  <nav class="nav" aria-label="Main">${tabSwitch({ label: "Where you are", switchSize: "big", isFramed: true, tabs: [tab("Home", "/", options.current === "home"), ...(account && options.yourGamesHref ? [tab("Your games", options.yourGamesHref, options.current === "your-games")] : []), tab("Developer", account ? "/dashboard" : "/developers", options.current === "developer", true, isOpen), tab("Forum", "/forum", options.current === "forum", true, isOpen)] })}</nav>
+  <nav class="nav" aria-label="Main">${tabSwitch({ label: "Where you are", switchSize: "big", isFramed: true, tabs: options.ownTabs ?? [tab("Home", "/", options.current === "home"), ...(account && options.yourGamesHref ? [tab("Your games", options.yourGamesHref, options.current === "your-games")] : []), tab("Developer", account ? "/dashboard" : "/developers", options.current === "developer", true, isOpen), tab("Forum", "/forum", options.current === "forum", true, isOpen)] })}</nav>
   ${options.search ? html`${searchField(options.search)}${cutButton(options.search.label, { type: "button", icon: "search", isLabelHidden: true, isSmall: true, isExpanded: false })}` : ""}
   <div class="end">${
     account
@@ -161,7 +163,8 @@ const HEADER_STYLES = `
 /**
  * The header's own behaviour: it slims once the page scrolls (the gallery's frames scroll a box of their own,
  * [data-scroll-box]), the slab sits under the current page and a faint one follows the pointer, "/" jumps to search,
- * and on a phone the search button swaps the tabs for the field. The menu is DROPDOWN_SCRIPT's.
+ * on a phone the search button swaps the tabs for the field, and the developer tabs open or fold from where the last page left them.
+ * The menu is DROPDOWN_SCRIPT's.
  */
 export const HEADER_SCRIPT = pageScript(
   "header",
@@ -180,6 +183,26 @@ export const HEADER_SCRIPT = pageScript(
     if (findOpen) findOpen.addEventListener("click", function () { if (top.classList.contains("searching")) top.closeSearch(); else top.openSearch(); });
     if (search) search.addEventListener("blur", function () { if (phone() && !search.value) setTimeout(top.closeSearch, 120); });
   });
+  /* Pages are separate loads, so the page's header remembers whether its developer tabs were open (sessionStorage zaisma-nav). The next
+     page starts them that way, then opens or folds them to its own, as one header would; with nothing saved it shows its own at once. */
+  var page = document.getElementById("top"), foldables = page && !page.closest(".header-frame") ? Array.prototype.slice.call(page.querySelectorAll(".tab-switch > .foldable")) : [];
+  if (foldables.length) {
+    var isOpenHere = !foldables[0].classList.contains("folded"), saved = null;
+    var setOpen = function (isOpen) {
+      foldables.forEach(function (tab) {
+        tab.classList.toggle("folded", !isOpen);
+        if (isOpen) { tab.removeAttribute("tabindex"); tab.removeAttribute("aria-hidden"); } else { tab.setAttribute("tabindex", "-1"); tab.setAttribute("aria-hidden", "true"); }
+      });
+    };
+    try { saved = JSON.parse(sessionStorage.getItem("zaisma-nav") || "null"); } catch (error) {}
+    if (saved && saved.isDeveloperOpen === !isOpenHere && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      foldables.forEach(function (tab) { tab.style.transition = "none"; });
+      setOpen(saved.isDeveloperOpen); page.offsetWidth;
+      foldables.forEach(function (tab) { tab.style.transition = ""; });
+      requestAnimationFrame(function () { requestAnimationFrame(function () { setOpen(isOpenHere); }); });
+    }
+    window.addEventListener("pagehide", function () { try { sessionStorage.setItem("zaisma-nav", JSON.stringify({ isDeveloperOpen: isOpenHere })); } catch (error) {} });
+  }
   /* "/" anywhere jumps to the header's search; Escape puts the phone's tabs back. */
   document.addEventListener("keydown", function (event) {
     var top = headers.filter(function (each) { return each.querySelector(".find") && each.offsetParent !== null; })[0];
@@ -444,7 +467,8 @@ component({
   styles: `
 /* The foot, at the end of the page. */
 .foot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-block-block); margin-top: var(--gap-block-block); padding-top: var(--gap-block-block); border-top: var(--divider); color: var(--muted); font: var(--type-note); }
-.foot nav { display: flex; flex-wrap: wrap; gap: var(--gap-words-words); }
+/* Quiet links in a row read as one sentence at a word's gap, so each sits three apart: a list of places, not a line of words. */
+.foot nav { display: flex; flex-wrap: wrap; gap: var(--gap-words-words) calc(3 * var(--gap-words-words)); }
 .foot p { margin: 0 0 0 auto; }
 @media (max-width: 760px) { .foot p { margin: 0; } }
 `,

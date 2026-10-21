@@ -44,6 +44,7 @@ import { deliverDueWebhooks, noticeFreeUseAlerts, tellAlertNotices, tellGameServ
 import { handleGameLinks, recheckLinks } from "./game-links.ts";
 import { watchHealth } from "./health-alerts.ts";
 import { SECURITY_TEXT_FILE_PATH, securityTextFile } from "./security-policy.ts";
+import { viewerOf } from "./viewer.ts";
 
 // The chat filter's AI step, for the rooms Worker (its CHAT_CHECK binding).
 export { ChatCheckService } from "./chat-check.ts";
@@ -118,7 +119,7 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
     const report = sub === "/report";
     if (!sub && method !== "POST") return gamePage(env, slug, request);
     if (report && method === "POST") return submitReport(env, request, slug, ctx);
-    if (report) return reportForm(env, slug);
+    if (report) return reportForm(env, slug, "", 200, await viewerOf(request, env));
   }
 
   // A tester link: the game page for a game that may be private, for anyone with the link.
@@ -129,7 +130,9 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
   const preview = path.match(/^\/p\/([A-Za-z0-9_.-]{1,140})$/);
   if (preview && method !== "POST") return previewPage(env, preview[1]!);
 
-  if (path === "/developers/covers" && method === "GET") return coverGuidePage(env);
+  if (path === "/developers/covers" && method === "GET") return coverGuidePage(env, await viewerOf(request, env));
+  // The developer front door: the dashboard until the developer page is built.
+  if (path === "/developers" && method === "GET") return Response.redirect(new URL("/dashboard", request.url).toString(), 302);
   if ((path === "/design" || path.startsWith("/design/")) && method === "GET") {
     const gallery = designPage(env, url);
     if (gallery) return gallery;

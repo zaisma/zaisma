@@ -57,18 +57,19 @@ export async function handleFriends(request: Request, env: Env, path: string): P
     // A code typed by hand in another case or with its dash goes to its one address.
     if (inviteCode && inviteCode !== inviteMatch[1] && !post) return done(redirect(`/friends/add/${inviteCode}`));
     const invite = inviteCode ? await friendInviteByCode(env.DB, inviteCode) : null;
-    const notWorking = () => done(invitePage(env, html`<h1>This invite doesn't work</h1><p class="lead">It was already used, taken back or ran out: invites work once, for ${FRIEND_INVITE_DURATION_DAYS} days. Ask your friend for a new one.</p>${account ? html`<a class="btn ghost" href="/friends">Your friends</a>` : ""}`, 404));
+    const notWorking = () => done(invitePage(env, account, html`<h1>This invite doesn't work</h1><p class="lead">It was already used, taken back or ran out: invites work once, for ${FRIEND_INVITE_DURATION_DAYS} days. Ask your friend for a new one.</p>${account ? html`<a class="btn ghost" href="/friends">Your friends</a>` : ""}`, 404));
     if (!invite) return notWorking();
     // Someone the inviter blocked sees what a used invite shows, so they're never told; the blocker hears why.
     if (account && (await hasBlocked(env.DB, invite.account_id, account.id))) return notWorking();
     if (account && (await hasBlocked(env.DB, account.id, invite.account_id))) {
-      return done(invitePage(env, html`${inviter(invite.name)}<h1>You blocked ${invite.name}</h1><p class="lead">Unblock them on your friends page first, then open this invite again.</p><a class="btn ghost" href="/friends#blocked">Your friends</a>`, 409));
+      return done(invitePage(env, account, html`${inviter(invite.name)}<h1>You blocked ${invite.name}</h1><p class="lead">Unblock them on your friends page first, then open this invite again.</p><a class="btn ghost" href="/friends#blocked">Your friends</a>`, 409));
     }
     if (!session || !account) {
       const back = encodeURIComponent(`/friends/add/${invite.invite_code}`);
       return done(
         invitePage(
           env,
+          account,
           html`${inviter(invite.name)}<h1>${invite.name} invited you to be friends</h1>
 <p class="lead">Friends on Zaisma can find each other in games and chat where their chat settings allow. Sign in, or make an account, to say yes.</p>
 <div class="row">${metalButton("Sign in", { href: `/signin?next=${back}` })}<a class="btn ghost" href="/join?next=${back}">Make an account</a></div>`,
@@ -78,17 +79,18 @@ export async function handleFriends(request: Request, env: Env, path: string): P
     if (post) {
       const accepted = await acceptFriendInvite(env.DB, account.id, invite.invite_code);
       if ("friend" in accepted) return done(redirect(`/friends?added=${accepted.friend.player_id}`));
-      return done(invitePage(env, html`${inviter(invite.name)}<h1>Couldn't add ${invite.name}</h1><p class="lead">${ACCEPT_ERRORS[accepted.error](invite.name)}</p><a class="btn ghost" href="/friends">Your friends</a>`, 409));
+      return done(invitePage(env, account, html`${inviter(invite.name)}<h1>Couldn't add ${invite.name}</h1><p class="lead">${ACCEPT_ERRORS[accepted.error](invite.name)}</p><a class="btn ghost" href="/friends">Your friends</a>`, 409));
     }
     if (invite.account_id === account.id) {
-      return done(invitePage(env, html`<h1>This is your own invite</h1><p class="lead">Send it to a friend: when they open it and say yes, you're friends.</p><p><code class="key">${inviteUrl(env, invite.invite_code)}</code></p><a class="btn ghost" href="/friends">Your friends</a>`));
+      return done(invitePage(env, account, html`<h1>This is your own invite</h1><p class="lead">Send it to a friend: when they open it and say yes, you're friends.</p><p><code class="key">${inviteUrl(env, invite.invite_code)}</code></p><a class="btn ghost" href="/friends">Your friends</a>`));
     }
     if (await areFriends(env.DB, account.id, invite.account_id)) {
-      return done(invitePage(env, html`${inviter(invite.name)}<h1>You and ${invite.name} are already friends</h1><a class="btn ghost" href="/friends">Your friends</a>`));
+      return done(invitePage(env, account, html`${inviter(invite.name)}<h1>You and ${invite.name} are already friends</h1><a class="btn ghost" href="/friends">Your friends</a>`));
     }
     return done(
       invitePage(
         env,
+        account,
         html`${inviter(invite.name)}<h1>Add ${invite.name} as a friend?</h1>
 <p class="lead">${invite.name} sent you this invite. Friends can find each other in games and chat where both their chat settings allow it. Either of you can remove the other at any time.</p>
 <form method="post" action="/friends/add/${invite.invite_code}">${metalButton("Add friend", { type: "submit" })}</form>
@@ -170,6 +172,7 @@ async function friendsPage(env: Env, session: Session, account: Account, query: 
   const otherInvites = invites.filter((invite) => invite !== newInvite);
   return page(
     env,
+    account,
     "Friends",
     html`<h1>Friends</h1>
 ${added ? html`<p class="note" role="status">You and ${added.name} are friends now.</p>` : ""}
@@ -230,12 +233,12 @@ document.querySelectorAll("form[data-confirm]").forEach(f=>f.addEventListener("s
 
 const day = (atMs: number) => new Date(atMs).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 
-function page(env: Env, title: string, body: Raw, httpStatus = 200): Response {
-  const response = layout(env, { title: `${title} · Zaisma`, body: html`<div class="narrow">${body}</div>`, isPrivate: true });
+function page(env: Env, account: Account | null, title: string, body: Raw, httpStatus = 200): Response {
+  const response = layout(env, { title: `${title} · Zaisma`, body: html`<div class="narrow">${body}</div>`, isPrivate: true, viewer: { account } });
   return new Response(response.body, { status: httpStatus, headers: response.headers });
 }
 
-const invitePage = (env: Env, body: Raw, httpStatus = 200) => page(env, "Friend invite", body, httpStatus);
+const invitePage = (env: Env, account: Account | null, body: Raw, httpStatus = 200) => page(env, account, "Friend invite", body, httpStatus);
 
 function redirect(to: string): Response {
   return new Response(null, { status: 303, headers: { Location: to, "Cache-Control": "no-store" } });
