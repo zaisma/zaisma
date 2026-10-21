@@ -59,6 +59,10 @@ export interface CutButtonOptions extends ButtonTarget {
   isBig?: boolean;
   /** 36px, inside a field (Show). */
   isSmall?: boolean;
+  /** 30px, inside a carved strip of its own (Row arrows' well), which it fills but for the strip's inset. */
+  isInWell?: boolean;
+  /** Can't be pressed now (a row's arrow at its end): it lies flat, faded. */
+  isDisabled?: boolean;
   /** A toggle: on is sunk into the glass, its light turned round, as when it's pressed. Left out, it isn't a toggle. */
   isPressed?: boolean;
   /** The id of what it shows, hides or changes (aria-controls). */
@@ -67,8 +71,8 @@ export interface CutButtonOptions extends ButtonTarget {
 
 /** A secondary button: a cut slab of clearer glass with a drawn outline. It brightens under the pointer and gives under a press. A delete is one too, never orange. */
 export function cutButton(label: string, options: CutButtonOptions = {}): Raw {
-  const className = classes("cut-btn", options.isBig && "big", options.isSmall && "small", options.isLabelHidden && "icon-only", options.isFullWidth && "is-full", options.state);
-  const extra = html`${options.isLabelHidden ? html` aria-label="${label}"` : ""}${options.isPressed !== undefined ? html` aria-pressed="${options.isPressed ? "true" : "false"}"` : ""}${options.controls ? html` aria-controls="${options.controls}"` : ""}`;
+  const className = classes("cut-btn", options.isBig && "big", options.isSmall && "small", options.isInWell && "in-well", options.isLabelHidden && "icon-only", options.isFullWidth && "is-full", options.state);
+  const extra = html`${options.isDisabled && !options.href ? raw(" disabled") : ""}${options.isLabelHidden ? html` aria-label="${label}"` : ""}${options.isPressed !== undefined ? html` aria-pressed="${options.isPressed ? "true" : "false"}"` : ""}${options.controls ? html` aria-controls="${options.controls}"` : ""}`;
   return html`${opening(className, options, options.isBusy, extra)}<span class="face cut-raised" data-cut-line="${options.isBig ? 13 : 10}">${CUT_LINE}${options.icon ? icon(options.icon) : ""}${options.isLabelHidden ? "" : html`<span>${label}</span>`}</span>${closing(options)}`;
 }
 
@@ -242,13 +246,15 @@ component({
 .cut-btn > .face { display: flex; flex: auto; align-items: center; justify-content: center; gap: 8px; height: 44px; padding: 0 24px;
   font: 600 15px var(--display); color: var(--ink); white-space: nowrap;
   --face-colour: var(--btn); background: var(--face-colour); clip-path: var(--cut-shape);
-  transition: --face-colour 0.2s, box-shadow 0.2s, transform 0.4s ${SPRING}; }
+  transition: --face-colour 0.2s, box-shadow 0.2s, opacity 0.15s, transform 0.4s ${SPRING}; }
 /* Big keeps the same slant angle as the rest, so it is the same button, larger. */
 .cut-btn.big > .face { height: 56px; padding: 0 28px; font-size: 17px; }
 .cut-btn.small > .face { height: 36px; padding: 0 14px; }
 /* Only its icon: as wide as a little more than it's tall. */
 .cut-btn.icon-only > .face { width: 52px; padding: 0; }
 .cut-btn.small.icon-only > .face { width: 42px; }
+.cut-btn.in-well > .face { height: 30px; padding: 0 14px; color: var(--ink-2); }
+.cut-btn.in-well.icon-only > .face { width: 46px; padding: 0; }
 .cut-btn:hover > .face, .cut-btn.is-pointed > .face { --face-colour: var(--btn-hover); }
 .cut-btn:active > .face, .cut-btn.is-pressed > .face { --face-colour: var(--btn-press); box-shadow: var(--press-shade); transform: translateY(1px); transition-duration: 0.08s; }
 /* A press sinks it into the glass: its light turns round, as on a carved field. */
@@ -259,6 +265,10 @@ component({
 .cut-btn:focus-visible > .face, .cut-btn.is-focused > .face { --face-colour: var(--btn-hover); }
 .cut-btn:focus-visible .cut-line polygon, .cut-btn.is-focused .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .cut-btn .face > span, .cut-btn .face > .ico { position: relative; z-index: 2; }
+/* Can't press: it lies flat, faded, and answers nothing. */
+.cut-btn:disabled:not([aria-busy="true"]) { cursor: default; }
+.cut-btn:disabled:not([aria-busy="true"]) > .face, .cut-btn:disabled:not([aria-busy="true"]):hover > .face { --face-colour: transparent; opacity: 0.35; box-shadow: none; transform: none; }
+.cut-btn:disabled:not([aria-busy="true"]) > .face > .cut-line { --band-top: transparent; --band-left: transparent; --band-right: transparent; --band-bottom: transparent; }
 .cut-btn[aria-busy="true"] { cursor: progress; }
 .cut-btn[aria-busy="true"] > .face { opacity: 0.7; }
 @media (max-width: 760px) { .cut-btn.big > .face { height: 48px; padding: 0 20px; } }
@@ -271,6 +281,7 @@ component({
     { label: "With an icon", markup: cutButton("Settings", { type: "button", icon: "gear" }) },
     { label: "Only its icon", markup: cutButton("Light. Switch to dark", { type: "button", icon: "light-dark", isLabelHidden: true }) },
     { label: "Small", markup: cutButton("Show", { type: "button", isSmall: true }) },
+    { label: "Can't press", markup: cutButton("Details", { type: "button", isDisabled: true }), isStill: true },
     { label: "A toggle, off and on", markup: html`<div class="control-row">${cutButton("Show", { type: "button", isSmall: true, isPressed: false })}${cutButton("Hide", { type: "button", isSmall: true, isPressed: true })}</div>` },
     { label: "Big, beside Play", markup: html`<div class="control-row">${runButton("Play", { type: "button", isBig: true, icon: "play" })}${cutButton("Details", { type: "button", isBig: true })}</div>` },
     { label: "Full width", markup: html`<div style="width:min(380px,100%)">${cutButton("Make an account", { type: "button", isFullWidth: true })}</div>` },

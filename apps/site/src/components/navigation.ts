@@ -2,7 +2,7 @@ import { html, raw, type Raw } from "../html.ts";
 import { pageScript } from "../page-scripts.ts";
 import { component } from "./component.ts";
 import { CUT_LINE, EDGE, MARK, WORDMARK, icon, placeMarkup, railMarkup, type IconName, type PlaceItem } from "./foundations.ts";
-import { runButton, textLink } from "./actions.ts";
+import { cutButton, runButton, textLink } from "./actions.ts";
 import { searchField, type SearchFieldOptions } from "./inputs.ts";
 import { STAND_IN_COVERS, menu, type MenuItem } from "./panes.ts";
 import { pictureFrame } from "./data.ts";
@@ -352,12 +352,12 @@ export const RAIL_SCRIPT = `/* rail */(function () {
 })();
 `;
 
-const ARROW_BACK = raw('<svg viewBox="0 0 12 16" aria-hidden="true"><path d="M12 0H7L0 8l7 8h5L5 8z"/></svg>');
-const ARROW_ON = raw('<svg viewBox="0 0 12 16" aria-hidden="true"><path d="M0 0h5l7 8-7 8H0l7-8z"/></svg>');
 
 /** Arrows to scroll a row, for a mouse or trackpad: a cut well of two halves at the right of the row's heading. Touch screens swipe instead. */
 export function rowArrows(options: { rowName: string; trackId: string }): Raw {
-  return html`<div class="steps cut-carved" data-row-arrows data-cut-line="9">${CUT_LINE}<button type="button" class="step back cut-raised" data-cut-line="7" aria-controls="${options.trackId}" aria-label="Scroll ${options.rowName} back">${CUT_LINE}${ARROW_BACK}</button><button type="button" class="step on cut-raised" data-cut-line="7" aria-controls="${options.trackId}" aria-label="Scroll ${options.rowName} on">${CUT_LINE}${ARROW_ON}</button></div>`;
+  const arrow = (way: "back" | "on") =>
+    cutButton(`Scroll ${options.rowName} ${way}`, { type: "button", icon: way === "back" ? "arrow-back" : "arrow-on", isLabelHidden: true, isInWell: true, controls: options.trackId });
+  return html`<div class="steps cut-carved" data-row-arrows data-cut-line="9">${CUT_LINE}${arrow("back")}${arrow("on")}</div>`;
 }
 
 /** A row's arrows scroll it by most of its width, lie flat at its ends, and hide when there's nothing to scroll; the row fades on a side with more (data-fades-sideways). */
@@ -405,15 +405,37 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
  * and reduced motion, or a browser that doesn't say where the page was opened from, just shows the slab in its place.
  */
 export const SIDEBAR_SCRIPT = `/* sidebar */(function () {
+  var still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function glide(slab, fromTop) {
+    if (still) return;
+    slab.classList.remove("is-gliding");
+    slab.style.setProperty("--glide-from-px", (fromTop - slab.getBoundingClientRect().top).toFixed(1) + "px");
+    slab.offsetWidth;
+    slab.classList.add("is-gliding");
+    slab.addEventListener("animationend", function () { slab.classList.remove("is-gliding"); }, { once: true });
+  }
+  // A sidebar to try in place (the gallery's, data-sidebar-try): picking a place moves the slab there, as opening it from a page's sidebar does.
+  document.querySelectorAll("[data-sidebar-try]").forEach(function (box) {
+    box.addEventListener("click", function (event) {
+      var place = event.target.closest && event.target.closest(".place[href]"); if (!place) return;
+      event.preventDefault();
+      var now = box.querySelector('.place[aria-current="page"]'); if (!now || now === place) return;
+      var slab = now.querySelector(".place-slab"), fromTop = slab.getBoundingClientRect().top;
+      now.removeAttribute("aria-current"); place.setAttribute("aria-current", "page");
+      // The place left behind takes the edge rule's outline every other place has, for its focus line.
+      if (!now.hasAttribute("data-cut-line")) { now.setAttribute("data-cut-line", "8"); if (window.zaismaCutLine) window.zaismaCutLine(now); }
+      place.insertBefore(slab, place.firstChild);
+      if (slab.redrawCut) slab.redrawCut();
+      glide(slab, fromTop);
+    });
+  });
   var from = window.navigation && navigation.activation && navigation.activation.from;
-  if (!from || !from.url || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  if (!from || !from.url) return;
   var lastPath = new URL(from.url).pathname;
   document.querySelectorAll(".sidebar.is-page .place-slab").forEach(function (slab) {
     var place = Array.prototype.find.call(slab.closest(".sidebar").querySelectorAll("a[href]"), function (each) { return new URL(each.href).pathname === lastPath; });
     if (!place || place.contains(slab)) return;
-    slab.style.setProperty("--glide-from-px", (place.getBoundingClientRect().top - slab.getBoundingClientRect().top).toFixed(1) + "px");
-    slab.classList.add("is-gliding");
-    slab.addEventListener("animationend", function () { slab.classList.remove("is-gliding"); }, { once: true });
+    glide(slab, place.getBoundingClientRect().top);
   });
 })();
 `;
@@ -458,7 +480,7 @@ export const COMPACT_SCRIPT = `/* compact bars */(function () {
 export const ROW_SCRIPT = `/* rows */(function () {
   var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   document.querySelectorAll("[data-row-arrows]").forEach(function (steps) {
-    var back = steps.querySelector(".back"), on = steps.querySelector(".on"), track = document.getElementById(back.getAttribute("aria-controls"));
+    var arrows = steps.querySelectorAll(".cut-btn"), back = arrows[0], on = arrows[1], track = document.getElementById(back.getAttribute("aria-controls"));
     if (!track) return;
     function ends() {
       var more = track.scrollWidth - track.clientWidth, left = track.scrollLeft > 2, right = track.scrollLeft < more - 2;
@@ -607,20 +629,12 @@ component({
    slabs that slant where they meet. Pointing lifts one and sends its arrow on; a press sinks it, its light turning round. At a row's end
    that arrow lies flat in the well, faded. Touch screens swipe instead. */
 .steps { position: relative; margin-left: auto; display: none; gap: 0; height: 36px; padding: 3px; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
-.steps > .back { margin-inline-end: var(--gap-control-row-boxes); }
+/* Each arrow is a Cut button sized for a well (actions.ts), icon only; at the row's end it can't be pressed. */
+.steps > .cut-btn:first-of-type { margin-inline-end: var(--gap-control-row-boxes); }
 @media (hover: hover) and (pointer: fine) { .steps { display: flex; } .steps[hidden] { display: none; } }
-.step { position: relative; width: 46px; height: 30px; display: grid; place-items: center; border: 0; cursor: pointer; color: var(--ink-2);
-  --face-colour: var(--btn); background: var(--face-colour); clip-path: var(--cut-shape); transition: --face-colour 0.15s, color 0.15s, opacity 0.15s; }
-.step > svg:not(.cut-line) { position: relative; z-index: 2; width: 10px; height: 13px; fill: currentColor; transition: transform 0.2s cubic-bezier(.2,.8,.2,1); }
-.step:hover:not(:disabled) { --face-colour: var(--btn-hover); color: var(--ink); }
-.step.back:hover:not(:disabled) > svg:not(.cut-line) { transform: translateX(-2px); }
-.step.on:hover:not(:disabled) > svg:not(.cut-line) { transform: translateX(2px); }
-.step:active:not(:disabled) { --face-colour: var(--btn-press); }
-.step:active:not(:disabled) > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
-.step:focus-visible { outline: none; color: var(--ink); }
-.step:focus-visible > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-.step:disabled { --face-colour: transparent; opacity: 0.35; cursor: default; }
-.step:disabled > .cut-line { --band-top: transparent; --band-left: transparent; --band-right: transparent; --band-bottom: transparent; }
+.steps .ico { width: 10px; height: 13px; transition: transform 0.2s cubic-bezier(.2,.8,.2,1); }
+.steps > .cut-btn:first-of-type:hover:not(:disabled) .ico { transform: translateX(-2px); }
+.steps > .cut-btn:last-of-type:hover:not(:disabled) .ico { transform: translateX(2px); }
 /* A row scrolls sideways, a little in from its glass's rim, so covers never touch the frame. Where more covers carry on, that edge fades out
    softly: the shared sideways fade (data-fades-sideways), further in for covers. */
 .track { --fade-sideways-px: 56px; display: flex; gap: var(--gap-block-block); scroll-snap-type: x proximity; scroll-padding-inline: 8px; padding: 10px 8px 6px; margin: -10px -8px -6px; }
@@ -684,11 +698,12 @@ component({
 .sidebar.is-collapsed { flex: none; width: 72px; }
 .sidebar.is-collapsed .sidebar-in { padding: var(--pad-inner-pane); }
 .sidebar.is-collapsed .place { justify-content: center; padding: 0; }
-.sidebar.is-collapsed .place-label, .sidebar.is-collapsed .place-count { display: none; }
+.sidebar.is-collapsed .place-label, .sidebar.is-collapsed .place > .tag { display: none; }
 .sidebar.is-collapsed .sidebar-heading { height: 1px; margin: 0 0 var(--gap-words-control); padding: 0; overflow: hidden; font-size: 0; background: var(--line); }
 `,
   render: sidebar,
   examples: [
+    { label: "Try it: pick a place", markup: html`<div data-sidebar-try style="width:min(260px,100%)">${sidebar({ label: "Places to try", groups: SIDEBAR_EXAMPLE_GROUPS })}</div>` },
     { label: "Groups, with counts", markup: html`<div style="width:min(260px,100%)">${sidebar({ label: "Example places", groups: SIDEBAR_EXAMPLE_GROUPS })}</div>` },
     { label: "Collapsed to icons", markup: sidebar({ label: "Example places, collapsed", groups: SIDEBAR_EXAMPLE_GROUPS, isCollapsed: true }) },
     { label: "Plain list", markup: html`<div style="width:min(260px,100%)">${sidebar({ label: "Example groups", groups: [{ items: ["Foundations", "Actions", "Inputs", "Navigation"].map((label, tabIndex) => ({ label, href: "#sidebar", isCurrent: tabIndex === 1 })) }] })}</div>` },
