@@ -321,11 +321,7 @@ shelf.addEventListener("pointermove", (event) => {
 });
 shelf.addEventListener("pointerout", (event) => { if (event.target.closest && event.target.closest(".cover") && !(event.relatedTarget && event.relatedTarget.closest && event.relatedTarget.closest(".cover") === event.target.closest(".cover"))) { isPending = false; clearTimeout(restTimer); } });
 shelf.addEventListener("focusin", (event) => { const cover = event.target.closest && event.target.closest(".cover"); if (cover) { hasChosen = true; setFocus(cover.dataset.slug); } });
-shelf.addEventListener("click", (event) => {
-  const cover = event.target.closest && event.target.closest(".cover-art");
-  if (!cover || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
-  event.preventDefault(); hasChosen = true; setFocus(cover.parentElement.dataset.slug); openPane(true);
-});
+// A click or tap on a cover is its link: it opens the game's page (middle-click and new tabs work too). Hover and keys only move the focus.
 // On a touch screen the row that comes to rest puts its first cover in focus.
 if (matchMedia("(hover: none)").matches) {
   document.querySelectorAll(".home-track").forEach((track) => {
