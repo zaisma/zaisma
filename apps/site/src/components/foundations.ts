@@ -39,7 +39,7 @@ const LIGHT_GLASS = `color-scheme: light;
   --divider: 1px solid var(--line);
   --toggle-off: rgba(60, 72, 94, 0.2); --check-press: rgba(60, 72, 94, 0.16); --row-hover: rgba(255, 255, 255, 0.24); --row-press: rgba(20, 23, 28, 0.05); --tag-new: rgba(34, 160, 90, 0.26); --tag-new-ink: #0A5A2C; --tag-warning: rgba(232, 150, 20, 0.26); --tag-warning-ink: #6A4300; --tag-plain: rgba(60, 72, 94, 0.1); --tag-carve: inset 0 1px 2px rgba(20, 30, 50, 0.22), inset 0 -1px 0 rgba(255, 255, 255, 0.75); --face-ring: rgba(255, 255, 255, 0.85); --presence-ring: #fff; --online: #3BB273; --picture-shadow: rgba(20, 23, 28, 0.3);
   /* Data: a table's header row over the rows scrolling under it, a chart's fill under its line, a meter's fill and its amber past 80%. */
-  --table-head: rgba(250, 252, 255, 0.42); --table-row-head: rgba(246, 248, 252, 0.88); --chart-fill: rgba(20, 23, 28, 0.07); --chart-bar: rgba(60, 72, 94, 0.26); --chart-ring: rgba(250, 252, 255, 0.9); --chart-tip: rgba(250, 252, 255, 0.94); --meter-fill: rgba(60, 72, 94, 0.42); --meter-near: #E39318; --meter-full: #B86A06; --meter-full-ink: #9A5800;
+  --table-head: rgba(250, 252, 255, 0.42); --table-row-head: rgba(244, 246, 250, 0.97); --chart-fill: rgba(20, 23, 28, 0.07); --chart-bar: rgba(60, 72, 94, 0.26); --chart-ring: rgba(250, 252, 255, 0.9); --chart-tip: rgba(250, 252, 255, 0.94); --meter-fill: rgba(60, 72, 94, 0.42); --meter-near: #E39318; --meter-full: #B86A06; --meter-full-ink: #9A5800;
   /* A file drop's dashed outline, waiting for a file. */
   --drop-dash: rgba(20, 23, 28, 0.3);
   --rail-line: rgba(20, 23, 28, 0.2); --rail-thumb: rgba(24, 28, 36, 0.55); --rail-edge: rgba(255, 255, 255, 0.55); --rail-mark: rgba(20, 23, 28, 0.45);
@@ -73,7 +73,7 @@ const SMOKED_GLASS = `color-scheme: dark;
   --glass-btn-lift: inset 0 -12px 18px -12px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.22); --glass-btn-hair: rgba(26, 44, 80, 0.16); --glass-btn-hair-rest: rgba(26, 44, 80, 0.28);
   --clear-hover: rgba(255, 255, 255, 0.08); --clear-press: rgba(255, 255, 255, 0.04); --clear-glass-mark: #fff; --on-light: none; --on-smoked: inline; --divider: 1px solid var(--line);
   --toggle-off: rgba(0, 0, 0, 0.34); --check-press: rgba(0, 0, 0, 0.3); --row-hover: rgba(255, 255, 255, 0.1); --row-press: rgba(255, 255, 255, 0.22); --tag-new: rgba(30, 150, 80, 0.32); --tag-new-ink: #A6F0C6; --tag-warning: rgba(200, 130, 20, 0.3); --tag-warning-ink: #F8D68C; --tag-plain: rgba(0, 0, 0, 0.34); --tag-carve: inset 0 1.5px 3px rgba(0, 0, 0, 0.8), inset 0 -1px 0 rgba(255, 255, 255, 0.24); --face-ring: rgba(6, 8, 12, 0.55); --presence-ring: #1A1D24; --online: #3BB273; --picture-shadow: rgba(0, 0, 0, 0.55);
-  --table-head: rgba(14, 17, 24, 0.38); --table-row-head: rgba(22, 26, 34, 0.9); --chart-fill: rgba(255, 255, 255, 0.08); --chart-bar: rgba(255, 255, 255, 0.3); --chart-ring: rgba(20, 23, 30, 0.9); --chart-tip: rgba(28, 32, 40, 0.94); --meter-fill: rgba(255, 255, 255, 0.6); --meter-near: #F0A93A; --meter-full: #B87412; --meter-full-ink: #F6C46E; --drop-dash: rgba(255, 255, 255, 0.34);
+  --table-head: rgba(14, 17, 24, 0.38); --table-row-head: rgba(24, 28, 36, 0.97); --chart-fill: rgba(255, 255, 255, 0.08); --chart-bar: rgba(255, 255, 255, 0.3); --chart-ring: rgba(20, 23, 30, 0.9); --chart-tip: rgba(28, 32, 40, 0.94); --meter-fill: rgba(255, 255, 255, 0.6); --meter-near: #F0A93A; --meter-full: #B87412; --meter-full-ink: #F6C46E; --drop-dash: rgba(255, 255, 255, 0.34);
   --rail-line: rgba(255, 255, 255, 0.2); --rail-thumb: rgba(255, 255, 255, 0.55); --rail-edge: rgba(255, 255, 255, 0.35); --rail-mark: rgba(255, 255, 255, 0.5);
   /* A light rim on dark glass stands out far more than on light glass, so smoked glass draws it fainter to look as tame. */
   --edge-inner: rgba(255, 255, 255, 0.16); --edge-bevel: 0.14; --edge-rim: 0.38; --edge-fringe: 0.12;
@@ -115,8 +115,10 @@ export const TOKEN_STYLES = `
 @property --fade-left { syntax: "<length>"; inherits: false; initial-value: 0px; }
 @property --fade-right { syntax: "<length>"; inherits: false; initial-value: 0px; }
 /* A box that scrolls keeps a swipe to itself: reaching its end never carries on into the page, so the page never nudges under it. */
-.scroll-fades, [data-scroll-box] { overscroll-behavior: contain; }
-[data-fades-sideways] { overscroll-behavior-x: contain; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; transition: --fade-left 0.25s, --fade-right 0.25s; }
+/* Only while it has something to scroll (is-scrollable, SCROLL_FADE_SCRIPT): a box that can't scroll never catches a swipe or a wheel. */
+.is-scrollable { overscroll-behavior-y: contain; }
+.is-scrollable-sideways { overscroll-behavior-x: contain; }
+[data-fades-sideways] { overflow-x: auto; overflow-y: hidden; scrollbar-width: none; transition: --fade-left 0.25s, --fade-right 0.25s; }
 [data-fades-sideways]::-webkit-scrollbar { display: none; }
 [data-fades-sideways].more-left, [data-fades-sideways].more-right {
   -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 var(--fade-left), #000 calc(100% - var(--fade-right)), transparent 100%);

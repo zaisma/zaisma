@@ -478,6 +478,7 @@ const OWN_SVG = new Map<string, string>([
   ['class="cut-line"', "the edge rule's outline (CUT_LINE)"],
   ['class="edge"', "glass's drawn rim (EDGE)"],
   ['<svg class="chart-drawing"', "a chart's own line or bars, drawn from its numbers"],
+  ['<svg class="chart-drawing chart-area-drawing"', "the shade under a chart's line"],
   ['<svg class="ring-drawing"', "a ring chart's parts, drawn from its shares"],
   ['fill="#FFC107"', "Google's mark, as Google asks it to be shown"],
   ['class="one-color"', "Discord's mark, as Discord asks it to be shown"],
@@ -532,7 +533,9 @@ const NOT_SPACING = new Set<string>([
   // A table's cells: room round a cell's words, set by the table's size.
   ".data-table thead th | padding", ".data-table td, .data-table tbody th | padding", ".data-table.compact thead th | padding", ".data-table.compact td, .data-table.compact tbody th | padding",
   // A chart's last point: centered on its spot. A meter's track: its fill's inset, like a well's.
-  ".chart-last | margin", ".chart-dot | margin", ".usage-track | padding",
+  ".chart-last | margin", ".chart-dot | margin",
+  // A chart's room for the dots at its ends.
+  ".chart-inner | padding", ".usage-track | padding",
   // A chart's number where you point: a small label's own room round its words.
   ".chart-tip | padding",
   // A code field's code: clear of the field's edge, and of Copy and "Copied" at its end.

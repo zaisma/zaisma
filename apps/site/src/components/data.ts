@@ -368,7 +368,7 @@ export function table(options: TableOptions): Raw {
   const id = options.id ?? `table-${options.caption.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
   const numeric = (columnIndex: number) => (options.columns[columnIndex]?.isNumeric ? raw(' class="num"') : "");
   const isRowHead = (columnIndex: number) => options.hasRowHeads && columnIndex === 0;
-  return html`<div class="table"><p class="table-caption" id="${id}-caption">${options.caption}</p><div class="table-scroll" data-fades-sideways data-scroll-box data-cut-line="8"><table class="data-table${options.isCompact ? " compact" : ""}${options.hasRowHeads ? " has-row-heads" : ""}" aria-labelledby="${id}-caption"><thead><tr>${options.columns.map(
+  return html`<div class="table"><p class="table-caption" id="${id}-caption">${options.caption}</p><div class="table-scroll" data-fades-sideways data-side-rail data-scroll-box data-cut-line="8"><table class="data-table${options.isCompact ? " compact" : ""}${options.hasRowHeads ? " has-row-heads" : ""}" aria-labelledby="${id}-caption"><thead><tr>${options.columns.map(
     (column, columnIndex) => html`<th scope="col" class="glass${options.columns[columnIndex]?.isNumeric ? " num" : ""}">${column.label}</th>`,
   )}</tr></thead><tbody>${options.rows.map(
     (row) => html`<tr>${row.map((cell, columnIndex) => (isRowHead(columnIndex) ? html`<th scope="row" class="glass">${cell}</th>` : html`<td${numeric(columnIndex)}>${cell}</td>`))}</tr>`,
@@ -539,23 +539,27 @@ export function chart(options: ChartOptions): Raw {
         const barHeightNumber = Math.max(heightNumber - downNumber(point.amountNumber), 1);
         return raw(`<rect class="chart-bar${pointIndex === points.length - 1 ? " last" : ""}" x="${(slotNumber * pointIndex + slotNumber * 0.18).toFixed(1)}" y="${(heightNumber - barHeightNumber).toFixed(1)}" width="${(slotNumber * 0.64).toFixed(1)}" height="${barHeightNumber.toFixed(1)}"/>`);
       })
-    : raw(`<path class="chart-area" d="${line} L${acrossNumber(points.length - 1).toFixed(1)} ${heightNumber} L${acrossNumber(0).toFixed(1)} ${heightNumber} Z"/><path class="chart-line" d="${line}" vector-effect="non-scaling-stroke"/>`);
+    : raw(`<path class="chart-line" d="${line}" vector-effect="non-scaling-stroke"/>`);
+  const area = isBars ? "" : raw(`<svg class="chart-drawing chart-area-drawing" viewBox="0 0 ${widthNumber} ${heightNumber}" preserveAspectRatio="none"><path class="chart-area" d="${line} L${acrossNumber(points.length - 1).toFixed(1)} ${heightNumber} L${acrossNumber(0).toFixed(1)} ${heightNumber} Z"/></svg>`);
   const last = points[points.length - 1];
   const lastMark = last
     ? html`<span class="chart-last${isBars ? " is-bar" : ""}" style="left:${acrossPct(points.length - 1)}%;top:${downPct(last.amountNumber)}%"><span class="chart-last-words">${chartWords(last.amountNumber)}</span></span>`
     : "";
   // Where the pointer finds each point: a column round it, as wide as the room between points, holding its dot and its number.
-  const hitWidthPct = (100 / Math.max(isBars ? points.length : points.length - 1, 1)).toFixed(2);
+  // The first and last stop at the plot's ends, so nothing reaches past it to make it scroll.
+  const hitWidthPct = 100 / Math.max(isBars ? points.length : points.length - 1, 1);
   const hits = points.map((point, pointIndex) => {
-    const place = pointIndex < points.length * 0.2 ? " is-start" : pointIndex >= points.length * 0.8 ? " is-end" : "";
-    return html`<span class="chart-hit${place}" style="left:calc(${acrossPct(pointIndex)}% - ${hitWidthPct}% / 2);width:${hitWidthPct}%;--point-top:${downPct(point.amountNumber)}%"><span class="chart-dot"></span><span class="chart-tip"><b>${chartWords(point.amountNumber)}</b> ${options.unit} · ${point.label}</span></span>`;
+    // Its number opens toward the middle of the chart, so it stays inside it.
+    const place = pointIndex >= points.length / 2 ? " is-end" : "";
+    const centerPct = (acrossNumber(pointIndex) / widthNumber) * 100, leftPct = Math.max(0, centerPct - hitWidthPct / 2), rightPct = Math.min(100, centerPct + hitWidthPct / 2);
+    return html`<span class="chart-hit${place}" style="left:${leftPct.toFixed(2)}%;width:${(rightPct - leftPct).toFixed(2)}%;--point-left:${(((centerPct - leftPct) / Math.max(rightPct - leftPct, 0.01)) * 100).toFixed(2)}%;--point-top:${downPct(point.amountNumber)}%"><span class="chart-dot"></span><span class="chart-tip"><b>${chartWords(point.amountNumber)} ${options.unit}</b><span>${point.label}</span></span></span>`;
   });
   const grid = [1, 0.5, 0];
   return html`<figure class="chart"><figcaption class="chart-label">${options.label}</figcaption><div class="chart-body" aria-hidden="true"><div class="chart-scale">${grid.map(
     (shareNumber) => html`<span style="top:${((1 - shareNumber) * 100).toFixed(0)}%">${scaleWords(topNumber * shareNumber)}</span>`,
-  )}</div><div class="chart-scroll" data-fades-sideways data-chart-scroll><div class="chart-inner${isBars ? " is-bars" : ""}" style="--point-count:${points.length}"><div class="chart-plot">${grid.map(
+  )}</div><div class="chart-scroll" data-fades-sideways data-side-rail data-chart-scroll><div class="chart-inner${isBars ? " is-bars" : ""}" style="--point-count:${points.length}"><div class="chart-plot">${grid.map(
     (shareNumber) => html`<span class="chart-grid" style="top:${((1 - shareNumber) * 100).toFixed(0)}%"></span>`,
-  )}<svg class="chart-drawing" viewBox="0 0 ${widthNumber} ${heightNumber}" preserveAspectRatio="none">${drawing}</svg>${lastMark}${hits}</div><div class="chart-axis"><span>${points[0]?.label ?? ""}</span><span>${last?.label ?? ""}</span></div></div></div></div><div class="sr"><table><caption>${options.label}</caption><tbody>${points.map(
+  )}${area}<svg class="chart-drawing" viewBox="0 0 ${widthNumber} ${heightNumber}" preserveAspectRatio="none">${drawing}</svg>${lastMark}${hits}</div><div class="chart-axis"><span>${points[0]?.label ?? ""}</span><span>${last?.label ?? ""}</span></div></div></div></div><div class="sr"><table><caption>${options.label}</caption><tbody>${points.map(
     (point) => html`<tr><th scope="row">${point.label}</th><td>${chartWords(point.amountNumber)} ${options.unit}</td></tr>`,
   )}</tbody></table></div></figure>`;
 }
@@ -607,29 +611,33 @@ component({
 .chart-scale { position: relative; height: 180px; min-width: 32px; font: var(--type-facts); color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
 .chart-scale > span { position: absolute; right: 0; transform: translateY(-50%); white-space: nowrap; }
 .chart-scroll { min-width: 0; padding-top: var(--gap-block-block); margin-top: calc(-1 * var(--gap-block-block)); }
-.chart-inner { --point-room: 14px; min-width: calc(var(--point-count) * var(--point-room)); }
+/* Its dots at the ends keep their whole round inside its padding; anything else past its sides is clipped, never making it scroll. */
+.chart-inner { --point-room: 14px; min-width: calc(var(--point-count) * var(--point-room)); padding: 0 6px; overflow-x: clip; }
 .chart-inner.is-bars { --point-room: 26px; }
 .chart-plot { position: relative; height: 180px; }
 .chart-grid { position: absolute; left: 0; right: 0; height: 0; border-top: var(--divider); }
 .chart-drawing { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
 .chart-line { fill: none; stroke: var(--ink); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
 .chart-area { fill: var(--chart-fill); stroke: none; }
+/* The shade under a line fades out at its ends and toward its foot, so it never stops in a hard edge. */
+.chart-area-drawing { -webkit-mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent), linear-gradient(#000 40%, transparent);
+  -webkit-mask-composite: source-in; mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent), linear-gradient(#000 40%, transparent); mask-composite: intersect; }
 .chart-bar { fill: var(--chart-bar); }
 .chart-bar.last { fill: var(--run); }
 .chart-last { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; background: var(--run); border-radius: 50%; box-shadow: 0 0 0 3px var(--chart-ring); pointer-events: none; }
 .chart-last.is-bar { width: 0; height: 0; margin: 0; box-shadow: none; }
 .chart-last-words { position: absolute; right: 0; bottom: 14px; font: var(--type-label); color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; transition: opacity 0.15s; }
 .chart-last.is-bar .chart-last-words { right: auto; left: 0; bottom: 6px; transform: translateX(-50%); }
+.chart-body > .side-rail { grid-column: 2; }
 .chart-axis { display: flex; justify-content: space-between; padding-top: var(--gap-words-control); font: var(--type-facts); color: var(--muted); }
 .chart-hit { position: absolute; top: 0; bottom: 0; z-index: 2; }
 .chart-inner.is-bars .chart-hit:hover { background: var(--row-hover); }
-.chart-dot { position: absolute; left: 50%; top: var(--point-top); width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: var(--ink); box-shadow: 0 0 0 3px var(--chart-ring); opacity: 0; transition: opacity 0.15s; }
+.chart-dot { position: absolute; left: var(--point-left); top: var(--point-top); width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: var(--ink); box-shadow: 0 0 0 3px var(--chart-ring); opacity: 0; transition: opacity 0.15s; }
 .chart-inner.is-bars .chart-dot { display: none; }
-.chart-tip { position: absolute; left: 50%; bottom: calc(100% - var(--point-top) + 12px); transform: translateX(-50%); padding: 4px 8px; white-space: nowrap; font: var(--type-facts); color: var(--ink-2);
-  background: var(--chart-tip); box-shadow: var(--slab-shade); opacity: 0; transition: opacity 0.15s; pointer-events: none; }
+.chart-tip { position: absolute; left: var(--point-left); bottom: calc(100% - var(--point-top) + 12px); transform: translateX(-12px); display: grid; padding: 4px 8px; white-space: nowrap;
+  font: var(--type-facts); color: var(--ink-2); background: var(--chart-tip); box-shadow: var(--slab-shade); opacity: 0; transition: opacity 0.15s; pointer-events: none; }
 .chart-tip b { font-weight: 600; color: var(--ink); }
-.chart-hit.is-start .chart-tip { left: 0; transform: none; }
-.chart-hit.is-end .chart-tip { left: auto; right: 0; transform: none; }
+.chart-hit.is-end .chart-tip { transform: translateX(calc(-100% + 12px)); }
 .chart-hit:hover .chart-dot, .chart-hit:hover .chart-tip { opacity: 1; }
 .chart-plot:has(.chart-hit:last-child:hover) .chart-last-words { opacity: 0; }
 /* A ring: the shares round a ring, biggest first and darkest, each lighter after; the whole in its middle. Its key beside it (under it on a

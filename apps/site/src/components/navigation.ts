@@ -352,8 +352,16 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
     box.style.setProperty("--fade-top", Math.max(0, top) + "px"); box.style.setProperty("--fade-bottom", Math.max(0, bottom) + "px");
     // Masked only while there's something to fade: a mask on a box that doesn't scroll would only cost its repaints.
     box.classList.toggle("is-fading", box.scrollHeight > box.clientHeight + 1);
+    held(box);
   }
+  // A box keeps a swipe or a wheel to itself only while it can scroll; one that can't lets it carry on to the page.
+  function held(box) { box.classList.toggle("is-scrollable", box.scrollHeight > box.clientHeight + 1); }
   function find() {
+    // Boxes that scroll with no fade of their own (a header example's stand-in page, a table) still hold a swipe only while they can scroll.
+    document.querySelectorAll("[data-scroll-box]").forEach(function (box) {
+      held(box);
+      if (window.ResizeObserver) new ResizeObserver(function () { held(box); }).observe(box.firstElementChild || box);
+    });
     document.querySelectorAll("body *").forEach(function (box) {
       if (box.classList.contains("scroll-fades") || /^(TEXTAREA|SELECT|INPUT)$/.test(box.tagName) || box.hasAttribute("data-scroll-box") || box.hasAttribute("data-own-fade")) return;
       if (!/^(auto|scroll)$/.test(getComputedStyle(box).overflowY)) return;
@@ -369,9 +377,38 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
   document.querySelectorAll("[data-fades-sideways]").forEach(function (row) {
     var here = row.querySelector('[aria-current="page"], [aria-pressed="true"]');
     if (here && row.scrollWidth > row.clientWidth) row.scrollLeft = Math.max(0, here.offsetLeft - (row.clientWidth - here.offsetWidth) / 2);
-    function ends() { row.classList.toggle("more-left", row.scrollLeft > 2); row.classList.toggle("more-right", row.scrollLeft + row.clientWidth < row.scrollWidth - 2); }
-    row.addEventListener("scroll", ends, { passive: true });
-    if (window.ResizeObserver) new ResizeObserver(ends).observe(row); else window.addEventListener("resize", ends);
+    // A row with a sideways rail (data-side-rail: a table, a chart) shows one under it whenever it can scroll, on phones too, whose own
+    // scrollbars hide: a thumb of glass on a hairline, dragged or tapped like the rail down a pane's side.
+    var rail = null, thumb = null, size = { track: 0, thumb: 0, max: 1 };
+    if (row.hasAttribute("data-side-rail")) {
+      row.insertAdjacentHTML("afterend", '<div class="side-rail" aria-hidden="true" hidden><div class="side-rail-line"></div><div class="side-rail-thumb glass"></div></div>');
+      rail = row.nextElementSibling; thumb = rail.querySelector(".side-rail-thumb");
+      var drag = null;
+      var start = function (event, isJump) {
+        event.preventDefault();
+        if (isJump) { var x = event.clientX - rail.getBoundingClientRect().left - size.thumb / 2; row.scrollLeft = Math.max(0, Math.min(1, x / Math.max(1, size.track - size.thumb))) * size.max; }
+        drag = { x: event.clientX, from: row.scrollLeft }; rail.classList.add("dragging");
+        try { rail.setPointerCapture(event.pointerId); } catch (error) {}
+      };
+      thumb.addEventListener("pointerdown", function (event) { start(event, false); });
+      rail.querySelector(".side-rail-line").addEventListener("pointerdown", function (event) { start(event, true); });
+      rail.addEventListener("pointermove", function (event) { if (drag) row.scrollLeft = drag.from + (event.clientX - drag.x) * size.max / Math.max(1, size.track - size.thumb); });
+      var end = function () { drag = null; rail.classList.remove("dragging"); };
+      rail.addEventListener("pointerup", end); rail.addEventListener("pointercancel", end);
+    }
+    function moveThumb() { if (rail && !rail.hidden) thumb.style.transform = "translateX(" + ((size.track - size.thumb) * Math.min(1, row.scrollLeft / size.max)).toFixed(1) + "px)"; }
+    function ends() {
+      var max = row.scrollWidth - row.clientWidth;
+      row.classList.toggle("more-left", row.scrollLeft > 2); row.classList.toggle("more-right", row.scrollLeft + row.clientWidth < row.scrollWidth - 2);
+      row.classList.toggle("is-scrollable-sideways", max > 1);
+      if (rail) {
+        rail.hidden = max <= 1; if (rail.hidden) return;
+        var track = rail.clientWidth, width = Math.max(36, Math.round(track * row.clientWidth / row.scrollWidth));
+        size = { track: track, thumb: width, max: max }; thumb.style.width = width + "px"; moveThumb();
+      }
+    }
+    row.addEventListener("scroll", function () { row.classList.toggle("more-left", row.scrollLeft > 2); row.classList.toggle("more-right", row.scrollLeft + row.clientWidth < row.scrollWidth - 2); moveThumb(); }, { passive: true });
+    if (window.ResizeObserver) { var watch = new ResizeObserver(ends); watch.observe(row); if (row.firstElementChild) watch.observe(row.firstElementChild); } else window.addEventListener("resize", ends);
     ends();
   });
 })();
@@ -508,6 +545,14 @@ component({
 .own-scroll::-webkit-scrollbar { display: none; }
 .rail { display: none; position: absolute; z-index: 6; right: 8px; top: 30px; bottom: 30px; width: 14px; opacity: 0.6; transition: opacity 0.35s; }
 .rail.is-on { display: block; }
+/* The sideways rail, under a table or a chart that scrolls sideways: the rail laid on its side, always shown while there's more. */
+.side-rail { position: relative; height: 14px; user-select: none; -webkit-user-select: none; }
+.side-rail[hidden] { display: none; }
+.side-rail-line { position: absolute; inset: 0; cursor: pointer; background: linear-gradient(180deg, transparent 6px, var(--rail-line) 6px, var(--rail-line) 7px, transparent 7px); }
+.side-rail-thumb { position: absolute; left: 0; top: 4px; height: 5px; cursor: grab; touch-action: none; --glass-tint: var(--rail-thumb); box-shadow: inset 0 1px 0 var(--rail-edge), 0 2px 6px rgba(10,20,40,0.18);
+  transition: var(--glass-transition), top 0.2s, height 0.2s; }
+.side-rail:hover .side-rail-thumb, .side-rail.dragging .side-rail-thumb { top: 2px; height: 9px; }
+.side-rail.dragging .side-rail-thumb { cursor: grabbing; }
 .glass > .rail { position: absolute; z-index: 6; }
 .rail[data-rail="page"] { position: fixed; z-index: 12; right: 0; top: 90px; bottom: 14px; }
 .rail[hidden] { display: none; }
