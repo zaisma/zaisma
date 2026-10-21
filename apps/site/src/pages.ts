@@ -23,6 +23,7 @@ import {
 } from "@zaisma/core";
 import { authConfigured } from "./auth.ts";
 import { gameUrl, type Env } from "./env.ts";
+import { icon } from "./components/foundations.ts";
 import { html, layout, message, metalButton, pageData, playerModes, raw, scriptTags, siteFooter, siteHeader, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
 import { showcase, tile } from "./home.ts";
@@ -179,6 +180,9 @@ main.gp{max-width:1240px;margin:0 auto;padding:30px 24px 72px}
 .side .live-now[hidden]{display:none}
 a.live-now:hover{text-decoration:underline;text-underline-offset:3px}
 .side .note{margin:0;font-size:14px;background:none;box-shadow:none;padding:0;color:var(--warn)}
+.side .note .ico{display:none;width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.side .note.is-warning:not([hidden]){display:flex;align-items:center;gap:var(--gap-words-words)}
+.side .note.is-warning .ico{display:block}
 .side .account-note{margin:-4px 0 0;font-size:14px;color:var(--text-2)}
 /* A game for older players, opened by a younger account: a closed card in place of Play. */
 .side .closed{display:grid;gap:14px;padding:18px}
@@ -451,7 +455,7 @@ ${siteHeader(env, { viewer })}
     ${accountRequirement !== "none" && !isClosed
       ? html`<p class="account-note" id="account-note">${accountRequirement === "whole_game" ? "Needs a Zaisma account" : "Playing online needs a Zaisma account"}<span id="account-ask" hidden>. <a href="/join?next=${accountNext}">Make one free</a> or <a href="/signin?next=${accountNext}">sign in</a>${accountRequirement === "whole_game" ? " to play" : " to play with others"}</span>.</p>`
       : ""}
-    <p class="note" id="device-note" hidden></p>
+    <p class="note" id="device-note" hidden>${icon("warning")}<span></span></p>
     ${spec}
     ${developerLinks(pageLinks)}
     <div class="row"><button class="btn ghost" id="share-page" type="button" aria-haspopup="dialog" aria-controls="share-dialog">${raw(ICON_SHARE)}<span class="label">Share</span></button><a class="btn ghost" href="/g/${game.slug}/report" data-report>Report</a></div>
@@ -1030,9 +1034,7 @@ const deviceNotes = [];
 const chromium = navigator.userAgentData?.brands?.find((b) => b.brand === "Chromium");
 const canIsolateFrame = Boolean(chromium && Number(chromium.version) >= 137 && !/iPhone|iPad/.test(navigator.userAgent));
 const needsOtherBrowser = gamePage.has_threads && !canIsolateFrame;
-// The note names the browser that can't, so players know why it's there. Every browser on iPhone is Safari inside.
-const browserName = /iPhone/.test(navigator.userAgent) ? "on iPhone" : /iPad/.test(navigator.userAgent) ? "on iPad" : /Firefox\//.test(navigator.userAgent) ? "in Firefox" : !chromium && /Safari\//.test(navigator.userAgent) ? "in Safari" : "in this browser";
-if (needsOtherBrowser) deviceNotes.push("This game doesn't work " + browserName + ". Play it in Chrome or Edge on a computer or Android.");
+if (needsOtherBrowser) deviceNotes.push("This game needs Chrome or Edge on a computer or Android.");
 if (DEVICES.length && !DEVICES.includes(mine)) deviceNotes.push("Made for " + DEVICES.map((d) => d + "s").join(" and ") + ". It may not work well on this " + mine + ".");
 // Controls and screen only come up when they don't fit this device.
 const CONTROLS = gamePage.controls;
@@ -1044,7 +1046,9 @@ const SCREEN = gamePage.screen_orientation;
 if (coarse && (SCREEN === "landscape" || SCREEN === "portrait")) deviceNotes.push(SCREEN === "landscape" ? "Best in landscape." : "Best in portrait.");
 if (deviceNotes.length) {
   const note = document.getElementById("device-note");
-  note.textContent = deviceNotes.join(" ");
+  note.querySelector("span").textContent = deviceNotes.join(" ");
+  // The warning icon only when this browser can't start the game at all.
+  note.classList.toggle("is-warning", needsOtherBrowser);
   note.hidden = false;
   if (needsOtherBrowser || (DEVICES.length && !DEVICES.includes(mine))) document.querySelector("#play span").textContent = "Play anyway";
 }
