@@ -414,7 +414,9 @@ canvas.backdrop.is-shown { opacity: 1; }
 @media (max-width: 1100px) { .home { grid-template-columns: 340px minmax(0, 1fr); } .home-head h1 { font: var(--type-heading); } }
 @media (max-width: 760px) {
   .home { display: block; --stage-gap: calc(2 * var(--pad-pane) + env(safe-area-inset-bottom, 0px)); }
-  .home-pane { position: relative; top: auto; }
+  /* The card is as wide as the screen, but on a screen nearly as wide as tall only as wide as leaves about a third of it for the world
+     above (its cover grows with it, 9 wide to 5 tall, the rest of it about 110px), centered. */
+  .home-pane { position: relative; top: auto; width: min(100%, max(280px, (0.65 * (100svh - var(--header-room)) - 110px) * 1.78)); margin-inline: auto; }
   .is-pane-open.home-pane { margin-top: calc(-1 * var(--more-h, 0px)); }
   .home-description { display: none; }
   .home-row-head > .steps { display: none; }
