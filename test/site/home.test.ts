@@ -42,6 +42,8 @@ beforeAll(async () => {
   const three = await env.DB.prepare("SELECT id FROM games WHERE slug = 'home-three'").first<{ id: string }>();
   await env.DB.prepare("INSERT INTO game_shaders (id, game_id, screen, size_bytes, review_status, created_at_ms) VALUES ('shader-home-three', ?, 'wide', 10, 'approved', ?)").bind(three!.id, now).run();
   await setBackground(env.DB, three!.id, "wide", "shader", null, "shader-home-three");
+  // The shader's tone was measured when the check drew it; the picture's wasn't (one kept before tones were).
+  await env.DB.prepare("UPDATE game_shaders SET average_color = '#101828', is_glass_smoked = 1, glass_tint_pct = 46 WHERE id = 'shader-home-three'").run();
 });
 
 describe("the home page", () => {
@@ -90,6 +92,21 @@ describe("the home page", () => {
     expect(new URL(shader.frameUrl).origin).not.toBe(SITE);
     expect(shader.frameUrl).toContain("/_zaisma/background?screen=wide&shader=shader-home-three");
     expect(shader.stillUrl).toBe(`${SITE}/shaders/shader-home-three/still.png`);
+  });
+
+  it("sends a background's measured tone, so the page can open on its color and glass before it loads", async () => {
+    const { text, data } = await homePage();
+    const bySlug = Object.fromEntries(data.games.map((game) => [game.slug, game]));
+    expect((bySlug["home-three"]!.background as { wide: { tone: unknown } }).wide.tone).toEqual({ averageColor: "#101828", isGlassSmoked: true, glassTint: "rgba(13, 18, 26, 0.46)" });
+    expect((bySlug["home-two"]!.background as { wide: { tone: unknown } }).wide.tone).toBeNull();
+    // The opening script, in the head before the first paint, gets every game's slug, the guest picks and the tones there are.
+    const head = text.slice(0, text.indexOf("</head>"));
+    const opening = JSON.parse(head.match(/<script type="application\/json" id="home-opening">([\s\S]*?)<\/script>/)![1]!);
+    expect(opening.slugs).toContain("home-one");
+    expect(opening.guest_picks).toEqual(data.guest_picks);
+    expect(Object.keys(opening.tones)).toEqual(["home-three"]);
+    expect(opening.tones["home-three"].wide.isGlassSmoked).toBe(true);
+    expect(head.indexOf('id="home-opening"')).toBeLessThan(head.search(/<script src="\/js\/home-opening\.[0-9a-f]{16}\.js"><\/script>/));
   });
 
   it("keeps the games' owners and IDs out of what the browser gets", async () => {

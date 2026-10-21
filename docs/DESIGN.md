@@ -71,7 +71,7 @@ One glass, defined once in `foundations.ts`, at any size from a button's face to
 
 - **A slab** (`class="glass"`): a tint, the page's hue, a sheen brightest at the top left, a blur and saturation of what's behind.
 - **The drawn rim** (`data-glass`, with `data-glass-corners`): `GLASS_SCRIPT` draws an `svg.edge` sized to the slab: a dark hairline, a polished edge, a bevel band and bright cut facets.
-- **Adaptive:** light glass over light things, smoked glass over dark ones, and the words switch with it. The faintest words keep 4.5:1 and the main words 6:1 against the harshest quarter of what's behind. The backdrop is measured as a whole, once (a game's from its still), and every piece of glass over it takes the same glass, so a game's glass never changes with a frame of its shader and no pane picks its own.
+- **Adaptive:** light glass over light things, smoked glass over dark ones, and the words switch with it. The faintest words keep 4.5:1 and the main words 6:1 against the harshest quarter of what's behind. The backdrop is measured as a whole, once, and every piece of glass over it takes the same glass, so a game's glass never changes with a frame of its shader and no pane picks its own. A game's background is measured when it's added (a picture) or checked (a shader's still) and keeps its tone, its average color and its glass (`apps/site/src/background-tone.ts`), so the home opens on the game's color with its glass already right.
 - **The hue** (`--glass-hue`): a studio's color can tint every piece of glass under where it's set; glass tinted for a brand keeps its own color.
 - **A component only sets the glass's variables** (its tint, a layer); it never paints glass of its own. `test/site/design.test.ts` checks it.
 

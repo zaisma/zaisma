@@ -882,6 +882,10 @@ export interface GameImage {
   listing_reason: string | null;
   /** When a person cleared it: the listing check leaves it alone after. */
   cleared_at_ms: number | null;
+  /** Its tone, for a background (0116): its average color (#RRGGBB), whether the glass over it is smoked, and how strong the glass's tint is; NULL until measured. */
+  average_color: string | null;
+  is_glass_smoked: number | null;
+  glass_tint_pct: number | null;
   created_at_ms: number;
 }
 
@@ -982,8 +986,8 @@ export function sniffImage(bytes: Uint8Array): { type: "image/png" | "image/jpeg
   return null;
 }
 
-export async function addImage(database: D1Database, image: Omit<GameImage, "review_status" | "review_reason" | "listing_reason" | "cleared_at_ms" | "created_at_ms">): Promise<GameImage> {
-  const row: GameImage = { ...image, review_status: "pending", review_reason: null, listing_reason: null, cleared_at_ms: null, created_at_ms: now() };
+export async function addImage(database: D1Database, image: Omit<GameImage, "review_status" | "review_reason" | "listing_reason" | "cleared_at_ms" | "created_at_ms" | keyof BackgroundTone>): Promise<GameImage> {
+  const row: GameImage = { ...image, review_status: "pending", review_reason: null, listing_reason: null, cleared_at_ms: null, average_color: null, is_glass_smoked: null, glass_tint_pct: null, created_at_ms: now() };
   await database
     .prepare("INSERT INTO game_images (id, game_id, kind, content_type, width_px, height_px, size_bytes, review_status, created_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
     .bind(row.id, row.game_id, row.kind, row.content_type, row.width_px, row.height_px, row.size_bytes, row.review_status, row.created_at_ms)
@@ -1070,6 +1074,10 @@ export interface GameShader {
   /** The most flashes the check counted in any one second; NULL until it ran. */
   flash_count: number | null;
   checked_at_ms: number | null;
+  /** Its tone, for a background (0116): its average color (#RRGGBB), whether the glass over it is smoked, and how strong the glass's tint is; NULL until measured. */
+  average_color: string | null;
+  is_glass_smoked: number | null;
+  glass_tint_pct: number | null;
   created_at_ms: number;
 }
 
@@ -1149,7 +1157,7 @@ export function wrapShader(source: string): string {
 export const SHADER_HEAD = "#ifdef GL_FRAGMENT_PRECISION_HIGH\nprecision highp float;\n#else\nprecision mediump float;\n#endif\nuniform vec3 iResolution;\nuniform float iTime;\n";
 
 export async function addShader(database: D1Database, shader: Pick<GameShader, "id" | "game_id" | "screen" | "size_bytes">): Promise<GameShader> {
-  const row: GameShader = { ...shader, review_status: "pending", review_reason: null, check_frame_ms: null, flash_count: null, checked_at_ms: null, created_at_ms: now() };
+  const row: GameShader = { ...shader, review_status: "pending", review_reason: null, check_frame_ms: null, flash_count: null, checked_at_ms: null, average_color: null, is_glass_smoked: null, glass_tint_pct: null, created_at_ms: now() };
   await database.prepare("INSERT INTO game_shaders (id, game_id, screen, size_bytes, review_status, created_at_ms) VALUES (?, ?, ?, ?, ?, ?)").bind(row.id, row.game_id, row.screen, row.size_bytes, row.review_status, row.created_at_ms).run();
   return row;
 }
@@ -1182,6 +1190,18 @@ export async function settleShader(database: D1Database, shader: Pick<GameShader
     .prepare("UPDATE game_shaders SET review_status = ?, review_reason = ?, check_frame_ms = ?, flash_count = ?, checked_at_ms = ? WHERE id = ?")
     .bind(reviewStatus, rejectedReason ? JSON.stringify(rejectedReason) : null, checkFrameMs, flashCount, now(), shader.id)
     .run();
+}
+
+/** A background's tone, as its picture's or shader's row keeps it. */
+export interface BackgroundTone {
+  average_color: string;
+  is_glass_smoked: number;
+  glass_tint_pct: number;
+}
+
+/** Keeps a background picture's or shader's tone, measured from the picture or the shader's still. */
+export async function setBackgroundTone(database: D1Database, table: "game_images" | "game_shaders", id: string, tone: BackgroundTone): Promise<void> {
+  await database.prepare(`UPDATE ${table} SET average_color = ?, is_glass_smoked = ?, glass_tint_pct = ? WHERE id = ?`).bind(tone.average_color, tone.is_glass_smoked, tone.glass_tint_pct, id).run();
 }
 
 /** What a screen shows without a row: Zaisma's own on wide; phones follow wide. */

@@ -1,16 +1,19 @@
 import { AGE_BAND_FLOOR_YEARS, KEPT_PLAYED_GAME_COUNT, SHOWN_IN_LISTS_SQL, gameBySlug, mergePlayed, readPlayModes, recentlyPlayed, recordPlayed, type Account, type Game, type MultiplayerMode } from "@zaisma/core";
 import { isProtectionOfferDue, markProtectionOffered, protectAccountWindow } from "./account-protection.ts";
 import { currentSession } from "./auth.ts";
+import type { ShownTone } from "./background-tone.ts";
 import type { Env } from "./env.ts";
 import { backgroundsOfGames, type ShownBackground } from "./backgrounds.ts";
 import { cutButton, runButton, textButton, textLink } from "./components/actions.ts";
 import { glanceFacts } from "./components/data.ts";
 import { glassPane, icon, tag } from "./components/foundations.ts";
+import { LIGHT_GLASS, SMOKED_GLASS } from "./components/tokens.ts";
 import { rowArrows } from "./components/navigation.ts";
 import { banner, gameCover } from "./components/panes.ts";
 import { tabSwitch } from "./components/switch.ts";
 import { esc, html, layout, pageData, playerLine, raw, scriptTags, styleTags, type Raw } from "./html.ts";
-import { HOME_SCRIPT } from "./home-script.ts";
+import { HOME_OPENING_SCRIPT, HOME_SCRIPT } from "./home-script.ts";
+import { pageScriptPath } from "./page-scripts.ts";
 import { pageStyle } from "./page-styles.ts";
 import { MINIMUM_PLAYING_NOW_PLAYER_COUNT, playingNowCounts, shelfPlayers } from "./plays.ts";
 import { viewerOf } from "./viewer.ts";
@@ -242,7 +245,8 @@ ${fresh.length ? row("new", "New", "new", fresh) : ""}
     isRebuilt: true,
     // Play opens the game's page in a frame of the home.
     frames: ["'self'"],
-    head: styleTags(HOME_STYLE),
+    // The opening game is chosen before the first paint, so the page opens on its color and glass (home-script.ts's HOME_OPENING_SCRIPT).
+    head: html`${first ? html`${pageData("home-opening", { slugs: games.map((game) => game.slug), guest_picks: guestPicks, tones: openingTones(games) })}<script src="${pageScriptPath(HOME_OPENING_SCRIPT)}"></script>` : ""}${styleTags(HOME_STYLE)}`,
     body: html`${body}
 ${isProtectionOffered ? protectAccountWindow() : ""}
 ${pageData("home-data", {
@@ -256,6 +260,14 @@ ${pageData("home-data", {
   });
   for (const cookie of viewer.cookies) response.headers.append("Set-Cookie", cookie);
   return response;
+}
+
+/** Each game's measured tone on each screen, for the games whose background has one. */
+function openingTones(games: ShowGame[]): Record<string, { wide: ShownTone | null; phone: ShownTone | null }> {
+  const toneOf = (background: ShownBackground) => (background.source === "zaisma" ? null : background.tone);
+  return Object.fromEntries(
+    games.flatMap((game) => (game.background && (toneOf(game.background.wide) || toneOf(game.background.phone)) ? [[game.slug, { wide: toneOf(game.background.wide), phone: toneOf(game.background.phone) }]] : [])),
+  );
 }
 
 /**
@@ -315,6 +327,11 @@ export function playable(game: Game): boolean {
  * screen with its background behind the glass; the pane holds its words and Play, the shelf below holds the rows.
  */
 const HOME_STYLE = pageStyle("home", () => `
+/* The opening game's color and glass, before its background has loaded (home-script.ts's HOME_OPENING_SCRIPT): the same glass the
+   backdrop script then gives every pane, so nothing turns from light to dark as it arrives. */
+html[data-home-start][style*="--home-tone"] body { background-color: var(--home-tone); }
+html[data-home-glass="light"] [data-glass]:not([data-cut-line]) { ${LIGHT_GLASS} --glass-tint: var(--home-glass-tint); }
+html[data-home-glass="smoked"] [data-glass]:not([data-cut-line]) { ${SMOKED_GLASS} --glass-tint: var(--home-glass-tint); }
 .home { display: grid; grid-template-columns: 390px minmax(0, 1fr); column-gap: var(--gap-block-block); align-items: start; }
 /* The window: the world, clear, above the pane and the shelf, which come up over it as the page scrolls. */
 .home-window { grid-column: 1 / -1; grid-row: 1; height: max(300px, calc(100svh - var(--header-room) - 200px)); }

@@ -18,6 +18,35 @@ import { pageScript } from "./page-scripts.ts";
  * /g/<slug>, and Back (the browser's, or the bar's Zaisma button, which the game page says through postMessage) takes the frame
  * away and leaves the home as it was. The data it reads comes in the page's home-data block.
  */
+/**
+ * Before the first paint, in the page's <head>: which game the home opens on (the one this device played last, then the one it was on
+ * before a Play, then one of Popular's top 8 drawn at random), and, when that game's background has a measured tone, the page's color
+ * and glass from it (html[data-home-glass], --home-tone, --home-glass-tint), so the page never opens light and then turns dark. The
+ * home's script reads the choice from data-home-start. Its data is the home-opening block just before it.
+ */
+export const HOME_OPENING_SCRIPT = pageScript("home-opening", String.raw`(() => {
+const DATA = JSON.parse(document.getElementById("home-opening").textContent), root = document.documentElement;
+const known = new Set(DATA.slugs);
+let slug = "";
+try {
+  const played = JSON.parse(localStorage.getItem("zaisma:played") || "[]").filter((entry) => known.has(entry.slug));
+  played.sort((a, b) => (b.played_at_ms ?? b.at) - (a.played_at_ms ?? a.at));
+  if (played.length) slug = played[0].slug;
+} catch {}
+if (!slug) { try { const remembered = sessionStorage.getItem("zaisma:home-focus") || ""; if (known.has(remembered)) slug = remembered; } catch {} }
+if (!slug) {
+  const picks = DATA.guest_picks.filter((each) => known.has(each)), pool = picks.length ? picks : DATA.slugs.slice(0, 8);
+  slug = pool[crypto.getRandomValues(new Uint32Array(1))[0] % pool.length] || "";
+}
+root.dataset.homeStart = slug;
+const tones = DATA.tones[slug], tone = tones && (matchMedia("(max-width: 760px)").matches ? tones.phone : tones.wide);
+if (tone) {
+  root.dataset.homeGlass = tone.isGlassSmoked ? "smoked" : "light";
+  root.style.setProperty("--home-tone", tone.averageColor);
+  root.style.setProperty("--home-glass-tint", tone.glassTint);
+}
+})();`);
+
 export const HOME_SCRIPT = pageScript("home", String.raw`(() => {
 const DATA = JSON.parse(document.getElementById("home-data").textContent);
 const GAMES = DATA.games;
@@ -109,6 +138,8 @@ function layerFor(background) {
   const layer = background.source === "image" ? make("img", "backdrop home-world") : make("iframe", "backdrop home-world");
   layer.setAttribute("aria-hidden", "true");
   layer.setAttribute("data-adapts-glass", "");
+  // Its measured tone says its glass, so the backdrop script needn't measure it (backgrounds.ts's backgroundMarkup does the same).
+  if (background.tone) { layer.setAttribute("data-glass-kind", background.tone.isGlassSmoked ? "smoked" : "light"); layer.setAttribute("data-glass-tint", background.tone.glassTint); }
   if (background.source === "image") {
     layer.setAttribute("data-backdrop", "picture"); layer.alt = ""; layer.decoding = "async"; layer.src = background.imageUrl;
   } else {
@@ -133,7 +164,9 @@ function showWorld(slug, isInstant) {
   if (game.glass_tint_color) root.style.setProperty("--glass-hue", game.glass_tint_color); else root.style.removeProperty("--glass-hue");
   if (key === worldKey) return;
   worldKey = key;
-  // The page opens on its plain color and the first background fades in over it, Zaisma's or the game's, so neither shows for a frame and is swapped.
+  // The page opens on the opening game's color (or its own plain one) and the first background fades in over it, Zaisma's or the game's,
+  // so neither shows for a frame and is swapped. After that the glass follows each background the backdrop script shows.
+  if (!isFirst) { delete root.dataset.homeGlass; root.style.removeProperty("--home-tone"); root.style.removeProperty("--home-glass-tint"); }
   const fadeMs = isReduced || (isInstant && !isFirst) ? 0 : 500;
   lastFadeMs = fadeMs;
   if (background.source === "zaisma") {
@@ -334,19 +367,9 @@ if (history.state && history.state.zaismaPlaying) history.replaceState(null, "",
 /* ---- Starting up ---- */
 const guest = $("home-guest");
 if (guest && !isSignedIn) guest.hidden = false;
-function startSlug() {
-  const list = playedList();
-  if (list.length) return list[0].slug;
-  let remembered = "";
-  try { remembered = sessionStorage.getItem(RETURN_KEY) || ""; } catch {}
-  if (bySlug[remembered]) return remembered;
-  const picks = DATA.guest_picks.filter((slug) => bySlug[slug]);
-  const pool = picks.length ? picks : GAMES.slice(0, 8).map((game) => game.slug);
-  const draw = crypto.getRandomValues(new Uint32Array(1))[0];
-  return pool[draw % pool.length];
-}
 fillContinue();
-setFocus(startSlug());
+// The opening script chose it in the page's head, before the first paint.
+setFocus(bySlug[root.dataset.homeStart] ? root.dataset.homeStart : GAMES[0].slug);
 document.body.classList.add("is-home-ready");
 if (isSignedIn) {
   fetch("/api/me/played").then((response) => (response.ok ? response.json() : null)).then((answer) => {

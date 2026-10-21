@@ -107,9 +107,10 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     if (pick.isSmoked) el.removeAttribute("data-theme-choice"); else el.setAttribute("data-theme-choice", "light");
     el.style.setProperty("--glass-tint", pick.tint);
   }
-  function showGlass(layer, colors) {
-    var host = layer.canvas.parentElement; if (!colors.length || !host) return;
-    host.shownGlass = pickGlass(colors); isListStale = true;
+  function showGlass(layer, colors) { if (colors.length) showPick(layer, pickGlass(colors)); }
+  function showPick(layer, pick) {
+    var host = layer.canvas.parentElement; if (!host) return;
+    host.shownGlass = pick; isListStale = true;
     host.querySelectorAll("[data-glass]:not([data-cut-line])").forEach(function (el) { if (hostOf(el) === host) setGlass(el, host.shownGlass); });
   }
   function sample(pixels) {
@@ -248,6 +249,9 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     if (kind === "frame") { layer.onMessage = function (event) { if (event.source === el.contentWindow && event.data && event.data.zaismaBackground) { layer.isTold = false; isPlaceStale = true; } }; window.addEventListener("message", layer.onMessage); }
     // The still the glass is measured from: read again whenever the page points it at another (the dashboard's preview does).
     function loadStill() {
+      // A background whose tone was measured when it was added says its glass (background-tone.ts): nothing to measure here.
+      var glassKind = el.getAttribute("data-glass-kind");
+      if (el.hasAttribute("data-adapts-glass") && glassKind) { layer.isGlassAdapted = true; showPick(layer, { isSmoked: glassKind === "smoked", tint: el.getAttribute("data-glass-tint") || "" }); return; }
       var stillUrl = el.getAttribute("data-backdrop-still") || (kind === "picture" ? el.currentSrc || el.src : "");
       if (!el.hasAttribute("data-adapts-glass") || !stillUrl) return;
       var picture = new Image();
@@ -255,7 +259,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
       picture.src = stillUrl;
     }
     loadStill();
-    new MutationObserver(loadStill).observe(el, { attributes: true, attributeFilter: ["data-backdrop-still", "src"] });
+    new MutationObserver(loadStill).observe(el, { attributes: true, attributeFilter: ["data-backdrop-still", "src", "data-glass-kind"] });
     if (window.IntersectionObserver) new IntersectionObserver(function (entries) { layer.isInView = entries[entries.length - 1].isIntersecting; }).observe(el);
     if (!running) { running = true; requestAnimationFrame(frame); }
   }
