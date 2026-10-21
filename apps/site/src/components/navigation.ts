@@ -1,0 +1,550 @@
+import { html, raw, type Raw } from "../html.ts";
+import { pageScript } from "../page-scripts.ts";
+import { component } from "./component.ts";
+import { CUT_LINE, EDGE, glassPane, icon, logo, railMarkup, type IconName } from "./foundations.ts";
+import { cutButton, runButton, textLink } from "./actions.ts";
+import { searchField, tabSwitch, type SearchFieldOptions, type SwitchTab } from "./inputs.ts";
+import { STAND_IN_COVERS, dropdown, type DropdownItem } from "./panes.ts";
+import { pictureFrame } from "./data.ts";
+
+/*
+ * Navigation: the header (a floating slab of glass with the tabs, search and you), the footer, Zaisma's own
+ * scrollbar and a row's arrows. From the header draft (ops docs/drafts/look-and-voice/header.html) and the home draft.
+ */
+
+export type HeaderTab = "home" | "your-games" | "developer" | "forum";
+
+export interface HeaderOptions {
+  /** The tab of the page you're on, or none (like sign-in). */
+  current: HeaderTab | null;
+  /** The page's own search; without it the header has none. */
+  search?: Omit<SearchFieldOptions, "state">;
+  /** The signed-in account, or none: then the header says Sign in. */
+  account?: { username: string; pictureMarkup: Raw } | null;
+  /** The dashboard and the forum: the Developer and Forum tabs open out of the end of the tabs. */
+  isOnDeveloperPage: boolean;
+  /** Sign-in's header: only the logo, straight on the scene, with a halo that keeps it legible. */
+  isLogoOnly?: boolean;
+  /** Where Your games is, once its page exists: the tab shows for a signed-in account then. */
+  yourGamesHref?: string;
+  /** Fixed slim, as after scrolling: the gallery's state. */
+  isCompact?: boolean;
+  /** The account menu starts open: the gallery's state. */
+  isMenuOpen?: boolean;
+  /** Unique on the page, for the menu's id. Defaults to "top". */
+  id?: string;
+}
+
+const tab = (label: string, href: string, isCurrent: boolean, isFoldable = false, isOpen = true): SwitchTab => ({ label, href, isCurrent, isFoldable, isFolded: isFoldable && !isOpen });
+
+/** The header: a floating slab of glass, cut corners and a drawn rim. Orange only on what you act on. */
+export function header(options: HeaderOptions): Raw {
+  const id = options.id ?? "top";
+  const account = options.account ?? null;
+  const wordmark = logo("wordmark");
+  if (options.isLogoOnly) return html`<header class="top is-logo-only" id="${id}">${wordmark}</header>`;
+  const isOpen = options.isOnDeveloperPage;
+  const menuId = `${id}-menu`;
+  const menuItems: DropdownItem[] = account
+    ? [
+        { label: "Your profile", icon: "person", href: `/@${account.username}` },
+        { label: "Friends", icon: "friends", href: "/friends" },
+        { label: "Developer", icon: "code", href: "/dashboard" },
+        { label: "Settings", icon: "gear", href: "/account" },
+        { kind: "rule" },
+        { label: "Sign out", icon: "sign-out", action: "/signout" },
+      ]
+    : [];
+  return html`<header class="top glass${options.isCompact ? " is-compact" : ""}" id="${id}" data-compacts data-glass data-glass-corners="20 14 20 14"${options.isCompact ? raw(" data-stays-compact") : ""}>${EDGE}
+  ${wordmark}
+  <nav class="nav" aria-label="Main">${tabSwitch({ label: "Where you are", switchSize: "big", isFramed: true, tabs: [tab("Home", "/", options.current === "home"), ...(account && options.yourGamesHref ? [tab("Your games", options.yourGamesHref, options.current === "your-games")] : []), tab("Developer", account ? "/dashboard" : "/developers", options.current === "developer", true, isOpen), tab("Forum", "/forum", options.current === "forum", true, isOpen)] })}</nav>
+  ${options.search ? html`${searchField(options.search)}${cutButton(options.search.label, { type: "button", icon: "search", isLabelHidden: true, isSmall: true, isExpanded: false })}` : ""}
+  <div class="end">${
+    account
+      ? accountButton({ username: account.username, pictureMarkup: account.pictureMarkup, menuId, isMenuOpen: options.isMenuOpen })
+      : runButton("Sign in", { href: "/signin" })
+  }</div>
+</header>${account ? dropdown({ id: menuId, label: "Your account", head: { title: account.username, note: "Online" }, items: menuItems, isOpen: options.isMenuOpen }) : ""}`;
+}
+
+export interface AccountButtonOptions {
+  username: string;
+  /** Your picture: a Picture frame (data.ts), online. */
+  pictureMarkup: Raw;
+  /** The id of the account menu it opens. */
+  menuId: string;
+  isMenuOpen?: boolean;
+  state?: "is-focused";
+}
+
+/** You, signed in: your picture in its frame with your name and an arrow; it opens the account menu, a pane of the same glass. */
+export function accountButton(options: AccountButtonOptions): Raw {
+  return html`<button type="button" class="me${options.state ? ` ${options.state}` : ""}" aria-expanded="${options.isMenuOpen ? "true" : "false"}" aria-controls="${options.menuId}" aria-label="Your account, ${options.username}">${options.pictureMarkup}<span class="name">${options.username}</span>${icon("chevron-down")}</button>`;
+}
+
+const HEADER_STYLES = `
+/* The header: a floating slab of the sign-in's glass, cut corners and a drawn rim, over the page. Orange only on what you act on.
+   It's adaptive glass: --glass-top sets its tint and thickness, and smoked glass (dark, or .smoke) gives it light words. */
+.top {
+  position: fixed; z-index: 10; top: var(--pad-pane); left: 50%; transform: translateX(-50%);
+  width: min(1240px, calc(100% - 2 * var(--pad-pane))); height: 68px;
+  display: flex; align-items: center; gap: 0; padding: 0 var(--pad-inner-pane);
+  --glass-tint: var(--glass-top);
+  clip-path: polygon(0 20px, 20px 0, calc(100% - 14px) 0, 100% 14px, 100% calc(100% - 20px), calc(100% - 20px) 100%, 14px 100%, 0 calc(100% - 14px));
+  transition: var(--glass-transition), height 0.45s cubic-bezier(.2,.8,.2,1), top 0.45s cubic-bezier(.2,.8,.2,1), transform 0.45s cubic-bezier(.4,0,.2,1);
+}
+.top.is-compact { height: 58px; top: 8px; }
+.top > :not(.edge) { position: relative; z-index: 3; }
+.top .find, .top .find input, .top .run, .top .me { transition: height 0.45s cubic-bezier(.2,.8,.2,1), width 0.45s cubic-bezier(.2,.8,.2,1), font-size 0.45s; }
+/* Your picture is glass, so its changes start with the glass's. */
+.top .frame { transition: var(--glass-transition), height 0.45s cubic-bezier(.2,.8,.2,1), width 0.45s cubic-bezier(.2,.8,.2,1); }
+.top.is-compact .nav { --switch-height: 38px; }
+.top.is-compact .find, .top.is-compact .run, .top.is-compact .me { height: 38px; }
+.top.is-compact .run { font-size: 15px; }
+.top.is-compact .me .frame { --frame: 32px; }
+
+/* The header's gap is a row of controls' (their boxes overlap by the slant); the logo is words beside them. */
+.top > .logo { margin-right: var(--gap-block-block); }
+/* Search beside Sign in is a row of two controls, so they slant toward each other; beside your account's picture it's words beside it. */
+.top .find:has(~ .end > .run-wrap) { margin-inline-end: var(--gap-control-row-boxes); }
+.top .find:has(~ .end > .me) { margin-inline-end: var(--gap-words-control); }
+.top.is-compact .logo { --logo-height: 23px; }
+
+/* Where you are: a framed Switch (inputs.ts), its tabs at their own widths; the header only places it and sets its height as it slims. */
+.nav { display: flex; flex: none; min-width: 0; }
+.nav > .switch-frame { flex: 1; }
+
+/* Search sits after the tabs, pushed to the end. */
+.top .find { margin-left: auto; }
+.end { display: flex; align-items: center; flex: none; }
+.top .find ~ .end { margin-left: 0; }
+.top .nav + .end { margin-left: auto; }
+
+
+/* Phones: one slab in two rows: the logo, a search button and you on top; where you are below. */
+/* The phone's search button: a small Cut button, icon only, that swaps the tabs for the field. */
+.top > .find + .cut-btn { display: none; }
+@media (max-width: 760px) {
+  /* The header floats on phones too: a slab of glass inset from every edge (below the notch), never touching the screen's sides. */
+  .top { top: calc(var(--pad-pane) + env(safe-area-inset-top, 0px)); width: calc(100% - 2 * var(--pad-pane)); height: auto; flex-wrap: wrap; gap: var(--gap-control-stack) 0; padding: var(--pad-inner-pane); }
+  /* Compact keeps the same inset around the tabs as at rest; only the rows themselves get shorter. */
+  .top.is-compact { top: calc(6px + env(safe-area-inset-top, 0px)); height: auto; padding: calc(var(--pad-inner-pane) * 2 / 3); }
+  .top > .logo { margin-left: 6px; }
+  .top > .logo, .top.is-compact > .logo { --logo-height: 22px; }
+  .top .find { display: none; order: 5; flex-basis: 100%; max-width: none; margin: 0; }
+  .top.searching .find { display: block; }
+  .top.searching .nav { display: none; }
+  .top > .find + .cut-btn { display: inline-flex; margin-left: auto; margin-right: var(--gap-words-control); }
+  .top .nav + .end { margin-left: auto; }
+  .top .nav { order: 4; flex-basis: 100%; --switch-height: 42px; }
+  /* Signed out, the header's Sign in is the compact runner, so it shares the first row with Zaisma and search on the narrowest phones. */
+  .top .end .run { height: 36px; padding: 0 16px 0 14px; font-size: 14px; gap: 6px; }
+  .top .me .name { display: none; }
+}
+
+/* Sign-in's header: only the logo, straight on the scene. A soft halo keeps it legible over anything: light by day, dark at night. */
+.top.is-logo-only { position: absolute; left: max(var(--pad-pane), calc((100% - 1240px) / 2)); transform: none; width: auto; height: 68px; padding: 0 var(--pad-inner-pane);
+  background: none; -webkit-backdrop-filter: none; backdrop-filter: none; clip-path: none; }
+.top.is-logo-only .logo { --logo-height: 30px; filter: var(--logo-halo); }
+@media (max-width: 760px) {
+  /* On a phone it sits level with the controls, and scrolls away with the page as the pane comes up. */
+  .top.is-logo-only { top: calc(var(--pad-pane) + env(safe-area-inset-top, 0px)); left: max(var(--pad-pane), env(safe-area-inset-left, 0px)); height: 44px; padding: 0; }
+  .top.is-logo-only .logo { margin-left: 0; }
+  .top.is-logo-only .logo { --logo-height: 26px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* The header's glass still changes as all glass does: only its movement stops. */
+  .top { transition: var(--glass-transition); }
+}
+`;
+
+/**
+ * The header's own behaviour: it slims once the page scrolls (the gallery's frames scroll a box of their own,
+ * [data-scroll-box]), the slab sits under the current page and a faint one follows the pointer, "/" jumps to search,
+ * and on a phone the search button swaps the tabs for the field. The menu is DROPDOWN_SCRIPT's.
+ */
+export const HEADER_SCRIPT = pageScript(
+  "header",
+  `(function () {
+  var phone = function () { return window.innerWidth <= 760; };
+  var headers = Array.prototype.slice.call(document.querySelectorAll("header.top:not(.is-logo-only)"));
+  headers.forEach(function (top) {
+    /* Once the page scrolls, the slab gets slimmer and everything in it shrinks to fit (COMPACT_SCRIPT, data-compacts). */
+
+    /* Where you are is a framed Switch, which moves its own slab (SWITCH_SCRIPT). */
+
+    /* Search: on a phone the search button swaps the row below for the field. */
+    var search = top.querySelector('.find input[type="search"]'), findOpen = top.querySelector(".find + .cut-btn");
+    top.openSearch = function () { if (!search) return; top.classList.add("searching"); if (findOpen) findOpen.setAttribute("aria-expanded", "true"); search.focus(); };
+    top.closeSearch = function () { top.classList.remove("searching"); if (findOpen) findOpen.setAttribute("aria-expanded", "false"); };
+    if (findOpen) findOpen.addEventListener("click", function () { if (top.classList.contains("searching")) top.closeSearch(); else top.openSearch(); });
+    if (search) search.addEventListener("blur", function () { if (phone() && !search.value) setTimeout(top.closeSearch, 120); });
+  });
+  /* "/" anywhere jumps to the header's search; Escape puts the phone's tabs back. */
+  document.addEventListener("keydown", function (event) {
+    var top = headers.filter(function (each) { return each.querySelector(".find") && each.offsetParent !== null; })[0];
+    if (!top) return;
+    if (event.key === "/" && !/^(input|textarea|select)$/i.test(event.target.tagName) && !event.target.isContentEditable) { event.preventDefault(); top.openSearch(); }
+    if (event.key === "Escape" && top.classList.contains("searching")) top.closeSearch();
+  });
+})();
+`,
+);
+
+/** The links at the foot of every page: what Zaisma is and its rules. */
+const FOOTER_LINKS: [string, string][] = [
+  ["For game developers", "/dashboard"], ["Forum", "/forum"], ["Source code", "https://github.com/zaisma/zaisma"], ["Content rules", "/legal/content-rules"],
+  ["Privacy", "/legal/privacy"], ["Security", "/legal/security"], ["Copyright (DMCA)", "/legal/dmca"], ["Defamation", "/legal/defamation"],
+];
+
+export function footer(): Raw {
+  return html`<footer class="foot">
+  ${logo("mark")}
+  <nav aria-label="More from Zaisma">${FOOTER_LINKS.map(([words, href]) => textLink(words, href, { isQuiet: true }))}</nav>
+  <p>Zaisma is open source, under the MIT license.</p>
+</footer>`;
+}
+
+/** Zaisma's own scrollbar, for a mouse or trackpad: "page" for the page, "box" for a box that scrolls (put it just after that box). */
+export function rail(scrollKind: "box" | "page"): Raw {
+  return railMarkup(scrollKind);
+}
+
+/**
+ * A scrollbar of Zaisma's own, for a mouse or trackpad: a slim glass thumb on a hairline at the right edge. It wakes
+ * while it moves and rests faintly otherwise. Drag the thumb, or press the line to jump; wheel, keys and touch
+ * scroll as always, and phones keep their own. It hides itself when there's nothing to scroll.
+ * The page's rail has a mark for each part of the page marked data-rail-mark="<its name>" (the home's rows):
+ * point at one for its name, click it to go there.
+ */
+export const RAIL_SCRIPT = `/* rail */(function () {
+  // Any box that scrolls up and down gets its rail by itself, so a new component never has to remember one. A box that
+  // hides its scrollbar on purpose (scrollbar-width: none) keeps it hidden. A text box or list box gets one too, laid over its own edge.
+  document.querySelectorAll("body *").forEach(function (box) {
+    var isControl = box.tagName === "TEXTAREA" || (box.tagName === "SELECT" && (box.multiple || box.size > 1));
+    if ((/^(SELECT|INPUT)$/.test(box.tagName) && !isControl) || (box.nextElementSibling && box.nextElementSibling.hasAttribute("data-rail"))) return;
+    var style = getComputedStyle(box);
+    if (!/^(auto|scroll)$/.test(style.overflowY) || style.scrollbarWidth === "none" || box.classList.contains("rail-thumb")) return;
+    var parent = box.parentElement; if (!parent || parent === document.body) return;
+    if (getComputedStyle(parent).position === "static") parent.style.position = "relative";
+    box.insertAdjacentHTML("afterend", '<div class="rail"' + (isControl ? " data-rail-follows" : "") + ' data-rail="box" aria-hidden="true"><div class="rail-line"></div><div class="rail-thumb glass"></div></div>');
+  });
+  document.querySelectorAll("[data-rail]").forEach(function (bar) {
+    var isPage = bar.getAttribute("data-rail") === "page", scroller = isPage ? null : bar.previousElementSibling;
+    if (!isPage && !scroller) return;
+    var line = bar.querySelector(".rail-line"), thumb = bar.querySelector(".rail-thumb");
+    if (isPage) document.documentElement.classList.add("own-scroll"); else scroller.classList.add("own-scroll");
+    bar.classList.add("is-on");
+    // The page's marks: one per marked part, sitting where the thumb's middle will be once that part is at the top.
+    var offset = function () { return parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop) || 90; };
+    var marks = !isPage ? [] : Array.prototype.map.call(document.querySelectorAll("[data-rail-mark]"), function (part) {
+      var mark = document.createElement("button"), name = document.createElement("span");
+      mark.type = "button"; mark.className = "rail-mark"; mark.tabIndex = -1; name.className = "tag glass"; name.textContent = part.getAttribute("data-rail-mark");
+      mark.appendChild(name); bar.appendChild(mark);
+      mark.addEventListener("click", function () { window.scrollTo({ top: part.getBoundingClientRect().top + window.scrollY - offset(), behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }); });
+      return { part: part, mark: mark };
+    });
+    function at() { return isPage ? window.scrollY : scroller.scrollTop; }
+    function to(y) { if (isPage) window.scrollTo(0, y); else scroller.scrollTop = y; }
+    var size = { track: 0, thumb: 0, max: 1 };
+    // The page's rail starts the gutter's width below the page's floating bar (data-rail-starts-below), following it as it tightens.
+    var above = isPage ? document.querySelector("[data-rail-starts-below]") : null, GUTTER_PX = 10;
+    function layout() {
+      if (above) bar.style.top = Math.round(above.getBoundingClientRect().bottom + GUTTER_PX) + "px";
+      // A text box isn't a glass pane with room around it: the rail is laid along the box's own right edge.
+      if (bar.hasAttribute("data-rail-follows")) {
+        bar.style.top = scroller.offsetTop + 8 + "px"; bar.style.bottom = "auto"; bar.style.height = Math.max(0, scroller.offsetHeight - 16) + "px";
+        bar.style.right = "auto"; bar.style.left = scroller.offsetLeft + scroller.offsetWidth - 22 + "px";
+      }
+      var whole = isPage ? document.documentElement.scrollHeight : scroller.scrollHeight, view = isPage ? window.innerHeight : scroller.clientHeight, max = whole - view;
+      bar.hidden = max <= 4; if (bar.hidden) return;
+      var track = bar.clientHeight, height = Math.max(36, Math.round(track * view / whole));
+      size = { track: track, thumb: height, max: max };
+      thumb.style.height = height + "px";
+      move();
+      marks.forEach(function (m) {
+        var shown = Boolean(m.part.offsetParent); m.mark.hidden = !shown; if (!shown) return;
+        var top = Math.max(0, Math.min(max, m.part.getBoundingClientRect().top + window.scrollY - offset()));
+        m.mark.style.top = ((track - height) * top / max + height / 2).toFixed(1) + "px";
+      });
+    }
+    // Scrolling only moves the thumb: the rail's size and its marks change only with the page's size (layout, above), so a scroll
+    // never reads the page's layout.
+    function move() { if (!bar.hidden) thumb.style.transform = "translateY(" + ((size.track - size.thumb) * Math.min(1, at() / size.max)).toFixed(1) + "px)"; }
+    var sleep = 0, queued = false;
+    function wake() { bar.classList.add("awake"); clearTimeout(sleep); sleep = setTimeout(function () { bar.classList.remove("awake"); }, 1100); }
+    (isPage ? window : scroller).addEventListener("scroll", function () { wake(); if (queued) return; queued = true; requestAnimationFrame(function () { queued = false; move(); }); }, { passive: true });
+    window.addEventListener("resize", layout);
+    if (window.ResizeObserver) { var watch = new ResizeObserver(layout); watch.observe(isPage ? document.body : scroller.firstElementChild || scroller); if (above) watch.observe(above); }
+    var drag = null;
+    function start(event, jump) {
+      event.preventDefault();
+      if (jump) { var y = event.clientY - bar.getBoundingClientRect().top - size.thumb / 2; to(Math.max(0, Math.min(1, y / (size.track - size.thumb))) * size.max); }
+      drag = { y: event.clientY, from: at() }; bar.classList.add("dragging");
+      try { bar.setPointerCapture(event.pointerId); } catch (error) {}
+    }
+    thumb.addEventListener("pointerdown", function (event) { start(event, false); });
+    line.addEventListener("pointerdown", function (event) { start(event, true); });
+    bar.addEventListener("pointermove", function (event) { if (drag) to(drag.from + (event.clientY - drag.y) * size.max / Math.max(1, size.track - size.thumb)); });
+    function end() { drag = null; bar.classList.remove("dragging"); }
+    bar.addEventListener("pointerup", end); bar.addEventListener("pointercancel", end);
+    layout(); wake();
+  });
+})();
+`;
+
+
+/** Arrows to scroll a row, for a mouse or trackpad: a cut well of two halves at the right of the row's heading. Touch screens swipe instead. */
+export function rowArrows(options: { rowName: string; trackId: string }): Raw {
+  const arrow = (way: "back" | "on") =>
+    cutButton(`Scroll ${options.rowName} ${way}`, { type: "button", icon: way === "back" ? "arrow-back" : "arrow-on", isLabelHidden: true, isInWell: true, controls: options.trackId });
+  return html`<div class="steps cut-carved" data-row-arrows data-cut-line="9">${CUT_LINE}${arrow("back")}${arrow("on")}</div>`;
+}
+
+/** A row's arrows scroll it by most of its width, lie flat at its ends, and hide when there's nothing to scroll; the row fades on a side with more (data-fades-sideways). */
+/**
+ * Scroll fades: every box that scrolls up and down, wherever it is and whatever is in it, fades its words out over its
+ * top and bottom edges while there's more to scroll that way, so nothing runs hard into the edge of its pane. Found by
+ * itself, like the rail, on every device; a stand-in page under a header example (data-scroll-box), a box with a fade of its own
+ * (data-own-fade, a birthday wheel) and form fields are left alone.
+ */
+export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
+  var FADE_PX = 28, boxes = [];
+  function sync(box) {
+    var top = Math.min(FADE_PX, box.scrollTop), bottom = Math.min(FADE_PX, box.scrollHeight - box.clientHeight - box.scrollTop);
+    box.style.setProperty("--fade-top", Math.max(0, top) + "px"); box.style.setProperty("--fade-bottom", Math.max(0, bottom) + "px");
+    // Masked only while there's something to fade: a mask on a box that doesn't scroll would only cost its repaints.
+    box.classList.toggle("is-fading", box.scrollHeight > box.clientHeight + 1);
+  }
+  function find() {
+    document.querySelectorAll("body *").forEach(function (box) {
+      if (box.classList.contains("scroll-fades") || /^(TEXTAREA|SELECT|INPUT)$/.test(box.tagName) || box.hasAttribute("data-scroll-box") || box.hasAttribute("data-own-fade")) return;
+      if (!/^(auto|scroll)$/.test(getComputedStyle(box).overflowY)) return;
+      box.classList.add("scroll-fades"); boxes.push(box); sync(box);
+      var queued = false;
+      box.addEventListener("scroll", function () { if (queued) return; queued = true; requestAnimationFrame(function () { queued = false; sync(box); }); }, { passive: true });
+      if (window.ResizeObserver) new ResizeObserver(function () { sync(box); }).observe(box);
+    });
+  }
+  find();
+  window.addEventListener("resize", function () { boxes.forEach(sync); });
+  // Rows that scroll sideways: they start on the one you're on, and fade over a side with more past it.
+  document.querySelectorAll("[data-fades-sideways]").forEach(function (row) {
+    var here = row.querySelector('[aria-current="page"], [aria-pressed="true"]');
+    if (here && row.scrollWidth > row.clientWidth) row.scrollLeft = Math.max(0, here.offsetLeft - (row.clientWidth - here.offsetWidth) / 2);
+    function ends() { row.classList.toggle("more-left", row.scrollLeft > 2); row.classList.toggle("more-right", row.scrollLeft + row.clientWidth < row.scrollWidth - 2); }
+    row.addEventListener("scroll", ends, { passive: true });
+    if (window.ResizeObserver) new ResizeObserver(ends).observe(row); else window.addEventListener("resize", ends);
+    ends();
+  });
+})();
+`;
+
+/**
+ * A bar that slims once the page scrolls ([data-compacts]: the header, the gallery's bar): it turns compact past COMPACT_AT_PX and
+ * roomy again only back at the very top, so it can't flip back and forth. Once a scroll has ended between the top and SETTLE_PX (and
+ * your finger is off the screen), whichever way you were going, the page glides back to the top and the roomy bar. A bar over a
+ * stand-in page (the gallery's header examples) follows that page's box, [data-scroll-box]; data-stays-compact keeps it compact.
+ */
+export const COMPACT_SCRIPT = `/* compact bars */(function () {
+  var COMPACT_AT_PX = 24, SETTLE_PX = 56, still = window.matchMedia("(prefers-reduced-motion: reduce)"), hasScrollEnd = "onscrollend" in window;
+  document.querySelectorAll("[data-compacts]").forEach(function (bar) {
+    if (bar.hasAttribute("data-stays-compact")) { bar.classList.add("is-compact"); return; }
+    var box = bar.parentElement && bar.parentElement.querySelector("[data-scroll-box]"), scroller = box || window, target = box || document.documentElement;
+    // The page doesn't shift itself to keep your place as the bar slims (scroll anchoring): that shift is what fought the glide.
+    target.style.overflowAnchor = "none";
+    function at() { return box ? box.scrollTop : window.scrollY; }
+    // Nothing glides while a finger is down.
+    var isTouching = false, timer = 0;
+    function sync() { var y = at(); if (y > COMPACT_AT_PX) bar.classList.add("is-compact"); else if (y <= 0) bar.classList.remove("is-compact"); }
+    function settle() {
+      if (isTouching) return;
+      var y = at();
+      if (y > 0 && y < SETTLE_PX) scroller.scrollTo({ top: 0, behavior: still.matches ? "auto" : "smooth" });
+    }
+    scroller.addEventListener("scroll", function () {
+      sync();
+      if (!hasScrollEnd) { clearTimeout(timer); timer = setTimeout(settle, 180); }
+    }, { passive: true });
+    if (hasScrollEnd) scroller.addEventListener("scrollend", settle);
+    window.addEventListener("touchstart", function () { isTouching = true; }, { passive: true });
+    window.addEventListener("touchend", function () { isTouching = false; if (!hasScrollEnd) { clearTimeout(timer); timer = setTimeout(settle, 180); } }, { passive: true });
+    window.addEventListener("touchcancel", function () { isTouching = false; }, { passive: true });
+    sync();
+  });
+})();
+`;
+
+export const ROW_SCRIPT = `/* rows */(function () {
+  var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  document.querySelectorAll("[data-row-arrows]").forEach(function (steps) {
+    var arrows = steps.querySelectorAll(".cut-btn"), back = arrows[0], on = arrows[1], track = document.getElementById(back.getAttribute("aria-controls"));
+    if (!track) return;
+    function ends() {
+      var more = track.scrollWidth - track.clientWidth, left = track.scrollLeft > 2, right = track.scrollLeft < more - 2;
+      back.disabled = !left; on.disabled = !right; steps.hidden = more <= 2;
+    }
+    function by(direction) { track.scrollBy({ left: direction * track.clientWidth * 0.8, behavior: reduce ? "auto" : "smooth" }); }
+    back.addEventListener("click", function () { by(-1); }); on.addEventListener("click", function () { by(1); });
+    track.addEventListener("scroll", ends, { passive: true });
+    if (window.ResizeObserver) new ResizeObserver(ends).observe(track); else window.addEventListener("resize", ends);
+    ends();
+  });
+})();
+`;
+
+const standInPage = html`<div class="stand-in-page">${["Continue playing", "Popular", "New"].map((rowName, rowIndex) => html`<section><h3>${rowName}</h3><div class="stand-in-row">${Object.values(STAND_IN_COVERS).slice(rowIndex * 2, rowIndex * 2 + 4)}</div></section>`)}</div>`;
+/** A header example: a small page of its own, cut like a pane, with the backdrop behind it and a stand-in page scrolling under the header (fixed things stay in the frame). */
+const headerFrame = (markup: Raw, isTall = false) => html`<div class="header-frame${isTall ? " tall" : ""}"><div class="backdrop is-framed" aria-hidden="true"></div>${markup}<div class="header-scroll" data-scroll-box>${standInPage}</div></div>`;
+const STAND_IN_ACCOUNT = { username: "emma_r", pictureMarkup: pictureFrame("emma_r", "md", { isOnline: true }) };
+const GAMES_SEARCH = { action: "#header", name: "search_text", searchText: "", placeholder: "Search games", label: "Search games" };
+
+component({
+  name: "Header",
+  slug: "header",
+  group: "navigation",
+  summary: "The top of every page: Zaisma, where you are, search when the page has one, and you. It floats as glass and slims once the page scrolls.",
+  styles: HEADER_STYLES,
+  render: header,
+  examples: [
+    { label: "Try it: scroll the page under it, point at its tabs, open the menu", isWide: true, markup: headerFrame(header({ id: "example-top-try", current: "home", search: GAMES_SEARCH, account: STAND_IN_ACCOUNT, isOnDeveloperPage: false, yourGamesHref: "#header" }), true) },
+    { label: "Signed out, on Home", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-out", current: "home", search: GAMES_SEARCH, account: null, isOnDeveloperPage: false })) },
+    { label: "Signed in, menu open", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-in", current: "home", search: GAMES_SEARCH, account: STAND_IN_ACCOUNT, isOnDeveloperPage: false, isMenuOpen: true, yourGamesHref: "#header" }), true) },
+    { label: "On the dashboard", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-dev", current: "developer", account: STAND_IN_ACCOUNT, isOnDeveloperPage: true, yourGamesHref: "#header" })) },
+    { label: "Compact, after scrolling", isWide: true, isStill: true, markup: headerFrame(header({ id: "example-top-compact", current: "home", search: GAMES_SEARCH, account: STAND_IN_ACCOUNT, isOnDeveloperPage: false, isCompact: true, yourGamesHref: "#header" })) },
+    { label: "Logo only, on sign-in", isWide: true, isStill: true, markup: html`<div class="header-frame logo-frame"><div class="backdrop is-framed" aria-hidden="true"></div>${header({ id: "example-top-logo", current: null, isOnDeveloperPage: false, isLogoOnly: true })}</div>` },
+  ],
+});
+
+component({
+  name: "Account button",
+  slug: "account-button",
+  group: "navigation",
+  summary: "You, at the header's end once you're signed in: your picture, online, with your name. It opens the account menu.",
+  styles: `
+/* Your picture in a cut frame, with your name and an arrow that turns as the menu opens. */
+.me { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px 0 4px; border: 0; background: none; cursor: pointer; font: 500 15px var(--display); color: var(--ink); }
+.me:focus-visible, .me.is-focused { outline: 2px solid var(--focus); outline-offset: 2px; }
+.me > .ico { width: 12px; height: 8px; stroke-width: 2.4; transition: transform 0.4s cubic-bezier(.2,.8,.2,1); }
+.me[aria-expanded="true"] > .ico { transform: rotate(180deg); }
+`,
+  render: accountButton,
+  examples: [
+    { label: "Rest", markup: accountButton({ ...STAND_IN_ACCOUNT, menuId: "example-me-menu" }) },
+    { label: "Menu open", markup: accountButton({ ...STAND_IN_ACCOUNT, menuId: "example-me-menu", isMenuOpen: true }), isStill: true },
+    { label: "Keyboard focus", markup: accountButton({ ...STAND_IN_ACCOUNT, menuId: "example-me-menu", state: "is-focused" }), isStill: true },
+  ],
+});
+
+component({
+  name: "Footer",
+  slug: "footer",
+  group: "navigation",
+  summary: "The end of every page: for game developers, the forum, the source and the rules.",
+  styles: `
+/* The foot, at the end of the page. */
+.foot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-block-block); margin-top: var(--gap-block-block); padding-top: var(--gap-block-block); border-top: var(--divider); color: var(--muted); font: var(--type-note); }
+.foot nav { display: flex; flex-wrap: wrap; gap: var(--gap-words-words); }
+.foot p { margin: 0 0 0 auto; }
+@media (max-width: 760px) { .foot p { margin: 0; } }
+`,
+  render: footer,
+  examples: [{ label: "On glass", isWide: true, markup: glassPane({ paneSize: "full", body: footer() }) }],
+});
+
+component({
+  name: "Rail",
+  slug: "rail",
+  group: "navigation",
+  summary: "Zaisma's own scrollbar, on every device: it rests faintly and wakes while things move. On a touch screen its thumb is a little wider and drags with a finger.",
+  styles: `
+/* Zaisma's own scrollbar, on every device: a hairline with a slim glass thumb that wakes while it moves.
+   In a box it runs down the inside of the box's right edge; for the page, down the page's right gutter. */
+.own-scroll { scrollbar-width: none; }
+.own-scroll::-webkit-scrollbar { display: none; }
+.rail { display: none; position: absolute; z-index: 6; right: 8px; top: 30px; bottom: 30px; width: 14px; opacity: 0.6; transition: opacity 0.35s; }
+.rail.is-on { display: block; }
+.glass > .rail { position: absolute; z-index: 6; }
+.rail[data-rail="page"] { position: fixed; z-index: 12; right: 0; top: 90px; bottom: 14px; }
+.rail[hidden] { display: none; }
+.rail.awake, .rail:hover, .rail.dragging { opacity: 1; }
+.rail-line { position: absolute; inset: 0; cursor: pointer; background: linear-gradient(90deg, transparent 6px, var(--rail-line) 6px, var(--rail-line) 7px, transparent 7px); }
+.rail-thumb { position: absolute; top: 0; left: 4px; width: 5px; cursor: grab; --glass-tint: var(--rail-thumb); box-shadow: inset 1px 0 0 var(--rail-edge), 0 2px 6px rgba(10,20,40,0.18);
+  clip-path: polygon(0 4px, 4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%);
+  transition: var(--glass-transition), left 0.2s, width 0.2s; }
+.rail:hover .rail-thumb, .rail.dragging .rail-thumb { left: 2px; width: 9px; clip-path: polygon(0 5px, 5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%); }
+.rail.dragging .rail-thumb { cursor: grabbing; box-shadow: inset 2px 0 0 var(--run), 0 2px 8px rgba(10,20,40,0.22); }
+/* A mark per part of the page: a short tick on the line that turns orange when pointed at. Pointing anywhere on the rail opens every mark's name on a small glass label to its left. */
+/* Its click area is far bigger than the tick: 24px tall and reaching in over the page, so a mark is easy to hit. */
+.rail-mark { position: absolute; left: -12px; width: 26px; height: 24px; margin-top: -12px; padding: 0; border: 0; cursor: pointer; background: none; }
+.rail-mark::before { content: ""; position: absolute; left: 15px; right: 2px; top: 11px; height: 2px; --face-colour: var(--rail-mark); background: var(--face-colour); transition: --face-colour 0.2s, left 0.2s; }
+.rail-mark:hover::before { --face-colour: var(--run); left: 9px; }
+.rail-mark[hidden] { display: none; }
+/* Its name is a Tag on glass (data.ts), wiped open from the rail. */
+.rail-mark span { position: absolute; right: 28px; top: 50%; transform: translate(0, -50%); pointer-events: none;
+  clip-path: polygon(100% 0, 100% 0, calc(100% - 5px) 100%, calc(100% - 5px) 100%); visibility: hidden;
+  transition: var(--glass-transition), clip-path 0.18s ease-out, visibility 0s 0.18s; }
+/* A label opens by wiping out from the rail, never by fading: a fading blur draws without its glass and turns solid at the end. */
+/* Closed, a label is hidden as well as wiped shut, so its glass isn't drawn under the page's scrolling while nobody can see it. */
+.rail:hover .rail-mark span, .rail.dragging .rail-mark span { clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); visibility: visible; transition: var(--glass-transition), clip-path 0.18s ease-out, visibility 0s; }
+/* In the narrow layout (a phone, or a small window), the page's bar fits in the 10px gutter beside the glass and starts below the header. */
+@media (max-width: 760px) {
+  .rail[data-rail="page"] { width: 10px; top: 132px; bottom: 10px; }
+  .rail[data-rail="page"] .rail-line { background: linear-gradient(90deg, transparent 4.5px, var(--rail-line) 4.5px, var(--rail-line) 5.5px, transparent 5.5px); }
+  .rail[data-rail="page"] .rail-thumb { left: 3px; width: 4px; clip-path: polygon(0 3px, 3px 0, 100% 0, 100% calc(100% - 3px), calc(100% - 3px) 100%, 0 100%); }
+  .rail[data-rail="page"]:hover .rail-thumb, .rail[data-rail="page"].dragging .rail-thumb { left: 2px; width: 6px; clip-path: polygon(0 4px, 4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%); }
+  /* …and no marks. */
+  .rail-mark, .rail-mark[hidden] { display: none; }
+}
+/* On a touch screen nothing widens it on hover, so its thumb is a little wider from the start (still centred on its line), and a finger on it drags the thumb instead of the page. */
+@media (hover: none), (pointer: coarse) {
+  .rail { touch-action: none; }
+  .rail .rail-thumb { left: 3px; width: 7px; clip-path: polygon(0 4px, 4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%); }
+}
+@media (hover: none) and (max-width: 760px), (pointer: coarse) and (max-width: 760px) {
+  .rail[data-rail="page"] .rail-thumb { left: 2px; width: 6px; }
+}
+`,
+  render: rail,
+  examples: [
+    {
+      label: "In a box",
+      markup: html`<div class="rail-box">${glassPane({ paneSize: "small", body: html`<p>${"Wander a forest that grows around you. No combat and no timers: climbing, finding and listening. ".repeat(14)}</p>` })}</div>`,
+    },
+  ],
+});
+
+component({
+  name: "Row arrows",
+  slug: "row-arrows",
+  group: "navigation",
+  summary: "Scrolling a row of games with a mouse or trackpad: two raised slabs in a carved well. At a row's end that arrow lies flat; touch screens swipe instead.",
+  styles: `
+/* Arrows to scroll a row, for a mouse or trackpad, at the right of the row's heading: a carved well like a switch's, holding two raised
+   slabs that slant where they meet. Pointing lifts one and sends its arrow on; a press sinks it, its light turning round. At a row's end
+   that arrow lies flat in the well, faded. Touch screens swipe instead. */
+.steps { position: relative; margin-left: auto; display: none; gap: 0; height: 36px; padding: 3px; background: var(--well); box-shadow: var(--well-shade); clip-path: var(--cut-shape); }
+/* Each arrow is a Cut button sized for a well (actions.ts), icon only; at the row's end it can't be pressed. */
+.steps > .cut-btn:first-of-type { margin-inline-end: var(--gap-control-row-boxes); }
+@media (hover: hover) and (pointer: fine) { .steps { display: flex; } .steps[hidden] { display: none; } }
+.steps .ico { width: 10px; height: 13px; transition: transform 0.2s cubic-bezier(.2,.8,.2,1); }
+.steps > .cut-btn:first-of-type:hover:not(:disabled) .ico { transform: translateX(-2px); }
+.steps > .cut-btn:last-of-type:hover:not(:disabled) .ico { transform: translateX(2px); }
+/* A row scrolls sideways, a little in from its glass's rim, so covers never touch the frame. Where more covers carry on, that edge fades out
+   softly: the shared sideways fade (data-fades-sideways), further in for covers. */
+.track { --fade-sideways-px: 56px; display: flex; gap: var(--gap-block-block); scroll-snap-type: x proximity; scroll-padding-inline: 8px; padding: 10px 8px 6px; margin: -10px -8px -6px; }
+.track > .cover { flex: 0 0 236px; scroll-snap-align: start; }
+.row-head { display: flex; align-items: center; gap: var(--gap-words-control); margin-bottom: var(--gap-words-control); min-height: 36px; }
+.row-head h2 { margin: 0; font: var(--type-section); white-space: nowrap; color: var(--ink); }
+@media (max-width: 760px) { .track { --fade-sideways-px: 32px; } .track > .cover { flex-basis: 64vw; } }
+`,
+  render: rowArrows,
+  examples: [
+    {
+      label: "A row, at its start",
+      isWide: true,
+      markup: glassPane({ paneSize: "full", body: html`<section class="row"><div class="row-head"><h2>Popular</h2>${rowArrows({ rowName: "Popular", trackId: "example-track" })}</div><div class="track" id="example-track" data-fades-sideways>${Object.values(STAND_IN_COVERS)}</div></section>` }),
+    },
+  ],
+});
+

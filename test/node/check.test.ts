@@ -109,6 +109,18 @@ describe("the game check", () => {
     expect(threads.fix).toContain("Thread Support off");
   });
 
+  it("reads wasm-bindgen's and macroquad's glue as engine output, and finds threaded Rust builds", () => {
+    expect(codesOf({ "index.html": page(""), "game-1a2b3c.js": "alert('x')", "game-1a2b3c_bg.wasm": 10 })).toEqual([]);
+    expect(codesOf({ "index.html": page(""), "game.js": "alert('x')", "game_bg.wasm": 10 })).toEqual([]);
+    expect(codesOf({ "index.html": page(""), "mq_js_bundle.js": "alert('x')", "game.wasm": 10 })).toEqual([]);
+    expect(codesOf({ "index.html": page(""), "game.js": "alert('x')" })).toEqual(["browser_dialog"]);
+    expect(codesOf({ "index.html": page(""), "game.js": "alert('x')", "other_bg.wasm": 10 })).toEqual(["browser_dialog"]);
+    expect(codesOf({ "index.html": page(""), "game.js": "__wbindgen_thread_destroy", "game_bg.wasm": 10 })).toEqual(["needs_threads"]);
+    expect(codesOf({ "index.html": page(""), "game.js": "export function initThreadPool() {}; initThreadPool(4)", "game_bg.wasm": 10 })).toEqual(["needs_threads"]);
+    const rust = checkGameFiles(gameOf({ "index.html": page(""), "game.js": "__wbindgen_thread_destroy", "game_bg.wasm": 10 })).problems[0]!;
+    expect(rust.fix).toContain("atomics");
+  });
+
   it("finds what the game's frame doesn't allow, but not in engine or library output", () => {
     const html = page('<form><input name="player"></form><a href="https://example.com" target="_blank">Site</a><a href="save.json" download>Save</a><iframe src="https://www.youtube.com/embed/x"></iframe>');
     expect(codesOf({ "index.html": html })).toEqual(["form_submission", "file_download", "outside_link", "outside_frame"]);
