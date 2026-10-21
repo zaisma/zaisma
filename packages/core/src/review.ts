@@ -367,6 +367,31 @@ export const REVIEW_CODES = {
     fix: `Send a plain capture of the game with add_image; its score, menus and buttons can show. ${COVER_GUIDE} ${IF_THE_CHECK_IS_WRONG}`,
     hasOwnMessage: true,
   },
+  text_on_background: {
+    meaning: "A background has no title, logo or text on it; those go on the cover. The message quotes what it found.",
+    contentRule: null,
+    fix: `Send the background without words or logos (add_image, or add_shader for a shader); words that are part of the scene, like a sign on a building, are fine. ${COVER_GUIDE} ${IF_THE_CHECK_IS_WRONG}`,
+    hasOwnMessage: true,
+  },
+  // The shader check (Backgrounds in docs/DEVELOPER-API.md): a shader is drawn before anyone sees it
+  shader_does_not_compile: {
+    meaning: "The shader didn't compile; the message gives the first compiler error.",
+    contentRule: null,
+    fix: "Fix the line the error names and send it again with add_shader: void mainImage(out vec4 fragColor, in vec2 fragCoord), reading iResolution and iTime only. The dashboard's Background section previews a shader file before it's sent.",
+    hasOwnMessage: true,
+  },
+  shader_too_slow: {
+    meaning: "The shader took too long to draw a frame in the check; the message says how long, and the most it can take.",
+    contentRule: null,
+    fix: "Do less for each pixel (fewer loop steps, octaves or lights) and send it again with add_shader. Zaisma draws backgrounds at about half resolution and 30 frames a second, so fine detail costs more than it shows.",
+    hasOwnMessage: true,
+  },
+  shader_flashes: {
+    meaning: "The shader flashes more than 3 times a second, which can cause seizures.",
+    contentRule: null,
+    fix: "Make its light change slowly: no flicker, strobes or sudden jumps between light and dark more than 3 times a second. Send it again with add_shader.",
+    hasOwnMessage: true,
+  },
 } as const satisfies Record<string, ReviewCode>;
 export type ReviewCodeName = keyof typeof REVIEW_CODES;
 

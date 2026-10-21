@@ -22,6 +22,7 @@ export * from "./webauthn.ts";
 export * from "./passkeys.ts";
 export * from "./security-log.ts";
 export * from "./developers.ts";
+export * from "./glass-light.ts";
 export * from "./uploads.ts";
 export * from "./compression.ts";
 export * from "./rooms.ts";

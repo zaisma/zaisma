@@ -57,7 +57,7 @@ async function passScan(id: string) {
 
 beforeEach(async () => {
   await env.DB.exec(
-    "DELETE FROM reports; DELETE FROM room_usage; DELETE FROM game_server_errors; DELETE FROM blobs; DELETE FROM game_images; DELETE FROM tester_links; DELETE FROM api_keys; DELETE FROM security_events; DELETE FROM security_places; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;",
+    "DELETE FROM reports; DELETE FROM room_usage; DELETE FROM game_server_errors; DELETE FROM blobs; DELETE FROM game_backgrounds; DELETE FROM game_shaders; DELETE FROM game_images; DELETE FROM tester_links; DELETE FROM api_keys; DELETE FROM security_events; DELETE FROM security_places; DELETE FROM audit_log; DELETE FROM versions; UPDATE games SET owner_id = NULL; DELETE FROM games; DELETE FROM owners; DELETE FROM accounts;",
   );
   await createAccount(env.DB, { id: "dev-1", username: "Pixel_Smith", ageBand: "18+" });
   await letPublish(env.DB, "dev-1");
@@ -499,3 +499,26 @@ describe("players", () => {
   });
 });
 
+
+describe("background tools", () => {
+  it("send a shader, choose it once it passed, and remove it, each answering its output schema", async () => {
+    await tool("create_game", { title: "Worlds" });
+    const source = "void mainImage(out vec4 fragColor, in vec2 fragCoord) {\n  fragColor = vec4(fragCoord / iResolution.xy, 0.5, 1.0);\n}";
+    const { shader, next_steps: nextSteps } = await tool("add_shader", { slug: "worlds", screen: "wide", source });
+    expect(shader).toMatchObject({ screen: "wide", review_status: "pending", size_bytes: source.length });
+    expect(nextSteps[0].tool).toBe("get_game");
+    expect(await tool("set_background", { slug: "worlds", screen: "wide", source: "shader", shader_id: shader.id })).toMatchObject({ code: "background_not_ready" });
+    await env.DB.prepare("UPDATE game_shaders SET review_status = 'approved', checked_at_ms = 1 WHERE id = ?").bind(shader.id).run();
+    expect((await tool("set_background", { slug: "worlds", screen: "wide", source: "shader", shader_id: shader.id })).background).toMatchObject({ source: "shader", shader_id: shader.id });
+    expect((await tool("set_background", { slug: "worlds", screen: "phone", source: "wide" })).background).toMatchObject({ screen: "phone", source: "wide" });
+    const game = await tool("get_game", { slug: "worlds" });
+    expect(game.backgrounds.map((background: { source: string }) => background.source)).toEqual(["shader", "wide"]);
+    expect(game.shaders.map((each: { id: string }) => each.id)).toEqual([shader.id]);
+    expect((await tool("remove_shader", { slug: "worlds", shader_id: shader.id })).backgrounds[0].source).toBe("zaisma");
+  });
+
+  it("point a misnamed argument at the tool that does it", async () => {
+    await tool("create_game", { title: "Worlds" });
+    expect(await tool("update_game", { slug: "worlds", background_video: "intro.mp4" })).toMatchObject({ code: "unknown_field", field: "background_video", fix: expect.stringContaining("That's what add_shader does.") });
+  });
+});

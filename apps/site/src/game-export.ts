@@ -1,4 +1,4 @@
-import { ApiError, gameSaves, imagesForGame, iso, versionsForGame, type Game, type GameImage, type Version } from "@zaisma/core";
+import { ApiError, gameSaves, imagesForGame, iso, shaderKey, shadersForGame, versionsForGame, type Game, type GameImage, type GameShader, type Version } from "@zaisma/core";
 import type { Caller } from "./developer.ts";
 import type { Env } from "./env.ts";
 import { databaseDumpPart } from "./game-database.ts";
@@ -31,12 +31,15 @@ const FILES_AHEAD_COUNT = 4;
 /** Whether a version's files go in the export: it passed review and no report is pausing it. */
 const hasFiles = (version: Version) => version.scan_status === "approved" && !(version.report_held_at_ms && !version.cleared_at_ms);
 const imageHasFile = (image: GameImage) => image.review_status === "approved";
+const shaderHasFile = (shader: GameShader) => shader.review_status === "approved";
+const shaderPath = (shader: GameShader) => `shaders/${shader.screen}-${shader.id}.glsl`;
 
 /** GET /games/:slug/export: what the .zip holds, the link to it and the command that saves it as a folder. */
 export async function exportSummary(env: Env, game: Game) {
-  const [versions, images, saves] = await Promise.all([
+  const [versions, images, shaders, saves] = await Promise.all([
     versionsForGame(env.DB, game.id),
     imagesForGame(env.DB, game.id),
+    shadersForGame(env.DB, game.id),
     env.DB.prepare("SELECT COUNT(*) AS save_count FROM saves WHERE game_id = ?").bind(game.id).first<{ save_count: number }>(),
   ]);
   const withFiles = versions.filter(hasFiles);
@@ -49,6 +52,7 @@ export async function exportSummary(env: Env, game: Game) {
       withheld_version_count: versions.length - withFiles.length,
       image_count: shownImages.length,
       withheld_image_count: images.length - shownImages.length,
+      shader_count: shaders.filter(shaderHasFile).length,
       save_count: saves?.save_count ?? 0,
       files_size_bytes: withFiles.reduce((total, version) => total + version.size_bytes, 0) + shownImages.reduce((total, image) => total + image.size_bytes, 0),
     },
@@ -77,7 +81,8 @@ async function* exportSources(env: Env, game: Game, read: ApiRead, exportedAtMs:
   const file = (path: string, bytes: Uint8Array | ReadableStream<Uint8Array>, modifiedAtMs = exportedAtMs): ZipSource => ({ path, bytes, modifiedAtMs });
   const jsonFile = (path: string, contents: unknown) => file(path, new TextEncoder().encode(`${JSON.stringify(contents, null, 2)}\n`));
 
-  const [gameAnswer, secretsAnswer, versions, images] = await Promise.all([read("GET", `/games/${slug}`), read("GET", `/games/${slug}/secrets`), versionsForGame(env.DB, game.id), imagesForGame(env.DB, game.id)]);
+  const [gameAnswer, secretsAnswer, versions, images, shaders] = await Promise.all([read("GET", `/games/${slug}`), read("GET", `/games/${slug}/secrets`), versionsForGame(env.DB, game.id), imagesForGame(env.DB, game.id), shadersForGame(env.DB, game.id)]);
+  const shadersWithFiles = new Map(shaders.filter(shaderHasFile).map((shader) => [shader.id, shader]));
   const versionsWithFiles = new Set(versions.filter(hasFiles).map((version) => version.id));
   const imagesWithFiles = new Map(images.filter(imageHasFile).map((image) => [image.id, image]));
 
@@ -86,6 +91,8 @@ async function* exportSources(env: Env, game: Game, read: ApiRead, exportedAtMs:
     exported_at: iso(exportedAtMs),
     game: gameAnswer.game,
     images: (gameAnswer.images as { id: string }[]).map((image) => ({ ...image, file_path: imagesWithFiles.has(image.id) ? imagePath(imagesWithFiles.get(image.id)!) : null })),
+    backgrounds: gameAnswer.backgrounds,
+    shaders: (gameAnswer.shaders as { id: string }[]).map((shader) => ({ ...shader, file_path: shadersWithFiles.has(shader.id) ? shaderPath(shadersWithFiles.get(shader.id)!) : null })),
     testers: gameAnswer.testers,
     secrets: secretsAnswer.secrets,
   });
@@ -120,6 +127,12 @@ async function* exportSources(env: Env, game: Game, read: ApiRead, exportedAtMs:
     const object = await env.GAMES.get(`images/${image.game_id}/${image.id}`);
     if (object) yield file(imagePath(image), object.body, image.created_at_ms);
     else missingPaths.push(imagePath(image));
+  }
+
+  for (const shader of shadersWithFiles.values()) {
+    const object = await env.GAMES.get(shaderKey(shader.game_id, shader.id));
+    if (object) yield file(shaderPath(shader), object.body, shader.created_at_ms);
+    else missingPaths.push(shaderPath(shader));
   }
 
   yield file("database.sql", databaseDump(env, game));
@@ -174,12 +187,13 @@ function savesLines(env: Env, game: Game): ReadableStream<Uint8Array> {
 function readme(game: Game, exportedAtMs: number): string {
   return `${game.title}: everything about it on Zaisma, exported ${iso(exportedAtMs)}.
 
-game.json        The game's details, its images, tester links and the names of its secrets
+game.json        The game's details, its images, backgrounds, tester links and the names of its secrets
                  (never their values: set them again wherever the game server runs).
 versions.json    Every version Zaisma keeps, with its patch notes and review status. folder_path
                  is where its files are, or null for a version that hasn't passed review.
 versions/        Each version's files, by version ID, as they were uploaded.
-images/          The cover and screenshots that passed review.
+images/          The cover, screenshots and background pictures that passed review.
+shaders/         The background shaders that passed their check, as .glsl files.
 database.sql     The game's own database, as SQLite's SQL dump. Make it a database file with
                  sqlite3 database.sqlite < database.sql (zaisma export does this for you).
 saves.jsonl      Every player's cloud save, one JSON line each, as get_save answers it.

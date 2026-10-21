@@ -110,6 +110,7 @@ Every ID Zaisma makes says its kind in its value: `<kind>_<random>`, the kind in
 | `game` | `game_…` |
 | `version` | `version_…` |
 | `image` | `image_…` |
+| `shader` | `shader_…` |
 | `tester` | `tester_…` |
 | `topic` (known issues too) | `topic_…` |
 | `post` | `post_…` |
@@ -210,6 +211,10 @@ One name per concept. The API and MCP column is snake_case; the SDK and game ser
 | A game's link name, as in zaisma.com/g/<slug> | `slug` | `slug` |
 | A version of a game | `version_id` | |
 | A cover or screenshot | `image_id` | |
+| A game's world behind Zaisma's glass, for one screen, and what it shows | `background`: `screen`, `source` (`zaisma`, `image`, `shader`, and on phone `wide`), `image_id`, `shader_id`, `still_url`; pictures are images of `kind` `background` and `phone_background` | |
+| Which screen a background is for | `screen`: `wide` (desktops and tablets), `phone` (composed for a tall screen); errors `bad_screen`, `bad_background_source`, `background_not_ready` | |
+| A small program that paints a background live | `shader_id`; a shader's `check_frame_ms`, `flash_count`, `still_url`, `frame_urls`, `source_url`. Its source keeps Shadertoy's names on purpose (`mainImage`, `fragColor`, `fragCoord`, `iResolution`, `iTime`), the form AI already writes, so nothing is left to guess | |
+| The color Zaisma tints its glass with over a game's background | `glass_tint_color` (`#RRGGBB`), error `bad_color` | |
 | A tester link | `tester_id` | |
 | A forum topic, a post in it | `topic_id`, `post_id` | |
 | A game named on something else, like a forum topic | `game_slug` | |

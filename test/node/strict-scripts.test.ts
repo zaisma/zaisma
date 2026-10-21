@@ -16,8 +16,12 @@ const sources = [...readdirSync(SITE), ...readdirSync(join(SITE, "components")).
   .filter((name) => name.endsWith(".ts"))
   .map((name) => ({ name, text: readFileSync(join(SITE, name), "utf8") }));
 
-/** The only <script tags the site writes: html.ts's script files (in the body, in the head holding the first paint, and the theme's and the account link's, which run as they're read) and data blocks, and example game files in the MCP's help (a game's own page, on the game domain). */
-const ALLOWED_SCRIPT_TAGS: Record<string, number> = { "html.ts": 6, "mcp.ts": 2, "page-scripts.ts": 1 };
+/**
+ * The only <script tags the site writes: html.ts's script files (in the body, in the head holding the first paint, and the theme's and the
+ * account link's, which run as they're read) and data blocks, example game files in the MCP's help (a game's own page, on the game domain),
+ * and the shader check's page, drawn in a headless browser that loads nothing and never served.
+ */
+const ALLOWED_SCRIPT_TAGS: Record<string, number> = { "html.ts": 6, "mcp.ts": 2, "page-scripts.ts": 1, "shader-check.ts": 1 };
 
 describe("the site's code", () => {
   it("writes <script> tags only through html.ts", () => {
