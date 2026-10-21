@@ -475,7 +475,8 @@ export const COMPACT_SCRIPT = `/* compact bars */(function () {
   var COMPACT_AT_PX = 24, SETTLE_PX = 56, still = window.matchMedia("(prefers-reduced-motion: reduce)"), hasScrollEnd = "onscrollend" in window;
   document.querySelectorAll("[data-compacts]").forEach(function (bar) {
     if (bar.hasAttribute("data-stays-compact")) { bar.classList.add("is-compact"); return; }
-    var box = bar.parentElement && bar.parentElement.querySelector("[data-scroll-box]"), scroller = box || window, target = box || document.documentElement;
+    // A bar follows the box that scrolls right beside it (a header example's stand-in page), or else the page: never a box deeper in, like a table.
+    var box = bar.parentElement && bar.parentElement.querySelector(":scope > [data-scroll-box]"), scroller = box || window, target = box || document.documentElement;
     // The page doesn't shift itself to keep your place as the bar slims (scroll anchoring): that shift is what fought the glide.
     target.style.overflowAnchor = "none";
     function at() { return box ? box.scrollTop : window.scrollY; }
