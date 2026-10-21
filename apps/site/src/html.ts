@@ -591,6 +591,8 @@ export interface LayoutOptions {
   viewer?: Pick<Viewer, "account"> | null;
   /** The body is built in Zaisma's look: no Steel around it. */
   isRebuilt?: boolean;
+  /** The body puts the footer in itself (the home ends its shelf's glass with it), so the layout adds only the page's scrollbar. */
+  isFooterInBody?: boolean;
 }
 
 export function layout(env: Env, options: LayoutOptions): Response {
@@ -620,7 +622,7 @@ ${options.isBare
     ? options.body
     : html`${siteHeader(env, options)}
 <main${options.isRebuilt ? "" : raw(' class="steel"')}>${options.action && !options.isRebuilt ? html`<div class="page-action">${options.action}</div>` : ""}${options.body}</main>
-${siteFooter()}`}
+${options.isFooterInBody ? rail("page") : siteFooter()}`}
 ${env.SUPABASE_URL && !options.isAdmin ? scriptTags(SITE_SCRIPT, PRESENCE_SCRIPT) : scriptTags(SITE_SCRIPT)}
 </body>
 </html>`;

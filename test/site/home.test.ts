@@ -109,6 +109,13 @@ describe("the home page", () => {
     expect(first.text).toMatch(/<section class="home-row" id="home-continue"[^>]*hidden/);
   });
 
+  it("ends the shelf's glass with the footer, the page's only one", async () => {
+    const { text } = await homePage();
+    expect(text.match(/<footer class="foot">/g)).toHaveLength(1);
+    expect(text.indexOf('<footer class="foot">')).toBeGreaterThan(text.indexOf('class="home-shelf"'));
+    expect(text.indexOf('<footer class="foot">')).toBeLessThan(text.indexOf("</main>"));
+  });
+
   it("refuses to be framed by other sites, as every page does", async () => {
     const { response } = await homePage();
     expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");

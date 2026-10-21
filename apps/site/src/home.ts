@@ -6,7 +6,7 @@ import { backgroundsOfGames, type ShownBackground } from "./backgrounds.ts";
 import { cutButton, runButton, textButton, textLink } from "./components/actions.ts";
 import { glanceFacts } from "./components/data.ts";
 import { glassPane, icon, tag } from "./components/foundations.ts";
-import { rowArrows } from "./components/navigation.ts";
+import { footer, rowArrows } from "./components/navigation.ts";
 import { banner, gameCover } from "./components/panes.ts";
 import { tabSwitch } from "./components/switch.ts";
 import { esc, html, layout, pageData, playerLine, raw, scriptTags, styleTags, type Raw } from "./html.ts";
@@ -228,7 +228,8 @@ export async function home(env: Env, request: Request): Promise<Response> {
 ${popular.length ? row("popular", "Popular", "popular", popular) : ""}
 ${trending.length ? row("trending", "Trending", "trending", trending) : ""}
 ${fresh.length ? row("new", "New", "new", fresh) : ""}
-<div class="home-all">${textButton("All games", { href: "/games" })}</div>`,
+<div class="home-all">${textButton("All games", { href: "/games" })}</div>
+${footer()}`,
       })}</div>
 </div>
 <noscript><style>.home-pane .pane-in { opacity: 1 !important; }</style></noscript>`
@@ -240,6 +241,8 @@ ${fresh.length ? row("new", "New", "new", fresh) : ""}
     nav: "home",
     viewer,
     isRebuilt: true,
+    // The footer ends the shelf's glass: bare words over a game's background would be lost in it.
+    isFooterInBody: Boolean(first),
     // Play opens the game's page in a frame of the home.
     frames: ["'self'"],
     head: styleTags(HOME_STYLE),
