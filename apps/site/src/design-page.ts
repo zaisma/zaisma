@@ -386,6 +386,16 @@ export const DESIGN_LOOPS_SCRIPT = pageScript(
     var cursor = document.createElement("span"); cursor.className = "loop-cursor"; cursor.setAttribute("aria-hidden", "true");
     cursor.innerHTML = '<svg viewBox="0 0 20 24" width="20" height="24"><path d="M3 2v17l4.6-4.4 3.1 6.9 2.6-1.1-3.1-6.8H16z" fill="#fff" stroke="#14171C" stroke-width="1.4" stroke-linejoin="round"/></svg>';
     box.appendChild(cursor);
+    // A loop off screen holds still where it is: nobody sees it, and its measuring each frame would make the page lay out its
+    // skipped sections again. It carries on when it's back in view.
+    var isShown = false, resumers = [], isWatching = false;
+    function whenShown() { return isShown ? Promise.resolve() : new Promise(function (done) { resumers.push(done); }); }
+    new IntersectionObserver(function (entries) {
+      isShown = entries[entries.length - 1].isIntersecting;
+      if (!isShown) return;
+      resumers.splice(0).forEach(function (done) { done(); });
+      if (!isWatching) watch();
+    }).observe(box);
     function point(target, dx, dy) {
       var b = box.getBoundingClientRect(), r = target.getBoundingClientRect();
       return [r.left - b.left + r.width * dx, r.top - b.top + r.height * dy];
@@ -401,7 +411,8 @@ export const DESIGN_LOOPS_SCRIPT = pageScript(
       var state = over ? (isPressed && kind !== "cover" ? "is-pressed" : "is-pointed") : "";
       ["is-pointed", "is-pressed"].forEach(function (each) { el.classList.toggle(each, each === state); });
     }
-    (function watch() {
+    function watch() {
+      isWatching = isShown; if (!isShown) return;
       requestAnimationFrame(watch);
       var at = tip(), now = null;
       // The glass's light follows the pointer, as it does a real one.
@@ -412,12 +423,14 @@ export const DESIGN_LOOPS_SCRIPT = pageScript(
       if (kind === "switch") { if (now) send(now, "pointerenter"); else send(el, "pointerleave"); }
       else if (now && run) { run.classList.remove("glint"); void run.offsetWidth; run.classList.add("glint"); }
       over = now; show();
-    })();
+    }
     // Off to the lower right, but never past the window's edge (a full-width button on a phone has no room beside it).
     var away = function () { var at = point(el, 1.15, 1.6), left = box.getBoundingClientRect().left; at[0] = Math.min(at[0], document.documentElement.clientWidth - left - 28); return at; };
     async function buttonLoop() {
+      await whenShown();
       await moveTo(away(), true);
       for (;;) {
+        await whenShown();
         await wait(900);
         await moveTo(point(el, 0.62, 0.58));
         await wait(800);
@@ -428,8 +441,10 @@ export const DESIGN_LOOPS_SCRIPT = pageScript(
     }
     async function switchLoop() {
       var tabs = el.querySelectorAll("button"), at = 0;
+      await whenShown();
       await moveTo(point(el, 1.08, 1.5), true);
       for (;;) {
+        await whenShown();
         var other = tabs[(at + 1) % tabs.length];
         await wait(700);
         await moveTo(point(other, 0.55, 0.6)); await wait(700);
