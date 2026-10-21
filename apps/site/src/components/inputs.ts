@@ -207,8 +207,13 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
       if (tab.tagName === "BUTTON") tabs.forEach(function (each) { each.setAttribute("aria-pressed", String(each === tab)); });
       put(slab, tab, true); put(ghost, tab, true);
       // In a row that scrolls, the picked tab comes into the middle of it.
+      // A smooth scroll can be cut short (a touch still settling, the page scrolling too), so it lands there once the glide is over.
       var row = sw.closest("[data-fades-sideways]");
-      if (row && row.scrollWidth > row.clientWidth) row.scrollTo({ left: Math.max(0, tab.offsetLeft - (row.clientWidth - tab.offsetWidth) / 2), behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+      if (row && row.scrollWidth > row.clientWidth) {
+        var goal = Math.max(0, Math.min(row.scrollWidth - row.clientWidth, tab.offsetLeft - (row.clientWidth - tab.offsetWidth) / 2));
+        row.scrollTo({ left: goal, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+        clearTimeout(row.settleTimer); row.settleTimer = setTimeout(function () { if (Math.abs(row.scrollLeft - goal) > 1) row.scrollTo({ left: goal, behavior: "smooth" }); }, 450);
+      }
     };
     tabs.forEach(function (tab) {
       tab.addEventListener("pointerenter", function () { if (tab !== current()) { put(ghost, tab); sw.classList.add("pointing"); } else sw.classList.remove("pointing"); });
@@ -850,7 +855,7 @@ component({
 .select-list:not(:popover-open):not(.in-place) { opacity: 0; transform: translateY(-6px); }
 @starting-style { .select-list:popover-open { opacity: 0; transform: translateY(-6px); } }
 .select-list.in-place { position: relative; display: flex; width: 100%; }
-.select-option { position: relative; display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 14px; cursor: pointer; flex: none;
+.select-option { position: relative; display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 8px 14px 11px; cursor: pointer; flex: none;
   font: var(--type-words); color: var(--ink-2); --face-color: transparent; background: var(--face-color); clip-path: var(--cut-shape); transition: --face-color 0.15s, color 0.15s; }
 .select-option > :not(.cut-line) { position: relative; z-index: 2; }
 .select-option > span { flex: 1; }

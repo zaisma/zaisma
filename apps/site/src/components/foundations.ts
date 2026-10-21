@@ -17,7 +17,8 @@ const LIGHT_GLASS = `color-scheme: light;
   /* A tray's light: the same sheen at a third of the strength, so the tray stays muted under its pane. */
   --glass-tray-sheen: radial-gradient(140% 90% at 0% 0%, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0) 55%), linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0) 38%, rgba(30, 60, 110, 0) 70%, rgba(30, 60, 110, 0.02));
   --glass-saturate: 1.8; --edge-hair: rgba(40, 60, 100, 0.1);
-  --well: rgba(255, 255, 255, 0.32); --well-shade: inset 0 1px 3px rgba(20, 23, 28, 0.08);
+  /* A well is carved into the glass: a touch darker than it, so it reads on a pale backdrop too. */
+  --well: rgba(70, 84, 108, 0.08); --well-shade: inset 0 1px 3px rgba(20, 23, 28, 0.1);
   --slab: linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.6)); --slab-shade: 0 4px 10px rgba(20, 23, 28, 0.12); --ghost: rgba(255, 255, 255, 0.45); --ghost-rest: rgba(255, 255, 255, 0); --wash-rest: rgba(20, 23, 28, 0); --wash: rgba(20, 23, 28, 0.08); --wash-press: rgba(20, 23, 28, 0.14);
   --btn: rgba(255, 255, 255, 0.6); --btn-hover: rgba(255, 255, 255, 0.82); --btn-press: rgba(226, 232, 240, 0.9);
   --press-shade: inset 0 2px 5px rgba(20, 30, 50, 0.16);
