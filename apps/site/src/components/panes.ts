@@ -22,6 +22,14 @@ export interface DropdownChoice {
   icon?: IconName;
   /** A small number at its end, like unread replies: a Tag. */
   badgeCount?: number;
+  /** Unique on the page, for a page script to find it. */
+  id?: string;
+  /** Not shown for now: a page script shows it (the game menu's Keep your progress, once there's progress to keep). */
+  isHidden?: boolean;
+  /** A link that opens in a new tab, marked so at its end. */
+  isNewTab?: boolean;
+  /** Attributes a page script reads, by name without data-. */
+  dataAttributes?: Record<string, string>;
 }
 
 /** A dropdown's item: a choice, or a rule between groups of them. */
@@ -29,11 +37,12 @@ export type DropdownItem = DropdownChoice | { kind: "rule" };
 
 /** One choice in a dropdown: words with an icon, a faint slab under the pointer, the slab with the orange line when it's the current one. */
 function dropdownChoice(choice: DropdownChoice): Raw {
-  const inside = html`${CUT_LINE}${choice.icon ? icon(choice.icon) : ""}<span>${choice.label}</span>${choice.badgeCount ? tag(choice.badgeCount, "count") : ""}`;
+  const inside = html`${CUT_LINE}${choice.icon ? icon(choice.icon) : ""}<span>${choice.label}</span>${choice.badgeCount ? tag(choice.badgeCount, "count") : ""}${choice.isNewTab ? html`<span class="dropdown-out">${icon("out-of-page")}</span>` : ""}`;
+  const own = html`${choice.id ? html` id="${choice.id}"` : ""}${Object.entries(choice.dataAttributes ?? {}).map(([name, attributeValue]) => html` data-${name}="${attributeValue}"`)}${choice.isHidden ? raw(" hidden") : ""}`;
   const shared = html` class="dropdown-choice" role="menuitem" tabindex="-1" data-cut-line="8"${choice.isCurrent ? raw(' aria-current="page"') : ""}`;
   return choice.action !== undefined
-    ? html`<form class="dropdown-form" method="post" action="${choice.action}"><button type="submit"${shared}>${inside}</button></form>`
-    : html`<a href="${choice.href ?? "#"}"${shared}>${inside}</a>`;
+    ? html`<form class="dropdown-form" method="post" action="${choice.action}"><button type="submit"${own}${shared}>${inside}</button></form>`
+    : html`<a href="${choice.href ?? "#"}"${own}${choice.isNewTab ? raw(' target="_blank" rel="noopener"') : ""}${shared}>${inside}</a>`;
 }
 
 export interface DropdownOptions {
@@ -43,13 +52,15 @@ export interface DropdownOptions {
   label: string;
   /** A head over its places, like the account's name and whether you're online. */
   head?: { title: string; note?: string };
+  /** Lines under its head that a page fills in as things happen (the game menu's save line), in the head's quiet words. */
+  headExtra?: Raw;
   items: DropdownItem[];
   isOpen?: boolean;
 }
 
 /** A dropdown: a pane of the glass that hangs from any button (aria-controls its id), holding a short list of choices. */
 export function dropdown(options: DropdownOptions): Raw {
-  return html`<div class="dropdown glass${options.isOpen ? "" : " shut"}" id="${options.id}" role="menu" aria-label="${options.label}" aria-hidden="${options.isOpen ? "false" : "true"}" data-glass data-glass-corners="18 14 18 14">${EDGE}${options.head ? html`<div class="dropdown-head"><strong>${options.head.title}</strong>${options.head.note ? html`<span>${options.head.note}</span>` : ""}</div>` : ""}${options.items.map((menuItem) =>
+  return html`<div class="dropdown glass${options.isOpen ? "" : " shut"}" id="${options.id}" role="menu" aria-label="${options.label}" aria-hidden="${options.isOpen ? "false" : "true"}" data-glass data-glass-corners="18 14 18 14">${EDGE}${options.head ? html`<div class="dropdown-head"><strong>${options.head.title}</strong>${options.head.note ? html`<span>${options.head.note}</span>` : ""}${options.headExtra ?? ""}</div>` : ""}${options.items.map((menuItem) =>
     "kind" in menuItem ? raw('<hr role="separator">') : dropdownChoice(menuItem),
   )}</div>`;
 }
@@ -145,6 +156,11 @@ const DROPDOWN_STYLES = `
   --face-color: transparent; background: var(--face-color); clip-path: var(--cut-shape); transition: --face-color 0.15s, color 0.15s; }
 .dropdown-choice > :not(.cut-line) { position: relative; z-index: 2; }
 .dropdown-choice > .tag { margin-left: auto; }
+/* A link that opens a new tab says so at its end. */
+.dropdown-choice > .dropdown-out { margin-left: auto; display: inline-flex; color: var(--muted); }
+.dropdown-out > .ico { width: 14px; height: 14px; }
+/* Lines a page fills in under the head, like the game menu's save line. */
+.dropdown-head p { margin: var(--gap-words-words) 0 0; font: var(--type-facts); color: var(--ink-2); }
 .dropdown-choice:hover, .dropdown-choice:focus-visible { --face-color: var(--ghost); color: var(--ink); }
 .dropdown-choice[aria-current="page"] { color: var(--ink); background: var(--slab); box-shadow: var(--slab-shade), inset 0 -3px 0 var(--run); }
 .dropdown-choice:focus-visible { outline: none; }
@@ -515,11 +531,13 @@ export interface BannerOptions {
   icon?: IconName;
   /** At most one thing to do about it. */
   action?: { label: string; href: string };
+  /** Amber glass: something to keep in mind while you're here, like a tester link's terms. Left out, the panes' clear glass. */
+  tone?: "amber";
 }
 
 /** A banner: a strip of glass across the top of a page's content for something that holds while you're there (playing as a guest, a held version). One line and at most one button. */
 export function banner(options: BannerOptions): Raw {
-  return html`<div class="banner glass" data-glass data-glass-corners="20 14 20 14">${EDGE}${options.icon ? icon(options.icon) : ""}<span class="banner-text">${options.text}</span>${options.action ? cutButton(options.action.label, { href: options.action.href }) : ""}</div>`;
+  return html`<div class="banner glass${options.tone ? ` ${options.tone}` : ""}" data-glass data-glass-corners="20 14 20 14">${EDGE}${options.icon ? icon(options.icon) : ""}<span class="banner-text">${options.text}</span>${options.action ? cutButton(options.action.label, { href: options.action.href }) : ""}</div>`;
 }
 
 component({
@@ -534,6 +552,9 @@ component({
 .banner > .ico { flex: none; color: var(--ink-2); }
 .banner-text { flex: 1 1 0; min-width: 0; }
 .banner > .cut-btn { flex: none; }
+/* Amber: the warning tag's color laid into the glass. */
+.banner.amber { --glass-layer: linear-gradient(var(--tag-warning), var(--tag-warning)); }
+.banner.amber > .ico { color: var(--tag-warning-ink); }
 @media (max-width: 760px) { .banner > .cut-btn { flex: 1 1 100%; } }
 `,
   render: banner,
@@ -541,6 +562,7 @@ component({
     { label: "Playing as a guest", isWide: true, markup: banner({ text: "You're playing as a guest. Your progress stays on this device until you make an account.", icon: "person", action: { label: "Make an account", href: "#banner" } }) },
     { label: "A held version", isWide: true, markup: banner({ text: "Version 14 is held: a person looks at it, usually within a day.", icon: "clock", action: { label: "See why", href: "#banner" } }) },
     { label: "Words alone", isWide: true, markup: banner({ text: "This game is unlisted: only people with its link can find it.", icon: "eye" }) },
+    { label: "Amber: to keep in mind", isWide: true, markup: banner({ text: "You're testing this game with a link from its developer. Your progress stays in this browser.", icon: "warning", tone: "amber" }) },
   ],
 });
 

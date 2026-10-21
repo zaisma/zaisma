@@ -10,6 +10,7 @@ import { rowArrows } from "./components/navigation.ts";
 import { banner, gameCover } from "./components/panes.ts";
 import { tabSwitch } from "./components/switch.ts";
 import { esc, html, layout, pageData, playerLine, raw, scriptTags, styleTags, type Raw } from "./html.ts";
+import { GAME_BACKGROUND_SCRIPT } from "./game-background-script.ts";
 import { HOME_SCRIPT } from "./home-script.ts";
 import { pageStyle } from "./page-styles.ts";
 import { MINIMUM_PLAYING_NOW_PLAYER_COUNT, playingNowCounts, shelfPlayers } from "./plays.ts";
@@ -180,14 +181,14 @@ const GUEST_PICK_COUNT = 8;
 
 const shownPlayerCount = (game: ShowGame): number | undefined => (game.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? game.playing_now_player_count : undefined);
 
-/** A game in one of the home's rows (the home's script builds the same in the browser for Continue playing). */
-const coverOf = (game: ShowGame): Raw => gameCover({ title: game.title, imageUrl: game.cover ?? PLACEHOLDER_COVER, href: `/g/${game.slug}`, facts: { playerCount: shownPlayerCount(game) } });
+/** A game in one of the home's rows (the home's script builds the same in the browser for Continue playing), and in a game page's More games. */
+export const showcaseCover = (game: ShowGame): Raw => gameCover({ title: game.title, imageUrl: game.cover ?? PLACEHOLDER_COVER, href: `/g/${game.slug}`, facts: { playerCount: shownPlayerCount(game) } });
 
 /** A row of the shelf: its heading (a link to Browse with this sort, when it has one), its arrows and its covers. */
 function row(id: string, title: string, sortName: string | null, list: ShowGame[]): Raw {
   return html`<section class="home-row" aria-labelledby="${id}-title">
 <div class="home-row-head"><h2 id="${id}-title">${sortName ? textLink(title, `/games?sort=${sortName}`, { isQuiet: true }) : title}</h2>${rowArrows({ rowName: title, trackId: `track-${id}` })}</div>
-<div class="home-track" id="track-${id}" data-fades-sideways>${list.map(coverOf)}</div>
+<div class="home-track" id="track-${id}" data-fades-sideways>${list.map(showcaseCover)}</div>
 </section>`;
 }
 
@@ -252,7 +253,7 @@ ${pageData("home-data", {
       placeholder_cover: PLACEHOLDER_COVER,
       icons: { people: icon("people").html, clock: icon("clock").html },
       parts: { updated_tag: tag("Updated", "new").html },
-    })}${scriptTags(HOME_SCRIPT)}`,
+    })}${scriptTags(GAME_BACKGROUND_SCRIPT, HOME_SCRIPT)}`,
   });
   for (const cookie of viewer.cookies) response.headers.append("Set-Cookie", cookie);
   return response;
@@ -347,9 +348,6 @@ const HOME_STYLE = pageStyle("home", () => `
 .home-track > .cover { flex: 0 0 clamp(200px, 17vw, 260px); }
 .home-track > .cover.is-placeholder .cover-art img { object-fit: contain; padding: 14%; background: var(--well); }
 .home-all { display: flex; justify-content: center; }
-/* A game's background: a layer over Zaisma's own, fading in when it is ready. */
-.home-world { opacity: 0; object-fit: cover; border: 0; transition-property: opacity; transition-timing-function: ease; }
-.home-world.is-shown { opacity: 1; }
 /* Play: Zaisma steps aside. The glass slides off to the edges and the game's page opens over the world in place. */
 .home-game { position: fixed; inset: 0; z-index: 30; width: 100%; height: 100%; border: 0; background: #000; opacity: 0; visibility: hidden; transition: opacity 0.3s 0.5s, visibility 0s 0.8s; }
 .is-game-shown .home-game { opacity: 1; visibility: visible; transition: opacity 0.3s 0.5s, visibility 0s; }
@@ -368,6 +366,6 @@ const HOME_STYLE = pageStyle("home", () => `
   .home-track > .cover { flex-basis: 64vw; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .home-pane, .home-more, .home-more-in, .home-world, .home-game, .is-playing .home-shelf { transition: none !important; }
+  .home-pane, .home-more, .home-more-in, .game-world, .home-game, .is-playing .home-shelf { transition: none !important; }
 }
 `);

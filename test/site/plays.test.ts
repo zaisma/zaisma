@@ -103,10 +103,10 @@ describe("counted plays", () => {
     for (let i = 0; i < 2; i++) await issueTicket(env.DB, "g-play", NEW);
     const page = async () => (await SELF.fetch(`${SITE}/g/play-game`)).text();
     const home = async () => (await SELF.fetch(`${SITE}/`)).text();
-    expect(await page()).toMatch(/id="playing-now" hidden>2 playing now/);
+    expect(await page()).toMatch(/id="playing-now" hidden><ul class="glance"><li>[\s\S]*?<b>2<\/b> playing now/);
     expect(await home()).not.toContain("<b>2</b> playing now");
     await issueTicket(env.DB, "g-play", NEW);
-    expect(await page()).toMatch(/id="playing-now">3 playing now/);
+    expect(await page()).toMatch(/id="playing-now"><ul class="glance"><li>[\s\S]*?<b>3<\/b> playing now/);
     expect(await home()).toContain("<b>3</b> playing now");
   });
 

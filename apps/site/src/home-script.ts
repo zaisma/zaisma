@@ -9,9 +9,8 @@ import { pageScript } from "./page-scripts.ts";
  * pointer (a row or the page scrolling) don't take focus. Signed in or not, a device that has played something opens on the game
  * played last; otherwise a guest's visit opens on one of Popular's top 8, drawn here so the page stays one cached copy.
  *
- * Backgrounds: Zaisma's own is the page's backdrop canvas (components/backdrop-script.ts); a game's picture or shader is a layer
- * added over it (zaismaBackdrop.add) that fades in and then takes the old one's place. The glass is measured from the new layer's
- * still by the backdrop script, so it follows the background; going back to Zaisma's own lets the glass go back to the theme's.
+ * Backgrounds: the game in focus's own, behind the glass, through game-background-script.ts (zaismaWorld), which the game's page
+ * uses too; the home only decides when it changes.
  *
  * Play: the game starts in place. The page's own game page (/g/<slug>?play) opens in a frame over the home, so counting, Turnstile,
  * saves, rooms, sign-in and the game bar are exactly the game page's, never a copy that could drift; the address becomes
@@ -96,85 +95,18 @@ addEventListener("scroll", () => {
 }, { passive: true });
 pane.box.addEventListener("focusin", (event) => { if (pane.moreIn.contains(event.target)) openPane(false); });
 
-/* ---- The world behind the glass ---- */
-const root = document.documentElement;
-const defaultBackdrop = document.querySelector("canvas.backdrop[data-backdrop]");
-let worldSlug = "", worldKey = "", layers = [], swapTimer = 0, lastSwapMs = -1e9, lastFadeMs = 0;
-root.classList.add("eases-settings");
-function backgroundOf(game) {
-  const own = game.background;
-  return own ? (isPhone() ? own.phone : own.wide) : { source: "zaisma" };
-}
-function layerFor(background) {
-  const layer = background.source === "image" ? make("img", "backdrop home-world") : make("iframe", "backdrop home-world");
-  layer.setAttribute("aria-hidden", "true");
-  layer.setAttribute("data-adapts-glass", "");
-  if (background.source === "image") {
-    layer.setAttribute("data-backdrop", "picture"); layer.alt = ""; layer.decoding = "async"; layer.src = background.imageUrl;
-  } else {
-    layer.setAttribute("data-backdrop", "frame"); layer.setAttribute("data-backdrop-still", background.stillUrl);
-    layer.setAttribute("sandbox", "allow-scripts allow-same-origin"); layer.setAttribute("loading", "eager"); layer.tabIndex = -1; layer.title = "Background"; layer.src = background.frameUrl;
-  }
-  return layer;
-}
-function dropLayers(keep) {
-  layers = layers.filter((layer) => {
-    if (layer === keep) return true;
-    if (window.zaismaBackdrop) window.zaismaBackdrop.remove(layer);
-    layer.remove();
-    return false;
-  });
-}
+/* ---- The world behind the glass (game-background-script.ts) ---- */
+let worldSlug = "", swapTimer = 0, lastSwapMs = -1e9, lastFadeMs = 0;
 function showWorld(slug, isInstant) {
-  const game = bySlug[slug], background = backgroundOf(game);
-  const key = background.source + "|" + (background.imageUrl || background.frameUrl || "");
+  const game = bySlug[slug];
   worldSlug = slug;
-  if (game.glass_tint_color) root.style.setProperty("--glass-hue", game.glass_tint_color); else root.style.removeProperty("--glass-hue");
-  if (key === worldKey) return;
-  worldKey = key;
-  const fadeMs = isInstant || isReduced ? 0 : 500;
-  lastFadeMs = fadeMs;
-  if (background.source === "zaisma") {
-    // Back to Zaisma's own: the game's layer fades out over its canvas, which draws again, and the glass goes back to the theme's.
-    if (defaultBackdrop) defaultBackdrop.removeAttribute("data-backdrop-paused");
-    if (window.zaismaBackdrop) window.zaismaBackdrop.forgetGlass();
-    layers.forEach((layer) => { layer.style.transitionDuration = fadeMs + "ms"; layer.classList.remove("is-shown"); });
-    const leaving = layers.slice();
-    setTimeout(() => { if (worldKey !== key) return; leaving.forEach((layer) => { if (window.zaismaBackdrop) window.zaismaBackdrop.remove(layer); layer.remove(); }); layers = layers.filter((layer) => !leaving.includes(layer)); }, fadeMs + 80);
-    return;
-  }
-  const layer = layerFor(background);
-  layer.style.transitionDuration = fadeMs + "ms";
-  document.body.append(layer);
-  layers.push(layer);
-  if (window.zaismaBackdrop) window.zaismaBackdrop.add(layer);
-  let isShown = false;
-  const reveal = () => {
-    if (isShown || worldKey !== key) return;
-    isShown = true;
-    void layer.offsetWidth;
-    layer.classList.add("is-shown");
-    // The old layers stay whole underneath until this one has fully faded in, so nothing shows through halfway.
-    setTimeout(() => {
-      if (worldKey !== key) return;
-      dropLayers(layer);
-      if (defaultBackdrop) defaultBackdrop.setAttribute("data-backdrop-paused", "");
-    }, fadeMs + 80);
-  };
-  if (background.source === "image") {
-    if (layer.complete && layer.naturalWidth) reveal(); else { layer.addEventListener("load", reveal); layer.addEventListener("error", () => { worldKey = ""; layer.remove(); layers = layers.filter((each) => each !== layer); if (window.zaismaBackdrop) window.zaismaBackdrop.remove(layer); }); }
-  } else {
-    // A shader's frame says when it's drawing; if it never does (no WebGL, an error) its still carries the glass and the frame shows the still.
-    const onMessage = (event) => { if (event.source === layer.contentWindow && event.data && event.data.zaismaBackground && (event.data.isRunning || event.data.error)) { removeEventListener("message", onMessage); reveal(); } };
-    addEventListener("message", onMessage);
-    setTimeout(() => { removeEventListener("message", onMessage); reveal(); }, 3000);
-  }
+  if (window.zaismaWorld.show(window.zaismaWorld.pick(game.background), { glassTintColor: game.glass_tint_color, isInstant })) lastFadeMs = isInstant || isReduced ? 0 : 500;
 }
 function queueWorld(slug) {
   clearTimeout(swapTimer);
   const wait = Math.max(0, Math.max(600, lastFadeMs + 100) - (performance.now() - lastSwapMs));
   swapTimer = setTimeout(() => {
-    if (focusSlug !== slug || (worldSlug === slug && worldKey)) return;
+    if (focusSlug !== slug || worldSlug === slug) return;
     lastSwapMs = performance.now();
     showWorld(slug, worldSlug === "");
   }, worldSlug === "" ? 0 : wait);

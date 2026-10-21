@@ -21,16 +21,22 @@ interface ButtonTarget {
   formMethod?: "dialog";
   /** Focused as its sheet opens: a confirm step's Cancel, so a stray Enter never confirms. */
   isAutofocused?: boolean;
+  /** Unique on the page, for a page script to find it (the game page's Play). */
+  id?: string;
+  /** Attributes a page script reads, by name without data- (the game page's data-report on its Report links). */
+  dataAttributes?: Record<string, string>;
 }
 
 /** The gallery's fixed states, so they sit still side by side. */
 type ButtonState = "is-pointed" | "is-pressed" | "is-focused";
 
 /** The button itself: a still shell that takes the pointer (TOKEN_STYLES, "Still under the pointer"). What moves goes inside it, in its face. */
+const targetAttributes = (target: ButtonTarget) =>
+  html`${target.id ? html` id="${target.id}"` : ""}${Object.entries(target.dataAttributes ?? {}).map(([name, attributeValue]) => html` data-${name}="${attributeValue}"`)}`;
 const opening = (className: string, target: ButtonTarget, isBusy: boolean | undefined, extra: Raw | "" = "") =>
   target.href
-    ? html`<a class="shell ${className}" href="${target.href}"${extra}${isBusy ? raw(' aria-busy="true"') : ""}>`
-    : html`<button class="shell ${className}" type="${target.type ?? "submit"}"${extra}${target.name ? html` name="${target.name}"` : ""}${target.buttonValue !== undefined ? html` value="${target.buttonValue}"` : ""}${target.formMethod ? raw(' formmethod="dialog" formnovalidate') : ""}${target.isAutofocused ? raw(" autofocus") : ""}${isBusy ? raw(' aria-busy="true" disabled') : ""}>`;
+    ? html`<a class="shell ${className}" href="${target.href}"${targetAttributes(target)}${extra}${isBusy ? raw(' aria-busy="true"') : ""}>`
+    : html`<button class="shell ${className}" type="${target.type ?? "submit"}"${targetAttributes(target)}${extra}${target.name ? html` name="${target.name}"` : ""}${target.buttonValue !== undefined ? html` value="${target.buttonValue}"` : ""}${target.formMethod ? raw(' formmethod="dialog" formnovalidate') : ""}${target.isAutofocused ? raw(" autofocus") : ""}${isBusy ? raw(' aria-busy="true" disabled') : ""}>`;
 const closing = (target: ButtonTarget) => raw(target.href ? "</a>" : "</button>");
 const classes = (...names: (string | false | undefined)[]) => names.filter(Boolean).join(" ");
 

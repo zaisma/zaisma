@@ -65,7 +65,7 @@ const storedText = async () => (await gameBySlug(env.DB, "sky-hopper"))!.own_ser
 const stored = async () => ownServerUrlsOf((await gameBySlug(env.DB, "sky-hopper"))!);
 const gamePage = async () => (await SELF.fetch(`${SITE}/g/sky-hopper`)).text();
 /** Where the game page says it: the ⋯ menu's lines, and nowhere else. */
-const ownServerLines = async () => [...(await gamePage()).matchAll(/<p class="([a-z-]+)">([^<]*own server[^<]*)<\/p>/g)].map((line) => ({ place: line[1], text: line[2] }));
+const ownServerLines = async () => [...(await gamePage()).matchAll(/<div class="([a-z-]+)"><strong>[^<]*<\/strong><span>([^<]*own server[^<]*)<\/span>/g)].map((line) => ({ place: line[1], text: line[2] }));
 
 beforeAll(async () => {
   signingKeys = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair;
@@ -99,14 +99,14 @@ describe("a game's own servers through the API and MCP", () => {
     expect(changed.game.own_server_urls).toEqual(["wss://play.example.com", "wss://eu.example.com:8443"]);
     expect(await storedText()).toBe('["wss://play.example.com","wss://eu.example.com:8443"]');
     expect((await api("/games/sky-hopper")).answer.game.own_server_urls).toEqual(["wss://play.example.com", "wss://eu.example.com:8443"]);
-    expect(await ownServerLines()).toEqual([{ place: "q-about", text: "Online play runs on the developer&#39;s own servers: play.example.com, eu.example.com:8443" }]);
+    expect(await ownServerLines()).toEqual([{ place: "dropdown-head", text: "Online play runs on the developer&#39;s own servers: play.example.com, eu.example.com:8443" }]);
     expect(await history()).toContain("Changed the game's own servers");
 
     await tool("update_game", { slug: "sky-hopper", own_server_urls: ["wss://play.example.com"] });
-    expect(await ownServerLines()).toEqual([{ place: "q-about", text: "Online play runs on the developer&#39;s own server: play.example.com" }]);
+    expect(await ownServerLines()).toEqual([{ place: "dropdown-head", text: "Online play runs on the developer&#39;s own server: play.example.com" }]);
     // The menu doesn't repeat the description the details already show.
     await env.DB.prepare("UPDATE games SET description = 'Hop between floating islands.' WHERE slug = 'sky-hopper'").run();
-    expect((await gamePage()).match(/<dialog id="menu-dialog"[\s\S]*?<\/dialog>/)![0]).not.toContain("Hop between floating islands.");
+    expect((await gamePage()).match(/id="game-menu"[\s\S]*?<\/div>/)![0]).not.toContain("Hop between floating islands.");
 
     expect((await tool("update_game", { slug: "sky-hopper", own_server_urls: [] })).game.own_server_urls).toEqual([]);
     expect(await storedText()).toBe("[]");

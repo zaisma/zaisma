@@ -184,9 +184,9 @@ Every component, with the call that makes it and its options, is in the catalog 
 ### Actions
 
 - **Runner button** (`runButton(label: string, options?: RunButtonOptions)`, `actions.ts`): The one thing to do on a screen: Play, Sign in, Next. Never more than one in view, and visible without scrolling.
-  - `options`: `href?: string`, `type?: "submit" | "button"`, `name?: string`, `buttonValue?: string`, `formMethod?: "dialog"`, `isAutofocused?: boolean`, `isBig?: boolean`, `isFullWidth?: boolean`, `isBusy?: boolean`, `busyLabel?: string`, `icon?: IconName`, `state?: ButtonState`
+  - `options`: `href?: string`, `type?: "submit" | "button"`, `name?: string`, `buttonValue?: string`, `formMethod?: "dialog"`, `isAutofocused?: boolean`, `id?: string`, `dataAttributes?: Record<string, string>`, `isBig?: boolean`, `isFullWidth?: boolean`, `isBusy?: boolean`, `busyLabel?: string`, `icon?: IconName`, `state?: ButtonState`
 - **Cut button** (`cutButton(label: string, options?: CutButtonOptions)`, `actions.ts`): Everything else you can press: Details, Make an account, Cancel. A delete is a cut button too, never orange; only its confirm step turns red.
-  - `options`: `href?: string`, `type?: "submit" | "button"`, `name?: string`, `buttonValue?: string`, `formMethod?: "dialog"`, `isAutofocused?: boolean`, `icon?: IconName`, `isLabelHidden?: boolean`, `isFullWidth?: boolean`, `isBusy?: boolean`, `state?: ButtonState`, `isBig?: boolean`, `isSmall?: boolean`, `isInWell?: boolean`, `isDisabled?: boolean`, `isPressed?: boolean`, `controls?: string`, `isExpanded?: boolean`, `isHidden?: boolean`
+  - `options`: `href?: string`, `type?: "submit" | "button"`, `name?: string`, `buttonValue?: string`, `formMethod?: "dialog"`, `isAutofocused?: boolean`, `id?: string`, `dataAttributes?: Record<string, string>`, `icon?: IconName`, `isLabelHidden?: boolean`, `isFullWidth?: boolean`, `isBusy?: boolean`, `state?: ButtonState`, `isBig?: boolean`, `isSmall?: boolean`, `isInWell?: boolean`, `isDisabled?: boolean`, `isPressed?: boolean`, `controls?: string`, `isExpanded?: boolean`, `isHidden?: boolean`
 - **Glass button** (`glassButton(label: string, options: { … })`, `actions.ts`): Another way in, like a passkey, Google or Discord: below the runner, never instead of it.
   - `options`: `href?: string`, `type?: "submit" | "button"`, `icon: keyof typeof WAY_ICONS`, `tint?: GlassTint`, `state?: ButtonState`, `isBusy?: boolean`
 - **Guest button** (`guestButton(label: string, options?: { … })`, `actions.ts`): The quietest way on, like Continue as guest: words and an arrow below the glass buttons, a slab only once you point at it.
@@ -251,7 +251,7 @@ Every component, with the call that makes it and its options, is in the catalog 
 - **Tray** (`tray(options: { … })`, `foundations.ts`): A thinner, clearer sheet a pane extends into, holding everything that belongs to it: the pane's words on top, what they're about on the tray beneath, read as one. Every gallery section is one.
   - `options`: `head: Raw`, `body: Raw`, `label?: string`
 - **Dropdown** (`dropdown(options: DropdownOptions)`, `panes.ts`): A short list of choices that hangs from a button, like the account button's in the header: with a head, rules, icons, counts and the current one, as each needs.
-  - `options`: `id: string`, `label: string`, `head?: { title: string; note?: string }`, `items: DropdownItem[]`, `isOpen?: boolean`
+  - `options`: `id: string`, `label: string`, `head?: { title: string; note?: string }`, `headExtra?: Raw`, `items: DropdownItem[]`, `isOpen?: boolean`
 - **Game cover** (`gameCover(options: { … })`, `panes.ts`): A game in a list: the studio's art, bare, with only what concerns you under it.
   - `options`: `title: string`, `imageUrl: string`, `href: string`, `facts: GlanceFacts`, `isCurrent?: boolean`
 - **Sheet** (`sheet(options: SheetOptions)`, `panes.ts`): A task that comes and goes over the page: report a game, block someone, add a key. Opened by a button that names it; Esc, its close button or a press beside it close it.
@@ -261,7 +261,7 @@ Every component, with the call that makes it and its options, is in the catalog 
 - **Notice** (`notice(options: NoticeOptions)`, `panes.ts`): A moment that just happened, just under the header: Saved, Copied, or what went wrong. A done one leaves by itself after 4 seconds; a problem stays until it's closed.
   - `options`: `text: string`, `tone: "done" | "problem"`, `isInPlace?: boolean`
 - **Banner** (`banner(options: BannerOptions)`, `panes.ts`): Something that holds while you're on a page, across the top of its content: you're playing as a guest, a version is held. One line, and at most one button.
-  - `options`: `text: string`, `icon?: IconName`, `action?: { label: string; href: string }`
+  - `options`: `text: string`, `icon?: IconName`, `action?: { label: string; href: string }`, `tone?: "amber"`
 - **Step flow** (`stepFlow(options: StepFlowOptions)`, `panes.ts`): A task in a few steps, like protecting your account: a pane with a thin step line across its top that fills in orange as you go, the step you're on ending in light, and Back and Next.
   - `options`: `steps: StepFlowStep[]`, `currentIndex: number`, `body?: Raw`, `action: string`, `finishLabel?: string`, `backHref?: string`
 

@@ -1,8 +1,12 @@
 import { friendsInGameOf, gameBySlug } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
-import { joinButton } from "./friends-now.ts";
-import { accountPicture, html, raw, scriptTags, securityHeaders, type Raw } from "./html.ts";
+import { cutButton, textLink } from "./components/actions.ts";
+import { pictureFrame } from "./components/data.ts";
+import { tag } from "./components/foundations.ts";
+import { sheet } from "./components/panes.ts";
+import { friendJoinButton } from "./friends-now.ts";
+import { html, scriptTags, securityHeaders, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
 import { profilePath } from "./profiles.ts";
 
@@ -61,74 +65,59 @@ const ROOM_CODE = /^[A-Z0-9]{6}$/;
 
 /** Friends playing the game, each with Join, grayed with why when it won't work; none for a friend in no room Zaisma knows. */
 function friendRows(slug: string, friends: Awaited<ReturnType<typeof friendsInGameOf>>): Raw {
-  if (!friends.length) return html`<p class="pl-note">None of your friends are playing this right now.</p>`;
-  return html`<ul class="pl-list">${friends.map(
-    (friend) => html`<li class="pl-row"><a class="face" href="${profilePath(friend.username)}" target="_blank" rel="noopener" aria-label="${friend.username}">${accountPicture(friend.username, "sm")}</a><a class="pl-name" href="${profilePath(friend.username)}" target="_blank" rel="noopener">${friend.username}</a>${
+  if (!friends.length) return html`<p class="players-note">None of your friends are playing this right now.</p>`;
+  return html`<ul class="list-rows">${friends.map(
+    (friend) => html`<li><div class="list-row players-row"><a class="players-face" href="${profilePath(friend.username)}" target="_blank" rel="noopener" aria-label="${friend.username}">${pictureFrame(friend.username, "sm")}</a><span class="list-row-words"><a class="list-row-title players-name" href="${profilePath(friend.username)}" target="_blank" rel="noopener">${friend.username}</a></span>${
       friend.join_refusal === "no_room" || (!friend.room_code && !friend.join_refusal)
         ? ""
-        : joinButton(slug, { room_code: friend.room_code ?? "", server_url: friend.server_url, refusal: friend.join_refusal, refusing_friend_names: [friend.username] })
-    }</li>`,
+        : html`<span class="list-row-end">${friendJoinButton(slug, { room_code: friend.room_code ?? "", server_url: friend.server_url, refusal: friend.join_refusal, refusing_friend_names: [friend.username] })}</span>`
+    }</div></li>`,
   )}</ul>`;
 }
 
-/** The plate itself, beside the game like Report's (and using its styles), for games that go online. */
+/**
+ * The Players sheet itself, for games that go online. The rows its script builds use the buttons in its templates, so they're the
+ * components' own; its look is the game page's (game-page-style.ts).
+ */
 export function playersSheet(options: { gameOrigin: string; slug: string; title: string; hasZaismaRooms: boolean; canSignIn: boolean; signInPath: string }): Raw {
-  return html`<dialog id="players" class="sheet" aria-labelledby="players-title" data-game-origin="${options.gameOrigin}" data-slug="${options.slug}" data-has-zaisma-rooms="${String(options.hasZaismaRooms)}" data-can-sign-in="${String(options.canSignIn)}">
-  <div class="sheet-head">
-    <div><h2 id="players-title">Players</h2></div>
-    <button class="ctl x" type="button" data-close title="Close" aria-label="Close">${raw(ICON_CLOSE)}</button>
-  </div>
-  <div class="sheet-body">
-    <section class="pl-part" aria-labelledby="players-room-title">
-      <h3 class="pl-h" id="players-room-title">In this room<span id="players-count"></span></h3>
-      <ul class="pl-list" id="players-list"></ul>
-      <p class="pl-note" id="players-note" hidden></p>
-    </section>
-    <section class="pl-part" id="players-friends" aria-labelledby="players-friends-title" hidden>
-      <h3 class="pl-h" id="players-friends-title">Friends playing ${options.title}</h3>
-      <div id="players-friends-list"></div>
-    </section>
-    <p class="pl-note" id="players-sign-in" hidden><a href="${options.signInPath}">Sign in</a> to see your friends here.</p>
-  </div>
-</dialog>
-<style>
-.pl-part+.pl-part{margin-top:22px}
-.pl-h{margin:0 0 8px;font-size:15px;font-weight:600;color:var(--text-2)}
-#players-count{color:var(--muted);font-weight:500}
-.pl-list{list-style:none;margin:0;padding:0;display:grid;gap:6px}
-.pl-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px;min-height:52px;padding:8px 10px 8px 12px;
-  background:var(--brush) 0 0/320px 320px,var(--face-hi);box-shadow:inset 1px 1px 0 rgba(255,255,255,.1),inset -1px -1px 0 #000;clip-path:polygon(0 0,calc(100% - 10px) 0,100% 10px,100% 100%,0 100%)}
-.pl-name{flex:1;min-width:0;font-family:var(--display);font-size:15px;font-weight:600;color:var(--text);text-decoration:none;overflow-wrap:anywhere}
-a.pl-name:hover{text-decoration:underline}
-.pl-friend{margin-left:8px;font-family:var(--body,inherit);font-size:12px;font-weight:500;color:var(--ok)}
-.pl-state{margin-left:6px;font-weight:500;font-size:13px;color:var(--muted)}
-.pl-row .btn{min-height:34px;padding:0 12px;font-size:13px}
-.pl-more{width:34px;height:34px;padding:0;justify-content:center}
-.pl-actions{flex-basis:100%;display:flex;flex-wrap:wrap;gap:6px;padding:4px 0 2px 36px}
-.pl-actions .btn{min-height:32px}
-.pl-note{margin:4px 2px 0;color:var(--muted);font-size:14px}
-.pl-note a{color:var(--text)}
-</style>
+  return html`${sheet({
+    id: "players",
+    title: "Players",
+    closeLabel: "Close",
+    body: html`<section class="players-part" aria-labelledby="players-room-title">
+<h3 class="players-heading" id="players-room-title">In this room<span id="players-count"></span></h3>
+<ul class="list-rows" id="players-list"></ul>
+<p class="players-note" id="players-note" hidden></p>
+</section>
+<section class="players-part" id="players-friends" aria-labelledby="players-friends-title" hidden>
+<h3 class="players-heading" id="players-friends-title">Friends playing ${options.title}</h3>
+<div id="players-friends-list"></div>
+</section>
+<p class="players-note" id="players-sign-in" hidden>${textLink("Sign in", options.signInPath)} to see your friends here.</p>`,
+  })}<span hidden id="players-config" data-game-origin="${options.gameOrigin}" data-slug="${options.slug}" data-has-zaisma-rooms="${String(options.hasZaismaRooms)}" data-can-sign-in="${String(options.canSignIn)}"></span>
+<template id="players-button">${cutButton("Mute", { type: "button", isSmall: true })}</template>
+<template id="players-more">${cutButton("More", { type: "button", icon: "more", isLabelHidden: true, isSmall: true, isExpanded: false })}</template>
+<template id="players-link">${cutButton("Profile", { href: "/", isSmall: true })}</template>
+<template id="players-friend">${tag("Friend", "new")}</template>
 ${scriptTags(PLAYERS_SHEET_SCRIPT)}`;
 }
-
-const ICON_CLOSE = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>`;
 
 // The plate's script: the game's SDK says who's in the room, and Mute, Block and Report go back through the game and Zaisma's plates.
 const PLAYERS_SHEET_SCRIPT = pageScript("players-sheet", String.raw`(() => {
   const sheet = document.getElementById("players");
   const opener = document.getElementById("players-open");
   if (!sheet || !opener) return;
-  const GAME_ORIGIN = sheet.dataset.gameOrigin;
-  const SLUG = sheet.dataset.slug;
-  const HAS_ZAISMA_ROOMS = sheet.dataset.hasZaismaRooms === "true";
-  const CAN_SIGN_IN = sheet.dataset.canSignIn === "true";
+  const config = document.getElementById("players-config").dataset;
+  const GAME_ORIGIN = config.gameOrigin;
+  const SLUG = config.slug;
+  const HAS_ZAISMA_ROOMS = config.hasZaismaRooms === "true";
+  const CAN_SIGN_IN = config.canSignIn === "true";
   const CODE = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/;
   const $ = (id) => document.getElementById(id);
   const frame = () => document.getElementById("game");
   const tell = (message) => { const f = frame(); if (f && f.contentWindow) f.contentWindow.postMessage(message, GAME_ORIGIN); };
   const isSignedIn = () => /(^|; )(__Host-)?zaisma_in=1/.test(document.cookie);
-  const count = opener.querySelector(".count");
+  const count = document.getElementById("players-count-badge");
   // The room the game is in, as its SDK says: { code, myPlayerId, players, muted, blocked, lasting }.
   let room = null, hasSeenRoom = false, openPlayerId = null;
   // Accounts by player ID, by the name Zaisma knows them by: { name, isFriend }.
@@ -148,6 +137,27 @@ const PLAYERS_SHEET_SCRIPT = pageScript("players-sheet", String.raw`(() => {
     if (className) made.className = className;
     if (content !== undefined) made.textContent = content;
     return made;
+  }
+  // A component from the sheet's templates: a cut button with its label, or the Friend tag.
+  function fromTemplate(id, label) {
+    const made = $(id).content.firstElementChild.cloneNode(true);
+    const words = made.querySelector(".face > span:not([class])");
+    if (words && label !== undefined) words.textContent = label;
+    return made;
+  }
+  // An account's picture as the page draws them (data.ts, pictureFrame): initials in their own color, in a frame of glass.
+  function picture(name) {
+    const frame = element("span", "frame sm glass");
+    frame.setAttribute("data-glass", "");
+    frame.setAttribute("data-glass-corners", "0 0 0 0");
+    frame.setAttribute("data-glass-band", "2");
+    frame.setAttribute("aria-hidden", "true");
+    const inside = element("span", "frame-picture");
+    const face = element("span", "av sm", initials(name));
+    face.style.setProperty("--h", String(hue(name)));
+    inside.append(face);
+    frame.append(inside);
+    return frame;
   }
 
   addEventListener("message", (e) => {
@@ -204,31 +214,31 @@ const PLAYERS_SHEET_SCRIPT = pageScript("players-sheet", String.raw`(() => {
     const name = known ? known.name : other.name;
     const isBlocked = room.blocked.has(other.id) || room.lasting.has(other.id);
     const isMuted = room.muted.has(other.id);
-    const item = element("li", "pl-row");
-    const face = element("span", "av sm", initials(name));
-    face.style.setProperty("--h", String(hue(name)));
-    face.setAttribute("aria-hidden", "true");
-    const label = element("span", "pl-name", name);
-    if (known && known.isFriend) label.appendChild(element("span", "pl-friend", "Friend"));
-    if (isBlocked || isMuted) label.appendChild(element("span", "pl-state", isBlocked ? "(blocked)" : "(muted)"));
-    item.append(face, label);
+    const item = element("li");
+    const line = element("div", "list-row players-row");
+    const words = element("span", "list-row-words");
+    const title = element("span", "list-row-title", name);
+    if (known && known.isFriend) title.append(" ", fromTemplate("players-friend"));
+    words.appendChild(title);
+    if (isBlocked || isMuted) words.appendChild(element("span", "list-row-detail", isBlocked ? "Blocked" : "Muted"));
+    const end = element("span", "list-row-end");
+    line.append(picture(name), words, end);
+    item.appendChild(line);
     // A lasting block is undone on zaisma.com/friends; a session one, or a mute, here.
     if (!room.lasting.has(other.id)) {
-      const mute = element("button", "btn ghost", isBlocked ? "Unblock" : isMuted ? "Unmute" : "Mute");
-      mute.type = "button";
+      const mute = fromTemplate("players-button", isBlocked ? "Unblock" : isMuted ? "Unmute" : "Mute");
       mute.addEventListener("click", () => tell({ type: "zaisma:player-action", action: isBlocked || isMuted ? "unmute" : "mute", playerId: other.id }));
-      item.appendChild(mute);
+      end.appendChild(mute);
     }
-    const more = element("button", "ctl pl-more", "⋯");
-    more.type = "button";
+    const more = fromTemplate("players-more");
     more.setAttribute("aria-label", "More for " + name);
     more.setAttribute("aria-expanded", String(openPlayerId === other.id));
     more.addEventListener("click", () => { openPlayerId = openPlayerId === other.id ? null : other.id; render(); });
-    item.appendChild(more);
+    end.appendChild(more);
     if (openPlayerId === other.id) {
-      const actions = element("div", "pl-actions");
+      const actions = element("div", "control-row players-actions");
       if (known) {
-        const profile = element("a", "btn ghost", "Profile");
+        const profile = fromTemplate("players-link", "Profile");
         profile.href = "/@" + encodeURIComponent(known.name);
         profile.target = "_blank";
         profile.rel = "noopener";
@@ -242,8 +252,7 @@ const PLAYERS_SHEET_SCRIPT = pageScript("players-sheet", String.raw`(() => {
   }
 
   function action(label, onClick) {
-    const button = element("button", "btn ghost", label);
-    button.type = "button";
+    const button = fromTemplate("players-button", label);
     button.addEventListener("click", onClick);
     return button;
   }
@@ -261,14 +270,14 @@ const PLAYERS_SHEET_SCRIPT = pageScript("players-sheet", String.raw`(() => {
   }
 
   opener.addEventListener("click", () => {
-    ["menu-dialog", "report", "block"].forEach((id) => { const other = $(id); if (other && other.open) other.close(); });
+    ["report", "block", "share-dialog"].forEach((id) => { const other = $(id); if (other && other.open) other.close(); });
     openPlayerId = null;
     render();
     loadFriends();
     if (!sheet.open) sheet.showModal();
   });
   sheet.addEventListener("click", (e) => {
-    if (e.target === sheet || (e.target.closest && e.target.closest("[data-close]"))) sheet.close();
+    if (e.target.closest && e.target.closest("[data-close]")) sheet.close();
   });
   sheet.addEventListener("close", () => { const f = frame(); if (f) f.focus(); });
 })();`);

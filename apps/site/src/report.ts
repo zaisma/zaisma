@@ -3,7 +3,12 @@ import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { sendAlert } from "./email.ts";
 import { tellWebhooks, type WaitUntil } from "./webhooks.ts";
-import { html, layout, metalButton, raw, scriptTags } from "./html.ts";
+import { cutButton, runButton } from "./components/actions.ts";
+import { checkField, longField } from "./components/choices.ts";
+import { listRows, type ListRow } from "./components/data.ts";
+import { icon } from "./components/foundations.ts";
+import { banner, sheet } from "./components/panes.ts";
+import { html, layout, pageData, scriptTags } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
 import type { Viewer } from "./viewer.ts";
 
@@ -40,124 +45,45 @@ const PLAYER_WHYS: [PlayerReportReason, string, string][] = [
   ["other", PLAYER_REPORT_REASONS.other, ""],
 ];
 
-const svg = (paths: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
-const ICON_CLOSE = svg('<path d="M6 6l12 12M18 6L6 18"/>');
-const ICON_NEXT = svg('<path d="M9 5l7 7-7 7"/>');
-const ICON_SENT = svg('<path d="M4.5 12.5l5 5 10-11"/>');
+/** A reason: a row that leads on to the next step. */
+const why = (reason: string, label: string, hint: string): ListRow => ({ title: label, detail: hint || undefined, buttonDataAttributes: { reason, label } });
 
-const why = (reason: string, label: string, hint: string) =>
-  html`<button type="button" class="why" data-reason="${reason}" data-label="${label}"><span><strong>${label}</strong>${hint ? html`<small>${hint}</small>` : ""}</span>${raw(ICON_NEXT)}</button>`;
-
-/** The report plate for the game page, with its styles and script. */
+/** The report sheet for the game page, with its script; its look is the game page's (game-page-style.ts). */
 export function reportSheet(game: Game, options: { isMultiplayer: boolean; gameOrigin: string }): ReturnType<typeof html> {
   const config = { slug: game.slug, title: game.title, gameOrigin: options.gameOrigin, hold: AUTO_HOLD_REASONS, zaisma: ZAISMA_PLAYER_REPORT_REASONS };
-  return html`<style>
-/* Report: a plate that slides in beside the game. The game keeps running and stays in view, and the
-   shade only deepens toward the plate. */
-dialog.sheet{position:fixed;inset:12px 12px 12px auto;margin:0;width:min(400px,calc(100vw - 24px));height:auto;max-width:none;max-height:none;flex-direction:column;overflow:hidden;
-  --cut:36px;clip-path:polygon(0 0,calc(100% - 36px) 0,100% 36px,100% 100%,0 100%);animation:sheet-in 220ms cubic-bezier(.2,.8,.2,1)}
-dialog.sheet[open]{display:flex}
-dialog.sheet::backdrop{background:linear-gradient(90deg,rgba(4,5,7,0) 35%,rgba(4,5,7,.6));-webkit-backdrop-filter:none;backdrop-filter:none}
-.sheet [hidden]{display:none!important}
-.sheet-head{display:flex;align-items:flex-start;gap:12px;padding:22px 22px 16px;
-  background:linear-gradient(#000,#000) bottom left/100% 1px no-repeat,linear-gradient(rgba(255,255,255,.055),rgba(255,255,255,.055)) bottom 1px left/100% 1px no-repeat}
-.sheet-head>div{flex:1;min-width:0}
-.sheet-head h2{margin:0;font-size:24px;line-height:1.15;overflow-wrap:anywhere}
-.sheet-sub{margin:6px 0 0;color:var(--muted);font-size:14px}
-.sheet-head .x{flex:none;width:40px;height:40px;margin-right:24px;padding:0;justify-content:center}
-.sheet-body{flex:1;min-height:0;overflow:auto;padding:16px 16px 20px}
-.whys{display:grid;gap:8px}
-.why[hidden]{display:none}
-/* Each reason is a plate you press; the chevron says it leads on. */
-.why,.picked{position:relative;display:flex;align-items:center;gap:12px;width:100%;min-height:58px;padding:10px 14px 10px 16px;border:0;text-align:left;color:var(--text);font:inherit;cursor:pointer;
-  background:var(--brush) 0 0/320px 320px,var(--face-hi);box-shadow:inset 1px 1px 0 rgba(255,255,255,.1),inset -1px -1px 0 #000;clip-path:polygon(0 0,calc(100% - 10px) 0,100% 10px,100% 100%,0 100%)}
-.why span,.picked span{flex:1;min-width:0;display:grid;gap:2px}
-.why strong,.picked strong{font-family:var(--display);font-size:16px;font-weight:600}
-.why small{color:var(--muted);font-size:13px;line-height:1.35}
-.why svg{width:16px;height:16px;flex:none;color:var(--muted)}
-.why:hover,.picked:hover{background:var(--brush) 0 0/320px 320px,linear-gradient(180deg,#3a3f48,#2a2e35)}
-.why:hover svg{color:var(--text)}
-.why:focus-visible,.picked:focus-visible{outline:none;box-shadow:inset 0 0 0 2px #e9ebee}
-/* The chosen reason rides on a chrome rail, like the open tab. */
-.picked{padding-left:20px}
-.picked::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--chrome);box-shadow:0 0 12px rgba(225,230,240,.35)}
-.picked .change{flex:none;font-family:var(--display);font-size:13px;font-weight:500;color:var(--muted)}
-.picked:hover .change{color:var(--text)}
-.sheet form{display:grid;gap:14px}
-.sheet textarea{width:100%;min-height:120px;resize:vertical}
-/* The picture of the game sits in a machined bezel, like the game page's; unticked, it grays out. */
-.report-pic{margin:0;display:grid;gap:10px}
-.report-pic .frame{display:block;padding:3px;background:linear-gradient(135deg,#60656f 0%,#1c1e22 36%,#121417 70%,#40444c 100%);clip-path:polygon(0 0,calc(100% - 14px) 0,100% 14px,100% 100%,0 100%)}
-.report-pic img{display:block;width:100%;max-height:190px;object-fit:contain;background:#000;clip-path:polygon(0 0,calc(100% - 12px) 0,100% 12px,100% 100%,0 100%);transition:opacity 140ms,filter 140ms}
-.report-pic.off img{opacity:.3;filter:grayscale(1)}
-.sheet .tick{display:flex;align-items:center;gap:10px;color:var(--text-2);font-size:14px;cursor:pointer}
-.sheet .tick input{width:18px;height:18px;min-height:0;margin:0;padding:0;accent-color:#d7dbe0}
-.sheet .note{margin:0;font-size:14px;color:var(--warn)}
-.sheet-fine{margin:0;color:var(--muted);font-size:13px}
-.sheet .error{margin:0}
-.sheet-foot{margin:16px 2px 0;color:var(--muted);font-size:13px}
-.sent{display:grid;gap:10px;justify-items:start;padding-top:6px}
-.sent .mark{display:grid;place-items:center;width:52px;height:52px;color:var(--ok);background:var(--brush) 0 0/320px 320px,var(--face-hi);
-  box-shadow:inset 1px 1px 0 rgba(255,255,255,.13),inset -1px -1px 0 #000,0 0 22px rgba(95,211,141,.16)}
-.sent .mark svg{width:26px;height:26px}
-.sent h3{margin:6px 0 0;font-size:22px}
-.sent p{margin:0 0 8px;color:var(--text-2)}
-@keyframes sheet-in{from{opacity:0;transform:translateX(28px)}}
-@keyframes sheet-up{from{opacity:.4;transform:translateY(48px)}}
-/* Phones: the same plate comes up from the bottom. */
-@media (max-width:640px){
-  dialog.sheet{inset:auto 0 0 0;width:100%;max-height:88dvh;animation-name:sheet-up}
-  dialog.sheet::backdrop{background:linear-gradient(180deg,rgba(4,5,7,0) 25%,rgba(4,5,7,.65))}
-  .sheet-head{padding:18px 18px 14px}
-  .sheet-body{padding:14px 12px 20px}
-}
-/* Landscape phones keep the game's full height: the plate stays at the side. */
-@media (orientation:landscape) and (max-height:500px){
-  dialog.sheet{inset:8px 8px 8px auto;width:min(380px,62vw);max-height:none;animation-name:sheet-in}
-  .sheet-head{padding:14px 18px 12px}
-}
-@media (prefers-reduced-motion:reduce){dialog.sheet{animation:none}}
-</style>
-<dialog id="report" class="sheet" aria-labelledby="report-title" data-config="${JSON.stringify(config)}">
-  <div class="sheet-head">
-    <div><h2 id="report-title">Report ${game.title}</h2><p class="sheet-sub" id="report-sub">We don't record who you are.</p></div>
-    <button class="ctl x" type="button" data-close title="Close" aria-label="Close">${raw(ICON_CLOSE)}</button>
-  </div>
-  <div class="sheet-body">
-    <section data-step="why" aria-label="What's wrong">
-      <div class="whys" data-for="game">${GAME_WHYS.filter(([reason]) => reason !== "player" || options.isMultiplayer).map(([reason, label, hint]) => why(reason, label, hint))}</div>
-      <div class="whys" data-for="player" hidden>${PLAYER_WHYS.map(([reason, label, hint]) => why(reason, label, hint))}</div>
-      <p class="sheet-foot" data-for="game">Someone copied your work? <a href="/legal/dmca" target="_blank" rel="noopener">Send a copyright notice</a><br>A game falsely says you committed a crime? <a href="/legal/defamation" target="_blank" rel="noopener">Send a defamation notice</a></p>
-    </section>
-    <form data-step="tell" hidden>
-      <button type="button" class="picked" data-back><span><strong id="report-picked"></strong></span><span class="change">Change</span></button>
-      <label>Anything else we should know? (optional)<textarea name="details" maxlength="2000" rows="4"></textarea></label>
-      <figure class="report-pic" id="report-pic" hidden>
-        <span class="frame"><img id="report-pic-img" alt="The game when you opened Report"></span>
-        <label class="tick"><input type="checkbox" name="picture" checked>Include this picture of the game</label>
-      </figure>
-      <p class="note plate" id="report-hold" hidden>These go straight to a person.</p>
-      <p class="sheet-fine" id="report-context"></p>
-      <p class="error" id="report-error" role="alert" hidden></p>
-      <div class="row">${metalButton("Send report", { id: "report-send", type: "submit" })}<button class="btn ghost" type="button" data-back>Back</button></div>
-    </form>
-    <section class="sent" data-step="sent" aria-live="polite" hidden>
-      <span class="mark bevel-s">${raw(ICON_SENT)}</span>
-      <h3>Thanks for the report</h3>
-      <p id="report-sent-text"></p>
-      <button class="btn" type="button" data-close>Back to the game</button>
-    </section>
-  </div>
-</dialog>
-${scriptTags(REPORT_SHEET_SCRIPT)}`;
+  return html`${sheet({
+    id: "report",
+    title: `Report ${game.title}`,
+    closeLabel: "Close",
+    body: html`<p class="report-sub" id="report-sub">We don't record who you are.</p>
+<section class="report-step" data-step="why" aria-label="What's wrong">
+<div class="report-whys" data-for="game">${listRows({ rows: GAME_WHYS.filter(([reason]) => reason !== "player" || options.isMultiplayer).map(([reason, label, hint]) => why(reason, label, hint)) })}</div>
+<div class="report-whys" data-for="player" hidden>${listRows({ rows: PLAYER_WHYS.map(([reason, label, hint]) => why(reason, label, hint)) })}</div>
+<p class="report-foot" data-for="game">Someone copied your work? <a class="link" href="/legal/dmca" target="_blank" rel="noopener">Send a copyright notice</a><br>A game falsely says you committed a crime? <a class="link" href="/legal/defamation" target="_blank" rel="noopener">Send a defamation notice</a></p>
+</section>
+<form class="report-step" data-step="tell" hidden>
+${listRows({ rows: [{ title: "", end: "Change", buttonDataAttributes: { back: "" } }] })}
+${longField({ id: "report-details", name: "details", label: "Anything else we should know? (optional)", rowCount: 4, maximumCharacterCount: 2000 })}
+<figure class="report-pic" id="report-pic" hidden><img id="report-pic-img" alt="The game when you opened Report">${checkField({ id: "report-picture", name: "picture", label: "Include this picture of the game", isChecked: true })}</figure>
+<div id="report-hold" hidden>${banner({ text: "These go straight to a person.", icon: "warning", tone: "amber" })}</div>
+<p class="report-fine" id="report-context"></p>
+<p class="field-error" id="report-error" role="alert" hidden></p>
+<div class="control-row">${cutButton("Back", { type: "button", dataAttributes: { back: "" } })}${runButton("Send report", { id: "report-send", type: "submit" })}</div>
+</form>
+<section class="report-step report-sent" data-step="sent" aria-live="polite" hidden>
+<h3>${icon("check")}Thanks for the report</h3>
+<p id="report-sent-text"></p>
+${cutButton("Back to the game", { type: "button", dataAttributes: { close: "" }, isFullWidth: true })}
+</section>`,
+  })}${pageData("report-config", config)}${scriptTags(REPORT_SHEET_SCRIPT)}`;
 }
 
 // The report plate's script. What it needs from the page (the game's slug, title and origin, and which
 // reasons go straight to a person) comes in the plate's data-config.
 const REPORT_SHEET_SCRIPT = pageScript("report-sheet", `(() => {
   const sheet = document.getElementById("report");
-  const C = JSON.parse(sheet.dataset.config);
-  const form = sheet.querySelector("form");
+  const C = JSON.parse(document.getElementById("report-config").textContent);
+  const form = sheet.querySelector("form[data-step=tell]");
   const send = document.getElementById("report-send");
   const $ = (id) => document.getElementById(id);
   const ROOM_REASONS = ["child_safety", "sexual", "real_people", "illegal", "other"];
@@ -186,7 +112,7 @@ const REPORT_SHEET_SCRIPT = pageScript("report-sheet", `(() => {
   const frame = () => document.getElementById("game");
   function step(name) {
     sheet.querySelectorAll("[data-step]").forEach((el) => (el.hidden = el.dataset.step !== name));
-    const first = name === "why" ? sheet.querySelector("[data-step=why] .whys:not([hidden]) .why") : name === "tell" ? form.details : sheet.querySelector("[data-step=sent] .btn");
+    const first = name === "why" ? sheet.querySelector("[data-step=why] .report-whys:not([hidden]) li:not([hidden]) [data-reason]") : name === "tell" ? form.details : sheet.querySelector("[data-step=sent] [data-close]");
     if (first) first.focus();
   }
   // Open for the game, for a player a game handed over ({ id, name, code }), or for a room's name.
@@ -196,15 +122,15 @@ const REPORT_SHEET_SCRIPT = pageScript("report-sheet", `(() => {
     // From the menu, keep the picture taken when it opened; otherwise take one now. A room's name needs none.
     if (aboutRoom) picture = null;
     else if (about || Date.now() - asked > 30000) takePicture();
-    const menu = document.getElementById("menu-dialog");
-    if (menu && menu.open) menu.close();
+    const menuButton = document.getElementById("menu");
+    if (menuButton && menuButton.getAttribute("aria-expanded") === "true") menuButton.click();
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     $("report-title").textContent = aboutRoom ? "Report this room" : "Report " + (about ? about.name : C.title);
     $("report-sub").textContent = (aboutRoom ? "“" + aboutRoom.name + "”. " : about && about.code ? "In room " + about.code + ". " : "") + "We don't record who you are.";
     sheet.querySelectorAll("[data-for]").forEach((el) => (el.hidden = (el.dataset.for === "player") !== Boolean(about)));
     // A room's name is words: only the reasons words can break, and no copyright note.
-    sheet.querySelectorAll("[data-for=game] .why").forEach((b) => (b.hidden = Boolean(aboutRoom) && !ROOM_REASONS.includes(b.dataset.reason)));
-    sheet.querySelectorAll(".sheet-foot[data-for=game]").forEach((el) => (el.hidden = el.hidden || Boolean(aboutRoom)));
+    sheet.querySelectorAll("[data-for=game] [data-reason]").forEach((b) => (b.closest("li").hidden = Boolean(aboutRoom) && !ROOM_REASONS.includes(b.dataset.reason)));
+    sheet.querySelectorAll(".report-foot[data-for=game]").forEach((el) => (el.hidden = el.hidden || Boolean(aboutRoom)));
     form.reset();
     $("report-error").hidden = true;
     if (!sheet.open) sheet.showModal();
@@ -221,7 +147,7 @@ const REPORT_SHEET_SCRIPT = pageScript("report-sheet", `(() => {
     if (b.dataset.reason) {
       reason = b.dataset.reason;
       label = b.dataset.label;
-      $("report-picked").textContent = label;
+      sheet.querySelector("[data-step=tell] [data-back] .list-row-title").textContent = label;
       form.details.placeholder = about ? "What did they do?" : reason === "player" ? "Who was it, and what did they do?" : reason === "broken" ? "What happened, and where in the game?" : "What did you see, and where in the game?";
       $("report-hold").hidden = Boolean(about) || Boolean(aboutRoom) || !C.hold.includes(reason);
       const code = about ? about.code : roomCode();

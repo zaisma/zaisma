@@ -202,6 +202,8 @@ export interface ListRow {
   detail?: string;
   /** Where the row goes: the whole row is the link. */
   href?: string;
+  /** Instead of a link, a button that leads on in place (a sheet's next step), with these attributes for the page's script, by name without data-. */
+  buttonDataAttributes?: Record<string, string>;
   /** What sits at its end: a Tag or a few words. Never a button in a row that's a link. */
   end?: Raw | string;
   /** The gallery's fixed states. */
@@ -212,7 +214,10 @@ export interface ListRow {
 export function listRows(options: { rows: ListRow[]; id?: string; label?: string }): Raw {
   return html`<ul class="list-rows"${options.id ? html` id="${options.id}"` : ""}${options.label ? html` aria-label="${options.label}"` : ""}>${options.rows.map((row) => {
     const inside = html`<span class="list-row-words"><span class="list-row-title">${row.title}</span>${row.detail ? html`<span class="list-row-detail">${row.detail}</span>` : ""}</span>${row.end !== undefined ? html`<span class="list-row-end">${row.end}</span>` : ""}`;
-    return html`<li>${row.href ? html`<a class="list-row is-link${row.state ? ` ${row.state}` : ""}" href="${row.href}" data-cut-line="8">${CUT_LINE}${inside}<span class="list-row-go" aria-hidden="true">${icon("chevron-right")}</span></a>` : html`<div class="list-row">${inside}</div>`}</li>`;
+    const go = html`<span class="list-row-go" aria-hidden="true">${icon("chevron-right")}</span>`;
+    const state = row.state ? ` ${row.state}` : "";
+    if (row.buttonDataAttributes) return html`<li><button type="button" class="list-row is-link${state}"${Object.entries(row.buttonDataAttributes).map(([name, attributeValue]) => html` data-${name}="${attributeValue}"`)} data-cut-line="8">${CUT_LINE}${inside}${go}</button></li>`;
+    return html`<li>${row.href ? html`<a class="list-row is-link${state}" href="${row.href}" data-cut-line="8">${CUT_LINE}${inside}${go}</a>` : html`<div class="list-row">${inside}</div>`}</li>`;
   })}</ul>`;
 }
 
@@ -227,6 +232,7 @@ component({
 .list-rows { list-style: none; margin: 0; padding: 0; display: grid; }
 .list-rows > li + li { border-top: var(--divider); }
 .list-row { position: relative; display: flex; align-items: center; gap: var(--gap-words-control); min-height: 60px; padding: 10px 12px 10px 16px; color: var(--ink); text-decoration: none; }
+button.list-row { width: 100%; margin: 0; border: 0; font: inherit; text-align: left; cursor: pointer; }
 .list-row.is-link { --face-color: transparent; background: var(--face-color); clip-path: var(--cut-shape); transition: --face-color 0.15s; -webkit-tap-highlight-color: transparent; }
 .list-row > :not(.cut-line) { position: relative; z-index: 2; }
 .list-row-words { display: grid; gap: var(--gap-words-words); min-width: 0; flex: 1; }
@@ -258,6 +264,7 @@ component({
     },
     { label: "Pointed", markup: glassPane({ paneSize: "small", body: listRows({ rows: [{ title: "Ashen Crown", detail: "Unlisted", href: "#list-rows", state: "is-pointed" }] }) }), isStill: true },
     { label: "Keyboard focus", markup: glassPane({ paneSize: "small", body: listRows({ rows: [{ title: "Ashen Crown", detail: "Unlisted", href: "#list-rows", state: "is-focused" }] }) }), isStill: true },
+    { label: "Rows that lead on in place, like a report's reasons", markup: glassPane({ paneSize: "small", body: listRows({ rows: [{ title: "It's broken", detail: "Won't load, crashes, or isn't really a game", buttonDataAttributes: { reason: "broken" } }, { title: "Something else", buttonDataAttributes: { reason: "other" } }] }) }) },
     { label: "Rows to read, not to open", markup: glassPane({ paneSize: "small", body: listRows({ rows: [{ title: "Claude", detail: "Made Oct 12 · used an hour ago", end: "Reads, uploads" }, { title: "Build server", detail: "Made Sep 30 · used yesterday", end: "Uploads" }] }) }) },
   ],
 });

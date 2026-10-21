@@ -250,6 +250,8 @@ spawnSync(
 );
 // The preview account's friends, online and in rooms, again this run (once seedFriends made them).
 seedFriendsNow();
+// The game page's rooms in three regions, some with names and labels to filter by, and a game with no owner, again this run.
+seedGamePage();
 // People playing now, again this run (a ticket counts for 6 minutes): 5 browsers in Shard Dodge, shown on its tile, the
 // home's stage and its page, and 2 in Tiny Farm, under the minimum of 3 so it shows nothing.
 seedPlayingNow();
@@ -316,7 +318,11 @@ Zaisma preview is running. Nothing here touches the live site.
                   Play starts the game in place and Back returns)
   Playing now     ${SITE}/  (Shard Dodge 5, Cave Crew 12 and Four in a Row 3 show the people icon and their number; Tiny Farm has 2, under the minimum,
                   so shows none; ${SITE}/g/shard-dodge says "5 playing now"; the preview renews them every 2 minutes)
-  A game page     ${SITE}/g/shard-dodge
+  Game pages      ${SITE}/g/cave-crew  (the pane over Neon Drift, rooms first in three regions with Mode and Map filters; Details jumps to About)
+                  ${SITE}/g/shard-dodge  (a still background, screenshots that open large, developer links; 16+, closed to a 13-15 account)
+                  ${SITE}/g/tiny-farm  (Frostline behind it, Updates with its patch notes)
+                  ${SITE}/g/old-arcade  (no developer: More games, no by-line)
+                  ${SITE}/g/cave-crew?play  (playing: the new bar with Players, Join, Share, Full screen and the ⋯ menu)
   Cover guide     ${SITE}/developers/covers  (the lines covers, screenshots and titles keep to show in lists, with Fine and Not fine pictures)
   Backgrounds     ${SITE}/dashboard/shard-dodge/details#background  (as Preview_Studio: wide shows its picture, phones the Neon Drift
                   shader the check drew, with its still, frames and ms a frame; click one to preview it live behind the sample glass,
@@ -1161,6 +1167,28 @@ function seedFriendsNow() {
     ...quietRooms("four-in-a-row", "QWRT", 2),
     ...quietRooms("cave-crew", "QCVX", 16),
     `UPDATE games SET quick_joined_at_ms = ${Date.now()} WHERE slug = 'four-in-a-row'`,
+  ];
+  spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", sql.join("; ")], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
+}
+
+/**
+ * The game page's test data that the seed doesn't make: Cave Crew's rooms in North America and Asia besides Europe, some named with
+ * labels (Mode, Map) so its page has regions and filters to pick, and Old Arcade, an unlisted game whose owner is gone, for a page
+ * with no developer (More games, not More from).
+ */
+function seedGamePage() {
+  const later = 4102444800000;
+  const game = (slug) => `(SELECT id FROM games WHERE slug = '${slug}')`;
+  const room = (roomCode, playerCount, maximumPlayerCount, country, continent, name, labels) =>
+    `INSERT OR REPLACE INTO live_rooms (game_id, room_code, player_count, maximum_player_count, is_open, name, labels, country, continent, created_at_ms, updated_at_ms) SELECT ${game("cave-crew")}, '${roomCode}', ${playerCount}, ${maximumPlayerCount}, 1, ${name ? `'${name}'` : "NULL"}, '${JSON.stringify(labels)}', '${country}', '${continent}', ${later}, ${later} WHERE EXISTS (SELECT 1 FROM games WHERE slug = 'cave-crew')`;
+  const sql = [
+    room("CVNA23", 9, 16, "US", "NA", "Deep Run", { Mode: "Classic", Map: "Glacier" }),
+    room("CVNA45", 14, 16, "CA", "NA", "Night shift", { Mode: "Hardcore", Map: "Mines" }),
+    room("CVNA67", 4, 16, "US", "NA", null, { Mode: "Classic", Map: "Mines" }),
+    room("CVAS23", 11, 16, "JP", "AS", "Tokyo crew", { Mode: "Classic", Map: "Glacier" }),
+    room("CVAS45", 6, 16, "SG", "AS", null, { Mode: "Hardcore", Map: "Glacier" }),
+    room("CVEU23", 15, 16, "DE", "EU", "Weekend dive", { Mode: "Hardcore", Map: "Mines" }),
+    `INSERT OR IGNORE INTO games (id, slug, title, description, review_status, visibility, live_version_id, devices, controls, play_modes, created_at_ms, updated_at_ms) VALUES ('game_previewoldarcade001', 'old-arcade', 'Old Arcade', 'A cabinet of small arcade games from a studio that has since closed its account.', 'live', 'unlisted', 'version_previewoldarcade001', 'computer', 'keyboard_mouse', '[{"mode":"single"}]', ${Date.now()}, ${Date.now()})`,
   ];
   spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", sql.join("; ")], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
 }

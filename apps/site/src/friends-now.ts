@@ -2,6 +2,8 @@ import { AGE_BAND_FLOOR_YEARS, accountById, checkIn, friendsNowOf, gameBySlug, j
 import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { tile } from "./home.ts";
+import { cutButton } from "./components/actions.ts";
+import { pictureRow } from "./components/data.ts";
 import { accountPicture, html, raw, securityHeaders, type Raw } from "./html.ts";
 
 /**
@@ -71,11 +73,21 @@ export function joinButton(slug: string, join: NonNullable<FriendsInGame["join"]
     : html`<a class="btn" href="${joinPath(slug, join)}">Join</a>`;
 }
 
+/**
+ * Join on the game page, in its new look: the room link as a small cut button, or the same grayed and saying why it won't work (on
+ * hover, or a tap). The /friends page keeps joinButton until it's rebuilt.
+ */
+export function friendJoinButton(slug: string, join: NonNullable<FriendsInGame["join"]>): Raw {
+  return join.refusal
+    ? html`<span class="join-off" tabindex="0" role="button" aria-disabled="true" aria-label="Join: ${joinRefusalText(join)}" data-reason="${joinRefusalText(join)}">${cutButton("Join", { type: "button", isSmall: true, isDisabled: true })}</span>`
+    : cutButton("Join", { href: joinPath(slug, join), isSmall: true });
+}
+
 /** Under a game page's title: the friends playing it, "Alex and Mia are playing", and Join. */
 function friendsHere(slug: string, here: FriendsInGame): Raw {
   const names = here.friends.map((friend) => friend.name);
   const said = names.length === 1 ? `${names[0]} is playing` : names.length <= 3 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)} are playing` : `${names.slice(0, 2).join(", ")} and ${names.length - 2} more are playing`;
-  return html`<span class="faces">${here.friends.slice(0, 5).map((friend) => face(friend, "sm"))}</span><span class="said">${said}</span>${here.join ? joinButton(slug, here.join) : ""}`;
+  return html`${pictureRow(names, "sm")}<span class="friends-said">${said}</span>${here.join ? friendJoinButton(slug, here.join) : ""}`;
 }
 
 /** The top of /friends: who's online, what they're playing, and Appear offline. */

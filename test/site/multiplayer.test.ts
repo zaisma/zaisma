@@ -72,7 +72,7 @@ describe("game page controls", () => {
     expect(page).toContain('id="share"');
     expect(page).toContain('id="full"');
     expect(page).toContain('href="/g/solo/report" data-report');
-    expect(page).toContain('<dialog id="menu-dialog" class="quick plate"');
+    expect(page).toMatch(/<div class="dropdown glass shut" id="game-menu" role="menu"/);
     expect(page).not.toContain("More games");
     // Content rules open beside the game instead of replacing it.
     expect(page).toContain('href="/legal/content-rules" target="_blank"');
@@ -82,13 +82,13 @@ describe("game page controls", () => {
     await addGame("solo");
     await addGame("arena", "relay");
     const solo = await (await SELF.fetch("https://zaisma.test/g/solo")).text();
-    expect(solo).toContain('<dialog id="report" class="sheet"');
+    expect(solo).toMatch(/<dialog class="sheet glass" id="report"/);
     expect(solo).not.toContain('data-reason="player"');
     expect(solo).toContain('href="/legal/dmca" target="_blank"');
     const arena = await (await SELF.fetch("https://zaisma.test/g/arena")).text();
     expect(arena).toContain('data-reason="player"');
     // A game hands a player report to the plate, and only from its own origin.
-    const config = JSON.parse(arena.match(/<dialog id="report"[^>]* data-config="([^"]*)"/)![1]!.replace(/&quot;/g, '"').replace(/&amp;/g, "&"));
+    const config = pageDataOf(arena, "report-config");
     expect(config).toMatchObject({ slug: "arena", gameOrigin: "https://games.zaisma.test" });
   });
 });
@@ -131,12 +131,11 @@ describe("room browsing on the game page", () => {
     await room(id, "QRSTVW", 2, 0);
     await room(id, "XYZ234", 5, 1, Date.now() - 3 * 3600_000);
     const page = await (await SELF.fetch("https://zaisma.test/g/arena")).text();
-    expect(page).toContain('aria-controls="rooms"');
-    // The tab counts the rooms listed, the full one too.
-    expect(page).toContain('id="rooms-count">2</span>');
-    expect(page).toContain("13 playing now");
-    expect(page).toContain('<a class="badge live-now" id="playing-now" href="#rooms">13 playing now</a>');
-    expect(page).toContain('<a class="btn" href="/g/arena?room=BCDFGH" aria-label="Join a room with 3 of 8 players in Germany">Join</a>');
+    expect(page).toContain('<section id="rooms">');
+    // The panel counts the rooms listed, the full one too.
+    expect(page).toContain('data-count="2"');
+    expect(page).toMatch(/<div class="game-glance" id="playing-now"><ul class="glance"><li>[\s\S]*?<b>13<\/b> playing now/);
+    expect(page).toMatch(/aria-label="Join a room with 3 of 8 players in Germany"><a class="shell cut-btn small" href="\/g\/arena\?room=BCDFGH">/);
     // Codes stay in the links; a player with a code types it into the box.
     expect(page).toContain('<form class="code-join" method="get" action="/g/arena">');
     expect(page).not.toContain(">BCDFGH<");
@@ -160,19 +159,19 @@ describe("room browsing on the game page", () => {
     for (const [i, c] of codes.slice(0, 12).entries()) await room(id, c.repeat(6), 1 + (i % 3));
     await room(id, "ABC234", 31, 1, Date.now(), ["US", "NA"], 40);
     const page = await (await SELF.fetch("https://zaisma.test/g/arena")).text();
-    expect(page).toContain('<button type="button" data-region="EU" title="Europe" aria-pressed="false">EU<small>12</small></button>');
+    expect(page).toMatch(/<button type="button" data-region="EU" title="Europe" aria-pressed="false"><span>EU<\/span><span class="tag count">12<\/span><\/button>/);
     // A big room keeps 16 seats, each a share of its places: 31 of 40 lights 12.
     const big = page.match(/<span class="count">31 of 40 players<\/span>(?:<\/span>)+\s*<span class="fill"><span class="seats" aria-hidden="true">(.*?)<\/span>/)![1]!;
     expect([big.match(/<i class="on">/g)!.length, big.match(/<i/g)!.length]).toEqual([12, 16]);
-    expect(page.match(/class="room plate later"/g)).toHaveLength(3);
+    expect(page.match(/class="room later"/g)).toHaveLength(3);
     expect(page).toContain("Show 3 more rooms");
-    expect(page).toContain('id="rooms-count">13</span>');
+    expect(page).toContain('data-count="13"');
 
     const na = await (await SELF.fetch("https://zaisma.test/g/arena/rooms?region=NA")).text();
     expect(na).toContain('data-region="NA" title="North America" aria-pressed="true"');
     // The tab's number follows the region picked, like the rows.
     expect(na).toContain('data-count="1"');
-    expect(na.match(/class="room plate/g)).toHaveLength(1);
+    expect(na.match(/class="room( |")/g)).toHaveLength(1);
     const none = await (await SELF.fetch("https://zaisma.test/g/arena/rooms?region=AF")).text();
     expect(none).toContain("No open rooms in that region right now.");
   });
@@ -188,18 +187,20 @@ describe("room browsing on the game page", () => {
       env.DB.prepare("INSERT INTO live_rooms (game_id, room_code, player_count, maximum_player_count, is_listed, is_open, created_at_ms, updated_at_ms) VALUES (?, ?, ?, 8, 0, 1, ?, ?)").bind(id, code, players, Date.now(), Date.now()).run();
     await hidden("BCDFGH", 2);
     const few = await (await SELF.fetch("https://zaisma.test/g/arena")).text();
-    expect(few).toContain('id="playing-now" href="#rooms" hidden>2 playing now</a>');
+    expect(few).toMatch(/id="playing-now" hidden><ul class="glance"><li>[\s\S]*?<b>2<\/b> playing now/);
     await hidden("CDFGHJ", 3);
     const page = await (await SELF.fetch("https://zaisma.test/g/arena")).text();
-    expect(page).toContain('<a class="badge live-now" id="playing-now" href="#rooms">5 playing now</a>');
+    expect(page).toMatch(/id="playing-now"><ul class="glance"><li>[\s\S]*?<b>5<\/b> playing now/);
     // Hidden rooms are counted, never listed.
     expect(page).not.toContain("?room=BCDFGH");
     // A game that lists no rooms on its page still says who's playing, without a link.
     await env.DB.prepare("UPDATE games SET room_browsing = 'off' WHERE id = ?").bind(id).run();
-    expect(await (await SELF.fetch("https://zaisma.test/g/arena")).text()).toContain('<p class="badge live-now" id="playing-now">5 playing now</p>');
+    const unlisted = await (await SELF.fetch("https://zaisma.test/g/arena")).text();
+    expect(unlisted).toMatch(/id="playing-now"><ul class="glance"><li>[\s\S]*?<b>5<\/b> playing now/);
+    expect(unlisted).not.toContain('<section id="rooms">');
     // Single-player games have the line too, from the browsers playing them (plays.test.ts); hidden with nobody playing.
     await addGame("solo");
-    expect(await (await SELF.fetch("https://zaisma.test/g/solo")).text()).toContain('<p class="badge live-now" id="playing-now" hidden>0 playing now</p>');
+    expect(await (await SELF.fetch("https://zaisma.test/g/solo")).text()).toMatch(/id="playing-now" hidden><ul class="glance"><li>[\s\S]*?<b>0<\/b> playing now/);
   });
 
   it("shows names and labels that pass the text filter, with a Report button, and filters by labels", async () => {
@@ -217,10 +218,11 @@ describe("room browsing on the game page", () => {
     // A name that fails the filter isn't shown; its labels still are.
     expect(page).not.toContain("coolkid");
     expect(page).toContain('<span class="title"><span class="count">2 of 8 players</span><span class="labels"><span title="Mode">Hardcore</span></span></span>');
-    expect(page).toContain('<select data-label="Mode"><option value="">Any</option><option>Classic</option><option>Hardcore</option></select>');
+    const modeFilter = page.match(/<div class="rooms-filter" data-label-filter="Mode">[\s\S]*?<input type="hidden"[^>]*>/)![0];
+    expect([...modeFilter.matchAll(/data-choice-value="([^"]*)"/g)].map((choice) => choice[1])).toEqual(["", "Classic", "Hardcore"]);
     const classic = await (await SELF.fetch(`https://zaisma.test/g/arena/rooms?labels=${encodeURIComponent(JSON.stringify({ Mode: "Classic" }))}`)).text();
-    expect(classic.match(/class="room plate/g)).toHaveLength(2);
-    expect(classic).toContain("<option selected>Classic</option>");
+    expect(classic.match(/class="room( |")/g)).toHaveLength(2);
+    expect(classic).toContain('data-choice-value="Classic" aria-selected="true"');
   });
 
   it("reports a room's name with the name as it was, without pausing the game, and a person can hide it", async () => {
@@ -273,10 +275,10 @@ describe("room browsing on the game page", () => {
     await room(id, "BCDFGH", 3);
     for (const browsing of ["game", "off"]) {
       await env.DB.prepare("UPDATE games SET room_browsing = ? WHERE id = ?").bind(browsing, id).run();
-      expect(await (await SELF.fetch("https://zaisma.test/g/lobby")).text()).not.toContain('aria-controls="rooms"');
+      expect(await (await SELF.fetch("https://zaisma.test/g/lobby")).text()).not.toContain('<section id="rooms">');
       expect((await SELF.fetch("https://zaisma.test/g/lobby/rooms")).status).toBe(404);
     }
     await addGame("solo");
-    expect(await (await SELF.fetch("https://zaisma.test/g/solo")).text()).not.toContain('aria-controls="rooms"');
+    expect(await (await SELF.fetch("https://zaisma.test/g/solo")).text()).not.toContain('<section id="rooms">');
   });
 });

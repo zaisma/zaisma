@@ -425,6 +425,9 @@ const SHELL_STYLES = `
 body { position: relative; margin: 0; min-height: 100vh; display: flex; flex-direction: column; font: var(--type-reading); color: var(--ink); background: var(--page);
   padding-top: var(--header-room); }
 body > main { position: relative; flex: 1 0 auto; width: 100%; }
+/* A game's own background (game-background-script.ts), on the home and the game's page: a layer over Zaisma's own, fading in when it is ready. */
+.game-world { opacity: 0; object-fit: cover; border: 0; transition-property: opacity; transition-timing-function: ease; }
+.game-world.is-shown { opacity: 1; }
 body > main:not(.steel) { width: min(1240px, calc(100% - 2 * var(--pad-pane))); margin: 0 auto; }
 main.steel, .game-steel { position: relative; }
 .game-steel { flex: 1 0 auto; }

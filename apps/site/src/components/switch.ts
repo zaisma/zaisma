@@ -56,7 +56,10 @@ export function tabSwitch(options: { label: string; tabs: SwitchTab[]; switchSiz
 
 /** The switch's slab sits under the one you're on, the ghost follows the pointer across the others, both with the spring. */
 export const SWITCH_SCRIPT = `/* switches */(function () {
-  document.querySelectorAll(".tab-switch").forEach(function (sw) {
+  // Every switch on the page, and any a page script puts in later (the game page's rooms list, as it refreshes).
+  function setUp(sw) {
+    if (sw.isSwitchReady) return;
+    sw.isSwitchReady = true;
     var slab = sw.querySelector(".slab"), ghost = sw.querySelector(".ghost"), tabs = sw.querySelectorAll(":scope > a, :scope > button"), isVertical = sw.classList.contains("vertical");
     function current() { return sw.querySelector('[aria-current="page"], [aria-pressed="true"]'); }
     // How far a part reaches past a tab's box on a side where another tab is beside it: its slant, less the gap a row of controls keeps.
@@ -150,7 +153,9 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
       put(ring, tab); sw.classList.add("is-focus-shown");
     });
     sw.addEventListener("focusout", function () { sw.classList.remove("is-focus-shown"); });
-  });
+  }
+  document.querySelectorAll(".tab-switch").forEach(setUp);
+  window.zaismaWatch.page(function (changes) { changes.forEach(function (change) { change.addedNodes.forEach(function (node) { if (node.querySelectorAll) node.querySelectorAll(".tab-switch").forEach(setUp); }); }); });
 })();
 `;
 

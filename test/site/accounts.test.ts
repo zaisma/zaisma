@@ -1473,10 +1473,10 @@ describe("friends", () => {
     // Only games that go online get the button and the plate.
     const page = await (await ana.go("/g/arena-game")).text();
     expect(page).toContain('id="players-open"');
-    expect(page).toContain('<dialog id="players"');
+    expect(page).toMatch(/<dialog class="sheet glass" id="players"/);
     const solo = await (await ana.go("/g/solo-game")).text();
     expect(solo).not.toContain('id="players-open"');
-    expect(solo).not.toContain('<dialog id="players"');
+    expect(solo).not.toContain('id="players"');
 
     // Names come from Zaisma, whatever the game called them; guests and the player themselves aren't listed.
     const among = async (b: Browser, playerIds: string[]) => {
@@ -2085,7 +2085,7 @@ describe("cloud saves", () => {
     await liveGame();
     await liveGame("own-saves", 0);
     const page = await (await SELF.fetch(`${SITE}/g/owl-game`)).text();
-    expect(page).toContain('<aside class="keep plate bevel" id="keep"');
+    expect(page).toContain('<aside class="game-card" id="keep"');
     expect(page).toContain("Your Owl Game progress is only saved in this browser.");
     expect(page).toContain('href="/join?next=%2Fg%2Fowl-game%3Fplay" data-keep="/join"');
     expect(page).toContain('href="/signin?next=%2Fg%2Fowl-game%3Fplay" data-keep="/signin"');
@@ -2117,7 +2117,7 @@ describe("cloud saves", () => {
   it("lets a game ask a guest to sign in beside it, in a new tab, and tells the game who they are", async () => {
     await liveGame();
     const page = await (await SELF.fetch(`${SITE}/g/owl-game`)).text();
-    expect(page).toContain('<aside class="keep plate bevel" id="sign-in-ask"');
+    expect(page).toContain('<aside class="game-card" id="sign-in-ask"');
     expect(page).toContain("Owl Game asks you to sign in");
     expect(page).toContain('href="/join?next=%2Fg%2Fowl-game%3Fplay" data-sign-in="/join"');
     expect(page).toContain('href="/signin?next=%2Fg%2Fowl-game%3Fplay" data-sign-in="/signin"');
@@ -2229,6 +2229,8 @@ describe("a game for 16 and up", () => {
     expect(closedPage).toContain("This game isn't open to your account.");
     expect(closedPage).toContain("Find other games");
     expect(closedPage).not.toContain('id="play"');
+    // Closed keeps the details: the pane's title and the About section.
+    expect(closedPage).toContain('<section id="about">');
     expect(closedPage).not.toMatch(/and up|1[68]\+|years old/);
     expect(pageDataOf(closedPage, "game-page-data")).toMatchObject({ autoplay: "never", room_code: "" });
     // Signed out, it's any accounts-only game; signed in and old enough, Play opens through the entry.
@@ -2665,7 +2667,7 @@ describe("recently played", () => {
     expect(home).toContain('href="/g/hop?play"');
     const page = await (await SELF.fetch(`${SITE}/g/hop`)).text();
     expect(page).toContain("New levels.");
-    expect(page).toContain('id="tab-updates"');
+    expect(page).toContain('<section id="updates">');
     expect(pageDataOf(page, "game-page-data").autoplay).toBe("never");
     expect(pageDataOf(await (await SELF.fetch(`${SITE}/g/hop?play`)).text(), "game-page-data").autoplay).toBe("always");
   });

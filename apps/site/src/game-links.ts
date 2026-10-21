@@ -2,7 +2,11 @@ import { accountById, audit, canOpenLink, checkLinkSites, gameBySlug, isTesterLi
 import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { playable } from "./home.ts";
-import { html, metalButton, raw, type Raw } from "./html.ts";
+import { cutButton, runButton } from "./components/actions.ts";
+import { checkField } from "./components/choices.ts";
+import { glassPane } from "./components/foundations.ts";
+import { codeField } from "./components/inputs.ts";
+import { html, raw, type Raw } from "./html.ts";
 import { LINK_BRAND_ICON_PATHS } from "./link-icons.ts";
 import { pageScript } from "./page-scripts.ts";
 
@@ -92,26 +96,20 @@ export async function recheckLinks(env: Env, nowMs = Date.now()): Promise<void> 
  * here. Open is a real link to the address, so the browser opens the tab however long the player looked.
  */
 export function leavingCard(gameTitle: string): Raw {
-  return html`<style>
-.leave .out-url{margin:0;padding:10px 12px;font-size:13px;color:var(--text-2);word-break:break-all;background:#0d0f12;box-shadow:inset 0 2px 5px rgba(0,0,0,.65)}
-.leave label.check{display:flex;gap:8px;align-items:flex-start;font-size:13px;color:var(--text-2)}
-.leave label.check input{width:16px;height:16px;min-height:0;margin:2px 0 0;flex:none;accent-color:#c9cace}
-.leave .link-part{display:grid;gap:10px}
-.leave .link-part[hidden]{display:none}
-</style>
-<aside class="keep plate bevel leave" id="link-ask" role="dialog" aria-labelledby="link-title" hidden>
-  <div class="link-part" id="link-open">
-    <strong id="link-title">You're leaving Zaisma</strong>
-    <p>${gameTitle} wants to open:</p>
-    <p class="out-url" id="link-url"></p>
-    <label class="check"><input type="checkbox" id="link-trust"> <span>Open links to <span id="link-host"></span> straight away from now on, in this browser</span></label>
-    <div class="row">${metalButton("Open", { href: "#", dataAttributes: { "link-go": "" } })}<button class="btn ghost" type="button" id="link-stay">Stay</button></div>
-  </div>
-  <div class="link-part" id="link-closed" hidden>
-    <strong id="link-closed-title">This link can't be opened here.</strong>
-    <div class="row"><button class="btn ghost" type="button" id="link-back">Back to the game</button></div>
-  </div>
-</aside>`;
+  return html`<aside class="game-card" id="link-ask" role="dialog" aria-labelledby="link-title" hidden>${glassPane({
+    paneSize: "small",
+    body: html`<div class="link-part" id="link-open">
+<h2 id="link-title">You're leaving Zaisma</h2>
+<p>${gameTitle} wants to open:</p>
+${codeField({ id: "link-url", label: "The link", code: "" })}
+${checkField({ id: "link-trust", name: "is_site_trusted", label: "Open links to this site straight away from now on, in this browser" })}
+<div class="control-row">${cutButton("Stay", { id: "link-stay", type: "button" })}${runButton("Open", { href: "#", dataAttributes: { "link-go": "" } })}</div>
+</div>
+<div class="link-part" id="link-closed" hidden>
+<h2 id="link-closed-title">This link can't be opened here.</h2>
+${cutButton("Back to the game", { id: "link-back", type: "button", isFullWidth: true })}
+</div>`,
+  })}</aside>`;
 }
 
 /**
@@ -160,11 +158,11 @@ window.askLink = async (asked) => {
       }
     }
     document.getElementById("link-url").textContent = answer.destination_url;
-    document.getElementById("link-host").textContent = host;
+    linkTrust.closest(".check").querySelector(".check-label").textContent = "Open links to " + host + " straight away from now on, in this browser";
     linkGo.href = answer.destination_url;
     linkGo.target = "_blank";
     linkGo.rel = "noopener noreferrer";
-    linkGo.querySelector("span").textContent = "Open " + host.replace(/^www\\./, "");
+    linkGo.querySelector(".face > span:not([class])").textContent = "Open " + host.replace(/^www\\./, "");
     linkTrust.checked = false;
     linkTrust.dataset.host = host;
   }
@@ -213,7 +211,7 @@ export const DEVELOPER_LINK_STYLES = `
 .dev-link{display:inline-flex;align-items:center;gap:8px;min-height:36px;padding:0 14px;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:14px;font-weight:600;line-height:1;text-decoration:none;white-space:nowrap;transition:filter 120ms,background 120ms}
 .dev-link svg{width:16px;height:16px;flex:none}
 .dev-link:hover{filter:brightness(1.12)}
-.dev-link:focus-visible{outline:2px solid #fff;outline-offset:2px}
+.dev-link:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 .brand-steam{color:#fff;border-radius:2px;background:linear-gradient(to right,#47bfff 5%,#1a44c2 60%);box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 2px 3px rgba(0,0,0,.55);text-shadow:0 1px 1px rgba(0,0,0,.35)}
 .brand-steam:hover{background:linear-gradient(to right,#67cfff 5%,#2a5bd8 60%);filter:none}
 .brand-itch{color:#fff;background:#fa5c5c;border-radius:3px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.18),0 1px 0 #c34c4c;text-shadow:0 1px 0 rgba(0,0,0,.18)}
@@ -232,5 +230,5 @@ export const DEVELOPER_LINK_STYLES = `
 .brand-app_store,.brand-google_play{color:#fff;background:#000;border-radius:8px;box-shadow:inset 0 0 0 1px #a6a6a6}
 .brand-twitch{color:#fff;background:#9146ff;border-radius:4px}
 .brand-gumroad{color:#000;background:#ff90e8;border-radius:4px;box-shadow:inset 0 0 0 1px #000,3px 3px 0 #000}
-.brand-website{color:var(--text);background:var(--face-hi);box-shadow:inset 1px 1px 0 rgba(255,255,255,.12),inset -1px -1px 0 #000;font-family:var(--display);font-weight:500}
+.brand-website{color:var(--ink);background:var(--btn);box-shadow:inset 0 0 0 1px var(--line);font-family:var(--display);font-weight:500}
 `;

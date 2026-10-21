@@ -85,13 +85,12 @@ export const SAVES_SCRIPT = pageScript("saves", `
   };
   // Green when progress is reaching the account, amber when it isn't.
   const say = (text) => { if (status) { status.textContent = text; status.hidden = false; status.classList.toggle("ok", text.startsWith("Progress saves to your account")); } };
-  let toastTimer = null;
+  // A notice that just happened, from the page's template: it leaves by itself after a few seconds (panes.ts, Notice).
   const pop = (text) => {
     if (!toast) return;
-    toast.textContent = text;
-    toast.hidden = false;
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => (toast.hidden = true), 8000);
+    const shown = toast.content.firstElementChild.cloneNode(true);
+    shown.querySelector(".notice-text").textContent = text;
+    document.body.append(shown);
   };
   // The account's progress wins: keep this device's as an earlier version on the account. Answers the copy's ID, or null.
   const keepDevice = (text) =>

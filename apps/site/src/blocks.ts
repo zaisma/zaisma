@@ -1,7 +1,9 @@
 import { accountById, areFriends, blockPlayer, hasBlocked, unblockPlayer, type BlockedPlayer } from "@zaisma/core";
 import { authConfigured, currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
-import { accountPicture, html, metalButton, raw, scriptTags, type Raw } from "./html.ts";
+import { cutButton, runButton } from "./components/actions.ts";
+import { sheet } from "./components/panes.ts";
+import { accountPicture, html, scriptTags, type Raw } from "./html.ts";
 import { pageScript } from "./page-scripts.ts";
 
 /**
@@ -70,34 +72,25 @@ const day = (atMs: number) => new Date(atMs).toLocaleDateString("en-US", { month
  * session blocked (zaisma:blocks-among), never for the whole list. Uses the report plate's styles.
  */
 export function blockSheet(options: { gameOrigin: string }): Raw {
-  return html`<dialog id="block" class="sheet" aria-labelledby="block-title" data-game-origin="${options.gameOrigin}">
-  <div class="sheet-head">
-    <div><h2 id="block-title">Block this player?</h2><p class="sheet-sub">In every game on Zaisma.</p></div>
-    <button class="ctl x" type="button" data-cancel title="Cancel" aria-label="Cancel">${raw(ICON_CLOSE)}</button>
-  </div>
-  <div class="sheet-body">
-    <div class="block-who"><span id="block-face"></span><strong id="block-name"></strong></div>
-    <p class="sheet-text">Nothing either of you sends in a game reaches the other: messages, emotes or voice. Neither of you shows up in the other's friends or profile.</p>
-    <p class="sheet-text" id="block-friend" hidden>You're friends, so this ends that too.</p>
-    <p class="sheet-fine"><span id="block-told"></span> Unblock any time on your <a href="/friends#blocked" target="_blank" rel="noopener">friends page</a>.</p>
-    <p class="error" id="block-error" role="alert" hidden></p>
-    <div class="row">${metalButton("Block", { id: "block-yes" })}<button class="btn ghost" type="button" data-cancel>Cancel</button></div>
-  </div>
-</dialog>
-<style>
-.block-who{display:flex;align-items:center;gap:12px;margin:2px 0 14px}
-.block-who strong{font-family:var(--display);font-size:20px;font-weight:600;overflow-wrap:anywhere}
-.sheet-text{margin:0 0 10px;color:var(--text-2)}
-#block .sheet-fine{margin:4px 0 16px}
-#block .error{margin:0 0 12px}
-</style>
+  return html`${sheet({
+    id: "block",
+    title: "Block this player?",
+    closeLabel: "Cancel",
+    body: html`<p class="block-sub">In every game on Zaisma.</p>
+<div class="block-who"><span id="block-face"></span><strong id="block-name"></strong></div>
+<p class="sheet-text">Nothing either of you sends in a game reaches the other: messages, emotes or voice. Neither of you shows up in the other's friends or profile.</p>
+<p class="sheet-text" id="block-friend" hidden>You're friends, so this ends that too.</p>
+<p class="block-fine"><span id="block-told"></span> Unblock any time on your <a class="link" href="/friends#blocked" target="_blank" rel="noopener">friends page</a>.</p>
+<p class="field-error" id="block-error" role="alert" hidden></p>
+<div class="control-row">${cutButton("Cancel", { type: "button", dataAttributes: { cancel: "" } })}${runButton("Block", { id: "block-yes", type: "button" })}</div>`,
+  })}<span hidden id="block-config" data-game-origin="${options.gameOrigin}"></span>
 ${scriptTags(BLOCK_SHEET_SCRIPT)}`;
 }
 
 // The block plate's script: a game asks (Zaisma.players.block) and the plate asks the player, or blocks for this session.
 const BLOCK_SHEET_SCRIPT = pageScript("block-sheet", `(() => {
   const sheet = document.getElementById("block");
-  const GAME_ORIGIN = sheet.dataset.gameOrigin;
+  const GAME_ORIGIN = document.getElementById("block-config").dataset.gameOrigin;
   const PLAYER_ID = /^player_[a-z0-9]{1,40}$/;
   const yes = document.getElementById("block-yes");
   const $ = (id) => document.getElementById(id);
@@ -132,7 +125,7 @@ const BLOCK_SHEET_SCRIPT = pageScript("block-sheet", `(() => {
     sheet.showModal();
     yes.focus();
   }
-  // The account's picture, as the page draws them: initials on a plate in its own color.
+  // The account's picture, as the page draws them (data.ts, pictureFrame): initials in their own color, in a frame of glass.
   function face(name) {
     let hue = 7;
     for (const character of name) hue = (hue * 31 + character.codePointAt(0)) % 360;
@@ -143,7 +136,17 @@ const BLOCK_SHEET_SCRIPT = pageScript("block-sheet", `(() => {
     span.style.setProperty("--h", String(hue));
     span.setAttribute("aria-hidden", "true");
     span.textContent = letters.join("").toUpperCase();
-    return span;
+    const frame = document.createElement("span");
+    frame.className = "frame md glass";
+    frame.setAttribute("data-glass", "");
+    frame.setAttribute("data-glass-corners", "0 0 0 0");
+    frame.setAttribute("data-glass-band", "2");
+    frame.setAttribute("aria-hidden", "true");
+    const picture = document.createElement("span");
+    picture.className = "frame-picture";
+    picture.append(span);
+    frame.append(picture);
+    return frame;
   }
   yes.addEventListener("click", async () => {
     if (!asking || yes.getAttribute("aria-busy") === "true") return;
@@ -198,7 +201,6 @@ const BLOCK_SHEET_SCRIPT = pageScript("block-sheet", `(() => {
   });
 })();`);
 
-const ICON_CLOSE = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>`;
 
 function answer(body: unknown, httpStatus = 200): Response {
   return Response.json(body, { status: httpStatus, headers: { "Cache-Control": "no-store" } });

@@ -140,7 +140,10 @@ ${options.error ? html`<p class="field-error" id="${id}-error">${options.error}<
  */
 export const SELECT_SCRIPT = `/* select fields */(function () {
   var GAP_PX = 6;
-  document.querySelectorAll("[data-select]").forEach(function (root) {
+  // Every select field on the page, and any a page script puts in later (the game page's rooms list, as it refreshes).
+  function setUp(root) {
+    if (root.isSelectReady) return;
+    root.isSelectReady = true;
     var button = root.querySelector(".select-button"), list = root.querySelector(".select-list"), hidden = root.querySelector('input[type="hidden"]'), field = button.closest(".field");
     if (!list.hasAttribute("popover")) return;
     var options = Array.prototype.slice.call(list.querySelectorAll('[role="option"]')), active = -1, typed = "", typedAt = 0;
@@ -185,7 +188,9 @@ export const SELECT_SCRIPT = `/* select fields */(function () {
       var hit = options.findIndex(function (o) { return o.textContent.toLowerCase().indexOf(typed) === 0; });
       if (hit >= 0) setActive(hit);
     });
-  });
+  }
+  document.querySelectorAll("[data-select]").forEach(setUp);
+  window.zaismaWatch.page(function (changes) { changes.forEach(function (change) { change.addedNodes.forEach(function (node) { if (node.querySelectorAll) node.querySelectorAll("[data-select]").forEach(setUp); }); }); });
 })();
 `;
 
