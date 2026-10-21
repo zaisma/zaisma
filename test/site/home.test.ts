@@ -2,6 +2,7 @@ import { env, SELF } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import { createAccount, createGame, personOwner, setBackground } from "@zaisma/core";
 import "../../apps/site/src/index.ts";
+import { HOME_SCRIPT } from "../../apps/site/src/home-script.ts";
 
 /**
  * The home page (apps/site/src/home.ts): the game in focus with its pane, and the shelf of Continue playing, Popular, Trending and New under it.
@@ -79,6 +80,11 @@ describe("the home page", () => {
     expect(text).toContain('<a class="cover-art" data-cut-line="0" href="/g/home-one"');
     expect(text).toMatch(/<a class="shell run-wrap" href="\/g\/home-one\?play"/);
     expect(text).toMatch(/<a class="shell cut-btn[^"]*" href="\/g\/home-one"/);
+  });
+
+  it("lets a click or tap on a cover follow its link to the game's page, never cancelling it", () => {
+    const shelfClicks = HOME_SCRIPT.sourceText.match(/shelf\.addEventListener\("click"/g);
+    expect(shelfClicks).toBeNull();
   });
 
   it("sends a game's background for the browser to put behind the glass, from the game's own site for a shader", async () => {
