@@ -422,8 +422,13 @@ export const SIDEBAR_SCRIPT = `/* sidebar */(function () {
       var now = box.querySelector('.place[aria-current="page"]'); if (!now || now === place) return;
       var slab = now.querySelector(".place-slab"), fromTop = slab.getBoundingClientRect().top;
       now.removeAttribute("aria-current"); place.setAttribute("aria-current", "page");
-      // The place left behind takes the edge rule's outline every other place has, for its focus line.
-      if (!now.hasAttribute("data-cut-line")) { now.setAttribute("data-cut-line", "8"); if (window.zaismaCutLine) window.zaismaCutLine(now); }
+      // As in the markup, the place you're on has no outline of its own (its slab is cut to where it sits), and every other place has one,
+      // for its focus line: the place picked hands its outline over to the place left.
+      var own = place.querySelector(":scope > .cut-line");
+      if (own) { place.ownCutLine = own; own.remove(); }
+      place.removeAttribute("data-cut-line");
+      now.setAttribute("data-cut-line", "8");
+      if (now.ownCutLine) { now.insertBefore(now.ownCutLine, now.firstChild); if (now.redrawCut) now.redrawCut(); } else if (window.zaismaCutLine) window.zaismaCutLine(now);
       place.insertBefore(slab, place.firstChild);
       if (slab.redrawCut) slab.redrawCut();
       glide(slab, fromTop);
