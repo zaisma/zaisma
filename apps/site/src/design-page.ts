@@ -1,5 +1,7 @@
 import type { Env } from "./env.ts";
-import { headScriptTags, html, pageData, raw, securityHeaders, type Raw } from "./html.ts";
+import { headScriptTags, html, pageData, raw, securityHeaders, styleTags, type Raw } from "./html.ts";
+import { pageStyle } from "./page-styles.ts";
+import { examplePage } from "./example-page.ts";
 import { pageScript } from "./page-scripts.ts";
 import { COMPONENT_GROUPS, type Component, type ComponentGroup } from "./components/component.ts";
 import { COMPONENTS, COMPONENT_SCRIPT, COMPONENT_STYLES, HEADER_SCRIPT } from "./components/index.ts";
@@ -55,7 +57,7 @@ function head(title: string): Raw {
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon.ico" sizes="32x32">
 <link rel="preload" href="/fonts/jost.woff2" as="font" type="font/woff2" crossorigin>
-<style>${raw(COMPONENT_STYLES() + GALLERY_STYLES)}</style>
+${styleTags(DESIGN_STYLE)}
 ${headScriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT, GALLERY_SCRIPT, DESIGN_LOOPS_SCRIPT)}`;
 }
 
@@ -73,6 +75,7 @@ function olderVersionsPage(env: Env, url: URL): Response {
 
 export function designPage(env: Env, url: URL): Response | null {
   if (url.pathname === "/design/examples/older-versions") return olderVersionsPage(env, url);
+  if (url.pathname === "/design/example") return examplePage(env);
   const group = groupOfPath(url.pathname.replace(/\/+$/, "") || "/");
   if (!group) return null;
   const theme = themeOf(url);
@@ -195,6 +198,8 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
   .header-frame .top:not(.is-logo-only) { width: calc(100% - 2 * var(--gap-words-control)); }
 }
 `;
+
+export const DESIGN_STYLE = pageStyle("design", () => COMPONENT_STYLES() + GALLERY_STYLES);
 
 /**
  * The gallery's light or dark button swaps the theme in place, without a reload, and keeps the address current, so a view can be sent.

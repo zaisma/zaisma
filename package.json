@@ -20,12 +20,15 @@
     "review-set": "node scripts/review-set/run.mjs",
     "listing-set": "node scripts/review-set/listing.mjs",
     "engines:play": "node scripts/engines/play.mjs",
+    "design:catalog": "node scripts/design-catalog.mjs",
+    "components:minify": "node scripts/minify-components.mjs",
     "naming:baseline": "NAMING_WRITE_BASELINE=1 vitest run --project node test/node/naming.test.ts"
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "^1.4.0",
     "@cloudflare/workers-types": "^5.20261011.1",
     "@types/ws": "8.18.1",
+    "esbuild": "^0.28.2",
     "typescript": "^5.9.3",
     "vitest": "^4.1.11",
     "wrangler": "^4.149.0"

@@ -12,6 +12,7 @@ import { handleMcp } from "./mcp.ts";
 import { handleGithubSecretScanning } from "./leaked-keys.ts";
 import { recordBlockedScripts } from "./security-alerts.ts";
 import { pageScriptResponse } from "./page-scripts.ts";
+import { pageStyleResponse } from "./page-styles.ts";
 import { handlePlayed, home } from "./home.ts";
 import { handlePlays } from "./plays.ts";
 import { gamePage, legal, previewPage, testerEnter, testerPage } from "./pages.ts";
@@ -59,6 +60,7 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
 
   // Pages' script files (page-scripts.ts): every module that makes one is imported above, so all are known.
   if (path.startsWith("/js/")) return method === "GET" || method === "HEAD" ? pageScriptResponse(path) : new Response("Method not allowed", { status: 405 });
+  if (path.startsWith("/css/")) return method === "GET" || method === "HEAD" ? pageStyleResponse(path) : new Response("Method not allowed", { status: 405 });
   if (path === "/admin" || path.startsWith("/admin/")) return handleAdmin(request, env, path);
   if (path === "/mcp") return handleMcp(request, env, ctx);
   if (path === "/github/secret-scanning") return handleGithubSecretScanning(request, env);

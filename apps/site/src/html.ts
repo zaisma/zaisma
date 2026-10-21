@@ -4,6 +4,7 @@ import { Raw, esc, html, raw } from "./markup.ts";
 import { PRESENCE_CHECK_IN_MS, describePlayModes, type PlayMode } from "@zaisma/core";
 import { gameFrameSource, type Env } from "./env.ts";
 import { pageScript, pageScriptPath, type PageScript } from "./page-scripts.ts";
+import { pageStyle, pageStylePath, type PageStyle } from "./page-styles.ts";
 import { COMPONENT_SCRIPT, COMPONENT_STYLES, HEADER_SCRIPT } from "./components/index.ts";
 import { footer, header, rail, type HeaderTab } from "./components/navigation.ts";
 import { cutButton } from "./components/actions.ts";
@@ -20,6 +21,9 @@ export const scriptTags = (...scripts: PageScript[]): Raw => raw(scripts.map((sc
  * components' cuts, their light and the backdrop) then never shows half-drawn for a frame as it loads.
  */
 export const headScriptTags = (...scripts: PageScript[]): Raw => raw(scripts.map((script) => `<script src="${pageScriptPath(script)}" defer blocking="render"></script>`).join(""));
+
+/** A page's stylesheets, as their files (page-styles.ts), for its <head>: the browser holds the first paint until they've loaded. */
+export const styleTags = (...styles: PageStyle[]): Raw => raw(styles.map((style) => `<link rel="stylesheet" href="${pageStylePath(style)}">`).join(""));
 
 /**
  * Values a page's scripts read, as a JSON block that never runs: a script takes it with
@@ -428,6 +432,9 @@ main.steel > .page-action { display: flex; justify-content: flex-end; margin: 0 
 body > .foot { width: min(1240px, calc(100% - 2 * var(--pad-pane))); margin: var(--gap-block-block) auto var(--pad-pane); }
 `;
 
+/** Every page's styles in one cached file: the components' look, the ambient, the shell and Steel. */
+export const SITE_STYLE = pageStyle("site", () => SYSTEM_STYLES() + AMBIENT_STYLES + SHELL_STYLES + STEEL_STYLES);
+
 // Every page's own script: the metal hover, the page's colors following the game pointed at, and
 // buttons that show they're working.
 // The metal hover: one listener for all .hit areas, at most one update per frame.
@@ -598,7 +605,7 @@ export function layout(env: Env, options: LayoutOptions): Response {
 ${themeColors}
 ${options.head ?? ""}
 <script src="${pageScriptPath(THEME_SCRIPT)}"></script>
-<style>${raw(SYSTEM_STYLES() + AMBIENT_STYLES + SHELL_STYLES + STEEL_STYLES)}</style>
+${styleTags(SITE_STYLE)}
 ${headScriptTags(COMPONENT_SCRIPT, HEADER_SCRIPT)}
 </head>
 <body>
