@@ -53,10 +53,12 @@ import {
   blobSizes,
   ownedBlobKey,
   manifestKey,
+  ANTIVIRUS_ANSWER_KEPT_DURATION_DAYS,
+  ANTIVIRUS_UNKNOWN_FILE_KEPT_DURATION_DAYS,
   CHECKED_FILE_KEPT_DURATION_DAYS,
 } from "@zaisma/core";
 import { deletePrefix } from "./upload.ts";
-import { chooseReadPictures, gatherEvidence, newReadCount, readCode, readPictures, type PictureFile, type ReadCode, type ReadPictures, type ReaderPicture } from "./review-readers.ts";
+import { chooseReadPictures, gatherEvidence, newReadCount, readCode, readPictures, type EarlierText, type PictureFile, type ReadCode, type ReadPictures, type ReaderPicture } from "./review-readers.ts";
 import { judgeVersion, type EarlierHold, type JudgeVersion } from "./review-judge.ts";
 import { activeReviewPrecedents, draftMiss, draftWithAi, type ReviewPrecedentDrafter } from "./review-precedents.ts";
 import { findMatchedGame } from "./copies.ts";
@@ -328,7 +330,8 @@ async function reviewWithAi(env: Env, version: Version, game: Game, input: Revie
   await addAiUsage(env.DB, 0, 0, "scans");
 
   // (a3) The owner's small reviews in the last 24 hours, counted only when the readers would read something new.
-  const previous = input.isRecheck ? null : await previousEvidence(env, version);
+  const earlier = input.isRecheck ? null : await previousEvidence(env, version);
+  const previous = earlier && { evidence: earlier.evidence, readFileSha256s: earlier.readFileSha256s, texts: await previousTexts(env, earlier.version, input.texts) };
   const pictures = await picturesToRead(env, input.imageFiles);
   const isSmallReview = !input.isRecheck && newReadCount({ texts: input.texts, pictures, previous }) > 0;
   if (isSmallReview && game.owner_id && (await smallReviewCount(env, game.owner_id)) >= REVIEW_LIMITS.maximumSmallReviewsPerDay) {
@@ -504,15 +507,34 @@ async function smallReviewCount(env: Env, ownerId: string, nowMs = Date.now()): 
   return row?.read_count ?? 0;
 }
 
-/** The evidence an earlier scan of this game read: this version's own first, then the newest other. */
-async function previousEvidence(env: Env, version: Version): Promise<{ evidence: EvidenceItem[]; readFileSha256s: string[] } | null> {
+/** The evidence an earlier scan of this game read, and the version it read: this version's own first, then the newest other. */
+async function previousEvidence(env: Env, version: Version): Promise<{ version: Version; evidence: EvidenceItem[]; readFileSha256s: string[] } | null> {
   const row = await env.DB
-    .prepare("SELECT scan_report FROM versions WHERE game_id = ? AND json_extract(scan_report, '$.read_file_sha256s') IS NOT NULL ORDER BY id = ? DESC, created_at_ms DESC LIMIT 1")
+    .prepare("SELECT * FROM versions WHERE game_id = ? AND json_extract(scan_report, '$.read_file_sha256s') IS NOT NULL ORDER BY id = ? DESC, created_at_ms DESC LIMIT 1")
     .bind(version.game_id, version.id)
-    .first<{ scan_report: string }>();
+    .first<Version>();
   if (!row) return null;
-  const report = JSON.parse(row.scan_report) as ScanReport;
-  return { evidence: report.evidence ?? [], readFileSha256s: report.read_file_sha256s ?? [] };
+  const report = JSON.parse(row.scan_report!) as ScanReport;
+  return { version: row, evidence: report.evidence ?? [], readFileSha256s: report.read_file_sha256s ?? [] };
+}
+
+/**
+ * The earlier version's text at each path whose file changed, loaded only when the readers compare it, so they
+ * read only what changed. Zip uploads have no hashes to compare: none.
+ */
+async function previousTexts(env: Env, earlierVersion: Version, texts: { path: string; sha256: string }[]): Promise<Map<string, EarlierText>> {
+  const earlierTexts = new Map<string, EarlierText>();
+  if (earlierVersion.kind !== "files") return earlierTexts;
+  const shaByPath = new Map(texts.map((file) => [file.path, file.sha256]));
+  for (const file of await versionFiles(env, earlierVersion).catch(() => [])) {
+    const sha256 = shaByPath.get(file.path);
+    if (!file.sha256 || sha256 === undefined || sha256 === file.sha256) continue;
+    earlierTexts.set(file.path, { sha256: file.sha256, text: async () => {
+      const body = await env.GAMES.get(file.key);
+      return body ? new TextDecoder().decode(await body.arrayBuffer()) : null;
+    } });
+  }
+  return earlierTexts;
 }
 
 /** The pictures the readers may look at, each hashed (the manifest's hash, or read once to hash it) and loaded again only when read. */
@@ -815,25 +837,41 @@ interface VirusTotalAnswer {
   data?: { attributes?: { last_analysis_stats?: { malicious?: number } } };
 }
 
-/** Optional VirusTotal hash lookup for the four largest scripts (free API: 4 lookups a minute). */
-async function virusTotal(env: Env, files: StoredFile[]): Promise<Finding[]> {
+/**
+ * Optional VirusTotal hash lookup for the four largest scripts (free API: 4 lookups a minute). An answer from
+ * the last week (or "doesn't know the file" from the last day) is reused from antivirus_lookups, not looked up again.
+ */
+async function virusTotal(env: Env, files: StoredFile[], nowMs = Date.now()): Promise<Finding[]> {
   const findings: Finding[] = [];
   const scripts = files.filter((file) => ["js", "mjs", "wasm", "html"].includes(extensionOf(file.path))).sort((first, second) => second.sizeBytes - first.sizeBytes).slice(0, 4);
   for (const file of scripts) {
-    const bytes = await (await env.GAMES.get(file.key))!.arrayBuffer();
-    const hash = await sha256Hex(bytes);
-    const response = await fetch(`https://www.virustotal.com/api/v3/files/${hash}`, { headers: { "x-apikey": env.VT_API_KEY! } });
-    if (response.status === 404) continue;
-    if (!response.ok) {
-      findings.push({ stage: "static", severity: "info", code: "antivirus_unavailable", message: `VirusTotal lookup failed (${response.status}).`, path: file.path });
-      continue;
+    const hash = file.sha256 ?? (await sha256Hex(await (await env.GAMES.get(file.key))!.arrayBuffer()));
+    let maliciousEngineCount = await storedAntivirusAnswer(env, hash, nowMs);
+    if (maliciousEngineCount === undefined) {
+      const response = await fetch(`https://www.virustotal.com/api/v3/files/${hash}`, { headers: { "x-apikey": env.VT_API_KEY! } });
+      if (response.status !== 404 && !response.ok) {
+        findings.push({ stage: "static", severity: "info", code: "antivirus_unavailable", message: `VirusTotal lookup failed (${response.status}).`, path: file.path });
+        continue;
+      }
+      maliciousEngineCount = response.status === 404 ? null : (((await response.json()) as VirusTotalAnswer).data?.attributes?.last_analysis_stats?.malicious ?? 0);
+      await env.DB
+        .prepare("INSERT INTO antivirus_lookups (sha256, malicious_engine_count, looked_up_at_ms) VALUES (?, ?, ?) ON CONFLICT (sha256) DO UPDATE SET malicious_engine_count = excluded.malicious_engine_count, looked_up_at_ms = excluded.looked_up_at_ms")
+        .bind(hash, maliciousEngineCount, nowMs)
+        .run();
     }
-    const answer = (await response.json()) as VirusTotalAnswer;
-    const maliciousEngineCount = answer.data?.attributes?.last_analysis_stats?.malicious ?? 0;
+    if (maliciousEngineCount === null) continue;
     if (maliciousEngineCount >= 3) findings.push({ stage: "static", severity: "reject", code: "antivirus_flag", message: `${maliciousEngineCount} antivirus engines flag this file.`, path: file.path });
     else if (maliciousEngineCount > 0) findings.push({ stage: "static", severity: "hold", code: "antivirus_flag", message: `${maliciousEngineCount} antivirus engine(s) flag this file.`, path: file.path });
   }
   return findings;
+}
+
+/** VirusTotal's stored answer about a file: its count, null when it didn't know the file, undefined when it's to be looked up. */
+async function storedAntivirusAnswer(env: Env, sha256: string, nowMs: number): Promise<number | null | undefined> {
+  const row = await env.DB.prepare("SELECT malicious_engine_count, looked_up_at_ms FROM antivirus_lookups WHERE sha256 = ?").bind(sha256).first<{ malicious_engine_count: number | null; looked_up_at_ms: number }>();
+  if (!row) return undefined;
+  const keptDurationDays = row.malicious_engine_count === null ? ANTIVIRUS_UNKNOWN_FILE_KEPT_DURATION_DAYS : ANTIVIRUS_ANSWER_KEPT_DURATION_DAYS;
+  return row.looked_up_at_ms > nowMs - keptDurationDays * 24 * 60 * 60 * 1000 ? row.malicious_engine_count : undefined;
 }
 
 export interface StoredFile {
