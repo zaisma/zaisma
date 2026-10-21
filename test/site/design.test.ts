@@ -9,7 +9,8 @@ import * as inputs from "../../apps/site/src/components/inputs.ts";
 import * as navigation from "../../apps/site/src/components/navigation.ts";
 import * as panes from "../../apps/site/src/components/panes.ts";
 import * as data from "../../apps/site/src/components/data.ts";
-import { pageSettingsAttributes } from "../../apps/site/src/components/foundations.ts";
+import { BACKDROP_SCRIPT, pageSettingsAttributes } from "../../apps/site/src/components/foundations.ts";
+import { GLASS_LIGHT_PASS, MOST_GLASS_PANE_COUNT } from "../../apps/site/src/components/shaders.ts";
 import { html } from "../../apps/site/src/html.ts";
 import foundationsSource from "../../apps/site/src/components/foundations.ts?raw";
 import actionsSource from "../../apps/site/src/components/actions.ts?raw";
@@ -376,6 +377,20 @@ describe("components", () => {
     expect(inputs.longField({ name: "patch_notes", label: "What's new", rowCount: 3, maximumCharacterCount: 100, text: "x".repeat(80) }).html).toContain('<p class="long-count" id="field-patch_notes-count">80 of 100</p>');
   });
 
+  it("tell the backdrop's shader where the glass is: the data-glass pieces in view, the largest few, no more than the shader holds", () => {
+    // The runner (BACKDROP_SCRIPT) reads every piece of glass that isn't a control, keeps the largest MOST_GLASS_PANE_COUNT, and passes their
+    // rectangles and cut corners to the pass round the shader, whose arrays are that long.
+    expect(MOST_GLASS_PANE_COUNT).toBeLessThanOrEqual(16);
+    expect(BACKDROP_SCRIPT).toContain('document.querySelectorAll("[data-glass]:not([data-cut-line])")');
+    expect(BACKDROP_SCRIPT).toContain("found = found.slice(0, PANE_LIMIT)");
+    expect(BACKDROP_SCRIPT).toContain(`PANE_LIMIT = ${MOST_GLASS_PANE_COUNT};`);
+    expect(BACKDROP_SCRIPT).toContain('el.getAttribute("data-glass-corners")');
+    expect(GLASS_LIGHT_PASS).toContain(`uniform vec4 zaismaPanes[${MOST_GLASS_PANE_COUNT}];`);
+    expect(GLASS_LIGHT_PASS).toContain(`uniform vec4 zaismaPaneCuts[${MOST_GLASS_PANE_COUNT}];`);
+    // Every shader keeps its own mainImage: the pass calls it once a pixel.
+    expect(GLASS_LIGHT_PASS.match(/mainImage\(/g)?.length).toBe(1);
+  });
+
   it("open the Developer and Forum tabs only on a developer page", () => {
     const account = { username: "emma_r", pictureMarkup: html`` };
     const onDashboard = navigation.header({ current: "developer", isOnDeveloperPage: true, account }).html;
@@ -456,6 +471,7 @@ const OWN_GLASS = new Map<string, string>([
   ['data-glass-play', "the Glass foundation's own demo: a window to drag over drifting shapes"],
   ["glassOpacityPct", "the Glass foundation's own demo: three strengths side by side"],
   ['class="backdrop-frame"', "the Backdrop foundation's own demo"],
+  ['class="backdrop-frame is-tall', "the Glass foundation's own demos of the light glass bends and the pointer's light"],
   ['data-spacing-show', "the Spacing foundation's demos, which mark a pane's own padding and gap"],
 ]);
 

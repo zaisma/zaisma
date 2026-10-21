@@ -1,6 +1,6 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
-import { CLOUDS_SHADER, DUSK_SHADER, EMBERFALL_SHADER, FROSTLINE_SHADER, NEON_DRIFT_SHADER, SHADER_HELPERS, STARWARD_SHADER, ZAISMA_SHADER } from "./shaders.ts";
+import { CLOUDS_SHADER, DUSK_SHADER, EMBERFALL_SHADER, FROSTLINE_SHADER, GLASS_LIGHT_PASS, MOST_GLASS_PANE_COUNT, NEON_DRIFT_SHADER, SHADER_HELPERS, STARWARD_SHADER, ZAISMA_SHADER } from "./shaders.ts";
 
 /*
  * The foundations of Zaisma's look: the tokens every component takes its colors from, the glass and its
@@ -719,9 +719,9 @@ export const GLASS_SCRIPT = `/* glass */(function () {
  * up. Without WebGL a shader backdrop keeps its CSS gradient in the theme's colors.
  */
 export const BACKDROP_SCRIPT = `/* backdrop */(function () {
-  var HELPERS = ${JSON.stringify(SHADER_HELPERS)}, ZAISMA = ${JSON.stringify(ZAISMA_SHADER)};
+  var HELPERS = ${JSON.stringify(SHADER_HELPERS)}, ZAISMA = ${JSON.stringify(ZAISMA_SHADER)}, GLASS_LIGHT = ${JSON.stringify(GLASS_LIGHT_PASS)}, PANE_LIMIT = ${MOST_GLASS_PANE_COUNT};
   var VERTEX = "attribute vec2 corner; void main() { gl_Position = vec4(corner, 0.0, 1.0); }";
-  var still = window.matchMedia("(prefers-reduced-motion: reduce)");
+  var still = window.matchMedia("(prefers-reduced-motion: reduce)"), phone = window.matchMedia("(hover: none), (pointer: coarse)");
   var layers = [], lastMs = 0, running = false;
   function rgb(value) {
     var digits = value.trim().replace("#", "");
@@ -734,6 +734,68 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     return { base: rgb(css.getPropertyValue("--backdrop-base")), a: rgb(css.getPropertyValue("--backdrop-a")), b: rgb(css.getPropertyValue("--backdrop-b")),
       c: rgb(css.getPropertyValue("--backdrop-c")), isDark: /dark/.test(css.colorScheme || "") };
   }
+  /*
+   * Where the glass is. Each backdrop knows the pieces of glass over it (data-glass, not a control's), the largest PANE_LIMIT in view:
+   * the list is read again when the page changes (elements come or go, open or shut, the theme turns), their rectangles when it scrolls,
+   * resizes or a piece of glass changes size; never every frame. A piece of glass is over the backdrop of the nearest box holding one.
+   */
+  var isListStale = true, isPlaceStale = true, candidates = [], watched = typeof WeakSet === "function" ? new WeakSet() : null;
+  var sizes = window.ResizeObserver ? new ResizeObserver(function () { isPlaceStale = true; }) : null;
+  function hostOf(el) { return el.closest(":has(> .backdrop)"); }
+  function readList() {
+    isListStale = false; isPlaceStale = true;
+    candidates = Array.prototype.filter.call(document.querySelectorAll("[data-glass]:not([data-cut-line])"), function (el) {
+      var css = getComputedStyle(el);
+      el.glassIsSmoked = /dark/.test(css.colorScheme || "");
+      return css.visibility !== "hidden" && css.display !== "none" && Number(css.opacity) > 0.05;
+    });
+    candidates.forEach(function (el) { el.glassHost = hostOf(el); if (sizes && watched && !watched.has(el)) { watched.add(el); sizes.observe(el); } });
+  }
+  function glassCuts(el, width, height) {
+    var short = Math.min(width, height);
+    return (el.getAttribute("data-glass-corners") || "24 20 24 20").trim().split(/ +/).map(function (cut) { return Math.min(Number(cut) || 0, Math.round(short * 0.3)); });
+  }
+  // Each layer's panes, in its canvas's pixels from its bottom left, smallest first (a pane over a tray bends the light under it).
+  function placeGlass(layer) {
+    var box = layer.canvas.getBoundingClientRect(), host = layer.canvas.parentElement, scale = layer.canvas.width / Math.max(1, box.width), found = [];
+    candidates.forEach(function (el) {
+      if (el.glassHost !== host) return;
+      var r = el.getBoundingClientRect();
+      if (r.width < 24 || r.height < 24 || r.right < box.left || r.left > box.right || r.bottom < box.top || r.top > box.bottom) return;
+      found.push({ el: el, r: r, area: r.width * r.height });
+    });
+    found.sort(function (a, b) { return b.area - a.area; });
+    found = found.slice(0, PANE_LIMIT).sort(function (a, b) { return a.area - b.area; });
+    var rects = new Float32Array(PANE_LIMIT * 4), cuts = new Float32Array(PANE_LIMIT * 4);
+    found.forEach(function (pane, i) {
+      var r = pane.r, c = glassCuts(pane.el, r.width, r.height);
+      rects.set([(r.left - box.left) * scale, (box.bottom - r.bottom) * scale, (r.right - box.left) * scale, (box.bottom - r.top) * scale], i * 4);
+      cuts.set([c[0] * scale, c[1] * scale, c[2] * scale, c[3] * scale + (pane.el.glassIsSmoked ? 4096 : 0)], i * 4);
+    });
+    layer.glass = { rects: rects, cuts: cuts, count: found.length, scale: scale, box: box };
+    layer.isDrawn = false;
+  }
+  /*
+   * Light that follows the pointer: the control (or else the pane) under it, or the one keyboard focus is on, lit from behind. Its
+   * rectangle and strength ease towards where they're going each frame, so it never jumps. Off on phones and under reduced motion.
+   */
+  var light = { el: null, focused: null, pointer: null, now: null, share: 0 };
+  function litTarget(el) { return el && el.closest ? el.closest("[data-cut-line], [data-glass]") : null; }
+  document.addEventListener("pointermove", function (event) { if (event.pointerType === "mouse") { light.pointer = [event.clientX, event.clientY]; light.el = litTarget(event.target); } }, { passive: true });
+  document.documentElement.addEventListener("pointerleave", function () { light.el = null; });
+  document.addEventListener("focusin", function (event) { light.focused = event.target.matches && event.target.matches(":focus-visible") ? litTarget(event.target) : null; });
+  document.addEventListener("focusout", function () { light.focused = null; });
+  function easeLight(gapS) {
+    var el = light.focused || light.el, isOn = Boolean(el) && !still.matches && !phone.matches, t = 1 - Math.exp(-gapS * 9);
+    if (isOn) {
+      var r = el.getBoundingClientRect(), goal = [r.left, r.top, r.right, r.bottom], point = light.focused ? [(r.left + r.right) / 2, (r.top + r.bottom) / 2] : light.pointer || goal;
+      light.host = hostOf(el);
+      if (!light.now) light.now = goal.concat(point);
+      goal.concat(point).forEach(function (value, i) { light.now[i] += (value - light.now[i]) * t; });
+    }
+    light.share += ((isOn ? 1 : 0) - light.share) * t;
+    if (light.share < 0.002 && !isOn) { light.share = 0; light.now = null; }
+  }
   function shaderDrawer(canvas) {
     var gl = canvas.getContext("webgl", { antialias: false, depth: false, stencil: false, alpha: false, powerPreference: "low-power" });
     if (!gl) return null;
@@ -743,20 +805,34 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
       return shader;
     }
     var precision = "#ifdef GL_FRAGMENT_PRECISION_HIGH\\nprecision highp float;\\n#else\\nprecision mediump float;\\n#endif\\n";
-    var source = precision + "uniform vec3 iResolution;\\nuniform float iTime;\\nuniform float iDark;\\n" + HELPERS + (canvas.getAttribute("data-backdrop-shader") || ZAISMA) +
-      "\\nvoid main() { vec4 color; mainImage(color, gl_FragCoord.xy); gl_FragColor = vec4(color.rgb, 1.0); }";
-    var vertex = compile(gl.VERTEX_SHADER, VERTEX), fragment = compile(gl.FRAGMENT_SHADER, source);
-    if (!vertex || !fragment) return null;
-    var program = gl.createProgram(); gl.attachShader(program, vertex); gl.attachShader(program, fragment); gl.linkProgram(program);
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) return null;
+    var head = precision + "uniform vec3 iResolution;\\nuniform float iTime;\\nuniform float iDark;\\n" + HELPERS + (canvas.getAttribute("data-backdrop-shader") || ZAISMA);
+    // Every shader gets the glass and light pass round its mainImage; a device that can't build it gets the shader alone.
+    function build(withPass) {
+      var vertex = compile(gl.VERTEX_SHADER, VERTEX), fragment = compile(gl.FRAGMENT_SHADER, head + (withPass ? GLASS_LIGHT : "\\nvoid main() { vec4 color; mainImage(color, gl_FragCoord.xy); gl_FragColor = vec4(color.rgb, 1.0); }"));
+      if (!vertex || !fragment) return null;
+      var made = gl.createProgram(); gl.attachShader(made, vertex); gl.attachShader(made, fragment); gl.linkProgram(made);
+      return gl.getProgramParameter(made, gl.LINK_STATUS) ? made : null;
+    }
+    var program = build(true), hasPass = Boolean(program);
+    if (!program) program = build(false);
+    if (!program) return null;
     gl.useProgram(program);
     gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
     var corner = gl.getAttribLocation(program, "corner"); gl.enableVertexAttribArray(corner); gl.vertexAttribPointer(corner, 2, gl.FLOAT, false, 0, 0);
-    var resolution = gl.getUniformLocation(program, "iResolution"), time = gl.getUniformLocation(program, "iTime"), dark = gl.getUniformLocation(program, "iDark");
-    return function (timeS, colors) {
+    var at = {}; ["iResolution", "iTime", "iDark", "zaismaPanes", "zaismaPaneCuts", "zaismaPaneCount", "zaismaLight", "zaismaLightShare", "zaismaPointer", "zaismaPixel"].forEach(function (name) { at[name] = gl.getUniformLocation(program, name); });
+    return function (timeS, colors, layer) {
       gl.viewport(0, 0, canvas.width, canvas.height);
-      gl.uniform3f(resolution, canvas.width, canvas.height, 1); gl.uniform1f(time, timeS); gl.uniform1f(dark, colors.darkShare);
+      gl.uniform3f(at.iResolution, canvas.width, canvas.height, 1); gl.uniform1f(at.iTime, timeS); gl.uniform1f(at.iDark, colors.darkShare);
+      if (!hasPass) { gl.drawArrays(gl.TRIANGLES, 0, 3); return; }
+      var glass = layer.glass || { rects: new Float32Array(PANE_LIMIT * 4), cuts: new Float32Array(PANE_LIMIT * 4), count: 0, scale: 1, box: canvas.getBoundingClientRect() };
+      gl.uniform4fv(at.zaismaPanes, glass.rects); gl.uniform4fv(at.zaismaPaneCuts, glass.cuts); gl.uniform1f(at.zaismaPaneCount, glass.count); gl.uniform1f(at.zaismaPixel, glass.scale);
+      var lit = light.now && light.host === canvas.parentElement ? light.now : null, box = glass.box, k = glass.scale;
+      gl.uniform1f(at.zaismaLightShare, lit ? light.share : 0);
+      if (lit) {
+        gl.uniform4f(at.zaismaLight, (lit[0] - box.left) * k, (box.bottom - lit[3]) * k, (lit[2] - box.left) * k, (box.bottom - lit[1]) * k);
+        gl.uniform2f(at.zaismaPointer, (lit[4] - box.left) * k, (box.bottom - lit[5]) * k);
+      }
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     };
   }
@@ -774,7 +850,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     // The wall clock, not the page's own: moving to another page, the backdrop carries on where it was instead of starting over.
     var timeS = still.matches ? 20 : (Date.now() / 1000) % 3600;
     layer.colors = shownColors(layer, nowMs);
-    if (layer.drawShader) layer.drawShader(timeS, layer.colors);
+    if (layer.drawShader) layer.drawShader(timeS, layer.colors, layer);
     else layer.canvas.dispatchEvent(new CustomEvent("backdrop-frame", { detail: { timeS: timeS, colors: layer.colors, widthPx: layer.canvas.width, heightPx: layer.canvas.height } }));
     layer.isDrawn = !layer.from;
   }
@@ -782,8 +858,14 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     requestAnimationFrame(frame);
     if (document.hidden || nowMs - lastMs < 33) return;
     var gapMs = nowMs - lastMs; lastMs = nowMs;
+    if (isListStale) readList();
+    var isMoved = isPlaceStale; isPlaceStale = false;
+    var wasLit = light.share > 0; easeLight(Math.min(0.1, gapMs / 1000)); var isLit = light.share > 0 || wasLit;
     layers.forEach(function (layer) {
-      if (!layer.isInView || (layer.isHeld || still.matches) && layer.isDrawn) return;
+      if (!layer.isInView) return;
+      if (layer.drawShader && (isMoved || !layer.glass)) placeGlass(layer);
+      // Still (reduced motion, or held on a slow device), it's drawn again only when the glass over it moves or the light changes.
+      if ((layer.isHeld || still.matches) && layer.isDrawn && !isLit) return;
       // A shader on a device that can't keep up gets fewer pixels, then holds a still frame.
       if (layer.drawShader && gapMs < 1000) {
         layer.slowS = gapMs > 50 ? layer.slowS + gapMs / 1000 : Math.max(0, layer.slowS - gapMs / 2000);
@@ -794,7 +876,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
   }
   // The colors are read again whenever the theme might have changed; the fade starts at once, from what's showing, and only when they did change.
   function refresh() {
-    var nowMs = performance.now();
+    var nowMs = performance.now(); isListStale = true;
     layers.forEach(function (layer) {
       var next = readColors(layer.canvas);
       if (JSON.stringify(next) === JSON.stringify(layer.target)) return;
@@ -813,7 +895,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     layer.size = function () {
       var width = Math.max(2, Math.round(canvas.clientWidth * layer.scale)), height = Math.max(2, Math.round(canvas.clientHeight * layer.scale));
       if (width === canvas.width && height === canvas.height) return;
-      canvas.width = width; canvas.height = height; layer.isDrawn = false;
+      canvas.width = width; canvas.height = height; layer.isDrawn = false; layer.glass = null;
       if (canvas.backdropLayer) draw(layer, performance.now());
     };
     layer.size();
@@ -825,6 +907,18 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     if (!running) { running = true; requestAnimationFrame(frame); }
   }
   document.querySelectorAll("canvas[data-backdrop]").forEach(setUp);
+  // The glass's places: a scroll or resize moves them, and the page's own changes may add, remove, open or shut a piece of glass.
+  window.addEventListener("scroll", function () { isPlaceStale = true; }, { passive: true, capture: true });
+  window.addEventListener("resize", function () { isPlaceStale = true; });
+  // Only changes to glass itself count: a class on a tab or the rail changing as you point doesn't make the list stale.
+  function hasGlass(node) { return node.nodeType === 1 && (node.hasAttribute("data-glass") || Boolean(node.querySelector("[data-glass]"))); }
+  new MutationObserver(function (changes) {
+    if (isListStale) return;
+    isListStale = changes.some(function (change) {
+      return change.type === "attributes" ? change.target.hasAttribute("data-glass") : Array.prototype.some.call(change.addedNodes, hasGlass) || Array.prototype.some.call(change.removedNodes, hasGlass);
+    });
+  }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["class", "open", "hidden"] });
+  document.addEventListener("toggle", function () { isListStale = true; }, true);
   // The theme can change in place (a data-theme-choice switch, or the system's), and the colors follow it.
   new MutationObserver(refresh).observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ["data-theme-choice"] });
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", refresh);
@@ -938,6 +1032,10 @@ export function pageSettingsAttributes(settings: PageSettings): Raw {
   return html`${settings.theme ? html` data-theme-choice="${settings.theme}"` : ""}${hueColor && HEX_COLOR.test(hueColor) ? html` style="--glass-hue:${hueColor}"` : ""}`;
 }
 
+/** A framed backdrop with glass over it, for the Glass foundation's light examples. theme fixes light or dark inside it. */
+const lightFrame = (options: { shader?: string; theme?: "light" | "dark"; isSmoked?: boolean; cards: [string, string][] }) =>
+  html`<div class="backdrop-frame is-tall${options.isSmoked ? " smoke" : ""}"${options.theme ? html` data-theme-choice="${options.theme}"` : ""}>${backdrop({ isFramed: true, fragmentShader: options.shader })}${options.cards.map(([title, note]) => html`<div class="glass" data-glass data-glass-corners="24 20 24 20"><strong>${title}</strong><span>${note}</span></div>`)}</div>`;
+
 const glassStrip = (body: Raw) => html`<div class="glass-strip"><i></i><i></i><i></i>${body}</div>`;
 
 component({
@@ -989,6 +1087,10 @@ component({
       isWide: true,
       markup: html`<div class="glass-play" data-glass-play><i class="sun"></i><i class="bar"></i><i class="sea"></i><i class="cut"></i><i class="dot"></i><div class="glass glass-window" data-glass data-glass-corners="24 20 24 20" tabindex="0" role="group" aria-label="A glass window. Arrow keys move it; Shift and the arrow keys resize it."><strong>Glass, any size</strong><span class="glass-note">The same glass from a button to a whole window: its cuts and rim fit themselves to it.</span><span class="glass-size" aria-hidden="true"></span><span class="glass-grip" aria-hidden="true"><svg viewBox="0 0 30 30"><path d="M24 14L14 24M24 8L8 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span></div></div>`,
     },
+    { label: "It bends the light behind it, light glass", isWide: true, markup: lightFrame({ theme: "light", cards: [["Glass", "What's behind it is magnified a little and bent along its cut edge, with light gathered on the lit facets."]] }) },
+    { label: "Smoked glass: the same, fainter", isWide: true, markup: lightFrame({ theme: "dark", cards: [["Smoked glass", "Its edge light is fainter, as its rim is."]] }) },
+    { label: "Over a busy shader, the words keep their contrast", isWide: true, markup: lightFrame({ shader: NEON_DRIFT_SHADER, isSmoked: true, cards: [["Neon Drift", "A city in the rain behind thick glass: bent, lit along the edge, and the words as clear as ever."]] }) },
+    { label: "Point at it: the glass is lit from behind (Tab works too)", isWide: true, markup: lightFrame({ cards: [["One", "Point here."], ["Two", "Or here."], ["Three", "The light eases over."]] }) },
     {
       label: "Thin to thick",
       isWide: true,
@@ -1030,6 +1132,10 @@ component({
 .backdrop-frame { position: relative; width: 100%; height: 220px; display: flex; align-items: center; justify-content: center; overflow: hidden;
   clip-path: polygon(0 24px, 24px 0, calc(100% - 20px) 0, 100% 20px, 100% calc(100% - 24px), calc(100% - 24px) 100%, 20px 100%, 0 calc(100% - 20px)); }
 .backdrop-frame .glass { width: min(260px, 80%); padding: var(--pad-pane); display: flex; flex-direction: column; gap: var(--gap-words-words); font: var(--type-note); color: var(--ink-2); }
+/* Taller, holding a row of glass: the Glass foundation's light examples. */
+.backdrop-frame.is-tall { height: 260px; gap: var(--gap-block-block); padding: var(--pad-pane); }
+.backdrop-frame.is-tall .glass { flex: 1 1 0; width: auto; max-width: 320px; }
+
 .backdrop-frame .glass strong { font: var(--type-name); color: var(--ink); }
 `,
   examples: [
@@ -1043,7 +1149,7 @@ component({
   name: "Shader background",
   slug: "shader-background",
   group: "foundations",
-  summary: "A background written as a shader: one small function that paints each pixel from the time and the screen's size, in the form AI writes well. From a few lines for a sky to a whole city in the rain; Zaisma draws it small, at most 30 frames a second, and holds a still frame on a device that can't keep up.",
+  summary: "A background written as a shader: one small function that paints each pixel from the time and the screen's size, in the form AI writes well. From a few lines for a sky to a whole city in the rain. Zaisma's runner draws it small, at most 30 frames a second, holds a still frame on a device that can't keep up, and adds the glass's light to any shader: what's behind each pane bent as through thick glass, light along its cut edge, and a soft light behind what you point at.",
   styles: `
 /* Shader background: each example a framed backdrop with its glass over it, and the simplest one's whole source beside it. */
 .shader-code { margin: 0; width: 100%; padding: var(--pad-inner-pane); overflow-x: auto; white-space: pre; font: var(--type-code); color: var(--ink-2);

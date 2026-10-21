@@ -202,3 +202,67 @@ void mainImage(out vec4 o, in vec2 f) {
   }
   o = vec4(col, 1.0);
 }`;
+
+/** How many pieces of glass the runner tells a shader about: the largest ones in view. */
+export const MOST_GLASS_PANE_COUNT = 16;
+
+/**
+ * The runner's pass round any shader's mainImage (BACKDROP_SCRIPT): glass that bends the backdrop's light, and light that follows
+ * the pointer. Under each piece of glass it draws what's behind a little magnified and bent inward along the cut edge, as through thick
+ * glass, with bright caustics along the edge, brightest on the lit facets (the top left, as the rim is lit); fainter under smoked glass.
+ * Around the pane or control under the pointer (or keyboard focus) it adds a soft light, so the glass looks lit from behind.
+ * Everything is in the canvas's own pixels, from its bottom left.
+ */
+export const GLASS_LIGHT_PASS = `
+uniform vec4 zaismaPanes[${MOST_GLASS_PANE_COUNT}];     // each pane: left, bottom, right, top
+uniform vec4 zaismaPaneCuts[${MOST_GLASS_PANE_COUNT}];  // its cut corners: top left, top right, bottom right, bottom left; 4096 added to the last on smoked glass
+uniform float zaismaPaneCount;
+uniform vec4 zaismaLight;       // the lit pane or control: left, bottom, right, top
+uniform float zaismaLightShare; // 0 to 1, eased in and out
+uniform vec2 zaismaPointer;
+uniform float zaismaPixel;      // canvas pixels per CSS pixel
+// Signed distance to a pane's cut shape (negative inside), and the outward normal of its nearest side.
+float zaismaPaneShape(vec2 f, vec4 r, vec4 c, out vec2 n) {
+  vec2 h = (r.zw - r.xy) * 0.5, q = f - (r.xy + r.zw) * 0.5, a = abs(q) - h;
+  float d = length(max(a, 0.0)) + min(max(a.x, a.y), 0.0), k = 0.70710678, e;
+  n = a.x > a.y ? vec2(sign(q.x), 0.0) : vec2(0.0, sign(q.y));
+  if (c.x > 0.0) { e = (dot(q, vec2(-1.0, 1.0)) - (h.x + h.y - c.x)) * k; if (e > d) { d = e; n = vec2(-k, k); } }
+  if (c.y > 0.0) { e = (dot(q, vec2(1.0, 1.0)) - (h.x + h.y - c.y)) * k; if (e > d) { d = e; n = vec2(k, k); } }
+  if (c.z > 0.0) { e = (dot(q, vec2(1.0, -1.0)) - (h.x + h.y - c.z)) * k; if (e > d) { d = e; n = vec2(k, -k); } }
+  if (c.w > 0.0) { e = (dot(q, vec2(-1.0, -1.0)) - (h.x + h.y - c.w)) * k; if (e > d) { d = e; n = vec2(-k, -k); } }
+  return d;
+}
+void main() {
+  vec2 f = gl_FragCoord.xy, at = f; float caustic = 0.0, halo = 0.0;
+  // The panes come smallest first, so a pane on a tray bends the light under it, not the tray.
+  for (int i = 0; i < ${MOST_GLASS_PANE_COUNT}; i++) {
+    if (float(i) >= zaismaPaneCount) break;
+    vec4 cuts = zaismaPaneCuts[i]; float smoke = step(4096.0, cuts.w); cuts.w = mod(cuts.w, 4096.0);
+    vec2 n; float d = zaismaPaneShape(f, zaismaPanes[i], cuts, n);
+    float strength = mix(1.0, 0.5, smoke), rim = 18.0 * zaismaPixel, lit = clamp(dot(n, vec2(-0.70710678, 0.70710678)), 0.0, 1.0);
+    // Just outside the cut edge, unblurred: a fine line of the light the glass focuses, on its lit facets.
+    if (d >= 0.0 && d < rim) halo = max(halo, exp(-d / (rim * 0.12)) * (0.05 + 0.95 * lit) * 0.16 * strength);
+    if (d < 0.0) {
+      float depth = -d, edge = 1.0 - smoothstep(0.0, rim, depth);
+      vec2 center = (zaismaPanes[i].xy + zaismaPanes[i].zw) * 0.5;
+      // Thick glass: what's behind is magnified a little and bent inward along the rim, most at the very edge.
+      at = center + (f - center) * (1.0 - 0.018 * strength) - n * rim * 0.45 * strength * edge * edge;
+      // Caustics: light gathered along the edge inside, brightest on the lit facets; wide enough to show through the blur on top.
+      caustic = exp(-depth / (rim * 0.45)) * (0.15 + 0.85 * lit) * 0.32 * strength;
+      break;
+    }
+  }
+  vec4 color; mainImage(color, at);
+  vec3 col = color.rgb + vec3(1.0, 0.97, 0.92) * (caustic + halo);
+  if (zaismaLightShare > 0.001) {
+    vec2 h = (zaismaLight.zw - zaismaLight.xy) * 0.5, q = f - (zaismaLight.xy + zaismaLight.zw) * 0.5, a = abs(q) - h;
+    float d = length(max(a, 0.0)) + min(max(a.x, a.y), 0.0);
+    float glow = exp(-max(d, 0.0) / (60.0 * zaismaPixel)) * (d < 0.0 ? 0.8 : 1.0);
+    float spot = exp(-length(f - zaismaPointer) / (180.0 * zaismaPixel));
+    // On a light backdrop there's no room to brighten, so the light warms it; on a dark one it brightens it.
+    float amount = (glow * 0.6 + spot * 0.4) * zaismaLightShare;
+    vec3 warm = vec3(1.0, 0.86, 0.66);
+    col = mix(mix(col, warm, amount * 0.3), col + warm * amount * 0.2, iDark);
+  }
+  gl_FragColor = vec4(col, 1.0);
+}`;
