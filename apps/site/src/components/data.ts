@@ -68,19 +68,23 @@ component({
   group: "data",
   summary: "An account's picture, always in its frame of glass: in the account button, beside a friend's name, on a profile. ",
   styles: `
-/* An account's picture in a small frame of the panes' glass with its drawn rim. Always square: never cut or slanted, alone or in a row. */
-.frame { --frame: 44px; --frame-rim: 3px; position: relative; display: inline-grid; place-items: center; width: var(--frame); height: var(--frame); flex: none;
+/* An account's picture under a small frame of the panes' glass. Always square: never cut or slanted, alone or in a row. The glass itself
+   is clear (no tint of its own), so the picture runs right to its edges and the drawn rim lies over the picture's own colours, the way a
+   pane's edge takes the colour of what's under it. */
+.frame { --frame: 44px; position: relative; display: inline-grid; place-items: center; width: var(--frame); height: var(--frame); flex: none;
   font: var(--type-tag); color: var(--ink); }
-.frame.sm { --frame: 32px; --frame-rim: 2px; }
-.frame.xs { --frame: 24px; --frame-rim: 2px; }
-.frame.glass > .frame-picture { position: absolute; z-index: 2; inset: var(--frame-rim); }
+.frame.sm { --frame: 32px; }
+.frame.xs { --frame: 24px; }
+.frame:not(.more) { --glass-tint: transparent; }
+.frame.glass > .frame-picture { position: absolute; z-index: 2; inset: 0; }
+.frame.glass > .edge { z-index: 4; }
 .frame .av { position: absolute; inset: 0; display: grid; place-items: center; font: 600 calc(var(--frame) * 0.38) var(--display); color: #fff; letter-spacing: 0.01em;
   background: linear-gradient(140deg, hsl(var(--h) 58% 58%), hsl(calc(var(--h) + 45) 48% 52%) 55%, hsl(calc(var(--h) + 90) 48% 55%)); }
 /* Online: a small green diamond on the picture's corner, ringed in the glass's light. */
 .frame-online { position: relative; display: inline-flex; flex: none; }
 .frame-online > .online-mark { position: absolute; z-index: 4; right: -2px; bottom: -2px; width: 11px; height: 11px; background: var(--online); border: 2px solid var(--presence-ring); transform: rotate(45deg); }
 /* The smallest shows only the first letter. */
-.frame.xs .av { display: block; text-align: center; line-height: calc(var(--frame) - 2 * var(--frame-rim)); font-size: 0; }
+.frame.xs .av { display: block; text-align: center; line-height: var(--frame); font-size: 0; }
 .frame.xs .av::first-letter { font-size: 11px; }
 `,
   render: pictureFrame,
