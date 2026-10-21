@@ -30,6 +30,9 @@ const LIGHT_GLASS = `color-scheme: light;
   --clear-glass-mark: initial;
   /* What shows only on light glass, and only on smoked (the light-dark icon's sun and moon). */
   --on-light: inline; --on-smoked: none;
+  /* The line between two parts of one pane (its head and its list, a list and the facts under it). Set with each kind of glass, not on :root,
+     so it takes that glass's --line: a var() in a custom property is read where it's set. */
+  --divider: 1px solid var(--line);
   --tag-new: #DDF2E5; --tag-new-ink: #136238; --face-ring: rgba(255, 255, 255, 0.85); --presence-ring: #fff; --online: #3BB273;
   --rail-line: rgba(20, 23, 28, 0.2); --rail-thumb: rgba(24, 28, 36, 0.55); --rail-edge: rgba(255, 255, 255, 0.55); --rail-mark: rgba(20, 23, 28, 0.45);
   --edge-inner: rgba(255, 255, 255, 0.9); --edge-bevel: 0.4; --edge-rim: 1; --edge-fringe: 0.25;
@@ -59,7 +62,7 @@ const SMOKED_GLASS = `color-scheme: dark;
   --done: rgba(255, 255, 255, 0.12); --done-line: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
   --glass-btn-face: rgba(255, 255, 255, 0.07); --glass-btn-hover: rgba(255, 255, 255, 0.15); --glass-btn-press: rgba(255, 255, 255, 0.04); --pointer-glow: rgba(255, 255, 255, 0.3);
   --glass-btn-lift: inset 0 -12px 18px -12px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.22); --glass-btn-hair: rgba(26, 44, 80, 0.16); --glass-btn-hair-rest: rgba(26, 44, 80, 0.28);
-  --clear-hover: rgba(255, 255, 255, 0.08); --clear-press: rgba(255, 255, 255, 0.04); --clear-glass-mark: #fff; --on-light: none; --on-smoked: inline;
+  --clear-hover: rgba(255, 255, 255, 0.08); --clear-press: rgba(255, 255, 255, 0.04); --clear-glass-mark: #fff; --on-light: none; --on-smoked: inline; --divider: 1px solid var(--line);
   --tag-new: rgba(52, 211, 120, 0.22); --tag-new-ink: #A6F0C6; --face-ring: rgba(6, 8, 12, 0.55); --presence-ring: #1A1D24; --online: #3BB273;
   --rail-line: rgba(255, 255, 255, 0.2); --rail-thumb: rgba(255, 255, 255, 0.55); --rail-edge: rgba(255, 255, 255, 0.35); --rail-mark: rgba(255, 255, 255, 0.5);
   --edge-inner: rgba(255, 255, 255, 0.4); --edge-bevel: 0.4; --edge-rim: 0.85; --edge-fringe: 0.4;
@@ -162,8 +165,6 @@ export const TOKEN_STYLES = `
   --type-facts: 500 13px/1.3 var(--display);
   --type-tag: 600 12px/1 var(--display);
   --type-code: 600 13px/1.3 ui-monospace, Menlo, monospace;
-  /* The line between two parts of one pane (its head and its list, a list and the facts under it). */
-  --divider: 1px solid var(--line);
 }
 @media (max-width: 760px) { :root { --pad-pane: 18px; --type-title: 600 32px/1.04 var(--display); --type-heading: 600 26px/1.1 var(--display); --type-section: 600 20px/1.2 var(--display); } }
 :root, [data-theme-choice="light"] { ${LIGHT_GLASS} --page: #EEF2F7; }
