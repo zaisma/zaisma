@@ -2661,7 +2661,7 @@ describe("recently played", () => {
   it("shows games on the home page and patch notes on the game page", async () => {
     await liveGame("hop", "Hop");
     const home = await (await SELF.fetch(`${SITE}/`)).text();
-    expect(home).toContain('id="stage"');
+    expect(home).toContain('id="home-title"');
     expect(home).toContain('href="/g/hop?play"');
     const page = await (await SELF.fetch(`${SITE}/g/hop`)).text();
     expect(page).toContain("New levels.");

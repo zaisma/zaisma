@@ -311,9 +311,11 @@ try {
 console.log(`
 Zaisma preview is running. Nothing here touches the live site.
 
-  Home            ${SITE}/
-  Playing now     ${SITE}/  (Shard Dodge's tile and the stage show the people icon and 5; Tiny Farm has 2, under the minimum, so shows none;
-                  ${SITE}/g/shard-dodge says "5 playing now"; the preview renews them every 2 minutes)
+  Home            ${SITE}/  (the game in focus fills the screen with its background: point at covers to move between Shard Dodge's picture,
+                  Four in a Row's picture, Cave Crew's Neon Drift shader, Tiny Farm's Frostline shader and Zaisma's own for the rest;
+                  Play starts the game in place and Back returns)
+  Playing now     ${SITE}/  (Shard Dodge 5, Cave Crew 12 and Four in a Row 3 show the people icon and their number; Tiny Farm has 2, under the minimum,
+                  so shows none; ${SITE}/g/shard-dodge says "5 playing now"; the preview renews them every 2 minutes)
   A game page     ${SITE}/g/shard-dodge
   Cover guide     ${SITE}/developers/covers  (the lines covers, screenshots and titles keep to show in lists, with Fine and Not fine pictures)
   Backgrounds     ${SITE}/dashboard/shard-dodge/details#background  (as Preview_Studio: wide shows its picture, phones the Neon Drift
@@ -575,6 +577,20 @@ async function seed() {
   if (!(await isChecked())) await go(`/admin/shaders/${neonDrift.id}/approve`, form({ reason: "Preview test data" }));
   await api("PUT", "/games/shard-dodge/backgrounds/phone", { source: "shader", shader_id: neonDrift.id });
   await api("PATCH", "/games/shard-dodge", { glass_tint_color: "#6b3fa0" });
+  // More backgrounds for the home to move between: Four in a Row has a picture of its own, Cave Crew the Neon Drift shader and Tiny Farm
+  // the Frostline one (each on wide; phones follow). Arena and Night Drive keep Zaisma's own.
+  const { image: boardWorld } = await api("POST", "/games/four-in-a-row/images?kind=background", new Uint8Array(readFileSync(join(ROOT, "review-set/listing-cases/background-world/background.webp"))));
+  await go(`/admin/images/${boardWorld.id}/approve`, form({ reason: "" }));
+  await api("PUT", "/games/four-in-a-row/backgrounds/wide", { source: "image", image_id: boardWorld.id });
+  const homeShaders = [["cave-crew", "neon-drift.glsl"], ["tiny-farm", "frostline.glsl"]];
+  const sentShaders = [];
+  for (const [slug, file] of homeShaders) sentShaders.push([slug, (await sendShader(slug, "wide", file)).shader]);
+  for (const [slug, shader] of sentShaders) {
+    const isShaderChecked = async () => (await api("GET", `/games/${slug}`)).shaders.find((each) => each.id === shader.id)?.review_status !== "pending";
+    for (let tryIndex = 0; tryIndex < 45 && !(await isShaderChecked()); tryIndex++) await new Promise((done) => setTimeout(done, 2000));
+    if (!(await isShaderChecked())) await go(`/admin/shaders/${shader.id}/approve`, form({ reason: "Preview test data" }));
+    await api("PUT", `/games/${slug}/backgrounds/wide`, { source: "shader", shader_id: shader.id });
+  }
 
   // Tiny Farm's registered links, which its buttons open: two on trusted sites (everyone), Discord
   // (signed-in adults) and one on a site the stand-in for Cloudflare's filter lists (nobody).
@@ -1154,7 +1170,7 @@ function seedPlayingNow(run = spawnSync) {
   const tickets = (slug, playerCount) =>
     Array.from({ length: playerCount }, (_, i) =>
       `INSERT OR REPLACE INTO play_tickets (id, game_id, issued_at_ms, reported_at_ms, date, is_first_play_today, is_new_player) SELECT 'play_ticket_preview${slug.replaceAll("-", "")}${i}', id, ${now}, ${now}, '${new Date(now).toISOString().slice(0, 10)}', 0, 0 FROM games WHERE slug = '${slug}'`);
-  const sql = ["DELETE FROM play_tickets WHERE id LIKE 'play_ticket_preview%'", ...tickets("shard-dodge", 5), ...tickets("tiny-farm", 2)];
+  const sql = ["DELETE FROM play_tickets WHERE id LIKE 'play_ticket_preview%'", ...tickets("shard-dodge", 5), ...tickets("tiny-farm", 2), ...tickets("cave-crew", 12), ...tickets("four-in-a-row", 3)];
   run("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", sql.join("; ")], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
 }
 

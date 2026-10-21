@@ -490,7 +490,7 @@ export function metalButton(label: string, options: { href?: string; id?: string
 const CHECK_ORIGIN = "https://challenges.cloudflare.com";
 
 /** formTargets: other sites a form on the page may end up at, like the app a Sign in with Zaisma consent page goes back to. */
-export function securityHeaders(env: Env, extra: Record<string, string> = {}, hasTurnstileCheck = false, frames: string[] = [], formTargets: string[] = []): Headers {
+export function securityHeaders(env: Env, extra: Record<string, string> = {}, hasTurnstileCheck = false, frames: string[] = [], formTargets: string[] = [], frameAncestors = "'none'"): Headers {
   const headers = new Headers({
     "Content-Type": "text/html; charset=utf-8",
     "Content-Security-Policy": [
@@ -501,7 +501,7 @@ export function securityHeaders(env: Env, extra: Record<string, string> = {}, ha
       `script-src 'self'${hasTurnstileCheck ? ` ${CHECK_ORIGIN}` : ""}`,
       `frame-src ${gameFrameSource(env)}${hasTurnstileCheck ? ` ${CHECK_ORIGIN}` : ""}${frames.map((frame) => ` ${frame}`).join("")}`,
       `form-action 'self'${formTargets.map((target) => ` ${target}`).join("")}`,
-      "frame-ancestors 'none'",
+      `frame-ancestors ${frameAncestors}`,
       "base-uri 'none'",
       "object-src 'none'",
       // What the policy blocks is reported (security-alerts.ts, recordBlockedScripts): report-to for today's browsers, report-uri for the rest.
@@ -582,6 +582,8 @@ export interface LayoutOptions {
   action?: Raw;
   frames?: string[];
   formTargets?: string[];
+  /** Zaisma's own pages may frame this one (the home plays a game in place, in a frame of its game page): sent only for a request that is such a frame. */
+  isFramedBySelf?: boolean;
   /**
    * Who is looking (viewer.ts): their account's picture in the header and their light or dark. A page that already read the session
    * passes its account as { account }, so the session is read once. Left out, the header says Sign in until the page sees the signed-in cookie.
@@ -623,7 +625,7 @@ ${env.SUPABASE_URL && !options.isAdmin ? scriptTags(SITE_SCRIPT, PRESENCE_SCRIPT
 </body>
 </html>`;
   const isPrivate = options.isAdmin || options.isPrivate || Boolean(options.viewer?.account);
-  return new Response(page.html, { headers: securityHeaders(env, isPrivate ? { "Cache-Control": "no-store" } : {}, options.hasTurnstileCheck, options.frames, options.formTargets) });
+  return new Response(page.html, { headers: securityHeaders(env, isPrivate ? { "Cache-Control": "no-store" } : {}, options.hasTurnstileCheck, options.frames, options.formTargets, options.isFramedBySelf ? "'self'" : "'none'") });
 }
 
 /**

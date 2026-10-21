@@ -1,4 +1,4 @@
-import { backgroundsFor, imageById, shaderById, type BackgroundScreen, type Game } from "@zaisma/core";
+import { backgroundsFor, imageById, shaderById, type BackgroundScreen, type BackgroundSource, type Game } from "@zaisma/core";
 import { gameUrl, type Env } from "./env.ts";
 import { html, type Raw } from "./html.ts";
 
@@ -47,4 +47,43 @@ export function backgroundMarkup(background: ShownBackground): Raw {
     return html`<iframe class="backdrop" data-backdrop="frame" data-adapts-glass data-backdrop-still="${background.stillUrl}" src="${background.frameUrl}" sandbox="allow-scripts allow-same-origin" allow="" loading="eager" tabindex="-1" aria-hidden="true" title="Background"></iframe>`;
   }
   return html`<canvas class="backdrop" data-backdrop="shader" aria-hidden="true"></canvas>`;
+}
+
+/**
+ * The backgrounds of every listed game that chose one, in one query, for a page that shows many games at once (the home sends
+ * the whole shelf's). A game missing from the answer shows Zaisma's own on both screens; phones follow wide until a phone background is set.
+ */
+export async function backgroundsOfGames(env: Env, games: Pick<Game, "id" | "slug">[]): Promise<Map<string, Record<BackgroundScreen, ShownBackground>>> {
+  const { results } = await env.DB
+    .prepare(
+      `SELECT game_backgrounds.game_id, game_backgrounds.screen, game_backgrounds.source, game_backgrounds.image_id, game_backgrounds.shader_id,
+         EXISTS (SELECT 1 FROM game_images WHERE game_images.id = game_backgrounds.image_id AND game_images.game_id = game_backgrounds.game_id AND game_images.review_status = 'approved') AS is_image_approved,
+         EXISTS (SELECT 1 FROM game_shaders WHERE game_shaders.id = game_backgrounds.shader_id AND game_shaders.game_id = game_backgrounds.game_id AND game_shaders.review_status = 'approved') AS is_shader_approved
+       FROM game_backgrounds JOIN games ON games.id = game_backgrounds.game_id
+       WHERE games.review_status = 'live' AND games.visibility = 'listed'`,
+    )
+    .all<{ game_id: string; screen: BackgroundScreen; source: BackgroundSource; image_id: string | null; shader_id: string | null; is_image_approved: number; is_shader_approved: number }>();
+  const slugById = new Map(games.map((game) => [game.id, game.slug]));
+  const chosen = new Map<string, Partial<Record<BackgroundScreen, ShownBackground>>>();
+  for (const row of results) {
+    const slug = slugById.get(row.game_id);
+    if (!slug) continue;
+    const shown: ShownBackground | null =
+      row.source === "image" && row.image_id && row.is_image_approved
+        ? { source: "image", imageUrl: `${env.SITE_ORIGIN}/img/${row.image_id}`, stillUrl: `${env.SITE_ORIGIN}/img/${row.image_id}`, glassTintColor: null }
+        : row.source === "shader" && row.shader_id && row.is_shader_approved
+          ? { source: "shader", frameUrl: `${gameUrl(env, slug)}_zaisma/background?screen=${row.screen}&shader=${row.shader_id}`, stillUrl: `${env.SITE_ORIGIN}/shaders/${row.shader_id}/still.png`, glassTintColor: null }
+          : row.source === "zaisma"
+            ? { source: "zaisma", glassTintColor: null }
+            : null;
+    if (shown) chosen.set(row.game_id, { ...chosen.get(row.game_id), [row.screen]: shown });
+  }
+  const own = new Map<string, Record<BackgroundScreen, ShownBackground>>();
+  for (const [gameId, screens] of chosen) {
+    // A phone with a background of its own shows it; otherwise phones follow wide (Zaisma's own, when only phone was set).
+    const wide = screens.wide ?? { source: "zaisma" as const, glassTintColor: null };
+    if (wide.source === "zaisma" && (screens.phone ?? wide).source === "zaisma") continue;
+    own.set(gameId, { wide, phone: screens.phone ?? wide });
+  }
+  return own;
 }

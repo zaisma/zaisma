@@ -205,7 +205,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     if (isListStale) readList();
     var isMoved = isPlaceStale; isPlaceStale = false;
     layers.forEach(function (layer) {
-      if (!layer.isInView) return;
+      if (!layer.isInView || layer.canvas.hasAttribute("data-backdrop-paused")) return;
       if (layer.isOuter) {
         if (!isMoved && layer.glass && layer.isTold) return;
         placeGlass(layer); layer.isTold = true;
@@ -239,7 +239,7 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     var layer = { canvas: el, kind: kind, isOuter: true, isInView: true, isTold: false, isGlassAdapted: false, target: readColors(el), from: null };
     el.backdropLayer = layer; layers.push(layer);
     // The frame says when it's running (and after it reloads): it's told where the glass is again.
-    if (kind === "frame") window.addEventListener("message", function (event) { if (event.source === el.contentWindow && event.data && event.data.zaismaBackground) { layer.isTold = false; isPlaceStale = true; } });
+    if (kind === "frame") { layer.onMessage = function (event) { if (event.source === el.contentWindow && event.data && event.data.zaismaBackground) { layer.isTold = false; isPlaceStale = true; } }; window.addEventListener("message", layer.onMessage); }
     // The still the glass is measured from: read again whenever the page points it at another (the dashboard's preview does).
     function loadStill() {
       var stillUrl = el.getAttribute("data-backdrop-still") || (kind === "picture" ? el.currentSrc || el.src : "");
@@ -281,6 +281,23 @@ export const BACKDROP_SCRIPT = `/* backdrop */(function () {
     if (!running) { running = true; requestAnimationFrame(frame); }
   }
   document.querySelectorAll("canvas[data-backdrop], iframe[data-backdrop='frame'], img[data-backdrop='picture']").forEach(setUp);
+  /*
+   * A page that changes its backdrop (the home, as the game in focus changes) adds and removes layers itself: add(el) sets a new frame or
+   * picture up (its glass is measured once its still has loaded), remove(el) forgets one the page took out, and forgetGlass() lets every piece of
+   * glass go back to the theme's own, for a page that returns to Zaisma's backdrop from a game's. A layer with data-backdrop-paused is not drawn.
+   */
+  window.zaismaBackdrop = {
+    add: function (el) { isListStale = true; setUp(el); },
+    remove: function (el) {
+      var layer = el.backdropLayer; if (!layer) return;
+      layers = layers.filter(function (each) { return each !== layer; });
+      if (layer.onMessage) window.removeEventListener("message", layer.onMessage);
+      el.backdropLayer = null; isPlaceStale = true;
+    },
+    forgetGlass: function () {
+      document.querySelectorAll("[data-glass]").forEach(function (el) { el.classList.remove("smoke"); el.removeAttribute("data-theme-choice"); el.style.removeProperty("--glass-tint"); });
+    }
+  };
   // The glass's places: a scroll or resize moves them, and the page's own changes may add, remove, open or shut a piece of glass.
   window.zaismaWatch.scroll(markPlaceStale);
   window.zaismaWatch.resize(markPlaceStale);
