@@ -414,7 +414,8 @@ const [gamePage, mcp, gameFiles, rooms, securityTxt, cliResult, securityResults]
   zaismaKey
     ? checkUrl("MCP", `${SITE_URL}/mcp`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream", authorization: `Bearer ${zaismaKey}` }, body: mcpInitialize }, ok((response, body) => response.status === 200 && body.includes('"serverInfo"')))
     : checkUrl("MCP", `${SITE_URL}/mcp`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream" }, body: mcpInitialize }, ok((response, body) => response.status === 401 && body.includes('"no_key"')), { passNote: " (its no_key answer, as expected without ZAISMA_KEY)" }),
-  checkUrl("game files", CHECK_GAME_URL, {}, ok((response) => response.status === 200)),
+  // The game's page opens at its version's own address: followed there.
+  checkUrl("game files", CHECK_GAME_URL, {}, ok((response) => response.status === 200), { isSameOriginRedirectFollowed: true }),
   checkUrl("rooms", `${ROOMS_URL}/.well-known/jwks.json`, {}, ok((response, body) => response.status === 200 && body.includes('"keys"'))),
   checkUrl("security.txt", `${SITE_URL}/.well-known/security.txt`, {}, securityTxtProblems),
   checkCliOnNpm(cliVersion),
