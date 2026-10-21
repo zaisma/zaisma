@@ -78,7 +78,10 @@ export const REVIEW_LIMITS = {
   maximumJudgedImageCount: 8,
   maximumEvidenceItemCount: 400,
   maximumQuoteCharacterCount: 300,
-  maximumJudgedReviewsPerDay: 5,
+  /** Large reviews a day per developer, across all their games: a new game or a real change, read and judged. */
+  maximumLargeReviewsPerDay: 5,
+  /** Small reviews a day per developer, across all their games: versions whose reads called the reader model. */
+  maximumSmallReviewsPerDay: 30,
   /** Share of the monthly review budget that sends Julius one email. */
   budgetAlertPct: 80,
 } as const;
@@ -122,7 +125,14 @@ export function keepQuotedItems(items: EvidenceItem[], fileTextByPath: Map<strin
  */
 const COMPARED_BY_KIND = new Set<EvidenceItem["kind"]>(["opens_link", "connects_to"]);
 
-const itemKey = (evidenceItem: Pick<EvidenceItem, "kind" | "subject">) => (COMPARED_BY_KIND.has(evidenceItem.kind) ? evidenceItem.kind : `${evidenceItem.kind}\n${evidenceItem.subject.toLowerCase()}`);
+export const itemKey = (evidenceItem: Pick<EvidenceItem, "kind" | "subject">) => (COMPARED_BY_KIND.has(evidenceItem.kind) ? evidenceItem.kind : `${evidenceItem.kind}\n${evidenceItem.subject.toLowerCase()}`);
+
+/** The same item in two versions' evidence: the same kind, subject, path and quote. */
+export const isSameItem = (first: Pick<EvidenceItem, "kind" | "subject" | "path" | "quote">, second: Pick<EvidenceItem, "kind" | "subject" | "path" | "quote">): boolean =>
+  first.kind === second.kind && first.subject === second.subject && first.path === second.path && first.quote === second.quote;
+
+/** Findings a fix's review always keeps, new in the evidence or not: the review's floor, never its judgement calls. */
+export const NEVER_NARROWED_FINDING_CODES: readonly string[] = ["ai_minors_sexualized", "ai_malware", "ai_phishing_or_scam"];
 
 /** What a fixable hold stands on: a dodged protection, typed text others read as written, or personal details asked of players. */
 export const isFixableProblem = (evidenceItem: Pick<EvidenceItem, "kind" | "subject">): boolean =>
