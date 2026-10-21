@@ -98,11 +98,17 @@ const WAY_ICONS = { google: GOOGLE, discord: DISCORD, passkey: raw(ICONS.passkey
 export type GlassTint = "clear" | "white" | "blue" | "indigo" | "black";
 const WAY_TINTS: Record<keyof typeof WAY_ICONS, GlassTint> = { google: "white", discord: "indigo", passkey: "clear" };
 
-/** A glass button for another way in (a passkey, Google, Discord): a small slab of the panes' glass, with their rim. Quieter than the runner, louder than the guest way. */
-export function glassButton(label: string, options: { href?: string; type?: "submit" | "button"; icon: keyof typeof WAY_ICONS; tint?: GlassTint; state?: ButtonState; isBusy?: boolean }): Raw {
-  const tint = options.tint ?? WAY_TINTS[options.icon];
+/**
+ * A glass button: a small slab of the panes' glass, with their rim. Quieter than the runner, louder than the guest way. Another way in
+ * (a passkey, Google, Discord: their marks), or an action that floats on a world with no pane under it (the home's More games: one of
+ * Zaisma's icons), where a cut button's clear face would be lost.
+ */
+export function glassButton(label: string, options: { href?: string; type?: "submit" | "button"; icon: keyof typeof WAY_ICONS | IconName; tint?: GlassTint; state?: ButtonState; isBusy?: boolean }): Raw {
+  const isWayIn = options.icon in WAY_ICONS;
+  const tint = options.tint ?? (isWayIn ? WAY_TINTS[options.icon as keyof typeof WAY_ICONS] : "clear");
+  const mark = isWayIn ? WAY_ICONS[options.icon as keyof typeof WAY_ICONS] : icon(options.icon as IconName);
   const target = { href: options.href, type: options.type ?? "button" } as const;
-  return html`${opening(classes("glass-btn", options.state), target, options.isBusy, html` data-tint="${tint}"`)}<span class="face glass" data-glass data-cut-line="10" data-glass-band="3">${loader()}${WAY_ICONS[options.icon]}<span>${label}</span></span>${closing(target)}`;
+  return html`${opening(classes("glass-btn", options.state), target, options.isBusy, html` data-tint="${tint}"`)}<span class="face glass" data-glass data-cut-line="10" data-glass-band="3">${loader()}${mark}<span>${label}</span></span>${closing(target)}`;
 }
 
 const GUEST_ARROW = html`<span class="arrow" aria-hidden="true">${icon("chevron-right")}</span>`;
@@ -353,7 +359,7 @@ component({
   name: "Glass button",
   slug: "glass-button",
   group: "actions",
-  summary: "Another way in, like a passkey, Google or Discord: below the runner, never instead of it.",
+  summary: "Another way in, like a passkey, Google or Discord: below the runner, never instead of it. Or an action floating on a world with no pane under it.",
   styles: `
 /* Glass buttons for the other ways in: a small slab of the panes' glass, cut and rimmed like them (GLASS_SCRIPT draws the rim).
    The pointer brings a light that follows it across the glass and brightens the rim; a press sinks the slab into its shade.
@@ -448,6 +454,8 @@ component({
     // Over a game's picture the glass follows the picture, not the theme: light glass on a bright one, smoked on a dark one.
     { label: "Over a bright picture", markup: html`<div data-theme-choice="light" style="${PICTURE}background-image:url(/design/covers/frostline.webp)">${waysIn()}</div>` },
     { label: "Over a dark picture", markup: html`<div class="smoke" style="${PICTURE}background-image:url(/design/covers/neon-drift.webp)">${waysIn()}</div>` },
+    // On a world with no pane under it (the home's More games, under the game in focus), with one of Zaisma's icons.
+    { label: "An action floating on a world", markup: html`<div class="smoke" style="${PICTURE}background-image:url(/design/covers/neon-drift.webp)"><div style="display:flex;justify-content:center">${glassButton("More games", { icon: "chevron-down", type: "button" })}</div></div>` },
   ],
 });
 
