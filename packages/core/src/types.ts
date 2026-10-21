@@ -111,6 +111,10 @@ export interface Version {
   cleared_at_ms: number | null;
   /** When report triage had this version's files checked again. Once per version. */
   rechecked_at_ms: number | null;
+  /** The newer version of the game that replaced this one while it waited for review; null when none did. */
+  replaced_by_version_id: string | null;
+  /** When this version's small review ran (its reads called the reader model); null when nothing was read. */
+  read_at_ms: number | null;
 }
 
 export type Severity = "reject" | "hold" | "info";
@@ -163,6 +167,8 @@ export interface ReviewAi {
   summary: string;
   /** The review precedents the judge followed (migrations/0093_review_precedents.sql); absent when none. */
   followed_review_precedent_ids?: string[];
+  /** Its reads called the reader model, so it counted as one of the developer's small reviews. Absent when nothing was read, on re-checks and before migration 0104. */
+  is_small_review?: boolean;
   cost_cents: number;
   input_token_count: number;
   output_token_count: number;

@@ -77,7 +77,7 @@ import { adminFeedbackAction, adminFeedbackPage, feedbackSummary } from "./admin
 import { precedentAction, precedentsPage, savePrecedent } from "./precedents.ts";
 import { isAiHold, proposedReviewPrecedent, releaseAiHold, reviewPrecedentAction, reviewPrecedentProblem, reviewPrecedentsPage, saveReviewPrecedent, teachTheReviewBlock } from "./review-precedents.ts";
 import { clearCountedDay, playSpikes } from "./plays.ts";
-import { KNOWN_IMAGE_ALERT, passVersion } from "./scan.ts";
+import { KNOWN_IMAGE_ALERT, changesSince, passVersion, type ChangesSince } from "./scan.ts";
 import { ownerUsername, stopCopy } from "./copies.ts";
 import { uploadGame } from "./upload.ts";
 import { tellWebhooks } from "./webhooks.ts";
@@ -582,6 +582,8 @@ async function gameDetail(env: Env, id: string, error = ""): Promise<Response> {
   // Teach the review: the drafted ruling for each held version the AI judge held, and for the version players get.
   const passDrafts = new Map(await Promise.all(versions.filter(isAiHold).map(async (version) => [version.id, await proposedReviewPrecedent(env.DB, version.id, "pass")] as const)));
   const holdDrafts = new Map(await Promise.all(versions.filter((version) => version.scan_status === "approved").map(async (version) => [version.id, await proposedReviewPrecedent(env.DB, version.id, "hold")] as const)));
+  // Held versions: what changed since the hold they answer, or the game's version before.
+  const changes = new Map(await Promise.all(versions.filter((version) => version.scan_status === "held").map(async (version) => [version.id, await changesSince(env, version)] as const)));
   // Held re-uploads: which game and developer each matched, for the person deciding it.
   const matchedGames = new Map<string, { title: string; ownerName: string | null }>();
   for (const version of versions) {
@@ -670,12 +672,14 @@ ${versions.map((version) => {
   <div class="row"><strong>${version.id}</strong> ${pill(version.scan_status)} ${current ? html`<span class="pill live">players get this one</span>` : ""}
     <span>${version.file_count} files · ${(version.size_bytes / 1048576).toFixed(1)} MB · ${when(version.created_at_ms)}</span></div>
   ${version.report_held_at_ms && version.scan_status === "held" ? html`<p><strong>A report paused this update.</strong> Players are on the version before it. Put it back if the report was wrong.</p>` : ""}
-  ${report ? scanReport(report) : html`<p>Scan in progress…</p>`}
+  ${version.replaced_by_version_id ? html`<p><strong>Replaced by ${version.replaced_by_version_id} before it was reviewed.</strong></p>` : ""}
+  ${changes.get(version.id) ? changesSinceBlock(changes.get(version.id)!) : ""}
+  ${report ? scanReport(report, changes.get(version.id)?.earlierReport) : html`<p>Scan in progress…</p>`}
   ${report?.matched_game ? matchedGameLine(report.matched_game, matchedGames.get(report.matched_game.game_id)) : ""}
   ${toldDeveloper(version.review_reason)}
   ${version.scan_status !== "approved" || !current
         ? html`<div class="row">
-    ${version.scan_status !== "approved" && !knownImages(version) ? html`<form method="post" action="/admin/versions/${version.id}/approve" class="stack">${isAiHold(version) ? teachTheReviewBlock({ decision: "pass", draft: passDrafts.get(version.id) ?? null, versionId: version.id }) : ""}<div><button class="btn" type="submit">${version.report_held_at_ms ? "Put the update back" : version.publish_when_approved_enabled ? "Approve and publish" : "Approve as a draft"}</button></div></form>` : ""}
+    ${version.scan_status !== "approved" && !knownImages(version) ? html`<form method="post" action="/admin/versions/${version.id}/approve" class="stack">${isAiHold(version) ? teachTheReviewBlock({ decision: "pass", draft: passDrafts.get(version.id) ?? null, versionId: version.id }) : ""}<div><button class="btn" type="submit">${version.report_held_at_ms ? "Put the update back" : version.publish_when_approved_enabled && !version.replaced_by_version_id ? "Approve and publish" : "Approve as a draft"}</button></div></form>` : ""}
     ${version.scan_status !== "rejected" && report?.matched_game ? html`<form method="post" action="/admin/versions/${version.id}/reject-copy"><button class="btn ghost" type="submit">Reject as a copy</button></form>` : ""}
     ${version.scan_status !== "rejected" ? html`<details><summary class="btn ghost">${version.report_held_at_ms ? "Keep it off…" : "Reject…"}</summary><form class="stack" method="post" action="/admin/versions/${version.id}/reject"><div class="row">${decisionFields({})}<button class="btn ghost" type="submit">${version.report_held_at_ms ? "Keep it off" : "Reject"}</button></div>${version.scan_status === "approved" ? teachTheReviewBlock({ decision: "hold", draft: holdDrafts.get(version.id) ?? null, versionId: version.id }) : ""}</form></details>` : ""}
   </div>`
@@ -693,7 +697,23 @@ function matchedGameLine(matchedGame: NonNullable<ScanReport["matched_game"]>, m
   return html`<p><strong>Most of its files (${matchedGame.matched_file_count} of ${matchedGame.compared_file_count}) were sent first by another developer</strong>, in <a href="/admin/games/${matchedGame.game_id}">${matched?.title ?? matchedGame.game_id}</a>${matched?.ownerName ? ` by ${matched.ownerName}` : ""}. Reject as a copy tells that developer, with this uploader's name; Approve and Reject… tell nobody. Not sure (a teammate, permission)? Ask them first.</p>`;
 }
 
-function scanReport(report: ScanReport): Raw {
+/** Most paths of each kind the game page lists under "Changed since". */
+const MAXIMUM_CHANGED_PATH_COUNT = 50;
+
+/** What changed since the version a held one is compared with: what that one was held for, and the files added, changed and removed. */
+function changesSinceBlock(changes: ChangesSince): Raw {
+  const heldFor = changes.earlierReport.findings.filter((finding) => finding.severity !== "info");
+  const paths = (label: string, list: string[]) =>
+    html`<p>${label} (${list.length})${list.length ? html`: ${list.slice(0, MAXIMUM_CHANGED_PATH_COUNT).join(", ")}${list.length > MAXIMUM_CHANGED_PATH_COUNT ? ` and ${list.length - MAXIMUM_CHANGED_PATH_COUNT} more` : ""}` : ""}</p>`;
+  return html`<details open><summary><strong>Changed since ${changes.earlier.id}</strong> (${changes.earlier.scan_status})</summary>
+${heldFor.map((finding) => html`<p>It was held for: <code>${finding.code}</code>: ${finding.message}</p>`)}
+${changes.files ? html`${paths("Added", changes.files.addedPaths)}${paths("Changed", changes.files.changedPaths)}${paths("Removed", changes.files.removedPaths)}` : html`<p class="muted">Not available for zip uploads.</p>`}
+</details>`;
+}
+
+/** The scan's result. With `earlier` (the report of the version a held one is compared with), each finding says whether it's new. */
+function scanReport(report: ScanReport, earlier?: ScanReport): Raw {
+  const isSeenBefore = (finding: ScanReport["findings"][number]) => earlier?.findings.some((earlierFinding) => earlierFinding.code === finding.code && (earlierFinding.path ?? null) === (finding.path ?? null));
   return html`
 ${report.findings.some((finding) => finding.code === KNOWN_IMAGE_CODE)
     ? html`<p style="color:var(--danger)"><strong>Known abuse images.</strong> ${KNOWN_IMAGE_ALERT} It can't be approved.</p>`
@@ -703,8 +723,8 @@ ${report.findings.some((finding) => finding.code === KNOWN_IMAGE_CODE)
 <p>Scan result: ${pill(report.decision)} · image matching: ${report.images.is_connected ? `${report.images.provider}, ${report.images.checked_media_count} checked${report.images.reused_media_count ? `, ${report.images.reused_media_count} cleared earlier` : ""}` : "not connected"} · AI: ${report.ai ? `${report.ai.verdict} (${reviewModelOf(report.ai)}${"cost_cents" in report.ai ? `, ${report.ai.cost_cents.toFixed(2)}¢` : ""})` : "not run"}</p>
 ${report.ai?.summary ? html`<p>${report.ai.summary}</p>` : ""}
 ${report.findings.length
-    ? html`<table><tr><th>Level</th><th>Check</th><th>What</th><th>File</th></tr>${report.findings.map(
-        (finding) => html`<tr><td>${pill(finding.severity)}</td><td>${finding.code}</td><td>${finding.message}</td><td>${finding.path ?? ""}</td></tr>`,
+    ? html`<table><tr><th>Level</th><th>Check</th><th>What</th><th>File</th>${earlier ? html`<th>Since</th>` : ""}</tr>${report.findings.map(
+        (finding) => html`<tr><td>${pill(finding.severity)}</td><td>${finding.code}</td><td>${finding.message}</td><td>${finding.path ?? ""}</td>${earlier ? html`<td>${isSeenBefore(finding) ? "seen before" : "new"}</td>` : ""}</tr>`,
       )}</table>`
     : ""}
 ${report.outside_hosts.length ? html`<p>Outside sites referenced: ${report.outside_hosts.join(", ")}</p>` : ""}`;

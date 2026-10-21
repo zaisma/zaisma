@@ -407,6 +407,9 @@ describe("reports, stats and history", () => {
     await scanVersion(testEnv, heldVersion.id, { ...pass, images: notConnected });
     const { version: rejectedVersion } = await tool("upload_files", { slug: "hop", files: [{ path: "index.html", content_text: "<!doctype html><p>hi again</p>" }] });
     await env.DB.prepare("UPDATE versions SET scan_status = 'rejected', created_at_ms = created_at_ms + 1000 WHERE id = ?").bind(rejectedVersion.id).run();
+    // The newer upload replaced the waiting version, so it steps aside with no alert; one a report paused is never replaced.
+    expect(kinds(await listed("hop"))).toEqual(["version_rejected"]);
+    await env.DB.prepare("UPDATE versions SET replaced_by_version_id = NULL, report_held_at_ms = ? WHERE id = ?").bind(Date.now(), heldVersion.id).run();
     const game = (await gameBySlug(env.DB, "hop"))!;
     // Rooms past the month's free hours, and a report waiting for Zaisma (child safety never counts).
     await env.DB.prepare("INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count) VALUES (?, ?, 1, ?, 0)").bind(game.id, new Date().toISOString().slice(0, 10), 1000 * 3600).run();

@@ -8,6 +8,7 @@ import {
   aiUsage,
   currentMonth,
   FIXABLE_FINDING_CODES,
+  isSameItem,
   isTweak,
   apiKeyTokensIn,
   audit,
@@ -55,8 +56,8 @@ import {
   CHECKED_FILE_KEPT_DURATION_DAYS,
 } from "@zaisma/core";
 import { deletePrefix } from "./upload.ts";
-import { chooseReadPictures, gatherEvidence, readCode, readPictures, type PictureFile, type ReadCode, type ReadPictures, type ReaderPicture } from "./review-readers.ts";
-import { judgeVersion, type JudgeVersion } from "./review-judge.ts";
+import { chooseReadPictures, gatherEvidence, newReadCount, readCode, readPictures, type PictureFile, type ReadCode, type ReadPictures, type ReaderPicture } from "./review-readers.ts";
+import { judgeVersion, type EarlierHold, type JudgeVersion } from "./review-judge.ts";
 import { activeReviewPrecedents, draftMiss, draftWithAi, type ReviewPrecedentDrafter } from "./review-precedents.ts";
 import { findMatchedGame } from "./copies.ts";
 import { tellWebhooks } from "./webhooks.ts";
@@ -157,8 +158,9 @@ export async function scanVersion(env: Env, versionId: string, deps: ScanDeps = 
   const report = await inspectVersion(env, version, game, deps);
   const { decision, findings, is_child_safety: isChildSafety } = report;
   await saveScan(env.DB, version.id, decision, report);
-  // Counts toward the owner's judged reviews a day (step 4e); re-checks never get here.
+  // Counts toward the owner's large and small reviews a day (steps 4e and 4a3); re-checks never get here.
   if (isJudged(report)) await env.DB.prepare("UPDATE versions SET judged_at_ms = ? WHERE id = ?").bind(report.finished_at_ms, version.id).run();
+  if (report.ai && "judge_model" in report.ai && report.ai.is_small_review) await env.DB.prepare("UPDATE versions SET read_at_ms = ? WHERE id = ?").bind(report.finished_at_ms, version.id).run();
   // A hold the AI judge made may turn out to be a miss: draft the ruling now, so releasing it can teach the review in the same click.
   if (decision === "held" && deps.draft && report.ai !== null && "judge_model" in report.ai && report.ai.verdict === "hold") await draftMiss(env, { versionId: version.id, decision: "pass" }, deps.draft);
   if (decision === "approved") {
@@ -172,7 +174,7 @@ export async function scanVersion(env: Env, versionId: string, deps: ScanDeps = 
         `URGENT: known abuse images uploaded to ${game.slug}`,
         `${KNOWN_IMAGE_ALERT}\n\n${summarize(findings)}\n\nGame: ${env.SITE_ORIGIN}/admin/games/${game.id}`,
       );
-    } else if ((decision === "held" && !isOnlyWaitingForDailyReview(findings)) || isChildSafety) {
+    } else if (isChildSafety || (decision === "held" && !isOnlyWaiting(findings) && !(await isAnotherVersionWaitingForPerson(env, version)))) {
       await sendAlert(
         env,
         isChildSafety ? `URGENT child-safety flag on ${game.slug}` : `${game.slug} needs review`,
@@ -187,11 +189,27 @@ export async function scanVersion(env: Env, versionId: string, deps: ScanDeps = 
 /** The judge ran for this report: it counts as one of the owner's judged reviews. */
 const isJudged = (report: ScanReport): boolean => report.ai !== null && "judge_model" in report.ai && ["pass", "hold", "reject"].includes(report.ai.verdict);
 
-/** Held only to wait for a free daily review: the cron scans it again, so nobody needs an alert. */
-const isOnlyWaitingForDailyReview = (findings: Finding[]): boolean => {
+/** Codes a version waits on with nobody to look: a free daily review (the cron scans it again), or a newer version. */
+const WAITING_CODES: readonly string[] = ["daily_large_reviews_used", "daily_small_reviews_used", "version_replaced"];
+
+/** Held only to wait for a free daily review, or replaced by a newer version: nobody needs an alert. */
+const isOnlyWaiting = (findings: Finding[]): boolean => {
   const holds = findings.filter((finding) => finding.severity !== "info");
-  return holds.length > 0 && holds.every((finding) => finding.code === "daily_reviews_used");
+  return holds.length > 0 && holds.every((finding) => WAITING_CODES.includes(finding.code));
 };
+
+/**
+ * Another version of the game already waits for a person, so its "needs review" email covered this game: one
+ * email per game in the queue. A version waiting only for a daily review, or replaced by another than this one,
+ * doesn't count.
+ */
+async function isAnotherVersionWaitingForPerson(env: Env, version: Version): Promise<boolean> {
+  const { results } = await env.DB
+    .prepare("SELECT scan_report FROM versions WHERE game_id = ? AND id != ? AND scan_status = 'held' AND (replaced_by_version_id IS NULL OR replaced_by_version_id = ?)")
+    .bind(version.game_id, version.id, version.id)
+    .all<{ scan_report: string | null }>();
+  return results.some((row) => !row.scan_report || !isOnlyWaiting((JSON.parse(row.scan_report) as ScanReport).findings));
+}
 
 /** What to do when image matching finds known abuse material, for the alert and the admin page. */
 export const KNOWN_IMAGE_ALERT =
@@ -284,10 +302,12 @@ interface ReviewOutcome {
 }
 
 /**
- * Step 4 of a scan: (a) the budget, (b) the readers, reusing what an earlier version's readers read in files
- * that haven't changed, (c) only items whose quotes are in the files, (d) a tweak of a version that passed
- * reuses its verdict, (e) the owner's judged reviews a day, (f) the judge. A re-check after a report always
- * reads afresh with the report in mind and always runs the judge, and never counts toward the day.
+ * Step 4 of a scan: (a) the budget, (a2) a version a newer one replaced isn't reviewed, (a3) the owner's small
+ * reviews a day, before anything is read, (b) the readers, reusing what an earlier version's readers read in
+ * files that haven't changed, (c) only items whose quotes are in the files, (d) a tweak of a version that passed
+ * reuses its verdict, (e) the owner's large reviews a day, (f) the judge, checking a fix against the hold it
+ * answers. A re-check after a report always reads afresh with the report in mind and always runs the judge,
+ * and never counts toward the day.
  */
 async function reviewWithAi(env: Env, version: Version, game: Game, input: ReviewInput, deps: ScanDeps): Promise<ReviewOutcome> {
   const models = { judge_model: env.REVIEW_JUDGE_MODEL, reader_model: env.REVIEW_READER_MODEL };
@@ -301,17 +321,28 @@ async function reviewWithAi(env: Env, version: Version, game: Game, input: Revie
   if ((await aiUsage(env.DB)).review_cost_cents >= budgetCents) {
     return { ai: skipped("Monthly AI review budget used up."), findings: [{ stage: "ai", severity: "hold", code: "ai_review_budget_used", message: "This month's AI review budget is used up, so a person has to approve this game." }], isChildSafety: false };
   }
+  // (a2) Replaced by a newer version while it waited: its files still had every check above, but the AI skips it.
+  if (!input.isRecheck && version.replaced_by_version_id) {
+    return { ai: skipped("Replaced by a newer version before it was reviewed."), findings: [{ stage: "ai", severity: "hold", code: "version_replaced", message: REVIEW_CODES.version_replaced.meaning }], isChildSafety: false };
+  }
   await addAiUsage(env.DB, 0, 0, "scans");
 
-  // (b) Read, and (c) keep only items whose quotes are in the files (gatherEvidence does both).
+  // (a3) The owner's small reviews in the last 24 hours, counted only when the readers would read something new.
   const previous = input.isRecheck ? null : await previousEvidence(env, version);
+  const pictures = await picturesToRead(env, input.imageFiles);
+  const isSmallReview = !input.isRecheck && newReadCount({ texts: input.texts, pictures, previous }) > 0;
+  if (isSmallReview && game.owner_id && (await smallReviewCount(env, game.owner_id)) >= REVIEW_LIMITS.maximumSmallReviewsPerDay) {
+    return { ai: skipped("Waiting for one of the developer's daily small reviews."), findings: [{ stage: "ai", severity: "hold", code: "daily_small_reviews_used", message: REVIEW_CODES.daily_small_reviews_used.meaning }], isChildSafety: false };
+  }
+
+  // (b) Read, and (c) keep only items whose quotes are in the files (gatherEvidence does both).
   const gathered = await gatherEvidence(
     {
       apiKey: env.ANTHROPIC_API_KEY,
       readerModel: env.REVIEW_READER_MODEL,
       readerContext: { title: game.title, description: game.description, fileList: input.files.map((file) => ({ path: file.path, sizeBytes: file.sizeBytes })), checkItems: input.staticEvidence, ...(input.reported !== undefined ? { reported: input.reported } : {}) },
       texts: input.texts,
-      pictures: await picturesToRead(env, input.imageFiles),
+      pictures,
       previous,
     },
     deps,
@@ -319,7 +350,7 @@ async function reviewWithAi(env: Env, version: Version, game: Game, input: Revie
   );
   const findings = [...gathered.findings];
   const read = { evidence: gathered.items, readFileSha256s: gathered.readFileSha256s };
-  let cost = { cost_cents: gathered.costCents, input_token_count: gathered.inputTokenCount, output_token_count: gathered.outputTokenCount };
+  let cost = { cost_cents: gathered.costCents, input_token_count: gathered.inputTokenCount, output_token_count: gathered.outputTokenCount, ...(isSmallReview ? { is_small_review: true } : {}) };
   const hasChildSafetyItem = gathered.items.some((evidenceItem) => evidenceItem.kind === "content" && evidenceItem.subject === "child_safety");
 
   if (!input.isRecheck) {
@@ -333,16 +364,18 @@ async function reviewWithAi(env: Env, version: Version, game: Game, input: Revie
         return { ai: { ...models, verdict: "reused", reused_from_version_id: judged.id, summary: baseline.isHeld ? "Takes out what held the version before and adds nothing new in the evidence, so it passes." : "A tweak of a version that passed: nothing new in the evidence, so its verdict stands.", ...cost }, findings, isChildSafety: false, ...read };
       }
     }
-    // (e) The owner's judged reviews in the last 24 hours. Games with no owner (Zaisma's own) have no limit.
-    if (game.owner_id && (await judgedReviewCount(env, game.owner_id)) >= REVIEW_LIMITS.maximumJudgedReviewsPerDay) {
+    // (e) The owner's large reviews in the last 24 hours. Games with no owner (Zaisma's own) have no limit.
+    if (game.owner_id && (await largeReviewCount(env, game.owner_id)) >= REVIEW_LIMITS.maximumLargeReviewsPerDay) {
       await alertReviewBudget(env, budgetCents);
-      findings.push({ stage: "ai", severity: "hold", code: "daily_reviews_used", message: REVIEW_CODES.daily_reviews_used.meaning });
-      return { ai: { ...skipped("Waiting for one of the developer's daily reviews."), ...cost }, findings, isChildSafety: hasChildSafetyItem, ...read };
+      findings.push({ stage: "ai", severity: "hold", code: "daily_large_reviews_used", message: REVIEW_CODES.daily_large_reviews_used.meaning });
+      return { ai: { ...skipped("Waiting for one of the developer's daily large reviews."), ...cost }, findings, isChildSafety: hasChildSafetyItem, ...read };
     }
   }
 
-  // (f) The judge, which reads the review precedents in force.
+  // (f) The judge, which reads the review precedents in force, and the hold this version answers, if any.
   const reviewPrecedents = await activeReviewPrecedents(env.DB);
+  const held = input.isRecheck ? null : await heldBaseline(env, version);
+  const earlierHold = held ? await earlierHoldOf(env, held, version, gathered.items) : undefined;
   const answer = await deps.judge(env.ANTHROPIC_API_KEY, env.REVIEW_JUDGE_MODEL, {
     title: game.title,
     description: game.description,
@@ -351,10 +384,11 @@ async function reviewWithAi(env: Env, version: Version, game: Game, input: Revie
     pictures: gathered.flaggedPictures,
     ...(input.reported !== undefined ? { reported: input.reported } : {}),
     reviewPrecedents,
+    ...(earlierHold ? { earlierHold } : {}),
   });
   await addReviewUsage(env.DB, answer.costCents);
   await alertReviewBudget(env, budgetCents);
-  cost = { cost_cents: cost.cost_cents + answer.costCents, input_token_count: cost.input_token_count + answer.inputTokenCount, output_token_count: cost.output_token_count + answer.outputTokenCount };
+  cost = { ...cost, cost_cents: cost.cost_cents + answer.costCents, input_token_count: cost.input_token_count + answer.inputTokenCount, output_token_count: cost.output_token_count + answer.outputTokenCount };
   findings.push(...answer.findings);
   return { ai: { ...models, verdict: answer.verdict, reused_from_version_id: null, summary: answer.summary, ...(answer.followedReviewPrecedentNumbers.length ? { followed_review_precedent_ids: answer.followedReviewPrecedentNumbers.map((number) => reviewPrecedents[number - 1]!.id) } : {}), ...cost }, findings, isChildSafety: answer.isChildSafety || hasChildSafetyItem, ...read };
 }
@@ -380,6 +414,69 @@ async function tweakBaseline(env: Env, gameId: string, versionId: string): Promi
   return null;
 }
 
+/**
+ * The hold a new version answers ("A fix is checked against its hold." in docs/DECISIONS.md): the game's newest
+ * judged version, when it's held by the scan alone. Never one held for child safety or known images, one a person
+ * decided, or one a report paused: a fix can't answer those by itself. An approved newest one means there's no hold.
+ */
+export async function heldBaseline(env: Env, version: Pick<Version, "id" | "game_id" | "created_at_ms">): Promise<{ version: Version; report: ScanReport } | null> {
+  const row = await env.DB
+    .prepare("SELECT * FROM versions WHERE game_id = ? AND id != ? AND created_at_ms <= ? AND judged_at_ms IS NOT NULL ORDER BY created_at_ms DESC LIMIT 1")
+    .bind(version.game_id, version.id, version.created_at_ms)
+    .first<Version>();
+  if (!row?.scan_report || row.scan_status !== "held" || row.review_reason !== null || row.report_held_at_ms !== null) return null;
+  const report = JSON.parse(row.scan_report) as ScanReport;
+  if (report.is_child_safety || report.findings.some((finding) => finding.code === KNOWN_IMAGE_CODE)) return null;
+  return { version: row, report };
+}
+
+/** The held version as the judge reads it: its non-info findings and summary, the files changed since, and which items it already had. */
+async function earlierHoldOf(env: Env, held: { version: Version; report: ScanReport }, version: Version, items: EvidenceItem[]): Promise<EarlierHold> {
+  const changes = await fileChanges(env, held.version, version);
+  const heldEvidence = held.report.evidence ?? [];
+  return {
+    versionId: held.version.id,
+    summary: held.report.ai?.summary ?? "",
+    findings: held.report.findings.filter((finding) => finding.severity !== "info").map((finding) => ({ code: finding.code, message: finding.message, path: finding.path ?? null })),
+    addedPaths: changes?.addedPaths ?? [],
+    changedPaths: changes?.changedPaths ?? [],
+    removedPaths: changes?.removedPaths ?? [],
+    carriedItemNumbers: items.flatMap((evidenceItem, index) => (heldEvidence.some((heldItem) => isSameItem(heldItem, evidenceItem)) ? [index + 1] : [])),
+  };
+}
+
+/** The paths added, changed and removed between two versions, sorted; null when either is a zip upload, whose files have no hash to compare. */
+export async function fileChanges(env: Env, earlier: Version, version: Version): Promise<{ addedPaths: string[]; changedPaths: string[]; removedPaths: string[] } | null> {
+  if (earlier.kind !== "files" || version.kind !== "files") return null;
+  const shaOf = async (of: Version) => new Map((await versionFiles(env, of)).map((file) => [file.path, file.sha256]));
+  const [before, after] = [await shaOf(earlier), await shaOf(version)];
+  const sorted = (paths: string[]) => paths.sort((first, second) => (first < second ? -1 : 1));
+  return {
+    addedPaths: sorted([...after.keys()].filter((path) => !before.has(path))),
+    changedPaths: sorted([...after.keys()].filter((path) => before.has(path) && before.get(path) !== after.get(path))),
+    removedPaths: sorted([...before.keys()].filter((path) => !after.has(path))),
+  };
+}
+
+/** What a person reviewing a held version sees changed (admin page and admin MCP): the version it's compared with, and the files since. */
+export interface ChangesSince {
+  earlier: Version;
+  earlierReport: ScanReport;
+  /** Null when either version is a zip upload. */
+  files: { addedPaths: string[]; changedPaths: string[]; removedPaths: string[] } | null;
+}
+
+/** For a held version: the hold it answers (heldBaseline), or else the game's newest earlier version with a scan report, and the files changed since. */
+export async function changesSince(env: Env, version: Version): Promise<ChangesSince | null> {
+  if (version.scan_status !== "held") return null;
+  const held = await heldBaseline(env, version);
+  const earlier =
+    held?.version ??
+    (await env.DB.prepare("SELECT * FROM versions WHERE game_id = ? AND id != ? AND created_at_ms <= ? AND scan_report IS NOT NULL ORDER BY created_at_ms DESC LIMIT 1").bind(version.game_id, version.id, version.created_at_ms).first<Version>());
+  if (!earlier?.scan_report) return null;
+  return { earlier, earlierReport: held?.report ?? (JSON.parse(earlier.scan_report) as ScanReport), files: await fileChanges(env, earlier, version) };
+}
+
 /** The hosts of a game's own servers (own_server_urls, a JSON list of addresses), lowercase. */
 function hostsOf(ownServerUrls: string): string[] {
   try {
@@ -389,13 +486,22 @@ function hostsOf(ownServerUrls: string): string[] {
   }
 }
 
-/** The owner's versions the judge ran on in the last 24 hours, across all their games. */
-async function judgedReviewCount(env: Env, ownerId: string, nowMs = Date.now()): Promise<number> {
+/** The owner's large reviews in the last 24 hours (versions the judge ran on), across all their games. */
+async function largeReviewCount(env: Env, ownerId: string, nowMs = Date.now()): Promise<number> {
   const row = await env.DB
     .prepare("SELECT COUNT(*) AS judged_count FROM versions JOIN games ON games.id = versions.game_id WHERE games.owner_id = ? AND versions.judged_at_ms > ? AND versions.is_review_refunded = 0")
     .bind(ownerId, nowMs - 24 * 60 * 60 * 1000)
     .first<{ judged_count: number }>();
   return row?.judged_count ?? 0;
+}
+
+/** The owner's small reviews in the last 24 hours (versions whose reads called the reader model), across all their games. */
+async function smallReviewCount(env: Env, ownerId: string, nowMs = Date.now()): Promise<number> {
+  const row = await env.DB
+    .prepare("SELECT COUNT(*) AS read_count FROM versions JOIN games ON games.id = versions.game_id WHERE games.owner_id = ? AND versions.read_at_ms > ?")
+    .bind(ownerId, nowMs - 24 * 60 * 60 * 1000)
+    .first<{ read_count: number }>();
+  return row?.read_count ?? 0;
 }
 
 /** The evidence an earlier scan of this game read: this version's own first, then the newest other. */
@@ -435,25 +541,35 @@ async function alertReviewBudget(env: Env, budgetCents: number): Promise<void> {
 }
 
 /**
- * Versions held only until their owner had a free judged review: once one frees up, oldest first, they're
- * scanned again by themselves (every 5 minutes, at most 50 a run). Their reading is reused.
+ * Versions held only until their owner had a free large or small review: once one of that kind frees up, oldest
+ * first, they're scanned again by themselves (every 5 minutes, at most 50 a run). Their reading is reused, so a
+ * version that waited for a large review reads nothing new. One a newer version replaced isn't scanned again.
  */
 export async function rescanWaiting(env: Env, nowMs = Date.now()): Promise<number> {
   const { results } = await env.DB
     .prepare(
-      `SELECT versions.id, games.owner_id FROM versions JOIN games ON games.id = versions.game_id
-       WHERE versions.scan_status = 'held' AND EXISTS (SELECT 1 FROM json_each(versions.scan_report, '$.findings') WHERE json_extract(json_each.value, '$.code') = 'daily_reviews_used')
+      `SELECT versions.id, games.owner_id, (SELECT json_extract(json_each.value, '$.code') FROM json_each(versions.scan_report, '$.findings') WHERE json_extract(json_each.value, '$.code') IN ('daily_large_reviews_used', 'daily_small_reviews_used')) AS waiting_code
+       FROM versions JOIN games ON games.id = versions.game_id
+       WHERE versions.scan_status = 'held' AND versions.replaced_by_version_id IS NULL AND EXISTS (SELECT 1 FROM json_each(versions.scan_report, '$.findings') WHERE json_extract(json_each.value, '$.code') IN ('daily_large_reviews_used', 'daily_small_reviews_used'))
        ORDER BY versions.created_at_ms LIMIT 200`,
     )
-    .all<{ id: string; owner_id: string | null }>();
-  const freeByOwner = new Map<string, number>();
+    .all<{ id: string; owner_id: string | null; waiting_code: "daily_large_reviews_used" | "daily_small_reviews_used" }>();
+  const freeByOwnerAndKind = new Map<string, number>();
   const queued: string[] = [];
   for (const waiting of results) {
     if (queued.length >= 50) break;
-    const owner = waiting.owner_id ?? "";
-    if (!freeByOwner.has(owner)) freeByOwner.set(owner, waiting.owner_id ? REVIEW_LIMITS.maximumJudgedReviewsPerDay - (await judgedReviewCount(env, waiting.owner_id, nowMs)) : Infinity);
-    if (freeByOwner.get(owner)! <= 0) continue;
-    freeByOwner.set(owner, freeByOwner.get(owner)! - 1);
+    const isSmall = waiting.waiting_code === "daily_small_reviews_used";
+    const key = `${waiting.owner_id ?? ""}\n${isSmall ? "small" : "large"}`;
+    if (!freeByOwnerAndKind.has(key)) {
+      const freeReviewCount = !waiting.owner_id
+        ? Infinity
+        : isSmall
+          ? REVIEW_LIMITS.maximumSmallReviewsPerDay - (await smallReviewCount(env, waiting.owner_id, nowMs))
+          : REVIEW_LIMITS.maximumLargeReviewsPerDay - (await largeReviewCount(env, waiting.owner_id, nowMs));
+      freeByOwnerAndKind.set(key, freeReviewCount);
+    }
+    if (freeByOwnerAndKind.get(key)! <= 0) continue;
+    freeByOwnerAndKind.set(key, freeByOwnerAndKind.get(key)! - 1);
     queued.push(waiting.id);
   }
   for (const versionId of queued) await env.DB.prepare("UPDATE versions SET scan_status = 'scanning', scan_queued_at_ms = ? WHERE id = ? AND scan_status = 'held'").bind(nowMs, versionId).run();
@@ -754,7 +870,12 @@ export async function versionFiles(env: Env, version: Version): Promise<StoredFi
  * "publish when approved" go live; developers' drafts get a private preview link and wait.
  */
 export async function passVersion(env: Env, version: Version, why: string, actor = "system"): Promise<void> {
-  if (version.publish_when_approved_enabled) {
+  // Only the game's newest version goes live by itself, so an old approval never rolls the game back.
+  const newer = await env.DB.prepare("SELECT 1 FROM versions WHERE game_id = ? AND created_at_ms > ? LIMIT 1").bind(version.game_id, version.created_at_ms).first();
+  if (version.publish_when_approved_enabled && newer) {
+    await approveDraft(env.DB, version.id);
+    await audit(env.DB, version.game_id, "draft-ready", `${why}: ${version.id} is ready to preview and publish (a newer version exists, so it wasn't published)`, actor);
+  } else if (version.publish_when_approved_enabled) {
     await publishVersion(env.DB, version);
     await audit(env.DB, version.game_id, "published", `${why}: ${version.id}`, actor);
     await pruneVersions(env, version.game_id);
@@ -785,6 +906,24 @@ export async function passVersionsHeldForGore(env: Env, game: Game, actor: strin
     passed.push(version);
   }
   return passed;
+}
+
+/**
+ * A new version replaces the game's versions still waiting for review (being scanned, or held for a daily review
+ * or a person): they step aside, aren't read or judged, and leave the person's queue. Never one held for child
+ * safety or known images, one a person decided, or one a report paused.
+ */
+export async function replaceWaitingVersions(env: Env, gameId: string, newVersionId: string): Promise<void> {
+  const { results } = await env.DB
+    .prepare(
+      `UPDATE versions SET replaced_by_version_id = ?
+       WHERE game_id = ? AND id != ? AND replaced_by_version_id IS NULL AND scan_status IN ('scanning', 'held') AND report_held_at_ms IS NULL AND review_reason IS NULL
+         AND (scan_report IS NULL OR (json_extract(scan_report, '$.is_child_safety') = 0 AND NOT EXISTS (SELECT 1 FROM json_each(scan_report, '$.findings') WHERE json_extract(json_each.value, '$.code') = ?)))
+       RETURNING id`,
+    )
+    .bind(newVersionId, gameId, newVersionId, KNOWN_IMAGE_CODE)
+    .all<{ id: string }>();
+  for (const replaced of results) await audit(env.DB, gameId, "version-replaced", `${replaced.id} was replaced by ${newVersionId} before it was reviewed`);
 }
 
 /** Keep the live version plus the last few approved ones for rolling back; delete older approved versions. */
