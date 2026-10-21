@@ -137,6 +137,8 @@ export const TOKEN_STYLES = `
      Side by side, controls slant toward each other by --control-slant, and --gap-control-row is the space between the slants: their
      boxes sit --gap-control-row-boxes apart, overlapping by the slant less that. That's also the edge rule's neighbour distance. */
   --control-slant: 10px;
+  /* The least a control's corner is cut where it sits at a pane's corner (or on no pane), so its bevel always shows. */
+  --control-bevel: 10px;
   --gap-control-row: 4px;
   --gap-control-row-boxes: calc(var(--gap-control-row) - var(--control-slant));
   --gap-control-stack: 8px;
@@ -430,7 +432,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
    */
   // Half a pixel over the token, for gaps a layout rounds.
   var rootCss = getComputedStyle(document.documentElement), token = function (name, fallback) { return parseFloat(rootCss.getPropertyValue(name)) || fallback; };
-  var SLANT_PX = token("--control-slant", 10), ROW_GAP_PX = token("--gap-control-row", 4), STACK_GAP_PX = token("--gap-control-stack", 8);
+  var BEVEL_PX = token("--control-bevel", 10), CORNER_REACH_PX = token("--pad-pane", 24) + 1, SLANT_PX = token("--control-slant", 10), ROW_GAP_PX = token("--gap-control-row", 4), STACK_GAP_PX = token("--gap-control-stack", 8);
   // Neighbours side by side overlap their boxes by the slant less the row's gap (half a pixel either way, for gaps a layout rounds).
   var BESIDE_MIN_PX = ROW_GAP_PX - SLANT_PX - 0.5, BESIDE_MAX_PX = ROW_GAP_PX - SLANT_PX + 0.5, LONE_CORNERS = [18, 9, 18, 9];
   function glassCorners(pane) {
@@ -445,15 +447,18 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     var holder = holderOf(el);
     if (!holder) {
       var stack = stacked(el);
-      return LONE_CORNERS.map(function (cut, i) { return (i < 2 ? stack.above : stack.below) ? 0 : Math.min(cut, Math.round(Math.min(w, h) * 0.3)); });
+      return LONE_CORNERS.map(function (cut, i) { return (i < 2 ? stack.above : stack.below) ? 0 : Math.max(BEVEL_PX, Math.min(cut, Math.round(Math.min(w, h) * 0.3))); });
     }
     var c = holder.hasAttribute("data-cut-line") ? holder.cutCorners || [0, 0, 0, 0] : glassCorners(holder);
     var r = el.getBoundingClientRect(), p = holder.getBoundingClientRect(), ends = el.getAttribute("data-cut-ends") || "";
     var top = r.top - p.top, bottom = p.bottom - r.bottom;
     var left = /start/.test(ends) ? (top + bottom) / 2 : r.left - p.left, right = /end/.test(ends) ? (top + bottom) / 2 : p.right - r.right;
+    // A control at a pane's corner (no further from both its edges than a pane's padding) is cut at least --control-bevel there,
+    // even where the pane's own cut, moved in by the gap, would come to less. A control's own parts follow the control instead.
+    var isPart = holder.hasAttribute("data-cut-line");
     return [[left, top], [right, top], [right, bottom], [left, bottom]].map(function (gaps, i) {
-      var sum = Math.max(0, gaps[0]) + Math.max(0, gaps[1]);
-      return Math.max(0, (c[i] || 0) - sum + Math.SQRT2 * sum / 2);
+      var sum = Math.max(0, gaps[0]) + Math.max(0, gaps[1]), fitted = Math.max(0, (c[i] || 0) - sum + Math.SQRT2 * sum / 2);
+      return !isPart && gaps[0] <= CORNER_REACH_PX && gaps[1] <= CORNER_REACH_PX ? Math.max(BEVEL_PX, fitted) : fitted;
     });
   }
   // Which ends have another control right beside them. data-cut-beside="start", "end", "start end" or "" says so instead (a switch's

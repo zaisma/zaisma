@@ -413,7 +413,7 @@ component({
   name: "Cut shapes",
   slug: "cut-shapes",
   group: "foundations",
-  summary: "Corners are cut, never rounded: 16 and 6 on the header, 18 and 9 on panes. Controls follow the edge rule: a slant only beside another control in a row, and every other corner fits what holds it.",
+  summary: "Corners are cut, never rounded: 16 and 6 on the header, 18 and 9 on panes. Controls follow the edge rule: a slant only beside another control in a row, and every other corner fits what holds it, cut at least 10px at a pane's corner.",
   styles: `
 /* Cut shapes: the glass's two cuts, then the edge rule on real buttons. */
 .cuts { display: flex; flex-wrap: wrap; gap: var(--gap-block-block); align-items: flex-end; }
