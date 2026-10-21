@@ -7,7 +7,6 @@ import { CUT_LINE, EDGE, WORDMARK, backdrop, pageSettingsAttributes, railMarkup 
 import { cutButton, runButton, textLink } from "./components/actions.ts";
 import { cutField, tabSwitch } from "./components/inputs.ts";
 import { glassPane } from "./components/panes.ts";
-import { sidebar } from "./components/navigation.ts";
 
 /*
  * zaisma.com/design: every component of Zaisma's look in every state, in light and dark, a page per group. It's
@@ -76,7 +75,7 @@ ${head(`${groupName} · Design · Zaisma`)}
 ${themeButton(group, theme)}
 <div class="gallery-groups cut-carved" data-cut-line="9">${CUT_LINE}<div class="gallery-groups-row" data-fades-sideways>${tabSwitch({ label: "Groups", switchSize: "small", tabs: groupTabs, isFramed: true })}</div></div></header>
 <div class="gallery-layout">
-<div class="gallery-index">${sidebar({ label: "Groups", isPageSidebar: true, groups: [{ items: groupTabs.map((tab) => ({ label: tab.label, href: tab.href, isCurrent: tab.isCurrent, extra: raw(` data-gallery-page="${tab.href.split("?")[0]}"`) })) }] })}</div>
+<nav class="gallery-index glass" aria-label="Groups" data-glass data-glass-corners="24 20 24 20">${EDGE}${tabSwitch({ label: "Groups", switchSize: "big", isVertical: true, tabs: groupTabs.map((tab) => ({ ...tab, extra: raw(` data-gallery-page="${tab.href.split("?")[0]}"`) })) })}</nav>
 <main class="gallery-main">
 <h1 class="group-name">${groupName}</h1>
 ${components.filter((each) => each.group === group).map((each) => section(each, theme))}
@@ -104,10 +103,10 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 .gallery-title { font: var(--type-name); color: var(--ink-2); padding-left: var(--gap-words-words); border-left: var(--divider); }
 .gallery-bar > .cut-btn { margin-left: auto; }
 .gallery-layout { max-width: 1480px; margin: 0 auto; padding: var(--gap-block-block) var(--pad-pane) calc(2 * var(--gap-block-block)); display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: var(--gap-block-block); align-items: start; }
-.gallery-index { position: sticky; top: 100px; display: flex; max-height: calc(100vh - 114px); }
+.gallery-index { position: sticky; top: 100px; align-self: start; padding: var(--pad-inner-pane); }
 .gallery-groups { display: none; }
 .gallery-main { min-width: 0; }
-/* The group's name is already the current place in the sidebar (or the tabs on a phone), so on the page it's only for screen readers. */
+/* The group's name is already the current place in the index (or the tabs on a phone), so on the page it's only for screen readers. */
 .group-name { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .component-section { margin: 0 0 calc(2 * var(--gap-block-block)); scroll-margin-top: 96px; }
 .component-head { padding: var(--pad-pane); margin-bottom: var(--gap-block-block); }
@@ -129,8 +128,8 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
 .loop-cursor { position: absolute; left: 0; top: 0; z-index: 8; pointer-events: none; transition: transform 0.65s cubic-bezier(.45,0,.25,1); filter: drop-shadow(0 2px 3px rgba(10,20,40,0.35)); }
 .loop-cursor svg { display: block; transform-origin: 4px 3px; transition: transform 0.12s ease-out; }
 .loop-cursor.is-down svg { transform: scale(0.84); }
-.menu-frame { position: relative; width: 100%; height: 410px; transform: translateZ(0); }
-.menu-frame > .cut-btn { position: absolute; right: 20px; top: 0; }
+.dropdown-frame { position: relative; width: 100%; height: 410px; transform: translateZ(0); }
+.dropdown-frame > .cut-btn { position: absolute; right: 20px; top: 0; }
 .rail-box { position: relative; width: min(420px, 100%); height: 220px; }
 .rail-box-in { height: 100%; overflow-y: auto; padding: var(--pad-pane); }
 .rail-box-in p { margin: 0; color: var(--ink-2); }
@@ -169,8 +168,8 @@ body.gallery { margin: 0; min-height: 100vh; font: var(--type-reading); }
   .component-section { scroll-margin-top: 130px; }
   .examples { grid-template-columns: minmax(0, 1fr); }
   .cover-sample { width: 100%; }
-  .menu-frame { height: 420px; }
-  .menu-frame > .cut-btn { right: 8px; }
+  .dropdown-frame { height: 420px; }
+  .dropdown-frame > .cut-btn { right: 8px; }
   /* The stand-in rows scroll sideways, as the home's do on a phone. */
   .stand-in-row { display: flex; overflow-x: auto; scrollbar-width: none; }
   .stand-in-row::-webkit-scrollbar { display: none; }

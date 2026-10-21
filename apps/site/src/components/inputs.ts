@@ -1,6 +1,6 @@
 import { html, raw, type Raw } from "../html.ts";
 import { component } from "./component.ts";
-import { CUT_LINE, ICONS, colourPicker, icon, type ColourChoice, type IconName } from "./foundations.ts";
+import { CUT_LINE, ICONS, colourPicker, icon, tag, type ColourChoice, type IconName } from "./foundations.ts";
 import { TINT_CHOICES, cutButton } from "./actions.ts";
 
 /*
@@ -86,6 +86,14 @@ export function birthdayField(options: BirthdayFieldOptions): Raw {
 </fieldset>`;
 }
 
+const VERTICAL_PLACES: SwitchTab[] = [
+  { label: "Home", icon: "play", isCurrent: true },
+  { label: "Your games", icon: "person", badgeCount: 3, isCurrent: false },
+  { label: "Friends", icon: "friends", isCurrent: false },
+  { label: "Forum", icon: "mail", badgeCount: 12, isCurrent: false },
+  { label: "Settings", icon: "gear", isCurrent: false },
+];
+
 export interface SwitchTab {
   label: string;
   /** A link to another page; without one it's a button with aria-pressed. */
@@ -93,18 +101,27 @@ export interface SwitchTab {
   /** A button's value, for a page script to read. */
   tabValue?: string;
   isCurrent: boolean;
+  /** Before its label (a vertical switch's places). */
+  icon?: IconName;
+  /** A small number at its end, like unread topics: a Tag. */
+  badgeCount?: number;
+  /** Attributes of its own, like a data attribute a script reads. */
+  extra?: Raw;
 }
 
 /** The switch: a clear well, a white slab with the orange line under the one you're on, and a faint one under the one you point at. */
-export function tabSwitch(options: { label: string; tabs: SwitchTab[]; switchSize: "big" | "small"; isFramed?: boolean }): Raw {
+export function tabSwitch(options: { label: string; tabs: SwitchTab[]; switchSize: "big" | "small"; isFramed?: boolean; isVertical?: boolean }): Raw {
   const isSmall = options.switchSize === "small";
+  const inside = (tab: SwitchTab) =>
+    tab.icon || tab.badgeCount ? html`${tab.icon ? icon(tab.icon) : ""}<span>${tab.label}</span>${tab.badgeCount ? tag(tab.badgeCount, "count") : ""}` : html`${tab.label}`;
+  const kind = `${options.switchSize}${options.isVertical ? " vertical" : ""}`;
   // Framed: inside a carved frame of its own (a [data-cut-line] box) that it scrolls in, so it has no well or cut of its own,
   // and its slab's ends on the first and last tabs follow the frame's ends.
-  const own = options.isFramed ? html`<div class="tab-switch framed ${options.switchSize}" role="group" aria-label="${options.label}">` : html`<div class="tab-switch cut-carved ${options.switchSize}" role="group" aria-label="${options.label}" data-cut-line="${isSmall ? 9 : 10}">${CUT_LINE}`;
+  const own = options.isFramed ? html`<div class="tab-switch framed ${kind}" role="group" aria-label="${options.label}">` : html`<div class="tab-switch cut-carved ${kind}" role="group" aria-label="${options.label}" data-cut-line="${isSmall ? 9 : 10}">${CUT_LINE}`;
   return html`${own}<span class="ghost" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}"></span><span class="slab cut-raised" aria-hidden="true" data-cut-line="${isSmall ? 7 : 8}">${CUT_LINE}</span>${options.tabs.map((tab) =>
     tab.href
-      ? html`<a href="${tab.href}"${tab.isCurrent ? raw(' aria-current="page"') : ""}>${tab.label}</a>`
-      : html`<button type="button"${tab.tabValue !== undefined ? html` value="${tab.tabValue}"` : ""} aria-pressed="${tab.isCurrent ? "true" : "false"}">${tab.label}</button>`,
+      ? html`<a href="${tab.href}"${tab.extra ?? ""}${tab.isCurrent ? raw(' aria-current="page"') : ""}>${inside(tab)}</a>`
+      : html`<button type="button"${tab.extra ?? ""}${tab.tabValue !== undefined ? html` value="${tab.tabValue}"` : ""} aria-pressed="${tab.isCurrent ? "true" : "false"}">${inside(tab)}</button>`,
   )}</div>`;
 }
 
@@ -126,15 +143,23 @@ export const FIELD_SCRIPT = `/* fields */(function () {
 /** The switch's slab sits under the one you're on, the ghost follows the pointer across the others, both with the spring. */
 export const SWITCH_SCRIPT = `/* switches */(function () {
   document.querySelectorAll(".tab-switch").forEach(function (sw) {
-    var slab = sw.querySelector(".slab"), ghost = sw.querySelector(".ghost"), tabs = sw.querySelectorAll("a, button");
+    var slab = sw.querySelector(".slab"), ghost = sw.querySelector(".ghost"), tabs = sw.querySelectorAll(":scope > a, :scope > button"), isVertical = sw.classList.contains("vertical");
     function current() { return sw.querySelector('[aria-current="page"], [aria-pressed="true"]'); }
     // isGliding: the slab is moving there, so its shape blends from the old place's to the new one's over the move.
     function put(el, tab, isGliding) {
       if (!tab) { el.style.width = "0px"; return; }
-      var from = { beside: el.getAttribute("data-cut-beside"), ends: el.getAttribute("data-cut-ends") || "" };
+      var from = { beside: el.getAttribute("data-cut-beside"), ends: el.getAttribute("data-cut-ends") || "", stack: el.getAttribute("data-cut-stack") };
+      var isFirst = tab === tabs[0], isLast = tab === tabs[tabs.length - 1];
+      // Vertical: the slab spans the well's width and moves down it; it never slants, and only on the first or last tab does it follow the well's top or bottom.
+      if (isVertical) {
+        el.style.height = tab.offsetHeight + "px"; el.style.transform = "translateY(" + tab.offsetTop + "px)";
+        el.setAttribute("data-cut-beside", "");
+        el.setAttribute("data-cut-stack", ((isFirst ? "first " : "") + (isLast ? "last" : "")).trim());
+        if (el.redrawCut) el.redrawCut(isGliding && from.stack !== null ? { from: from, ms: parseFloat(getComputedStyle(el).transitionDuration) * 1000 } : undefined);
+        return;
+      }
       el.style.width = tab.offsetWidth + "px"; el.style.transform = "translateX(" + tab.offsetLeft + "px)";
       // The edge rule: the slab slants only where another tab is beside it, and its end on the first or last tab follows the switch's end.
-      var isFirst = tab === tabs[0], isLast = tab === tabs[tabs.length - 1];
       el.setAttribute("data-cut-beside", ((isFirst ? "" : "start ") + (isLast ? "" : "end")).trim());
       var ends = ((isFirst ? "start " : "") + (isLast ? "end" : "")).trim();
       if (ends) el.setAttribute("data-cut-ends", ends); else el.removeAttribute("data-cut-ends");
@@ -142,6 +167,16 @@ export const SWITCH_SCRIPT = `/* switches */(function () {
     }
     function settle() { var on = current(); slab.style.transition = "none"; put(slab, on); put(ghost, on); slab.offsetWidth; slab.style.transition = ""; sw.classList.add("is-ready"); }
     settle();
+    // A switch of links that was on the last page too (the gallery's groups): its slab starts on the last page's tab and glides to this one's.
+    var came = window.navigation && navigation.activation && navigation.activation.from;
+    if (came && came.url && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      var lastPath = new URL(came.url).pathname, last = Array.prototype.find.call(tabs, function (tab) { return tab.href && new URL(tab.href).pathname === lastPath; });
+      var on = current();
+      if (last && on && last !== on) {
+        slab.style.transition = "none"; put(slab, last); put(ghost, last); slab.offsetWidth; slab.style.transition = "";
+        requestAnimationFrame(function () { put(slab, on, true); put(ghost, on, true); });
+      }
+    }
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(settle);
     if (window.ResizeObserver) new ResizeObserver(settle).observe(sw); else window.addEventListener("resize", settle);
     // A page script can pick a tab too (the gallery's Light or Dark, when the theme changes elsewhere).
@@ -414,7 +449,7 @@ component({
   name: "Switch",
   slug: "switch",
   group: "inputs",
-  summary: "Choosing one of a few: Sign in or Make an account (big), Recently played or Recently updated (small).",
+  summary: "Choosing one of a few: Sign in or Make an account (big), Recently played or Recently updated (small). Stacked, it's a page's own places down its side.",
   styles: `
 /* The switch: the header's and the home's. A clear well, a white slab with the orange line under the one you're on, and a faint one under the one you point at. */
 .tab-switch { position: relative; display: flex; height: 44px; padding: 4px; background: var(--well); box-shadow: var(--well-shade);
@@ -437,6 +472,15 @@ component({
 .tab-switch.small { height: 36px; padding: 3px; clip-path: var(--cut-shape); }
 .tab-switch.small .slab, .tab-switch.small .ghost { top: 3px; bottom: 3px; transition-duration: 0.4s, 0.4s, 0.3s; }
 .tab-switch.small > a, .tab-switch.small > button { padding: 0 14px; font-size: 14px; }
+/* Vertical: the same switch stacked, its places down a carved well (a page's own places, the gallery's groups). Each place is a row of
+   its icon, its words and a count at its end; the slab spans the well and moves down it, and the ghost follows the pointer between them. */
+.tab-switch.vertical { flex-direction: column; height: auto; }
+.tab-switch.vertical .slab, .tab-switch.vertical .ghost { top: 0; bottom: auto; left: 4px; right: 4px; width: auto; height: 0; transition: transform 0.55s var(--spring), height 0.55s var(--spring), opacity 0.3s; }
+.tab-switch.vertical.small .slab, .tab-switch.vertical.small .ghost { left: 3px; right: 3px; transition-duration: 0.4s, 0.4s, 0.3s; }
+.tab-switch.vertical > a, .tab-switch.vertical > button { flex: none; display: flex; align-items: center; justify-content: flex-start; gap: 10px; height: 40px; padding: 0 14px; text-align: left; }
+.tab-switch.vertical > a > .tag, .tab-switch.vertical > button > .tag { margin-left: auto; }
+.tab-switch.vertical .ico { width: 18px; height: 18px; }
+.tab-switch.vertical > :focus-visible { outline-offset: -2px; }
 @media (prefers-reduced-motion: reduce) { .tab-switch .slab, .tab-switch .ghost { transition: none; } }
 `,
   render: tabSwitch,
@@ -453,6 +497,14 @@ component({
       label: "On a loop",
       markup: html`<div data-state-loop="switch">${tabSwitch({ label: "Sort", switchSize: "small", tabs: [{ label: "Recently played", tabValue: "played", isCurrent: true }, { label: "Recently updated", tabValue: "updated", isCurrent: false }] })}</div>`,
       isStill: true,
+    },
+    {
+      label: "Vertical: a page's places, with icons and counts",
+      markup: html`<div style="width:min(260px,100%)">${tabSwitch({ label: "Places", switchSize: "big", isVertical: true, tabs: VERTICAL_PLACES })}</div>`,
+    },
+    {
+      label: "Vertical, plain",
+      markup: html`<div style="width:min(220px,100%)">${tabSwitch({ label: "Groups", switchSize: "big", isVertical: true, tabs: ["Foundations", "Actions", "Inputs", "Navigation"].map((label, at) => ({ label, isCurrent: at === 1 })) })}</div>`,
     },
     {
       label: "Links to pages",

@@ -1,6 +1,6 @@
 import { html, raw, type Raw } from "../html.ts";
 import { component } from "./component.ts";
-import { EDGE, ago, icon, placeMarkup, tag, type IconName, type PlaceItem } from "./foundations.ts";
+import { CUT_LINE, EDGE, ago, icon, tag, type IconName } from "./foundations.ts";
 import { glanceFacts, pictureFrame, type GlanceFacts } from "./data.ts";
 import { cutButton, runButton } from "./actions.ts";
 import { birthdayField, cutField } from "./inputs.ts";
@@ -27,24 +27,46 @@ export function glassPane(options: GlassPaneOptions): Raw {
   return pane;
 }
 
-/** A menu's item: a place (a link, or a button that posts a form, like Sign out), or a rule between groups of them. */
-export type MenuItem = PlaceItem | { kind: "rule" };
+/** A dropdown's choice: a link, or a button that posts a form (like Sign out). */
+export interface DropdownChoice {
+  label: string;
+  href?: string;
+  /** Where a button posts, in place of a link. */
+  action?: string;
+  /** The page you're on, or the choice that's made: it sits on a slab with the orange line, like a switch's. */
+  isCurrent?: boolean;
+  icon?: IconName;
+  /** A small number at its end, like unread replies: a Tag. */
+  badgeCount?: number;
+}
 
-export interface MenuOptions {
+/** A dropdown's item: a choice, or a rule between groups of them. */
+export type DropdownItem = DropdownChoice | { kind: "rule" };
+
+/** One choice in a dropdown: words with an icon, a faint slab under the pointer, the slab with the orange line when it's the current one. */
+function dropdownChoice(choice: DropdownChoice): Raw {
+  const inside = html`${CUT_LINE}${choice.icon ? icon(choice.icon) : ""}<span>${choice.label}</span>${choice.badgeCount ? tag(choice.badgeCount, "count") : ""}`;
+  const shared = html` class="dropdown-choice" role="menuitem" tabindex="-1" data-cut-line="8"${choice.isCurrent ? raw(' aria-current="page"') : ""}`;
+  return choice.action !== undefined
+    ? html`<form class="dropdown-form" method="post" action="${choice.action}"><button type="submit"${shared}>${inside}</button></form>`
+    : html`<a href="${choice.href ?? "#"}"${shared}>${inside}</a>`;
+}
+
+export interface DropdownOptions {
   /** Its button's aria-controls. */
   id: string;
   /** What it is, for a screen reader: "Your account". */
   label: string;
   /** A head over its places, like the account's name and whether you're online. */
   head?: { title: string; note?: string };
-  items: MenuItem[];
+  items: DropdownItem[];
   isOpen?: boolean;
 }
 
-/** A menu: a pane of the glass that hangs from any button (aria-controls its id), holding places like a sidebar's, the same ones. */
-export function menu(options: MenuOptions): Raw {
-  return html`<div class="menu glass${options.isOpen ? "" : " shut"}" id="${options.id}" role="menu" aria-label="${options.label}" aria-hidden="${options.isOpen ? "false" : "true"}" data-glass data-glass-corners="18 14 18 14">${EDGE}${options.head ? html`<div class="menu-head"><strong>${options.head.title}</strong>${options.head.note ? html`<span>${options.head.note}</span>` : ""}</div>` : ""}${options.items.map((menuItem) =>
-    "kind" in menuItem ? raw('<hr role="separator">') : placeMarkup(menuItem, { isMenuItem: true }),
+/** A dropdown: a pane of the glass that hangs from any button (aria-controls its id), holding a short list of choices. */
+export function dropdown(options: DropdownOptions): Raw {
+  return html`<div class="dropdown glass${options.isOpen ? "" : " shut"}" id="${options.id}" role="menu" aria-label="${options.label}" aria-hidden="${options.isOpen ? "false" : "true"}" data-glass data-glass-corners="18 14 18 14">${EDGE}${options.head ? html`<div class="dropdown-head"><strong>${options.head.title}</strong>${options.head.note ? html`<span>${options.head.note}</span>` : ""}</div>` : ""}${options.items.map((menuItem) =>
+    "kind" in menuItem ? raw('<hr role="separator">') : dropdownChoice(menuItem),
   )}</div>`;
 }
 
@@ -72,7 +94,7 @@ export function gameCover(options: { title: string; imageUrl: string; href: stri
  * slab when the button is in the header, otherwise just under the button, at the button's right end. Escape,
  * a press elsewhere or choosing an item closes it; the arrow keys move through it.
  */
-export const MENU_SCRIPT = `/* menus */(function () {
+export const DROPDOWN_SCRIPT = `/* menus */(function () {
   // Where a fixed menu's coordinates start: the viewport, or the nearest ancestor that holds fixed things (a transform or filter), like the gallery's frames.
   function fixedOrigin(el) {
     for (var p = el.parentElement; p && p !== document.documentElement; p = p.parentElement) {
@@ -96,7 +118,7 @@ export const MENU_SCRIPT = `/* menus */(function () {
     menu.classList.toggle("shut", !open); menu.setAttribute("aria-hidden", String(!open));
     if (open) { place(menu); if (focusFirst && items(menu)[0]) items(menu)[0].focus({ preventScroll: true }); }
   }
-  var menus = Array.prototype.slice.call(document.querySelectorAll('.menu[role="menu"]'));
+  var menus = Array.prototype.slice.call(document.querySelectorAll('.dropdown[role="menu"]'));
   menus.forEach(function (menu) {
     if (!menu.classList.contains("shut")) requestAnimationFrame(function () { place(menu); });
     menu.addEventListener("keydown", function (event) {
@@ -110,7 +132,7 @@ export const MENU_SCRIPT = `/* menus */(function () {
   document.addEventListener("click", function (event) {
     var button = event.target.closest && event.target.closest("[aria-controls][aria-expanded]");
     var menu = button && document.getElementById(button.getAttribute("aria-controls"));
-    if (!menu || !menu.matches('.menu[role="menu"]')) return;
+    if (!menu || !menu.matches('.dropdown[role="menu"]')) return;
     toggle(menu, button.getAttribute("aria-expanded") !== "true", event.detail === 0);
   });
   document.addEventListener("pointerdown", function (event) {
@@ -122,17 +144,28 @@ export const MENU_SCRIPT = `/* menus */(function () {
 })();
 `;
 
-const MENU_STYLES = `
-/* A menu: a pane of the glass hanging just under its button, holding the same places as a sidebar (.place, foundations.ts). */
-.menu { position: fixed; z-index: 11; width: 260px; padding: var(--pad-inner-pane); --glass-tint: var(--glass-menu);
+const DROPDOWN_STYLES = `
+/* A dropdown: a pane of the glass hanging just under its button, holding a short list of choices. */
+.dropdown { position: fixed; z-index: 11; width: 260px; padding: var(--pad-inner-pane); --glass-tint: var(--glass-dropdown);
   display: flex; flex-direction: column; gap: 2px;
   transform-origin: top right; transition: var(--glass-transition), opacity 0.25s, transform 0.35s cubic-bezier(.2,.8,.2,1); }
-.menu.shut { opacity: 0; transform: translateY(-6px) scale(0.98); pointer-events: none; visibility: hidden; transition: var(--glass-transition), opacity 0.25s, transform 0.35s cubic-bezier(.2,.8,.2,1), visibility 0s 0.35s; }
-.menu-head { display: flex; flex-direction: column; padding: 0 14px var(--gap-words-control); margin-bottom: var(--gap-words-control); border-bottom: var(--divider); }
-.menu-head strong { font: var(--type-name); color: var(--ink); }
-.menu-head span { color: var(--muted); font: var(--type-facts); }
-.menu hr { border: 0; border-top: var(--divider); margin: 6px 4px; }
-@media (prefers-reduced-motion: reduce) { .menu { transition: var(--glass-transition); } }
+.dropdown.shut { opacity: 0; transform: translateY(-6px) scale(0.98); pointer-events: none; visibility: hidden; transition: var(--glass-transition), opacity 0.25s, transform 0.35s cubic-bezier(.2,.8,.2,1), visibility 0s 0.35s; }
+.dropdown-head { display: flex; flex-direction: column; padding: 0 14px var(--gap-words-control); margin-bottom: var(--gap-words-control); border-bottom: var(--divider); }
+.dropdown-head strong { font: var(--type-name); color: var(--ink); }
+.dropdown-head span { color: var(--muted); font: var(--type-facts); }
+.dropdown hr { border: 0; border-top: var(--divider); margin: 6px 4px; }
+/* A choice: words on the glass; under the pointer a faint slab, cut by the edge rule; the current one on the switch's slab with its orange line. */
+.dropdown-form { margin: 0; }
+.dropdown-choice { position: relative; display: flex; align-items: center; gap: 10px; width: 100%; height: 40px; padding: 0 14px; margin: 0; border: 0; cursor: pointer;
+  font: var(--type-words); color: var(--ink-2); text-align: left; text-decoration: none;
+  --face-colour: transparent; background: var(--face-colour); clip-path: var(--cut-shape); transition: --face-colour 0.15s, color 0.15s; }
+.dropdown-choice > :not(.cut-line) { position: relative; z-index: 2; }
+.dropdown-choice > .tag { margin-left: auto; }
+.dropdown-choice:hover, .dropdown-choice:focus-visible { --face-colour: var(--ghost); color: var(--ink); }
+.dropdown-choice[aria-current="page"] { color: var(--ink); background: var(--slab); box-shadow: var(--slab-shade), inset 0 -3px 0 var(--run); }
+.dropdown-choice:focus-visible { outline: none; }
+.dropdown-choice:focus-visible > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
+@media (prefers-reduced-motion: reduce) { .dropdown { transition: var(--glass-transition); } }
 `;
 
 const PANE_STYLES = `
@@ -240,34 +273,34 @@ component({
   ],
 });
 
-const ACCOUNT_ITEMS: MenuItem[] = [
-  { label: "Your profile", icon: "person", href: "#menu" },
-  { label: "Friends", icon: "friends", href: "#menu" },
-  { label: "Developer", icon: "code", href: "#menu" },
-  { label: "Settings", icon: "gear", href: "#menu" },
+const ACCOUNT_ITEMS: DropdownItem[] = [
+  { label: "Your profile", icon: "person", href: "#dropdown" },
+  { label: "Friends", icon: "friends", href: "#dropdown" },
+  { label: "Developer", icon: "code", href: "#dropdown" },
+  { label: "Settings", icon: "gear", href: "#dropdown" },
   { kind: "rule" },
-  { label: "Sign out", icon: "sign-out", action: "#menu" },
+  { label: "Sign out", icon: "sign-out", action: "#dropdown" },
 ];
 /** An example menu hanging from its button, open. */
-const menuFrame = (buttonLabel: string, options: MenuOptions) =>
-  html`<div class="menu-frame">${raw(`<button type="button" class="shell cut-btn" aria-controls="${options.id}" aria-expanded="true"><span class="face cut-raised" data-cut-line="10">`)}<svg class="cut-line" aria-hidden="true"><polygon/></svg><span>${buttonLabel}</span></span></button>${menu({ ...options, isOpen: true })}</div>`;
+const dropdownFrame = (buttonLabel: string, options: DropdownOptions) =>
+  html`<div class="dropdown-frame">${raw(`<button type="button" class="shell cut-btn" aria-controls="${options.id}" aria-expanded="true"><span class="face cut-raised" data-cut-line="10">`)}<svg class="cut-line" aria-hidden="true"><polygon/></svg><span>${buttonLabel}</span></span></button>${dropdown({ ...options, isOpen: true })}</div>`;
 
 component({
-  name: "Menu",
-  slug: "menu",
+  name: "Dropdown",
+  slug: "dropdown",
   group: "panes",
-  summary: "A short list of places that hangs from a button, like the account button in the header: the sidebar's places, with a head, rules, icons, counts and the one you're on, as each menu needs.",
-  styles: MENU_STYLES,
-  render: menu,
+  summary: "A short list of choices that hangs from a button, like the account button's in the header: with a head, rules, icons, counts and the current one, as each needs.",
+  styles: DROPDOWN_STYLES,
+  render: dropdown,
   examples: [
-    { label: "Your account, from its button", markup: menuFrame("Your account", { id: "example-menu-account", label: "Your account", head: { title: "emma_r", note: "Online" }, items: ACCOUNT_ITEMS }) },
+    { label: "Your account, from its button", markup: dropdownFrame("Your account", { id: "example-menu-account", label: "Your account", head: { title: "emma_r", note: "Online" }, items: ACCOUNT_ITEMS }) },
     {
       label: "Choosing one, the current marked",
-      markup: menuFrame("Sort", { id: "example-menu-sort", label: "Sort games", items: [{ label: "Most played", href: "#menu", isCurrent: true }, { label: "Newest", href: "#menu" }, { label: "Recently updated", href: "#menu" }] }),
+      markup: dropdownFrame("Sort", { id: "example-menu-sort", label: "Sort games", items: [{ label: "Most played", href: "#dropdown", isCurrent: true }, { label: "Newest", href: "#dropdown" }, { label: "Recently updated", href: "#dropdown" }] }),
     },
     {
       label: "With counts",
-      markup: menuFrame("Inbox", { id: "example-menu-inbox", label: "Inbox", head: { title: "Inbox" }, items: [{ label: "Replies", icon: "mail", href: "#menu", badgeCount: 3 }, { label: "Mentions", icon: "person", href: "#menu", badgeCount: 12 }, { kind: "rule" }, { label: "Settings", icon: "gear", href: "#menu" }] }),
+      markup: dropdownFrame("Inbox", { id: "example-menu-inbox", label: "Inbox", head: { title: "Inbox" }, items: [{ label: "Replies", icon: "mail", href: "#dropdown", badgeCount: 3 }, { label: "Mentions", icon: "person", href: "#dropdown", badgeCount: 12 }, { kind: "rule" }, { label: "Settings", icon: "gear", href: "#dropdown" }] }),
     },
   ],
 });

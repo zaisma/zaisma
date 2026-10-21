@@ -1,10 +1,10 @@
 import { html, raw, type Raw } from "../html.ts";
 import { pageScript } from "../page-scripts.ts";
 import { component } from "./component.ts";
-import { CUT_LINE, EDGE, MARK, WORDMARK, icon, placeMarkup, railMarkup, type IconName, type PlaceItem } from "./foundations.ts";
+import { CUT_LINE, EDGE, MARK, WORDMARK, icon, railMarkup, type IconName } from "./foundations.ts";
 import { cutButton, runButton, textLink } from "./actions.ts";
 import { searchField, type SearchFieldOptions } from "./inputs.ts";
-import { STAND_IN_COVERS, menu, type MenuItem } from "./panes.ts";
+import { STAND_IN_COVERS, dropdown, type DropdownItem } from "./panes.ts";
 import { pictureFrame } from "./data.ts";
 
 /*
@@ -46,7 +46,7 @@ export function header(options: HeaderOptions): Raw {
   if (options.isLogoOnly) return html`<header class="top is-logo-only" id="${id}">${logo}</header>`;
   const isOpen = options.isOnDeveloperPage;
   const menuId = `${id}-menu`;
-  const menuItems: MenuItem[] = account
+  const menuItems: DropdownItem[] = account
     ? [
         { label: "Your profile", icon: "person", href: `/@${account.username}` },
         { label: "Friends", icon: "friends", href: "/friends" },
@@ -65,7 +65,7 @@ export function header(options: HeaderOptions): Raw {
       ? accountButton({ username: account.username, pictureMarkup: account.pictureMarkup, menuId, isMenuOpen: options.isMenuOpen })
       : runButton("Sign in", { href: "/signin" })
   }</div>
-</header>${account ? menu({ id: menuId, label: "Your account", head: { title: account.username, note: "Online" }, items: menuItems, isOpen: options.isMenuOpen }) : ""}`;
+</header>${account ? dropdown({ id: menuId, label: "Your account", head: { title: account.username, note: "Online" }, items: menuItems, isOpen: options.isMenuOpen }) : ""}`;
 }
 
 export interface AccountButtonOptions {
@@ -182,7 +182,7 @@ const HEADER_STYLES = `
 /**
  * The header's own behaviour: it slims once the page scrolls (the gallery's frames scroll a box of their own,
  * [data-scroll-box]), the slab sits under the current page and a faint one follows the pointer, "/" jumps to search,
- * and on a phone the search button swaps the tabs for the field. The menu is MENU_SCRIPT's.
+ * and on a phone the search button swaps the tabs for the field. The menu is DROPDOWN_SCRIPT's.
  */
 export const HEADER_SCRIPT = pageScript(
   "header",
@@ -400,52 +400,6 @@ export const SCROLL_FADE_SCRIPT = `/* scroll fades */(function () {
 `;
 
 /**
- * The page's own sidebar: when a page opens from another place in it, the raised slab slides from that place to this one. The last page's
- * address comes from the navigation that opened this one; it slides from one group to another too,
- * and reduced motion, or a browser that doesn't say where the page was opened from, just shows the slab in its place.
- */
-export const SIDEBAR_SCRIPT = `/* sidebar */(function () {
-  var still = matchMedia("(prefers-reduced-motion: reduce)").matches;
-  function glide(slab, fromTop) {
-    if (still) return;
-    slab.classList.remove("is-gliding");
-    slab.style.setProperty("--glide-from-px", (fromTop - slab.getBoundingClientRect().top).toFixed(1) + "px");
-    slab.offsetWidth;
-    slab.classList.add("is-gliding");
-    slab.addEventListener("animationend", function () { slab.classList.remove("is-gliding"); }, { once: true });
-  }
-  // A sidebar to try in place (the gallery's, data-sidebar-try): picking a place moves the slab there, as opening it from a page's sidebar does.
-  document.querySelectorAll("[data-sidebar-try]").forEach(function (box) {
-    box.addEventListener("click", function (event) {
-      var place = event.target.closest && event.target.closest(".place[href]"); if (!place) return;
-      event.preventDefault();
-      var now = box.querySelector('.place[aria-current="page"]'); if (!now || now === place) return;
-      var slab = now.querySelector(".place-slab"), fromTop = slab.getBoundingClientRect().top;
-      now.removeAttribute("aria-current"); place.setAttribute("aria-current", "page");
-      // As in the markup, the place you're on has no outline of its own (its slab is cut to where it sits), and every other place has one,
-      // for its focus line: the place picked hands its outline over to the place left.
-      var own = place.querySelector(":scope > .cut-line");
-      if (own) { place.ownCutLine = own; own.remove(); }
-      place.removeAttribute("data-cut-line");
-      now.setAttribute("data-cut-line", "8");
-      if (now.ownCutLine) { now.insertBefore(now.ownCutLine, now.firstChild); if (now.redrawCut) now.redrawCut(); } else if (window.zaismaCutLine) window.zaismaCutLine(now);
-      place.insertBefore(slab, place.firstChild);
-      if (slab.redrawCut) slab.redrawCut();
-      glide(slab, fromTop);
-    });
-  });
-  var from = window.navigation && navigation.activation && navigation.activation.from;
-  if (!from || !from.url) return;
-  var lastPath = new URL(from.url).pathname;
-  document.querySelectorAll(".sidebar.is-page .place-slab").forEach(function (slab) {
-    var place = Array.prototype.find.call(slab.closest(".sidebar").querySelectorAll("a[href]"), function (each) { return new URL(each.href).pathname === lastPath; });
-    if (!place || place.contains(slab)) return;
-    glide(slab, place.getBoundingClientRect().top);
-  });
-})();
-`;
-
-/**
  * A bar that slims once the page scrolls ([data-compacts]: the header, the gallery's bar): it turns compact past COMPACT_AT_PX and
  * roomy again only back at the very top, so it can't flip back and forth. Once a scroll has ended between the top and SETTLE_PX (and
  * your finger is off the screen), the page glides on: to the top when you were scrolling up, past the change when you were scrolling down. A bar over a
@@ -658,59 +612,3 @@ component({
   ],
 });
 
-/** A sidebar's place: a link (PlaceItem, the same as a menu's). */
-export type SidebarItem = PlaceItem & { href: string };
-
-export interface SidebarOptions {
-  /** What the list is, for a screen reader: "Groups". */
-  label: string;
-  /** Each group has a quiet heading of its own, or none. */
-  groups: { heading?: string; items: SidebarItem[] }[];
-  /** Only the icons, in a narrow column; the labels move to each item's title. */
-  isCollapsed?: boolean;
-  /** The page's own sidebar (one per page): its current place glides to the next page's as the page changes. */
-  isPageSidebar?: boolean;
-}
-
-/** The sidebar: a pane of glass down the side of a page, its places' words straight on the glass in groups. The page you're on is a raised slab outlined in orange. */
-export function sidebar(options: SidebarOptions): Raw {
-  const link = (each: SidebarItem) => html`<li>${placeMarkup(each, { isCollapsed: options.isCollapsed })}</li>`;
-  const groups = options.groups.map((group) => html`<div class="sidebar-group">${group.heading ? html`<h2 class="sidebar-heading">${group.heading}</h2>` : ""}<ul class="sidebar-list">${group.items.map(link)}</ul></div>`);
-  return html`<aside class="sidebar glass${options.isCollapsed ? " is-collapsed" : ""}${options.isPageSidebar ? " is-page" : ""}" data-glass data-glass-corners="24 20 24 20"><nav class="sidebar-in" aria-label="${options.label}">${groups}</nav></aside>`;
-}
-
-const SIDEBAR_EXAMPLE_GROUPS: SidebarOptions["groups"] = [
-  { items: [{ label: "Home", href: "#sidebar", icon: "play", isCurrent: true }, { label: "Your games", href: "#sidebar", icon: "person", badgeCount: 3 }, { label: "Friends", href: "#sidebar", icon: "friends" }] },
-  { heading: "Developers", items: [{ label: "Dashboard", href: "#sidebar", icon: "code" }, { label: "Forum", href: "#sidebar", icon: "mail", badgeCount: 12 }, { label: "Settings", href: "#sidebar", icon: "gear" }] },
-];
-
-component({
-  name: "Sidebar",
-  slug: "sidebar",
-  group: "navigation",
-  summary: "A glass column down the side of a page: the places in it, in groups, with the one you're on marked. It narrows to icons in tight spaces; on a phone, pages swap it for tabs.",
-  styles: `
-/* The sidebar: a glass pane with its places' words straight on the glass, in groups. Pointing at a place brightens its words; the place
-   you're on is a raised slab under its words, outlined in orange, cut to fit where it sits. */
-.sidebar { position: relative; display: flex; flex: 1; min-height: 0; width: 100%; }
-.sidebar-in { flex: 1; min-height: 0; overflow-y: auto; padding: var(--pad-pane); display: grid; gap: var(--gap-block-block); align-content: start; }
-.sidebar-heading { margin: 0 0 var(--gap-words-control); padding: 0 14px; font: var(--type-facts); color: var(--muted); }
-.sidebar-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
-/* Its places are the shared .place (foundations.ts). The place you're on: opening another place from the page's own sidebar slides its slab
-   there from the last page's place (SIDEBAR_SCRIPT), under words that stay put, while the rest of the page crossfades. */
-.place-slab.is-gliding { animation: place-glide 0.45s var(--spring); }
-@keyframes place-glide { from { transform: translateY(var(--glide-from-px, 0px)); } }
-.sidebar.is-collapsed { flex: none; width: 72px; }
-.sidebar.is-collapsed .sidebar-in { padding: var(--pad-inner-pane); }
-.sidebar.is-collapsed .place { justify-content: center; padding: 0; }
-.sidebar.is-collapsed .place-label, .sidebar.is-collapsed .place > .tag { display: none; }
-.sidebar.is-collapsed .sidebar-heading { height: 1px; margin: 0 0 var(--gap-words-control); padding: 0; overflow: hidden; font-size: 0; background: var(--line); }
-`,
-  render: sidebar,
-  examples: [
-    { label: "Try it: pick a place", markup: html`<div data-sidebar-try style="width:min(260px,100%)">${sidebar({ label: "Places to try", groups: SIDEBAR_EXAMPLE_GROUPS })}</div>` },
-    { label: "Groups, with counts", markup: html`<div style="width:min(260px,100%)">${sidebar({ label: "Example places", groups: SIDEBAR_EXAMPLE_GROUPS })}</div>` },
-    { label: "Collapsed to icons", markup: sidebar({ label: "Example places, collapsed", groups: SIDEBAR_EXAMPLE_GROUPS, isCollapsed: true }) },
-    { label: "Plain list", markup: html`<div style="width:min(260px,100%)">${sidebar({ label: "Example groups", groups: [{ items: ["Foundations", "Actions", "Inputs", "Navigation"].map((label, tabIndex) => ({ label, href: "#sidebar", isCurrent: tabIndex === 1 })) }] })}</div>` },
-  ],
-});

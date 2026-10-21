@@ -11,7 +11,7 @@ import { component } from "./component.ts";
 const LIGHT_GLASS = `color-scheme: light;
   --ink: #14171C; --ink-2: #3D444E; --muted: #59606A; --line: rgba(20, 23, 28, 0.14);
   --glass: rgba(255, 255, 255, 0.4); --glass-edge: rgba(255, 255, 255, 0.92); --field: rgba(255, 255, 255, 0.62);
-  --glass-tint: rgba(250, 252, 255, 0.5); --glass-top: rgba(250, 252, 255, 0.56); --glass-menu: rgba(250, 252, 255, 0.62);
+  --glass-tint: rgba(250, 252, 255, 0.5); --glass-top: rgba(250, 252, 255, 0.56); --glass-dropdown: rgba(250, 252, 255, 0.62);
   --glass-sheen: radial-gradient(140% 90% at 0% 0%, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0) 55%), linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0) 38%, rgba(30, 60, 110, 0) 70%, rgba(30, 60, 110, 0.05));
   --glass-saturate: 1.8; --edge-hair: rgba(40, 60, 100, 0.1);
   --well: rgba(255, 255, 255, 0.32); --well-shade: inset 0 1px 3px rgba(20, 23, 28, 0.08);
@@ -48,7 +48,7 @@ const LIGHT_GLASS = `color-scheme: light;
 const SMOKED_GLASS = `color-scheme: dark;
   --ink: #F7F9FC; --ink-2: rgba(247, 249, 252, 0.86); --muted: rgba(247, 249, 252, 0.7); --line: rgba(255, 255, 255, 0.2);
   --glass-edge: rgba(255, 255, 255, 0.16); --field: rgba(255, 255, 255, 0.08);
-  --glass-tint: rgba(14, 17, 24, 0.55); --glass-top: rgba(18, 21, 27, 0.5); --glass-menu: rgba(18, 21, 27, 0.62);
+  --glass-tint: rgba(14, 17, 24, 0.55); --glass-top: rgba(18, 21, 27, 0.5); --glass-dropdown: rgba(18, 21, 27, 0.62);
   --glass-sheen: radial-gradient(140% 90% at 0% 0%, rgba(190, 215, 255, 0.12), rgba(190, 215, 255, 0) 55%), linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0) 38%, rgba(0, 0, 0, 0) 70%, rgba(0, 0, 0, 0.12));
   --glass-saturate: 1.9; --edge-hair: rgba(0, 0, 0, 0.35);
   --well: rgba(255, 255, 255, 0.08); --well-shade: inset 0 1px 3px rgba(0, 0, 0, 0.3);
@@ -180,23 +180,6 @@ export const TOKEN_STYLES = `
 .shell { position: relative; display: inline-flex; margin: 0; padding: 0; border: 0; background: none; font: inherit; color: inherit; text-decoration: none; cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .shell > .face { pointer-events: none; }
 [hidden] { display: none !important; }
-/* Places: the sidebar's and a menu's, one look (placeMarkup). Words straight on the glass, quiet until you point at them, when they brighten.
-   The place you're on is a raised slab under its words, outlined in orange; keyboard focus draws its outline in ink. Each is a control,
-   so its shape is the edge rule's. A badge count sits at its end. */
-.place { position: relative; isolation: isolate; display: flex; align-items: center; gap: 10px; width: 100%; height: 40px; padding: 0 14px; margin: 0; border: 0; background: none; cursor: pointer;
-  font: 500 16px var(--display); color: var(--muted); text-align: left; text-decoration: none; transition: color 0.15s; }
-.place > :not(.cut-line, .place-slab) { position: relative; z-index: 2; }
-.place > svg:not(.cut-line) { width: 18px; height: 18px; flex: none; }
-.place:hover, .place[aria-current="page"] { color: var(--ink); }
-.place[aria-current="page"] { font-weight: 600; }
-.place-slab { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
-.place-slab::before { content: ""; position: absolute; inset: 0; background: var(--slab); clip-path: var(--cut-shape); }
-.place .cut-line polygon { stroke-width: 2; }
-.place[aria-current="page"] .cut-line polygon { stroke: var(--run); }
-.place:focus-visible { outline: none; }
-.place:focus-visible .cut-line polygon, .place[aria-current="page"]:focus-visible .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
-.place-form { margin: 0; }
-.place > .tag { margin-left: auto; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* The glass: one look for every piece of it, at any size, defined here once. Anything made of glass has the class glass and
@@ -343,34 +326,6 @@ export const COLOUR_PICKER_SCRIPT = `/* colour pickers */(function () {
 })();
 `;
 
-/** A place in a sidebar or a menu: a link, or a button that posts a form (like Sign out). */
-export interface PlaceItem {
-  label: string;
-  href?: string;
-  /** Where a button posts, in place of a link. */
-  action?: string;
-  /** The page you're on: the raised slab with the orange outline. */
-  isCurrent?: boolean;
-  /** Before the label; the only thing a collapsed sidebar shows. */
-  icon?: IconName;
-  /** A small number at its end, like unread topics. */
-  badgeCount?: number;
-  /** Attributes of its own, like a data attribute a script reads. */
-  extra?: Raw;
-}
-
-/** One place, the same in a sidebar and a menu (the .place styles). isMenuItem gives it the menu's role; isCollapsed moves its label to its title. */
-export function placeMarkup(place: PlaceItem, options: { isMenuItem?: boolean; isCollapsed?: boolean } = {}): Raw {
-  const words = place.icon ? html`${icon(place.icon)}<span class="place-label">${place.label}</span>` : html`<span class="place-label">${place.label}</span>`;
-  const shape = place.isCurrent ? raw(' aria-current="page"') : raw(' data-cut-line="8"');
-  const role = options.isMenuItem ? raw(' role="menuitem" tabindex="-1"') : "";
-  const titled = options.isCollapsed ? html` title="${place.label}" aria-label="${place.label}"` : "";
-  const inside = html`${place.isCurrent ? html`<span class="place-slab cut-raised" data-cut-line="8" data-cut-inset="2">${CUT_LINE}</span>` : CUT_LINE}${words}${place.badgeCount ? tag(place.badgeCount, "count") : ""}`;
-  return place.action !== undefined
-    ? html`<form class="place-form" method="post" action="${place.action}"><button type="submit"${shape}${role}${titled} class="place">${inside}</button></form>`
-    : html`<a href="${place.href ?? "#"}"${place.extra ?? ""}${shape}${role}${titled} class="place">${inside}</a>`;
-}
-
 /** An outline for a cut field or button (GLASS_SCRIPT draws it), and a slab's drawn rim. */
 export const CUT_LINE = raw('<svg class="cut-line" aria-hidden="true"><polygon/></svg>');
 export const EDGE = raw('<svg class="edge" aria-hidden="true"></svg>');
@@ -507,7 +462,9 @@ export const GLASS_SCRIPT = `/* glass */(function () {
   // The corner cuts each corner takes from what holds it: the holder's outline, moved in by the gap. data-cut-ends="start", "end"
   // or "start end": that end follows the holder's end wherever it sits along it, its gap there taken as its gap from the top and
   // bottom (a switch's slab on its first or last tab, as the tabs scroll).
-  // as: { beside, ends } stands in for data-cut-beside and data-cut-ends, for the shape a part had before it moved (a glide).
+  // data-cut-stack="first", "last", "first last" or "": a part of a vertical stack (a vertical switch's slab): its top follows the holder's top
+  // only on the first, its bottom only on the last, at its gap from the sides, wherever it sits as it moves; between, it's square.
+  // as: { beside, ends, stack } stands in for data-cut-beside, data-cut-ends and data-cut-stack, for the shape a part had before it moved (a glide).
   function fitCuts(el, w, h, as) {
     var holder = holderOf(el);
     if (!holder) {
@@ -516,7 +473,8 @@ export const GLASS_SCRIPT = `/* glass */(function () {
     }
     var c = holder.hasAttribute("data-cut-line") ? holder.cutCorners || [0, 0, 0, 0] : glassCorners(holder);
     var r = el.getBoundingClientRect(), p = holder.getBoundingClientRect(), ends = as ? as.ends : el.getAttribute("data-cut-ends") || "";
-    var top = r.top - p.top, bottom = p.bottom - r.bottom;
+    var top = r.top - p.top, bottom = p.bottom - r.bottom, stackAt = as ? as.stack : el.getAttribute("data-cut-stack");
+    if (stackAt !== null && stackAt !== undefined) { var side = r.left - p.left; top = /first/.test(stackAt) ? side : 1e6; bottom = /last/.test(stackAt) ? side : 1e6; }
     var left = /start/.test(ends) ? (top + bottom) / 2 : r.left - p.left, right = /end/.test(ends) ? (top + bottom) / 2 : p.right - r.right;
     return [[left, top], [right, top], [right, bottom], [left, bottom]].map(function (gaps, i) {
       var sum = Math.max(0, gaps[0]) + Math.max(0, gaps[1]);
@@ -614,7 +572,7 @@ export const GLASS_SCRIPT = `/* glass */(function () {
       el.style.setProperty("--cut-shape", cssPolygon(shape));
       svg.setAttribute("viewBox", "0 0 " + w + " " + h);
       poly.setAttribute("points", list(insetShape(shape, 1)));
-      // The raised or carved light: a 1.5px band along each side. data-cut-inset moves it inward, inside an outline drawn round the edge (the sidebar's current place).
+      // The raised or carved light: a 1.5px band along each side. data-cut-inset moves it inward, inside an outline drawn round the edge.
       var from = Number(el.getAttribute("data-cut-inset")) || 0, outer = insetShape(shape, from), inner = insetShape(shape, from + 1.5);
       while (bands.length < shape.length) { var band = document.createElementNS(SVG, "path"); svg.insertBefore(band, poly); bands.push(band); }
       while (bands.length > shape.length) svg.removeChild(bands.pop());

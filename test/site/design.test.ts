@@ -208,8 +208,8 @@ describe("the gallery", () => {
     for (const { group } of COMPONENT_GROUPS) {
       for (const holder of elementTree((await page(groupPath(group))).text)) {
         const children = holder.children.filter((child) => child.tag !== "svg" && child.tag !== "template");
-        // A control's own parts (a switch's tabs, the row arrows' two slabs) are its inside, not controls beside each other.
-        if (holder.classes.includes("shell") || holder.attributes.includes(" data-cut-line")) continue;
+        // A control's own parts (a switch's tabs, the row arrows' two slabs, a dropdown's choices) are its inside, not controls beside each other.
+        if (holder.classes.includes("shell") || holder.attributes.includes(" data-cut-line") || holder.attributes.includes(' role="menu"')) continue;
         if (children.length < 2 || !children.every((child) => child.classes.includes("shell") || child.attributes.includes(" data-cut-line"))) continue;
         const matching = rules.filter(({ subject }) => matchesSubject(holder, subject));
         const isStack = matching.some((rule) => rule.isStack) || /(^|;)\s*(display:\s*grid|flex-direction:\s*column)/.test(holder.style);
@@ -249,7 +249,7 @@ describe("the gallery", () => {
   });
 
   it("has a page for each group and none for anything else", async () => {
-    expect((await page("/design/actions")).text).toMatch(/<a href="\/design\/actions" data-gallery-page="\/design\/actions" aria-current="page"[^>]*>.*?Actions<\/span><\/a>/);
+    expect((await page("/design/actions")).text).toContain('<a href="/design/actions" data-gallery-page="/design/actions" aria-current="page">Actions</a>');
     expect((await page("/design/frame/runner-button")).response.status).toBe(404);
     expect((await page("/design/foundations")).response.status).toBe(404);
     expect((await page("/design/no-such-group")).response.status).toBe(404);
@@ -305,25 +305,23 @@ const HAND_CUT = new Set<string>([
 const LINK_IN_CONTROL = new Set<string>([
   // A tab: the header's tabs and a switch's.
   ".nav a", ".nav a[aria-current=\"page\"]", ".nav:not(.is-ready) a[aria-current=\"page\"]", ".nav a.dev", ".nav a.dev.off", ".tab-switch > a",
-  ".tab-switch.big > a", ".tab-switch.small > a",
+  ".tab-switch.big > a", ".tab-switch.small > a", ".tab-switch.vertical > a",
 ]);
 
 const NOT_TYPE = new Set<string>([
   "@font-face | font-family",
   // A control's inside: its words, set by each control's size.
-  ".place | font", ".run | font", ".run.big | font-size", ".run | font-size", ".cut-btn > .face | font", ".cut-btn.big > .face | font-size",
+  ".run | font", ".run.big | font-size", ".run | font-size", ".cut-btn > .face | font", ".cut-btn.big > .face | font-size",
   ".glass-btn > .face | font", ".guest-btn > .face | font", ".field input | font", '.find input[type="search"] | font', ".bday-field | font",
   '.wheel [role="option"] | font', '.wheel [role="option"][aria-selected="true"] | font-size', ".tab-switch > a, .tab-switch > button | font",
   ".tab-switch.small > a, .tab-switch.small > button | font-size", ".top.is-compact .run | font-size", ".nav a | font", ".top .end .run | font-size", ".me | font",
   // A picture's initials, sized to the picture.
   ".frame .av | font", ".frame.xs .av | font-size", ".frame.xs .av::first-letter | font-size", ".cover-meta .frame.xs .av::first-letter | font-size",
-  // A collapsed sidebar's heading is only its line.
-  ".sidebar.is-collapsed .sidebar-heading | font-size",
 ]);
 
 const NOT_SPACING = new Set<string>([
   // A control's inside: its words and icon to its own edge, set by each control size.
-  ".place | gap", ".place | padding", ".run | padding", ".run | gap", ".run.big | padding", ".run.big | gap",
+  ".tab-switch.vertical > a, .tab-switch.vertical > button | gap", ".tab-switch.vertical > a, .tab-switch.vertical > button | padding", ".dropdown-choice | gap", ".dropdown-choice | padding", ".run | padding", ".run | gap", ".run.big | padding", ".run.big | gap",
   ".cut-btn > .face | gap", ".cut-btn > .face | padding", ".cut-btn.big > .face | padding", ".cut-btn.small > .face | padding", ".cut-btn.in-well > .face | padding", ".glass-btn > .face | gap",
   ".glass-btn > .face | padding", ".guest-btn > .face | gap", ".guest-btn > .face | padding", ".field input | padding",
   ".field.with-toggle input | padding-right", ".field .show | padding", '.find input[type="search"] | padding', ".bday-field | gap",
@@ -332,9 +330,9 @@ const NOT_SPACING = new Set<string>([
   ".me | padding", ".top .end .run | padding", ".top .end .run | gap", ".tag | padding", ".tag.count | padding",
   // A control's own parts: a well's inset round its slab, the birthday's wheels, and a list of places, one control its slab glides along.
   ".tab-switch | padding", ".tab-switch.small | padding", ".nav | padding", ".steps | padding", ".wheels | gap", ".wheels | padding",
-  ".sidebar-list | gap", ".menu | gap", ".menu hr | margin",
+  ".dropdown | gap", ".dropdown hr | margin",
   // Lines words up with the places' words under them.
-  ".sidebar-heading | padding", ".menu-head | padding",
+  ".dropdown-head | padding",
   // Room to scroll, or for a scrollbar or a page's rail.
   ".wheel | padding", ".glass-pane > .pane-in | margin-right", ".glass-pane > .pane-in::-webkit-scrollbar-track | margin-block",
   "html | scroll-padding-top", ".gallery-layout | padding-right", ".track | scroll-padding-inline",

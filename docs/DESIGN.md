@@ -76,7 +76,7 @@ Applies to the components (`apps/site/src/components/`) and the gallery (`apps/s
 | `--gap-words-words` | Words beside or under other words in one block (a title and the line under it, links in a row, an icon and its word) | 8px |
 | `--gap-block-block` | Two blocks: inside a pane, two panes side by side or stacked, the gallery's examples, a row of covers | 24px |
 | `--pad-pane` | A pane's edge and what's inside it; also the page's edge | 24px, 18px on a phone |
-| `--pad-inner-pane` | An inner pane's edge and what's inside it (the birthday picker, a menu), and a bar's: a pane one row of controls tall (the header, the gallery's bar) | 12px |
+| `--pad-inner-pane` | An inner pane's edge and what's inside it (the birthday picker, a dropdown), and a bar's: a pane one row of controls tall (the header, the gallery's bar) | 12px |
 
 - **If either side is a block, it's `--gap-block-block`,** even when the other side is a single control.
 - **In a pane, controls fill its width.** A row of them is a `.control-row` (`foundations.ts`), which shares the pane's width between them, so its ends fit the pane's edges by the edge rule instead of stopping short with square corners.
@@ -95,12 +95,12 @@ Applies where Spacing does. Every word outside a control's own inside is set in 
 | `--type-title` | A game's title | Jost 600, 40px (32px on a phone) |
 | `--type-heading` | A pane's heading | Jost 600, 30px (26px on a phone) |
 | `--type-section` | A row's or a section's heading | Jost 600, 22px (20px on a phone) |
-| `--type-name` | A name in a pane, a menu's head | Jost 600, 17px |
+| `--type-name` | A name in a pane, a dropdown's head | Jost 600, 17px |
 | `--type-label` | A field's label, the question a field answers | Jost 600, 15px |
 | `--type-words` | A line of words, an error | Jost 500, 15px |
 | `--type-reading` | A paragraph to read | System, 15px |
 | `--type-note` | A note under something, the footer | Jost 500, 14px |
-| `--type-facts` | Facts under a cover, a caption, a small heading (a sidebar's) | Jost 500, 13px |
+| `--type-facts` | Facts under a cover, a caption, a small heading | Jost 500, 13px |
 | `--type-tag` | A Tag | Jost 600, 12px |
 | `--type-code` | A token or a value | Monospace 600, 13px |
 
@@ -116,6 +116,8 @@ Anything with a look of its own is a component in the gallery, or part of one, a
 - **A tag is a Tag** (`tag`, `foundations.ts`, shown in Data): `new` (Updated), `count` (unread topics on a place) or `glass` (the rail's labels).
 - **A button with only an icon, a small button or a toggle is a Cut button** (`isLabelHidden`, `isSmall`, `isPressed`): the gallery's light and dark button, a password's Show.
 - **One of a few colours is a Colour picker; one of a few options is a Switch.** The glass button's tint and the glass's hue are Colour pickers; light or dark is a Switch.
+- **A page's own places down its side are a vertical Switch** (`tabSwitch` with `isVertical`): the same carved well, slab and ghost as the horizontal one, stacked, with an icon and a count per place. There's no sidebar of its own.
+- **A short list hanging from a button is a Dropdown** (`dropdown`, `panes.ts`), with its own choices: the account menu is one.
 - **Online is the Picture frame's** (`isOnline`); **you, signed in, are the Account button.**
 
 ## Components

@@ -90,7 +90,7 @@ component({
   font: var(--type-tag); clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); }
 .tag.new { color: var(--tag-new-ink); background: var(--tag-new); }
 .tag.count { padding: 0 8px; color: var(--ink-2); background: var(--btn); font-variant-numeric: tabular-nums; }
-.tag.glass { color: var(--ink); --glass-tint: var(--glass-menu); }
+.tag.glass { color: var(--ink); --glass-tint: var(--glass-dropdown); }
 `,
   render: (words: string | number, tone: TagTone) => tag(words, tone),
   examples: [
