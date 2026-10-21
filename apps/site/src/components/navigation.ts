@@ -84,7 +84,7 @@ const HEADER_STYLES = `
 .top .nav, .top .find, .top .find input, .top .run, .top .me, .top .frame { transition: height 0.45s cubic-bezier(.2,.8,.2,1), width 0.45s cubic-bezier(.2,.8,.2,1), font-size 0.45s; }
 .top.is-compact .nav, .top.is-compact .find, .top.is-compact .run, .top.is-compact .me { height: 38px; }
 .top.is-compact .run { font-size: 15px; }
-.top.is-compact .me .frame { --frame: 32px; --frame-cut: 8px; }
+.top.is-compact .me .frame { --frame: 32px; }
 
 .logo { display: flex; align-items: center; flex: none; padding: 6px 2px; color: var(--ink); }
 /* The header's gap is a row of controls' (their boxes overlap by the slant); the logo is words beside them. */
@@ -126,9 +126,7 @@ const HEADER_STYLES = `
 .me { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px 0 4px; border: 0; background: none; cursor: pointer; font: 500 15px var(--display); color: var(--ink); }
 .me:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 /* You're online: a small diamond on your picture's corner. */
-.me .frame { overflow: visible; clip-path: none; background: none; }
-.me .frame::before { content: ""; position: absolute; inset: 0; background: var(--face-ring); clip-path: polygon(var(--frame-cut) 0, 100% 0, 100% calc(100% - var(--frame-cut)), calc(100% - var(--frame-cut)) 100%, 0 100%, 0 var(--frame-cut)); }
-.me .frame::after { content: ""; position: absolute; right: -2px; bottom: -2px; width: 11px; height: 11px; background: #3BB273; border: 2px solid var(--presence-ring); transform: rotate(45deg); }
+.me .frame::after { content: ""; position: absolute; z-index: 2; right: -2px; bottom: -2px; width: 11px; height: 11px; background: #3BB273; border: 2px solid var(--presence-ring); transform: rotate(45deg); }
 .me .chev { transition: transform 0.4s cubic-bezier(.2,.8,.2,1); }
 .me[aria-expanded="true"] .chev { transform: rotate(180deg); }
 

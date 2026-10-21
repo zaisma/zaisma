@@ -39,6 +39,14 @@ Type: **Jost** (`--display`; self-hosted, close to the Futura the Z is drawn fro
 ## Shapes
 
 - **The bevel.** The Z's cut corner, top right: `.bevel-s` (8 px, avatars and small buttons), `.bevel` (14 px, buttons), `.bevel-l` (36 px, the big game picture). No rounded corners.
+- **The edge rule: bevels come from where a thing sits, never from the thing.** In the components (`apps/site/src/components/`), only a pane has corners of its own: 24 and 20, the header and the gallery's bar 20 and 14, menus 18 and 14. Everything inside, whether a control, a picture frame or a colour swatch, carries `data-cut-line`, and the edge rule (`GLASS_SCRIPT` in `foundations.ts`) gives it its shape as `--cut-shape`, the only thing its CSS clips to:
+  - **In a pane's middle, it's square.** A swatch in the middle of the colour pane, a face in the middle of a glance line.
+  - **Near a pane's corner, it follows that corner at a fixed gap.** A full-width button alone in a pane is cut at all four corners. The swatch in the colour pane's top left is cut only there.
+  - **Beside another in a row, it slants toward it** (`.control-row`, `--control-slant`): Play and Details, a row of friends' faces.
+  - **Stacked, it's square between.** The sign-in buttons are cut only at the stack's top and bottom.
+  - **On no pane, it's cut as if it were in one:** 16 and 8, at most a quarter of its short side.
+
+  Its outline (the ring round a picture, a swatch's line, focus) is the cut line's stroke, so it follows the same shape. The few shapes that aren't the rule's (the scroll rail, tags, a cover's line, the glass demo's backdrop shapes) are named, with their reason, in `HAND_CUT` in `test/site/design.test.ts`. The gallery's Cut shapes shows each case.
 - **The metal edge.** `.edge`: a black line outside and a white one top-left, like the Z's edges. Marks the selected thing (the game on the stage, an invite).
 
 ## Metal

@@ -56,7 +56,7 @@ function coverFacts(facts: GlanceFacts): Raw {
     facts.playedAtMs !== undefined
       ? html`<span class="when">${icon("clock")}<span><span class="sr">Played </span>${ago(nowMs - facts.playedAtMs)}</span></span>${facts.updatedAtMs !== undefined ? html`<span class="chip">Updated</span>` : ""}`
       : friends.length
-        ? html`<span class="friends"><span class="faces">${friends.map((friend) => pictureFrame(friend.username, "xs"))}</span><span>${friends.map((friend) => friend.username).join(", ")}<span class="sr"> playing</span></span></span>`
+        ? html`<span class="friends"><span class="faces control-row">${friends.map((friend) => pictureFrame(friend.username, "xs"))}</span><span>${friends.map((friend) => friend.username).join(", ")}<span class="sr"> playing</span></span></span>`
         : "";
   return html`<div class="cover-meta">${left}${facts.playerCount !== undefined ? html`<span class="count">${icon("people")}<span>${facts.playerCount.toLocaleString("en-US")}<span class="sr"> playing now</span></span></span>` : ""}</div>`;
 }
@@ -182,7 +182,7 @@ const COVER_STYLES = `
 .cover-meta .when, .cover-meta .count, .cover-meta .friends { display: inline-flex; align-items: center; gap: var(--gap-words-words); min-width: 0; }
 .cover-meta .friends { color: var(--ink); font-weight: 600; overflow: hidden; }
 .cover-meta .friends > span:last-child { overflow: hidden; text-overflow: ellipsis; }
-.cover-meta .frame.xs { --frame: 18px; --frame-cut: 4px; }
+.cover-meta .frame.xs { --frame: 18px; }
 .cover-meta .frame.xs .av::first-letter { font-size: 10px; }
 .cover-meta .when > span { overflow: hidden; text-overflow: ellipsis; }
 .cover-meta .count { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--ink-2); flex: none; }

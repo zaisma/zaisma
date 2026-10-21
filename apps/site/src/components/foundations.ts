@@ -773,7 +773,7 @@ const SWATCHES: { token: string; note: string }[] = [
 ];
 
 const swatches = () =>
-  html`<div class="glass swatch-pane" data-glass data-glass-corners="24 20 24 20">${EDGE}<ul class="swatches">${SWATCHES.map(({ token, note }) => html`<li><span class="chip-swatch" style="background:var(${token})"></span><code>${token}</code><span>${note}</span></li>`)}</ul></div>`;
+  html`<div class="glass swatch-pane" data-glass data-glass-corners="24 20 24 20">${EDGE}<ul class="swatches">${SWATCHES.map(({ token, note }) => html`<li><span class="chip-swatch" data-cut-line="10" style="background:var(${token})">${CUT_LINE}</span><code>${token}</code><span>${note}</span></li>`)}</ul></div>`;
 
 component({
   name: "Colour",
@@ -785,7 +785,9 @@ component({
 .swatch-pane { width: 100%; }
 .swatches { list-style: none; margin: 0; padding: var(--pad-pane); display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--gap-block-block); }
 .swatches li { display: grid; grid-template-columns: 36px 1fr; grid-template-rows: auto auto; column-gap: var(--gap-words-words); align-items: center; font: 500 13px var(--display); }
-.swatches .chip-swatch { grid-row: span 2; width: 36px; height: 36px; box-shadow: inset 0 0 0 1px var(--line); clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px); }
+/* A swatch is cut by the edge rule like everything else: square in the pane's middle, following its corner where it sits in one. */
+.swatches .chip-swatch { position: relative; grid-row: span 2; width: 36px; height: 36px; clip-path: var(--cut-shape); }
+.swatches .chip-swatch > .cut-line polygon { stroke: var(--line); }
 .swatches code { font: 600 13px ui-monospace, Menlo, monospace; }
 .swatches span:last-child { color: var(--muted); }
 `,

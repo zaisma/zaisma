@@ -91,23 +91,18 @@ describe("the gallery", () => {
     expect(problems).toEqual([]);
   });
 
-  it("cuts every action and input by the one edge rule: no control carries a shape of its own", () => {
-    // The edge rule (GLASS_SCRIPT) gives every control its shape as --cut-shape: a slant only beside another control in a row,
-    // and corners that fit what holds it. A control's CSS only ever clips to that, and its markup never names corners of its own.
-    const controls = COMPONENTS().filter((each) => each.group === "actions" || each.group === "inputs");
-    const navigationControls = COMPONENTS().filter((each) => each.slug === "header" || each.slug === "row-arrows");
+  it("cuts everything by the one edge rule: nothing carries a shape of its own", () => {
+    // The edge rule (GLASS_SCRIPT) gives every control, picture and swatch its shape as --cut-shape: a slant only beside another
+    // in a row, and corners that fit what holds it. CSS only ever clips to that; the few shapes that aren't the rule's are
+    // HAND_CUT below, named one by one with their reason, and markup never names corners of its own.
     const problems: string[] = [];
-    const check = (styles: string, isControlRule: (selector: string) => boolean) => {
-      for (const [, selectors = "", declarations = ""] of styles.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-        const clip = /(?:^|[;\s])clip-path:\s*([^;}]+)/.exec(declarations)?.[1]?.trim();
-        if (!clip || clip === "var(--cut-shape)" || clip === "none") continue;
-        const selector = selectors.replace(/\/\*[\s\S]*?\*\//g, "").trim();
-        if (isControlRule(selector)) problems.push(`${selector}: clip-path: ${clip}`);
-      }
-    };
-    for (const each of controls) check(each.styles, () => true);
-    for (const each of navigationControls) check(each.styles, (selector) => /\.(nav|steps?)\b/.test(selector));
-    for (const each of controls) for (const example of each.examples) if (/data-cut-corners/.test(example.markup.html)) problems.push(`${each.slug}, ${example.label}: corners of its own`);
+    for (const [, selectors = "", declarations = ""] of (COMPONENT_STYLES() + GALLERY_STYLES).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const clip = /(?:^|[;\s])clip-path:\s*([^;}]+)/.exec(declarations)?.[1]?.trim();
+      if (!clip || clip === "var(--cut-shape)" || clip === "none" || clip === "inset(50%)") continue;
+      const selector = selectors.replace(/\/\*[\s\S]*?\*\//g, "").trim().split("\n").pop()!.trim();
+      if (!HAND_CUT.has(selector)) problems.push(`${selector}: clip-path: ${clip}`);
+    }
+    for (const each of COMPONENTS()) for (const example of each.examples) if (/data-cut-corners/.test(example.markup.html)) problems.push(`${each.slug}, ${example.label}: corners of its own`);
     expect(problems).toEqual([]);
   });
 
@@ -258,6 +253,19 @@ describe("components", () => {
 
 // What isn't spacing between things, so it keeps a number of its own (docs/DESIGN.md, Spacing). Named one by one, with why,
 // so a new one is a deliberate choice.
+const HAND_CUT = new Set<string>([
+  // A pane: cut by its own corners (24 and 20, the header and the gallery's bar 20 and 14), which the edge rule fits all inside it to.
+  ".top", ".header-frame", ".backdrop-frame", ".glass-play", ".cuts .header-cut", ".cuts .pane-cut",
+  // A shape for the glass demo to blur: what's behind the glass, not part of Zaisma.
+  ".glass-play .cut",
+  // The scroll rail's thumb and the labels its marks open.
+  ".rail-thumb", ".rail:hover .rail-thumb, .rail.dragging .rail-thumb", ".rail[data-rail=\"page\"] .rail-thumb",
+  ".rail[data-rail=\"page\"]:hover .rail-thumb, .rail[data-rail=\"page\"].dragging .rail-thumb", ".rail .rail-thumb",
+  ".rail-mark span", ".rail:hover .rail-mark span, .rail.dragging .rail-mark span",
+  // Tags and a cover's line: slanted at both ends, a mark on what it labels rather than a thing of its own.
+  ".chip", ".place-count", ".cover-bar",
+]);
+
 const NOT_SPACING = new Set<string>([
   // A control's inside: its words and icon to its own edge, set by each control size.
   ".place | gap", ".place | padding", ".place-count | padding", ".run | padding", ".run | gap", ".run.big | padding", ".run.big | gap",
@@ -277,8 +285,8 @@ const NOT_SPACING = new Set<string>([
   "html | scroll-padding-top", ".gallery-layout | padding-right", ".track | scroll-padding-inline",
   // Room for the covers to lift into, given back round the row.
   ".track | padding", ".track | margin",
-  // Where a small thing sits on what it marks: a rail's tick, a cover's line, faces overlapping.
-  ".rail-mark | margin-top", ".cover-bar | margin-top", ".faces .frame + .frame | margin-left",
+  // Where a small thing sits on what it marks: a rail's tick, a cover's line.
+  ".rail-mark | margin-top", ".cover-bar | margin-top",
   // A header example's stand-in page: room for the header over it, and to scroll the header compact.
   ".stand-in-page | padding", ".stand-in-page | padding-top",
 ]);
