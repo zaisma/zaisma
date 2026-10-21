@@ -133,6 +133,9 @@ export const TOKEN_STYLES = `
   --display: "Jost", Futura, "Century Gothic", "Avenir Next", sans-serif;
   --body: -apple-system, "Segoe UI", system-ui, sans-serif;
   --spring: cubic-bezier(.3, 1.2, .4, 1);
+  /* Keyboard focus, the same on everything: orange. A control's cut line is stroked --focus-stroke wide (half of it shows inside
+     its cut, 2px), anything else gets a 2px outline. On an orange face (the runner) it's the deeper --focus-on-run. */
+  --focus: var(--run); --focus-on-run: var(--run-lo); --focus-stroke: 4;
   /* Spacing (docs/DESIGN.md, Spacing): every gap, padding and margin is one of these, picked by what sits on each side.
      Side by side, controls slant toward each other by --control-slant, and --gap-control-row is the space between the slants: their
      boxes sit --gap-control-row-boxes apart, overlapping by the slant less that. That's also the edge rule's neighbour distance. */
@@ -177,8 +180,7 @@ export const TOKEN_STYLES = `
 .place .cut-line polygon { stroke-width: 2; }
 .place[aria-current="page"] .cut-line polygon { stroke: var(--run); }
 .place:focus-visible { outline: none; }
-.place:focus-visible .cut-line polygon { stroke: var(--ink); }
-.place[aria-current="page"]:focus-visible .cut-line polygon { stroke: var(--run); stroke-width: 5; }
+.place:focus-visible .cut-line polygon, .place[aria-current="page"]:focus-visible .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .place-form { margin: 0; }
 .place-count { margin-left: auto; min-width: 22px; padding: 1px 7px; text-align: center; font: 600 12px var(--display); color: var(--ink-2); background: var(--btn);
   clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%); }
@@ -903,7 +905,7 @@ component({
   display: flex; flex-direction: column; gap: var(--gap-words-words); overflow: hidden; cursor: grab; user-select: none; -webkit-user-select: none; touch-action: none; }
 .glass-window.is-moving { cursor: grabbing; }
 .glass-window:focus-visible { outline: none; }
-.glass-window:focus-visible .edge .hair, .glass-window:focus-visible .edge .rim { stroke: var(--ink); stroke-width: 2; }
+.glass-window:focus-visible .edge .hair, .glass-window:focus-visible .edge .rim { stroke: var(--focus); stroke-width: 2; }
 .glass-window strong { font: 600 17px var(--display); }
 .glass-window .glass-note { font: 500 14px/1.4 var(--display); color: var(--ink-2); }
 .glass-window .glass-size { margin-top: auto; font: 600 12px ui-monospace, Menlo, monospace; color: var(--muted); }

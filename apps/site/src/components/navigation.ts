@@ -94,7 +94,7 @@ const HEADER_STYLES = `
 .top .find:has(~ .end > .me) { margin-inline-end: var(--gap-words-control); }
 .logo svg { height: 26px; width: auto; display: block; transition: height 0.45s cubic-bezier(.2,.8,.2,1), color 0.3s; }
 .top.is-compact .logo svg { height: 23px; }
-.logo:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.logo:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
 /* Where you are: the sign-in's switch, laid flat. A white slab with an orange underline sits under the page you're on; a faint one follows the pointer. */
 /* The tabs sit in a row inside the carved well; when there are more than fit (a phone's dashboard), only the row scrolls, fading at its ends. */
@@ -109,7 +109,7 @@ const HEADER_STYLES = `
 .nav.pointing .ghost { opacity: 1; }
 .nav a { position: relative; display: grid; place-content: center; padding: 0 18px; font: 500 15px var(--display); color: var(--ink-2); text-decoration: none; white-space: nowrap; }
 .nav a[aria-current="page"] { color: var(--ink); }
-.nav a:focus-visible { outline: 2px solid var(--ink); outline-offset: -4px; }
+.nav a:focus-visible { outline: 2px solid var(--focus); outline-offset: -4px; }
 /* Before the script has measured, the tab you're on carries its own slab. */
 .nav:not(.is-ready) a[aria-current="page"] { background: var(--slab); box-shadow: inset 0 -3px 0 var(--run); }
 /* The Developer and Forum tabs open out of the end of the tabs on a developer page and fold back into it when you leave, while the slab slides. */
@@ -124,7 +124,7 @@ const HEADER_STYLES = `
 
 /* Signed in: your picture in a cut frame, with your name; it opens a pane of the same glass. */
 .me { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px 0 4px; border: 0; background: none; cursor: pointer; font: 500 15px var(--display); color: var(--ink); }
-.me:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.me:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 /* You're online: a small diamond on your picture's corner. */
 .me .frame { overflow: visible; clip-path: none; background: none; }
 .me .frame::before { content: ""; position: absolute; inset: 0; background: var(--face-ring); clip-path: polygon(var(--frame-cut) 0, 100% 0, 100% calc(100% - var(--frame-cut)), calc(100% - var(--frame-cut)) 100%, 0 100%, 0 var(--frame-cut)); }
@@ -146,7 +146,7 @@ const HEADER_STYLES = `
   .top.searching .nav { display: none; }
   .find-open { display: grid; place-items: center; width: 44px; height: 44px; margin-left: auto; margin-right: var(--gap-words-control); border: 0; background: none; color: var(--ink); cursor: pointer; }
   .find-open .ico { width: 20px; height: 20px; }
-  .find-open:focus-visible { outline: 2px solid var(--ink); outline-offset: -4px; }
+  .find-open:focus-visible { outline: 2px solid var(--focus); outline-offset: -4px; }
   .top .nav + .end { margin-left: auto; }
   .top .nav { order: 4; flex-basis: 100%; height: 42px; }
   .top.is-compact .find-open { height: 38px; }
@@ -498,7 +498,7 @@ component({
 .foot nav { display: flex; flex-wrap: wrap; gap: var(--gap-words-words); }
 .foot a { color: var(--ink-2); text-decoration: none; font: 500 14px var(--display); }
 .foot nav a:hover { color: var(--ink); text-decoration: underline; text-decoration-color: var(--run); text-underline-offset: 4px; text-decoration-thickness: 2px; }
-.foot a:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+.foot a:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
 .foot p { margin: 0 0 0 auto; }
 @media (max-width: 760px) { .foot p { margin: 0; } }
 `,
@@ -589,7 +589,7 @@ component({
 .step:active:not(:disabled) { --face-colour: var(--btn-press); }
 .step:active:not(:disabled) > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
 .step:focus-visible { outline: none; color: var(--ink); }
-.step:focus-visible > .cut-line polygon { stroke: var(--ink); stroke-width: 2; }
+.step:focus-visible > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .step:disabled { --face-colour: transparent; opacity: 0.35; cursor: default; }
 .step:disabled > .cut-line { --band-top: transparent; --band-left: transparent; --band-right: transparent; --band-bottom: transparent; }
 /* A row scrolls sideways, a little in from its glass's rim, so covers never touch the frame. Where more covers carry on, that edge fades out

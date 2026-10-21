@@ -191,6 +191,18 @@ describe("the gallery", () => {
     expect([...new Set(problems)]).toEqual([]);
   });
 
+  it("shows keyboard focus the one way: every focus line or outline is --focus (or --focus-on-run on the runner)", () => {
+    const problems: string[] = [];
+    for (const [, selectors = "", declarations = ""] of (COMPONENT_STYLES() + GALLERY_STYLES).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      if (!/:focus|is-focused/.test(selectors)) continue;
+      for (const [, property = "", value = ""] of declarations.matchAll(/(?:^|[;\s])(outline|stroke|text-decoration):\s*([^;}]+)/g)) {
+        if (/^none$/.test(value.trim()) || /var\(--focus(-on-run)?\)/.test(value)) continue;
+        problems.push(`${selectors.replace(/\/\*[\s\S]*?\*\//g, "").trim()}: ${property}: ${value.trim()}`);
+      }
+    }
+    expect(problems).toEqual([]);
+  });
+
   it("opens light or dark from its address, and the other groups' pages keep it", async () => {
     for (const { group } of COMPONENT_GROUPS) {
       const { text } = await page(`${groupPath(group)}?theme=dark`);

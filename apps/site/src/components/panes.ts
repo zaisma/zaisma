@@ -165,7 +165,7 @@ const COVER_STYLES = `
   box-shadow: 0 4px 10px rgba(10,20,40,0.16); transition: box-shadow 0.2s ease-out; }
 .cover-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 .cover:hover .cover-art, .cover-art:focus-visible { box-shadow: 0 6px 14px rgba(10,20,40,0.24); }
-.cover-art:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.cover-art:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 /* The orange line under a cover: it draws in from the left the moment you point at a cover, with a light running ahead along it,
    and stays under the game in the pane. Leaving, it runs on out to the right, quicker than it came, as if it moved on to the next cover. */
 .cover-bar { position: relative; display: block; height: 4px; margin-top: 6px; overflow: hidden; clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%);

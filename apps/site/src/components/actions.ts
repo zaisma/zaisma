@@ -171,9 +171,8 @@ const RUN_STYLES = `
 /* Pressed: it sinks into the glass, a touch darker, its light turned round as on a carved control; it springs back when let go. */
 .run-wrap:active > .run, .run-wrap.is-pressed > .run { --lift: 1px; filter: brightness(0.94) saturate(1.05); transition-duration: 0.08s; }
 .run-wrap:active > .run > .cut-line, .run-wrap.is-pressed > .run > .cut-line { --band-top: rgba(130,60,0,0.5); --band-left: rgba(150,72,0,0.35); --band-right: rgba(255,226,180,0.45); --band-bottom: rgba(255,240,214,0.7); }
-/* Keyboard focus: a clean 2px ink outline hugging the slab, drawn from its own shape. Its glow goes at once, so the outline never draws round a fading blur. */
-.run-wrap:focus-visible, .run-wrap.is-focused { filter: drop-shadow(2px 0 0 var(--ink)) drop-shadow(-2px 0 0 var(--ink)) drop-shadow(0 2px 0 var(--ink)) drop-shadow(0 -2px 0 var(--ink)); }
-.run-wrap:focus-visible::before, .run-wrap.is-focused::before { opacity: 0; transition: none; }
+/* Keyboard focus: the focus line inside its cut, in the deeper orange, since it's orange itself. */
+.run-wrap:focus-visible > .run > .cut-line polygon, .run-wrap.is-focused > .run > .cut-line polygon { stroke: var(--focus-on-run); stroke-width: var(--focus-stroke); }
 /* Busy: pressed and waiting. The arrow drifts on; the label says what's happening when the page gave one. */
 .run-wrap[aria-busy="true"] { cursor: progress; }
 .run-wrap[aria-busy="true"] .label-idle, .run-wrap:not([aria-busy="true"]) .label-busy { display: none; }
@@ -242,7 +241,7 @@ component({
 .cut-btn:active > .face > .cut-line, .cut-btn.is-pressed > .face > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
 .cut-btn:focus-visible { outline: none; }
 .cut-btn:focus-visible > .face, .cut-btn.is-focused > .face { --face-colour: var(--btn-hover); }
-.cut-btn:focus-visible .cut-line polygon, .cut-btn.is-focused .cut-line polygon { stroke: var(--ink); stroke-width: 2; }
+.cut-btn:focus-visible .cut-line polygon, .cut-btn.is-focused .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .cut-btn .face > span, .cut-btn .face > .ico { position: relative; z-index: 2; }
 .cut-btn[aria-busy="true"] { cursor: progress; }
 .cut-btn[aria-busy="true"] > .face { opacity: 0.7; }
@@ -307,8 +306,8 @@ component({
 /* Keyboard focus: the rim turns orange, following the cut, and its bright facets step aside. */
 .glass-btn:focus-visible > .face, .glass-btn.is-focused > .face { --glass-tint: var(--glass-btn-hover); }
 .glass-btn:focus-visible .edge, .glass-btn.is-focused .edge { opacity: 1; }
-.glass-btn:focus-visible .edge .hair, .glass-btn.is-focused .edge .hair { stroke: var(--run); stroke-width: 2; }
-.glass-btn:focus-visible .edge .rim, .glass-btn.is-focused .edge .rim { stroke: var(--run); stroke-width: 2; opacity: 1; }
+.glass-btn:focus-visible .edge .hair, .glass-btn.is-focused .edge .hair { stroke: var(--focus); stroke-width: 2; }
+.glass-btn:focus-visible .edge .rim, .glass-btn.is-focused .edge .rim { stroke: var(--focus); stroke-width: 2; opacity: 1; }
 .glass-btn:focus-visible .edge .facet, .glass-btn:focus-visible .edge .fringe, .glass-btn.is-focused .edge .facet, .glass-btn.is-focused .edge .fringe { opacity: 0; }
 /* A dark tint is a solid slab: no dark hairline, white facets or white top highlight (those read as a glitchy frame), only a
    rim in a lighter shade of its own colour, and a lift shadow that stays in its colour. */
@@ -318,7 +317,7 @@ component({
 .glass-btn[data-tint="blue"]:hover > .face, .glass-btn[data-tint="indigo"]:hover > .face, .glass-btn[data-tint="black"]:hover > .face,
 .glass-btn[data-tint="blue"].is-pointed > .face, .glass-btn[data-tint="indigo"].is-pointed > .face, .glass-btn[data-tint="black"].is-pointed > .face { box-shadow: inset 0 -12px 18px -12px rgba(0,0,0,0.3); }
 .glass-btn[data-tint="blue"]:focus-visible .edge .rim, .glass-btn[data-tint="indigo"]:focus-visible .edge .rim, .glass-btn[data-tint="black"]:focus-visible .edge .rim,
-.glass-btn[data-tint="blue"].is-focused .edge .rim, .glass-btn[data-tint="indigo"].is-focused .edge .rim, .glass-btn[data-tint="black"].is-focused .edge .rim { stroke: var(--run); stroke-width: 2; }
+.glass-btn[data-tint="blue"].is-focused .edge .rim, .glass-btn[data-tint="indigo"].is-focused .edge .rim, .glass-btn[data-tint="black"].is-focused .edge .rim { stroke: var(--focus); stroke-width: 2; }
 /* Tinted: the way's own colour, nearly solid, in either theme (a brand's colour is how you recognise it, so it doesn't
    follow light or dark): white glass with dark words, the coloured and black ones with white words. It's a touch stronger
    as you point at it and a touch clearer under a press. Changing the tint fades from one to the next. */
@@ -351,7 +350,7 @@ component({
 .tint-swatch .cut-line polygon { stroke: var(--line); stroke-width: 1; transition: stroke 0.2s; }
 .tint-swatch:hover .cut-line polygon { stroke: var(--muted); stroke-width: 2; }
 .tint-swatch:focus-visible { outline: none; }
-.tint-swatch:focus-visible .cut-line polygon { stroke: var(--muted); stroke-width: 3; }
+.tint-swatch:focus-visible .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .tint-swatch[aria-pressed="true"] .cut-line polygon { stroke: var(--ink); stroke-width: 3; }
 /* Clear: a checker, the usual sign for see-through. */
 .tint-swatch[data-tint-choice="clear"] { --swatch: repeating-conic-gradient(var(--line) 0 25%, transparent 0 50%) 0 0 / 8px 8px; }
@@ -397,7 +396,7 @@ component({
 .guest-btn:active .cut-line polygon, .guest-btn.is-pressed .cut-line polygon { stroke: var(--line); }
 .guest-btn:active .arrow, .guest-btn.is-pressed .arrow { transform: translateX(7px); transition-duration: 0.12s; }
 .guest-btn:focus-visible > .face, .guest-btn.is-focused > .face { color: var(--ink); }
-.guest-btn:focus-visible .cut-line polygon, .guest-btn.is-focused .cut-line polygon { stroke: var(--ink); stroke-width: 2; }
+.guest-btn:focus-visible .cut-line polygon, .guest-btn.is-focused .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 @media (prefers-reduced-motion: reduce) { .guest-btn > .face, .guest-btn .arrow { transition: --face-colour 0.2s, color 0.2s; } }
 `,
   render: guestButton,

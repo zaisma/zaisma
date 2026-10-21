@@ -44,7 +44,7 @@ export const GLANCE_STYLES = `
 .glance li { display: flex; align-items: center; gap: var(--gap-words-words); min-height: 24px; }
 .glance b { font-weight: 600; color: var(--ink); }
 .glance a { color: var(--ink); font-weight: 600; text-decoration: underline; text-decoration-color: var(--run); text-underline-offset: 3px; text-decoration-thickness: 2px; }
-.glance a:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.glance a:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .glance .ico { color: var(--muted); stroke-width: 1.5; }
 .chip { display: inline-flex; align-items: center; height: 22px; padding: 0 10px 0 9px; flex: none; font: 600 12px var(--display); color: var(--chip-ink); background: var(--chip-face);
   clip-path: polygon(5px 0, 100% 0, calc(100% - 5px) 100%, 0 100%); }

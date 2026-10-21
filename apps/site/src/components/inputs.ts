@@ -289,7 +289,7 @@ const FIELD_STYLES = `
 .field:focus-within, .field.is-focused { color: var(--ink); }
 .field > .cut-line { z-index: 4; }
 .field > .cut-line polygon { stroke: var(--field-outline); }
-.field:focus-within > .cut-line polygon, .field.is-focused > .cut-line polygon { stroke: var(--run); stroke-width: 2; }
+.field:focus-within > .cut-line polygon, .field.is-focused > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .field.is-marked > .cut-line polygon { stroke: var(--marked); stroke-width: 2; }
 .field-error { margin: 0; font: 500 15px var(--display); color: var(--marked); }
 .field.with-toggle input { padding-right: 90px; }
@@ -303,7 +303,7 @@ const FIELD_STYLES = `
 .field .show[aria-pressed="true"] { --face-colour: var(--btn-press); color: var(--ink); }
 .field .show[aria-pressed="true"] > .cut-line, .field .show:active > .cut-line { --band-top: var(--carve-top); --band-left: var(--carve-left); --band-right: var(--carve-right); --band-bottom: var(--carve-bottom); }
 .field .show:focus-visible { outline: none; color: var(--ink); }
-.field .show:focus-visible > .cut-line polygon { stroke: var(--ink); stroke-width: 2; }
+.field .show:focus-visible > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 `;
 
 const examplePane = (body: Raw) => html`<div class="glass example-pane" data-glass data-glass-corners="18 9 18 9">${body}</div>`;
@@ -343,7 +343,7 @@ component({
 }
 .find input::placeholder { color: var(--muted); }
 .find input:focus, .find.is-focused input { outline: none; --face-colour: var(--field-focus); }
-.find:focus-within .cut-line polygon, .find.is-focused .cut-line polygon { stroke: var(--run); stroke-width: 2; }
+.find:focus-within .cut-line polygon, .find.is-focused .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .find input::-webkit-search-cancel-button { display: none; }
 .find .glass-icon { position: absolute; z-index: 2; left: 16px; top: 50%; transform: translateY(-50%); width: 17px; height: 17px; color: var(--ink-2); pointer-events: none; }
 `,
@@ -377,7 +377,7 @@ component({
 .bday-field[aria-expanded="true"] .chev { transform: rotate(180deg); }
 .bday-field .cut-line { z-index: 4; }
 .bday-field .cut-line polygon { stroke: var(--field-outline); }
-.bday-field[aria-expanded="true"] .cut-line polygon, .bday-field:focus-visible .cut-line polygon { stroke: var(--run); stroke-width: 2; }
+.bday-field[aria-expanded="true"] .cut-line polygon, .bday-field:focus-visible .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 .bday-field.is-marked .cut-line polygon { stroke: var(--marked); stroke-width: 2; }
 /* Its words stay on one line, never crowding its edges; what's wrong is said under it, as under a cut field. */
 .bday-value { min-width: 0; flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
@@ -402,7 +402,7 @@ component({
 .wheel [role="option"].blank { color: var(--muted); font-weight: 400; }
 .wheel [role="option"][aria-selected="true"] { font-size: 18px; color: var(--ink); font-weight: 600; }
 .wheel [role="option"][aria-selected="true"].blank { color: var(--muted); font-weight: 500; }
-.wheel:focus-visible [role="option"][aria-selected="true"] { text-decoration: underline 2px var(--ink); text-underline-offset: 7px; }
+.wheel:focus-visible [role="option"][aria-selected="true"] { text-decoration: underline 2px var(--focus); text-underline-offset: 7px; }
 /* Done: a cut slab of clearer glass; it whitens with the orange line when you point at it, once there's a whole date. */
 `,
   render: birthdayField,
@@ -436,7 +436,7 @@ component({
 /* Before the script has measured, the one you're on carries its own slab. */
 .tab-switch:not(.is-ready) [aria-current="page"], .tab-switch:not(.is-ready) [aria-pressed="true"] { background: var(--slab); box-shadow: inset 0 -3px 0 var(--run); }
 .tab-switch.framed, .tab-switch.framed.small { background: none; box-shadow: none; clip-path: none; }
-.tab-switch > :focus-visible { outline: 2px solid var(--ink); outline-offset: -4px; }
+.tab-switch > :focus-visible { outline: 2px solid var(--focus); outline-offset: -4px; }
 /* The sort switch: the header's switch, smaller. */
 .tab-switch.small { height: 36px; padding: 3px; clip-path: var(--cut-shape); }
 .tab-switch.small .slab, .tab-switch.small .ghost { top: 3px; bottom: 3px; transition-duration: 0.4s, 0.4s, 0.3s; }
