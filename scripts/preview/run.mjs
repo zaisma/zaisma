@@ -489,11 +489,19 @@ async function seed() {
     if (!res.ok) throw new Error(`${method} ${path}: ${data.error?.message}`);
     return data;
   };
-  const upload = (folder, slug, notes) =>
-    spawnSync("node", [join(ROOT, "packages/cli/zaisma.mjs"), "upload", resolve(ROOT, folder), "--game", slug, "--patch-notes", notes], {
-      env: { ...process.env, ZAISMA_API: SITE, ZAISMA_KEY: key },
-      stdio: "ignore",
-    });
+  // Seeding goes faster than a developer's 120 calls a minute, so a refused upload (exit 1) waits out the minute and tries again.
+  const upload = (folder, slug, notes) => {
+    let result;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      result = spawnSync("node", [join(ROOT, "packages/cli/zaisma.mjs"), "upload", resolve(ROOT, folder), "--game", slug, "--patch-notes", notes], {
+        env: { ...process.env, ZAISMA_API: SITE, ZAISMA_KEY: key },
+        stdio: "ignore",
+      });
+      if (result.status !== 1) break;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20_000);
+    }
+    return result;
+  };
   // Scans may still be running: approve as admin so the test data is ready at once.
   const approveNewest = async (slug) => {
     const { versions } = await api("GET", `/games/${slug}`);
@@ -688,10 +696,12 @@ async function seed() {
  * holds stays held, and engines.json says so for scripts/engines/play.mjs, which then plays each one.
  */
 async function seedEngineSamples(api, upload) {
-  const ENGINE_NAMES = { godot: "Godot", phaser: "Phaser", three: "Three.js", unity: "Unity", "unity-fill": "Unity full-frame" };
+  const ENGINE_NAMES = { bevy: "Bevy", godot: "Godot", macroquad: "macroquad", phaser: "Phaser", three: "Three.js", unity: "Unity", "unity-fill": "Unity full-frame" };
   const engines = readdirSync(join(ROOT, "test/engines"), { withFileTypes: true }).filter((entry) => entry.isDirectory() && existsSync(join(ROOT, "test/engines", entry.name, "build/index.html"))).map((entry) => entry.name);
   const samples = [];
   for (const engine of engines) {
+    // The account judges 5 versions a day and there are more samples than that: free the day's count, so each sample gets the whole scan.
+    spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", "UPDATE versions SET judged_at_ms = NULL WHERE judged_at_ms IS NOT NULL"], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
     const { game } = await api("POST", "/games", { title: `${ENGINE_NAMES[engine] ?? engine} sample`, description: `A ${ENGINE_NAMES[engine] ?? engine} web export, uploaded as the engine wrote it.`, devices: ["computer"], controls: ["keyboard_mouse"], play_modes: [{ mode: "single" }] });
     const uploaded = upload(join("test/engines", engine, "build"), game.slug, "First version.");
     let version = null;

@@ -906,10 +906,10 @@ Each problem is `{ code, problem_kind, is_fixed_by_upload_command, message, path
 | `outside_frame` | broken | no | A frame of another site, which games can't show. |
 | `blocked_feature` | broken | no | Camera, microphone, screen capture, location, payments, USB, serial, Bluetooth or HID, which games on Zaisma can't use. |
 
-- **Threaded engine builds** (Godot with Thread Support, Unity with Native C/C++ Multithreading) need cross-origin isolation, which game pages don't have, so they don't start: export without threads, the default in Godot 4.3 and newer and in Unity.
+- **Threaded engine builds** (Godot with Thread Support, Unity with Native C/C++ Multithreading, Rust built with `atomics`) need cross-origin isolation, which game pages don't have, so they don't start: export without threads, the default in Godot 4.3 and newer and in Unity.
 - **Outside addresses** found while the code runs can be a file or the game's own server, so the check doesn't guess: a server goes in `own_server_urls` (`zaisma own-servers`, or `update_game`), a file in the game. The check never adds a server by itself.
-- What a game's code is checked for skips engine and library output (Unity's `.framework.js` and `.loader.js`, a `.js` beside a `.wasm` of the same name, `*.min.js`), which mentions dialogs or cameras without the game using them, and comments, which say what code could do rather than what it does. A dialog shown only when the game fails to load, like the one in Unity's page template, isn't a problem: the game itself works.
-- **Engine exports run unchanged:** a web export from Godot, Unity, Phaser and Three.js goes through the check, the upload command, the scan and its game page on every change to Zaisma, so engine builds keep working.
+- What a game's code is checked for skips engine and library output (Unity's `.framework.js` and `.loader.js`, a `.js` beside a `.wasm` of the same name or its `_bg.wasm` (wasm-bindgen and Trunk), macroquad's `mq_js_bundle.js`, `*.min.js`), which mentions dialogs or cameras without the game using them, and comments, which say what code could do rather than what it does. A dialog shown only when the game fails to load, like the one in Unity's page template, isn't a problem: the game itself works.
+- **Engine exports run unchanged:** a web export from Godot, Unity, Phaser, Three.js, Bevy and macroquad goes through the check, the upload command, the scan and its game page on every change to Zaisma, so engine builds keep working.
 
 ### Big files
 
