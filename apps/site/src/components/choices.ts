@@ -140,7 +140,7 @@ ${options.error ? html`<p class="field-error" id="${id}-error">${options.error}<
  */
 export const SELECT_SCRIPT = `/* select fields */(function () {
   var GAP_PX = 6;
-  document.querySelectorAll("[data-select]").forEach(function (root) {
+  window.zaismaWatch.each("[data-select]", function (root) {
     var button = root.querySelector(".select-button"), list = root.querySelector(".select-list"), hidden = root.querySelector('input[type="hidden"]'), field = button.closest(".field");
     if (!list.hasAttribute("popover")) return;
     var options = Array.prototype.slice.call(list.querySelectorAll('[role="option"]')), active = -1, typed = "", typedAt = 0;

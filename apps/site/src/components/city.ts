@@ -1334,6 +1334,116 @@ export const CITY_SCRIPT: PageScript = pageScript("city", String.raw`(function (
 })();
 `);
 
+/**
+ * The pane's steps happen in place, so the city never starts over: a form sent or a link followed inside a pane on the city (and back
+ * and forward between them) fetches the next page and swaps its pane's content into this one, with its title, address and scripts.
+ * Only the content of .pane-in changes; the city, the header and the pane's glass stay. Anything that isn't a step of signing in
+ * (home, a game, the account page, a provider's sign-in) loads as a page does, and so does anything the fetch can't reach.
+ * Scripts call window.zaismaPaneGo(href) where they would set location.href, so a step they take stays in place too.
+ * The scripts that came with the new content run again; the city's own (and this one) never do.
+ */
+export const CITY_PANE_SCRIPT: PageScript = pageScript("city-pane", `(function () {
+  var pane = document.querySelector("[data-city-pane]");
+  if (!pane || !window.fetch || !window.DOMParser || !window.AbortController || !window.URLSearchParams) return;
+  // The steps of signing in, a pane on the city each: Sign in and Make an account and every step after them, and You're in.
+  var STEPS = /^\\/(signin|join)(\\/|$)|^\\/account\\/kept$/, AWAY = /^\\/signin\\/with\\//, OWN_SCRIPTS = /\\/js\\/city(-pane)?\\./;
+  var waiting = null, shownPath = location.pathname + location.search;
+  function isStep(url) { return url.origin === location.origin && STEPS.test(url.pathname) && !AWAY.test(url.pathname); }
+  // Sign in and Make an account swap between themselves (ENTRY_SWITCH_SCRIPT) while the pane holds both.
+  function isSwitchOwn(url) { return /^\\/(signin|join)$/.test(url.pathname) && Boolean(pane.querySelector("[data-entry-view]")); }
+
+  function go(url, request, history, fallback) {
+    if (waiting) waiting.abort();
+    var controller = (waiting = new AbortController());
+    fetch(url, Object.assign({ credentials: "same-origin", signal: controller.signal }, request))
+      .then(function (response) {
+        return response.text().then(function (text) {
+          if (waiting !== controller) return;
+          waiting = null;
+          var page = (response.headers.get("content-type") || "").indexOf("text/html") === 0 ? new DOMParser().parseFromString(text, "text/html") : null;
+          var next = page && page.querySelector("[data-city-pane] .pane-in");
+          if (!next) return away(response, text, request.method);
+          // A form answered in place (a problem to fix, or the next step of the same address) keeps the address it was sent from.
+          swap(page, next, response.url, request.method === "POST" && !response.redirected ? "none" : history);
+        });
+      })
+      .catch(function (error) { if (waiting === controller) waiting = null; if (!error || error.name !== "AbortError") fallback(); });
+  }
+  // Not a step: a page reached by a redirect, or by a link, opens as a page; one a form's send answered with directly takes this one's place.
+  function away(response, text, method) {
+    if (response.redirected || method === "GET") { location.assign(response.url); return; }
+    document.open(); document.write(text); document.close();
+  }
+  function swap(page, next, url, history) {
+    var holder = pane.querySelector(".pane-in"), glass = pane.querySelector(".glass-pane"), label = page.querySelector("[data-city-pane] .glass-pane");
+    var scripts = Array.prototype.filter.call(page.querySelectorAll(".city-page script[src]"), function (script) { return !OWN_SCRIPTS.test(script.getAttribute("src")); });
+    scripts.forEach(function (script) { script.remove(); });
+    if (label && glass) glass.setAttribute("aria-label", label.getAttribute("aria-label") || "");
+    holder.replaceChildren.apply(holder, Array.prototype.slice.call(next.childNodes));
+    holder.scrollTop = 0;
+    document.title = page.title;
+    var path = new URL(url).pathname + new URL(url).search;
+    if (history === "push" && path !== shownPath) window.history.pushState({ cityPane: true }, "", url);
+    else if (history === "push") window.history.replaceState({ cityPane: true }, "", url);
+    shownPath = location.pathname + location.search;
+    runAll(scripts.map(function (script) { return script.getAttribute("src"); }));
+    // Where the step begins: its first field with a problem, or its heading, read out as a new page's would be.
+    var problem = holder.querySelector('[aria-invalid="true"]'), heading = holder.querySelector("h1, h2");
+    if (problem) problem.focus({ preventScroll: true });
+    else if (heading) { heading.setAttribute("tabindex", "-1"); heading.focus({ preventScroll: true }); }
+    // On a phone the page scrolls: a step that starts above the screen comes back into view, under the header.
+    var top = pane.getBoundingClientRect().top, header = document.querySelector("header.top"), clear = header ? header.getBoundingClientRect().bottom + 12 : 12;
+    if (top < clear) window.scrollBy({ top: top - clear, behavior: "smooth" });
+  }
+  // In order, one after another, as they would on a page.
+  function runAll(sources) {
+    if (!sources.length) return;
+    var script = document.createElement("script");
+    script.src = sources[0];
+    script.onload = script.onerror = function () { script.remove(); runAll(sources.slice(1)); };
+    document.body.appendChild(script);
+  }
+
+  window.zaismaPaneGo = function (href) {
+    var url = new URL(href, location.href);
+    if (!isStep(url)) { location.assign(url.href); return; }
+    go(url.href, { method: "GET" }, "push", function () { location.assign(url.href); });
+  };
+  document.addEventListener("click", function (event) {
+    var link = event.target.closest && event.target.closest("a[href]");
+    if (!link || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    if (!pane.contains(link) || (link.target && link.target !== "_self") || link.hasAttribute("download")) return;
+    var url = new URL(link.href);
+    if (!isStep(url) || (url.hash && url.pathname === location.pathname && url.search === location.search)) return;
+    event.preventDefault();
+    go(url.href, { method: "GET" }, "push", function () { location.assign(url.href); });
+  });
+  // After every other submit listener (the bot check holds a form until it's answered, a field may stop one).
+  window.addEventListener("submit", function (event) {
+    var form = event.target, submitter = event.submitter;
+    if (event.defaultPrevented || !pane.contains(form)) return;
+    var url = new URL((submitter && submitter.getAttribute("formaction")) || form.action, location.href);
+    var method = ((submitter && submitter.getAttribute("formmethod")) || form.method || "get").toUpperCase();
+    if (!isStep(url) || (form.target && form.target !== "_self")) return;
+    var data = new FormData(form);
+    if (submitter && submitter.name && !data.has(submitter.name)) data.append(submitter.name, submitter.value);
+    var fields = new URLSearchParams();
+    data.forEach(function (value, name) { if (typeof value === "string") fields.append(name, value); });
+    event.preventDefault();
+    var send = function () { HTMLFormElement.prototype.submit.call(form); };
+    if (method === "GET") { url.search = fields.toString(); go(url.href, { method: "GET" }, "push", send); }
+    else go(url.href, { method: "POST", body: fields, headers: { "content-type": "application/x-www-form-urlencoded" } }, "push", send);
+  });
+  window.addEventListener("popstate", function () {
+    var url = new URL(location.href), path = url.pathname + url.search;
+    if (path === shownPath) return;
+    if (isSwitchOwn(url)) { shownPath = path; return; }
+    if (!isStep(url)) { location.reload(); return; }
+    go(url.href, { method: "GET" }, "none", function () { location.reload(); });
+  });
+})();
+`);
+
 const CITY_STYLES = `
 /* The city's stage: under everything on the page, filling the window. Its sky shows at once, and nothing half-made shows over it: the
    live city fades in once it runs smoothly, and where it can't run (reduced motion, no WebGL, a device that can't keep up) the still

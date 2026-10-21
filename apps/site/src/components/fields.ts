@@ -162,7 +162,7 @@ export const DATE_TIME_SCRIPT = `/* date and time */(function () {
   function zoneName(date) {
     try { var part = new Intl.DateTimeFormat("en-US", { timeZoneName: "long" }).formatToParts(date).find(function (each) { return each.type === "timeZoneName"; }); return part ? part.value : ""; } catch (error) { return ""; }
   }
-  document.querySelectorAll("[data-date-time]").forEach(function (root) {
+  window.zaismaWatch.each("[data-date-time]", function (root) {
     var field = root.querySelector(".bday-field"), pick = root.querySelector(".bday-pick"), shown = root.querySelector(".bday-value"), zone = root.querySelector(".date-time-zone");
     var read = root.querySelector(".bday-read"), hidden = root.querySelector('input[type="hidden"]'), id = hidden.getAttribute("data-id");
     // The earliest it takes, at a five-minute step; the day wheel starts on its day.
@@ -276,7 +276,7 @@ export const BIRTHDAY_SCRIPT = `/* birthday */(function () {
   var HINT = window.matchMedia("(pointer: coarse)").matches ? "Swipe each wheel to pick." : "Scroll or type to pick each one.";
   var years = []; for (var yr = THIS_YEAR; yr > THIS_YEAR - 100; yr--) years.push(String(yr));
   function daysIn(month, year) { return month ? new Date(year || 2000, month, 0).getDate() : 31; }
-  document.querySelectorAll("[data-birthday]").forEach(function (root) {
+  window.zaismaWatch.each("[data-birthday]", function (root) {
     var field = root.querySelector(".bday-field"), pick = root.querySelector(".bday-pick"), value = root.querySelector(".bday-value"), error = root.querySelector(".field-error");
     var read = root.querySelector(".bday-read"), hidden = root.querySelector('input[type="hidden"]'), id = hidden.getAttribute("data-id");
     var birthday = { month: 0, day: 0, year: 0 }; // 0 is the blank row

@@ -597,7 +597,7 @@ export function stepFlow(options: StepFlowOptions): Raw {
  */
 export const STEP_FLOW_SCRIPT = `/* step flows */(function () {
   var LEAVE_MS = 450;
-  document.querySelectorAll("form[data-steps]").forEach(function (form) {
+  window.zaismaWatch.each("form[data-steps]", function (form) {
     var bodies = Array.prototype.slice.call(form.querySelectorAll(":scope > .step-body")), marks = Array.prototype.slice.call(form.closest(".pane-in").querySelectorAll(".step-line > li"));
     var back = form.querySelector("[data-step-buttons] > .cut-btn"), next = form.querySelector("[data-step-buttons] > .run-wrap"), words = next.querySelector(".run > span:not([class])");
     var at = Number(form.getAttribute("data-steps")) || 0, last = bodies.length - 1, nextWords = "Next", finishWords = form.getAttribute("data-finish-label");

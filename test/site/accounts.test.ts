@@ -2,6 +2,7 @@ import { createExecutionContext, env, SELF } from "cloudflare:test";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { MAXIMUM_OPEN_FRIEND_INVITE_COUNT, accountById, stopSocial, addTesterLink, friendsNowOf, blocksOf, playerProfile, playingNowOf, ageBand, ageOn, applyBirthdays, canonicalSave, checkUsername, createAccount, createApiKey, deleteExpiredFriendInvites, friendInviteByCode, friendInvitesOf, friendsOf, gameById, gameBySlug, gameOwner, recordPlayed, createGame, saveKey, sha256Hex, createReport, createVersion, isSlugRetired, newId, personOwner, queueGameDeletion, saveCopyKey, saveScan } from "@zaisma/core";
 import { deleteDueGames } from "../../apps/site/src/game-deletion.ts";
+import { PASSKEY_SCRIPT } from "../../apps/site/src/passkeys.ts";
 import { decideTopic } from "../../apps/site/src/forum-posts.ts";
 import { checkForumPosts, type CheckDeps } from "../../apps/site/src/forum-check.ts";
 import { checkProfiles } from "../../apps/site/src/profile-check.ts";
@@ -2159,6 +2160,8 @@ describe("cloud saves", () => {
     // One pane of glass over the city: its canvas, the still under it, the logo alone above, and the switch to making an account.
     expect(plain).toContain('<div class="city-pane" data-city-pane>');
     expect(plain).toContain('<canvas class="city"></canvas>');
+    // Every step swaps into the pane in place, so the city never starts over; the passkey script can run again for it.
+    expect(plain).toMatch(/<script src="\/js\/city-pane\.[0-9a-f]+\.js" defer><\/script>/);
     expect(plain).toContain('<div class="city-still is-day"></div><div class="city-still is-night"></div><canvas class="city"></canvas>');
     expect(plain).toMatch(/<header class="top glass"[^>]*>[\s\S]*?<\/header>/);
     expect(plain.match(/<header class="top glass"[\s\S]*?<\/header>/)![0]).not.toMatch(/class="end"|class="nav"|href="\/signin"/);
@@ -2849,6 +2852,10 @@ async function signInWith(device: Device, opts: { origin?: string; count?: numbe
 
 
 describe("passkeys", () => {
+  it("keeps its shared script safe to run again, as a sign-in step swapped in place runs it", () => {
+    // A top-level const or let can't be declared twice on a page, so running it again would throw.
+    expect(PASSKEY_SCRIPT.sourceText).not.toMatch(/^(const|let) /m);
+  });
   it("adds a passkey after a recent sign-in, then signs back in with it", async () => {
     const b = new Browser();
     await join(b);

@@ -107,7 +107,7 @@ import type { Env } from "./env.ts";
 import { deleteForumFiles } from "./forum-posts.ts";
 import { deleteDueGames } from "./game-deletion.ts";
 import { html, layout, message, raw, scriptTags, type Raw } from "./html.ts";
-import { cityStage, CITY_SCRIPT } from "./components/city.ts";
+import { cityStage, CITY_PANE_SCRIPT, CITY_SCRIPT } from "./components/city.ts";
 import { glassPane } from "./components/foundations.ts";
 import { cutButton, glassButton, guestButton, runButton, textLink } from "./components/actions.ts";
 import { birthdayField, choiceCards, cutField, tabSwitch } from "./components/inputs.ts";
@@ -838,7 +838,6 @@ interface SignInPageOptions {
   /** The game that asked the player to sign in (askingGame). */
   game?: Game | null;
   httpStatus?: number;
-  hasTurnstileCheck?: boolean;
   /** Who is looking, once they're signed in (You're in). */
   account?: Account | null;
 }
@@ -848,16 +847,18 @@ interface SignInPageOptions {
  * in the city, on every device"), with only the logo above it.
  */
 function signInPage(env: Env, title: string, body: Raw, options: SignInPageOptions = {}): Response {
+  // Every step allows the bot check, since each can swap in the next one's in place (CITY_PANE_SCRIPT).
+  const hasTurnstileCheck = Boolean(env.TURNSTILE_SITE_KEY);
   const response = layout(env, {
     title: `${title} · Zaisma`,
     stage: cityStage(),
     isBare: true,
     isRebuilt: true,
     isPrivate: true,
-    hasTurnstileCheck: options.hasTurnstileCheck,
+    hasTurnstileCheck,
     viewer: options.account === undefined ? undefined : { account: options.account },
-    body: html`<div class="city-page">${header({ current: null, isOnDeveloperPage: false, isOnSignInPage: true })}<div class="city-pane" data-city-pane>${glassPane({ paneSize: "full", label: title, body })}</div>${rail("page")}</div>
-${scriptTags(CITY_SCRIPT, BACK_TO_GAME_SCRIPT, ...(options.hasTurnstileCheck ? [BOT_CHECK_SCRIPT] : []))}`,
+    body: html`<div class="city-page">${header({ current: null, isOnDeveloperPage: false, isOnSignInPage: true })}<div class="city-pane" data-city-pane>${glassPane({ paneSize: "full", label: title, body })}</div>${rail("page")}
+${scriptTags(CITY_SCRIPT, CITY_PANE_SCRIPT, BACK_TO_GAME_SCRIPT, ...(hasTurnstileCheck ? [BOT_CHECK_SCRIPT] : []))}</div>`,
   });
   return new Response(response.body, { status: options.httpStatus ?? 200, headers: response.headers });
 }
@@ -948,7 +949,7 @@ ${join}
 <p class="or" data-entry-or="join"${current === "join" ? "" : raw(" hidden")}>or</p>
 ${guestWay(game, false)}
 ${scriptTags(PASSKEY_SCRIPT, PASSKEY_SIGN_IN_SCRIPT, ENTRY_SWITCH_SCRIPT)}`,
-    { game, httpStatus: given.httpStatus, hasTurnstileCheck: Boolean(env.TURNSTILE_SITE_KEY) },
+    { game, httpStatus: given.httpStatus },
   );
 }
 
@@ -975,7 +976,7 @@ const ENTRY_SWITCH_SCRIPT = pageScript("entry-switch", `(() => {
     history.pushState({ entryView: viewOf(tab.href) }, "", tab.href);
     show(viewOf(tab.href));
   });
-  addEventListener("popstate", () => show(viewOf(location.href)));
+  addEventListener("popstate", () => { if (sw.isConnected && /^\\/(signin|join)$/.test(location.pathname)) show(viewOf(location.href)); });
 })();`);
 
 async function signinPage(env: Env, next: string | null, error?: string, httpStatus = 200, login = ""): Promise<Response> {
@@ -1008,7 +1009,7 @@ ${runButton("Email me a code", { isFullWidth: true, isBig: true, busyLabel: "Sen
 <p class="note">Added neither? Then the account can't be recovered, but you can always ${textLink("make a new one", `/join${nextQuery(next)}`)}.</p>
 ${guestWay(game)}
 ${scriptTags(PASSKEY_SCRIPT, PASSKEY_SIGN_IN_SCRIPT)}`,
-    { game, httpStatus: error ? 400 : 200, hasTurnstileCheck: Boolean(env.TURNSTILE_SITE_KEY) },
+    { game, httpStatus: error ? 400 : 200 },
   );
 }
 
@@ -1220,7 +1221,7 @@ ${runButton("Next", { isFullWidth: true, isBig: true, busyLabel: "One moment" })
 ${TERMS_LINE}
 ${guestWay(game)}
 ${scriptTags(USERNAME_SCRIPT)}`,
-    { game, httpStatus: error || given.usernameError || given.passwordError ? 400 : 200, hasTurnstileCheck: Boolean(env.TURNSTILE_SITE_KEY) },
+    { game, httpStatus: error || given.usernameError || given.passwordError ? 400 : 200 },
   );
 }
 
@@ -1240,7 +1241,7 @@ ${runButton("Next", { isFullWidth: true, isBig: true, busyLabel: "One moment" })
 </form>
 ${TERMS_LINE}
 ${scriptTags(USERNAME_SCRIPT)}`,
-    { game, httpStatus: error || given.usernameError ? 400 : 200, hasTurnstileCheck: Boolean(env.TURNSTILE_SITE_KEY) },
+    { game, httpStatus: error || given.usernameError ? 400 : 200 },
   );
 }
 
