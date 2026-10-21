@@ -78,10 +78,10 @@ export async function handleProfiles(request: Request, env: Env, path: string): 
   if (sub === "/report") {
     if (!visitor) return done(redirect(`/signin?next=${encodeURIComponent(`${profilePath(owner.username)}/report`)}`));
     if (isOwner) return done(redirect(profilePath(owner.username)));
-    if (!post) return done(reportPage(env, owner));
+    if (!post) return done(reportPage(env, owner, visitor));
     const form = await request.formData();
     const reason = String(form.get("reason") ?? "");
-    if (!(reason in PROFILE_REPORT_REASONS)) return done(reportPage(env, owner, "Choose what's wrong."));
+    if (!(reason in PROFILE_REPORT_REASONS)) return done(reportPage(env, owner, visitor, "Choose what's wrong."));
     const details = String(form.get("details") ?? "").trim().slice(0, 1000);
     await reportProfile(env.DB, owner, visitor.id, reason as ProfileReportReason, details);
     if (reason === "child_safety") {
@@ -174,7 +174,7 @@ ${view.mutual_friends.length
 </div>
 <style>${raw(PROFILE_STYLES)}.playing-now .join-row{display:flex;justify-content:flex-end;margin-top:10px}${raw(JOIN_OFF_STYLES)}</style>
 ${scriptTags(PROFILE_SCRIPT)}`;
-  const response = layout(env, { title: `${name} (@${owner.username}) · Zaisma`, body, isPrivate: true });
+  const response = layout(env, { title: `${name} (@${owner.username}) · Zaisma`, body, isPrivate: true, viewer: { account: visitor } });
   return new Response(response.body, { status: editState ? 400 : 200, headers: response.headers });
 }
 
@@ -230,7 +230,7 @@ function outLink(linkUrl: string): Raw {
   return html`<a class="out" href="/forum/out?to=${encodeURIComponent(parsedUrl.href)}" data-out="${parsedUrl.href}" data-host="${parsedUrl.hostname}" rel="nofollow ugc noopener">${label}</a>`;
 }
 
-function reportPage(env: Env, owner: Account, error?: string): Response {
+function reportPage(env: Env, owner: Account, visitor: Account | null, error?: string): Response {
   const body = html`<div class="narrow">
 <form class="stack" method="post" action="${profilePath(owner.username)}/report">
   <h1>Report @${owner.username}</h1>
@@ -243,7 +243,7 @@ function reportPage(env: Env, owner: Account, error?: string): Response {
   <div class="row">${metalButton("Send report", { type: "submit" })}<a class="btn ghost" href="${profilePath(owner.username)}">Back</a></div>
 </form>
 </div>`;
-  const response = layout(env, { title: `Report @${owner.username} · Zaisma`, body, isPrivate: true });
+  const response = layout(env, { title: `Report @${owner.username} · Zaisma`, body, isPrivate: true, viewer: { account: visitor } });
   return new Response(response.body, { status: error ? 400 : 200, headers: response.headers });
 }
 

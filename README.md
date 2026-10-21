@@ -1,27 +1,18 @@
 # Zaisma
 
-**Every kind of game. One link away.**
+**Play anything, from a link.**
 
 Zaisma (ZAI-zmuh, from the Lithuanian *žaismas*, "play") is an open-source game platform for the browser.
 
-- **Play instantly.** Tap a link and you're in the game: no account, no download, any device.
-- **Publish anything.** Any web game, any engine, any style, including games made with AI tools like Claude Code. Players can install any game for offline play.
-- **Keep your revenue.** No cut of your sales. Use our free checkout, your own Stripe, or any payment method you like, including Bitcoin.
-- **Multiplayer your way.** Use our rooms, free for small games and cheap after that, or run your own servers. Accounts, friends and invite links keep working either way.
-- **Fully open.** Every line of the platform is MIT licensed. Read it, fork it, run your own.
+**For players.** Tap a link and the game starts, in any browser, on any device. There's no account to make and nothing to download: you play as a guest, and your progress stays on that device. Make an account when you want to keep your progress everywhere and play with friends.
+
+**For game developers.** Publish any web game, from any engine, by hand or straight from your AI through Zaisma's MCP server or upload command. Every version is checked for safety before players get it. Your game can use Zaisma's multiplayer rooms with a game server, cloud saves and player accounts, or your own servers: player passes and room links work there too. Zaisma takes no cut of what you sell.
+
+**Open source.** All of Zaisma is under the MIT license. Read it, fork it, run your own.
 
 ## Status
 
-Pre-beta. Open source (MIT): all the code and developer docs are public.
-
-| Phase | What ships |
-| --- | --- |
-| 0. Safe hosting (live) | Scan before publish, sandboxed game domain, directory, reporting |
-| 1. Beta | Guest multiplayer and invite links, accounts and cloud saves, the developer MCP for publishing from any AI tool. **Public beta.** |
-| 2. Earn | The Zaisma buy sheet, purchases that follow players, hosting billing, Zaisma Pro, promoted games |
-| 3. Play together | Friends, Zaisma in Discord |
-| 4. Discover | Quality-ranked front page, real ratings, player lists, follows |
-| 5. Create together | Remixes, teams, mods, the Tools tab |
+Before the beta. Zaisma runs at zaisma.com, but only the people building it use it for now, and anything in it may still change.
 
 ## Design
 
@@ -47,7 +38,7 @@ npm run dev:site    # http://localhost:8787, admin at /admin
 npm test
 ```
 
-To run your own Zaisma, create a D1 database, two R2 buckets (game files and cloud saves) and a queue (names in the two `wrangler.jsonc` files), put the database ID in the three files, set your site, game and rooms addresses, protect `/admin` with Cloudflare Access, set the rooms Worker's `PASS_SIGNING_KEY` secret, point `SUPABASE_URL` at your Supabase project for accounts and set the site's `SUPABASE_SECRET_KEY` secret (the site is the only thing that talks to Supabase; turn its publishable key off), onboard your domain to Cloudflare Email Sending for email codes (and set `EMAIL_FROM`), set the site's `SIGN_IN_SIGNING_KEY` secret for Sign in with Zaisma: `node scripts/sign-in-key.mjs | npx wrangler secret put SIGN_IN_SIGNING_KEY --config apps/site/wrangler.jsonc`, and deploy `apps/rooms`, `apps/games` and `apps/site`, in that order (the site reaches games' databases through a service binding to the rooms Worker, `zaisma-rooms`).
+To run your own Zaisma, create a D1 database, two R2 buckets (game files and cloud saves) and two queues (scans and compressed copies; names in the two `wrangler.jsonc` files), put the database ID in the three files, set your site, game and rooms addresses, protect `/admin` with Cloudflare Access, set the rooms Worker's `PASS_SIGNING_KEY` secret, point `SUPABASE_URL` at your Supabase project for accounts and set the site's `SUPABASE_SECRET_KEY` secret (the site is the only thing that talks to Supabase; turn its publishable key off), onboard your domain to Cloudflare Email Sending for email codes (and set `EMAIL_FROM`), set the site's `SIGN_IN_SIGNING_KEY` secret for Sign in with Zaisma: `node scripts/sign-in-key.mjs | npx wrangler secret put SIGN_IN_SIGNING_KEY --config apps/site/wrangler.jsonc`, and deploy `apps/rooms`, `apps/games`, `apps/compress` and `apps/site`, in that order (the site reaches games' databases through a service binding to the rooms Worker, `zaisma-rooms`).
 
 ### Multiplayer
 
@@ -57,20 +48,22 @@ Multiplayer is server-client: the *client* is the game in the browser, the *game
 
 ```ts
 export default {
-  maximumPlayerCount: 8,   // up to 16
-  ticksPerSec: 20,         // leave out for turn-based games so the room sleeps between moves
+  maximumPlayerCount: 8,   // up to 100
+  ticksPerSec: 20,         // up to 60; leave out for turn-based games so the room sleeps between moves
   setup: (setupData) => ({ players: {} }),  // setupData: what room.reserve() passed, for a room another room made, else null
   onJoin(state, player, room, joinData, joinInfo) {}, // joinData: what the player's game passed to joinRoom({ joinData }), else null;
                                                        // joinInfo: { fromRoomCode, isReturning } (isReturning: back to a held seat)
   canJoin(state, player, room, joinData, joinInfo) {}, // true (or nothing) lets them in; false or { refusalMessage } turns them away
   onLeave(state, player, room, leaveInfo) {},  // leaveInfo.reason: left, lost, idle, hidden or kicked
   onMessage(state, player, message, room) {},
+  onBytes(state, player, bytes, room) {},      // bytes a player's game sent (room.sendBytes), a Uint8Array
   onTick(state, tickDurationSec, room) {},     // tickDurationSec: seconds since the last tick
   onRequest(player, request, server) {},       // a request outside any room (Zaisma.server.request): answer it (below)
   schedules: [{ name: "daily-reset", cron: "0 0 * * *" }], // runs by itself, in UTC (below)
   onSchedule(run, server) {},                  // run.name: which schedule is due
 };
 // room.broadcast(message, { exceptPlayerId }), room.send(playerId, message), room.players, room.end(message),
+// room.broadcastBytes(bytes, { exceptPlayerId, fromPlayerId }), room.sendBytes(playerId, bytes),
 // room.setListed(false), room.setOpen(false), room.reserve({ playerIds, setupData }),
 // await room.database.query(sql, values), await room.database.batch([{ sql, values }])  (the game database, below)
 ```
@@ -87,7 +80,11 @@ canJoin(state, player, room, joinData) {
 
 Each player's ping, measured by the room, is `room.pingDurationMs(playerId)` on the game server and `room.pingDurationMs` in their game, and both read the room's clock with `room.serverTimeMs()` (see "Room connections" in [`docs/DEVELOPER-API.md`](docs/DEVELOPER-API.md)).
 
-Games without server code can use the built-in `relay`, which passes each message to everyone else as `{ fromPlayerId, data }`. See `examples/arena` (real-time) and `examples/four-in-a-row` (turn-based).
+A room takes up to 100 players at up to 60 ticks a second. Each player's game sends up to 30 messages a second (a burst of 60), so a game at 60 ticks sends two inputs in one message; the game server can still send every tick. Past 100 players, split a world into rooms and move players between them (`room.moveTo`).
+
+**Bytes:** for snapshots and inputs where JSON is too big, a game sends bytes with `room.sendBytes(bytes)` (an `ArrayBuffer` or any typed array) and gets them with `room.on("bytes", (bytes, fromPlayerId) => {})`; the game server takes them in `onBytes` and sends them with `room.broadcastBytes(bytes)` and `room.sendBytes(playerId, bytes)`. `fromPlayerId` is the player they came from when the game server passes one player's bytes on (`room.broadcastBytes(bytes, { fromPlayerId: player.id })`, as the relay does), else `null`. Bytes have the same limits as messages: up to 16 KB each, counted together with them. The MCP's `get_stats` shows each game's room traffic per player and its biggest message types, with hints on what to send as bytes or send less.
+
+Games without server code can use the built-in `relay` (up to 16 players), which passes each message to everyone else as `{ fromPlayerId, data }`, and bytes with their `fromPlayerId`. See `examples/arena` (real-time) and `examples/four-in-a-row` (turn-based).
 
 #### Your game server on Zaisma
 
@@ -104,6 +101,7 @@ zaisma-server/
 - **Plain JavaScript ES modules:** `zaisma-server/index.js` default-exports the game server above, and can import the folder's other files by relative path: `.js` code, `.json` data (`import levels from "./levels.json"`) and `.wasm` WebAssembly, like a physics engine (`import mod from "./physics.wasm"` gives a `WebAssembly.Module`; `new WebAssembly.Instance(mod, imports)` starts it). Packages from npm (`import "lodash"`) and TypeScript need a build step: bundle into one `zaisma-server.js` at the top of the upload instead (`npx esbuild server.ts --format=esm --bundle --outfile=zaisma-server.js`). Up to 500 files and 5 MB.
 - **Sealed off:** nothing of Zaisma's but its own game's database and secrets, and other servers only on the hosts you list (below), so it talks to its players through `room` and its answers to their requests. State is plain JSON.
 - **Private:** players never get its files; the game domain refuses `zaisma-server/` and `zaisma-server.js`.
+- **Real-time rooms batch input:** in a room with `ticksPerSec`, the state stays inside the sandbox, and players' messages and bytes reach `onMessage` and `onBytes` just before the next `onTick`, in the order they came, with what they send going out then (at most a tick later). A handler that throws leaves the rest of the batch to run, and what it changed in the state before throwing stays, as on your own server, where they run as they come.
 - **Kept in check:** an error in a handler loses that one message or tick and the match carries on. A handler that runs on too long (a loop that never ends) is stopped after about 2 seconds, freezing the match meanwhile, and a match stopped twice ends. Your dashboard and the MCP's `get_stats` show these errors with the file and line they came from.
 - **Updates:** rooms keep the version they started with until they end; new rooms get the live version.
 
@@ -174,7 +172,7 @@ room.on("move", (move) => { room.leave(); move.join(); });  // in the game: go t
 
 The new room runs the same game server, and its `setup(setupData)` gets your setup data, so it can start the match already set up (players can read it but can't change it; up to 4 KB). It's ready before anyone hears its code, only the players named can join it (it's a closed room, until your server opens it), and it's hidden from room lists unless you pass `isListed: true` (with a `name` and `labels` if you like). To send players to a room that's already running instead, like the next area of an open world, use `room.moveTo(roomCode, { playerIds, joinData })`: the other room's `canJoin` decides, and `onMoved(state, moveResult, room)` hears `{ roomCode, movedPlayers, refusals }`. A room can reserve up to 20 rooms a minute. See `examples/four-in-a-row`: its "Find an opponent" waits in a lobby room until there's someone to play.
 
-Playing alone needs no room, so don't make one until others can join: time in a room counts toward hosting even with one player. Each game gets 1,000 player-hours a month on Zaisma rooms free (the dashboard shows how much it has used). Until hosting billing is ready, that's also the most it can use: past it, new rooms don't open until the month resets (UTC) and joining fails with `error.code === "month_limit"`, while matches already running carry on.
+Playing alone needs no room, so don't make one until others can join: time in a room counts toward hosting even with one player. Each game gets 1,000 player-hours a month on Zaisma rooms free (the dashboard shows how much it has used). Each player-hour includes 25 CPU-seconds of your game server; past that, every 50 CPU-seconds counts one more player-hour, over the game's whole month. Until hosting billing is ready, that's also the most it can use: past it, new rooms don't open until the month resets (UTC) and joining fails with `error.code === "month_limit"`, while matches already running carry on.
 
 #### Players who walk away
 
@@ -330,4 +328,4 @@ A game opens its store, Patreon, Steam page or Discord with `await Zaisma.links.
 
 - Every upload is scanned before it goes live: file-type and executable checks, static malware checks, known-illegal-image matching and an AI review. Anything unclear waits for a person.
 - Games run on a separate domain inside a sandboxed frame, with a strict Content Security Policy: no access to zaisma.com, no cookies, no outside scripts, and connections only to Zaisma rooms and the game's own listed servers. They open no pages themselves: only their registered links, through Zaisma's leaving card, each site checked against Cloudflare's malware and phishing list.
-- Every game page has a Report button. Takedowns apply instantly and are logged.
+- Every game page has a Report button. Takedowns apply at once and are logged.

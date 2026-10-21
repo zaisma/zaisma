@@ -1,9 +1,11 @@
 import {
   accessPassByKey,
+  brotliKeyOf,
   connectSources,
   contentTypeFor,
   fileKey,
   gameHeaders,
+  isCompressibleType,
   isEntryCookieValid,
   isServerPath,
   isTesterLinkOn,
@@ -205,6 +207,102 @@ async function manifestFor(env: Env, versionId: string): Promise<Manifest | null
   return manifest;
 }
 
+/** Whether the browser takes Brotli (Accept-Encoding has br, not turned off with q=0). */
+function acceptsBrotli(request: Request): boolean {
+  return (request.headers.get("accept-encoding") ?? "").split(",").some((part) => {
+    const [coding, ...parameters] = part.trim().toLowerCase().split(";");
+    return coding!.trim() === "br" && !parameters.some((parameter) => /^\s*q=0(\.0*)?\s*$/.test(parameter));
+  });
+}
+
+/** The ETags in If-None-Match, without quotes' W/ marks. */
+function ifNoneMatchTags(request: Request): string[] {
+  return (request.headers.get("if-none-match") ?? "").split(",").map((tag) => tag.trim().replace(/^W\//, "")).filter(Boolean);
+}
+
+/** How long the cache near players keeps a file: for good under its own key, an hour when it stands in for a copy not made yet. */
+const CACHED_FILE_DURATION_SEC = 30 * 24 * 3600;
+const CACHED_STAND_IN_DURATION_SEC = 3600;
+/** The Cache API keeps responses up to 512 MB. */
+const MAXIMUM_CACHED_SIZE_BYTES = 512 * 1024 * 1024;
+/** Marks a cached copy's encoding. The cache keeps the copy's bytes as they are, under no Content-Encoding, so nothing decodes them on the way. */
+const CACHED_ENCODING_HEADER = "X-Zaisma-Encoding";
+
+/**
+ * A stored file of a file-by-file version (docs/DECISIONS.md, "Game files reach players small and from nearby,
+ * exactly as uploaded"): its Brotli copy when the browser takes it and there is one, from the cache near the
+ * player when it's there. The ETag is the file's fingerprint, so a returning player's browser checks it and
+ * downloads only what changed, without a storage read. Called only once every access check has passed: the
+ * cache holds no access.
+ */
+async function serveStoredFile(request: Request, env: Env, ctx: ExecutionContext, url: URL, path: string, storageKey: string, sha256: string, headers: Headers): Promise<Response> {
+  const isHead = request.method === "HEAD";
+  const etagOf = (isCopy: boolean) => `"${sha256}${isCopy ? "-br" : ""}"`;
+  headers.set("Cache-Control", "no-cache");
+  if (isCompressibleType(path)) headers.set("Vary", "Accept-Encoding");
+  const matched = ifNoneMatchTags(request).find((tag) => tag === etagOf(false) || tag === etagOf(true));
+  if (matched) {
+    headers.set("ETag", matched);
+    return new Response(null, { status: 304, headers });
+  }
+
+  // Part of a file is read from the original, as it's stored.
+  if (request.headers.has("range")) {
+    const object = await env.GAMES.get(storageKey, { range: request.headers });
+    if (!object) return page(404, "File not found", "This game is missing a file.", env);
+    headers.set("ETag", etagOf(false));
+    headers.set("Accept-Ranges", "bytes");
+    let httpStatus = 200;
+    if (object.range) {
+      const range = object.range as R2RangeFields;
+      const startByte = range.suffix !== undefined ? object.size - range.suffix : (range.offset ?? 0);
+      const lengthBytes = range.suffix !== undefined ? range.suffix : (range.length ?? object.size - startByte);
+      headers.set("Content-Range", `bytes ${startByte}-${startByte + lengthBytes - 1}/${object.size}`);
+      httpStatus = 206;
+    }
+    return new Response(isHead ? null : object.body, { status: httpStatus, headers });
+  }
+
+  const wantsBrotli = acceptsBrotli(request) && isCompressibleType(path);
+  const answer = (body: ReadableStream | null, isCopy: boolean, sizeBytes: number) => {
+    headers.set("ETag", etagOf(isCopy));
+    headers.set("Content-Length", String(sizeBytes));
+    if (!isCopy) {
+      headers.set("Accept-Ranges", "bytes");
+      return new Response(isHead ? null : body, { headers });
+    }
+    headers.set("Content-Encoding", "br");
+    // Sent as it is: the runtime and Cloudflare don't compress it again.
+    return new Response(isHead ? null : body, { headers, encodeBody: "manual" });
+  };
+
+  // The game domain's own host, so the cache is the zone's; in path mode (the local preview), this address's.
+  const cacheOrigin = env.GAME_HOST_MODE === "subdomain" && env.GAME_DOMAIN ? `https://${env.GAME_DOMAIN}` : url.origin;
+  const cacheKey = `${cacheOrigin}/_zaisma/files/${storageKey}${wantsBrotli ? ".br" : ""}`;
+  const cache = caches.default;
+  const hit = await cache.match(cacheKey);
+  if (hit) return answer(hit.body, hit.headers.get(CACHED_ENCODING_HEADER) === "br", Number(hit.headers.get("content-length") ?? 0));
+
+  const read = (key: string) => (isHead ? env.GAMES.head(key) : env.GAMES.get(key));
+  const copy = wantsBrotli ? await read(brotliKeyOf(storageKey)) : null;
+  const object = copy ?? (await read(storageKey));
+  if (!object) return page(404, "File not found", "This game is missing a file.", env);
+  const isCopy = copy !== null;
+  // Kept for the next player near here from a read of its own, so a slow player's download never holds the file in memory.
+  if (!isHead && object.size <= MAXIMUM_CACHED_SIZE_BYTES) {
+    ctx.waitUntil(
+      (async () => {
+        const stored = await env.GAMES.get(object.key);
+        if (!stored) return;
+        const storedHeaders = new Headers({ "Content-Type": "application/octet-stream", "Content-Length": String(stored.size), "Cache-Control": `public, max-age=${isCopy || !wantsBrotli ? CACHED_FILE_DURATION_SEC : CACHED_STAND_IN_DURATION_SEC}` });
+        if (isCopy) storedHeaders.set(CACHED_ENCODING_HEADER, "br");
+        await cache.put(cacheKey, new Response(stored.body, { headers: storedHeaders }));
+      })().catch((error) => console.error("caching a game file failed", storageKey, error)),
+    );
+  }
+  return answer(isHead ? null : (object as R2ObjectBody).body, isCopy, object.size);
+}
+
 /** Plain http on a game's own address (production only: path mode, tests and the local preview stay as they are). */
 export function isPlainHttpGameAddress(url: URL, env: Pick<Env, "GAME_HOST_MODE" | "GAME_DOMAIN" | "SITE_ORIGIN">): boolean {
   if (url.protocol !== "http:" || !env.SITE_ORIGIN.startsWith("https://") || env.GAME_HOST_MODE !== "subdomain" || !env.GAME_DOMAIN) return false;
@@ -213,7 +311,7 @@ export function isPlainHttpGameAddress(url: URL, env: Pick<Env, "GAME_HOST_MODE"
   return hostname === gameDomain || hostname.endsWith(`.${gameDomain}`);
 }
 
-async function serve(request: Request, env: Env): Promise<Response> {
+async function serve(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   if (request.method !== "GET" && request.method !== "HEAD") {
     return new Response("Method not allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
   }
@@ -336,15 +434,22 @@ async function serve(request: Request, env: Env): Promise<Response> {
     if (isServerPath(path)) return page(404, "File not found", "This game is missing a file.", env);
     const isHtml = path.endsWith(".html");
     const isInjected = isHtml;
+    const manifest = version.kind === "files" ? await manifestFor(env, version.id) : null;
+    const key = fileKey(version, manifest, path);
+    // Every other stored file: by its fingerprint, compressed and from the cache near the player.
+    if (manifest && !isHtml) {
+      const file = manifest.files[path];
+      if (!key || !file) return page(404, "File not found", "This game is missing a file.", env);
+      return serveStoredFile(request, env, ctx, url, path, key, file.sha256, gameHeaders(contentTypeFor(path), env.SITE_ORIGIN, connectOrigins));
+    }
     // Pages get our scripts on the way out, so they skip ranges and R2's own ETag checks.
-    const key = fileKey(version, version.kind === "files" ? await manifestFor(env, version.id) : null, path);
     const object = key ? await env.GAMES.get(key, isInjected ? {} : { range: request.headers, onlyIf: request.headers }) : null;
     if (!object) return page(404, "File not found", "This game is missing a file.", env);
 
     const headers = gameHeaders(contentTypeFor(path), env.SITE_ORIGIN, connectOrigins);
     headers.set("ETag", object.httpEtag);
-    // HTML is re-checked so takedowns and updates show up. Other files keep the same address
-    // across versions, so they're only cached briefly: an update reaches players within a minute.
+    // HTML is re-checked so takedowns and updates show up. Other files of a zip version keep the same
+    // address across versions, so they're only cached briefly: an update reaches players within a minute.
     headers.set("Cache-Control", isHtml ? "no-cache" : "public, max-age=60");
     headers.set("Accept-Ranges", "bytes");
 
@@ -372,9 +477,9 @@ async function serve(request: Request, env: Env): Promise<Response> {
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     if (isPlainHttpGameAddress(url, env)) return upgradeToHttps(url);
-    return withTransportSecurity(url, await serve(request, env));
+    return withTransportSecurity(url, await serve(request, env, ctx));
   },
 } satisfies ExportedHandler<Env>;

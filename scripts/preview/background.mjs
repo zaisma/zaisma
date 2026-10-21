@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 // The preview in one step, for build sessions and anyone with several checkouts:
-//   npm run preview:start [-- --reset]   starts this checkout's preview in the background on the first
+//   npm run preview:start [-- --reset] [--engines-only]
+//                                        starts this checkout's preview in the background on the first
 //                                        free port offset (8800, 8900, …), waits until it's ready and
 //                                        prints its links and sign-ins. Already running: just prints them.
 //                                        Stopped or broken: stops what's left and starts it again.
+//                                        --engines-only seeds only the engine samples (what npm run engines:play
+//                                        plays, for GitHub's Engine exports job) instead of all the test data.
 //   npm run preview:stop                 stops this checkout's preview, and nothing of another checkout's.
 // Its output goes to .wrangler/preview-run/preview.log; the servers' own logs stay in .wrangler/preview.
 import { spawn, spawnSync } from "node:child_process";
@@ -18,6 +21,8 @@ const RUN = join(ROOT, ".wrangler/preview-run");
 const STATE_FILE = join(RUN, "state.json");
 const LOG = join(RUN, "preview.log");
 const PAGES = join(RUN, "pages.txt");
+// run.mjs writes this once the test data is in; engine-only data starts with "engines-only".
+const SEEDED = join(ROOT, ".wrangler/preview/seeded");
 // run.mjs prints this once everything is up and the test data is in.
 const READY_LINE = "Zaisma preview is running.";
 const READY_TIMEOUT_MS = 9 * 60_000;
@@ -31,16 +36,22 @@ const [command = "start", ...flags] = process.argv.slice(2);
 if (command === "start") await start();
 else if (command === "stop") console.log((await stop()) ? "Stopped this checkout's preview." : "This checkout's preview wasn't running.");
 else {
-  console.error(`Unknown command "${command}". Use: npm run preview:start [-- --reset], or npm run preview:stop`);
+  console.error(`Unknown command "${command}". Use: npm run preview:start [-- --reset] [--engines-only], or npm run preview:stop`);
   process.exit(1);
 }
 
 async function start() {
   let reset = flags.includes("--reset");
-  const unknown = flags.filter((flag) => flag !== "--reset");
+  const enginesOnly = flags.includes("--engines-only");
+  const unknown = flags.filter((flag) => flag !== "--reset" && flag !== "--engines-only");
   if (unknown.length) {
-    console.error(`Unknown option ${unknown.join(" ")}. The only option is --reset (fresh test data).`);
+    console.error(`Unknown option ${unknown.join(" ")}. The options are --reset (fresh test data) and --engines-only (only the engine samples as test data).`);
     process.exit(1);
+  }
+  // Engine-only data is a different set of test data: asking for the other kind starts fresh.
+  if (!reset && !enginesOnly && readSeeded().startsWith("engines-only")) {
+    console.log("The test data is the engine samples only, so this start makes the full test data.");
+    reset = true;
   }
   const state = readState();
   if (!reset && state && isAlive(state.pid) && (await answers(siteFor(state.offset))) && readLog().includes(READY_LINE)) {
@@ -59,7 +70,7 @@ async function start() {
   mkdirSync(RUN, { recursive: true });
   const log = openSync(LOG, "w");
   // Its own process group, so stopping it also stops wrangler and workerd under it.
-  const child = spawn(process.execPath, [join(ROOT, "scripts/preview/run.mjs"), ...(reset ? ["--reset"] : [])], {
+  const child = spawn(process.execPath, [join(ROOT, "scripts/preview/run.mjs"), ...(reset ? ["--reset"] : []), ...(enginesOnly ? ["--engines-only"] : [])], {
     cwd: ROOT,
     detached: true,
     stdio: ["ignore", log, log],
@@ -67,7 +78,7 @@ async function start() {
   });
   child.unref();
   writeFileSync(STATE_FILE, JSON.stringify({ pid: child.pid, offset, started_at: new Date().toISOString() }));
-  console.log(`Starting the preview on ${siteFor(offset)}${reset ? " with fresh test data (a few minutes)" : ""}…`);
+  console.log(`Starting the preview on ${siteFor(offset)}${reset ? " with fresh test data (a few minutes)" : ""}${enginesOnly ? ", the engine samples only" : ""}…`);
 
   const startedAtMs = Date.now();
   let shownLength = 0;
@@ -181,6 +192,10 @@ function printReady(offset, how) {
   const site = siteFor(offset);
   const text = readLog();
   if (text.includes(READY_LINE)) writeFileSync(PAGES, text.slice(text.indexOf(READY_LINE)));
+  if (readSeeded().startsWith("engines-only")) {
+    console.log(`\nPreview ${how}: ${site}  (the engine samples only; this checkout only, nothing touches the live site)\n\nPlay them: npm run engines:play   Stop: npm run preview:stop   All the test data: npm run preview:start -- --reset\nLog: ${show(LOG)}`);
+    return;
+  }
   const width = Math.max(...SIGN_INS.map((account) => account.username.length));
   console.log(`
 Preview ${how}: ${site}  (this checkout only; nothing touches the live site)
@@ -211,6 +226,10 @@ function readState() {
   } catch {
     return null;
   }
+}
+
+function readSeeded() {
+  return existsSync(SEEDED) ? readFileSync(SEEDED, "utf8") : "";
 }
 
 function readLog() {

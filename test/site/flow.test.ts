@@ -4,9 +4,9 @@ import { CONTENT_RULES, KNOWN_IMAGE_CODE, REVIEW_LIMITS, arachnidShield, blobKey
 import { handleScanBatch, imageMatcher, passVersion, queueImageChecks, recheckImages, replaceWaitingVersions, rescanWaiting, scanVersion, type ScanDeps } from "../../apps/site/src/scan.ts";
 import { dailyCleanup } from "../../apps/site/src/cleanup.ts";
 import { judgeSays, readsNothing, seesNothing } from "./scan-stubs.ts";
-import { gatherEvidence, type ReadCode } from "../../apps/site/src/review-readers.ts";
+import { gatherEvidence, type CodeChunk, type ReadCode } from "../../apps/site/src/review-readers.ts";
 import { judgeVersion, settle, type JudgeBrief, type JudgeVersion } from "../../apps/site/src/review-judge.ts";
-import { CLEAN_GAME, makeZip } from "../helpers.ts";
+import { CLEAN_GAME, makeZip, minifiedBundle } from "../helpers.ts";
 
 const LOCAL = "http://localhost";
 const testEnv = { ...env, DEV_ADMIN: "1", ANTHROPIC_API_KEY: "test-key" };
@@ -603,6 +603,87 @@ describe("re-uploads checked against their hold", () => {
     await scanVersion(testEnv, third, { images: connected, ...aiSays("hold", true) });
     expect(alerts.filter((line) => line.includes("URGENT child-safety flag on one-email"))).toHaveLength(1);
   });
+
+  describe("readers read only what changed in a file", () => {
+    const bundle = minifiedBundle(1_000_000);
+    const withFlags = (text: string) => `flag("real_people");${text.slice(0, 600_000)}flag("lifelike_gore");${text.slice(600_000)}`;
+
+    it("reads only the changed regions of a big file, keeping earlier items still quoted in it", async () => {
+      const game = await createGame(env.DB, { slug: "big-bundle", title: "Big Bundle", description: "A test." });
+      const sentChunks: CodeChunk[] = [];
+      const reads = readsFlags({ readerCallCount: 0 });
+      const deps: ScanDeps = { images: connected, readCode: async (...input) => (sentChunks.push(input[2]), reads(...input)), readPictures: seesNothing, judge: judgeSays("pass") };
+      const first = await scanVersion(testEnv, await filesVersion(game.id, { ...CLEAN_GAME, "bundle.js": withFlags(bundle) }), deps);
+      expect(first.evidence!.filter((evidenceItem) => evidenceItem.path === "bundle.js").map((evidenceItem) => evidenceItem.subject).sort()).toEqual(["lifelike_gore", "real_people"]);
+
+      // One string changed in the middle, and the gore flag edited away near the end.
+      sentChunks.length = 0;
+      const changed = withFlags(`${bundle.slice(0, 300_000)}"a new string"${bundle.slice(300_014)}`).replace('flag("lifelike_gore");', 'flag("allowed_content");');
+      const changedSha256 = await sha256Hex(new TextEncoder().encode(changed));
+      const second = await scanVersion(testEnv, await filesVersion(game.id, { ...CLEAN_GAME, "bundle.js": changed }), deps);
+      const sentParts = sentChunks.flatMap((chunk) => chunk.files).filter((file) => file.path === "bundle.js");
+      expect(sentParts.length).toBeGreaterThan(0);
+      expect(sentParts.every((file) => file.isChangedOnly)).toBe(true);
+      expect(sentParts.reduce((characterCount, file) => characterCount + file.text.length, 0)).toBeLessThan(changed.length / 10);
+      expect(second.evidence!.filter((evidenceItem) => evidenceItem.path === "bundle.js").map((evidenceItem) => [evidenceItem.subject, evidenceItem.file_sha256])).toEqual(
+        expect.arrayContaining([["real_people", changedSha256], ["allowed_content", changedSha256]]),
+      );
+      expect(second.evidence!.some((evidenceItem) => evidenceItem.subject === "lifelike_gore")).toBe(false);
+      expect(second.read_file_sha256s).toContain(changedSha256);
+
+      // A file mostly rewritten is read whole.
+      sentChunks.length = 0;
+      await scanVersion(testEnv, await filesVersion(game.id, { ...CLEAN_GAME, "bundle.js": withFlags(minifiedBundle(1_000_000, 9)) }), deps);
+      const wholeParts = sentChunks.flatMap((chunk) => chunk.files).filter((file) => file.path === "bundle.js");
+      expect(wholeParts.some((file) => file.isChangedOnly)).toBe(false);
+      expect(wholeParts.reduce((characterCount, file) => characterCount + file.text.length, 0)).toBeGreaterThan(1_000_000);
+    });
+
+    it("looks a file up on VirusTotal once, reuses a not-known for a day, and stores no failed lookup", async () => {
+      await env.DB.exec("DELETE FROM antivirus_lookups;");
+      const lookedUp: string[] = [];
+      const answerBySha = new Map<string, number>();
+      const realFetch = globalThis.fetch;
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input instanceof Request ? input.url : input);
+        if (!url.startsWith("https://www.virustotal.com/")) return realFetch(input, init);
+        const sha256 = url.split("/").at(-1)!;
+        lookedUp.push(sha256);
+        const status = answerBySha.get(sha256) ?? 404;
+        return status === 200 ? Response.json({ data: { attributes: { last_analysis_stats: { malicious: 0 } } } }) : new Response(null, { status });
+      }) as typeof fetch;
+      try {
+        const scanEnv = { ...testEnv, VT_API_KEY: "test-vt-key" };
+        const game = await createGame(env.DB, { slug: "antivirus", title: "Antivirus", description: "A test." });
+        const shaOf = async (text: string) => sha256Hex(new TextEncoder().encode(text));
+        const known = "let known = 1;";
+        const failing = "let failing = 1;";
+        answerBySha.set(await shaOf(known), 200).set(await shaOf(failing), 500);
+        const files = { "index.html": CLEAN_GAME["index.html"], "known.js": known, "unknown.js": "let unknown = 1;", "failing.js": failing };
+        const deps: ScanDeps = { images: connected, ...aiSays("pass") };
+
+        await scanVersion(scanEnv, await filesVersion(game.id, files), deps);
+        expect(lookedUp).toHaveLength(4);
+        const second = await scanVersion(scanEnv, await filesVersion(game.id, files), deps);
+        expect(lookedUp.slice(4)).toEqual([await shaOf(failing)]);
+        expect(second.findings.map((finding) => finding.code)).toContain("antivirus_unavailable");
+        const rows = await env.DB.prepare("SELECT sha256, malicious_engine_count FROM antivirus_lookups").all<{ sha256: string; malicious_engine_count: number | null }>();
+        const countBySha = new Map(rows.results.map((row) => [row.sha256, row.malicious_engine_count]));
+        expect(countBySha.size).toBe(3);
+        expect(countBySha.get(await shaOf(known))).toBe(0);
+        expect(countBySha.get(await shaOf("let unknown = 1;"))).toBeNull();
+        expect(countBySha.has(await shaOf(failing))).toBe(false);
+
+        // A day later the not-known file is looked up again; the known one waits out its week.
+        await env.DB.prepare("UPDATE antivirus_lookups SET looked_up_at_ms = looked_up_at_ms - ?").bind(25 * 60 * 60 * 1000).run();
+        lookedUp.length = 0;
+        await scanVersion(scanEnv, await filesVersion(game.id, files), deps);
+        expect(lookedUp.sort()).toEqual([await shaOf(failing), await shaOf("let unknown = 1;"), await shaOf(CLEAN_GAME["index.html"])].sort());
+      } finally {
+        globalThis.fetch = realFetch;
+      }
+    });
+  });
 });
 
 describe("reports and takedowns", () => {
@@ -854,6 +935,31 @@ describe("pages", () => {
     expect(await (await SELF.fetch(`${LOCAL}/legal/defamation`)).text()).toContain("mailto:safety@zaisma.com");
     expect((await SELF.fetch(`${LOCAL}/legal/content-rules`)).status).toBe(200);
     expect((await SELF.fetch(`${LOCAL}/nope`)).status).toBe(404);
+  });
+
+  it("wraps every page in the glass header and footer, with bodies not yet rebuilt in Steel", async () => {
+    const home = await (await SELF.fetch(`${LOCAL}/`)).text();
+    expect(home).toContain('<main class="steel">');
+    expect(home).toContain('<header class="top glass');
+    const foot = home.slice(home.indexOf('<footer class="foot">'));
+    for (const [words, href] of [["For game developers", "/dashboard"], ["Forum", "/forum"], ["Source code", "https://github.com/zaisma/zaisma"], ["Content rules", "/legal/content-rules"], ["Privacy", "/legal/privacy"], ["Security", "/legal/security"], ["Copyright (DMCA)", "/legal/dmca"], ["Defamation", "/legal/defamation"]] as const)
+      expect(foot).toMatch(new RegExp(`href="${href.replace(/[.()]/g, "\\$&")}"[^>]*>[\\s\\S]*?${words.replace(/[()]/g, "\\$&")}`));
+    expect(foot).toContain("Zaisma is open source, under the MIT license.");
+    // Off a developer page the developer tabs are folded away, out of reach.
+    expect(home).toContain('<a href="/developers" class="foldable folded" tabindex="-1" aria-hidden="true">Developer</a>');
+    // A legal page doesn't know who's looking: its header says Sign in.
+    expect(await (await SELF.fetch(`${LOCAL}/legal/privacy`)).text()).toMatch(/<a class="[^"]*run-wrap[^"]*" href="\/signin"/);
+  });
+
+  it("opens the developer tabs on the forum and the cover guide, and sends /developers to the dashboard", async () => {
+    const forum = await (await SELF.fetch(`${LOCAL}/forum`)).text();
+    expect(forum).toContain('<a href="/developers" class="foldable">Developer</a>');
+    expect(forum).toContain('<a href="/forum" class="foldable" aria-current="page">Forum</a>');
+    const guide = await (await SELF.fetch(`${LOCAL}/developers/covers`)).text();
+    expect(guide).toContain('<a href="/developers" class="foldable" aria-current="page">Developer</a>');
+    const front = await SELF.fetch(`${LOCAL}/developers`, { redirect: "manual" });
+    expect(front.status).toBe(302);
+    expect(new URL(front.headers.get("location")!).pathname).toBe("/dashboard");
   });
 
   it("shows a Fine and a Not fine example under every content rule", async () => {

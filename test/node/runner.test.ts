@@ -24,9 +24,11 @@ function connect(origin = ORIGIN, path = "/v1/rooms/arena/ABCDEF", on = port) {
   // Probes are answered at once, as the SDK does, and kept apart with what came before each.
   const probes: { probe: any; afterTypes: string[] }[] = [];
   const types: string[] = [];
-  ws.on("message", (raw) => {
-    const text = raw.toString();
-    const message = text === "pong" ? { type: "pong" } : JSON.parse(text);
+  ws.on("message", (raw, isBinary) => {
+    // Bytes come as a binary frame: who they're from (none for the game server), then the bytes.
+    const frame = isBinary ? new Uint8Array(raw as Buffer) : null;
+    const text = isBinary ? "" : raw.toString();
+    const message = frame ? { type: "bytes", fromPlayerId: frame[0] ? new TextDecoder().decode(frame.subarray(1, 1 + frame[0])) : null, bytes: [...frame.subarray(1 + frame[0]!)] } : text === "pong" ? { type: "pong" } : JSON.parse(text);
     if (message.type === "probe") {
       probes.push({ probe: message, afterTypes: [...types] });
       return ws.send(JSON.stringify({ type: "probe_answer", probeNumber: message.probeNumber }));
@@ -72,6 +74,34 @@ describe("Node runner", () => {
     expect(await b.next()).toEqual({ type: "message", data: { fromPlayerId: "a", data: "hi" } });
     a.ws.close();
     b.ws.close();
+  });
+
+  it("takes bytes for the game server and sends bytes back, as Zaisma rooms do", async () => {
+    const a = connect();
+    const b = connect();
+    await Promise.all([a.open, b.open]);
+    a.say({ type: "hello", pass: await pass("a") });
+    await until(a, "welcome");
+    b.say({ type: "hello", pass: await pass("b") });
+    await until(b, "welcome");
+    // The relay passes them on, from a.
+    a.ws.send(new Uint8Array([3, 4, 5]));
+    expect(await until(b, "bytes")).toEqual({ type: "bytes", fromPlayerId: "a", bytes: [3, 4, 5] });
+    a.ws.send(new Uint8Array(16 * 1024 + 1));
+    expect(await until(a, "error")).toMatchObject({ code: "too_big" });
+    a.ws.close();
+    b.ws.close();
+
+    // A game server of its own, answering bytes with bytes.
+    const { own, at } = await serve(defineGameServer({ setup: () => ({}), onBytes: (_state, player, bytes, room) => room.sendBytes(player.id, bytes.map((byte) => byte * 2)) }));
+    const c = connect(ORIGIN, "/v1/rooms/arena/ABCDEF", at);
+    await c.open;
+    c.say({ type: "hello", pass: await pass("c") });
+    await until(c, "welcome");
+    c.ws.send(new Uint8Array([1, 2]));
+    expect(await until(c, "bytes")).toEqual({ type: "bytes", fromPlayerId: null, bytes: [2, 4] });
+    c.ws.close();
+    own.close();
   });
 
   it("probes each player right after welcome, and the game server reads their ping and the room's clock", async () => {

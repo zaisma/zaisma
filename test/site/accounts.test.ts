@@ -452,7 +452,8 @@ describe("making an account", () => {
     // It doesn't say the age, so there's no number to lie about.
     const page = await res.text();
     expect(page).toContain("You can't make an account");
-    expect(page).not.toMatch(/13 and up|under 13|older/);
+    // Its words, not its styles (where ::placeholder says "older").
+    expect(page.replace(/<style>[\s\S]*?<\/style>/g, "")).not.toMatch(/13 and up|under 13|older/);
     expect(b.jar.get("__Host-zaisma_age")).toBe("no");
     expect(await (await b.go("/join/age", BIRTH_ADULT)).text()).toContain("You can't make an account");
     expect(await (await b.go("/join/account", { turnstile_token: "test-token", username: "Little_Fox", password: PASSWORD })).text()).toContain("You can't make an account");
@@ -1717,11 +1718,62 @@ describe("game owners", () => {
 describe("pages", () => {
   it("adds a sign-in link, a privacy page, and keeps account pages out of caches and search", async () => {
     const home = await (await SELF.fetch(`${SITE}/`)).text();
-    expect(home).toContain('id="account-link"');
+    expect(home).toContain('href="/signin"');
     expect(home).toContain('href="/legal/privacy"');
+    // A page that doesn't know who's looking swaps Sign in for the account from the signed-in cookie.
+    expect(await (await SELF.fetch(`${SITE}/legal/privacy`)).text()).toMatch(/<script src="\/js\/account-link\.[0-9a-f]{16}\.js"><\/script>/);
     expect(await (await SELF.fetch(`${SITE}/legal/privacy`)).text()).toContain("we delete it when you turn 18");
     expect((await SELF.fetch(`${SITE}/signin`)).headers.get("cache-control")).toBe("no-store");
     expect(await (await SELF.fetch(`${SITE}/robots.txt`)).text()).toContain("Disallow: /account");
+  });
+});
+
+describe("the header and the theme", () => {
+  it("says Sign in signed out, and shows your account and its menu signed in", async () => {
+    const out = await (await new Browser().go("/")).text();
+    expect(out).toMatch(/<a class="[^"]*run-wrap[^"]*" href="\/signin"/);
+    expect(out).not.toContain('class="me');
+    const b = new Browser();
+    await join(b, null);
+    const home = await (await b.go("/")).text();
+    expect(home).toContain('aria-label="Your account, Night_Owl"');
+    expect(home).not.toMatch(/<a class="[^"]*run-wrap[^"]*" href="\/signin"/);
+    const menu = home.slice(home.indexOf('class="dropdown'));
+    for (const [words, href] of [["Your profile", "/@Night_Owl"], ["Friends", "/friends"], ["Developer", "/dashboard"], ["Settings", "/account"]]) expect(menu).toMatch(new RegExp(`href="${href}"[^>]*>[\\s\\S]*?${words}`));
+    expect(menu).toMatch(/<form class="dropdown-form" method="post" action="\/signout">[\s\S]*?Sign out/);
+    // A page that knows who's looking isn't kept by any cache.
+    expect((await b.go("/")).headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("opens the Developer and Forum tabs on developer pages and folds them away elsewhere", async () => {
+    const b = new Browser();
+    await join(b, null);
+    const tabOf = (page: string, words: string) => page.match(new RegExp(`<a href="[^"]*"[^>]*>${words}</a>`))?.[0] ?? "";
+    const dashboard = await (await b.go("/dashboard")).text();
+    expect(tabOf(dashboard, "Developer")).toBe('<a href="/dashboard" class="foldable" aria-current="page">Developer</a>');
+    expect(tabOf(dashboard, "Forum")).toBe('<a href="/forum" class="foldable">Forum</a>');
+    const home = await (await b.go("/")).text();
+    expect(tabOf(home, "Developer")).toBe('<a href="/dashboard" class="foldable folded" tabindex="-1" aria-hidden="true">Developer</a>');
+    expect(tabOf(home, "Home")).toBe('<a href="/" aria-current="page">Home</a>');
+  });
+
+  it("starts every account on System, and saves Light or Dark for its pages", async () => {
+    const b = new Browser();
+    await join(b, null);
+    expect(await (await b.go("/account")).text()).toContain('<html lang="en" data-theme-choice="system">');
+    const saved = await b.go("/account/color-theme", { color_theme: "dark" });
+    expect(saved.status).toBe(303);
+    expect(saved.headers.get("location")).toBe("/account?theme-saved#theme");
+    expect(await accountById(env.DB, await idOf("Night_Owl"))).toMatchObject({ color_theme: "dark" });
+    for (const path of ["/", "/account", "/friends", "/forum", "/dashboard"]) expect(await (await b.go(path)).text(), path).toContain('data-theme-choice="dark"');
+    // A fixed theme has one browser colour; System has one for each.
+    const home = await (await b.go("/")).text();
+    expect(home).toContain('<meta name="theme-color" content="#0D1015">');
+    expect(home).not.toContain('media="(prefers-color-scheme: light)"');
+    expect((await b.go("/account/color-theme", { color_theme: "purple" })).status).toBe(400);
+    expect(await accountById(env.DB, await idOf("Night_Owl"))).toMatchObject({ color_theme: "dark" });
+    // Guests always follow their device.
+    expect(await (await new Browser().go("/")).text()).toContain('data-theme-choice="system"');
   });
 });
 
@@ -2443,7 +2495,7 @@ describe("the dashboard", () => {
     await letPublishAs("Night_Owl");
     await b.go("/dashboard/new", { title: "Sky Hopper" });
     const board = await (await b.go("/forum")).text();
-    expect(board).toContain('<a href="/forum" aria-current="page">Forum</a>');
+    expect(board).toContain('<a href="/forum" class="foldable" aria-current="page">Forum</a>');
     expect(board).toContain('aria-label="Search the forum"');
     expect(board).toContain("New topic");
     expect(await (await b.go("/forum/new")).text()).toContain('<option value="sky-hopper">Sky Hopper</option>');

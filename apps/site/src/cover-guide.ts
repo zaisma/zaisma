@@ -1,5 +1,6 @@
 import type { Env } from "./env.ts";
 import { html, layout, raw, type Raw } from "./html.ts";
+import type { Viewer } from "./viewer.ts";
 
 /**
  * zaisma.com/developers/covers: the cover guide ("No slop" in docs/DECISIONS.md). The lines the listing check
@@ -25,7 +26,7 @@ const STYLE = raw(`<style>
 .guide ol>li{margin-bottom:6px}
 </style>`);
 
-export function coverGuidePage(env: Env): Response {
+export function coverGuidePage(env: Env, viewer: Viewer): Response {
   const body: Raw = html`<div class="guide">
 <h1>Covers that show your game</h1>
 <p class="lead">Your cover is your game's card everywhere players browse, shown alone with no title over or under it. Zaisma's lists show games whose covers and titles keep five lines anyone can check against the picture. Style is yours: here's what passes, what doesn't, and what the best covers do.</p>
@@ -95,5 +96,7 @@ ${figure("screenshot-not-fine.webp", "A caption, an arrow and a circle added aft
 <h2>What happens</h2>
 <p>Pictures and new words are checked in about a minute. A cover or title that breaks a line still shows on your game's page, and the game plays by its link, but home, All games, browse and search engines leave it out until it's fixed; it's back about a minute after. Your dashboard, and your AI through <code>get_game</code>, say what and how to fix it. A fake reward holds the game until a person looks. If the check got something wrong, message Zaisma from the dashboard, or <code>message_zaisma</code>, and a person looks.</p>
 </div>`;
-  return layout(env, { title: "Covers that show your game · Zaisma", head: STYLE, body });
+  const response = layout(env, { title: "Covers that show your game · Zaisma", head: STYLE, body, nav: "developer", viewer });
+  for (const cookie of viewer.cookies) response.headers.append("Set-Cookie", cookie);
+  return response;
 }

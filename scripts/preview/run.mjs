@@ -20,7 +20,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const STATE = join(ROOT, ".wrangler/preview");
 // PREVIEW_PORT_OFFSET=100 moves every port up (site on 8900), for a second checkout while another runs its preview.
 const OFFSET = Number(process.env.PREVIEW_PORT_OFFSET) || 0;
-const PORTS = { site: 8800 + OFFSET, games: 8801 + OFFSET, rooms: 8802 + OFFSET, auth: 8790 + OFFSET, ai: 8791 + OFFSET, shield: 8792 + OFFSET, signInSite: 8793 + OFFSET, dns: 8794 + OFFSET, mail: 8795 + OFFSET, turnstile: 8796 + OFFSET };
+const PORTS = { site: 8800 + OFFSET, games: 8801 + OFFSET, rooms: 8802 + OFFSET, auth: 8790 + OFFSET, ai: 8791 + OFFSET, shield: 8792 + OFFSET, signInSite: 8793 + OFFSET, dns: 8794 + OFFSET, mail: 8795 + OFFSET, turnstile: 8796 + OFFSET, compress: 8797 + OFFSET };
 // Sky Hopper Online, a developer's own site using Sign in with Zaisma (fake-site.mjs), and its app.
 const SIGN_IN_SITE = `http://localhost:${PORTS.signInSite}`;
 const SIGN_IN_APP_ID = "sign_in_app_previewskyhopper";
@@ -36,8 +36,13 @@ const EMAIL = "preview@zaisma.test";
 // The token Cloudflare's test keys answer for (the preview uses them).
 const TURNSTILE_TOKEN = "XXXX.DUMMY.TOKEN.XXXX";
 
-if (process.argv.includes("--reset")) rmSync(STATE, { recursive: true, force: true });
-const fresh = !existsSync(join(STATE, "seeded"));
+// --engines-only seeds only what npm run engines:play needs (one developer and the engine samples), for GitHub's
+// "Engine exports" job: no other test games, accounts, forum or pretend traffic. The marker file says which data this is.
+const ENGINES_ONLY = process.argv.includes("--engines-only");
+const SEEDED_MARKER = join(STATE, "seeded");
+const isEnginesOnlyData = () => existsSync(SEEDED_MARKER) && readFileSync(SEEDED_MARKER, "utf8").startsWith("engines-only");
+if (process.argv.includes("--reset") || (!ENGINES_ONLY && isEnginesOnlyData())) rmSync(STATE, { recursive: true, force: true });
+const fresh = !existsSync(SEEDED_MARKER);
 mkdirSync(STATE, { recursive: true });
 
 // Settings for the preview only. --env-file replaces .dev.vars, so your own settings stay out of it.
@@ -94,7 +99,7 @@ function wrangler(app, args, opts = {}) {
   return spawn("npx", ["wrangler", ...args], { cwd: join(ROOT, "apps", app), stdio: ["ignore", log, log], env: { ...process.env, FORCE_COLOR: "0", WRANGLER_REGISTRY_PATH: join(STATE, "registry") } });
 }
 
-// The three servers share one database file, and local D1 fails straight away when another server
+// The servers share one database file, and local D1 fails straight away when another server
 // has it locked. Each runs its Worker through scripts/preview/workers/<app>.mjs, which tries such
 // calls again; the Workers themselves, and production, are unchanged.
 // Wrangler looks for its config beside the entry it's given, so it's named too.
@@ -138,6 +143,9 @@ children.push(spawn("node", [join(ROOT, "scripts/preview/fake-site.mjs"), String
 // One at a time: they share the preview's database, and starting together can find it locked.
 children.push(wrangler("games", [...dev("games"), "--port", String(PORTS.games), "--inspector-port", String(9341 + OFFSET), "--persist-to", STATE, "--env-file", join(STATE, "games.env")], { quiet: true }));
 await waitFor(GAMES);
+// The compress Worker reads the queue the site puts new files on; it has no pages, so it's only waited for to answer.
+children.push(wrangler("compress", [...dev("compress"), "--port", String(PORTS.compress), "--inspector-port", String(9343 + OFFSET), "--persist-to", STATE], { quiet: true }));
+await waitFor(`http://localhost:${PORTS.compress}`);
 children.push(wrangler("site", [...dev("site"), "--port", String(PORTS.site), "--inspector-port", String(9340 + OFFSET), "--local-upstream", `localhost:${PORTS.site}`, "--persist-to", STATE, "--env-file", join(STATE, "site.env"), "--test-scheduled"], { quiet: true }));
 await waitFor(SITE);
 children.push(wrangler("rooms", [...dev("rooms"), "--port", String(PORTS.rooms), "--inspector-port", String(9342 + OFFSET), "--persist-to", STATE, "--env-file", join(STATE, "rooms.env"), "--test-scheduled"], { quiet: true }));
@@ -150,7 +158,18 @@ for (let steadyCount = 0, i = 0; steadyCount < 3 && i < 120; i++) {
 if (fresh) {
   console.log("Adding test games…");
   await seed();
-  writeFileSync(join(STATE, "seeded"), new Date().toISOString());
+  writeFileSync(SEEDED_MARKER, `${ENGINES_ONLY ? "engines-only " : ""}${new Date().toISOString()}`);
+}
+if (ENGINES_ONLY) {
+  const engineSamples = JSON.parse(readFileSync(join(STATE, "engines.json"), "utf8"));
+  console.log(`
+Zaisma preview is running. Only the engine samples are in it, and nothing here touches the live site.
+
+  Engine samples  ${engineSamples.map((sample) => `${SITE}/g/${sample.slug}?play${sample.scan_status === "approved" ? "" : ` (${sample.scan_status ?? "not uploaded"})`}`).join("\n                  ")}
+                  (npm run engines:play checks that each starts and draws; npm run preview:start -- --reset adds the rest of the test data)
+`);
+  // The servers and the every-20-seconds jobs above keep this process running until it's stopped.
+  await new Promise(() => {});
 }
 // Arena runs its own game server (the zaisma-server.js in its upload) in a sandbox, like an outside
 // developer's game would; Four in a Row uses the copy built into our rooms.
@@ -318,6 +337,8 @@ Zaisma preview is running. Nothing here touches the live site.
                   Share blurs it under Show; on narrow phones the bar scrolls under the Z)
   Logs            ${SITE}/dashboard/arena/players#multiplayer  (under the game server's errors: a line pointing to the AI's get_logs
                   and npx @zaisma/cli logs arena --follow; play ${SITE}/g/arena to give its logs lines)
+  Room traffic    ${SITE}/dashboard/arena/players#multiplayer  (Room traffic this month under the use table: four numbers per player
+                  a second, the biggest message types and the "move" hint; Free hosting above it names the hours its game server's CPU adds)
   Own servers     ${SITE}/dashboard/tiny-farm/details#own-servers  (Your own servers: wss://play.example.com; the ⋯ menu on
                   ${SITE}/g/tiny-farm?play names it: "Online play runs on the developer's own server: play.example.com")
   Make an account ${SITE}/join  (try the username Preview_Studio to see it taken, with free ones to tap)
@@ -475,17 +496,12 @@ async function seed() {
   const api = async (method, path, body) => {
     const raw = body instanceof Uint8Array;
     const send = () => fetch(`${SITE}/api/dev${path}`, { method, headers: { authorization: `Bearer ${key}`, ...(body && !raw ? { "content-type": "application/json" } : {}) }, body: raw ? body : body ? JSON.stringify(body) : undefined });
-    let res = await send();
-    // The seed makes more calls than the developer API takes in a minute: wait as the answer says, and go on.
-    for (let attempt = 0; res.status === 429 && attempt < 6; attempt++) {
-      const waitSec = (await res.json()).error?.retry_after_sec ?? 10;
-      await new Promise((done) => setTimeout(done, waitSec * 1000));
-      res = await send();
-    }
+    const res = await send();
     const data = await res.json();
     if (!res.ok) throw new Error(`${method} ${path}: ${data.error?.message}`);
     return data;
   };
+  // The preview's site has no developer rate limit (scripts/preview/workers/site.mjs), so seeding never waits on one.
   const upload = (folder, slug, notes) =>
     spawnSync("node", [join(ROOT, "packages/cli/zaisma.mjs"), "upload", resolve(ROOT, folder), "--game", slug, "--patch-notes", notes], {
       env: { ...process.env, ZAISMA_API: SITE, ZAISMA_KEY: key },
@@ -500,6 +516,7 @@ async function seed() {
 
   // First, while the account's daily reviews are all free, so each sample gets the whole scan.
   await seedEngineSamples(api, upload);
+  if (ENGINES_ONLY) return;
 
   const games = [
     { title: "Shard Dodge", folder: "examples/hello-game", color: [70, 140, 220], description: "Dodge the falling shards for as long as you can. Arrow keys, mouse or finger.", devices: ["phone", "tablet", "computer"], controls: ["touch", "keyboard_mouse"], play_modes: [{ mode: "single" }] },
@@ -685,10 +702,12 @@ async function seed() {
  * holds stays held, and engines.json says so for scripts/engines/play.mjs, which then plays each one.
  */
 async function seedEngineSamples(api, upload) {
-  const ENGINE_NAMES = { godot: "Godot", phaser: "Phaser", three: "Three.js", unity: "Unity", "unity-fill": "Unity full-frame" };
+  const ENGINE_NAMES = { bevy: "Bevy", godot: "Godot", macroquad: "macroquad", phaser: "Phaser", three: "Three.js", unity: "Unity", "unity-fill": "Unity full-frame" };
   const engines = readdirSync(join(ROOT, "test/engines"), { withFileTypes: true }).filter((entry) => entry.isDirectory() && existsSync(join(ROOT, "test/engines", entry.name, "build/index.html"))).map((entry) => entry.name);
   const samples = [];
   for (const engine of engines) {
+    // The account judges 5 versions a day and there are more samples than that: free the day's count, so each sample gets the whole scan.
+    spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", "UPDATE versions SET judged_at_ms = NULL WHERE judged_at_ms IS NOT NULL"], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
     const { game } = await api("POST", "/games", { title: `${ENGINE_NAMES[engine] ?? engine} sample`, description: `A ${ENGINE_NAMES[engine] ?? engine} web export, uploaded as the engine wrote it.`, devices: ["computer"], controls: ["keyboard_mouse"], play_modes: [{ mode: "single" }] });
     const uploaded = upload(join("test/engines", engine, "build"), game.slug, "First version.");
     let version = null;
@@ -813,7 +832,19 @@ async function seedHolds(api, upload, go, form) {
   for (let i = 0; i < 5; i++) {
     // And Cave Crew: 120 hours in rooms and 860 MB through Zaisma's relay this month (43 more hours), for the stats line that counts both.
     // And Four in a Row: 850 of its 1,000 free hours this month, for the 80% heads-up on its card and Overview.
-    const inserted = spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", "INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count) SELECT id, date('now'), 412, 3600000, 90000 FROM games WHERE slug = 'rocket-lab' ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec; INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count, relay_credential_count, relayed_size_bytes) SELECT id, date('now'), 64, 432000, 20000, 310, 860000000 FROM games WHERE slug = 'cave-crew' ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec, relay_credential_count = excluded.relay_credential_count, relayed_size_bytes = excluded.relayed_size_bytes; INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count) SELECT id, date('now', 'start of month'), 900, 3060000, 400000 FROM games WHERE slug = 'four-in-a-row' ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec"], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
+    // And Arena, whose own game server runs on Zaisma: 40 hours in rooms with 2,500 CPU-seconds (1,500 past the 1,000
+    // they include, 30 more hours), and its room traffic: big JSON "move" snapshots 12 times a player-second, for the hint.
+    const arenaTraffic = [
+      "INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count, inbound_size_bytes, outbound_message_count, outbound_size_bytes, game_server_cpu_duration_ms, game_server_call_count) SELECT id, date('now'), 30, 144000, 4322000, 207520000, 1892000, 1586880000, 2500000, 8640000 FROM games WHERE slug = 'arena' ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec, message_count = excluded.message_count, inbound_size_bytes = excluded.inbound_size_bytes, outbound_message_count = excluded.outbound_message_count, outbound_size_bytes = excluded.outbound_size_bytes, game_server_cpu_duration_ms = excluded.game_server_cpu_duration_ms",
+      ...[
+        ["move", "outbound", 1728000, 1555200000, 1400],
+        ["input", "inbound", 4320000, 207360000, 64],
+        ["(zaisma)", "outbound", 150000, 30000000, 2100],
+        ["chat", "outbound", 14000, 1680000, 360],
+        ["chat", "inbound", 2000, 160000, 300],
+      ].map(([messageType, direction, messageCount, sizeBytes, largestSizeBytes]) => `INSERT INTO room_message_types (game_id, date, message_type, direction, message_count, size_bytes, largest_size_bytes) SELECT id, date('now'), '${messageType}', '${direction}', ${messageCount}, ${sizeBytes}, ${largestSizeBytes} FROM games WHERE slug = 'arena' ON CONFLICT (game_id, date, message_type, direction) DO UPDATE SET message_count = excluded.message_count, size_bytes = excluded.size_bytes, largest_size_bytes = excluded.largest_size_bytes`),
+    ].join("; ");
+    const inserted = spawnSync("npx", ["wrangler", "d1", "execute", "zaisma", "--local", "--persist-to", STATE, "--command", arenaTraffic + "; INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count) SELECT id, date('now'), 412, 3600000, 90000 FROM games WHERE slug = 'rocket-lab' ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec; INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count, relay_credential_count, relayed_size_bytes) SELECT id, date('now'), 64, 432000, 20000, 310, 860000000 FROM games WHERE slug = 'cave-crew' ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec, relay_credential_count = excluded.relay_credential_count, relayed_size_bytes = excluded.relayed_size_bytes; INSERT INTO room_usage (game_id, date, room_count, room_play_duration_sec, message_count) SELECT id, date('now', 'start of month'), 900, 3060000, 400000 FROM games WHERE slug = 'four-in-a-row' ON CONFLICT (game_id, date) DO UPDATE SET room_play_duration_sec = excluded.room_play_duration_sec"], { cwd: join(ROOT, "apps/site"), stdio: "ignore", env: { ...process.env, CI: "1" } });
     if (inserted.status === 0) break;
     await new Promise((r) => setTimeout(r, 1000));
   }

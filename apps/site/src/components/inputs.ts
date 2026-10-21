@@ -1,4 +1,4 @@
-import { html, raw, type Raw } from "../html.ts";
+import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
 import { CUT_LINE, ICONS, colourPicker, glassPane, icon, tag, type ColourChoice, type IconName } from "./foundations.ts";
 import { TINT_CHOICES, cutButton } from "./actions.ts";

@@ -9,6 +9,9 @@
 //   ruleset blocks force pushes);
 // - an earlier commit on main, when only docs/, .claude/, CLAUDE.md or README.md changed since.
 // A run that only ran the docs tests ("Docs tests") never counts for code.
+// A pull request's run skips "Engine exports" when its branch changed none of the code that job plays
+// (ENGINES_PATH); a run like that counts only with an Engine exports pass on the main commit it was cut from
+// (applyEnginesProof), since the branch's code is that commit's code where the engines look.
 
 // The check the ruleset requires, which passes only when the jobs before it did.
 export const GITHUB_CHECK_NAME = "Tests and typecheck";
@@ -16,6 +19,12 @@ export const GITHUB_CHECK_NAME = "Tests and typecheck";
 export const DOCS_TESTS_CHECK_NAME = "Docs tests";
 // Paths that hold no code that's tested or deployed. The same paths are in check.yml's "What changed".
 export const DOCS_ONLY_PATH = /^(docs\/|\.claude\/|CLAUDE\.md$|README\.md$)/;
+// The job that plays the engine samples. A pull request runs it only when its branch changes a path below; a push to main always does.
+export const ENGINES_CHECK_NAME = "Engine exports";
+// What npm run engines:play exercises: the site Worker (uploads, the scan, game pages), the games Worker, the compress
+// Worker, the packages they and the upload command use, the database, the preview and the engine scripts and samples,
+// the packages installed, and the workflow itself. The same paths are in check.yml's "What changed".
+export const ENGINES_PATH = /^(apps\/(site|games|compress)\/|packages\/(core|sdk|cli|game-server)\/|migrations\/|scripts\/(preview|engines)\/|test\/engines\/|\.github\/workflows\/check\.yml$|package(-lock)?\.json$)/;
 // How far back along main to look for a commit with the same code.
 export const SAME_CODE_SEARCH_COMMIT_COUNT = 20;
 
@@ -46,19 +55,25 @@ export function sameCodeCommits(runGit, commitSha, { searchCommitCount = SAME_CO
   return commitShas;
 }
 
+/** Whether a change to these paths changes code the engine samples play. */
+export const isEnginesChanged = (changedPaths) => changedPaths.some((path) => ENGINES_PATH.test(path));
+
 /**
  * What one commit's check runs (GitHub's check-runs API, latest of each name) say about its code:
  * "passed" and "failed" for the full tests and typecheck, "docs_passed" and "docs_failed" when only the
- * docs tests ran, "running", or "none".
+ * docs tests ran, "running", or "none". `engines` is the Engine exports job's own state: "passed", "failed",
+ * "running", "skipped" (a pull request that changed none of its code) or "none".
  */
 export function checkState(checkRuns) {
   const check = checkRuns.find((checkRun) => checkRun.name === GITHUB_CHECK_NAME);
-  if (!check) return { state: "none", url: null };
-  if (check.status !== "completed") return { state: "running", url: check.html_url };
+  if (!check) return { state: "none", url: null, engines: "none" };
+  const engineRun = checkRuns.find((checkRun) => checkRun.name === ENGINES_CHECK_NAME);
+  const engines = !engineRun ? "none" : engineRun.status !== "completed" ? "running" : engineRun.conclusion === "success" ? "passed" : engineRun.conclusion === "skipped" ? "skipped" : "failed";
+  if (check.status !== "completed") return { state: "running", url: check.html_url, engines };
   const docsTests = checkRuns.find((checkRun) => checkRun.name === DOCS_TESTS_CHECK_NAME);
   const isDocsRun = Boolean(docsTests && docsTests.status === "completed" && docsTests.conclusion !== "skipped");
   const isPassed = check.conclusion === "success";
-  return { state: `${isDocsRun ? "docs_" : ""}${isPassed ? "passed" : "failed"}`, url: check.html_url };
+  return { state: `${isDocsRun ? "docs_" : ""}${isPassed ? "passed" : "failed"}`, url: check.html_url, engines };
 }
 
 /**
@@ -75,4 +90,32 @@ export function judgeCheckedCode(commitStates) {
   const running = commitStates.find((commitState) => commitState.state === "running");
   if (running) return { verdict: "running", ...running };
   return { verdict: "none", ...(own ?? {}) };
+}
+
+/**
+ * The main commit a pull request's run was cut from and the commits with its code, for a verdict that rests on a
+ * run that skipped Engine exports: the first parent of the merge commit (among `mainShas`, newest first) that
+ * merged `branchSha`. Empty when `branchSha` merged nowhere there. The pull request's branch was up to date with it
+ * when it merged, so where the engines look the branch's code is that commit's.
+ */
+export function enginesBaseCommits(runGit, mainShas, branchSha, { searchCommitCount = SAME_CODE_SEARCH_COMMIT_COUNT } = {}) {
+  for (const mainSha of mainShas) {
+    if (lines(runGit(["rev-parse", "--verify", "--quiet", `${mainSha}^2`]))[0] !== branchSha) continue;
+    const baseSha = lines(runGit(["rev-parse", "--verify", "--quiet", `${mainSha}^1`]))[0];
+    return baseSha ? sameCodeCommits(runGit, baseSha, { searchCommitCount }) : [];
+  }
+  return [];
+}
+
+/**
+ * A passed verdict whose run skipped Engine exports stands only on an Engine exports pass at the commit the pull
+ * request was cut from: the newest of `baseStates` (those commits' checkState answers, newest first) that ran the
+ * job decides, "running" waits, a failure stops, and none at all means the code was never played.
+ */
+export function applyEnginesProof(checked, baseStates) {
+  if (checked.verdict !== "passed" || checked.engines !== "skipped") return checked;
+  const proof = baseStates.find((baseState) => ["passed", "failed", "running"].includes(baseState.engines));
+  if (!proof) return { ...checked, verdict: "none", enginesNote: "its pull request skipped Engine exports and no Engine exports run on the commit before it passed" };
+  if (proof.engines === "passed") return { ...checked, enginesProofSha: proof.commitSha };
+  return { ...checked, verdict: proof.engines, url: proof.url, enginesNote: "Engine exports on the commit before the merge" };
 }

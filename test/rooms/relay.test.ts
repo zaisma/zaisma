@@ -85,6 +85,6 @@ describe("relay credentials", () => {
     await syncRelayUse(e, e.DB, nowMs);
     const use = await roomUseThisMonth(e.DB, id, nowMs);
     const thisMonthBytes = (yesterday.slice(0, 7) === today.slice(0, 7) ? 10_000_000 : 0) + 30_000_000;
-    expect(use).toEqual({ roomPlayDurationSec: 0, relayedSizeBytes: thisMonthBytes, countedPlayDurationSec: (thisMonthBytes / 20_000_000) * 3600 });
+    expect(use).toEqual({ roomPlayDurationSec: 0, relayedSizeBytes: thisMonthBytes, gameServerCpuDurationMs: 0, countedPlayDurationSec: (thisMonthBytes / 20_000_000) * 3600 });
   });
 });

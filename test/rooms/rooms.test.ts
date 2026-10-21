@@ -47,12 +47,20 @@ function answerProbe(ws: WebSocket, probeNumber: number) {
   }
 }
 
+/** A binary frame from a room, as the SDK reads it. */
+function readFrame(frame: Uint8Array) {
+  const fromLength = frame[0]!;
+  return { type: "bytes", fromPlayerId: fromLength ? new TextDecoder().decode(frame.subarray(1, 1 + fromLength)) : null, bytes: [...frame.subarray(1 + fromLength)] };
+}
+
 /** A connected test client that collects what the room sends. */
 async function connect(game: string, code: string, origin = ORIGIN, from?: { country: string; continent: string }, answersProbes = true) {
   const res = await SELF.fetch(`${R}/v1/rooms/${game}/${code}`, { headers: { Upgrade: "websocket", Origin: origin, "cf-connecting-ip": `198.51.100.${++address % 250}` }, ...(from ? { cf: from } : {}) });
   if (!res.webSocket) return { res, ws: null as never, inbox: [] as any[], next: async () => null as any, closed: Promise.resolve(0), pongs: [] as number[], probes: [] as any[] };
   const ws = res.webSocket;
   ws.accept();
+  // Bytes as an ArrayBuffer, as the SDK takes them.
+  ws.binaryType = "arraybuffer";
   const inbox: any[] = [];
   const waiters: ((m: any) => void)[] = [];
   const pongs: number[] = [];
@@ -63,7 +71,8 @@ async function connect(game: string, code: string, origin = ORIGIN, from?: { cou
   const types: string[] = [];
   ws.addEventListener("message", (ev) => {
     if (ev.data === "pong") return void pongs.push(Date.now());
-    const m = JSON.parse(ev.data as string);
+    // Bytes come as a binary frame: who they're from (none for the game server), then the bytes.
+    const m = typeof ev.data === "string" ? JSON.parse(ev.data) : readFrame(new Uint8Array(ev.data as ArrayBuffer));
     if (m.type === "probe") {
       probes.push({ probe: m, afterTypes: [...types] });
       return answersProbes ? answerProbe(ws, m.probeNumber) : undefined;
@@ -96,7 +105,7 @@ async function join(game: string, code: string, opts: { listed?: false; from?: {
 
 describe("rooms", () => {
   beforeEach(async () => {
-    await e.DB.exec("DELETE FROM tester_links; DELETE FROM room_usage; DELETE FROM room_keys; DELETE FROM domains; DELETE FROM games;");
+    await e.DB.exec("DELETE FROM tester_links; DELETE FROM room_usage; DELETE FROM room_message_types; DELETE FROM room_keys; DELETE FROM domains; DELETE FROM games;");
   });
 
   it("issues guest passes only to the game's own origin", async () => {
@@ -589,6 +598,21 @@ describe("rooms", () => {
     expect((await a.next()).players.map((p: any) => p.id)).toEqual([a.player.id]);
   });
 
+  it("relays bytes between players, saying whose they are, and wants a hello as text", async () => {
+    await addGame("arena");
+    const a = await join("arena", "BYTES2");
+    const b = await join("arena", "BYTES2");
+    a.ws.send(new Uint8Array([1, 2, 255]));
+    expect(await until(b, (m) => m.type === "bytes")).toEqual({ type: "bytes", fromPlayerId: a.player.id, bytes: [1, 2, 255] });
+    a.ws.send(new Uint8Array(16 * 1024 + 1));
+    expect(await until(a, (m) => m.type === "error")).toMatchObject({ code: "too_big" });
+
+    const { pass } = await getPass("arena");
+    const c = await connect("arena", "BYTES2");
+    c.ws.send(new TextEncoder().encode(JSON.stringify({ type: "hello", pass })));
+    expect(await c.next()).toMatchObject({ type: "error", code: "bad_message" });
+  });
+
   it("probes each player right after welcome", async () => {
     await addGame("arena");
     const a = await join("arena", "PRBWLC");
@@ -673,8 +697,30 @@ describe("rooms", () => {
       row = await e.DB.prepare("SELECT * FROM room_usage WHERE game_id = ?").bind(id).first();
       if (!row) await new Promise((r) => setTimeout(r, 20));
     }
-    expect(row).toMatchObject({ game_id: id, room_count: 1, message_count: 1 });
-    expect(Object.keys(row).sort()).toEqual(["date", "game_id", "game_server_call_count", "game_server_crash_count", "game_server_ended_match_count", "game_server_request_count", "game_server_scheduled_run_count", "game_server_stopped_count", "message_count", "relay_credential_count", "relayed_size_bytes", "room_count", "room_play_duration_sec"]);
+    expect(row).toMatchObject({ game_id: id, room_count: 1, message_count: 1, inbound_size_bytes: JSON.stringify({ type: "message", data: 1 }).length, game_server_cpu_duration_ms: 0 });
+    // Out: the welcome, the player list and the probes, all Zaisma's own.
+    expect(row.outbound_message_count).toBeGreaterThanOrEqual(2);
+    expect(row.outbound_size_bytes).toBeGreaterThan(100);
+    expect(Object.keys(row).sort()).toEqual(["date", "game_id", "game_server_call_count", "game_server_cpu_duration_ms", "game_server_crash_count", "game_server_ended_match_count", "game_server_request_count", "game_server_scheduled_run_count", "game_server_stopped_count", "inbound_size_bytes", "message_count", "outbound_message_count", "outbound_size_bytes", "relay_credential_count", "relayed_size_bytes", "room_count", "room_play_duration_sec"]);
+    const { results: types } = await e.DB.prepare("SELECT message_type, direction, message_count FROM room_message_types WHERE game_id = ? ORDER BY direction, message_type").bind(id).all();
+    expect(types).toEqual([
+      { message_type: "(none)", direction: "inbound", message_count: 1 },
+      { message_type: "(zaisma)", direction: "outbound", message_count: row.outbound_message_count },
+    ]);
+  });
+
+  it("records at most 10 message types each way, the biggest", async () => {
+    const id = await addGame("arena");
+    const a = await join("arena", "TYPES2");
+    for (let i = 0; i < 14; i++) a.ws.send(JSON.stringify({ type: "message", data: { type: `kind${i}`, padding: "x".repeat(i * 10) } }));
+    a.ws.close(1000);
+    await a.closed;
+    let types: { message_type: string }[] = [];
+    for (let i = 0; i < 20 && !types.length; i++) {
+      types = (await e.DB.prepare("SELECT message_type FROM room_message_types WHERE game_id = ? AND direction = 'inbound' ORDER BY size_bytes DESC").bind(id).all<{ message_type: string }>()).results;
+      if (!types.length) await new Promise((r) => setTimeout(r, 20));
+    }
+    expect(types.map((type) => type.message_type)).toEqual(Array.from({ length: 10 }, (_, i) => `kind${13 - i}`));
   });
 
   it("past the month's free player-hours, opens no new rooms, and a running match takes back only its own players and gets an hour to finish", async () => {

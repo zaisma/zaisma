@@ -1,5 +1,6 @@
 import {
   ApiError,
+  accountById,
   FORUM_CATEGORIES,
   FORUM_LIMITS,
   FORUM_REPORT_REASONS,
@@ -8,6 +9,7 @@ import {
   TOPIC_KINDS,
   forumCategoryName,
   forumSectionOf,
+  type Account,
   type DebugContext,
   type PostRating,
   type TopicKind,
@@ -136,7 +138,8 @@ export async function handleForum(request: Request, env: Env, path: string): Pro
   const caller = session ? await callerFor(env, request, session.userId, session.cookies) : null;
   const done = (response: Response) => withCookies(response, session?.cookies ?? []);
   const signIn = () => done(redirect(`/signin?next=${encodeURIComponent(path + url.search)}`));
-  const ctx: Ctx = { env, viewer: caller, me: caller ? await mePerson(env, caller) : null, url };
+  const account = caller ? await accountById(env.DB, caller.accountId) : null;
+  const ctx: Ctx = { env, viewer: caller, me: caller ? mePerson(account) : null, account, url };
 
   try {
     if (path === "/forum/similar") return done(await similarFragment(ctx, url.searchParams.get("search_text") ?? ""));
@@ -278,6 +281,8 @@ interface Ctx {
   env: Env;
   viewer: Viewer;
   me: Person | null;
+  /** The signed-in account, for the header. */
+  account: Account | null;
   url: URL;
 }
 
@@ -308,9 +313,8 @@ function pageQueryFrom(queryParameters: URLSearchParams): PageQuery {
   };
 }
 
-async function mePerson(env: Env, caller: Caller): Promise<Person> {
-  const row = await env.DB.prepare("SELECT username AS name FROM accounts WHERE id = ?").bind(caller.accountId).first<{ name: string }>();
-  return { name: row?.name ?? "You", kind: "developer", is_you: true };
+function mePerson(account: Account | null): Person {
+  return { name: account?.username ?? "You", kind: "developer", is_you: true };
 }
 
 function redirect(to: string): Response {
@@ -348,6 +352,7 @@ function forumPage(ctx: Ctx, title: string, body: Raw, options: { httpStatus?: n
     body: html`<style>${raw(FORUM_STYLES)}</style>${body}${scriptTags(FORUM_SCRIPT, POSTS_SCRIPT)}`,
     isPrivate: true,
     nav: "forum",
+    viewer: { account: ctx.account },
     search: { action: "/forum", searchText: options.searchText ?? "", placeholder: "Search the forum", label: "Search the forum", keep: options.keep },
     frames: VIDEO_FRAMES,
     action: html`<a class="btn light new-topic" href="/forum/new${category ? `?category=${encodeURIComponent(category)}` : ""}">${ICONS.plus}<span>New topic</span></a>`,

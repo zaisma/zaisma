@@ -56,7 +56,10 @@ import {
   socialSettingChoicesFor,
   suggestUsernames,
   updateAccount,
+  setColorTheme,
   setStreamerMode,
+  COLOR_THEMES,
+  type ColorTheme,
   UsernameTakenError,
   type Account,
   type AgeBand,
@@ -163,6 +166,7 @@ const PATHS = [
   "/account/username",
   "/account/social",
   "/account/streamer-mode",
+  "/account/color-theme",
   "/account/confirm",
   "/account/password",
   "/account/email",
@@ -539,6 +543,14 @@ export async function handleAccount(request: Request, env: Env, path: string, wa
     return done(redirect("/account?social-saved#social"));
   }
 
+  // Light or dark for their pages: System follows the device.
+  if (path === "/account/color-theme" && post) {
+    const colorTheme = COLOR_THEMES.find((theme) => theme === field("color_theme", 10));
+    if (!colorTheme) return done(message(env, "Pick a theme", "Pick System, Light or Dark.", 400));
+    await setColorTheme(env.DB, account.id, colorTheme);
+    return done(redirect("/account?theme-saved#theme"));
+  }
+
   // Streamer mode: game pages hide room codes until the player shows them.
   if (path === "/account/streamer-mode" && post) {
     await setStreamerMode(env.DB, account.id, field("is_streamer_mode_on", 1) === "1");
@@ -712,8 +724,10 @@ function chosenSocialMode(band: AgeBand | null, given: unknown): SocialMode {
 
 // --- Pages ---
 
-function page(env: Env, title: string, body: Raw, httpStatus = 200, hasTurnstileCheck = false): Response {
-  const response = layout(env, { title: `${title} · Zaisma`, body: html`<div class="narrow">${body}</div>${hasTurnstileCheck ? scriptTags(BOT_CHECK_SCRIPT) : ""}`, isPrivate: true, hasTurnstileCheck });
+const COLOR_THEME_LABELS: Record<ColorTheme, string> = { system: "System", light: "Light", dark: "Dark" };
+
+function page(env: Env, title: string, body: Raw, httpStatus = 200, hasTurnstileCheck = false, account?: Account | null): Response {
+  const response = layout(env, { title: `${title} · Zaisma`, body: html`<div class="narrow">${body}</div>${hasTurnstileCheck ? scriptTags(BOT_CHECK_SCRIPT) : ""}`, isPrivate: true, hasTurnstileCheck, viewer: account === undefined ? undefined : { account } });
   return new Response(response.body, { status: httpStatus, headers: response.headers });
 }
 
@@ -1544,6 +1558,12 @@ ${account.social_stopped_at_ms
       : html`<p>Who can chat with you, join you and see what you play.</p>
 ${query.has("social-saved") ? html`<p class="note" role="status">Saved. Games pick up chat changes the next time you open them.</p>` : ""}
 ${socialSettingsForm(account.age_band, socialSettingsOf(account))}`}
+<h2 id="theme">Theme</h2>
+<p>Light or dark. System follows your device.</p>
+${query.has("theme-saved") ? html`<p class="note" role="status">Saved.</p>` : ""}
+<form class="seg" method="post" action="/account/color-theme" aria-label="Theme">
+${COLOR_THEMES.map((theme) => html`<button type="submit" name="color_theme" value="${theme}" aria-pressed="${String(account.color_theme === theme)}">${COLOR_THEME_LABELS[theme]}</button>`)}
+</form>
 <h2 id="streamer-mode">Streamer mode</h2>
 <p>Hides room codes on game pages until you show them, so viewers can't join your matches from your screen.</p>
 ${query.has("streamer-mode-saved") ? html`<p class="note" role="status">Saved.</p>` : ""}
@@ -1648,5 +1668,6 @@ ${games.length
 <p class="muted small">Account ID: <code>${account.id}</code></p>`,
     200,
     hasCodeForm,
+    account,
   );
 }
