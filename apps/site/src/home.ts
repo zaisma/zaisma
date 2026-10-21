@@ -340,7 +340,7 @@ html[data-home-glass="smoked"] [data-glass]:not([data-cut-line]) { ${SMOKED_GLAS
 .home-window { grid-column: 1 / -1; grid-row: 1; height: max(120px, calc(100svh - var(--header-room) - var(--home-pane-h, 220px) - var(--pad-pane))); }
 .home-pane { grid-column: 1; grid-row: 2; position: sticky; top: var(--header-room); z-index: 5; margin-bottom: var(--gap-block-block);
   transition: transform 0.45s cubic-bezier(.2,.8,.2,1), width 0.45s cubic-bezier(.2,.8,.2,1), margin-top 0.42s cubic-bezier(.2,.8,.2,1); }
-.home-pane > .glass-pane { width: 100%; max-height: calc(100svh - var(--header-room) - var(--pad-pane)); }
+.home-pane > .glass-pane.medium { width: 100%; max-height: calc(100svh - var(--header-room) - var(--pad-pane)); }
 /* The pane never scrolls: compact it's the cover and Play, and open its details are clamped to fit, so it gets no scrollbar. */
 .home-pane > .glass-pane > .pane-in { gap: 0; overflow: hidden; opacity: 0; transition: opacity 0.25s; }
 .is-home-ready .home-pane .pane-in { opacity: 1; }
@@ -372,6 +372,9 @@ html[data-home-glass="smoked"] [data-glass]:not([data-cut-line]) { ${SMOKED_GLAS
   .home-cue { position: absolute; top: 100%; left: 0; right: 0; display: flex; justify-content: center; padding-top: var(--gap-words-words);
     opacity: 0; visibility: hidden; transition: opacity 0.3s, visibility 0s 0.3s; }
   html[data-home-staged] .home-cue { opacity: 1; visibility: visible; transition: opacity 0.3s 0.2s, visibility 0s; }
+  /* It sits on the world, not on glass, so it takes the glass the pane over that world has: smoked or light, never the page's theme. */
+  html[data-home-glass="smoked"] .home-cue, .home-pane:has(> .glass-pane.smoke) .home-cue { ${SMOKED_GLASS} }
+  html[data-home-glass="light"] .home-cue, .home-pane:has(> .glass-pane[data-theme-choice="light"]) .home-cue { ${LIGHT_GLASS} }
   html[data-home-staged] .home-pane { width: var(--stage-w); transform: translateX(calc(50cqw - 50%)); }
   html[data-home-staged] .home-shelf { transform: translateY(calc(var(--home-pane-h, 220px) + var(--pad-pane))); }
 }
