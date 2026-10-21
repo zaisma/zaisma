@@ -493,6 +493,7 @@ const UNSTYLED_HOOKS = new Set<string>([
 // The only svgs drawn in source, each with why: everything else is an icon from the set.
 const OWN_SVG = new Map<string, string>([
   ["const stroke = ", "the icon set's line icons"],
+  ["const siteMark = ", "the icon set's marks of the sites a developer links to, as each site draws it"],
   ['"arrow-back"', "the icon set's filled arrows"],
   ['"arrow-on"', "the icon set's filled arrows"],
   ["play: '<svg", "the icon set's play triangle"],
@@ -557,7 +558,7 @@ const NOT_SPACING = new Set<string>([
   // A pane on the city, on a phone: the city's room above it until CITY_SCRIPT measures how low it can start.
   ".city-page .city-pane | margin",
   // A pane that scrolls: room for its rail beside what's in it.
-  ".glass-pane > .pane-in.own-scroll | padding-right",
+  ".glass-pane > .pane-in.own-scroll:has(+ .rail:not([hidden])) | padding-right",
   // A table's cells: room round a cell's words, set by the table's size.
   ".data-table thead th | padding", ".data-table td, .data-table tbody th | padding", ".data-table.compact thead th | padding", ".data-table.compact td, .data-table.compact tbody th | padding",
   // A chart's last point: centered on its spot. A meter's track: its fill's inset, like a well's.

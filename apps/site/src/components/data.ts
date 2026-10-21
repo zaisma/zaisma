@@ -195,11 +195,75 @@ component({
   ],
 });
 
+export interface Fact {
+  /** What the fact is about, in a few words: Players, Works on. */
+  label: string;
+  /** The fact itself, in words: Single-player, Online co-op. */
+  text: string;
+}
+
+/** Facts: what something is, a few short facts side by side, each a quiet label over its words (a game's players and devices). */
+export function facts(options: { facts: Fact[]; label?: string }): Raw {
+  return html`<dl class="facts"${options.label ? html` aria-label="${options.label}"` : ""}>${options.facts.map((fact) => html`<div class="fact"><dt>${fact.label}</dt><dd>${fact.text}</dd></div>`)}</dl>`;
+}
+
+component({
+  name: "Facts",
+  slug: "facts",
+  group: "data",
+  summary: "What something is, in a few short facts: who a game is for, what it runs on. Each a quiet label over its words, side by side while they fit.",
+  styles: `
+/* Facts: each a label in a caption's words over the fact in a line's, side by side across the pane while they fit, then wrapping. */
+.facts { display: flex; flex-wrap: wrap; gap: var(--gap-words-control) var(--gap-block-block); margin: 0; }
+.fact { display: grid; gap: var(--gap-words-words); min-width: 0; }
+.fact dt { font: var(--type-facts); color: var(--muted); }
+.fact dd { margin: 0; font: var(--type-words); color: var(--ink); }
+`,
+  render: facts,
+  examples: [
+    { label: "A game's players and devices", markup: glassPane({ paneSize: "small", body: facts({ label: "About this game", facts: [{ label: "Players", text: "Single-player, online co-op" }, { label: "Works on", text: "Computer, tablet" }] }) }) },
+  ],
+});
+
+export interface PersonOptions {
+  username: string;
+  /** Their profile. */
+  href: string;
+  /** A line about them: "12 games on Zaisma". */
+  note?: string;
+}
+
+/** A person: someone on Zaisma named in a pane (a game's developer), their picture in its frame beside their name, a Link to their profile, and a line about them. */
+export function person(options: PersonOptions): Raw {
+  return html`<div class="person">${pictureFrame(options.username, "md")}<span class="person-words">${textLink(options.username, options.href)}${options.note ? html`<span class="person-note">${options.note}</span>` : ""}</span></div>`;
+}
+
+component({
+  name: "Person",
+  slug: "person",
+  group: "data",
+  summary: "Someone on Zaisma named in a pane, like a game's developer: their picture in its frame, their name a Link to their profile, and a line about them.",
+  styles: `
+/* A person: the picture, then the name over a quiet line, a word's gap from it. */
+.person { display: flex; align-items: center; gap: var(--gap-words-control); min-width: 0; }
+.person-words { display: grid; gap: var(--gap-words-words); min-width: 0; font: var(--type-name); }
+.person-words > .link { justify-self: start; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.person-note { font: var(--type-facts); color: var(--muted); }
+`,
+  render: person,
+  examples: [
+    { label: "A game's developer", markup: glassPane({ paneSize: "small", body: person({ username: "lumen_works", href: "#person", note: "12 games on Zaisma" }) }) },
+    { label: "Alone", markup: glassPane({ paneSize: "small", body: person({ username: "emma_r", href: "#person" }) }) },
+  ],
+});
+
 
 export interface ListRow {
   title: string;
   /** A line under its title, in quiet words. */
   detail?: string;
+  /** Words to read under its title, kept as written, line breaks and all (a game's patch notes). */
+  text?: string;
   /** Where the row goes: the whole row is the link. */
   href?: string;
   /** Instead of a link, a button that leads on in place (a sheet's next step), with these attributes for the page's script, by name without data-. */
@@ -213,7 +277,7 @@ export interface ListRow {
 /** List rows: a list on glass, one thing a row with hairlines between (versions, keys, topics, players); a row with an address is a link as a whole. */
 export function listRows(options: { rows: ListRow[]; id?: string; label?: string }): Raw {
   return html`<ul class="list-rows"${options.id ? html` id="${options.id}"` : ""}${options.label ? html` aria-label="${options.label}"` : ""}>${options.rows.map((row) => {
-    const inside = html`<span class="list-row-words"><span class="list-row-title">${row.title}</span>${row.detail ? html`<span class="list-row-detail">${row.detail}</span>` : ""}</span>${row.end !== undefined ? html`<span class="list-row-end">${row.end}</span>` : ""}`;
+    const inside = html`<span class="list-row-words"><span class="list-row-title">${row.title}</span>${row.detail ? html`<span class="list-row-detail">${row.detail}</span>` : ""}${row.text ? html`<span class="list-row-text">${row.text}</span>` : ""}</span>${row.end !== undefined ? html`<span class="list-row-end">${row.end}</span>` : ""}`;
     const go = html`<span class="list-row-go" aria-hidden="true">${icon("chevron-right")}</span>`;
     const state = row.state ? ` ${row.state}` : "";
     if (row.buttonDataAttributes) return html`<li><button type="button" class="list-row is-link${state}"${Object.entries(row.buttonDataAttributes).map(([name, attributeValue]) => html` data-${name}="${attributeValue}"`)} data-cut-line="8">${CUT_LINE}${inside}${go}</button></li>`;
@@ -238,6 +302,7 @@ button.list-row { width: 100%; margin: 0; border: 0; font: inherit; text-align: 
 .list-row-words { display: grid; gap: var(--gap-words-words); min-width: 0; flex: 1; }
 .list-row-title { font: var(--type-label); color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .list-row-detail { font: var(--type-facts); color: var(--muted); }
+.list-row-text { font: var(--type-reading); color: var(--ink-2); white-space: pre-line; overflow-wrap: anywhere; }
 .list-row-end { flex: none; display: inline-flex; align-items: center; gap: var(--gap-words-words); font: var(--type-facts); color: var(--ink-2); }
 .list-row-go { flex: none; display: inline-flex; color: var(--muted); transition: transform 0.45s cubic-bezier(.2,.7,.2,1), color 0.2s; }
 .list-row-go > .ico { width: 8px; height: 13px; stroke-width: 2.2; }
@@ -265,6 +330,13 @@ button.list-row { width: 100%; margin: 0; border: 0; font: inherit; text-align: 
     { label: "Pointed", markup: glassPane({ paneSize: "small", body: listRows({ rows: [{ title: "Ashen Crown", detail: "Unlisted", href: "#list-rows", state: "is-pointed" }] }) }), isStill: true },
     { label: "Keyboard focus", markup: glassPane({ paneSize: "small", body: listRows({ rows: [{ title: "Ashen Crown", detail: "Unlisted", href: "#list-rows", state: "is-focused" }] }) }), isStill: true },
     { label: "Rows that lead on in place, like a report's reasons", markup: glassPane({ paneSize: "small", body: listRows({ rows: [{ title: "It's broken", detail: "Won't load, crashes, or isn't really a game", buttonDataAttributes: { reason: "broken" } }, { title: "Something else", buttonDataAttributes: { reason: "other" } }] }) }) },
+    {
+      label: "Rows with words to read, like a game's updates",
+      markup: glassPane({ paneSize: "medium", body: listRows({ label: "Updates", rows: [
+        { title: "Oct 19, 2026", text: "Co-op saves now carry over between hosts.\nThe cave map loads twice as fast on phones." },
+        { title: "Oct 11, 2026", text: "Two new caves, and a lantern that lasts the whole night." },
+      ] }) }),
+    },
     { label: "Rows to read, not to open", markup: glassPane({ paneSize: "small", body: listRows({ rows: [{ title: "Claude", detail: "Made Oct 12 · used an hour ago", end: "Reads, uploads" }, { title: "Build server", detail: "Made Sep 30 · used yesterday", end: "Uploads" }] }) }) },
   ],
 });
@@ -347,6 +419,8 @@ component({
 
 export interface TableColumn {
   label: string;
+  /** Its label is said only to screen readers: a column of buttons whose words say it (Join). */
+  isLabelHidden?: boolean;
   /** Its cells are numbers: right-aligned, in figures of one width, so a column's digits line up. */
   isNumeric?: boolean;
 }
@@ -376,7 +450,7 @@ export function table(options: TableOptions): Raw {
   const numeric = (columnIndex: number) => (options.columns[columnIndex]?.isNumeric ? raw(' class="num"') : "");
   const isRowHead = (columnIndex: number) => options.hasRowHeads && columnIndex === 0;
   return html`<div class="table"><p class="table-caption" id="${id}-caption">${options.caption}</p><div class="table-scroll" data-fades-sideways data-side-rail data-scroll-box data-cut-line="8"><table class="data-table${options.isCompact ? " compact" : ""}${options.hasRowHeads ? " has-row-heads" : ""}" aria-labelledby="${id}-caption"><thead><tr>${options.columns.map(
-    (column, columnIndex) => html`<th scope="col" class="glass${options.columns[columnIndex]?.isNumeric ? " num" : ""}">${column.label}</th>`,
+    (column, columnIndex) => html`<th scope="col" class="glass${options.columns[columnIndex]?.isNumeric ? " num" : ""}">${column.isLabelHidden ? html`<span class="sr">${column.label}</span>` : column.label}</th>`,
   )}</tr></thead><tbody>${options.rows.map(
     (row) => html`<tr>${row.map((cell, columnIndex) => (isRowHead(columnIndex) ? html`<th scope="row" class="glass">${cell}</th>` : html`<td${numeric(columnIndex)}>${cell}</td>`))}</tr>`,
   )}</tbody></table></div></div>`;
@@ -401,9 +475,12 @@ component({
 .table { display: grid; gap: var(--gap-words-control); min-width: 0; }
 .table-caption { margin: 0; font: var(--type-label); color: var(--ink); }
 .table-scroll { position: relative; max-width: 100%; clip-path: var(--cut-shape); }
-.table-scroll[data-fades-sideways] { overflow-y: auto; max-height: min(640px, 75dvh); }
+/* A long table scrolls inside its box, at most --table-height tall (a page sets it where the table shares the screen, like a game's rooms). */
+.table-scroll[data-fades-sideways] { overflow-y: auto; max-height: var(--table-height, min(640px, 75dvh)); }
 .data-table { width: 100%; min-width: max-content; border-collapse: separate; border-spacing: 0; font: var(--type-words); color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .data-table th, .data-table td { white-space: nowrap; text-align: left; }
+/* A column whose label is said only to screen readers (its buttons say it): the header's glass would otherwise place the label in it. */
+.data-table th > .sr { position: absolute; }
 .data-table thead th { position: sticky; top: 0; z-index: 2; padding: 10px 16px; font: var(--type-facts); color: var(--muted);
   --glass-tint: var(--table-head); --glass-sheen: linear-gradient(transparent, transparent); box-shadow: inset 0 -1px 0 var(--line); }
 .data-table td, .data-table tbody th { padding: 14px 16px; border-top: var(--divider); }
@@ -441,6 +518,17 @@ component({
           ["14:01:22", html`<code>POST /trade</code>`, "429", "2 ms"],
         ],
       }) }),
+    },
+    {
+      label: "A list to join from, its height set by the page",
+      isWide: true,
+      markup: html`<div style="--table-height:240px">${glassPane({ paneSize: "full", body: table({
+        caption: "Open rooms",
+        isCompact: true,
+        hasRowHeads: true,
+        columns: [{ label: "Room" }, { label: "Mode" }, { label: "Where" }, { label: "Players", isNumeric: true }, { label: "Join", isLabelHidden: true }],
+        rows: [["Friday night", "Survival", "Germany", "6 of 8", cutButton("Join", { href: "#table", isSmall: true })], ["Speedrun practice", "Race", "Sweden", "3 of 4", cutButton("Join", { href: "#table", isSmall: true })], ["Lantern run", "Survival", "France", "2 of 8", cutButton("Join", { href: "#table", isSmall: true })], ["Build night", "Creative", "Poland", "1 of 16", cutButton("Join", { href: "#table", isSmall: true })], ["Deep caves", "Survival", "Spain", "1 of 8", cutButton("Join", { href: "#table", isSmall: true })]],
+      }) })}</div>`,
     },
   ],
 });

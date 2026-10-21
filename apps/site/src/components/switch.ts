@@ -168,7 +168,8 @@ component({
 .tab-switch .slab { clip-path: var(--cut-shape); background: var(--slab); box-shadow: var(--slab-shade), inset 0 -3px 0 var(--run); }
 .tab-switch .ghost { background: var(--ghost); opacity: 0; }
 .tab-switch.pointing .ghost { opacity: 1; }
-.tab-switch > a, .tab-switch > button { position: relative; z-index: 2; display: grid; place-content: center; padding: 0 var(--tab-room, 18px); border: 0; background: none; cursor: pointer;
+/* A tab is its words, with its icon before them and its count after, in one line. */
+.tab-switch > a, .tab-switch > button { position: relative; z-index: 2; display: flex; align-items: center; justify-content: center; gap: var(--gap-words-words); padding: 0 var(--tab-room, 18px); border: 0; background: none; cursor: pointer;
   font: 500 15px var(--display); color: var(--ink-2); text-decoration: none; white-space: nowrap; }
 .tab-switch.big > a, .tab-switch.big > button { flex: 1 1 0; }
 /* The one you're on is marked by its slab and full ink, at the same weight as the others, so its words never move as it's chosen. */
@@ -224,6 +225,10 @@ component({
     {
       label: "Small",
       markup: tabSwitch({ label: "Sort", switchSize: "small", tabs: [{ label: "Recently played", tabValue: "played", isCurrent: true }, { label: "Recently updated", tabValue: "updated", isCurrent: false }] }),
+    },
+    {
+      label: "Small, with counts: rooms by region",
+      markup: tabSwitch({ label: "Region", switchSize: "small", tabs: [{ label: "All", isCurrent: true }, { label: "EU", badgeCount: 60, isCurrent: false }, { label: "NA", badgeCount: 8, isCurrent: false }, { label: "AS", badgeCount: 5, isCurrent: false }] }),
     },
     {
       label: "On a loop",

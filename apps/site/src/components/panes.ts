@@ -1,6 +1,6 @@
 import { html, raw, type Raw } from "../markup.ts";
 import { component } from "./component.ts";
-import { CUT_LINE, EDGE, PANE_SIZES, ago, glassPane, icon, sheetMarkup, tag, tray, type IconName } from "./foundations.ts";
+import { CUT_LINE, EDGE, MARK, PANE_SIZES, ago, glassPane, icon, sheetMarkup, tag, tray, type IconName } from "./foundations.ts";
 import { glanceFacts, pictureRow, type GlanceFacts } from "./data.ts";
 import { cutButton, runButton } from "./actions.ts";
 import { REPORT_REASONS, birthdayField, choiceCards, cutField, longField } from "./inputs.ts";
@@ -78,10 +78,14 @@ function coverFacts(facts: GlanceFacts): Raw {
   return html`<div class="cover-meta">${left}${facts.playerCount !== undefined ? html`<span class="count">${icon("people")}<span>${facts.playerCount.toLocaleString("en-US")}<span class="sr"> playing now</span></span></span>` : ""}</div>`;
 }
 
-/** A game's cover: the studio's art alone, bare. The orange line draws in under it on point and runs out to the right on leave. */
-export function gameCover(options: { title: string; imageUrl: string; href: string; facts: GlanceFacts; isCurrent?: boolean }): Raw {
+/**
+ * A game's cover: the studio's art alone, bare. The orange line draws in under it on point and runs out to the right on leave. A game
+ * with no cover yet (imageUrl null) shows the well with Zaisma's mark in quiet ink until its developer adds one.
+ */
+export function gameCover(options: { title: string; imageUrl: string | null; href: string; facts: GlanceFacts; isCurrent?: boolean }): Raw {
   const isUpdated = options.facts.updatedAtMs !== undefined && options.facts.playedAtMs !== undefined;
-  return html`<div class="cover"${options.isCurrent ? raw(' aria-current="true"') : ""}><a class="cover-art" data-cut-line="0" href="${options.href}" aria-label="${options.title}${isUpdated ? ", updated" : ""}"><img src="${options.imageUrl}" alt="" loading="lazy" decoding="async"></a><span class="cover-bar" aria-hidden="true"></span>${coverFacts(options.facts)}</div>`;
+  const art = options.imageUrl ? html`<img src="${options.imageUrl}" alt="" loading="lazy" decoding="async">` : MARK;
+  return html`<div class="cover"${options.isCurrent ? raw(' aria-current="true"') : ""}><a class="cover-art${options.imageUrl ? "" : " is-empty"}" data-cut-line="0" href="${options.href}" aria-label="${options.title}${isUpdated ? ", updated" : ""}">${art}</a><span class="cover-bar" aria-hidden="true"></span>${coverFacts(options.facts)}</div>`;
 }
 
 /**
@@ -178,12 +182,13 @@ const PANE_STYLES = `
 .glass-pane { position: relative; }
 /* Long content scrolls inside it, on Zaisma's own rail (RAIL_SCRIPT gives any box that scrolls one). */
 .glass-pane > .pane-in { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--gap-block-block); padding: var(--pad-pane); }
-/* With its rail, the pane keeps room for it along its right edge, so the rail never sits against what's in it. */
-.glass-pane > .pane-in.own-scroll { padding-right: calc(var(--pad-pane) + 16px); }
+/* With its rail showing, the pane keeps room for it along its right edge, so the rail never sits against what's in it; while nothing
+   scrolls the rail is hidden and the pane keeps its own padding, so what sits in its corner still takes the corner's cut. */
+.glass-pane > .pane-in.own-scroll:has(+ .rail:not([hidden])) { padding-right: calc(var(--pad-pane) + 16px); }
 /* Nothing in the pane shrinks when its content is long: it scrolls instead. */
 .glass-pane > .pane-in > * { flex-shrink: 0; }
 /* A form in a pane stacks what it holds as the pane does, and so does any group of blocks in it (pane-stack: a step that shows or hides). */
-.glass-pane > .pane-in form, .glass-pane .pane-stack { display: flex; flex-direction: column; gap: var(--gap-block-block); }
+.glass-pane > .pane-in form:not(.control-row), .glass-pane .pane-stack { display: flex; flex-direction: column; gap: var(--gap-block-block); }
 /* A page's own heading (h1) when the pane is the page, or one of a few on it (h2). */
 .glass-pane :is(h1, h2) { margin: 0; font: var(--type-heading); text-wrap: balance; }
 .glass-pane p { margin: 0; color: var(--ink-2); }
@@ -196,6 +201,9 @@ const COVER_STYLES = `
 .cover-art { position: relative; display: block; aspect-ratio: 16 / 9; overflow: hidden; background: rgba(20,30,50,0.12); clip-path: var(--cut-shape); }
 .cover-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 .cover-art:focus-visible { outline: none; }
+/* No cover yet: the well, with Zaisma's mark in quiet ink in its middle. */
+.cover-art.is-empty { display: grid; place-items: center; background: var(--well); color: var(--muted); }
+.cover-art.is-empty > svg { width: 26%; height: auto; fill: currentColor; }
 .cover-art:focus-visible > .cut-line polygon { stroke: var(--focus); stroke-width: var(--focus-stroke); }
 /* The orange line under a cover: it draws in from the left the moment you point at a cover, with a light running ahead along it,
    and stays under the game in the pane. Leaving, it runs on out to the right, quicker than it came, as if it moved on to the next cover. */
@@ -344,8 +352,92 @@ component({
     { label: "Played, updated since", markup: html`<div class="cover-sample">${standInCovers(["ashen-crown"])}</div>` },
     { label: "Friends playing", markup: html`<div class="cover-sample">${standInCovers(["neon-drift"])}</div>` },
     { label: "Players now", markup: html`<div class="cover-sample">${standInCovers(["hollow-tide"])}</div>` },
+    { label: "No cover yet", markup: html`<div class="cover-sample">${gameCover({ title: "Untitled caves", imageUrl: null, href: "#game-cover", facts: { playerCount: 4 } })}</div>` },
     { label: "In focus", markup: html`<div class="cover-sample">${gameCover({ title: "Verdant", imageUrl: "/design/covers/verdant.webp", href: "#verdant", facts: { playerCount: 96 }, isCurrent: true })}</div>`, isStill: true },
     { label: "On a loop", markup: html`<div class="cover-sample" data-state-loop="cover">${standInCovers(["iron-vigil"])}</div>`, isStill: true },
+  ],
+});
+
+export interface PictureViewerOptions {
+  /** Unique on the page; its sheet is <id>-large. */
+  id: string;
+  /** Whose pictures they are (the game's title): the sheet's title, and what screen readers hear the row of them called. */
+  title: string;
+  pictureUrls: string[];
+}
+
+/**
+ * A game's pictures: the one picked, large, with the rest under it to pick from. Each is the studio's picture alone, bare, cut by the edge
+ * rule as a cover is (the large one takes the pane's cut at its top, the row's ends at its foot), and the picked one keeps a cover's orange
+ * line under it. The large one opens larger still in a sheet, where the arrow keys step through them.
+ */
+export function pictureViewer(options: PictureViewerOptions): Raw {
+  const pictureCount = options.pictureUrls.length;
+  const firstUrl = options.pictureUrls[0] ?? "";
+  const sheetId = `${options.id}-large`;
+  const named = (pictureIndex: number) => `Picture ${pictureIndex + 1} of ${pictureCount}`;
+  return html`<div class="viewer" id="${options.id}" data-viewer><button class="cover-art viewer-main" type="button" data-cut-line="0" aria-controls="${sheetId}" aria-label="${named(0)}, larger"><img src="${firstUrl}" alt="" decoding="async"></button>${pictureCount > 1
+    ? html`<div class="viewer-row" role="group" aria-label="Pictures of ${options.title}" data-fades-sideways>${options.pictureUrls.map(
+        (pictureUrl, pictureIndex) => html`<div class="cover"${pictureIndex === 0 ? raw(' aria-current="true"') : ""}><button class="cover-art" type="button" data-cut-line="0" data-picture="${pictureUrl}" aria-label="${named(pictureIndex)}" aria-pressed="${pictureIndex === 0 ? "true" : "false"}"><img src="${pictureUrl}" alt="" loading="lazy" decoding="async"></button><span class="cover-bar" aria-hidden="true"></span></div>`,
+      )}</div>`
+    : ""}${sheet({ id: sheetId, title: options.title, body: html`<img class="viewer-large" src="${firstUrl}" alt="">`, closeLabel: "Close" })}</div>`;
+}
+
+/** Picking a picture shows it large (and in the sheet); in the open sheet, the arrow keys step to the one before or after. */
+export const PICTURE_VIEWER_SCRIPT = `/* picture viewers */(function () {
+  function pick(viewer, chosen) {
+    var url = chosen.getAttribute("data-picture");
+    viewer.querySelector(".viewer-main img").src = url;
+    viewer.querySelector(".viewer-main").setAttribute("aria-label", chosen.getAttribute("aria-label") + ", larger");
+    viewer.querySelector(".viewer-large").src = url;
+    viewer.querySelectorAll(".viewer-row [data-picture]").forEach(function (each) {
+      var isPicked = each === chosen;
+      each.setAttribute("aria-pressed", isPicked ? "true" : "false");
+      if (isPicked) each.parentNode.setAttribute("aria-current", "true"); else each.parentNode.removeAttribute("aria-current");
+    });
+  }
+  document.addEventListener("click", function (event) {
+    var chosen = event.target.closest && event.target.closest(".viewer-row [data-picture]");
+    if (chosen) pick(chosen.closest("[data-viewer]"), chosen);
+  });
+  document.addEventListener("keydown", function (event) {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    var open = document.querySelector("[data-viewer] dialog.sheet[open]");
+    if (!open) return;
+    var viewer = open.closest("[data-viewer]"), all = [].slice.call(viewer.querySelectorAll(".viewer-row [data-picture]"));
+    var at = all.findIndex(function (each) { return each.getAttribute("aria-pressed") === "true"; });
+    var next = all[at + (event.key === "ArrowRight" ? 1 : -1)];
+    if (next) { event.preventDefault(); pick(viewer, next); next.scrollIntoView({ block: "nearest", inline: "nearest" }); }
+  });
+})();
+`;
+
+const STAND_IN_PICTURES = ["ashen-crown", "hollow-tide", "neon-drift", "iron-vigil", "verdant", "frostline"].map((name) => `/design/covers/${name}.webp`);
+
+component({
+  name: "Picture viewer",
+  slug: "picture-viewer",
+  group: "panes",
+  summary: "A game's screenshots: the one picked, large, with the rest under it to pick from. Each is the studio's picture alone, cut like a cover, and the picked one keeps a cover's orange line. The large one opens larger still in a sheet.",
+  styles: `
+/* A picture viewer: the picked picture as large as its pane is wide, the row of them under it, a block's gap apart. Every picture is a
+   cover's art (bare, cut by the edge rule) and every one in the row a cover, so the picked one keeps the orange line under it. The row
+   scrolls sideways when they don't fit, fading at an edge with more. */
+.viewer { display: flex; flex-direction: column; gap: var(--gap-block-block); min-width: 0; }
+.viewer .cover-art { width: 100%; margin: 0; padding: 0; border: 0; font: inherit; }
+.viewer-main { cursor: zoom-in; }
+.viewer-row { --fade-sideways-px: 48px; display: flex; gap: var(--gap-block-block); overflow-x: auto; scrollbar-width: none; }
+.viewer-row::-webkit-scrollbar { display: none; }
+.viewer-row > .cover { flex: 0 0 clamp(112px, 18%, 176px); }
+.viewer-row .cover-art { cursor: pointer; }
+/* Larger still: the picture whole, as wide as the window allows. */
+.sheet:has(.viewer-large) { width: min(1280px, calc(100% - 2 * var(--pad-pane))); }
+.viewer-large { display: block; width: 100%; height: auto; max-height: calc(100dvh - 160px); object-fit: contain; }
+`,
+  render: pictureViewer,
+  examples: [
+    { label: "A game's screenshots", isWide: true, markup: glassPane({ paneSize: "full", label: "Screenshots", body: pictureViewer({ id: "example-viewer", title: "Ashen Crown", pictureUrls: STAND_IN_PICTURES }) }) },
+    { label: "One picture", markup: glassPane({ paneSize: "medium", label: "Screenshots", body: pictureViewer({ id: "example-viewer-one", title: "Verdant", pictureUrls: [STAND_IN_PICTURES[4]!] }) }) },
   ],
 });
 

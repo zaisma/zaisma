@@ -26,14 +26,12 @@ beforeEach(async () => {
 });
 
 describe("the game page's details", () => {
-  it("hold Play, a Details link to About, and Share and Report as icon buttons named for screen readers, with no tabs", async () => {
+  it("hold Play and a Details link to About side by side, with Share and Report as words under them, and no tabs", async () => {
     await addGame("solo");
     const text = await page("/g/solo");
-    const pane = text.match(/<div class="control-row game-actions">[\s\S]*?<\/div>/)![0];
-    expect(pane).toMatch(/<button class="shell run-wrap" type="button" id="play">/);
-    expect(pane).toMatch(/<a class="shell cut-btn big" href="#about">/);
-    expect(pane).toMatch(/id="share-page"[^>]* aria-label="Share" aria-controls="share-dialog"/);
-    expect(pane).toMatch(/href="\/g\/solo\/report" data-report=""[^>]* aria-label="Report"/);
+    const actions = text.match(/<div class="game-act">[\s\S]*?<\/div><\/div>/)![0];
+    expect(actions).toMatch(/<div class="control-row game-actions"><button class="shell run-wrap" type="button" id="play">[\s\S]*<a class="shell cut-btn big" href="#about">/);
+    expect(actions).toMatch(/<div class="game-more-actions"><button class="shell text-btn" type="button" id="share-page" aria-controls="share-dialog">[\s\S]*<a class="shell text-btn" href="\/g\/solo\/report" data-report="">/);
     expect(text).not.toContain('role="tablist"');
     expect(text).toContain('<section id="about">');
   });

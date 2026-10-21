@@ -1432,7 +1432,8 @@ describe("friends", () => {
 
     // Join grays out with why: a closed room, a full one, a friend who doesn't take joins.
     await env.DB.prepare("UPDATE live_rooms SET is_open = 0").run();
-    expect(await (await ana.go("/g/arena-game/friends")).text()).toContain('data-reason="Match in progress"');
+    // On the game page Join lies flat, with why under the friends in words.
+    expect(await (await ana.go("/g/arena-game/friends")).text()).toContain('<p class="friends-why">Match in progress</p>');
     await env.DB.prepare("UPDATE live_rooms SET is_open = 1, player_count = 7, held_seat_count = 1").run();
     expect(await (await ana.go("/friends")).text()).toContain('data-reason="Room full"');
     await env.DB.prepare("UPDATE accounts SET who_can_join = 'nobody' WHERE id = ?").bind(users.get("quiet_comet@example.com")!).run();
@@ -1445,7 +1446,7 @@ describe("friends", () => {
     expect(await (await ana.go("/friends")).text()).toContain('data-reason="Private room"');
     await env.DB.prepare("UPDATE games SET friend_joins_enabled = 0 WHERE slug = 'arena-game'").run();
     const gameOff = await (await ana.go("/g/arena-game/friends")).text();
-    expect(gameOff).toContain('data-reason="This game doesn&#39;t take joins"');
+    expect(gameOff).toContain('<p class="friends-why">This game doesn&#39;t take joins</p>');
     expect(gameOff).not.toContain("?room=ROOMAA");
     await env.DB.prepare("UPDATE games SET friend_joins_enabled = 1 WHERE slug = 'arena-game'").run();
     await env.DB.prepare("UPDATE live_rooms SET friend_joins_enabled = 1").run();

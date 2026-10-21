@@ -161,7 +161,7 @@ html, body { overscroll-behavior-x: none; }
   --pad-inner-pane: 12px;
   --pad-tray: 16px;
   /* Type (docs/DESIGN.md, Type): every word outside a control's own inside takes one of these whole fonts, picked by what the words are. */
-  --type-title: 600 40px/1.04 var(--display);
+  --type-title: 600 52px/1.02 var(--display);
   --type-heading: 600 30px/1.1 var(--display);
   --type-section: 600 22px/1.2 var(--display);
   --type-name: 600 17px/1.3 var(--display);
@@ -173,7 +173,7 @@ html, body { overscroll-behavior-x: none; }
   --type-tag: 600 12px/1 var(--display);
   --type-code: 600 13px/1.3 ui-monospace, Menlo, monospace;
 }
-@media (max-width: 760px) { :root { --pad-pane: 18px; --type-title: 600 32px/1.04 var(--display); --type-heading: 600 26px/1.1 var(--display); --type-section: 600 20px/1.2 var(--display); } }
+@media (max-width: 760px) { :root { --pad-pane: 18px; --type-title: 600 38px/1.04 var(--display); --type-heading: 600 26px/1.1 var(--display); --type-section: 600 20px/1.2 var(--display); } }
 :root, [data-theme-choice="light"] { ${LIGHT_GLASS} --page: #EEF2F7; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme-choice="light"]) { ${SMOKED_GLASS} --page: #0D1015; } }
 [data-theme-choice="dark"] { ${SMOKED_GLASS} --page: #0D1015; }

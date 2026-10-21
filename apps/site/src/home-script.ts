@@ -219,9 +219,9 @@ function coverFor(game, list, at) {
   const isUpdated = list === "continue" && game.published_at_ms && game.published_at_ms > at;
   cover.dataset.slug = game.slug;
   art.href = "/g/" + game.slug; art.setAttribute("data-cut-line", "0"); art.setAttribute("aria-label", game.title + (isUpdated ? ", updated" : ""));
-  image.src = game.cover || DATA.placeholder_cover; image.alt = ""; image.loading = "lazy"; image.decoding = "async";
-  if (!game.cover) cover.classList.add("is-placeholder");
-  art.append(image);
+  // No cover yet: the well with Zaisma's mark, as gameCover draws it.
+  if (game.cover) { image.src = game.cover; image.alt = ""; image.loading = "lazy"; image.decoding = "async"; art.append(image); }
+  else { art.classList.add("is-empty"); art.append(iconNode(DATA.parts.no_cover)); }
   const bar = make("span", "cover-bar"); bar.setAttribute("aria-hidden", "true");
   cover.append(art, bar, coverFacts(game, list, at));
   if (game.slug === focusSlug) cover.setAttribute("aria-current", "true");

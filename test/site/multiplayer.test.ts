@@ -1,7 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { QUICK_JOIN_KEPT_MS, auditLog, gameById, noteQuickJoin } from "@zaisma/core";
-import { lit } from "../../apps/site/src/rooms.ts";
 import { pageDataOf } from "../strict-scripts.ts";
 
 const LOCAL = "http://localhost";
@@ -119,6 +118,9 @@ describe("room browsing on the game page", () => {
     await env.DB.exec("DELETE FROM reports; DELETE FROM audit_log; DELETE FROM live_rooms; DELETE FROM games;");
   });
 
+  /** The rooms listed: the rows of the rooms table. */
+  const rowsOf = (panel: string) => (panel.match(/<tbody>([\s\S]*?)<\/tbody>/)?.[1]?.match(/<tr>/g) ?? []).length;
+
   const room = (gameId: string, code: string, players: number, open = 1, at = Date.now(), where: [string, string] = ["DE", "EU"], max = 8) =>
     env.DB.prepare("INSERT INTO live_rooms (game_id, room_code, player_count, maximum_player_count, is_open, country, continent, created_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
       .bind(gameId, code, players, max, open, where[0], where[1], at, at)
@@ -137,11 +139,12 @@ describe("room browsing on the game page", () => {
     expect(page).toMatch(/<div class="game-glance" id="playing-now"><ul class="glance"><li>[\s\S]*?<b>13<\/b> playing now/);
     expect(page).toMatch(/aria-label="Join a room with 3 of 8 players in Germany"><a class="shell cut-btn small" href="\/g\/arena\?room=BCDFGH">/);
     // Codes stay in the links; a player with a code types it into the box.
-    expect(page).toContain('<form class="code-join" method="get" action="/g/arena">');
+    expect(page).toContain('<form class="control-row code-join" method="get" action="/g/arena">');
     expect(page).not.toContain(">BCDFGH<");
-    expect(page).toContain("3 of 8 players");
-    expect(page).toContain('<img class="flag" src="/flags/de.png" alt="" width="20" height="15" loading="lazy"><abbr title="Germany">DE</abbr>');
-    expect(page).toMatch(/8 of 8 players[\s\S]*?<span class="full">Full<\/span>/);
+    // Each room is a row of the gallery's Table: the country it runs in, how full it is, then Join, or Full.
+    expect(page).toContain('<td>Germany</td><td class="num">3 of 8</td>');
+    expect(page).not.toContain("/flags/");
+    expect(page).toContain('<td class="num">8 of 8</td><td>Full</td>');
     expect(page).not.toContain("JKMN3P");
     // Closed rooms are only counted; rooms that stopped checking in aren't shown at all.
     expect(page).not.toContain("QRSTVW");
@@ -153,32 +156,25 @@ describe("room browsing on the game page", () => {
     expect(await fragment.text()).toContain('data-count="2"');
   });
 
-  it("filters by region once rooms run in more than one, shows big rooms as shares of 16 seats, and the best ten first", async () => {
+  it("filters by region once rooms run in more than one, and lists every open room in a table that scrolls inside its own height", async () => {
     const id = await addGame("arena", "relay");
     const codes = "BCDFGHJKLMNPQRSTVWXYZ".split("");
     for (const [i, c] of codes.slice(0, 12).entries()) await room(id, c.repeat(6), 1 + (i % 3));
     await room(id, "ABC234", 31, 1, Date.now(), ["US", "NA"], 40);
     const page = await (await SELF.fetch("https://zaisma.test/g/arena")).text();
     expect(page).toMatch(/<button type="button" data-region="EU" title="Europe" aria-pressed="false"><span>EU<\/span><span class="tag count">12<\/span><\/button>/);
-    // A big room keeps 16 seats, each a share of its places: 31 of 40 lights 12.
-    const big = page.match(/<span class="count">31 of 40 players<\/span>(?:<\/span>)+\s*<span class="fill"><span class="seats" aria-hidden="true">(.*?)<\/span>/)![1]!;
-    expect([big.match(/<i class="on">/g)!.length, big.match(/<i/g)!.length]).toEqual([12, 16]);
-    expect(page.match(/class="room later"/g)).toHaveLength(3);
-    expect(page).toContain("Show 3 more rooms");
+    expect(page).toContain('<td>United States</td><td class="num">31 of 40</td>');
+    expect(rowsOf(page)).toBe(13);
+    expect(page).not.toContain("more rooms</span>");
     expect(page).toContain('data-count="13"');
 
     const na = await (await SELF.fetch("https://zaisma.test/g/arena/rooms?region=NA")).text();
     expect(na).toContain('data-region="NA" title="North America" aria-pressed="true"');
     // The tab's number follows the region picked, like the rows.
     expect(na).toContain('data-count="1"');
-    expect(na.match(/class="room( |")/g)).toHaveLength(1);
+    expect(rowsOf(na)).toBe(1);
     const none = await (await SELF.fetch("https://zaisma.test/g/arena/rooms?region=AF")).text();
     expect(none).toContain("No open rooms in that region right now.");
-  });
-
-  it("lights a seat for anyone in a big room, and every seat only when it's full", () => {
-    const seats = (playerCount: number, maximumPlayerCount: number) => lit({ playerCount, maximumPlayerCount });
-    expect([seats(3, 8), seats(1, 100), seats(99, 100), seats(100, 100), seats(0, 40)]).toEqual([3, 1, 15, 16, 0]);
   });
 
   it("shows who's playing now, hidden rooms included, once there are 3 or more", async () => {
@@ -213,15 +209,17 @@ describe("room browsing on the game page", () => {
     await named("CDFGHJ", "add me on snap coolkid", { Mode: "Hardcore" });
     await named("DFGHJK", null, { Mode: "Classic" });
     const page = await (await SELF.fetch("https://zaisma.test/g/arena")).text();
-    expect(page).toContain('<strong class="name">Ana&#39;s castle</strong><span class="labels"><span title="Mode">Classic</span> · <span title="Map">Docks</span></span>');
+    // A column for the name and one for each label, in the order rooms carry them.
+    expect(page).toMatch(/<thead><tr><th scope="col" class="glass">Room<\/th><th scope="col" class="glass">Mode<\/th><th scope="col" class="glass">Map<\/th><th scope="col" class="glass num">Players<\/th>/);
+    expect(page).toContain('<td>Ana&#39;s castle</td><td>Classic</td><td>Docks</td><td class="num">2 of 8</td>');
     expect(page).toContain('data-report-room="BCDFGH" data-room-name="Ana&#39;s castle, Classic, Docks"');
     // A name that fails the filter isn't shown; its labels still are.
     expect(page).not.toContain("coolkid");
-    expect(page).toContain('<span class="title"><span class="count">2 of 8 players</span><span class="labels"><span title="Mode">Hardcore</span></span></span>');
+    expect(page).toContain('<td></td><td>Hardcore</td><td></td><td class="num">2 of 8</td>');
     const modeFilter = page.match(/<div class="rooms-filter" data-label-filter="Mode">[\s\S]*?<input type="hidden"[^>]*>/)![0];
     expect([...modeFilter.matchAll(/data-choice-value="([^"]*)"/g)].map((choice) => choice[1])).toEqual(["", "Classic", "Hardcore"]);
     const classic = await (await SELF.fetch(`https://zaisma.test/g/arena/rooms?labels=${encodeURIComponent(JSON.stringify({ Mode: "Classic" }))}`)).text();
-    expect(classic.match(/class="room( |")/g)).toHaveLength(2);
+    expect(rowsOf(classic)).toBe(2);
     expect(classic).toContain('data-choice-value="Classic" aria-selected="true"');
   });
 

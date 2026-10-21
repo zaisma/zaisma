@@ -1,4 +1,4 @@
-import { friendsInGameOf, gameBySlug } from "@zaisma/core";
+import { friendsInGameOf, gameBySlug, joinRefusalText } from "@zaisma/core";
 import { currentSession } from "./auth.ts";
 import type { Env } from "./env.ts";
 import { cutButton, textLink } from "./components/actions.ts";
@@ -66,13 +66,11 @@ const ROOM_CODE = /^[A-Z0-9]{6}$/;
 /** Friends playing the game, each with Join, grayed with why when it won't work; none for a friend in no room Zaisma knows. */
 function friendRows(slug: string, friends: Awaited<ReturnType<typeof friendsInGameOf>>): Raw {
   if (!friends.length) return html`<p class="players-note">None of your friends are playing this right now.</p>`;
-  return html`<ul class="list-rows">${friends.map(
-    (friend) => html`<li><div class="list-row players-row"><a class="players-face" href="${profilePath(friend.username)}" target="_blank" rel="noopener" aria-label="${friend.username}">${pictureFrame(friend.username, "sm")}</a><span class="list-row-words"><a class="list-row-title players-name" href="${profilePath(friend.username)}" target="_blank" rel="noopener">${friend.username}</a></span>${
-      friend.join_refusal === "no_room" || (!friend.room_code && !friend.join_refusal)
-        ? ""
-        : html`<span class="list-row-end">${friendJoinButton(slug, { room_code: friend.room_code ?? "", server_url: friend.server_url, refusal: friend.join_refusal, refusing_friend_names: [friend.username] })}</span>`
-    }</div></li>`,
-  )}</ul>`;
+  return html`<ul class="list-rows">${friends.map((friend) => {
+    const join = friend.join_refusal === "no_room" || (!friend.room_code && !friend.join_refusal) ? null : { room_code: friend.room_code ?? "", server_url: friend.server_url, refusal: friend.join_refusal, refusing_friend_names: [friend.username] };
+    // When Join won't work, why is said under the name, in words.
+    return html`<li><div class="list-row players-row"><a class="players-face" href="${profilePath(friend.username)}" target="_blank" rel="noopener" aria-label="${friend.username}">${pictureFrame(friend.username, "sm")}</a><span class="list-row-words"><a class="list-row-title players-name" href="${profilePath(friend.username)}" target="_blank" rel="noopener">${friend.username}</a>${join?.refusal ? html`<span class="list-row-detail">${joinRefusalText(join)}</span>` : ""}</span>${join ? html`<span class="list-row-end">${friendJoinButton(slug, join)}</span>` : ""}</div></li>`;
+  })}</ul>`;
 }
 
 /**
@@ -192,7 +190,7 @@ const PLAYERS_SHEET_SCRIPT = pageScript("players-sheet", String.raw`(() => {
 
   function update() {
     count.hidden = !room;
-    count.textContent = room ? String(room.players.length) : "";
+    count.querySelector(".tag").textContent = room ? String(room.players.length) : "";
     if (sheet.open) render();
   }
 

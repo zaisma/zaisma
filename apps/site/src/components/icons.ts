@@ -1,5 +1,8 @@
 import { raw, type Raw } from "../markup.ts";
+import { LINK_BRAND_ICON_PATHS } from "../link-icons.ts";
 
+/** A site's own mark (Simple Icons, link-icons.ts), filled in the words' color: on a developer's link to that site. */
+const siteMark = (site: keyof typeof LINK_BRAND_ICON_PATHS) => `<svg class="ico solid" viewBox="0 0 24 24" aria-hidden="true"><path d="${LINK_BRAND_ICON_PATHS[site]}"/></svg>`;
 const stroke = (viewBox: string, paths: string, extra = "") => `<svg class="ico" viewBox="${viewBox}" aria-hidden="true"${extra}>${paths}</svg>`;
 
 /** Every line icon the drafts use. Each is drawn in the words' color (.ico). */
@@ -55,6 +58,8 @@ export const ICONS = {
   // Filled arrows, for scrolling a row back and on.
   "arrow-back": '<svg class="ico solid" viewBox="0 0 12 16" aria-hidden="true"><path d="M12 0H7L0 8l7 8h5L5 8z"/></svg>',
   "arrow-on": '<svg class="ico solid" viewBox="0 0 12 16" aria-hidden="true"><path d="M0 0h5l7 8-7 8H0l7-8z"/></svg>',
+  // Sites a developer links to from their game's page, each in its own mark.
+  ...(Object.fromEntries(Object.keys(LINK_BRAND_ICON_PATHS).map((site) => [`site-${site}`, siteMark(site as keyof typeof LINK_BRAND_ICON_PATHS)])) as Record<`site-${keyof typeof LINK_BRAND_ICON_PATHS}`, string>),
   play: '<svg class="play" viewBox="0 0 16 18" width="14" height="16" aria-hidden="true"><path d="M2 1.5l12 7.5-12 7.5z" fill="currentColor"/></svg>',
 } as const;
 export type IconName = keyof typeof ICONS;

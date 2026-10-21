@@ -120,7 +120,7 @@ Applies where Spacing does. Every word outside a control's own inside is set in 
 
 | Token | What the words are | Font |
 | --- | --- | --- |
-| `--type-title` | A game's title | Jost 600, 40px (32px on a phone) |
+| `--type-title` | A game's title | Jost 600, 52px (38px on a phone) |
 | `--type-heading` | A pane's heading | Jost 600, 30px (26px on a phone) |
 | `--type-section` | A row's or a section's heading | Jost 600, 22px (20px on a phone) |
 | `--type-name` | A name in a pane, a dropdown's head | Jost 600, 17px |
@@ -186,15 +186,15 @@ Every component, with the call that makes it and its options, is in the catalog 
 ### Actions
 
 - **Runner button** (`runButton(label: string, options?: RunButtonOptions)`, `actions.ts`): The one thing to do on a screen: Play, Sign in, Next. Never more than one in view, and visible without scrolling.
-  - `options`: `href?: string`, `type?: "submit" | "button"`, `name?: string`, `buttonValue?: string`, `formMethod?: "dialog"`, `isAutofocused?: boolean`, `id?: string`, `dataAttributes?: Record<string, string>`, `isBig?: boolean`, `isFullWidth?: boolean`, `isBusy?: boolean`, `busyLabel?: string`, `icon?: IconName`, `state?: ButtonState`
+  - `options`: `href?: string`, `type?: "submit" | "button"`, `name?: string`, `buttonValue?: string`, `formMethod?: "dialog"`, `isAutofocused?: boolean`, `id?: string`, `dataAttributes?: Record<string, string>`, `isNewTab?: boolean`, `isBig?: boolean`, `isFullWidth?: boolean`, `isBusy?: boolean`, `busyLabel?: string`, `icon?: IconName`, `state?: ButtonState`
 - **Cut button** (`cutButton(label: string, options?: CutButtonOptions)`, `actions.ts`): Everything else you can press: Details, Make an account, Cancel. A delete is a cut button too, never orange; only its confirm step turns red.
-  - `options`: `href?: string`, `type?: "submit" | "button"`, `name?: string`, `buttonValue?: string`, `formMethod?: "dialog"`, `isAutofocused?: boolean`, `id?: string`, `dataAttributes?: Record<string, string>`, `icon?: IconName`, `isLabelHidden?: boolean`, `isFullWidth?: boolean`, `isBusy?: boolean`, `state?: ButtonState`, `isBig?: boolean`, `isSmall?: boolean`, `isInWell?: boolean`, `isDisabled?: boolean`, `isPressed?: boolean`, `controls?: string`, `isExpanded?: boolean`, `isHidden?: boolean`
+  - `options`: `href?: string`, `type?: "submit" | "button"`, `name?: string`, `buttonValue?: string`, `formMethod?: "dialog"`, `isAutofocused?: boolean`, `id?: string`, `dataAttributes?: Record<string, string>`, `isNewTab?: boolean`, `icon?: IconName`, `isLabelHidden?: boolean`, `isFullWidth?: boolean`, `isBusy?: boolean`, `state?: ButtonState`, `isBig?: boolean`, `isSmall?: boolean`, `isInWell?: boolean`, `isDisabled?: boolean`, `isPressed?: boolean`, `controls?: string`, `isExpanded?: boolean`, `isHidden?: boolean`
 - **Glass button** (`glassButton(label: string, options: { … })`, `actions.ts`): Another way in, like a passkey, Google or Discord: below the runner, never instead of it. Or an action floating on a world with no pane under it.
   - `options`: `href?: string`, `type?: "submit" | "button"`, `icon: keyof typeof WAY_ICONS | IconName`, `tint?: GlassTint`, `state?: ButtonState`, `isBusy?: boolean`
 - **Guest button** (`guestButton(label: string, options?: { … })`, `actions.ts`): The quietest way on, like Continue as guest: words and an arrow below the glass buttons, a slab only once you point at it.
   - `options`: `href?: string`, `type?: "submit" | "button"`, `state?: ButtonState`, `isBusy?: boolean`
 - **Text button** (`textButton(label: string, options?: TextButtonOptions)`, `actions.ts`): The quietest thing to press, words alone: Skip for now, Show all, Undo. Beside a cut button it's the way out; never the one thing to do.
-  - `options`: `href?: string`, `type?: "submit" | "button"`, `name?: string`, `buttonValue?: string`, `formMethod?: "dialog"`, `icon?: IconName`, `isBusy?: boolean`, `state?: ButtonState`
+  - `options`: `href?: string`, `type?: "submit" | "button"`, `name?: string`, `buttonValue?: string`, `formMethod?: "dialog"`, `isAutofocused?: boolean`, `id?: string`, `dataAttributes?: Record<string, string>`, `isNewTab?: boolean`, `controls?: string`, `icon?: IconName`, `isBusy?: boolean`, `state?: ButtonState`
 - **Delete button** (`deleteButton(label: string, options: DeleteButtonOptions)`, `actions.ts`): Deleting a game, a key, an account: a cut button, never orange. Only its confirm step turns red, the one red in Zaisma, after one sentence on what goes.
   - `options`: `action: string`, `confirmLabel: string`, `confirmText: string`, `id?: string`, `isFullWidth?: boolean`, `state?: ButtonState`, `isConfirmShown?: boolean`
 - **Link** (`textLink(words: string, href: string, options?: TextLinkOptions)`, `actions.ts`): Words that go somewhere: underlined in orange inside a sentence, plain in a list of links until you point at them. Anything you press that isn't words is a button.
@@ -203,7 +203,7 @@ Every component, with the call that makes it and its options, is in the catalog 
 ### Inputs
 
 - **Cut field** (`cutField(options: CutFieldOptions)`, `fields.ts`): Anything you type: a username, an email, a password. Its icon says what goes in; what's wrong is said under it, in words.
-  - `options`: `name: string`, `label: string`, `type: "text" | "email" | "search" | "password"`, `icon: IconName`, `id?: string`, `text?: string`, `placeholder?: string`, `autocomplete?: string`, `isRequired?: boolean`, `error?: string`, `hint?: string`, `inputMode?: "numeric"`, `isPasswordShown?: boolean`, `state?: "is-focused"`
+  - `options`: `name: string`, `label: string`, `type: "text" | "email" | "search" | "password"`, `icon: IconName`, `id?: string`, `text?: string`, `placeholder?: string`, `autocomplete?: string`, `isRequired?: boolean`, `error?: string`, `hint?: string`, `inputMode?: "numeric"`, `isLabelHidden?: boolean`, `isPasswordShown?: boolean`, `state?: "is-focused"`
 - **Search field** (`searchField(options: SearchFieldOptions)`, `fields.ts`): Search on a page, and in the header. "/" jumps to it there, and nothing says so.
   - `options`: `action: string`, `name: string`, `searchText: string`, `placeholder: string`, `label: string`, `keep?: Record<string, string>`, `state?: "is-focused"`
 - **Birthday field** (`birthdayField(options: BirthdayFieldOptions)`, `fields.ts`): Asking for a birthday: three wheels that start blank, so nothing suggests an age.
@@ -255,7 +255,9 @@ Every component, with the call that makes it and its options, is in the catalog 
 - **Dropdown** (`dropdown(options: DropdownOptions)`, `panes.ts`): A short list of choices that hangs from a button, like the account button's in the header: with a head, rules, icons, counts and the current one, as each needs.
   - `options`: `id: string`, `label: string`, `head?: { title: string; note?: string }`, `headExtra?: Raw`, `items: DropdownItem[]`, `isOpen?: boolean`
 - **Game cover** (`gameCover(options: { … })`, `panes.ts`): A game in a list: the studio's art, bare, with only what concerns you under it.
-  - `options`: `title: string`, `imageUrl: string`, `href: string`, `facts: GlanceFacts`, `isCurrent?: boolean`
+  - `options`: `title: string`, `imageUrl: string | null`, `href: string`, `facts: GlanceFacts`, `isCurrent?: boolean`
+- **Picture viewer** (`pictureViewer(options: PictureViewerOptions)`, `panes.ts`): A game's screenshots: the one picked, large, with the rest under it to pick from. Each is the studio's picture alone, cut like a cover, and the picked one keeps a cover's orange line. The large one opens larger still in a sheet.
+  - `options`: `id: string`, `title: string`, `pictureUrls: string[]`
 - **Sheet** (`sheet(options: SheetOptions)`, `panes.ts`): A task that comes and goes over the page: report a game, block someone, add a key. Opened by a button that names it; Esc, its close button or a press beside it close it.
   - `options`: `id: string`, `title: string`, `body: Raw`, `closeLabel: string`, `isShown?: boolean`
 - **Confirm sheet** (`confirmSheet(options: ConfirmSheetOptions)`, `panes.ts`): One sentence, the action and Cancel, before something that's hard to take back: signing out everywhere, ending a room. A delete's confirm is Delete button's own, the only red one.
@@ -275,6 +277,10 @@ Every component, with the call that makes it and its options, is in the catalog 
 - **Tag** (`tag(words: string | number, tone: TagTone)`, `foundations.ts`): A few words or a number carved into what they label, slanted at both ends: Updated on a game, the count of unread topics on a place, Held on a version. On glass, a mark's name on the rail.
 - **Glance facts** (`glanceFacts(facts: GlanceFacts)`, `data.ts`): What concerns you about a game at a glance: players now, friends playing, when you played, an update. Only what's true, one line each.
   - `facts`: `playerCount?: number`, `playedAtMs?: number`, `updatedAtMs?: number`, `updatesHref?: string`, `friends?: { username: string }[]`
+- **Facts** (`facts(options: { … })`, `data.ts`): What something is, in a few short facts: who a game is for, what it runs on. Each a quiet label over its words, side by side while they fit.
+  - `options`: `facts: Fact[]`, `label?: string`
+- **Person** (`person(options: PersonOptions)`, `data.ts`): Someone on Zaisma named in a pane, like a game's developer: their picture in its frame, their name a Link to their profile, and a line about them.
+  - `options`: `username: string`, `href: string`, `note?: string`
 - **List rows** (`listRows(options: { … })`, `data.ts`): A list of things on glass, one a row with hairlines between: versions, keys, topics, players. A row that goes somewhere is a link as a whole, ending in a chevron that steps on as you point.
   - `options`: `rows: ListRow[]`, `id?: string`, `label?: string`
 - **Empty state** (`emptyState(options: StateNoteOptions)`, `data.ts`): Where a list has nothing yet: what will be here, how it gets here, and the button that starts it. In the voice, never a picture.

@@ -23,12 +23,11 @@ import {
 } from "@zaisma/core";
 import { authConfigured } from "./auth.ts";
 import { backgroundOf } from "./backgrounds.ts";
-import { cutButton, runButton, textLink } from "./components/actions.ts";
-import { glanceFacts, listRows, problemState, type ListRow } from "./components/data.ts";
+import { cutButton, runButton, textButton, textLink } from "./components/actions.ts";
+import { facts, glanceFacts, listRows, person, problemState, type Fact } from "./components/data.ts";
 import { cutField } from "./components/fields.ts";
-import { glassPane, logo } from "./components/foundations.ts";
-import { rowArrows } from "./components/navigation.ts";
-import { banner, dropdown, notice, sheet } from "./components/panes.ts";
+import { glassPane, logo, tag } from "./components/foundations.ts";
+import { banner, dropdown, notice, pictureViewer } from "./components/panes.ts";
 import { gameUrl, type Env } from "./env.ts";
 import { GAME_BACKGROUND_SCRIPT } from "./game-background-script.ts";
 import { GAME_PAGE_STYLE } from "./game-page-style.ts";
@@ -43,7 +42,7 @@ import { playersSheet } from "./players-sheet.ts";
 import { GAME_UPDATES_SCRIPT, connectionPlate, updateBarButtons } from "./game-updates.ts";
 import { MINIMUM_PLAYING_NOW_PLAYER_COUNT, PLAY_COUNTER_SCRIPT, ageRefusal, playingNowCounts } from "./plays.ts";
 import { profilePath } from "./profiles.ts";
-import { codeBox, pageRooms, roomsOnPage, roomsPanel } from "./rooms.ts";
+import { codeBox, pageRooms, roomsOnPage, roomsPanel, roomsPlayingLine } from "./rooms.ts";
 import { checkPreviewLinkToken, readPreviewLinkToken } from "./preview-links.ts";
 import { GAME_LINKS_SCRIPT, developerLinks, leavingCard } from "./game-links.ts";
 import { gamePageHead, shareDialog } from "./share-cards.ts";
@@ -134,9 +133,9 @@ export async function gamePage(env: Env, slug: string, request: Request, tester?
   const devices = game.devices ? game.devices.split(",") : [];
   const controls = game.controls ? game.controls.split(",") : [];
   const modes = playerLine(readPlayModes(game.play_modes), game.multiplayer_mode !== "none");
-  const specRows: ListRow[] = [
-    ...(modes ? [{ title: "Players", detail: modes }] : []),
-    ...(devices.length ? [{ title: "Works on", detail: devices.map((device) => DEVICE_LABELS[device] ?? device).join(", ") }] : []),
+  const gameFacts: Fact[] = [
+    ...(modes ? [{ label: "Players", text: modes }] : []),
+    ...(devices.length ? [{ label: "Works on", text: devices.map((device) => DEVICE_LABELS[device] ?? device).join(", ") }] : []),
   ];
   const isSignedInAdult = viewer.account?.age_band === "18+";
   const pageLinks = linksOf(game).filter((link) => link.is_on_game_page && canOpenLink(link, isSignedInAdult));
@@ -155,36 +154,34 @@ ${accountRequirement !== "none" && !isClosed
 ${tester ? banner({ text: testerNote, icon: "warning", tone: "amber" }) : ""}
 ${isClosed
     ? html`<div class="game-closed" id="closed"><p>This game isn't open to your account.</p>${cutButton("Find other games", { href: "/", isFullWidth: true })}</div>`
-    : html`<div class="control-row game-actions">${runButton("Play", { id: "play", type: "button", isBig: true, icon: "play" })}${cutButton("Details", { href: "#about", isBig: true })}${cutButton("Share", { id: "share-page", type: "button", icon: "share", isLabelHidden: true, isBig: true, controls: "share-dialog" })}${cutButton("Report", { href: `/g/${game.slug}/report`, icon: "flag", isLabelHidden: true, isBig: true, dataAttributes: { report: "" } })}</div>`}
-${specRows.length ? listRows({ rows: specRows, label: "About this game" }) : ""}
-${developerLinks(pageLinks)}`;
-  const picturesSection = shots.length > 1
-    ? glassPane({
-        paneSize: "full",
-        label: "Screenshots",
-        body: html`<div class="game-section-head"><h2>Screenshots</h2>${rowArrows({ rowName: "Screenshots", trackId: "game-pictures-track" })}</div>
-<div class="game-pictures" id="game-pictures-track" data-fades-sideways>${shots.map((shot, shotIndex) => html`<button class="game-picture" type="button" data-picture="${shot}" aria-label="Picture ${shotIndex + 1} of ${shots.length}, larger" aria-controls="picture-sheet"><img src="${shot}" alt="" loading="lazy" decoding="async"></button>`)}</div>`,
-      })
-    : "";
+    : html`<div class="game-act"><div class="control-row game-actions">${runButton("Play", { id: "play", type: "button", isBig: true, icon: "play" })}${cutButton("Details", { href: "#about", isBig: true })}</div>
+<div class="game-more-actions">${textButton("Share", { id: "share-page", type: "button", icon: "share", controls: "share-dialog" })}${textButton("Report", { href: `/g/${game.slug}/report`, icon: "flag", dataAttributes: { report: "" } })}</div></div>`}
+${gameFacts.length ? facts({ facts: gameFacts, label: "About this game" }) : ""}`;
+  // The developer's pictures, the one picked large with the rest under it to pick from; the pane's heading is said to screen readers alone.
+  const picturesSection = shots.length > 1 ? glassPane({ paneSize: "full", label: "Screenshots", body: pictureViewer({ id: "game-pictures", title: game.title, pictureUrls: shots }) }) : "";
   const aboutSection = glassPane({
     paneSize: "full",
     label: "About",
     body: html`<h2>About</h2>
 ${game.description ? html`<p class="game-description">${game.description}</p>` : html`<p class="game-description is-empty">The developer hasn't written about this game yet.</p>`}
-${developer ? listRows({ rows: [{ title: developer.name, detail: developer.game_count === 1 ? "1 game on Zaisma" : `${developer.game_count} games on Zaisma`, href: profilePath(developer.name) }], label: "The developer" }) : ""}`,
+${developer || pageLinks.length
+    ? html`<div class="game-maker">${developer ? person({ username: developer.name, href: profilePath(developer.name), note: developer.game_count === 1 ? "1 game on Zaisma" : `${developer.game_count} games on Zaisma` }) : ""}${developerLinks(pageLinks)}</div>`
+    : ""}`,
   });
+  // Patch notes, newest first, in a pane that keeps its height: older ones scroll inside it.
   const updatesSection = updates.results.length
-    ? glassPane({
-        paneSize: "full",
-        label: "Updates",
-        body: html`<h2>Updates</h2><ol class="game-updates">${updates.results.map((update) => html`<li><h3>${day(update.published_at_ms)}</h3><p>${update.patch_notes}</p></li>`)}</ol>`,
-      })
+    ? glassPane({ paneSize: "full", label: "Updates", body: html`<h2>Updates</h2>${listRows({ label: "Updates", rows: updates.results.map((update) => ({ title: day(update.published_at_ms), text: update.patch_notes })) })}` })
     : "";
   const moreSection = more.length
     ? glassPane({ paneSize: "full", label: moreTitle, body: html`<h2>${moreTitle}</h2><div class="game-more">${more.map(showcaseCover)}</div>` })
     : "";
+  // Rooms: the heading with who's playing under it, the code box in the pane's top corner, then the rooms to pick from.
   const roomsSection = rooms
-    ? glassPane({ paneSize: "full", label: "Rooms", body: html`<div class="game-section-head"><h2>Rooms</h2>${codeBox(game.slug)}</div><div id="rooms-list">${roomsPanel(game, rooms)}</div>` })
+    ? glassPane({
+        paneSize: "full",
+        label: "Rooms",
+        body: html`<div class="rooms-top"><div class="rooms-title"><h2>Rooms</h2><p class="rooms-playing" id="rooms-playing"${rooms.playing.playerCount ? "" : raw(" hidden")}>${roomsPlayingLine(rooms)}</p></div>${codeBox(game.slug)}</div><div id="rooms-list">${roomsPanel(game, rooms)}</div>`,
+      })
     : "";
   const response = layout(env, {
     title: `${game.title} on Zaisma`,
@@ -216,7 +213,7 @@ ${siteFooter()}
       corners: [0, 0, 14, 14],
       label: "Game controls",
       body: html`<a class="game-bar-home" href="/" aria-label="All games">${logo("mark")}</a><p class="game-bar-title">${game.title}</p><span class="game-bar-space"></span>
-${multiplayer ? html`<span class="game-bar-players">${cutButton("Players", { id: "players-open", type: "button", icon: "people", isSmall: true, controls: "players" })}<span class="game-bar-count" id="players-count-badge" hidden></span></span>` : ""}
+${multiplayer ? html`<span class="game-bar-players">${cutButton("Players", { id: "players-open", type: "button", icon: "people", isSmall: true, controls: "players" })}<span class="game-bar-count" id="players-count-badge" hidden>${tag("", "count")}</span></span>` : ""}
 ${saves ? cutButton("Keep progress", { id: "keep-bar", href: joinHere, icon: "save", isSmall: true, isHidden: true, dataAttributes: { keep: "/join" } }) : ""}
 ${hasRoomCodes ? cutButton("Join", { id: "room-open", type: "button", icon: "hash", isSmall: true, controls: "room-dialog", isExpanded: false }) : ""}
 ${isClosed ? "" : updateBarButtons()}
@@ -253,7 +250,6 @@ ${dropdown({
       ],
     })}
 ${isClosed ? "" : connectionPlate()}
-${shots.length > 1 ? sheet({ id: "picture-sheet", title: game.title, body: html`<img class="game-picture-large" id="picture-large" alt="">`, closeLabel: "Close" }) : ""}
 ${reportSheet(game, { isMultiplayer: multiplayer, gameOrigin })}
 ${multiplayer ? blockSheet({ gameOrigin }) : ""}
 ${multiplayer ? playersSheet({ gameOrigin, slug: game.slug, title: game.title, hasZaismaRooms: game.multiplayer_mode !== "none", canSignIn, signInPath: `/signin?next=${encodeURIComponent(`/g/${game.slug}`)}` }) : ""}
@@ -656,14 +652,8 @@ if (friendsHere && /(^|; )(__Host-)?zaisma_in=1/.test(document.cookie)) {
     friendsHere.hidden = !fragment;
   }).catch(() => {});
 }
-// Pictures: the one chosen opens large in its sheet (which the sheets' script opens, from aria-controls).
-document.querySelectorAll(".game-picture").forEach((button) => button.addEventListener("click", () => {
-  const large = document.getElementById("picture-large");
-  large.src = button.dataset.picture;
-  large.alt = button.getAttribute("aria-label").replace(/, larger$/, "");
-}));
 // Rooms come and go: while the list is on screen, it's brought up to date every 20 seconds. The
-// region the player picked is remembered on this device, and "Show more" stays open across updates.
+// region the player picked is remembered on this device.
 const roomsPanel = document.getElementById("rooms");
 let roomsAt = Date.now();
 let roomsRegion = "";
@@ -703,7 +693,17 @@ async function refreshRooms(force) {
     const res = await fetch(location.pathname + "/rooms" + (query.size ? "?" + query : ""));
     if (!res.ok) return;
     list.innerHTML = await res.text();
-    const playing = Number(list.firstElementChild?.dataset.playing || 0);
+    const panel = list.firstElementChild?.dataset || {};
+    const playing = Number(panel.playing || 0);
+    // "267 playing now in 78 rooms", under the Rooms heading.
+    const roomsLine = document.getElementById("rooms-playing");
+    if (roomsLine) {
+      const roomPlayerCount = Number(panel.roomPlayers || 0), roomCount = Number(panel.roomCount || 0);
+      const count = document.createElement("b");
+      count.textContent = roomPlayerCount.toLocaleString("en-US");
+      roomsLine.replaceChildren(count, " playing now in " + (roomCount === 1 ? "1 room" : roomCount + " rooms"));
+      roomsLine.hidden = !roomPlayerCount;
+    }
     const line = document.getElementById("playing-now");
     const shownCount = line && line.querySelector(".glance b");
     if (line) line.hidden = playing < ${MINIMUM_PLAYING_NOW_PLAYER_COUNT};
@@ -731,10 +731,7 @@ if (roomsPanel) {
       roomsRegion = pick.dataset.region;
       // The list is about to change: stay where the player is (the switch's slab moves there meanwhile).
       try { roomsRegion ? localStorage.setItem("zaisma:rooms-region", roomsRegion) : localStorage.removeItem("zaisma:rooms-region"); } catch {}
-      roomsPanel.classList.remove("all");
       refreshRooms(true);
-    } else if (e.target.closest(".rooms-all")) {
-      roomsPanel.classList.add("all");
     }
   });
   roomsPanel.addEventListener("change", (e) => {
@@ -743,7 +740,6 @@ if (roomsPanel) {
     const labelName = filter.dataset.labelFilter;
     if (e.target.value) roomsLabels[labelName] = e.target.value;
     else delete roomsLabels[labelName];
-    roomsPanel.classList.remove("all");
     refreshRooms(true);
   });
 }

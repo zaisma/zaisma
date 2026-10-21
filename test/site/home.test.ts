@@ -77,7 +77,8 @@ describe("the home page", () => {
 
   it("links a cover to its game's page and the pane's Play and Details to the game", async () => {
     const { text } = await homePage();
-    expect(text).toContain('<a class="cover-art" data-cut-line="0" href="/g/home-one"');
+    // A game with no cover yet shows the empty well (is-empty), still linking to its page.
+    expect(text).toMatch(/<a class="cover-art( is-empty)?" data-cut-line="0" href="\/g\/home-one"/);
     expect(text).toMatch(/<a class="shell run-wrap" href="\/g\/home-one\?play"/);
     expect(text).toMatch(/<a class="shell cut-btn[^"]*" href="\/g\/home-one"/);
   });

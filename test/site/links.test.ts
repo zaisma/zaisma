@@ -233,10 +233,11 @@ describe("the developer's links on the game page", () => {
   ];
   const linksOnPage = async (cookie?: string) => {
     const page = await (await SELF.fetch(`${SITE}/g/sky-hopper`, { headers: cookie ? { cookie: `${cookie}; __Host-zaisma_in=1` } : {} })).text();
-    return [...page.matchAll(/<a class="dev-link brand-([a-z_]+)" href="([^"]+)"[^>]*>.*?<span>([^<]+)<\/span><\/a>/g)].map((match) => [match[1], match[2], match[3]]);
+    // Each a cut button with its site's mark, opening in a new tab.
+    return [...page.matchAll(/<a class="shell cut-btn" href="([^"]+)" target="_blank" rel="noopener noreferrer" data-site="([a-z_]+)">[\s\S]*?<span>([^<]+)<\/span><\/span><\/a>/g)].map((match) => [match[2], match[1], match[3]]);
   };
 
-  it("shows the links marked for the page, each in its site's look, only to players they open for", async () => {
+  it("shows the links marked for the page, each with its site's mark, only to players they open for", async () => {
     await api("/games/sky-hopper", { method: "PATCH", body: { links: ON_PAGE } });
     const forEveryone = [
       ["steam", "https://store.steampowered.com/app/480/Sky_Hopper/", "Wishlist on Steam"],
@@ -257,7 +258,7 @@ describe("the developer's links on the game page", () => {
     await api("/games/sky-hopper", { method: "PATCH", body: { links: ON_PAGE.slice(0, 1) } });
     expect(await (await SELF.fetch(`${SITE}/g/sky-hopper`)).text()).toContain('target="_blank" rel="noopener noreferrer"');
     await api("/games/sky-hopper", { method: "PATCH", body: { links: LINKS.slice(1) } });
-    expect(await (await SELF.fetch(`${SITE}/g/sky-hopper`)).text()).not.toContain('class="dev-links"');
+    expect(await (await SELF.fetch(`${SITE}/g/sky-hopper`)).text()).not.toContain("The developer&#39;s links");
   });
 });
 

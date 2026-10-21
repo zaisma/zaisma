@@ -25,6 +25,8 @@ interface ButtonTarget {
   id?: string;
   /** Attributes a page script reads, by name without data- (the game page's data-report on its Report links). */
   dataAttributes?: Record<string, string>;
+  /** A link to another site, opened in a new tab (a developer's links on their game's page). */
+  isNewTab?: boolean;
 }
 
 /** The gallery's fixed states, so they sit still side by side. */
@@ -35,7 +37,7 @@ const targetAttributes = (target: ButtonTarget) =>
   html`${target.id ? html` id="${target.id}"` : ""}${Object.entries(target.dataAttributes ?? {}).map(([name, attributeValue]) => html` data-${name}="${attributeValue}"`)}`;
 const opening = (className: string, target: ButtonTarget, isBusy: boolean | undefined, extra: Raw | "" = "") =>
   target.href
-    ? html`<a class="shell ${className}" href="${target.href}"${targetAttributes(target)}${extra}${isBusy ? raw(' aria-busy="true"') : ""}>`
+    ? html`<a class="shell ${className}" href="${target.href}"${target.isNewTab ? raw(' target="_blank" rel="noopener noreferrer"') : ""}${targetAttributes(target)}${extra}${isBusy ? raw(' aria-busy="true"') : ""}>`
     : html`<button class="shell ${className}" type="${target.type ?? "submit"}"${targetAttributes(target)}${extra}${target.name ? html` name="${target.name}"` : ""}${target.buttonValue !== undefined ? html` value="${target.buttonValue}"` : ""}${target.formMethod ? raw(' formmethod="dialog" formnovalidate') : ""}${target.isAutofocused ? raw(" autofocus") : ""}${isBusy ? raw(' aria-busy="true" disabled') : ""}>`;
 const closing = (target: ButtonTarget) => raw(target.href ? "</a>" : "</button>");
 const classes = (...names: (string | false | undefined)[]) => names.filter(Boolean).join(" ");
@@ -505,12 +507,9 @@ component({
   ],
 });
 
-export interface TextButtonOptions {
-  href?: string;
-  type?: "submit" | "button";
-  name?: string;
-  buttonValue?: string;
-  formMethod?: "dialog";
+export interface TextButtonOptions extends ButtonTarget {
+  /** The id of the sheet it opens (aria-controls): a game page's Share. */
+  controls?: string;
   icon?: IconName;
   isBusy?: boolean;
   state?: ButtonState;
@@ -518,7 +517,7 @@ export interface TextButtonOptions {
 
 /** A text button: words alone, the quietest thing you press (Skip for now, Show all, Undo). The orange line draws in under them as you point. */
 export function textButton(label: string, options: TextButtonOptions = {}): Raw {
-  return html`${opening(classes("text-btn", options.state), options, options.isBusy)}<span class="face"><span class="text-words">${loader()}${options.icon ? icon(options.icon) : ""}<span>${label}</span></span><span class="text-line" aria-hidden="true"></span></span>${closing(options)}`;
+  return html`${opening(classes("text-btn", options.state), options, options.isBusy, options.controls ? html` aria-controls="${options.controls}"` : "")}<span class="face"><span class="text-words">${loader()}${options.icon ? icon(options.icon) : ""}<span>${label}</span></span><span class="text-line" aria-hidden="true"></span></span>${closing(options)}`;
 }
 
 component({

@@ -74,20 +74,18 @@ export function joinButton(slug: string, join: NonNullable<FriendsInGame["join"]
 }
 
 /**
- * Join on the game page, in its new look: the room link as a small cut button, or the same grayed and saying why it won't work (on
- * hover, or a tap). The /friends page keeps joinButton until it's rebuilt.
+ * Join on the game page, in its new look: the room link as a small cut button, or the same lying flat when it won't work, with why said in
+ * words under the friends (friendsHere). The /friends page keeps joinButton until it's rebuilt.
  */
 export function friendJoinButton(slug: string, join: NonNullable<FriendsInGame["join"]>): Raw {
-  return join.refusal
-    ? html`<span class="join-off" tabindex="0" role="button" aria-disabled="true" aria-label="Join: ${joinRefusalText(join)}" data-reason="${joinRefusalText(join)}">${cutButton("Join", { type: "button", isSmall: true, isDisabled: true })}</span>`
-    : cutButton("Join", { href: joinPath(slug, join), isSmall: true });
+  return join.refusal ? cutButton("Join", { type: "button", isSmall: true, isDisabled: true }) : cutButton("Join", { href: joinPath(slug, join), isSmall: true });
 }
 
-/** Under a game page's title: the friends playing it, "Alex and Mia are playing", and Join. */
+/** Under a game page's title: the friends playing it, "Alex and Mia are playing", and Join; when Join won't work, why, under them. */
 function friendsHere(slug: string, here: FriendsInGame): Raw {
   const names = here.friends.map((friend) => friend.name);
   const said = names.length === 1 ? `${names[0]} is playing` : names.length <= 3 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)} are playing` : `${names.slice(0, 2).join(", ")} and ${names.length - 2} more are playing`;
-  return html`${pictureRow(names, "sm")}<span class="friends-said">${said}</span>${here.join ? friendJoinButton(slug, here.join) : ""}`;
+  return html`${pictureRow(names, "sm")}<span class="friends-said">${said}</span>${here.join ? friendJoinButton(slug, here.join) : ""}${here.join?.refusal ? html`<p class="friends-why">${joinRefusalText(here.join)}</p>` : ""}`;
 }
 
 /** The top of /friends: who's online, what they're playing, and Appear offline. */

@@ -1,88 +1,60 @@
-import { DEVELOPER_LINK_STYLES } from "./game-links.ts";
 import { pageStyle } from "./page-styles.ts";
 
 /**
  * The game page's own placing (pages.ts, gamePage): the details over the game's background, with the pane where the home's is and the
- * sections beside it, then the bar over the game once it's playing, the rooms, and the insides of its sheets and cards. Every piece in
- * them is a component; this only places them and sets what they offer.
+ * sections beside it, then the bar over the game once it's playing, and where its plates, cards and sheets put what's in them. Every piece
+ * is a gallery component; this only places them, picks the words' type, and sets what they offer (--table-height).
  */
 export const GAME_PAGE_STYLE = pageStyle("game-page", () => `
 /* Two states on one page: the details over the game's background, then the game filling the screen with the bar above it. */
 .game { display: grid; grid-template-columns: 390px minmax(0, 1fr); column-gap: var(--gap-block-block); align-items: start; padding: 0 var(--pad-pane); }
 /* The window: the game's world, clear, above the pane and the sections, which come up over it as the page scrolls. */
-.game-window { grid-column: 1 / -1; grid-row: 1; height: max(260px, calc(100svh - var(--header-room) - 420px)); }
+.game-window { grid-column: 1 / -1; grid-row: 1; height: max(260px, calc(100svh - var(--header-room) - 460px)); }
 .game-pane { grid-column: 1; grid-row: 2; position: sticky; top: var(--header-room); z-index: 5; margin-bottom: var(--gap-block-block); }
 .game-pane > .glass-pane { width: 100%; max-height: calc(100svh - var(--header-room) - var(--pad-pane)); }
-.game-head h1 { margin: 0; font: var(--type-title); text-wrap: balance; }
-.game-by { margin: var(--gap-words-words) 0 0; font: var(--type-words); }
-.game-note { margin: 0; font: var(--type-note); color: var(--ink-2); }
-.game-actions > .cut-btn.icon-only { flex: 0 0 56px; }
+/* The pane: the game's title, who made it, who's playing, Play and Details, then Share and Report as words under them, then its facts. */
+.game-head { display: grid; gap: var(--gap-words-words); }
+.game-pane .game-head h1 { font: var(--type-title); overflow-wrap: anywhere; }
+.game-by { font: var(--type-words); }
+.game-note { font: var(--type-note); color: var(--ink-2); }
+.game-act { display: flex; flex-direction: column; gap: var(--gap-control-stack); }
+.game-more-actions { display: flex; flex-wrap: wrap; gap: 0 var(--gap-block-block); }
 .game-closed { display: grid; gap: var(--gap-words-control); }
 .game-closed p { font: var(--type-words); color: var(--ink); }
-/* Friends playing it, under the title: their pictures, who they are, and Join. */
+/* Friends playing it, under the title: their pictures, who they are, and Join; why Join won't work, under them. */
 .friends-here { display: flex; align-items: center; flex-wrap: wrap; gap: var(--gap-words-words) var(--gap-words-control); font: var(--type-words); color: var(--ink-2); }
 .friends-said { flex: 1; min-width: 0; }
-.join-off { position: relative; display: inline-flex; cursor: not-allowed; outline: none; }
-.join-off > .cut-btn { pointer-events: none; }
-.join-off:hover::after, .join-off:focus::after { content: attr(data-reason); position: absolute; right: 0; bottom: calc(100% + var(--gap-words-words)); z-index: 5; white-space: nowrap;
-  padding: var(--gap-words-words) var(--pad-inner-pane); font: var(--type-facts); color: var(--ink); background: var(--chart-tip); box-shadow: 0 6px 16px var(--picture-shadow); }
+.friends-why { flex-basis: 100%; font: var(--type-note); color: var(--muted); }
+
 /* The sections: one scroll of glass beside the pane, rooms first when the game lists them. A link to one stops below the header. */
 .game-sections { grid-column: 2; grid-row: 2; min-width: 0; display: flex; flex-direction: column; gap: var(--gap-block-block); margin-bottom: var(--gap-block-block); }
 .game-sections > section { scroll-margin-top: var(--header-room); }
 .game-sections .glass-pane { width: 100%; }
-.game-section-head { display: flex; align-items: center; flex-wrap: wrap; gap: var(--gap-words-control) var(--gap-block-block); }
-.game-section-head h2 { flex: 1; }
-.game-sections h2 { font: var(--type-section); }
+.game-sections .glass-pane h2 { font: var(--type-section); }
 .game-description { font: var(--type-reading); white-space: pre-line; max-width: 68ch; }
 .game-description.is-empty { color: var(--muted); }
-.game-updates { list-style: none; margin: 0; padding: 0; display: grid; }
-.game-updates > li { padding: var(--gap-block-block) 0; }
-.game-updates > li:first-child { padding-top: 0; }
-.game-updates > li + li { border-top: var(--divider); }
-.game-updates h3 { margin: 0 0 var(--gap-words-words); font: var(--type-name); }
-.game-updates p { font: var(--type-reading); white-space: pre-line; }
-.game-more { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--gap-block-block); }
-/* Screenshots: a row of the developer's pictures, bare, that scrolls sideways; one opens large in its sheet. */
-.game-pictures { --fade-sideways-px: 48px; display: flex; gap: var(--gap-block-block); overflow-x: auto; scrollbar-width: none; padding-bottom: var(--gap-words-words); }
-.game-pictures::-webkit-scrollbar { display: none; }
-.game-picture { flex: 0 0 clamp(220px, 30%, 360px); aspect-ratio: 16 / 9; margin: 0; padding: 0; border: 0; background: var(--well); cursor: zoom-in; box-shadow: 0 4px 10px var(--picture-shadow); }
-.game-picture img { display: block; width: 100%; height: 100%; object-fit: cover; }
-.game-picture:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-#picture-sheet { width: min(1100px, calc(100% - 2 * var(--pad-pane))); }
-.game-picture-large { display: block; width: 100%; height: auto; max-height: calc(100dvh - 160px); object-fit: contain; }
-/* Rooms: the code box, who's playing, the region and label pickers, then one row per room with its seats, where it runs and Join. */
-/* The code box is a field and its Join side by side, not the panes' stacked form. */
-.game-sections .game-section-head > form.code-join { display: flex; flex-direction: row; align-items: flex-end; gap: var(--gap-control-row-boxes); }
-.code-join > .cut-field { width: 220px; }
+/* Who made it, and their links, under the description and a line from it. */
+.game-maker { display: flex; flex-direction: column; gap: var(--gap-block-block); padding-top: var(--gap-block-block); border-top: var(--divider); }
+/* Updates keep the pane's height to about a screen; older ones scroll inside it, on its rail. */
+#updates > .glass-pane { max-height: min(640px, 80svh); }
+.game-more { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: var(--gap-block-block); }
+
+/* Rooms: the heading with who's playing under it, beside the code box in the pane's top corner; then the pickers and the rooms. */
+.rooms-top { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--gap-words-control) var(--gap-block-block); }
+.rooms-title { flex: 1 1 200px; display: grid; gap: var(--gap-words-words); min-width: 0; }
+.rooms-playing { font: var(--type-words); }
+.rooms-playing b { font-weight: 600; color: var(--ink); }
+.rooms-top > .code-join { flex: 0 1 320px; min-width: 240px; }
 .rooms-in { display: flex; flex-direction: column; gap: var(--gap-block-block); }
-.rooms-head { font: var(--type-words); }
-.rooms-head b { font-weight: 600; color: var(--ink); }
-.rooms-pick { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--gap-block-block); }
-.rooms-regions { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
-.rooms-filters { display: flex; flex-wrap: wrap; gap: var(--gap-words-control) var(--gap-block-block); }
-.rooms-filter { width: 200px; }
-.rooms .list-row { gap: var(--gap-block-block); }
-/* Join lines up down the list, whether a room has a name to report or not. */
-.rooms .list-row-end { width: 112px; justify-content: flex-start; }
-.room .title { display: flex; flex-direction: column; gap: var(--gap-words-words); min-width: 0; }
-.room .name, .room .count { font: var(--type-label); color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.room .labels, .room .small-count { font: var(--type-facts); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.room .fill { display: flex; align-items: center; gap: var(--gap-words-control); flex: 0 1 230px; min-width: 0; }
-.room .where { display: flex; align-items: center; gap: var(--gap-words-words); min-width: 52px; font: var(--type-facts); color: var(--ink-2); }
-.room .where abbr { text-decoration: none; }
-.room .flag { width: 20px; height: 15px; flex: none; box-shadow: 0 0 0 1px var(--line); }
-.room .full { font: var(--type-note); color: var(--muted); min-width: 64px; text-align: center; }
-.room.later { display: none; }
-#rooms.all .room.later { display: list-item; }
-#rooms.all .rooms-all { display: none; }
+.rooms-pick { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--gap-words-control) var(--gap-block-block); }
+.rooms-regions { flex-basis: 100%; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.rooms-regions > .tab-switch { width: max-content; }
+.rooms-filter { width: 180px; }
+/* The rooms table keeps to about five rooms' height, so the rest of the page stays near; more scroll inside it under its header. */
+#rooms-list { --table-height: 340px; }
 .rooms-more { font: var(--type-note); color: var(--muted); }
-/* A room's seats: a carved notch for each place (up to 16), filled in for each player. */
-.seats { display: flex; gap: 3px; min-width: 0; }
-.seats i { flex: 0 1 7px; min-width: 3px; height: 18px; background: var(--well); box-shadow: var(--well-shade); }
-.seats i.on { background: var(--meter-fill); }
 /* Just back from a match: the room list waits a moment for a copy without the player in it. */
-.just-left #rooms-list, .just-left #playing-now { visibility: hidden; }
-${DEVELOPER_LINK_STYLES}
+.just-left #rooms-list, .just-left #playing-now, .just-left #rooms-playing { visibility: hidden; }
 /* Cloudflare's check is invisible; if it ever needs a tap, it sits at the bottom, above the game. */
 .play-check { position: fixed; left: 50%; bottom: var(--pad-pane); transform: translateX(-50%); z-index: 50; }
 /* A tester link that can't open: Zaisma's own glass, in the middle. */
@@ -100,8 +72,9 @@ body.playing > .game-bar { display: block; flex: none; position: relative; z-ind
 .game-bar-home { --logo-height: 22px; display: inline-flex; color: var(--ink); }
 .game-bar-title { margin: 0; min-width: 0; font: var(--type-name); color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .game-bar-space { flex: 1; }
+/* How many are in the room: a count Tag on the Players button's corner. */
 .game-bar-players { position: relative; display: inline-flex; }
-.game-bar-count { position: absolute; z-index: 3; top: -4px; right: -4px; pointer-events: none; min-width: 18px; padding: 0 var(--gap-words-words); font: var(--type-tag); line-height: 18px; text-align: center; color: var(--ink); background: var(--slab); box-shadow: var(--slab-shade); }
+.game-bar-count { position: absolute; z-index: 3; top: -8px; right: -8px; pointer-events: none; }
 #room-open.is-code .face > span:not([class]) { font-variant-numeric: tabular-nums; letter-spacing: 0.12em; }
 body.playing > iframe#game { flex: 1; display: block; width: 100%; min-height: 0; border: 0; background: #000; }
 iframe#game:focus-visible { outline: none; }
@@ -143,9 +116,6 @@ dialog.game-plate > .glass-pane { width: 100%; }
 .game-card h2 { font: var(--type-name); }
 .link-part { display: flex; flex-direction: column; gap: var(--gap-block-block); }
 @media (orientation: landscape) and (max-height: 500px) { .game-card { top: var(--pad-inner-pane); } }
-/* The menu's save line: green when progress is reaching the account, amber when it isn't. */
-.save-line::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: var(--gap-words-words); background: var(--meter-near); }
-.save-line.ok::before { background: var(--online); }
 /* Share: the QR code on white, so any phone's camera reads it, then the link. */
 .share-secret { position: relative; display: grid; gap: var(--gap-words-control); }
 .share-qr { margin: 0; display: grid; justify-items: center; gap: var(--gap-words-words); }
@@ -177,14 +147,13 @@ dialog.game-plate > .glass-pane { width: 100%; }
 .players-name { text-decoration: none; }
 .players-actions { flex-basis: 100%; }
 .players-note { margin: 0; font: var(--type-note); color: var(--muted); }
-@media (max-width: 1100px) { .game { grid-template-columns: 340px minmax(0, 1fr); } .game-head h1 { font: var(--type-heading); } }
+@media (max-width: 1100px) { .game { grid-template-columns: 340px minmax(0, 1fr); } }
 @media (max-width: 760px) {
   .game { display: block; padding: 0 var(--gap-control-stack); }
   .game-window { height: max(200px, calc(100svh - var(--header-room) - 480px)); }
   .game-pane { position: relative; top: auto; }
-  .game-sections { margin-top: 0; }
-  .room .fill { display: none; }
-  .code-join > .cut-field { width: auto; flex: 1; }
+  .rooms-top > .code-join { flex: 1 1 100%; min-width: 0; }
+  .rooms-filter { flex: 1 1 140px; width: auto; }
 }
 @media (prefers-reduced-motion: reduce) { body.playing > .game, body.playing > .backdrop { transition: none; } #conn.retrying .face > .ico { animation: none; } }
 `);

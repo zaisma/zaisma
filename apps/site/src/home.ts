@@ -6,7 +6,7 @@ import type { Env } from "./env.ts";
 import { backgroundsOfGames, type ShownBackground } from "./backgrounds.ts";
 import { cutButton, runButton, textButton, textLink } from "./components/actions.ts";
 import { glanceFacts } from "./components/data.ts";
-import { glassPane, icon, tag, tray } from "./components/foundations.ts";
+import { MARK, glassPane, icon, tag, tray } from "./components/foundations.ts";
 import { LIGHT_GLASS, SMOKED_GLASS } from "./components/tokens.ts";
 import { rowArrows } from "./components/navigation.ts";
 import { banner, gameCover } from "./components/panes.ts";
@@ -184,7 +184,7 @@ const GUEST_PICK_COUNT = 8;
 const shownPlayerCount = (game: ShowGame): number | undefined => (game.playing_now_player_count >= MINIMUM_PLAYING_NOW_PLAYER_COUNT ? game.playing_now_player_count : undefined);
 
 /** A game in one of the home's rows (the home's script builds the same in the browser for Continue playing), and in a game page's More games. */
-export const showcaseCover = (game: ShowGame): Raw => gameCover({ title: game.title, imageUrl: game.cover ?? PLACEHOLDER_COVER, href: `/g/${game.slug}`, facts: { playerCount: shownPlayerCount(game) } });
+export const showcaseCover = (game: ShowGame): Raw => gameCover({ title: game.title, imageUrl: game.cover, href: `/g/${game.slug}`, facts: { playerCount: shownPlayerCount(game) } });
 
 /** A row of the shelf: its heading (a link to Browse with this sort, when it has one), its arrows and its covers. */
 function row(id: string, title: string, sortName: string | null, list: ShowGame[]): Raw {
@@ -253,9 +253,8 @@ ${pageData("home-data", {
       games: browserGames,
       guest_picks: guestPicks,
       minimum_playing_now_player_count: MINIMUM_PLAYING_NOW_PLAYER_COUNT,
-      placeholder_cover: PLACEHOLDER_COVER,
       icons: { people: icon("people").html, clock: icon("clock").html },
-      parts: { updated_tag: tag("Updated", "new").html },
+      parts: { updated_tag: tag("Updated", "new").html, no_cover: MARK.html },
     })}${scriptTags(GAME_BACKGROUND_SCRIPT, HOME_SCRIPT)}`,
   });
   for (const cookie of viewer.cookies) response.headers.append("Set-Cookie", cookie);
@@ -395,7 +394,6 @@ html[data-home-glass="smoked"] [data-glass]:not([data-cut-line]) { ${SMOKED_GLAS
 /* A row of covers scrolls sideways, fading over a side with more; room round the covers for their lifted shadow. */
 .home-track { --fade-sideways-px: 48px; display: flex; gap: var(--gap-block-block); padding: 0 var(--gap-words-words); margin: 0 calc(-1 * var(--gap-words-words)); scroll-padding-inline: var(--gap-words-words); }
 .home-track > .cover { flex: 0 0 clamp(200px, 17vw, 260px); }
-.home-track > .cover.is-placeholder .cover-art img { object-fit: contain; padding: 14%; background: var(--well); }
 .home-all { display: flex; justify-content: center; }
 /* Zaisma's own backdrop starts unseen and fades in when it's the first background (or after a few seconds, should the script not run). */
 canvas.backdrop { opacity: 0; transition: opacity 500ms ease; animation: home-backdrop-late 0s 4s forwards; }
