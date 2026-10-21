@@ -392,9 +392,10 @@ canvas.backdrop.is-shown { opacity: 1; }
   .is-pane-open.home-pane { margin-top: calc(-1 * var(--more-h, 0px)); }
   .home-description { display: none; }
   .home-row-head > .steps { display: none; }
-  /* Continue playing's sort switch takes its own line under the heading, across the row, instead of running past the pane. */
+  /* Continue playing's sort switch takes its own line under the heading, at its own width, instead of running past the pane. */
   .home-row-head { flex-wrap: wrap; row-gap: var(--gap-words-control); }
-  .home-row-head > .tab-switch { flex: 1 1 100%; margin-left: 0; }
+  .home-row-head > h2 { flex: 1 0 100%; }
+  .home-row-head > .tab-switch { margin-left: 0; max-width: 100%; }
   .home-track > .cover { flex-basis: 64vw; }
 }
 @media (prefers-reduced-motion: reduce) {
