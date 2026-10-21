@@ -77,7 +77,8 @@ component({
 .frame.xs { --frame: 24px; }
 .frame:not(.more) { --glass-tint: transparent; }
 .frame.glass > .frame-picture { position: absolute; z-index: 2; inset: 0; }
-.frame.glass > .edge { z-index: 4; }
+/* A quiet rim: half the panes' strength, so it reads as glass without framing the face. */
+.frame.glass > .edge { z-index: 4; opacity: 0.5; }
 .frame .av { position: absolute; inset: 0; display: grid; place-items: center; font: 600 calc(var(--frame) * 0.38) var(--display); color: #fff; letter-spacing: 0.01em;
   background: linear-gradient(140deg, hsl(var(--h) 58% 58%), hsl(calc(var(--h) + 45) 48% 52%) 55%, hsl(calc(var(--h) + 90) 48% 55%)); }
 /* Online: a small green diamond on the picture's corner, ringed in the glass's light. */
