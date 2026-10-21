@@ -335,11 +335,13 @@ html[data-home-glass="smoked"] [data-glass]:not([data-cut-line]) { ${SMOKED_GLAS
 .home { display: grid; grid-template-columns: 390px minmax(0, 1fr); column-gap: var(--gap-block-block); align-items: start; container-type: inline-size;
   /* The staged pane: up to 520px, but no more than 45% of the page's width, and only as wide as leaves about a third of the window's
      height for the world above it (its cover grows with it, 9 wide to 5 tall, the rest of it about 160px); never narrower than docked. */
+  /* Room under the staged pane, so it floats over the screen's foot: the page's edge; on a phone twice that, above its home bar. */
+  --stage-gap: var(--pad-pane);
   --stage-w: max(390px, min(520px, 45cqw, (0.65 * (100svh - var(--header-room)) - 160px) * 1.78)); }
 /* The window: the world, clear, above the pane and the shelf, which come up over it as the page scrolls. */
 /* As tall as leaves the compact pane whole on screen under it, so Play is in view as the page opens on any screen. The script measures
    the compact pane (--home-pane-h, with room for a title on two lines); without it, a pane's usual height is kept free. */
-.home-window { grid-column: 1 / -1; grid-row: 1; height: max(120px, calc(100svh - var(--header-room) - var(--home-pane-h, 220px) - var(--pad-pane))); }
+.home-window { grid-column: 1 / -1; grid-row: 1; height: max(120px, calc(100svh - var(--header-room) - var(--home-pane-h, 220px) - var(--stage-gap))); }
 .home-pane { grid-column: 1; grid-row: 2; position: sticky; top: var(--header-room); z-index: 5; margin-bottom: var(--gap-block-block); }
 .is-home-ready .home-pane { transition: transform 0.45s cubic-bezier(.2,.8,.2,1), width 0.45s cubic-bezier(.2,.8,.2,1), margin-top 0.42s cubic-bezier(.2,.8,.2,1); }
 /* The pane is a tray's head: staged, "More games" sits on the tray under it; docked, the tray tucks away and the head is a whole pane. */
@@ -381,7 +383,7 @@ html[data-home-glass="smoked"] [data-glass]:not([data-cut-line]) { ${SMOKED_GLAS
 .home:not(.is-staged-wide) .home-pane .tray { height: 0; padding-block: 0; border: 0; overflow: hidden; visibility: hidden; }
 @media (min-width: 761px) {
   html[data-home-staged] .home-pane { width: var(--stage-w); transform: translateX(calc(50cqw - 50%)); }
-  html[data-home-staged] .home-shelf { transform: translateY(calc(var(--home-pane-h, 220px) + var(--pad-pane))); }
+  html[data-home-staged] .home-shelf { transform: translateY(calc(var(--home-pane-h, 220px) + var(--stage-gap))); }
 }
 .home-shelf > .glass-pane { width: 100%; }
 /* A row is its heading and its covers, a word's gap apart; rows are a block's gap apart, and nothing else adds room. */
@@ -411,7 +413,7 @@ canvas.backdrop.is-shown { opacity: 1; }
 .is-playing header.top { transform: translate(-50%, -150%); }
 @media (max-width: 1100px) { .home { grid-template-columns: 340px minmax(0, 1fr); } .home-head h1 { font: var(--type-heading); } }
 @media (max-width: 760px) {
-  .home { display: block; }
+  .home { display: block; --stage-gap: calc(2 * var(--pad-pane) + env(safe-area-inset-bottom, 0px)); }
   .home-pane { position: relative; top: auto; }
   .is-pane-open.home-pane { margin-top: calc(-1 * var(--more-h, 0px)); }
   .home-description { display: none; }
