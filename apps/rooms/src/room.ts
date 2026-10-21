@@ -6,6 +6,7 @@ import {
   PassError,
   REFUSED_CLOSE_CODE,
   ROOM_LIMITS,
+  VERSION_UPDATE_CLOSE_CODE,
   RoomCore,
   addTraffic,
   checkRoomData,
@@ -28,7 +29,7 @@ import {
   type SavedRoom,
   type ServerMessage,
 } from "@zaisma/game-server";
-import { MATCH_FINISH_DURATION_SEC, blocksAmong, friendsAmong, gameServerOf, isOldEnoughFor, noteQuickJoin, pastFreeTier, accountUsernameOf, type AccountRequirement, type AgeBand, type MultiplayerMode, type PrintedLogLine } from "@zaisma/core";
+import { MATCH_FINISH_DURATION_SEC, type MatchUpdateMode, blocksAmong, friendsAmong, gameServerOf, isOldEnoughFor, noteQuickJoin, pastFreeTier, accountUsernameOf, type AccountRequirement, type AgeBand, type MultiplayerMode, type PrintedLogLine } from "@zaisma/core";
 import { gameServer } from "./registry.ts";
 import { gameDatabase } from "./database.ts";
 import { SANDBOX, errorLine, linesOf, sandboxServer, type SandboxServer, type SandboxStats } from "./sandbox.ts";
@@ -70,6 +71,15 @@ interface Saved {
   stateChunkCount?: number;
   /** The players in a real-time room's match when it was saved, who come back as away if they aren't connected. */
   matchPlayers?: Player[];
+  /** The game version that saved it: a room that switched versions (match_update_mode "now") tells onRestored. */
+  versionId?: string;
+}
+
+/** A version published "now" this room is moving to: when it switches at the latest, and whether players' games reload. */
+interface PendingVersionUpdate {
+  versionId: string;
+  appliesAtMs: number;
+  isReloading: boolean;
 }
 
 /** What the room has used since it last recorded it (recordUsage), kept with a sleeping room's state. */
@@ -157,9 +167,13 @@ export class Room extends DurableObject<Env> {
   private savedStateKey: string | null = null;
   /** How many stateChunk:<index> keys the room's storage has. */
   private stateChunkCount = 0;
-  /** When the room's saved real-time state was saved, and the players in its match then (Saved). */
+  /** When the room's saved real-time state was saved, the players in its match then, and the version that saved it (Saved). */
   private savedAtMs: number | undefined = undefined;
   private matchPlayers: Player[] = [];
+  private savedVersionId: string | undefined = undefined;
+  /** A version published "now" the room is moving to, kept so a room that sleeps meanwhile still switches. */
+  private pendingVersionUpdate: PendingVersionUpdate | null = null;
+  private versionUpdateTimer: ReturnType<typeof setTimeout> | null = null;
   /** Set once the room said its state is too big to save, so it says so once. */
   private hasReportedStateSize = false;
   /** The game server loading, so players reconnecting at once share one (a sandbox opens one session). */
@@ -201,13 +215,20 @@ export class Room extends DurableObject<Env> {
     // Games ping every 25 seconds or so; the answer doesn't wake the room, and the time is kept per socket.
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
     ctx.blockConcurrencyWhile(async () => {
-      const got = await ctx.storage.get<Meta | Saved | SavedRoom | number | string[]>(["meta", "saved", "room", "checkedInAtMs", "freeTierCheckedAtMs", "seatedPlayerIds"]);
+      const got = await ctx.storage.get<Meta | Saved | SavedRoom | number | string[] | PendingVersionUpdate>(["meta", "saved", "room", "checkedInAtMs", "freeTierCheckedAtMs", "seatedPlayerIds", "versionUpdate"]);
+      this.pendingVersionUpdate = (got.get("versionUpdate") as PendingVersionUpdate | undefined) ?? null;
       this.meta = (got.get("meta") as Meta | undefined) ?? null;
       const saved = (got.get("saved") as Saved | undefined) ?? {};
       this.saved = saved.state;
       this.savedRoom = got.get("room") as SavedRoom | undefined;
       this.hasEnded = saved.hasEnded ?? false;
       this.usage = { ...noUsage(), ...saved.usage };
+      this.savedVersionId = saved.versionId;
+      // A turn-based room saved for a version switch keeps its state in "saved", with when and who.
+      if (!saved.stateChunkCount && saved.savedAtMs !== undefined) {
+        this.savedAtMs = saved.savedAtMs;
+        this.matchPlayers = saved.matchPlayers ?? [];
+      }
       // A real-time room's state, saved in pieces with one put, so a restart never reads half a save.
       if (saved.stateChunkCount) {
         const keys = Array.from({ length: saved.stateChunkCount }, (_, index) => stateChunkKey(index));
@@ -234,6 +255,7 @@ export class Room extends DurableObject<Env> {
     // Another room of the same game reserving this one (only rooms can reach this; players' requests are WebSockets).
     if (request.method === "POST" && new URL(request.url).pathname === "/reserve") return this.reserved(request);
     if (request.method === "POST" && new URL(request.url).pathname === "/expect") return this.expecting(request);
+    if (request.method === "POST" && new URL(request.url).pathname === "/version-update") return this.versionUpdating(request);
     if (!this.meta || !this.meta.roomCode) {
       this.meta = {
         gameId: request.headers.get("x-game-id")!,
@@ -303,6 +325,7 @@ export class Room extends DurableObject<Env> {
    */
   async alarm(): Promise<void> {
     this.alarmAtMs = null;
+    if (this.pendingVersionUpdate && this.pendingVersionUpdate.appliesAtMs <= Date.now()) await this.applyVersionUpdate();
     // The sockets are read afresh at each check, in case any went without the room hearing.
     this.socketIndex = null;
     if (this.logs?.hasWaitingLines) await this.logs.write();
@@ -900,16 +923,19 @@ export class Room extends DurableObject<Env> {
       moveTo: (roomCode: string, ask: Omit<MoveAsk, "fromRoomCode">) => this.moveTo(roomCode, ask),
       // A game server built into this Worker reaches its game's database directly; a sandboxed one through its own binding (sandbox.ts).
       database: gameDatabase(this.env, this.meta!.gameId),
+      applyVersionUpdate: () => void this.applyVersionUpdate(),
     };
     // Turn-based rooms wake with their saved state. A real-time room restarted (every rooms deploy, or
     // evicted) comes back with the state it last saved: the players in its match then who aren't
     // connected are away until they reconnect (the sockets of an eviction without a deploy are still
     // here), and onRestored runs. Either way, the room stays as listed or hidden, and open or closed, as it was.
-    if (server.ticksPerSec && this.saved !== undefined && this.savedAtMs !== undefined && !this.hasEnded) {
+    // A turn-based room comes back the same way after switching versions (match_update_mode "now").
+    const isVersionSwitch = this.savedVersionId !== undefined && this.savedVersionId !== this.meta?.versionId;
+    if ((server.ticksPerSec || isVersionSwitch) && this.saved !== undefined && this.savedAtMs !== undefined && !this.hasEnded) {
       const lostPlayers = this.matchPlayers.filter((player) => !players.some((connected) => connected.id === player.id));
       // A sandboxed game server starts from the saved state with its next call, which is onRestored.
       void (server as SandboxServer).restore?.(this.saved);
-      this.core = new RoomCore(server, transport, { state: this.saved, players, room: this.savedRoom, presence, restoreInfo: restoreInfoOf(this.savedAtMs), lostPlayers });
+      this.core = new RoomCore(server, transport, { state: this.saved, players, room: this.savedRoom, presence, restoreInfo: restoreInfoOf(this.savedAtMs, Date.now(), this.savedVersionId ?? null), lostPlayers });
       this.core.savedAtMs = this.savedAtMs;
     } else if (!server.ticksPerSec && this.saved !== undefined) {
       this.core = new RoomCore(server, transport, { state: this.saved, players, room: this.savedRoom, presence });
@@ -1000,9 +1026,22 @@ export class Room extends DurableObject<Env> {
   /** A takedown or a changed game server ends the match. Also picks up the game's room browsing and account settings, and new secrets. */
   private async gameStillLive(): Promise<boolean> {
     this.lastCheckAtMs = Date.now();
-    const row = await this.env.DB.prepare("SELECT review_status, live_version_id, multiplayer_mode, built_in_server, room_browsing, account_requirement, minimum_player_age_years, secrets_changed_at_ms FROM games WHERE id = ?")
+    const row = await this.env.DB.prepare(
+      "SELECT review_status, live_version_id, live_version_match_update_mode, has_live_version_game_file_changes, multiplayer_mode, built_in_server, room_browsing, account_requirement, minimum_player_age_years, secrets_changed_at_ms FROM games WHERE id = ?",
+    )
       .bind(this.meta!.gameId)
-      .first<{ review_status: string; live_version_id: string | null; multiplayer_mode: MultiplayerMode; built_in_server: string | null; room_browsing: string; account_requirement: AccountRequirement; minimum_player_age_years: number; secrets_changed_at_ms: number | null }>();
+      .first<{
+        review_status: string;
+        live_version_id: string | null;
+        live_version_match_update_mode: MatchUpdateMode;
+        has_live_version_game_file_changes: number;
+        multiplayer_mode: MultiplayerMode;
+        built_in_server: string | null;
+        room_browsing: string;
+        account_requirement: AccountRequirement;
+        minimum_player_age_years: number;
+        secrets_changed_at_ms: number | null;
+      }>();
     if (row && row.review_status === "live" && row.live_version_id && gameServerOf(row) === this.meta!.server) {
       this.accountRequirement = row.account_requirement;
       if (row.minimum_player_age_years > this.minimumPlayerAgeYears) {
@@ -1014,6 +1053,10 @@ export class Room extends DurableObject<Env> {
       if (row.room_browsing !== this.browsing) {
         this.browsing = row.room_browsing;
         if (this.core) this.core.listingChanged = true;
+      }
+      // A version published "now" that this room missed (it slept, or the rooms Worker's call didn't reach it).
+      if (row.live_version_match_update_mode === "now" && this.meta?.versionId && row.live_version_id !== this.meta.versionId && this.pendingVersionUpdate?.versionId !== row.live_version_id) {
+        void this.startVersionUpdate(row.live_version_id, row.has_live_version_game_file_changes === 1).catch((error) => console.error("Couldn't start the version update:", error));
       }
       return true;
     }
@@ -1114,6 +1157,96 @@ export class Room extends DurableObject<Env> {
     await this.ctx.storage.put("saved", { state: core.state, usage: this.usage } satisfies Saved);
   }
 
+  /** The rooms Worker says the game published a version "now" (room-updates.ts): start moving to it. */
+  private async versionUpdating(request: Request): Promise<Response> {
+    const update = (await request.json()) as { versionId?: unknown; hasGameFileChanges?: unknown };
+    if (typeof update?.versionId !== "string" || !update.versionId) return new Response("Bad request", { status: 400 });
+    if (!this.meta || this.meta.gameId !== request.headers.get("x-game-id")) return new Response("No such room", { status: 404 });
+    await this.startVersionUpdate(update.versionId, update.hasGameFileChanges !== false);
+    return new Response(null, { status: 204 });
+  }
+
+  /**
+   * Move the match to a version published "now": players hear it's coming, and it switches after
+   * ROOM_LIMITS.versionUpdateNoticeSec, or, with the game server's onVersionUpdate, when it calls
+   * room.applyVersionUpdate() or after maximumVersionUpdateHoldSec. A room with nobody in it switches at once.
+   */
+  private async startVersionUpdate(versionId: string, isReloading: boolean): Promise<void> {
+    if (!this.meta || this.hasEnded || this.meta.versionId === versionId || this.pendingVersionUpdate?.versionId === versionId) return;
+    const isAnyoneHere = this.sockets().length > 0;
+    const server = isAnyoneHere ? await this.load() : null;
+    const core = server ? this.room() : null;
+    this.pendingVersionUpdate = { versionId, isReloading, appliesAtMs: Date.now() };
+    if (!core || core.ended) return this.applyVersionUpdate();
+    const isHeld = Boolean(core.server.onVersionUpdate);
+    const appliesAtMs = Date.now() + (isHeld ? ROOM_LIMITS.maximumVersionUpdateHoldSec : ROOM_LIMITS.versionUpdateNoticeSec) * 1000;
+    this.pendingVersionUpdate = { versionId, isReloading, appliesAtMs };
+    await this.ctx.storage.put("versionUpdate", this.pendingVersionUpdate);
+    core.startVersionUpdate({ versionId, appliesAt: new Date(appliesAtMs).toISOString(), isReloading }, isHeld);
+    if (this.versionUpdateTimer) clearTimeout(this.versionUpdateTimer);
+    this.versionUpdateTimer = setTimeout(() => void this.applyVersionUpdate(), appliesAtMs - Date.now());
+    // And an alarm, in case the room sleeps before then.
+    await this.wake(appliesAtMs);
+    await core.settled();
+  }
+
+  /**
+   * Switch to the version coming: save the match (with the version that saved it), tell every player and
+   * close their connections (VERSION_UPDATE_CLOSE_CODE), and run the new version from the next hello, which
+   * restores the state (onRestored with savedVersionId). Players come back as dropped players do.
+   */
+  private async applyVersionUpdate(): Promise<void> {
+    const update = this.pendingVersionUpdate;
+    if (!update || !this.meta) return;
+    this.pendingVersionUpdate = null;
+    if (this.versionUpdateTimer) clearTimeout(this.versionUpdateTimer);
+    this.versionUpdateTimer = null;
+    await this.ctx.storage.delete("versionUpdate");
+    if (this.hasEnded) return;
+    const core = this.core;
+    const savedVersionId = this.meta.versionId;
+    if (core) {
+      await core.settled();
+      if (core.ended) return this.finish();
+      this.stopTicking();
+      if (core.ticking) await this.saveRealTimeState(core, true);
+      else {
+        this.takeUse();
+        const savedAtMs = Date.now();
+        const matchPlayers = [...core.players.values()];
+        this.savedRoom = core.saved;
+        await this.ctx.storage.put({ saved: { state: core.state, usage: this.usage, savedAtMs, matchPlayers, ...(savedVersionId ? { versionId: savedVersionId } : {}) } satisfies Saved, room: this.savedRoom });
+        this.saved = core.state;
+        this.savedAtMs = savedAtMs;
+        this.matchPlayers = matchPlayers;
+        this.savedVersionId = savedVersionId;
+      }
+      core.tellVersionUpdateNow();
+    } else if (this.saved !== undefined && this.savedAtMs === undefined) {
+      // A turn-based room asleep with nobody in it: its saved state comes back on the new version, as one that switched.
+      this.savedAtMs = Date.now();
+      this.savedVersionId = savedVersionId;
+      await this.ctx.storage.put("saved", { state: this.saved, usage: this.usage, savedAtMs: this.savedAtMs, matchPlayers: [], ...(savedVersionId ? { versionId: savedVersionId } : {}) } satisfies Saved);
+    }
+    this.meta = { ...this.meta, versionId: update.versionId };
+    await this.ctx.storage.put("meta", this.meta);
+    for (const socket of this.ctx.getWebSockets()) {
+      if ((socket.deserializeAttachment() as Attachment | null)?.stage === "gone") continue;
+      this.retire(socket);
+      try {
+        socket.close(VERSION_UPDATE_CLOSE_CODE, "Updating");
+      } catch {
+        // Already closed.
+      }
+    }
+    // The new version's game server opens with the next hello.
+    this.core = null;
+    this.server = null;
+    this.loading = null;
+    this.stateCopy = undefined;
+    this.socketIndex = null;
+  }
+
   /**
    * Save a real-time room's state every stateSaveIntervalSec (or now: isForced), when it changed, so a
    * restart brings the match back a few seconds behind: the sandboxed game server's state, or a built-in
@@ -1164,7 +1297,8 @@ export class Room extends DurableObject<Env> {
     this.takeUse();
     const chunkCount = Math.max(1, Math.ceil(text.length / STATE_CHUNK_CHARACTER_COUNT));
     this.savedRoom = core.saved;
-    const entries: Record<string, unknown> = { saved: { savedAtMs, stateChunkCount: chunkCount, matchPlayers, usage: this.usage } satisfies Saved, room: this.savedRoom };
+    const versionId = this.meta?.versionId;
+    const entries: Record<string, unknown> = { saved: { savedAtMs, stateChunkCount: chunkCount, matchPlayers, usage: this.usage, ...(versionId ? { versionId } : {}) } satisfies Saved, room: this.savedRoom };
     for (let index = 0; index < chunkCount; index++) entries[stateChunkKey(index)] = text.slice(index * STATE_CHUNK_CHARACTER_COUNT, (index + 1) * STATE_CHUNK_CHARACTER_COUNT);
     const staleKeys = Array.from({ length: Math.max(0, this.stateChunkCount - chunkCount) }, (_, index) => stateChunkKey(chunkCount + index));
     // Written together (no await between the put and the delete), so a restart reads all of one save or the one before.
@@ -1172,6 +1306,7 @@ export class Room extends DurableObject<Env> {
     await Promise.all([written, staleKeys.length ? this.ctx.storage.delete(staleKeys) : null]);
     this.stateChunkCount = chunkCount;
     this.savedStateKey = stateKey;
+    this.savedVersionId = versionId;
     this.saved = state;
     this.savedAtMs = savedAtMs;
     this.matchPlayers = matchPlayers;

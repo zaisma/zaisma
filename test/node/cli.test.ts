@@ -96,7 +96,7 @@ describe("closed flags", () => {
     expect(result.exitCode).toBe(2);
     expect(result.stderr).toContain("doesn't take --patch-note");
     expect(result.stderr).toContain("Did you mean --patch-notes?");
-    expect(result.stderr).toContain("--game, --patch-notes, --publish-when-approved and --json");
+    expect(result.stderr).toContain("--game, --patch-notes, --publish-when-approved, --match-update-mode and --json");
     expect(result.stderr).toContain("(unknown_field)");
     expect(calls).toEqual([]);
   });

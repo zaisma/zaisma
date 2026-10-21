@@ -326,6 +326,35 @@ declare namespace Zaisma {
    */
   const saves: Saves;
 
+  /**
+   * A version the developer published with match_update_mode "now", for a game that isn't in a match
+   * (single-player, or in a menu): it's never forced on the player. Listen for "update" and call
+   * update.apply() when it suits the game, like at a checkpoint or back at the main menu: the page
+   * reloads the game at the new version, with its save. Without a listener, Zaisma offers Update beside
+   * the game, and the player gets it then, or the next time they open the game. Matches hear theirs from
+   * the room instead (the room's "versionUpdate" event).
+   * @example
+   * Zaisma.versions.on("update", (update) => {
+   *   if (isAtMainMenu()) update.apply();
+   *   else pendingUpdate = update; // apply it when the player is back at the menu
+   * });
+   */
+  const versions: Versions;
+
+  /** A version published "now" ({@link versions}). */
+  interface Versions {
+    /** Listen for "update". A wrong name fails with error.code "unknown_event". */
+    on(event: "update", listener: (update: PendingUpdate) => void): Versions;
+    off(event: "update", listener: (update: PendingUpdate) => void): Versions;
+  }
+
+  /** A newer version is out ({@link versions}): apply() reloads the game at it, keeping the save. */
+  interface PendingUpdate {
+    /** The new version, like "version_k2v9q4x7m1p3w8r5t6y0". */
+    versionId: string;
+    apply(): void;
+  }
+
   /** The player's cloud saves ({@link saves}). */
   interface Saves {
     /**
@@ -829,6 +858,26 @@ declare namespace Zaisma {
     muted: (playerIds: string[]) => void;
     /** The room sent an error, like too_fast. Joining fails with the same code when the room won't take the player. */
     error: (error: RoomError) => void;
+    /**
+     * The developer published a version with match_update_mode "now", and this match moves to it at
+     * versionUpdate.appliesAt at the latest (sooner if the game server switches at a good moment). Show a
+     * countdown or save; when it switches, this room object reconnects by itself, or, when the game's
+     * files changed (isReloading), the page reloads the game at the new version and joinRoom() with no
+     * code brings the player back into this room.
+     * @example
+     * room.on("versionUpdate", ({ appliesAt }) => showBanner(`Updating at ${new Date(appliesAt).toLocaleTimeString()}`));
+     */
+    versionUpdate: (versionUpdate: VersionUpdate) => void;
+  }
+
+  /** A match moving to a version published "now" (the room's "versionUpdate" event). */
+  interface VersionUpdate {
+    /** The version it moves to, like "version_k2v9q4x7m1p3w8r5t6y0". */
+    versionId: string;
+    /** When it switches at the latest, an ISO time. */
+    appliesAt: string;
+    /** The game's own files changed, so the page reloads the game at the new version; false: it only reconnects. */
+    isReloading: boolean;
   }
 
   /** A player, as the room shows them to everyone. */

@@ -79,9 +79,22 @@ export interface Game {
   /** When a change last asked for the listing check (listing-check.ts), and when it last ran; NULL when never. */
   listing_check_requested_at_ms: number | null;
   listing_checked_at_ms: number | null;
+  /** When running matches got the live version: at their next match, or now (rooms that see it switch to it). */
+  live_version_match_update_mode: MatchUpdateMode;
+  /** When the live version went live; NULL for games published before it was kept. */
+  live_version_published_at_ms: number | null;
+  /** 1 when the live version changed the game's own files, not only its game server: a room switching to it now reloads its players' games. */
+  has_live_version_game_file_changes: number;
   created_at_ms: number;
   updated_at_ms: number;
 }
+
+/**
+ * When running matches get a newly published version: at their next match (a room keeps the version it
+ * started on until its match ends), or now (every live match switches within seconds, in the same room).
+ */
+export const MATCH_UPDATE_MODES = ["next_match", "now"] as const;
+export type MatchUpdateMode = (typeof MATCH_UPDATE_MODES)[number];
 
 /** A row of the versions table: the same names the developer API shows. */
 export interface Version {
@@ -101,6 +114,8 @@ export interface Version {
   publish_when_approved_enabled: number;
   /** Publish later: when this draft goes live by itself. */
   scheduled_publish_at_ms: number | null;
+  /** How running matches get it when it goes live by itself (publish later, or when approved). */
+  match_update_mode: MatchUpdateMode;
   /** The key this version's preview links are made with (apps/site/src/preview-links.ts); a new one ends every link made so far. Null until it passes. */
   preview_link_key: string | null;
   published_at_ms: number | null;

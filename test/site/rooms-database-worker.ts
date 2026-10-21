@@ -77,6 +77,22 @@ export class GameStorageService extends WorkerEntrypoint<{ GAME_DATABASES: Durab
   }
 }
 
+// A version published "now" (GAME_ROOMS): rooms can't run here, so the calls are only recorded. The real one: test/rooms/room-updates.test.ts.
+let matchUpdates: { gameId: string; slug: string; versionId: string; hasGameFileChanges: boolean }[] = [];
+
+export class GameRoomsService extends WorkerEntrypoint {
+  async updateMatches(update: { gameId: string; slug: string; versionId: string; hasGameFileChanges: boolean }) {
+    matchUpdates.push(update);
+    return { toldRoomCount: 0 };
+  }
+  /** For tests: the updates the site sent since the last call. */
+  takeMatchUpdates() {
+    const taken = matchUpdates;
+    matchUpdates = [];
+    return taken;
+  }
+}
+
 export default {
   fetch: () => new Response("Only the game databases and secrets are here.", { status: 404 }),
 };

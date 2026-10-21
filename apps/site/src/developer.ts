@@ -140,7 +140,10 @@ import {
   isSlugRetired,
   ISO_TIME,
   listRooms,
+  MATCH_UPDATE_MODES,
+  type MatchUpdateMode,
 } from "@zaisma/core";
+import { updateLiveMatches } from "./match-updates.ts";
 import { CARD_IMAGE_HEIGHT_PX, CARD_IMAGE_WIDTH_PX, gameLinkUrl, roomCodeOf } from "./share-cards.ts";
 import { connectionAddressOf, currentSession } from "./auth.ts";
 import { gameUrl, type Env } from "./env.ts";
@@ -545,12 +548,13 @@ export const API_ROUTES: readonly ApiRoute[] = [
         patch_notes: plain,
         // Going live by itself is publishing, so it needs what publishing needs, not just upload.
         publish_when_approved: needsToo("version_access", "publish", "the version waits as a draft with a preview link, and the developer publishes it"),
+        match_update_mode: plain,
       },
       maximumSizeBytes: 4 * 1024 * 1024,
     },
   }),
   call({ method: "GET", path: "/games/:slug/versions/:version_id", reaches: "game", access: needs("version_access", "read"), pathParts: { slug: "game", version_id: "in_game" } }),
-  call({ method: "POST", path: "/games/:slug/versions/:version_id/publish", reaches: "game", access: needs("version_access", "publish"), isPublishing: true, pathParts: { slug: "game", version_id: "in_game" }, body: { inputs: plainInputs("scheduled_publish_at"), isOptional: true } }),
+  call({ method: "POST", path: "/games/:slug/versions/:version_id/publish", reaches: "game", access: needs("version_access", "publish"), isPublishing: true, pathParts: { slug: "game", version_id: "in_game" }, body: { inputs: plainInputs("scheduled_publish_at", "match_update_mode"), isOptional: true } }),
   call({ method: "DELETE", path: "/games/:slug/versions/:version_id/publish", reaches: "game", access: needs("version_access", "publish"), pathParts: { slug: "game", version_id: "in_game" } }),
   call({ method: "DELETE", path: "/games/:slug/versions/:version_id/preview-links", reaches: "game", access: needs("version_access", "upload"), pathParts: { slug: "game", version_id: "in_game" } }),
   call({ method: "GET", path: "/games/:slug/reports", reaches: "game", access: needs("stats_access", "read"), pathParts: atGame, query: plainInputs("cursor") }),
@@ -1226,6 +1230,14 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
     if (body.publish_when_approved !== undefined && typeof body.publish_when_approved !== "boolean") {
       throw new ApiError("bad_publish_when_approved", { message: "publish_when_approved isn't true or false.", field: "publish_when_approved", fix: "Send true to go live as soon as it passes the scan, or leave it out to publish yourself." });
     }
+    if (body.match_update_mode !== undefined && body.publish_when_approved !== true) {
+      throw new ApiError("bad_match_update_mode", {
+        message: "match_update_mode came without publish_when_approved true, so there's no publish for it to apply to.",
+        field: "match_update_mode",
+        fix: "Send it with publish_when_approved true, or give it to publish_version when you publish.",
+      });
+    }
+    const uploadMatchUpdateMode = readMatchUpdateMode(body.match_update_mode);
     if (body.patch_notes !== undefined && typeof body.patch_notes !== "string") throw new ApiError("bad_patch_notes", { message: "patch_notes isn't text.", field: "patch_notes", fix: "Send what changed as text, or leave it out." });
     const patchNotes = typeof body.patch_notes === "string" ? body.patch_notes.trim() : "";
     if (patchNotes.length > FILE_LIMITS.maximumPatchNotesCharacterCount) {
@@ -1253,6 +1265,7 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
       kind: "files",
       patchNotes,
       publishWhenApprovedEnabled: body.publish_when_approved === true,
+      matchUpdateMode: uploadMatchUpdateMode,
     });
     await audit(env.DB, game.id, "upload", `${versionId}, ${files.length} files`, caller.actor);
     await logCallerEvent(env, caller, "version_uploaded", { gameId: game.id, versionId });
@@ -1283,7 +1296,8 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
       });
     }
     if (version.scan_status !== "approved" && version.scan_status !== "scanning") throw notApproved(game, version);
-    await env.DB.prepare("UPDATE versions SET scheduled_publish_at_ms = ? WHERE id = ?").bind(scheduledAtMs, version.id).run();
+    const scheduledMatchUpdateMode = readMatchUpdateMode(body.match_update_mode);
+    await env.DB.prepare("UPDATE versions SET scheduled_publish_at_ms = ?, match_update_mode = ? WHERE id = ?").bind(scheduledAtMs, scheduledMatchUpdateMode, version.id).run();
     await audit(env.DB, game.id, "publish-scheduled", `${version.id} at ${iso(scheduledAtMs)}`, caller.actor);
     await logCallerEvent(env, caller, "publish_scheduled", { gameId: game.id, versionId: version.id });
     const nextSteps: NextStep[] =
@@ -1309,7 +1323,10 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
     }
     if (version.scan_status !== "approved") throw notApproved(game, version);
     ageMustAllowVersion(game, version, "version_id");
-    await publishVersion(env.DB, version);
+    const matchUpdateMode = readMatchUpdateMode(body.match_update_mode);
+    const wasLiveVersion = game.live_version_id ? await versionById(env.DB, game.live_version_id) : null;
+    await publishVersion(env.DB, version, matchUpdateMode);
+    if (matchUpdateMode === "now") await updateLiveMatches(env, game, version, wasLiveVersion, caller.waitUntil);
     await audit(env.DB, game.id, version.published_at_ms ? "rolled-back" : "published", version.id, caller.actor);
     await logCallerEvent(env, caller, version.published_at_ms ? "version_rolled_back" : "version_published", { gameId: game.id, versionId: version.id });
     await pruneVersions(env, game.id);
@@ -1325,6 +1342,17 @@ async function versionRoute(request: Request, env: Env, game: Game, what: "uploa
   }
 
   throw badMethod(method, new URL(request.url).pathname);
+}
+
+/** match_update_mode as given: next_match when it's left out, and bad_match_update_mode for anything but the two. */
+function readMatchUpdateMode(given: unknown): MatchUpdateMode {
+  if (given === undefined) return "next_match";
+  if (typeof given === "string" && (MATCH_UPDATE_MODES as readonly string[]).includes(given)) return given as MatchUpdateMode;
+  throw new ApiError("bad_match_update_mode", {
+    message: `match_update_mode is ${JSON.stringify(given)?.slice(0, 40)}.`,
+    field: "match_update_mode",
+    fix: 'Give "next_match" (running matches finish on the version they started; the default) or "now" (every live match switches to it within seconds, in the same room).',
+  });
 }
 
 /** Lifelike gore plays only in games for 16 and up: a version showing it can't go to a game for everyone 13 and up. */
@@ -2099,6 +2127,8 @@ export function versionJson(env: Env, game: Game, version: Version) {
     preview_url_expires_at: preview ? iso(preview.expiresAtMs) : null,
     published_at: iso(version.published_at_ms),
     scheduled_publish_at: iso(version.scheduled_publish_at_ms),
+    // How running matches get it when it goes live by itself (publish later, or publish when approved).
+    match_update_mode: version.match_update_mode ?? "next_match",
     created_at: iso(version.created_at_ms),
     review_reason: versionReviewReason(version),
     findings: findingsFor(version),

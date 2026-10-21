@@ -3,6 +3,7 @@ import type { GameDatabaseService } from "../../rooms/src/database.ts";
 import type { GameSecretsService } from "../../rooms/src/secrets.ts";
 import type { GameServerWebhookService } from "../../rooms/src/game-server.ts";
 import type { GameStorageService } from "../../rooms/src/game-storage.ts";
+import type { GameRoomsService } from "../../rooms/src/room-updates.ts";
 import type { PhotoDnaService } from "../../photodna/src/index.ts";
 
 export interface Env {
@@ -24,6 +25,8 @@ export interface Env {
   GAME_SERVER_WEBHOOKS?: Service<GameServerWebhookService>;
   /** Deleting a game's database, secrets and game server storage, in the rooms Worker (game-deletion.ts). */
   GAME_STORAGE?: Service<GameStorageService>;
+  /** Every game's live rooms, in the rooms Worker, told when a version goes live with match_update_mode "now" (match-updates.ts). */
+  GAME_ROOMS?: Service<GameRoomsService>;
   REPORT_LIMIT?: RateLimit;
   SIGNIN_LIMIT?: RateLimit;
   /** Password tries on one username, from any address. */

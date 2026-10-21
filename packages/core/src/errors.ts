@@ -90,6 +90,7 @@ export const ERROR_CODES = {
   files_missing: { httpStatus: 409, meaning: "Some of the version's files haven't been sent yet." },
   bad_patch_notes: { httpStatus: 400, meaning: "patch_notes isn't text of up to 2,000 characters." },
   bad_publish_when_approved: { httpStatus: 400, meaning: "publish_when_approved isn't true or false." },
+  bad_match_update_mode: { httpStatus: 400, meaning: "match_update_mode isn't next_match or now, or it came without publish_when_approved." },
   version_limit: { httpStatus: 429, meaning: "The game has had 20 versions in the last day." },
   no_content_length: { httpStatus: 411, meaning: "A file was sent without a Content-Length header." },
   file_needs_parts: { httpStatus: 413, meaning: "A file over 95 MB was sent in one go." },
