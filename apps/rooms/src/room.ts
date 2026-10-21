@@ -301,6 +301,7 @@ export class Room extends DurableObject<Env> {
       }
       return;
     }
+    if (await this.reconnecting()) return;
     await this.unlist();
     await this.seat();
     const emptiedAtMs = await this.ctx.storage.get<number>("emptiedAtMs");
@@ -323,6 +324,28 @@ export class Room extends DurableObject<Env> {
     await this.save();
     if (core.listingChanged) await this.list();
     await this.seat();
+    await this.wakeForReconnects(core);
+  }
+
+  /** Wake when the first player whose connection dropped runs out of time to come back, so the game hears they left. */
+  private async wakeForReconnects(core: RoomCore): Promise<void> {
+    const deadlineMs = core.ended ? null : core.nextReconnectDeadlineMs();
+    if (deadlineMs !== null) await this.wake(deadlineMs);
+  }
+
+  /**
+   * A room with nobody connected whose players' connections dropped: those whose time to come back ran
+   * out leave the match, and it wakes again for the rest. False once nobody is reconnecting, so it
+   * empties as usual. A turn-based room that slept meanwhile finds them in its saved room.
+   */
+  private async reconnecting(): Promise<boolean> {
+    if (this.hasEnded || (!this.core && !Object.keys(this.savedRoom?.reconnecting ?? {}).length)) return false;
+    await this.load();
+    const core = this.room();
+    if (!core || core.ended || core.nextReconnectDeadlineMs() === null) return false;
+    core.sweep();
+    await this.settle(core);
+    return core.nextReconnectDeadlineMs() !== null;
   }
 
   /** Sockets of players the room hasn't heard from, not even a ping, for too long. */
@@ -525,6 +548,12 @@ export class Room extends DurableObject<Env> {
     await this.seat();
     await this.ctx.storage.put("emptiedAtMs", Date.now());
     await this.setAlarm(Date.now() + KEEP_EMPTY_MS);
+    // Players whose connection dropped are still in the match: the room keeps them, and wakes when their time runs out.
+    if (this.core && this.core.nextReconnectDeadlineMs() !== null) {
+      this.savedRoom = this.core.saved;
+      await this.ctx.storage.put("room", this.savedRoom);
+      await this.wakeForReconnects(this.core);
+    }
   }
 
   /**

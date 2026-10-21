@@ -584,7 +584,40 @@ Contact or personal details stopped toward under-18 accounts five times in a day
 
 ## Room connections
 
-How a room and each player's game stay in touch, the same in Zaisma rooms and on your own server (the Node runner).
+How a room and each player's game stay in touch, the same in Zaisma rooms and on your own server (the Node runner): how a dead connection is noticed, what happens to a player whose connection drops or who walks away, the limits on what players send, and why a connection closes.
+
+### Staying connected
+
+- **The SDK pings** the room every 25 seconds (the room answers without waking up), and reconnects by itself when a ping goes unanswered for 15 seconds, or in a real-time room (one with `ticksPerSec`) after 8 seconds without a word from the room, which probes every 2 seconds (not while the player is away or the game is hidden).
+- **Reconnecting** waits half a second, then doubles each try up to 8 seconds, with no limit, and `room.connectionStatus` is `"reconnecting"` meanwhile. Your game keeps the same room object: the `players` event and your game server's messages carry on once it's back.
+- **The room drops** a connection with no ping or message for 75 seconds (a closed laptop, lost signal): Zaisma rooms check every 30 seconds, the Node runner every 5. The SDK says goodbye as the page closes, so most players who leave do so at once.
+
+### Dropped players
+
+A blip is the most common thing that goes wrong online, so a player whose connection drops stays in the match for a while instead of leaving it:
+
+- **Away, reason `lost`:** the player stays in `room.players` for `reconnectTimeoutSec` (30 by default, 0 to 300). The game server's `onAway(state, player, room, "lost")` runs if it has one, `room.awayReason(playerId)` answers `"lost"`, and every player's game sees `awayReason: "lost"` for them in `room.players` and the `players` event. They don't count as playing, nothing is sent to them, and their seat counts toward `maximumPlayerCount`. If they were the host, the next player is host until they're back.
+- **Freeze them:** a game that does nothing shows them standing still. A real-time game can freeze their character, skip their turn or pause the match: in `onTick`, skip players whose `room.awayReason(playerId)` is `"lost"`, and in the game, draw them dimmed or "reconnecting" from `awayReason`.
+- **Back in time:** the SDK reconnects by itself, `onBack(state, player, room)` runs (not `onJoin`, and `canJoin` isn't asked), and `awayReason` goes back to `null` for everyone. Send them the full state in `onBack`, since they missed what was sent meanwhile.
+- **Not back in time:** they leave the match as before: `onLeave` with reason `lost`, and the room holds their seat for `seatHoldDurationSec`, so a later return gets `onJoin` with `joinInfo.isReturning`.
+- **`reconnectTimeoutSec: 0`** takes a dropped player out of the match at once (`onLeave`, reason `lost`), as before this option.
+- **`onAway` takes over idle and hidden too:** with `onAway`, a player who goes idle or hidden stays in the room until your game decides (below). To freeze dropped players while leaving idle and hidden ones to the room, read `room.awayReason` in `onTick` instead of adding `onAway`; `onBack` alone changes nothing else.
+
+Real-time rooms notice a silent drop within seconds (their probes); turn-based rooms keep the slower 75-second check, so they can sleep between moves.
+
+### Walking away
+
+Players who walk away stop holding seats and running matches, with no code:
+
+- **Idle:** after `idleTimeoutSec` without input (600 by default, 30 to 86400), the SDK asks "Still there?" for 30 seconds; no answer, and they walk away (`idleCheck`: `"server"`, the default, `"client"` or `"off"`).
+- **Hidden:** in a real-time room, a game hidden for 2 minutes counts as away.
+- **What happens:** with `awayMode: "hold"` (the default), they leave the match (`onLeave`, reason `idle` or `hidden`) and the room holds their seat for `seatHoldDurationSec` (300 by default, up to 1800, 0 for none); any input brings them back, and `onJoin` gets `joinInfo.isReturning`. `awayMode: "lobby"` sends them to the room that made this one (`room.reserve`). With `onAway`, they stay in the room and your game decides: kick them, move them or keep them.
+
+### Message limits
+
+- **From each player:** up to 16 KB a message (or bytes), and 30 a second with a burst of 60. Past either, that message is refused with an `error` event (`too_big`, `too_fast`) and the connection stays open.
+- **Join and setup data:** up to 4 KB of JSON (`joinData`, `setupData`).
+- **From the room:** what your game server sends isn't capped, but a player who can't keep up is dropped (below).
 
 ### Ping and the room's clock
 
@@ -594,7 +627,18 @@ How a room and each player's game stay in touch, the same in Zaisma rooms and on
 
 ### Slow connections
 
-A player whose connection can't keep up is dropped before the room has to hold a growing backlog for them: when a probe has gone unanswered for 8 seconds, or 2 MB has gone out to them since the last probe they answered. Their connection closes with code `4003`, the game hears `onLeave` with reason `lost` and their seat is held, and the SDK reconnects by itself, so they come back caught up. Send a returning player the full state in `onJoin` (`joinInfo.isReturning`), not just what changed. A room's memory for its players stays bounded, and one bad connection can't stall a match for everyone else.
+A player whose connection can't keep up is dropped before the room has to hold a growing backlog for them: when a probe has gone unanswered for 8 seconds, or 2 MB has gone out to them since the last probe they answered. Their connection closes with code `4003` and they become a dropped player (above): away with reason `lost` for `reconnectTimeoutSec`, while the SDK reconnects by itself, so they come back caught up. Send a returning player the full state in `onBack`, and in `onJoin` when `joinInfo.isReturning`, not just what changed. A room's memory for its players stays bounded, and one bad connection can't stall a match for everyone else.
+
+### Close codes
+
+| Code | Why | What the SDK does |
+| --- | --- | --- |
+| `4000` | The match ended (`room.end`, or Zaisma ending it past the month's free tier) | Stops: `connectionStatus` `"closed"`, after the `ended` event |
+| `4001` | The room refused the player, removed them (`room.kick`), or they joined from another tab | Stops: `connectionStatus` `"closed"` |
+| `4002` | The seat held for a player who walked away ran out | Waits for the player to come back, then offers their old room (the `back` event) |
+| `4003` | The connection stopped answering probes or fell too far behind | Reconnects by itself, as a dropped player |
+
+Any other close (a network drop) reconnects by itself too.
 
 ## Sign in with Zaisma
 
