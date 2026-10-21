@@ -235,7 +235,7 @@ component({
   summary: "Everything else you can press: Details, Make an account, Cancel. A delete is a cut button too, never orange; only its confirm step turns red.",
   styles: `
 /* A secondary button: a cut slab of clearer glass with a drawn outline. It brightens under the pointer;
-   a press sinks it, shrinks it a little and shades it from above, quickly, and it springs back when let go.
+   a press sinks it (down a pixel, shaded from above, its light turned round), never shrinking it, quickly, and it springs back when let go.
    The shell (the button) stays still; the slab is its face. */
 .cut-btn { flex: none; vertical-align: middle; }
 .cut-btn.is-full { display: flex; width: 100%; }
@@ -250,7 +250,7 @@ component({
 .cut-btn.icon-only > .face { width: 52px; padding: 0; }
 .cut-btn.small.icon-only > .face { width: 42px; }
 .cut-btn:hover > .face, .cut-btn.is-pointed > .face { --face-colour: var(--btn-hover); }
-.cut-btn:active > .face, .cut-btn.is-pressed > .face { --face-colour: var(--btn-press); box-shadow: var(--press-shade); transform: translateY(1px) scale(0.965); transition-duration: 0.08s; }
+.cut-btn:active > .face, .cut-btn.is-pressed > .face { --face-colour: var(--btn-press); box-shadow: var(--press-shade); transform: translateY(1px); transition-duration: 0.08s; }
 /* A press sinks it into the glass: its light turns round, as on a carved field. */
 /* A toggle that's on stays sunk, the same as a press. */
 .cut-btn[aria-pressed="true"] > .face { --face-colour: var(--btn-press); }
