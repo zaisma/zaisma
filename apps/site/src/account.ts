@@ -108,7 +108,7 @@ import { deleteForumFiles } from "./forum-posts.ts";
 import { deleteDueGames } from "./game-deletion.ts";
 import { html, layout, message, raw, scriptTags, type Raw } from "./html.ts";
 import { cityStage, CITY_PANE_SCRIPT, CITY_SCRIPT } from "./components/city.ts";
-import { glassPane } from "./components/foundations.ts";
+import { glassPane, type IconName } from "./components/foundations.ts";
 import { cutButton, glassButton, guestButton, runButton, textLink } from "./components/actions.ts";
 import { birthdayField, choiceCards, cutField, tabSwitch } from "./components/inputs.ts";
 import { header, rail } from "./components/navigation.ts";
@@ -1093,6 +1093,13 @@ const JOIN_SOCIAL_MODE_LINES: Record<SocialMode, string> = {
   open_and_social: "I like meeting new players.",
 };
 
+/** How each feels, at a glance: on your own with headphones on, with your friends, out meeting everyone. */
+const JOIN_SOCIAL_MODE_ICONS: Record<SocialMode, IconName> = {
+  solo_focused: "headphones",
+  friends_focused: "friends",
+  open_and_social: "globe",
+};
+
 /**
  * The last step of making an account, for 16 and over, whichever way they came in: How do you play? The account
  * already exists (made at the step before, on the band's default), so this only sets the preset; leaving here keeps
@@ -1107,7 +1114,7 @@ async function joinPlayPage(env: Env, next: string | null, account: Account, err
     html`${paneHeading("How do you play?", game)}
 <form method="post" action="/join/play" class="is-play-step">
 ${nextField(next)}
-${choiceCards({ id: "join-play", name: "social_mode", label: "How do you play?", pickedValue: current === "custom" ? defaultSocialMode(account.age_band) : current, choices: socialModesFor(account.age_band).map((socialMode) => ({ label: SOCIAL_MODE_LABELS[socialMode], choiceValue: socialMode, text: JOIN_SOCIAL_MODE_LINES[socialMode] })) })}
+${choiceCards({ id: "join-play", name: "social_mode", label: "How do you play?", pickedValue: current === "custom" ? defaultSocialMode(account.age_band) : current, choices: socialModesFor(account.age_band).map((socialMode) => ({ label: SOCIAL_MODE_LABELS[socialMode], choiceValue: socialMode, text: JOIN_SOCIAL_MODE_LINES[socialMode], icon: JOIN_SOCIAL_MODE_ICONS[socialMode] })) })}
 ${paneProblem(error)}
 <p class="note">You can change this any time in Settings.</p>
 ${runButton("Make my account", { isFullWidth: true, isBig: true, busyLabel: "One moment" })}
