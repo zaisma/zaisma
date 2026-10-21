@@ -467,7 +467,8 @@ component({
   styles: `
 /* The foot, at the end of the page. */
 .foot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-block-block); margin-top: var(--gap-block-block); padding-top: var(--gap-block-block); border-top: var(--divider); color: var(--muted); font: var(--type-note); }
-.foot nav { display: flex; flex-wrap: wrap; gap: var(--gap-words-words); }
+/* Quiet links in a row read as one sentence at a word's gap, so each sits three apart: a list of places, not a line of words. */
+.foot nav { display: flex; flex-wrap: wrap; gap: var(--gap-words-words) calc(3 * var(--gap-words-words)); }
 .foot p { margin: 0 0 0 auto; }
 @media (max-width: 760px) { .foot p { margin: 0; } }
 `,
